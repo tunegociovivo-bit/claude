@@ -1,7 +1,8 @@
 import Link from "next/link";
 import PageHeader from "@/components/PageHeader";
+import ClientesActions from "@/components/clientes/ClientesActions";
 import { getClientsForUi, getProjectsForUi, getTasksForUi } from "@/lib/db/queries";
-import { Plus, Mail, Phone, Building2, ArrowUpRight } from "lucide-react";
+import { Mail, Phone, Building2, ArrowUpRight } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
@@ -25,12 +26,7 @@ export default async function ClientesPage() {
       <PageHeader
         title="Clientes"
         description="Base de datos interna de cuentas y prospectos."
-        actions={
-          <button className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium">
-            <Plus className="h-4 w-4" />
-            Nuevo cliente
-          </button>
-        }
+        actions={<ClientesActions />}
       />
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">

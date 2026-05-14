@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import PageHeader from "@/components/PageHeader";
 import AvatarStack from "@/components/AvatarStack";
+import ClienteDetailActions from "@/components/clientes/ClienteDetailActions";
 import {
   getClientsForUi,
   getProjectsForUi,
@@ -42,10 +43,19 @@ export default async function ClienteDetailPage({ params }: { params: { id: stri
         title={client.name}
         description={`${client.industry} · Cliente desde ${new Date(client.since).toLocaleDateString("es-ES", { month: "long", year: "numeric" })}`}
         actions={
-          <>
-            <button className="px-3 py-2 rounded-lg bg-white border text-sm hover:bg-slate-50">Editar</button>
-            <button className="px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium">Nueva nota</button>
-          </>
+          <ClienteDetailActions
+            client={{
+              id: client.id,
+              name: client.name,
+              industry: client.industry,
+              status: client.status === "activo" ? "ACTIVE" : client.status === "pausa" ? "PAUSED" : "PROSPECT",
+              contactName: client.contactName,
+              email: client.email,
+              phone: client.phone,
+              mrr: client.mrr,
+              notes: client.notes
+            }}
+          />
         }
       />
 

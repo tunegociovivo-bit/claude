@@ -1,8 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import PageHeader from "@/components/PageHeader";
 import AvatarStack from "@/components/AvatarStack";
+import TaskFormModal from "@/components/forms/TaskFormModal";
+import ProjectFormModal from "@/components/forms/ProjectFormModal";
 import {
   statusLabels,
   statusColors,
@@ -10,7 +13,7 @@ import {
   type Status
 } from "@/lib/mock-data";
 import type { UiTask, UiProject, UiClient, UiMember } from "@/lib/db/queries";
-import { LayoutGrid, List, Plus, Filter, CalendarDays } from "lucide-react";
+import { LayoutGrid, List, Plus, Filter, CalendarDays, FolderPlus } from "lucide-react";
 import clsx from "clsx";
 
 const columns: Status[] = ["todo", "in_progress", "review", "done"];
@@ -26,12 +29,34 @@ export default function TareasClient({
   clients: UiClient[];
   team: UiMember[];
 }) {
+  const searchParams = useSearchParams();
+  const urlProject = searchParams.get("project");
   const [view, setView] = useState<"kanban" | "list">("kanban");
-  const [projectFilter, setProjectFilter] = useState<string>("all");
+  const [projectFilter, setProjectFilter] = useState<string>(urlProject ?? "all");
+
+  useEffect(() => {
+    setProjectFilter(urlProject ?? "all");
+  }, [urlProject]);
+
+  const [newTaskOpen, setNewTaskOpen] = useState(false);
+  const [newTaskStatus, setNewTaskStatus] = useState<Status | undefined>();
+  const [editingTask, setEditingTask] = useState<UiTask | null>(null);
+  const [newProjectOpen, setNewProjectOpen] = useState(false);
 
   const filtered = tasks.filter((t) => projectFilter === "all" || t.projectId === projectFilter);
   const getClient = (id?: string) => clients.find((c) => c.id === id);
   const getProject = (id?: string) => projects.find((p) => p.id === id);
+
+  function openNewTask(status?: Status) {
+    setNewTaskStatus(status);
+    setEditingTask(null);
+    setNewTaskOpen(true);
+  }
+  function openEditTask(task: UiTask) {
+    setEditingTask(task);
+    setNewTaskStatus(undefined);
+    setNewTaskOpen(true);
+  }
 
   return (
     <div className="max-w-7xl mx-auto">
@@ -62,7 +87,17 @@ export default function TareasClient({
                 Lista
               </button>
             </div>
-            <button className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium">
+            <button
+              onClick={() => setNewProjectOpen(true)}
+              className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-white border text-slate-700 hover:bg-slate-50 text-sm font-medium"
+            >
+              <FolderPlus className="h-4 w-4" />
+              Nuevo proyecto
+            </button>
+            <button
+              onClick={() => openNewTask()}
+              className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium"
+            >
               <Plus className="h-4 w-4" />
               Nueva tarea
             </button>
@@ -100,7 +135,11 @@ export default function TareasClient({
                     </span>
                     <span className="text-xs text-slate-500">{colTasks.length}</span>
                   </div>
-                  <button className="text-slate-400 hover:text-slate-700">
+                  <button
+                    onClick={() => openNewTask(col)}
+                    className="text-slate-400 hover:text-slate-700"
+                    aria-label="Añadir tarea en esta columna"
+                  >
                     <Plus className="h-4 w-4" />
                   </button>
                 </div>
@@ -111,7 +150,8 @@ export default function TareasClient({
                     return (
                       <div
                         key={t.id}
-                        className="bg-white rounded-lg border p-3 hover:shadow-sm transition cursor-pointer"
+                        onClick={() => openEditTask(t)}
+                        className="bg-white rounded-lg border p-3 hover:shadow-sm hover:border-brand-200 transition cursor-pointer"
                       >
                         <div className="flex items-start justify-between gap-2 mb-2">
                           <p className="text-sm font-medium leading-snug">{t.title}</p>
@@ -163,7 +203,11 @@ export default function TareasClient({
                 const project = getProject(t.projectId);
                 const client = getClient(t.clientId);
                 return (
-                  <tr key={t.id} className="hover:bg-slate-50">
+                  <tr
+                    key={t.id}
+                    onClick={() => openEditTask(t)}
+                    className="hover:bg-slate-50 cursor-pointer"
+                  >
                     <td className="px-5 py-3">
                       <div className="font-medium">{t.title}</div>
                       <div className="text-xs text-slate-500">{client?.name}</div>
@@ -197,6 +241,17 @@ export default function TareasClient({
           </table>
         </div>
       )}
+
+      <TaskFormModal
+        open={newTaskOpen}
+        onClose={() => setNewTaskOpen(false)}
+        projects={projects}
+        team={team}
+        task={editingTask}
+        defaultStatus={newTaskStatus}
+        defaultProjectId={projectFilter !== "all" ? projectFilter : undefined}
+      />
+      <ProjectFormModal open={newProjectOpen} onClose={() => setNewProjectOpen(false)} clients={clients} />
 
       <div className="mt-8">
         <h2 className="text-sm font-semibold text-slate-500 uppercase tracking-wide mb-3">Proyectos activos</h2>
