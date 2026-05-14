@@ -28,6 +28,7 @@ class AIWD_Admin {
         add_submenu_page( 'aiwd-dashboard', __( 'Briefing (Wizard)', 'ai-web-designer' ),__( 'Briefing', 'ai-web-designer' ),    $cap, 'aiwd-wizard',    [ $this, 'view_wizard' ] );
         add_submenu_page( 'aiwd-dashboard', __( 'Librería de plantillas', 'ai-web-designer' ),__( 'Plantillas', 'ai-web-designer' ), $cap, 'aiwd-templates', [ $this, 'view_templates' ] );
         add_submenu_page( 'aiwd-dashboard', __( 'Aprobaciones', 'ai-web-designer' ),  __( 'Aprobaciones', 'ai-web-designer' ),  $cap, 'aiwd-approvals',[ $this, 'view_approvals' ] );
+        add_submenu_page( 'aiwd-dashboard', __( 'QA / Calidad', 'ai-web-designer' ),  __( 'QA', 'ai-web-designer' ),            $cap, 'aiwd-qa',       [ $this, 'view_qa' ] );
         add_submenu_page( 'aiwd-dashboard', __( 'Agencia / Clientes', 'ai-web-designer' ),__( 'Agencia', 'ai-web-designer' ),   $cap, 'aiwd-agency',    [ $this, 'view_agency' ] );
         add_submenu_page( 'aiwd-dashboard', __( 'Coste / Uso IA', 'ai-web-designer' ),__( 'Coste IA', 'ai-web-designer' ),     $cap, 'aiwd-costs',     [ $this, 'view_costs' ] );
         add_submenu_page( 'aiwd-dashboard', __( 'Ajustes', 'ai-web-designer' ),       __( 'Ajustes', 'ai-web-designer' ),       'manage_options', 'aiwd-settings', [ $this, 'view_settings' ] );
@@ -41,6 +42,7 @@ class AIWD_Admin {
         wp_enqueue_media();
         wp_enqueue_script( 'aiwd-admin', AIWD_PLUGIN_URL . 'admin/assets/js/admin.js', [ 'jquery', 'wp-i18n' ], AIWD_VERSION, true );
         wp_enqueue_script( 'aiwd-wizard', AIWD_PLUGIN_URL . 'admin/assets/js/wizard.js', [ 'jquery', 'wp-api-fetch' ], AIWD_VERSION, true );
+        wp_enqueue_script( 'aiwd-qa',     AIWD_PLUGIN_URL . 'admin/assets/js/qa.js',     [ 'jquery' ], AIWD_VERSION, true );
         wp_localize_script( 'aiwd-admin', 'AIWD', [
             'ajax_url'   => admin_url( 'admin-ajax.php' ),
             'rest_url'   => esc_url_raw( rest_url( 'aiwd/v1/' ) ),
@@ -67,6 +69,7 @@ class AIWD_Admin {
     public function view_wizard()     { include AIWD_PLUGIN_DIR . 'admin/views/wizard.php'; }
     public function view_templates()  { include AIWD_PLUGIN_DIR . 'admin/views/templates-library.php'; }
     public function view_approvals()  { include AIWD_PLUGIN_DIR . 'admin/views/approvals.php'; }
+    public function view_qa()         { include AIWD_PLUGIN_DIR . 'admin/views/qa.php'; }
     public function view_agency()     { include AIWD_PLUGIN_DIR . 'admin/views/agency.php'; }
     public function view_costs()      { include AIWD_PLUGIN_DIR . 'admin/views/costs.php'; }
     public function view_settings()   { include AIWD_PLUGIN_DIR . 'admin/views/settings.php'; }

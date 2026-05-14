@@ -143,6 +143,66 @@ class AIWD_Rest_API {
             'callback'            => [ $this, 'asana_link_project' ],
             'permission_callback' => $perm,
         ] );
+
+        register_rest_route( self::NS, '/project/(?P<id>\d+)/qa/run', [
+            'methods'             => 'POST',
+            'callback'            => [ $this, 'qa_run' ],
+            'permission_callback' => $perm,
+        ] );
+
+        register_rest_route( self::NS, '/project/(?P<id>\d+)/qa/manual', [
+            'methods'             => 'POST',
+            'callback'            => [ $this, 'qa_set_manual' ],
+            'permission_callback' => $perm,
+        ] );
+
+        register_rest_route( self::NS, '/project/(?P<id>\d+)/qa/publish', [
+            'methods'             => 'POST',
+            'callback'            => [ $this, 'qa_publish' ],
+            'permission_callback' => $perm,
+        ] );
+
+        register_rest_route( self::NS, '/project/(?P<id>\d+)/qa/override', [
+            'methods'             => 'POST',
+            'callback'            => [ $this, 'qa_override' ],
+            'permission_callback' => function () { return current_user_can( 'manage_options' ); },
+        ] );
+    }
+
+    public function qa_run( WP_REST_Request $req ) {
+        $qa = new AIWD_QA_Checker();
+        $results = $qa->run_all( (int) $req['id'] );
+        return rest_ensure_response( [ 'results' => $results, 'summary' => $qa->summary( (int) $req['id'] ) ] );
+    }
+
+    public function qa_set_manual( WP_REST_Request $req ) {
+        $qa = new AIWD_QA_Checker();
+        $ok = $qa->set_manual( (int) $req['id'], sanitize_key( $req['key'] ?? '' ), sanitize_key( $req['status'] ?? 'pending' ), sanitize_text_field( $req['note'] ?? '' ) );
+        return rest_ensure_response( [ 'ok' => $ok, 'summary' => $qa->summary( (int) $req['id'] ) ] );
+    }
+
+    public function qa_publish( WP_REST_Request $req ) {
+        $project_id = (int) $req['id'];
+        $allowed = apply_filters( 'aiwd_can_publish', true, $project_id );
+        if ( ! $allowed ) {
+            return new WP_Error( 'aiwd_qa_blocked', __( 'No se puede publicar: hay checks requeridos pendientes.', 'ai-web-designer' ), [ 'status' => 409 ] );
+        }
+        update_post_meta( $project_id, '_aiwd_status', 'published' );
+        do_action( 'aiwd_project_published', $project_id );
+        // Cierra la tarea Asana de "publish"
+        ( new AIWD_Asana_Sync() )->complete_task( $project_id, 'publish', 'Marcado como publicado tras QA OK.' );
+        return rest_ensure_response( [ 'ok' => true, 'status' => 'published' ] );
+    }
+
+    public function qa_override( WP_REST_Request $req ) {
+        $qa = new AIWD_QA_Checker();
+        $body = $req->get_json_params();
+        if ( ! empty( $body['clear'] ) ) {
+            $qa->clear_override( (int) $req['id'] );
+            return rest_ensure_response( [ 'cleared' => true ] );
+        }
+        $qa->override( (int) $req['id'], sanitize_text_field( $body['reason'] ?? '' ) );
+        return rest_ensure_response( [ 'ok' => true ] );
     }
 
     public function asana_search_projects( WP_REST_Request $req ) {

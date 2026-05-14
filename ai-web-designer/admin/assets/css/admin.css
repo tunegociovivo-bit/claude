@@ -59,6 +59,12 @@
 
 .aiwd-generate-actions { display: flex; gap: 10px; flex-wrap: wrap; margin: 16px 0; }
 
+.aiwd-qa-summary { padding: 14px 18px; border-radius: 8px; margin: 12px 0 20px; font-size: 14px; }
+.aiwd-qa-summary.ok { background: #d1f4d1; color: #1a6b1a; }
+.aiwd-qa-summary.blocked { background: #ffd1d1; color: #861a1a; }
+.aiwd-qa-icon { font-size: 18px; }
+.aiwd-qa table td { vertical-align: middle; }
+
 .aiwd-wa-fab {
     position: fixed; bottom: 20px; right: 20px; width: 56px; height: 56px;
     background: #25d366; border-radius: 50%; display: flex; align-items: center; justify-content: center;

@@ -48,6 +48,7 @@ require_once AIWD_PLUGIN_DIR . 'includes/integrations/class-asana-sync.php';
 require_once AIWD_PLUGIN_DIR . 'includes/integrations/class-asana-webhook.php';
 require_once AIWD_PLUGIN_DIR . 'includes/class-client-portal.php';
 require_once AIWD_PLUGIN_DIR . 'includes/class-pdf-proposal.php';
+require_once AIWD_PLUGIN_DIR . 'includes/class-qa-checker.php';
 require_once AIWD_PLUGIN_DIR . 'includes/rest/class-rest-api.php';
 require_once AIWD_PLUGIN_DIR . 'admin/class-admin.php';
 require_once AIWD_PLUGIN_DIR . 'public/class-public.php';

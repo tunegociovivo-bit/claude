@@ -32,6 +32,7 @@ $statuses = aiwd_project_statuses();
                 <td><?php echo esc_html( get_the_date( '', $p ) ); ?></td>
                 <td>
                     <a class="button" href="<?php echo esc_url( admin_url( 'admin.php?page=aiwd-wizard&project_id=' . $p->ID ) ); ?>"><?php esc_html_e( 'Editar', 'ai-web-designer' ); ?></a>
+                    <a class="button" href="<?php echo esc_url( admin_url( 'admin.php?page=aiwd-qa&project_id=' . $p->ID ) ); ?>"><?php esc_html_e( 'QA', 'ai-web-designer' ); ?></a>
                     <a class="button" href="<?php echo esc_url( rest_url( 'aiwd/v1/project/' . $p->ID . '/proposal.pdf' ) ); ?>" target="_blank"><?php esc_html_e( 'PDF', 'ai-web-designer' ); ?></a>
                     <button class="button aiwd-client-link" data-project="<?php echo esc_attr( $p->ID ); ?>"><?php esc_html_e( 'Enlace cliente', 'ai-web-designer' ); ?></button>
                     <?php $asana_gid = get_post_meta( $p->ID, AIWD_Asana_Sync::META_PROJECT, true ); ?>
