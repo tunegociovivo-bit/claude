@@ -101,6 +101,30 @@ class AIWD_Rest_API {
             'callback'            => [ $this, 'remove_bg' ],
             'permission_callback' => $perm,
         ] );
+
+        register_rest_route( self::NS, '/project/(?P<id>\d+)/token', [
+            'methods'             => 'POST',
+            'callback'            => [ $this, 'generate_client_token' ],
+            'permission_callback' => $perm,
+        ] );
+
+        register_rest_route( self::NS, '/project/(?P<id>\d+)/proposal.pdf', [
+            'methods'             => 'GET',
+            'callback'            => [ $this, 'download_proposal' ],
+            'permission_callback' => $perm,
+        ] );
+    }
+
+    public function generate_client_token( WP_REST_Request $req ) {
+        $token = AIWD_Client_Portal::generate_token( (int) $req['id'], (int) ( $req['ttl_days'] ?? 30 ) );
+        $url   = add_query_arg( [ 'token' => $token ], home_url( '/briefing/' ) );
+        return rest_ensure_response( [ 'token' => $token, 'url' => $url ] );
+    }
+
+    public function download_proposal( WP_REST_Request $req ) {
+        $pdf = new AIWD_PDF_Proposal();
+        $pdf->stream( (int) $req['id'] );
+        return null; // stream() llama a exit()
     }
 
     public function permissions() {
@@ -171,10 +195,18 @@ class AIWD_Rest_API {
 
     public function save_project( WP_REST_Request $req ) {
         $project_id = (int) $req['id'];
-        $section    = sanitize_key( $req['section'] ?? '' );
-        $payload    = aiwd_sanitize_array( $req->get_json_params()['data'] ?? [] );
-        if ( ! $project_id || ! $section ) return new WP_Error( 'aiwd_bad', 'Datos incompletos' );
-        AIWD_CPT_Project::save_project_data( $project_id, $section, $payload );
+        $params     = $req->get_json_params();
+        $payload    = aiwd_sanitize_array( $params['data'] ?? [] );
+        if ( ! $project_id ) return new WP_Error( 'aiwd_bad', 'Datos incompletos' );
+
+        // Si llega un section explícito, lo respetamos; si no, repartimos por
+        // claves conocidas a sus secciones correspondientes.
+        $section = sanitize_key( $params['section'] ?? '' );
+        if ( $section ) {
+            AIWD_CPT_Project::save_project_data( $project_id, $section, $payload );
+        } else {
+            $this->dispatch_payload_to_sections( $project_id, $payload );
+        }
 
         // Snapshot de versión
         global $wpdb;
@@ -190,6 +222,26 @@ class AIWD_Rest_API {
         ] );
         update_post_meta( $project_id, '_aiwd_version', $next );
         return rest_ensure_response( [ 'ok' => true, 'version' => $next ] );
+    }
+
+    private function dispatch_payload_to_sections( $project_id, array $payload ) {
+        $map = [
+            'briefing' => [ 'business_name','sector','description','audience','tone','usp','competitors','notes' ],
+            'brand'    => [ 'logo_id','color_primary','color_secondary','color_accent','font_heading','font_body','tagline','gallery','gallery_json','selected_images' ],
+            'contact'  => [ 'domain','email','phone','whatsapp','address','schedule','social','maps_url' ],
+            'content'  => [ 'hero_headline','hero_sub','about','services','why_us','testimonials','faq','cta' ],
+            'design'   => [ 'references','wa_number','calendly','gmb_id','crm','languages','ga4' ],
+            'pages'    => [ 'pages','blog_posts' ],
+            'seo'      => [ 'keywords','meta_title','meta_description','schema_type' ],
+            'legal'    => [ 'country','gen_legal' ],
+        ];
+        foreach ( $map as $section => $keys ) {
+            $subset = array_intersect_key( $payload, array_flip( $keys ) );
+            if ( $subset ) {
+                $current = (array) get_post_meta( $project_id, '_aiwd_' . $section, true );
+                AIWD_CPT_Project::save_project_data( $project_id, $section, array_merge( $current, $subset ) );
+            }
+        }
     }
 
     public function approve_section( WP_REST_Request $req ) {

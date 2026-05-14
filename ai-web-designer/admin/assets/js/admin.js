@@ -125,6 +125,26 @@
         }
     }
 
+    $(document).on('click', '.aiwd-client-link', function (e) {
+        e.preventDefault();
+        const $btn = $(this);
+        const pid = $btn.data('project');
+        $btn.prop('disabled', true).text('Generando...');
+        fetch(AIWD.rest_url + 'project/' + pid + '/token', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json', 'X-WP-Nonce': AIWD.nonce },
+            body: JSON.stringify({ ttl_days: 30 }),
+        })
+            .then(r => r.json())
+            .then(res => {
+                if (res.url) {
+                    window.prompt('Comparte este enlace con tu cliente (válido 30 días):', res.url);
+                }
+            })
+            .finally(() => $btn.prop('disabled', false).text('Enlace cliente'));
+    });
+
     function initBulkUpload() {
         $(document).on('click', '.aiwd-bulk-upload', function (e) {
             e.preventDefault();

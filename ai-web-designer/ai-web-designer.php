@@ -43,6 +43,8 @@ require_once AIWD_PLUGIN_DIR . 'includes/integrations/class-whatsapp.php';
 require_once AIWD_PLUGIN_DIR . 'includes/integrations/class-gmb.php';
 require_once AIWD_PLUGIN_DIR . 'includes/integrations/class-calendly.php';
 require_once AIWD_PLUGIN_DIR . 'includes/integrations/class-wpml.php';
+require_once AIWD_PLUGIN_DIR . 'includes/class-client-portal.php';
+require_once AIWD_PLUGIN_DIR . 'includes/class-pdf-proposal.php';
 require_once AIWD_PLUGIN_DIR . 'includes/rest/class-rest-api.php';
 require_once AIWD_PLUGIN_DIR . 'admin/class-admin.php';
 require_once AIWD_PLUGIN_DIR . 'public/class-public.php';
