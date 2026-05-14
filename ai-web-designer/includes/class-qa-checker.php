@@ -163,10 +163,10 @@ class AIWD_QA_Checker {
 
     private function maybe_complete_asana_qa( $project_id ) {
         $summary = $this->summary( $project_id );
-        // Si todos los manuales requeridos están pass y no quedan fallos, completar QA en Asana.
         if ( $summary['required_failed'] === 0 ) {
             $sync = new AIWD_Asana_Sync();
             $sync->complete_task( $project_id, 'qa', 'QA completo: todos los checks requeridos OK.' );
+            do_action( 'aiwd_qa_passed', $project_id );
         }
     }
 }

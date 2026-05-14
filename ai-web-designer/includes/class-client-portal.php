@@ -29,6 +29,8 @@ class AIWD_Client_Portal {
         $token = wp_generate_password( 32, false, false );
         update_post_meta( $project_id, self::TOKEN_META, $token );
         update_post_meta( $project_id, self::TOKEN_EXP, time() + ( DAY_IN_SECONDS * (int) $ttl_days ) );
+        $url = add_query_arg( [ 'token' => $token ], home_url( '/briefing/' ) );
+        do_action( 'aiwd_client_token_generated', $project_id, $token, $url );
         return $token;
     }
 
@@ -176,6 +178,8 @@ class AIWD_Client_Portal {
             }
             AIWD_CPT_Project::save_project_data( $project_id, 'brand', $brand );
         }
+
+        do_action( 'aiwd_portal_briefing_saved', $project_id );
 
         wp_safe_redirect( add_query_arg( [ 'token' => $token, 'saved' => 1 ], remove_query_arg( 'saved' ) ) );
         exit;

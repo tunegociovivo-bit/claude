@@ -83,6 +83,40 @@ $s = get_option( 'aiwd_settings', [] );
                 </td></tr>
         </table>
 
+        <h2><?php esc_html_e( 'Notificaciones por email', 'ai-web-designer' ); ?></h2>
+        <table class="form-table">
+            <tr><th><?php esc_html_e( 'Activar notificaciones', 'ai-web-designer' ); ?></th>
+                <td><label><input type="checkbox" name="aiwd_settings[notify_enabled]" value="1" <?php checked( ! empty( $s['notify_enabled'] ?? 1 ) ); ?> /> <?php esc_html_e( 'Activar el sistema de notificaciones por email.', 'ai-web-designer' ); ?></label></td></tr>
+            <tr><th><?php esc_html_e( 'Nombre del remitente', 'ai-web-designer' ); ?></th>
+                <td><input type="text" name="aiwd_settings[notify_from_name]" class="regular-text" value="<?php echo esc_attr( $s['notify_from_name'] ?? get_bloginfo( 'name' ) ); ?>" /></td></tr>
+            <tr><th><?php esc_html_e( 'Email del remitente', 'ai-web-designer' ); ?></th>
+                <td><input type="email" name="aiwd_settings[notify_from_email]" class="regular-text" value="<?php echo esc_attr( $s['notify_from_email'] ?? get_bloginfo( 'admin_email' ) ); ?>" /></td></tr>
+            <tr><th><?php esc_html_e( 'Emails del equipo (csv)', 'ai-web-designer' ); ?></th>
+                <td><input type="text" name="aiwd_settings[notify_email_team]" class="regular-text" value="<?php echo esc_attr( $s['notify_email_team'] ?? '' ); ?>" placeholder="diseno@ejemplo.com, cuentas@ejemplo.com" /></td></tr>
+            <tr><th><?php esc_html_e( 'Color de marca', 'ai-web-designer' ); ?></th>
+                <td><input type="text" name="aiwd_settings[notify_brand_color]" value="<?php echo esc_attr( $s['notify_brand_color'] ?? '#2271b1' ); ?>" /></td></tr>
+            <tr><th><?php esc_html_e( 'Logo (URL)', 'ai-web-designer' ); ?></th>
+                <td><input type="url" name="aiwd_settings[notify_logo_url]" class="regular-text" value="<?php echo esc_attr( $s['notify_logo_url'] ?? '' ); ?>" /></td></tr>
+            <tr><th><?php esc_html_e( 'Firma HTML', 'ai-web-designer' ); ?></th>
+                <td><textarea name="aiwd_settings[notify_signature_html]" rows="3" class="large-text code"><?php echo esc_textarea( $s['notify_signature_html'] ?? '' ); ?></textarea></td></tr>
+            <tr><th><?php esc_html_e( 'Días para recordatorio de briefing', 'ai-web-designer' ); ?></th>
+                <td><input type="number" min="1" max="30" name="aiwd_settings[notify_reminder_days]" value="<?php echo esc_attr( $s['notify_reminder_days'] ?? 3 ); ?>" /></td></tr>
+            <tr><th><?php esc_html_e( 'Eventos activos', 'ai-web-designer' ); ?></th>
+                <td>
+                    <?php
+                    $events = (array) ( $s['notify_events'] ?? [] );
+                    foreach ( AIWD_Mailer::templates() as $key => $tpl ) :
+                        $checked = ! empty( $events[ $key ] );
+                    ?>
+                        <label style="display:block;margin-bottom:6px">
+                            <input type="checkbox" name="aiwd_settings[notify_events][<?php echo esc_attr( $key ); ?>]" value="1" <?php checked( $checked ); ?> />
+                            <?php echo esc_html( $tpl['label'] ); ?>
+                            <small style="color:#888">(→ <?php echo $tpl['to'] === 'team' ? 'equipo' : 'cliente'; ?>)</small>
+                        </label>
+                    <?php endforeach; ?>
+                </td></tr>
+        </table>
+
         <?php submit_button(); ?>
     </form>
 </div>

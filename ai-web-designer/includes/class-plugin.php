@@ -21,5 +21,6 @@ final class AIWD_Plugin {
         ( new AIWD_Asana_Sync() )->register();
         ( new AIWD_Asana_Webhook() )->register();
         ( new AIWD_QA_Checker() )->register();
+        ( new AIWD_Email_Events() )->register();
     }
 }

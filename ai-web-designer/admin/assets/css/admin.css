@@ -59,6 +59,17 @@
 
 .aiwd-generate-actions { display: flex; gap: 10px; flex-wrap: wrap; margin: 16px 0; }
 
+.aiwd-kpi-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin: 20px 0 28px; }
+.aiwd-kpi { background: #fff; border: 1px solid #e2e4e7; border-radius: 10px; padding: 16px; text-align: center; }
+.aiwd-kpi-label { display: block; font-size: 12px; color: #6c757d; text-transform: uppercase; letter-spacing: .5px; margin-bottom: 6px; }
+.aiwd-kpi strong { font-size: 28px; color: #2271b1; }
+.aiwd-metric-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }
+.aiwd-metric-grid .aiwd-card { padding: 16px; }
+.aiwd-metric-grid .aiwd-span-2 { grid-column: span 2; }
+.aiwd-metric-list { list-style: none; padding: 0; margin: 8px 0 0; }
+.aiwd-metric-list li { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #f0f0f1; font-size: 13px; }
+.aiwd-metric-list li:last-child { border-bottom: 0; }
+
 .aiwd-presets-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; margin-top: 12px; }
 .aiwd-preset-card { background: #fff; border: 2px solid #e2e4e7; border-radius: 10px; padding: 14px; cursor: pointer; display: block; transition: border-color .15s, box-shadow .15s; }
 .aiwd-preset-card:hover { border-color: #2271b1; }

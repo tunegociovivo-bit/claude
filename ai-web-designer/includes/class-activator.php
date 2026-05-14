@@ -45,6 +45,10 @@ class AIWD_Activator {
             add_option( 'aiwd_settings', $defaults );
         }
 
+        if ( class_exists( 'AIWD_Email_Events' ) ) {
+            AIWD_Email_Events::schedule_cron();
+        }
+
         flush_rewrite_rules();
     }
 }

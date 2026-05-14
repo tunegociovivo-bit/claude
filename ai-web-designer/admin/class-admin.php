@@ -32,6 +32,7 @@ class AIWD_Admin {
         add_submenu_page( 'aiwd-dashboard', __( 'QA / Calidad', 'ai-web-designer' ),  __( 'QA', 'ai-web-designer' ),            $cap, 'aiwd-qa',       [ $this, 'view_qa' ] );
         add_submenu_page( 'aiwd-dashboard', __( 'Agencia / Clientes', 'ai-web-designer' ),__( 'Agencia', 'ai-web-designer' ),   $cap, 'aiwd-agency',    [ $this, 'view_agency' ] );
         add_submenu_page( 'aiwd-dashboard', __( 'Coste / Uso IA', 'ai-web-designer' ),__( 'Coste IA', 'ai-web-designer' ),     $cap, 'aiwd-costs',     [ $this, 'view_costs' ] );
+        add_submenu_page( 'aiwd-dashboard', __( 'Métricas / KPIs', 'ai-web-designer' ),__( 'Métricas', 'ai-web-designer' ),   $cap, 'aiwd-metrics',   [ $this, 'view_metrics' ] );
         add_submenu_page( 'aiwd-dashboard', __( 'Ajustes', 'ai-web-designer' ),       __( 'Ajustes', 'ai-web-designer' ),       'manage_options', 'aiwd-settings', [ $this, 'view_settings' ] );
     }
 
@@ -74,6 +75,7 @@ class AIWD_Admin {
     public function view_qa()         { include AIWD_PLUGIN_DIR . 'admin/views/qa.php'; }
     public function view_agency()     { include AIWD_PLUGIN_DIR . 'admin/views/agency.php'; }
     public function view_costs()      { include AIWD_PLUGIN_DIR . 'admin/views/costs.php'; }
+    public function view_metrics()    { include AIWD_PLUGIN_DIR . 'admin/views/metrics.php'; }
     public function view_settings()   { include AIWD_PLUGIN_DIR . 'admin/views/settings.php'; }
 
     public function handle_create_project() {
