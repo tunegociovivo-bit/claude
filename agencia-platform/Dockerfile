@@ -28,4 +28,4 @@ RUN apk add --no-cache libc6-compat openssl tini && \
                 EXPOSE 3000
                 ENV PORT=3000
                 ENTRYPOINT ["/sbin/tini", "--"]
-                CMD ["sh", "-c", "npm run db:bootstrap && node server.js"]
+                CMD ["sh", "-c", "npx prisma migrate deploy; node server.js"]
