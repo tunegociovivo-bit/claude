@@ -23,6 +23,7 @@ define( 'AIWD_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'AIWD_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'AIWD_PLUGIN_BASENAME', plugin_basename( __FILE__ ) );
 
+require_once AIWD_PLUGIN_DIR . 'includes/class-secrets.php';
 require_once AIWD_PLUGIN_DIR . 'includes/helpers.php';
 require_once AIWD_PLUGIN_DIR . 'includes/class-activator.php';
 require_once AIWD_PLUGIN_DIR . 'includes/class-deactivator.php';
@@ -51,6 +52,7 @@ require_once AIWD_PLUGIN_DIR . 'includes/class-client-portal.php';
 require_once AIWD_PLUGIN_DIR . 'includes/class-pdf-proposal.php';
 require_once AIWD_PLUGIN_DIR . 'includes/class-qa-checker.php';
 require_once AIWD_PLUGIN_DIR . 'includes/class-presets.php';
+require_once AIWD_PLUGIN_DIR . 'includes/class-audit-log.php';
 require_once AIWD_PLUGIN_DIR . 'includes/class-mailer.php';
 require_once AIWD_PLUGIN_DIR . 'includes/class-email-events.php';
 require_once AIWD_PLUGIN_DIR . 'includes/class-metrics.php';

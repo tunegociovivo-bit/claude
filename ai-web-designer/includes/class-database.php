@@ -75,6 +75,23 @@ class AIWD_Database {
             KEY section_key (section_key)
         ) $charset;";
 
+        $audit = $wpdb->prefix . 'aiwd_audit_log';
+        $sql[] = "CREATE TABLE $audit (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            user_id BIGINT UNSIGNED DEFAULT NULL,
+            action VARCHAR(60) NOT NULL,
+            target_type VARCHAR(40) NULL,
+            target_id BIGINT UNSIGNED DEFAULT NULL,
+            details LONGTEXT NULL,
+            ip VARCHAR(45) NULL,
+            ua VARCHAR(250) NULL,
+            created_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            KEY action (action),
+            KEY target (target_type, target_id),
+            KEY user_id (user_id)
+        ) $charset;";
+
         $sql[] = "CREATE TABLE $approvals (
             id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
             project_id BIGINT UNSIGNED NOT NULL,

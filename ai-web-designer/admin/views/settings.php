@@ -1,5 +1,12 @@
 <?php if ( ! defined( 'ABSPATH' ) ) { exit; }
 $s = get_option( 'aiwd_settings', [] );
+
+// Marca los secretos almacenados con un placeholder "(configurado)" en lugar
+// de mostrar nada. Si el usuario escribe algo, se guarda. Si lo deja vacío,
+// se mantiene el actual cifrado.
+$secret_status = function ( $key ) {
+    return AIWD_Secrets::get( $key ) ? '🔒 ' . esc_html__( 'configurado — deja vacío para mantener', 'ai-web-designer' ) : esc_html__( 'No configurado', 'ai-web-designer' );
+};
 ?>
 <div class="wrap aiwd-wrap">
     <h1><?php esc_html_e( 'Ajustes — AI Web Designer', 'ai-web-designer' ); ?></h1>

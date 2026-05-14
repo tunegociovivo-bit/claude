@@ -24,6 +24,7 @@ class AIWD_Admin {
         );
         add_submenu_page( 'aiwd-dashboard', __( 'Dashboard', 'ai-web-designer' ),     __( 'Dashboard', 'ai-web-designer' ),     $cap, 'aiwd-dashboard', [ $this, 'view_dashboard' ] );
         add_submenu_page( 'aiwd-dashboard', __( 'Proyectos', 'ai-web-designer' ),     __( 'Proyectos', 'ai-web-designer' ),     $cap, 'aiwd-projects',  [ $this, 'view_projects' ] );
+        add_submenu_page( 'aiwd-dashboard', __( 'Kanban', 'ai-web-designer' ),        __( 'Kanban', 'ai-web-designer' ),        $cap, 'aiwd-kanban',    [ $this, 'view_kanban' ] );
         add_submenu_page( 'aiwd-dashboard', __( 'Nuevo proyecto', 'ai-web-designer' ),__( 'Nuevo proyecto', 'ai-web-designer' ), $cap, 'aiwd-new',       [ $this, 'view_new' ] );
         add_submenu_page( 'aiwd-dashboard', __( 'Briefing (Wizard)', 'ai-web-designer' ),__( 'Briefing', 'ai-web-designer' ),    $cap, 'aiwd-wizard',    [ $this, 'view_wizard' ] );
         add_submenu_page( 'aiwd-dashboard', __( 'Librería de plantillas', 'ai-web-designer' ),__( 'Plantillas', 'ai-web-designer' ), $cap, 'aiwd-templates', [ $this, 'view_templates' ] );
@@ -33,6 +34,7 @@ class AIWD_Admin {
         add_submenu_page( 'aiwd-dashboard', __( 'Agencia / Clientes', 'ai-web-designer' ),__( 'Agencia', 'ai-web-designer' ),   $cap, 'aiwd-agency',    [ $this, 'view_agency' ] );
         add_submenu_page( 'aiwd-dashboard', __( 'Coste / Uso IA', 'ai-web-designer' ),__( 'Coste IA', 'ai-web-designer' ),     $cap, 'aiwd-costs',     [ $this, 'view_costs' ] );
         add_submenu_page( 'aiwd-dashboard', __( 'Métricas / KPIs', 'ai-web-designer' ),__( 'Métricas', 'ai-web-designer' ),   $cap, 'aiwd-metrics',   [ $this, 'view_metrics' ] );
+        add_submenu_page( 'aiwd-dashboard', __( 'Audit log', 'ai-web-designer' ),     __( 'Audit', 'ai-web-designer' ),         'manage_options', 'aiwd-audit', [ $this, 'view_audit' ] );
         add_submenu_page( 'aiwd-dashboard', __( 'Ajustes', 'ai-web-designer' ),       __( 'Ajustes', 'ai-web-designer' ),       'manage_options', 'aiwd-settings', [ $this, 'view_settings' ] );
     }
 
@@ -76,6 +78,8 @@ class AIWD_Admin {
     public function view_agency()     { include AIWD_PLUGIN_DIR . 'admin/views/agency.php'; }
     public function view_costs()      { include AIWD_PLUGIN_DIR . 'admin/views/costs.php'; }
     public function view_metrics()    { include AIWD_PLUGIN_DIR . 'admin/views/metrics.php'; }
+    public function view_kanban()     { include AIWD_PLUGIN_DIR . 'admin/views/kanban.php'; }
+    public function view_audit()      { include AIWD_PLUGIN_DIR . 'admin/views/audit.php'; }
     public function view_settings()   { include AIWD_PLUGIN_DIR . 'admin/views/settings.php'; }
 
     public function handle_create_project() {

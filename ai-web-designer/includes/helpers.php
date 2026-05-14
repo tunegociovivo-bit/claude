@@ -2,6 +2,10 @@
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
 function aiwd_get_option( $key, $default = '' ) {
+    if ( class_exists( 'AIWD_Secrets' ) && AIWD_Secrets::is_secret( $key ) ) {
+        $value = AIWD_Secrets::get( $key, '' );
+        if ( $value !== '' ) return $value;
+    }
     $options = get_option( 'aiwd_settings', [] );
     return $options[ $key ] ?? $default;
 }

@@ -48,6 +48,9 @@ class AIWD_Activator {
         if ( class_exists( 'AIWD_Email_Events' ) ) {
             AIWD_Email_Events::schedule_cron();
         }
+        if ( class_exists( 'AIWD_Secrets' ) ) {
+            AIWD_Secrets::migrate_from_settings();
+        }
 
         flush_rewrite_rules();
     }

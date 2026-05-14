@@ -168,6 +168,12 @@ class AIWD_Rest_API {
             'permission_callback' => function () { return current_user_can( 'manage_options' ); },
         ] );
 
+        register_rest_route( self::NS, '/project/(?P<id>\d+)/status', [
+            'methods'             => 'POST',
+            'callback'            => [ $this, 'set_status' ],
+            'permission_callback' => $perm,
+        ] );
+
         register_rest_route( self::NS, '/project/(?P<id>\d+)/audio-briefing', [
             'methods'             => 'POST',
             'callback'            => [ $this, 'audio_briefing' ],
@@ -180,6 +186,23 @@ class AIWD_Rest_API {
         $token = sanitize_text_field( $req->get_param( 'portal_token' ) ?: $req->get_header( 'x_aiwd_portal_token' ) );
         $project_id = (int) $req['id'];
         return $token && AIWD_Client_Portal::resolve_token( $token ) === $project_id;
+    }
+
+    public function set_status( WP_REST_Request $req ) {
+        $project_id = (int) $req['id'];
+        $status     = sanitize_key( $req->get_json_params()['status'] ?? '' );
+        $allowed    = array_keys( aiwd_project_statuses() );
+        if ( ! in_array( $status, $allowed, true ) ) {
+            return new WP_Error( 'aiwd_bad_status', 'Estado inválido', [ 'status' => 400 ] );
+        }
+        if ( $status === 'published' && ! apply_filters( 'aiwd_can_publish', true, $project_id ) ) {
+            return new WP_Error( 'aiwd_qa_blocked', __( 'No se puede publicar: hay checks QA requeridos pendientes.', 'ai-web-designer' ), [ 'status' => 409 ] );
+        }
+        update_post_meta( $project_id, '_aiwd_status', $status );
+        if ( $status === 'published' ) {
+            do_action( 'aiwd_project_published', $project_id );
+        }
+        return rest_ensure_response( [ 'ok' => true, 'status' => $status ] );
     }
 
     public function audio_briefing( WP_REST_Request $req ) {

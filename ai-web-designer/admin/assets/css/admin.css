@@ -59,6 +59,25 @@
 
 .aiwd-generate-actions { display: flex; gap: 10px; flex-wrap: wrap; margin: 16px 0; }
 
+.aiwd-kanban-wrap { max-width: none; }
+.aiwd-kanban { display: flex; gap: 14px; overflow-x: auto; padding: 12px 4px 20px; align-items: flex-start; }
+.aiwd-col { background: #f0f1f3; border-radius: 10px; padding: 12px; min-width: 280px; max-width: 280px; flex: 0 0 280px; }
+.aiwd-col h3 { margin: 0 0 10px; font-size: 14px; display: flex; justify-content: space-between; }
+.aiwd-col-count { background: #2271b1; color: #fff; font-size: 11px; padding: 2px 8px; border-radius: 10px; }
+.aiwd-col-body { min-height: 60px; }
+.aiwd-card-kanban { background: #fff; border: 1px solid #e2e4e7; border-radius: 8px; padding: 10px; margin-bottom: 8px; cursor: grab; transition: box-shadow .15s; }
+.aiwd-card-kanban:hover { box-shadow: 0 2px 8px rgba(0,0,0,.08); }
+.aiwd-card-kanban:active { cursor: grabbing; }
+.aiwd-card-title a { text-decoration: none; color: #1d2327; font-weight: 600; font-size: 13px; }
+.aiwd-card-meta { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0; }
+.aiwd-tag { display: inline-block; background: #f6f7f7; color: #50575e; font-size: 11px; padding: 2px 6px; border-radius: 4px; text-decoration: none; }
+.aiwd-card-qa { font-size: 11px; margin-top: 4px; display: flex; justify-content: space-between; align-items: center; }
+.aiwd-qa-ok { color: #1a6b1a; font-weight: 600; }
+.aiwd-qa-pending { color: #861a1a; font-weight: 600; }
+.sortable-ghost { opacity: 0.4; }
+
+.aiwd-pagination { display: flex; gap: 4px; margin-top: 12px; }
+
 .aiwd-audio-card { background: #f7f7ff; border: 1px solid #c5c5e0; border-radius: 10px; padding: 16px; margin: 12px 0 20px; }
 .aiwd-audio-card .aiwd-rec-status { font-size: 13px; }
 
