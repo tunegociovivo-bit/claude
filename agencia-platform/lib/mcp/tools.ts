@@ -143,6 +143,71 @@ export const mcpTools: McpTool[] = [
     }
   },
   {
+    name: "list_databases",
+    description: "Lista las bases de datos tipo Notion del workspace.",
+    inputSchema: { type: "object", properties: {} },
+    handler: async (_args, ctx) => {
+      return prisma.database.findMany({
+        where: { workspaceId: ctx.workspaceId },
+        include: { _count: { select: { records: true, properties: true } } }
+      });
+    }
+  },
+  {
+    name: "list_database_records",
+    description: "Lista los registros de una base de datos (con sus valores).",
+    inputSchema: {
+      type: "object",
+      required: ["databaseId"],
+      properties: { databaseId: { type: "string" } }
+    },
+    handler: async (args, ctx) => {
+      const db = await prisma.database.findFirst({
+        where: { id: args.databaseId, workspaceId: ctx.workspaceId }
+      });
+      if (!db) throw new Error("Database no encontrada");
+      const recs = await prisma.databaseRecord.findMany({
+        where: { databaseId: args.databaseId },
+        include: { values: true }
+      });
+      return recs.map((r) => ({
+        id: r.id,
+        title: r.title,
+        values: Object.fromEntries(r.values.map((v) => [v.propertyId, v.value]))
+      }));
+    }
+  },
+  {
+    name: "create_database_record",
+    description: "Crea un nuevo registro en una base de datos.",
+    inputSchema: {
+      type: "object",
+      required: ["databaseId", "title"],
+      properties: {
+        databaseId: { type: "string" },
+        title: { type: "string" },
+        values: { type: "object", description: "{ propertyId: value }" }
+      }
+    },
+    handler: async (args, ctx) => {
+      const db = await prisma.database.findFirst({
+        where: { id: args.databaseId, workspaceId: ctx.workspaceId }
+      });
+      if (!db) throw new Error("Database no encontrada");
+      const rec = await prisma.databaseRecord.create({
+        data: { databaseId: args.databaseId, title: args.title }
+      });
+      if (args.values) {
+        for (const [propertyId, value] of Object.entries(args.values as any)) {
+          await prisma.databaseValue.create({
+            data: { recordId: rec.id, propertyId, value: value as any }
+          });
+        }
+      }
+      return rec;
+    }
+  },
+  {
     name: "list_events",
     description: "Lista eventos del calendario en un rango de fechas.",
     inputSchema: {

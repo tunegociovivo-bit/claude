@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, KanbanSquare, Users, BookOpen, CalendarDays, Settings, Sparkles } from "lucide-react";
+import { LayoutDashboard, KanbanSquare, Users, BookOpen, CalendarDays, Database, Settings, Sparkles } from "lucide-react";
 import clsx from "clsx";
 
 const nav = [
@@ -10,6 +10,7 @@ const nav = [
   { href: "/tareas", label: "Tareas", icon: KanbanSquare },
   { href: "/clientes", label: "Clientes", icon: Users },
   { href: "/documentos", label: "Documentos", icon: BookOpen },
+  { href: "/databases", label: "Bases de datos", icon: Database },
   { href: "/calendario", label: "Calendario", icon: CalendarDays }
 ];
 
