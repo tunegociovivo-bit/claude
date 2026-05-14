@@ -1,0 +1,142 @@
+/* global AIWD, jQuery, wp */
+(function ($) {
+    'use strict';
+
+    $(function () {
+        initMediaPickers();
+        initAIButtons();
+        initBulkUpload();
+    });
+
+    function initMediaPickers() {
+        $(document).on('click', '.aiwd-media-pick', function (e) {
+            e.preventDefault();
+            const $picker = $(this).closest('.aiwd-media-picker');
+            const targetInput = $picker.find('input[type="hidden"]');
+            const $preview = $picker.find('.aiwd-media-preview');
+
+            const frame = wp.media({
+                title: AIWD.i18n.select,
+                multiple: false,
+                library: { type: 'image' },
+            });
+            frame.on('select', function () {
+                const att = frame.state().get('selection').first().toJSON();
+                targetInput.val(att.id);
+                $preview.html('<img src="' + att.url + '" />');
+            });
+            frame.open();
+        });
+    }
+
+    function initAIButtons() {
+        $(document).on('click', '.aiwd-ai-btn', function (e) {
+            e.preventDefault();
+            const $btn = $(this);
+            const action = $btn.data('ai');
+            const block = $btn.data('block') || '';
+            const projectId = $('.aiwd-wizard').data('project-id');
+            const original = $btn.text();
+            $btn.prop('disabled', true).text(AIWD.i18n.generating);
+
+            const endpoint = endpointFor(action);
+            const body = bodyFor(action, projectId, block, $btn);
+
+            fetch(AIWD.rest_url + endpoint, {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/json', 'X-WP-Nonce': AIWD.nonce },
+                body: JSON.stringify(body),
+            })
+                .then(r => r.json())
+                .then(res => handleResult(action, res, $btn, block))
+                .catch(err => alert('Error: ' + err.message))
+                .finally(() => $btn.prop('disabled', false).text(original));
+        });
+    }
+
+    function endpointFor(action) {
+        if (action === 'scrape_domain') return 'scrape';
+        if (action === 'generate_images' || action === 'generate_logo' || action === 'extract_palette_from_logo') return 'generate/image';
+        if (action === 'analyze_references' || action === 'suggest_typography' || action === 'briefing_description' || action === 'briefing_audience' || action === 'tagline' || action === 'generate_text') return 'generate/text';
+        if (action === 'variants_text') return 'generate/variants';
+        if (action === 'suggest_keywords') return 'generate/seo';
+        if (action === 'remove_backgrounds') return 'remove-bg';
+        return 'generate/text';
+    }
+
+    function bodyFor(action, projectId, block, $btn) {
+        if (action === 'scrape_domain') {
+            const url = $('input[name="data[domain]"]').val();
+            return { url };
+        }
+        if (action === 'generate_logo') {
+            const bn = $('input[name="data[business_name]"]').val();
+            return { prompt: 'Logo profesional minimalista para: ' + bn };
+        }
+        if (action === 'generate_images') {
+            return { prompt: 'Imagen de portada profesional para el negocio', n: 3 };
+        }
+        if (action === 'variants_text') {
+            return { project_id: projectId, block, n: 3 };
+        }
+        return { project_id: projectId, block: block || action };
+    }
+
+    function handleResult(action, res, $btn, block) {
+        if (action === 'scrape_domain') {
+            if (res.title) $('input[name="data[business_name]"]').val(res.title);
+            if (res.description) $('textarea[name="data[description]"]').val(res.description);
+            if (res.emails && res.emails[0]) $('input[name="data[email]"]').val(res.emails[0]);
+            if (res.phones && res.phones[0]) $('input[name="data[phone]"]').val(res.phones[0]);
+            if (res.colors) {
+                if (res.colors[0]) $('input[name="data[color_primary]"]').val(res.colors[0]);
+                if (res.colors[1]) $('input[name="data[color_secondary]"]').val(res.colors[1]);
+            }
+            if (res.social) {
+                Object.entries(res.social).forEach(([k, v]) => {
+                    $('input[name="data[social][' + k + ']"]').val(v);
+                });
+            }
+            alert('✅ Información importada.');
+            return;
+        }
+        if (action === 'generate_images' || action === 'generate_logo') {
+            const $gal = $('#aiwd-gallery');
+            (res.images || []).forEach(img => {
+                $gal.append('<div class="item src-ai"><span class="badge">IA</span><img src="' + img.url + '" /><label><input type="checkbox" name="data[selected_images][]" value="' + img.id + '" checked /> Usar</label></div>');
+            });
+            return;
+        }
+        if (action === 'variants_text' && res.variants) {
+            const $textarea = $('textarea[name="data[' + block + ']"]');
+            const chosen = prompt('Variantes:\n\n' + res.variants.map((v, i) => (i + 1) + ') ' + v).join('\n\n') + '\n\n¿Cuál usar? (1-' + res.variants.length + ')');
+            const idx = parseInt(chosen, 10) - 1;
+            if (idx >= 0 && idx < res.variants.length) $textarea.val(res.variants[idx]);
+            return;
+        }
+        if (res.text) {
+            const $target = block ? $('textarea[name="data[' + block + ']"], input[name="data[' + block + ']"]') : $btn.closest('tr,div').find('textarea, input[type="text"]').first();
+            $target.val(res.text);
+        } else if (res.seo) {
+            if (res.seo.meta_title) $('input[name="data[meta_title]"]').val(res.seo.meta_title);
+            if (res.seo.meta_description) $('textarea[name="data[meta_description]"]').val(res.seo.meta_description);
+            if (res.seo.keywords) $('input[name="data[keywords]"]').val(res.seo.keywords.join(', '));
+        }
+    }
+
+    function initBulkUpload() {
+        $(document).on('click', '.aiwd-bulk-upload', function (e) {
+            e.preventDefault();
+            const frame = wp.media({ title: 'Subir fotos', multiple: true, library: { type: 'image' } });
+            frame.on('select', function () {
+                const sel = frame.state().get('selection').toJSON();
+                const $gal = $('#aiwd-gallery');
+                sel.forEach(a => {
+                    $gal.append('<div class="item"><img src="' + a.url + '" /><label><input type="checkbox" name="data[selected_images][]" value="' + a.id + '" checked /> Usar</label></div>');
+                });
+            });
+            frame.open();
+        });
+    }
+})(jQuery);
