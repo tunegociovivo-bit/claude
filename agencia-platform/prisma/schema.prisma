@@ -1,0 +1,605 @@
+// Prisma schema for Agencia Hub (Phase 2)
+// Modelo multi-tenant: cada cuenta es un Workspace, con miembros (users)
+// y todos los recursos llevan workspaceId para aislamiento.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ====================================================================
+// AUTH (NextAuth.js)
+// ====================================================================
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  name          String?
+  passwordHash  String?
+  image         String?
+  emailVerified DateTime?
+  role          UserRole  @default(MEMBER)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  accounts      Account[]
+  sessions      Session[]
+  memberships   Membership[]
+  ownedApiKeys  ApiKey[]
+  asanaTokens   AsanaConnection[]
+  notifications Notification[]
+  comments      Comment[]
+  assignedTasks TaskAssignee[]
+}
+
+enum UserRole {
+  ADMIN
+  MEMBER
+  GUEST
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+  @@unique([identifier, token])
+}
+
+// ====================================================================
+// WORKSPACE & MEMBERSHIP
+// ====================================================================
+
+model Workspace {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  logo      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  memberships  Membership[]
+  clients      Client[]
+  projects     Project[]
+  tasks        Task[]
+  documents    Document[]
+  databases    Database[]
+  tags         Tag[]
+  files        File[]
+  events       CalendarEvent[]
+  apiKeys      ApiKey[]
+  webhooks     Webhook[]
+  auditLogs    AuditLog[]
+  asanaImports AsanaImport[]
+  comments     Comment[]
+}
+
+model Membership {
+  id          String    @id @default(cuid())
+  workspaceId String
+  userId      String
+  role        UserRole  @default(MEMBER)
+  joinedAt    DateTime  @default(now())
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, userId])
+}
+
+// ====================================================================
+// CRM (Clients & Contacts)
+// ====================================================================
+
+model Client {
+  id          String       @id @default(cuid())
+  workspaceId String
+  name        String
+  industry    String?
+  status      ClientStatus @default(ACTIVE)
+  contactName String?
+  email       String?
+  phone       String?
+  mrr         Int          @default(0) // céntimos opcionalmente, aquí euros enteros
+  since       DateTime?
+  notes       String?      @db.Text
+  asanaId     String?      @unique // trazabilidad migración
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  deletedAt   DateTime?
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  projects  Project[]
+  tasks     Task[]
+  events    CalendarEvent[]
+
+  @@index([workspaceId])
+}
+
+enum ClientStatus {
+  ACTIVE
+  PAUSED
+  PROSPECT
+  CHURNED
+}
+
+// ====================================================================
+// PROJECTS & TASKS
+// ====================================================================
+
+model Project {
+  id          String   @id @default(cuid())
+  workspaceId String
+  clientId    String?
+  name        String
+  description String?  @db.Text
+  color       String   @default("bg-brand-500")
+  progress    Int      @default(0)
+  archived    Boolean  @default(false)
+  asanaId     String?  @unique
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  client    Client?   @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  tasks     Task[]
+
+  @@index([workspaceId])
+  @@index([clientId])
+}
+
+model Task {
+  id          String       @id @default(cuid())
+  workspaceId String
+  projectId   String
+  clientId    String?
+  parentId    String?      // subtareas
+  title       String
+  description String?      @db.Text
+  status      TaskStatus   @default(TODO)
+  priority    TaskPriority @default(MEDIUM)
+  dueDate     DateTime?
+  completedAt DateTime?
+  order       Int          @default(0)
+  asanaId     String?      @unique
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  workspace Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  project   Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  client    Client?        @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  parent    Task?          @relation("Subtasks", fields: [parentId], references: [id], onDelete: Cascade)
+  subtasks  Task[]         @relation("Subtasks")
+  assignees TaskAssignee[]
+  tags      TaskTag[]
+  comments  Comment[]
+
+  @@index([workspaceId])
+  @@index([projectId])
+  @@index([status])
+}
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  REVIEW
+  DONE
+  CANCELLED
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+model TaskAssignee {
+  taskId String
+  userId String
+  task   Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@id([taskId, userId])
+}
+
+model Tag {
+  id          String   @id @default(cuid())
+  workspaceId String
+  name        String
+  color       String   @default("bg-slate-200")
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  tasks       TaskTag[]
+
+  @@unique([workspaceId, name])
+}
+
+model TaskTag {
+  taskId String
+  tagId  String
+  task   Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  tag    Tag  @relation(fields: [tagId], references: [id], onDelete: Cascade)
+  @@id([taskId, tagId])
+}
+
+// ====================================================================
+// DOCUMENTS (Notion-like page tree with block-based content)
+// ====================================================================
+
+model Document {
+  id          String   @id @default(cuid())
+  workspaceId String
+  parentId    String?  // permite subpáginas anidadas
+  title       String   @default("Sin título")
+  icon        String?  // emoji o nombre de icono Lucide
+  cover       String?
+  category    String?
+  isTemplate  Boolean  @default(false)
+  archived    Boolean  @default(false)
+  authorId    String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  parent    Document?  @relation("Subpages", fields: [parentId], references: [id], onDelete: Cascade)
+  children  Document[] @relation("Subpages")
+  blocks    Block[]
+  comments  Comment[]
+  databases Database[] // un documento puede tener vista de DB inline
+
+  @@index([workspaceId])
+  @@index([parentId])
+}
+
+model Block {
+  id         String    @id @default(cuid())
+  documentId String
+  parentId   String?   // bloques anidados (toggles, columnas)
+  type       BlockType
+  content    Json      // texto enriquecido + props del bloque
+  order      Int
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  parent   Block?   @relation("BlockChildren", fields: [parentId], references: [id], onDelete: Cascade)
+  children Block[]  @relation("BlockChildren")
+
+  @@index([documentId])
+}
+
+enum BlockType {
+  PARAGRAPH
+  HEADING_1
+  HEADING_2
+  HEADING_3
+  BULLET_LIST
+  NUMBERED_LIST
+  TODO
+  TOGGLE
+  QUOTE
+  CALLOUT
+  CODE
+  DIVIDER
+  IMAGE
+  VIDEO
+  EMBED
+  FILE
+  TABLE
+  COLUMNS
+  PAGE_LINK
+  DATABASE_VIEW
+}
+
+// ====================================================================
+// DATABASES (Notion-style con propiedades + vistas)
+// ====================================================================
+
+model Database {
+  id          String   @id @default(cuid())
+  workspaceId String
+  documentId  String?  // si es inline en un documento
+  name        String
+  icon        String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace  Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  document   Document?          @relation(fields: [documentId], references: [id], onDelete: SetNull)
+  properties DatabaseProperty[]
+  records    DatabaseRecord[]
+  views      DatabaseView[]
+}
+
+model DatabaseProperty {
+  id         String       @id @default(cuid())
+  databaseId String
+  name       String
+  type       PropertyType
+  config     Json         // opciones según tipo (select options, formula, etc.)
+  order      Int          @default(0)
+  database   Database     @relation(fields: [databaseId], references: [id], onDelete: Cascade)
+  values     DatabaseValue[]
+
+  @@unique([databaseId, name])
+}
+
+enum PropertyType {
+  TEXT
+  NUMBER
+  SELECT
+  MULTI_SELECT
+  DATE
+  PERSON
+  CHECKBOX
+  URL
+  EMAIL
+  PHONE
+  FILE
+  RELATION
+  ROLLUP
+  FORMULA
+  CREATED_TIME
+  CREATED_BY
+}
+
+model DatabaseRecord {
+  id         String          @id @default(cuid())
+  databaseId String
+  title      String          @default("Sin título")
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+
+  database   Database        @relation(fields: [databaseId], references: [id], onDelete: Cascade)
+  values     DatabaseValue[]
+
+  @@index([databaseId])
+}
+
+model DatabaseValue {
+  id         String   @id @default(cuid())
+  recordId   String
+  propertyId String
+  value      Json     // formato según PropertyType
+  record     DatabaseRecord   @relation(fields: [recordId], references: [id], onDelete: Cascade)
+  property   DatabaseProperty @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@unique([recordId, propertyId])
+}
+
+model DatabaseView {
+  id         String       @id @default(cuid())
+  databaseId String
+  name       String
+  type       ViewType
+  config     Json         // filtros, ordenación, agrupación, columnas visibles
+  order      Int          @default(0)
+  database   Database     @relation(fields: [databaseId], references: [id], onDelete: Cascade)
+}
+
+enum ViewType {
+  TABLE
+  BOARD
+  CALENDAR
+  TIMELINE
+  GALLERY
+  LIST
+}
+
+// ====================================================================
+// COMMENTS & MENTIONS (polimórficos)
+// ====================================================================
+
+model Comment {
+  id          String      @id @default(cuid())
+  workspaceId String
+  authorId    String
+  targetType  CommentTarget
+  targetId    String
+  body        String      @db.Text
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  author    User      @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  task      Task?     @relation(fields: [targetId], references: [id], onDelete: Cascade, map: "Comment_task_fk")
+  document  Document? @relation(fields: [targetId], references: [id], onDelete: Cascade, map: "Comment_doc_fk")
+
+  @@index([targetType, targetId])
+}
+
+enum CommentTarget {
+  TASK
+  DOCUMENT
+  CLIENT
+  PROJECT
+}
+
+// ====================================================================
+// FILES & ATTACHMENTS (MinIO/S3)
+// ====================================================================
+
+model File {
+  id          String   @id @default(cuid())
+  workspaceId String
+  name        String
+  mimeType    String
+  sizeBytes   Int
+  s3Key       String   // ruta dentro del bucket
+  targetType  String?  // TASK | DOCUMENT | CLIENT | …
+  targetId    String?
+  uploadedBy  String?
+  createdAt   DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+  @@index([targetType, targetId])
+}
+
+// ====================================================================
+// CALENDAR
+// ====================================================================
+
+model CalendarEvent {
+  id          String   @id @default(cuid())
+  workspaceId String
+  clientId    String?
+  title       String
+  description String?  @db.Text
+  startAt     DateTime
+  endAt       DateTime?
+  allDay      Boolean  @default(false)
+  type        EventType @default(MEETING)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  client    Client?   @relation(fields: [clientId], references: [id], onDelete: SetNull)
+}
+
+enum EventType {
+  PUBLICATION
+  MEETING
+  DEADLINE
+  CAMPAIGN
+  OTHER
+}
+
+// ====================================================================
+// API KEYS, WEBHOOKS, AUDIT
+// ====================================================================
+
+model ApiKey {
+  id          String   @id @default(cuid())
+  workspaceId String
+  userId      String?  // null si es key de servicio
+  name        String
+  prefix      String   @unique
+  hashed      String   // bcrypt
+  scopes      String[] // ej: ["clients:read", "tasks:write"]
+  lastUsedAt  DateTime?
+  expiresAt   DateTime?
+  revokedAt   DateTime?
+  createdAt   DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId])
+}
+
+model Webhook {
+  id          String   @id @default(cuid())
+  workspaceId String
+  url         String
+  secret      String
+  events      String[] // ej: ["task.created", "task.updated"]
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  workspace Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  deliveries WebhookDelivery[]
+}
+
+model WebhookDelivery {
+  id         String   @id @default(cuid())
+  webhookId  String
+  event      String
+  payload    Json
+  statusCode Int?
+  response   String?
+  attempts   Int      @default(0)
+  succeeded  Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  webhook Webhook @relation(fields: [webhookId], references: [id], onDelete: Cascade)
+  @@index([webhookId])
+}
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  workspaceId String
+  actorId     String?
+  action      String   // ej: "task.created"
+  targetType  String?
+  targetId    String?
+  meta        Json?
+  createdAt   DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  @@index([workspaceId])
+  @@index([createdAt])
+}
+
+// ====================================================================
+// NOTIFICATIONS
+// ====================================================================
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  type      String
+  body      String
+  link      String?
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId, read])
+}
+
+// ====================================================================
+// ASANA MIGRATION
+// ====================================================================
+
+model AsanaConnection {
+  id           String   @id @default(cuid())
+  userId       String
+  accessToken  String   @db.Text
+  refreshToken String?  @db.Text
+  expiresAt    DateTime?
+  asanaUserId  String?
+  createdAt    DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model AsanaImport {
+  id          String   @id @default(cuid())
+  workspaceId String
+  status      String   // PENDING | RUNNING | COMPLETED | FAILED
+  startedAt   DateTime @default(now())
+  finishedAt  DateTime?
+  stats       Json?    // { projects: 12, tasks: 340, attachments: 18, ... }
+  errorMsg    String?
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+}
