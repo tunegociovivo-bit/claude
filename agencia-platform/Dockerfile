@@ -29,3 +29,5 @@ RUN apk add --no-cache libc6-compat openssl tini && \
                 ENV PORT=3000
                 ENTRYPOINT ["/sbin/tini", "--"]
                 CMD ["sh", "-c", "npx prisma migrate deploy; node server.js"]
+
+# cache bust v2
