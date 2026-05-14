@@ -25,7 +25,7 @@ RUN apk add --no-cache libc6-compat openssl tini && \
                 COPY --from=builder /app/lib ./lib
                 COPY --from=builder /app/prisma ./prisma
                 USER nextjs
-                EXPOSE 3000
+                EXPOSE 8080
                 ENV PORT=3000
                 ENV HOSTNAME=0.0.0.0
                 ENTRYPOINT ["/sbin/tini", "--"]
