@@ -39,6 +39,7 @@ $statuses = aiwd_project_statuses();
                         <a class="button" href="<?php echo esc_url( 'https://app.asana.com/0/' . $asana_gid . '/list' ); ?>" target="_blank">Asana ↗</a>
                     <?php else : ?>
                         <button class="button aiwd-asana-sync" data-project="<?php echo esc_attr( $p->ID ); ?>"><?php esc_html_e( 'Crear en Asana', 'ai-web-designer' ); ?></button>
+                        <button class="button aiwd-asana-link" data-project="<?php echo esc_attr( $p->ID ); ?>"><?php esc_html_e( 'Vincular existente', 'ai-web-designer' ); ?></button>
                     <?php endif; ?>
                 </td>
             </tr>

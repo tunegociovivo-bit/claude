@@ -45,6 +45,7 @@ require_once AIWD_PLUGIN_DIR . 'includes/integrations/class-calendly.php';
 require_once AIWD_PLUGIN_DIR . 'includes/integrations/class-wpml.php';
 require_once AIWD_PLUGIN_DIR . 'includes/integrations/class-asana-client.php';
 require_once AIWD_PLUGIN_DIR . 'includes/integrations/class-asana-sync.php';
+require_once AIWD_PLUGIN_DIR . 'includes/integrations/class-asana-webhook.php';
 require_once AIWD_PLUGIN_DIR . 'includes/class-client-portal.php';
 require_once AIWD_PLUGIN_DIR . 'includes/class-pdf-proposal.php';
 require_once AIWD_PLUGIN_DIR . 'includes/rest/class-rest-api.php';

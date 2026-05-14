@@ -131,6 +131,34 @@ class AIWD_Rest_API {
             'callback'            => [ $this, 'asana_sync_project' ],
             'permission_callback' => $perm,
         ] );
+
+        register_rest_route( self::NS, '/asana/search', [
+            'methods'             => 'GET',
+            'callback'            => [ $this, 'asana_search_projects' ],
+            'permission_callback' => $perm,
+        ] );
+
+        register_rest_route( self::NS, '/project/(?P<id>\d+)/asana/link', [
+            'methods'             => 'POST',
+            'callback'            => [ $this, 'asana_link_project' ],
+            'permission_callback' => $perm,
+        ] );
+    }
+
+    public function asana_search_projects( WP_REST_Request $req ) {
+        $client = new AIWD_Asana_Client();
+        $ws = sanitize_text_field( $req['workspace'] ?? aiwd_get_option( 'asana_workspace' ) );
+        $q  = sanitize_text_field( $req['q'] ?? '' );
+        $r  = $client->search_projects( $ws, $q );
+        if ( is_wp_error( $r ) ) return $r;
+        return rest_ensure_response( $r );
+    }
+
+    public function asana_link_project( WP_REST_Request $req ) {
+        $sync = new AIWD_Asana_Sync();
+        $r = $sync->link_existing_project( (int) $req['id'], sanitize_text_field( $req['asana_gid'] ?? '' ) );
+        if ( is_wp_error( $r ) ) return $r;
+        return rest_ensure_response( $r );
     }
 
     public function asana_workspaces() {
@@ -307,14 +335,18 @@ class AIWD_Rest_API {
 
     public function comment_section( WP_REST_Request $req ) {
         global $wpdb;
+        $project_id = (int) $req['id'];
+        $section    = sanitize_key( $req['section'] ?? '' );
+        $body       = wp_kses_post( $req['body'] ?? '' );
         $wpdb->insert( AIWD_Database::table( 'section_comments' ), [
-            'project_id' => (int) $req['id'],
-            'section_key'=> sanitize_key( $req['section'] ?? '' ),
+            'project_id' => $project_id,
+            'section_key'=> $section,
             'user_id'    => get_current_user_id(),
-            'body'       => wp_kses_post( $req['body'] ?? '' ),
+            'body'       => $body,
             'resolved'   => 0,
             'created_at' => current_time( 'mysql' ),
         ] );
+        do_action( 'aiwd_section_comment_added', $project_id, $section, $body );
         return rest_ensure_response( [ 'ok' => true ] );
     }
 

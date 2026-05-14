@@ -85,4 +85,65 @@ class AIWD_Asana_Client {
     public function add_comment( $task_gid, $text ) {
         return $this->request( 'POST', '/tasks/' . $task_gid . '/stories', [ 'text' => $text ] );
     }
+
+    public function get_tasks_of_project( $project_gid ) {
+        return $this->request( 'GET', '/projects/' . $project_gid . '/tasks', [ 'opt_fields' => 'name,gid,completed', 'limit' => 100 ] );
+    }
+
+    public function get_project( $project_gid ) {
+        return $this->request( 'GET', '/projects/' . $project_gid, [ 'opt_fields' => 'name,gid,workspace,team' ] );
+    }
+
+    public function search_projects( $workspace_gid, $query ) {
+        return $this->request( 'GET', '/workspaces/' . $workspace_gid . '/typeahead', [
+            'resource_type' => 'project',
+            'query'         => $query,
+            'count'         => 20,
+            'opt_fields'    => 'name,gid',
+        ] );
+    }
+
+    public function create_webhook( $resource_gid, $target_url ) {
+        return $this->request( 'POST', '/webhooks', [ 'resource' => $resource_gid, 'target' => $target_url ] );
+    }
+
+    public function delete_webhook( $webhook_gid ) {
+        return $this->request( 'DELETE', '/webhooks/' . $webhook_gid );
+    }
+
+    public function list_webhooks( $workspace_gid ) {
+        return $this->request( 'GET', '/webhooks', [ 'workspace' => $workspace_gid, 'opt_fields' => 'resource,target,gid' ] );
+    }
+
+    /**
+     * Sube un attachment (archivo) a una tarea.
+     */
+    public function upload_attachment( $task_gid, $file_path, $filename = '' ) {
+        if ( ! $this->is_configured() ) return new WP_Error( 'aiwd_no_asana', 'Sin token' );
+        if ( ! file_exists( $file_path ) ) return new WP_Error( 'aiwd_no_file', 'Archivo no encontrado' );
+
+        $boundary = wp_generate_uuid4();
+        $eol = "\r\n";
+        $name = $filename ?: basename( $file_path );
+        $mime = function_exists( 'mime_content_type' ) ? mime_content_type( $file_path ) : 'application/octet-stream';
+
+        $body  = '--' . $boundary . $eol;
+        $body .= 'Content-Disposition: form-data; name="parent"' . $eol . $eol . $task_gid . $eol;
+        $body .= '--' . $boundary . $eol;
+        $body .= 'Content-Disposition: form-data; name="file"; filename="' . $name . '"' . $eol;
+        $body .= 'Content-Type: ' . $mime . $eol . $eol;
+        $body .= file_get_contents( $file_path ) . $eol;
+        $body .= '--' . $boundary . '--' . $eol;
+
+        $resp = wp_remote_post( self::BASE . '/attachments', [
+            'timeout' => 60,
+            'headers' => [
+                'Authorization' => 'Bearer ' . $this->token,
+                'Content-Type'  => 'multipart/form-data; boundary=' . $boundary,
+            ],
+            'body' => $body,
+        ] );
+        if ( is_wp_error( $resp ) ) return $resp;
+        return json_decode( wp_remote_retrieve_body( $resp ), true )['data'] ?? [];
+    }
 }

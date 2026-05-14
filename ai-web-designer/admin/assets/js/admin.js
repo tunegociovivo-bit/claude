@@ -150,6 +150,35 @@
         $('input[name="aiwd_settings[asana_workspace]"]').val($(this).data('gid'));
     });
 
+    $(document).on('click', '.aiwd-asana-link', function (e) {
+        e.preventDefault();
+        const pid = $(this).data('project');
+        const q = window.prompt('Busca el proyecto Asana por nombre:');
+        if (!q) return;
+        fetch(AIWD.rest_url + 'asana/search?' + new URLSearchParams({ q }), {
+            credentials: 'same-origin',
+            headers: { 'X-WP-Nonce': AIWD.nonce },
+        })
+            .then(r => r.json())
+            .then(res => {
+                if (!Array.isArray(res) || !res.length) { alert('Sin resultados.'); return; }
+                const choices = res.map((p, i) => (i + 1) + ') ' + p.name).join('\n');
+                const pick = parseInt(window.prompt('Elige (1-' + res.length + '):\n\n' + choices, '1'), 10) - 1;
+                if (isNaN(pick) || !res[pick]) return;
+                fetch(AIWD.rest_url + 'project/' + pid + '/asana/link', {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: { 'Content-Type': 'application/json', 'X-WP-Nonce': AIWD.nonce },
+                    body: JSON.stringify({ asana_gid: res[pick].gid }),
+                })
+                    .then(r => r.json())
+                    .then(out => {
+                        if (out.project) { alert('✅ Vinculado.'); location.reload(); }
+                        else alert('Error: ' + (out.message || JSON.stringify(out)));
+                    });
+            });
+    });
+
     $(document).on('click', '.aiwd-asana-sync', function (e) {
         e.preventDefault();
         const $btn = $(this);

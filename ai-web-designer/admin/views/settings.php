@@ -66,6 +66,21 @@ $s = get_option( 'aiwd_settings', [] );
                 <td><input type="text" name="aiwd_settings[asana_default_assignee]" value="<?php echo esc_attr( $s['asana_default_assignee'] ?? '' ); ?>" /></td></tr>
             <tr><th><?php esc_html_e( 'Crear proyecto Asana automáticamente', 'ai-web-designer' ); ?></th>
                 <td><label><input type="checkbox" name="aiwd_settings[asana_auto_create]" value="1" <?php checked( ! empty( $s['asana_auto_create'] ) ); ?> /> <?php esc_html_e( 'Al guardar un nuevo proyecto, crear automáticamente el proyecto y las tareas en Asana.', 'ai-web-designer' ); ?></label></td></tr>
+            <tr><th><?php esc_html_e( 'Adjuntar PDF de propuesta', 'ai-web-designer' ); ?></th>
+                <td><label><input type="checkbox" name="aiwd_settings[asana_attach_pdf]" value="1" <?php checked( ! empty( $s['asana_attach_pdf'] ?? 1 ) ); ?> /> <?php esc_html_e( 'Adjuntar automáticamente el PDF del proyecto a la tarea principal.', 'ai-web-designer' ); ?></label></td></tr>
+            <tr><th><?php esc_html_e( 'Webhooks (bidireccional)', 'ai-web-designer' ); ?></th>
+                <td>
+                    <label><input type="checkbox" name="aiwd_settings[asana_webhooks_enabled]" value="1" <?php checked( ! empty( $s['asana_webhooks_enabled'] ) ); ?> /> <?php esc_html_e( 'Activar webhooks: cuando se cierre una tarea o se comente en Asana, se refleja aquí.', 'ai-web-designer' ); ?></label>
+                    <p class="description">
+                        <?php esc_html_e( 'URL de webhook (Asana la usa automáticamente):', 'ai-web-designer' ); ?>
+                        <code><?php echo esc_html( AIWD_Asana_Webhook::endpoint_url() ); ?></code>
+                    </p>
+                </td></tr>
+            <tr><th><?php esc_html_e( 'Plantilla de tareas (JSON)', 'ai-web-designer' ); ?></th>
+                <td>
+                    <textarea name="aiwd_settings[asana_task_template]" rows="10" class="large-text code"><?php echo esc_textarea( $s['asana_task_template'] ?? wp_json_encode( AIWD_Asana_Sync::default_template(), JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE ) ); ?></textarea>
+                    <p class="description"><?php esc_html_e( 'Objeto JSON {clave: "Título de la tarea"}. La clave se usa para mapear estados (briefing, design, seo, legal, qa, approval, publish...).', 'ai-web-designer' ); ?></p>
+                </td></tr>
         </table>
 
         <?php submit_button(); ?>
