@@ -49,6 +49,25 @@ $s = get_option( 'aiwd_settings', [] );
             <tr><th><?php esc_html_e( 'Google Maps API Key', 'ai-web-designer' ); ?></th><td><input type="password" name="aiwd_settings[maps_api_key]" class="regular-text" value="<?php echo esc_attr( $s['maps_api_key'] ?? '' ); ?>" /></td></tr>
         </table>
 
+        <h2><?php esc_html_e( 'Asana', 'ai-web-designer' ); ?></h2>
+        <p class="description"><?php printf( esc_html__( 'Genera un Personal Access Token en %s y pégalo aquí.', 'ai-web-designer' ), '<a href="https://app.asana.com/0/my-apps" target="_blank">app.asana.com/0/my-apps</a>' ); ?></p>
+        <table class="form-table">
+            <tr><th><?php esc_html_e( 'Personal Access Token', 'ai-web-designer' ); ?></th>
+                <td><input type="password" name="aiwd_settings[asana_token]" class="regular-text" value="<?php echo esc_attr( $s['asana_token'] ?? '' ); ?>" /></td></tr>
+            <tr><th><?php esc_html_e( 'Workspace GID', 'ai-web-designer' ); ?></th>
+                <td>
+                    <input type="text" name="aiwd_settings[asana_workspace]" value="<?php echo esc_attr( $s['asana_workspace'] ?? '' ); ?>" />
+                    <button type="button" class="button" id="aiwd-asana-load-ws"><?php esc_html_e( 'Cargar workspaces', 'ai-web-designer' ); ?></button>
+                    <span id="aiwd-asana-ws-result"></span>
+                </td></tr>
+            <tr><th><?php esc_html_e( 'Team GID (opcional)', 'ai-web-designer' ); ?></th>
+                <td><input type="text" name="aiwd_settings[asana_team]" value="<?php echo esc_attr( $s['asana_team'] ?? '' ); ?>" /></td></tr>
+            <tr><th><?php esc_html_e( 'Asignado por defecto (user GID)', 'ai-web-designer' ); ?></th>
+                <td><input type="text" name="aiwd_settings[asana_default_assignee]" value="<?php echo esc_attr( $s['asana_default_assignee'] ?? '' ); ?>" /></td></tr>
+            <tr><th><?php esc_html_e( 'Crear proyecto Asana automáticamente', 'ai-web-designer' ); ?></th>
+                <td><label><input type="checkbox" name="aiwd_settings[asana_auto_create]" value="1" <?php checked( ! empty( $s['asana_auto_create'] ) ); ?> /> <?php esc_html_e( 'Al guardar un nuevo proyecto, crear automáticamente el proyecto y las tareas en Asana.', 'ai-web-designer' ); ?></label></td></tr>
+        </table>
+
         <?php submit_button(); ?>
     </form>
 </div>

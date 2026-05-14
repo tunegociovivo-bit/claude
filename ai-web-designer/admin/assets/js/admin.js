@@ -125,6 +125,54 @@
         }
     }
 
+    $(document).on('click', '#aiwd-asana-load-ws', function (e) {
+        e.preventDefault();
+        const $btn = $(this);
+        const $out = $('#aiwd-asana-ws-result');
+        $btn.prop('disabled', true);
+        fetch(AIWD.rest_url + 'asana/workspaces', {
+            credentials: 'same-origin',
+            headers: { 'X-WP-Nonce': AIWD.nonce },
+        })
+            .then(r => r.json())
+            .then(res => {
+                if (Array.isArray(res)) {
+                    $out.html(res.map(w => '<a href="#" class="aiwd-pick-ws" data-gid="' + w.gid + '">' + w.name + ' (' + w.gid + ')</a>').join(' · '));
+                } else {
+                    $out.text('Error: ' + (res.message || JSON.stringify(res)));
+                }
+            })
+            .finally(() => $btn.prop('disabled', false));
+    });
+
+    $(document).on('click', '.aiwd-pick-ws', function (e) {
+        e.preventDefault();
+        $('input[name="aiwd_settings[asana_workspace]"]').val($(this).data('gid'));
+    });
+
+    $(document).on('click', '.aiwd-asana-sync', function (e) {
+        e.preventDefault();
+        const $btn = $(this);
+        const pid = $btn.data('project');
+        $btn.prop('disabled', true).text('Sincronizando...');
+        fetch(AIWD.rest_url + 'project/' + pid + '/asana/sync', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json', 'X-WP-Nonce': AIWD.nonce },
+            body: '{}',
+        })
+            .then(r => r.json())
+            .then(res => {
+                if (res.url) {
+                    if (confirm('✅ Proyecto creado en Asana. ¿Abrir ahora?')) window.open(res.url, '_blank');
+                    location.reload();
+                } else {
+                    alert('Error: ' + (res.message || JSON.stringify(res)));
+                }
+            })
+            .finally(() => $btn.prop('disabled', false).text('Crear en Asana'));
+    });
+
     $(document).on('click', '.aiwd-client-link', function (e) {
         e.preventDefault();
         const $btn = $(this);

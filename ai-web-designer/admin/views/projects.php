@@ -34,6 +34,12 @@ $statuses = aiwd_project_statuses();
                     <a class="button" href="<?php echo esc_url( admin_url( 'admin.php?page=aiwd-wizard&project_id=' . $p->ID ) ); ?>"><?php esc_html_e( 'Editar', 'ai-web-designer' ); ?></a>
                     <a class="button" href="<?php echo esc_url( rest_url( 'aiwd/v1/project/' . $p->ID . '/proposal.pdf' ) ); ?>" target="_blank"><?php esc_html_e( 'PDF', 'ai-web-designer' ); ?></a>
                     <button class="button aiwd-client-link" data-project="<?php echo esc_attr( $p->ID ); ?>"><?php esc_html_e( 'Enlace cliente', 'ai-web-designer' ); ?></button>
+                    <?php $asana_gid = get_post_meta( $p->ID, AIWD_Asana_Sync::META_PROJECT, true ); ?>
+                    <?php if ( $asana_gid ) : ?>
+                        <a class="button" href="<?php echo esc_url( 'https://app.asana.com/0/' . $asana_gid . '/list' ); ?>" target="_blank">Asana ↗</a>
+                    <?php else : ?>
+                        <button class="button aiwd-asana-sync" data-project="<?php echo esc_attr( $p->ID ); ?>"><?php esc_html_e( 'Crear en Asana', 'ai-web-designer' ); ?></button>
+                    <?php endif; ?>
                 </td>
             </tr>
         <?php endforeach; ?>

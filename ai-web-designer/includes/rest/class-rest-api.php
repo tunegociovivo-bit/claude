@@ -113,6 +113,45 @@ class AIWD_Rest_API {
             'callback'            => [ $this, 'download_proposal' ],
             'permission_callback' => $perm,
         ] );
+
+        register_rest_route( self::NS, '/asana/workspaces', [
+            'methods'             => 'GET',
+            'callback'            => [ $this, 'asana_workspaces' ],
+            'permission_callback' => $perm,
+        ] );
+
+        register_rest_route( self::NS, '/asana/users', [
+            'methods'             => 'GET',
+            'callback'            => [ $this, 'asana_users' ],
+            'permission_callback' => $perm,
+        ] );
+
+        register_rest_route( self::NS, '/project/(?P<id>\d+)/asana/sync', [
+            'methods'             => 'POST',
+            'callback'            => [ $this, 'asana_sync_project' ],
+            'permission_callback' => $perm,
+        ] );
+    }
+
+    public function asana_workspaces() {
+        $client = new AIWD_Asana_Client();
+        $r = $client->get_workspaces();
+        if ( is_wp_error( $r ) ) return $r;
+        return rest_ensure_response( $r );
+    }
+
+    public function asana_users( WP_REST_Request $req ) {
+        $client = new AIWD_Asana_Client();
+        $r = $client->get_users( sanitize_text_field( $req['workspace'] ?? aiwd_get_option( 'asana_workspace' ) ) );
+        if ( is_wp_error( $r ) ) return $r;
+        return rest_ensure_response( $r );
+    }
+
+    public function asana_sync_project( WP_REST_Request $req ) {
+        $sync = new AIWD_Asana_Sync();
+        $r = $sync->create_asana_project( (int) $req['id'] );
+        if ( is_wp_error( $r ) ) return $r;
+        return rest_ensure_response( array_merge( $r, [ 'url' => $sync->asana_url( (int) $req['id'] ) ] ) );
     }
 
     public function generate_client_token( WP_REST_Request $req ) {
@@ -165,12 +204,15 @@ class AIWD_Rest_API {
         $mode = sanitize_key( $req['mode'] ?? 'full' );
         $result = ( $mode === 'proposals' ) ? $gen->generate_proposals( $project_id, 3 ) : $gen->generate( $project_id, $mode );
         if ( is_wp_error( $result ) ) return $result;
+        do_action( 'aiwd_design_generated', $project_id );
         return rest_ensure_response( $result );
     }
 
     public function generate_legal( WP_REST_Request $req ) {
         $gen = new AIWD_Legal_Generator();
-        $created = $gen->generate( (int) $req['project_id'], (array) ( $req['types'] ?? [ 'privacy','cookies','terms' ] ) );
+        $project_id = (int) $req['project_id'];
+        $created = $gen->generate( $project_id, (array) ( $req['types'] ?? [ 'privacy','cookies','terms' ] ) );
+        do_action( 'aiwd_legal_generated', $project_id );
         return rest_ensure_response( [ 'pages' => $created ] );
     }
 
@@ -246,14 +288,20 @@ class AIWD_Rest_API {
 
     public function approve_section( WP_REST_Request $req ) {
         global $wpdb;
+        $project_id = (int) $req['id'];
+        $section    = sanitize_key( $req['section'] ?? '' );
+        $status     = sanitize_key( $req['status'] ?? 'approved' );
         $wpdb->insert( AIWD_Database::table( 'approvals' ), [
-            'project_id' => (int) $req['id'],
-            'section_key'=> sanitize_key( $req['section'] ?? '' ),
+            'project_id' => $project_id,
+            'section_key'=> $section,
             'user_id'    => get_current_user_id(),
-            'status'     => sanitize_key( $req['status'] ?? 'approved' ),
+            'status'     => $status,
             'note'       => sanitize_textarea_field( $req['note'] ?? '' ),
             'created_at' => current_time( 'mysql' ),
         ] );
+        if ( $status === 'approved' ) {
+            do_action( 'aiwd_section_approved', $project_id, $section );
+        }
         return rest_ensure_response( [ 'ok' => true ] );
     }
 

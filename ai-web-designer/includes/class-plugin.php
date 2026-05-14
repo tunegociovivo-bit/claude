@@ -18,5 +18,6 @@ final class AIWD_Plugin {
         ( new AIWD_Public() )->register();
         ( new AIWD_Rest_API() )->register();
         ( new AIWD_Client_Portal() )->register();
+        ( new AIWD_Asana_Sync() )->register();
     }
 }
