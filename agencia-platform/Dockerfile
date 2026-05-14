@@ -15,15 +15,17 @@ FROM node:20-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 RUN apk add --no-cache libc6-compat openssl tini && \
-    addgroup -g 1001 -S nodejs && \
-    adduser -S nextjs -u 1001
-RUN mkdir -p ./public
-COPY --from=builder --chown=nextjs:nodejs /app/.next ./.next
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/package.json ./package.json
-COPY --from=builder /app/prisma ./prisma
-COPY --from=builder /app/scripts ./scripts
-USER nextjs
-EXPOSE 3000
-ENTRYPOINT ["/sbin/tini", "--"]
-CMD ["npm", "run", "start"]
+        addgroup -g 1001 -S nodejs && \
+                adduser -S nextjs -u 1001
+                RUN mkdir -p ./public
+                COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
+                COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+                COPY --from=builder /app/node_modules ./node_modules
+                COPY --from=builder /app/scripts ./scripts
+                COPY --from=builder /app/lib ./lib
+                COPY --from=builder /app/prisma ./prisma
+                USER nextjs
+                EXPOSE 3000
+                ENV PORT=3000
+                ENTRYPOINT ["/sbin/tini", "--"]
+                CMD ["sh", "-c", "npm run db:bootstrap && node server.js"]
