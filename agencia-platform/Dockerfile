@@ -1,4 +1,5 @@
 FROM node:20-alpine AS deps
+ARG CACHEBUST=2
 WORKDIR /app
 RUN apk add --no-cache libc6-compat openssl
 COPY package.json package-lock.json* ./
