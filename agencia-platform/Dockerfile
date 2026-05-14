@@ -1,5 +1,5 @@
 FROM node:20-alpine AS deps
-ARG CACHEBUST=2
+# v3 - force rebuild
 WORKDIR /app
 RUN apk add --no-cache libc6-compat openssl
 COPY package.json package-lock.json* ./
@@ -28,7 +28,7 @@ RUN apk add --no-cache libc6-compat openssl tini && \
                 USER nextjs
                 EXPOSE 8080
                 ENV PORT=3000
-                ENV HOSTNAME=0.0.0.0
+                CMD ["sh", "-c", "echo 'Starting...' && npx prisma db push --accept-data-loss && npx tsx scripts/seed.ts; node server.js"]
                 CMD ["sh", "-c", "npx prisma db push --accept-data-loss; npx tsx scripts/seed.ts; node server.js"]
                 CMD ["sh", "-c", "npx prisma migrate deploy; node server.js"]
 
