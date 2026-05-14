@@ -17,7 +17,7 @@ ENV NODE_ENV=production
 RUN apk add --no-cache libc6-compat openssl tini && \
     addgroup -g 1001 -S nodejs && \
     adduser -S nextjs -u 1001
-COPY --from=builder /app/public ./public
+RUN mkdir -p ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next ./.next
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/package.json ./package.json
