@@ -27,6 +27,7 @@ class AIWD_Admin {
         add_submenu_page( 'aiwd-dashboard', __( 'Nuevo proyecto', 'ai-web-designer' ),__( 'Nuevo proyecto', 'ai-web-designer' ), $cap, 'aiwd-new',       [ $this, 'view_new' ] );
         add_submenu_page( 'aiwd-dashboard', __( 'Briefing (Wizard)', 'ai-web-designer' ),__( 'Briefing', 'ai-web-designer' ),    $cap, 'aiwd-wizard',    [ $this, 'view_wizard' ] );
         add_submenu_page( 'aiwd-dashboard', __( 'Librería de plantillas', 'ai-web-designer' ),__( 'Plantillas', 'ai-web-designer' ), $cap, 'aiwd-templates', [ $this, 'view_templates' ] );
+        add_submenu_page( 'aiwd-dashboard', __( 'Presets', 'ai-web-designer' ),       __( 'Presets', 'ai-web-designer' ),       $cap, 'aiwd-presets',  [ $this, 'view_presets' ] );
         add_submenu_page( 'aiwd-dashboard', __( 'Aprobaciones', 'ai-web-designer' ),  __( 'Aprobaciones', 'ai-web-designer' ),  $cap, 'aiwd-approvals',[ $this, 'view_approvals' ] );
         add_submenu_page( 'aiwd-dashboard', __( 'QA / Calidad', 'ai-web-designer' ),  __( 'QA', 'ai-web-designer' ),            $cap, 'aiwd-qa',       [ $this, 'view_qa' ] );
         add_submenu_page( 'aiwd-dashboard', __( 'Agencia / Clientes', 'ai-web-designer' ),__( 'Agencia', 'ai-web-designer' ),   $cap, 'aiwd-agency',    [ $this, 'view_agency' ] );
@@ -68,6 +69,7 @@ class AIWD_Admin {
     public function view_new()        { include AIWD_PLUGIN_DIR . 'admin/views/new-project.php'; }
     public function view_wizard()     { include AIWD_PLUGIN_DIR . 'admin/views/wizard.php'; }
     public function view_templates()  { include AIWD_PLUGIN_DIR . 'admin/views/templates-library.php'; }
+    public function view_presets()    { include AIWD_PLUGIN_DIR . 'admin/views/presets.php'; }
     public function view_approvals()  { include AIWD_PLUGIN_DIR . 'admin/views/approvals.php'; }
     public function view_qa()         { include AIWD_PLUGIN_DIR . 'admin/views/qa.php'; }
     public function view_agency()     { include AIWD_PLUGIN_DIR . 'admin/views/agency.php'; }
@@ -78,7 +80,9 @@ class AIWD_Admin {
         if ( ! aiwd_current_user_can_manage() || ! check_admin_referer( 'aiwd_create_project' ) ) {
             wp_die( __( 'No autorizado.', 'ai-web-designer' ) );
         }
-        $title = sanitize_text_field( $_POST['project_title'] ?? '' );
+        $title  = sanitize_text_field( $_POST['project_title'] ?? '' );
+        $preset = sanitize_key( $_POST['preset'] ?? '' );
+        $client = sanitize_text_field( $_POST['client_name'] ?? '' );
         if ( ! $title ) {
             wp_safe_redirect( admin_url( 'admin.php?page=aiwd-new&error=1' ) );
             exit;
@@ -91,6 +95,12 @@ class AIWD_Admin {
         ] );
         if ( $post_id && ! is_wp_error( $post_id ) ) {
             update_post_meta( $post_id, '_aiwd_status', 'briefing' );
+            if ( $client ) {
+                wp_set_object_terms( $post_id, $client, 'aiwd_client', false );
+            }
+            if ( $preset ) {
+                AIWD_Presets::apply( $post_id, $preset );
+            }
             wp_safe_redirect( admin_url( 'admin.php?page=aiwd-wizard&project_id=' . $post_id ) );
             exit;
         }

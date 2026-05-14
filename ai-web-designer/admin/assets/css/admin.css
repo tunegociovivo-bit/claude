@@ -59,6 +59,19 @@
 
 .aiwd-generate-actions { display: flex; gap: 10px; flex-wrap: wrap; margin: 16px 0; }
 
+.aiwd-presets-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; margin-top: 12px; }
+.aiwd-preset-card { background: #fff; border: 2px solid #e2e4e7; border-radius: 10px; padding: 14px; cursor: pointer; display: block; transition: border-color .15s, box-shadow .15s; }
+.aiwd-preset-card:hover { border-color: #2271b1; }
+.aiwd-preset-card input[type="radio"] { margin-right: 8px; }
+.aiwd-preset-card input[type="radio"]:checked + h3 { color: #2271b1; }
+.aiwd-preset-card h3 { display: inline; margin: 0; font-size: 14px; }
+.aiwd-preset-card p { margin: 6px 0 8px; color: #50575e; font-size: 13px; }
+.aiwd-preset-card-static { cursor: default; }
+.aiwd-preset-card-static:hover { border-color: #e2e4e7; }
+.aiwd-preset-swatches { display: flex; align-items: center; gap: 6px; margin-top: 8px; }
+.aiwd-preset-swatches span { width: 22px; height: 22px; border-radius: 50%; display: inline-block; border: 1px solid #ddd; }
+.aiwd-preset-swatches small { margin-left: 8px; color: #6c757d; font-size: 11px; }
+
 .aiwd-qa-summary { padding: 14px 18px; border-radius: 8px; margin: 12px 0 20px; font-size: 14px; }
 .aiwd-qa-summary.ok { background: #d1f4d1; color: #1a6b1a; }
 .aiwd-qa-summary.blocked { background: #ffd1d1; color: #861a1a; }
