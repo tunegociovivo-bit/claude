@@ -1,15 +1,17 @@
 import PageHeader from "@/components/PageHeader";
-import { events, getClient, type CalendarEvent } from "@/lib/mock-data";
+import { getEventsForUi, getClientsForUi, type UiEvent } from "@/lib/db/queries";
 import { Plus, ChevronLeft, ChevronRight } from "lucide-react";
 
-const typeStyles: Record<CalendarEvent["type"], string> = {
+export const dynamic = "force-dynamic";
+
+const typeStyles: Record<UiEvent["type"], string> = {
   publicacion: "bg-sky-100 text-sky-800 border-sky-300",
   reunion: "bg-indigo-100 text-indigo-800 border-indigo-300",
   deadline: "bg-rose-100 text-rose-800 border-rose-300",
   campaña: "bg-emerald-100 text-emerald-800 border-emerald-300"
 };
 
-const typeLabels: Record<CalendarEvent["type"], string> = {
+const typeLabels: Record<UiEvent["type"], string> = {
   publicacion: "Publicación",
   reunion: "Reunión",
   deadline: "Deadline",
@@ -27,17 +29,24 @@ function buildMonth(year: number, month: number) {
   return cells;
 }
 
-export default function CalendarioPage() {
-  const today = new Date("2026-05-14");
+export default async function CalendarioPage() {
+  const [events, clients] = await Promise.all([getEventsForUi(), getClientsForUi()]);
+  const today = new Date();
   const year = today.getFullYear();
   const month = today.getMonth();
   const cells = buildMonth(year, month);
 
-  const eventsByDay = new Map<string, CalendarEvent[]>();
+  const getClient = (id?: string) => clients.find((c) => c.id === id);
+
+  const eventsByDay = new Map<string, UiEvent[]>();
   events.forEach((e) => {
     if (!eventsByDay.has(e.date)) eventsByDay.set(e.date, []);
     eventsByDay.get(e.date)!.push(e);
   });
+
+  const isoToday = today.toISOString().slice(0, 10);
+  const weekFromNow = new Date(today);
+  weekFromNow.setDate(weekFromNow.getDate() + 7);
 
   return (
     <div className="max-w-7xl mx-auto">
@@ -67,7 +76,7 @@ export default function CalendarioPage() {
           </div>
 
           <div className="flex items-center gap-3 text-xs">
-            {(Object.keys(typeLabels) as CalendarEvent["type"][]).map((k) => (
+            {(Object.keys(typeLabels) as UiEvent["type"][]).map((k) => (
               <div key={k} className="flex items-center gap-1.5">
                 <span className={`h-2.5 w-2.5 rounded-sm border ${typeStyles[k]}`} />
                 <span className="text-slate-600">{typeLabels[k]}</span>
@@ -78,9 +87,7 @@ export default function CalendarioPage() {
 
         <div className="grid grid-cols-7 text-xs uppercase tracking-wide text-slate-500 border-b">
           {["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"].map((d) => (
-            <div key={d} className="px-3 py-2 border-r last:border-r-0">
-              {d}
-            </div>
+            <div key={d} className="px-3 py-2 border-r last:border-r-0">{d}</div>
           ))}
         </div>
 
@@ -89,7 +96,7 @@ export default function CalendarioPage() {
             if (!cell) return <div key={idx} className="border-r border-b last:border-r-0 bg-slate-50/30" />;
             const iso = cell.date.toISOString().slice(0, 10);
             const dayEvents = eventsByDay.get(iso) ?? [];
-            const isToday = iso === "2026-05-14";
+            const isToday = iso === isoToday;
             return (
               <div key={idx} className="border-r border-b last:border-r-0 p-1.5 overflow-hidden">
                 <div className={`text-xs font-medium mb-1 ${isToday ? "text-brand-600" : "text-slate-700"}`}>
@@ -130,7 +137,7 @@ export default function CalendarioPage() {
           {events
             .filter((e) => {
               const d = new Date(e.date);
-              return d >= today && d <= new Date("2026-05-20");
+              return d >= today && d <= weekFromNow;
             })
             .sort((a, b) => a.date.localeCompare(b.date))
             .map((e) => {

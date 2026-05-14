@@ -1,10 +1,21 @@
-import { getMember } from "@/lib/mock-data";
+import { team as mockTeam } from "@/lib/mock-data";
 
-export default function AvatarStack({ ids, size = 7 }: { ids: string[]; size?: number }) {
+type Member = { id: string; name: string; initials: string; color: string };
+
+export default function AvatarStack({
+  ids,
+  size = 7,
+  members
+}: {
+  ids: string[];
+  size?: number;
+  members?: Member[];
+}) {
+  const lookup = members ?? mockTeam;
   return (
     <div className="flex -space-x-2">
       {ids.map((id) => {
-        const m = getMember(id);
+        const m = lookup.find((x) => x.id === id);
         if (!m) return null;
         return (
           <div

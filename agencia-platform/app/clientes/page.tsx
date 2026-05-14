@@ -1,7 +1,9 @@
 import Link from "next/link";
 import PageHeader from "@/components/PageHeader";
-import { clients, projects, tasks } from "@/lib/mock-data";
+import { getClientsForUi, getProjectsForUi, getTasksForUi } from "@/lib/db/queries";
 import { Plus, Mail, Phone, Building2, ArrowUpRight } from "lucide-react";
+
+export const dynamic = "force-dynamic";
 
 const statusStyles: Record<string, string> = {
   activo: "bg-emerald-50 text-emerald-700 border-emerald-200",
@@ -9,7 +11,13 @@ const statusStyles: Record<string, string> = {
   prospecto: "bg-sky-50 text-sky-700 border-sky-200"
 };
 
-export default function ClientesPage() {
+export default async function ClientesPage() {
+  const [clients, projects, tasks] = await Promise.all([
+    getClientsForUi(),
+    getProjectsForUi(),
+    getTasksForUi()
+  ]);
+
   const totalMrr = clients.reduce((s, c) => s + c.mrr, 0);
 
   return (

@@ -2,20 +2,34 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import PageHeader from "@/components/PageHeader";
 import AvatarStack from "@/components/AvatarStack";
-import { clients, projects, tasks, events, getProject, statusLabels, statusColors } from "@/lib/mock-data";
+import {
+  getClientsForUi,
+  getProjectsForUi,
+  getTasksForUi,
+  getEventsForUi,
+  getTeamForUi
+} from "@/lib/db/queries";
+import { statusLabels, statusColors } from "@/lib/mock-data";
 import { Building2, Mail, Phone, Calendar, ArrowLeft, FileText } from "lucide-react";
 
-export function generateStaticParams() {
-  return clients.map((c) => ({ id: c.id }));
-}
+export const dynamic = "force-dynamic";
 
-export default function ClienteDetailPage({ params }: { params: { id: string } }) {
+export default async function ClienteDetailPage({ params }: { params: { id: string } }) {
+  const [clients, projects, tasks, events, team] = await Promise.all([
+    getClientsForUi(),
+    getProjectsForUi(),
+    getTasksForUi(),
+    getEventsForUi(),
+    getTeamForUi()
+  ]);
+
   const client = clients.find((c) => c.id === params.id);
   if (!client) notFound();
 
   const clientProjects = projects.filter((p) => p.clientId === client.id);
   const clientTasks = tasks.filter((t) => t.clientId === client.id);
   const clientEvents = events.filter((e) => e.clientId === client.id);
+  const findProject = (id: string) => projects.find((p) => p.id === id);
 
   return (
     <div className="max-w-6xl mx-auto">
@@ -29,12 +43,8 @@ export default function ClienteDetailPage({ params }: { params: { id: string } }
         description={`${client.industry} · Cliente desde ${new Date(client.since).toLocaleDateString("es-ES", { month: "long", year: "numeric" })}`}
         actions={
           <>
-            <button className="px-3 py-2 rounded-lg bg-white border text-sm hover:bg-slate-50">
-              Editar
-            </button>
-            <button className="px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium">
-              Nueva nota
-            </button>
+            <button className="px-3 py-2 rounded-lg bg-white border text-sm hover:bg-slate-50">Editar</button>
+            <button className="px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium">Nueva nota</button>
           </>
         }
       />
@@ -72,7 +82,7 @@ export default function ClienteDetailPage({ params }: { params: { id: string } }
             <h2 className="font-semibold mb-4">Tareas relacionadas</h2>
             <ul className="divide-y -mx-6 px-6">
               {clientTasks.map((t) => {
-                const project = getProject(t.projectId);
+                const project = findProject(t.projectId);
                 return (
                   <li key={t.id} className="py-3 flex items-center gap-4">
                     <span className={`h-2 w-2 rounded-full ${project?.color ?? "bg-slate-300"}`} />
@@ -83,13 +93,11 @@ export default function ClienteDetailPage({ params }: { params: { id: string } }
                     <span className={`text-xs px-2 py-1 rounded-md border ${statusColors[t.status]}`}>
                       {statusLabels[t.status]}
                     </span>
-                    <AvatarStack ids={t.assigneeIds} size={6} />
+                    <AvatarStack ids={t.assigneeIds} size={6} members={team} />
                   </li>
                 );
               })}
-              {clientTasks.length === 0 && (
-                <li className="py-3 text-sm text-slate-500">Sin tareas.</li>
-              )}
+              {clientTasks.length === 0 && <li className="py-3 text-sm text-slate-500">Sin tareas.</li>}
             </ul>
           </div>
 
@@ -145,9 +153,7 @@ export default function ClienteDetailPage({ params }: { params: { id: string } }
                   </div>
                 </li>
               ))}
-              {clientEvents.length === 0 && (
-                <li className="text-sm text-slate-500">Sin eventos planificados.</li>
-              )}
+              {clientEvents.length === 0 && <li className="text-sm text-slate-500">Sin eventos planificados.</li>}
             </ul>
           </div>
 

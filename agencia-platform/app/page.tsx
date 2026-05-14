@@ -1,11 +1,19 @@
 import PageHeader from "@/components/PageHeader";
 import AvatarStack from "@/components/AvatarStack";
-import { clients, tasks, projects, events, team, statusLabels, statusColors, priorityColors, getClient, getProject } from "@/lib/mock-data";
+import { getDashboardData } from "@/lib/db/queries";
+import { statusLabels, statusColors, priorityColors } from "@/lib/mock-data";
 import { ArrowUpRight, CheckCircle2, Clock, Users, Briefcase, TrendingUp } from "lucide-react";
 import Link from "next/link";
 
-export default function DashboardPage() {
-  const today = new Date("2026-05-14");
+export const dynamic = "force-dynamic";
+
+export default async function DashboardPage() {
+  const { clients, tasks, projects, events, team } = await getDashboardData();
+  const today = new Date();
+
+  const findClient = (id?: string) => clients.find((c) => c.id === id);
+  const findProject = (id?: string) => projects.find((p) => p.id === id);
+
   const activeClients = clients.filter((c) => c.status === "activo").length;
   const openTasks = tasks.filter((t) => t.status !== "done").length;
   const doneThisMonth = tasks.filter((t) => t.status === "done").length;
@@ -22,17 +30,17 @@ export default function DashboardPage() {
     .slice(0, 6);
 
   const stats = [
-    { label: "Clientes activos", value: activeClients, icon: Users, trend: "+1 este mes" },
+    { label: "Clientes activos", value: activeClients, icon: Users, trend: `${clients.length} totales` },
     { label: "Tareas abiertas", value: openTasks, icon: Clock, trend: `${doneThisMonth} completadas` },
     { label: "Proyectos en curso", value: projects.length, icon: Briefcase, trend: "Todos al día" },
-    { label: "MRR estimado", value: `${mrr.toLocaleString("es-ES")} €`, icon: TrendingUp, trend: "+8% vs abril" }
+    { label: "MRR estimado", value: `${mrr.toLocaleString("es-ES")} €`, icon: TrendingUp, trend: "+8% vs mes anterior" }
   ];
 
   return (
     <div className="max-w-7xl mx-auto">
       <PageHeader
-        title="Hola, Lucía"
-        description="Resumen de la semana del 12 al 18 de mayo de 2026."
+        title="Resumen"
+        description={`Hoy es ${today.toLocaleDateString("es-ES", { weekday: "long", day: "numeric", month: "long" })}`}
       />
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
@@ -67,8 +75,8 @@ export default function DashboardPage() {
           </div>
           <ul className="divide-y">
             {myTasks.map((t) => {
-              const project = getProject(t.projectId);
-              const client = getClient(t.clientId);
+              const project = findProject(t.projectId);
+              const client = findClient(t.clientId);
               return (
                 <li key={t.id} className="p-5 flex items-center gap-4 hover:bg-slate-50">
                   <div className={`h-2 w-2 rounded-full ${project?.color ?? "bg-slate-300"}`} />
@@ -91,10 +99,13 @@ export default function DashboardPage() {
                   <div className="text-xs text-slate-500 w-20 text-right">
                     {new Date(t.dueDate).toLocaleDateString("es-ES", { day: "2-digit", month: "short" })}
                   </div>
-                  <AvatarStack ids={t.assigneeIds} />
+                  <AvatarStack ids={t.assigneeIds} members={team} />
                 </li>
               );
             })}
+            {myTasks.length === 0 && (
+              <li className="p-5 text-sm text-slate-500">No hay tareas pendientes.</li>
+            )}
           </ul>
         </div>
 
@@ -108,16 +119,14 @@ export default function DashboardPage() {
             </div>
             <ul className="divide-y">
               {upcoming.map((e) => {
-                const client = getClient(e.clientId);
+                const client = findClient(e.clientId);
                 return (
                   <li key={e.id} className="p-4 flex items-start gap-3">
                     <div className="flex flex-col items-center justify-center bg-slate-50 rounded-md w-12 py-1">
                       <div className="text-[10px] uppercase text-slate-500">
                         {new Date(e.date).toLocaleDateString("es-ES", { month: "short" })}
                       </div>
-                      <div className="text-base font-semibold">
-                        {new Date(e.date).getDate()}
-                      </div>
+                      <div className="text-base font-semibold">{new Date(e.date).getDate()}</div>
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="text-sm font-medium truncate">{e.title}</div>
@@ -128,6 +137,9 @@ export default function DashboardPage() {
                   </li>
                 );
               })}
+              {upcoming.length === 0 && (
+                <li className="p-5 text-sm text-slate-500">No hay eventos próximos.</li>
+              )}
             </ul>
           </div>
 

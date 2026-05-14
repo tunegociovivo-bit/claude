@@ -261,6 +261,7 @@ model Document {
   icon        String?  // emoji o nombre de icono Lucide
   cover       String?
   category    String?
+  content     Json?    // contenido TipTap (ProseMirror doc); null si usa blocks
   isTemplate  Boolean  @default(false)
   archived    Boolean  @default(false)
   authorId    String?
