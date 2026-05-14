@@ -84,6 +84,7 @@ model Workspace {
   name      String
   slug      String   @unique
   logo      String?
+  settings  Json?    // { ai: { anthropicApiKey: "...", defaultModel: "..." }, ... }
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

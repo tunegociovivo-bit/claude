@@ -1,0 +1,93 @@
+import Anthropic from "@anthropic-ai/sdk";
+import { prisma } from "@/lib/db/prisma";
+import { decryptSecret } from "./crypto";
+
+export const DEFAULT_MODEL = "claude-opus-4-7";
+
+/**
+ * Devuelve un cliente Anthropic configurado para el workspace.
+ * Prioridad: settings del workspace → env var ANTHROPIC_API_KEY.
+ * Throw si no hay ninguna.
+ */
+export async function getAnthropicForWorkspace(workspaceId: string) {
+  const ws = await prisma.workspace.findUnique({ where: { id: workspaceId } });
+  const settings = (ws?.settings as any) ?? {};
+  const encrypted: string | undefined = settings?.ai?.anthropicApiKey;
+
+  let apiKey: string | null = null;
+  if (encrypted) apiKey = decryptSecret(encrypted);
+  if (!apiKey) apiKey = process.env.ANTHROPIC_API_KEY ?? null;
+
+  if (!apiKey) {
+    throw new AIDisabledError(
+      "No hay API key de Anthropic. Configúrala en /admin/ai o en la variable ANTHROPIC_API_KEY."
+    );
+  }
+  return new Anthropic({ apiKey });
+}
+
+export class AIDisabledError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "AIDisabledError";
+  }
+}
+
+/**
+ * Helper de "completar texto" con system prompt cacheable.
+ */
+export async function complete(opts: {
+  workspaceId: string;
+  system: string;
+  user: string;
+  maxTokens?: number;
+  model?: string;
+  thinking?: boolean;
+}): Promise<string> {
+  const client = await getAnthropicForWorkspace(opts.workspaceId);
+  const resp = await client.messages.create({
+    model: opts.model ?? DEFAULT_MODEL,
+    max_tokens: opts.maxTokens ?? 4096,
+    ...(opts.thinking ? { thinking: { type: "adaptive" as const } } : {}),
+    system: [
+      {
+        type: "text",
+        text: opts.system,
+        cache_control: { type: "ephemeral" }
+      }
+    ],
+    messages: [{ role: "user", content: opts.user }]
+  });
+  return resp.content
+    .filter((b) => b.type === "text")
+    .map((b: any) => b.text)
+    .join("\n");
+}
+
+/**
+ * Helper de salida estructurada JSON usando un schema.
+ */
+export async function completeJson<T = any>(opts: {
+  workspaceId: string;
+  system: string;
+  user: string;
+  schema: any;
+  maxTokens?: number;
+  model?: string;
+}): Promise<T> {
+  const client = await getAnthropicForWorkspace(opts.workspaceId);
+  const resp = await client.messages.create({
+    model: opts.model ?? DEFAULT_MODEL,
+    max_tokens: opts.maxTokens ?? 2048,
+    system: [
+      { type: "text", text: opts.system, cache_control: { type: "ephemeral" } }
+    ],
+    messages: [{ role: "user", content: opts.user }],
+    output_config: {
+      format: { type: "json_schema", schema: opts.schema }
+    }
+  } as any);
+  const text = resp.content.find((b) => b.type === "text") as any;
+  if (!text) throw new Error("Sin respuesta de texto del modelo");
+  return JSON.parse(text.text) as T;
+}

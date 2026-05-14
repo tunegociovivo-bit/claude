@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 import Sidebar from "@/components/Sidebar";
 import TopBar from "@/components/TopBar";
+import AIAssistant from "@/components/ai/AIAssistant";
 
 export const metadata: Metadata = {
   title: "Agencia Hub — Plataforma interna",
@@ -19,6 +20,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <main className="flex-1 overflow-y-auto scrollbar-thin px-8 py-6">{children}</main>
           </div>
         </div>
+        <AIAssistant />
       </body>
     </html>
   );

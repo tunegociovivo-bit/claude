@@ -1,8 +1,20 @@
 import Link from "next/link";
 import PageHeader from "@/components/PageHeader";
-import { Key, Download, Webhook, Users } from "lucide-react";
+import { Key, Download, Webhook, Users, Sparkles, PencilLine } from "lucide-react";
 
 const cards = [
+  {
+    href: "/admin/ai",
+    title: "Configuración de IA",
+    description: "Conecta Anthropic para habilitar asistente, redactor, resúmenes y tag automático.",
+    icon: Sparkles
+  },
+  {
+    href: "/admin/redactor",
+    title: "Redactor IA",
+    description: "Genera copy listo para Instagram, blog, email, LinkedIn, TikTok o anuncios.",
+    icon: PencilLine
+  },
   {
     href: "/admin/api-keys",
     title: "API keys",

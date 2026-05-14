@@ -6,6 +6,7 @@ import { useParams, useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import { ArrowLeft, Star, Share2, MoreHorizontal, Plus, Loader2 } from "lucide-react";
 import { docs as mockDocs } from "@/lib/mock-data";
+import DocAIButton from "@/components/ai/DocAIButton";
 
 const BlockEditor = dynamic(() => import("@/components/editor/BlockEditor"), { ssr: false });
 
@@ -146,6 +147,7 @@ export default function DocDetailPage() {
           />
         </div>
         <div className="flex items-center gap-2">
+          <DocAIButton documentId={doc.id} />
           <button onClick={createSubpage} className="text-xs inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border bg-white hover:bg-slate-50">
             <Plus className="h-3.5 w-3.5" /> Subpágina
           </button>
