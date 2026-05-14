@@ -53,11 +53,11 @@ export default function Sidebar() {
 
       <div className="border-t p-3">
         <Link
-          href="#"
+          href="/admin"
           className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-slate-600 hover:bg-slate-50"
         >
           <Settings className="h-4 w-4" />
-          Configuración
+          Administración
         </Link>
         <div className="mt-3 flex items-center gap-3 px-3 py-2">
           <div className="h-8 w-8 rounded-full bg-rose-500 text-white grid place-items-center text-xs font-semibold">
