@@ -11,6 +11,7 @@
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
     "db:seed": "tsx scripts/seed.ts",
+    "db:bootstrap": "tsx scripts/bootstrap.ts",
     "db:reset": "prisma migrate reset --force",
     "openapi": "tsx scripts/build-openapi.ts"
   },
