@@ -34,6 +34,7 @@ require_once AIWD_PLUGIN_DIR . 'includes/ai/class-content-generator.php';
 require_once AIWD_PLUGIN_DIR . 'includes/ai/class-image-generator.php';
 require_once AIWD_PLUGIN_DIR . 'includes/ai/class-design-generator.php';
 require_once AIWD_PLUGIN_DIR . 'includes/ai/class-scraper.php';
+require_once AIWD_PLUGIN_DIR . 'includes/ai/class-audio-briefing.php';
 require_once AIWD_PLUGIN_DIR . 'includes/elementor/class-template-builder.php';
 require_once AIWD_PLUGIN_DIR . 'includes/elementor/class-template-library.php';
 require_once AIWD_PLUGIN_DIR . 'includes/seo/class-seo-generator.php';

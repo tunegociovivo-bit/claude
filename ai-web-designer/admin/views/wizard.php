@@ -41,6 +41,15 @@ $sectors = aiwd_sectors();
             <h2><?php esc_html_e( 'Sobre el negocio', 'ai-web-designer' ); ?></h2>
             <p class="description"><?php esc_html_e( 'Cuéntanos qué hace tu negocio. La IA usará esta información para generar contenidos coherentes.', 'ai-web-designer' ); ?></p>
 
+            <div class="aiwd-audio-card" data-project-id="<?php echo esc_attr( $project_id ); ?>" data-endpoint="<?php echo esc_url( rest_url( 'aiwd/v1/project/' . $project_id . '/audio-briefing' ) ); ?>">
+                <strong>🎙️ <?php esc_html_e( 'Grabar audio del cliente y rellenar con IA', 'ai-web-designer' ); ?></strong>
+                <p style="margin:6px 0"><?php esc_html_e( 'Útil si estás con el cliente en una llamada. La IA transcribirá y rellenará los campos.', 'ai-web-designer' ); ?></p>
+                <button type="button" class="button aiwd-rec-start">● <?php esc_html_e( 'Grabar', 'ai-web-designer' ); ?></button>
+                <button type="button" class="button button-primary aiwd-rec-stop" style="display:none">■ <?php esc_html_e( 'Parar y procesar', 'ai-web-designer' ); ?></button>
+                <input type="file" class="aiwd-rec-upload" accept="audio/*" style="margin-left:10px" />
+                <span class="aiwd-rec-status" style="margin-left:10px"></span>
+            </div>
+
             <table class="form-table">
                 <tr><th><?php esc_html_e( 'Nombre comercial', 'ai-web-designer' ); ?></th>
                     <td><input type="text" name="data[business_name]" class="regular-text" value="<?php echo esc_attr( $data['briefing']['business_name'] ?? '' ); ?>" /></td></tr>

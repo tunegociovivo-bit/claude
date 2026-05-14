@@ -75,6 +75,19 @@ class AIWD_Client_Portal {
                 <input type="hidden" name="aiwd_portal_token" value="<?php echo esc_attr( $token ); ?>" />
                 <?php wp_nonce_field( 'aiwd_portal_submit', 'aiwd_portal_nonce' ); ?>
 
+                <fieldset class="aiwd-audio-fieldset">
+                    <legend>🎙️ <?php esc_html_e( 'Cuéntanoslo en audio (más rápido)', 'ai-web-designer' ); ?></legend>
+                    <p><?php esc_html_e( 'Graba 2-3 minutos hablando de tu negocio (qué hacéis, a quién os dirigís, datos de contacto, qué os diferencia). La IA rellenará el formulario por ti.', 'ai-web-designer' ); ?></p>
+                    <div class="aiwd-audio-controls" data-project-id="<?php echo esc_attr( $project_id ); ?>" data-token="<?php echo esc_attr( $token ); ?>" data-endpoint="<?php echo esc_url( rest_url( 'aiwd/v1/project/' . $project_id . '/audio-briefing' ) ); ?>">
+                        <button type="button" class="aiwd-rec-start aiwd-portal-btn" style="background:#c0392b">● Grabar</button>
+                        <button type="button" class="aiwd-rec-stop aiwd-portal-btn" style="background:#1a6b1a;display:none">■ Parar y enviar</button>
+                        <span class="aiwd-rec-status" style="margin-left:10px;color:#444"></span>
+                        <p style="margin-top:10px"><?php esc_html_e( '...o sube un archivo de audio existente (MP3, WAV, WEBM, M4A):', 'ai-web-designer' ); ?></p>
+                        <input type="file" class="aiwd-rec-upload" accept="audio/*" />
+                    </div>
+                    <div class="aiwd-transcript" hidden></div>
+                </fieldset>
+
                 <fieldset>
                     <legend><?php esc_html_e( 'Sobre el negocio', 'ai-web-designer' ); ?></legend>
                     <label><?php esc_html_e( 'Nombre comercial', 'ai-web-designer' ); ?>
@@ -135,7 +148,80 @@ class AIWD_Client_Portal {
             .aiwd-portal-btn { background: #2271b1; color: #fff; border: 0; padding: 12px 24px; border-radius: 6px; font-size: 16px; cursor: pointer; }
             .aiwd-portal-ok { background: #d1f4d1; padding: 12px; border-radius: 6px; margin-bottom: 16px; color: #1a6b1a; }
             .aiwd-portal-error { max-width: 600px; margin: 80px auto; padding: 24px; background: #ffd1d1; color: #861a1a; text-align: center; border-radius: 12px; }
+            .aiwd-audio-fieldset { background: #f7f7ff; border-color: #c5c5e0; }
+            .aiwd-rec-status.recording { color: #c0392b; font-weight: bold; }
+            .aiwd-transcript { margin-top: 12px; padding: 12px; background: #f0f6ff; border-radius: 6px; font-size: 13px; }
         </style>
+        <script>
+        (function () {
+            const wrap = document.querySelector('.aiwd-audio-controls');
+            if (!wrap) return;
+            const endpoint = wrap.dataset.endpoint;
+            const token    = wrap.dataset.token;
+            const $start = wrap.querySelector('.aiwd-rec-start');
+            const $stop  = wrap.querySelector('.aiwd-rec-stop');
+            const $status= wrap.querySelector('.aiwd-rec-status');
+            const $upload= wrap.querySelector('.aiwd-rec-upload');
+            const $trans = document.querySelector('.aiwd-transcript');
+            let recorder, chunks = [];
+
+            $start.addEventListener('click', async () => {
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    recorder = new MediaRecorder(stream);
+                    chunks = [];
+                    recorder.ondataavailable = e => chunks.push(e.data);
+                    recorder.onstop = () => {
+                        const blob = new Blob(chunks, { type: 'audio/webm' });
+                        send(blob);
+                        stream.getTracks().forEach(t => t.stop());
+                    };
+                    recorder.start();
+                    $start.style.display = 'none';
+                    $stop.style.display  = 'inline-block';
+                    $status.textContent  = 'Grabando... habla con calma.';
+                    $status.classList.add('recording');
+                } catch (err) {
+                    alert('No se pudo acceder al micrófono: ' + err.message);
+                }
+            });
+
+            $stop.addEventListener('click', () => {
+                if (recorder && recorder.state === 'recording') recorder.stop();
+                $stop.style.display  = 'none';
+                $start.style.display = 'inline-block';
+                $status.classList.remove('recording');
+                $status.textContent  = 'Procesando audio con IA...';
+            });
+
+            $upload.addEventListener('change', e => {
+                const f = e.target.files[0];
+                if (f) { $status.textContent = 'Procesando audio con IA...'; send(f); }
+            });
+
+            function send(blob) {
+                const fd = new FormData();
+                fd.append('audio', blob, 'briefing.webm');
+                fd.append('portal_token', token);
+                fd.append('lang', 'es');
+                fetch(endpoint, { method: 'POST', body: fd })
+                    .then(r => r.json())
+                    .then(res => {
+                        if (res.transcript) {
+                            $status.textContent = '✅ ¡Listo! El formulario se ha rellenado abajo. Revisa y completa lo que falte.';
+                            $trans.hidden = false;
+                            $trans.innerHTML = '<strong>Transcripción:</strong><br>' + escapeHtml(res.transcript);
+                            setTimeout(() => location.reload(), 1500);
+                        } else {
+                            $status.textContent = '❌ ' + (res.message || 'Error procesando audio');
+                        }
+                    })
+                    .catch(err => { $status.textContent = '❌ ' + err.message; });
+            }
+
+            function escapeHtml(s) { return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+        })();
+        </script>
         <?php
         return ob_get_clean();
     }

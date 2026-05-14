@@ -32,6 +32,8 @@ $s = get_option( 'aiwd_settings', [] );
                 <td><input type="password" name="aiwd_settings[image_api_key]" class="regular-text" value="<?php echo esc_attr( $s['image_api_key'] ?? '' ); ?>" /></td></tr>
             <tr><th><?php esc_html_e( 'API Key Remove.bg', 'ai-web-designer' ); ?></th>
                 <td><input type="password" name="aiwd_settings[remove_bg_api_key]" class="regular-text" value="<?php echo esc_attr( $s['remove_bg_api_key'] ?? '' ); ?>" /></td></tr>
+            <tr><th><?php esc_html_e( 'API Key Whisper (OpenAI)', 'ai-web-designer' ); ?></th>
+                <td><input type="password" name="aiwd_settings[whisper_api_key]" class="regular-text" value="<?php echo esc_attr( $s['whisper_api_key'] ?? '' ); ?>" /><p class="description"><?php esc_html_e( 'Para transcripción de audio del briefing. Si dejas vacío usa la API key de OpenAI de imágenes.', 'ai-web-designer' ); ?></p></td></tr>
         </table>
 
         <h2><?php esc_html_e( 'Defaults', 'ai-web-designer' ); ?></h2>

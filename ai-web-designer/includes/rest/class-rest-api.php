@@ -167,6 +167,37 @@ class AIWD_Rest_API {
             'callback'            => [ $this, 'qa_override' ],
             'permission_callback' => function () { return current_user_can( 'manage_options' ); },
         ] );
+
+        register_rest_route( self::NS, '/project/(?P<id>\d+)/audio-briefing', [
+            'methods'             => 'POST',
+            'callback'            => [ $this, 'audio_briefing' ],
+            'permission_callback' => [ $this, 'permissions_or_portal_token' ],
+        ] );
+    }
+
+    public function permissions_or_portal_token( WP_REST_Request $req ) {
+        if ( aiwd_current_user_can_manage() ) return true;
+        $token = sanitize_text_field( $req->get_param( 'portal_token' ) ?: $req->get_header( 'x_aiwd_portal_token' ) );
+        $project_id = (int) $req['id'];
+        return $token && AIWD_Client_Portal::resolve_token( $token ) === $project_id;
+    }
+
+    public function audio_briefing( WP_REST_Request $req ) {
+        $project_id = (int) $req['id'];
+        if ( empty( $_FILES['audio']['tmp_name'] ) ) {
+            return new WP_Error( 'aiwd_no_audio', __( 'Falta el archivo de audio (campo "audio").', 'ai-web-designer' ), [ 'status' => 400 ] );
+        }
+        $tmp = $_FILES['audio']['tmp_name'];
+        $size = (int) ( $_FILES['audio']['size'] ?? 0 );
+        if ( $size > 25 * 1024 * 1024 ) {
+            return new WP_Error( 'aiwd_audio_too_big', __( 'El audio supera 25MB.', 'ai-web-designer' ), [ 'status' => 413 ] );
+        }
+
+        $lang = sanitize_text_field( $req->get_param( 'lang' ) ?: 'es' );
+        $bg   = new AIWD_Audio_Briefing();
+        $r    = $bg->process( $project_id, $tmp, $lang );
+        if ( is_wp_error( $r ) ) return $r;
+        return rest_ensure_response( $r );
     }
 
     public function qa_run( WP_REST_Request $req ) {
