@@ -19,7 +19,9 @@ import {
   Mic,
   FileText,
   Download,
-  MessageSquare
+  MessageSquare,
+  ArrowUp,
+  ArrowDown
 } from "lucide-react";
 import clsx from "clsx";
 import ProjectFormModal from "@/components/forms/ProjectFormModal";
@@ -59,17 +61,67 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}
   const [me, setMe] = useState<{ name: string | null; email: string; image: string | null; role: string | null } | null>(null);
   const [workspace, setWorkspace] = useState<{ name: string; logo: string | null } | null>(null);
 
+  // Orden custom por usuario (localStorage)
+  const [projectOrder, setProjectOrder] = useState<string[]>([]);
+  const [platformOrder, setPlatformOrder] = useState<string[]>([]);
+  const [usage, setUsage] = useState<{
+    projects: Record<string, number>;
+    platforms: Record<string, number>;
+    maxMicros: number;
+  }>({ projects: {}, platforms: {}, maxMicros: 0 });
+
+  // Cargar orden de localStorage al montar
+  useEffect(() => {
+    try {
+      const p = localStorage.getItem("sidebar-projects-order-v1");
+      if (p) setProjectOrder(JSON.parse(p));
+      const pl = localStorage.getItem("sidebar-platforms-order-v1");
+      if (pl) setPlatformOrder(JSON.parse(pl));
+    } catch {}
+  }, []);
+
+  function moveProject(id: string, dir: -1 | 1) {
+    const ids = orderItems(projects.map((p) => p.id), projectOrder);
+    const idx = ids.indexOf(id);
+    if (idx === -1) return;
+    const newIdx = idx + dir;
+    if (newIdx < 0 || newIdx >= ids.length) return;
+    [ids[idx], ids[newIdx]] = [ids[newIdx], ids[idx]];
+    setProjectOrder(ids);
+    try { localStorage.setItem("sidebar-projects-order-v1", JSON.stringify(ids)); } catch {}
+  }
+
+  function movePlatform(key: string, dir: -1 | 1) {
+    const keys = orderItems(platforms.map((p) => p.key), platformOrder);
+    const idx = keys.indexOf(key);
+    if (idx === -1) return;
+    const newIdx = idx + dir;
+    if (newIdx < 0 || newIdx >= keys.length) return;
+    [keys[idx], keys[newIdx]] = [keys[newIdx], keys[idx]];
+    setPlatformOrder(keys);
+    try { localStorage.setItem("sidebar-platforms-order-v1", JSON.stringify(keys)); } catch {}
+  }
+
   useEffect(() => {
     let aborted = false;
     (async () => {
       try {
-        const [pr, cr, mr, plr, wr] = await Promise.all([
+        const [pr, cr, mr, plr, wr, ur] = await Promise.all([
           fetch("/api/v1/projects"),
           fetch("/api/v1/clients"),
           fetch("/api/v1/me"),
           fetch("/api/v1/platforms"),
-          fetch("/api/v1/workspace")
+          fetch("/api/v1/workspace"),
+          fetch("/api/v1/sidebar-usage")
         ]);
+        if (!aborted && ur.ok) {
+          const data = await ur.json();
+          const projMap: Record<string, number> = {};
+          const platMap: Record<string, number> = {};
+          (data.projects ?? []).forEach((p: any) => (projMap[p.id] = p.micros));
+          (data.platforms ?? []).forEach((p: any) => (platMap[p.key] = p.micros));
+          setUsage({ projects: projMap, platforms: platMap, maxMicros: data.maxMicros ?? 0 });
+        }
         if (!aborted && wr.ok) {
           const d = await wr.json();
           if (d) setWorkspace({ name: d.name, logo: d.logo });
@@ -171,22 +223,48 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}
             </button>
           </div>
           <div className="space-y-0.5">
-            {projects.map((p) => {
+            {orderItems(projects.map((p) => p.id), projectOrder).map((id, idx, arr) => {
+              const p = projects.find((x) => x.id === id);
+              if (!p) return null;
               const active = activeProjectId === p.id;
+              const cost = usage.projects[p.id] ?? 0;
               return (
-                <Link onClick={onNavigate}
-                  key={p.id}
-                  href={`/tareas?project=${p.id}`}
-                  className={clsx(
-                    "flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition-colors",
-                    active
-                      ? "bg-brand-50 text-brand-700 font-medium"
-                      : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
-                  )}
-                >
-                  <span className={`h-2 w-2 rounded-full ${p.color}`} />
-                  <span className="truncate">{p.name}</span>
-                </Link>
+                <div key={p.id} className="group flex items-center gap-1">
+                  <Link
+                    onClick={onNavigate}
+                    href={`/tareas?project=${p.id}`}
+                    className={clsx(
+                      "flex-1 flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition-colors min-w-0",
+                      active
+                        ? "bg-brand-50 text-brand-700 font-medium"
+                        : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
+                    )}
+                  >
+                    <span className={`h-2 w-2 rounded-full ${p.color} shrink-0`} />
+                    <span className="truncate flex-1">{p.name}</span>
+                    <UsageBar micros={cost} max={usage.maxMicros} />
+                  </Link>
+                  <div className="hidden group-hover:flex flex-col -mx-0.5">
+                    <button
+                      type="button"
+                      onClick={(e) => { e.preventDefault(); moveProject(p.id, -1); }}
+                      disabled={idx === 0}
+                      className="h-3 w-4 grid place-items-center rounded text-slate-400 hover:text-slate-700 disabled:opacity-30"
+                      title="Subir"
+                    >
+                      <ArrowUp className="h-2.5 w-2.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => { e.preventDefault(); moveProject(p.id, 1); }}
+                      disabled={idx === arr.length - 1}
+                      className="h-3 w-4 grid place-items-center rounded text-slate-400 hover:text-slate-700 disabled:opacity-30"
+                      title="Bajar"
+                    >
+                      <ArrowDown className="h-2.5 w-2.5" />
+                    </button>
+                  </div>
+                </div>
               );
             })}
             {projects.length === 0 && (
@@ -218,23 +296,49 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}
               )}
             </div>
             <div className="space-y-0.5">
-              {platforms.map((p) => {
+              {orderItems(platforms.map((p) => p.key), platformOrder).map((key, idx, arr) => {
+                const p = platforms.find((x) => x.key === key);
+                if (!p) return null;
                 const Icon = PLATFORM_ICONS[p.key] ?? Sparkles;
                 const active = pathname.startsWith(p.href);
+                const cost = usage.platforms[p.key] ?? 0;
                 return (
-                  <Link onClick={onNavigate}
-                    key={p.key}
-                    href={p.href}
-                    className={clsx(
-                      "flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition-colors",
-                      active
-                        ? "bg-brand-50 text-brand-700 font-medium"
-                        : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
-                    )}
-                  >
-                    <Icon className="h-3.5 w-3.5" />
-                    <span className="truncate">{p.label}</span>
-                  </Link>
+                  <div key={p.key} className="group flex items-center gap-1">
+                    <Link
+                      onClick={onNavigate}
+                      href={p.href}
+                      className={clsx(
+                        "flex-1 flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition-colors min-w-0",
+                        active
+                          ? "bg-brand-50 text-brand-700 font-medium"
+                          : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
+                      )}
+                    >
+                      <Icon className="h-3.5 w-3.5 shrink-0" />
+                      <span className="truncate flex-1">{p.label}</span>
+                      <UsageBar micros={cost} max={usage.maxMicros} />
+                    </Link>
+                    <div className="hidden group-hover:flex flex-col -mx-0.5">
+                      <button
+                        type="button"
+                        onClick={(e) => { e.preventDefault(); movePlatform(p.key, -1); }}
+                        disabled={idx === 0}
+                        className="h-3 w-4 grid place-items-center rounded text-slate-400 hover:text-slate-700 disabled:opacity-30"
+                        title="Subir"
+                      >
+                        <ArrowUp className="h-2.5 w-2.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => { e.preventDefault(); movePlatform(p.key, 1); }}
+                        disabled={idx === arr.length - 1}
+                        className="h-3 w-4 grid place-items-center rounded text-slate-400 hover:text-slate-700 disabled:opacity-30"
+                        title="Bajar"
+                      >
+                        <ArrowDown className="h-2.5 w-2.5" />
+                      </button>
+                    </div>
+                  </div>
                 );
               })}
               {platforms.length === 0 && me?.role === "ADMIN" && (
@@ -285,6 +389,40 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}
         clients={clients}
       />
     </aside>
+  );
+}
+
+/**
+ * Aplica el orden custom guardado y deja al final cualquier item nuevo que
+ * no estuviera en el orden persistido.
+ */
+function orderItems(allIds: string[], savedOrder: string[]): string[] {
+  if (savedOrder.length === 0) return allIds;
+  const set = new Set(allIds);
+  const present = savedOrder.filter((id) => set.has(id));
+  const missing = allIds.filter((id) => !present.includes(id));
+  return [...present, ...missing];
+}
+
+/**
+ * Barra visual de consumo IA semanal relativa al máximo del workspace.
+ * Verde < 33%, ámbar < 66%, rojo si más.
+ */
+function UsageBar({ micros, max }: { micros: number; max: number }) {
+  if (!micros || !max) return null;
+  const pct = Math.min(100, Math.round((micros / max) * 100));
+  const color =
+    pct < 33 ? "bg-emerald-400" : pct < 66 ? "bg-amber-400" : "bg-rose-500";
+  const usd = (micros / 1_000_000).toFixed(2);
+  return (
+    <span
+      title={`Consumo IA esta semana: $${usd}`}
+      className="ml-auto flex items-center gap-0.5"
+    >
+      <span className="h-1 w-8 bg-slate-200 rounded overflow-hidden">
+        <span className={`block h-full ${color}`} style={{ width: `${pct}%` }} />
+      </span>
+    </span>
   );
 }
 
