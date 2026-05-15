@@ -114,6 +114,7 @@ model Workspace {
   leadTemplates   LeadTemplate[]
   leadSequences   LeadSequence[]
   leadInboxMsgs   LeadInboxMessage[]
+  leadMessages    LeadMessage[]
   leadExclusions  LeadExclusion[]
   leadOptouts     LeadOptout[]
 }
@@ -372,19 +373,23 @@ model ClientApprovalDecision {
 // NV LEADS PRO (migrado: Google Places + WhatsApp + secuencias)
 // ====================================================================
 model LeadSearch {
-  id              String    @id @default(cuid())
-  workspaceId     String
-  keyword         String
-  location        String
-  status          String    @default("PENDING") // PENDING|RUNNING|COMPLETED|FAILED
-  provincesScope  String    @default("[]") // JSON array de provincias seleccionadas
-  currentProvince String?
-  totalResults    Int       @default(0)
-  startedAt       DateTime?
-  completedAt     DateTime?
-  errorMessage    String?   @db.Text
-  legacyWpId      Int?      @unique
-  createdAt       DateTime  @default(now())
+  id                  String    @id @default(cuid())
+  workspaceId         String
+  keyword             String
+  location            String
+  scope               String    @default("custom") // custom | spain (loop por provincias)
+  status              String    @default("PENDING") // PENDING|RUNNING|COMPLETED|FAILED
+  provincesScope      String    @default("[]") // JSON array (legacy)
+  totalProvinces      Int       @default(1)
+  processedProvinces  Int       @default(0)
+  currentProvince     String?
+  totalResults        Int       @default(0)
+  startedAt           DateTime?
+  completedAt         DateTime?
+  errorMessage        String?   @db.Text
+  legacyWpId          Int?      @unique
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt @default(now())
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   leads     Lead[]
@@ -393,41 +398,99 @@ model LeadSearch {
 }
 
 model Lead {
-  id              String   @id @default(cuid())
-  workspaceId     String
-  searchId        String?
-  placeId         String
-  name            String
-  address         String?
-  phone           String?
-  website         String?
-  rating          Float?
-  reviewsCount    Int      @default(0)
-  reviewsJson     Json?
-  score           Float?
-  urgency         Float?
-  hasWhatsapp     Boolean  @default(false)
-  whatsappChecked Boolean  @default(false)
-  aiOpener        String?  @db.Text
-  contactStatus   String   @default("NEW") // NEW|QUEUED|CONTACTED|REPLIED|CONVERTED|LOST
-  legacyWpId      Int?     @unique
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id                    String    @id @default(cuid())
+  workspaceId           String
+  searchId              String?
+  placeId               String
+  // Datos básicos del negocio (Google Places)
+  name                  String
+  address               String?
+  formattedAddress      String?
+  province              String?
+  phone                 String?
+  internationalPhone    String?
+  website               String?
+  category              String?
+  types                 Json?
+  latitude              Float?
+  longitude             Float?
+  position              Int?
+  gmbUrl                String?
+  businessStatus        String?
+  priceLevel            Int?
+  // Reviews
+  rating                Float?
+  reviewsCount          Int       @default(0)
+  reviewsJson           Json?
+  positivePct           Float?
+  negativePct           Float?
+  neutralPct            Float?
+  // Datos crudos completos del API
+  rawData               Json?
+  // Lead scorer (heurística)
+  score                 Int?      // 0-100
+  urgency               String?   // critica | alta | media | baja | descartar
+  scoreBreakdown        Json?
+  // IA
+  aiOpener              String?   @db.Text
+  aiOpenerGeneratedAt   DateTime?
+  // WhatsApp
+  hasWhatsapp           Boolean   @default(false)
+  whatsappChecked       Boolean   @default(false)
+  whatsappCheckedAt     DateTime?
+  // Estado del contacto
+  contactStatus         String    @default("pending") // pending|contacted|responded|client|excluded|discarded
+  notes                 String?   @db.Text
+  legacyWpId            Int?      @unique
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
 
-  workspace     Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  search        LeadSearch?      @relation(fields: [searchId], references: [id], onDelete: SetNull)
+  workspace     Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  search        LeadSearch?        @relation(fields: [searchId], references: [id], onDelete: SetNull)
   competitors   LeadCompetitor[]
   assignments   LeadSequenceAssignment[]
   inboxMessages LeadInboxMessage[]
+  messages      LeadMessage[]
 
   @@unique([workspaceId, placeId])
   @@index([workspaceId, contactStatus])
+  @@index([workspaceId, urgency])
   @@index([searchId])
+  @@index([score])
+}
+
+// Cola de envío de mensajes (saliente). Cron procesa items con
+// status="queued" y scheduledAt <= now respetando ventana y delays.
+model LeadMessage {
+  id                  String    @id @default(cuid())
+  workspaceId         String
+  leadId              String
+  templateId          String?
+  renderedMessage     String    @db.Text
+  channel             String    @default("whatsapp")
+  instanceName        String?   // sesión WAHA (default si null)
+  phoneNormalized     String    // E.164 sin +
+  status              String    @default("queued") // queued|sending|sent|failed|delivered|read
+  scheduledAt         DateTime?
+  sentAt              DateTime?
+  sendAttempts        Int       @default(0)
+  lastError           String?   @db.Text
+  externalMessageId   String?
+  priority            Int       @default(0)
+  createdAt           DateTime  @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  lead      Lead      @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, status])
+  @@index([leadId, status])
+  @@index([status, scheduledAt])
 }
 
 model LeadCompetitor {
   id           String   @id @default(cuid())
   leadId       String
+  placeId      String?
   name         String
   position     Int
   rating       Float?
@@ -444,6 +507,7 @@ model LeadTemplate {
   name        String
   body        String   @db.Text
   channel     String   @default("whatsapp") // whatsapp|email|sms
+  isDefault   Boolean  @default(false) // si true, entra en el pool de rotación
   legacyWpId  Int?     @unique
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -451,6 +515,7 @@ model LeadTemplate {
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@index([workspaceId])
+  @@index([workspaceId, isDefault])
 }
 
 model LeadSequence {
@@ -458,7 +523,8 @@ model LeadSequence {
   workspaceId String
   name        String
   description String?
-  active      Boolean  @default(true)
+  active      Boolean  @default(true) // legacy: equivalente a isActive
+  isDefault   Boolean  @default(false) // si true, se aplica automáticamente al crear lead
   legacyWpId  Int?     @unique
   createdAt   DateTime @default(now())
 
@@ -467,14 +533,18 @@ model LeadSequence {
   assignments LeadSequenceAssignment[]
 
   @@index([workspaceId])
+  @@index([workspaceId, isDefault])
 }
 
 model LeadSequenceStep {
-  id           String @id @default(cuid())
-  sequenceId   String
-  order        Int
-  delayHours   Int    @default(24)
-  templateBody String @db.Text
+  id              String  @id @default(cuid())
+  sequenceId      String
+  order           Int
+  delayHours      Int     @default(24)
+  delayDays       Int     @default(1) // alias humano; cron mira delayHours/delayDays
+  templateBody    String  @db.Text
+  channel         String  @default("whatsapp")
+  stopIfResponded Boolean @default(true)
 
   sequence LeadSequence @relation(fields: [sequenceId], references: [id], onDelete: Cascade)
 
@@ -482,58 +552,80 @@ model LeadSequenceStep {
 }
 
 model LeadSequenceAssignment {
-  id          String    @id @default(cuid())
-  leadId      String
-  sequenceId  String
-  status      String    @default("ACTIVE") // ACTIVE|PAUSED|COMPLETED|UNSUBSCRIBED
-  currentStep Int       @default(0)
-  nextRunAt   DateTime?
-  startedAt   DateTime  @default(now())
-  completedAt DateTime?
+  id              String    @id @default(cuid())
+  leadId          String
+  sequenceId      String
+  status          String    @default("active") // active|paused|completed|stopped
+  currentStep     Int       @default(0)
+  nextRunAt       DateTime?
+  startedAt       DateTime  @default(now())
+  completedAt     DateTime?
+  stoppedReason   String?   // respuesta_recibida | manual | excluded | max_attempts
 
   lead     Lead         @relation(fields: [leadId], references: [id], onDelete: Cascade)
   sequence LeadSequence @relation(fields: [sequenceId], references: [id], onDelete: Cascade)
 
+  @@unique([leadId, sequenceId])
   @@index([leadId])
   @@index([sequenceId])
   @@index([status, nextRunAt])
 }
 
 model LeadInboxMessage {
-  id          String   @id @default(cuid())
-  workspaceId String
-  leadId      String?
-  fromPhone   String
-  body        String   @db.Text
-  meta        Json?
-  read        Boolean  @default(false)
-  receivedAt  DateTime @default(now())
+  id                       String   @id @default(cuid())
+  workspaceId              String
+  leadId                   String?
+  fromPhone                String
+  phoneNormalized          String? // alias E.164 sin +
+  channel                  String   @default("whatsapp")
+  direction                String   @default("in") // in | out
+  body                     String   @db.Text
+  meta                     Json?
+  read                     Boolean  @default(false)
+  externalMessageId        String?
+  instanceName             String?
+  // Clasificación IA
+  classification           String? // interested|objection|info_request|opt_out|off_topic|positive_no|auto_reply
+  classificationConfidence Float?
+  classificationReason     String?  @db.Text
+  receivedAt               DateTime @default(now())
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   lead      Lead?     @relation(fields: [leadId], references: [id], onDelete: SetNull)
 
   @@index([workspaceId, read])
+  @@index([workspaceId, classification])
   @@index([leadId])
+  @@index([phoneNormalized])
 }
 
+// Patrones de exclusión por nombre (ej: cliente existente).
+// Al crear un lead, si su nombre matchea, queda contactStatus=excluded.
 model LeadExclusion {
   id          String   @id @default(cuid())
   workspaceId String
+  matchType   String   @default("name") // name (futuro: domain, phone)
+  matchValue  String
+  matchMode   String   @default("contains") // contains | exact
+  reason      String?
+  // Legacy fields (compat con seed/import previo)
   placeId     String?
   phone       String?
-  reason      String?
   createdAt   DateTime @default(now())
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@index([workspaceId])
+  @@index([workspaceId, matchType])
 }
 
 model LeadOptout {
   id          String   @id @default(cuid())
   workspaceId String
   phone       String
+  leadId      String?
   reason      String?
+  source      String   @default("manual") // manual | ai_classification
   createdAt   DateTime @default(now())
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)

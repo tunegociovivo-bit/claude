@@ -556,22 +556,61 @@ export const POST = withApi({ scope: "*" }, async (_req, { api }) => {
           reviewsJson = typeof l.reviews_json === "string" ? JSON.parse(l.reviews_json) : l.reviews_json;
         } catch {}
 
+        // Scoreboard breakdown si viene como JSON string
+        let scoreBreakdown: any = null;
+        try {
+          scoreBreakdown = typeof l.score_breakdown === "string"
+            ? JSON.parse(l.score_breakdown)
+            : l.score_breakdown;
+        } catch {}
+
+        // Types como JSON
+        let types: any = null;
+        try {
+          types = typeof l.types === "string" ? JSON.parse(l.types) : l.types;
+        } catch {}
+
+        // Raw data del API de Places
+        let rawData: any = null;
+        try {
+          rawData = typeof l.raw_data === "string" ? JSON.parse(l.raw_data) : l.raw_data;
+        } catch {}
+
         const data = {
           workspaceId: api.workspaceId,
           searchId,
           placeId,
           name: String(l.name ?? "Sin nombre"),
           address: l.address ? String(l.address) : null,
+          formattedAddress: l.formatted_address ? String(l.formatted_address) : null,
+          province: l.province ? String(l.province) : null,
           phone: l.phone ? String(l.phone) : null,
+          internationalPhone: l.international_phone ? String(l.international_phone) : null,
           website: l.website ? String(l.website) : null,
+          category: l.category ? String(l.category) : null,
+          types,
+          latitude: l.latitude !== undefined && l.latitude !== null ? Number(l.latitude) : null,
+          longitude: l.longitude !== undefined && l.longitude !== null ? Number(l.longitude) : null,
+          position: l.position !== undefined && l.position !== null ? Number(l.position) : null,
+          gmbUrl: l.gmb_url ? String(l.gmb_url) : null,
+          businessStatus: l.business_status ? String(l.business_status) : null,
+          priceLevel: l.price_level !== undefined && l.price_level !== null ? Number(l.price_level) : null,
           rating: l.rating !== undefined && l.rating !== null ? Number(l.rating) : null,
           reviewsCount: Number(l.reviews_count ?? 0),
           reviewsJson,
-          score: l.score !== undefined && l.score !== null ? Number(l.score) : null,
-          urgency: l.urgency !== undefined && l.urgency !== null ? Number(l.urgency) : null,
+          positivePct: l.positive_pct !== undefined && l.positive_pct !== null ? Number(l.positive_pct) : null,
+          negativePct: l.negative_pct !== undefined && l.negative_pct !== null ? Number(l.negative_pct) : null,
+          neutralPct: l.neutral_pct !== undefined && l.neutral_pct !== null ? Number(l.neutral_pct) : null,
+          rawData,
+          score: l.score !== undefined && l.score !== null ? Math.round(Number(l.score)) : null,
+          urgency: typeof l.urgency === "string" ? l.urgency : null,
+          scoreBreakdown,
           hasWhatsapp: Boolean(Number(l.has_whatsapp ?? 0)),
           whatsappChecked: Boolean(Number(l.whatsapp_checked ?? 0)),
+          whatsappCheckedAt: l.whatsapp_checked_at ? new Date(l.whatsapp_checked_at) : null,
           aiOpener: l.ai_opener ? String(l.ai_opener) : null,
+          aiOpenerGeneratedAt: l.ai_opener_generated_at ? new Date(l.ai_opener_generated_at) : null,
+          notes: l.notes ? String(l.notes) : null,
           contactStatus: mapContactStatus(l.contact_status)
         };
 
@@ -687,13 +726,18 @@ export const POST = withApi({ scope: "*" }, async (_req, { api }) => {
     }
   }
 
-  // 6. Exclusions
+  // 6. Exclusions (plugin: nvl_exclusions con match_type/match_value/match_mode)
   if (Array.isArray(tables.nvl_exclusions)) {
     for (const e of tables.nvl_exclusions) {
       try {
+        const matchValue = String(e.match_value ?? e.place_id ?? e.phone ?? "").trim();
+        if (!matchValue) continue;
         await prisma.leadExclusion.create({
           data: {
             workspaceId: api.workspaceId,
+            matchType: String(e.match_type ?? "name"),
+            matchValue,
+            matchMode: String(e.match_mode ?? "contains") === "exact" ? "exact" : "contains",
             placeId: e.place_id ? String(e.place_id) : null,
             phone: e.phone ? String(e.phone) : null,
             reason: e.reason ? String(e.reason) : null
@@ -756,7 +800,17 @@ function mapLeadSearchStatus(s: any): string {
 }
 
 function mapContactStatus(s: any): string {
-  const v = String(s ?? "").toUpperCase();
-  if (["NEW", "QUEUED", "CONTACTED", "REPLIED", "CONVERTED", "LOST"].includes(v)) return v;
-  return "NEW";
+  // Plugin usa: pending|contacted|responded|client|excluded|discarded
+  const v = String(s ?? "").toLowerCase().trim();
+  const allowed = ["pending", "contacted", "responded", "client", "excluded", "discarded"];
+  if (allowed.includes(v)) return v;
+  // Compat con valores antiguos del hub:
+  const compat: Record<string, string> = {
+    new: "pending",
+    queued: "pending",
+    replied: "responded",
+    converted: "client",
+    lost: "discarded"
+  };
+  return compat[v] ?? "pending";
 }
