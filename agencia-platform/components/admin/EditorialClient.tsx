@@ -1732,6 +1732,17 @@ function PostFormModal({
           />
         </div>
 
+        {/* Acciones rápidas IA */}
+        {isEdit && post && (
+          <AiActionsBar
+            postId={post.id}
+            currentContent={form.content}
+            currentHashtags={form.hashtags}
+            onApplyContent={(v) => setForm((f) => ({ ...f, content: v }))}
+            onApplyHashtags={(v) => setForm((f) => ({ ...f, hashtags: v }))}
+          />
+        )}
+
         {/* Preview de imágenes asociadas */}
         {fullPost && <MediaPreview post={fullPost} />}
 
@@ -1815,6 +1826,162 @@ function MediaPreview({ post }: { post: EditorialPost }) {
           </a>
         ))}
       </div>
+    </div>
+  );
+}
+
+type AiActionKey =
+  | "improve"
+  | "casual"
+  | "corporate"
+  | "shorter"
+  | "longer"
+  | "hashtags"
+  | "variants"
+  | "translate_en"
+  | "custom";
+
+const AI_ACTION_BUTTONS: { key: AiActionKey; emoji: string; label: string }[] = [
+  { key: "improve", emoji: "✍️", label: "Mejorar" },
+  { key: "casual", emoji: "😊", label: "Casual" },
+  { key: "corporate", emoji: "💼", label: "Corporate" },
+  { key: "shorter", emoji: "📏", label: "Acortar" },
+  { key: "longer", emoji: "📐", label: "Alargar" },
+  { key: "hashtags", emoji: "#️⃣", label: "Hashtags" },
+  { key: "variants", emoji: "🔀", label: "3 variantes" },
+  { key: "translate_en", emoji: "🌐", label: "EN" }
+];
+
+function AiActionsBar({
+  postId,
+  currentContent,
+  currentHashtags,
+  onApplyContent,
+  onApplyHashtags
+}: {
+  postId: string;
+  currentContent: string;
+  currentHashtags: string;
+  onApplyContent: (v: string) => void;
+  onApplyHashtags: (v: string) => void;
+}) {
+  const [running, setRunning] = useState<AiActionKey | null>(null);
+  const [preview, setPreview] = useState<{ action: AiActionKey; result: string; variants?: string[] } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [custom, setCustom] = useState("");
+
+  async function run(action: AiActionKey, customInstruction?: string) {
+    setRunning(action);
+    setError(null);
+    setPreview(null);
+    const r = await fetch(`/api/v1/editorial/posts/${postId}/ai-action`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action, customInstruction, apply: false })
+    });
+    setRunning(null);
+    const j = await r.json();
+    if (!r.ok) {
+      setError(j?.error?.message ?? `Error ${r.status}`);
+      return;
+    }
+    setPreview({ action, result: j.result, variants: j.variants });
+  }
+
+  function applyPreview(text?: string) {
+    if (!preview) return;
+    const v = text ?? preview.result;
+    if (preview.action === "hashtags") {
+      onApplyHashtags(v);
+    } else {
+      onApplyContent(v);
+    }
+    setPreview(null);
+  }
+
+  return (
+    <div className="rounded-lg border bg-violet-50/40 border-violet-200 p-3 space-y-2">
+      <div className="flex items-center gap-2">
+        <Sparkles className="h-4 w-4 text-violet-600" />
+        <span className="text-xs font-semibold text-violet-900">Acciones rápidas con IA</span>
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {AI_ACTION_BUTTONS.map((b) => (
+          <button
+            key={b.key}
+            type="button"
+            onClick={() => run(b.key)}
+            disabled={running !== null}
+            className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] border bg-white hover:bg-violet-50 border-violet-200 text-violet-800 disabled:opacity-50"
+          >
+            {running === b.key ? <Loader2 className="h-3 w-3 animate-spin" /> : <span>{b.emoji}</span>}
+            {b.label}
+          </button>
+        ))}
+      </div>
+      <div className="flex gap-1.5">
+        <input
+          type="text"
+          value={custom}
+          onChange={(e) => setCustom(e.target.value)}
+          placeholder="Instrucción libre (ej. añade emoji al inicio)"
+          className="flex-1 px-2 py-1 rounded-md border bg-white text-[11px] focus:outline-none focus:ring-2 focus:ring-violet-500"
+        />
+        <button
+          type="button"
+          onClick={() => custom.trim() && run("custom", custom)}
+          disabled={running !== null || !custom.trim()}
+          className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] bg-violet-600 hover:bg-violet-700 text-white disabled:opacity-50"
+        >
+          {running === "custom" ? <Loader2 className="h-3 w-3 animate-spin" /> : <span>✨</span>}
+          Aplicar
+        </button>
+      </div>
+      {error && <p className="text-[11px] text-rose-600">{error}</p>}
+      {preview && (
+        <div className="rounded-md border bg-white p-2.5 space-y-2">
+          <div className="text-[10px] uppercase tracking-wide text-violet-700 font-semibold">
+            Resultado de "{AI_ACTION_BUTTONS.find((b) => b.key === preview.action)?.label ?? preview.action}"
+          </div>
+          {preview.variants && preview.variants.length > 0 ? (
+            <div className="space-y-2">
+              {preview.variants.map((v, i) => (
+                <div key={i} className="rounded border bg-slate-50/60 p-2">
+                  <div className="text-[10px] text-slate-500 mb-1">Variante {i + 1}</div>
+                  <div className="text-xs whitespace-pre-wrap text-slate-800">{v}</div>
+                  <button
+                    type="button"
+                    onClick={() => applyPreview(v)}
+                    className="mt-1 text-[11px] text-violet-700 hover:underline"
+                  >
+                    Aplicar esta variante
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-xs whitespace-pre-wrap text-slate-800">{preview.result}</div>
+          )}
+          <div className="flex justify-end gap-2 pt-1">
+            <button
+              type="button"
+              onClick={() => setPreview(null)}
+              className="text-[11px] text-slate-500 hover:text-slate-700"
+            >
+              Descartar
+            </button>
+            {!preview.variants && (
+              <button
+                type="button"
+                onClick={() => applyPreview()}
+                className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] bg-violet-600 hover:bg-violet-700 text-white"
+              >
+                ✓ Sustituir en el form
+              </button>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
