@@ -130,6 +130,30 @@ export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
       value: integrations.evolution?.webhookToken ?? null,
       configIn: "/admin/integrations",
       sensitive: true
+    },
+    // ============ WordPress origen (para wp-import) ============
+    wordpressUrl: {
+      key: "WORDPRESS_URL",
+      label: "WordPress origen — URL",
+      value: integrations.wordpress?.url ?? null,
+      configIn: "/admin/seguridad",
+      sensitive: false
+    },
+    wordpressUser: {
+      key: "WORDPRESS_USER",
+      label: "WordPress origen — Usuario",
+      value: integrations.wordpress?.user ?? null,
+      configIn: "/admin/seguridad",
+      sensitive: false
+    },
+    wordpressAppPassword: {
+      key: "WORDPRESS_APP_PASSWORD",
+      label: "WordPress origen — Application Password",
+      value: safeDecrypt(integrations.wordpress?.appPasswordEncrypted),
+      configIn: "/admin/seguridad",
+      docsUrl: "https://wordpress.org/documentation/article/application-passwords/",
+      sensitive: true,
+      hint: "Se guarda sin espacios; WordPress los acepta con o sin ellos al autenticar."
     }
   };
 

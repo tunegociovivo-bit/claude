@@ -91,7 +91,12 @@ export async function GET(req: NextRequest, { params }: { params: { token: strin
     whatsappCountryCode: leads.whatsappCountryCode ?? null,
     leadsWebhookToken: leads.webhookToken ?? null,
     editorialMakeWebhookUrl: editorial.makeWebhookUrl ?? null,
-    evolutionWebhookToken: integrations?.evolution?.webhookToken ?? null
+    evolutionWebhookToken: integrations?.evolution?.webhookToken ?? null,
+    wordpress: {
+      url: integrations?.wordpress?.url ?? null,
+      user: integrations?.wordpress?.user ?? null,
+      appPassword: safeDecrypt(integrations?.wordpress?.appPasswordEncrypted)
+    }
   };
 
   // Env vars informativas (booleano para presencia, valor solo para los no sensibles)

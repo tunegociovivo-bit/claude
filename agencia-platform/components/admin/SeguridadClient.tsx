@@ -261,6 +261,7 @@ function CredentialsSection() {
         </span>
       </header>
 
+      <WordPressCredsBlock />
       <ShareWithClaudeBlock />
 
 
@@ -363,6 +364,133 @@ function EnvSection({ env }: { env: Record<string, any> }) {
 function maskSecret(s: string): string {
   if (s.length <= 12) return "•".repeat(s.length);
   return s.slice(0, 6) + "•".repeat(Math.max(8, s.length - 12)) + s.slice(-6);
+}
+
+/**
+ * Form para configurar las credenciales del WordPress origen
+ * (URL + usuario + Application Password) que usa /admin/wp-import.
+ *
+ * Se cifran en BD. Aparecen luego en el bloque de credenciales y en el
+ * volcado del enlace mágico.
+ */
+function WordPressCredsBlock() {
+  const [data, setData] = useState<{ url: string | null; user: string | null; hasPassword: boolean } | null>(null);
+  const [url, setUrl] = useState("");
+  const [user, setUser] = useState("");
+  const [appPassword, setAppPassword] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [savedAt, setSavedAt] = useState<Date | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch("/api/v1/admin/wordpress-credentials")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d) {
+          setData(d);
+          setUrl(d.url ?? "");
+          setUser(d.user ?? "");
+        }
+      });
+  }, []);
+
+  async function save() {
+    setSaving(true);
+    setError(null);
+    const body: any = { url: url || null, user: user || null };
+    if (appPassword) body.appPassword = appPassword;
+    const r = await fetch("/api/v1/admin/wordpress-credentials", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    });
+    setSaving(false);
+    if (!r.ok) {
+      const j = await r.json().catch(() => ({}));
+      setError(j?.error?.message ?? `Error ${r.status}`);
+      return;
+    }
+    setAppPassword("");
+    setSavedAt(new Date());
+    // Recargar estado
+    const fresh = await fetch("/api/v1/admin/wordpress-credentials").then((r) => r.json());
+    setData(fresh);
+  }
+
+  async function clearPassword() {
+    if (!confirm("¿Borrar la Application Password guardada?")) return;
+    await fetch("/api/v1/admin/wordpress-credentials", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ appPassword: null })
+    });
+    setAppPassword("");
+    const fresh = await fetch("/api/v1/admin/wordpress-credentials").then((r) => r.json());
+    setData(fresh);
+  }
+
+  return (
+    <div className="px-5 py-4 bg-blue-50/40 border-b">
+      <h3 className="text-sm font-semibold text-blue-900 flex items-center gap-1.5 mb-1">
+        📰 WordPress origen (para /admin/wp-import)
+      </h3>
+      <p className="text-xs text-slate-600 mb-3">
+        URL + usuario + Application Password del WordPress de donde se importan los plugins NV.
+        La password se cifra con AES-256-GCM antes de guardarse.
+      </p>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+        <input
+          type="url"
+          value={url}
+          onChange={(e) => setUrl(e.target.value)}
+          placeholder="https://hub.negociovivo.com"
+          className="px-3 py-2 rounded-lg border bg-white text-sm font-mono"
+        />
+        <input
+          type="text"
+          value={user}
+          onChange={(e) => setUser(e.target.value)}
+          placeholder="info@negociovivo.com"
+          className="px-3 py-2 rounded-lg border bg-white text-sm font-mono"
+        />
+        <div className="flex gap-1">
+          <input
+            type="password"
+            value={appPassword}
+            onChange={(e) => setAppPassword(e.target.value)}
+            placeholder={data?.hasPassword ? "•••• (guardada; deja vacío para no cambiar)" : "GuNf BcaV jup8 h70H I42b l5kI"}
+            className="flex-1 px-3 py-2 rounded-lg border bg-white text-sm font-mono"
+          />
+          {data?.hasPassword && (
+            <button
+              type="button"
+              onClick={clearPassword}
+              className="px-2 py-1.5 rounded-md border bg-rose-50 hover:bg-rose-100 border-rose-200 text-rose-700 text-xs"
+              title="Borrar password guardada"
+            >
+              Borrar
+            </button>
+          )}
+        </div>
+      </div>
+      <div className="mt-2 flex items-center gap-2">
+        <button
+          type="button"
+          onClick={save}
+          disabled={saving}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium disabled:opacity-50"
+        >
+          {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+          Guardar
+        </button>
+        {savedAt && <span className="text-[11px] text-emerald-700">✓ Guardado a las {savedAt.toLocaleTimeString("es-ES")}</span>}
+        {error && <span className="text-[11px] text-rose-600">{error}</span>}
+        {data?.hasPassword && !savedAt && (
+          <span className="text-[11px] text-slate-500">App Password guardada · {data.url ?? "—"}</span>
+        )}
+      </div>
+    </div>
+  );
 }
 
 /**

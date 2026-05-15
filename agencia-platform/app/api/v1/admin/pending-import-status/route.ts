@@ -25,6 +25,35 @@ export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
   const nvd = pending.nvDashboard ?? null;
   const pubs = Array.isArray(nvd?.publications) ? nvd.publications : [];
   const taxonomy = Array.isArray(nvd?.clientesTaxonomy) ? nvd.clientesTaxonomy : [];
+  const clienteMetaArr: any[] = Array.isArray(nvd?.clienteMeta) ? nvd.clienteMeta : [];
+
+  // Análisis de cliente_meta: para cada cliente, qué meta keys vienen
+  const clienteMetaSummary = clienteMetaArr.map((cm) => {
+    const meta: Record<string, any> = (cm?.meta ?? {}) as any;
+    const resolved: Record<string, any> = (cm?.resolved ?? {}) as any;
+    const metaKeys = Object.keys(meta).filter((k) => !k.startsWith("_") && !k.startsWith("field_"));
+    const interesting: Record<string, string> = {};
+    for (const k of metaKeys) {
+      const v = meta[k];
+      if (v === null || v === undefined || v === "") continue;
+      if (typeof v === "string") interesting[k] = v.length > 80 ? v.slice(0, 80) + "…" : v;
+      else if (typeof v === "object") interesting[k] = `[${Array.isArray(v) ? "array" : "object"}] ${JSON.stringify(v).slice(0, 80)}`;
+      else interesting[k] = String(v);
+    }
+    return {
+      name: cm?.name,
+      slug: cm?.slug,
+      metaKeyCount: metaKeys.length,
+      metaKeys,
+      meta: interesting,
+      resolved: {
+        hasLogo: !!resolved.logo_url,
+        logoUrl: resolved.logo_url ?? null,
+        fontsCount: Array.isArray(resolved.fonts) ? resolved.fonts.length : 0,
+        refsCount: Array.isArray(resolved.reference_images) ? resolved.reference_images.length : 0
+      }
+    };
+  });
 
   // Nombres de cliente derivados de las publicaciones
   const clientNamesFromPubs = new Set<string>();
@@ -97,6 +126,9 @@ export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
           clientesTaxonomyNames: fromTaxonomyNames,
           clientNamesFoundInPublications: Array.from(clientNamesFromPubs),
           clienteConfigsKeys: Object.keys(nvd.clienteConfigs ?? {}),
+          clienteMetaCount: clienteMetaArr.length,
+          clienteMetaPresent: clienteMetaArr.length > 0,
+          clienteMetaSummary,
           truncated: nvd.truncated ?? false,
           importedAt: nvd.importedAt ?? null,
           samplePublications: sample

@@ -14,12 +14,14 @@ import { z } from "zod";
 import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
-import { encryptSecret } from "@/lib/ai/crypto";
+import { encryptSecret, decryptSecret } from "@/lib/ai/crypto";
 
 const inputSchema = z.object({
-  wpUrl: z.string().url(),
-  wpUser: z.string().min(1),
-  appPassword: z.string().min(8),
+  // Si no se pasan, usa los guardados en
+  // workspace.settings.integrations.wordpress.
+  wpUrl: z.string().url().optional(),
+  wpUser: z.string().min(1).optional(),
+  appPassword: z.string().min(8).optional(),
   sections: z
     .array(z.enum(["generador_resenas", "voice_reviews", "nv_dashboard", "nv_leads_pro"]))
     .optional(),
@@ -87,7 +89,28 @@ export const POST = withApi({ scope: "*" }, async (req, { api }) => {
   const parsed = inputSchema.safeParse(body);
   if (!parsed.success) throw new ApiError(400, "validation_error", parsed.error.message);
 
-  const { wpUrl, wpUser, appPassword, sections, dryRun } = parsed.data;
+  let { wpUrl, wpUser, appPassword } = parsed.data;
+  const { sections, dryRun } = parsed.data;
+
+  // Si no llegan en el body, leerlas de workspace.settings.integrations.wordpress
+  if (!wpUrl || !wpUser || !appPassword) {
+    const ws0 = await prisma.workspace.findUnique({ where: { id: api.workspaceId } });
+    const saved: any = (ws0?.settings as any)?.integrations?.wordpress ?? {};
+    if (!wpUrl && saved.url) wpUrl = saved.url;
+    if (!wpUser && saved.user) wpUser = saved.user;
+    if (!appPassword && saved.appPasswordEncrypted) {
+      try {
+        appPassword = decryptSecret(saved.appPasswordEncrypted) ?? undefined;
+      } catch {}
+    }
+  }
+  if (!wpUrl || !wpUser || !appPassword) {
+    throw new ApiError(
+      400,
+      "missing_wp_credentials",
+      "Faltan credenciales de WordPress. Configúralas en /admin/seguridad o pásalas en el body."
+    );
+  }
   const wpCreds = { wpUrl, wpUser, appPassword };
 
   // 1. Ping primero — falla rápido si la auth es mala
