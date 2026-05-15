@@ -3,10 +3,38 @@
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
-import { LayoutDashboard, KanbanSquare, Users, BookOpen, CalendarDays, Database, Settings, Sparkles, Plus, FolderKanban } from "lucide-react";
+import {
+  LayoutDashboard,
+  KanbanSquare,
+  Users,
+  BookOpen,
+  CalendarDays,
+  Database,
+  Settings,
+  Sparkles,
+  Plus,
+  FolderKanban,
+  AppWindow,
+  Star,
+  Mic,
+  FileText,
+  Download,
+  MessageSquare
+} from "lucide-react";
 import clsx from "clsx";
 import ProjectFormModal from "@/components/forms/ProjectFormModal";
 import type { UiClient } from "@/lib/db/queries";
+
+type SidebarPlatform = { key: string; label: string; href: string };
+
+const PLATFORM_ICONS: Record<string, typeof Star> = {
+  reviews: Star,
+  voice_reviews: Mic,
+  redactor_ia: Sparkles,
+  asana_import: Download,
+  nv_dashboard: FileText,
+  nv_leads: MessageSquare
+};
 
 const nav = [
   { href: "/", label: "Inicio", icon: LayoutDashboard },
@@ -26,6 +54,7 @@ export default function Sidebar() {
 
   const [projects, setProjects] = useState<SidebarProject[]>([]);
   const [clients, setClients] = useState<UiClient[]>([]);
+  const [platforms, setPlatforms] = useState<SidebarPlatform[]>([]);
   const [newProjectOpen, setNewProjectOpen] = useState(false);
   const [me, setMe] = useState<{ name: string | null; email: string; role: string | null } | null>(null);
 
@@ -33,10 +62,11 @@ export default function Sidebar() {
     let aborted = false;
     (async () => {
       try {
-        const [pr, cr, mr] = await Promise.all([
+        const [pr, cr, mr, plr] = await Promise.all([
           fetch("/api/v1/projects"),
           fetch("/api/v1/clients"),
-          fetch("/api/v1/me")
+          fetch("/api/v1/me"),
+          fetch("/api/v1/platforms")
         ]);
         if (!aborted && pr.ok) {
           const data = await pr.json();
@@ -57,6 +87,10 @@ export default function Sidebar() {
           if (data.user) {
             setMe({ name: data.user.name, email: data.user.email, role: data.role });
           }
+        }
+        if (!aborted && plr.ok) {
+          const data = await plr.json();
+          setPlatforms(data.items ?? []);
         }
       } catch {
         // silencio: si no hay sesión, no mostramos proyectos
@@ -145,6 +179,55 @@ export default function Sidebar() {
             )}
           </div>
         </div>
+
+        {(platforms.length > 0 || me?.role === "ADMIN") && (
+          <div className="pt-4 mt-2 border-t border-slate-100">
+            <div className="flex items-center justify-between px-3 mb-1">
+              <span className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold flex items-center gap-1.5">
+                <AppWindow className="h-3 w-3" />
+                Plataformas
+              </span>
+              {me?.role === "ADMIN" && (
+                <Link
+                  href="/admin/plataformas"
+                  className="h-5 w-5 grid place-items-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                  title="Configurar plataformas"
+                >
+                  <Settings className="h-3 w-3" />
+                </Link>
+              )}
+            </div>
+            <div className="space-y-0.5">
+              {platforms.map((p) => {
+                const Icon = PLATFORM_ICONS[p.key] ?? Sparkles;
+                const active = pathname.startsWith(p.href);
+                return (
+                  <Link
+                    key={p.key}
+                    href={p.href}
+                    className={clsx(
+                      "flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition-colors",
+                      active
+                        ? "bg-brand-50 text-brand-700 font-medium"
+                        : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
+                    )}
+                  >
+                    <Icon className="h-3.5 w-3.5" />
+                    <span className="truncate">{p.label}</span>
+                  </Link>
+                );
+              })}
+              {platforms.length === 0 && me?.role === "ADMIN" && (
+                <Link
+                  href="/admin/plataformas"
+                  className="block px-3 py-1.5 text-xs text-slate-500 hover:text-slate-900 hover:bg-slate-50 rounded"
+                >
+                  Activa una plataforma →
+                </Link>
+              )}
+            </div>
+          </div>
+        )}
       </nav>
 
       <div className="border-t p-3">

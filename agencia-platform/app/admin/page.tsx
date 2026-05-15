@@ -1,6 +1,6 @@
 import Link from "next/link";
 import PageHeader from "@/components/PageHeader";
-import { Key, Download, Webhook, Users, Sparkles, PencilLine, FolderKanban, Star, Mic } from "lucide-react";
+import { Key, Download, Webhook, Users, Sparkles, PencilLine, FolderKanban, Star, Mic, Upload, AppWindow } from "lucide-react";
 
 const cards = [
   {
@@ -47,6 +47,12 @@ const cards = [
     icon: FolderKanban
   },
   {
+    href: "/admin/plataformas",
+    title: "Plataformas",
+    description: "Activa los plugins migrados en el sidebar y elige qué trabajadores pueden usarlos.",
+    icon: AppWindow
+  },
+  {
     href: "/admin/reviews",
     title: "Generador de reseñas IA",
     description: "Migrado del plugin WP. Configura clientes y genera reseñas con OpenAI vía un widget embebible.",
@@ -57,6 +63,12 @@ const cards = [
     title: "Voice Reviews",
     description: "Reseñas guiadas por voz: cliente graba, Whisper transcribe, Claude redacta borrador editable.",
     icon: Mic
+  },
+  {
+    href: "/admin/wp-import",
+    title: "Importar desde WordPress",
+    description: "Trae automáticamente API keys, clientes y datos de los plugins NV en hub.negociovivo.com.",
+    icon: Upload
   }
 ];
 
