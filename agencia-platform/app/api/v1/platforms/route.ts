@@ -22,7 +22,8 @@ export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
 
   const items = platformsVisibleTo(settings, api.userId ?? "", isAdmin).map((p) => ({
     key: p.key,
-    label: p.label,
+    // Etiqueta efectiva: el customLabel del workspace si existe, si no la del catálogo
+    label: p.effectiveLabel,
     href: p.href,
     iconName: p.icon.displayName ?? null
   }));

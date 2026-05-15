@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import PageHeader from "@/components/PageHeader";
 import Modal from "@/components/ui/Modal";
-import { Loader2, Users, ExternalLink, Lock, Globe2 } from "lucide-react";
+import { Loader2, Users, ExternalLink, Lock, Globe2, Edit2 } from "lucide-react";
 
 type PlatformCatalogItem = {
   key: string;
@@ -14,7 +14,7 @@ type PlatformCatalogItem = {
   pendingMessage?: string;
 };
 
-type PlatformConfig = { enabled: boolean; memberIds: string[] };
+type PlatformConfig = { enabled: boolean; memberIds: string[]; customLabel?: string; customDescription?: string };
 
 type WorkspaceUser = { id: string; name: string | null; email: string };
 
@@ -25,6 +25,7 @@ export default function PlataformasClient() {
   const [loading, setLoading] = useState(true);
   const [savingKey, setSavingKey] = useState<string | null>(null);
   const [managing, setManaging] = useState<PlatformCatalogItem | null>(null);
+  const [renaming, setRenaming] = useState<PlatformCatalogItem | null>(null);
 
   async function load() {
     setLoading(true);
@@ -78,6 +79,20 @@ export default function PlataformasClient() {
     }
   }
 
+  async function updateNaming(key: string, customLabel: string | null, customDescription: string | null) {
+    setSavingKey(key);
+    const r = await fetch("/api/v1/admin/platforms", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key, customLabel, customDescription })
+    });
+    setSavingKey(null);
+    if (r.ok) {
+      const d = await r.json();
+      setConfig(d.config ?? {});
+    }
+  }
+
   return (
     <div className="max-w-4xl mx-auto">
       <PageHeader
@@ -94,6 +109,8 @@ export default function PlataformasClient() {
           {catalog.map((p) => {
             const c = config[p.key] ?? { enabled: false, memberIds: [] };
             const memberCount = c.memberIds?.length ?? 0;
+            const effectiveLabel = c.customLabel?.trim() || p.label;
+            const effectiveDescription = c.customDescription?.trim() || (p.available ? p.description : p.pendingMessage ?? p.description);
             return (
               <div
                 key={p.key}
@@ -101,7 +118,12 @@ export default function PlataformasClient() {
               >
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <h3 className="font-medium text-[15px]">{p.label}</h3>
+                    <h3 className="font-medium text-[15px]">{effectiveLabel}</h3>
+                    {c.customLabel && (
+                      <span className="text-[10px] text-slate-400" title={`Original: ${p.label}`}>
+                        (original: {p.label})
+                      </span>
+                    )}
                     {!p.available && (
                       <span className="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-200 font-semibold">
                         Pendiente migrar
@@ -120,21 +142,27 @@ export default function PlataformasClient() {
                       </span>
                     )}
                   </div>
-                  <p className="text-sm text-slate-600 mt-1">
-                    {p.available ? p.description : p.pendingMessage ?? p.description}
-                  </p>
+                  <p className="text-sm text-slate-600 mt-1">{effectiveDescription}</p>
                   {p.available && c.enabled && (
                     <a
                       href={p.href}
                       className="inline-flex items-center gap-1 text-xs text-brand-600 hover:underline mt-2"
                     >
-                      Abrir {p.label}
+                      Abrir {effectiveLabel}
                       <ExternalLink className="h-3 w-3" />
                     </a>
                   )}
                 </div>
 
                 <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    onClick={() => setRenaming(p)}
+                    className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-md text-xs bg-white border hover:bg-slate-50"
+                    title="Editar nombre y descripción"
+                  >
+                    <Edit2 className="h-3.5 w-3.5" />
+                    Renombrar
+                  </button>
                   {p.available && c.enabled && (
                     <button
                       onClick={() => setManaging(p)}
@@ -173,7 +201,102 @@ export default function PlataformasClient() {
           }}
         />
       )}
+
+      {renaming && (
+        <RenamePlatformModal
+          platform={renaming}
+          currentLabel={config[renaming.key]?.customLabel ?? ""}
+          currentDescription={config[renaming.key]?.customDescription ?? ""}
+          onClose={() => setRenaming(null)}
+          onSave={async (label, description) => {
+            await updateNaming(renaming.key, label, description);
+            setRenaming(null);
+          }}
+        />
+      )}
     </div>
+  );
+}
+
+function RenamePlatformModal({
+  platform,
+  currentLabel,
+  currentDescription,
+  onClose,
+  onSave
+}: {
+  platform: PlatformCatalogItem;
+  currentLabel: string;
+  currentDescription: string;
+  onClose: () => void;
+  onSave: (label: string | null, description: string | null) => Promise<void>;
+}) {
+  const [label, setLabel] = useState(currentLabel);
+  const [description, setDescription] = useState(currentDescription);
+  const [saving, setSaving] = useState(false);
+
+  async function save() {
+    setSaving(true);
+    await onSave(
+      label.trim() === "" ? null : label.trim(),
+      description.trim() === "" ? null : description.trim()
+    );
+    setSaving(false);
+  }
+
+  return (
+    <Modal
+      open={true}
+      onClose={onClose}
+      title={`Renombrar "${platform.label}"`}
+      size="lg"
+      footer={
+        <>
+          <button onClick={onClose} className="px-3 py-2 rounded-lg text-sm border bg-white hover:bg-slate-50">Cancelar</button>
+          <button
+            onClick={save}
+            disabled={saving}
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium disabled:opacity-50"
+          >
+            {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+            Guardar
+          </button>
+        </>
+      }
+    >
+      <div className="space-y-3">
+        <p className="text-xs text-slate-500">
+          Cambia el nombre con el que aparece esta herramienta en el sidebar y en este panel.
+          El nombre original (<strong>{platform.label}</strong>) se mantiene como fallback.
+        </p>
+        <div>
+          <label className="block text-xs font-medium text-slate-700 mb-1">
+            Nombre personalizado <span className="text-slate-400 font-normal">(dejar vacío usa el original)</span>
+          </label>
+          <input
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+            autoFocus
+            maxLength={60}
+            placeholder={platform.label}
+            className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+          />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-slate-700 mb-1">
+            Descripción personalizada <span className="text-slate-400 font-normal">(opcional)</span>
+          </label>
+          <textarea
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            rows={3}
+            maxLength={300}
+            placeholder={platform.description}
+            className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+          />
+        </div>
+      </div>
+    </Modal>
   );
 }
 

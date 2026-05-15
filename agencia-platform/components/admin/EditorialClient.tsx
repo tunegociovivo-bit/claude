@@ -1,9 +1,24 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import PageHeader from "@/components/PageHeader";
 import Modal from "@/components/ui/Modal";
-import { Plus, Loader2, Trash2, Calendar, Filter, Loader, RefreshCw } from "lucide-react";
+import {
+  Plus,
+  Loader2,
+  Trash2,
+  Filter,
+  RefreshCw,
+  Sparkles,
+  ChevronLeft,
+  ChevronRight,
+  CheckCircle2,
+  Send,
+  Copy,
+  Calendar as CalendarIcon,
+  List as ListIcon,
+  BarChart3
+} from "lucide-react";
 import type { UiClient } from "@/lib/db/queries";
 
 type EditorialPost = {
@@ -19,45 +34,75 @@ type EditorialPost = {
   thumbnail: string | null;
   mediaUrls: string;
   client?: { id: string; name: string } | null;
-  _count: { revisions: number };
+  _count?: { revisions: number };
 };
 
 const STATUS_OPTIONS = [
-  { value: "DRAFT", label: "Borrador", color: "bg-slate-100 text-slate-700 border-slate-200" },
-  { value: "REVIEW", label: "Revisión", color: "bg-amber-100 text-amber-800 border-amber-200" },
-  { value: "APPROVED", label: "Aprobada", color: "bg-sky-100 text-sky-800 border-sky-200" },
-  { value: "SCHEDULED", label: "Programada", color: "bg-indigo-100 text-indigo-800 border-indigo-200" },
-  { value: "PUBLISHED", label: "Publicada", color: "bg-emerald-100 text-emerald-800 border-emerald-200" },
-  { value: "ARCHIVED", label: "Archivada", color: "bg-rose-50 text-rose-700 border-rose-200" }
+  { value: "DRAFT", label: "Borrador", color: "bg-slate-100 text-slate-700 border-slate-200", dot: "bg-slate-400" },
+  { value: "REVIEW", label: "Revisión", color: "bg-amber-100 text-amber-800 border-amber-200", dot: "bg-amber-500" },
+  { value: "APPROVED", label: "Aprobada", color: "bg-sky-100 text-sky-800 border-sky-200", dot: "bg-sky-500" },
+  { value: "SCHEDULED", label: "Programada", color: "bg-indigo-100 text-indigo-800 border-indigo-200", dot: "bg-indigo-500" },
+  { value: "PUBLISHED", label: "Publicada", color: "bg-emerald-100 text-emerald-800 border-emerald-200", dot: "bg-emerald-500" },
+  { value: "ARCHIVED", label: "Archivada", color: "bg-rose-50 text-rose-700 border-rose-200", dot: "bg-rose-400" }
 ];
 
 const NETWORK_OPTIONS = ["instagram", "facebook", "linkedin", "tiktok", "x", "youtube", "blog", "email"];
 
+function monthKey(d: Date): string {
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+function buildCalendarCells(year: number, month: number) {
+  const first = new Date(Date.UTC(year, month - 1, 1));
+  const firstWeekday = (first.getUTCDay() + 6) % 7; // lunes=0
+  const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const cells: ({ date: Date } | null)[] = [];
+  for (let i = 0; i < firstWeekday; i++) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d++) cells.push({ date: new Date(Date.UTC(year, month - 1, d)) });
+  while (cells.length % 7 !== 0) cells.push(null);
+  return cells;
+}
+
 export default function EditorialClient() {
+  const today = useMemo(() => new Date(), []);
+  const [cursor, setCursor] = useState(() => new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1)));
+  const [view, setView] = useState<"calendar" | "list">("calendar");
+
   const [posts, setPosts] = useState<EditorialPost[]>([]);
   const [clients, setClients] = useState<UiClient[]>([]);
+  const [stats, setStats] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [filterStatus, setFilterStatus] = useState("ALL");
   const [filterClient, setFilterClient] = useState("ALL");
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<EditorialPost | null>(null);
+  const [generateOpen, setGenerateOpen] = useState(false);
   const [processing, setProcessing] = useState(false);
   const [processReport, setProcessReport] = useState<any>(null);
+  const [actionMsg, setActionMsg] = useState<string | null>(null);
+
+  const month = monthKey(cursor);
+  const year = cursor.getUTCFullYear();
+  const monthNum = cursor.getUTCMonth() + 1;
+  const cells = useMemo(() => buildCalendarCells(year, monthNum), [year, monthNum]);
 
   async function load() {
     setLoading(true);
-    const [pr, cr] = await Promise.all([
-      fetch("/api/v1/editorial/posts"),
-      fetch("/api/v1/clients")
+    const qs = `?month=${month}${filterClient !== "ALL" ? `&clientId=${filterClient}` : ""}`;
+    const [pr, cr, sr] = await Promise.all([
+      fetch(`/api/v1/editorial/posts${qs}`),
+      fetch("/api/v1/clients"),
+      fetch(`/api/v1/editorial/stats${qs}`)
     ]);
     if (pr.ok) setPosts((await pr.json()).items ?? []);
     if (cr.ok) setClients((await cr.json()).items ?? []);
+    if (sr.ok) setStats(await sr.json());
     setLoading(false);
   }
 
   useEffect(() => {
     load();
-  }, []);
+  }, [month, filterClient]);
 
   async function processPending() {
     if (!confirm("Procesar los datos aparcados desde la migración WP (publicaciones NV Dashboard + leads NV Leads). ¿Continuar?")) return;
@@ -79,27 +124,79 @@ export default function EditorialClient() {
     if (r.ok) load();
   }
 
-  const filtered = posts.filter((p) => {
-    if (filterStatus !== "ALL" && p.status !== filterStatus) return false;
-    if (filterClient !== "ALL" && p.client?.id !== filterClient) return false;
-    return true;
-  });
+  async function doMonthAction(action: "approve" | "schedule" | "publish" | "archive" | "duplicate") {
+    const labels: Record<string, string> = {
+      approve: "aprobar TODAS las publicaciones del mes",
+      schedule: "marcar como programadas todas las aprobadas",
+      publish: "marcar como publicadas todas las programadas",
+      archive: "archivar TODAS las publicaciones del mes",
+      duplicate: "duplicar todas las publicaciones a otro mes"
+    };
+    if (!confirm(`¿Confirmas ${labels[action]} (${filterClient !== "ALL" ? "del cliente seleccionado" : "de todos los clientes"})?`)) return;
+
+    let targetMonth: string | undefined;
+    if (action === "duplicate") {
+      const next = new Date(Date.UTC(year, monthNum, 1));
+      const def = monthKey(next);
+      const input = prompt(`Mes destino (YYYY-MM), por defecto ${def}:`, def);
+      if (!input) return;
+      targetMonth = input;
+    }
+
+    const r = await fetch("/api/v1/editorial/month-actions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action,
+        month,
+        clientId: filterClient !== "ALL" ? filterClient : undefined,
+        targetMonth
+      })
+    });
+    const j = await r.json().catch(() => ({}));
+    if (r.ok) {
+      setActionMsg(`✓ ${labels[action]}: ${j.affected ?? j.created ?? 0} publicaciones afectadas`);
+      setTimeout(() => setActionMsg(null), 4000);
+      load();
+    } else {
+      alert(j?.error?.message ?? "Error");
+    }
+  }
+
+  const filtered = posts.filter((p) => filterStatus === "ALL" || p.status === filterStatus);
+
+  const postsByDay = useMemo(() => {
+    const m = new Map<string, EditorialPost[]>();
+    for (const p of filtered) {
+      if (!p.scheduledFor) continue;
+      const key = p.scheduledFor.slice(0, 10);
+      if (!m.has(key)) m.set(key, []);
+      m.get(key)!.push(p);
+    }
+    return m;
+  }, [filtered]);
 
   return (
-    <div className="max-w-6xl mx-auto">
+    <div className="max-w-7xl mx-auto">
       <PageHeader
         title="Calendario editorial"
-        description="Publicaciones multi-cliente migradas de NV Dashboard. Estado de cada pieza, programación y aprobación."
+        description="Migrado de NV Dashboard. Genera meses completos con IA, aprueba en lote, exporta a Metricool."
         actions={
           <>
             <button
               onClick={processPending}
               disabled={processing}
               className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-white border text-sm hover:bg-slate-50 disabled:opacity-50"
-              title="Procesa los datos aparcados desde la migración WP"
             >
               {processing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
               Procesar aparcados
+            </button>
+            <button
+              onClick={() => setGenerateOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-violet-600 hover:bg-violet-700 text-white text-sm font-medium"
+            >
+              <Sparkles className="h-4 w-4" />
+              Generar mes con IA
             </button>
             <button
               onClick={() => { setEditing(null); setFormOpen(true); }}
@@ -117,33 +214,69 @@ export default function EditorialClient() {
           <strong>Procesado:</strong> {processReport.editorialPostsCreated} publicaciones,
           {" "}{processReport.leadsProcessed} leads, {processReport.leadSearchesProcessed} búsquedas,
           {" "}{processReport.templatesProcessed} plantillas, {processReport.inboxProcessed} mensajes inbox.
-          {processReport.errors?.length > 0 && (
-            <details className="mt-1">
-              <summary className="cursor-pointer text-rose-700 text-xs">
-                {processReport.errors.length} errores
-              </summary>
-              <ul className="mt-1 text-xs space-y-0.5 max-h-40 overflow-y-auto">
-                {processReport.errors.map((e: string, i: number) => <li key={i}>{e}</li>)}
-              </ul>
-            </details>
-          )}
+        </div>
+      )}
+      {actionMsg && (
+        <div className="mb-3 rounded-lg bg-emerald-50 border border-emerald-200 p-3 text-sm text-emerald-800">
+          {actionMsg}
         </div>
       )}
 
-      <div className="flex items-center gap-2 mb-4 flex-wrap">
+      {/* Estadísticas del mes */}
+      {stats && stats.total > 0 && (
+        <div className="grid grid-cols-2 md:grid-cols-7 gap-2 mb-4">
+          <StatCard label="Total mes" value={stats.total} accent="bg-brand-50 text-brand-700" />
+          {STATUS_OPTIONS.map((s) => (
+            <StatCard key={s.value} label={s.label} value={stats.byStatus[s.value] ?? 0} accent={s.color} />
+          ))}
+        </div>
+      )}
+
+      {/* Navegación de mes + filtros + acciones */}
+      <div className="flex items-center flex-wrap gap-2 mb-4">
+        <div className="inline-flex items-center bg-white border rounded-lg p-0.5">
+          <button
+            onClick={() => setCursor(new Date(Date.UTC(year, monthNum - 2, 1)))}
+            className="h-7 w-7 grid place-items-center rounded hover:bg-slate-100"
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </button>
+          <span className="text-sm font-semibold px-3 capitalize">
+            {cursor.toLocaleDateString("es-ES", { month: "long", year: "numeric", timeZone: "UTC" })}
+          </span>
+          <button
+            onClick={() => setCursor(new Date(Date.UTC(year, monthNum, 1)))}
+            className="h-7 w-7 grid place-items-center rounded hover:bg-slate-100"
+          >
+            <ChevronRight className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="flex items-center bg-white border rounded-lg p-0.5">
+          <button
+            onClick={() => setView("calendar")}
+            className={
+              "px-2.5 py-1.5 rounded-md text-xs font-medium inline-flex items-center gap-1 " +
+              (view === "calendar" ? "bg-slate-100 text-slate-900" : "text-slate-500 hover:text-slate-900")
+            }
+          >
+            <CalendarIcon className="h-3 w-3" />
+            Calendario
+          </button>
+          <button
+            onClick={() => setView("list")}
+            className={
+              "px-2.5 py-1.5 rounded-md text-xs font-medium inline-flex items-center gap-1 " +
+              (view === "list" ? "bg-slate-100 text-slate-900" : "text-slate-500 hover:text-slate-900")
+            }
+          >
+            <ListIcon className="h-3 w-3" />
+            Lista
+          </button>
+        </div>
+
         <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white border text-xs">
           <Filter className="h-3.5 w-3.5 text-slate-400" />
-          <span className="text-slate-500">Estado:</span>
-          <select
-            value={filterStatus}
-            onChange={(e) => setFilterStatus(e.target.value)}
-            className="bg-transparent font-medium focus:outline-none"
-          >
-            <option value="ALL">Todos</option>
-            {STATUS_OPTIONS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
-          </select>
-        </div>
-        <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white border text-xs">
           <span className="text-slate-500">Cliente:</span>
           <select
             value={filterClient}
@@ -154,17 +287,97 @@ export default function EditorialClient() {
             {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
         </div>
+        <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white border text-xs">
+          <span className="text-slate-500">Estado:</span>
+          <select
+            value={filterStatus}
+            onChange={(e) => setFilterStatus(e.target.value)}
+            className="bg-transparent font-medium focus:outline-none"
+          >
+            <option value="ALL">Todos</option>
+            {STATUS_OPTIONS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+          </select>
+        </div>
+
+        <div className="ml-auto flex items-center gap-1">
+          <ActionButton onClick={() => doMonthAction("approve")} icon={<CheckCircle2 className="h-3 w-3" />}>Aprobar mes</ActionButton>
+          <ActionButton onClick={() => doMonthAction("schedule")} icon={<CalendarIcon className="h-3 w-3" />}>Programar</ActionButton>
+          <ActionButton onClick={() => doMonthAction("publish")} icon={<Send className="h-3 w-3" />}>Publicar</ActionButton>
+          <ActionButton onClick={() => doMonthAction("duplicate")} icon={<Copy className="h-3 w-3" />}>Duplicar</ActionButton>
+        </div>
       </div>
 
       {loading ? (
         <div className="bg-white rounded-xl border p-8 text-sm text-slate-500 flex items-center gap-2">
           <Loader2 className="h-4 w-4 animate-spin" /> Cargando…
         </div>
+      ) : view === "calendar" ? (
+        <div className="bg-white rounded-xl border overflow-hidden">
+          <div className="grid grid-cols-7 text-xs uppercase tracking-wide text-slate-500 border-b bg-slate-50">
+            {["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"].map((d) => (
+              <div key={d} className="px-3 py-2 border-r last:border-r-0">{d}</div>
+            ))}
+          </div>
+          <div className="grid grid-cols-7 auto-rows-[130px]">
+            {cells.map((cell, idx) => {
+              if (!cell) return <div key={idx} className="border-r border-b last:border-r-0 bg-slate-50/30" />;
+              const iso = cell.date.toISOString().slice(0, 10);
+              const dayPosts = postsByDay.get(iso) ?? [];
+              const isToday = iso === today.toISOString().slice(0, 10);
+              return (
+                <div
+                  key={idx}
+                  className="border-r border-b last:border-r-0 p-1.5 overflow-hidden hover:bg-brand-50/20 transition cursor-pointer"
+                  onClick={() => {
+                    setEditing(null);
+                    setFormOpen(true);
+                    // pre-set fecha al crear desde día concreto: lo manejaremos al abrir el modal
+                  }}
+                >
+                  <div className={"text-xs font-medium mb-1 " + (isToday ? "text-brand-600" : "text-slate-700")}>
+                    <span
+                      className={
+                        isToday
+                          ? "inline-block h-5 w-5 rounded-full bg-brand-600 text-white grid place-items-center leading-5 text-center"
+                          : ""
+                      }
+                    >
+                      {cell.date.getUTCDate()}
+                    </span>
+                  </div>
+                  <div className="space-y-1">
+                    {dayPosts.slice(0, 3).map((p) => {
+                      const st = STATUS_OPTIONS.find((s) => s.value === p.status) ?? STATUS_OPTIONS[0];
+                      return (
+                        <button
+                          key={p.id}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setEditing(p);
+                            setFormOpen(true);
+                          }}
+                          className={`block w-full text-left text-[11px] px-1.5 py-0.5 rounded border truncate ${st.color} hover:opacity-80`}
+                          title={p.title}
+                        >
+                          <span className={`inline-block h-1.5 w-1.5 rounded-full ${st.dot} mr-1`} />
+                          {p.title}
+                        </button>
+                      );
+                    })}
+                    {dayPosts.length > 3 && (
+                      <div className="text-[10px] text-slate-500 pl-1">+{dayPosts.length - 3} más</div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
       ) : filtered.length === 0 ? (
         <div className="bg-white rounded-xl border p-10 text-center text-sm text-slate-500">
           {posts.length === 0
-            ? "Aún no hay publicaciones. Pulsa Procesar aparcados si migraste desde WP o Nueva publicación."
-            : "No hay publicaciones que coincidan con el filtro."}
+            ? "Sin publicaciones este mes. Genera un mes con IA o crea una manualmente."
+            : "Ninguna publicación coincide con el filtro de estado."}
         </div>
       ) : (
         <div className="bg-white rounded-xl border overflow-hidden">
@@ -190,9 +403,7 @@ export default function EditorialClient() {
                       {p.scheduledFor ? new Date(p.scheduledFor).toLocaleDateString("es-ES", { day: "2-digit", month: "short", year: "numeric" }) : "—"}
                     </td>
                     <td className="px-3 py-3">
-                      <span className={`text-xs px-2 py-0.5 rounded-md border ${st.color}`}>
-                        {st.label}
-                      </span>
+                      <span className={`text-xs px-2 py-0.5 rounded-md border ${st.color}`}>{st.label}</span>
                     </td>
                     <td className="px-3 py-3 text-xs text-slate-500 capitalize">{p.format ?? "—"}</td>
                     <td className="px-5 py-3 text-right" onClick={(e) => e.stopPropagation()}>
@@ -216,9 +427,184 @@ export default function EditorialClient() {
         onClose={() => setFormOpen(false)}
         post={editing}
         clients={clients}
+        defaultMonth={month}
         onSaved={() => { setFormOpen(false); load(); }}
       />
+
+      <GenerateMonthModal
+        open={generateOpen}
+        onClose={() => setGenerateOpen(false)}
+        clients={clients}
+        month={month}
+        onDone={() => { setGenerateOpen(false); load(); }}
+      />
     </div>
+  );
+}
+
+function StatCard({ label, value, accent }: { label: string; value: number; accent: string }) {
+  return (
+    <div className={`rounded-lg border px-3 py-2 ${accent}`}>
+      <div className="text-[10px] uppercase tracking-wide opacity-80">{label}</div>
+      <div className="text-xl font-semibold tabular-nums">{value}</div>
+    </div>
+  );
+}
+
+function ActionButton({ onClick, icon, children }: { onClick: () => void; icon: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <button
+      onClick={onClick}
+      className="inline-flex items-center gap-1 px-2 py-1.5 rounded-md text-xs bg-white border hover:bg-slate-50"
+    >
+      {icon}
+      {children}
+    </button>
+  );
+}
+
+function GenerateMonthModal({
+  open,
+  onClose,
+  clients,
+  month,
+  onDone
+}: {
+  open: boolean;
+  onClose: () => void;
+  clients: UiClient[];
+  month: string;
+  onDone: () => void;
+}) {
+  const [clientId, setClientId] = useState("");
+  const [count, setCount] = useState(8);
+  const [networks, setNetworks] = useState<string[]>(["instagram"]);
+  const [brief, setBrief] = useState("");
+  const [running, setRunning] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<any>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    setClientId(clients[0]?.id ?? "");
+    setCount(8);
+    setNetworks(["instagram"]);
+    setBrief("");
+    setError(null);
+    setResult(null);
+  }, [open, clients]);
+
+  function toggle(n: string) {
+    setNetworks((arr) => (arr.includes(n) ? arr.filter((x) => x !== n) : [...arr, n]));
+  }
+
+  async function run() {
+    if (!clientId) {
+      setError("Selecciona un cliente");
+      return;
+    }
+    setRunning(true);
+    setError(null);
+    const r = await fetch("/api/v1/editorial/generate-month", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ clientId, month, count, networks, brief: brief || undefined })
+    });
+    setRunning(false);
+    const data = await r.json();
+    if (!r.ok) {
+      setError(data?.error?.message ?? `Error ${r.status}`);
+      return;
+    }
+    setResult(data);
+    setTimeout(() => onDone(), 1500);
+  }
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title={`Generar mes con IA — ${month}`}
+      size="lg"
+      footer={
+        <>
+          <button onClick={onClose} className="px-3 py-2 rounded-lg text-sm border bg-white hover:bg-slate-50">Cancelar</button>
+          <button
+            onClick={run}
+            disabled={running || !clientId}
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-violet-600 hover:bg-violet-700 text-white text-sm font-medium disabled:opacity-50"
+          >
+            {running ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+            Generar
+          </button>
+        </>
+      }
+    >
+      <div className="space-y-3">
+        <p className="text-xs text-slate-500">
+          Claude generará {count} publicaciones para el cliente seleccionado en {month}. Cada una queda en estado <strong>Borrador</strong> para que las revises antes de publicar.
+        </p>
+        <div>
+          <label className="block text-xs font-medium text-slate-700 mb-1">Cliente *</label>
+          <select
+            value={clientId}
+            onChange={(e) => setClientId(e.target.value)}
+            className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+          >
+            <option value="" disabled>Selecciona…</option>
+            {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-slate-700 mb-1">Número de publicaciones</label>
+          <input
+            type="number"
+            min={1}
+            max={31}
+            value={count}
+            onChange={(e) => setCount(Number(e.target.value))}
+            className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+          />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-slate-700 mb-1">Redes destino</label>
+          <div className="flex flex-wrap gap-1.5">
+            {NETWORK_OPTIONS.map((n) => {
+              const sel = networks.includes(n);
+              return (
+                <button
+                  key={n}
+                  type="button"
+                  onClick={() => toggle(n)}
+                  className={
+                    "px-2.5 py-1 rounded-md text-xs capitalize transition border " +
+                    (sel
+                      ? "bg-violet-50 border-violet-300 text-violet-700"
+                      : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50")
+                  }
+                >
+                  {n}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-slate-700 mb-1">Brief (opcional)</label>
+          <textarea
+            value={brief}
+            onChange={(e) => setBrief(e.target.value)}
+            rows={3}
+            placeholder="Ej. enfoca el mes en sostenibilidad y nuevos productos otoño"
+            className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+          />
+        </div>
+        {error && <p className="text-xs text-rose-600">{error}</p>}
+        {result && (
+          <p className="text-xs text-emerald-700">✓ {result.created} publicaciones creadas. Cerrando…</p>
+        )}
+      </div>
+    </Modal>
   );
 }
 
@@ -227,12 +613,14 @@ function PostFormModal({
   onClose,
   post,
   clients,
+  defaultMonth,
   onSaved
 }: {
   open: boolean;
   onClose: () => void;
   post: EditorialPost | null;
   clients: UiClient[];
+  defaultMonth: string;
   onSaved: () => void;
 }) {
   const isEdit = !!post;
@@ -253,9 +641,7 @@ function PostFormModal({
     if (!open) return;
     setError(null);
     if (post) {
-      const nets = (() => {
-        try { return JSON.parse(post.networks); } catch { return []; }
-      })();
+      const nets = (() => { try { return JSON.parse(post.networks); } catch { return []; } })();
       setForm({
         title: post.title,
         content: post.content ?? "",
@@ -267,24 +653,22 @@ function PostFormModal({
         networks: nets
       });
     } else {
+      const [y, m] = defaultMonth.split("-").map(Number);
       setForm({
         title: "",
         content: "",
         excerpt: "",
-        scheduledFor: "",
+        scheduledFor: `${defaultMonth}-15T10:00`,
         status: "DRAFT",
         format: "post",
         clientId: clients[0]?.id ?? "",
-        networks: []
+        networks: ["instagram"]
       });
     }
-  }, [open, post, clients]);
+  }, [open, post, clients, defaultMonth]);
 
   function toggleNetwork(n: string) {
-    setForm((f) => ({
-      ...f,
-      networks: f.networks.includes(n) ? f.networks.filter((x) => x !== n) : [...f.networks, n]
-    }));
+    setForm((f) => ({ ...f, networks: f.networks.includes(n) ? f.networks.filter((x) => x !== n) : [...f.networks, n] }));
   }
 
   async function submit(e: React.FormEvent) {
@@ -301,14 +685,9 @@ function PostFormModal({
       networks: form.networks
     };
     if (form.scheduledFor) payload.scheduledFor = new Date(form.scheduledFor).toISOString();
-
     const url = isEdit ? `/api/v1/editorial/posts/${post!.id}` : "/api/v1/editorial/posts";
     const method = isEdit ? "PATCH" : "POST";
-    const r = await fetch(url, {
-      method,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload)
-    });
+    const r = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
     setSaving(false);
     if (!r.ok) {
       const j = await r.json().catch(() => ({}));
@@ -326,9 +705,7 @@ function PostFormModal({
       size="xl"
       footer={
         <>
-          <button type="button" onClick={onClose} className="px-3 py-2 rounded-lg text-sm border bg-white hover:bg-slate-50">
-            Cancelar
-          </button>
+          <button type="button" onClick={onClose} className="px-3 py-2 rounded-lg text-sm border bg-white hover:bg-slate-50">Cancelar</button>
           <button
             type="submit"
             form="editorial-form"
@@ -342,100 +719,59 @@ function PostFormModal({
       }
     >
       <form id="editorial-form" onSubmit={submit} className="space-y-3">
-        <div>
-          <label className="block text-xs font-medium text-slate-700 mb-1">Título</label>
-          <input
-            value={form.title}
-            onChange={(e) => setForm({ ...form, title: e.target.value })}
-            required
-            className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
-          />
-        </div>
+        <input
+          value={form.title}
+          onChange={(e) => setForm({ ...form, title: e.target.value })}
+          required
+          placeholder="Título"
+          className="w-full text-lg font-semibold px-0 py-1 bg-transparent border-0 border-b border-transparent focus:border-brand-500 focus:outline-none focus:ring-0"
+        />
         <div className="grid grid-cols-3 gap-2">
-          <div>
-            <label className="block text-xs font-medium text-slate-700 mb-1">Cliente</label>
-            <select
-              value={form.clientId}
-              onChange={(e) => setForm({ ...form, clientId: e.target.value })}
-              className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
-            >
-              <option value="">— Sin cliente —</option>
-              {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-slate-700 mb-1">Estado</label>
-            <select
-              value={form.status}
-              onChange={(e) => setForm({ ...form, status: e.target.value })}
-              className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
-            >
-              {STATUS_OPTIONS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-slate-700 mb-1">Formato</label>
-            <select
-              value={form.format}
-              onChange={(e) => setForm({ ...form, format: e.target.value })}
-              className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
-            >
-              {["post", "reel", "story", "video", "blog", "email", "carousel"].map((x) =>
-                <option key={x} value={x}>{x}</option>
-              )}
-            </select>
-          </div>
+          <select value={form.clientId} onChange={(e) => setForm({ ...form, clientId: e.target.value })} className="px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
+            <option value="">— Sin cliente —</option>
+            {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+          <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })} className="px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
+            {STATUS_OPTIONS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+          </select>
+          <select value={form.format} onChange={(e) => setForm({ ...form, format: e.target.value })} className="px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
+            {["post", "reel", "story", "video", "blog", "email", "carousel"].map((x) => <option key={x} value={x}>{x}</option>)}
+          </select>
         </div>
-        <div>
-          <label className="block text-xs font-medium text-slate-700 mb-1">Fecha programada</label>
-          <input
-            type="datetime-local"
-            value={form.scheduledFor}
-            onChange={(e) => setForm({ ...form, scheduledFor: e.target.value })}
-            className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
-          />
-        </div>
+        <input
+          type="datetime-local"
+          value={form.scheduledFor}
+          onChange={(e) => setForm({ ...form, scheduledFor: e.target.value })}
+          className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+        />
         <div>
           <label className="block text-xs font-medium text-slate-700 mb-1">Redes destino</label>
           <div className="flex flex-wrap gap-1.5">
             {NETWORK_OPTIONS.map((n) => {
               const sel = form.networks.includes(n);
               return (
-                <button
-                  key={n}
-                  type="button"
-                  onClick={() => toggleNetwork(n)}
-                  className={
-                    "px-2.5 py-1 rounded-md text-xs capitalize transition border " +
-                    (sel
-                      ? "bg-brand-50 border-brand-300 text-brand-700"
-                      : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50")
-                  }
-                >
+                <button key={n} type="button" onClick={() => toggleNetwork(n)}
+                  className={"px-2.5 py-1 rounded-md text-xs capitalize transition border " + (sel ? "bg-brand-50 border-brand-300 text-brand-700" : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50")}>
                   {n}
                 </button>
               );
             })}
           </div>
         </div>
-        <div>
-          <label className="block text-xs font-medium text-slate-700 mb-1">Excerpt</label>
-          <textarea
-            value={form.excerpt}
-            onChange={(e) => setForm({ ...form, excerpt: e.target.value })}
-            rows={2}
-            className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
-          />
-        </div>
-        <div>
-          <label className="block text-xs font-medium text-slate-700 mb-1">Contenido</label>
-          <textarea
-            value={form.content}
-            onChange={(e) => setForm({ ...form, content: e.target.value })}
-            rows={8}
-            className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
-          />
-        </div>
+        <textarea
+          value={form.excerpt}
+          onChange={(e) => setForm({ ...form, excerpt: e.target.value })}
+          rows={2}
+          placeholder="Excerpt"
+          className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+        />
+        <textarea
+          value={form.content}
+          onChange={(e) => setForm({ ...form, content: e.target.value })}
+          rows={10}
+          placeholder="Contenido completo de la publicación"
+          className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+        />
         {error && <p className="text-xs text-rose-600">{error}</p>}
       </form>
     </Modal>

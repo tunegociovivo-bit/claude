@@ -8,7 +8,9 @@ import { PLATFORMS, type PlatformsSettings } from "@/lib/platforms";
 const updateSchema = z.object({
   key: z.string().min(1),
   enabled: z.boolean().optional(),
-  memberIds: z.array(z.string()).optional()
+  memberIds: z.array(z.string()).optional(),
+  customLabel: z.string().max(60).nullable().optional(),
+  customDescription: z.string().max(300).nullable().optional()
 });
 
 async function requireAdmin(workspaceId: string, userId: string | undefined) {
@@ -42,6 +44,20 @@ export const PATCH = withApi({ scope: "*" }, async (req, { api }) => {
   const current = settings.platforms[parsed.data.key] ?? { enabled: false, memberIds: [] };
   if (parsed.data.enabled !== undefined) current.enabled = parsed.data.enabled;
   if (parsed.data.memberIds !== undefined) current.memberIds = parsed.data.memberIds;
+  if (parsed.data.customLabel !== undefined) {
+    if (parsed.data.customLabel === null || parsed.data.customLabel.trim() === "") {
+      delete current.customLabel;
+    } else {
+      current.customLabel = parsed.data.customLabel.trim();
+    }
+  }
+  if (parsed.data.customDescription !== undefined) {
+    if (parsed.data.customDescription === null || parsed.data.customDescription.trim() === "") {
+      delete current.customDescription;
+    } else {
+      current.customDescription = parsed.data.customDescription.trim();
+    }
+  }
   settings.platforms[parsed.data.key] = current;
 
   await prisma.workspace.update({

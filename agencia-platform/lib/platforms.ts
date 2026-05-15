@@ -89,9 +89,29 @@ export const PLATFORMS: PlatformDef[] = [
 export type PlatformConfig = {
   enabled: boolean;
   memberIds: string[]; // userIds del workspace con acceso. Vacío = todos del workspace.
+  /** Override del label que aparece en sidebar y admin. Si vacío, se usa PlatformDef.label */
+  customLabel?: string;
+  /** Override de la descripción */
+  customDescription?: string;
 };
 
 export type PlatformsSettings = Record<string, PlatformConfig>;
+
+/**
+ * Mezcla el catálogo base con los overrides per-workspace y devuelve una
+ * lista de plataformas "efectivas" para mostrar en UI.
+ */
+export function mergedPlatforms(settings: any): (PlatformDef & { effectiveLabel: string; effectiveDescription: string })[] {
+  const cfg: PlatformsSettings = (settings?.platforms ?? {}) as any;
+  return PLATFORMS.map((p) => {
+    const c = cfg[p.key];
+    return {
+      ...p,
+      effectiveLabel: c?.customLabel?.trim() || p.label,
+      effectiveDescription: c?.customDescription?.trim() || p.description
+    };
+  });
+}
 
 /**
  * Resuelve qué plataformas son visibles para un usuario dado, dadas las
@@ -104,13 +124,18 @@ export function platformsVisibleTo(
   settings: any,
   userId: string,
   isAdmin: boolean
-): PlatformDef[] {
+): (PlatformDef & { effectiveLabel: string })[] {
   const cfg: PlatformsSettings = (settings?.platforms ?? {}) as any;
-  return PLATFORMS.filter((p) => {
-    const c = cfg[p.key];
-    if (!c?.enabled) return false;
-    if (isAdmin) return true;
-    if (!c.memberIds || c.memberIds.length === 0) return true;
-    return c.memberIds.includes(userId);
-  });
+  return PLATFORMS
+    .filter((p) => {
+      const c = cfg[p.key];
+      if (!c?.enabled) return false;
+      if (isAdmin) return true;
+      if (!c.memberIds || c.memberIds.length === 0) return true;
+      return c.memberIds.includes(userId);
+    })
+    .map((p) => ({
+      ...p,
+      effectiveLabel: cfg[p.key]?.customLabel?.trim() || p.label
+    }));
 }
