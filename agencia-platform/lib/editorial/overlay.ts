@@ -131,45 +131,86 @@ function registerFontIfNeeded(path: string, family: string): string {
 }
 
 let interRegistered = false;
+let interRegisteredReport: any = null;
 function ensureInterRegistered(): { family: string; regularOk: boolean; boldOk: boolean } {
   if (interRegistered) return { family: "Inter", regularOk: true, boldOk: true };
   const root = process.cwd();
   const candidates = [
     join(root, "public", "fonts"),
     join(root, ".next", "standalone", "public", "fonts"),
-    join(__dirname, "..", "..", "public", "fonts")
+    join(__dirname, "..", "..", "..", "public", "fonts"),
+    join(__dirname, "..", "..", "public", "fonts"),
+    join(__dirname, "..", "fonts"),
+    "/app/public/fonts",
+    "/app/.next/standalone/public/fonts"
   ];
   let regularOk = false;
   let boldOk = false;
+  const triedPaths: any[] = [];
   for (const dir of candidates) {
     const reg = join(dir, "Inter-Regular.ttf");
     const bold = join(dir, "Inter-Bold.ttf");
-    if (!regularOk && existsSync(reg)) {
+    const regExists = existsSync(reg);
+    const boldExists = existsSync(bold);
+    triedPaths.push({ dir, regExists, boldExists });
+    if (!regularOk && regExists) {
       try {
         GlobalFonts.registerFromPath(reg, "Inter");
         regularOk = true;
-      } catch {}
+      } catch (e) {
+        triedPaths[triedPaths.length - 1].regError = (e as Error).message;
+      }
     }
-    if (!boldOk && existsSync(bold)) {
+    if (!boldOk && boldExists) {
       try {
-        // Registramos el bold también como "Inter" (canvas usa font-weight
-        // del CSS string para elegir entre las variantes registradas con
-        // el mismo nombre).
         GlobalFonts.registerFromPath(bold, "Inter");
         boldOk = true;
-      } catch {}
+      } catch (e) {
+        triedPaths[triedPaths.length - 1].boldError = (e as Error).message;
+      }
     }
     if (regularOk && boldOk) break;
   }
-  interRegistered = regularOk || boldOk;
-  if (process.env.DEBUG_OVERLAY_FONTS === "1") {
-    console.log("[overlay] Inter registered:", {
-      regularOk,
-      boldOk,
-      cwd: root,
-      families: GlobalFonts.families.map((f: any) => f.family)
-    });
+  // Fallback: si no encontramos los TTF en disco, decodificamos las
+  // versiones base64 embebidas en el código fuente (sobrevive a
+  // standalone build de Next.js sin importar cómo se copien los assets).
+  if (!regularOk || !boldOk) {
+    try {
+      ensureFontDir();
+      const { INTER_REGULAR_B64, INTER_BOLD_B64 } = require("./fonts-data") as {
+        INTER_REGULAR_B64: string;
+        INTER_BOLD_B64: string;
+      };
+      const regTmp = join(FONT_DIR, "Inter-Regular.ttf");
+      const boldTmp = join(FONT_DIR, "Inter-Bold.ttf");
+      if (!regularOk && INTER_REGULAR_B64) {
+        if (!existsSync(regTmp)) writeFileSync(regTmp, Buffer.from(INTER_REGULAR_B64, "base64"));
+        GlobalFonts.registerFromPath(regTmp, "Inter");
+        regularOk = true;
+        triedPaths.push({ source: "base64-embedded", regular: regTmp });
+      }
+      if (!boldOk && INTER_BOLD_B64) {
+        if (!existsSync(boldTmp)) writeFileSync(boldTmp, Buffer.from(INTER_BOLD_B64, "base64"));
+        GlobalFonts.registerFromPath(boldTmp, "Inter");
+        boldOk = true;
+        triedPaths.push({ source: "base64-embedded", bold: boldTmp });
+      }
+    } catch (e) {
+      triedPaths.push({ source: "base64-embedded", error: (e as Error).message });
+    }
   }
+  interRegistered = regularOk || boldOk;
+  interRegisteredReport = {
+    regularOk,
+    boldOk,
+    cwd: root,
+    __dirname: typeof __dirname !== "undefined" ? __dirname : "(undefined)",
+    triedPaths,
+    families: (GlobalFonts as any).families?.map?.((f: any) => f.family) ?? "(no families API)"
+  };
+  // Log siempre (no oculto detrás de env var) hasta que verifiquemos
+  // que carga bien — luego haremos opt-in con DEBUG_OVERLAY_FONTS.
+  console.log("[overlay] Inter registration:", JSON.stringify(interRegisteredReport));
   return { family: "Inter", regularOk, boldOk };
 }
 
