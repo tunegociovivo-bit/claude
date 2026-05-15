@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Modal from "@/components/ui/Modal";
 import RichTextEditor from "@/components/editor/RichTextEditor";
+import AttachmentList from "@/components/files/AttachmentList";
 import type { UiProject, UiMember, UiTask } from "@/lib/db/queries";
 import { Loader2, Trash2, MessageSquare, Send, X } from "lucide-react";
 
@@ -243,6 +244,12 @@ export default function TaskFormModal({
               />
             </div>
           </div>
+
+          {isEdit && (
+            <div className="pt-2">
+              <AttachmentList targetType="TASK" targetId={task!.id} />
+            </div>
+          )}
 
           {isEdit && (
             <div className="pt-2">
