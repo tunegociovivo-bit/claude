@@ -306,6 +306,16 @@ model EditorialPost {
   copyByNetwork Json?
   hashtags      String?   @db.Text // copy compartido de hashtags (no por red)
   firstComment  String?   @db.Text // primer comentario para Metricool
+  // Plan visual estructurado generado JUNTO al copy por Claude (migrado
+  // del plugin NV Dashboard). Permite que la imagen IA respete personas
+  // del roster y el overlay de texto se componga limpio sin alucinaciones.
+  // headlineLines: array de {text, size:sm|md|lg|xl, color:white|accent|primary, weight:regular|bold}
+  headlineLines Json?
+  // imagePrompt: prompt en inglés para gpt-image-1, con descripción física
+  // de personas mencionadas en copy, espacio negativo, "no readable text".
+  imagePrompt   String?   @db.Text
+  // textPlacement: top|center|bottom (lado opuesto a donde va la persona)
+  textPlacement String?
   metaJson      Json?     // resto de ACF / metadatos
   legacyWpId    Int?      @unique
   metricoolJobId String?  // reservado para integración API directa (futura)

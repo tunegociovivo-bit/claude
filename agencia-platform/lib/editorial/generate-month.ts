@@ -46,34 +46,87 @@ function lengthBand(v: number): { label: string; words: string } {
   return { label: "largo", words: "200-450 palabras" };
 }
 
+type RosterPerson = { name: string; type: string; photoCount: number };
+
+function buildRoster(client: any): RosterPerson[] {
+  const refs: any[] = Array.isArray(client?.referenceImages) ? client.referenceImages : [];
+  const map = new Map<string, RosterPerson>();
+  for (const r of refs) {
+    const name = (r?.personName ?? "").toString().trim();
+    if (!name) continue;
+    const key = name.toLowerCase();
+    if (!map.has(key)) {
+      map.set(key, { name, type: r.type ?? "general", photoCount: 1 });
+    } else {
+      map.get(key)!.photoCount++;
+    }
+  }
+  return Array.from(map.values());
+}
+
 function buildSystemPrompt(client: any, networks: string[], perNetworkCopy: boolean) {
   const brief = client.brandBrief?.trim() || "(sin brief — usa tono profesional neutro)";
   const guide = client.styleGuideCached?.trim();
   const competitors = client.competitors?.trim();
   const colors = `${client.brandColorPrimary} / ${client.brandColorAccent} / ${client.brandColorText}`;
+  const roster = buildRoster(client);
+  const namesCsv = roster.map((p) => p.name).join(", ");
+  const rosterBlock =
+    roster.length > 0
+      ? `## Roster del cliente (personas con fotos de referencia)
+${roster.map((p) => `- ${p.name} (${p.type}, ${p.photoCount} fotos)`).join("\n")}
+
+IMPORTANTE — si el copy menciona alguno de estos nombres (${namesCsv}), el image_prompt DEBE describir físicamente a TODAS las personas mencionadas en escena, enumeradas, sin nombres (gpt-image-1 no entiende nombres). Cada miembro del roster es una persona única — nunca dupliques (no pongas "two men with beard" si Rochar es la única persona mencionada). Si el copy es genérico sobre "el equipo" sin nombres, describe la escena con ${roster.length} persona(s).`
+      : "";
 
   return [
     `Eres el redactor editorial de una agencia de marketing que gestiona el cliente "${client.name}".`,
     `Tu trabajo es generar un mes completo de publicaciones para redes sociales (${networks.join(", ")}).`,
+    `Para cada publicación generas TANTO el copy textual COMO un plan visual estructurado (image_prompt + headline_lines + text_placement) que se usará para componer la imagen final con IA.`,
     ``,
     `## Brief de marca del cliente`,
     brief,
     ``,
     competitors ? `## Competidores de referencia\n${competitors}` : "",
-    guide ? `## Guía de estilo visual\n${guide}` : "",
-    `## Colores corporativos\n${colors}`,
+    guide ? `## Guía de estilo visual (extraída previamente de las refs visuales del cliente, en inglés)\n${guide}` : "",
+    `## Colores corporativos (hex)\nprimary=${client.brandColorPrimary}, accent=${client.brandColorAccent}, text_on_primary=${client.brandColorText}`,
     ``,
-    `## Reglas de redacción`,
-    `- Cada publicación tiene su propio enfoque (educativo, emocional, urgencia, testimonio, dato curioso, etc.). Varía el tono entre posts del mismo mes.`,
-    `- Evita CTA repetitivos. Si necesitas CTA, varíalo entre "Pide cita", "Hablemos", "Descubre", "Reserva ahora", etc.`,
-    `- No uses corporate-speak ("sinergias", "soluciones a medida"…) salvo que el brief lo pida.`,
-    `- Hashtags: mezcla 50% medios (50K-500K posts), 30% nicho, 20% brand.`,
+    rosterBlock,
+    ``,
+    `## Reglas de redacción del COPY`,
+    `- Cada publicación tiene su propio enfoque (educativo, emocional, urgencia, testimonio, dato curioso, etc.). Varía el tono entre posts.`,
+    `- Evita CTA repetitivos. Varía entre "Pide cita", "Hablemos", "Descubre", "Reserva ahora", etc.`,
+    `- No uses corporate-speak salvo que el brief lo pida.`,
+    `- Hashtags: 50% medios, 30% nicho, 20% brand.`,
     perNetworkCopy
-      ? `- Para cada publicación entrega también copys adaptados por red: Instagram conciso + emoji, LinkedIn más sobrio y B2B, Facebook intermedio, TikTok ultra-corto, X telegráfico.`
+      ? `- Para cada publicación entrega también copys adaptados por red.`
       : "",
-    `- Las fechas deben distribuirse por el mes. No pongas dos posts el mismo día. Hora típica: 10:00, 12:00, 18:30. Evita madrugadas.`,
+    `- Fechas distribuidas por el mes. Máx 2 publicaciones por día. Hora típica: 10:00, 12:00, 18:30. Evita madrugadas.`,
     ``,
-    `Devuelve SIEMPRE un JSON con la forma indicada por el schema.`
+    `## Reglas del PLAN VISUAL (image_prompt + headline_lines + text_placement)`,
+    `- "image_prompt": EN INGLÉS, 120-220 palabras. PROMPT COMPLETO listo para gpt-image-1. Estructura:`,
+    `  (a) ESCENA CONCRETA del tema con subjects exactos/acción/lugar — anti-cliché del sector.`,
+    `  (b) Si el copy menciona persona(s) del roster, ENUMERA físicamente cada una sin nombres (ej: "a mature man with short dark hair and trimmed beard wearing white coat, looking confidently at camera").`,
+    `  (c) Composición y framing.`,
+    `  (d) Iluminación específica.`,
+    `  (e) Estilo fotográfico (editorial / documentary / lifestyle).`,
+    `  (f) Paleta hex (usa la guía cacheada si existe).`,
+    `  (g) "ample empty negative space at the [TOP/CENTER/BOTTOM]" coincidiendo con text_placement.`,
+    `  (h) Photographic realism, no illustrations, no AI-art look.`,
+    `  (i) MUY IMPORTANTE: "no readable text, no letters, no numbers, no watermarks, no signs" — el texto lo componemos NOSOTROS encima.`,
+    `- "headline_lines": ARRAY de 2-4 líneas con jerarquía. Cada línea: {text, size, color, weight}.`,
+    `  · size: sm | md | lg | xl`,
+    `  · color: white | accent | primary`,
+    `  · weight: regular | bold`,
+    `  · Identifica el NOMBRE DE MARCA o concepto clave y dale {size:xl, color:accent, weight:bold}.`,
+    `  · El resto en blanco/primary con tamaños menores. MAYÚSCULAS para impacto.`,
+    `  · MAX 6 palabras por línea para que quepa al hacer overlay.`,
+    `- "text_placement": top | center | bottom`,
+    `  · DEBE coincidir con la zona de espacio negativo reservada en image_prompt.`,
+    `  · Si la persona va arriba o centro → bottom. Si la persona va abajo → top.`,
+    `  · NUNCA pongas top si la persona ocupa la mitad superior (taparías la cara).`,
+    ``,
+    `Devuelve SIEMPRE un JSON con la forma del schema. Sin preámbulos ni comentarios fuera del JSON.`
   ]
     .filter(Boolean)
     .join("\n");
@@ -124,9 +177,35 @@ function buildResponseSchema(opts: { networks: string[]; perNetworkCopy: boolean
     format: { type: "string", enum: ["imagen", "reel", "carrusel", "story", "video"] },
     dayOfMonth: { type: "integer" },
     hourOfDay: { type: "integer" },
-    firstComment: { type: "string" }
+    firstComment: { type: "string" },
+    // Plan visual: image_prompt para gpt-image-1, headline_lines para overlay sharp+SVG.
+    imagePrompt: { type: "string" },
+    textPlacement: { type: "string", enum: ["top", "center", "bottom"] },
+    headlineLines: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          text: { type: "string" },
+          size: { type: "string", enum: ["sm", "md", "lg", "xl"] },
+          color: { type: "string", enum: ["white", "accent", "primary"] },
+          weight: { type: "string", enum: ["regular", "bold"] }
+        },
+        required: ["text"]
+      }
+    }
   };
-  const required = ["title", "content", "hashtags", "format", "dayOfMonth", "hourOfDay"];
+  const required = [
+    "title",
+    "content",
+    "hashtags",
+    "format",
+    "dayOfMonth",
+    "hourOfDay",
+    "imagePrompt",
+    "textPlacement",
+    "headlineLines"
+  ];
 
   if (opts.perNetworkCopy && opts.networks.length >= 2) {
     // Sólo declaramos las redes realmente solicitadas (no las 10 globales).
@@ -227,6 +306,20 @@ export async function generateMonth(opts: GenerateMonthOptions): Promise<Generat
         ? p.copyByNetwork
         : null;
 
+    // Headlines: solo nos quedamos con líneas válidas
+    const headlineLines = Array.isArray(p.headlineLines)
+      ? (p.headlineLines as any[])
+          .filter((h) => h && typeof h.text === "string" && h.text.trim())
+          .map((h) => ({
+            text: String(h.text).trim().slice(0, 80),
+            size: ["sm", "md", "lg", "xl"].includes(h.size) ? h.size : "md",
+            color: ["white", "accent", "primary"].includes(h.color) ? h.color : "white",
+            weight: h.weight === "bold" ? "bold" : "regular"
+          }))
+      : null;
+    const textPlacement = ["top", "center", "bottom"].includes(p.textPlacement) ? p.textPlacement : null;
+    const imagePrompt = typeof p.imagePrompt === "string" && p.imagePrompt.trim() ? p.imagePrompt.trim() : null;
+
     records.push({
       workspaceId: opts.workspaceId,
       clientId: opts.clientId,
@@ -239,7 +332,11 @@ export async function generateMonth(opts: GenerateMonthOptions): Promise<Generat
       networks: JSON.stringify(opts.networks),
       scheduledFor,
       status,
-      mediaUrls: "[]"
+      mediaUrls: "[]",
+      // Plan visual estructurado
+      headlineLines: headlineLines && headlineLines.length > 0 ? (headlineLines as any) : undefined,
+      imagePrompt: imagePrompt ?? undefined,
+      textPlacement: textPlacement ?? undefined
     });
   }
 

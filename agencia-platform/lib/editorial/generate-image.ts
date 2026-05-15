@@ -63,34 +63,42 @@ export async function generateImageForPost(opts: GenerateImageOptions): Promise<
   const dim = dims[format] ?? dims.imagen;
   const size = pickOpenAiSize(dim.width, dim.height);
 
-  // Build prompt
-  const brandColors = client
-    ? `Colores marca: primario ${client.brandColorPrimary}, acento ${client.brandColorAccent}.`
-    : "";
-  const guide = client?.styleGuideCached?.trim()
-    ? `Guía de estilo del cliente: ${client.styleGuideCached.slice(0, 1500)}`
-    : "";
-  const brief = client?.brandBrief?.trim() ? `Sobre la marca: ${client.brandBrief}.` : "";
-  const visualPattern = client?.visualPattern === "frame"
-    ? "Composición con franja diagonal de color brand y cápsulas para el texto, estilo editorial fuerte."
-    : "Composición limpia y editorial, texto plano sobre la foto si lo lleva.";
+  // Build prompt. Si el post ya tiene un imagePrompt estructurado generado
+  // por Claude (a través de generate-month), lo usamos directamente porque
+  // ya contiene la descripción física de personas del roster, espacio
+  // negativo y la instrucción "no readable text". Si no, construimos uno
+  // mínimo a partir del copy.
+  const storedImagePrompt = (post as any).imagePrompt as string | null;
 
-  const userCopy = post.content?.trim() ? `Mensaje de la publicación: ${post.content.slice(0, 400)}` : "";
-
-  const prompt =
-    opts.promptOverride?.trim() ||
-    [
-      `Imagen para una publicación de redes sociales del cliente "${client?.name ?? "cliente"}".`,
+  let prompt: string;
+  if (opts.promptOverride?.trim()) {
+    prompt = opts.promptOverride.trim();
+  } else if (storedImagePrompt && storedImagePrompt.length > 50) {
+    prompt = storedImagePrompt;
+  } else {
+    // Fallback: prompt construido en runtime (peor calidad)
+    const brandColors = client
+      ? `Brand colors: primary ${client.brandColorPrimary}, accent ${client.brandColorAccent}.`
+      : "";
+    const guide = client?.styleGuideCached?.trim()
+      ? `Brand style guide: ${client.styleGuideCached.slice(0, 1200)}`
+      : "";
+    const brief = client?.brandBrief?.trim() ? `About the brand: ${client.brandBrief}.` : "";
+    const userCopy = post.content?.trim()
+      ? `Topic of the post: ${post.content.slice(0, 300)}`
+      : "";
+    prompt = [
+      `Photo for a social media post about "${post.title}".`,
       brief,
       brandColors,
-      visualPattern,
       guide,
       userCopy,
-      `Formato ${format} (${dim.width}x${dim.height} aprox).`,
-      `No incluyas texto generativo aleatorio: si va a haber texto, debe ser limpio y legible.`
+      `Editorial photographic realism. Composition with ample empty negative space at the bottom for text overlay.`,
+      `CRITICAL: no readable text, no letters, no numbers, no watermarks, no signs of any kind — text is composed separately afterwards.`
     ]
       .filter(Boolean)
       .join("\n");
+  }
 
   const quality = opts.quality ?? "medium";
 
@@ -139,6 +147,32 @@ export async function generateImageForPost(opts: GenerateImageOptions): Promise<
     modelLabel = `gpt-image-1-${quality}`;
   }
 
+  // Auto-aplicar overlay con headlineLines + logo + frame. gpt-image-1 NO
+  // sabe escribir texto en español sin alucinar — siempre componemos
+  // nosotros encima con sharp+SVG.
+  let finalBuf: Buffer = buf;
+  try {
+    const headlines = (post as any).headlineLines as any[] | null;
+    const placement = ((post as any).textPlacement as string | null) ?? "bottom";
+    if (Array.isArray(headlines) && headlines.length > 0) {
+      const { composeOverlayStructured } = await import("./overlay");
+      finalBuf = await composeOverlayStructured({
+        baseBuffer: buf,
+        headlines,
+        textPlacement: placement as "top" | "center" | "bottom",
+        logoUrl: client?.logoUrl ?? null,
+        logoPosition: (client?.logoPosition as any) ?? "br",
+        primary: client?.brandColorPrimary,
+        accent: client?.brandColorAccent,
+        text: client?.brandColorText,
+        pattern: (client?.visualPattern as any) ?? "clean"
+      });
+    }
+  } catch (e) {
+    // Si falla el overlay, mantenemos la imagen base sin texto.
+    console.error("[generate-image] overlay failed, keeping base image:", e);
+  }
+
   // Subir a R2
   const s3Key = buildS3Key({
     workspaceId: opts.workspaceId,
@@ -146,7 +180,7 @@ export async function generateImageForPost(opts: GenerateImageOptions): Promise<
     targetId: post.id,
     filename: `gen-${Date.now()}.png`
   });
-  await uploadBuffer({ s3Key, body: buf, contentType: "image/png" });
+  await uploadBuffer({ s3Key, body: finalBuf, contentType: "image/png" });
   const url = await signedDownloadUrl(s3Key);
 
   // Actualizar post: thumbnail + push a mediaUrls
