@@ -1,0 +1,169 @@
+/* Negocio Vivo Leads — estilos admin */
+
+.nvl-wrap { max-width: 1280px; }
+.nvl-subtitle { color: #666; margin-top: -0.5rem; }
+
+/* Tarjetas KPI */
+.nvl-stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 14px;
+    margin: 1.2rem 0;
+}
+.nvl-card {
+    background: #fff;
+    border: 1px solid #c3c4c7;
+    border-radius: 6px;
+    padding: 18px 20px;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+}
+.nvl-card-label { color: #555; font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; }
+.nvl-card-value { font-size: 32px; font-weight: 600; margin-top: 6px; color: #1d2327; }
+.nvl-card-success { background: #f0f9f0; border-color: #75a875; }
+.nvl-card-success .nvl-card-value { color: #1f7a1f; }
+
+.nvl-actions { display: flex; gap: 10px; flex-wrap: wrap; margin: 1rem 0; }
+.nvl-form .form-table th { width: 220px; }
+
+.nvl-info-box {
+    background: #f6f7f7;
+    border-left: 4px solid #2271b1;
+    padding: 12px 16px;
+    margin: 1rem 0;
+    border-radius: 4px;
+}
+.nvl-info-box ul { margin: 0.5rem 0 0 1.2rem; list-style: disc; }
+
+/* Pills de estado de búsqueda */
+.nvl-status {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+.nvl-status-pending    { background: #fff4cc; color: #7a5d00; }
+.nvl-status-processing { background: #ddebf6; color: #205493; }
+.nvl-status-completed  { background: #d6f0d6; color: #1f7a1f; }
+.nvl-status-error      { background: #fad3d3; color: #a02828; }
+
+/* Pills de estado de lead */
+.nvl-pill {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 600;
+    background: #f0f0f1;
+    color: #2c3338;
+}
+.nvl-pill-pending   { background: #fff4cc; color: #7a5d00; }
+.nvl-pill-contacted { background: #ddebf6; color: #205493; }
+.nvl-pill-responded { background: #e0d4ec; color: #5a2b8f; }
+.nvl-pill-client    { background: #d6f0d6; color: #1f7a1f; }
+.nvl-pill-discarded { background: #e5e5e5; color: #666; }
+
+/* Search status / progress */
+.nvl-search-status {
+    background: #fff;
+    border: 1px solid #c3c4c7;
+    border-radius: 6px;
+    padding: 14px 18px;
+    margin: 1rem 0;
+}
+.nvl-progress {
+    background: #ececec;
+    height: 10px;
+    border-radius: 5px;
+    overflow: hidden;
+    margin-top: 8px;
+}
+.nvl-progress-bar {
+    height: 100%;
+    background: linear-gradient(90deg, #2271b1, #135e96);
+    transition: width 0.5s ease;
+}
+
+.nvl-filters {
+    display: flex; gap: 8px; flex-wrap: wrap;
+    margin: 1rem 0;
+}
+
+.nvl-leads-table td small { color: #666; }
+
+.nvl-comp-chip {
+    display: inline-block;
+    padding: 2px 6px;
+    margin: 1px 2px;
+    background: #f6e4e4;
+    border-radius: 4px;
+    font-size: 11px;
+    color: #7a2828;
+}
+
+/* Detalle lead — layout en dos columnas */
+.nvl-detail-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+    margin-top: 1.2rem;
+}
+.nvl-detail-col h2 {
+    margin-top: 0;
+    font-size: 16px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid #c3c4c7;
+}
+@media (max-width: 960px) {
+    .nvl-detail-grid { grid-template-columns: 1fr; }
+}
+
+.nvl-detail-col table th { width: 140px; }
+
+/* Score */
+.nvl-score {
+    display: inline-block;
+    min-width: 38px;
+    text-align: center;
+    padding: 4px 8px;
+    border-radius: 6px;
+    font-weight: 700;
+    font-size: 14px;
+    color: #fff;
+}
+.nvl-score.score-high { background: #1f7a1f; }
+.nvl-score.score-mid  { background: #d97706; }
+.nvl-score.score-low  { background: #6e7785; }
+
+/* Urgencia */
+.nvl-urg {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+.nvl-urg-critica   { background: #fad3d3; color: #a02828; }
+.nvl-urg-alta      { background: #fff4cc; color: #7a5d00; }
+.nvl-urg-media     { background: #ddebf6; color: #205493; }
+.nvl-urg-baja      { background: #f0f0f1; color: #555; }
+.nvl-urg-descartar { background: #e5e5e5; color: #999; text-decoration: line-through; }
+
+.nvl-neg-high { color: #a02828; font-weight: 700; }
+
+.nvl-bulk-actions {
+    background: #f8f8f8;
+    border: 1px solid #ddd;
+    padding: 12px 16px;
+    border-radius: 6px;
+    margin: 1rem 0;
+}
+
+.nvl-conversation { display: flex; flex-direction: column; gap: 8px; max-width: 100%; }
+.nvl-msg-in  { align-self: flex-start; max-width: 75%; }
+.nvl-msg-out { align-self: flex-end;   max-width: 75%; }
+.nvl-msg-bubble { background: #e8f4ff; border: 1px solid #c2dbf3; padding: 10px 14px; border-radius: 10px 10px 10px 4px; }
+.nvl-msg-out .nvl-msg-bubble { background: #e6f8e6; border-color: #b6dfb6; border-radius: 10px 10px 4px 10px; }
