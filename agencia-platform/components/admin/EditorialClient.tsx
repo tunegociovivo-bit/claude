@@ -1743,6 +1743,11 @@ function PostFormModal({
           />
         )}
 
+        {/* Generar imagen con IA */}
+        {isEdit && post && (
+          <GenerateImageBar postId={post.id} onGenerated={() => onSaved()} />
+        )}
+
         {/* Preview de imágenes asociadas */}
         {fullPost && <MediaPreview post={fullPost} />}
 
@@ -1981,6 +1986,76 @@ function AiActionsBar({
             )}
           </div>
         </div>
+      )}
+    </div>
+  );
+}
+
+function GenerateImageBar({ postId, onGenerated }: { postId: string; onGenerated: () => void }) {
+  const [quality, setQuality] = useState<"low" | "medium" | "high">("medium");
+  const [running, setRunning] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [lastUrl, setLastUrl] = useState<string | null>(null);
+
+  async function run() {
+    setRunning(true);
+    setError(null);
+    const r = await fetch(`/api/v1/editorial/posts/${postId}/generate-image`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ quality })
+    });
+    setRunning(false);
+    const j = await r.json();
+    if (!r.ok) {
+      setError(j?.error?.message ?? `Error ${r.status}`);
+      return;
+    }
+    setLastUrl(j.url);
+    onGenerated();
+  }
+
+  return (
+    <div className="rounded-lg border bg-sky-50/40 border-sky-200 p-3 space-y-2">
+      <div className="flex items-center gap-2">
+        <ImageIcon className="h-4 w-4 text-sky-600" />
+        <span className="text-xs font-semibold text-sky-900">Generar imagen con IA (gpt-image-1)</span>
+      </div>
+      <p className="text-[11px] text-slate-600">
+        Usa el brief, los colores y la guía de estilo del cliente. El formato y aspect ratio se decide por el tipo
+        configurado en la ficha del cliente.
+      </p>
+      <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex gap-1">
+          {(["low", "medium", "high"] as const).map((q) => (
+            <button
+              key={q}
+              type="button"
+              onClick={() => setQuality(q)}
+              className={
+                "px-2 py-1 rounded-md text-[11px] border " +
+                (quality === q
+                  ? "bg-sky-100 border-sky-300 text-sky-800 font-medium"
+                  : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50")
+              }
+            >
+              {q === "low" ? "Baja (~$0.02)" : q === "medium" ? "Media (~$0.04)" : "Alta (~$0.17)"}
+            </button>
+          ))}
+        </div>
+        <button
+          type="button"
+          onClick={run}
+          disabled={running}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-sky-600 hover:bg-sky-700 text-white text-xs font-medium disabled:opacity-50"
+        >
+          {running && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+          {running ? "Generando…" : "Generar imagen"}
+        </button>
+      </div>
+      {error && <p className="text-[11px] text-rose-600">{error}</p>}
+      {lastUrl && (
+        <div className="text-[11px] text-emerald-700">✓ Imagen generada y asociada al post.</div>
       )}
     </div>
   );

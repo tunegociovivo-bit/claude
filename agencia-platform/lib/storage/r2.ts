@@ -84,6 +84,25 @@ export async function deleteObject(s3Key: string): Promise<void> {
 }
 
 /**
+ * Sube directamente un buffer/Uint8Array desde el server (útil para guardar
+ * imágenes generadas por IA sin pasarlas por el cliente).
+ */
+export async function uploadBuffer(opts: {
+  s3Key: string;
+  body: Uint8Array | Buffer;
+  contentType: string;
+}): Promise<void> {
+  await client().send(
+    new PutObjectCommand({
+      Bucket: bucket(),
+      Key: opts.s3Key,
+      Body: opts.body,
+      ContentType: opts.contentType
+    })
+  );
+}
+
+/**
  * Genera una key S3 razonable: workspace/target/uuid-filename.
  */
 export function buildS3Key(opts: {
