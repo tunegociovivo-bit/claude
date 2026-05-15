@@ -66,6 +66,10 @@ export async function openaiChatCompletion(opts: {
   temperature?: number;
   presencePenalty?: number;
   maxTokens?: number;
+  /** Para tracking de coste */
+  userId?: string | null;
+  projectId?: string | null;
+  feature?: string;
 }): Promise<string> {
   const apiKey = await getOpenAiKeyForWorkspace(opts.workspaceId);
   const resp = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -87,5 +91,16 @@ export async function openaiChatCompletion(opts: {
     throw new Error(`OpenAI ${resp.status}: ${txt.slice(0, 200)}`);
   }
   const data = await resp.json();
+  const { logAiUsage } = await import("./usage");
+  logAiUsage({
+    workspaceId: opts.workspaceId,
+    userId: opts.userId ?? null,
+    projectId: opts.projectId ?? null,
+    feature: opts.feature ?? "openai_chat",
+    provider: "openai",
+    model: opts.model,
+    inputTokens: data?.usage?.prompt_tokens ?? 0,
+    outputTokens: data?.usage?.completion_tokens ?? 0
+  }).catch(() => {});
   return (data?.choices?.[0]?.message?.content ?? "").trim();
 }

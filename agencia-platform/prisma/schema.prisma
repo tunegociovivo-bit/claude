@@ -239,6 +239,45 @@ model ReviewHistory {
 // ====================================================================
 // VOICE REVIEWS (migrado del plugin Voice Reviews)
 // ====================================================================
+// ====================================================================
+// AI USAGE TRACKING — cuánto cuesta cada proyecto/trabajador en IA
+// ====================================================================
+model AiUsage {
+  id            String   @id @default(cuid())
+  workspaceId   String
+  userId        String?  // usuario que disparó la llamada (null = API key sin user)
+  projectId     String?  // si la llamada está atada a un proyecto
+  feature       String   // "chat", "summarize", "redactor", "reviews", "voice_draft", etc.
+  provider      String   // "anthropic" | "openai"
+  model         String   // "claude-opus-4-7", "gpt-4o-mini", "whisper-1", etc.
+  inputTokens   Int      @default(0)
+  outputTokens  Int      @default(0)
+  costMicros    Int      @default(0) // coste en micros de USD (1 USD = 1_000_000)
+  createdAt     DateTime @default(now())
+
+  @@index([workspaceId, createdAt])
+  @@index([userId, createdAt])
+  @@index([projectId, createdAt])
+}
+
+// ====================================================================
+// BACKUPS
+// ====================================================================
+model BackupRun {
+  id            String   @id @default(cuid())
+  workspaceId   String
+  startedAt     DateTime @default(now())
+  completedAt   DateTime?
+  status        String   @default("RUNNING") // RUNNING | COMPLETED | FAILED
+  trigger       String   @default("manual")  // manual | cron
+  destinations  String   @default("local")   // CSV: "local,r2,drive"
+  sizeBytes     Int?
+  downloadKey   String?  // s3Key en R2 si se subió allí
+  errorMessage  String?  @db.Text
+
+  @@index([workspaceId, startedAt])
+}
+
 model VoiceBusiness {
   id              String   @id @default(cuid())
   workspaceId     String

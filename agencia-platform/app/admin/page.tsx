@@ -1,6 +1,6 @@
 import Link from "next/link";
 import PageHeader from "@/components/PageHeader";
-import { Key, Download, Webhook, Users, Sparkles, PencilLine, FolderKanban, Star, Mic, Upload, AppWindow, Palette, Columns3 } from "lucide-react";
+import { Key, Download, Webhook, Users, Sparkles, PencilLine, FolderKanban, Star, Mic, Upload, AppWindow, Palette, Columns3, Shield, TrendingUp } from "lucide-react";
 
 const cards = [
   {
@@ -63,6 +63,18 @@ const cards = [
     title: "Identidad del workspace",
     description: "Cambia el nombre y el logo que ven todos los miembros.",
     icon: Palette
+  },
+  {
+    href: "/admin/seguridad",
+    title: "Seguridad y copias",
+    description: "Backups manuales y automáticos diarios. Histórico y descarga.",
+    icon: Shield
+  },
+  {
+    href: "/admin/ia-usage",
+    title: "Consumo de IA",
+    description: "Cuánto está gastando cada proyecto y trabajador en Claude, GPT y Whisper.",
+    icon: TrendingUp
   },
   {
     href: "/admin/reviews",

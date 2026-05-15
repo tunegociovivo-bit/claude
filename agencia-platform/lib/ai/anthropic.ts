@@ -43,10 +43,15 @@ export async function complete(opts: {
   maxTokens?: number;
   model?: string;
   thinking?: boolean;
+  /** Para tracking de coste */
+  userId?: string | null;
+  projectId?: string | null;
+  feature?: string;
 }): Promise<string> {
   const client = await getAnthropicForWorkspace(opts.workspaceId);
+  const model = opts.model ?? DEFAULT_MODEL;
   const resp = await client.messages.create({
-    model: opts.model ?? DEFAULT_MODEL,
+    model,
     max_tokens: opts.maxTokens ?? 4096,
     ...(opts.thinking ? { thinking: { type: "adaptive" as const } } : {}),
     system: [
@@ -58,6 +63,18 @@ export async function complete(opts: {
     ],
     messages: [{ role: "user", content: opts.user }]
   });
+  // Log de uso (no bloqueante)
+  const { logAiUsage } = await import("./usage");
+  logAiUsage({
+    workspaceId: opts.workspaceId,
+    userId: opts.userId ?? null,
+    projectId: opts.projectId ?? null,
+    feature: opts.feature ?? "complete",
+    provider: "anthropic",
+    model,
+    inputTokens: (resp as any).usage?.input_tokens ?? 0,
+    outputTokens: (resp as any).usage?.output_tokens ?? 0
+  }).catch(() => {});
   return resp.content
     .filter((b) => b.type === "text")
     .map((b: any) => b.text)
