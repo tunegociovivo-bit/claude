@@ -133,6 +133,34 @@ export async function completeVision(opts: {
 }
 
 /**
+ * Recorre un schema JSON y se asegura de que TODO objeto tenga
+ * `additionalProperties: false` (requerido por la API de structured
+ * output de Anthropic en modo strict). Idempotente.
+ */
+function strictifySchema<T = any>(schema: T): T {
+  if (Array.isArray(schema)) {
+    return schema.map(strictifySchema) as any;
+  }
+  if (schema && typeof schema === "object") {
+    const s: any = { ...schema };
+    if (s.type === "object") {
+      if (s.additionalProperties === undefined) s.additionalProperties = false;
+      if (s.properties && typeof s.properties === "object") {
+        const next: any = {};
+        for (const [k, v] of Object.entries(s.properties)) next[k] = strictifySchema(v);
+        s.properties = next;
+      }
+    }
+    if (s.items) s.items = strictifySchema(s.items);
+    if (s.anyOf) s.anyOf = (s.anyOf as any[]).map(strictifySchema);
+    if (s.oneOf) s.oneOf = (s.oneOf as any[]).map(strictifySchema);
+    if (s.allOf) s.allOf = (s.allOf as any[]).map(strictifySchema);
+    return s;
+  }
+  return schema;
+}
+
+/**
  * Helper de salida estructurada JSON usando un schema.
  */
 export async function completeJson<T = any>(opts: {
@@ -144,6 +172,7 @@ export async function completeJson<T = any>(opts: {
   model?: string;
 }): Promise<T> {
   const client = await getAnthropicForWorkspace(opts.workspaceId);
+  const strictSchema = strictifySchema(opts.schema);
   const resp = await client.messages.create({
     model: opts.model ?? DEFAULT_MODEL,
     max_tokens: opts.maxTokens ?? 2048,
@@ -152,7 +181,7 @@ export async function completeJson<T = any>(opts: {
     ],
     messages: [{ role: "user", content: opts.user }],
     output_config: {
-      format: { type: "json_schema", schema: opts.schema }
+      format: { type: "json_schema", schema: strictSchema }
     }
   } as any);
   const text = resp.content.find((b) => b.type === "text") as any;

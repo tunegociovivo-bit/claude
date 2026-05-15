@@ -64,6 +64,15 @@ function mapKnownMessage(msg: string): { message: string; code: string } {
       message: "El contenido fue bloqueado por las políticas de uso de la IA. Reformula la instrucción."
     };
   }
+  if (lower.includes("output_config") || lower.includes("schema:") || lower.includes("additionalproperties")) {
+    return {
+      code: "ai_schema_error",
+      message:
+        "Error de configuración interna del schema IA. Es un bug nuestro — repórtalo. (Detalle: " +
+        msg.slice(0, 200) +
+        ")"
+    };
+  }
   if (lower.startsWith("storage no configurado")) {
     return { code: "storage_disabled", message: msg };
   }
