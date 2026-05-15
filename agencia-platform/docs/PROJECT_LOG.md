@@ -21,6 +21,35 @@ hub.negociovivo.com legacy en WordPress.
 
 ## Cronología de hitos (más reciente arriba)
 
+### NV Dashboard + NV Leads Pro migrados (MVP)
+- Schemas: `EditorialPost`, `EditorialRevision` (calendario editorial)
+  y 9 modelos NV Leads (`LeadSearch`, `Lead`, `LeadCompetitor`,
+  `LeadTemplate`, `LeadSequence`, `LeadSequenceStep`,
+  `LeadSequenceAssignment`, `LeadInboxMessage`, `LeadExclusion`,
+  `LeadOptout`).
+- `/admin/editorial`: filtros estado/cliente, tabla, modal de creación/
+  edición con campos: título, contenido, programación, estado
+  (DRAFT/REVIEW/APPROVED/SCHEDULED/PUBLISHED/ARCHIVED), formato, redes
+  destino, excerpt. Botón "Procesar aparcados".
+- `/admin/leads`: 4 tabs (Leads / Búsquedas / Plantillas / Inbox). Filtros
+  por contactStatus + búsqueda libre. CRUD básico para crear búsquedas y
+  plantillas. La búsqueda creada queda en PENDING hasta que se enchufe
+  Google Places + cron.
+- `POST /api/v1/admin/process-pending-import`: lee
+  `workspace.settings.pendingImport.{nvDashboard,nvLeads}` (lo aparcado
+  durante la importación inicial desde WP) y upsertea publicaciones,
+  searches, leads (placeId), competitors, templates, sequences/steps,
+  inbox, exclusions y optouts. Idempotente (upsert por `legacyWpId` o
+  natural keys).
+- Webhook público `POST /api/v1/leads/webhook/[token]`: recibe mensajes
+  entrantes de Evolution API/WAHA. Identifica lead por match de teléfono
+  (últimos 9 dígitos) y marca contactStatus=REPLIED. Configura en
+  Evolution: webhook URL = `https://hub.negociovivo.app/api/v1/leads/webhook/<TOKEN>`,
+  con TOKEN guardado en
+  `workspace.settings.integrations.evolution.webhookToken`.
+- `lib/platforms.ts`: `nv_dashboard` y `nv_leads` ahora `available: true`
+  apuntando a las nuevas páginas. Aparecen en sidebar Plataformas.
+
 ### Personalización + AI cost tracking + backups + log
 - `/admin/workspace`: cambio de nombre y logo de la plataforma.
 - Foto de perfil por usuario (subida vía R2 o URL manual). Self-service en `/perfil`.

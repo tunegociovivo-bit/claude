@@ -105,8 +105,16 @@ model Workspace {
   auditLogs    AuditLog[]
   asanaImports AsanaImport[]
   comments     Comment[]
-  reviewClients ReviewClient[]
+  reviewClients   ReviewClient[]
   voiceBusinesses VoiceBusiness[]
+  editorialPosts  EditorialPost[]
+  leadSearches    LeadSearch[]
+  leads           Lead[]
+  leadTemplates   LeadTemplate[]
+  leadSequences   LeadSequence[]
+  leadInboxMsgs   LeadInboxMessage[]
+  leadExclusions  LeadExclusion[]
+  leadOptouts     LeadOptout[]
 }
 
 model Membership {
@@ -142,10 +150,11 @@ model Client {
   updatedAt   DateTime     @updatedAt
   deletedAt   DateTime?
 
-  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  projects  Project[]
-  tasks     Task[]
-  events    CalendarEvent[]
+  workspace      Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  projects       Project[]
+  tasks          Task[]
+  events         CalendarEvent[]
+  editorialPosts EditorialPost[]
 
   @@index([workspaceId])
 }
@@ -239,6 +248,224 @@ model ReviewHistory {
 // ====================================================================
 // VOICE REVIEWS (migrado del plugin Voice Reviews)
 // ====================================================================
+// ====================================================================
+// EDITORIAL (migrado de NV Dashboard WP — calendario de publicaciones)
+// ====================================================================
+model EditorialPost {
+  id            String    @id @default(cuid())
+  workspaceId   String
+  clientId      String?
+  title         String
+  content       String?   @db.Text
+  excerpt       String?   @db.Text
+  scheduledFor  DateTime?
+  publishedAt   DateTime?
+  status        String    @default("DRAFT") // DRAFT|REVIEW|APPROVED|SCHEDULED|PUBLISHED|ARCHIVED
+  format        String?   // post|reel|story|video|blog|email|carousel
+  networks      String    @default("[]") // JSON array de redes destino
+  thumbnail     String?
+  mediaUrls     String    @default("[]") // JSON array
+  metaJson      Json?     // resto de ACF / metadatos
+  legacyWpId    Int?      @unique
+  metricoolJobId String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  workspace Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  client    Client?            @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  revisions EditorialRevision[]
+
+  @@index([workspaceId, status])
+  @@index([clientId])
+  @@index([scheduledFor])
+}
+
+model EditorialRevision {
+  id            String   @id @default(cuid())
+  postId        String
+  authorId      String?
+  body          String?  @db.Text
+  changeSummary String?
+  createdAt     DateTime @default(now())
+
+  post EditorialPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@index([postId])
+}
+
+// ====================================================================
+// NV LEADS PRO (migrado: Google Places + WhatsApp + secuencias)
+// ====================================================================
+model LeadSearch {
+  id              String    @id @default(cuid())
+  workspaceId     String
+  keyword         String
+  location        String
+  status          String    @default("PENDING") // PENDING|RUNNING|COMPLETED|FAILED
+  provincesScope  String    @default("[]") // JSON array de provincias seleccionadas
+  currentProvince String?
+  totalResults    Int       @default(0)
+  startedAt       DateTime?
+  completedAt     DateTime?
+  errorMessage    String?   @db.Text
+  legacyWpId      Int?      @unique
+  createdAt       DateTime  @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  leads     Lead[]
+
+  @@index([workspaceId, status])
+}
+
+model Lead {
+  id              String   @id @default(cuid())
+  workspaceId     String
+  searchId        String?
+  placeId         String
+  name            String
+  address         String?
+  phone           String?
+  website         String?
+  rating          Float?
+  reviewsCount    Int      @default(0)
+  reviewsJson     Json?
+  score           Float?
+  urgency         Float?
+  hasWhatsapp     Boolean  @default(false)
+  whatsappChecked Boolean  @default(false)
+  aiOpener        String?  @db.Text
+  contactStatus   String   @default("NEW") // NEW|QUEUED|CONTACTED|REPLIED|CONVERTED|LOST
+  legacyWpId      Int?     @unique
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  workspace     Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  search        LeadSearch?      @relation(fields: [searchId], references: [id], onDelete: SetNull)
+  competitors   LeadCompetitor[]
+  assignments   LeadSequenceAssignment[]
+  inboxMessages LeadInboxMessage[]
+
+  @@unique([workspaceId, placeId])
+  @@index([workspaceId, contactStatus])
+  @@index([searchId])
+}
+
+model LeadCompetitor {
+  id           String   @id @default(cuid())
+  leadId       String
+  name         String
+  position     Int
+  rating       Float?
+  reviewsCount Int      @default(0)
+
+  lead Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  @@index([leadId])
+}
+
+model LeadTemplate {
+  id          String   @id @default(cuid())
+  workspaceId String
+  name        String
+  body        String   @db.Text
+  channel     String   @default("whatsapp") // whatsapp|email|sms
+  legacyWpId  Int?     @unique
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+}
+
+model LeadSequence {
+  id          String   @id @default(cuid())
+  workspaceId String
+  name        String
+  description String?
+  active      Boolean  @default(true)
+  legacyWpId  Int?     @unique
+  createdAt   DateTime @default(now())
+
+  workspace   Workspace                @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  steps       LeadSequenceStep[]
+  assignments LeadSequenceAssignment[]
+
+  @@index([workspaceId])
+}
+
+model LeadSequenceStep {
+  id           String @id @default(cuid())
+  sequenceId   String
+  order        Int
+  delayHours   Int    @default(24)
+  templateBody String @db.Text
+
+  sequence LeadSequence @relation(fields: [sequenceId], references: [id], onDelete: Cascade)
+
+  @@index([sequenceId])
+}
+
+model LeadSequenceAssignment {
+  id          String    @id @default(cuid())
+  leadId      String
+  sequenceId  String
+  status      String    @default("ACTIVE") // ACTIVE|PAUSED|COMPLETED|UNSUBSCRIBED
+  currentStep Int       @default(0)
+  nextRunAt   DateTime?
+  startedAt   DateTime  @default(now())
+  completedAt DateTime?
+
+  lead     Lead         @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  sequence LeadSequence @relation(fields: [sequenceId], references: [id], onDelete: Cascade)
+
+  @@index([leadId])
+  @@index([sequenceId])
+  @@index([status, nextRunAt])
+}
+
+model LeadInboxMessage {
+  id          String   @id @default(cuid())
+  workspaceId String
+  leadId      String?
+  fromPhone   String
+  body        String   @db.Text
+  meta        Json?
+  read        Boolean  @default(false)
+  receivedAt  DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  lead      Lead?     @relation(fields: [leadId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, read])
+  @@index([leadId])
+}
+
+model LeadExclusion {
+  id          String   @id @default(cuid())
+  workspaceId String
+  placeId     String?
+  phone       String?
+  reason      String?
+  createdAt   DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+}
+
+model LeadOptout {
+  id          String   @id @default(cuid())
+  workspaceId String
+  phone       String
+  reason      String?
+  createdAt   DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, phone])
+}
+
 // ====================================================================
 // AI USAGE TRACKING — cuánto cuesta cada proyecto/trabajador en IA
 // ====================================================================

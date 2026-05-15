@@ -70,21 +70,19 @@ export const PLATFORMS: PlatformDef[] = [
   },
   {
     key: "nv_dashboard",
-    label: "NV Dashboard editorial",
-    description: "Calendario editorial multi-cliente con Metricool.",
-    href: "/admin/nv-dashboard",
+    label: "Calendario editorial",
+    description: "Publicaciones multi-cliente con estados, programación y revisiones (migrado de NV Dashboard).",
+    href: "/admin/editorial",
     icon: FileText,
-    available: false,
-    pendingMessage: "En migración (próximo PR). Las API keys de Metricool/Drive ya están aparcadas si las importaste."
+    available: true
   },
   {
     key: "nv_leads",
-    label: "NV Leads Pro",
-    description: "Captación de leads desde Google My Business + secuencias WhatsApp.",
-    href: "/admin/nv-leads",
+    label: "Leads (NV Leads Pro)",
+    description: "Captación de leads de Google My Business + secuencias WhatsApp.",
+    href: "/admin/leads",
     icon: MessageSquare,
-    available: false,
-    pendingMessage: "En migración. Las API keys de Google Places/Evolution ya están aparcadas si las importaste."
+    available: true
   }
 ];
 

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import PageHeader from "@/components/PageHeader";
-import { Key, Download, Webhook, Users, Sparkles, PencilLine, FolderKanban, Star, Mic, Upload, AppWindow, Palette, Columns3, Shield, TrendingUp } from "lucide-react";
+import { Key, Download, Webhook, Users, Sparkles, PencilLine, FolderKanban, Star, Mic, Upload, AppWindow, Palette, Columns3, Shield, TrendingUp, FileText, MessageSquare } from "lucide-react";
 
 const cards = [
   {
@@ -87,6 +87,18 @@ const cards = [
     title: "Voice Reviews",
     description: "Reseñas guiadas por voz: cliente graba, Whisper transcribe, Claude redacta borrador editable.",
     icon: Mic
+  },
+  {
+    href: "/admin/editorial",
+    title: "Calendario editorial",
+    description: "Migrado de NV Dashboard: publicaciones multi-cliente con estados y programación.",
+    icon: FileText
+  },
+  {
+    href: "/admin/leads",
+    title: "Leads (NV Leads Pro)",
+    description: "Migrado: captación Google My Business + WhatsApp + plantillas + secuencias.",
+    icon: MessageSquare
   },
   {
     href: "/admin/wp-import",
