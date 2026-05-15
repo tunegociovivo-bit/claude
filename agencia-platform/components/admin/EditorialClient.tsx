@@ -1933,6 +1933,16 @@ function PostFormModal({
           <GenerateImageBar postId={post.id} onGenerated={() => onSaved()} />
         )}
 
+        {/* Re-aplicar overlay (logo + headlines) sobre imagen existente */}
+        {isEdit && post && fullPost?.thumbnail && (
+          <ReapplyOverlayBar
+            postId={post.id}
+            currentTitle={form.title}
+            currentContent={form.content}
+            onApplied={() => onSaved()}
+          />
+        )}
+
         {/* Preview de imágenes asociadas */}
         {fullPost && <MediaPreview post={fullPost} />}
 
@@ -2172,6 +2182,98 @@ function AiActionsBar({
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function ReapplyOverlayBar({
+  postId,
+  currentTitle,
+  currentContent,
+  onApplied
+}: {
+  postId: string;
+  currentTitle: string;
+  currentContent: string;
+  onApplied: () => void;
+}) {
+  const [headline1, setHeadline1] = useState("");
+  const [headline2, setHeadline2] = useState("");
+  const [logoVisible, setLogoVisible] = useState(true);
+  const [running, setRunning] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [done, setDone] = useState(false);
+
+  useEffect(() => {
+    setHeadline1(currentTitle.slice(0, 80));
+    const firstSentence = currentContent.split(/[.!?\n]/)[0]?.trim();
+    setHeadline2(firstSentence && firstSentence !== currentTitle ? firstSentence.slice(0, 80) : "");
+  }, [currentTitle, currentContent]);
+
+  async function run() {
+    setRunning(true);
+    setError(null);
+    setDone(false);
+    const headlines = [headline1, headline2].filter((s) => s.trim());
+    const r = await fetch(`/api/v1/editorial/posts/${postId}/reapply-overlay`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ headlines, logoVisible })
+    });
+    setRunning(false);
+    const j = await r.json();
+    if (!r.ok) {
+      setError(j?.error?.message ?? `Error ${r.status}`);
+      return;
+    }
+    setDone(true);
+    onApplied();
+  }
+
+  return (
+    <div className="rounded-lg border bg-amber-50/40 border-amber-200 p-3 space-y-2">
+      <div className="flex items-center gap-2">
+        <Pencil className="h-4 w-4 text-amber-600" />
+        <span className="text-xs font-semibold text-amber-900">Re-aplicar overlay (logo + texto sobre la imagen actual)</span>
+      </div>
+      <p className="text-[11px] text-slate-600">
+        Recompone la imagen ACTUAL con headlines y logo del cliente. Sin regenerar (rápido y gratis). Usa los colores
+        y el patrón visual configurados en la ficha del cliente.
+      </p>
+      <input
+        value={headline1}
+        onChange={(e) => setHeadline1(e.target.value)}
+        placeholder="Línea principal (grande)"
+        className="w-full px-2 py-1.5 rounded-md border bg-white text-xs"
+      />
+      <input
+        value={headline2}
+        onChange={(e) => setHeadline2(e.target.value)}
+        placeholder="Línea secundaria (opcional)"
+        className="w-full px-2 py-1.5 rounded-md border bg-white text-xs"
+      />
+      <div className="flex items-center justify-between">
+        <label className="flex items-center gap-1.5 text-[11px] cursor-pointer">
+          <input
+            type="checkbox"
+            checked={logoVisible}
+            onChange={(e) => setLogoVisible(e.target.checked)}
+            className="accent-amber-600"
+          />
+          Mostrar logo
+        </label>
+        <button
+          type="button"
+          onClick={run}
+          disabled={running}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-amber-600 hover:bg-amber-700 text-white text-xs font-medium disabled:opacity-50"
+        >
+          {running && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+          Re-aplicar overlay
+        </button>
+      </div>
+      {error && <p className="text-[11px] text-rose-600">{error}</p>}
+      {done && <p className="text-[11px] text-emerald-700">✓ Overlay aplicado.</p>}
     </div>
   );
 }
