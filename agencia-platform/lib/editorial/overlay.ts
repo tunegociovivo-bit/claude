@@ -112,45 +112,37 @@ async function downloadFontToTmp(url: string): Promise<string | null> {
 }
 
 function ensureInterFallback(): { regularPath: string | null; boldPath: string | null } {
-  ensureFontDir();
-  const target = {
-    regular: join(FONT_DIR, "inter-regular.woff2"),
-    bold: join(FONT_DIR, "inter-bold.woff2")
-  };
+  // Las fuentes commiteadas en public/fonts/ se leen directamente de
+  // disco — no hace falta copiar a /tmp. Usamos TTF (no woff2) porque
+  // el binario de @resvg/resvg-js distribuido no siempre incluye
+  // soporte WOFF2.
   try {
     const root = process.cwd();
     const candidates = [
       join(root, "public", "fonts"),
       join(root, ".next", "standalone", "public", "fonts"),
-      join(root, "node_modules", "@fontsource", "inter", "files")
+      // Para dev en directorio de tests
+      join(__dirname, "..", "..", "public", "fonts")
     ];
-    let regSrc: string | null = null;
-    let boldSrc: string | null = null;
+    let regularPath: string | null = null;
+    let boldPath: string | null = null;
     for (const dir of candidates) {
-      if (!regSrc && existsSync(join(dir, "inter-regular.woff2"))) {
-        regSrc = join(dir, "inter-regular.woff2");
+      if (!regularPath && existsSync(join(dir, "Inter-Regular.ttf"))) {
+        regularPath = join(dir, "Inter-Regular.ttf");
       }
-      if (!regSrc && existsSync(join(dir, "inter-latin-400-normal.woff2"))) {
-        regSrc = join(dir, "inter-latin-400-normal.woff2");
+      if (!boldPath && existsSync(join(dir, "Inter-Bold.ttf"))) {
+        boldPath = join(dir, "Inter-Bold.ttf");
       }
-      if (!boldSrc && existsSync(join(dir, "inter-bold.woff2"))) {
-        boldSrc = join(dir, "inter-bold.woff2");
-      }
-      if (!boldSrc && existsSync(join(dir, "inter-latin-800-normal.woff2"))) {
-        boldSrc = join(dir, "inter-latin-800-normal.woff2");
-      }
+      if (regularPath && boldPath) break;
     }
-    if (regSrc && !existsSync(target.regular)) {
-      writeFileSync(target.regular, readFileSync(regSrc));
+    if (process.env.DEBUG_OVERLAY_FONTS === "1") {
+      console.log("[overlay] Inter paths:", { regularPath, boldPath, cwd: root });
     }
-    if (boldSrc && !existsSync(target.bold)) {
-      writeFileSync(target.bold, readFileSync(boldSrc));
-    }
-  } catch {}
-  return {
-    regularPath: existsSync(target.regular) ? target.regular : null,
-    boldPath: existsSync(target.bold) ? target.bold : null
-  };
+    return { regularPath, boldPath };
+  } catch (e) {
+    console.warn("[overlay] ensureInterFallback fallo:", (e as Error).message);
+    return { regularPath: null, boldPath: null };
+  }
 }
 
 async function resolveFontFamily(clientFonts?: ClientFont[]): Promise<{
@@ -188,13 +180,25 @@ function escapeXml(s: string): string {
 // ---------- Render SVG → PNG con resvg ----------
 
 async function renderSvgToPng(svg: string, fontFiles: string[], width: number, _height: number, defaultFamily: string): Promise<Buffer> {
+  if (process.env.DEBUG_OVERLAY_FONTS === "1") {
+    console.log("[overlay] renderSvgToPng:", {
+      fontFiles,
+      defaultFamily,
+      svgPreview: svg.slice(0, 500)
+    });
+  }
   const resvg = new Resvg(svg, {
     fitTo: { mode: "width", value: width },
     background: "rgba(0,0,0,0)",
     font: {
       fontFiles,
-      loadSystemFonts: false,
-      defaultFontFamily: defaultFamily
+      // Fallback a fuentes del SO si las nuestras no funcionan (Railway
+      // suele tener DejaVu Sans). El defaultFontFamily nos asegura que
+      // si "Inter" no se encuentra, use la primera que cargamos.
+      loadSystemFonts: true,
+      defaultFontFamily: defaultFamily,
+      sansSerifFamily: defaultFamily,
+      serifFamily: defaultFamily
     }
   });
   const png = resvg.render().asPng();
@@ -258,29 +262,27 @@ export async function composeOverlayStructured(opts: StructuredOverlayOpts): Pro
 
   // Renderizar cada línea SIN banda. Drop-shadow filter para legibilidad
   // sobre cualquier fondo (claro u oscuro).
+  // Cada línea se renderiza con texto + capa de sombra debajo. Sin
+  // filter (algunas versiones de resvg no soportan feFlood/feMerge).
+  // La sombra se hace con dos <text> idénticos: uno desplazado con
+  // color rgba(0,0,0,0.65) y otro encima con el color real.
+  const shadowOffset = Math.max(2, Math.round(height * 0.003));
   const lineEls = lines
     .map((l, i) => {
       const fs = lineHeights[i];
       const yLine = y + lineHeights.slice(0, i).reduce((a, b) => a + b, 0) + i * gap + fs * 0.82;
       const fill = colorHex(l.color);
-      const fontWeight = l.weight === "bold" ? "800" : "400";
-      return `<text x="${padding}" y="${yLine}" fill="${fill}" font-family="${fontFamily}" font-weight="${fontWeight}" font-size="${fs}" filter="url(#textshadow)">${escapeXml(l.text)}</text>`;
+      const fontWeight = l.weight === "bold" ? "700" : "400";
+      const safeText = escapeXml(l.text);
+      const xText = padding;
+      return (
+        `<text x="${xText + shadowOffset}" y="${yLine + shadowOffset}" fill="rgba(0,0,0,0.65)" font-family="${fontFamily}" font-weight="${fontWeight}" font-size="${fs}">${safeText}</text>` +
+        `<text x="${xText}" y="${yLine}" fill="${fill}" font-family="${fontFamily}" font-weight="${fontWeight}" font-size="${fs}">${safeText}</text>`
+      );
     })
     .join("\n");
 
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
-<defs>
-<filter id="textshadow" x="-20%" y="-20%" width="140%" height="140%">
-<feGaussianBlur in="SourceAlpha" stdDeviation="${Math.round(height * 0.005)}"/>
-<feOffset dx="0" dy="${Math.round(height * 0.004)}" result="offsetblur"/>
-<feFlood flood-color="rgba(0,0,0,0.75)"/>
-<feComposite in2="offsetblur" operator="in"/>
-<feMerge>
-<feMergeNode/>
-<feMergeNode in="SourceGraphic"/>
-</feMerge>
-</filter>
-</defs>
 ${frameShape}
 ${lineEls}
 </svg>`;
