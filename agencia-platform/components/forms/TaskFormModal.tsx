@@ -7,19 +7,11 @@ import RichTextEditor from "@/components/editor/RichTextEditor";
 import AttachmentList from "@/components/files/AttachmentList";
 import MentionTextarea from "@/components/forms/MentionTextarea";
 import type { UiProject, UiMember, UiTask } from "@/lib/db/queries";
-import { Loader2, Trash2, MessageSquare, Send, X, CheckSquare, Check } from "lucide-react";
+import { Loader2, Trash2, MessageSquare, Send, X, CheckSquare, Check, ArrowLeft, ExternalLink } from "lucide-react";
 
 type MentionCandidate = { id: string; name: string | null; email: string };
-
-type Status = "todo" | "in_progress" | "review" | "done";
 type Priority = "baja" | "media" | "alta";
-
-const statusOptions: { value: Status; label: string; color: string }[] = [
-  { value: "todo", label: "Por hacer", color: "bg-slate-100 text-slate-700" },
-  { value: "in_progress", label: "En curso", color: "bg-sky-100 text-sky-800" },
-  { value: "review", label: "Revisión", color: "bg-amber-100 text-amber-800" },
-  { value: "done", label: "Hecha", color: "bg-emerald-100 text-emerald-800" }
-];
+type KanbanColumn = { id: string; label: string; color: string; order: number; isDone?: boolean };
 
 const priorityOptions: { value: Priority; label: string }[] = [
   { value: "baja", label: "Baja" },
@@ -27,12 +19,6 @@ const priorityOptions: { value: Priority; label: string }[] = [
   { value: "alta", label: "Alta" }
 ];
 
-const statusToApi: Record<Status, string> = {
-  todo: "TODO",
-  in_progress: "IN_PROGRESS",
-  review: "REVIEW",
-  done: "DONE"
-};
 const priorityToApi: Record<Priority, string> = {
   baja: "LOW",
   media: "MEDIUM",
@@ -46,6 +32,8 @@ type CommentItem = {
   author: { id: string; name: string | null; image?: string | null };
 };
 
+type CurrentTask = UiTask & { _parentId?: string | null };
+
 export default function TaskFormModal({
   open,
   onClose,
@@ -53,22 +41,29 @@ export default function TaskFormModal({
   team,
   task,
   defaultStatus,
-  defaultProjectId
+  defaultProjectId,
+  columns
 }: {
   open: boolean;
   onClose: () => void;
   projects: UiProject[];
   team: UiMember[];
   task?: UiTask | null;
-  defaultStatus?: Status;
+  defaultStatus?: string;
   defaultProjectId?: string;
+  columns?: KanbanColumn[];
 }) {
   const router = useRouter();
-  const isEdit = !!task;
 
+  // Pila de navegación tarea → subtarea. La cima es la tarea actualmente visible.
+  const [taskStack, setTaskStack] = useState<CurrentTask[]>([]);
+  const currentTask = taskStack[taskStack.length - 1] ?? null;
+  const isEdit = !!currentTask;
+
+  // Form fields
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState<any>(null);
-  const [status, setStatus] = useState<Status>("todo");
+  const [status, setStatus] = useState<string>("TODO");
   const [priority, setPriority] = useState<Priority>("media");
   const [projectId, setProjectId] = useState<string>("");
   const [assigneeIds, setAssigneeIds] = useState<string[]>([]);
@@ -86,33 +81,29 @@ export default function TaskFormModal({
   const [newSubtask, setNewSubtask] = useState("");
   const [addingSubtask, setAddingSubtask] = useState(false);
 
-  // Candidatos para autocompletar @menciones — usamos los miembros del workspace.
   const [mentionCandidates, setMentionCandidates] = useState<MentionCandidate[]>([]);
+
+  // Sincroniza la pila con el task que llega por prop al abrir el modal.
   useEffect(() => {
     if (!open) return;
-    fetch("/api/v1/users")
-      .then((r) => (r.ok ? r.json() : { items: [] }))
-      .then((d) =>
-        setMentionCandidates(
-          (d.items ?? []).map((u: any) => ({ id: u.id, name: u.name, email: u.email }))
-        )
-      );
-  }, [open]);
+    setTaskStack(task ? [task as CurrentTask] : []);
+  }, [open, task]);
 
+  // Cuando cambia la tarea activa (apertura o navegación a subtarea), recarga datos.
   useEffect(() => {
     if (!open) return;
     setError(null);
     setNewComment("");
     editorKey.current++;
-    if (task) {
-      setTitle(task.title);
-      setStatus(task.status);
-      setPriority(task.priority);
-      setProjectId(task.projectId);
-      setAssigneeIds(task.assigneeIds);
-      setDueDate(task.dueDate ?? "");
-      // Cargar descripción, subtareas y comentarios desde el endpoint de detalle
-      fetch(`/api/v1/tasks/${task.id}`)
+    if (currentTask) {
+      setTitle(currentTask.title);
+      setStatus(String(currentTask.status));
+      setPriority(currentTask.priority);
+      setProjectId(currentTask.projectId);
+      setAssigneeIds(currentTask.assigneeIds);
+      setDueDate(currentTask.dueDate ?? "");
+      // Fetch detalle: descripción + subtareas + comentarios
+      fetch(`/api/v1/tasks/${currentTask.id}`)
         .then((r) => (r.ok ? r.json() : null))
         .then((data) => {
           if (!data) return;
@@ -129,13 +120,13 @@ export default function TaskFormModal({
             }))
           );
         });
-      fetch(`/api/v1/tasks/${task.id}/comments`)
+      fetch(`/api/v1/tasks/${currentTask.id}/comments`)
         .then((r) => (r.ok ? r.json() : { items: [] }))
         .then((d) => setComments(d.items ?? []));
     } else {
       setTitle("");
       setDescription(null);
-      setStatus(defaultStatus ?? "todo");
+      setStatus(defaultStatus ?? columns?.[0]?.id ?? "TODO");
       setPriority("media");
       setProjectId(defaultProjectId ?? projects[0]?.id ?? "");
       setAssigneeIds([]);
@@ -143,42 +134,18 @@ export default function TaskFormModal({
       setComments([]);
       setSubtasks([]);
     }
-  }, [open, task, defaultStatus, defaultProjectId, projects]);
+  }, [open, currentTask?.id, defaultStatus, defaultProjectId, projects, columns]);
 
-  async function addSubtask() {
-    if (!task || !newSubtask.trim()) return;
-    setAddingSubtask(true);
-    const r = await fetch("/api/v1/tasks", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        title: newSubtask.trim(),
-        projectId: task.projectId,
-        parentId: task.id
-      })
-    });
-    setAddingSubtask(false);
-    if (!r.ok) return setError("No se pudo crear subtarea");
-    const created = await r.json();
-    setSubtasks((prev) => [...prev, { id: created.id, title: created.title, status: created.status }]);
-    setNewSubtask("");
-  }
-
-  async function toggleSubtask(id: string, currentStatus: string) {
-    const newStatus = currentStatus === "DONE" ? "TODO" : "DONE";
-    setSubtasks((prev) => prev.map((s) => (s.id === id ? { ...s, status: newStatus } : s)));
-    await fetch(`/api/v1/tasks/${id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status: newStatus })
-    });
-  }
-
-  async function deleteSubtask(id: string) {
-    if (!confirm("¿Eliminar subtarea?")) return;
-    setSubtasks((prev) => prev.filter((s) => s.id !== id));
-    await fetch(`/api/v1/tasks/${id}`, { method: "DELETE" });
-  }
+  useEffect(() => {
+    if (!open) return;
+    fetch("/api/v1/users")
+      .then((r) => (r.ok ? r.json() : { items: [] }))
+      .then((d) =>
+        setMentionCandidates(
+          (d.items ?? []).map((u: any) => ({ id: u.id, name: u.name, email: u.email }))
+        )
+      );
+  }, [open]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -195,14 +162,16 @@ export default function TaskFormModal({
     const payload: any = {
       title: title.trim(),
       projectId,
-      status: statusToApi[status],
+      status,
       priority: priorityToApi[priority],
       assigneeIds,
       description: descSerialized
     };
     if (dueDate) payload.dueDate = new Date(dueDate).toISOString();
+    // Si estamos editando una subtarea, conservamos su parentId (no se pierde)
+    if (currentTask?._parentId) payload.parentId = currentTask._parentId;
 
-    const r = await fetch(isEdit ? `/api/v1/tasks/${task!.id}` : "/api/v1/tasks", {
+    const r = await fetch(isEdit ? `/api/v1/tasks/${currentTask!.id}` : "/api/v1/tasks", {
       method: isEdit ? "PATCH" : "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload)
@@ -213,23 +182,29 @@ export default function TaskFormModal({
       return setError(j.message || `Error ${r.status}`);
     }
     router.refresh();
-    onClose();
+    // Si era la última tarea de la pila, cerramos; si era una subtarea, volvemos a la padre
+    if (taskStack.length <= 1) {
+      onClose();
+    } else {
+      goBack();
+    }
   }
 
   async function handleDelete() {
-    if (!task || !confirm("¿Eliminar esta tarea? No se puede deshacer.")) return;
+    if (!currentTask || !confirm("¿Eliminar esta tarea? No se puede deshacer.")) return;
     setDeleting(true);
-    const r = await fetch(`/api/v1/tasks/${task.id}`, { method: "DELETE" });
+    const r = await fetch(`/api/v1/tasks/${currentTask.id}`, { method: "DELETE" });
     setDeleting(false);
     if (!r.ok) return setError("No se pudo eliminar");
     router.refresh();
-    onClose();
+    if (taskStack.length <= 1) onClose();
+    else goBack();
   }
 
   async function postComment() {
-    if (!task || !newComment.trim()) return;
+    if (!currentTask || !newComment.trim()) return;
     setPostingComment(true);
-    const r = await fetch(`/api/v1/tasks/${task.id}/comments`, {
+    const r = await fetch(`/api/v1/tasks/${currentTask.id}/comments`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ body: newComment.trim() })
@@ -250,6 +225,76 @@ export default function TaskFormModal({
   function toggleAssignee(id: string) {
     setAssigneeIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   }
+
+  async function addSubtask() {
+    if (!currentTask || !newSubtask.trim()) return;
+    setAddingSubtask(true);
+    const r = await fetch("/api/v1/tasks", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: newSubtask.trim(),
+        projectId: currentTask.projectId,
+        parentId: currentTask.id
+      })
+    });
+    setAddingSubtask(false);
+    if (!r.ok) return setError("No se pudo crear subtarea");
+    const created = await r.json();
+    setSubtasks((prev) => [...prev, { id: created.id, title: created.title, status: created.status }]);
+    setNewSubtask("");
+  }
+
+  async function toggleSubtask(id: string, currentStatus: string) {
+    const isDone = currentStatus === "DONE";
+    const newStatus = isDone ? "TODO" : "DONE";
+    setSubtasks((prev) => prev.map((s) => (s.id === id ? { ...s, status: newStatus } : s)));
+    await fetch(`/api/v1/tasks/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: newStatus })
+    });
+  }
+
+  async function deleteSubtask(id: string) {
+    if (!confirm("¿Eliminar subtarea?")) return;
+    setSubtasks((prev) => prev.filter((s) => s.id !== id));
+    await fetch(`/api/v1/tasks/${id}`, { method: "DELETE" });
+  }
+
+  async function openSubtask(subId: string) {
+    // Cargar subtarea completa y empujarla a la pila
+    const r = await fetch(`/api/v1/tasks/${subId}`);
+    if (!r.ok) return;
+    const data = await r.json();
+    const sub: CurrentTask = {
+      id: data.id,
+      title: data.title,
+      status: data.status,
+      assigneeIds: (data.assignees ?? []).map((a: any) => a.userId ?? a.user?.id),
+      projectId: data.projectId,
+      clientId: data.clientId ?? undefined,
+      dueDate: data.dueDate ? new Date(data.dueDate).toISOString().slice(0, 10) : "",
+      priority: data.priority === "LOW" ? "baja" : data.priority === "HIGH" || data.priority === "URGENT" ? "alta" : "media",
+      tags: (data.tags ?? []).map((t: any) => t.tag?.name ?? "").filter(Boolean),
+      _parentId: data.parentId ?? null
+    };
+    setTaskStack((s) => [...s, sub]);
+  }
+
+  function goBack() {
+    setTaskStack((s) => s.slice(0, -1));
+  }
+
+  const parentInStack = taskStack.length > 1 ? taskStack[taskStack.length - 2] : null;
+  const dynamicColumns = columns && columns.length > 0
+    ? columns
+    : [
+        { id: "TODO", label: "Por hacer", color: "", order: 0 },
+        { id: "IN_PROGRESS", label: "En curso", color: "", order: 1 },
+        { id: "REVIEW", label: "Revisión", color: "", order: 2 },
+        { id: "DONE", label: "Hecha", color: "", order: 3 }
+      ];
 
   return (
     <Modal
@@ -285,6 +330,16 @@ export default function TaskFormModal({
         </>
       }
     >
+      {parentInStack && (
+        <button
+          type="button"
+          onClick={goBack}
+          className="mb-3 inline-flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-900"
+        >
+          <ArrowLeft className="h-3.5 w-3.5" />
+          Volver a "{parentInStack.title}"
+        </button>
+      )}
       <form id="task-form" onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-[1fr_240px] gap-6">
         <div className="space-y-4 min-w-0">
           <input
@@ -313,7 +368,9 @@ export default function TaskFormModal({
               <div className="text-xs font-medium text-slate-700 mb-2 flex items-center gap-1.5">
                 <CheckSquare className="h-3.5 w-3.5" />
                 Subtareas
-                <span className="text-slate-400">({subtasks.filter((s) => s.status === "DONE").length}/{subtasks.length})</span>
+                <span className="text-slate-400">
+                  ({subtasks.filter((s) => s.status === "DONE").length}/{subtasks.length})
+                </span>
               </div>
               <div className="space-y-1.5">
                 {subtasks.map((s) => {
@@ -335,13 +392,25 @@ export default function TaskFormModal({
                       >
                         {done && <Check className="h-3 w-3" />}
                       </button>
-                      <span
+                      <button
+                        type="button"
+                        onClick={() => openSubtask(s.id)}
                         className={
-                          "text-sm flex-1 " + (done ? "line-through text-slate-400" : "text-slate-700")
+                          "text-sm flex-1 text-left hover:text-brand-700 truncate " +
+                          (done ? "line-through text-slate-400" : "text-slate-700")
                         }
+                        title="Abrir subtarea como tarea completa"
                       >
                         {s.title}
-                      </span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => openSubtask(s.id)}
+                        className="opacity-0 group-hover:opacity-100 h-6 w-6 grid place-items-center rounded text-slate-400 hover:text-brand-600 hover:bg-brand-50"
+                        title="Abrir subtarea"
+                      >
+                        <ExternalLink className="h-3 w-3" />
+                      </button>
                       <button
                         type="button"
                         onClick={() => deleteSubtask(s.id)}
@@ -375,12 +444,15 @@ export default function TaskFormModal({
                   Añadir
                 </button>
               </div>
+              <p className="text-[11px] text-slate-500 mt-1.5">
+                💡 Haz clic en una subtarea para abrirla como tarea completa (con sus propios adjuntos, comentarios, etc.).
+              </p>
             </div>
           )}
 
           {isEdit && (
             <div className="pt-2">
-              <AttachmentList targetType="TASK" targetId={task!.id} />
+              <AttachmentList targetType="TASK" targetId={currentTask!.id} />
             </div>
           )}
 
@@ -455,10 +527,10 @@ export default function TaskFormModal({
           <SidebarField label="Estado">
             <select
               value={status}
-              onChange={(e) => setStatus(e.target.value as Status)}
+              onChange={(e) => setStatus(e.target.value)}
               className="w-full px-2 py-1.5 rounded-md border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
             >
-              {statusOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+              {dynamicColumns.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
             </select>
           </SidebarField>
 
@@ -543,7 +615,6 @@ function initialsFromName(name: string | null): string {
 }
 
 function renderWithMentions(body: string): React.ReactNode[] {
-  // Resalta @email-like tokens en el cuerpo del comentario.
   const re = /@([a-zA-Z0-9._%+-]+(?:@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})?)/g;
   const parts: React.ReactNode[] = [];
   let lastIndex = 0;

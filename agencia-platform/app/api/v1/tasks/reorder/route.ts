@@ -10,7 +10,7 @@ const reorderSchema = z.object({
       z.object({
         id: z.string(),
         order: z.number().int().min(0),
-        status: z.enum(["TODO", "IN_PROGRESS", "REVIEW", "DONE", "CANCELLED"]).optional()
+        status: z.string().min(1).optional()
       })
     )
     .min(1)

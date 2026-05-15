@@ -21,6 +21,7 @@ model User {
   name          String?
   passwordHash  String?
   image         String?
+  phone         String?   // para futuras notificaciones SMS/WhatsApp
   emailVerified DateTime?
   role          UserRole  @default(MEMBER)
   createdAt     DateTime  @default(now())
@@ -268,7 +269,7 @@ model Task {
   parentId    String?      // subtareas
   title       String
   description String?      @db.Text
-  status      TaskStatus   @default(TODO)
+  status      String       @default("TODO")  // antes enum TaskStatus; ahora libre para soportar columnas custom del workspace
   priority    TaskPriority @default(MEDIUM)
   dueDate     DateTime?
   completedAt DateTime?

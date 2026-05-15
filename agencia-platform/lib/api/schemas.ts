@@ -22,7 +22,8 @@ export const taskCreateSchema = z.object({
   projectId: z.string(),
   title: z.string().min(1),
   description: z.string().optional(),
-  status: z.enum(["TODO", "IN_PROGRESS", "REVIEW", "DONE", "CANCELLED"]).default("TODO"),
+  // Antes era enum cerrado; ahora libre (columnas configurables por workspace).
+  status: z.string().min(1).default("TODO"),
   priority: z.enum(["LOW", "MEDIUM", "HIGH", "URGENT"]).default("MEDIUM"),
   dueDate: z.string().datetime().optional(),
   assigneeIds: z.array(z.string()).default([]),

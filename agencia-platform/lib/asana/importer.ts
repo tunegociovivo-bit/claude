@@ -7,7 +7,19 @@
 
 import { prisma } from "@/lib/db/prisma";
 import { AsanaClient, type AsanaTask } from "./client";
-import { TaskStatus, TaskPriority } from "@prisma/client";
+import { TaskPriority } from "@prisma/client";
+
+// Antes TaskStatus era enum en Prisma; ahora es string libre para soportar
+// columnas custom del Kanban. Mantenemos los valores por defecto como
+// constantes string para usar dentro del importer.
+type TaskStatus = "TODO" | "IN_PROGRESS" | "REVIEW" | "DONE" | "CANCELLED";
+const TaskStatus = {
+  TODO: "TODO" as const,
+  IN_PROGRESS: "IN_PROGRESS" as const,
+  REVIEW: "REVIEW" as const,
+  DONE: "DONE" as const,
+  CANCELLED: "CANCELLED" as const
+};
 
 type ImportOptions = {
   workspaceId: string; // workspace local

@@ -117,7 +117,10 @@ export async function getTasksForUi(): Promise<UiTask[]> {
     return rows.map<UiTask>((r) => ({
       id: r.id,
       title: r.title,
-      status: taskStatusToUi[r.status] ?? "todo",
+      // Devolvemos el ID de columna tal cual está en BD. Por defecto
+      // "TODO" / "IN_PROGRESS" / "REVIEW" / "DONE", pero puede ser cualquier
+      // ID definido en workspace.settings.kanban.columns.
+      status: r.status as any,
       assigneeIds: r.assignees.map((a) => a.userId),
       projectId: r.projectId,
       clientId: r.clientId ?? undefined,
@@ -146,8 +149,18 @@ export async function getEventsForUi(): Promise<UiEvent[]> {
 export async function getTeamForUi(): Promise<UiMember[]> {
   return tryPrisma(async () => {
     const { prisma } = await import("./prisma");
+    const { getSessionWorkspaceId } = await import("@/lib/auth");
+    const workspaceId = await getSessionWorkspaceId();
+
+    // Solo usuarios que pertenecen al workspace ACTUAL. Cuando un admin
+    // elimina a un trabajador en /admin/usuarios se borra el Membership,
+    // así esa persona desaparece de aquí inmediatamente (antes seguía
+    // apareciendo en /inicio Equipo porque hacíamos findMany global).
+    if (!workspaceId) return [];
+
     const rows = await prisma.user.findMany({
-      include: { memberships: { take: 1 } },
+      where: { memberships: { some: { workspaceId } } },
+      include: { memberships: { where: { workspaceId }, take: 1 } },
       orderBy: { createdAt: "asc" }
     });
     const palette = ["bg-rose-500", "bg-indigo-500", "bg-emerald-500", "bg-amber-500", "bg-sky-500", "bg-purple-500"];

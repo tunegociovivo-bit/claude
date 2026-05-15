@@ -24,25 +24,22 @@ import PageHeader from "@/components/PageHeader";
 import AvatarStack from "@/components/AvatarStack";
 import TaskFormModal from "@/components/forms/TaskFormModal";
 import ProjectFormModal from "@/components/forms/ProjectFormModal";
-import {
-  statusLabels,
-  statusColors,
-  priorityColors,
-  type Status
-} from "@/lib/mock-data";
+import BulkActionBar from "@/components/tareas/BulkActionBar";
+import { statusLabelOf, statusColorOf, priorityColors } from "@/lib/mock-data";
 import type { UiTask, UiProject, UiClient, UiMember } from "@/lib/db/queries";
-import { LayoutGrid, List, Plus, Filter, CalendarDays, FolderPlus, GripVertical } from "lucide-react";
+import { LayoutGrid, List, Plus, Filter, CalendarDays, FolderPlus, GripVertical, CheckSquare, Square, Settings2 } from "lucide-react";
 import clsx from "clsx";
 
-const DEFAULT_COLUMNS: Status[] = ["todo", "in_progress", "review", "done"];
-const COLUMN_ORDER_KEY = "kanban-column-order-v1";
+type KanbanColumn = { id: string; label: string; color: string; order: number; isDone?: boolean };
 
-const statusToApi: Record<Status, "TODO" | "IN_PROGRESS" | "REVIEW" | "DONE"> = {
-  todo: "TODO",
-  in_progress: "IN_PROGRESS",
-  review: "REVIEW",
-  done: "DONE"
-};
+const COLUMN_ORDER_KEY = "kanban-column-order-v2";
+
+const FALLBACK_COLUMNS: KanbanColumn[] = [
+  { id: "TODO", label: "Por hacer", color: "bg-slate-100 text-slate-700 border-slate-200", order: 0 },
+  { id: "IN_PROGRESS", label: "En curso", color: "bg-sky-100 text-sky-800 border-sky-300", order: 1 },
+  { id: "REVIEW", label: "Revisión", color: "bg-amber-100 text-amber-800 border-amber-300", order: 2 },
+  { id: "DONE", label: "Hecha", color: "bg-emerald-100 text-emerald-800 border-emerald-300", order: 3, isDone: true }
+];
 
 export default function TareasClient({
   tasks: initialTasks,
@@ -60,35 +57,65 @@ export default function TareasClient({
   const [view, setView] = useState<"kanban" | "list">("kanban");
   const [projectFilter, setProjectFilter] = useState<string>(urlProject ?? "all");
 
-  // Local optimistic copy of tasks so drag&drop feels instant.
   const [tasks, setTasks] = useState<UiTask[]>(initialTasks);
   useEffect(() => setTasks(initialTasks), [initialTasks]);
 
-  // Column order persisted in localStorage.
-  const [columnOrder, setColumnOrder] = useState<Status[]>(DEFAULT_COLUMNS);
+  const [columns, setColumns] = useState<KanbanColumn[]>(FALLBACK_COLUMNS);
+  const [columnsLoaded, setColumnsLoaded] = useState(false);
+  const [userColumnOrder, setUserColumnOrder] = useState<string[]>([]);
+
   useEffect(() => {
+    fetch("/api/v1/kanban-columns")
+      .then((r) => (r.ok ? r.json() : { items: FALLBACK_COLUMNS }))
+      .then((d) => {
+        setColumns(d.items ?? FALLBACK_COLUMNS);
+        setColumnsLoaded(true);
+      });
     try {
       const saved = localStorage.getItem(COLUMN_ORDER_KEY);
-      if (saved) {
-        const parsed = JSON.parse(saved) as Status[];
-        const valid = parsed.filter((s) => DEFAULT_COLUMNS.includes(s));
-        const missing = DEFAULT_COLUMNS.filter((s) => !valid.includes(s));
-        setColumnOrder([...valid, ...missing]);
-      }
-    } catch {
-      // ignore
-    }
+      if (saved) setUserColumnOrder(JSON.parse(saved));
+    } catch {}
   }, []);
 
-  useEffect(() => {
-    setProjectFilter(urlProject ?? "all");
-  }, [urlProject]);
+  useEffect(() => setProjectFilter(urlProject ?? "all"), [urlProject]);
+
+  // Aplicar el orden custom guardado en localStorage por usuario
+  const orderedColumns = useMemo(() => {
+    if (userColumnOrder.length === 0) return [...columns].sort((a, b) => a.order - b.order);
+    const known = new Map(columns.map((c) => [c.id, c]));
+    const ordered: KanbanColumn[] = [];
+    for (const id of userColumnOrder) {
+      const c = known.get(id);
+      if (c) {
+        ordered.push(c);
+        known.delete(id);
+      }
+    }
+    for (const c of known.values()) ordered.push(c);
+    return ordered;
+  }, [columns, userColumnOrder]);
 
   const [newTaskOpen, setNewTaskOpen] = useState(false);
-  const [newTaskStatus, setNewTaskStatus] = useState<Status | undefined>();
+  const [newTaskStatus, setNewTaskStatus] = useState<string | undefined>();
   const [editingTask, setEditingTask] = useState<UiTask | null>(null);
   const [newProjectOpen, setNewProjectOpen] = useState(false);
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
+
+  // Selección masiva
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  function toggleSelected(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+  function clearSelection() {
+    setSelected(new Set());
+    setSelectionMode(false);
+  }
 
   const filtered = useMemo(
     () => tasks.filter((t) => projectFilter === "all" || t.projectId === projectFilter),
@@ -97,29 +124,41 @@ export default function TareasClient({
   const getClient = (id?: string) => clients.find((c) => c.id === id);
   const getProject = (id?: string) => projects.find((p) => p.id === id);
 
-  function openNewTask(status?: Status) {
+  function openNewTask(status?: string) {
+    if (selectionMode) return; // no abrir modal durante selección
     setNewTaskStatus(status);
     setEditingTask(null);
     setNewTaskOpen(true);
   }
   function openEditTask(task: UiTask) {
+    if (selectionMode) {
+      toggleSelected(task.id);
+      return;
+    }
     setEditingTask(task);
     setNewTaskStatus(undefined);
     setNewTaskOpen(true);
   }
 
-  // distance:8 lets click events still fire on cards — drag only kicks in
-  // after the pointer moves 8px, so editing-by-click and dragging coexist.
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
 
   const tasksByColumn = useMemo(() => {
-    const map: Record<Status, UiTask[]> = { todo: [], in_progress: [], review: [], done: [] };
-    for (const t of filtered) map[t.status]?.push(t);
+    const map: Record<string, UiTask[]> = {};
+    for (const c of orderedColumns) map[c.id] = [];
+    for (const t of filtered) {
+      const status = String(t.status);
+      if (map[status]) map[status].push(t);
+      else {
+        // Tareas con status que ya no existe en config → fallback a primera columna
+        const first = orderedColumns[0]?.id;
+        if (first) map[first].push({ ...t, status: first });
+      }
+    }
     return map;
-  }, [filtered]);
+  }, [filtered, orderedColumns]);
 
-  function persistColumnOrder(order: Status[]) {
-    setColumnOrder(order);
+  function persistColumnOrder(order: string[]) {
+    setUserColumnOrder(order);
     try {
       localStorage.setItem(COLUMN_ORDER_KEY, JSON.stringify(order));
     } catch {}
@@ -148,60 +187,44 @@ export default function TareasClient({
     const activeType = active.data.current?.type;
     const overType = over.data.current?.type;
 
-    // 1. Reorder de columnas
     if (activeType === "column" && overType === "column" && active.id !== over.id) {
-      const oldIdx = columnOrder.indexOf(active.id as Status);
-      const newIdx = columnOrder.indexOf(over.id as Status);
+      const currentOrder = orderedColumns.map((c) => c.id);
+      const oldIdx = currentOrder.indexOf(String(active.id));
+      const newIdx = currentOrder.indexOf(String(over.id));
       if (oldIdx === -1 || newIdx === -1) return;
-      persistColumnOrder(arrayMove(columnOrder, oldIdx, newIdx));
+      persistColumnOrder(arrayMove(currentOrder, oldIdx, newIdx));
       return;
     }
 
-    // 2. Mover tarea
     if (activeType === "task") {
       const activeTaskId = String(active.id);
       const activeTask = tasks.find((t) => t.id === activeTaskId);
       if (!activeTask) return;
 
-      // Determinar columna destino: si "over" es otra tarea, usamos su columna;
-      // si es la propia columna (drop en zona vacía), usamos esa.
-      let destColumn: Status;
+      let destColumn: string;
       if (overType === "column") {
-        destColumn = over.id as Status;
+        destColumn = String(over.id);
       } else if (overType === "task") {
         const overTask = tasks.find((t) => t.id === String(over.id));
         if (!overTask) return;
-        destColumn = overTask.status;
-      } else {
-        return;
-      }
+        destColumn = String(overTask.status);
+      } else return;
 
-      const sourceColumn = activeTask.status;
+      const sourceColumn = String(activeTask.status);
 
-      // Reordenar localmente las tareas en cada columna afectada
       setTasks((prev) => {
         const next = prev.slice();
-        const sourceList = next.filter((t) => t.status === sourceColumn).map((t) => t.id);
-        const destList =
-          sourceColumn === destColumn
-            ? sourceList
-            : next.filter((t) => t.status === destColumn).map((t) => t.id);
-
-        // Calcular nuevo índice
-        let newIndex: number;
-        if (overType === "task") {
-          newIndex = destList.indexOf(String(over.id));
-          if (newIndex === -1) newIndex = destList.length;
-        } else {
-          newIndex = destList.length; // soltado en zona vacía de la columna → al final
-        }
-
-        // Actualizar estado de la tarea activa
         const taskIdx = next.findIndex((t) => t.id === activeTaskId);
         next[taskIdx] = { ...next[taskIdx], status: destColumn };
 
-        // Recalcular order para columna destino
-        const destAfter = next.filter((t) => t.status === destColumn);
+        const destAfter = next.filter((t) => String(t.status) === destColumn);
+        let newIndex: number;
+        if (overType === "task") {
+          newIndex = destAfter.findIndex((t) => t.id === String(over.id));
+          if (newIndex === -1) newIndex = destAfter.length;
+        } else {
+          newIndex = destAfter.length;
+        }
         const reordered = sourceColumn === destColumn
           ? arrayMove(destAfter, destAfter.findIndex((t) => t.id === activeTaskId), newIndex)
           : (() => {
@@ -210,49 +233,32 @@ export default function TareasClient({
               return others;
             })();
 
-        // Aplicar order y status nuevos a los afectados
         const updates: { id: string; order: number; status?: string }[] = [];
         reordered.forEach((t, idx) => {
           updates.push({
             id: t.id,
             order: idx,
-            ...(t.id === activeTaskId ? { status: statusToApi[destColumn] } : {})
+            ...(t.id === activeTaskId ? { status: destColumn } : {})
           });
         });
-
-        // Si cambió de columna, también renumeramos la columna origen
         if (sourceColumn !== destColumn) {
-          const sourceAfter = next
-            .filter((t) => t.status === sourceColumn && t.id !== activeTaskId);
+          const sourceAfter = next.filter((t) => String(t.status) === sourceColumn && t.id !== activeTaskId);
           sourceAfter.forEach((t, idx) => updates.push({ id: t.id, order: idx }));
         }
-
-        // Actualizar `order` localmente en `next`
-        for (const u of updates) {
-          const i = next.findIndex((t) => t.id === u.id);
-          if (i >= 0) {
-            next[i] = {
-              ...next[i],
-              ...(u.status ? { status: destColumn } : {})
-            };
-          }
-        }
-
-        // Dispara la persistencia en background
         persistTaskReorder(updates);
-
         return next;
       });
     }
   }
 
   const activeTaskBeingDragged = activeDragId ? tasks.find((t) => t.id === activeDragId) ?? null : null;
+  const isAdmin = !columnsLoaded; // placeholder; usaremos el endpoint /me en futuro si hace falta
 
   return (
     <div className="max-w-7xl mx-auto">
       <PageHeader
         title="Tareas y proyectos"
-        description="Gestiona el flujo de trabajo de toda la agencia."
+        description={selectionMode ? `${selected.size} tareas seleccionadas` : "Gestiona el flujo de trabajo de toda la agencia."}
         actions={
           <>
             <div className="flex items-center bg-white border rounded-lg p-0.5">
@@ -277,6 +283,18 @@ export default function TareasClient({
                 Lista
               </button>
             </div>
+            <button
+              onClick={() => setSelectionMode((v) => !v)}
+              className={clsx(
+                "inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium border",
+                selectionMode
+                  ? "bg-brand-50 border-brand-300 text-brand-700"
+                  : "bg-white text-slate-700 hover:bg-slate-50"
+              )}
+            >
+              {selectionMode ? <CheckSquare className="h-4 w-4" /> : <Square className="h-4 w-4" />}
+              {selectionMode ? "Cancelar selección" : "Seleccionar"}
+            </button>
             <button
               onClick={() => setNewProjectOpen(true)}
               className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-white border text-slate-700 hover:bg-slate-50 text-sm font-medium"
@@ -310,6 +328,14 @@ export default function TareasClient({
             ))}
           </select>
         </div>
+        <a
+          href="/admin/columnas"
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border text-xs text-slate-600 hover:text-slate-900"
+          title="Configurar columnas del kanban"
+        >
+          <Settings2 className="h-3.5 w-3.5" />
+          Columnas
+        </a>
       </div>
 
       {view === "kanban" ? (
@@ -319,18 +345,25 @@ export default function TareasClient({
           onDragStart={handleDragStart}
           onDragEnd={handleDragEnd}
         >
-          <SortableContext items={columnOrder} strategy={horizontalListSortingStrategy}>
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-              {columnOrder.map((col) => (
-                <KanbanColumn
-                  key={col}
-                  status={col}
-                  tasks={tasksByColumn[col] ?? []}
-                  onAddTask={() => openNewTask(col)}
+          <SortableContext items={orderedColumns.map((c) => c.id)} strategy={horizontalListSortingStrategy}>
+            <div
+              className="grid gap-4"
+              style={{ gridTemplateColumns: `repeat(${Math.min(orderedColumns.length, 5)}, minmax(0, 1fr))` }}
+            >
+              {orderedColumns.map((col) => (
+                <KanbanColumnView
+                  key={col.id}
+                  column={col}
+                  tasks={tasksByColumn[col.id] ?? []}
+                  onAddTask={() => openNewTask(col.id)}
                   onOpenTask={openEditTask}
+                  selectionMode={selectionMode}
+                  selectedIds={selected}
+                  onToggleSelected={toggleSelected}
                   getProject={getProject}
                   getClient={getClient}
                   team={team}
+                  columns={columns}
                 />
               ))}
             </div>
@@ -343,6 +376,7 @@ export default function TareasClient({
                 client={getClient(activeTaskBeingDragged.clientId)}
                 team={team}
                 isOverlay
+                columns={columns}
               />
             )}
           </DragOverlay>
@@ -352,6 +386,7 @@ export default function TareasClient({
           <table className="w-full text-sm">
             <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
               <tr>
+                {selectionMode && <th className="w-10 px-3 py-3"></th>}
                 <th className="text-left px-5 py-3">Tarea</th>
                 <th className="text-left px-3 py-3">Proyecto</th>
                 <th className="text-left px-3 py-3">Estado</th>
@@ -364,12 +399,23 @@ export default function TareasClient({
               {filtered.map((t) => {
                 const project = getProject(t.projectId);
                 const client = getClient(t.clientId);
+                const isSelected = selected.has(t.id);
                 return (
                   <tr
                     key={t.id}
                     onClick={() => openEditTask(t)}
-                    className="hover:bg-slate-50 cursor-pointer"
+                    className={clsx("cursor-pointer", isSelected ? "bg-brand-50" : "hover:bg-slate-50")}
                   >
+                    {selectionMode && (
+                      <td className="px-3 py-3">
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => toggleSelected(t.id)}
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                      </td>
+                    )}
                     <td className="px-5 py-3">
                       <div className="font-medium">{t.title}</div>
                       <div className="text-xs text-slate-500">{client?.name}</div>
@@ -381,8 +427,8 @@ export default function TareasClient({
                       </div>
                     </td>
                     <td className="px-3 py-3">
-                      <span className={`text-xs px-2 py-1 rounded-md border ${statusColors[t.status]}`}>
-                        {statusLabels[t.status]}
+                      <span className={`text-xs px-2 py-1 rounded-md border ${statusColorOf(String(t.status), columns)}`}>
+                        {statusLabelOf(String(t.status), columns)}
                       </span>
                     </td>
                     <td className="px-3 py-3">
@@ -412,8 +458,25 @@ export default function TareasClient({
         task={editingTask}
         defaultStatus={newTaskStatus}
         defaultProjectId={projectFilter !== "all" ? projectFilter : undefined}
+        columns={columns}
       />
       <ProjectFormModal open={newProjectOpen} onClose={() => setNewProjectOpen(false)} clients={clients} />
+
+      {selectionMode && selected.size > 0 && (
+        <BulkActionBar
+          count={selected.size}
+          selectedIds={Array.from(selected)}
+          projects={projects}
+          team={team}
+          columns={columns}
+          onDone={() => {
+            clearSelection();
+            // Forzar re-fetch desde el servidor — la página re-renderiza props
+            if (typeof window !== "undefined") window.location.reload();
+          }}
+          onCancel={clearSelection}
+        />
+      )}
 
       <div className="mt-8">
         <h2 className="text-sm font-semibold text-slate-500 uppercase tracking-wide mb-3">Proyectos activos</h2>
@@ -447,54 +510,56 @@ export default function TareasClient({
   );
 }
 
-// ────────────────────────────────────────────────────────────────────
-// KanbanColumn — droppable + sortable (para reorder horizontal)
-
-function KanbanColumn({
-  status,
+function KanbanColumnView({
+  column,
   tasks,
   onAddTask,
   onOpenTask,
+  selectionMode,
+  selectedIds,
+  onToggleSelected,
   getProject,
   getClient,
-  team
+  team,
+  columns
 }: {
-  status: Status;
+  column: KanbanColumn;
   tasks: UiTask[];
   onAddTask: () => void;
   onOpenTask: (t: UiTask) => void;
+  selectionMode: boolean;
+  selectedIds: Set<string>;
+  onToggleSelected: (id: string) => void;
   getProject: (id?: string) => UiProject | undefined;
   getClient: (id?: string) => UiClient | undefined;
   team: UiMember[];
+  columns: KanbanColumn[];
 }) {
   const { setNodeRef, attributes, listeners, transform, transition, isDragging } = useSortable({
-    id: status,
+    id: column.id,
     data: { type: "column" }
   });
-
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
     opacity: isDragging ? 0.4 : 1
   };
-
   const taskIds = tasks.map((t) => t.id);
 
   return (
     <div ref={setNodeRef} style={style} className="bg-slate-100/60 rounded-xl p-3 min-h-[400px] flex flex-col">
       <div className="flex items-center justify-between mb-3 px-1">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 min-w-0">
           <button
             {...attributes}
             {...listeners}
-            className="text-slate-400 hover:text-slate-700 cursor-grab active:cursor-grabbing"
+            className="text-slate-400 hover:text-slate-700 cursor-grab active:cursor-grabbing shrink-0"
             aria-label="Mover columna"
-            title="Arrastra para reordenar la columna"
           >
             <GripVertical className="h-3.5 w-3.5" />
           </button>
-          <span className={`text-xs px-2 py-0.5 rounded-md border ${statusColors[status]}`}>
-            {statusLabels[status]}
+          <span className={`text-xs px-2 py-0.5 rounded-md border truncate ${column.color}`}>
+            {column.label}
           </span>
           <span className="text-xs text-slate-500">{tasks.length}</span>
         </div>
@@ -517,6 +582,10 @@ function KanbanColumn({
               client={getClient(t.clientId)}
               team={team}
               onClick={() => onOpenTask(t)}
+              selectionMode={selectionMode}
+              isSelected={selectedIds.has(t.id)}
+              onToggleSelected={() => onToggleSelected(t.id)}
+              columns={columns}
             />
           ))}
           {tasks.length === 0 && (
@@ -530,27 +599,32 @@ function KanbanColumn({
   );
 }
 
-// ────────────────────────────────────────────────────────────────────
-// SortableTask — tarjeta arrastrable
-
 function SortableTask({
   task,
   project,
   client,
   team,
-  onClick
+  onClick,
+  selectionMode,
+  isSelected,
+  onToggleSelected,
+  columns
 }: {
   task: UiTask;
   project?: UiProject;
   client?: UiClient;
   team: UiMember[];
   onClick: () => void;
+  selectionMode: boolean;
+  isSelected: boolean;
+  onToggleSelected: () => void;
+  columns: KanbanColumn[];
 }) {
   const { setNodeRef, attributes, listeners, transform, transition, isDragging } = useSortable({
     id: task.id,
-    data: { type: "task", status: task.status }
+    data: { type: "task", status: String(task.status) },
+    disabled: selectionMode // mientras seleccionas, no se arrastra
   });
-
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
@@ -558,36 +632,66 @@ function SortableTask({
   };
 
   return (
-    <div ref={setNodeRef} style={style} {...attributes} {...listeners} onClick={onClick}>
-      <TaskCard task={task} project={project} client={client} team={team} />
+    <div
+      ref={setNodeRef}
+      style={style}
+      {...(selectionMode ? {} : attributes)}
+      {...(selectionMode ? {} : listeners)}
+      onClick={onClick}
+    >
+      <TaskCard
+        task={task}
+        project={project}
+        client={client}
+        team={team}
+        selectionMode={selectionMode}
+        isSelected={isSelected}
+        onToggleSelected={onToggleSelected}
+        columns={columns}
+      />
     </div>
   );
 }
-
-// ────────────────────────────────────────────────────────────────────
-// TaskCard — presentación pura (reusable también en DragOverlay)
 
 function TaskCard({
   task,
   project,
   client,
   team,
-  isOverlay
+  isOverlay,
+  selectionMode,
+  isSelected,
+  onToggleSelected,
+  columns
 }: {
   task: UiTask;
   project?: UiProject;
   client?: UiClient;
   team: UiMember[];
   isOverlay?: boolean;
+  selectionMode?: boolean;
+  isSelected?: boolean;
+  onToggleSelected?: () => void;
+  columns?: KanbanColumn[];
 }) {
   return (
     <div
       className={clsx(
-        "bg-white rounded-lg border p-3 transition cursor-pointer",
-        isOverlay ? "shadow-2xl rotate-2 border-brand-400" : "hover:shadow-sm hover:border-brand-200"
+        "bg-white rounded-lg border p-3 transition cursor-pointer relative",
+        isOverlay ? "shadow-2xl rotate-2 border-brand-400" : "hover:shadow-sm hover:border-brand-200",
+        isSelected && "border-brand-400 ring-2 ring-brand-300/50"
       )}
     >
-      <div className="flex items-start justify-between gap-2 mb-2">
+      {selectionMode && (
+        <input
+          type="checkbox"
+          checked={isSelected}
+          onChange={onToggleSelected}
+          onClick={(e) => e.stopPropagation()}
+          className="absolute top-2 right-2 h-4 w-4"
+        />
+      )}
+      <div className="flex items-start justify-between gap-2 mb-2 pr-6">
         <p className="text-sm font-medium leading-snug">{task.title}</p>
         <span className={`shrink-0 text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded ${priorityColors[task.priority]}`}>
           {task.priority}

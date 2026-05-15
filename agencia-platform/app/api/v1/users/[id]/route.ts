@@ -9,6 +9,7 @@ const updateSchema = z.object({
   name: z.string().min(1).optional(),
   email: z.string().email().optional(),
   password: z.string().min(8).optional(),
+  phone: z.string().nullable().optional(),
   role: z.enum(["ADMIN", "MEMBER", "GUEST"]).optional()
 });
 
@@ -25,7 +26,7 @@ export const PATCH = withApi({ scope: "*" }, async (req, { params, api }) => {
   const parsed = updateSchema.safeParse(body);
   if (!parsed.success) throw new ApiError(400, "validation_error", parsed.error.message);
 
-  const { name, email, password, role } = parsed.data;
+  const { name, email, password, role, phone } = parsed.data;
 
   const member = await prisma.membership.findFirst({
     where: { workspaceId: api.workspaceId, userId: params.id }
@@ -35,6 +36,7 @@ export const PATCH = withApi({ scope: "*" }, async (req, { params, api }) => {
   const userUpdate: any = {};
   if (name !== undefined) userUpdate.name = name;
   if (email !== undefined) userUpdate.email = email;
+  if (phone !== undefined) userUpdate.phone = phone;
   if (password) userUpdate.passwordHash = await bcrypt.hash(password, 10);
 
   if (Object.keys(userUpdate).length > 0) {

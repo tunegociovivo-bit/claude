@@ -6,7 +6,7 @@ import PageHeader from "@/components/PageHeader";
 import Modal from "@/components/ui/Modal";
 import ProjectFormModal from "@/components/forms/ProjectFormModal";
 import type { UiClient } from "@/lib/db/queries";
-import { Plus, Loader2, Users, UserPlus, X, ExternalLink, Globe2 } from "lucide-react";
+import { Plus, Loader2, Users, UserPlus, X, ExternalLink, Globe2, Trash2, AlertTriangle } from "lucide-react";
 
 type ProjectRow = {
   id: string;
@@ -37,6 +37,7 @@ export default function ProyectosClient() {
   const [loading, setLoading] = useState(true);
   const [createOpen, setCreateOpen] = useState(false);
   const [managingProject, setManagingProject] = useState<ProjectRow | null>(null);
+  const [deletingProject, setDeletingProject] = useState<ProjectRow | null>(null);
 
   async function load() {
     setLoading(true);
@@ -143,6 +144,13 @@ export default function ProyectosClient() {
                       <ExternalLink className="h-3.5 w-3.5" />
                       Ver
                     </Link>
+                    <button
+                      onClick={() => setDeletingProject(p)}
+                      className="ml-1 inline-flex items-center gap-1 px-2 py-1 rounded text-xs text-rose-600 hover:bg-rose-50"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                      Eliminar
+                    </button>
                   </td>
                 </tr>
               ))}
@@ -168,7 +176,131 @@ export default function ProyectosClient() {
           }}
         />
       )}
+
+      {deletingProject && (
+        <DeleteProjectModal
+          project={deletingProject}
+          onClose={() => setDeletingProject(null)}
+          onDeleted={() => {
+            setDeletingProject(null);
+            load();
+          }}
+        />
+      )}
     </div>
+  );
+}
+
+function DeleteProjectModal({
+  project,
+  onClose,
+  onDeleted
+}: {
+  project: ProjectRow;
+  onClose: () => void;
+  onDeleted: () => void;
+}) {
+  const [confirmName, setConfirmName] = useState("");
+  const [stage, setStage] = useState<1 | 2>(1);
+  const [deleting, setDeleting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const nameOk = confirmName.trim() === project.name;
+
+  async function doDelete() {
+    setDeleting(true);
+    setError(null);
+    try {
+      const r = await fetch(`/api/v1/projects/${project.id}?confirm=${encodeURIComponent(project.id)}`, {
+        method: "DELETE"
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(data?.error?.message ?? `Error ${r.status}`);
+      onDeleted();
+    } catch (e: any) {
+      setError(e.message ?? String(e));
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  return (
+    <Modal
+      open={true}
+      onClose={onClose}
+      title={stage === 1 ? "Confirmación 1 de 2" : "Confirmación 2 de 2 — última oportunidad"}
+      size="md"
+      footer={
+        <>
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-3 py-2 rounded-lg text-sm border bg-white hover:bg-slate-50"
+          >
+            Cancelar
+          </button>
+          {stage === 1 ? (
+            <button
+              type="button"
+              onClick={() => setStage(2)}
+              className="px-3 py-2 rounded-lg text-sm font-medium bg-rose-100 text-rose-700 hover:bg-rose-200"
+            >
+              Entiendo, continuar
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={doDelete}
+              disabled={!nameOk || deleting}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium bg-rose-600 hover:bg-rose-700 text-white disabled:opacity-50"
+            >
+              {deleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+              Eliminar definitivamente
+            </button>
+          )}
+        </>
+      }
+    >
+      {stage === 1 ? (
+        <div className="space-y-3">
+          <div className="flex items-start gap-3 p-3 rounded-lg bg-rose-50 border border-rose-200">
+            <AlertTriangle className="h-5 w-5 text-rose-600 shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm font-medium text-rose-900">
+                Vas a eliminar el proyecto "{project.name}".
+              </p>
+              <ul className="mt-2 text-xs text-rose-800 list-disc ml-5 space-y-0.5">
+                <li>Se borrarán las <strong>{project._count.tasks} tareas</strong> que contiene (con sus subtareas, comentarios y adjuntos asociados)</li>
+                <li>Se borrarán los <strong>{project._count.members} accesos</strong> configurados</li>
+                <li>El cliente vinculado ({project.client?.name ?? "—"}) NO se borra</li>
+                <li>Esta acción <strong>no se puede deshacer</strong></li>
+              </ul>
+            </div>
+          </div>
+          <p className="text-sm text-slate-600">
+            ¿Estás seguro? Si lo estás, pulsa "Entiendo, continuar" para una segunda confirmación.
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          <p className="text-sm text-slate-700">
+            Para confirmar el borrado, <strong>escribe el nombre del proyecto exactamente</strong>:
+          </p>
+          <div className="px-3 py-2 rounded-lg bg-slate-100 font-mono text-sm">{project.name}</div>
+          <input
+            value={confirmName}
+            onChange={(e) => setConfirmName(e.target.value)}
+            autoFocus
+            placeholder="Escribe el nombre del proyecto"
+            className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-rose-500"
+          />
+          {confirmName && !nameOk && (
+            <p className="text-xs text-rose-600">El nombre no coincide.</p>
+          )}
+          {error && <p className="text-xs text-rose-600">{error}</p>}
+        </div>
+      )}
+    </Modal>
   );
 }
 

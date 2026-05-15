@@ -1,4 +1,10 @@
-export type Status = "todo" | "in_progress" | "review" | "done";
+/**
+ * Status es ahora libre porque las columnas del kanban se configuran por
+ * workspace en /admin/columnas. Los IDs por defecto son TODO/IN_PROGRESS/
+ * REVIEW/DONE (compatibilidad con datos preexistentes). Hay helpers
+ * statusLabelOf / statusColorOf más abajo para mostrarlos.
+ */
+export type Status = string;
 
 export type TeamMember = {
   id: string;
@@ -174,7 +180,7 @@ export const tasks: Task[] = [
   {
     id: "t1",
     title: "Definir paleta cromática secundaria",
-    status: "in_progress",
+    status: "IN_PROGRESS",
     assigneeIds: ["u3"],
     projectId: "p1",
     clientId: "c1",
@@ -185,7 +191,7 @@ export const tasks: Task[] = [
   {
     id: "t2",
     title: "Redactar copy email lanzamiento",
-    status: "todo",
+    status: "TODO",
     assigneeIds: ["u4"],
     projectId: "p2",
     clientId: "c2",
@@ -196,7 +202,7 @@ export const tasks: Task[] = [
   {
     id: "t3",
     title: "Programar publicaciones IG semana 21",
-    status: "todo",
+    status: "TODO",
     assigneeIds: ["u5"],
     projectId: "p2",
     clientId: "c2",
@@ -207,7 +213,7 @@ export const tasks: Task[] = [
   {
     id: "t4",
     title: "Optimizar ficha Google Business",
-    status: "review",
+    status: "REVIEW",
     assigneeIds: ["u6", "u4"],
     projectId: "p3",
     clientId: "c3",
@@ -218,7 +224,7 @@ export const tasks: Task[] = [
   {
     id: "t5",
     title: "Crear landing page del curso",
-    status: "todo",
+    status: "TODO",
     assigneeIds: ["u3", "u6"],
     projectId: "p4",
     clientId: "c5",
@@ -229,7 +235,7 @@ export const tasks: Task[] = [
   {
     id: "t6",
     title: "Entregar manual de marca v1",
-    status: "review",
+    status: "REVIEW",
     assigneeIds: ["u3"],
     projectId: "p1",
     clientId: "c1",
@@ -240,7 +246,7 @@ export const tasks: Task[] = [
   {
     id: "t7",
     title: "Reunión kick-off Tech Sprint",
-    status: "done",
+    status: "DONE",
     assigneeIds: ["u1", "u2"],
     projectId: "p4",
     clientId: "c5",
@@ -251,7 +257,7 @@ export const tasks: Task[] = [
   {
     id: "t8",
     title: "Auditoría de competencia Patas",
-    status: "done",
+    status: "DONE",
     assigneeIds: ["u6"],
     projectId: "p3",
     clientId: "c3",
@@ -262,7 +268,7 @@ export const tasks: Task[] = [
   {
     id: "t9",
     title: "Mockups packaging Nordic",
-    status: "in_progress",
+    status: "IN_PROGRESS",
     assigneeIds: ["u3"],
     projectId: "p1",
     clientId: "c1",
@@ -273,7 +279,7 @@ export const tasks: Task[] = [
   {
     id: "t10",
     title: "Plan de medios mayo Atelier",
-    status: "in_progress",
+    status: "IN_PROGRESS",
     assigneeIds: ["u6", "u2"],
     projectId: "p2",
     clientId: "c2",
@@ -354,19 +360,52 @@ export const events: CalendarEvent[] = [
   { id: "e8", title: "Entrega landing Tech Sprint", date: "2026-05-30", type: "deadline", clientId: "c5" }
 ];
 
-export const statusLabels: Record<Status, string> = {
+/**
+ * Labels y colores por defecto. Los nuevos workspaces pueden añadir columnas
+ * con sus propios labels/colores y se mezclan vía statusLabelOf/Color en
+ * tiempo de render.
+ */
+export const statusLabels: Record<string, string> = {
+  // Mayúsculas (lo que viene de BD ahora):
+  TODO: "Por hacer",
+  IN_PROGRESS: "En curso",
+  REVIEW: "Revisión",
+  DONE: "Hecho",
+  CANCELLED: "Cancelada",
+  // Compatibilidad lowercase (legacy):
   todo: "Por hacer",
   in_progress: "En curso",
   review: "Revisión",
   done: "Hecho"
 };
 
-export const statusColors: Record<Status, string> = {
+export const statusColors: Record<string, string> = {
+  TODO: "bg-slate-100 text-slate-700 border-slate-200",
+  IN_PROGRESS: "bg-indigo-50 text-indigo-700 border-indigo-200",
+  REVIEW: "bg-amber-50 text-amber-800 border-amber-200",
+  DONE: "bg-emerald-50 text-emerald-700 border-emerald-200",
+  CANCELLED: "bg-rose-50 text-rose-700 border-rose-200",
   todo: "bg-slate-100 text-slate-700 border-slate-200",
   in_progress: "bg-indigo-50 text-indigo-700 border-indigo-200",
   review: "bg-amber-50 text-amber-800 border-amber-200",
   done: "bg-emerald-50 text-emerald-700 border-emerald-200"
 };
+
+/**
+ * Helpers que consultan primero la config dinámica de columnas del workspace
+ * (si se pasa) y caen a los defaults arriba.
+ */
+type ColumnLike = { id: string; label?: string; color?: string };
+export function statusLabelOf(status: string, columns?: ColumnLike[]): string {
+  const col = columns?.find((c) => c.id === status);
+  if (col?.label) return col.label;
+  return statusLabels[status] ?? status;
+}
+export function statusColorOf(status: string, columns?: ColumnLike[]): string {
+  const col = columns?.find((c) => c.id === status);
+  if (col?.color) return col.color;
+  return statusColors[status] ?? "bg-slate-100 text-slate-700 border-slate-200";
+}
 
 export const priorityColors: Record<Task["priority"], string> = {
   baja: "bg-slate-100 text-slate-600",

@@ -24,11 +24,22 @@ export default function VoiceReviewsClient() {
   const [loading, setLoading] = useState(true);
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<VoiceBusiness | null>(null);
+  const [aiStatus, setAiStatus] = useState<{ anthropic: boolean; openai: boolean } | null>(null);
 
   async function load() {
     setLoading(true);
-    const r = await fetch("/api/v1/voice-businesses");
-    if (r.ok) setItems((await r.json()).items ?? []);
+    const [bizR, aiR] = await Promise.all([
+      fetch("/api/v1/voice-businesses"),
+      fetch("/api/v1/admin/ai-settings")
+    ]);
+    if (bizR.ok) setItems((await bizR.json()).items ?? []);
+    if (aiR.ok) {
+      const d = await aiR.json();
+      setAiStatus({
+        anthropic: Boolean(d.hasKey || d.envKey),
+        openai: Boolean(d.openai?.hasKey || d.openai?.envKey)
+      });
+    }
     setLoading(false);
   }
 
@@ -69,9 +80,21 @@ export default function VoiceReviewsClient() {
         }
       />
 
-      <div className="mb-4 px-4 py-3 rounded-lg bg-sky-50 border border-sky-200 text-sm text-sky-800">
-        <strong>Nota:</strong> Voice Reviews necesita las dos API keys en <a href="/admin/reviews" className="underline">/admin/reviews</a> (OpenAI para Whisper) y en <a href="/admin/ai" className="underline">/admin/ai</a> (Anthropic para el borrador).
-      </div>
+      {aiStatus && (aiStatus.anthropic && aiStatus.openai) ? (
+        <div className="mb-4 px-4 py-3 rounded-lg bg-emerald-50 border border-emerald-200 text-sm text-emerald-800">
+          ✓ <strong>API keys configuradas:</strong> Anthropic (para redactar borradores) y OpenAI (para Whisper) están operativas.
+        </div>
+      ) : aiStatus ? (
+        <div className="mb-4 px-4 py-3 rounded-lg bg-amber-50 border border-amber-200 text-sm text-amber-800">
+          ⚠️ <strong>Faltan API keys:</strong>
+          {!aiStatus.openai && (
+            <> OpenAI (para Whisper) → configúrala en <a href="/admin/reviews" className="underline font-medium">/admin/reviews</a>.</>
+          )}
+          {!aiStatus.anthropic && (
+            <> Anthropic (para el borrador) → configúrala en <a href="/admin/ai" className="underline font-medium">/admin/ai</a>.</>
+          )}
+        </div>
+      ) : null}
 
       {loading ? (
         <div className="bg-white rounded-xl border p-8 text-sm text-slate-500 flex items-center gap-2">

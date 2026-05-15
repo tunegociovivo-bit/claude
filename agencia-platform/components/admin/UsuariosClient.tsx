@@ -203,6 +203,7 @@ function UserFormModal({
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [phone, setPhone] = useState("");
   const [role, setRole] = useState<Member["role"]>("MEMBER");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -215,10 +216,12 @@ function UserFormModal({
       setEmail(member.email);
       setRole(member.role);
       setPassword("");
+      setPhone((member as any).phone ?? "");
     } else {
       setName("");
       setEmail("");
       setPassword("");
+      setPhone("");
       setRole("MEMBER");
     }
   }, [open, member]);
@@ -232,7 +235,7 @@ function UserFormModal({
     setSaving(true);
     const url = isEdit ? `/api/v1/users/${member!.id}` : "/api/v1/users";
     const method = isEdit ? "PATCH" : "POST";
-    const payload: any = { name, email, role };
+    const payload: any = { name, email, role, phone: phone || null };
     if (password) payload.password = password;
 
     const r = await fetch(url, {
@@ -287,6 +290,18 @@ function UserFormModal({
             type="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
+            className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+          />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-slate-700 mb-1">
+            Teléfono <span className="text-slate-400 font-normal">(para futuras notificaciones por SMS/WhatsApp)</span>
+          </label>
+          <input
+            type="tel"
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+            placeholder="+34 6XX XXX XXX"
             className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
           />
         </div>

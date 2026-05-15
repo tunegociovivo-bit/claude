@@ -1,4 +1,14 @@
-import { PrismaClient, ClientStatus, TaskStatus, TaskPriority, EventType, UserRole } from "@prisma/client";
+import { PrismaClient, ClientStatus, TaskPriority, EventType, UserRole } from "@prisma/client";
+
+// TaskStatus pasó de enum a string libre (columnas custom). Constantes con
+// los mismos IDs por defecto para mantener compatibilidad.
+const TaskStatus = {
+  TODO: "TODO",
+  IN_PROGRESS: "IN_PROGRESS",
+  REVIEW: "REVIEW",
+  DONE: "DONE",
+  CANCELLED: "CANCELLED"
+};
 import bcrypt from "bcryptjs";
 import {
   clients as mockClients,
@@ -17,11 +27,16 @@ const statusMap: Record<string, ClientStatus> = {
   prospecto: "PROSPECT"
 };
 
-const taskStatusMap: Record<string, TaskStatus> = {
+const taskStatusMap: Record<string, string> = {
   todo: "TODO",
   in_progress: "IN_PROGRESS",
   review: "REVIEW",
-  done: "DONE"
+  done: "DONE",
+  // pasthrough para datos ya en uppercase
+  TODO: "TODO",
+  IN_PROGRESS: "IN_PROGRESS",
+  REVIEW: "REVIEW",
+  DONE: "DONE"
 };
 
 const priorityMap: Record<string, TaskPriority> = {

@@ -9,6 +9,7 @@ const createUserSchema = z.object({
   email: z.string().email(),
   name: z.string().min(1),
   password: z.string().min(8),
+  phone: z.string().nullable().optional(),
   role: z.enum(["ADMIN", "MEMBER", "GUEST"]).default("MEMBER")
 });
 
@@ -17,7 +18,7 @@ export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
   const memberships = await prisma.membership.findMany({
     where: { workspaceId: api.workspaceId },
     include: {
-      user: { select: { id: true, name: true, email: true, image: true, role: true, createdAt: true } }
+      user: { select: { id: true, name: true, email: true, image: true, role: true, phone: true, createdAt: true } }
     },
     orderBy: { joinedAt: "asc" }
   });
@@ -27,6 +28,7 @@ export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
     name: m.user.name,
     email: m.user.email,
     image: m.user.image,
+    phone: m.user.phone,
     role: m.role, // rol dentro del workspace
     globalRole: m.user.role,
     membershipId: m.id,
@@ -47,7 +49,7 @@ export const POST = withApi({ scope: "*" }, async (req, { api }) => {
   const parsed = createUserSchema.safeParse(body);
   if (!parsed.success) throw new ApiError(400, "validation_error", parsed.error.message);
 
-  const { email, name, password, role } = parsed.data;
+  const { email, name, password, role, phone } = parsed.data;
 
   const existing = await prisma.user.findUnique({ where: { email } });
   if (existing) {
@@ -68,6 +70,7 @@ export const POST = withApi({ scope: "*" }, async (req, { api }) => {
       email,
       name,
       passwordHash,
+      phone: phone || null,
       memberships: { create: [{ workspaceId: api.workspaceId, role }] }
     }
   });
