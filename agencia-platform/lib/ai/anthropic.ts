@@ -162,12 +162,14 @@ function strictifySchema<T = any>(schema: T): T {
         if (k in s) delete s[k];
       }
     }
+    // BLINDAJE: cualquier subschema que tenga additionalProperties
+    // (incluso sin type=object explícito, o con type=object pero como
+    // objeto/true) se fuerza a false. Strict mode lo exige siempre así.
+    if ("additionalProperties" in s && s.additionalProperties !== false) {
+      s.additionalProperties = false;
+    }
     if (s.type === "object") {
-      // En strict mode SOLO se permite additionalProperties = false.
-      // Si venía como objeto (map abierto tipo {a:string,b:string,...})
-      // o como true, lo forzamos a false. Las claves dinámicas hay que
-      // declararlas explícitamente en properties.
-      if (s.additionalProperties !== false) s.additionalProperties = false;
+      if (s.additionalProperties === undefined) s.additionalProperties = false;
       if (s.properties && typeof s.properties === "object") {
         const next: any = {};
         for (const [k, v] of Object.entries(s.properties)) next[k] = strictifySchema(v);
@@ -196,6 +198,12 @@ export async function completeJson<T = any>(opts: {
 }): Promise<T> {
   const client = await getAnthropicForWorkspace(opts.workspaceId);
   const strictSchema = strictifySchema(opts.schema);
+  // Log del schema final (solo se ve en Railway logs; útil para diagnosticar
+  // errores tipo "output_config.format.schema: ..."). No incluye datos
+  // sensibles.
+  if (process.env.NODE_ENV !== "production" || process.env.DEBUG_AI_SCHEMA === "1") {
+    console.log("[completeJson] schema enviado:", JSON.stringify(strictSchema));
+  }
   const resp = await client.messages.create({
     model: opts.model ?? DEFAULT_MODEL,
     max_tokens: opts.maxTokens ?? 2048,
