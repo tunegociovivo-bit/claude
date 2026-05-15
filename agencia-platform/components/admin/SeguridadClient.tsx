@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import PageHeader from "@/components/PageHeader";
-import { Loader2, Download, Shield, CheckCircle2, XCircle, Clock, AlertTriangle, HardDrive, Cloud } from "lucide-react";
+import { Loader2, Download, Shield, CheckCircle2, XCircle, Clock, AlertTriangle, HardDrive, Cloud, Key, Eye, EyeOff, Copy as CopyIcon, ExternalLink } from "lucide-react";
 
 type BackupRun = {
   id: string;
@@ -214,8 +214,152 @@ export default function SeguridadClient() {
           {error}
         </div>
       )}
+
+      <CredentialsSection />
     </div>
   );
+}
+
+function CredentialsSection() {
+  const [data, setData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [shown, setShown] = useState<Record<string, boolean>>({});
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch("/api/v1/admin/credentials")
+      .then((r) => (r.ok ? r.json() : null))
+      .then(setData)
+      .finally(() => setLoading(false));
+  }, []);
+
+  function toggleShow(id: string) {
+    setShown((s) => ({ ...s, [id]: !s[id] }));
+  }
+  function copy(value: string, id: string) {
+    navigator.clipboard.writeText(value);
+    setCopiedKey(id);
+    setTimeout(() => setCopiedKey(null), 1500);
+  }
+
+  return (
+    <section className="mt-6 bg-white rounded-xl border">
+      <header className="px-5 py-4 border-b flex items-start justify-between gap-3">
+        <div>
+          <h2 className="text-base font-semibold flex items-center gap-2">
+            <Key className="h-4 w-4 text-amber-600" />
+            Credenciales y secretos
+          </h2>
+          <p className="text-xs text-slate-500 mt-0.5">
+            Todas las API keys, tokens y webhooks configurados en este workspace.
+            Cifradas en BD con AES-256-GCM (clave derivada de <code className="text-[10px]">NEXTAUTH_SECRET</code>).
+            Pulsa el ojo para verlas y el botón para copiar al portapapeles.
+          </p>
+        </div>
+        <span className="shrink-0 px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 text-[10px] font-medium border border-amber-200">
+          Solo admins
+        </span>
+      </header>
+
+      {loading && <div className="p-6 text-center text-sm text-slate-500"><Loader2 className="inline h-4 w-4 animate-spin mr-2" /> Descifrando…</div>}
+
+      {data && (
+        <>
+          <div className="divide-y">
+            {Object.entries(data.credentials).map(([id, c]: [string, any]) => {
+              const isShown = !!shown[id];
+              const hasValue = c.value !== null && c.value !== "";
+              return (
+                <div key={id} className="px-5 py-3 flex items-start gap-3">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-baseline gap-2 flex-wrap">
+                      <span className="text-sm font-medium text-slate-900">{c.label}</span>
+                      <code className="text-[10px] text-slate-500">{c.key}</code>
+                      {!hasValue && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-500">no configurado</span>
+                      )}
+                      {c.sensitive && hasValue && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-rose-50 text-rose-700 border border-rose-200">sensible</span>
+                      )}
+                    </div>
+                    <div className="text-[11px] text-slate-500 mt-0.5">
+                      Configurar en{" "}
+                      <a href={c.configIn} className="text-brand-600 hover:underline">{c.configIn}</a>
+                      {c.docsUrl && (
+                        <>
+                          {" · "}
+                          <a href={c.docsUrl} target="_blank" rel="noreferrer" className="text-brand-600 hover:underline inline-flex items-center gap-0.5">
+                            obtenerla <ExternalLink className="h-3 w-3" />
+                          </a>
+                        </>
+                      )}
+                      {c.hint && <span className="block mt-0.5 italic">{c.hint}</span>}
+                    </div>
+                    {hasValue && (
+                      <div className="mt-1.5 flex items-center gap-2">
+                        <code className="flex-1 px-2 py-1.5 rounded border bg-slate-50 text-xs font-mono break-all">
+                          {c.sensitive && !isShown
+                            ? maskSecret(String(c.value))
+                            : String(c.value)}
+                        </code>
+                        {c.sensitive && (
+                          <button
+                            type="button"
+                            onClick={() => toggleShow(id)}
+                            className="p-1.5 rounded border bg-white hover:bg-slate-50"
+                            title={isShown ? "Ocultar" : "Mostrar"}
+                          >
+                            {isShown ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => copy(String(c.value), id)}
+                          className="inline-flex items-center gap-1 px-2 py-1.5 rounded border bg-white hover:bg-slate-50 text-xs"
+                        >
+                          {copiedKey === id ? "✓ Copiado" : <><CopyIcon className="h-3.5 w-3.5" /> Copiar</>}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <EnvSection env={data.env} />
+        </>
+      )}
+    </section>
+  );
+}
+
+function EnvSection({ env }: { env: Record<string, any> }) {
+  return (
+    <details className="border-t bg-slate-50/40">
+      <summary className="cursor-pointer px-5 py-3 text-xs font-medium text-slate-700 select-none">
+        🚂 Variables de entorno en Railway (informativo, no muestra valores)
+      </summary>
+      <div className="px-5 py-3 border-t bg-white grid grid-cols-2 gap-x-4 gap-y-1.5 text-[11px]">
+        {Object.entries(env).map(([k, v]) => {
+          const present = typeof v === "boolean" ? v : v !== null && v !== "";
+          return (
+            <div key={k} className="flex items-center justify-between gap-2">
+              <code className="truncate">{k}</code>
+              <span className={present ? "text-emerald-700 font-medium" : "text-slate-400"}>
+                {present ? (typeof v === "string" ? v : "✓ definida") : "— no definida"}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </details>
+  );
+}
+
+function maskSecret(s: string): string {
+  if (s.length <= 12) return "•".repeat(s.length);
+  return s.slice(0, 6) + "•".repeat(Math.max(8, s.length - 12)) + s.slice(-6);
 }
 
 function Card({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
