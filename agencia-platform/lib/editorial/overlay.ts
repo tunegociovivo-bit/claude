@@ -8,6 +8,54 @@
  */
 
 import sharp from "sharp";
+import { readFileSync } from "fs";
+import { join } from "path";
+
+/**
+ * Carga la fuente Inter desde @fontsource/inter y la cachea en base64.
+ * Necesario porque el contenedor de Railway no trae fuentes instaladas
+ * y librsvg pinta "tofu" (cajitas vacías) si no encuentra la fuente.
+ */
+let fontCache: { regular: string; bold: string } | null = null;
+function getFontBase64(): { regular: string; bold: string } {
+  if (fontCache) return fontCache;
+  try {
+    const regular = readFileSync(
+      join(process.cwd(), "node_modules/@fontsource/inter/files/inter-latin-400-normal.woff2")
+    ).toString("base64");
+    const bold = readFileSync(
+      join(process.cwd(), "node_modules/@fontsource/inter/files/inter-latin-800-normal.woff2")
+    ).toString("base64");
+    fontCache = { regular, bold };
+  } catch (e) {
+    console.warn("[overlay] no se pudo cargar Inter desde node_modules:", (e as Error).message);
+    fontCache = { regular: "", bold: "" };
+  }
+  return fontCache;
+}
+
+function fontFaceCss(): string {
+  const { regular, bold } = getFontBase64();
+  if (!regular && !bold) return "";
+  const faces: string[] = [];
+  if (regular) {
+    faces.push(`@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 400;
+  src: url("data:font/woff2;base64,${regular}") format("woff2");
+}`);
+  }
+  if (bold) {
+    faces.push(`@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 800;
+  src: url("data:font/woff2;base64,${bold}") format("woff2");
+}`);
+  }
+  return `<defs><style>${faces.join("\n")}</style></defs>`;
+}
 
 export type OverlayPosition = "br" | "bl" | "tr" | "tl";
 
@@ -67,6 +115,7 @@ function buildOverlaySvg(width: number, height: number, opts: OverlayOpts): stri
     .join("\n");
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
+${fontFaceCss()}
 ${frame}
 ${lineEls}
 </svg>`;
@@ -177,6 +226,7 @@ export async function composeOverlayStructured(opts: StructuredOverlayOpts): Pro
     .join("\n");
 
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
+${fontFaceCss()}
 ${frameShape}
 ${bandShape}
 ${lineEls}

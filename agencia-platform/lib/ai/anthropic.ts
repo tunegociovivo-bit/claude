@@ -195,14 +195,29 @@ export async function completeJson<T = any>(opts: {
   schema: any;
   maxTokens?: number;
   model?: string;
+  /** Si se pasan, se incluyen como bloques type=image en el mensaje
+   *  user. Útil para que Claude VEA fotos del cliente y las describa
+   *  físicamente en el JSON estructurado (image_prompt). */
+  imageUrls?: string[];
 }): Promise<T> {
   const client = await getAnthropicForWorkspace(opts.workspaceId);
   const strictSchema = strictifySchema(opts.schema);
-  // Log del schema final (solo se ve en Railway logs; útil para diagnosticar
-  // errores tipo "output_config.format.schema: ..."). No incluye datos
-  // sensibles.
   if (process.env.NODE_ENV !== "production" || process.env.DEBUG_AI_SCHEMA === "1") {
     console.log("[completeJson] schema enviado:", JSON.stringify(strictSchema));
+  }
+  // Construir content del user: si hay imágenes, las metemos como
+  // bloques al inicio + texto al final.
+  let userContent: any;
+  if (opts.imageUrls && opts.imageUrls.length > 0) {
+    userContent = [
+      ...opts.imageUrls.slice(0, 20).map((url) => ({
+        type: "image",
+        source: { type: "url", url }
+      })),
+      { type: "text", text: opts.user }
+    ];
+  } else {
+    userContent = opts.user;
   }
   const resp = await client.messages.create({
     model: opts.model ?? DEFAULT_MODEL,
@@ -210,7 +225,7 @@ export async function completeJson<T = any>(opts: {
     system: [
       { type: "text", text: opts.system, cache_control: { type: "ephemeral" } }
     ],
-    messages: [{ role: "user", content: opts.user }],
+    messages: [{ role: "user", content: userContent }],
     output_config: {
       format: { type: "json_schema", schema: strictSchema }
     }

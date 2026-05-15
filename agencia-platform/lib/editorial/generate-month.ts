@@ -46,7 +46,7 @@ function lengthBand(v: number): { label: string; words: string } {
   return { label: "largo", words: "200-450 palabras" };
 }
 
-type RosterPerson = { name: string; type: string; photoCount: number };
+type RosterPerson = { name: string; type: string; photoCount: number; photoUrls: string[] };
 
 function buildRoster(client: any): RosterPerson[] {
   const refs: any[] = Array.isArray(client?.referenceImages) ? client.referenceImages : [];
@@ -54,11 +54,19 @@ function buildRoster(client: any): RosterPerson[] {
   for (const r of refs) {
     const name = (r?.personName ?? "").toString().trim();
     if (!name) continue;
+    const url = typeof r?.url === "string" ? r.url : null;
     const key = name.toLowerCase();
     if (!map.has(key)) {
-      map.set(key, { name, type: r.type ?? "general", photoCount: 1 });
+      map.set(key, {
+        name,
+        type: r.type ?? "general",
+        photoCount: 1,
+        photoUrls: url ? [url] : []
+      });
     } else {
-      map.get(key)!.photoCount++;
+      const p = map.get(key)!;
+      p.photoCount++;
+      if (url) p.photoUrls.push(url);
     }
   }
   return Array.from(map.values());
@@ -74,9 +82,15 @@ function buildSystemPrompt(client: any, networks: string[], perNetworkCopy: bool
   const rosterBlock =
     roster.length > 0
       ? `## Roster del cliente (personas con fotos de referencia)
-${roster.map((p) => `- ${p.name} (${p.type}, ${p.photoCount} fotos)`).join("\n")}
+${roster.map((p) => `- ${p.name} (${p.type}, ${p.photoCount} fotos adjuntas en este mensaje)`).join("\n")}
 
-IMPORTANTE — si el copy menciona alguno de estos nombres (${namesCsv}), el image_prompt DEBE describir físicamente a TODAS las personas mencionadas en escena, enumeradas, sin nombres (gpt-image-1 no entiende nombres). Cada miembro del roster es una persona única — nunca dupliques (no pongas "two men with beard" si Rochar es la única persona mencionada). Si el copy es genérico sobre "el equipo" sin nombres, describe la escena con ${roster.length} persona(s).`
+CRÍTICO sobre el roster — te HE ADJUNTADO al inicio de este mensaje las fotos reales de estas personas. ANTES de empezar a escribir publicaciones, MIRA las fotos atentamente y construye una descripción física PRECISA de cada persona (edad aproximada, color y forma de pelo, presencia/forma de barba, complexión, tono de piel, vestimenta típica). Usa esa descripción cuando el copy mencione alguno de estos nombres (${namesCsv}).
+
+Reglas:
+- El image_prompt DEBE describir físicamente a TODAS las personas del copy en escena, enumeradas, SIN nombres (gpt-image-1 no entiende nombres). Ej: en vez de "Rochar smiling", pon "a man in his late 40s with short salt-and-pepper hair and a well-groomed grey beard, wearing a white doctor coat over a dark shirt, warm calm expression, looking directly at camera".
+- Cada miembro del roster es una persona ÚNICA — nunca dupliques (no pongas "two men with beard" si Rochar es la única persona mencionada).
+- Si el copy es genérico sobre "el equipo" sin nombres, describe la escena con ${roster.length} persona(s) consistentes con las fotos del roster.
+- NUNCA generes una persona genérica si el copy menciona un nombre del roster.`
       : "";
 
   return [
@@ -269,12 +283,25 @@ export async function generateMonth(opts: GenerateMonthOptions): Promise<Generat
     networks: opts.networks,
     perNetworkCopy: perNetwork
   });
+  // Pasamos a Claude las fotos del roster (CEO, equipo) para que las
+  // VEA y describa físicamente con detalle en cada image_prompt. Sin
+  // esto el modelo de imagen genera "un señor genérico con barba" en
+  // vez del CEO real. Tomamos hasta 3 fotos por persona, máx 12 fotos
+  // totales (12000 input tokens aprox).
+  const roster = buildRoster(client);
+  const rosterPhotos: string[] = [];
+  for (const p of roster) {
+    for (const u of p.photoUrls.slice(0, 3)) {
+      if (rosterPhotos.length < 12) rosterPhotos.push(u);
+    }
+  }
   const ai = await completeJson<{ posts: any[] }>({
     workspaceId: opts.workspaceId,
     system,
     user,
     schema: responseSchema as any,
-    maxTokens: Math.max(4096, 800 * opts.count)
+    maxTokens: Math.max(4096, 800 * opts.count),
+    imageUrls: rosterPhotos.length > 0 ? rosterPhotos : undefined
   });
 
   const [y, m] = opts.month.split("-").map(Number);
