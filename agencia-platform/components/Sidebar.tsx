@@ -21,7 +21,8 @@ import {
   Download,
   MessageSquare,
   ArrowUp,
-  ArrowDown
+  ArrowDown,
+  Trash2
 } from "lucide-react";
 import clsx from "clsx";
 import ProjectFormModal from "@/components/forms/ProjectFormModal";
@@ -264,6 +265,27 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}
                       <ArrowDown className="h-2.5 w-2.5" />
                     </button>
                   </div>
+                  {me?.role === "ADMIN" && (
+                    <button
+                      type="button"
+                      onClick={async (e) => {
+                        e.preventDefault();
+                        const txt = `¿Eliminar PERMANENTEMENTE el proyecto "${p.name}"?\n\nSe borrarán también sus tareas. Esta acción no se puede deshacer.`;
+                        if (!confirm(txt)) return;
+                        const r = await fetch(`/api/v1/projects/${p.id}?confirm=${p.id}`, { method: "DELETE" });
+                        if (r.ok) {
+                          location.href = "/tareas";
+                        } else {
+                          const j = await r.json().catch(() => ({}));
+                          alert(`No se pudo eliminar: ${j?.error?.message ?? r.status}`);
+                        }
+                      }}
+                      className="hidden group-hover:grid h-5 w-5 place-items-center rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50 shrink-0"
+                      title="Eliminar proyecto"
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </button>
+                  )}
                 </div>
               );
             })}
