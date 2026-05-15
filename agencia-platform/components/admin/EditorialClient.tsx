@@ -184,6 +184,8 @@ export default function EditorialClient() {
   const [editing, setEditing] = useState<EditorialPost | null>(null);
   const [generateOpen, setGenerateOpen] = useState(false);
   const [metricoolOpen, setMetricoolOpen] = useState(false);
+  const [duplicateOpen, setDuplicateOpen] = useState(false);
+  const [multiClientOpen, setMultiClientOpen] = useState(false);
   const [processing, setProcessing] = useState(false);
   const [diagOpen, setDiagOpen] = useState(false);
   const [diagData, setDiagData] = useState<any>(null);
@@ -244,23 +246,20 @@ export default function EditorialClient() {
   }
 
   async function doMonthAction(action: "approve" | "schedule" | "publish" | "archive" | "duplicate") {
+    if (action === "duplicate") {
+      // Abre modal dedicado en lugar de prompt
+      setDuplicateOpen(true);
+      return;
+    }
     const labels: Record<string, string> = {
       approve: "aprobar TODAS las publicaciones del mes",
       schedule: "marcar como programadas todas las aprobadas",
       publish: "marcar como publicadas todas las programadas",
-      archive: "archivar TODAS las publicaciones del mes",
-      duplicate: "duplicar todas las publicaciones a otro mes"
+      archive: "archivar TODAS las publicaciones del mes"
     };
     if (!confirm(`¿Confirmas ${labels[action]} (${filterClient !== "ALL" ? "del cliente seleccionado" : "de todos los clientes"})?`)) return;
 
     let targetMonth: string | undefined;
-    if (action === "duplicate") {
-      const next = new Date(Date.UTC(year, monthNum, 1));
-      const def = monthKey(next);
-      const input = prompt(`Mes destino (YYYY-MM), por defecto ${def}:`, def);
-      if (!input) return;
-      targetMonth = input;
-    }
 
     const r = await fetch("/api/v1/editorial/month-actions", {
       method: "POST",
@@ -324,6 +323,13 @@ export default function EditorialClient() {
             >
               <Sparkles className="h-4 w-4" />
               Generar mes con IA
+            </button>
+            <button
+              onClick={() => setMultiClientOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border bg-white hover:bg-slate-50 text-sm"
+              title="Crear la misma publicación en varios clientes con copy adaptado por IA"
+            >
+              👥 Multi-cliente
             </button>
             <button
               onClick={() => setMetricoolOpen(true)}
@@ -608,6 +614,23 @@ export default function EditorialClient() {
         clients={clients}
         month={month}
         onDone={() => { setGenerateOpen(false); load(); }}
+      />
+
+      <DuplicateMonthModal
+        open={duplicateOpen}
+        onClose={() => setDuplicateOpen(false)}
+        clients={clients}
+        sourceMonth={month}
+        defaultClientId={filterClient !== "ALL" ? filterClient : undefined}
+        onDone={() => { setDuplicateOpen(false); load(); }}
+      />
+
+      <MultiClientPostModal
+        open={multiClientOpen}
+        onClose={() => setMultiClientOpen(false)}
+        clients={clients}
+        month={month}
+        onDone={() => { setMultiClientOpen(false); load(); }}
       />
 
       <MetricoolExportModal
@@ -2089,6 +2112,345 @@ function GenerateImageBar({ postId, onGenerated }: { postId: string; onGenerated
         <div className="text-[11px] text-emerald-700">✓ Imagen generada y asociada al post.</div>
       )}
     </div>
+  );
+}
+
+function DuplicateMonthModal({
+  open,
+  onClose,
+  clients,
+  sourceMonth,
+  defaultClientId,
+  onDone
+}: {
+  open: boolean;
+  onClose: () => void;
+  clients: UiClient[];
+  sourceMonth: string;
+  defaultClientId?: string;
+  onDone: () => void;
+}) {
+  const [clientId, setClientId] = useState("");
+  const [targetMonth, setTargetMonth] = useState("");
+  const [resetStatus, setResetStatus] = useState(true);
+  const [running, setRunning] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<any>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    setClientId(defaultClientId ?? clients[0]?.id ?? "");
+    // mes siguiente como sugerencia
+    const [y, m] = sourceMonth.split("-").map(Number);
+    const next = new Date(Date.UTC(y, m, 1));
+    setTargetMonth(`${next.getUTCFullYear()}-${String(next.getUTCMonth() + 1).padStart(2, "0")}`);
+    setResetStatus(true);
+    setRunning(false);
+    setError(null);
+    setResult(null);
+  }, [open, defaultClientId, clients, sourceMonth]);
+
+  async function run() {
+    if (!clientId) {
+      setError("Selecciona un cliente");
+      return;
+    }
+    if (!/^\d{4}-\d{2}$/.test(targetMonth)) {
+      setError("Formato de mes destino inválido (YYYY-MM)");
+      return;
+    }
+    setRunning(true);
+    setError(null);
+    const r = await fetch("/api/v1/editorial/duplicate-month", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ clientId, sourceMonth, targetMonth, resetStatus })
+    });
+    setRunning(false);
+    const j = await r.json();
+    if (!r.ok) {
+      setError(j?.error?.message ?? `Error ${r.status}`);
+      return;
+    }
+    setResult(j);
+    setTimeout(() => onDone(), 1500);
+  }
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title={`Duplicar mes — ${sourceMonth}`}
+      size="md"
+      footer={
+        <>
+          <button onClick={onClose} className="px-3 py-2 rounded-lg text-sm border bg-white hover:bg-slate-50">Cancelar</button>
+          <button
+            onClick={run}
+            disabled={running || !clientId}
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium disabled:opacity-50"
+          >
+            {running ? <Loader2 className="h-4 w-4 animate-spin" /> : <Copy className="h-4 w-4" />}
+            Duplicar
+          </button>
+        </>
+      }
+    >
+      <div className="space-y-3">
+        <p className="text-xs text-slate-500">
+          Copia todas las publicaciones del cliente en <strong>{sourceMonth}</strong> al mes destino, manteniendo
+          copy, hashtags, copy por red, formato e imagen.
+        </p>
+        <div>
+          <label className="block text-xs font-medium text-slate-700 mb-1">Cliente *</label>
+          <select
+            value={clientId}
+            onChange={(e) => setClientId(e.target.value)}
+            className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+          >
+            <option value="" disabled>Selecciona…</option>
+            {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-slate-700 mb-1">Mes destino *</label>
+          <input
+            type="month"
+            value={targetMonth}
+            onChange={(e) => setTargetMonth(e.target.value)}
+            className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+          />
+        </div>
+        <label className="flex items-center gap-2 text-xs cursor-pointer">
+          <input
+            type="checkbox"
+            checked={resetStatus}
+            onChange={(e) => setResetStatus(e.target.checked)}
+            className="accent-brand-600"
+          />
+          Crear todas como borrador (recomendado)
+        </label>
+        {error && <p className="text-xs text-rose-600">{error}</p>}
+        {result && (
+          <p className="text-xs text-emerald-700">
+            ✓ {result.created} publicaciones duplicadas al mes {targetMonth}.
+          </p>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
+function MultiClientPostModal({
+  open,
+  onClose,
+  clients,
+  month,
+  onDone
+}: {
+  open: boolean;
+  onClose: () => void;
+  clients: UiClient[];
+  month: string;
+  onDone: () => void;
+}) {
+  const [clientIds, setClientIds] = useState<string[]>([]);
+  const [title, setTitle] = useState("");
+  const [content, setContent] = useState("");
+  const [hashtags, setHashtags] = useState("");
+  const [firstComment, setFirstComment] = useState("");
+  const [scheduledFor, setScheduledFor] = useState("");
+  const [format, setFormat] = useState("imagen");
+  const [networks, setNetworks] = useState<string[]>(["instagram", "facebook"]);
+  const [adaptCopy, setAdaptCopy] = useState(true);
+  const [running, setRunning] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<any>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    setClientIds([]);
+    setTitle("");
+    setContent("");
+    setHashtags("");
+    setFirstComment("");
+    setScheduledFor(`${month}-15T10:00`);
+    setFormat("imagen");
+    setNetworks(["instagram", "facebook"]);
+    setAdaptCopy(true);
+    setRunning(false);
+    setError(null);
+    setResult(null);
+  }, [open, month]);
+
+  function toggleClient(id: string) {
+    setClientIds((arr) => (arr.includes(id) ? arr.filter((x) => x !== id) : [...arr, id]));
+  }
+  function toggleNet(n: string) {
+    setNetworks((arr) => (arr.includes(n) ? arr.filter((x) => x !== n) : [...arr, n]));
+  }
+
+  async function run() {
+    if (clientIds.length === 0) {
+      setError("Selecciona al menos un cliente");
+      return;
+    }
+    if (!title.trim() || !content.trim() || !scheduledFor) {
+      setError("Faltan título, copy o fecha");
+      return;
+    }
+    setRunning(true);
+    setError(null);
+    const r = await fetch("/api/v1/editorial/multi-client", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        clientIds,
+        title,
+        content,
+        hashtags: hashtags || undefined,
+        firstComment: firstComment || undefined,
+        scheduledFor: new Date(scheduledFor).toISOString(),
+        format,
+        networks,
+        adaptCopy
+      })
+    });
+    setRunning(false);
+    const j = await r.json();
+    if (!r.ok) {
+      setError(j?.error?.message ?? `Error ${r.status}`);
+      return;
+    }
+    setResult(j);
+    setTimeout(() => onDone(), 1500);
+  }
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title="Publicación multi-cliente"
+      size="lg"
+      footer={
+        <>
+          <button onClick={onClose} className="px-3 py-2 rounded-lg text-sm border bg-white hover:bg-slate-50">Cancelar</button>
+          <button
+            onClick={run}
+            disabled={running || clientIds.length === 0}
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium disabled:opacity-50"
+          >
+            {running && <Loader2 className="h-4 w-4 animate-spin" />}
+            Crear en {clientIds.length} cliente{clientIds.length !== 1 ? "s" : ""}
+          </button>
+        </>
+      }
+    >
+      <div className="space-y-3">
+        <p className="text-xs text-slate-500">
+          Crea la misma publicación en varios clientes a la vez (ej: día de la madre, Black Friday). Si activas
+          "adaptar copy con IA", Claude reescribirá el copy al tono de cada cliente usando su brief.
+        </p>
+        <div>
+          <label className="block text-xs font-medium text-slate-700 mb-1">Clientes destino</label>
+          <div className="flex flex-wrap gap-1.5 p-2 rounded-lg border bg-slate-50 max-h-40 overflow-y-auto">
+            {clients.map((c) => {
+              const sel = clientIds.includes(c.id);
+              return (
+                <button
+                  key={c.id}
+                  type="button"
+                  onClick={() => toggleClient(c.id)}
+                  className={
+                    "px-2.5 py-1 rounded-md text-xs transition border " +
+                    (sel
+                      ? "bg-brand-50 border-brand-300 text-brand-700 font-medium"
+                      : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50")
+                  }
+                >
+                  {c.name}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+        <input
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          placeholder="Título (interno)"
+          className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+        />
+        <textarea
+          value={content}
+          onChange={(e) => setContent(e.target.value)}
+          rows={5}
+          placeholder="Copy base — se adaptará al tono de cada cliente si activas la opción de abajo"
+          className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+        />
+        <div className="grid grid-cols-2 gap-2">
+          <input
+            type="datetime-local"
+            value={scheduledFor}
+            onChange={(e) => setScheduledFor(e.target.value)}
+            className="px-3 py-2 rounded-lg border bg-white text-sm"
+          />
+          <select
+            value={format}
+            onChange={(e) => setFormat(e.target.value)}
+            className="px-3 py-2 rounded-lg border bg-white text-sm"
+          >
+            {["imagen", "reel", "carrusel", "story", "video"].map((x) => (
+              <option key={x} value={x}>{x}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-slate-700 mb-1">Redes</label>
+          <div className="flex flex-wrap gap-1.5">
+            {NETWORK_OPTIONS.map((n) => {
+              const sel = networks.includes(n);
+              return (
+                <button
+                  key={n}
+                  type="button"
+                  onClick={() => toggleNet(n)}
+                  className={
+                    "px-2.5 py-1 rounded-md text-xs capitalize transition border " +
+                    (sel
+                      ? "bg-brand-50 border-brand-300 text-brand-700"
+                      : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50")
+                  }
+                >
+                  {n}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+        <textarea
+          value={hashtags}
+          onChange={(e) => setHashtags(e.target.value)}
+          rows={2}
+          placeholder="Hashtags (compartidos por todos los clientes)"
+          className="w-full px-3 py-2 rounded-lg border bg-white text-sm"
+        />
+        <label className="flex items-center gap-2 text-xs cursor-pointer">
+          <input
+            type="checkbox"
+            checked={adaptCopy}
+            onChange={(e) => setAdaptCopy(e.target.checked)}
+            className="accent-brand-600"
+          />
+          Adaptar copy al tono de cada cliente con IA (recomendado)
+        </label>
+        {error && <p className="text-xs text-rose-600">{error}</p>}
+        {result && (
+          <p className="text-xs text-emerald-700">
+            ✓ Creadas {result.created} publicaciones {result.adapted && "con copy adaptado por IA"}.
+          </p>
+        )}
+      </div>
+    </Modal>
   );
 }
 
