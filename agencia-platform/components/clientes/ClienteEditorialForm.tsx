@@ -42,6 +42,7 @@ type Meta = {
   driveMode: string;
   driveRootId: string | null;
   driveSubfolders: DriveSubfolder[] | null;
+  imageModel: string | null;
 };
 
 export default function ClienteEditorialForm({ initial }: { initial: Meta }) {
@@ -255,6 +256,25 @@ export default function ClienteEditorialForm({ initial }: { initial: Meta }) {
         description="Sube fotos del cliente y categoriza cada imagen (CEO, equipo, instalaciones, pacientes, productos…). La IA analiza estas refs para extraer el ADN visual de la marca."
       >
         <RefsEditor value={form.referenceImages ?? []} onChange={(v) => patch("referenceImages", v)} />
+      </Section>
+
+      <Section
+        emoji="🤖"
+        title="Modelo de imagen IA"
+        description="Qué modelo usar al generar imágenes para este cliente. Por defecto, el del workspace."
+      >
+        <select
+          value={form.imageModel ?? ""}
+          onChange={(e) => patch("imageModel", (e.target.value || null) as any)}
+          className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+        >
+          <option value="">Default del workspace</option>
+          <option value="openai-gpt-image-1">OpenAI gpt-image-1 (calidad alta, ~$0.04-0.17)</option>
+          <option value="freepik-seedream-v4">Freepik Seedream v4 (barato, ~$0.002)</option>
+        </select>
+        <p className="mt-1 text-[11px] text-slate-500">
+          Freepik requiere su API key en /admin/editorial. Si no está configurada, cae a OpenAI.
+        </p>
       </Section>
 
       <Section

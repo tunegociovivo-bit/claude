@@ -82,6 +82,57 @@ export async function complete(opts: {
 }
 
 /**
+ * Helper "vision": acepta una lista de URLs de imágenes (Claude las
+ * descarga internamente) además del texto del usuario. Útil para
+ * analizar refs visuales, screenshots de webs, etc.
+ *
+ * Las imágenes se mandan como bloques `{type: "image", source: {type:
+ * "url", url}}`. Si una URL no es accesible Claude responde igual con un
+ * warning interno.
+ */
+export async function completeVision(opts: {
+  workspaceId: string;
+  system: string;
+  userText: string;
+  imageUrls: string[];
+  maxTokens?: number;
+  model?: string;
+  userId?: string | null;
+  feature?: string;
+}): Promise<string> {
+  const client = await getAnthropicForWorkspace(opts.workspaceId);
+  const model = opts.model ?? DEFAULT_MODEL;
+  const content: any[] = [
+    ...opts.imageUrls.slice(0, 20).map((url) => ({
+      type: "image",
+      source: { type: "url", url }
+    })),
+    { type: "text", text: opts.userText }
+  ];
+  const resp = await client.messages.create({
+    model,
+    max_tokens: opts.maxTokens ?? 4096,
+    system: [{ type: "text", text: opts.system, cache_control: { type: "ephemeral" } }],
+    messages: [{ role: "user", content }]
+  });
+  const { logAiUsage } = await import("./usage");
+  logAiUsage({
+    workspaceId: opts.workspaceId,
+    userId: opts.userId ?? null,
+    projectId: null,
+    feature: opts.feature ?? "vision",
+    provider: "anthropic",
+    model,
+    inputTokens: (resp as any).usage?.input_tokens ?? 0,
+    outputTokens: (resp as any).usage?.output_tokens ?? 0
+  }).catch(() => {});
+  return resp.content
+    .filter((b) => b.type === "text")
+    .map((b: any) => b.text)
+    .join("\n");
+}
+
+/**
  * Helper de salida estructurada JSON usando un schema.
  */
 export async function completeJson<T = any>(opts: {

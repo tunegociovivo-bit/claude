@@ -92,7 +92,8 @@ export const clientEditorialMetaSchema = z.object({
         ])
       })
     )
-    .optional()
+    .optional(),
+  imageModel: z.enum(["openai-gpt-image-1", "freepik-seedream-v4"]).nullable().optional()
 });
 
 export const projectCreateSchema = z.object({

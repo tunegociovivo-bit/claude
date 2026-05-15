@@ -1,7 +1,9 @@
 /**
  * Configuración global del módulo editorial:
- * - makeWebhookUrl: URL de Make/Zapier que recibe { event, cliente, mes,
- *   aprobadas, timestamp } al aprobar un mes.
+ * - makeWebhookUrl: URL de Make/Zapier al aprobar mes.
+ * - imageModel: modelo IA por defecto del workspace para imágenes.
+ * - freepikApiKey: cifrada (solo se devuelve si está configurada,
+ *   nunca el valor real).
  *
  * Persistido en workspace.settings.editorial. Sólo admins.
  */
@@ -11,6 +13,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
+import { encryptSecret } from "@/lib/ai/crypto";
 
 async function requireAdmin(workspaceId: string, userId: string | undefined) {
   if (!userId) throw new ApiError(401, "no_user", "Sesión requerida");
@@ -23,12 +26,17 @@ export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
   const ws = await prisma.workspace.findUnique({ where: { id: api.workspaceId } });
   const settings: any = ws?.settings ?? {};
   return NextResponse.json({
-    makeWebhookUrl: settings?.editorial?.makeWebhookUrl ?? null
+    makeWebhookUrl: settings?.editorial?.makeWebhookUrl ?? null,
+    imageModel: settings?.editorial?.imageModel ?? "openai-gpt-image-1",
+    freepikConfigured: !!settings?.editorial?.freepikApiKey
   });
 });
 
 const schema = z.object({
-  makeWebhookUrl: z.string().url().or(z.literal("")).nullable()
+  makeWebhookUrl: z.string().url().or(z.literal("")).nullable().optional(),
+  imageModel: z.enum(["openai-gpt-image-1", "freepik-seedream-v4"]).optional(),
+  // Pasar string para guardar (cifrada). Pasar null para borrar. Omitir = sin tocar.
+  freepikApiKey: z.string().nullable().optional()
 });
 
 export const PATCH = withApi({ scope: "*" }, async (req, { api }) => {
@@ -40,7 +48,20 @@ export const PATCH = withApi({ scope: "*" }, async (req, { api }) => {
   const ws = await prisma.workspace.findUnique({ where: { id: api.workspaceId } });
   const settings: any = ws?.settings ?? {};
   settings.editorial = settings.editorial ?? {};
-  settings.editorial.makeWebhookUrl = parsed.data.makeWebhookUrl || null;
+
+  if (parsed.data.makeWebhookUrl !== undefined) {
+    settings.editorial.makeWebhookUrl = parsed.data.makeWebhookUrl || null;
+  }
+  if (parsed.data.imageModel !== undefined) {
+    settings.editorial.imageModel = parsed.data.imageModel;
+  }
+  if (parsed.data.freepikApiKey !== undefined) {
+    if (parsed.data.freepikApiKey === null || parsed.data.freepikApiKey === "") {
+      delete settings.editorial.freepikApiKey;
+    } else {
+      settings.editorial.freepikApiKey = encryptSecret(parsed.data.freepikApiKey);
+    }
+  }
 
   await prisma.workspace.update({
     where: { id: api.workspaceId },

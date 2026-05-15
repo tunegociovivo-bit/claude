@@ -8,7 +8,7 @@
  */
 
 import { prisma } from "@/lib/db/prisma";
-import { completeJson, complete } from "@/lib/ai/anthropic";
+import { completeJson, complete, completeVision } from "@/lib/ai/anthropic";
 import { createHash } from "crypto";
 
 type ReferenceImage = { url: string; type?: string; personName?: string };
@@ -149,37 +149,41 @@ export async function generateStyleGuide(opts: {
     (grouped[k] ??= []).push(r);
   }
 
-  const system = `Eres un brand visual analyst. Te paso categorías y URLs de imágenes de referencia de una marca.
-Devuelve una guía de estilo visual en INGLÉS (es el idioma que mejor procesa el modelo de imagen) de 800-1500 caracteres que describa:
-- Paleta de color y mood
-- Tipografía y composición típica
-- Iluminación y atmósfera de las fotos
-- Personas que aparecen (nombre + rol si se proporciona)
-- Lo que la marca SÍ y NO hace visualmente
+  const system = `You are a brand visual analyst. You will be shown reference images of a brand grouped by category (CEO, team, facilities, etc.). Analyze them visually and produce a STYLE GUIDE IN ENGLISH (best language for the image model) of 800-1500 characters describing:
+- Color palette and mood (extract dominant colors as hex codes when possible)
+- Typography and composition pattern
+- Lighting and atmosphere of the photos
+- People appearing (name + role if provided in the metadata I'll send)
+- What the brand DOES and DOES NOT do visually
 
-Estructura: párrafos breves, no listas. Tono profesional pero ejecutable.`;
+Structure: short paragraphs, no bullet lists. Professional but actionable tone.`;
 
-  const refsBlock = Object.entries(grouped)
+  // Metadata textual + imágenes como bloques vision
+  const refsMeta = Object.entries(grouped)
     .map(([type, items]) => {
-      return `### ${type}\n${items.map((i) => `- ${i.url}${i.personName ? ` (persona: ${i.personName})` : ""}`).join("\n")}`;
+      return `### ${type}\n${items
+        .map((i, idx) => `- image #${idx + 1}: ${i.personName ? `person ${i.personName}` : "(unnamed)"}`)
+        .join("\n")}`;
     })
     .join("\n\n");
 
-  const user = `## Cliente
+  const userText = `## Client
 ${client.name}${client.brandBrief ? `\n\nBrief: ${client.brandBrief}` : ""}
 
-## Imágenes de referencia (agrupadas por categoría)
+## Reference images (grouped by category)
+${refsMeta}
 
-${refsBlock}
+I'm passing you the actual image data with this message. Analyze them visually and produce the style guide.`;
 
-## Tu salida
-Devuelve la guía de estilo visual en inglés.`;
+  // Limitamos a 16 imágenes (la API soporta más pero ahorramos tokens y latencia)
+  const imageUrls = refs.slice(0, 16).map((r) => r.url);
 
-  const guide = await complete({
+  const guide = await completeVision({
     workspaceId: opts.workspaceId,
-    feature: "editorial_style_guide",
+    feature: "editorial_style_guide_vision",
     system,
-    user,
+    userText,
+    imageUrls,
     maxTokens: 2500
   });
 

@@ -13,6 +13,7 @@
 
 import { prisma } from "@/lib/db/prisma";
 import { getOpenAiKeyForWorkspace } from "@/lib/ai/openai";
+import { generateFreepikImage, pickFreepikSize } from "@/lib/ai/freepik";
 import { isStorageEnabled, uploadBuffer, signedDownloadUrl, buildS3Key } from "@/lib/storage/r2";
 import { logAiUsage } from "@/lib/ai/usage";
 import type { DimensionsByFormat, EditorialFormat } from "@/lib/editorial/client-meta";
@@ -91,32 +92,52 @@ export async function generateImageForPost(opts: GenerateImageOptions): Promise<
       .filter(Boolean)
       .join("\n");
 
-  const apiKey = await getOpenAiKeyForWorkspace(opts.workspaceId);
   const quality = opts.quality ?? "medium";
 
-  const resp = await fetch("https://api.openai.com/v1/images/generations", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      model: "gpt-image-1",
+  // Resolución del proveedor: cliente → workspace → openai
+  const ws = await prisma.workspace.findUnique({ where: { id: opts.workspaceId } });
+  const wsImageModel: string | null = (ws?.settings as any)?.editorial?.imageModel ?? null;
+  const provider: "openai" | "freepik" =
+    (client?.imageModel ?? wsImageModel ?? "openai-gpt-image-1").startsWith("freepik")
+      ? "freepik"
+      : "openai";
+
+  let buf: Buffer;
+  let modelLabel: string;
+  if (provider === "freepik") {
+    buf = await generateFreepikImage({
+      workspaceId: opts.workspaceId,
       prompt,
-      n: 1,
-      size,
-      quality,
-      output_format: "png"
-    })
-  });
-  if (!resp.ok) {
-    const txt = await resp.text();
-    throw new Error(`OpenAI Image ${resp.status}: ${txt.slice(0, 300)}`);
+      size: pickFreepikSize(dim.width, dim.height)
+    });
+    modelLabel = "freepik-seedream-v4";
+  } else {
+    const apiKey = await getOpenAiKeyForWorkspace(opts.workspaceId);
+    const resp = await fetch("https://api.openai.com/v1/images/generations", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        model: "gpt-image-1",
+        prompt,
+        n: 1,
+        size,
+        quality,
+        output_format: "png"
+      })
+    });
+    if (!resp.ok) {
+      const txt = await resp.text();
+      throw new Error(`OpenAI Image ${resp.status}: ${txt.slice(0, 300)}`);
+    }
+    const data = await resp.json();
+    const b64 = data?.data?.[0]?.b64_json;
+    if (!b64) throw new Error("OpenAI no devolvió imagen en b64_json");
+    buf = Buffer.from(b64, "base64");
+    modelLabel = `gpt-image-1-${quality}`;
   }
-  const data = await resp.json();
-  const b64 = data?.data?.[0]?.b64_json;
-  if (!b64) throw new Error("OpenAI no devolvió imagen en b64_json");
-  const buf = Buffer.from(b64, "base64");
 
   // Subir a R2
   const s3Key = buildS3Key({
@@ -143,17 +164,18 @@ export async function generateImageForPost(opts: GenerateImageOptions): Promise<
     data: { thumbnail: url, mediaUrls: JSON.stringify(mediaUrls) }
   });
 
-  // Coste estimado para tracking (gpt-image-1 ~ $0.04 medium, $0.17 high)
-  const approxCost = quality === "high" ? 17 : quality === "low" ? 2 : 4; // céntimos × 100
+  // Coste estimado para tracking
+  const approxCost =
+    provider === "freepik" ? 1 : quality === "high" ? 17 : quality === "low" ? 2 : 4;
   await logAiUsage({
     workspaceId: opts.workspaceId,
     userId: opts.userId ?? null,
     projectId: null,
     feature: "editorial_generate_image",
-    provider: "openai",
-    model: `gpt-image-1-${quality}`,
+    provider,
+    model: modelLabel,
     inputTokens: prompt.length,
-    outputTokens: approxCost // hack: usamos esta col para el coste estimado
+    outputTokens: approxCost // hack: coste estimado en céntimos
   }).catch(() => {});
 
   return { url, s3Key, prompt, size };

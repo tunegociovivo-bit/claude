@@ -30,7 +30,8 @@ const META_SELECT = {
   styleGuideHash: true,
   driveMode: true,
   driveRootId: true,
-  driveSubfolders: true
+  driveSubfolders: true,
+  imageModel: true
 } as const;
 
 export const GET = withApi({ scope: "clients:read" }, async (_req, { params, api }) => {

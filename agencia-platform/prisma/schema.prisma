@@ -176,6 +176,9 @@ model Client {
   driveMode        String  @default("pending") // configured | pending | no_drive_refs
   driveRootId      String?
   driveSubfolders  Json? // [{ name, id, type }]
+  // Modelo de imagen (override del default del workspace).
+  // Valores: "openai-gpt-image-1" | "freepik-seedream-v4" | null = default
+  imageModel       String?
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt

@@ -42,7 +42,8 @@ export default async function ClienteEditorialPage({ params }: { params: { id: s
       styleGuideHash: true,
       driveMode: true,
       driveRootId: true,
-      driveSubfolders: true
+      driveSubfolders: true,
+      imageModel: true
     }
   });
   if (!client) notFound();
@@ -83,7 +84,8 @@ export default async function ClienteEditorialPage({ params }: { params: { id: s
           styleGuideHash: client.styleGuideHash,
           driveMode: client.driveMode,
           driveRootId: client.driveRootId,
-          driveSubfolders: (client.driveSubfolders as DriveSubfolder[] | null) ?? []
+          driveSubfolders: (client.driveSubfolders as DriveSubfolder[] | null) ?? [],
+          imageModel: client.imageModel
         }}
       />
     </div>

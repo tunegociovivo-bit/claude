@@ -46,7 +46,14 @@ type EditorialPost = {
   hashtags?: string | null;
   firstComment?: string | null;
   copyByNetwork?: Record<string, string> | null;
-  metaJson?: any; // metadatos originales del plugin WP (ACF fields)
+  metaJson?: any;
+  revisions?: Array<{
+    id: string;
+    body: string | null;
+    changeSummary: string | null;
+    createdAt: string;
+    authorId: string | null;
+  }>;
   client?: { id: string; name: string } | null;
   _count?: { revisions: number };
 };
@@ -1980,6 +1987,36 @@ function PostFormModal({
           />
         )}
 
+        {/* Historial de revisiones (incluye acciones IA aplicadas) */}
+        {isEdit && fullPost?.revisions && fullPost.revisions.length > 0 && (
+          <details className="rounded-lg border bg-slate-50">
+            <summary className="cursor-pointer px-3 py-2 text-xs font-medium text-slate-700 select-none">
+              📚 Historial de cambios ({fullPost.revisions.length})
+            </summary>
+            <div className="px-3 py-2 border-t bg-white max-h-64 overflow-y-auto">
+              <ol className="space-y-2 text-xs">
+                {fullPost.revisions.map((r) => (
+                  <li key={r.id} className="border-l-2 border-slate-200 pl-2">
+                    <div className="flex items-baseline gap-2">
+                      <span className="font-medium text-slate-700">
+                        {r.changeSummary ?? "(sin descripción)"}
+                      </span>
+                      <span className="text-[10px] text-slate-400">
+                        {new Date(r.createdAt).toLocaleString("es-ES")}
+                      </span>
+                    </div>
+                    {r.body && (
+                      <pre className="mt-0.5 whitespace-pre-wrap font-sans text-slate-600 text-[11px] line-clamp-3">
+                        {r.body.length > 240 ? r.body.slice(0, 240) + "…" : r.body}
+                      </pre>
+                    )}
+                  </li>
+                ))}
+              </ol>
+            </div>
+          </details>
+        )}
+
         {/* Preview de imágenes asociadas */}
         {fullPost && <MediaPreview post={fullPost} />}
 
@@ -2431,6 +2468,9 @@ function EditorialSettingsModal({
   onClose: () => void;
 }) {
   const [webhookUrl, setWebhookUrl] = useState("");
+  const [imageModel, setImageModel] = useState("openai-gpt-image-1");
+  const [freepikConfigured, setFreepikConfigured] = useState(false);
+  const [freepikKey, setFreepikKey] = useState("");
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -2439,10 +2479,15 @@ function EditorialSettingsModal({
   useEffect(() => {
     if (!open) return;
     setLoading(true);
+    setFreepikKey("");
     fetch("/api/v1/editorial/settings")
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
-        if (d) setWebhookUrl(d.makeWebhookUrl ?? "");
+        if (d) {
+          setWebhookUrl(d.makeWebhookUrl ?? "");
+          setImageModel(d.imageModel ?? "openai-gpt-image-1");
+          setFreepikConfigured(!!d.freepikConfigured);
+        }
       })
       .finally(() => setLoading(false));
   }, [open]);
@@ -2450,10 +2495,15 @@ function EditorialSettingsModal({
   async function save() {
     setSaving(true);
     setError(null);
+    const body: any = {
+      makeWebhookUrl: webhookUrl || null,
+      imageModel
+    };
+    if (freepikKey) body.freepikApiKey = freepikKey;
     const r = await fetch("/api/v1/editorial/settings", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ makeWebhookUrl: webhookUrl || null })
+      body: JSON.stringify(body)
     });
     setSaving(false);
     if (!r.ok) {
@@ -2461,7 +2511,19 @@ function EditorialSettingsModal({
       setError(j?.error?.message ?? `Error ${r.status}`);
       return;
     }
+    setFreepikKey("");
+    setFreepikConfigured((v) => v || !!body.freepikApiKey);
     setSavedAt(new Date());
+  }
+
+  async function clearFreepik() {
+    if (!confirm("¿Borrar la API key de Freepik?")) return;
+    await fetch("/api/v1/editorial/settings", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ freepikApiKey: null })
+    });
+    setFreepikConfigured(false);
   }
 
   return (
@@ -2484,7 +2546,7 @@ function EditorialSettingsModal({
         </>
       }
     >
-      <div className="space-y-3">
+      <div className="space-y-4">
         <div>
           <label className="block text-xs font-medium text-slate-700 mb-1">Webhook Make / Zapier</label>
           <input
@@ -2495,11 +2557,53 @@ function EditorialSettingsModal({
             className="w-full px-3 py-2 rounded-lg border bg-white text-sm font-mono focus:outline-none focus:ring-2 focus:ring-brand-500"
           />
           <p className="mt-1 text-[11px] text-slate-500">
-            Cuando aprueb un mes (botón "Aprobar mes"), se envía un POST con{" "}
-            <code className="text-[10px]">{`{event, cliente, mes, aprobadas, timestamp}`}</code>. Útil para
-            disparar Make → Drive → email de notificación al cliente.
+            Al aprobar un mes se envía POST con{" "}
+            <code className="text-[10px]">{`{event, cliente, mes, aprobadas, timestamp}`}</code>.
           </p>
         </div>
+
+        <div className="border-t pt-3">
+          <label className="block text-xs font-medium text-slate-700 mb-1">Modelo de imagen por defecto</label>
+          <select
+            value={imageModel}
+            onChange={(e) => setImageModel(e.target.value)}
+            className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+          >
+            <option value="openai-gpt-image-1">OpenAI gpt-image-1 (calidad, ~$0.04-0.17)</option>
+            <option value="freepik-seedream-v4">Freepik Seedream v4 (barato, ~$0.002)</option>
+          </select>
+          <p className="mt-1 text-[11px] text-slate-500">
+            Cada cliente puede sobrescribirlo en su ficha editorial.
+          </p>
+        </div>
+
+        <div className="border-t pt-3">
+          <label className="block text-xs font-medium text-slate-700 mb-1">
+            API key Freepik {freepikConfigured && <span className="text-[10px] text-emerald-600">· configurada ✓</span>}
+          </label>
+          <div className="flex gap-2">
+            <input
+              type="password"
+              value={freepikKey}
+              onChange={(e) => setFreepikKey(e.target.value)}
+              placeholder={freepikConfigured ? "•••••••• (deja vacío para no cambiar)" : "FREEPIK-XXXX-…"}
+              className="flex-1 px-3 py-2 rounded-lg border bg-white text-sm font-mono focus:outline-none focus:ring-2 focus:ring-brand-500"
+            />
+            {freepikConfigured && (
+              <button
+                type="button"
+                onClick={clearFreepik}
+                className="px-2 py-1.5 rounded-md border bg-rose-50 hover:bg-rose-100 border-rose-200 text-rose-700 text-xs"
+              >
+                Borrar
+              </button>
+            )}
+          </div>
+          <p className="mt-1 text-[11px] text-slate-500">
+            Necesaria si usas Freepik. Se guarda cifrada con AES-256-GCM.
+          </p>
+        </div>
+
         {error && <p className="text-xs text-rose-600">{error}</p>}
         {savedAt && (
           <p className="text-xs text-emerald-700">Guardado a las {savedAt.toLocaleTimeString("es-ES")}.</p>
