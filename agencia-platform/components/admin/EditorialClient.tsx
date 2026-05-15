@@ -43,6 +43,9 @@ type EditorialPost = {
   networks: string;
   thumbnail: string | null;
   mediaUrls: string;
+  hashtags?: string | null;
+  firstComment?: string | null;
+  copyByNetwork?: Record<string, string> | null;
   metaJson?: any; // metadatos originales del plugin WP (ACF fields)
   client?: { id: string; name: string } | null;
   _count?: { revisions: number };
@@ -74,9 +77,19 @@ function buildCalendarCells(year: number, month: number) {
   return cells;
 }
 
-// Extrae hashtags de un post: primero busca claves típicas en metaJson,
-// si no las encuentra cae a regex sobre content/excerpt.
+// Extrae hashtags de un post: primero el campo dedicado, luego claves típicas
+// en metaJson, luego regex sobre content/excerpt.
 function extractHashtags(post: EditorialPost): string[] {
+  // 0) Campo dedicado (nuevo schema)
+  if (post.hashtags && post.hashtags.trim()) {
+    const tokens = post.hashtags
+      .split(/[\s,;\n]+/)
+      .map((t) => t.trim())
+      .filter(Boolean)
+      .map((t) => (t.startsWith("#") ? t : `#${t}`));
+    if (tokens.length > 0) return Array.from(new Set(tokens));
+  }
+
   const meta: any = post.metaJson ?? {};
 
   // 1) Recorrer recursivamente metaJson buscando:
@@ -1122,7 +1135,10 @@ function PostFormModal({
     status: "DRAFT",
     format: "post",
     clientId: "",
-    networks: [] as string[]
+    networks: [] as string[],
+    hashtags: "",
+    firstComment: "",
+    copyByNetwork: {} as Record<string, string>
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1157,9 +1173,22 @@ function PostFormModal({
       ...prev,
       content: prev.content || (fullPost.content ?? ""),
       excerpt: prev.excerpt || (fullPost.excerpt ?? ""),
-      networks: prev.networks.length > 0 ? prev.networks : (() => {
-        try { return JSON.parse(fullPost.networks); } catch { return []; }
-      })()
+      hashtags: prev.hashtags || (fullPost.hashtags ?? ""),
+      firstComment: prev.firstComment || (fullPost.firstComment ?? ""),
+      copyByNetwork:
+        Object.keys(prev.copyByNetwork).length > 0
+          ? prev.copyByNetwork
+          : (fullPost.copyByNetwork as Record<string, string> | null) ?? {},
+      networks:
+        prev.networks.length > 0
+          ? prev.networks
+          : (() => {
+              try {
+                return JSON.parse(fullPost.networks);
+              } catch {
+                return [];
+              }
+            })()
     }));
   }, [fullPost, open]);
 
@@ -1176,7 +1205,10 @@ function PostFormModal({
         status: post.status,
         format: post.format ?? "post",
         clientId: post.client?.id ?? "",
-        networks: nets
+        networks: nets,
+        hashtags: post.hashtags ?? "",
+        firstComment: post.firstComment ?? "",
+        copyByNetwork: (post.copyByNetwork as Record<string, string> | null) ?? {}
       });
     } else {
       const [y, m] = defaultMonth.split("-").map(Number);
@@ -1188,7 +1220,10 @@ function PostFormModal({
         status: "DRAFT",
         format: "post",
         clientId: clients[0]?.id ?? "",
-        networks: ["instagram"]
+        networks: ["instagram"],
+        hashtags: "",
+        firstComment: "",
+        copyByNetwork: {}
       });
     }
   }, [open, post, clients, defaultMonth]);
@@ -1208,7 +1243,10 @@ function PostFormModal({
       status: form.status,
       format: form.format || undefined,
       clientId: form.clientId || undefined,
-      networks: form.networks
+      networks: form.networks,
+      hashtags: form.hashtags || null,
+      firstComment: form.firstComment || null,
+      copyByNetwork: Object.keys(form.copyByNetwork).length > 0 ? form.copyByNetwork : null
     };
     if (form.scheduledFor) payload.scheduledFor = new Date(form.scheduledFor).toISOString();
     const url = isEdit ? `/api/v1/editorial/posts/${post!.id}` : "/api/v1/editorial/posts";
@@ -1239,6 +1277,9 @@ function PostFormModal({
     const hashtags = extractHashtags(fullPost);
     const copyRaw = fullPost.content ?? fullPost.excerpt ?? "";
     const copyClean = hashtags.length > 0 ? stripTrailingHashtags(copyRaw) : copyRaw;
+    const copyByNet: Record<string, string> =
+      (fullPost.copyByNetwork as Record<string, string> | null) ?? {};
+    const netsWithOwnCopy = networks.filter((n) => (copyByNet[n] ?? "").trim());
     const Icon = formatIcon(fullPost.format);
     const formatLabel = (fullPost.format ?? "").toUpperCase() || "POST";
     const statusOpt = STATUS_OPTIONS.find((s) => s.value === fullPost.status);
@@ -1340,6 +1381,31 @@ function PostFormModal({
                 ) : (
                   <div className="rounded-lg border border-dashed bg-slate-50 p-3 text-xs text-slate-400">
                     Sin copy.
+                  </div>
+                )}
+                {netsWithOwnCopy.length > 0 && (
+                  <details className="mt-2 rounded-lg border bg-amber-50/40 border-amber-200">
+                    <summary className="cursor-pointer px-3 py-1.5 text-xs font-medium text-amber-900">
+                      ✏️ Copy adaptado por red ({netsWithOwnCopy.length})
+                    </summary>
+                    <div className="px-3 py-2 border-t border-amber-200 bg-white space-y-2">
+                      {netsWithOwnCopy.map((n) => (
+                        <div key={n}>
+                          <div className="text-[11px] font-semibold uppercase text-slate-500 mb-0.5">{n}</div>
+                          <div className="text-sm text-slate-800 whitespace-pre-wrap leading-relaxed">
+                            {copyByNet[n]}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </details>
+                )}
+                {fullPost.firstComment && fullPost.firstComment.trim() && (
+                  <div className="mt-2">
+                    <div className="text-[11px] font-semibold uppercase text-slate-500 mb-0.5">Primer comentario</div>
+                    <div className="rounded-lg border bg-sky-50/40 border-sky-200 p-2.5 text-xs text-slate-700 whitespace-pre-wrap">
+                      {fullPost.firstComment}
+                    </div>
                   </div>
                 )}
               </div>
@@ -1483,13 +1549,71 @@ function PostFormModal({
           placeholder="Excerpt"
           className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
         />
-        <textarea
-          value={form.content}
-          onChange={(e) => setForm({ ...form, content: e.target.value })}
-          rows={10}
-          placeholder="Contenido completo de la publicación"
-          className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
-        />
+        <div>
+          <label className="block text-xs font-medium text-slate-700 mb-1">Copy principal (común a todas las redes)</label>
+          <textarea
+            value={form.content}
+            onChange={(e) => setForm({ ...form, content: e.target.value })}
+            rows={10}
+            placeholder="Contenido completo de la publicación"
+            className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+          />
+        </div>
+
+        {/* Copy por red (opcional, plegable) */}
+        {form.networks.length > 0 && (
+          <details className="rounded-lg border bg-slate-50">
+            <summary className="cursor-pointer px-3 py-2 text-xs font-medium text-slate-700 select-none">
+              ✏️ Copy distinto por red ({Object.keys(form.copyByNetwork).filter((k) => (form.copyByNetwork[k] ?? "").trim()).length}/
+              {form.networks.length} configurados)
+            </summary>
+            <div className="px-3 py-2 border-t bg-white space-y-2">
+              <p className="text-[11px] text-slate-500">
+                Si una red queda vacía, se usa el copy principal. Útil cuando el tono o el formato cambia entre IG y LinkedIn.
+              </p>
+              {form.networks.map((net) => (
+                <div key={net}>
+                  <label className="block text-[11px] font-medium text-slate-600 mb-1 capitalize">{net}</label>
+                  <textarea
+                    value={form.copyByNetwork[net] ?? ""}
+                    onChange={(e) =>
+                      setForm({
+                        ...form,
+                        copyByNetwork: { ...form.copyByNetwork, [net]: e.target.value }
+                      })
+                    }
+                    rows={4}
+                    placeholder={`Copy específico para ${net}. Vacío = se usa el copy principal.`}
+                    className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  />
+                </div>
+              ))}
+            </div>
+          </details>
+        )}
+
+        <div>
+          <label className="block text-xs font-medium text-slate-700 mb-1">Hashtags</label>
+          <textarea
+            value={form.hashtags}
+            onChange={(e) => setForm({ ...form, hashtags: e.target.value })}
+            rows={2}
+            placeholder="#hashtag1 #hashtag2 #hashtag3 …"
+            className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+          />
+          <p className="mt-1 text-[11px] text-slate-500">Se incluyen al final del copy en el CSV de Metricool.</p>
+        </div>
+
+        <div>
+          <label className="block text-xs font-medium text-slate-700 mb-1">Primer comentario (opcional)</label>
+          <textarea
+            value={form.firstComment}
+            onChange={(e) => setForm({ ...form, firstComment: e.target.value })}
+            rows={2}
+            placeholder="Comentario que se publica auto al subir (útil para hashtags adicionales en IG)"
+            className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+          />
+        </div>
 
         {/* Preview de imágenes asociadas */}
         {fullPost && <MediaPreview post={fullPost} />}

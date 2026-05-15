@@ -295,6 +295,11 @@ model EditorialPost {
   networks      String    @default("[]") // JSON array de redes destino
   thumbnail     String?
   mediaUrls     String    @default("[]") // JSON array
+  // Copy distinto por red — JSON { instagram: "...", facebook: "...", ... }.
+  // Si una red no aparece en el mapa, se usa `content` como fallback.
+  copyByNetwork Json?
+  hashtags      String?   @db.Text // copy compartido de hashtags (no por red)
+  firstComment  String?   @db.Text // primer comentario para Metricool
   metaJson      Json?     // resto de ACF / metadatos
   legacyWpId    Int?      @unique
   metricoolJobId String?  // reservado para integración API directa (futura)

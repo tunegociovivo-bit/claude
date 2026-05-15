@@ -16,7 +16,10 @@ const createSchema = z.object({
   format: z.string().optional(),
   networks: z.array(z.string()).default([]),
   thumbnail: z.string().url().optional(),
-  mediaUrls: z.array(z.string().url()).default([])
+  mediaUrls: z.array(z.string().url()).default([]),
+  copyByNetwork: z.record(z.string(), z.string()).optional(),
+  hashtags: z.string().optional(),
+  firstComment: z.string().optional()
 });
 
 export const GET = withApi({ scope: "*" }, async (req, { api }) => {
@@ -61,7 +64,10 @@ export const POST = withApi({ scope: "*" }, async (req, { api }) => {
       format: parsed.data.format ?? null,
       networks: JSON.stringify(parsed.data.networks ?? []),
       thumbnail: parsed.data.thumbnail ?? null,
-      mediaUrls: JSON.stringify(parsed.data.mediaUrls ?? [])
+      mediaUrls: JSON.stringify(parsed.data.mediaUrls ?? []),
+      copyByNetwork: parsed.data.copyByNetwork ?? undefined,
+      hashtags: parsed.data.hashtags ?? null,
+      firstComment: parsed.data.firstComment ?? null
     }
   });
   return NextResponse.json(created, { status: 201 });

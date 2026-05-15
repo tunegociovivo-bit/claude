@@ -18,6 +18,10 @@ const updateSchema = z.object({
   networks: z.array(z.string()).optional(),
   thumbnail: z.string().url().nullable().optional(),
   mediaUrls: z.array(z.string().url()).optional(),
+  // Copy distinto por red — { instagram: "...", facebook: "...", ... }
+  copyByNetwork: z.record(z.string(), z.string()).nullable().optional(),
+  hashtags: z.string().nullable().optional(),
+  firstComment: z.string().nullable().optional(),
   changeSummary: z.string().optional() // si se incluye, se crea revisión
 });
 
@@ -57,6 +61,9 @@ export const PATCH = withApi({ scope: "*" }, async (req, { params, api }) => {
   if (parsed.data.networks !== undefined) data.networks = JSON.stringify(parsed.data.networks);
   if (parsed.data.thumbnail !== undefined) data.thumbnail = parsed.data.thumbnail;
   if (parsed.data.mediaUrls !== undefined) data.mediaUrls = JSON.stringify(parsed.data.mediaUrls);
+  if (parsed.data.copyByNetwork !== undefined) data.copyByNetwork = parsed.data.copyByNetwork;
+  if (parsed.data.hashtags !== undefined) data.hashtags = parsed.data.hashtags;
+  if (parsed.data.firstComment !== undefined) data.firstComment = parsed.data.firstComment;
 
   const result = await prisma.$transaction(async (tx) => {
     const upd = await tx.editorialPost.update({ where: { id: params.id }, data });

@@ -274,6 +274,42 @@ export const POST = withApi({ scope: "*" }, async (_req, { api }) => {
           (typeof meta?.resumen === "string" ? meta.resumen : null) ||
           null;
 
+        // Hashtags: campo dedicado nv_hashtags del plugin (también probamos variantes)
+        const hashtagsRaw =
+          meta?.nv_hashtags ?? meta?.hashtags ?? meta?.hashtag ?? meta?.etiquetas ?? meta?.tags ?? null;
+        const hashtags =
+          typeof hashtagsRaw === "string" && hashtagsRaw.trim()
+            ? hashtagsRaw.trim()
+            : Array.isArray(hashtagsRaw)
+              ? hashtagsRaw
+                  .map((t) => String(t).trim())
+                  .filter(Boolean)
+                  .map((t) => (t.startsWith("#") ? t : `#${t}`))
+                  .join(" ")
+              : null;
+
+        // First comment: nv_first_comment del plugin
+        const firstCommentRaw = meta?.nv_first_comment ?? meta?.first_comment ?? meta?.primer_comentario ?? null;
+        const firstComment = typeof firstCommentRaw === "string" && firstCommentRaw.trim() ? firstCommentRaw : null;
+
+        // Copy por red: detectar copys distintos por red (nv_copy_instagram, etc.)
+        const copyByNetwork: Record<string, string> = {};
+        for (const net of ["instagram", "facebook", "linkedin", "tiktok", "twitter", "youtube", "pinterest"]) {
+          const candidates = [
+            meta?.[`nv_copy_${net}`],
+            meta?.[`copy_${net}`],
+            meta?.[`texto_${net}`],
+            meta?.[`${net}_copy`],
+            meta?.[`${net}_text`]
+          ];
+          for (const c of candidates) {
+            if (typeof c === "string" && c.trim() && c.trim() !== (content ?? "")) {
+              copyByNetwork[net] = c.trim();
+              break;
+            }
+          }
+        }
+
         const data = {
           workspaceId: api.workspaceId,
           clientId,
@@ -286,6 +322,9 @@ export const POST = withApi({ scope: "*" }, async (_req, { api }) => {
           networks: JSON.stringify(networks),
           thumbnail,
           mediaUrls: JSON.stringify(mediaUrls),
+          hashtags,
+          firstComment,
+          copyByNetwork: Object.keys(copyByNetwork).length > 0 ? copyByNetwork : undefined,
           metaJson: meta
         };
 
