@@ -471,7 +471,32 @@ export default function EditorialClient() {
                   onClick={() => {
                     setEditing(null);
                     setFormOpen(true);
-                    // pre-set fecha al crear desde día concreto: lo manejaremos al abrir el modal
+                  }}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    e.currentTarget.classList.add("bg-brand-100/50");
+                  }}
+                  onDragLeave={(e) => {
+                    e.currentTarget.classList.remove("bg-brand-100/50");
+                  }}
+                  onDrop={async (e) => {
+                    e.preventDefault();
+                    e.currentTarget.classList.remove("bg-brand-100/50");
+                    const postId = e.dataTransfer.getData("text/post-id");
+                    const oldIso = e.dataTransfer.getData("text/orig-iso");
+                    if (!postId || oldIso === iso) return;
+                    // Mantener hora original; sólo cambiar la fecha
+                    const orig = posts.find((p) => p.id === postId);
+                    if (!orig?.scheduledFor) return;
+                    const origDate = new Date(orig.scheduledFor);
+                    const newDate = new Date(cell.date);
+                    newDate.setUTCHours(origDate.getUTCHours(), origDate.getUTCMinutes(), 0, 0);
+                    await fetch(`/api/v1/editorial/posts/${postId}/reschedule`, {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ scheduledFor: newDate.toISOString() })
+                    });
+                    load();
                   }}
                 >
                   <div className={"text-xs font-medium mb-1 " + (isToday ? "text-brand-600" : "text-slate-700")}>
@@ -491,13 +516,19 @@ export default function EditorialClient() {
                       return (
                         <button
                           key={p.id}
+                          draggable
+                          onDragStart={(e) => {
+                            e.dataTransfer.setData("text/post-id", p.id);
+                            e.dataTransfer.setData("text/orig-iso", iso);
+                            e.dataTransfer.effectAllowed = "move";
+                          }}
                           onClick={(e) => {
                             e.stopPropagation();
                             setEditing(p);
                             setFormOpen(true);
                           }}
-                          className={`block w-full text-left text-[11px] px-1.5 py-0.5 rounded border truncate ${st.color} hover:opacity-80`}
-                          title={p.title}
+                          className={`block w-full text-left text-[11px] px-1.5 py-0.5 rounded border truncate ${st.color} hover:opacity-80 cursor-move`}
+                          title={`${p.title} (arrastra para reprogramar)`}
                         >
                           <span className={`inline-block h-1.5 w-1.5 rounded-full ${st.dot} mr-1`} />
                           {p.title}
