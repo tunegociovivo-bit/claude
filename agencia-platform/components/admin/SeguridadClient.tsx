@@ -216,7 +216,233 @@ export default function SeguridadClient() {
       )}
 
       <CredentialsSection />
+      <DriveBackupSection />
     </div>
+  );
+}
+
+function DriveBackupSection() {
+  const [data, setData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [saJson, setSaJson] = useState("");
+  const [folder, setFolder] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function load() {
+    setLoading(true);
+    const r = await fetch("/api/v1/admin/drive-backup");
+    if (r.ok) {
+      const d = await r.json();
+      setData(d);
+      if (d.folderId) setFolder(d.folderId);
+    }
+    setLoading(false);
+  }
+  useEffect(() => {
+    load();
+  }, []);
+
+  async function save() {
+    setSaving(true);
+    setError(null);
+    setMsg(null);
+    const body: any = { folder };
+    if (saJson) body.serviceAccountJson = saJson;
+    const r = await fetch("/api/v1/admin/drive-backup", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    });
+    setSaving(false);
+    if (!r.ok) {
+      const j = await r.json().catch(() => ({}));
+      setError(j?.error?.message ?? `Error ${r.status}`);
+      return;
+    }
+    setSaJson("");
+    setMsg("Guardado.");
+    load();
+  }
+
+  async function act(action: "test" | "backup_now" | "cleanup") {
+    setBusy(action);
+    setError(null);
+    setMsg(null);
+    const body: any = { action };
+    if (action === "backup_now") body.kinds = ["daily"];
+    const r = await fetch("/api/v1/admin/drive-backup", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    });
+    setBusy(null);
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      setError(j?.error?.message ?? `Error ${r.status}`);
+      return;
+    }
+    if (action === "test") setMsg(`✓ Conexión OK · SA ${j.serviceAccountEmail} · ${j.fileCount} archivos en la carpeta`);
+    else if (action === "backup_now") {
+      const ok = (j.results ?? []).filter((r: any) => r.ok).length;
+      const fail = (j.results ?? []).filter((r: any) => !r.ok).length;
+      setMsg(`✓ Backup manual: ${ok} OK · ${fail} fallos`);
+    } else if (action === "cleanup") setMsg(`✓ Limpieza: borrados ${(j.deleted ?? []).length} archivos huérfanos`);
+    load();
+  }
+
+  return (
+    <section className="mt-6 bg-white rounded-xl border">
+      <header className="px-5 py-4 border-b">
+        <h2 className="text-base font-semibold flex items-center gap-2">
+          ☁️ Backups automáticos a Google Drive
+        </h2>
+        <p className="text-xs text-slate-500 mt-0.5">
+          Rotación: <strong>2 diarios</strong> (hoy + ayer) ·{" "}
+          <strong>2 semanales</strong> (cada lunes, máx 2 semanas) ·{" "}
+          <strong>2 mensuales</strong> (día 1 del mes, máx 2 meses). Total 6 archivos.
+          Diariamente a las 03:00 UTC.
+        </p>
+      </header>
+
+      <div className="px-5 py-4 space-y-4">
+        {loading && <div className="text-sm text-slate-500">Cargando…</div>}
+
+        {/* Estado */}
+        {data && (
+          <div className={`rounded-lg border p-3 text-xs ${data.configured ? "bg-emerald-50 border-emerald-200" : "bg-amber-50 border-amber-200"}`}>
+            {data.configured ? (
+              <>
+                <div className="font-medium text-emerald-900">
+                  ✓ Configurado
+                </div>
+                <div className="text-slate-700 mt-0.5">
+                  Service account: <code className="text-[10px]">{data.serviceAccountEmail ?? "—"}</code>
+                </div>
+                <div className="text-slate-700">
+                  Folder ID: <code className="text-[10px]">{data.folderId}</code>
+                </div>
+                {data.listError && (
+                  <div className="mt-1 text-rose-700">⚠ {data.listError}</div>
+                )}
+              </>
+            ) : (
+              <div className="text-amber-900">
+                Sin configurar. Pega abajo el JSON del service account y la URL de la carpeta de Drive.
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Pasos para obtener el service account */}
+        <details className="rounded-lg border bg-slate-50">
+          <summary className="cursor-pointer px-3 py-2 text-xs font-medium">
+            📖 Cómo crear el Service Account en Google Cloud (1ª vez)
+          </summary>
+          <ol className="px-3 py-3 text-[11px] text-slate-700 space-y-1 list-decimal list-inside border-t bg-white">
+            <li>Entra a <a href="https://console.cloud.google.com/iam-admin/serviceaccounts" target="_blank" rel="noreferrer" className="text-brand-600 underline">Google Cloud Console → IAM → Service Accounts</a></li>
+            <li>Crea proyecto si no tienes (ej. "agencia-hub-backups")</li>
+            <li>Habilita la <strong>Google Drive API</strong> en APIs & Services</li>
+            <li><strong>Create Service Account</strong> → ponle nombre y crea</li>
+            <li>En el SA recién creado → <strong>Keys</strong> → <strong>Add key → Create new key → JSON</strong> → descarga el .json</li>
+            <li>Copia el campo <code className="text-[10px]">client_email</code> del JSON (algo como <code className="text-[10px]">xxx@proyecto.iam.gserviceaccount.com</code>)</li>
+            <li>Ve a la carpeta de Drive donde quieres los backups → <strong>Compartir</strong> → pega ese email → permiso <strong>Editor</strong></li>
+            <li>Vuelve aquí y pega el JSON completo abajo + la URL de la carpeta</li>
+          </ol>
+        </details>
+
+        {/* Form */}
+        <div>
+          <label className="block text-xs font-medium text-slate-700 mb-1">Service Account JSON</label>
+          <textarea
+            value={saJson}
+            onChange={(e) => setSaJson(e.target.value)}
+            rows={4}
+            placeholder={data?.configured ? '•••• (ya guardado; pega uno nuevo para reemplazar)' : '{"type":"service_account","project_id":"...","private_key":"-----BEGIN PRIVATE KEY-----...","client_email":"..."}'}
+            className="w-full px-3 py-2 rounded-lg border bg-white text-xs font-mono"
+          />
+          <p className="mt-1 text-[10px] text-slate-500">Se guarda cifrado con AES-256-GCM.</p>
+        </div>
+
+        <div>
+          <label className="block text-xs font-medium text-slate-700 mb-1">Carpeta de Drive (URL o ID)</label>
+          <input
+            type="text"
+            value={folder}
+            onChange={(e) => setFolder(e.target.value)}
+            placeholder="https://drive.google.com/drive/folders/1B5BGHe..."
+            className="w-full px-3 py-2 rounded-lg border bg-white text-sm font-mono"
+          />
+          <p className="mt-1 text-[10px] text-slate-500">
+            Extraemos el ID automáticamente si pegas la URL completa.
+          </p>
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={save}
+            disabled={saving || (!saJson && !folder)}
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm disabled:opacity-50"
+          >
+            {saving ? "Guardando…" : "Guardar configuración"}
+          </button>
+          {data?.configured && (
+            <>
+              <button
+                onClick={() => act("test")}
+                disabled={busy !== null}
+                className="px-3 py-2 rounded-lg border bg-white hover:bg-slate-50 text-sm disabled:opacity-50"
+              >
+                {busy === "test" ? "Probando…" : "🔌 Test conexión"}
+              </button>
+              <button
+                onClick={() => act("backup_now")}
+                disabled={busy !== null}
+                className="px-3 py-2 rounded-lg border bg-emerald-50 hover:bg-emerald-100 border-emerald-200 text-emerald-700 text-sm disabled:opacity-50"
+              >
+                {busy === "backup_now" ? "Subiendo…" : "▶️ Backup manual ahora"}
+              </button>
+              <button
+                onClick={() => act("cleanup")}
+                disabled={busy !== null}
+                className="px-3 py-2 rounded-lg border bg-amber-50 hover:bg-amber-100 border-amber-200 text-amber-700 text-sm disabled:opacity-50"
+              >
+                {busy === "cleanup" ? "Limpiando…" : "🧹 Limpiar huérfanos"}
+              </button>
+            </>
+          )}
+        </div>
+
+        {msg && <p className="text-xs text-emerald-700">{msg}</p>}
+        {error && <p className="text-xs text-rose-600">{error}</p>}
+
+        {/* Lista de archivos actuales */}
+        {data?.configured && Array.isArray(data.files) && (
+          <div>
+            <div className="text-xs font-medium text-slate-700 mb-1.5">
+              Archivos actuales en la carpeta ({data.files.length})
+            </div>
+            {data.files.length === 0 ? (
+              <p className="text-xs text-slate-500">Aún no hay backups. Pulsa "Backup manual ahora" para crear el primero.</p>
+            ) : (
+              <ul className="space-y-1 text-xs">
+                {data.files.map((f: any) => (
+                  <li key={f.id} className="flex items-center justify-between rounded border bg-slate-50/50 px-2 py-1.5">
+                    <span className="font-mono">{f.name}</span>
+                    <span className="text-[10px] text-slate-500">
+                      {f.size ? (Number(f.size) / 1024).toFixed(1) + " KB" : "—"}
+                      {f.modifiedTime && " · " + new Date(f.modifiedTime).toLocaleString("es-ES")}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+      </div>
+    </section>
   );
 }
 
