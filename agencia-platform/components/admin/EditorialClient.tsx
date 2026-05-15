@@ -784,6 +784,7 @@ export default function EditorialClient() {
               );
             })}
           </div>
+          <CalendarTrashZone onDropped={() => load()} />
         </div>
       ) : filtered.length === 0 ? (
         <div className="bg-white rounded-xl border p-10 text-center text-sm text-slate-500">
@@ -1289,6 +1290,8 @@ function GenerateMonthModal({
   const [perNetworkCopy, setPerNetworkCopy] = useState(false);
   const [extraGuidance, setExtraGuidance] = useState("");
   const [status, setStatus] = useState<"DRAFT" | "REVIEW">("DRAFT");
+  const [generateImages, setGenerateImages] = useState(false);
+  const [imageQuality, setImageQuality] = useState<"low" | "medium" | "high">("medium");
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<any>(null);
@@ -1303,6 +1306,8 @@ function GenerateMonthModal({
     setPerNetworkCopy(false);
     setExtraGuidance("");
     setStatus("DRAFT");
+    setGenerateImages(false);
+    setImageQuality("medium");
     setError(null);
     setResult(null);
   }, [open, clients]);
@@ -1347,7 +1352,9 @@ function GenerateMonthModal({
         copyLength,
         perNetworkCopy,
         extraGuidance: extraGuidance || undefined,
-        status
+        status,
+        generateImages,
+        imageQuality
       })
     });
     setRunning(false);
@@ -1452,6 +1459,42 @@ function GenerateMonthModal({
               />
               Generar copy adaptado por cada red (más tokens pero más nativo)
             </label>
+          )}
+        </div>
+
+        {/* Imagen IA */}
+        <div className="rounded-lg border bg-sky-50/40 border-sky-200 p-3">
+          <label className="flex items-center gap-2 text-sm cursor-pointer">
+            <input
+              type="checkbox"
+              checked={generateImages}
+              onChange={(e) => setGenerateImages(e.target.checked)}
+              className="accent-sky-600"
+            />
+            <span className="font-medium text-sky-900">Generar también imagen IA para cada publicación</span>
+          </label>
+          <p className="mt-1 text-[11px] text-slate-600 ml-6">
+            Llama a gpt-image-1 con el brief, colores y guía de estilo del cliente. Requiere OpenAI API key + R2 (
+            <code className="text-[10px]">STORAGE_*</code>). Si falla en alguna, el job continúa.
+          </p>
+          {generateImages && (
+            <div className="mt-2 ml-6 flex gap-1">
+              {(["low", "medium", "high"] as const).map((q) => (
+                <button
+                  key={q}
+                  type="button"
+                  onClick={() => setImageQuality(q)}
+                  className={
+                    "px-2 py-1 rounded-md text-[11px] border " +
+                    (imageQuality === q
+                      ? "bg-sky-100 border-sky-300 text-sky-800 font-medium"
+                      : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50")
+                  }
+                >
+                  {q === "low" ? "Baja (~$0.02)" : q === "medium" ? "Media (~$0.04)" : "Alta (~$0.17)"}
+                </button>
+              ))}
+            </div>
           )}
         </div>
 
@@ -3063,6 +3106,52 @@ function OrphansModal({
  * Muestra un mensaje de error IA con estilo según el contenido.
  * Si el mensaje sugiere falta de saldo, añade un link directo a billing.
  */
+/**
+ * Zona de papelera al pie del calendario. Recibe drops de publicaciones
+ * (mismo dataTransfer que el drag&drop de reprogramar) y las borra.
+ *
+ * Highlight rojo + escala al pasar por encima; confirm() antes de borrar.
+ */
+function CalendarTrashZone({ onDropped }: { onDropped: () => void }) {
+  const [hover, setHover] = useState(false);
+  return (
+    <div
+      className={
+        "mt-2 mx-1 mb-1 rounded-lg border-2 border-dashed transition-all flex items-center justify-center gap-2 text-sm select-none " +
+        (hover
+          ? "border-rose-400 bg-rose-50 text-rose-700 py-6 scale-[1.01]"
+          : "border-slate-200 bg-slate-50/50 text-slate-400 py-3")
+      }
+      onDragOver={(e) => {
+        if (e.dataTransfer.types.includes("text/post-id")) {
+          e.preventDefault();
+          setHover(true);
+        }
+      }}
+      onDragLeave={() => setHover(false)}
+      onDrop={async (e) => {
+        e.preventDefault();
+        setHover(false);
+        const postId = e.dataTransfer.getData("text/post-id");
+        if (!postId) return;
+        if (!confirm("¿Eliminar esta publicación?\n\nEsta acción no se puede deshacer.")) return;
+        const r = await fetch(`/api/v1/editorial/posts/${postId}`, { method: "DELETE" });
+        if (r.ok) {
+          onDropped();
+        } else {
+          const j = await r.json().catch(() => ({}));
+          alert(j?.error?.message ?? `Error ${r.status}`);
+        }
+      }}
+    >
+      <Trash2 className={"h-4 w-4 " + (hover ? "animate-bounce" : "")} />
+      <span className="font-medium">
+        {hover ? "Suelta aquí para eliminar" : "Arrastra una publicación aquí para eliminarla"}
+      </span>
+    </div>
+  );
+}
+
 function AiErrorBanner({ message }: { message: string }) {
   const noCredits =
     /credit balance|too low|billing|saldo/i.test(message);

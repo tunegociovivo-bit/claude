@@ -19,12 +19,22 @@ export type GenerateMonthOptions = {
   perNetworkCopy?: boolean; // si true, pide copy adaptado por red
   extraGuidance?: string; // override / instrucción adicional del usuario
   status?: "DRAFT" | "REVIEW"; // estado en que se crean (default DRAFT)
+  // Imagen IA opcional. Si generateImages=true, tras crear cada
+  // publicación se llama a generateImageForPost. El job sigue corriendo
+  // aunque algunas fallen (e.g. sin saldo OpenAI o sin R2).
+  generateImages?: boolean;
+  imageQuality?: "low" | "medium" | "high";
+  // Callback opcional para reportar progreso en el job.
+  onProgress?: (msg: string, pct: number) => Promise<void> | void;
 };
 
 export type GenerateMonthResult = {
   createdIds: string[];
   count: number;
   model: string;
+  imagesGenerated: number;
+  imagesFailed: number;
+  imageErrors: string[]; // primeros 5 mensajes únicos
 };
 
 const DEFAULT_MIX = { imagen: 50, reel: 25, carrusel: 15, story: 10, video: 0 };
@@ -234,7 +244,14 @@ export async function generateMonth(opts: GenerateMonthOptions): Promise<Generat
   }
 
   if (records.length === 0) {
-    return { createdIds: [], count: 0, model: DEFAULT_MODEL };
+    return {
+      createdIds: [],
+      count: 0,
+      model: DEFAULT_MODEL,
+      imagesGenerated: 0,
+      imagesFailed: 0,
+      imageErrors: []
+    };
   }
 
   // Crear de uno en uno para obtener IDs (createMany no devuelve IDs)
@@ -244,5 +261,42 @@ export async function generateMonth(opts: GenerateMonthOptions): Promise<Generat
     ids.push(created.id);
   }
 
-  return { createdIds: ids, count: ids.length, model: DEFAULT_MODEL };
+  // Generación de imágenes opcional (post-texto). No bloquea si alguna falla.
+  let imagesGenerated = 0;
+  let imagesFailed = 0;
+  const imageErrors: string[] = [];
+  if (opts.generateImages && ids.length > 0) {
+    // Import dinámico para no acoplar el bundle si no se usa.
+    const { generateImageForPost } = await import("./generate-image");
+    const quality = opts.imageQuality ?? "medium";
+    let idx = 0;
+    for (const postId of ids) {
+      idx++;
+      try {
+        await opts.onProgress?.(`Generando imagen ${idx}/${ids.length}…`, 50 + Math.floor((idx / ids.length) * 45));
+      } catch {}
+      try {
+        await generateImageForPost({
+          workspaceId: opts.workspaceId,
+          userId: opts.userId,
+          postId,
+          quality
+        });
+        imagesGenerated++;
+      } catch (e: any) {
+        imagesFailed++;
+        const msg = String(e?.message ?? e).slice(0, 200);
+        if (imageErrors.length < 5 && !imageErrors.includes(msg)) imageErrors.push(msg);
+      }
+    }
+  }
+
+  return {
+    createdIds: ids,
+    count: ids.length,
+    model: DEFAULT_MODEL,
+    imagesGenerated,
+    imagesFailed,
+    imageErrors
+  };
 }

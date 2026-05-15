@@ -34,7 +34,9 @@ const schema = z.object({
   copyLength: z.number().int().min(0).max(100).default(50),
   perNetworkCopy: z.boolean().default(false),
   extraGuidance: z.string().optional(),
-  status: z.enum(["DRAFT", "REVIEW"]).default("DRAFT")
+  status: z.enum(["DRAFT", "REVIEW"]).default("DRAFT"),
+  generateImages: z.boolean().default(false),
+  imageQuality: z.enum(["low", "medium", "high"]).default("medium")
 });
 
 export const POST = withApi({ scope: "*" }, async (req, { api }) => {
@@ -85,15 +87,27 @@ async function runJobAsync(
     const result = await generateMonth({
       workspaceId,
       userId,
-      ...params
+      ...params,
+      onProgress: async (msg, pct) => {
+        await prisma.backgroundJob
+          .update({
+            where: { id: jobId },
+            data: { progressMsg: msg, progressPct: pct }
+          })
+          .catch(() => {});
+      }
     });
+    const summary =
+      params.generateImages && result.count > 0
+        ? `✓ ${result.count} publicaciones · ${result.imagesGenerated} imágenes ${result.imagesFailed > 0 ? `· ${result.imagesFailed} imágenes fallidas` : ""}`
+        : `✓ ${result.count} publicaciones creadas`;
     await prisma.backgroundJob.update({
       where: { id: jobId },
       data: {
         status: "COMPLETED",
         completedAt: new Date(),
         progressPct: 100,
-        progressMsg: `✓ ${result.count} publicaciones creadas`,
+        progressMsg: summary,
         result: result as any
       }
     });

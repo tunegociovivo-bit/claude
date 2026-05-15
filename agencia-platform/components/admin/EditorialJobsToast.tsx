@@ -157,9 +157,42 @@ export default function EditorialJobsToast({ onJobCompleted }: { onJobCompleted?
                 </p>
               )}
               {s?.result && status === "COMPLETED" && (
-                <p className="mt-1 text-[11px] text-emerald-700">
-                  ✓ {s.result.count ?? 0} publicaciones creadas. Refresca el calendario.
-                </p>
+                <div className="mt-1 space-y-0.5">
+                  <p className="text-[11px] text-emerald-700">
+                    ✓ {s.result.count ?? 0} publicación{(s.result.count ?? 0) === 1 ? "" : "es"} creada
+                    {(s.result.count ?? 0) === 1 ? "" : "s"}
+                  </p>
+                  {typeof s.result.imagesGenerated === "number" &&
+                    s.result.imagesGenerated + (s.result.imagesFailed ?? 0) > 0 && (
+                      <p
+                        className={
+                          "text-[11px] " +
+                          ((s.result.imagesFailed ?? 0) > 0 ? "text-amber-700" : "text-emerald-700")
+                        }
+                      >
+                        🖼️ {s.result.imagesGenerated} imagen{s.result.imagesGenerated === 1 ? "" : "es"} generada
+                        {s.result.imagesGenerated === 1 ? "" : "s"}
+                        {(s.result.imagesFailed ?? 0) > 0 && ` · ${s.result.imagesFailed} fallaron`}
+                      </p>
+                    )}
+                  {typeof s.result.imagesGenerated === "number" &&
+                    s.result.imagesGenerated === 0 &&
+                    (s.result.imagesFailed ?? 0) === 0 && (
+                      <p className="text-[11px] text-slate-500">
+                        (sin imágenes — no se pidió generar imagen)
+                      </p>
+                    )}
+                  {Array.isArray(s.result.imageErrors) && s.result.imageErrors.length > 0 && (
+                    <details className="text-[10px] text-amber-700">
+                      <summary className="cursor-pointer">Ver errores de imagen</summary>
+                      <ul className="ml-3 mt-0.5 list-disc">
+                        {s.result.imageErrors.map((err: string, i: number) => (
+                          <li key={i}>{err}</li>
+                        ))}
+                      </ul>
+                    </details>
+                  )}
+                </div>
               )}
             </div>
             {!isDone && (
