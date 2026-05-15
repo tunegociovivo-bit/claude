@@ -56,12 +56,19 @@ export default function EditorialJobsToast({ onJobCompleted }: { onJobCompleted?
       return !s || s.status === "PENDING" || s.status === "RUNNING";
     });
     if (active.length === 0) return;
-    const interval = setInterval(async () => {
+
+    async function tick() {
       const next: Record<string, JobStatus> = { ...statuses };
       let anyChange = false;
       for (const j of active) {
         try {
           const r = await fetch(`/api/v1/editorial/generate-month/jobs/${j.id}`);
+          if (r.status === 404) {
+            // Job ya no existe en BD (borrado/cancelado); descartar del cliente
+            anyChange = true;
+            dismiss(j.id);
+            continue;
+          }
           if (!r.ok) continue;
           const s: JobStatus = await r.json();
           next[j.id] = s;
@@ -72,11 +79,10 @@ export default function EditorialJobsToast({ onJobCompleted }: { onJobCompleted?
         } catch {}
       }
       setStatuses(next);
-      if (anyChange) {
-        // Auto-limpia los completed de localStorage después de 20s
-        // (los dejamos visibles para que el user los vea)
-      }
-    }, 3000);
+    }
+    // Tick inmediato + intervalo
+    tick();
+    const interval = setInterval(tick, 3000);
     return () => clearInterval(interval);
   }, [jobs, statuses, onJobCompleted]);
 
@@ -93,6 +99,26 @@ export default function EditorialJobsToast({ onJobCompleted }: { onJobCompleted?
       localStorage.setItem("editorial.runningJobs", JSON.stringify(filtered));
     } catch {}
   }
+
+  async function cancel(id: string) {
+    if (!confirm("¿Cancelar la generación?\n\nNo se podrá retomar; tendrás que volver a pulsar Generar si quieres reanudarla.")) return;
+    await fetch(`/api/v1/editorial/generate-month/jobs/${id}`, { method: "DELETE" });
+    dismiss(id);
+  }
+
+  // Auto-limpieza: cualquier job en localStorage que tenga más de 1h se
+  // descarta solo (cliente). El servidor también auto-falla zombies.
+  useEffect(() => {
+    try {
+      const items: RunningJob[] = JSON.parse(localStorage.getItem("editorial.runningJobs") ?? "[]");
+      const ONE_HOUR = 60 * 60 * 1000;
+      const fresh = items.filter((j) => Date.now() - j.startedAt < ONE_HOUR);
+      if (fresh.length !== items.length) {
+        localStorage.setItem("editorial.runningJobs", JSON.stringify(fresh));
+        setJobs(fresh);
+      }
+    } catch {}
+  }, []);
 
   const visible = jobs.filter((j) => !dismissed.has(j.id));
   if (visible.length === 0) return null;
@@ -134,14 +160,24 @@ export default function EditorialJobsToast({ onJobCompleted }: { onJobCompleted?
                         : "Generando mes con IA"}
                   </span>
                 </div>
-                {isDone && (
+                <div className="flex items-center gap-1.5">
+                  {!isDone && seconds > 30 && (
+                    <button
+                      onClick={() => cancel(j.id)}
+                      className="text-[10px] px-1.5 py-0.5 rounded border bg-white hover:bg-rose-50 border-rose-200 text-rose-700"
+                      title="Cancelar generación"
+                    >
+                      Cancelar
+                    </button>
+                  )}
                   <button
                     onClick={() => dismiss(j.id)}
                     className="text-slate-400 hover:text-slate-700 text-lg leading-none"
+                    title="Descartar toast"
                   >
                     ×
                   </button>
-                )}
+                </div>
               </div>
               <p className="text-xs text-slate-600">
                 {j.clientName && <span className="font-medium">{j.clientName}</span>}
