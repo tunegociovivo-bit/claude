@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import AppChrome from "@/components/AppChrome";
 import PwaRegister from "@/components/PwaRegister";
+import ErrorReporter from "@/components/ErrorReporter";
 
 export const metadata: Metadata = {
   title: "Hub — Plataforma interna",
@@ -33,6 +34,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="es">
       <body className="overscroll-none">
         <AppChrome>{children}</AppChrome>
+        <ErrorReporter />
         <PwaRegister />
       </body>
     </html>

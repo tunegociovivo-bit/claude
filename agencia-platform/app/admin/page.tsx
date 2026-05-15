@@ -24,7 +24,8 @@ import {
   FileText,
   MessageSquare,
   Code2,
-  ExternalLink
+  ExternalLink,
+  AlertOctagon
 } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -96,6 +97,12 @@ const cards = [
     title: "Seguridad y copias",
     description: "Backups manuales y automáticos diarios. Histórico y descarga.",
     icon: Shield
+  },
+  {
+    href: "/admin/errors",
+    title: "Errores capturados",
+    description: "Bugs auto-reportados de cliente, servidor y API. Estado, barra de tiempo, link a sesión de soporte.",
+    icon: AlertOctagon
   },
   {
     href: "/admin/ia-usage",
