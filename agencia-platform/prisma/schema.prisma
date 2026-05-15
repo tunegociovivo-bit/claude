@@ -109,6 +109,7 @@ model Workspace {
   voiceBusinesses VoiceBusiness[]
   editorialPosts  EditorialPost[]
   approvalLinks   ClientApprovalLink[]
+  credentialGrants CredentialAccessGrant[]
   leadSearches    LeadSearch[]
   leads           Lead[]
   leadTemplates   LeadTemplate[]
@@ -1081,6 +1082,27 @@ model AuditLog {
 // ====================================================================
 // NOTIFICATIONS
 // ====================================================================
+
+// Token de acceso temporal de un solo uso para que un admin comparta
+// con el equipo de soporte (Claude) un volcado de credenciales.
+// Generado por admin, válido típicamente 1h y consumido en la primera
+// lectura (single-use). Auditable.
+model CredentialAccessGrant {
+  id          String    @id @default(cuid())
+  workspaceId String
+  token       String    @unique
+  createdById String?
+  expiresAt   DateTime
+  usedAt      DateTime?
+  usedFromIp  String?
+  revokedAt   DateTime?
+  createdAt   DateTime  @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([token])
+  @@index([workspaceId, createdAt])
+}
 
 model Notification {
   id        String   @id @default(cuid())

@@ -261,6 +261,9 @@ function CredentialsSection() {
         </span>
       </header>
 
+      <ShareWithClaudeBlock />
+
+
       {loading && <div className="p-6 text-center text-sm text-slate-500"><Loader2 className="inline h-4 w-4 animate-spin mr-2" /> Descifrando…</div>}
 
       {data && (
@@ -360,6 +363,136 @@ function EnvSection({ env }: { env: Record<string, any> }) {
 function maskSecret(s: string): string {
   if (s.length <= 12) return "•".repeat(s.length);
   return s.slice(0, 6) + "•".repeat(Math.max(8, s.length - 12)) + s.slice(-6);
+}
+
+/**
+ * Botón "Generar enlace para Claude": crea un grant temporal de un solo
+ * uso que, al pegarlo en el chat, permite leer TODAS las credenciales
+ * de una vez sin tener que copiar cada una.
+ */
+function ShareWithClaudeBlock() {
+  const [grant, setGrant] = useState<{ token: string; expiresAt: string; path: string; id: string } | null>(null);
+  const [generating, setGenerating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [secondsLeft, setSecondsLeft] = useState<number>(0);
+
+  useEffect(() => {
+    if (!grant) return;
+    const t = setInterval(() => {
+      const left = Math.max(0, Math.floor((new Date(grant.expiresAt).getTime() - Date.now()) / 1000));
+      setSecondsLeft(left);
+      if (left === 0) clearInterval(t);
+    }, 1000);
+    return () => clearInterval(t);
+  }, [grant]);
+
+  async function generate() {
+    setGenerating(true);
+    setError(null);
+    const r = await fetch("/api/v1/admin/credentials/grant", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ttlMinutes: 60 })
+    });
+    setGenerating(false);
+    if (!r.ok) {
+      const j = await r.json().catch(() => ({}));
+      setError(j?.error?.message ?? `Error ${r.status}`);
+      return;
+    }
+    const data = await r.json();
+    const url = `${window.location.origin}${data.path}`;
+    setGrant({ token: data.token, expiresAt: data.expiresAt, path: data.path, id: data.id });
+    // Copiar automáticamente
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
+    } catch {}
+  }
+
+  async function revoke() {
+    if (!grant) return;
+    if (!confirm("¿Revocar este enlace? Dejará de funcionar inmediatamente.")) return;
+    await fetch(`/api/v1/admin/credentials/grant/${grant.id}`, { method: "DELETE" });
+    setGrant(null);
+  }
+
+  const url = grant ? `${typeof window !== "undefined" ? window.location.origin : ""}${grant.path}` : "";
+  const mm = Math.floor(secondsLeft / 60);
+  const ss = String(secondsLeft % 60).padStart(2, "0");
+
+  return (
+    <div className="px-5 py-4 bg-violet-50/40 border-b">
+      <div className="flex items-start gap-3 flex-wrap">
+        <div className="flex-1 min-w-[260px]">
+          <h3 className="text-sm font-semibold text-violet-900 flex items-center gap-1.5">
+            🪄 Compartir credenciales con Claude (un solo uso)
+          </h3>
+          <p className="text-xs text-slate-600 mt-1">
+            Genera un enlace temporal (1h) que descifra y devuelve TODAS las credenciales en una sola llamada.
+            Se copia al portapapeles automáticamente. Pégalo en la conversación con Claude y se accederá una vez.
+            Tras el primer uso, deja de funcionar.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={generate}
+          disabled={generating}
+          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-violet-600 hover:bg-violet-700 text-white text-sm font-medium disabled:opacity-50"
+        >
+          {generating ? <Loader2 className="h-4 w-4 animate-spin" /> : "🪄"}
+          Generar enlace
+        </button>
+      </div>
+
+      {error && <p className="mt-2 text-xs text-rose-600">{error}</p>}
+
+      {grant && (
+        <div className="mt-3 rounded-lg border border-violet-200 bg-white p-3 space-y-2">
+          {copied && (
+            <div className="text-xs text-emerald-700 font-medium">
+              ✓ Enlace copiado al portapapeles. Pégalo en la conversación con Claude.
+            </div>
+          )}
+          <div className="flex items-center gap-2">
+            <input
+              readOnly
+              value={url}
+              onClick={(e) => (e.currentTarget as HTMLInputElement).select()}
+              className="flex-1 px-2 py-1.5 rounded border bg-slate-50 text-xs font-mono break-all focus:outline-none"
+            />
+            <button
+              type="button"
+              onClick={() => {
+                navigator.clipboard.writeText(url);
+                setCopied(true);
+                setTimeout(() => setCopied(false), 2000);
+              }}
+              className="inline-flex items-center gap-1 px-2 py-1.5 rounded border bg-white hover:bg-slate-50 text-xs"
+            >
+              <CopyIcon className="h-3.5 w-3.5" />
+              Copiar
+            </button>
+            <button
+              type="button"
+              onClick={revoke}
+              className="inline-flex items-center gap-1 px-2 py-1.5 rounded border bg-rose-50 hover:bg-rose-100 border-rose-200 text-rose-700 text-xs"
+            >
+              Revocar
+            </button>
+          </div>
+          <div className="flex items-center justify-between text-[11px] text-slate-500">
+            <span>
+              Caduca en <strong className="text-violet-700">{mm}:{ss}</strong> · de un solo uso
+            </span>
+            <span className="text-[10px]">ID #{grant.id.slice(0, 8)}</span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function Card({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
