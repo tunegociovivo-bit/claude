@@ -26,14 +26,15 @@ model User {
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
-  accounts      Account[]
-  sessions      Session[]
-  memberships   Membership[]
-  ownedApiKeys  ApiKey[]
-  asanaTokens   AsanaConnection[]
-  notifications Notification[]
-  comments      Comment[]
-  assignedTasks TaskAssignee[]
+  accounts       Account[]
+  sessions       Session[]
+  memberships    Membership[]
+  projectMembers ProjectMember[]
+  ownedApiKeys   ApiKey[]
+  asanaTokens    AsanaConnection[]
+  notifications  Notification[]
+  comments       Comment[]
+  assignedTasks  TaskAssignee[]
 }
 
 enum UserRole {
@@ -169,12 +170,30 @@ model Project {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  client    Client?   @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  workspace Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  client    Client?          @relation(fields: [clientId], references: [id], onDelete: SetNull)
   tasks     Task[]
+  members   ProjectMember[]
 
   @@index([workspaceId])
   @@index([clientId])
+}
+
+// Membresía explícita por proyecto. Si una fila NO existe para (projectId, userId),
+// el usuario no tiene acceso al proyecto, salvo que sea ADMIN del workspace
+// (los admins ven y editan todo por defecto).
+model ProjectMember {
+  id        String   @id @default(cuid())
+  projectId String
+  userId    String
+  role      UserRole @default(MEMBER) // rol DENTRO del proyecto
+  addedAt   DateTime @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, userId])
+  @@index([userId])
 }
 
 model Task {

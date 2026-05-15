@@ -15,6 +15,21 @@ export const GET = withApi({ scope: "tasks:read" }, async (req, { api }) => {
   if (status) where.status = status;
   if (assignee) where.assignees = { some: { userId: assignee } };
 
+  // Filtrado de tareas por permisos del proyecto (mismo criterio que /projects):
+  if (api.userId) {
+    const membership = await prisma.membership.findFirst({
+      where: { workspaceId: api.workspaceId, userId: api.userId }
+    });
+    if (membership && membership.role !== "ADMIN") {
+      where.project = {
+        OR: [
+          { members: { some: { userId: api.userId } } },
+          { members: { none: {} } }
+        ]
+      };
+    }
+  }
+
   const items = await prisma.task.findMany({
     where,
     include: {

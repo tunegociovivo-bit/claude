@@ -1,6 +1,6 @@
 import Link from "next/link";
 import PageHeader from "@/components/PageHeader";
-import { Key, Download, Webhook, Users, Sparkles, PencilLine } from "lucide-react";
+import { Key, Download, Webhook, Users, Sparkles, PencilLine, FolderKanban } from "lucide-react";
 
 const cards = [
   {
@@ -39,6 +39,12 @@ const cards = [
     title: "Usuarios y permisos",
     description: "Añade trabajadores, asigna roles y gestiona permisos del workspace.",
     icon: Users
+  },
+  {
+    href: "/admin/proyectos",
+    title: "Proyectos y acceso",
+    description: "Decide qué trabajador puede entrar a qué proyecto.",
+    icon: FolderKanban
   }
 ];
 

@@ -9,9 +9,30 @@ export const GET = withApi({ scope: "projects:read" }, async (req, { api }) => {
   const clientId = url.searchParams.get("clientId") ?? undefined;
   const where: any = { workspaceId: api.workspaceId, archived: false };
   if (clientId) where.clientId = clientId;
+
+  // Filtrado por permisos: si no eres ADMIN del workspace, sólo ves
+  //  (a) proyectos donde estás añadido como ProjectMember
+  //  (b) proyectos "abiertos" (sin ningún ProjectMember) — compatibilidad
+  //      con proyectos creados antes de existir el sistema de permisos.
+  // Las API keys (sin userId) siguen viendo todo del workspace.
+  if (api.userId) {
+    const membership = await prisma.membership.findFirst({
+      where: { workspaceId: api.workspaceId, userId: api.userId }
+    });
+    if (membership && membership.role !== "ADMIN") {
+      where.OR = [
+        { members: { some: { userId: api.userId } } },
+        { members: { none: {} } }
+      ];
+    }
+  }
+
   const items = await prisma.project.findMany({
     where,
-    include: { client: { select: { id: true, name: true } }, _count: { select: { tasks: true } } },
+    include: {
+      client: { select: { id: true, name: true } },
+      _count: { select: { tasks: true, members: true } }
+    },
     orderBy: { createdAt: "desc" }
   });
   return NextResponse.json({ items });
