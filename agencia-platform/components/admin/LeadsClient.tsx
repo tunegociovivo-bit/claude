@@ -186,7 +186,7 @@ function DataTable({
   if (loading) return <Loading />;
   if (items.length === 0) return <Empty msg="No hay leads aún. Procesa los datos aparcados desde /admin/editorial → Procesar aparcados, o lanza una búsqueda nueva." />;
   return (
-    <div className="bg-white rounded-xl border overflow-hidden">
+    <div className="bg-white rounded-xl border overflow-x-auto">
       <table className="w-full text-sm">
         <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
           <tr>
@@ -240,7 +240,7 @@ function SearchesTable({ loading, items }: { loading: boolean; items: SearchRow[
   if (loading) return <Loading />;
   if (items.length === 0) return <Empty msg="No hay búsquedas todavía." />;
   return (
-    <div className="bg-white rounded-xl border overflow-hidden">
+    <div className="bg-white rounded-xl border overflow-x-auto">
       <table className="w-full text-sm">
         <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
           <tr>

@@ -152,7 +152,7 @@ export default function SeguridadClient() {
         </p>
       </div>
 
-      <div className="bg-white rounded-xl border overflow-hidden">
+      <div className="bg-white rounded-xl border overflow-x-auto">
         <div className="px-5 py-3 border-b">
           <h2 className="text-sm font-semibold">Histórico</h2>
         </div>

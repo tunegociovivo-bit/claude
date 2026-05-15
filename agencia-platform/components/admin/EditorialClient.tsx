@@ -312,7 +312,7 @@ export default function EditorialClient() {
           <Loader2 className="h-4 w-4 animate-spin" /> Cargando…
         </div>
       ) : view === "calendar" ? (
-        <div className="bg-white rounded-xl border overflow-hidden">
+        <div className="bg-white rounded-xl border overflow-x-auto">
           <div className="grid grid-cols-7 text-xs uppercase tracking-wide text-slate-500 border-b bg-slate-50">
             {["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"].map((d) => (
               <div key={d} className="px-3 py-2 border-r last:border-r-0">{d}</div>
@@ -380,7 +380,7 @@ export default function EditorialClient() {
             : "Ninguna publicación coincide con el filtro de estado."}
         </div>
       ) : (
-        <div className="bg-white rounded-xl border overflow-hidden">
+        <div className="bg-white rounded-xl border overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
               <tr>

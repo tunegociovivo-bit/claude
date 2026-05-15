@@ -84,7 +84,7 @@ export default function UsuariosClient() {
         <StatCard label="Miembros" value={members.filter((m) => m.role === "MEMBER").length} icon={<Shield className="h-4 w-4 text-sky-500" />} />
       </div>
 
-      <div className="bg-white rounded-xl border overflow-hidden">
+      <div className="bg-white rounded-xl border overflow-x-auto">
         {loading ? (
           <div className="p-8 text-sm text-slate-500 flex items-center gap-2">
             <Loader2 className="h-4 w-4 animate-spin" /> Cargando…
