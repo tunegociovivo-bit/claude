@@ -13,6 +13,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
+import { sendPushToUser } from "@/lib/push/web-push";
 
 export async function POST(req: NextRequest) {
   const auth = req.headers.get("authorization") ?? "";
@@ -57,14 +58,22 @@ export async function POST(req: NextRequest) {
         where: { userId: a.userId, type: "deadline", body }
       });
       if (existing) continue;
+      const link = `/tareas?task=${task.id}`;
       await prisma.notification.create({
         data: {
           userId: a.userId,
           type: "deadline",
           body,
-          link: `/tareas?task=${task.id}`
+          link
         }
       });
+      // push best-effort, no bloquea el cron
+      sendPushToUser(a.userId, {
+        title: "Vence pronto",
+        body,
+        link,
+        tag: `deadline-${task.id}`
+      }).catch((e) => console.warn("[push] deadline fallo:", e?.message ?? e));
       created++;
     }
   }

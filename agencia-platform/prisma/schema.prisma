@@ -26,15 +26,16 @@ model User {
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
-  accounts       Account[]
-  sessions       Session[]
-  memberships    Membership[]
-  projectMembers ProjectMember[]
-  ownedApiKeys   ApiKey[]
-  asanaTokens    AsanaConnection[]
-  notifications  Notification[]
-  comments       Comment[]
-  assignedTasks  TaskAssignee[]
+  accounts          Account[]
+  sessions          Session[]
+  memberships       Membership[]
+  projectMembers    ProjectMember[]
+  ownedApiKeys      ApiKey[]
+  asanaTokens       AsanaConnection[]
+  notifications     Notification[]
+  pushSubscriptions PushSubscription[]
+  comments          Comment[]
+  assignedTasks     TaskAssignee[]
 }
 
 enum UserRole {
@@ -658,6 +659,23 @@ model Notification {
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
   @@index([userId, read])
+}
+
+// Suscripciones Web Push del usuario (un usuario puede tener varias:
+// portátil, móvil, tablet, navegadores distintos).
+model PushSubscription {
+  id        String   @id @default(cuid())
+  userId    String
+  endpoint  String   @unique
+  p256dh    String   @db.Text
+  authKey   String   @db.Text
+  userAgent String?
+  createdAt DateTime @default(now())
+  lastSeen  DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }
 
 // ====================================================================

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import PageHeader from "@/components/PageHeader";
+import PushSubscribeButton from "@/components/notifications/PushSubscribeButton";
 import { Bell, Loader2, Check, X, MessageSquare } from "lucide-react";
 import clsx from "clsx";
 
@@ -56,15 +57,18 @@ export default function NotificacionesClient() {
         title="Notificaciones"
         description={unreadCount > 0 ? `${unreadCount} sin leer` : "Estás al día"}
         actions={
-          unreadCount > 0 ? (
-            <button
-              onClick={markAllRead}
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-white border text-sm hover:bg-slate-50"
-            >
-              <Check className="h-4 w-4" />
-              Marcar todo como leído
-            </button>
-          ) : null
+          <>
+            <PushSubscribeButton />
+            {unreadCount > 0 && (
+              <button
+                onClick={markAllRead}
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-white border text-sm hover:bg-slate-50"
+              >
+                <Check className="h-4 w-4" />
+                Marcar todo como leído
+              </button>
+            )}
+          </>
         }
       />
 

@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { extractMentionTokens, resolveMentions } from "@/lib/mentions";
+import { sendPushToUser } from "@/lib/push/web-push";
 
 const commentCreateSchema = z.object({
   body: z.string().min(1).max(8000)
@@ -61,14 +62,27 @@ export const POST = withApi({ scope: "tasks:write" }, async (req, { params, api 
         where: { id: params.id },
         select: { title: true }
       });
+      const notifBody = `${comment.author.name ?? "Alguien"} te mencionó en "${taskInfo?.title ?? "una tarea"}"`;
+      const link = `/tareas?task=${params.id}`;
       await prisma.notification.createMany({
         data: mentioned.map((u) => ({
           userId: u.id,
           type: "mention",
-          body: `${comment.author.name ?? "Alguien"} te mencionó en "${taskInfo?.title ?? "una tarea"}"`,
-          link: `/tareas?task=${params.id}`
+          body: notifBody,
+          link
         }))
       });
+      // Web push paralelo — best-effort, no bloqueante
+      await Promise.all(
+        mentioned.map((u) =>
+          sendPushToUser(u.id, {
+            title: "Te han mencionado",
+            body: notifBody,
+            link,
+            tag: `mention-${params.id}`
+          }).catch((e) => console.warn("[push] mention fallo:", e?.message ?? e))
+        )
+      );
     }
   }
 
