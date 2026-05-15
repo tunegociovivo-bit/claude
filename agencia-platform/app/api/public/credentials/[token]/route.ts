@@ -96,6 +96,16 @@ export async function GET(req: NextRequest, { params }: { params: { token: strin
       url: integrations?.wordpress?.url ?? null,
       user: integrations?.wordpress?.user ?? null,
       appPassword: safeDecrypt(integrations?.wordpress?.appPasswordEncrypted)
+    },
+    // Storage R2 (vienen de env vars; el magic link los descifra para
+    // que el equipo de soporte pueda verlos sin acceder a Railway).
+    storage: {
+      endpoint: process.env.STORAGE_ENDPOINT ?? null,
+      region: process.env.STORAGE_REGION ?? null,
+      bucket: process.env.STORAGE_BUCKET ?? null,
+      accessKeyId: process.env.STORAGE_ACCESS_KEY_ID ?? null,
+      secretAccessKey: process.env.STORAGE_SECRET_ACCESS_KEY ?? null,
+      publicUrl: process.env.STORAGE_PUBLIC_URL ?? null
     }
   };
 

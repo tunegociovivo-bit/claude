@@ -154,6 +154,51 @@ export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
       docsUrl: "https://wordpress.org/documentation/article/application-passwords/",
       sensitive: true,
       hint: "Se guarda sin espacios; WordPress los acepta con o sin ellos al autenticar."
+    },
+    // ============ Storage R2 (vienen de env vars de Railway) ============
+    storageEndpoint: {
+      key: "STORAGE_ENDPOINT",
+      label: "Cloudflare R2 — Endpoint",
+      value: process.env.STORAGE_ENDPOINT ?? null,
+      configIn: "Railway → Variables",
+      docsUrl: "https://dash.cloudflare.com/?to=/:account/r2/api-tokens",
+      sensitive: false
+    },
+    storageBucket: {
+      key: "STORAGE_BUCKET",
+      label: "Cloudflare R2 — Bucket",
+      value: process.env.STORAGE_BUCKET ?? null,
+      configIn: "Railway → Variables",
+      sensitive: false
+    },
+    storageRegion: {
+      key: "STORAGE_REGION",
+      label: "Cloudflare R2 — Region",
+      value: process.env.STORAGE_REGION ?? null,
+      configIn: "Railway → Variables",
+      sensitive: false
+    },
+    storageAccessKeyId: {
+      key: "STORAGE_ACCESS_KEY_ID",
+      label: "Cloudflare R2 — Access Key ID",
+      value: process.env.STORAGE_ACCESS_KEY_ID ?? null,
+      configIn: "Railway → Variables",
+      sensitive: true
+    },
+    storageSecretAccessKey: {
+      key: "STORAGE_SECRET_ACCESS_KEY",
+      label: "Cloudflare R2 — Secret Access Key",
+      value: process.env.STORAGE_SECRET_ACCESS_KEY ?? null,
+      configIn: "Railway → Variables",
+      sensitive: true
+    },
+    storagePublicUrl: {
+      key: "STORAGE_PUBLIC_URL",
+      label: "Cloudflare R2 — Public URL (opcional)",
+      value: process.env.STORAGE_PUBLIC_URL ?? null,
+      configIn: "Railway → Variables",
+      sensitive: false,
+      hint: "Solo si tienes un dominio custom conectado al bucket. Si está vacío se usan URLs firmadas."
     }
   };
 
