@@ -973,9 +973,13 @@ function GenerateMonthModal({
   onDone: () => void;
 }) {
   const [clientId, setClientId] = useState("");
-  const [count, setCount] = useState(8);
-  const [networks, setNetworks] = useState<string[]>(["instagram"]);
-  const [brief, setBrief] = useState("");
+  const [count, setCount] = useState(14);
+  const [networks, setNetworks] = useState<string[]>(["instagram", "facebook"]);
+  const [mix, setMix] = useState({ imagen: 50, reel: 25, carrusel: 15, story: 10, video: 0 });
+  const [copyLength, setCopyLength] = useState(50);
+  const [perNetworkCopy, setPerNetworkCopy] = useState(false);
+  const [extraGuidance, setExtraGuidance] = useState("");
+  const [status, setStatus] = useState<"DRAFT" | "REVIEW">("DRAFT");
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<any>(null);
@@ -983,9 +987,13 @@ function GenerateMonthModal({
   useEffect(() => {
     if (!open) return;
     setClientId(clients[0]?.id ?? "");
-    setCount(8);
-    setNetworks(["instagram"]);
-    setBrief("");
+    setCount(14);
+    setNetworks(["instagram", "facebook"]);
+    setMix({ imagen: 50, reel: 25, carrusel: 15, story: 10, video: 0 });
+    setCopyLength(50);
+    setPerNetworkCopy(false);
+    setExtraGuidance("");
+    setStatus("DRAFT");
     setError(null);
     setResult(null);
   }, [open, clients]);
@@ -994,9 +1002,26 @@ function GenerateMonthModal({
     setNetworks((arr) => (arr.includes(n) ? arr.filter((x) => x !== n) : [...arr, n]));
   }
 
+  const mixTotal = mix.imagen + mix.reel + mix.carrusel + mix.story + mix.video;
+  const lengthLabel = copyLength < 25
+    ? "ultra-directo (40-100 palabras)"
+    : copyLength < 50
+      ? "corto (60-180 palabras)"
+      : copyLength < 75
+        ? "medio (100-300 palabras)"
+        : "largo (200-450 palabras)";
+
   async function run() {
     if (!clientId) {
       setError("Selecciona un cliente");
+      return;
+    }
+    if (networks.length === 0) {
+      setError("Selecciona al menos una red");
+      return;
+    }
+    if (mixTotal === 0) {
+      setError("El mix de formatos debe sumar > 0");
       return;
     }
     setRunning(true);
@@ -1004,7 +1029,17 @@ function GenerateMonthModal({
     const r = await fetch("/api/v1/editorial/generate-month", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ clientId, month, count, networks, brief: brief || undefined })
+      body: JSON.stringify({
+        clientId,
+        month,
+        count,
+        networks,
+        mix,
+        copyLength,
+        perNetworkCopy,
+        extraGuidance: extraGuidance || undefined,
+        status
+      })
     });
     setRunning(false);
     const data = await r.json();
@@ -1036,32 +1071,37 @@ function GenerateMonthModal({
         </>
       }
     >
-      <div className="space-y-3">
+      <div className="space-y-4">
         <p className="text-xs text-slate-500">
-          Claude generará {count} publicaciones para el cliente seleccionado en {month}. Cada una queda en estado <strong>Borrador</strong> para que las revises antes de publicar.
+          Claude leerá el <strong>brief</strong>, los <strong>colores</strong>, los <strong>competidores</strong> y la
+          <strong> guía de estilo</strong> del cliente, y generará {count} publicaciones para {month}.
         </p>
-        <div>
-          <label className="block text-xs font-medium text-slate-700 mb-1">Cliente *</label>
-          <select
-            value={clientId}
-            onChange={(e) => setClientId(e.target.value)}
-            className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
-          >
-            <option value="" disabled>Selecciona…</option>
-            {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </select>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs font-medium text-slate-700 mb-1">Cliente *</label>
+            <select
+              value={clientId}
+              onChange={(e) => setClientId(e.target.value)}
+              className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+            >
+              <option value="" disabled>Selecciona…</option>
+              {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-slate-700 mb-1">Nº publicaciones</label>
+            <input
+              type="number"
+              min={1}
+              max={40}
+              value={count}
+              onChange={(e) => setCount(Math.max(1, Math.min(40, Number(e.target.value))))}
+              className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+            />
+          </div>
         </div>
-        <div>
-          <label className="block text-xs font-medium text-slate-700 mb-1">Número de publicaciones</label>
-          <input
-            type="number"
-            min={1}
-            max={31}
-            value={count}
-            onChange={(e) => setCount(Number(e.target.value))}
-            className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
-          />
-        </div>
+
         <div>
           <label className="block text-xs font-medium text-slate-700 mb-1">Redes destino</label>
           <div className="flex flex-wrap gap-1.5">
@@ -1084,20 +1124,96 @@ function GenerateMonthModal({
               );
             })}
           </div>
+          {networks.length > 1 && (
+            <label className="mt-2 flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={perNetworkCopy}
+                onChange={(e) => setPerNetworkCopy(e.target.checked)}
+                className="accent-violet-600"
+              />
+              Generar copy adaptado por cada red (más tokens pero más nativo)
+            </label>
+          )}
         </div>
+
         <div>
-          <label className="block text-xs font-medium text-slate-700 mb-1">Brief (opcional)</label>
+          <label className="block text-xs font-medium text-slate-700 mb-1.5">
+            Mix de formatos · <span className="text-slate-500">total {mixTotal}%</span>
+          </label>
+          <div className="grid grid-cols-5 gap-2">
+            {(["imagen", "reel", "carrusel", "story", "video"] as const).map((k) => (
+              <div key={k} className="bg-slate-50 rounded-lg p-2">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-[11px] font-medium text-slate-700 capitalize">{k}</span>
+                  <span className="text-[11px] text-violet-600 font-medium">{mix[k]}%</span>
+                </div>
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  step={5}
+                  value={mix[k]}
+                  onChange={(e) => setMix({ ...mix, [k]: Number(e.target.value) })}
+                  className="w-full accent-violet-600"
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-xs font-medium text-slate-700 mb-1">
+            Longitud del copy · <span className="text-violet-600">{copyLength}%</span> ({lengthLabel})
+          </label>
+          <input
+            type="range"
+            min={0}
+            max={100}
+            step={5}
+            value={copyLength}
+            onChange={(e) => setCopyLength(Number(e.target.value))}
+            className="w-full accent-violet-600"
+          />
+        </div>
+
+        <div>
+          <label className="block text-xs font-medium text-slate-700 mb-1">Instrucción extra (opcional)</label>
           <textarea
-            value={brief}
-            onChange={(e) => setBrief(e.target.value)}
+            value={extraGuidance}
+            onChange={(e) => setExtraGuidance(e.target.value)}
             rows={3}
-            placeholder="Ej. enfoca el mes en sostenibilidad y nuevos productos otoño"
+            placeholder="Ej. enfoca el mes en sostenibilidad. Incluye 2 testimonios. Evita hablar de precios."
             className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
           />
         </div>
+
+        <div className="flex items-center gap-3">
+          <label className="text-xs font-medium text-slate-700">Estado inicial</label>
+          <div className="flex gap-2">
+            {(["DRAFT", "REVIEW"] as const).map((s) => (
+              <button
+                key={s}
+                type="button"
+                onClick={() => setStatus(s)}
+                className={
+                  "px-3 py-1.5 rounded-md text-xs transition border " +
+                  (status === s
+                    ? "bg-violet-50 border-violet-300 text-violet-700 font-medium"
+                    : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50")
+                }
+              >
+                {s === "DRAFT" ? "Borrador" : "Revisión"}
+              </button>
+            ))}
+          </div>
+        </div>
+
         {error && <p className="text-xs text-rose-600">{error}</p>}
         {result && (
-          <p className="text-xs text-emerald-700">✓ {result.created} publicaciones creadas. Cerrando…</p>
+          <p className="text-xs text-emerald-700">
+            ✓ {result.count} publicaciones creadas con {result.model}. Cerrando…
+          </p>
         )}
       </div>
     </Modal>
