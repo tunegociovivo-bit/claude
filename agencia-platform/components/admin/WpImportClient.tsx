@@ -61,11 +61,16 @@ export default function WpImportClient() {
     });
     setImporting(false);
     const data = await r.json();
-    if (!r.ok) {
-      setError(data?.error?.message ?? `Error ${r.status}`);
-      return;
+    // El nuevo flow devuelve report.sections con per-section ok/message
+    if (data?.report) setImportResult(data.report);
+    if (!r.ok || data?.report?.errors?.length) {
+      setError(
+        data?.error?.message
+          ?? (data?.report?.errors && data.report.errors.length > 0
+                ? data.report.errors.join("; ")
+                : `Error ${r.status}`)
+      );
     }
-    setImportResult(data.report);
   }
 
   return (
@@ -207,7 +212,9 @@ export default function WpImportClient() {
 
       {importResult && (
         <div className="rounded-xl bg-emerald-50 border border-emerald-200 p-4">
-          <h2 className="text-sm font-semibold text-emerald-900 mb-2">✓ Importación completada</h2>
+          <h2 className="text-sm font-semibold text-emerald-900 mb-2">
+            {importResult.errors && importResult.errors.length > 0 ? "⚠️ Importación parcial" : "✓ Importación completada"}
+          </h2>
           <dl className="text-sm text-emerald-800 space-y-1">
             <Row label="Origen">{importResult.site}</Row>
             <Row label="API keys cifradas guardadas">{importResult.keysImported}</Row>
@@ -216,6 +223,22 @@ export default function WpImportClient() {
             <Row label="Publicaciones NV Dashboard (en cola)">{importResult.pendingNvDashboard}</Row>
             <Row label="Filas NV Leads (en cola)">{importResult.pendingNvLeads}</Row>
           </dl>
+
+          {importResult.sections && (
+            <div className="mt-3">
+              <h3 className="text-[11px] uppercase tracking-wide text-emerald-700 font-semibold mb-1">Detalle por sección</h3>
+              <ul className="text-xs space-y-1">
+                {Object.entries<any>(importResult.sections).map(([k, v]) => (
+                  <li key={k} className={v.ok ? "text-emerald-700" : "text-rose-700"}>
+                    {v.ok ? "✓" : "✗"} <strong>{k}</strong>
+                    {v.message ? ` — ${v.message}` : ""}
+                    {typeof v.bytes === "number" ? ` (${Math.round(v.bytes / 1024)} KB)` : ""}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
           <p className="text-xs text-emerald-700 mt-3 leading-relaxed">
             Los datos "en cola" se aparcan cifrados dentro del workspace.settings hasta que migremos el schema de NV Dashboard y NV Leads. Las API keys ya están operativas — entra a <a href="/admin/reviews" className="underline">/admin/reviews</a> y <a href="/admin/voice-reviews" className="underline">/admin/voice-reviews</a> para ver los clientes/negocios importados.
           </p>

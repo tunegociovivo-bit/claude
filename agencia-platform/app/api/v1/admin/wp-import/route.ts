@@ -2,21 +2,9 @@
  * Importa configuración y datos desde un WordPress que tenga instalado
  * el plugin "Agencia Hub Exporter" (scripts/wp-exporter/agencia-exporter.php).
  *
- * Flow:
- *  1. El cliente envía { wpUrl, wpUser, appPassword, sections[] }.
- *  2. El servidor hace GET a {wpUrl}/wp-json/agencia-export/v1/dump con
- *     Basic Auth (wpUser:appPassword) y descarga el JSON completo.
- *  3. Normaliza cada sección y la persiste:
- *       - API keys → workspace.settings.ai.{anthropicApiKey,openaiApiKey}
- *                  + workspace.settings.googlePlaces, evolution, metricool, drive
- *                  (todas cifradas con AES-256-GCM al estilo del módulo AI).
- *       - generador_resenas.clientes → ReviewClient rows (upsert por slug).
- *       - voice_reviews.businesses → VoiceBusiness rows (upsert por slug).
- *       - nv_dashboard.publications → guardadas raw en workspace.settings.pendingImport.nvDashboard
- *         (no hay schema todavía, se procesará en su migración).
- *       - nv_leads_pro.tables → guardadas raw en workspace.settings.pendingImport.nvLeads.
- *
- *  4. Devuelve un reporte: { keys: N, reviews: N, voice: N, pendingMb: N }.
+ * Cada sección se importa en su propio try/catch y se reporta independiente,
+ * así un error en una no aborta las demás. La salida incluye un campo
+ * "errors" con qué falló y por qué.
  *
  * Solo accesible a ADMIN del workspace.
  */
@@ -32,9 +20,13 @@ const inputSchema = z.object({
   wpUrl: z.string().url(),
   wpUser: z.string().min(1),
   appPassword: z.string().min(8),
-  sections: z.array(z.enum(["generador_resenas", "voice_reviews", "nv_dashboard", "nv_leads_pro"])).optional(),
+  sections: z
+    .array(z.enum(["generador_resenas", "voice_reviews", "nv_dashboard", "nv_leads_pro"]))
+    .optional(),
   dryRun: z.boolean().default(false)
 });
+
+const MAX_PENDING_BYTES = 2 * 1024 * 1024; // tope ~2MB por sección "en cola"
 
 async function requireAdmin(workspaceId: string, userId: string | undefined) {
   if (!userId) throw new ApiError(401, "no_user", "Sesión requerida");
@@ -52,36 +44,40 @@ function slugify(s: string): string {
     .slice(0, 80);
 }
 
-async function callWpDump(wpUrl: string, wpUser: string, appPassword: string, sections?: string[]) {
-  const auth = Buffer.from(`${wpUser}:${appPassword.replace(/\s+/g, "")}`).toString("base64");
-  const base = wpUrl.replace(/\/+$/, "");
-  const qs = sections && sections.length ? `?include=${encodeURIComponent(sections.join(","))}` : "";
-  const url = `${base}/wp-json/agencia-export/v1/dump${qs}`;
+function basicAuth(user: string, pass: string): string {
+  return Buffer.from(`${user}:${pass.replace(/\s+/g, "")}`).toString("base64");
+}
+
+async function callWp(opts: {
+  wpUrl: string;
+  wpUser: string;
+  appPassword: string;
+  path: string;
+}): Promise<any> {
+  const base = opts.wpUrl.replace(/\/+$/, "");
+  const url = `${base}${opts.path}`;
   const resp = await fetch(url, {
-    headers: { Authorization: `Basic ${auth}`, Accept: "application/json" },
+    headers: {
+      Authorization: `Basic ${basicAuth(opts.wpUser, opts.appPassword)}`,
+      Accept: "application/json"
+    },
     cache: "no-store"
   });
   if (!resp.ok) {
     let body = "";
-    try { body = await resp.text(); } catch {}
-    throw new ApiError(resp.status, "wp_fetch_error", `WP devolvió ${resp.status}. ¿Está activo el plugin Agencia Hub Exporter? ¿Es el App Password correcto? ${body.slice(0, 300)}`);
+    try {
+      body = await resp.text();
+    } catch {}
+    throw new Error(`WP ${resp.status} ${resp.statusText} en ${opts.path}: ${body.slice(0, 200)}`);
   }
   return await resp.json();
 }
 
-async function callWpPing(wpUrl: string, wpUser: string, appPassword: string) {
-  const auth = Buffer.from(`${wpUser}:${appPassword.replace(/\s+/g, "")}`).toString("base64");
-  const base = wpUrl.replace(/\/+$/, "");
-  const resp = await fetch(`${base}/wp-json/agencia-export/v1/ping`, {
-    headers: { Authorization: `Basic ${auth}`, Accept: "application/json" },
-    cache: "no-store"
-  });
-  if (!resp.ok) {
-    let body = "";
-    try { body = await resp.text(); } catch {}
-    throw new ApiError(resp.status, "wp_ping_error", `No se pudo contactar con el plugin. HTTP ${resp.status}. ${body.slice(0, 300)}`);
-  }
-  return await resp.json();
+function safeSize(value: any): { json: any; bytes: number; truncated: boolean } {
+  const json = value ?? null;
+  const str = JSON.stringify(json);
+  const bytes = Buffer.byteLength(str, "utf8");
+  return { json, bytes, truncated: false };
 }
 
 export const POST = withApi({ scope: "*" }, async (req, { api }) => {
@@ -92,193 +88,314 @@ export const POST = withApi({ scope: "*" }, async (req, { api }) => {
   if (!parsed.success) throw new ApiError(400, "validation_error", parsed.error.message);
 
   const { wpUrl, wpUser, appPassword, sections, dryRun } = parsed.data;
+  const wpCreds = { wpUrl, wpUser, appPassword };
 
   // 1. Ping primero — falla rápido si la auth es mala
-  const ping = await callWpPing(wpUrl, wpUser, appPassword);
-
-  if (dryRun) {
-    return NextResponse.json({
-      ok: true,
-      dryRun: true,
-      wp: ping
-    });
+  let ping: any;
+  try {
+    ping = await callWp({ ...wpCreds, path: "/wp-json/agencia-export/v1/ping" });
+  } catch (e: any) {
+    throw new ApiError(502, "wp_unreachable", e.message ?? "No se pudo contactar con WP");
   }
 
-  // 2. Dump real
-  const dump = await callWpDump(wpUrl, wpUser, appPassword, sections);
+  if (dryRun) {
+    return NextResponse.json({ ok: true, dryRun: true, wp: ping });
+  }
+
+  const sectionsToRun = sections ?? ["generador_resenas", "voice_reviews", "nv_dashboard", "nv_leads_pro"];
 
   const report: Record<string, any> = {
-    site: dump.site,
-    exportedAt: dump.exported_at,
+    site: ping.wp_site,
     keysImported: 0,
     reviewClients: 0,
     voiceBusinesses: 0,
     pendingNvDashboard: 0,
     pendingNvLeads: 0,
+    sections: {} as Record<string, { ok: boolean; message?: string; bytes?: number }>,
     errors: [] as string[]
   };
 
-  // Cargamos settings actuales del workspace
+  // Cargamos settings actuales y los iremos mutando por sección.
   const ws = await prisma.workspace.findUnique({ where: { id: api.workspaceId } });
-  const settings = ((ws?.settings as any) ?? {}) as any;
+  const settings: any = ((ws?.settings as any) ?? {});
   settings.ai ??= {};
   settings.integrations ??= {};
+  settings.pendingImport ??= {};
 
-  // ── 3a. Generador de Reseñas IA ────────────────────────────────────
-  const gr = dump.generador_resenas;
-  if (gr) {
-    if (gr.api_key && typeof gr.api_key === "string" && gr.api_key.startsWith("sk-")) {
-      settings.ai.openaiApiKey = encryptSecret(gr.api_key);
-      report.keysImported++;
-    }
-    const clientes = gr.clientes && typeof gr.clientes === "object" ? gr.clientes : {};
-    const history = gr.history && typeof gr.history === "object" ? gr.history : {};
-    for (const [slug, raw] of Object.entries<any>(clientes)) {
-      if (!raw || typeof raw !== "object") continue;
-      const data = {
-        workspaceId: api.workspaceId,
-        slug: slugify(String(slug)),
-        name: String(raw.nombre ?? slug),
-        webUrl: raw.url_web ? String(raw.url_web) : null,
-        destinationUrl: String(raw.url_destino ?? ""),
-        topics: String(raw.temas ?? "Experiencia general"),
-        bannedWords: raw.palabras_prohibidas ? String(raw.palabras_prohibidas) : null,
-        recommendedWords: raw.palabras_recomendadas ? String(raw.palabras_recomendadas) : null,
-        extraInstructions: raw.instrucciones_extra ? String(raw.instrucciones_extra) : null,
-        model: ["gpt-4o-mini", "gpt-4o", "gpt-4-turbo"].includes(raw.modelo) ? raw.modelo : "gpt-4o-mini"
-      };
-      if (!data.destinationUrl) continue;
-      const result = await prisma.reviewClient.upsert({
-        where: { workspaceId_slug: { workspaceId: api.workspaceId, slug: data.slug } },
-        create: data,
-        update: data
-      });
-      const items = history[slug];
-      if (Array.isArray(items) && items.length > 0) {
-        // Solo importamos historial si está vacío en destino
-        const existing = await prisma.reviewHistory.count({ where: { clientId: result.id } });
-        if (existing === 0) {
-          await prisma.reviewHistory.createMany({
-            data: items.map((body: any) => ({ clientId: result.id, body: String(body) }))
-          });
+  // ──────────────────────────────────────────────────────────
+  // 2a. Generador Reseñas
+  if (sectionsToRun.includes("generador_resenas")) {
+    try {
+      const data = await callWp({ ...wpCreds, path: "/wp-json/agencia-export/v1/dump?include=generador_resenas" });
+      const gr = data.generador_resenas;
+      if (gr) {
+        if (gr.api_key && typeof gr.api_key === "string" && gr.api_key.startsWith("sk-")) {
+          settings.ai.openaiApiKey = encryptSecret(gr.api_key);
+          report.keysImported++;
         }
+        const clientes = gr.clientes && typeof gr.clientes === "object" ? gr.clientes : {};
+        const history = gr.history && typeof gr.history === "object" ? gr.history : {};
+        for (const [slug, raw] of Object.entries<any>(clientes)) {
+          if (!raw || typeof raw !== "object") continue;
+          const cleanSlug = slugify(String(slug));
+          if (!cleanSlug) continue;
+          const destinationUrl = String(raw.url_destino ?? "");
+          if (!destinationUrl) continue;
+          const cdata = {
+            workspaceId: api.workspaceId,
+            slug: cleanSlug,
+            name: String(raw.nombre ?? slug).slice(0, 120),
+            webUrl: raw.url_web ? String(raw.url_web).slice(0, 500) : null,
+            destinationUrl: destinationUrl.slice(0, 500),
+            topics: String(raw.temas ?? "Experiencia general"),
+            bannedWords: raw.palabras_prohibidas ? String(raw.palabras_prohibidas) : null,
+            recommendedWords: raw.palabras_recomendadas ? String(raw.palabras_recomendadas) : null,
+            extraInstructions: raw.instrucciones_extra ? String(raw.instrucciones_extra) : null,
+            model: ["gpt-4o-mini", "gpt-4o", "gpt-4-turbo"].includes(raw.modelo) ? raw.modelo : "gpt-4o-mini"
+          };
+          const result = await prisma.reviewClient.upsert({
+            where: { workspaceId_slug: { workspaceId: api.workspaceId, slug: cleanSlug } },
+            create: cdata,
+            update: cdata
+          });
+          const items = history[slug];
+          if (Array.isArray(items) && items.length > 0) {
+            const existing = await prisma.reviewHistory.count({ where: { clientId: result.id } });
+            if (existing === 0) {
+              await prisma.reviewHistory.createMany({
+                data: items
+                  .filter((i: any) => typeof i === "string" && i.trim())
+                  .slice(0, 5)
+                  .map((bodyText: any) => ({ clientId: result.id, body: String(bodyText) }))
+              });
+            }
+          }
+          report.reviewClients++;
+        }
+        report.sections.generador_resenas = { ok: true };
+      } else {
+        report.sections.generador_resenas = { ok: true, message: "Sin datos de Generador Reseñas en WP" };
       }
-      report.reviewClients++;
+    } catch (e: any) {
+      console.error("[wp-import] generador_resenas error:", e);
+      report.sections.generador_resenas = { ok: false, message: e?.message ?? String(e) };
+      report.errors.push(`generador_resenas: ${e?.message ?? e}`);
     }
   }
 
-  // ── 3b. Voice Reviews ──────────────────────────────────────────────
-  const vr = dump.voice_reviews;
-  if (vr) {
-    const s = (vr.settings ?? {}) as any;
-    const env = (vr.env ?? {}) as any;
-    const openaiKey = s.openai_key ?? env.openai;
-    const anthropicKey = s.anthropic_key ?? env.anthropic;
-    if (openaiKey && String(openaiKey).startsWith("sk-")) {
-      if (!settings.ai.openaiApiKey) {
-        settings.ai.openaiApiKey = encryptSecret(String(openaiKey));
-        report.keysImported++;
+  // ──────────────────────────────────────────────────────────
+  // 2b. Voice Reviews
+  if (sectionsToRun.includes("voice_reviews")) {
+    try {
+      const data = await callWp({ ...wpCreds, path: "/wp-json/agencia-export/v1/dump?include=voice_reviews" });
+      const vr = data.voice_reviews;
+      if (vr) {
+        const s = (vr.settings ?? {}) as any;
+        const env = (vr.env ?? {}) as any;
+        const openaiKey = s.openai_key ?? env.openai;
+        const anthropicKey = s.anthropic_key ?? env.anthropic;
+        if (openaiKey && String(openaiKey).startsWith("sk-") && !settings.ai.openaiApiKey) {
+          settings.ai.openaiApiKey = encryptSecret(String(openaiKey));
+          report.keysImported++;
+        }
+        if (anthropicKey && String(anthropicKey).startsWith("sk-ant-") && !settings.ai.anthropicApiKey) {
+          settings.ai.anthropicApiKey = encryptSecret(String(anthropicKey));
+          report.keysImported++;
+        }
+        const businesses = Array.isArray(vr.businesses) ? vr.businesses : [];
+        for (const b of businesses) {
+          if (!b || !b.slug || !b.name) continue;
+          const cleanSlug = slugify(String(b.slug));
+          if (!cleanSlug) continue;
+          const bdata: any = {
+            workspaceId: api.workspaceId,
+            slug: cleanSlug,
+            name: String(b.name_meta || b.name).slice(0, 120),
+            location: b.location ? String(b.location).slice(0, 200) : null,
+            googleUrl: b.google_url ? String(b.google_url).slice(0, 500) : null,
+            trustpilotUrl: b.trustpilot_url ? String(b.trustpilot_url).slice(0, 500) : null,
+            introText: b.intro_text ? String(b.intro_text) : null,
+            disclaimer: b.disclaimer ? String(b.disclaimer) : null,
+            customPrompt: b.custom_prompt ? String(b.custom_prompt) : null,
+            maxSeconds: Math.max(5, Math.min(120, Number(b.max_seconds) || 30)),
+            aiProvider: "anthropic"
+          };
+          await prisma.voiceBusiness.upsert({
+            where: { workspaceId_slug: { workspaceId: api.workspaceId, slug: cleanSlug } },
+            create: bdata,
+            update: bdata
+          });
+          report.voiceBusinesses++;
+        }
+        report.sections.voice_reviews = { ok: true };
+      } else {
+        report.sections.voice_reviews = { ok: true, message: "Sin datos de Voice Reviews en WP" };
       }
+    } catch (e: any) {
+      console.error("[wp-import] voice_reviews error:", e);
+      report.sections.voice_reviews = { ok: false, message: e?.message ?? String(e) };
+      report.errors.push(`voice_reviews: ${e?.message ?? e}`);
     }
-    if (anthropicKey && String(anthropicKey).startsWith("sk-ant-")) {
-      if (!settings.ai.anthropicApiKey) {
-        settings.ai.anthropicApiKey = encryptSecret(String(anthropicKey));
-        report.keysImported++;
+  }
+
+  // ──────────────────────────────────────────────────────────
+  // 2c. NV Dashboard (parking en settings + keys cifradas)
+  if (sectionsToRun.includes("nv_dashboard")) {
+    try {
+      const data = await callWp({ ...wpCreds, path: "/wp-json/agencia-export/v1/dump?include=nv_dashboard" });
+      const nvd = data.nv_dashboard;
+      if (nvd) {
+        const o = (nvd.options ?? {}) as any;
+        if (o.anthropic_api_key && String(o.anthropic_api_key).startsWith("sk-ant-") && !settings.ai.anthropicApiKey) {
+          settings.ai.anthropicApiKey = encryptSecret(String(o.anthropic_api_key));
+          report.keysImported++;
+        }
+        if (o.openai_api_key && String(o.openai_api_key).startsWith("sk-") && !settings.ai.openaiApiKey) {
+          settings.ai.openaiApiKey = encryptSecret(String(o.openai_api_key));
+          report.keysImported++;
+        }
+        settings.integrations.metricool ??= {};
+        if (o.metricool_brand) settings.integrations.metricool.brand = String(o.metricool_brand);
+        if (o.metricool_token) {
+          settings.integrations.metricool.tokenEnc = encryptSecret(String(o.metricool_token));
+          report.keysImported++;
+        }
+        if (o.metricool_blog_id) settings.integrations.metricool.blogId = String(o.metricool_blog_id);
+        settings.integrations.drive ??= {};
+        if (o.refs_drive_folders) settings.integrations.drive.folderRefs = o.refs_drive_folders;
+
+        // Tope de tamaño para no inflar el JSON de settings
+        const pubs = Array.isArray(nvd.publications) ? nvd.publications : [];
+        const sized = safeSize({
+          publications: pubs,
+          clientesTaxonomy: nvd.clientes_taxonomy ?? [],
+          clienteConfigs: nvd.cliente_configs ?? {}
+        });
+        if (sized.bytes > MAX_PENDING_BYTES) {
+          // Recortamos publications hasta caber
+          const trimmedPubs: any[] = [];
+          let runningBytes = 1024; // overhead
+          for (const p of pubs) {
+            const piece = JSON.stringify(p);
+            runningBytes += piece.length;
+            if (runningBytes > MAX_PENDING_BYTES) break;
+            trimmedPubs.push(p);
+          }
+          settings.pendingImport.nvDashboard = {
+            publications: trimmedPubs,
+            clientesTaxonomy: nvd.clientes_taxonomy ?? [],
+            clienteConfigs: nvd.cliente_configs ?? {},
+            importedAt: new Date().toISOString(),
+            truncated: true,
+            originalCount: pubs.length,
+            storedCount: trimmedPubs.length
+          };
+          report.pendingNvDashboard = trimmedPubs.length;
+          report.sections.nv_dashboard = {
+            ok: true,
+            message: `Truncado: ${pubs.length} → ${trimmedPubs.length} publicaciones (tope 2 MB)`,
+            bytes: MAX_PENDING_BYTES
+          };
+        } else {
+          settings.pendingImport.nvDashboard = {
+            publications: pubs,
+            clientesTaxonomy: nvd.clientes_taxonomy ?? [],
+            clienteConfigs: nvd.cliente_configs ?? {},
+            importedAt: new Date().toISOString()
+          };
+          report.pendingNvDashboard = pubs.length;
+          report.sections.nv_dashboard = { ok: true, bytes: sized.bytes };
+        }
+      } else {
+        report.sections.nv_dashboard = { ok: true, message: "Sin datos de NV Dashboard" };
       }
-    }
-    const businesses = Array.isArray(vr.businesses) ? vr.businesses : [];
-    for (const b of businesses) {
-      if (!b.slug || !b.name) continue;
-      const slug = slugify(String(b.slug));
-      const data: any = {
-        workspaceId: api.workspaceId,
-        slug,
-        name: String(b.name_meta || b.name),
-        location: b.location ? String(b.location) : null,
-        googleUrl: b.google_url ? String(b.google_url) : null,
-        trustpilotUrl: b.trustpilot_url ? String(b.trustpilot_url) : null,
-        introText: b.intro_text ? String(b.intro_text) : null,
-        disclaimer: b.disclaimer ? String(b.disclaimer) : null,
-        customPrompt: b.custom_prompt ? String(b.custom_prompt) : null,
-        maxSeconds: Math.max(5, Math.min(120, Number(b.max_seconds) || 30)),
-        aiProvider: "anthropic"
-      };
-      await prisma.voiceBusiness.upsert({
-        where: { workspaceId_slug: { workspaceId: api.workspaceId, slug } },
-        create: data,
-        update: data
-      });
-      report.voiceBusinesses++;
+    } catch (e: any) {
+      console.error("[wp-import] nv_dashboard error:", e);
+      report.sections.nv_dashboard = { ok: false, message: e?.message ?? String(e) };
+      report.errors.push(`nv_dashboard: ${e?.message ?? e}`);
     }
   }
 
-  // ── 3c. NV Dashboard (sin schema todavía: parking en settings) ────
-  const nvd = dump.nv_dashboard;
-  if (nvd) {
-    const o = (nvd.options ?? {}) as any;
-    if (o.anthropic_api_key && o.anthropic_api_key.startsWith("sk-ant-") && !settings.ai.anthropicApiKey) {
-      settings.ai.anthropicApiKey = encryptSecret(String(o.anthropic_api_key));
-      report.keysImported++;
-    }
-    if (o.openai_api_key && o.openai_api_key.startsWith("sk-") && !settings.ai.openaiApiKey) {
-      settings.ai.openaiApiKey = encryptSecret(String(o.openai_api_key));
-      report.keysImported++;
-    }
-    // Estos no son keys de IA pero los guardamos cifrados también
-    settings.integrations.metricool ??= {};
-    if (o.metricool_brand) settings.integrations.metricool.brand = String(o.metricool_brand);
-    if (o.metricool_token) {
-      settings.integrations.metricool.tokenEnc = encryptSecret(String(o.metricool_token));
-      report.keysImported++;
-    }
-    if (o.metricool_blog_id) settings.integrations.metricool.blogId = String(o.metricool_blog_id);
-    settings.integrations.drive ??= {};
-    if (o.refs_drive_folders) settings.integrations.drive.folderRefs = o.refs_drive_folders;
+  // ──────────────────────────────────────────────────────────
+  // 2d. NV Leads (parking + keys)
+  if (sectionsToRun.includes("nv_leads_pro")) {
+    try {
+      const data = await callWp({ ...wpCreds, path: "/wp-json/agencia-export/v1/dump?include=nv_leads_pro" });
+      const nvl = data.nv_leads_pro;
+      if (nvl) {
+        const o = (nvl.options ?? {}) as any;
+        settings.integrations.googlePlaces ??= {};
+        if (o.google_api_key) {
+          settings.integrations.googlePlaces.apiKeyEnc = encryptSecret(String(o.google_api_key));
+          report.keysImported++;
+        }
+        settings.integrations.evolution ??= {};
+        if (o.evolution_api_url) settings.integrations.evolution.url = String(o.evolution_api_url);
+        if (o.evolution_api_key) {
+          settings.integrations.evolution.apiKeyEnc = encryptSecret(String(o.evolution_api_key));
+          report.keysImported++;
+        }
 
-    // Aparcamos publicaciones y taxonomía para procesar cuando exista schema NV Dashboard
-    settings.pendingImport ??= {};
-    settings.pendingImport.nvDashboard = {
-      publications: nvd.publications ?? [],
-      clientesTaxonomy: nvd.clientes_taxonomy ?? [],
-      clienteConfigs: nvd.cliente_configs ?? {},
-      importedAt: new Date().toISOString()
-    };
-    report.pendingNvDashboard = Array.isArray(nvd.publications) ? nvd.publications.length : 0;
+        const tables = nvl.tables ?? {};
+        const sized = safeSize(tables);
+        let storedTables = tables;
+        let truncated = false;
+        if (sized.bytes > MAX_PENDING_BYTES) {
+          // Truncamos cada tabla hasta caber
+          storedTables = {} as any;
+          const tableNames = Object.keys(tables);
+          let runningBytes = 1024;
+          for (const t of tableNames) {
+            const rows = Array.isArray(tables[t]) ? tables[t] : [];
+            const trimmed: any[] = [];
+            for (const row of rows) {
+              const piece = JSON.stringify(row);
+              if (runningBytes + piece.length > MAX_PENDING_BYTES) break;
+              trimmed.push(row);
+              runningBytes += piece.length;
+            }
+            (storedTables as any)[t] = trimmed;
+            if (trimmed.length < rows.length) truncated = true;
+          }
+        }
+
+        settings.pendingImport.nvLeads = {
+          tables: storedTables,
+          importedAt: new Date().toISOString(),
+          truncated
+        };
+        const rowsCount = Object.values(storedTables as any).reduce(
+          (acc: number, arr: any) => acc + (Array.isArray(arr) ? arr.length : 0),
+          0
+        );
+        report.pendingNvLeads = rowsCount;
+        report.sections.nv_leads_pro = {
+          ok: true,
+          bytes: sized.bytes,
+          ...(truncated ? { message: "Truncado por tope 2 MB" } : {})
+        };
+      } else {
+        report.sections.nv_leads_pro = { ok: true, message: "Sin datos de NV Leads" };
+      }
+    } catch (e: any) {
+      console.error("[wp-import] nv_leads_pro error:", e);
+      report.sections.nv_leads_pro = { ok: false, message: e?.message ?? String(e) };
+      report.errors.push(`nv_leads_pro: ${e?.message ?? e}`);
+    }
   }
 
-  // ── 3d. NV Leads Pro (sin schema todavía: parking en settings) ────
-  const nvl = dump.nv_leads_pro;
-  if (nvl) {
-    const o = (nvl.options ?? {}) as any;
-    settings.integrations.googlePlaces ??= {};
-    if (o.google_api_key) {
-      settings.integrations.googlePlaces.apiKeyEnc = encryptSecret(String(o.google_api_key));
-      report.keysImported++;
-    }
-    settings.integrations.evolution ??= {};
-    if (o.evolution_api_url) settings.integrations.evolution.url = String(o.evolution_api_url);
-    if (o.evolution_api_key) {
-      settings.integrations.evolution.apiKeyEnc = encryptSecret(String(o.evolution_api_key));
-      report.keysImported++;
-    }
-
-    settings.pendingImport ??= {};
-    settings.pendingImport.nvLeads = {
-      tables: nvl.tables ?? {},
-      importedAt: new Date().toISOString()
-    };
-    const rowsCount = Object.values(nvl.tables ?? {}).reduce(
-      (acc: number, arr: any) => acc + (Array.isArray(arr) ? arr.length : 0),
-      0
-    );
-    report.pendingNvLeads = rowsCount;
+  // ──────────────────────────────────────────────────────────
+  // 3. Persistir settings
+  try {
+    await prisma.workspace.update({
+      where: { id: api.workspaceId },
+      data: { settings }
+    });
+  } catch (e: any) {
+    console.error("[wp-import] save settings failed:", e);
+    report.errors.push(`save_settings: ${e?.message ?? e}`);
+    return NextResponse.json({ ok: false, report }, { status: 500 });
   }
-
-  // Persistir settings actualizados
-  await prisma.workspace.update({
-    where: { id: api.workspaceId },
-    data: { settings }
-  });
 
   return NextResponse.json({ ok: true, report });
 });
