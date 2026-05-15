@@ -106,29 +106,17 @@ export default function ClienteEditorialForm({ initial }: { initial: Meta }) {
 
       <Section emoji="🎨" title="Branding" description="Logo, fuente y colores corporativos que se aplican al generar imágenes.">
         <div className="space-y-4">
-          <div>
-            <label className="block text-xs font-medium text-slate-700 mb-1">Página web del cliente</label>
-            <div className="flex gap-2">
-              <input
-                type="url"
-                value={form.website ?? ""}
-                onChange={(e) => patch("website", e.target.value)}
-                placeholder="https://example.com"
-                className="flex-1 px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
-              />
-              <button
-                type="button"
-                disabled
-                title="Próximamente: analiza la web con IA para extraer logo, colores y fuente"
-                className="px-3 py-2 rounded-lg border bg-slate-50 text-xs text-slate-400 cursor-not-allowed"
-              >
-                🤖 Analizar (próx)
-              </button>
-            </div>
-            <p className="mt-1 text-[11px] text-slate-500">
-              Introduce la URL y en una fase posterior podrás pulsar &quot;Analizar&quot;. La IA detectará logo, colores y fuente.
-            </p>
-          </div>
+          <WebsiteAnalyzer
+            value={form.website}
+            onChange={(v) => patch("website", v)}
+            clientId={form.id}
+            onAnalyzed={(out) => {
+              patch("brandColorPrimary", out.brandColors.primary);
+              patch("brandColorAccent", out.brandColors.accent);
+              patch("brandColorText", out.brandColors.text);
+            }}
+          />
+          {/* Auto-show summary tras análisis */}
 
           <div className="grid grid-cols-3 gap-3">
             <ColorField
@@ -287,22 +275,13 @@ export default function ClienteEditorialForm({ initial }: { initial: Meta }) {
       <Section
         emoji="📖"
         title="Guía de estilo (caché IA)"
-        description="Generada automáticamente a partir de las refs. Próximamente: botón para regenerar con Claude vision."
+        description="Texto que se inyecta en cada generación de imagen para mantener consistencia visual. Se calcula UNA vez por cliente y se reutiliza."
       >
-        {form.styleGuideCached ? (
-          <details className="rounded-lg border bg-emerald-50/40 border-emerald-200">
-            <summary className="cursor-pointer px-3 py-2 text-xs font-medium text-emerald-900">
-              ✓ Guía de estilo cacheada ({form.styleGuideCached.length} caracteres)
-            </summary>
-            <pre className="px-3 py-2 text-[11px] whitespace-pre-wrap font-mono text-slate-700 border-t border-emerald-200 bg-white max-h-80 overflow-y-auto">
-              {form.styleGuideCached}
-            </pre>
-          </details>
-        ) : (
-          <div className="rounded-lg border border-dashed bg-slate-50 p-3 text-xs text-slate-500">
-            Sin guía de estilo cacheada. Se generará cuando esté disponible la fase G (análisis IA).
-          </div>
-        )}
+        <StyleGuideManager
+          clientId={form.id}
+          styleGuide={form.styleGuideCached}
+          onUpdated={(s) => patch("styleGuideCached", s)}
+        />
       </Section>
 
       {/* Sticky save bar */}
@@ -646,6 +625,143 @@ function FontsEditor({ value, onChange }: { value: FontEntry[]; onChange: (v: Fo
       <p className="text-[11px] text-slate-500">
         Recomendado: sube al menos 2 fuentes — una Regular/Thin y otra Bold. Sólo se sube 1 fuente → se usa esa para todo;
         ninguna → se usa Poppins Bold por defecto.
+      </p>
+    </div>
+  );
+}
+
+function WebsiteAnalyzer({
+  value,
+  onChange,
+  clientId,
+  onAnalyzed
+}: {
+  value: string | null;
+  onChange: (v: string) => void;
+  clientId: string;
+  onAnalyzed: (out: { brandColors: { primary: string; accent: string; text: string }; summary: string }) => void;
+}) {
+  const [running, setRunning] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<any>(null);
+  async function run() {
+    if (!value) {
+      setError("Introduce primero la URL");
+      return;
+    }
+    setRunning(true);
+    setError(null);
+    const r = await fetch(`/api/v1/clients/${clientId}/analyze-website`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url: value, save: true })
+    });
+    setRunning(false);
+    const j = await r.json();
+    if (!r.ok) {
+      setError(j?.error?.message ?? `Error ${r.status}`);
+      return;
+    }
+    setResult(j);
+    onAnalyzed(j);
+  }
+  return (
+    <div>
+      <label className="block text-xs font-medium text-slate-700 mb-1">Página web del cliente</label>
+      <div className="flex gap-2">
+        <input
+          type="url"
+          value={value ?? ""}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder="https://example.com"
+          className="flex-1 px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+        />
+        <button
+          type="button"
+          onClick={run}
+          disabled={running || !value}
+          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border bg-violet-50 hover:bg-violet-100 border-violet-200 text-violet-700 text-xs disabled:opacity-50"
+        >
+          {running ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "🤖"}
+          Analizar con IA
+        </button>
+      </div>
+      <p className="mt-1 text-[11px] text-slate-500">
+        Lee la web pública y extrae paleta de colores y resumen de marca. Los colores se aplican automáticamente arriba.
+      </p>
+      {error && <p className="mt-2 text-[11px] text-rose-600">{error}</p>}
+      {result && (
+        <details className="mt-2 rounded-lg border bg-violet-50/40 border-violet-200" open>
+          <summary className="cursor-pointer px-3 py-2 text-xs font-medium text-violet-900">
+            ✓ Análisis completado — paleta aplicada
+          </summary>
+          <div className="px-3 py-2 border-t border-violet-200 bg-white text-xs space-y-1">
+            <div className="text-slate-700">{result.summary}</div>
+            {result.detectedFonts?.length > 0 && (
+              <div className="text-[11px] text-slate-500">
+                <strong>Fuentes detectadas:</strong> {result.detectedFonts.join(", ")}
+              </div>
+            )}
+          </div>
+        </details>
+      )}
+    </div>
+  );
+}
+
+function StyleGuideManager({
+  clientId,
+  styleGuide,
+  onUpdated
+}: {
+  clientId: string;
+  styleGuide: string | null;
+  onUpdated: (s: string) => void;
+}) {
+  const [running, setRunning] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  async function regen() {
+    setRunning(true);
+    setError(null);
+    const r = await fetch(`/api/v1/clients/${clientId}/generate-style-guide`, {
+      method: "POST"
+    });
+    setRunning(false);
+    const j = await r.json();
+    if (!r.ok) {
+      setError(j?.error?.message ?? `Error ${r.status}`);
+      return;
+    }
+    onUpdated(j.styleGuide);
+  }
+  return (
+    <div className="space-y-2">
+      {styleGuide ? (
+        <details className="rounded-lg border bg-emerald-50/40 border-emerald-200">
+          <summary className="cursor-pointer px-3 py-2 text-xs font-medium text-emerald-900">
+            ✓ Guía cacheada ({styleGuide.length} caracteres)
+          </summary>
+          <pre className="px-3 py-2 text-[11px] whitespace-pre-wrap font-sans text-slate-700 border-t border-emerald-200 bg-white max-h-80 overflow-y-auto">
+            {styleGuide}
+          </pre>
+        </details>
+      ) : (
+        <div className="rounded-lg border border-dashed bg-slate-50 p-3 text-xs text-slate-500">
+          Sin guía cacheada. Sube refs visuales arriba y luego pulsa "Generar guía con IA".
+        </div>
+      )}
+      <button
+        type="button"
+        onClick={regen}
+        disabled={running}
+        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-medium disabled:opacity-50"
+      >
+        {running && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+        {styleGuide ? "Regenerar guía con IA" : "Generar guía con IA"}
+      </button>
+      {error && <p className="text-[11px] text-rose-600">{error}</p>}
+      <p className="text-[11px] text-slate-500">
+        Tarda 10-25s. Se calcula a partir de las imágenes de referencia que tengas categorizadas más arriba.
       </p>
     </div>
   );
