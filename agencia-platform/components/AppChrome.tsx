@@ -11,7 +11,7 @@ import AIAssistant from "@/components/ai/AIAssistant";
  * - /login: pantalla de login antes de tener sesión
  * - /r/*: páginas públicas de widget de reseñas, pensadas para iframe
  */
-const NO_CHROME_PREFIXES = ["/login", "/r/"];
+const NO_CHROME_PREFIXES = ["/login", "/r/", "/v/"];
 
 export default function AppChrome({ children }: { children: ReactNode }) {
   const pathname = usePathname();

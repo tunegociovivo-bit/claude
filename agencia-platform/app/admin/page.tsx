@@ -1,6 +1,6 @@
 import Link from "next/link";
 import PageHeader from "@/components/PageHeader";
-import { Key, Download, Webhook, Users, Sparkles, PencilLine, FolderKanban, Star } from "lucide-react";
+import { Key, Download, Webhook, Users, Sparkles, PencilLine, FolderKanban, Star, Mic } from "lucide-react";
 
 const cards = [
   {
@@ -51,6 +51,12 @@ const cards = [
     title: "Generador de reseñas IA",
     description: "Migrado del plugin WP. Configura clientes y genera reseñas con OpenAI vía un widget embebible.",
     icon: Star
+  },
+  {
+    href: "/admin/voice-reviews",
+    title: "Voice Reviews",
+    description: "Reseñas guiadas por voz: cliente graba, Whisper transcribe, Claude redacta borrador editable.",
+    icon: Mic
   }
 ];
 

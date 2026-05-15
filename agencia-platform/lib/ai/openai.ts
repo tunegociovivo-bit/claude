@@ -30,6 +30,35 @@ export async function getOpenAiKeyForWorkspace(workspaceId: string): Promise<str
   return apiKey;
 }
 
+/**
+ * Transcribe audio con Whisper. Recibe un Blob/File (lo que llegue de la
+ * petición multipart) y devuelve el texto.
+ */
+export async function transcribeAudioWithWhisper(opts: {
+  workspaceId: string;
+  audio: Blob;
+  filename?: string;
+  language?: string;
+}): Promise<string> {
+  const apiKey = await getOpenAiKeyForWorkspace(opts.workspaceId);
+  const form = new FormData();
+  form.append("file", opts.audio, opts.filename ?? "audio.webm");
+  form.append("model", "whisper-1");
+  if (opts.language) form.append("language", opts.language);
+
+  const resp = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}` },
+    body: form
+  });
+  if (!resp.ok) {
+    const txt = await resp.text();
+    throw new Error(`Whisper ${resp.status}: ${txt.slice(0, 200)}`);
+  }
+  const data = await resp.json();
+  return (data?.text ?? "").trim();
+}
+
 export async function openaiChatCompletion(opts: {
   workspaceId: string;
   model: string;

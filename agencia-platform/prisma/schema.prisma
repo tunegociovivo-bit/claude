@@ -104,6 +104,7 @@ model Workspace {
   asanaImports AsanaImport[]
   comments     Comment[]
   reviewClients ReviewClient[]
+  voiceBusinesses VoiceBusiness[]
 }
 
 model Membership {
@@ -231,6 +232,31 @@ model ReviewHistory {
   client ReviewClient @relation(fields: [clientId], references: [id], onDelete: Cascade)
 
   @@index([clientId])
+}
+
+// ====================================================================
+// VOICE REVIEWS (migrado del plugin Voice Reviews)
+// ====================================================================
+model VoiceBusiness {
+  id              String   @id @default(cuid())
+  workspaceId     String
+  slug            String   // identificador en /v/<slug>
+  name            String
+  location        String?
+  googleUrl       String?
+  trustpilotUrl   String?
+  introText       String?  @db.Text
+  disclaimer      String?  @db.Text
+  customPrompt    String?  @db.Text
+  maxSeconds      Int      @default(30)
+  aiProvider      String   @default("anthropic") // "anthropic" | "openai"
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, slug])
+  @@index([workspaceId])
 }
 
 model Task {
