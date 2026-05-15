@@ -103,6 +103,8 @@ export default function PublicApprovalView({ token }: { token: string }) {
           </p>
         </div>
 
+        <SummaryStats posts={data.posts} accent={accent} />
+
         {data.posts.length === 0 && (
           <div className="rounded-xl border bg-white p-6 text-center text-sm text-slate-500">
             Aún no hay publicaciones cargadas para {data.month}.
@@ -113,6 +115,56 @@ export default function PublicApprovalView({ token }: { token: string }) {
           <PostCard key={p.id} post={p} token={token} accent={accent} onChanged={reload} />
         ))}
       </main>
+    </div>
+  );
+}
+
+function SummaryStats({ posts, accent }: { posts: Post[]; accent: string }) {
+  const total = posts.length;
+  if (total === 0) return null;
+  let approved = 0;
+  let rejected = 0;
+  let comments = 0;
+  let pending = 0;
+  for (const p of posts) {
+    const last = p.decisions[p.decisions.length - 1];
+    if (last?.decision === "approved") approved++;
+    else if (last?.decision === "rejected") rejected++;
+    else pending++;
+    comments += p.decisions.filter((d) => d.decision === "comment").length;
+  }
+  const pct = (n: number) => Math.round((n / total) * 100);
+  return (
+    <div className="rounded-xl border bg-white p-4">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
+        <Stat label="Total" value={total} color="text-slate-700" />
+        <Stat label="Aprobadas" value={approved} color="text-emerald-700" />
+        <Stat label="Cambios pedidos" value={rejected} color="text-rose-700" />
+        <Stat label="Pendientes" value={pending} color="text-amber-700" />
+      </div>
+      <div className="h-2.5 rounded-full overflow-hidden bg-slate-100 flex">
+        {approved > 0 && (
+          <div className="bg-emerald-500" style={{ width: `${pct(approved)}%` }} title={`${approved} aprobadas`} />
+        )}
+        {rejected > 0 && (
+          <div className="bg-rose-500" style={{ width: `${pct(rejected)}%` }} title={`${rejected} cambios pedidos`} />
+        )}
+        {pending > 0 && (
+          <div className="bg-amber-300" style={{ width: `${pct(pending)}%` }} title={`${pending} pendientes`} />
+        )}
+      </div>
+      {comments > 0 && (
+        <p className="mt-2 text-[11px] text-slate-500">{comments} comentarios dejados en este mes.</p>
+      )}
+    </div>
+  );
+}
+
+function Stat({ label, value, color }: { label: string; value: number; color: string }) {
+  return (
+    <div>
+      <div className={`text-2xl font-semibold ${color}`}>{value}</div>
+      <div className="text-[11px] uppercase tracking-wide text-slate-500">{label}</div>
     </div>
   );
 }

@@ -187,6 +187,8 @@ export default function EditorialClient() {
   const [duplicateOpen, setDuplicateOpen] = useState(false);
   const [multiClientOpen, setMultiClientOpen] = useState(false);
   const [orphansOpen, setOrphansOpen] = useState(false);
+  const [competitorsOpen, setCompetitorsOpen] = useState(false);
+  const [editorialSettingsOpen, setEditorialSettingsOpen] = useState(false);
   const [processing, setProcessing] = useState(false);
   const [diagOpen, setDiagOpen] = useState(false);
   const [diagData, setDiagData] = useState<any>(null);
@@ -333,11 +335,26 @@ export default function EditorialClient() {
               👥 Multi-cliente
             </button>
             <button
+              onClick={() => setCompetitorsOpen(true)}
+              disabled={filterClient === "ALL"}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border bg-white hover:bg-slate-50 text-sm disabled:opacity-50"
+              title={filterClient === "ALL" ? "Filtra por un cliente para analizar su competencia" : "Analizar competencia con IA"}
+            >
+              🔍 Competencia
+            </button>
+            <button
               onClick={() => setOrphansOpen(true)}
               className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border bg-white hover:bg-slate-50 text-sm"
               title="Detecta publicaciones sin fecha, sin cliente, sin copy o sin imagen"
             >
               🩺 Diagnóstico
+            </button>
+            <button
+              onClick={() => setEditorialSettingsOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border bg-white hover:bg-slate-50 text-sm"
+              title="Webhook Make y otras opciones del módulo editorial"
+            >
+              ⚙️
             </button>
             <button
               onClick={() => setMetricoolOpen(true)}
@@ -762,6 +779,17 @@ export default function EditorialClient() {
         open={orphansOpen}
         onClose={() => setOrphansOpen(false)}
         onChanged={() => load()}
+      />
+
+      <CompetitorsModal
+        open={competitorsOpen}
+        onClose={() => setCompetitorsOpen(false)}
+        clientId={filterClient !== "ALL" ? filterClient : ""}
+      />
+
+      <EditorialSettingsModal
+        open={editorialSettingsOpen}
+        onClose={() => setEditorialSettingsOpen(false)}
       />
 
       <MetricoolExportModal
@@ -1943,6 +1971,15 @@ function PostFormModal({
           />
         )}
 
+        {/* Adaptar formato (regenerar imagen en otro aspect ratio) */}
+        {isEdit && post && (
+          <AdaptFormatBar
+            postId={post.id}
+            currentFormat={form.format}
+            onAdapted={() => onSaved()}
+          />
+        )}
+
         {/* Preview de imágenes asociadas */}
         {fullPost && <MediaPreview post={fullPost} />}
 
@@ -2183,6 +2220,292 @@ function AiActionsBar({
         </div>
       )}
     </div>
+  );
+}
+
+function AdaptFormatBar({
+  postId,
+  currentFormat,
+  onAdapted
+}: {
+  postId: string;
+  currentFormat: string;
+  onAdapted: () => void;
+}) {
+  const [target, setTarget] = useState<"imagen" | "reel" | "carrusel" | "story" | "video">("reel");
+  const [quality, setQuality] = useState<"low" | "medium" | "high">("medium");
+  const [changePostFormat, setChangePostFormat] = useState(false);
+  const [running, setRunning] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [done, setDone] = useState(false);
+
+  async function run() {
+    setRunning(true);
+    setError(null);
+    setDone(false);
+    const r = await fetch(`/api/v1/editorial/posts/${postId}/adapt-format`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ format: target, quality, changePostFormat })
+    });
+    setRunning(false);
+    const j = await r.json();
+    if (!r.ok) {
+      setError(j?.error?.message ?? `Error ${r.status}`);
+      return;
+    }
+    setDone(true);
+    onAdapted();
+  }
+
+  return (
+    <div className="rounded-lg border bg-fuchsia-50/40 border-fuchsia-200 p-3 space-y-2">
+      <div className="flex items-center gap-2">
+        <ImageIcon className="h-4 w-4 text-fuchsia-600" />
+        <span className="text-xs font-semibold text-fuchsia-900">Adaptar a otro formato</span>
+      </div>
+      <p className="text-[11px] text-slate-600">
+        Regenera la imagen con el mismo prompt pero en el aspect ratio del formato elegido (lee
+        dimensionesByFormat del cliente). Útil para tener feed 4:5 + Reel 9:16 de la misma idea.
+      </p>
+      <div className="flex flex-wrap gap-2 items-center">
+        <select
+          value={target}
+          onChange={(e) => setTarget(e.target.value as any)}
+          className="px-2 py-1 rounded-md border bg-white text-xs"
+        >
+          {["imagen", "reel", "carrusel", "story", "video"].map((f) => (
+            <option key={f} value={f}>
+              {f}
+            </option>
+          ))}
+        </select>
+        <div className="flex gap-1">
+          {(["low", "medium", "high"] as const).map((q) => (
+            <button
+              key={q}
+              type="button"
+              onClick={() => setQuality(q)}
+              className={
+                "px-2 py-1 rounded-md text-[11px] border " +
+                (quality === q
+                  ? "bg-fuchsia-100 border-fuchsia-300 text-fuchsia-800 font-medium"
+                  : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50")
+              }
+            >
+              {q}
+            </button>
+          ))}
+        </div>
+        <label className="flex items-center gap-1 text-[11px] cursor-pointer ml-auto">
+          <input
+            type="checkbox"
+            checked={changePostFormat}
+            onChange={(e) => setChangePostFormat(e.target.checked)}
+            className="accent-fuchsia-600"
+          />
+          También cambiar formato del post
+        </label>
+        <button
+          type="button"
+          onClick={run}
+          disabled={running}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-fuchsia-600 hover:bg-fuchsia-700 text-white text-xs font-medium disabled:opacity-50"
+        >
+          {running && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+          Adaptar a {target}
+        </button>
+      </div>
+      {error && <p className="text-[11px] text-rose-600">{error}</p>}
+      {done && <p className="text-[11px] text-emerald-700">✓ Imagen adaptada al formato {target}.</p>}
+    </div>
+  );
+}
+
+function CompetitorsModal({
+  open,
+  onClose,
+  clientId
+}: {
+  open: boolean;
+  onClose: () => void;
+  clientId: string;
+}) {
+  const [running, setRunning] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [data, setData] = useState<{ topics: any[]; competitorsList: string[] } | null>(null);
+
+  useEffect(() => {
+    if (!open) {
+      setData(null);
+      setError(null);
+    }
+  }, [open]);
+
+  async function run() {
+    if (!clientId) return;
+    setRunning(true);
+    setError(null);
+    const r = await fetch(`/api/v1/clients/${clientId}/analyze-competitors`, { method: "POST" });
+    setRunning(false);
+    const j = await r.json();
+    if (!r.ok) {
+      setError(j?.error?.message ?? `Error ${r.status}`);
+      return;
+    }
+    setData(j);
+  }
+
+  return (
+    <Modal open={open} onClose={onClose} title="🔍 Análisis de competencia con IA" size="lg">
+      <div className="space-y-3">
+        <p className="text-xs text-slate-500">
+          Claude leerá los competidores configurados en la ficha de este cliente y devolverá temas trending del nicho
+          con sugerencias concretas de publicaciones. Si el campo competidores está vacío, los infiere por sector.
+        </p>
+        {!data && (
+          <div className="text-center py-6">
+            <button
+              type="button"
+              onClick={run}
+              disabled={running}
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-violet-600 hover:bg-violet-700 text-white text-sm font-medium disabled:opacity-50"
+            >
+              {running && <Loader2 className="h-4 w-4 animate-spin" />}
+              Analizar
+            </button>
+          </div>
+        )}
+        {error && <p className="text-xs text-rose-600">{error}</p>}
+        {data && (
+          <>
+            {data.competitorsList.length > 0 && (
+              <div className="text-[11px] text-slate-500">
+                Analizados: {data.competitorsList.join(" · ")}
+              </div>
+            )}
+            <div className="space-y-2 max-h-[460px] overflow-y-auto">
+              {data.topics.map((t, i) => (
+                <div key={i} className="rounded-lg border bg-violet-50/40 border-violet-200 p-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="font-semibold text-sm text-violet-900">{t.topic}</div>
+                    <div className="flex gap-1">
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-violet-100 text-violet-800">
+                        {t.tone}
+                      </span>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-700">
+                        {t.suggestedFormat}
+                      </span>
+                    </div>
+                  </div>
+                  {t.suggestions?.length > 0 && (
+                    <ul className="mt-1.5 list-disc pl-5 text-xs text-slate-700 space-y-0.5">
+                      {t.suggestions.map((s: string, j: number) => (
+                        <li key={j}>{s}</li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={run}
+              disabled={running}
+              className="text-xs text-violet-600 hover:underline disabled:opacity-50"
+            >
+              Re-analizar
+            </button>
+          </>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
+function EditorialSettingsModal({
+  open,
+  onClose
+}: {
+  open: boolean;
+  onClose: () => void;
+}) {
+  const [webhookUrl, setWebhookUrl] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [savedAt, setSavedAt] = useState<Date | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    setLoading(true);
+    fetch("/api/v1/editorial/settings")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d) setWebhookUrl(d.makeWebhookUrl ?? "");
+      })
+      .finally(() => setLoading(false));
+  }, [open]);
+
+  async function save() {
+    setSaving(true);
+    setError(null);
+    const r = await fetch("/api/v1/editorial/settings", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ makeWebhookUrl: webhookUrl || null })
+    });
+    setSaving(false);
+    if (!r.ok) {
+      const j = await r.json().catch(() => ({}));
+      setError(j?.error?.message ?? `Error ${r.status}`);
+      return;
+    }
+    setSavedAt(new Date());
+  }
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title="⚙️ Configuración editorial"
+      size="md"
+      footer={
+        <>
+          <button onClick={onClose} className="px-3 py-2 rounded-lg text-sm border bg-white hover:bg-slate-50">Cerrar</button>
+          <button
+            onClick={save}
+            disabled={saving || loading}
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium disabled:opacity-50"
+          >
+            {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+            Guardar
+          </button>
+        </>
+      }
+    >
+      <div className="space-y-3">
+        <div>
+          <label className="block text-xs font-medium text-slate-700 mb-1">Webhook Make / Zapier</label>
+          <input
+            type="url"
+            value={webhookUrl}
+            onChange={(e) => setWebhookUrl(e.target.value)}
+            placeholder="https://hook.eu1.make.com/..."
+            className="w-full px-3 py-2 rounded-lg border bg-white text-sm font-mono focus:outline-none focus:ring-2 focus:ring-brand-500"
+          />
+          <p className="mt-1 text-[11px] text-slate-500">
+            Cuando aprueb un mes (botón "Aprobar mes"), se envía un POST con{" "}
+            <code className="text-[10px]">{`{event, cliente, mes, aprobadas, timestamp}`}</code>. Útil para
+            disparar Make → Drive → email de notificación al cliente.
+          </p>
+        </div>
+        {error && <p className="text-xs text-rose-600">{error}</p>}
+        {savedAt && (
+          <p className="text-xs text-emerald-700">Guardado a las {savedAt.toLocaleTimeString("es-ES")}.</p>
+        )}
+      </div>
+    </Modal>
   );
 }
 

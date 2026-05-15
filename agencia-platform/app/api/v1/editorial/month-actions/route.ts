@@ -46,6 +46,36 @@ export const POST = withApi({ scope: "*" }, async (req, { api }) => {
       where: { ...where, status: { in: ["DRAFT", "REVIEW"] } },
       data: { status: "APPROVED" }
     });
+    // Disparar webhook Make si está configurado en el workspace y hubo
+    // pubs aprobadas. No bloquea la respuesta.
+    if (r.count > 0) {
+      const ws = await prisma.workspace.findUnique({ where: { id: api.workspaceId } });
+      const settings: any = ws?.settings ?? {};
+      const webhookUrl: string | undefined = settings?.editorial?.makeWebhookUrl;
+      if (webhookUrl && /^https:\/\//.test(webhookUrl)) {
+        let clientName: string | undefined;
+        if (clientId) {
+          const c = await prisma.client.findUnique({ where: { id: clientId }, select: { name: true } });
+          clientName = c?.name;
+        }
+        const payload = {
+          event: "editorial.month_approved",
+          workspace: ws?.name ?? null,
+          cliente: clientName ?? null,
+          clienteId: clientId ?? null,
+          mes: month,
+          aprobadas: r.count,
+          timestamp: new Date().toISOString()
+        };
+        // Fire & forget, con timeout
+        fetch(webhookUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+          signal: AbortSignal.timeout(8000)
+        }).catch((err) => console.error("[editorial webhook] error:", err?.message ?? err));
+      }
+    }
     return NextResponse.json({ ok: true, affected: r.count });
   }
   if (action === "schedule") {
