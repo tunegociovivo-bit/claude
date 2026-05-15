@@ -36,8 +36,10 @@ function isPublic(pathname: string): boolean {
     pathname.startsWith("/_next") ||
     pathname.startsWith("/favicon") ||
     pathname.startsWith("/icon") ||
+    pathname.startsWith("/apple-touch-icon") ||
     pathname === "/sw.js" ||
     pathname === "/manifest.json" ||
+    pathname === "/manifest.webmanifest" ||
     pathname === "/robots.txt"
   ) {
     return true;
