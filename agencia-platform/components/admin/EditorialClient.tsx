@@ -186,6 +186,7 @@ export default function EditorialClient() {
   const [metricoolOpen, setMetricoolOpen] = useState(false);
   const [duplicateOpen, setDuplicateOpen] = useState(false);
   const [multiClientOpen, setMultiClientOpen] = useState(false);
+  const [orphansOpen, setOrphansOpen] = useState(false);
   const [processing, setProcessing] = useState(false);
   const [diagOpen, setDiagOpen] = useState(false);
   const [diagData, setDiagData] = useState<any>(null);
@@ -332,6 +333,13 @@ export default function EditorialClient() {
               👥 Multi-cliente
             </button>
             <button
+              onClick={() => setOrphansOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border bg-white hover:bg-slate-50 text-sm"
+              title="Detecta publicaciones sin fecha, sin cliente, sin copy o sin imagen"
+            >
+              🩺 Diagnóstico
+            </button>
+            <button
               onClick={() => setMetricoolOpen(true)}
               className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium"
               title="Exporta las publicaciones aprobadas en CSV para subir a Metricool"
@@ -369,12 +377,129 @@ export default function EditorialClient() {
 
       {/* Estadísticas del mes */}
       {stats && stats.total > 0 && (
-        <div className="grid grid-cols-2 md:grid-cols-7 gap-2 mb-4">
-          <StatCard label="Total mes" value={stats.total} accent="bg-brand-50 text-brand-700" />
-          {STATUS_OPTIONS.map((s) => (
-            <StatCard key={s.value} label={s.label} value={stats.byStatus[s.value] ?? 0} accent={s.color} />
-          ))}
-        </div>
+        <>
+          <div className="grid grid-cols-2 md:grid-cols-7 gap-2 mb-3">
+            <StatCard label="Total mes" value={stats.total} accent="bg-brand-50 text-brand-700" />
+            {STATUS_OPTIONS.map((s) => (
+              <StatCard key={s.value} label={s.label} value={stats.byStatus[s.value] ?? 0} accent={s.color} />
+            ))}
+          </div>
+          <details className="bg-white rounded-xl border mb-4">
+            <summary className="cursor-pointer px-4 py-2 text-xs font-medium text-slate-700 select-none">
+              📊 Desglose detallado (red, formato, día de la semana)
+            </summary>
+            <div className="p-4 border-t space-y-4">
+              {/* Por red */}
+              {Object.keys(stats.byNetwork ?? {}).length > 0 && (
+                <div>
+                  <div className="text-xs font-medium text-slate-700 mb-1.5">Publicaciones por red</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {Object.entries(stats.byNetwork as Record<string, number>)
+                      .sort((a, b) => b[1] - a[1])
+                      .map(([n, v]) => (
+                        <div key={n} className="px-2.5 py-1 rounded-md border bg-slate-50 text-xs">
+                          <span className="capitalize">{n}</span>{" "}
+                          <span className="font-semibold text-slate-700">{v}</span>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              )}
+              {/* Por formato */}
+              {Object.keys(stats.byFormat ?? {}).length > 0 && (
+                <div>
+                  <div className="text-xs font-medium text-slate-700 mb-1.5">Publicaciones por formato</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {Object.entries(stats.byFormat as Record<string, number>)
+                      .sort((a, b) => b[1] - a[1])
+                      .map(([n, v]) => (
+                        <div key={n} className="px-2.5 py-1 rounded-md border bg-slate-50 text-xs">
+                          <span className="capitalize">{n}</span>{" "}
+                          <span className="font-semibold text-slate-700">{v}</span>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              )}
+              {/* Matriz red × formato */}
+              {stats.networkFormatMatrix && Object.keys(stats.networkFormatMatrix).length > 0 && (
+                <div>
+                  <div className="text-xs font-medium text-slate-700 mb-1.5">Matriz red × formato</div>
+                  <div className="overflow-x-auto">
+                    <table className="text-xs border-collapse">
+                      <thead>
+                        <tr>
+                          <th className="text-left px-2 py-1 text-slate-500 font-medium">Red</th>
+                          {Array.from(
+                            new Set(
+                              Object.values(stats.networkFormatMatrix as Record<string, Record<string, number>>)
+                                .flatMap((m) => Object.keys(m))
+                            )
+                          ).map((f) => (
+                            <th key={f} className="text-center px-2 py-1 text-slate-500 font-medium capitalize">
+                              {f}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {Object.entries(stats.networkFormatMatrix as Record<string, Record<string, number>>).map(
+                          ([net, fmts]) => (
+                            <tr key={net} className="border-t">
+                              <td className="px-2 py-1 capitalize font-medium">{net}</td>
+                              {Array.from(
+                                new Set(
+                                  Object.values(stats.networkFormatMatrix as Record<string, Record<string, number>>)
+                                    .flatMap((m) => Object.keys(m))
+                                )
+                              ).map((f) => {
+                                const v = fmts[f] ?? 0;
+                                return (
+                                  <td
+                                    key={f}
+                                    className={"text-center px-2 py-1 " + (v > 0 ? "bg-brand-50 text-brand-800 font-medium" : "text-slate-300")}
+                                  >
+                                    {v}
+                                  </td>
+                                );
+                              })}
+                            </tr>
+                          )
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+              {/* Día de la semana */}
+              {Array.isArray(stats.byDayOfWeek) && (
+                <div>
+                  <div className="text-xs font-medium text-slate-700 mb-1.5">Publicaciones por día de la semana</div>
+                  <div className="grid grid-cols-7 gap-1">
+                    {["L", "M", "X", "J", "V", "S", "D"].map((d, i) => {
+                      const v = stats.byDayOfWeek[i] ?? 0;
+                      const max = Math.max(...(stats.byDayOfWeek as number[]), 1);
+                      const pct = Math.round((v / max) * 100);
+                      return (
+                        <div key={d} className="text-center">
+                          <div className="h-16 flex items-end justify-center">
+                            <div
+                              className="w-6 bg-brand-500/70 rounded-t"
+                              style={{ height: `${pct}%` }}
+                              title={`${v} publicaciones`}
+                            />
+                          </div>
+                          <div className="text-[10px] text-slate-500">{d}</div>
+                          <div className="text-[10px] text-slate-700 font-medium">{v}</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          </details>
+        </>
       )}
 
       {/* Navegación de mes + filtros + acciones */}
@@ -631,6 +756,12 @@ export default function EditorialClient() {
         clients={clients}
         month={month}
         onDone={() => { setMultiClientOpen(false); load(); }}
+      />
+
+      <OrphansModal
+        open={orphansOpen}
+        onClose={() => setOrphansOpen(false)}
+        onChanged={() => load()}
       />
 
       <MetricoolExportModal
@@ -2112,6 +2243,172 @@ function GenerateImageBar({ postId, onGenerated }: { postId: string; onGenerated
         <div className="text-[11px] text-emerald-700">✓ Imagen generada y asociada al post.</div>
       )}
     </div>
+  );
+}
+
+function OrphansModal({
+  open,
+  onClose,
+  onChanged
+}: {
+  open: boolean;
+  onClose: () => void;
+  onChanged: () => void;
+}) {
+  const [data, setData] = useState<{ orphans: any[]; total: number } | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [busy, setBusy] = useState(false);
+
+  async function load() {
+    setLoading(true);
+    const r = await fetch("/api/v1/editorial/orphans");
+    if (r.ok) setData(await r.json());
+    setLoading(false);
+    setSelected(new Set());
+  }
+
+  useEffect(() => {
+    if (open) load();
+  }, [open]);
+
+  function toggle(id: string) {
+    setSelected((s) => {
+      const n = new Set(s);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
+  }
+
+  function toggleAll() {
+    if (!data) return;
+    if (selected.size === data.orphans.length) setSelected(new Set());
+    else setSelected(new Set(data.orphans.map((o) => o.id)));
+  }
+
+  async function repair(action: "delete" | "to_draft" | "set_default_date") {
+    if (selected.size === 0) return;
+    const labels: Record<string, string> = {
+      delete: `borrar permanentemente ${selected.size} publicaciones`,
+      to_draft: `pasar ${selected.size} publicaciones a borrador`,
+      set_default_date: `asignar fecha (hoy) a ${selected.size} publicaciones`
+    };
+    if (!confirm(`¿Confirmas ${labels[action]}?`)) return;
+    setBusy(true);
+    const body: any = { ids: Array.from(selected), action };
+    if (action === "set_default_date") body.defaultDate = new Date().toISOString();
+    await fetch("/api/v1/editorial/orphans", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    });
+    setBusy(false);
+    await load();
+    onChanged();
+  }
+
+  return (
+    <Modal open={open} onClose={onClose} title="🩺 Diagnóstico de publicaciones" size="xl">
+      {loading ? (
+        <div className="py-8 flex items-center justify-center gap-2 text-sm text-slate-500">
+          <Loader2 className="h-4 w-4 animate-spin" /> Analizando…
+        </div>
+      ) : !data ? null : data.total === 0 ? (
+        <div className="py-8 text-center text-sm">
+          <div className="text-3xl mb-2">✅</div>
+          <p className="text-slate-700 font-medium">Sin publicaciones huérfanas.</p>
+          <p className="text-xs text-slate-500 mt-1">
+            Todas tus publicaciones tienen fecha, cliente, copy, red e imagen.
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="text-xs text-slate-600">
+              Encontradas <strong>{data.total}</strong> publicaciones con problemas.
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={toggleAll}
+                className="text-xs text-brand-600 hover:underline"
+              >
+                {selected.size === data.orphans.length ? "Deseleccionar todas" : "Seleccionar todas"}
+              </button>
+            </div>
+          </div>
+          <div className="rounded-lg border max-h-[400px] overflow-y-auto bg-white">
+            <table className="w-full text-xs">
+              <thead className="bg-slate-50 sticky top-0">
+                <tr>
+                  <th className="px-2 py-2 text-left w-8"></th>
+                  <th className="px-2 py-2 text-left">Título</th>
+                  <th className="px-2 py-2 text-left">Cliente</th>
+                  <th className="px-2 py-2 text-left">Problemas</th>
+                  <th className="px-2 py-2 text-left">Estado</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {data.orphans.map((o) => (
+                  <tr key={o.id} className="hover:bg-slate-50">
+                    <td className="px-2 py-1.5">
+                      <input
+                        type="checkbox"
+                        checked={selected.has(o.id)}
+                        onChange={() => toggle(o.id)}
+                        className="accent-brand-600"
+                      />
+                    </td>
+                    <td className="px-2 py-1.5 truncate max-w-xs" title={o.title}>{o.title}</td>
+                    <td className="px-2 py-1.5 text-slate-600">{o.client?.name ?? "—"}</td>
+                    <td className="px-2 py-1.5">
+                      <div className="flex flex-wrap gap-1">
+                        {o.issues.map((i: string) => (
+                          <span
+                            key={i}
+                            className="px-1.5 py-0.5 rounded text-[10px] bg-rose-50 text-rose-700 border border-rose-200"
+                          >
+                            {i.replace(/_/g, " ")}
+                          </span>
+                        ))}
+                      </div>
+                    </td>
+                    <td className="px-2 py-1.5 text-slate-500">{o.status}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="flex flex-wrap gap-2 pt-2 border-t">
+            <button
+              type="button"
+              onClick={() => repair("to_draft")}
+              disabled={busy || selected.size === 0}
+              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md border bg-white hover:bg-slate-50 text-xs disabled:opacity-50"
+            >
+              ↩️ A borrador ({selected.size})
+            </button>
+            <button
+              type="button"
+              onClick={() => repair("set_default_date")}
+              disabled={busy || selected.size === 0}
+              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md border bg-white hover:bg-slate-50 text-xs disabled:opacity-50"
+            >
+              📅 Asignar fecha hoy ({selected.size})
+            </button>
+            <button
+              type="button"
+              onClick={() => repair("delete")}
+              disabled={busy || selected.size === 0}
+              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md border bg-rose-50 hover:bg-rose-100 border-rose-200 text-rose-700 text-xs disabled:opacity-50 ml-auto"
+            >
+              🗑️ Borrar ({selected.size})
+            </button>
+          </div>
+        </div>
+      )}
+    </Modal>
   );
 }
 
