@@ -103,6 +103,7 @@ model Workspace {
   auditLogs    AuditLog[]
   asanaImports AsanaImport[]
   comments     Comment[]
+  reviewClients ReviewClient[]
 }
 
 model Membership {
@@ -194,6 +195,42 @@ model ProjectMember {
 
   @@unique([projectId, userId])
   @@index([userId])
+}
+
+// ====================================================================
+// REVIEWS GENERATOR (migrado de Generador de Reseñas IA PRO de WordPress)
+// ====================================================================
+model ReviewClient {
+  id                   String   @id @default(cuid())
+  workspaceId          String
+  slug                 String   // identificador URL-safe único por workspace
+  name                 String
+  webUrl               String?
+  destinationUrl       String   // Trustpilot / Google Business / etc.
+  topics               String   @db.Text // un tema por línea
+  bannedWords          String?  // separadas por coma
+  recommendedWords     String?  // separadas por coma
+  extraInstructions    String?  @db.Text
+  model                String   @default("gpt-4o-mini")
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  workspace Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  history   ReviewHistory[]
+
+  @@unique([workspaceId, slug])
+  @@index([workspaceId])
+}
+
+model ReviewHistory {
+  id        String   @id @default(cuid())
+  clientId  String
+  body      String   @db.Text
+  createdAt DateTime @default(now())
+
+  client ReviewClient @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([clientId])
 }
 
 model Task {

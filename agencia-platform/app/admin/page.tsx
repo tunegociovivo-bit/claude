@@ -1,6 +1,6 @@
 import Link from "next/link";
 import PageHeader from "@/components/PageHeader";
-import { Key, Download, Webhook, Users, Sparkles, PencilLine, FolderKanban } from "lucide-react";
+import { Key, Download, Webhook, Users, Sparkles, PencilLine, FolderKanban, Star } from "lucide-react";
 
 const cards = [
   {
@@ -45,6 +45,12 @@ const cards = [
     title: "Proyectos y acceso",
     description: "Decide qué trabajador puede entrar a qué proyecto.",
     icon: FolderKanban
+  },
+  {
+    href: "/admin/reviews",
+    title: "Generador de reseñas IA",
+    description: "Migrado del plugin WP. Configura clientes y genera reseñas con OpenAI vía un widget embebible.",
+    icon: Star
   }
 ];
 
