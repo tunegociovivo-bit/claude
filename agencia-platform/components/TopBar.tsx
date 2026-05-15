@@ -26,6 +26,7 @@ export default function TopBar() {
   const [projects, setProjects] = useState<UiProject[]>([]);
   const [team, setTeam] = useState<TopBarMember[]>([]);
   const [search, setSearch] = useState("");
+  const [unreadCount, setUnreadCount] = useState(0);
 
   useEffect(() => {
     let aborted = false;
@@ -62,6 +63,28 @@ export default function TopBar() {
     })();
     return () => {
       aborted = true;
+    };
+  }, []);
+
+  // Polling cada 30s del contador de notificaciones no leídas
+  useEffect(() => {
+    let cancelled = false;
+    async function poll() {
+      try {
+        const r = await fetch("/api/v1/notifications?unread=true");
+        if (r.ok && !cancelled) {
+          const d = await r.json();
+          setUnreadCount(d.unreadCount ?? 0);
+        }
+      } catch {
+        // silencio
+      }
+    }
+    poll();
+    const interval = setInterval(poll, 30000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
     };
   }, []);
 
@@ -127,6 +150,11 @@ export default function TopBar() {
           aria-label="Notificaciones"
         >
           <Bell className="h-4 w-4" />
+          {unreadCount > 0 && (
+            <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-rose-500 text-white text-[10px] font-semibold grid place-items-center">
+              {unreadCount > 9 ? "9+" : unreadCount}
+            </span>
+          )}
         </Link>
 
         <Link

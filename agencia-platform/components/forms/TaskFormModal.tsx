@@ -5,8 +5,11 @@ import { useRouter } from "next/navigation";
 import Modal from "@/components/ui/Modal";
 import RichTextEditor from "@/components/editor/RichTextEditor";
 import AttachmentList from "@/components/files/AttachmentList";
+import MentionTextarea from "@/components/forms/MentionTextarea";
 import type { UiProject, UiMember, UiTask } from "@/lib/db/queries";
 import { Loader2, Trash2, MessageSquare, Send, X } from "lucide-react";
+
+type MentionCandidate = { id: string; name: string | null; email: string };
 
 type Status = "todo" | "in_progress" | "review" | "done";
 type Priority = "baja" | "media" | "alta";
@@ -78,6 +81,19 @@ export default function TaskFormModal({
   const [newComment, setNewComment] = useState("");
   const [postingComment, setPostingComment] = useState(false);
   const editorKey = useRef(0);
+
+  // Candidatos para autocompletar @menciones — usamos los miembros del workspace.
+  const [mentionCandidates, setMentionCandidates] = useState<MentionCandidate[]>([]);
+  useEffect(() => {
+    if (!open) return;
+    fetch("/api/v1/users")
+      .then((r) => (r.ok ? r.json() : { items: [] }))
+      .then((d) =>
+        setMentionCandidates(
+          (d.items ?? []).map((u: any) => ({ id: u.id, name: u.name, email: u.email }))
+        )
+      );
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -276,7 +292,9 @@ export default function TaskFormModal({
                           })}
                         </span>
                       </div>
-                      <p className="text-sm text-slate-700 whitespace-pre-wrap mt-0.5">{c.body}</p>
+                      <p className="text-sm text-slate-700 whitespace-pre-wrap mt-0.5">
+                        {renderWithMentions(c.body)}
+                      </p>
                     </div>
                     <button
                       type="button"
@@ -293,18 +311,13 @@ export default function TaskFormModal({
                 )}
               </div>
               <div className="mt-3 flex items-start gap-2">
-                <textarea
+                <MentionTextarea
                   value={newComment}
-                  onChange={(e) => setNewComment(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-                      e.preventDefault();
-                      postComment();
-                    }
-                  }}
+                  onChange={setNewComment}
+                  candidates={mentionCandidates}
                   rows={2}
-                  placeholder="Escribe un comentario… (Cmd/Ctrl+Enter para enviar)"
-                  className="flex-1 px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  placeholder="Escribe un comentario… Escribe @ para mencionar (Cmd/Ctrl+Enter para enviar)"
+                  onSubmitShortcut={postComment}
                 />
                 <button
                   type="button"
@@ -410,4 +423,23 @@ function initialsFromName(name: string | null): string {
     .slice(0, 2)
     .join("")
     .toUpperCase();
+}
+
+function renderWithMentions(body: string): React.ReactNode[] {
+  // Resalta @email-like tokens en el cuerpo del comentario.
+  const re = /@([a-zA-Z0-9._%+-]+(?:@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})?)/g;
+  const parts: React.ReactNode[] = [];
+  let lastIndex = 0;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(body)) !== null) {
+    if (m.index > lastIndex) parts.push(body.slice(lastIndex, m.index));
+    parts.push(
+      <span key={m.index} className="bg-brand-100 text-brand-700 rounded px-1 py-0.5 text-[12px] font-medium">
+        @{m[1]}
+      </span>
+    );
+    lastIndex = m.index + m[0].length;
+  }
+  if (lastIndex < body.length) parts.push(body.slice(lastIndex));
+  return parts;
 }

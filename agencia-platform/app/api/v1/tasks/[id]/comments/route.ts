@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
+import { extractMentionTokens, resolveMentions } from "@/lib/mentions";
 
 const commentCreateSchema = z.object({
   body: z.string().min(1).max(8000)
@@ -46,5 +47,30 @@ export const POST = withApi({ scope: "tasks:write" }, async (req, { params, api 
     },
     include: { author: { select: { id: true, name: true, image: true } } }
   });
+
+  // Resolver @menciones contra miembros del workspace y disparar notificaciones
+  const tokens = extractMentionTokens(parsed.data.body);
+  if (tokens.length > 0) {
+    const workspaceUsers = await prisma.user.findMany({
+      where: { memberships: { some: { workspaceId: api.workspaceId } } },
+      select: { id: true, email: true, name: true }
+    });
+    const mentioned = resolveMentions(tokens, workspaceUsers).filter((u) => u.id !== api.userId);
+    if (mentioned.length > 0) {
+      const taskInfo = await prisma.task.findUnique({
+        where: { id: params.id },
+        select: { title: true }
+      });
+      await prisma.notification.createMany({
+        data: mentioned.map((u) => ({
+          userId: u.id,
+          type: "mention",
+          body: `${comment.author.name ?? "Alguien"} te mencionó en "${taskInfo?.title ?? "una tarea"}"`,
+          link: `/tareas?task=${params.id}`
+        }))
+      });
+    }
+  }
+
   return NextResponse.json(comment, { status: 201 });
 });
