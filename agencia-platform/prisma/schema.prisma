@@ -108,6 +108,7 @@ model Workspace {
   reviewClients   ReviewClient[]
   voiceBusinesses VoiceBusiness[]
   editorialPosts  EditorialPost[]
+  approvalLinks   ClientApprovalLink[]
   leadSearches    LeadSearch[]
   leads           Lead[]
   leadTemplates   LeadTemplate[]
@@ -326,6 +327,41 @@ model EditorialRevision {
 
   post EditorialPost @relation(fields: [postId], references: [id], onDelete: Cascade)
 
+  @@index([postId])
+}
+
+// Link público de aprobación que la agencia comparte con el cliente.
+// El cliente entra sin login a /p/editorial/[token], ve las publicaciones
+// del mes, puede aprobar/rechazar y dejar comentarios.
+model ClientApprovalLink {
+  id          String   @id @default(cuid())
+  workspaceId String
+  clientId    String
+  token       String   @unique @default(cuid())
+  month       String // YYYY-MM
+  createdById String?
+  expiresAt   DateTime?
+  revokedAt   DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, clientId, month])
+  @@index([token])
+}
+
+// Decisión / comentario del cliente desde el link público sobre una
+// publicación concreta.
+model ClientApprovalDecision {
+  id        String   @id @default(cuid())
+  linkId    String
+  postId    String
+  decision  String // approved | rejected | comment
+  comment   String? @db.Text
+  createdAt DateTime @default(now())
+
+  @@index([linkId, postId])
   @@index([postId])
 }
 

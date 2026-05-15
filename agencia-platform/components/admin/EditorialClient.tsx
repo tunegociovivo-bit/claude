@@ -443,6 +443,7 @@ export default function EditorialClient() {
           <ActionButton onClick={() => doMonthAction("schedule")} icon={<CalendarIcon className="h-3 w-3" />}>Programar</ActionButton>
           <ActionButton onClick={() => doMonthAction("publish")} icon={<Send className="h-3 w-3" />}>Publicar</ActionButton>
           <ActionButton onClick={() => doMonthAction("duplicate")} icon={<Copy className="h-3 w-3" />}>Duplicar</ActionButton>
+          <ApprovalLinkButton clientId={filterClient !== "ALL" ? filterClient : ""} month={month} />
         </div>
       </div>
 
@@ -1817,3 +1818,127 @@ function MediaPreview({ post }: { post: EditorialPost }) {
     </div>
   );
 }
+
+function ApprovalLinkButton({ clientId, month }: { clientId: string; month: string }) {
+  const [open, setOpen] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [links, setLinks] = useState<any[]>([]);
+  const [copiedToken, setCopiedToken] = useState<string | null>(null);
+
+  async function load() {
+    if (!clientId) return;
+    const r = await fetch(`/api/v1/editorial/approval-links?clientId=${clientId}&month=${month}`);
+    if (r.ok) {
+      const j = await r.json();
+      setLinks(j.items ?? []);
+    }
+  }
+
+  useEffect(() => {
+    if (open) load();
+  }, [open, clientId, month]);
+
+  async function create() {
+    setCreating(true);
+    const r = await fetch(`/api/v1/editorial/approval-links`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ clientId, month, expiresInDays: 30 })
+    });
+    setCreating(false);
+    if (r.ok) load();
+  }
+
+  async function revoke(id: string) {
+    if (!confirm("¿Revocar este link? El cliente dejará de poder entrar.")) return;
+    await fetch(`/api/v1/editorial/approval-links/${id}`, { method: "DELETE" });
+    load();
+  }
+
+  function copyLink(token: string) {
+    const url = `${window.location.origin}/p/editorial/${token}`;
+    navigator.clipboard.writeText(url);
+    setCopiedToken(token);
+    setTimeout(() => setCopiedToken(null), 1500);
+  }
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        disabled={!clientId}
+        title={clientId ? "Compartir mes con el cliente" : "Filtra por un cliente para generar el link"}
+        className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] border bg-white hover:bg-slate-50 text-slate-700 disabled:opacity-50"
+      >
+        🔗 Link cliente
+      </button>
+      <Modal open={open} onClose={() => setOpen(false)} title="Link de aprobación para el cliente" size="md">
+        <div className="space-y-3">
+          <p className="text-xs text-slate-500">
+            Genera un enlace para que el cliente vea y apruebe las publicaciones de <strong>{month}</strong> sin entrar al hub.
+          </p>
+          {links.length === 0 ? (
+            <div className="rounded-lg border border-dashed bg-slate-50 p-4 text-center">
+              <p className="text-xs text-slate-500 mb-3">Aún no hay link generado para este mes.</p>
+              <button
+                type="button"
+                onClick={create}
+                disabled={creating || !clientId}
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium disabled:opacity-50"
+              >
+                {creating && <Loader2 className="h-4 w-4 animate-spin" />}
+                Generar link
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {links.map((l) => {
+                const url = `${typeof window !== "undefined" ? window.location.origin : ""}/p/editorial/${l.token}`;
+                return (
+                  <div key={l.id} className="rounded-lg border bg-slate-50/60 p-2.5">
+                    <div className="flex items-center gap-2">
+                      <input
+                        readOnly
+                        value={url}
+                        onClick={(e) => (e.currentTarget as HTMLInputElement).select()}
+                        className="flex-1 px-2 py-1.5 rounded border bg-white text-xs font-mono focus:outline-none"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => copyLink(l.token)}
+                        className="px-2 py-1.5 rounded-md border bg-white hover:bg-slate-50 text-xs"
+                      >
+                        {copiedToken === l.token ? "✓ Copiado" : "Copiar"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => revoke(l.id)}
+                        className="px-2 py-1.5 rounded-md border bg-rose-50 hover:bg-rose-100 border-rose-200 text-rose-700 text-xs"
+                      >
+                        Revocar
+                      </button>
+                    </div>
+                    <div className="mt-1 text-[10px] text-slate-500">
+                      Creado {new Date(l.createdAt).toLocaleString("es-ES")}
+                      {l.expiresAt && <> · caduca {new Date(l.expiresAt).toLocaleDateString("es-ES")}</>}
+                    </div>
+                  </div>
+                );
+              })}
+              <button
+                type="button"
+                onClick={create}
+                disabled={creating}
+                className="text-xs text-brand-600 hover:underline disabled:opacity-50"
+              >
+                + Generar otro link
+              </button>
+            </div>
+          )}
+        </div>
+      </Modal>
+    </>
+  );
+}
+

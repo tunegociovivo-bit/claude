@@ -21,12 +21,14 @@ const PUBLIC_PATHS = [
   "/api/auth",
   "/r/",
   "/v/",
+  "/p/",
   "/api/v1/workspace/public",
   "/api/v1/reviews/generate",
   "/api/v1/voice/transcribe",
   "/api/v1/voice/draft",
   "/api/v1/leads/webhook/",
-  "/api/v1/internal/"
+  "/api/v1/internal/",
+  "/api/public/"
 ];
 
 function isPublic(pathname: string): boolean {
