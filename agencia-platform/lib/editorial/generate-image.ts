@@ -37,30 +37,38 @@ async function openaiImagesEdits(opts: {
   quality: "low" | "medium" | "high";
   referenceUrls: string[];
 }): Promise<Buffer> {
-  // Descargamos cada ref server-side y la convertimos a Blob para FormData
+  const t0 = Date.now();
+  // Descargamos cada ref en paralelo (antes era secuencial — añadía 4-8s
+  // por imagen). Con AbortSignal de 15s para no quedarnos colgados.
+  const refResults = await Promise.all(
+    opts.referenceUrls.map(async (url, i) => {
+      try {
+        const r = await fetch(url, { signal: AbortSignal.timeout(15000) });
+        if (!r.ok) return null;
+        const ab = await r.arrayBuffer();
+        const ct = (r.headers.get("content-type") ?? "image/png").split(";")[0].trim();
+        const ext = ct === "image/jpeg" ? "jpg" : ct === "image/webp" ? "webp" : "png";
+        return { idx: i, ab, ct, ext };
+      } catch {
+        return null;
+      }
+    })
+  );
+  const t1 = Date.now();
+  console.log(`[openaiImagesEdits] refs descargadas: ${refResults.filter(Boolean).length}/${opts.referenceUrls.length} en ${t1 - t0}ms`);
+
   const formData = new FormData();
   formData.append("model", "gpt-image-2");
   formData.append("prompt", opts.prompt);
   formData.append("size", opts.size);
   formData.append("quality", opts.quality);
   formData.append("n", "1");
-
   const fieldName = opts.referenceUrls.length > 1 ? "image[]" : "image";
   let added = 0;
-  for (let i = 0; i < opts.referenceUrls.length; i++) {
-    const url = opts.referenceUrls[i];
-    try {
-      const r = await fetch(url, { signal: AbortSignal.timeout(20000) });
-      if (!r.ok) continue;
-      const ab = await r.arrayBuffer();
-      const ct = r.headers.get("content-type") ?? "image/png";
-      const cleanCt = ct.split(";")[0].trim();
-      const ext = cleanCt === "image/jpeg" ? "jpg" : cleanCt === "image/webp" ? "webp" : "png";
-      formData.append(fieldName, new Blob([ab], { type: cleanCt }), `ref-${i}.${ext}`);
-      added++;
-    } catch {
-      // skip ref que no se pudo descargar
-    }
+  for (const r of refResults) {
+    if (!r) continue;
+    formData.append(fieldName, new Blob([r.ab], { type: r.ct }), `ref-${r.idx}.${r.ext}`);
+    added++;
   }
   if (added === 0) {
     throw new Error("Ninguna referencia se pudo descargar. Comprueba que las URLs de las refs visuales son accesibles.");
@@ -185,9 +193,13 @@ export async function generateImageForPost(opts: GenerateImageOptions): Promise<
   const referenceUrls: string[] = [];
   for (const [name, urls] of peopleRefs.entries()) {
     if (haystack.includes(name.toLowerCase())) {
-      // Tomamos hasta 4 fotos por persona mencionada. Total máx 12.
-      for (const u of urls.slice(0, 4)) {
-        if (referenceUrls.length < 12) referenceUrls.push(u);
+      // Máximo 2 fotos por persona, total 4. Más refs hace que
+      // OpenAI gpt-image-2 tarde MUCHÍSIMO (5+ min) y alucine
+      // composiciones de varios cuerpos. Para una sola persona,
+      // 2 fotos angle-frontal/perfil son suficientes para fijar
+      // identidad.
+      for (const u of urls.slice(0, 2)) {
+        if (referenceUrls.length < 4) referenceUrls.push(u);
       }
     }
   }
