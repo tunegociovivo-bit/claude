@@ -133,16 +133,35 @@ export async function completeVision(opts: {
 }
 
 /**
- * Recorre un schema JSON y se asegura de que TODO objeto tenga
- * `additionalProperties: false` (requerido por la API de structured
- * output de Anthropic en modo strict). Idempotente.
+ * Recorre un schema JSON y lo adapta a las reglas del modo strict de
+ * Anthropic structured output:
+ *   - todo `type: "object"` debe tener `additionalProperties: false`
+ *   - `type: "integer"` y `"number"` NO soportan minimum, maximum,
+ *     exclusiveMinimum, exclusiveMaximum, multipleOf
+ *   - `type: "string"` no soporta pattern, minLength, maxLength, format
+ *   - `type: "array"` no soporta minItems, maxItems, uniqueItems
+ *
+ * Idempotente. Aplica recursivamente a properties, items, anyOf, oneOf, allOf.
  */
+const STRIP_KEYWORDS: Record<string, string[]> = {
+  integer: ["minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum", "multipleOf"],
+  number: ["minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum", "multipleOf"],
+  string: ["pattern", "minLength", "maxLength", "format"],
+  array: ["minItems", "maxItems", "uniqueItems"]
+};
+
 function strictifySchema<T = any>(schema: T): T {
   if (Array.isArray(schema)) {
     return schema.map(strictifySchema) as any;
   }
   if (schema && typeof schema === "object") {
     const s: any = { ...schema };
+    // Quitar keywords no soportadas según el tipo
+    if (typeof s.type === "string" && STRIP_KEYWORDS[s.type]) {
+      for (const k of STRIP_KEYWORDS[s.type]) {
+        if (k in s) delete s[k];
+      }
+    }
     if (s.type === "object") {
       if (s.additionalProperties === undefined) s.additionalProperties = false;
       if (s.properties && typeof s.properties === "object") {

@@ -1095,6 +1095,41 @@ model Notification {
   @@index([userId, read])
 }
 
+// Reportes automáticos de errores producidos en el frontend o backend.
+// Capturados por window.onerror + unhandledrejection + fetch wrapper en
+// cliente, y por catch blocks en los endpoints en servidor.
+//
+// Cuando se crea un ErrorReport, opcionalmente se abre una GitHub Issue
+// en el repo del proyecto (si hay GITHUB_TOKEN configurado).
+//
+// El ErrorReport se cierra cuando un commit referencia su id en el
+// mensaje (ej: "fix: ... closes ErrorReport#abc123").
+model ErrorReport {
+  id              String    @id @default(cuid())
+  workspaceId     String?
+  userId          String?
+  source          String    // client | server | api
+  status          String    @default("REPORTED") // REPORTED | ACKNOWLEDGED | IN_PROGRESS | RESOLVED | DISMISSED
+  message         String    @db.Text
+  stack           String?   @db.Text
+  url             String?   // URL donde ocurrió
+  userAgent       String?
+  context         Json?     // info extra (params, body, etc.)
+  fingerprint     String?   // hash para agrupar errores parecidos
+  count           Int       @default(1) // veces que se ha repetido este fingerprint
+  githubIssueUrl  String?   // si se abrió issue automática
+  resolutionNote  String?   @db.Text
+  resolutionCommit String?  // SHA del commit que lo resolvió
+  acknowledgedAt  DateTime?
+  resolvedAt      DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([workspaceId, status])
+  @@index([fingerprint])
+  @@index([status, createdAt])
+}
+
 // Suscripciones Web Push del usuario (un usuario puede tener varias:
 // portátil, móvil, tablet, navegadores distintos).
 model PushSubscription {
