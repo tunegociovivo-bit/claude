@@ -163,7 +163,11 @@ function strictifySchema<T = any>(schema: T): T {
       }
     }
     if (s.type === "object") {
-      if (s.additionalProperties === undefined) s.additionalProperties = false;
+      // En strict mode SOLO se permite additionalProperties = false.
+      // Si venía como objeto (map abierto tipo {a:string,b:string,...})
+      // o como true, lo forzamos a false. Las claves dinámicas hay que
+      // declararlas explícitamente en properties.
+      if (s.additionalProperties !== false) s.additionalProperties = false;
       if (s.properties && typeof s.properties === "object") {
         const next: any = {};
         for (const [k, v] of Object.entries(s.properties)) next[k] = strictifySchema(v);

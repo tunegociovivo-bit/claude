@@ -117,8 +117,20 @@ const RESPONSE_SCHEMA = {
           firstComment: { type: "string", description: "Opcional: primer comentario (típicamente más hashtags)" },
           copyByNetwork: {
             type: "object",
-            description: "Opcional. Map red→copy si copys adaptados.",
-            additionalProperties: { type: "string" }
+            description:
+              "Opcional. Copy adaptado por red. Sólo incluye las redes que estés generando. Strict mode obliga a declarar el set de claves de antemano.",
+            properties: {
+              instagram: { type: "string" },
+              facebook: { type: "string" },
+              linkedin: { type: "string" },
+              tiktok: { type: "string" },
+              x: { type: "string" },
+              twitter: { type: "string" },
+              youtube: { type: "string" },
+              pinterest: { type: "string" },
+              blog: { type: "string" },
+              email: { type: "string" }
+            }
           }
         },
         required: ["title", "content", "hashtags", "format", "dayOfMonth", "hourOfDay"]
