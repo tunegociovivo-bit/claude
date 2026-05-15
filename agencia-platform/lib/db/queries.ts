@@ -107,7 +107,9 @@ export async function getTasksForUi(): Promise<UiTask[]> {
     const { prisma } = await import("./prisma");
     const rows = await prisma.task.findMany({
       include: { assignees: true, tags: { include: { tag: true } } },
-      orderBy: [{ createdAt: "desc" }]
+      // order ASC = más arriba en la columna. Tareas recientes (con order = 0
+      // por defecto) flotan arriba, y los reorders manuales (drag&drop) ganan.
+      orderBy: [{ order: "asc" }, { createdAt: "desc" }]
     });
     return rows.map<UiTask>((r) => ({
       id: r.id,
