@@ -100,45 +100,52 @@ function buildUserPrompt(opts: {
     .join("\n");
 }
 
-const RESPONSE_SCHEMA = {
-  type: "object",
-  properties: {
-    posts: {
-      type: "array",
-      items: {
-        type: "object",
-        properties: {
-          title: { type: "string", description: "Título corto interno" },
-          content: { type: "string", description: "Copy principal" },
-          hashtags: { type: "string", description: "Hashtags separados por espacio, todos con # delante" },
-          format: { type: "string", enum: ["imagen", "reel", "carrusel", "story", "video"] },
-          dayOfMonth: { type: "integer", minimum: 1, maximum: 31 },
-          hourOfDay: { type: "integer", minimum: 6, maximum: 22 },
-          firstComment: { type: "string", description: "Opcional: primer comentario (típicamente más hashtags)" },
-          copyByNetwork: {
-            type: "object",
-            description:
-              "Opcional. Copy adaptado por red. Sólo incluye las redes que estés generando. Strict mode obliga a declarar el set de claves de antemano.",
-            properties: {
-              instagram: { type: "string" },
-              facebook: { type: "string" },
-              linkedin: { type: "string" },
-              tiktok: { type: "string" },
-              x: { type: "string" },
-              twitter: { type: "string" },
-              youtube: { type: "string" },
-              pinterest: { type: "string" },
-              blog: { type: "string" },
-              email: { type: "string" }
-            }
-          }
-        },
-        required: ["title", "content", "hashtags", "format", "dayOfMonth", "hourOfDay"]
-      }
+/**
+ * Construye el schema de respuesta según las redes y si se quiere copy
+ * adaptado por red. Mantenerlo MÍNIMO ayuda a evitar el "Grammar
+ * compilation timed out" de Anthropic structured output cuando el árbol
+ * es grande.
+ */
+function buildResponseSchema(opts: { networks: string[]; perNetworkCopy: boolean }) {
+  const postProps: any = {
+    title: { type: "string" },
+    content: { type: "string" },
+    hashtags: { type: "string" },
+    format: { type: "string", enum: ["imagen", "reel", "carrusel", "story", "video"] },
+    dayOfMonth: { type: "integer" },
+    hourOfDay: { type: "integer" },
+    firstComment: { type: "string" }
+  };
+  const required = ["title", "content", "hashtags", "format", "dayOfMonth", "hourOfDay"];
+
+  if (opts.perNetworkCopy && opts.networks.length >= 2) {
+    // Sólo declaramos las redes realmente solicitadas (no las 10 globales).
+    // Cada una es string opcional.
+    const networkProps: Record<string, any> = {};
+    for (const n of opts.networks) {
+      networkProps[n] = { type: "string" };
     }
-  },
-  required: ["posts"]
-} as const;
+    postProps.copyByNetwork = {
+      type: "object",
+      properties: networkProps
+    };
+  }
+
+  return {
+    type: "object",
+    properties: {
+      posts: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: postProps,
+          required
+        }
+      }
+    },
+    required: ["posts"]
+  };
+}
 
 export async function generateMonth(opts: GenerateMonthOptions): Promise<GenerateMonthResult> {
   const client = await prisma.client.findFirst({
@@ -169,11 +176,15 @@ export async function generateMonth(opts: GenerateMonthOptions): Promise<Generat
     extraGuidance: opts.extraGuidance
   });
 
+  const responseSchema = buildResponseSchema({
+    networks: opts.networks,
+    perNetworkCopy: perNetwork
+  });
   const ai = await completeJson<{ posts: any[] }>({
     workspaceId: opts.workspaceId,
     system,
     user,
-    schema: RESPONSE_SCHEMA as any,
+    schema: responseSchema as any,
     maxTokens: Math.max(4096, 800 * opts.count)
   });
 

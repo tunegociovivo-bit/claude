@@ -64,6 +64,13 @@ function mapKnownMessage(msg: string): { message: string; code: string } {
       message: "El contenido fue bloqueado por las políticas de uso de la IA. Reformula la instrucción."
     };
   }
+  if (lower.includes("grammar compilation") || lower.includes("compilation timed out")) {
+    return {
+      code: "ai_grammar_timeout",
+      message:
+        "El schema de respuesta es demasiado complejo y Anthropic no puede compilarlo. Reduce el número de publicaciones o desactiva la opción de copy adaptado por red, y vuelve a intentarlo."
+    };
+  }
   if (lower.includes("output_config") || lower.includes("schema:") || lower.includes("additionalproperties")) {
     return {
       code: "ai_schema_error",
