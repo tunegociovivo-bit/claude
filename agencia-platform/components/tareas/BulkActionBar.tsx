@@ -75,7 +75,7 @@ export default function BulkActionBar({
   }
 
   return (
-    <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 bg-slate-900 text-white rounded-2xl shadow-2xl border border-slate-700 p-3 flex items-center gap-3 max-w-3xl w-[calc(100%-2rem)]">
+    <div className="fixed bottom-3 sm:bottom-4 left-1/2 -translate-x-1/2 z-40 bg-slate-900 text-white rounded-xl sm:rounded-2xl shadow-2xl border border-slate-700 p-2 sm:p-3 flex flex-wrap sm:flex-nowrap items-center gap-2 sm:gap-3 max-w-3xl w-[calc(100%-1rem)] sm:w-[calc(100%-2rem)]">
       <div className="text-sm font-semibold tabular-nums px-2 shrink-0">
         {count} {count === 1 ? "tarea" : "tareas"}
       </div>

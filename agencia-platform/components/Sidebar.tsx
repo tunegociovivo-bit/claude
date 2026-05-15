@@ -47,7 +47,7 @@ const nav = [
 
 type SidebarProject = { id: string; name: string; color: string };
 
-export default function Sidebar() {
+export default function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const activeProjectId = searchParams.get("project");
@@ -113,8 +113,8 @@ export default function Sidebar() {
   }, [newProjectOpen]); // refetch tras cerrar modal
 
   return (
-    <aside className="w-64 shrink-0 border-r bg-white flex flex-col">
-      <Link href="/" className="h-16 flex items-center gap-2 px-5 border-b hover:bg-slate-50">
+    <aside className="w-72 md:w-64 shrink-0 border-r bg-white flex flex-col h-screen overflow-y-auto">
+      <Link onClick={onNavigate} href="/" className="h-16 flex items-center gap-2 px-5 border-b hover:bg-slate-50">
         {workspace?.logo ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
@@ -139,7 +139,7 @@ export default function Sidebar() {
           const active =
             pathname === item.href || (item.href !== "/" && pathname.startsWith(item.href));
           return (
-            <Link
+            <Link onClick={onNavigate}
               key={item.href}
               href={item.href}
               className={clsx(
@@ -174,7 +174,7 @@ export default function Sidebar() {
             {projects.map((p) => {
               const active = activeProjectId === p.id;
               return (
-                <Link
+                <Link onClick={onNavigate}
                   key={p.id}
                   href={`/tareas?project=${p.id}`}
                   className={clsx(
@@ -208,7 +208,7 @@ export default function Sidebar() {
                 Plataformas
               </span>
               {me?.role === "ADMIN" && (
-                <Link
+                <Link onClick={onNavigate}
                   href="/admin/plataformas"
                   className="h-5 w-5 grid place-items-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700"
                   title="Configurar plataformas"
@@ -222,7 +222,7 @@ export default function Sidebar() {
                 const Icon = PLATFORM_ICONS[p.key] ?? Sparkles;
                 const active = pathname.startsWith(p.href);
                 return (
-                  <Link
+                  <Link onClick={onNavigate}
                     key={p.key}
                     href={p.href}
                     className={clsx(
@@ -238,7 +238,7 @@ export default function Sidebar() {
                 );
               })}
               {platforms.length === 0 && me?.role === "ADMIN" && (
-                <Link
+                <Link onClick={onNavigate}
                   href="/admin/plataformas"
                   className="block px-3 py-1.5 text-xs text-slate-500 hover:text-slate-900 hover:bg-slate-50 rounded"
                 >
@@ -251,14 +251,14 @@ export default function Sidebar() {
       </nav>
 
       <div className="border-t p-3">
-        <Link
+        <Link onClick={onNavigate}
           href="/admin"
           className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-slate-600 hover:bg-slate-50"
         >
           <Settings className="h-4 w-4" />
           Administración
         </Link>
-        <Link
+        <Link onClick={onNavigate}
           href="/perfil"
           className="mt-3 flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-50"
         >

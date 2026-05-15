@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Search, Bell, Plus, KanbanSquare, Users, FolderPlus, CalendarPlus } from "lucide-react";
+import { Search, Bell, Plus, KanbanSquare, Users, FolderPlus, CalendarPlus, Menu } from "lucide-react";
 import TaskFormModal from "@/components/forms/TaskFormModal";
 import ClientFormModal from "@/components/forms/ClientFormModal";
 import EventFormModal from "@/components/forms/EventFormModal";
@@ -12,7 +12,7 @@ import type { UiClient, UiProject, UiMember } from "@/lib/db/queries";
 
 type TopBarMember = { id: string; name: string; image?: string | null; initials: string; color: string };
 
-export default function TopBar() {
+export default function TopBar({ onToggleMobileMenu }: { onToggleMobileMenu?: () => void } = {}) {
   const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -112,8 +112,17 @@ export default function TopBar() {
   }
 
   return (
-    <header className="h-16 border-b bg-white flex items-center justify-between px-8">
-      <div className="relative w-96 max-w-full">
+    <header className="h-14 sm:h-16 border-b bg-white flex items-center justify-between px-3 sm:px-6 lg:px-8 gap-2">
+      {/* Botón hamburguesa solo en móvil */}
+      <button
+        onClick={onToggleMobileMenu}
+        className="md:hidden h-10 w-10 grid place-items-center rounded-lg text-slate-600 hover:bg-slate-100 shrink-0"
+        aria-label="Abrir menú"
+      >
+        <Menu className="h-5 w-5" />
+      </button>
+
+      <div className="relative flex-1 max-w-md md:w-96 hidden sm:block">
         <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
         <input
           type="text"
@@ -125,14 +134,24 @@ export default function TopBar() {
         />
       </div>
 
-      <div className="flex items-center gap-3">
+      {/* En móvil, lupa que abre /buscar */}
+      <Link
+        href="/buscar"
+        className="sm:hidden h-10 w-10 grid place-items-center rounded-lg text-slate-600 hover:bg-slate-100 shrink-0"
+        aria-label="Buscar"
+      >
+        <Search className="h-5 w-5" />
+      </Link>
+
+      <div className="flex items-center gap-2 sm:gap-3">
         <div className="relative" ref={menuRef}>
           <button
             onClick={() => setMenuOpen((v) => !v)}
-            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium"
+            className="inline-flex items-center gap-2 px-2.5 sm:px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium"
+            aria-label="Crear nuevo"
           >
             <Plus className="h-4 w-4" />
-            Nuevo
+            <span className="hidden sm:inline">Nuevo</span>
           </button>
           {menuOpen && (
             <div className="absolute right-0 top-full mt-2 w-56 bg-white border rounded-xl shadow-lg py-1.5 z-40">

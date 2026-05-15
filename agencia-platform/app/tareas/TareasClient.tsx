@@ -346,10 +346,9 @@ export default function TareasClient({
           onDragEnd={handleDragEnd}
         >
           <SortableContext items={orderedColumns.map((c) => c.id)} strategy={horizontalListSortingStrategy}>
-            <div
-              className="grid gap-4"
-              style={{ gridTemplateColumns: `repeat(${Math.min(orderedColumns.length, 5)}, minmax(0, 1fr))` }}
-            >
+            {/* Móvil: scroll horizontal con columnas de ~280px (típico kanban).
+                Tablet/desktop: grid uniforme. */}
+            <KanbanGrid columnCount={Math.min(orderedColumns.length, 5)}>
               {orderedColumns.map((col) => (
                 <KanbanColumnView
                   key={col.id}
@@ -366,7 +365,7 @@ export default function TareasClient({
                   columns={columns}
                 />
               ))}
-            </div>
+            </KanbanGrid>
           </SortableContext>
           <DragOverlay>
             {activeTaskBeingDragged && (
@@ -506,6 +505,30 @@ export default function TareasClient({
           })}
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Wrapper responsivo:
+ * - Móvil: flex con scroll horizontal, columnas con ancho fijo (280px) → swipe.
+ * - md+: grid con columnas que reparten ancho.
+ */
+function KanbanGrid({
+  columnCount,
+  children
+}: {
+  columnCount: number;
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      className="flex md:grid gap-3 sm:gap-4 overflow-x-auto md:overflow-visible pb-2 snap-x snap-mandatory md:snap-none [&>*]:w-[280px] [&>*]:shrink-0 [&>*]:snap-start md:[&>*]:w-auto md:[&>*]:shrink"
+      style={{
+        gridTemplateColumns: `repeat(${columnCount}, minmax(0, 1fr))`
+      }}
+    >
+      {children}
     </div>
   );
 }

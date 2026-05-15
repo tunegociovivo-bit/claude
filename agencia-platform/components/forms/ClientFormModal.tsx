@@ -132,7 +132,7 @@ export default function ClientFormModal({
           </div>
         ) : (
           <>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="col-span-2">
                 <label className="block text-xs font-medium text-slate-700 mb-1">Nombre</label>
                 <input
