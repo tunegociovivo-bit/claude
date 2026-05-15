@@ -1,61 +1,31 @@
 /**
- * Composición servidor-side de overlays (logo + headlines) sobre una
- * imagen generada por IA. Usa sharp para componer + SVG inline para
- * renderizar texto con la fuente del cliente cuando esté disponible.
+ * Composición de overlays (logo + headlines) sobre la imagen base
+ * generada por IA.
  *
- * No regenera con OpenAI; solo recomposita píxeles. Migra
- * "reaplicar-overlay" del plugin.
+ * Stack:
+ *   - @resvg/resvg-js para renderizar el SVG → PNG con control explícito
+ *     de fuentes (fontBuffers). Esto evita el problema de librsvg/sharp
+ *     no encontrar @font-face data URLs en el contenedor de Railway.
+ *   - sharp para componer el PNG resultante sobre la imagen base.
+ *
+ * Fuentes:
+ *   - Si client.fonts tiene URLs (TTF/OTF/WOFF/WOFF2), las descarga server-side
+ *     y las usa como fuente principal (igual que hacía el plugin).
+ *   - Fallback: Inter WOFF2 commiteada en public/fonts/.
+ *
+ * Estilo:
+ *   - SIN banda oscura de fondo: solo drop-shadow filter para legibilidad.
+ *   - text_placement decide la zona (top/center/bottom).
+ *   - Logo en la esquina configurada por el cliente.
+ *   - Pattern "frame" añade franja diagonal Reva-style.
  */
 
 import sharp from "sharp";
-import { readFileSync } from "fs";
+import { Resvg } from "@resvg/resvg-js";
+import { readFileSync, existsSync, writeFileSync, mkdirSync } from "fs";
 import { join } from "path";
-
-/**
- * Carga la fuente Inter desde @fontsource/inter y la cachea en base64.
- * Necesario porque el contenedor de Railway no trae fuentes instaladas
- * y librsvg pinta "tofu" (cajitas vacías) si no encuentra la fuente.
- */
-let fontCache: { regular: string; bold: string } | null = null;
-function getFontBase64(): { regular: string; bold: string } {
-  if (fontCache) return fontCache;
-  try {
-    const regular = readFileSync(
-      join(process.cwd(), "node_modules/@fontsource/inter/files/inter-latin-400-normal.woff2")
-    ).toString("base64");
-    const bold = readFileSync(
-      join(process.cwd(), "node_modules/@fontsource/inter/files/inter-latin-800-normal.woff2")
-    ).toString("base64");
-    fontCache = { regular, bold };
-  } catch (e) {
-    console.warn("[overlay] no se pudo cargar Inter desde node_modules:", (e as Error).message);
-    fontCache = { regular: "", bold: "" };
-  }
-  return fontCache;
-}
-
-function fontFaceCss(): string {
-  const { regular, bold } = getFontBase64();
-  if (!regular && !bold) return "";
-  const faces: string[] = [];
-  if (regular) {
-    faces.push(`@font-face {
-  font-family: "Inter";
-  font-style: normal;
-  font-weight: 400;
-  src: url("data:font/woff2;base64,${regular}") format("woff2");
-}`);
-  }
-  if (bold) {
-    faces.push(`@font-face {
-  font-family: "Inter";
-  font-style: normal;
-  font-weight: 800;
-  src: url("data:font/woff2;base64,${bold}") format("woff2");
-}`);
-  }
-  return `<defs><style>${faces.join("\n")}</style></defs>`;
-}
+import { tmpdir } from "os";
+import { createHash } from "crypto";
 
 export type OverlayPosition = "br" | "bl" | "tr" | "tl";
 
@@ -63,14 +33,146 @@ export type OverlayOpts = {
   imageUrl: string;
   logoUrl?: string | null;
   logoPosition?: OverlayPosition;
-  headlines?: string[]; // 1-3 líneas (la primera grande)
-  // colores brand
+  headlines?: string[];
   primary?: string;
   accent?: string;
   text?: string;
-  // patrón visual
   pattern?: "clean" | "frame";
 };
+
+export type HeadlineLine = {
+  text: string;
+  size: "sm" | "md" | "lg" | "xl";
+  color: "white" | "accent" | "primary";
+  weight: "regular" | "bold";
+};
+
+export type ClientFont = {
+  url: string;
+  name: string;
+  weight: "regular" | "bold";
+};
+
+export type StructuredOverlayOpts = {
+  baseBuffer: Buffer;
+  headlines: HeadlineLine[];
+  textPlacement: "top" | "center" | "bottom";
+  logoUrl?: string | null;
+  logoPosition?: OverlayPosition;
+  primary?: string;
+  accent?: string;
+  text?: string;
+  pattern?: "clean" | "frame";
+  clientFonts?: ClientFont[];
+};
+
+// ---------- Carga de fuentes ----------
+//
+// resvg-js sólo acepta paths a archivos en disco (fontFiles / fontDirs),
+// no buffers. Por eso descargamos a /tmp/agencia-hub-fonts/ y reusamos.
+
+const FONT_DIR = join(tmpdir(), "agencia-hub-fonts");
+function ensureFontDir() {
+  try {
+    if (!existsSync(FONT_DIR)) mkdirSync(FONT_DIR, { recursive: true });
+  } catch {}
+}
+
+const FONT_PATH_CACHE = new Map<string, string>(); // url → local path
+
+async function downloadFontToTmp(url: string): Promise<string | null> {
+  if (FONT_PATH_CACHE.has(url)) {
+    const p = FONT_PATH_CACHE.get(url)!;
+    if (existsSync(p)) return p;
+  }
+  ensureFontDir();
+  try {
+    const r = await fetch(url, { signal: AbortSignal.timeout(15000) });
+    if (!r.ok) return null;
+    const ab = await r.arrayBuffer();
+    const buf = Buffer.from(ab);
+    // Determinar extensión por content-type o URL
+    const ct = (r.headers.get("content-type") ?? "").split(";")[0].trim();
+    const ext =
+      ct === "font/ttf" || url.endsWith(".ttf")
+        ? "ttf"
+        : ct === "font/otf" || url.endsWith(".otf")
+          ? "otf"
+          : ct === "font/woff" || url.endsWith(".woff")
+            ? "woff"
+            : "woff2";
+    const hash = createHash("md5").update(url).digest("hex").slice(0, 12);
+    const filePath = join(FONT_DIR, `${hash}.${ext}`);
+    writeFileSync(filePath, buf);
+    FONT_PATH_CACHE.set(url, filePath);
+    return filePath;
+  } catch {
+    return null;
+  }
+}
+
+function ensureInterFallback(): { regularPath: string | null; boldPath: string | null } {
+  ensureFontDir();
+  const target = {
+    regular: join(FONT_DIR, "inter-regular.woff2"),
+    bold: join(FONT_DIR, "inter-bold.woff2")
+  };
+  try {
+    const root = process.cwd();
+    const candidates = [
+      join(root, "public", "fonts"),
+      join(root, ".next", "standalone", "public", "fonts"),
+      join(root, "node_modules", "@fontsource", "inter", "files")
+    ];
+    let regSrc: string | null = null;
+    let boldSrc: string | null = null;
+    for (const dir of candidates) {
+      if (!regSrc && existsSync(join(dir, "inter-regular.woff2"))) {
+        regSrc = join(dir, "inter-regular.woff2");
+      }
+      if (!regSrc && existsSync(join(dir, "inter-latin-400-normal.woff2"))) {
+        regSrc = join(dir, "inter-latin-400-normal.woff2");
+      }
+      if (!boldSrc && existsSync(join(dir, "inter-bold.woff2"))) {
+        boldSrc = join(dir, "inter-bold.woff2");
+      }
+      if (!boldSrc && existsSync(join(dir, "inter-latin-800-normal.woff2"))) {
+        boldSrc = join(dir, "inter-latin-800-normal.woff2");
+      }
+    }
+    if (regSrc && !existsSync(target.regular)) {
+      writeFileSync(target.regular, readFileSync(regSrc));
+    }
+    if (boldSrc && !existsSync(target.bold)) {
+      writeFileSync(target.bold, readFileSync(boldSrc));
+    }
+  } catch {}
+  return {
+    regularPath: existsSync(target.regular) ? target.regular : null,
+    boldPath: existsSync(target.bold) ? target.bold : null
+  };
+}
+
+async function resolveFontFamily(clientFonts?: ClientFont[]): Promise<{
+  fontFiles: string[];
+  fontFamily: string;
+}> {
+  if (clientFonts && clientFonts.length > 0) {
+    const paths: string[] = [];
+    for (const f of clientFonts) {
+      const p = await downloadFontToTmp(f.url);
+      if (p) paths.push(p);
+    }
+    if (paths.length > 0) {
+      const family = clientFonts[0]?.name?.replace(/\..+$/, "") || "BrandFont";
+      return { fontFiles: paths, fontFamily: family };
+    }
+  }
+  // Fallback Inter
+  const { regularPath, boldPath } = ensureInterFallback();
+  const paths = [regularPath, boldPath].filter((p): p is string => p !== null);
+  return { fontFiles: paths, fontFamily: "Inter" };
+}
 
 async function fetchBuffer(url: string): Promise<Buffer> {
   const r = await fetch(url);
@@ -83,69 +185,24 @@ function escapeXml(s: string): string {
   return s.replace(/[<>&"']/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;", "'": "&apos;" }[c]!));
 }
 
-/**
- * SVG con las headlines del cliente. Tipografía: Inter (web safe).
- * Si hay pattern="frame", añadimos una franja diagonal de color brand.
- */
-function buildOverlaySvg(width: number, height: number, opts: OverlayOpts): string {
-  const lines = (opts.headlines ?? []).filter((s) => s && s.trim()).slice(0, 3);
-  const primary = opts.primary ?? "#1F2937";
-  const accent = opts.accent ?? "#2563EB";
-  const text = opts.text ?? "#FFFFFF";
-  const padding = Math.round(width * 0.06);
-  const lineHeight = Math.round(height * 0.07);
-  const fontSize0 = Math.round(height * 0.075);
-  const fontSize1 = Math.round(height * 0.045);
+// ---------- Render SVG → PNG con resvg ----------
 
-  // Franja diagonal "frame"
-  const frame =
-    opts.pattern === "frame"
-      ? `<polygon points="0,0 ${width * 0.6},0 ${width * 0.4},${height * 0.3} 0,${height * 0.3}" fill="${primary}" fill-opacity="0.92"/>`
-      : "";
-
-  // Encadenamos texto: primera línea grande, resto pequeñas
-  const baseY = opts.pattern === "frame" ? Math.round(height * 0.15) : height - padding - lineHeight * lines.length;
-  const lineEls = lines
-    .map((line, i) => {
-      const size = i === 0 ? fontSize0 : fontSize1;
-      const color = i === 0 ? (opts.pattern === "frame" ? text : text) : accent;
-      const y = baseY + i * lineHeight + size * 0.8;
-      return `<text x="${padding}" y="${y}" fill="${color}" font-family="Inter, system-ui, sans-serif" font-weight="${i === 0 ? "800" : "500"}" font-size="${size}" style="paint-order: stroke; stroke: rgba(0,0,0,0.35); stroke-width: ${Math.round(size * 0.06)}px;">${escapeXml(line)}</text>`;
-    })
-    .join("\n");
-
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
-${fontFaceCss()}
-${frame}
-${lineEls}
-</svg>`;
+async function renderSvgToPng(svg: string, fontFiles: string[], width: number, _height: number, defaultFamily: string): Promise<Buffer> {
+  const resvg = new Resvg(svg, {
+    fitTo: { mode: "width", value: width },
+    background: "rgba(0,0,0,0)",
+    font: {
+      fontFiles,
+      loadSystemFonts: false,
+      defaultFontFamily: defaultFamily
+    }
+  });
+  const png = resvg.render().asPng();
+  return Buffer.from(png);
 }
 
-export type HeadlineLine = {
-  text: string;
-  size: "sm" | "md" | "lg" | "xl";
-  color: "white" | "accent" | "primary";
-  weight: "regular" | "bold";
-};
+// ---------- Overlay estructurado (uso principal) ----------
 
-export type StructuredOverlayOpts = {
-  // Buffer directo (no URL — usado por generate-image tras llamada IA)
-  baseBuffer: Buffer;
-  headlines: HeadlineLine[];
-  textPlacement: "top" | "center" | "bottom";
-  logoUrl?: string | null;
-  logoPosition?: OverlayPosition;
-  primary?: string;
-  accent?: string;
-  text?: string;
-  pattern?: "clean" | "frame";
-};
-
-/**
- * Versión "rica" del overlay que entiende headline_lines estructuradas
- * (size + color + weight por línea) y text_placement (top/center/bottom).
- * Usada por generate-image.ts tras llamada a gpt-image-1.
- */
 export async function composeOverlayStructured(opts: StructuredOverlayOpts): Promise<Buffer> {
   const meta = await sharp(opts.baseBuffer).metadata();
   const width = meta.width ?? 1080;
@@ -156,7 +213,6 @@ export async function composeOverlayStructured(opts: StructuredOverlayOpts): Pro
   const text = opts.text ?? "#FFFFFF";
 
   const padding = Math.round(width * 0.06);
-  // Tamaño en px relativo al alto de la imagen
   const sizePx = (s: HeadlineLine["size"]): number => {
     switch (s) {
       case "xl":
@@ -179,60 +235,59 @@ export async function composeOverlayStructured(opts: StructuredOverlayOpts): Pro
   const lines = opts.headlines.filter((h) => h?.text?.trim()).slice(0, 6);
   if (lines.length === 0) return opts.baseBuffer;
 
-  // Calculamos altura total del bloque de texto
   const lineHeights = lines.map((l) => sizePx(l.size));
   const gap = Math.round(height * 0.012);
   const totalH = lineHeights.reduce((a, b) => a + b, 0) + gap * (lines.length - 1);
 
-  // Posición vertical inicial según placement
   let y: number;
   if (opts.textPlacement === "top") {
-    y = padding;
+    y = padding + Math.round(height * 0.04);
   } else if (opts.textPlacement === "center") {
     y = Math.round((height - totalH) / 2);
   } else {
     y = height - padding - totalH;
   }
 
-  // Banda semitransparente debajo del texto para asegurar legibilidad
-  // sobre fotos con áreas claras (sólo si pattern != "frame" que ya
-  // tiene su propio bloque de color).
-  let bandShape = "";
-  if (opts.pattern !== "frame") {
-    const bandY = Math.max(0, y - padding * 0.5);
-    const bandH = Math.min(height - bandY, totalH + padding);
-    // Color de la banda en función de los colores de las líneas: si la
-    // mayoría son blancas, banda oscura; si son accent/primary, blanca.
-    const whiteCount = lines.filter((l) => l.color === "white").length;
-    const bandFill = whiteCount >= lines.length / 2 ? "rgba(0,0,0,0.45)" : "rgba(255,255,255,0.85)";
-    bandShape = `<rect x="0" y="${bandY}" width="${width}" height="${bandH}" fill="${bandFill}"/>`;
-  }
-
-  // Frame diagonal estilo "Reva" (sólo si pattern=frame)
+  // Frame diagonal estilo "Reva" si pattern=frame
   const frameShape =
     opts.pattern === "frame"
       ? `<polygon points="0,0 ${width * 0.6},0 ${width * 0.4},${height * 0.32} 0,${height * 0.32}" fill="${primary}" fill-opacity="0.92"/>`
       : "";
 
-  // Renderizar cada línea
+  const { fontFiles, fontFamily } = await resolveFontFamily(opts.clientFonts);
+
+  // Renderizar cada línea SIN banda. Drop-shadow filter para legibilidad
+  // sobre cualquier fondo (claro u oscuro).
   const lineEls = lines
     .map((l, i) => {
       const fs = lineHeights[i];
       const yLine = y + lineHeights.slice(0, i).reduce((a, b) => a + b, 0) + i * gap + fs * 0.82;
       const fill = colorHex(l.color);
-      const fontWeight = l.weight === "bold" ? "800" : "500";
-      return `<text x="${padding}" y="${yLine}" fill="${fill}" font-family="Inter, system-ui, -apple-system, sans-serif" font-weight="${fontWeight}" font-size="${fs}" style="paint-order: stroke; stroke: rgba(0,0,0,0.25); stroke-width: ${Math.round(fs * 0.04)}px;">${escapeXml(l.text)}</text>`;
+      const fontWeight = l.weight === "bold" ? "800" : "400";
+      return `<text x="${padding}" y="${yLine}" fill="${fill}" font-family="${fontFamily}" font-weight="${fontWeight}" font-size="${fs}" filter="url(#textshadow)">${escapeXml(l.text)}</text>`;
     })
     .join("\n");
 
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
-${fontFaceCss()}
+<defs>
+<filter id="textshadow" x="-20%" y="-20%" width="140%" height="140%">
+<feGaussianBlur in="SourceAlpha" stdDeviation="${Math.round(height * 0.005)}"/>
+<feOffset dx="0" dy="${Math.round(height * 0.004)}" result="offsetblur"/>
+<feFlood flood-color="rgba(0,0,0,0.75)"/>
+<feComposite in2="offsetblur" operator="in"/>
+<feMerge>
+<feMergeNode/>
+<feMergeNode in="SourceGraphic"/>
+</feMerge>
+</filter>
+</defs>
 ${frameShape}
-${bandShape}
 ${lineEls}
 </svg>`;
 
-  const composites: sharp.OverlayOptions[] = [{ input: Buffer.from(svg), top: 0, left: 0 }];
+  const overlayPng = await renderSvgToPng(svg, fontFiles, width, height, fontFamily);
+
+  const composites: sharp.OverlayOptions[] = [{ input: overlayPng, top: 0, left: 0 }];
 
   // Logo
   if (opts.logoUrl) {
@@ -245,64 +300,43 @@ ${lineEls}
       const lh = lm.height ?? targetW;
       const margin = Math.round(width * 0.04);
       const pos = opts.logoPosition ?? "br";
-      // Evitar que el logo solape con el texto si están en el mismo lado
       let logoTop = pos.startsWith("t") ? margin : height - lh - margin;
       const logoLeft = pos.endsWith("r") ? width - lw - margin : margin;
-      // Si placement=top y el logo está arriba, lo movemos abajo
+      // Evita solapar con el texto si caen en la misma mitad
       if (opts.textPlacement === "top" && pos.startsWith("t")) {
         logoTop = height - lh - margin;
       }
-      // Si placement=bottom y el logo está abajo, lo movemos arriba
       if (opts.textPlacement === "bottom" && !pos.startsWith("t")) {
         logoTop = margin;
       }
       composites.push({ input: resizedLogo, top: logoTop, left: logoLeft });
-    } catch {
-      // logo opcional
-    }
+    } catch {}
   }
 
   return await sharp(opts.baseBuffer).composite(composites).png().toBuffer();
 }
 
-/**
- * Compone la imagen final (PNG buffer) con overlay aplicado.
- */
+// ---------- Versión legacy (compat con re-apply overlay endpoint) ----------
+
 export async function composeOverlay(opts: OverlayOpts): Promise<Buffer> {
   const baseBuf = await fetchBuffer(opts.imageUrl);
-  const meta = await sharp(baseBuf).metadata();
-  const width = meta.width ?? 1080;
-  const height = meta.height ?? 1080;
-
-  let img = sharp(baseBuf);
-  const composites: sharp.OverlayOptions[] = [];
-
-  // 1) Headlines via SVG
-  if (opts.headlines && opts.headlines.length > 0) {
-    const svg = buildOverlaySvg(width, height, opts);
-    composites.push({ input: Buffer.from(svg), top: 0, left: 0 });
-  }
-
-  // 2) Logo
-  if (opts.logoUrl) {
-    try {
-      const logoBuf = await fetchBuffer(opts.logoUrl);
-      const targetW = Math.round(width * 0.18);
-      const resizedLogo = await sharp(logoBuf).resize({ width: targetW, withoutEnlargement: false }).png().toBuffer();
-      const logoMeta = await sharp(resizedLogo).metadata();
-      const lw = logoMeta.width ?? targetW;
-      const lh = logoMeta.height ?? targetW;
-      const margin = Math.round(width * 0.04);
-      const pos = opts.logoPosition ?? "br";
-      const top = pos.startsWith("t") ? margin : height - lh - margin;
-      const left = pos.endsWith("r") ? width - lw - margin : margin;
-      composites.push({ input: resizedLogo, top, left });
-    } catch {
-      // logo opcional; ignorar fallo
-    }
-  }
-
-  if (composites.length > 0) img = img.composite(composites);
-
-  return await img.png().toBuffer();
+  // Convertir lista plana de strings a HeadlineLine para reusar el motor estructurado
+  const lines = (opts.headlines ?? []).filter(Boolean);
+  const headlines: HeadlineLine[] = lines.map((t, i) => ({
+    text: t,
+    size: i === 0 ? "xl" : "md",
+    color: i === 0 ? "white" : "accent",
+    weight: i === 0 ? "bold" : "regular"
+  }));
+  return composeOverlayStructured({
+    baseBuffer: baseBuf,
+    headlines,
+    textPlacement: "bottom",
+    logoUrl: opts.logoUrl,
+    logoPosition: opts.logoPosition,
+    primary: opts.primary,
+    accent: opts.accent,
+    text: opts.text,
+    pattern: opts.pattern
+  });
 }

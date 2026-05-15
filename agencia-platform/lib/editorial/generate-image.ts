@@ -249,6 +249,7 @@ export async function generateImageForPost(opts: GenerateImageOptions): Promise<
     const placement = ((post as any).textPlacement as string | null) ?? "bottom";
     if (Array.isArray(headlines) && headlines.length > 0) {
       const { composeOverlayStructured } = await import("./overlay");
+      const clientFonts = Array.isArray(client?.fonts) ? (client?.fonts as any[]) : [];
       finalBuf = await composeOverlayStructured({
         baseBuffer: buf,
         headlines,
@@ -258,7 +259,8 @@ export async function generateImageForPost(opts: GenerateImageOptions): Promise<
         primary: client?.brandColorPrimary,
         accent: client?.brandColorAccent,
         text: client?.brandColorText,
-        pattern: (client?.visualPattern as any) ?? "clean"
+        pattern: (client?.visualPattern as any) ?? "clean",
+        clientFonts: clientFonts.length > 0 ? (clientFonts as any) : undefined
       });
     }
   } catch (e) {
