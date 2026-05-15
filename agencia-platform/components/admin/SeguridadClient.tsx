@@ -287,8 +287,17 @@ function DriveBackupSection() {
     if (action === "test") setMsg(`✓ Conexión OK · SA ${j.serviceAccountEmail} · ${j.fileCount} archivos en la carpeta`);
     else if (action === "backup_now") {
       const ok = (j.results ?? []).filter((r: any) => r.ok).length;
-      const fail = (j.results ?? []).filter((r: any) => !r.ok).length;
-      setMsg(`✓ Backup manual: ${ok} OK · ${fail} fallos`);
+      const failedItems = (j.results ?? []).filter((r: any) => !r.ok);
+      if (failedItems.length > 0) {
+        // Mostrar el error como error, con el mensaje real del primer fallo
+        const errors = failedItems
+          .map((r: any) => `${r.kind ?? "?"}: ${r.error ?? "(sin detalle)"}`)
+          .join(" · ");
+        setError(`Backup manual: ${ok} OK · ${failedItems.length} fallos — ${errors}`);
+        setMsg(null);
+      } else {
+        setMsg(`✓ Backup manual: ${ok} OK · 0 fallos`);
+      }
     } else if (action === "cleanup") setMsg(`✓ Limpieza: borrados ${(j.deleted ?? []).length} archivos huérfanos`);
     load();
   }
