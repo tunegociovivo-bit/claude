@@ -19,7 +19,15 @@ import {
   List as ListIcon,
   BarChart3,
   FileDown,
-  Mail
+  Mail,
+  Image as ImageIcon,
+  Video,
+  Film,
+  FileText as FileTextIcon,
+  Pencil,
+  Eye,
+  Hourglass,
+  CheckCheck
 } from "lucide-react";
 import type { UiClient } from "@/lib/db/queries";
 
@@ -64,6 +72,73 @@ function buildCalendarCells(year: number, month: number) {
   for (let d = 1; d <= daysInMonth; d++) cells.push({ date: new Date(Date.UTC(year, month - 1, d)) });
   while (cells.length % 7 !== 0) cells.push(null);
   return cells;
+}
+
+// Extrae hashtags de un post: primero busca claves típicas en metaJson,
+// si no las encuentra cae a regex sobre content/excerpt.
+function extractHashtags(post: EditorialPost): string[] {
+  const meta: any = post.metaJson ?? {};
+  const candidates = [
+    meta.hashtags,
+    meta.hashtag,
+    meta.etiquetas,
+    meta.tags,
+    meta.tags_redes,
+    meta.ig_hashtags,
+    meta.instagram_hashtags,
+    meta.hashtags_post,
+    meta.hashtags_publicacion
+  ];
+  // Si alguno es array → tomarlo
+  for (const c of candidates) {
+    if (Array.isArray(c) && c.length > 0) {
+      return c
+        .map((x) => String(x).trim())
+        .filter(Boolean)
+        .map((x) => (x.startsWith("#") ? x : `#${x}`));
+    }
+  }
+  // Si alguno es string → parsear (split por espacio/coma/salto)
+  for (const c of candidates) {
+    if (typeof c === "string" && c.trim()) {
+      const tokens = c
+        .split(/[\s,;\n]+/)
+        .map((t) => t.trim())
+        .filter(Boolean)
+        .map((t) => (t.startsWith("#") ? t : `#${t}`));
+      if (tokens.length > 0) return tokens;
+    }
+  }
+  // Fallback: regex sobre content
+  const text = `${post.content ?? ""}\n${post.excerpt ?? ""}`;
+  const matches = text.match(/#[\p{L}0-9_]+/gu);
+  return matches ? Array.from(new Set(matches)) : [];
+}
+
+// Quita los hashtags del final del copy (no se ven duplicados en preview)
+function stripTrailingHashtags(text: string): string {
+  if (!text) return "";
+  // Elimina líneas finales que solo contengan hashtags
+  return text.replace(/(?:\s*#[\p{L}0-9_]+)+\s*$/gu, "").trim();
+}
+
+function formatIcon(format: string | null) {
+  const f = (format ?? "").toLowerCase();
+  if (f.includes("reel") || f.includes("video")) return Film;
+  if (f.includes("story") || f.includes("historia")) return Video;
+  if (f.includes("blog") || f.includes("articulo")) return FileTextIcon;
+  return ImageIcon;
+}
+
+function formatNetworkColor(n: string): string {
+  const k = n.toLowerCase();
+  if (k.includes("instagram")) return "bg-pink-50 text-pink-700 border-pink-200";
+  if (k.includes("facebook")) return "bg-blue-50 text-blue-700 border-blue-200";
+  if (k.includes("linkedin")) return "bg-sky-50 text-sky-700 border-sky-200";
+  if (k.includes("tiktok")) return "bg-slate-900/5 text-slate-800 border-slate-300";
+  if (k.includes("x") || k.includes("twitter")) return "bg-slate-100 text-slate-800 border-slate-300";
+  if (k.includes("youtube")) return "bg-red-50 text-red-700 border-red-200";
+  return "bg-slate-50 text-slate-700 border-slate-200";
 }
 
 export default function EditorialClient() {
@@ -1021,6 +1096,9 @@ function PostFormModal({
   // tenemos metaJson y los campos más recientes aunque el listado tuviera
   // datos desactualizados.
   const [fullPost, setFullPost] = useState<EditorialPost | null>(null);
+  // Modo del modal: en edición se abre primero la vista preview (como el plugin)
+  // y desde ahí se puede pasar a editar; al crear nuevo va directo a edit.
+  const [mode, setMode] = useState<"preview" | "edit">("preview");
   const [form, setForm] = useState({
     title: "",
     content: "",
@@ -1047,6 +1125,13 @@ function PostFormModal({
         if (d) setFullPost(d as EditorialPost);
       })
       .catch(() => {});
+  }, [open, post?.id]);
+
+  // Reset del modo cuando se abre el modal: edit por defecto si es nuevo,
+  // preview si estamos viendo uno existente.
+  useEffect(() => {
+    if (!open) return;
+    setMode(post ? "preview" : "edit");
   }, [open, post?.id]);
 
   // Cuando fullPost se actualiza (con metaJson, etc.), si los campos del form
@@ -1123,6 +1208,188 @@ function PostFormModal({
     onSaved();
   }
 
+  // Vista previa estilo plugin: imagen grande + copy + hashtags
+  if (isEdit && mode === "preview" && fullPost) {
+    const networks: string[] = (() => {
+      try { return JSON.parse(fullPost.networks); } catch { return []; }
+    })();
+    let images: string[] = [];
+    try {
+      const parsed = JSON.parse(fullPost.mediaUrls);
+      if (Array.isArray(parsed)) images = parsed.filter((u) => typeof u === "string");
+    } catch {}
+    if (fullPost.thumbnail && !images.includes(fullPost.thumbnail)) {
+      images.unshift(fullPost.thumbnail);
+    }
+    const hashtags = extractHashtags(fullPost);
+    const copyRaw = fullPost.content ?? fullPost.excerpt ?? "";
+    const copyClean = hashtags.length > 0 ? stripTrailingHashtags(copyRaw) : copyRaw;
+    const Icon = formatIcon(fullPost.format);
+    const formatLabel = (fullPost.format ?? "").toUpperCase() || "POST";
+    const statusOpt = STATUS_OPTIONS.find((s) => s.value === fullPost.status);
+    const isApproved = ["APPROVED", "SCHEDULED", "PUBLISHED"].includes(fullPost.status);
+    const scheduledLabel = fullPost.scheduledFor
+      ? new Date(fullPost.scheduledFor).toLocaleString("es-ES", {
+          day: "numeric", month: "numeric", year: "numeric",
+          hour: "2-digit", minute: "2-digit", second: "2-digit"
+        })
+      : null;
+
+    return (
+      <Modal
+        open={open}
+        onClose={onClose}
+        title={fullPost.title}
+        size="xl"
+        footer={
+          <>
+            <div className="flex-1 flex items-center gap-3 text-xs text-slate-600">
+              {statusOpt && (
+                <span className="inline-flex items-center gap-1.5">
+                  <span className={`h-2 w-2 rounded-full ${statusOpt.dot}`} />
+                  Estado: <span className="font-medium">{statusOpt.label.toLowerCase()}</span>
+                </span>
+              )}
+              <span className="inline-flex items-center gap-1">
+                Aprobado:{" "}
+                {isApproved ? <CheckCheck className="h-4 w-4 text-emerald-600" /> : <Hourglass className="h-4 w-4 text-amber-500" />}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setMode("edit")}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium"
+            >
+              <Pencil className="h-4 w-4" />
+              Editar publicación
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <div className="flex items-center gap-2 text-xs text-slate-500">
+            <Icon className="h-4 w-4 text-slate-400" />
+            <span className="font-medium tracking-wide">{formatLabel}</span>
+            {scheduledLabel && <><span>·</span><span>{scheduledLabel}</span></>}
+            {fullPost.client && <><span>·</span><span>{fullPost.client.name}</span></>}
+          </div>
+
+          <div className="grid md:grid-cols-[minmax(0,400px)_1fr] gap-5 items-start">
+            <div>
+              {images[0] ? (
+                <a href={images[0]} target="_blank" rel="noreferrer" className="block">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={images[0]}
+                    alt={fullPost.title}
+                    className="w-full aspect-square object-cover rounded-xl border bg-slate-50 hover:opacity-95 transition"
+                  />
+                </a>
+              ) : (
+                <div className="w-full aspect-square rounded-xl border bg-slate-50 flex items-center justify-center text-slate-400">
+                  <ImageIcon className="h-10 w-10" />
+                </div>
+              )}
+              {images.length > 1 && (
+                <div className="mt-2 flex gap-1.5 overflow-x-auto">
+                  {images.slice(1).map((u, i) => (
+                    <a key={`${u}-${i}`} href={u} target="_blank" rel="noreferrer" className="shrink-0">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={u} alt={`media-${i + 1}`} className="h-14 w-14 object-cover rounded-md border" />
+                    </a>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-4">
+              {networks.length > 0 && (
+                <div>
+                  <div className="text-sm font-semibold text-slate-700 mb-1.5">Redes:</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {networks.map((n) => (
+                      <span key={n} className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium border ${formatNetworkColor(n)}`}>
+                        {n}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div>
+                <div className="text-sm font-semibold text-slate-700 mb-1.5">Copy:</div>
+                {copyClean ? (
+                  <div className="rounded-lg border bg-slate-50/60 p-3 text-sm text-slate-800 whitespace-pre-wrap leading-relaxed">
+                    {copyClean}
+                  </div>
+                ) : (
+                  <div className="rounded-lg border border-dashed bg-slate-50 p-3 text-xs text-slate-400">
+                    Sin copy.
+                  </div>
+                )}
+              </div>
+
+              {hashtags.length > 0 && (
+                <div>
+                  <div className="text-sm font-semibold text-slate-700 mb-1.5">Hashtags:</div>
+                  <div className="flex flex-wrap gap-x-2 gap-y-1 text-sm text-brand-600">
+                    {hashtags.map((h, i) => (
+                      <span key={`${h}-${i}`}>{h}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Inspector ACF (plegable) — útil para diagnosticar campos no mapeados */}
+          {fullPost.metaJson && Object.keys(fullPost.metaJson as any).length > 0 && (
+            <details className="rounded-lg border bg-slate-50">
+              <summary className="cursor-pointer px-3 py-2 text-xs font-medium text-slate-700">
+                📦 Datos originales del plugin WordPress ({Object.keys(fullPost.metaJson as any).length} campos)
+              </summary>
+              <div className="px-3 py-2 border-t bg-white">
+                <p className="text-[11px] text-slate-500 mb-2">
+                  Todos los campos ACF / metadatos que tenía esta publicación en el plugin original.
+                </p>
+                <dl className="text-xs space-y-1.5 max-h-80 overflow-y-auto">
+                  {Object.entries(fullPost.metaJson as any).map(([k, v]) => {
+                    if (v === null || v === undefined || v === "") return null;
+                    const isUrl = typeof v === "string" && /^https?:\/\//.test(v);
+                    const isImage = isUrl && /\.(jpe?g|png|gif|webp|svg)(\?|$)/i.test(v);
+                    const display = typeof v === "object" ? JSON.stringify(v, null, 2) : String(v);
+                    return (
+                      <div key={k} className="grid grid-cols-[140px_1fr] gap-2 items-start border-b border-slate-100 pb-1.5">
+                        <dt className="font-mono text-[11px] text-slate-500 truncate" title={k}>{k}</dt>
+                        <dd className="text-slate-700 break-words">
+                          {isImage ? (
+                            <>
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img src={v as string} alt={k} className="max-h-24 rounded border mb-1" />
+                              <a href={v as string} target="_blank" rel="noreferrer" className="text-[10px] text-brand-600 underline break-all">
+                                {v as string}
+                              </a>
+                            </>
+                          ) : isUrl ? (
+                            <a href={v as string} target="_blank" rel="noreferrer" className="text-brand-600 underline break-all">
+                              {v as string}
+                            </a>
+                          ) : (
+                            <pre className="whitespace-pre-wrap font-sans">{display.slice(0, 800)}{display.length > 800 ? "…" : ""}</pre>
+                          )}
+                        </dd>
+                      </div>
+                    );
+                  })}
+                </dl>
+              </div>
+            </details>
+          )}
+        </div>
+      </Modal>
+    );
+  }
+
   return (
     <Modal
       open={open}
@@ -1131,6 +1398,16 @@ function PostFormModal({
       size="xl"
       footer={
         <>
+          {isEdit && (
+            <button
+              type="button"
+              onClick={() => setMode("preview")}
+              className="px-3 py-2 rounded-lg text-sm border bg-white hover:bg-slate-50 inline-flex items-center gap-1.5"
+            >
+              <Eye className="h-4 w-4" />
+              Vista previa
+            </button>
+          )}
           <button type="button" onClick={onClose} className="px-3 py-2 rounded-lg text-sm border bg-white hover:bg-slate-50">Cancelar</button>
           <button
             type="submit"
