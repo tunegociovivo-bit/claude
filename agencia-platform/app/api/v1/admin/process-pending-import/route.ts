@@ -39,6 +39,8 @@ export const POST = withApi({ scope: "*" }, async (_req, { api }) => {
   const report: Record<string, any> = {
     editorialPostsCreated: 0,
     editorialPostsUpdated: 0,
+    editorialClientsCreated: 0,
+    editorialClientsUpdated: 0,
     leadSearchesProcessed: 0,
     leadsProcessed: 0,
     competitorsProcessed: 0,
@@ -52,6 +54,71 @@ export const POST = withApi({ scope: "*" }, async (_req, { api }) => {
 
   // ────────────────────────────────────────────────────────────
   // NV Dashboard publicaciones → EditorialPost
+  if (pending.nvDashboard) {
+    // ── PASO 0: crear / actualizar Clients desde la taxonomía nv_cliente ──
+    // El plugin WP guardaba cada cliente como un término de la taxonomía
+    // nv_cliente + una opción nv_dashboard_cliente_config_<slug>. Aquí lo
+    // mapeamos a filas de la tabla Client (con upsert por nombre para no
+    // duplicar si el cliente ya existía en el workspace).
+    const taxes = Array.isArray(pending.nvDashboard.clientesTaxonomy)
+      ? pending.nvDashboard.clientesTaxonomy
+      : [];
+    const configs = (pending.nvDashboard.clienteConfigs ?? {}) as Record<string, any>;
+
+    for (const t of taxes) {
+      try {
+        const name = String(t?.name ?? "").trim();
+        if (!name) continue;
+        // Buscamos config por convención de nombre de opción del plugin
+        const slugCandidates = [
+          `nv_dashboard_cliente_config_${t?.slug}`,
+          `nv_dashboard_cliente_config_${name.toLowerCase().replace(/\s+/g, "_")}`
+        ];
+        let cfg: any = null;
+        for (const k of slugCandidates) {
+          if (configs[k]) { cfg = configs[k]; break; }
+        }
+
+        // Notas: si hay configuración del plugin, la metemos en notes
+        // como markdown sencillo para que el usuario las vea en el CRM.
+        let notes: string | null = null;
+        if (cfg && typeof cfg === "object") {
+          const lines: string[] = ["**Configuración importada de NV Dashboard:**"];
+          for (const [k, v] of Object.entries<any>(cfg)) {
+            if (v === null || v === undefined || v === "") continue;
+            const val = typeof v === "object" ? JSON.stringify(v) : String(v);
+            lines.push(`- ${k}: ${val.slice(0, 200)}`);
+          }
+          notes = lines.join("\n");
+        }
+
+        // Industry y demás se quedan vacíos por ahora; los rellena el user
+        const existing = await prisma.client.findFirst({
+          where: { workspaceId: api.workspaceId, name, deletedAt: null }
+        });
+        if (existing) {
+          // Solo actualiza notas si están vacías (no pisar las del user)
+          if (!existing.notes && notes) {
+            await prisma.client.update({ where: { id: existing.id }, data: { notes } });
+            report.editorialClientsUpdated++;
+          }
+        } else {
+          await prisma.client.create({
+            data: {
+              workspaceId: api.workspaceId,
+              name,
+              notes,
+              since: new Date()
+            }
+          });
+          report.editorialClientsCreated++;
+        }
+      } catch (e: any) {
+        report.errors.push(`clientFromTaxonomy[${t?.name ?? "?"}]: ${e?.message ?? e}`);
+      }
+    }
+  }
+
   if (pending.nvDashboard?.publications && Array.isArray(pending.nvDashboard.publications)) {
     const clients = await prisma.client.findMany({
       where: { workspaceId: api.workspaceId, deletedAt: null }
@@ -62,12 +129,23 @@ export const POST = withApi({ scope: "*" }, async (_req, { api }) => {
       try {
         const id = Number(p.id) || null;
         const meta = (p.meta ?? {}) as any;
-        // Intento de mapeo de cliente: buscar primer término de taxonomía nv_cliente
+        // Intento de mapeo de cliente: buscar primer término de taxonomía nv_cliente.
+        // Si el término no estaba en clientes_taxonomy (export incompleto), creamos
+        // el Client al vuelo para no perder la asociación.
         let clientId: string | null = null;
-        const taxes = Array.isArray(p.clientes) ? p.clientes : [];
-        if (taxes.length > 0) {
-          const taxName = String(taxes[0]?.name ?? "").toLowerCase().trim();
-          clientId = clientByNameLower.get(taxName) ?? null;
+        const pubTaxes = Array.isArray(p.clientes) ? p.clientes : [];
+        if (pubTaxes.length > 0) {
+          const taxName = String(pubTaxes[0]?.name ?? "").trim();
+          const taxNameLower = taxName.toLowerCase();
+          clientId = clientByNameLower.get(taxNameLower) ?? null;
+          if (!clientId && taxName) {
+            const created = await prisma.client.create({
+              data: { workspaceId: api.workspaceId, name: taxName, since: new Date() }
+            });
+            clientByNameLower.set(taxNameLower, created.id);
+            clientId = created.id;
+            report.editorialClientsCreated++;
+          }
         }
 
         const status = mapStatus(p.status);

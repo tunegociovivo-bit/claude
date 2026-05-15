@@ -229,8 +229,8 @@ export default function WorkspaceSettingsClient() {
               />
               <IntegRow
                 ok={integrations?.metricool.hasToken ?? false}
-                label="Metricool token"
-                hint="Para publicar a redes desde NV Dashboard."
+                label="Metricool API (reservada)"
+                hint="Por ahora no se usa: el calendario editorial exporta un CSV (descarga o por email) que tú subes manualmente al importador de Metricool. La integración directa por API queda preparada para activarla cuando contrates el plan que la incluye."
                 source="Importado desde NV Dashboard WP"
               />
               <IntegRow

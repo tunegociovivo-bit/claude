@@ -267,7 +267,8 @@ model EditorialPost {
   mediaUrls     String    @default("[]") // JSON array
   metaJson      Json?     // resto de ACF / metadatos
   legacyWpId    Int?      @unique
-  metricoolJobId String?
+  metricoolJobId String?  // reservado para integración API directa (futura)
+  lastExportedAt DateTime? // última vez que se incluyó en un export CSV/Metricool
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 

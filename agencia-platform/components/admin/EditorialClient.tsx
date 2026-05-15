@@ -17,7 +17,9 @@ import {
   Copy,
   Calendar as CalendarIcon,
   List as ListIcon,
-  BarChart3
+  BarChart3,
+  FileDown,
+  Mail
 } from "lucide-react";
 import type { UiClient } from "@/lib/db/queries";
 
@@ -77,6 +79,7 @@ export default function EditorialClient() {
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<EditorialPost | null>(null);
   const [generateOpen, setGenerateOpen] = useState(false);
+  const [metricoolOpen, setMetricoolOpen] = useState(false);
   const [processing, setProcessing] = useState(false);
   const [processReport, setProcessReport] = useState<any>(null);
   const [actionMsg, setActionMsg] = useState<string | null>(null);
@@ -199,6 +202,14 @@ export default function EditorialClient() {
               Generar mes con IA
             </button>
             <button
+              onClick={() => setMetricoolOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium"
+              title="Exporta las publicaciones aprobadas en CSV para subir a Metricool"
+            >
+              <FileDown className="h-4 w-4" />
+              Exportar a Metricool
+            </button>
+            <button
               onClick={() => { setEditing(null); setFormOpen(true); }}
               className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium"
             >
@@ -212,6 +223,10 @@ export default function EditorialClient() {
       {processReport && (
         <div className="mb-3 rounded-lg bg-emerald-50 border border-emerald-200 p-3 text-sm text-emerald-800">
           <strong>Procesado:</strong> {processReport.editorialPostsCreated} publicaciones,
+          {" "}{processReport.editorialClientsCreated ?? 0} clientes nuevos
+          {(processReport.editorialClientsUpdated ?? 0) > 0 && (
+            <> ({processReport.editorialClientsUpdated} actualizados con notas)</>
+          )},
           {" "}{processReport.leadsProcessed} leads, {processReport.leadSearchesProcessed} búsquedas,
           {" "}{processReport.templatesProcessed} plantillas, {processReport.inboxProcessed} mensajes inbox.
         </div>
@@ -438,7 +453,238 @@ export default function EditorialClient() {
         month={month}
         onDone={() => { setGenerateOpen(false); load(); }}
       />
+
+      <MetricoolExportModal
+        open={metricoolOpen}
+        onClose={() => setMetricoolOpen(false)}
+        month={month}
+        clients={clients}
+        defaultClientId={filterClient !== "ALL" ? filterClient : undefined}
+        onDone={() => { setMetricoolOpen(false); load(); }}
+      />
     </div>
+  );
+}
+
+function MetricoolExportModal({
+  open,
+  onClose,
+  month,
+  clients,
+  defaultClientId,
+  onDone
+}: {
+  open: boolean;
+  onClose: () => void;
+  month: string;
+  clients: UiClient[];
+  defaultClientId?: string;
+  onDone: () => void;
+}) {
+  const [targetMonth, setTargetMonth] = useState(month);
+  const [clientId, setClientId] = useState(defaultClientId ?? "ALL");
+  const [statuses, setStatuses] = useState<string[]>(["APPROVED", "SCHEDULED"]);
+  const [onlyNotExported, setOnlyNotExported] = useState(false);
+  const [markScheduled, setMarkScheduled] = useState(true);
+  const [email, setEmail] = useState("");
+  const [running, setRunning] = useState(false);
+  const [result, setResult] = useState<any>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    setTargetMonth(month);
+    setClientId(defaultClientId ?? "ALL");
+    setStatuses(["APPROVED", "SCHEDULED"]);
+    setOnlyNotExported(false);
+    setMarkScheduled(true);
+    setResult(null);
+    setError(null);
+    // Prefill email con el del current user
+    fetch("/api/v1/me").then((r) => (r.ok ? r.json() : null)).then((d) => {
+      if (d?.user?.email) setEmail(d.user.email);
+    });
+  }, [open, month, defaultClientId]);
+
+  function toggleStatus(s: string) {
+    setStatuses((arr) => (arr.includes(s) ? arr.filter((x) => x !== s) : [...arr, s]));
+  }
+
+  async function run(sendEmail: boolean) {
+    setRunning(true);
+    setError(null);
+    setResult(null);
+    try {
+      const r = await fetch("/api/v1/editorial/export-metricool", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          month: targetMonth,
+          clientId: clientId !== "ALL" ? clientId : undefined,
+          statuses,
+          onlyNotExported,
+          markAsScheduled: markScheduled,
+          email: sendEmail ? email : undefined,
+          sendEmail
+        })
+      });
+      const data = await r.json();
+      if (!r.ok || !data.ok) {
+        setError(data?.error?.message ?? `Error ${r.status}`);
+        setRunning(false);
+        return;
+      }
+      setResult(data);
+      // Si NO se mandó por email, descargamos directamente
+      if (!sendEmail) {
+        const blob = new Blob([data.csv], { type: "text/csv;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = data.filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }
+    } catch (e: any) {
+      setError(e.message ?? String(e));
+    } finally {
+      setRunning(false);
+    }
+  }
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title="Exportar a Metricool"
+      size="lg"
+      footer={
+        <>
+          <button onClick={onClose} className="px-3 py-2 rounded-lg text-sm border bg-white hover:bg-slate-50">
+            Cerrar
+          </button>
+          <button
+            onClick={() => run(false)}
+            disabled={running}
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-white border text-sm hover:bg-slate-50 disabled:opacity-50"
+          >
+            {running ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileDown className="h-4 w-4" />}
+            Descargar CSV
+          </button>
+          <button
+            onClick={() => run(true)}
+            disabled={running || !email}
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium disabled:opacity-50"
+          >
+            {running ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />}
+            Enviar por email
+          </button>
+        </>
+      }
+    >
+      <div className="space-y-3">
+        <p className="text-xs text-slate-500">
+          Genera un CSV con las publicaciones del calendario en el formato que el importador de Metricool acepta. Una fila por (publicación × red social). Puedes <strong>descargarlo y subirlo manualmente</strong>, o <strong>mandártelo por email</strong> si Resend está configurado.
+        </p>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs font-medium text-slate-700 mb-1">Mes</label>
+            <input
+              type="month"
+              value={targetMonth}
+              onChange={(e) => setTargetMonth(e.target.value)}
+              className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-slate-700 mb-1">Cliente</label>
+            <select
+              value={clientId}
+              onChange={(e) => setClientId(e.target.value)}
+              className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+            >
+              <option value="ALL">Todos</option>
+              {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-xs font-medium text-slate-700 mb-1">Estados a incluir</label>
+          <div className="flex flex-wrap gap-1.5">
+            {["DRAFT", "REVIEW", "APPROVED", "SCHEDULED", "PUBLISHED"].map((s) => {
+              const sel = statuses.includes(s);
+              return (
+                <button
+                  key={s}
+                  type="button"
+                  onClick={() => toggleStatus(s)}
+                  className={
+                    "px-2.5 py-1 rounded-md text-xs transition border " +
+                    (sel
+                      ? "bg-emerald-50 border-emerald-300 text-emerald-700"
+                      : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50")
+                  }
+                >
+                  {s}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <label className="flex items-center gap-2 text-sm text-slate-700">
+          <input
+            type="checkbox"
+            checked={onlyNotExported}
+            onChange={(e) => setOnlyNotExported(e.target.checked)}
+            className="rounded"
+          />
+          Solo publicaciones no exportadas antes (incremental)
+        </label>
+
+        <label className="flex items-center gap-2 text-sm text-slate-700">
+          <input
+            type="checkbox"
+            checked={markScheduled}
+            onChange={(e) => setMarkScheduled(e.target.checked)}
+            className="rounded"
+          />
+          Marcar como "Programadas" tras exportar
+        </label>
+
+        <div>
+          <label className="block text-xs font-medium text-slate-700 mb-1">
+            Email destino <span className="text-slate-400 font-normal">(para "Enviar por email")</span>
+          </label>
+          <input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="tu@email.com"
+            className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+          />
+          <p className="text-[11px] text-slate-500 mt-1">
+            Si no tienes Resend configurado, el botón de email no funcionará. Mientras tanto usa "Descargar CSV" y mándalo tú mismo.
+          </p>
+        </div>
+
+        {result && (
+          <div className="px-3 py-2 rounded-lg bg-emerald-50 border border-emerald-200 text-sm text-emerald-800">
+            ✓ {result.rowCount} filas generadas ({result.postCount} publicaciones).
+            {result.emailSent ? " Email enviado correctamente." : " CSV descargado."}
+          </div>
+        )}
+        {error && (
+          <div className="px-3 py-2 rounded-lg bg-rose-50 border border-rose-200 text-sm text-rose-700">
+            {error}
+          </div>
+        )}
+      </div>
+    </Modal>
   );
 }
 
