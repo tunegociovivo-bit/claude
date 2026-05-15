@@ -36,13 +36,32 @@ export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
       if (n) clientNamesFromPubs.add(n);
     }
     if (sample.length < 3) {
+      const meta = (p.meta ?? {}) as Record<string, any>;
+      const metaKeys = Object.keys(meta).filter((k) => !k.startsWith("_") && !k.startsWith("field_"));
+      // Para cada clave dame el tipo y un preview corto del valor para
+      // que veamos qué campos tiene tu plugin.
+      const metaInspect: Record<string, string> = {};
+      for (const k of metaKeys) {
+        const v = meta[k];
+        if (v === null || v === undefined || v === "") continue;
+        if (typeof v === "string") {
+          metaInspect[k] = v.length > 80 ? v.slice(0, 80) + "…" : v;
+        } else if (typeof v === "object") {
+          metaInspect[k] = `[${Array.isArray(v) ? "array" : "object"}] ${JSON.stringify(v).slice(0, 80)}`;
+        } else {
+          metaInspect[k] = String(v);
+        }
+      }
       sample.push({
         id: p.id,
         title: p.title,
         status: p.status,
         clientesTaxonomy: arr.map((t: any) => ({ name: t?.name, slug: t?.slug })),
         date: p.date,
-        hasContent: typeof p.content === "string" && p.content.length > 0
+        hasContent: typeof p.content === "string" && p.content.length > 0,
+        thumbnail: p.thumbnail ?? null,
+        metaKeyCount: metaKeys.length,
+        meta: metaInspect
       });
     }
   }

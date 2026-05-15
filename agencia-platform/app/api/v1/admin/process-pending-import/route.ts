@@ -185,47 +185,78 @@ export const POST = withApi({ scope: "*" }, async (_req, { api }) => {
           meta?.copy_principal,
           meta?.texto,
           meta?.texto_publicacion,
+          meta?.texto_post,
           meta?.contenido,
           meta?.contenido_publicacion,
           meta?.descripcion,
+          meta?.description,
           meta?.cuerpo,
           meta?.post_text,
-          meta?.text
+          meta?.text,
+          meta?.caption,
+          meta?.copy_facebook,
+          meta?.copy_instagram,
+          meta?.copy_linkedin,
+          meta?.copy_redes
         ];
-        const contentFromMeta = contentCandidates.find(
+        let content = (contentCandidates.find(
           (v) => typeof v === "string" && v.trim().length > 0
-        );
-        const content = (contentFromMeta as string | undefined) ??
-          (typeof p.content === "string" && p.content.trim().length > 0 ? p.content : null);
+        ) as string | undefined) ?? null;
+        if (!content && typeof p.content === "string" && p.content.trim().length > 0) {
+          content = p.content;
+        }
+        // FALLBACK AGRESIVO: si seguimos sin content, coge el STRING MÁS LARGO
+        // de todo meta que no sea URL ni un valor de ACF interno (field_*).
+        if (!content) {
+          let longest = "";
+          for (const [k, v] of Object.entries<any>(meta)) {
+            if (k.startsWith("_") || k.startsWith("field_")) continue;
+            if (typeof v !== "string") continue;
+            if (/^https?:\/\//.test(v)) continue;
+            if (v.length > longest.length && v.length > 30) longest = v;
+          }
+          if (longest) content = longest;
+        }
 
         // Imagen / foto — thumbnail destacada + posibles ACF
         const mediaCandidates: string[] = [];
         if (p.thumbnail) mediaCandidates.push(String(p.thumbnail));
         for (const k of [
-          "imagen",
-          "imagen_principal",
-          "imagen_publicacion",
-          "foto",
-          "foto_principal",
-          "imagen_url",
-          "media",
-          "media_url",
-          "thumbnail",
-          "thumbnail_url"
+          "imagen", "imagen_principal", "imagen_publicacion",
+          "foto", "foto_principal", "foto_publicacion",
+          "imagen_url", "media", "media_url", "thumbnail", "thumbnail_url",
+          "image", "img", "photo", "picture",
+          "imagen_instagram", "imagen_facebook", "imagen_linkedin"
         ]) {
           const v = meta?.[k];
           if (typeof v === "string" && /^https?:\/\//.test(v)) mediaCandidates.push(v);
-          // ACF a veces guarda objeto image con .url
+          // ACF a veces guarda objeto image con .url o número (ID de attachment)
           if (v && typeof v === "object" && typeof v.url === "string") mediaCandidates.push(v.url);
         }
-        // Imágenes adicionales (galería): claves *_2, *_3, galeria, imagenes
-        const galleryCandidates = [meta?.imagenes, meta?.galeria, meta?.images];
+        // Imágenes adicionales (galería): claves comunes
+        const galleryCandidates = [
+          meta?.imagenes,
+          meta?.galeria,
+          meta?.gallery,
+          meta?.images,
+          meta?.media_gallery,
+          meta?.fotos
+        ];
         for (const g of galleryCandidates) {
           if (Array.isArray(g)) {
             for (const item of g) {
               if (typeof item === "string" && /^https?:\/\//.test(item)) mediaCandidates.push(item);
               else if (item && typeof item === "object" && typeof item.url === "string") mediaCandidates.push(item.url);
             }
+          }
+        }
+        // FALLBACK AGRESIVO: scan todas las claves de meta buscando URLs de imagen
+        for (const [k, v] of Object.entries<any>(meta)) {
+          if (k.startsWith("_") || k.startsWith("field_")) continue;
+          if (typeof v === "string" && /^https?:\/\/.+\.(jpe?g|png|gif|webp|svg)(\?|$)/i.test(v)) {
+            mediaCandidates.push(v);
+          } else if (v && typeof v === "object" && typeof v.url === "string" && /\.(jpe?g|png|gif|webp|svg)(\?|$)/i.test(v.url)) {
+            mediaCandidates.push(v.url);
           }
         }
         // dedupe preservando orden

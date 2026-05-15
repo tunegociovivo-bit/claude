@@ -552,6 +552,38 @@ export default function EditorialClient() {
                     </div>
                   </details>
                 )}
+
+                {/* Sample de publicaciones — claves meta reales del plugin */}
+                {Array.isArray(diagData.nvDashboard.samplePublications) && diagData.nvDashboard.samplePublications.length > 0 && (
+                  <details className="mt-3 text-xs">
+                    <summary className="cursor-pointer font-medium text-slate-700">
+                      🔍 Inspeccionar campos ACF reales (sample 3 publicaciones)
+                    </summary>
+                    <div className="mt-2 space-y-3">
+                      {diagData.nvDashboard.samplePublications.map((s: any) => (
+                        <div key={s.id} className="bg-slate-50 border rounded-lg p-2">
+                          <div className="font-medium mb-1">{s.title}</div>
+                          <div className="text-slate-500 text-[10px] mb-2">
+                            ID {s.id} · {s.metaKeyCount} campos meta · {s.thumbnail ? "thumbnail ✓" : "sin thumbnail"}
+                          </div>
+                          <dl className="space-y-0.5">
+                            {Object.entries(s.meta ?? {}).map(([k, v]) => (
+                              <div key={k} className="grid grid-cols-[140px_1fr] gap-1.5">
+                                <dt className="font-mono text-slate-500 truncate" title={k}>{k}</dt>
+                                <dd className="text-slate-700 break-words">{String(v)}</dd>
+                              </div>
+                            ))}
+                          </dl>
+                        </div>
+                      ))}
+                    </div>
+                    <p className="mt-2 text-[10px] text-slate-500">
+                      Estas son las claves <strong>reales</strong> que el plugin tenía guardadas. Si ves nombres como
+                      "<code>contenido_facebook</code>" o "<code>imagen_destacada_personalizada</code>" que no estén siendo capturados,
+                      dímelos y los añado al mapping.
+                    </p>
+                  </details>
+                )}
               </div>
             ) : (
               <p className="text-slate-500 italic">No hay datos NV Dashboard aparcados.</p>
@@ -985,6 +1017,10 @@ function PostFormModal({
   onSaved: () => void;
 }) {
   const isEdit = !!post;
+  // Detalle recargado del servidor al abrir el modal, para asegurar que
+  // tenemos metaJson y los campos más recientes aunque el listado tuviera
+  // datos desactualizados.
+  const [fullPost, setFullPost] = useState<EditorialPost | null>(null);
   const [form, setForm] = useState({
     title: "",
     content: "",
@@ -997,6 +1033,35 @@ function PostFormModal({
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Cuando abrimos el modal para editar, refrescamos detalle desde el servidor
+  useEffect(() => {
+    if (!open || !post) {
+      setFullPost(null);
+      return;
+    }
+    setFullPost(post); // pinta inmediato con lo del listado
+    fetch(`/api/v1/editorial/posts/${post.id}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d) setFullPost(d as EditorialPost);
+      })
+      .catch(() => {});
+  }, [open, post?.id]);
+
+  // Cuando fullPost se actualiza (con metaJson, etc.), si los campos del form
+  // estaban vacíos, los rellenamos con la nueva info.
+  useEffect(() => {
+    if (!fullPost || !open) return;
+    setForm((prev) => ({
+      ...prev,
+      content: prev.content || (fullPost.content ?? ""),
+      excerpt: prev.excerpt || (fullPost.excerpt ?? ""),
+      networks: prev.networks.length > 0 ? prev.networks : (() => {
+        try { return JSON.parse(fullPost.networks); } catch { return []; }
+      })()
+    }));
+  }, [fullPost, open]);
 
   useEffect(() => {
     if (!open) return;
@@ -1135,13 +1200,13 @@ function PostFormModal({
         />
 
         {/* Preview de imágenes asociadas */}
-        {post && <MediaPreview post={post} />}
+        {fullPost && <MediaPreview post={fullPost} />}
 
         {/* Datos originales del plugin WP — todo lo que llegó en p.meta */}
-        {post && post.metaJson && Object.keys(post.metaJson as any).length > 0 && (
+        {fullPost && fullPost.metaJson && Object.keys(fullPost.metaJson as any).length > 0 && (
           <details className="rounded-lg border bg-slate-50">
             <summary className="cursor-pointer px-3 py-2 text-xs font-medium text-slate-700">
-              📦 Datos originales del plugin WordPress ({Object.keys(post.metaJson as any).length} campos)
+              📦 Datos originales del plugin WordPress ({Object.keys(fullPost.metaJson as any).length} campos)
             </summary>
             <div className="px-3 py-2 border-t bg-white">
               <p className="text-[11px] text-slate-500 mb-2">
@@ -1149,7 +1214,7 @@ function PostFormModal({
                 Si alguno no se está mostrando bien arriba (copy, imagen, etc.), copia el valor desde aquí al campo correspondiente.
               </p>
               <dl className="text-xs space-y-1.5 max-h-80 overflow-y-auto">
-                {Object.entries(post.metaJson as any).map(([k, v]) => {
+                {Object.entries(fullPost.metaJson as any).map(([k, v]) => {
                   if (v === null || v === undefined || v === "") return null;
                   const isUrl = typeof v === "string" && /^https?:\/\//.test(v);
                   const isImage = isUrl && /\.(jpe?g|png|gif|webp|svg)(\?|$)/i.test(v);
