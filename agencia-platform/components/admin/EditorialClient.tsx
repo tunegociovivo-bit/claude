@@ -78,38 +78,53 @@ function buildCalendarCells(year: number, month: number) {
 // si no las encuentra cae a regex sobre content/excerpt.
 function extractHashtags(post: EditorialPost): string[] {
   const meta: any = post.metaJson ?? {};
-  const candidates = [
-    meta.hashtags,
-    meta.hashtag,
-    meta.etiquetas,
-    meta.tags,
-    meta.tags_redes,
-    meta.ig_hashtags,
-    meta.instagram_hashtags,
-    meta.hashtags_post,
-    meta.hashtags_publicacion
-  ];
-  // Si alguno es array → tomarlo
-  for (const c of candidates) {
-    if (Array.isArray(c) && c.length > 0) {
-      return c
-        .map((x) => String(x).trim())
-        .filter(Boolean)
-        .map((x) => (x.startsWith("#") ? x : `#${x}`));
+
+  // 1) Recorrer recursivamente metaJson buscando:
+  //   a) claves cuyo nombre contenga hashtag/etiqueta/tag
+  //   b) valores que contengan al menos 2 tokens "#palabra"
+  const found: string[] = [];
+
+  function pushTokens(raw: string) {
+    const tokens = raw
+      .split(/[\s,;\n]+/)
+      .map((t) => t.trim())
+      .filter(Boolean)
+      .map((t) => (t.startsWith("#") ? t : `#${t}`));
+    for (const t of tokens) if (/^#[\p{L}0-9_]+$/u.test(t)) found.push(t);
+  }
+
+  function walk(node: any, parentKey: string) {
+    if (node === null || node === undefined) return;
+    if (Array.isArray(node)) {
+      for (const item of node) walk(item, parentKey);
+      return;
+    }
+    if (typeof node === "object") {
+      for (const [k, v] of Object.entries(node)) {
+        if (k.startsWith("_") || k.startsWith("field_")) continue;
+        walk(v, k);
+      }
+      return;
+    }
+    if (typeof node !== "string") return;
+    const looksLikeKey = /hashtag|etiqueta|^tags?$|_tags?$|tags_/i.test(parentKey);
+    if (looksLikeKey) {
+      pushTokens(node);
+      return;
+    }
+    // Valor que ya viene con varios #algo → tomarlo
+    const inline = node.match(/#[\p{L}0-9_]+/gu);
+    if (inline && inline.length >= 2) {
+      for (const m of inline) found.push(m);
     }
   }
-  // Si alguno es string → parsear (split por espacio/coma/salto)
-  for (const c of candidates) {
-    if (typeof c === "string" && c.trim()) {
-      const tokens = c
-        .split(/[\s,;\n]+/)
-        .map((t) => t.trim())
-        .filter(Boolean)
-        .map((t) => (t.startsWith("#") ? t : `#${t}`));
-      if (tokens.length > 0) return tokens;
-    }
+  walk(meta, "");
+
+  if (found.length > 0) {
+    return Array.from(new Set(found));
   }
-  // Fallback: regex sobre content
+
+  // 2) Fallback: regex sobre content/excerpt completo
   const text = `${post.content ?? ""}\n${post.excerpt ?? ""}`;
   const matches = text.match(/#[\p{L}0-9_]+/gu);
   return matches ? Array.from(new Set(matches)) : [];
@@ -1282,7 +1297,7 @@ function PostFormModal({
                   <img
                     src={images[0]}
                     alt={fullPost.title}
-                    className="w-full aspect-square object-cover rounded-xl border bg-slate-50 hover:opacity-95 transition"
+                    className="w-full max-h-[560px] object-contain rounded-xl border bg-slate-50 hover:opacity-95 transition"
                   />
                 </a>
               ) : (
