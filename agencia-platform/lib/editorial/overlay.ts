@@ -1,27 +1,30 @@
 /**
- * Composición de overlays (logo + headlines) sobre la imagen base
- * generada por IA.
+ * Composición de overlays sobre imágenes generadas por IA.
  *
  * Stack:
- *   - @resvg/resvg-js para renderizar el SVG → PNG con control explícito
- *     de fuentes (fontBuffers). Esto evita el problema de librsvg/sharp
- *     no encontrar @font-face data URLs en el contenedor de Railway.
- *   - sharp para componer el PNG resultante sobre la imagen base.
+ *   - @napi-rs/canvas (native C++ binding, ~similar a GD de PHP)
+ *     para dibujar el texto con TTF reales — garantizado funciona
+ *     en cualquier Linux sin depender de fontconfig.
+ *   - sharp para componer el PNG del overlay sobre la imagen base.
  *
  * Fuentes:
- *   - Si client.fonts tiene URLs (TTF/OTF/WOFF/WOFF2), las descarga server-side
- *     y las usa como fuente principal (igual que hacía el plugin).
- *   - Fallback: Inter WOFF2 commiteada en public/fonts/.
+ *   - client.fonts (TTF/OTF subidos por el user) descargados a /tmp y
+ *     registrados con GlobalFonts.registerFromPath. Igual que el plugin
+ *     PHP (NV Dashboard) que usaba imagettftext con la fuente del
+ *     usuario.
+ *   - Fallback Inter (Inter-Regular.ttf + Inter-Bold.ttf) commiteado
+ *     en public/fonts/.
  *
  * Estilo:
- *   - SIN banda oscura de fondo: solo drop-shadow filter para legibilidad.
- *   - text_placement decide la zona (top/center/bottom).
- *   - Logo en la esquina configurada por el cliente.
- *   - Pattern "frame" añade franja diagonal Reva-style.
+ *   - Sin banda — sombra dibujada bajo cada texto.
+ *   - text_placement decide la zona (top / center / bottom).
+ *   - Pattern "frame": franja diagonal Reva-style.
+ *   - Logo en esquina; se mueve a la mitad opuesta si coincide con
+ *     la zona del texto.
  */
 
 import sharp from "sharp";
-import { Resvg } from "@resvg/resvg-js";
+import { createCanvas, loadImage, GlobalFonts, type SKRSContext2D } from "@napi-rs/canvas";
 import { readFileSync, existsSync, writeFileSync, mkdirSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
@@ -66,10 +69,9 @@ export type StructuredOverlayOpts = {
   clientFonts?: ClientFont[];
 };
 
-// ---------- Carga de fuentes ----------
-//
-// resvg-js sólo acepta paths a archivos en disco (fontFiles / fontDirs),
-// no buffers. Por eso descargamos a /tmp/agencia-hub-fonts/ y reusamos.
+// ============================================================================
+// CARGA DE FUENTES
+// ============================================================================
 
 const FONT_DIR = join(tmpdir(), "agencia-hub-fonts");
 function ensureFontDir() {
@@ -78,7 +80,7 @@ function ensureFontDir() {
   } catch {}
 }
 
-const FONT_PATH_CACHE = new Map<string, string>(); // url → local path
+const FONT_PATH_CACHE = new Map<string, string>(); // url → path local
 
 async function downloadFontToTmp(url: string): Promise<string | null> {
   if (FONT_PATH_CACHE.has(url)) {
@@ -91,7 +93,6 @@ async function downloadFontToTmp(url: string): Promise<string | null> {
     if (!r.ok) return null;
     const ab = await r.arrayBuffer();
     const buf = Buffer.from(ab);
-    // Determinar extensión por content-type o URL
     const ct = (r.headers.get("content-type") ?? "").split(";")[0].trim();
     const ext =
       ct === "font/ttf" || url.endsWith(".ttf")
@@ -111,60 +112,98 @@ async function downloadFontToTmp(url: string): Promise<string | null> {
   }
 }
 
-function ensureInterFallback(): { regularPath: string | null; boldPath: string | null } {
-  // Las fuentes commiteadas en public/fonts/ se leen directamente de
-  // disco — no hace falta copiar a /tmp. Usamos TTF (no woff2) porque
-  // el binario de @resvg/resvg-js distribuido no siempre incluye
-  // soporte WOFF2.
+const REGISTERED_FAMILIES = new Set<string>();
+
+/**
+ * Registra una fuente en GlobalFonts si aún no estaba. Devuelve el
+ * nombre de familia bajo el que quedó registrada.
+ */
+function registerFontIfNeeded(path: string, family: string): string {
+  const key = `${family}|${path}`;
+  if (REGISTERED_FAMILIES.has(key)) return family;
   try {
-    const root = process.cwd();
-    const candidates = [
-      join(root, "public", "fonts"),
-      join(root, ".next", "standalone", "public", "fonts"),
-      // Para dev en directorio de tests
-      join(__dirname, "..", "..", "public", "fonts")
-    ];
-    let regularPath: string | null = null;
-    let boldPath: string | null = null;
-    for (const dir of candidates) {
-      if (!regularPath && existsSync(join(dir, "Inter-Regular.ttf"))) {
-        regularPath = join(dir, "Inter-Regular.ttf");
-      }
-      if (!boldPath && existsSync(join(dir, "Inter-Bold.ttf"))) {
-        boldPath = join(dir, "Inter-Bold.ttf");
-      }
-      if (regularPath && boldPath) break;
-    }
-    if (process.env.DEBUG_OVERLAY_FONTS === "1") {
-      console.log("[overlay] Inter paths:", { regularPath, boldPath, cwd: root });
-    }
-    return { regularPath, boldPath };
+    GlobalFonts.registerFromPath(path, family);
+    REGISTERED_FAMILIES.add(key);
   } catch (e) {
-    console.warn("[overlay] ensureInterFallback fallo:", (e as Error).message);
-    return { regularPath: null, boldPath: null };
+    console.warn(`[overlay] no se pudo registrar fuente ${family} desde ${path}:`, (e as Error).message);
   }
+  return family;
+}
+
+let interRegistered = false;
+function ensureInterRegistered(): { family: string; regularOk: boolean; boldOk: boolean } {
+  if (interRegistered) return { family: "Inter", regularOk: true, boldOk: true };
+  const root = process.cwd();
+  const candidates = [
+    join(root, "public", "fonts"),
+    join(root, ".next", "standalone", "public", "fonts"),
+    join(__dirname, "..", "..", "public", "fonts")
+  ];
+  let regularOk = false;
+  let boldOk = false;
+  for (const dir of candidates) {
+    const reg = join(dir, "Inter-Regular.ttf");
+    const bold = join(dir, "Inter-Bold.ttf");
+    if (!regularOk && existsSync(reg)) {
+      try {
+        GlobalFonts.registerFromPath(reg, "Inter");
+        regularOk = true;
+      } catch {}
+    }
+    if (!boldOk && existsSync(bold)) {
+      try {
+        // Registramos el bold también como "Inter" (canvas usa font-weight
+        // del CSS string para elegir entre las variantes registradas con
+        // el mismo nombre).
+        GlobalFonts.registerFromPath(bold, "Inter");
+        boldOk = true;
+      } catch {}
+    }
+    if (regularOk && boldOk) break;
+  }
+  interRegistered = regularOk || boldOk;
+  if (process.env.DEBUG_OVERLAY_FONTS === "1") {
+    console.log("[overlay] Inter registered:", {
+      regularOk,
+      boldOk,
+      cwd: root,
+      families: GlobalFonts.families.map((f: any) => f.family)
+    });
+  }
+  return { family: "Inter", regularOk, boldOk };
 }
 
 async function resolveFontFamily(clientFonts?: ClientFont[]): Promise<{
-  fontFiles: string[];
-  fontFamily: string;
+  family: string;
+  hasBold: boolean;
 }> {
+  // Inter siempre (fallback universal)
+  ensureInterRegistered();
+
+  // Si el cliente sube fuentes (Montserrat etc), las registramos
+  // bajo un nombre "BrandFont" y las usamos como principal.
   if (clientFonts && clientFonts.length > 0) {
-    const paths: string[] = [];
+    let registeredAny = false;
+    let hasBoldClient = false;
     for (const f of clientFonts) {
-      const p = await downloadFontToTmp(f.url);
-      if (p) paths.push(p);
+      const path = await downloadFontToTmp(f.url);
+      if (!path) continue;
+      try {
+        GlobalFonts.registerFromPath(path, "BrandFont");
+        registeredAny = true;
+        if (f.weight === "bold") hasBoldClient = true;
+      } catch {}
     }
-    if (paths.length > 0) {
-      const family = clientFonts[0]?.name?.replace(/\..+$/, "") || "BrandFont";
-      return { fontFiles: paths, fontFamily: family };
+    if (registeredAny) {
+      return { family: "BrandFont", hasBold: hasBoldClient || clientFonts.some((f) => f.weight === "bold") };
     }
   }
-  // Fallback Inter
-  const { regularPath, boldPath } = ensureInterFallback();
-  const paths = [regularPath, boldPath].filter((p): p is string => p !== null);
-  return { fontFiles: paths, fontFamily: "Inter" };
+  return { family: "Inter", hasBold: true };
 }
+
+// ============================================================================
+// RENDER PRINCIPAL
+// ============================================================================
 
 async function fetchBuffer(url: string): Promise<Buffer> {
   const r = await fetch(url);
@@ -172,40 +211,6 @@ async function fetchBuffer(url: string): Promise<Buffer> {
   const ab = await r.arrayBuffer();
   return Buffer.from(ab);
 }
-
-function escapeXml(s: string): string {
-  return s.replace(/[<>&"']/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;", "'": "&apos;" }[c]!));
-}
-
-// ---------- Render SVG → PNG con resvg ----------
-
-async function renderSvgToPng(svg: string, fontFiles: string[], width: number, _height: number, defaultFamily: string): Promise<Buffer> {
-  if (process.env.DEBUG_OVERLAY_FONTS === "1") {
-    console.log("[overlay] renderSvgToPng:", {
-      fontFiles,
-      defaultFamily,
-      svgPreview: svg.slice(0, 500)
-    });
-  }
-  const resvg = new Resvg(svg, {
-    fitTo: { mode: "width", value: width },
-    background: "rgba(0,0,0,0)",
-    font: {
-      fontFiles,
-      // Fallback a fuentes del SO si las nuestras no funcionan (Railway
-      // suele tener DejaVu Sans). El defaultFontFamily nos asegura que
-      // si "Inter" no se encuentra, use la primera que cargamos.
-      loadSystemFonts: true,
-      defaultFontFamily: defaultFamily,
-      sansSerifFamily: defaultFamily,
-      serifFamily: defaultFamily
-    }
-  });
-  const png = resvg.render().asPng();
-  return Buffer.from(png);
-}
-
-// ---------- Overlay estructurado (uso principal) ----------
 
 export async function composeOverlayStructured(opts: StructuredOverlayOpts): Promise<Buffer> {
   const meta = await sharp(opts.baseBuffer).metadata();
@@ -239,90 +244,103 @@ export async function composeOverlayStructured(opts: StructuredOverlayOpts): Pro
   const lines = opts.headlines.filter((h) => h?.text?.trim()).slice(0, 6);
   if (lines.length === 0) return opts.baseBuffer;
 
+  const { family } = await resolveFontFamily(opts.clientFonts);
+
   const lineHeights = lines.map((l) => sizePx(l.size));
   const gap = Math.round(height * 0.012);
   const totalH = lineHeights.reduce((a, b) => a + b, 0) + gap * (lines.length - 1);
 
-  let y: number;
+  let y0: number;
   if (opts.textPlacement === "top") {
-    y = padding + Math.round(height * 0.04);
+    y0 = padding + Math.round(height * 0.04);
   } else if (opts.textPlacement === "center") {
-    y = Math.round((height - totalH) / 2);
+    y0 = Math.round((height - totalH) / 2);
   } else {
-    y = height - padding - totalH;
+    y0 = height - padding - totalH;
   }
 
-  // Frame diagonal estilo "Reva" si pattern=frame
-  const frameShape =
-    opts.pattern === "frame"
-      ? `<polygon points="0,0 ${width * 0.6},0 ${width * 0.4},${height * 0.32} 0,${height * 0.32}" fill="${primary}" fill-opacity="0.92"/>`
-      : "";
+  // Crear canvas transparente para el overlay
+  const canvas = createCanvas(width, height);
+  const ctx = canvas.getContext("2d");
 
-  const { fontFiles, fontFamily } = await resolveFontFamily(opts.clientFonts);
+  // Frame diagonal estilo "Reva"
+  if (opts.pattern === "frame") {
+    ctx.fillStyle = primary;
+    ctx.globalAlpha = 0.92;
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(width * 0.6, 0);
+    ctx.lineTo(width * 0.4, height * 0.32);
+    ctx.lineTo(0, height * 0.32);
+    ctx.closePath();
+    ctx.fill();
+    ctx.globalAlpha = 1;
+  }
 
-  // Renderizar cada línea SIN banda. Drop-shadow filter para legibilidad
-  // sobre cualquier fondo (claro u oscuro).
-  // Cada línea se renderiza con texto + capa de sombra debajo. Sin
-  // filter (algunas versiones de resvg no soportan feFlood/feMerge).
-  // La sombra se hace con dos <text> idénticos: uno desplazado con
-  // color rgba(0,0,0,0.65) y otro encima con el color real.
-  const shadowOffset = Math.max(2, Math.round(height * 0.003));
-  const lineEls = lines
-    .map((l, i) => {
-      const fs = lineHeights[i];
-      const yLine = y + lineHeights.slice(0, i).reduce((a, b) => a + b, 0) + i * gap + fs * 0.82;
-      const fill = colorHex(l.color);
-      const fontWeight = l.weight === "bold" ? "700" : "400";
-      const safeText = escapeXml(l.text);
-      const xText = padding;
-      return (
-        `<text x="${xText + shadowOffset}" y="${yLine + shadowOffset}" fill="rgba(0,0,0,0.65)" font-family="${fontFamily}" font-weight="${fontWeight}" font-size="${fs}">${safeText}</text>` +
-        `<text x="${xText}" y="${yLine}" fill="${fill}" font-family="${fontFamily}" font-weight="${fontWeight}" font-size="${fs}">${safeText}</text>`
-      );
-    })
-    .join("\n");
+  // Dibujar cada línea con sombra
+  for (let i = 0; i < lines.length; i++) {
+    const l = lines[i];
+    const fs = lineHeights[i];
+    const fillColor = colorHex(l.color);
+    const fontWeight = l.weight === "bold" ? "bold" : "normal";
+    const yLine = y0 + lineHeights.slice(0, i).reduce((a, b) => a + b, 0) + i * gap + fs * 0.82;
 
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
-${frameShape}
-${lineEls}
-</svg>`;
+    ctx.font = `${fontWeight} ${fs}px "${family}", "Inter", system-ui, sans-serif`;
+    ctx.textBaseline = "alphabetic";
 
-  const overlayPng = await renderSvgToPng(svg, fontFiles, width, height, fontFamily);
+    // Sombra suave por debajo
+    ctx.fillStyle = "rgba(0, 0, 0, 0.55)";
+    ctx.shadowColor = "rgba(0, 0, 0, 0.6)";
+    ctx.shadowBlur = Math.max(4, Math.round(fs * 0.18));
+    ctx.shadowOffsetX = 0;
+    ctx.shadowOffsetY = Math.max(2, Math.round(fs * 0.04));
+    ctx.fillText(l.text, padding, yLine);
 
-  const composites: sharp.OverlayOptions[] = [{ input: overlayPng, top: 0, left: 0 }];
+    // Texto principal encima, sin sombra (el blur de antes ya quedó)
+    ctx.shadowColor = "transparent";
+    ctx.shadowBlur = 0;
+    ctx.shadowOffsetY = 0;
+    ctx.fillStyle = fillColor;
+    ctx.fillText(l.text, padding, yLine);
+  }
 
-  // Logo
+  // Logo en la esquina configurada
   if (opts.logoUrl) {
     try {
       const logoBuf = await fetchBuffer(opts.logoUrl);
       const targetW = Math.round(width * 0.16);
       const resizedLogo = await sharp(logoBuf).resize({ width: targetW, withoutEnlargement: false }).png().toBuffer();
-      const lm = await sharp(resizedLogo).metadata();
-      const lw = lm.width ?? targetW;
-      const lh = lm.height ?? targetW;
+      const logoImg = await loadImage(resizedLogo);
+      const lw = logoImg.width;
+      const lh = logoImg.height;
       const margin = Math.round(width * 0.04);
       const pos = opts.logoPosition ?? "br";
       let logoTop = pos.startsWith("t") ? margin : height - lh - margin;
       const logoLeft = pos.endsWith("r") ? width - lw - margin : margin;
-      // Evita solapar con el texto si caen en la misma mitad
+      // Evita solapar con el texto
       if (opts.textPlacement === "top" && pos.startsWith("t")) {
         logoTop = height - lh - margin;
       }
       if (opts.textPlacement === "bottom" && !pos.startsWith("t")) {
         logoTop = margin;
       }
-      composites.push({ input: resizedLogo, top: logoTop, left: logoLeft });
-    } catch {}
+      ctx.drawImage(logoImg, logoLeft, logoTop);
+    } catch (e) {
+      console.warn("[overlay] logo failed:", (e as Error).message);
+    }
   }
 
-  return await sharp(opts.baseBuffer).composite(composites).png().toBuffer();
+  // El canvas tiene fondo transparente: lo componemos sobre la imagen base
+  const overlayPng = canvas.toBuffer("image/png");
+  return await sharp(opts.baseBuffer).composite([{ input: overlayPng, top: 0, left: 0 }]).png().toBuffer();
 }
 
-// ---------- Versión legacy (compat con re-apply overlay endpoint) ----------
+// ============================================================================
+// VERSIÓN LEGACY (re-apply overlay endpoint)
+// ============================================================================
 
 export async function composeOverlay(opts: OverlayOpts): Promise<Buffer> {
   const baseBuf = await fetchBuffer(opts.imageUrl);
-  // Convertir lista plana de strings a HeadlineLine para reusar el motor estructurado
   const lines = (opts.headlines ?? []).filter(Boolean);
   const headlines: HeadlineLine[] = lines.map((t, i) => ({
     text: t,
