@@ -2,8 +2,19 @@
 /**
  * Plugin Name: Agencia Hub Exporter
  * Description: Exporta configuración y datos de los plugins NV (Reseñas IA, Voice Reviews, NV Dashboard, NV Leads) hacia hub.negociovivo.app. Instalar una vez, importar, desactivar.
- * Version: 1.0.0
+ * Version: 1.1.0
  * Author: Agencia Hub
+ *
+ * Changelog
+ *   1.1.0 — añade dump completo de term_meta de nv_cliente (cliente_meta)
+ *           con URLs resueltas de logo / fuentes / refs visuales para que
+ *           el hub pueda importar toda la configuración editorial de cada
+ *           cliente (brief, branding, colores, fuentes, refs, Drive,
+ *           dimensiones, guía de estilo cacheada, patrón visual, etc.)
+ *           sin necesidad de acceso al wp-content del WP origen.
+ *   1.0.0 — primera versión: dump de generador_resenas, voice_reviews,
+ *           nv_dashboard (publications + clientes_taxonomy +
+ *           cliente_configs) y nv_leads_pro.
  */
 
 if (!defined('ABSPATH')) exit;
