@@ -1515,7 +1515,7 @@ function GenerateMonthModal({
           </div>
         </div>
 
-        {error && <p className="text-xs text-rose-600">{error}</p>}
+        {error && <AiErrorBanner message={error} />}
         {result && (
           <p className="text-xs text-emerald-700">
             ✓ {result.count} publicaciones creadas con {result.model}. Cerrando…
@@ -3023,6 +3023,51 @@ function OrphansModal({
         </div>
       )}
     </Modal>
+  );
+}
+
+/**
+ * Muestra un mensaje de error IA con estilo según el contenido.
+ * Si el mensaje sugiere falta de saldo, añade un link directo a billing.
+ */
+function AiErrorBanner({ message }: { message: string }) {
+  const noCredits =
+    /credit balance|too low|billing|saldo/i.test(message);
+  const badKey = /api key|authentication|invalid/i.test(message);
+  if (noCredits) {
+    return (
+      <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs space-y-1.5">
+        <div className="font-semibold text-amber-900">💳 Saldo de Anthropic agotado</div>
+        <p className="text-amber-900">{message}</p>
+        <a
+          href="https://console.anthropic.com/settings/billing"
+          target="_blank"
+          rel="noreferrer"
+          className="inline-block px-2 py-1 rounded bg-amber-600 hover:bg-amber-700 text-white text-[11px] font-medium"
+        >
+          Cargar saldo en console.anthropic.com →
+        </a>
+      </div>
+    );
+  }
+  if (badKey) {
+    return (
+      <div className="rounded-lg border border-rose-300 bg-rose-50 p-3 text-xs space-y-1.5">
+        <div className="font-semibold text-rose-900">🔑 API key inválida</div>
+        <p className="text-rose-900">{message}</p>
+        <a
+          href="/admin/ai"
+          className="inline-block px-2 py-1 rounded bg-rose-600 hover:bg-rose-700 text-white text-[11px] font-medium"
+        >
+          Reconfigurar API key →
+        </a>
+      </div>
+    );
+  }
+  return (
+    <div className="rounded-lg border border-rose-200 bg-rose-50/50 p-2.5 text-xs text-rose-700">
+      {message}
+    </div>
   );
 }
 

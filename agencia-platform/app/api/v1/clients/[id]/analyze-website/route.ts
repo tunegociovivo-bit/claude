@@ -13,6 +13,7 @@ import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { analyzeClientWebsite } from "@/lib/editorial/analyze-client";
 import { AIDisabledError } from "@/lib/ai/anthropic";
+import { humanizeAiError } from "@/lib/ai/errors";
 
 const schema = z.object({
   url: z.string().url().optional(),
@@ -51,6 +52,7 @@ export const POST = withApi({ scope: "clients:write" }, async (req, { params, ap
   } catch (e: any) {
     if (e instanceof AIDisabledError) throw new ApiError(503, "ai_disabled", e.message);
     console.error("[analyze-website] error:", e);
-    throw new ApiError(500, "analyze_error", e?.message ?? "Error analizando la web");
+    const h = humanizeAiError(e);
+    throw new ApiError(500, h.code, h.message);
   }
 });

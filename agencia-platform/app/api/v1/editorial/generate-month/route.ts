@@ -14,6 +14,7 @@ import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { generateMonth } from "@/lib/editorial/generate-month";
 import { AIDisabledError } from "@/lib/ai/anthropic";
+import { humanizeAiError } from "@/lib/ai/errors";
 
 const schema = z.object({
   clientId: z.string().min(1),
@@ -55,6 +56,7 @@ export const POST = withApi({ scope: "*" }, async (req, { api }) => {
       throw new ApiError(404, "client_not_found", e.message);
     }
     console.error("[generate-month] error:", e);
-    throw new ApiError(502, "ai_error", String(e?.message ?? e).slice(0, 300));
+    const h = humanizeAiError(e);
+    throw new ApiError(502, h.code, h.message);
   }
 });

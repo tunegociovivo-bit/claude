@@ -13,6 +13,7 @@ import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { runAiAction, AI_ACTIONS, type AiAction } from "@/lib/editorial/ai-actions";
 import { AIDisabledError } from "@/lib/ai/anthropic";
+import { humanizeAiError } from "@/lib/ai/errors";
 
 const ACTION_KEYS = Object.keys(AI_ACTIONS) as [AiAction, ...AiAction[]];
 
@@ -73,6 +74,7 @@ export const POST = withApi({ scope: "*" }, async (req, { params, api }) => {
     if (e instanceof AIDisabledError) throw new ApiError(503, "ai_disabled", e.message);
     if (e?.message === "Publicación no encontrada") throw new ApiError(404, "not_found", e.message);
     console.error("[ai-action] error:", e);
-    throw new ApiError(500, "ai_error", e?.message ?? "Error en la IA");
+    const h = humanizeAiError(e);
+    throw new ApiError(500, h.code, h.message);
   }
 });

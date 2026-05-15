@@ -15,6 +15,7 @@ import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { generateImageForPost } from "@/lib/editorial/generate-image";
 import { AIDisabledError } from "@/lib/ai/anthropic";
+import { humanizeAiError } from "@/lib/ai/errors";
 
 const schema = z.object({
   format: z.enum(["imagen", "reel", "carrusel", "story", "video"]),
@@ -51,6 +52,7 @@ export const POST = withApi({ scope: "*" }, async (req, { params, api }) => {
       throw new ApiError(503, "storage_disabled", e.message);
     }
     console.error("[adapt-format] error:", e);
-    throw new ApiError(500, "image_error", e?.message ?? "Error generando imagen");
+    const h = humanizeAiError(e);
+    throw new ApiError(500, h.code, h.message);
   }
 });

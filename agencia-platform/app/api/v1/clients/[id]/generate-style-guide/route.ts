@@ -9,6 +9,7 @@ import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { generateStyleGuide } from "@/lib/editorial/analyze-client";
 import { AIDisabledError } from "@/lib/ai/anthropic";
+import { humanizeAiError } from "@/lib/ai/errors";
 
 export const POST = withApi({ scope: "clients:write" }, async (_req, { params, api }) => {
   try {
@@ -24,6 +25,7 @@ export const POST = withApi({ scope: "clients:write" }, async (_req, { params, a
       throw new ApiError(400, "no_refs", e.message);
     }
     console.error("[generate-style-guide] error:", e);
-    throw new ApiError(500, "style_guide_error", e?.message ?? "Error generando la guía");
+    const h = humanizeAiError(e);
+    throw new ApiError(500, h.code, h.message);
   }
 });
