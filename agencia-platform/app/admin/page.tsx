@@ -1,6 +1,6 @@
 import Link from "next/link";
 import PageHeader from "@/components/PageHeader";
-import { Key, Download, Webhook, Users, Sparkles, PencilLine, FolderKanban, Star, Mic, Upload, AppWindow } from "lucide-react";
+import { Key, Download, Webhook, Users, Sparkles, PencilLine, FolderKanban, Star, Mic, Upload, AppWindow, Palette, Columns3 } from "lucide-react";
 
 const cards = [
   {
@@ -51,6 +51,18 @@ const cards = [
     title: "Plataformas",
     description: "Activa los plugins migrados en el sidebar y elige qué trabajadores pueden usarlos.",
     icon: AppWindow
+  },
+  {
+    href: "/admin/columnas",
+    title: "Columnas del Kanban",
+    description: "Añade, renombra, reordena las columnas del tablero de tareas.",
+    icon: Columns3
+  },
+  {
+    href: "/admin/workspace",
+    title: "Identidad del workspace",
+    description: "Cambia el nombre y el logo que ven todos los miembros.",
+    icon: Palette
   },
   {
     href: "/admin/reviews",

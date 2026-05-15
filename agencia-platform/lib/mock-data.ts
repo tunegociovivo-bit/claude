@@ -12,6 +12,7 @@ export type TeamMember = {
   initials: string;
   role: string;
   color: string;
+  image?: string;
 };
 
 export type Task = {

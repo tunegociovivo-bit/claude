@@ -56,18 +56,24 @@ export default function Sidebar() {
   const [clients, setClients] = useState<UiClient[]>([]);
   const [platforms, setPlatforms] = useState<SidebarPlatform[]>([]);
   const [newProjectOpen, setNewProjectOpen] = useState(false);
-  const [me, setMe] = useState<{ name: string | null; email: string; role: string | null } | null>(null);
+  const [me, setMe] = useState<{ name: string | null; email: string; image: string | null; role: string | null } | null>(null);
+  const [workspace, setWorkspace] = useState<{ name: string; logo: string | null } | null>(null);
 
   useEffect(() => {
     let aborted = false;
     (async () => {
       try {
-        const [pr, cr, mr, plr] = await Promise.all([
+        const [pr, cr, mr, plr, wr] = await Promise.all([
           fetch("/api/v1/projects"),
           fetch("/api/v1/clients"),
           fetch("/api/v1/me"),
-          fetch("/api/v1/platforms")
+          fetch("/api/v1/platforms"),
+          fetch("/api/v1/workspace")
         ]);
+        if (!aborted && wr.ok) {
+          const d = await wr.json();
+          if (d) setWorkspace({ name: d.name, logo: d.logo });
+        }
         if (!aborted && pr.ok) {
           const data = await pr.json();
           setProjects(
@@ -85,7 +91,12 @@ export default function Sidebar() {
         if (!aborted && mr.ok) {
           const data = await mr.json();
           if (data.user) {
-            setMe({ name: data.user.name, email: data.user.email, role: data.role });
+            setMe({
+              name: data.user.name,
+              email: data.user.email,
+              image: data.user.image ?? null,
+              role: data.role
+            });
           }
         }
         if (!aborted && plr.ok) {
@@ -103,15 +114,24 @@ export default function Sidebar() {
 
   return (
     <aside className="w-64 shrink-0 border-r bg-white flex flex-col">
-      <div className="h-16 flex items-center gap-2 px-5 border-b">
-        <div className="h-9 w-9 rounded-lg bg-gradient-to-br from-brand-500 to-brand-700 grid place-items-center text-white">
-          <Sparkles className="h-5 w-5" />
-        </div>
-        <div className="leading-tight">
-          <div className="text-sm font-semibold">Agencia Hub</div>
+      <Link href="/" className="h-16 flex items-center gap-2 px-5 border-b hover:bg-slate-50">
+        {workspace?.logo ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={workspace.logo}
+            alt={workspace.name}
+            className="h-9 w-9 rounded-lg object-cover"
+          />
+        ) : (
+          <div className="h-9 w-9 rounded-lg bg-gradient-to-br from-brand-500 to-brand-700 grid place-items-center text-white">
+            <Sparkles className="h-5 w-5" />
+          </div>
+        )}
+        <div className="leading-tight min-w-0">
+          <div className="text-sm font-semibold truncate">{workspace?.name ?? "Hub"}</div>
           <div className="text-xs text-slate-500">Plataforma interna</div>
         </div>
-      </div>
+      </Link>
 
       <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
         {nav.map((item) => {
@@ -239,12 +259,17 @@ export default function Sidebar() {
           Administración
         </Link>
         <Link
-          href="/admin/usuarios"
+          href="/perfil"
           className="mt-3 flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-50"
         >
-          <div className="h-8 w-8 rounded-full bg-brand-500 text-white grid place-items-center text-xs font-semibold">
-            {me ? initialsFromName(me.name ?? me.email) : "?"}
-          </div>
+          {me?.image ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={me.image} alt="" className="h-8 w-8 rounded-full object-cover" />
+          ) : (
+            <div className="h-8 w-8 rounded-full bg-brand-500 text-white grid place-items-center text-xs font-semibold">
+              {me ? initialsFromName(me.name ?? me.email) : "?"}
+            </div>
+          )}
           <div className="leading-tight min-w-0">
             <div className="text-sm font-medium truncate">{me?.name ?? me?.email ?? "Cargando…"}</div>
             <div className="text-xs text-slate-500">

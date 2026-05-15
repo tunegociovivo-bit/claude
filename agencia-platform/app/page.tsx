@@ -148,9 +148,14 @@ export default async function DashboardPage() {
             <ul className="space-y-3">
               {team.map((m) => (
                 <li key={m.id} className="flex items-center gap-3">
-                  <div className={`h-8 w-8 rounded-full ${m.color} text-white grid place-items-center text-xs font-semibold`}>
-                    {m.initials}
-                  </div>
+                  {m.image ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={m.image} alt={m.name} className="h-8 w-8 rounded-full object-cover" />
+                  ) : (
+                    <div className={`h-8 w-8 rounded-full ${m.color} text-white grid place-items-center text-xs font-semibold`}>
+                      {m.initials}
+                    </div>
+                  )}
                   <div className="flex-1 min-w-0">
                     <div className="text-sm font-medium truncate">{m.name}</div>
                     <div className="text-xs text-slate-500">{m.role}</div>

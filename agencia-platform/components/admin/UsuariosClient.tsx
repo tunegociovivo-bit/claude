@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import PageHeader from "@/components/PageHeader";
 import Modal from "@/components/ui/Modal";
 import { Plus, Loader2, Trash2, Edit2, Shield, ShieldCheck } from "lucide-react";
+import ImageUpload from "@/components/ui/ImageUpload";
 
 type Member = {
   id: string;
@@ -204,6 +205,7 @@ function UserFormModal({
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [phone, setPhone] = useState("");
+  const [image, setImage] = useState("");
   const [role, setRole] = useState<Member["role"]>("MEMBER");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -217,11 +219,13 @@ function UserFormModal({
       setRole(member.role);
       setPassword("");
       setPhone((member as any).phone ?? "");
+      setImage((member as any).image ?? "");
     } else {
       setName("");
       setEmail("");
       setPassword("");
       setPhone("");
+      setImage("");
       setRole("MEMBER");
     }
   }, [open, member]);
@@ -235,7 +239,7 @@ function UserFormModal({
     setSaving(true);
     const url = isEdit ? `/api/v1/users/${member!.id}` : "/api/v1/users";
     const method = isEdit ? "PATCH" : "POST";
-    const payload: any = { name, email, role, phone: phone || null };
+    const payload: any = { name, email, role, phone: phone || null, image: image || null };
     if (password) payload.password = password;
 
     const r = await fetch(url, {
@@ -275,6 +279,17 @@ function UserFormModal({
       }
     >
       <form id="user-form" onSubmit={submit} className="space-y-4">
+        {isEdit && member && (
+          <ImageUpload
+            value={image}
+            onChange={setImage}
+            targetType="USER"
+            targetId={member.id}
+            shape="circle"
+            label="Foto de perfil"
+            size={64}
+          />
+        )}
         <div>
           <label className="block text-xs font-medium text-slate-700 mb-1">Nombre</label>
           <input

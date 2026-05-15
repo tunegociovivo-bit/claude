@@ -173,8 +173,10 @@ export async function getTeamForUi(): Promise<UiMember[]> {
         .map((s) => s[0]?.toUpperCase() ?? "")
         .join(""),
       role: u.memberships[0]?.role === "ADMIN" ? "Admin" : "Miembro",
-      color: palette[i % palette.length]
-    }));
+      color: palette[i % palette.length],
+      // Imagen del usuario (foto de perfil subida en /perfil o por admin)
+      image: u.image ?? undefined
+    } as UiMember));
   }, mockTeam);
 }
 
