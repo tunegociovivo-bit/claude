@@ -25,7 +25,8 @@ export const taskCreateSchema = z.object({
   status: z.enum(["TODO", "IN_PROGRESS", "REVIEW", "DONE", "CANCELLED"]).default("TODO"),
   priority: z.enum(["LOW", "MEDIUM", "HIGH", "URGENT"]).default("MEDIUM"),
   dueDate: z.string().datetime().optional(),
-  assigneeIds: z.array(z.string()).default([])
+  assigneeIds: z.array(z.string()).default([]),
+  parentId: z.string().optional()
 });
 
 export const documentCreateSchema = z.object({

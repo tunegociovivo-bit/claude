@@ -7,7 +7,7 @@ import RichTextEditor from "@/components/editor/RichTextEditor";
 import AttachmentList from "@/components/files/AttachmentList";
 import MentionTextarea from "@/components/forms/MentionTextarea";
 import type { UiProject, UiMember, UiTask } from "@/lib/db/queries";
-import { Loader2, Trash2, MessageSquare, Send, X } from "lucide-react";
+import { Loader2, Trash2, MessageSquare, Send, X, CheckSquare, Check } from "lucide-react";
 
 type MentionCandidate = { id: string; name: string | null; email: string };
 
@@ -82,6 +82,10 @@ export default function TaskFormModal({
   const [postingComment, setPostingComment] = useState(false);
   const editorKey = useRef(0);
 
+  const [subtasks, setSubtasks] = useState<{ id: string; title: string; status: string }[]>([]);
+  const [newSubtask, setNewSubtask] = useState("");
+  const [addingSubtask, setAddingSubtask] = useState(false);
+
   // Candidatos para autocompletar @menciones — usamos los miembros del workspace.
   const [mentionCandidates, setMentionCandidates] = useState<MentionCandidate[]>([]);
   useEffect(() => {
@@ -107,7 +111,7 @@ export default function TaskFormModal({
       setProjectId(task.projectId);
       setAssigneeIds(task.assigneeIds);
       setDueDate(task.dueDate ?? "");
-      // Cargar descripción y comentarios desde el endpoint de detalle
+      // Cargar descripción, subtareas y comentarios desde el endpoint de detalle
       fetch(`/api/v1/tasks/${task.id}`)
         .then((r) => (r.ok ? r.json() : null))
         .then((data) => {
@@ -117,6 +121,13 @@ export default function TaskFormModal({
           } catch {
             setDescription(data.description || null);
           }
+          setSubtasks(
+            (data.subtasks ?? []).map((s: any) => ({
+              id: s.id,
+              title: s.title,
+              status: s.status
+            }))
+          );
         });
       fetch(`/api/v1/tasks/${task.id}/comments`)
         .then((r) => (r.ok ? r.json() : { items: [] }))
@@ -130,8 +141,44 @@ export default function TaskFormModal({
       setAssigneeIds([]);
       setDueDate("");
       setComments([]);
+      setSubtasks([]);
     }
   }, [open, task, defaultStatus, defaultProjectId, projects]);
+
+  async function addSubtask() {
+    if (!task || !newSubtask.trim()) return;
+    setAddingSubtask(true);
+    const r = await fetch("/api/v1/tasks", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: newSubtask.trim(),
+        projectId: task.projectId,
+        parentId: task.id
+      })
+    });
+    setAddingSubtask(false);
+    if (!r.ok) return setError("No se pudo crear subtarea");
+    const created = await r.json();
+    setSubtasks((prev) => [...prev, { id: created.id, title: created.title, status: created.status }]);
+    setNewSubtask("");
+  }
+
+  async function toggleSubtask(id: string, currentStatus: string) {
+    const newStatus = currentStatus === "DONE" ? "TODO" : "DONE";
+    setSubtasks((prev) => prev.map((s) => (s.id === id ? { ...s, status: newStatus } : s)));
+    await fetch(`/api/v1/tasks/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: newStatus })
+    });
+  }
+
+  async function deleteSubtask(id: string) {
+    if (!confirm("¿Eliminar subtarea?")) return;
+    setSubtasks((prev) => prev.filter((s) => s.id !== id));
+    await fetch(`/api/v1/tasks/${id}`, { method: "DELETE" });
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -260,6 +307,76 @@ export default function TaskFormModal({
               />
             </div>
           </div>
+
+          {isEdit && (
+            <div className="pt-2">
+              <div className="text-xs font-medium text-slate-700 mb-2 flex items-center gap-1.5">
+                <CheckSquare className="h-3.5 w-3.5" />
+                Subtareas
+                <span className="text-slate-400">({subtasks.filter((s) => s.status === "DONE").length}/{subtasks.length})</span>
+              </div>
+              <div className="space-y-1.5">
+                {subtasks.map((s) => {
+                  const done = s.status === "DONE";
+                  return (
+                    <div
+                      key={s.id}
+                      className="flex items-center gap-2 group bg-white border rounded-lg px-2.5 py-1.5 hover:border-brand-200"
+                    >
+                      <button
+                        type="button"
+                        onClick={() => toggleSubtask(s.id, s.status)}
+                        className={
+                          "h-4 w-4 rounded border grid place-items-center transition shrink-0 " +
+                          (done
+                            ? "bg-brand-600 border-brand-600 text-white"
+                            : "border-slate-300 hover:border-brand-400")
+                        }
+                      >
+                        {done && <Check className="h-3 w-3" />}
+                      </button>
+                      <span
+                        className={
+                          "text-sm flex-1 " + (done ? "line-through text-slate-400" : "text-slate-700")
+                        }
+                      >
+                        {s.title}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => deleteSubtask(s.id)}
+                        className="opacity-0 group-hover:opacity-100 h-6 w-6 grid place-items-center rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="mt-2 flex items-center gap-2">
+                <input
+                  value={newSubtask}
+                  onChange={(e) => setNewSubtask(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      addSubtask();
+                    }
+                  }}
+                  placeholder="+ Añadir subtarea…"
+                  className="flex-1 px-3 py-1.5 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+                />
+                <button
+                  type="button"
+                  onClick={addSubtask}
+                  disabled={addingSubtask || !newSubtask.trim()}
+                  className="px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-sm font-medium disabled:opacity-50"
+                >
+                  Añadir
+                </button>
+              </div>
+            </div>
+          )}
 
           {isEdit && (
             <div className="pt-2">

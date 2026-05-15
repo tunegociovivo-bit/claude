@@ -1,0 +1,26 @@
+name: Deadline reminders
+
+on:
+  schedule:
+    # 06:00 UTC = 07:00 hora peninsular España (CET) / 08:00 (CEST verano)
+    - cron: "0 6 * * *"
+  workflow_dispatch: # permite dispararlo manualmente desde la UI
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispara endpoint de recordatorios
+        run: |
+          set -e
+          response=$(curl -sS -o /tmp/body -w "%{http_code}" \
+            -X POST \
+            -H "Authorization: Bearer ${{ secrets.INTERNAL_CRON_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            "${{ secrets.HUB_BASE_URL }}/api/v1/internal/reminders")
+          echo "HTTP $response"
+          cat /tmp/body
+          if [ "$response" != "200" ]; then
+            echo "::error::Endpoint devolvió $response"
+            exit 1
+          fi
