@@ -35,11 +35,10 @@ const cards = [
     disabled: true
   },
   {
-    href: "#",
+    href: "/admin/usuarios",
     title: "Usuarios y permisos",
-    description: "Próximamente: gestiona miembros, roles y permisos por proyecto.",
-    icon: Users,
-    disabled: true
+    description: "Añade trabajadores, asigna roles y gestiona permisos del workspace.",
+    icon: Users
   }
 ];
 

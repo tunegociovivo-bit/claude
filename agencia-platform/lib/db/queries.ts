@@ -107,7 +107,7 @@ export async function getTasksForUi(): Promise<UiTask[]> {
     const { prisma } = await import("./prisma");
     const rows = await prisma.task.findMany({
       include: { assignees: true, tags: { include: { tag: true } } },
-      orderBy: { dueDate: "asc" }
+      orderBy: [{ createdAt: "desc" }]
     });
     return rows.map<UiTask>((r) => ({
       id: r.id,

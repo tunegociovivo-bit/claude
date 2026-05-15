@@ -27,14 +27,16 @@ export default function Sidebar() {
   const [projects, setProjects] = useState<SidebarProject[]>([]);
   const [clients, setClients] = useState<UiClient[]>([]);
   const [newProjectOpen, setNewProjectOpen] = useState(false);
+  const [me, setMe] = useState<{ name: string | null; email: string; role: string | null } | null>(null);
 
   useEffect(() => {
     let aborted = false;
     (async () => {
       try {
-        const [pr, cr] = await Promise.all([
+        const [pr, cr, mr] = await Promise.all([
           fetch("/api/v1/projects"),
-          fetch("/api/v1/clients")
+          fetch("/api/v1/clients"),
+          fetch("/api/v1/me")
         ]);
         if (!aborted && pr.ok) {
           const data = await pr.json();
@@ -49,6 +51,12 @@ export default function Sidebar() {
         if (!aborted && cr.ok) {
           const data = await cr.json();
           setClients(data.items ?? []);
+        }
+        if (!aborted && mr.ok) {
+          const data = await mr.json();
+          if (data.user) {
+            setMe({ name: data.user.name, email: data.user.email, role: data.role });
+          }
         }
       } catch {
         // silencio: si no hay sesión, no mostramos proyectos
@@ -147,15 +155,20 @@ export default function Sidebar() {
           <Settings className="h-4 w-4" />
           Administración
         </Link>
-        <div className="mt-3 flex items-center gap-3 px-3 py-2">
-          <div className="h-8 w-8 rounded-full bg-rose-500 text-white grid place-items-center text-xs font-semibold">
-            LF
+        <Link
+          href="/admin/usuarios"
+          className="mt-3 flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-50"
+        >
+          <div className="h-8 w-8 rounded-full bg-brand-500 text-white grid place-items-center text-xs font-semibold">
+            {me ? initialsFromName(me.name ?? me.email) : "?"}
           </div>
-          <div className="leading-tight">
-            <div className="text-sm font-medium">Lucía Fernández</div>
-            <div className="text-xs text-slate-500">Directora</div>
+          <div className="leading-tight min-w-0">
+            <div className="text-sm font-medium truncate">{me?.name ?? me?.email ?? "Cargando…"}</div>
+            <div className="text-xs text-slate-500">
+              {me?.role === "ADMIN" ? "Administrador" : me?.role === "MEMBER" ? "Miembro" : me?.role === "GUEST" ? "Invitado" : ""}
+            </div>
           </div>
-        </div>
+        </Link>
       </div>
 
       <ProjectFormModal
@@ -165,4 +178,14 @@ export default function Sidebar() {
       />
     </aside>
   );
+}
+
+function initialsFromName(s: string): string {
+  return s
+    .split(/[\s.@]+/)
+    .filter(Boolean)
+    .map((w) => w[0])
+    .slice(0, 2)
+    .join("")
+    .toUpperCase();
 }
