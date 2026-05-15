@@ -211,7 +211,25 @@ export default function EditorialClient() {
   const [stats, setStats] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [filterStatus, setFilterStatus] = useState("ALL");
-  const [filterClient, setFilterClient] = useState("ALL");
+  // Filtro de cliente persistente entre vistas / modales / navegación: se
+  // hidrata desde localStorage al montar y se guarda cada vez que cambia.
+  const [filterClient, setFilterClient] = useState(() => {
+    if (typeof window === "undefined") return "ALL";
+    try {
+      return localStorage.getItem("editorial.filterClient") ?? "ALL";
+    } catch {
+      return "ALL";
+    }
+  });
+  useEffect(() => {
+    try {
+      if (filterClient && filterClient !== "ALL") {
+        localStorage.setItem("editorial.filterClient", filterClient);
+      } else {
+        localStorage.removeItem("editorial.filterClient");
+      }
+    } catch {}
+  }, [filterClient]);
   const [filterFormat, setFilterFormat] = useState("ALL");
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<EditorialPost | null>(null);
@@ -849,6 +867,7 @@ export default function EditorialClient() {
         onClose={() => setGenerateOpen(false)}
         clients={clients}
         month={month}
+        defaultClientId={filterClient !== "ALL" ? filterClient : undefined}
         onDone={() => { setGenerateOpen(false); load(); }}
       />
 
@@ -866,6 +885,7 @@ export default function EditorialClient() {
         onClose={() => setMultiClientOpen(false)}
         clients={clients}
         month={month}
+        defaultClientId={filterClient !== "ALL" ? filterClient : undefined}
         onDone={() => { setMultiClientOpen(false); load(); }}
       />
 
@@ -1274,12 +1294,14 @@ function GenerateMonthModal({
   onClose,
   clients,
   month,
+  defaultClientId,
   onDone
 }: {
   open: boolean;
   onClose: () => void;
   clients: UiClient[];
   month: string;
+  defaultClientId?: string;
   onDone: () => void;
 }) {
   const [clientId, setClientId] = useState("");
@@ -1298,7 +1320,7 @@ function GenerateMonthModal({
 
   useEffect(() => {
     if (!open) return;
-    setClientId(clients[0]?.id ?? "");
+    setClientId(defaultClientId ?? clients[0]?.id ?? "");
     setCount(14);
     setNetworks(["instagram", "facebook"]);
     setMix({ imagen: 50, reel: 25, carrusel: 15, story: 10, video: 0 });
@@ -3324,12 +3346,14 @@ function MultiClientPostModal({
   onClose,
   clients,
   month,
+  defaultClientId,
   onDone
 }: {
   open: boolean;
   onClose: () => void;
   clients: UiClient[];
   month: string;
+  defaultClientId?: string;
   onDone: () => void;
 }) {
   const [clientIds, setClientIds] = useState<string[]>([]);
@@ -3347,7 +3371,7 @@ function MultiClientPostModal({
 
   useEffect(() => {
     if (!open) return;
-    setClientIds([]);
+    setClientIds(defaultClientId ? [defaultClientId] : []);
     setTitle("");
     setContent("");
     setHashtags("");

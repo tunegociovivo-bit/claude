@@ -120,16 +120,39 @@ export default function EditorialJobsToast({ onJobCompleted }: { onJobCompleted?
     } catch {}
   }, []);
 
+  function clearAll() {
+    if (!confirm("¿Limpiar todos los toasts de generación pendientes?")) return;
+    try {
+      localStorage.setItem("editorial.runningJobs", "[]");
+    } catch {}
+    setJobs([]);
+    setStatuses({});
+  }
+
   const visible = jobs.filter((j) => !dismissed.has(j.id));
   if (visible.length === 0) return null;
 
   return (
     <div className="fixed bottom-4 right-4 z-40 space-y-2 max-w-sm w-[calc(100vw-2rem)] sm:w-96">
+      {visible.length > 1 && (
+        <div className="text-right">
+          <button
+            onClick={clearAll}
+            className="text-[11px] px-2 py-1 rounded bg-white border hover:bg-slate-50 text-slate-600 shadow-sm"
+          >
+            Limpiar todos ({visible.length})
+          </button>
+        </div>
+      )}
       {visible.map((j) => {
         const s = statuses[j.id];
-        const status = s?.status ?? "PENDING";
-        const isDone = status === "COMPLETED" || status === "FAILED";
+        let status = s?.status ?? "PENDING";
         const seconds = Math.floor((Date.now() - j.startedAt) / 1000);
+        // Client-side timeout: si el server tarda mucho en marcar zombie,
+        // forzamos vista de FAILED a los 3 min sin completar.
+        const clientStuck = !s && seconds > 180;
+        if (clientStuck) status = "FAILED";
+        const isDone = status === "COMPLETED" || status === "FAILED";
         return (
           <div
             key={j.id}
@@ -187,6 +210,12 @@ export default function EditorialJobsToast({ onJobCompleted }: { onJobCompleted?
               <p className="text-[11px] text-slate-500 mt-0.5">
                 {s?.progressMsg ?? "En cola…"} · {seconds}s
               </p>
+              {clientStuck && (
+                <p className="mt-1 text-[11px] text-rose-700 bg-rose-50 border border-rose-200 rounded p-1.5">
+                  El servidor no responde sobre este job (más de 3 min). Probablemente Railway reinició Node.
+                  Pulsa × para descartar y vuelve a generar.
+                </p>
+              )}
               {s?.errorMessage && (
                 <p className="mt-1 text-[11px] text-rose-700 bg-rose-50 border border-rose-200 rounded p-1.5">
                   {s.errorMessage}
