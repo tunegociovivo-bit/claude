@@ -25,6 +25,64 @@ type Size = "1024x1024" | "1024x1536" | "1536x1024";
  * Mapea un (w, h) custom al tamaño soportado por gpt-image-1 más parecido
  * en aspect ratio.
  */
+/**
+ * Llama a OpenAI /v1/images/edits con reference images. Equivale al
+ * camino "image-to-image" del plugin (gpt-image-2 con multipart).
+ * Multiples refs vía campo image[]; single ref vía campo image.
+ */
+async function openaiImagesEdits(opts: {
+  apiKey: string;
+  prompt: string;
+  size: string;
+  quality: "low" | "medium" | "high";
+  referenceUrls: string[];
+}): Promise<Buffer> {
+  // Descargamos cada ref server-side y la convertimos a Blob para FormData
+  const formData = new FormData();
+  formData.append("model", "gpt-image-2");
+  formData.append("prompt", opts.prompt);
+  formData.append("size", opts.size);
+  formData.append("quality", opts.quality);
+  formData.append("n", "1");
+
+  const fieldName = opts.referenceUrls.length > 1 ? "image[]" : "image";
+  let added = 0;
+  for (let i = 0; i < opts.referenceUrls.length; i++) {
+    const url = opts.referenceUrls[i];
+    try {
+      const r = await fetch(url, { signal: AbortSignal.timeout(20000) });
+      if (!r.ok) continue;
+      const ab = await r.arrayBuffer();
+      const ct = r.headers.get("content-type") ?? "image/png";
+      const cleanCt = ct.split(";")[0].trim();
+      const ext = cleanCt === "image/jpeg" ? "jpg" : cleanCt === "image/webp" ? "webp" : "png";
+      formData.append(fieldName, new Blob([ab], { type: cleanCt }), `ref-${i}.${ext}`);
+      added++;
+    } catch {
+      // skip ref que no se pudo descargar
+    }
+  }
+  if (added === 0) {
+    throw new Error("Ninguna referencia se pudo descargar. Comprueba que las URLs de las refs visuales son accesibles.");
+  }
+
+  const resp = await fetch("https://api.openai.com/v1/images/edits", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${opts.apiKey}` },
+    body: formData,
+    // Sin AbortSignal: puede tardar hasta 180s con refs y quality alta
+    signal: AbortSignal.timeout(180000)
+  });
+  if (!resp.ok) {
+    const txt = await resp.text();
+    throw new Error(`OpenAI Images Edits ${resp.status}: ${txt.slice(0, 400)}`);
+  }
+  const data = await resp.json();
+  const b64 = data?.data?.[0]?.b64_json;
+  if (!b64) throw new Error("OpenAI /edits no devolvió b64_json");
+  return Buffer.from(b64, "base64");
+}
+
 export function pickOpenAiSize(width: number, height: number): Size {
   const r = width / height;
   if (r > 1.2) return "1536x1024"; // landscape
@@ -110,6 +168,30 @@ export async function generateImageForPost(opts: GenerateImageOptions): Promise<
       ? "freepik"
       : "openai";
 
+  // Detectar personas del roster mencionadas en este post para pasar
+  // sus fotos como reference_images a gpt-image-2 vía /v1/images/edits.
+  // Esto es lo que hacía el plugin original y por lo que las caras
+  // salían como personas reales y no genéricas.
+  const refs: any[] = Array.isArray(client?.referenceImages) ? client.referenceImages : [];
+  const peopleRefs = new Map<string, string[]>(); // personName → urls
+  for (const r of refs) {
+    const name = (r?.personName ?? "").toString().trim();
+    const url = typeof r?.url === "string" ? r.url : null;
+    if (!name || !url) continue;
+    if (!peopleRefs.has(name)) peopleRefs.set(name, []);
+    peopleRefs.get(name)!.push(url);
+  }
+  const haystack = `${post.title} ${post.content ?? ""}`.toLowerCase();
+  const referenceUrls: string[] = [];
+  for (const [name, urls] of peopleRefs.entries()) {
+    if (haystack.includes(name.toLowerCase())) {
+      // Tomamos hasta 4 fotos por persona mencionada. Total máx 12.
+      for (const u of urls.slice(0, 4)) {
+        if (referenceUrls.length < 12) referenceUrls.push(u);
+      }
+    }
+  }
+
   let buf: Buffer;
   let modelLabel: string;
   if (provider === "freepik") {
@@ -119,6 +201,17 @@ export async function generateImageForPost(opts: GenerateImageOptions): Promise<
       size: pickFreepikSize(dim.width, dim.height)
     });
     modelLabel = "freepik-seedream-v4";
+  } else if (referenceUrls.length > 0) {
+    // PATH IMAGES/EDITS con reference images (gpt-image-2). Replica el plugin.
+    const apiKey = await getOpenAiKeyForWorkspace(opts.workspaceId);
+    buf = await openaiImagesEdits({
+      apiKey,
+      prompt,
+      size,
+      quality,
+      referenceUrls
+    });
+    modelLabel = `gpt-image-2-edits-${quality}-refs${referenceUrls.length}`;
   } else {
     const apiKey = await getOpenAiKeyForWorkspace(opts.workspaceId);
     const resp = await fetch("https://api.openai.com/v1/images/generations", {
