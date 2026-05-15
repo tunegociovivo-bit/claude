@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import PageHeader from "@/components/PageHeader";
 import Modal from "@/components/ui/Modal";
+import EditorialJobsToast from "@/components/admin/EditorialJobsToast";
 import {
   Plus,
   Loader2,
@@ -1018,6 +1019,8 @@ export default function EditorialClient() {
           </div>
         )}
       </Modal>
+
+      <EditorialJobsToast onJobCompleted={() => load()} />
     </div>
   );
 }
@@ -1353,8 +1356,17 @@ function GenerateMonthModal({
       setError(data?.error?.message ?? `Error ${r.status}`);
       return;
     }
-    setResult(data);
-    setTimeout(() => onDone(), 1500);
+    // El backend devuelve un jobId que se procesa en segundo plano.
+    // Persistimos en localStorage y emitimos evento custom para que el
+    // toast global haga polling. Cerramos el modal de inmediato.
+    try {
+      const existing = JSON.parse(localStorage.getItem("editorial.runningJobs") ?? "[]");
+      existing.push({ id: data.jobId, startedAt: Date.now(), clientName: clients.find((c) => c.id === clientId)?.name, month });
+      localStorage.setItem("editorial.runningJobs", JSON.stringify(existing));
+      window.dispatchEvent(new CustomEvent("editorial:job-started", { detail: { id: data.jobId } }));
+    } catch {}
+    setResult({ count: count, model: "background", jobId: data.jobId });
+    setTimeout(() => onDone(), 600);
   }
 
   return (

@@ -1126,6 +1126,30 @@ model Notification {
 //
 // El ErrorReport se cierra cuando un commit referencia su id en el
 // mensaje (ej: "fix: ... closes ErrorReport#abc123").
+// Jobs en segundo plano (generación masiva de mes editorial, etc.). Se
+// usan para no bloquear la respuesta HTTP cuando la operación tarda y el
+// proxy de Railway corta a los 30-60s.
+model BackgroundJob {
+  id          String    @id @default(cuid())
+  workspaceId String
+  userId      String?
+  kind        String    // editorial.generate_month | leads.search_batch | ...
+  status      String    @default("PENDING") // PENDING|RUNNING|COMPLETED|FAILED|CANCELLED
+  progressPct Int       @default(0) // 0-100
+  progressMsg String?   // mensaje legible "Generando publicación 3/14"
+  request     Json?     // params originales
+  result      Json?     // payload de éxito
+  errorCode   String?
+  errorMessage String?  @db.Text
+  startedAt   DateTime?
+  completedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([workspaceId, kind, status])
+  @@index([workspaceId, createdAt])
+}
+
 model ErrorReport {
   id              String    @id @default(cuid())
   workspaceId     String?

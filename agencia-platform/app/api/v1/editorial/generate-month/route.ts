@@ -1,15 +1,16 @@
 /**
  * POST /api/v1/editorial/generate-month
  *
- * Genera N publicaciones para un cliente y un mes con Claude, usando el brief
- * de marca, los colores y la guía de estilo cacheada (si existe).
+ * Encola un job en segundo plano y devuelve inmediatamente { jobId }.
+ * El cliente hace polling a /api/v1/editorial/generate-month/jobs/{id}
+ * para ver el progreso y el resultado.
  *
- * Migra "generar-mes-ai" del plugin NV Dashboard. Solo texto (las imágenes
- * llegan en fase F).
+ * Esto evita el 502 del proxy de Railway cuando la generación tarda > 30s.
  */
 
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { generateMonth } from "@/lib/editorial/generate-month";
@@ -41,22 +42,82 @@ export const POST = withApi({ scope: "*" }, async (req, { api }) => {
   const parsed = schema.safeParse(body);
   if (!parsed.success) throw new ApiError(400, "validation_error", parsed.error.message);
 
-  try {
-    const result = await generateMonth({
+  // Crear el job
+  const job = await prisma.backgroundJob.create({
+    data: {
       workspaceId: api.workspaceId,
-      userId: api.userId,
-      ...parsed.data
-    });
-    return NextResponse.json(result);
-  } catch (e: any) {
-    if (e instanceof AIDisabledError) {
-      throw new ApiError(503, "ai_disabled", e.message);
+      userId: api.userId ?? null,
+      kind: "editorial.generate_month",
+      status: "PENDING",
+      progressPct: 0,
+      progressMsg: "En cola…",
+      request: parsed.data as any
     }
-    if (e?.message === "Cliente no encontrado") {
-      throw new ApiError(404, "client_not_found", e.message);
-    }
-    console.error("[generate-month] error:", e);
-    const h = humanizeAiError(e);
-    throw new ApiError(502, h.code, h.message);
-  }
+  });
+
+  // Ejecutar en background (fire & forget). Railway Node es long-lived
+  // así que el promise sigue corriendo aunque hayamos enviado la respuesta.
+  runJobAsync(job.id, api.workspaceId, api.userId ?? null, parsed.data).catch((e) =>
+    console.error("[generate-month] background job fallo crítico:", e)
+  );
+
+  return NextResponse.json(
+    {
+      jobId: job.id,
+      status: job.status,
+      message: "Generación iniciada en segundo plano. Haz polling en /jobs/{id}."
+    },
+    { status: 202 }
+  );
 });
+
+async function runJobAsync(
+  jobId: string,
+  workspaceId: string,
+  userId: string | null,
+  params: z.infer<typeof schema>
+) {
+  try {
+    await prisma.backgroundJob.update({
+      where: { id: jobId },
+      data: { status: "RUNNING", startedAt: new Date(), progressMsg: "Llamando a Claude…", progressPct: 10 }
+    });
+    const result = await generateMonth({
+      workspaceId,
+      userId,
+      ...params
+    });
+    await prisma.backgroundJob.update({
+      where: { id: jobId },
+      data: {
+        status: "COMPLETED",
+        completedAt: new Date(),
+        progressPct: 100,
+        progressMsg: `✓ ${result.count} publicaciones creadas`,
+        result: result as any
+      }
+    });
+  } catch (e: any) {
+    let code = "ai_error";
+    let message = e?.message ?? "Error generando";
+    if (e instanceof AIDisabledError) {
+      code = "ai_disabled";
+    } else if (e?.message === "Cliente no encontrado") {
+      code = "client_not_found";
+    } else {
+      const h = humanizeAiError(e);
+      code = h.code;
+      message = h.message;
+    }
+    await prisma.backgroundJob.update({
+      where: { id: jobId },
+      data: {
+        status: "FAILED",
+        completedAt: new Date(),
+        errorCode: code,
+        errorMessage: message,
+        progressMsg: `Error: ${message.slice(0, 100)}`
+      }
+    });
+  }
+}
