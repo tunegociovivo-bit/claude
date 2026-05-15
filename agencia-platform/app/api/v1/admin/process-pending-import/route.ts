@@ -29,6 +29,121 @@ function parseDate(v: any): Date | null {
   return isNaN(d.getTime()) ? null : d;
 }
 
+/**
+ * Mapea el objeto cliente_meta exportado por el plugin (term_meta de
+ * nv_cliente + URLs resueltas) a campos del modelo Client del hub.
+ *
+ * El exporter envía:
+ *   {
+ *     term_id, slug, name,
+ *     meta: { nv_brand_brief, nv_brand_color_*, nv_visual_pattern,
+ *             nv_refs_fidelity, nv_competidores, nv_dimensiones_formatos,
+ *             nv_style_guide_cached, nv_style_guide_hash, nv_drive_mode,
+ *             nv_drive_root_id, nv_drive_subfolders, nv_logo_position,
+ *             nv_cliente_website, ... },
+ *     resolved: { logo_url, fonts:[{url,name,weight}], reference_images:[...] }
+ *   }
+ */
+function mapClienteMetaToFields(cm: any): Record<string, any> {
+  const meta = (cm?.meta ?? {}) as Record<string, any>;
+  const resolved = (cm?.resolved ?? {}) as Record<string, any>;
+  const out: Record<string, any> = {};
+
+  const str = (v: any) =>
+    typeof v === "string" && v.trim() ? v.trim() : null;
+
+  const hex = (v: any) => {
+    const s = typeof v === "string" ? v.trim() : "";
+    return /^#[0-9A-Fa-f]{6}$/.test(s) ? s.toUpperCase() : null;
+  };
+
+  // Brief & website
+  const brief = str(meta.nv_brand_brief);
+  if (brief) out.brandBrief = brief;
+  const website = str(meta.nv_cliente_website);
+  if (website && /^https?:\/\//.test(website)) out.website = website;
+
+  // Colores
+  const cP = hex(meta.nv_brand_color_primary);
+  if (cP) out.brandColorPrimary = cP;
+  const cA = hex(meta.nv_brand_color_accent);
+  if (cA) out.brandColorAccent = cA;
+  const cT = hex(meta.nv_brand_color_text);
+  if (cT) out.brandColorText = cT;
+
+  // Logo
+  const logo = str(resolved.logo_url);
+  if (logo) out.logoUrl = logo;
+  const pos = str(meta.nv_logo_position);
+  if (pos && ["br", "bl", "tr", "tl"].includes(pos)) out.logoPosition = pos;
+
+  // Patrón visual + fidelidad
+  const pattern = str(meta.nv_visual_pattern);
+  if (pattern && ["clean", "frame"].includes(pattern)) out.visualPattern = pattern;
+  const fidelity = Number(meta.nv_refs_fidelity);
+  if (Number.isFinite(fidelity) && fidelity >= 0 && fidelity <= 100) {
+    out.refsFidelity = Math.round(fidelity);
+  }
+
+  // Competidores (textarea por línea)
+  const comp = str(meta.nv_competidores);
+  if (comp) out.competitors = comp;
+
+  // Dimensiones por formato (JSON)
+  const dims = meta.nv_dimensiones_formatos;
+  if (dims && typeof dims === "object" && !Array.isArray(dims)) {
+    out.dimensionsByFormat = dims;
+  }
+
+  // Refs visuales (URLs resueltas) → JSON [{url, type, personName}]
+  const refs = Array.isArray(resolved.reference_images) ? resolved.reference_images : [];
+  if (refs.length > 0) {
+    out.referenceImages = refs.map((r: any) => ({
+      url: String(r.url),
+      type: typeof r.type === "string" ? r.type : "general",
+      personName: r.personName ?? r.person_name ?? undefined
+    }));
+  }
+
+  // Fuentes (URLs resueltas)
+  const fonts = Array.isArray(resolved.fonts) ? resolved.fonts : [];
+  if (fonts.length > 0) {
+    out.fonts = fonts.map((f: any) => ({
+      url: String(f.url),
+      name: f.name ?? "",
+      weight: f.weight === "bold" ? "bold" : "regular"
+    }));
+  }
+
+  // Guía de estilo cacheada + hash
+  const guide = str(meta.nv_style_guide_cached);
+  if (guide) {
+    out.styleGuideCached = guide;
+    const hash = str(meta.nv_style_guide_hash);
+    if (hash) out.styleGuideHash = hash;
+  }
+
+  // Drive
+  const driveMode = str(meta.nv_drive_mode);
+  if (driveMode && ["configured", "pending", "no_drive_refs"].includes(driveMode)) {
+    out.driveMode = driveMode;
+  }
+  const driveRoot = str(meta.nv_drive_root_id);
+  if (driveRoot) out.driveRootId = driveRoot;
+  const subs = meta.nv_drive_subfolders;
+  if (Array.isArray(subs) && subs.length > 0) {
+    out.driveSubfolders = subs
+      .map((s: any) => ({
+        name: String(s?.name ?? ""),
+        id: String(s?.id ?? ""),
+        type: typeof s?.type === "string" ? s.type : "otros"
+      }))
+      .filter((s) => s.id);
+  }
+
+  return out;
+}
+
 export const POST = withApi({ scope: "*" }, async (_req, { api }) => {
   await requireAdmin(api.workspaceId, api.userId);
 
@@ -64,6 +179,16 @@ export const POST = withApi({ scope: "*" }, async (_req, { api }) => {
       ? pending.nvDashboard.clientesTaxonomy
       : [];
     const configs = (pending.nvDashboard.clienteConfigs ?? {}) as Record<string, any>;
+    // Term meta exportado por agencia-exporter v2 (cliente_meta resuelto:
+    // brief, branding, colores, fuentes, refs, drive, dimensiones, etc.)
+    const clienteMetaArr: any[] = Array.isArray(pending.nvDashboard.clienteMeta)
+      ? pending.nvDashboard.clienteMeta
+      : [];
+    const clienteMetaByName = new Map<string, any>();
+    for (const cm of clienteMetaArr) {
+      const n = String(cm?.name ?? "").trim().toLowerCase();
+      if (n) clienteMetaByName.set(n, cm);
+    }
     console.log(
       `[process-pending-import] NV Dashboard: ${taxes.length} clientes en taxonomía, ` +
       `${Array.isArray(pending.nvDashboard.publications) ? pending.nvDashboard.publications.length : 0} publicaciones`
@@ -96,14 +221,44 @@ export const POST = withApi({ scope: "*" }, async (_req, { api }) => {
           notes = lines.join("\n");
         }
 
+        // Mapear cliente_meta exportado → campos editoriales del Client
+        const cm = clienteMetaByName.get(name.toLowerCase());
+        const editorialFields = cm ? mapClienteMetaToFields(cm) : null;
+
         // Industry y demás se quedan vacíos por ahora; los rellena el user
         const existing = await prisma.client.findFirst({
           where: { workspaceId: api.workspaceId, name, deletedAt: null }
         });
         if (existing) {
-          // Solo actualiza notas si están vacías (no pisar las del user)
-          if (!existing.notes && notes) {
-            await prisma.client.update({ where: { id: existing.id }, data: { notes } });
+          // Actualiza notas si están vacías + sobreescribe campos editoriales
+          // que estén en valores por defecto (no pisar overrides del user).
+          const upd: any = {};
+          if (!existing.notes && notes) upd.notes = notes;
+          if (editorialFields) {
+            // Sólo aplicamos si el campo del cliente está vacío / default
+            if (!existing.brandBrief && editorialFields.brandBrief) upd.brandBrief = editorialFields.brandBrief;
+            if (!existing.website && editorialFields.website) upd.website = editorialFields.website;
+            if (existing.brandColorPrimary === "#1F2937" && editorialFields.brandColorPrimary) upd.brandColorPrimary = editorialFields.brandColorPrimary;
+            if (existing.brandColorAccent === "#2563EB" && editorialFields.brandColorAccent) upd.brandColorAccent = editorialFields.brandColorAccent;
+            if (existing.brandColorText === "#FFFFFF" && editorialFields.brandColorText) upd.brandColorText = editorialFields.brandColorText;
+            if (!existing.logoUrl && editorialFields.logoUrl) upd.logoUrl = editorialFields.logoUrl;
+            if (existing.logoPosition === "br" && editorialFields.logoPosition) upd.logoPosition = editorialFields.logoPosition;
+            if (existing.visualPattern === "clean" && editorialFields.visualPattern) upd.visualPattern = editorialFields.visualPattern;
+            if (existing.refsFidelity === 50 && typeof editorialFields.refsFidelity === "number") upd.refsFidelity = editorialFields.refsFidelity;
+            if (!existing.competitors && editorialFields.competitors) upd.competitors = editorialFields.competitors;
+            if (!existing.dimensionsByFormat && editorialFields.dimensionsByFormat) upd.dimensionsByFormat = editorialFields.dimensionsByFormat;
+            if (!existing.referenceImages && editorialFields.referenceImages) upd.referenceImages = editorialFields.referenceImages;
+            if (!existing.fonts && editorialFields.fonts) upd.fonts = editorialFields.fonts;
+            if (!existing.styleGuideCached && editorialFields.styleGuideCached) {
+              upd.styleGuideCached = editorialFields.styleGuideCached;
+              upd.styleGuideHash = editorialFields.styleGuideHash ?? null;
+            }
+            if (existing.driveMode === "pending" && editorialFields.driveMode) upd.driveMode = editorialFields.driveMode;
+            if (!existing.driveRootId && editorialFields.driveRootId) upd.driveRootId = editorialFields.driveRootId;
+            if (!existing.driveSubfolders && editorialFields.driveSubfolders) upd.driveSubfolders = editorialFields.driveSubfolders;
+          }
+          if (Object.keys(upd).length > 0) {
+            await prisma.client.update({ where: { id: existing.id }, data: upd });
             report.editorialClientsUpdated++;
           }
         } else {
@@ -112,7 +267,8 @@ export const POST = withApi({ scope: "*" }, async (_req, { api }) => {
               workspaceId: api.workspaceId,
               name,
               notes,
-              since: new Date()
+              since: new Date(),
+              ...(editorialFields ?? {})
             }
           });
           report.editorialClientsCreated++;

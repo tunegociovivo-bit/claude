@@ -165,6 +165,30 @@ function formatIcon(format: string | null) {
   return ImageIcon;
 }
 
+// Estilo por formato: color de fondo + texto + dot + label, para que cada
+// tipo de publicación sea reconocible de un vistazo en el calendario.
+const FORMAT_STYLES: Record<string, { bg: string; text: string; dot: string; label: string }> = {
+  imagen:   { bg: "bg-sky-50 border-sky-200",       text: "text-sky-800",      dot: "bg-sky-500",      label: "Imagen" },
+  post:     { bg: "bg-sky-50 border-sky-200",       text: "text-sky-800",      dot: "bg-sky-500",      label: "Imagen" },
+  reel:     { bg: "bg-pink-50 border-pink-200",     text: "text-pink-800",     dot: "bg-pink-500",     label: "Reel" },
+  video:    { bg: "bg-rose-50 border-rose-200",     text: "text-rose-800",     dot: "bg-rose-500",     label: "Video" },
+  carrusel: { bg: "bg-violet-50 border-violet-200", text: "text-violet-800",   dot: "bg-violet-500",   label: "Carrusel" },
+  carousel: { bg: "bg-violet-50 border-violet-200", text: "text-violet-800",   dot: "bg-violet-500",   label: "Carrusel" },
+  story:    { bg: "bg-amber-50 border-amber-200",   text: "text-amber-800",    dot: "bg-amber-500",    label: "Story" },
+  blog:     { bg: "bg-emerald-50 border-emerald-200", text: "text-emerald-800", dot: "bg-emerald-500", label: "Blog" },
+  email:    { bg: "bg-indigo-50 border-indigo-200", text: "text-indigo-800",   dot: "bg-indigo-500",   label: "Email" }
+};
+
+function formatStyle(format: string | null) {
+  const f = (format ?? "imagen").toLowerCase();
+  return FORMAT_STYLES[f] ?? FORMAT_STYLES.imagen;
+}
+
+// Considera "aprobado" cualquier estado igual o posterior a APPROVED
+function isApprovedStatus(status: string): boolean {
+  return ["APPROVED", "SCHEDULED", "PUBLISHED"].includes(status);
+}
+
 function formatNetworkColor(n: string): string {
   const k = n.toLowerCase();
   if (k.includes("instagram")) return "bg-pink-50 text-pink-700 border-pink-200";
@@ -187,6 +211,7 @@ export default function EditorialClient() {
   const [loading, setLoading] = useState(true);
   const [filterStatus, setFilterStatus] = useState("ALL");
   const [filterClient, setFilterClient] = useState("ALL");
+  const [filterFormat, setFilterFormat] = useState("ALL");
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<EditorialPost | null>(null);
   const [generateOpen, setGenerateOpen] = useState(false);
@@ -291,7 +316,11 @@ export default function EditorialClient() {
     }
   }
 
-  const filtered = posts.filter((p) => filterStatus === "ALL" || p.status === filterStatus);
+  const filtered = posts.filter(
+    (p) =>
+      (filterStatus === "ALL" || p.status === filterStatus) &&
+      (filterFormat === "ALL" || (p.format ?? "imagen").toLowerCase() === filterFormat)
+  );
 
   const postsByDay = useMemo(() => {
     const m = new Map<string, EditorialPost[]>();
@@ -592,6 +621,23 @@ export default function EditorialClient() {
             {STATUS_OPTIONS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
           </select>
         </div>
+        <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white border text-xs">
+          <span className="text-slate-500">Formato:</span>
+          <select
+            value={filterFormat}
+            onChange={(e) => setFilterFormat(e.target.value)}
+            className="bg-transparent font-medium focus:outline-none"
+          >
+            <option value="ALL">Todos</option>
+            <option value="imagen">Imagen</option>
+            <option value="reel">Reel</option>
+            <option value="carrusel">Carrusel</option>
+            <option value="story">Story</option>
+            <option value="video">Video</option>
+            <option value="blog">Blog</option>
+            <option value="email">Email</option>
+          </select>
+        </div>
 
         <div className="ml-auto flex items-center gap-1">
           <ActionButton onClick={() => doMonthAction("approve")} icon={<CheckCircle2 className="h-3 w-3" />}>Aprobar mes</ActionButton>
@@ -608,6 +654,21 @@ export default function EditorialClient() {
         </div>
       ) : view === "calendar" ? (
         <div className="bg-white rounded-xl border overflow-x-auto">
+          {/* Leyenda de formatos */}
+          <div className="flex flex-wrap gap-2 px-3 py-2 border-b bg-slate-50/50 text-[10px]">
+            <span className="text-slate-500 uppercase tracking-wide">Leyenda:</span>
+            {(["imagen", "reel", "carrusel", "story", "video"] as const).map((k) => {
+              const fs = FORMAT_STYLES[k];
+              return (
+                <span key={k} className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded border ${fs.bg} ${fs.text}`}>
+                  <span className={`h-1.5 w-1.5 rounded-full ${fs.dot}`} />
+                  {fs.label}
+                </span>
+              );
+            })}
+            <span className="ml-2 text-slate-400">·</span>
+            <span className="text-slate-500">✓ checkbox para aprobar · arrastra para reprogramar</span>
+          </div>
           <div className="grid grid-cols-7 text-xs uppercase tracking-wide text-slate-500 border-b bg-slate-50">
             {["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"].map((d) => (
               <div key={d} className="px-3 py-2 border-r last:border-r-0">{d}</div>
@@ -667,9 +728,14 @@ export default function EditorialClient() {
                   </div>
                   <div className="space-y-1">
                     {dayPosts.slice(0, 3).map((p) => {
+                      const fs = formatStyle(p.format);
+                      const Icon = formatIcon(p.format);
+                      const approved = isApprovedStatus(p.status);
                       const st = STATUS_OPTIONS.find((s) => s.value === p.status) ?? STATUS_OPTIONS[0];
+                      const isPublished = p.status === "PUBLISHED";
+                      const isScheduled = p.status === "SCHEDULED";
                       return (
-                        <button
+                        <div
                           key={p.id}
                           draggable
                           onDragStart={(e) => {
@@ -682,12 +748,31 @@ export default function EditorialClient() {
                             setEditing(p);
                             setFormOpen(true);
                           }}
-                          className={`block w-full text-left text-[11px] px-1.5 py-0.5 rounded border truncate ${st.color} hover:opacity-80 cursor-move`}
-                          title={`${p.title} (arrastra para reprogramar)`}
+                          className={`group flex items-center gap-1 text-[11px] px-1 py-0.5 rounded border ${fs.bg} ${fs.text} hover:opacity-80 cursor-move`}
+                          title={`${p.title} · ${fs.label} · ${st.label} (arrastra para reprogramar)`}
                         >
-                          <span className={`inline-block h-1.5 w-1.5 rounded-full ${st.dot} mr-1`} />
-                          {p.title}
-                        </button>
+                          <input
+                            type="checkbox"
+                            checked={approved}
+                            onClick={(e) => e.stopPropagation()}
+                            onChange={async (e) => {
+                              e.stopPropagation();
+                              const checked = e.currentTarget.checked;
+                              await fetch(`/api/v1/editorial/posts/${p.id}`, {
+                                method: "PATCH",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ status: checked ? "APPROVED" : "DRAFT" })
+                              });
+                              load();
+                            }}
+                            className="h-3 w-3 shrink-0 accent-emerald-600"
+                            title={approved ? "Desaprobar" : "Aprobar"}
+                          />
+                          <Icon className="h-3 w-3 shrink-0 opacity-75" />
+                          <span className="truncate flex-1">{p.title}</span>
+                          {isPublished && <span className="shrink-0 text-emerald-600" title="Publicada">●</span>}
+                          {isScheduled && <span className="shrink-0 text-indigo-600" title="Programada">▶</span>}
+                        </div>
                       );
                     })}
                     {dayPosts.length > 3 && (

@@ -266,15 +266,18 @@ export const POST = withApi({ scope: "*" }, async (req, { api }) => {
 
         // Tope de tamaño para no inflar el JSON de settings
         const pubs = Array.isArray(nvd.publications) ? nvd.publications : [];
+        const clienteMeta = Array.isArray(nvd.cliente_meta) ? nvd.cliente_meta : [];
         const sized = safeSize({
           publications: pubs,
           clientesTaxonomy: nvd.clientes_taxonomy ?? [],
-          clienteConfigs: nvd.cliente_configs ?? {}
+          clienteConfigs: nvd.cliente_configs ?? {},
+          clienteMeta
         });
         if (sized.bytes > MAX_PENDING_BYTES) {
-          // Recortamos publications hasta caber
+          // Recortamos publications hasta caber (cliente_meta se mantiene
+          // siempre porque es pequeño y crítico)
           const trimmedPubs: any[] = [];
-          let runningBytes = 1024; // overhead
+          let runningBytes = 1024 + JSON.stringify(clienteMeta).length;
           for (const p of pubs) {
             const piece = JSON.stringify(p);
             runningBytes += piece.length;
@@ -285,6 +288,7 @@ export const POST = withApi({ scope: "*" }, async (req, { api }) => {
             publications: trimmedPubs,
             clientesTaxonomy: nvd.clientes_taxonomy ?? [],
             clienteConfigs: nvd.cliente_configs ?? {},
+            clienteMeta,
             importedAt: new Date().toISOString(),
             truncated: true,
             originalCount: pubs.length,
@@ -293,7 +297,7 @@ export const POST = withApi({ scope: "*" }, async (req, { api }) => {
           report.pendingNvDashboard = trimmedPubs.length;
           report.sections.nv_dashboard = {
             ok: true,
-            message: `Truncado: ${pubs.length} → ${trimmedPubs.length} publicaciones (tope 2 MB)`,
+            message: `Truncado: ${pubs.length} → ${trimmedPubs.length} publicaciones (tope 2 MB). cliente_meta: ${clienteMeta.length}`,
             bytes: MAX_PENDING_BYTES
           };
         } else {
@@ -301,10 +305,11 @@ export const POST = withApi({ scope: "*" }, async (req, { api }) => {
             publications: pubs,
             clientesTaxonomy: nvd.clientes_taxonomy ?? [],
             clienteConfigs: nvd.cliente_configs ?? {},
+            clienteMeta,
             importedAt: new Date().toISOString()
           };
           report.pendingNvDashboard = pubs.length;
-          report.sections.nv_dashboard = { ok: true, bytes: sized.bytes };
+          report.sections.nv_dashboard = { ok: true, bytes: sized.bytes, clienteMetaCount: clienteMeta.length };
         }
       } else {
         report.sections.nv_dashboard = { ok: true, message: "Sin datos de NV Dashboard" };

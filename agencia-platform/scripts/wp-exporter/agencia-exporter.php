@@ -180,6 +180,9 @@ function agencia_exporter_dump_all(WP_REST_Request $req) {
             'publications'      => $publications,
             // Si hay opciones por cliente, dump simplificado:
             'cliente_configs'   => agencia_exporter_dump_options_with_prefix('nv_dashboard_cliente_config_'),
+            // Term meta de cada cliente (toda la config editorial:
+            // brief, branding, colores, fuentes, refs, drive, dimensiones, etc.)
+            'cliente_meta'      => agencia_exporter_dump_cliente_meta(),
         ];
     }
 
@@ -224,6 +227,98 @@ function agencia_exporter_dump_options_with_prefix($prefix): array {
     $out = [];
     foreach ($rows as $r) {
         $out[$r['option_name']] = maybe_unserialize($r['option_value']);
+    }
+    return $out;
+}
+
+/**
+ * Dumpea TODOS los term_meta de la taxonomía nv_cliente: brief, branding,
+ * colores, fuentes, refs visuales, dimensiones por formato, Drive refs,
+ * guía de estilo cacheada, patrón visual, fidelidad, competidores, etc.
+ *
+ * Resuelve URLs de adjuntos (logo, fuentes, refs) para que el hub las
+ * pueda re-descargar sin necesidad de acceso al wp-content del WP origen.
+ */
+function agencia_exporter_dump_cliente_meta(): array {
+    if (!taxonomy_exists('nv_cliente')) return [];
+    $terms = get_terms(['taxonomy' => 'nv_cliente', 'hide_empty' => false]);
+    if (is_wp_error($terms)) return [];
+    $out = [];
+    foreach ($terms as $t) {
+        $tid = $t->term_id;
+        // Lee TODOS los meta keys del term y mete los que empiezan por nv_
+        $all_meta = get_term_meta($tid);
+        $meta = [];
+        foreach ($all_meta as $k => $vals) {
+            if (strpos($k, 'nv_') !== 0) continue;
+            $first = is_array($vals) ? ($vals[0] ?? '') : (string) $vals;
+            // Intentar deserializar
+            $maybe = maybe_unserialize($first);
+            // Si parece JSON, decodificar
+            if (is_string($maybe) && (str_starts_with(trim($maybe), '{') || str_starts_with(trim($maybe), '['))) {
+                $decoded = json_decode($maybe, true);
+                if (json_last_error() === JSON_ERROR_NONE) $maybe = $decoded;
+            }
+            $meta[$k] = $maybe;
+        }
+
+        // Resolver URL del logo (nv_logo_attachment_id → URL)
+        $logo_id = (int) ($meta['nv_logo_attachment_id'] ?? 0);
+        $logo_url = $logo_id ? wp_get_attachment_url($logo_id) : null;
+
+        // Resolver URLs de fuentes (legacy nv_font_attachment_id + nuevo nv_font_attachments)
+        $fonts = [];
+        $legacy_font_id = (int) ($meta['nv_font_attachment_id'] ?? 0);
+        if ($legacy_font_id) {
+            $url = wp_get_attachment_url($legacy_font_id);
+            if ($url) $fonts[] = ['url' => $url, 'name' => basename($url), 'weight' => 'regular'];
+        }
+        $font_attachments = $meta['nv_font_attachments'] ?? [];
+        if (is_array($font_attachments)) {
+            foreach ($font_attachments as $f) {
+                $fid = (int) ($f['id'] ?? 0);
+                if (!$fid) continue;
+                $url = wp_get_attachment_url($fid);
+                if ($url) {
+                    $fonts[] = [
+                        'url'    => $url,
+                        'name'   => $f['name'] ?? basename($url),
+                        'weight' => $f['weight'] ?? 'regular',
+                    ];
+                }
+            }
+        }
+
+        // Resolver URLs de imágenes de referencia (nv_reference_images: [{id,type,personName}])
+        $refs = [];
+        $raw_refs = $meta['nv_reference_images'] ?? [];
+        if (is_array($raw_refs)) {
+            foreach ($raw_refs as $r) {
+                $rid = (int) ($r['id'] ?? 0);
+                if (!$rid) continue;
+                $url = wp_get_attachment_url($rid);
+                if ($url) {
+                    $refs[] = [
+                        'url'        => $url,
+                        'type'       => $r['type'] ?? 'general',
+                        'personName' => $r['person_name'] ?? ($r['personName'] ?? null),
+                    ];
+                }
+            }
+        }
+
+        $out[] = [
+            'term_id'       => $tid,
+            'slug'          => $t->slug,
+            'name'          => $t->name,
+            'meta'          => $meta,
+            // Campos resueltos (URLs) que el hub puede usar directamente:
+            'resolved'      => [
+                'logo_url'         => $logo_url,
+                'fonts'            => $fonts,
+                'reference_images' => $refs,
+            ],
+        ];
     }
     return $out;
 }
