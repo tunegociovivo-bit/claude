@@ -1913,6 +1913,27 @@ function PostFormModal({
       size="xl"
       footer={
         <>
+          {isEdit && post && (
+            <button
+              type="button"
+              onClick={async () => {
+                if (!confirm(`¿Eliminar la publicación "${post.title}"?\n\nEsta acción no se puede deshacer.`)) return;
+                const r = await fetch(`/api/v1/editorial/posts/${post.id}`, { method: "DELETE" });
+                if (r.ok) {
+                  onSaved();
+                  onClose();
+                } else {
+                  const j = await r.json().catch(() => ({}));
+                  alert(j?.error?.message ?? `Error ${r.status}`);
+                }
+              }}
+              className="px-3 py-2 rounded-lg text-sm border bg-rose-50 hover:bg-rose-100 border-rose-200 text-rose-700 inline-flex items-center gap-1.5"
+              title="Eliminar permanentemente"
+            >
+              <Trash2 className="h-4 w-4" />
+              Eliminar
+            </button>
+          )}
           {isEdit && (
             <button
               type="button"
