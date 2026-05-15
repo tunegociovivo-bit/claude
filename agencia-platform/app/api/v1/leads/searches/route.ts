@@ -3,11 +3,14 @@ import { z } from "zod";
 import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
+import { startSearch } from "@/lib/leads/search-manager";
 
 const createSchema = z.object({
   keyword: z.string().min(2).max(120),
-  location: z.string().min(2).max(120),
-  provincesScope: z.array(z.string()).default([])
+  location: z.string().max(120).optional().default(""),
+  scope: z.enum(["custom", "spain"]).default("custom"),
+  // Legacy field, ignorado si llega
+  provincesScope: z.array(z.string()).optional()
 });
 
 export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
@@ -25,14 +28,16 @@ export const POST = withApi({ scope: "*" }, async (req, { api }) => {
   const parsed = createSchema.safeParse(body);
   if (!parsed.success) throw new ApiError(400, "validation_error", parsed.error.message);
 
-  const created = await prisma.leadSearch.create({
-    data: {
-      workspaceId: api.workspaceId,
-      keyword: parsed.data.keyword,
-      location: parsed.data.location,
-      provincesScope: JSON.stringify(parsed.data.provincesScope ?? []),
-      status: "PENDING"
-    }
+  if (parsed.data.scope === "custom" && !parsed.data.location.trim()) {
+    throw new ApiError(400, "missing_location", "Falta la provincia / localidad");
+  }
+
+  const out = await startSearch({
+    workspaceId: api.workspaceId,
+    userId: api.userId,
+    keyword: parsed.data.keyword,
+    location: parsed.data.location,
+    scope: parsed.data.scope
   });
-  return NextResponse.json(created, { status: 201 });
+  return NextResponse.json(out, { status: 201 });
 });
