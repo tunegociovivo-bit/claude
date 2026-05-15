@@ -1,6 +1,33 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import PageHeader from "@/components/PageHeader";
-import { Key, Download, Webhook, Users, Sparkles, PencilLine, FolderKanban, Star, Mic, Upload, AppWindow, Palette, Columns3, Shield, TrendingUp, FileText, MessageSquare } from "lucide-react";
+import { prisma } from "@/lib/db/prisma";
+import { getSessionWorkspaceId } from "@/lib/auth";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
+import {
+  Key,
+  Download,
+  Webhook,
+  Users,
+  Sparkles,
+  PencilLine,
+  FolderKanban,
+  Star,
+  Mic,
+  Upload,
+  AppWindow,
+  Palette,
+  Columns3,
+  Shield,
+  TrendingUp,
+  FileText,
+  MessageSquare,
+  Code2,
+  ExternalLink
+} from "lucide-react";
+
+export const dynamic = "force-dynamic";
 
 const cards = [
   {
@@ -105,37 +132,88 @@ const cards = [
     title: "Importar desde WordPress",
     description: "Trae automáticamente API keys, clientes y datos de los plugins NV en hub.negociovivo.com.",
     icon: Upload
+  },
+  {
+    href: "https://claude.ai/code/session_01CA9ihZJxnRBKpd64rc1mg9",
+    title: "Sesión de Claude (mantenimiento)",
+    description: "Atajo a la conversación de Claude donde se está desarrollando esta plataforma. Para pedir cambios o consultar el estado del proyecto.",
+    icon: Code2,
+    external: true,
+    highlight: true
   }
 ];
 
-export default function AdminPage() {
+export default async function AdminPage() {
+  // Sólo admins pueden ver este panel. Si no hay sesión, el middleware ya
+  // redirige a /login. Aquí gateamos a no-admins mandándolos a /.
+  const session = await getServerSession(authOptions);
+  const userId = (session?.user as any)?.id as string | undefined;
+  const workspaceId = await getSessionWorkspaceId();
+  if (!userId || !workspaceId) redirect("/login");
+
+  const me = await prisma.membership.findFirst({
+    where: { userId, workspaceId }
+  });
+  if (!me || me.role !== "ADMIN") {
+    redirect("/");
+  }
+
   return (
-    <div className="max-w-4xl mx-auto">
+    <div className="max-w-5xl mx-auto">
       <PageHeader
         title="Administración"
-        description="Configuración de la plataforma e integraciones."
+        description="Configuración de la plataforma e integraciones. Solo visible para administradores."
       />
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {cards.map((c) => {
           const Icon = c.icon;
-          return c.disabled ? (
-            <div
-              key={c.title}
-              className="bg-white rounded-xl border p-5 opacity-60 cursor-not-allowed"
-            >
-              <Icon className="h-5 w-5 text-slate-400 mb-2" />
+          if (c.disabled) {
+            return (
+              <div
+                key={c.title}
+                className="bg-white rounded-xl border p-5 opacity-60 cursor-not-allowed"
+              >
+                <Icon className="h-5 w-5 text-slate-400 mb-2" />
+                <h3 className="font-semibold">{c.title}</h3>
+                <p className="text-xs text-slate-500 mt-1">{c.description}</p>
+              </div>
+            );
+          }
+
+          const baseClass =
+            "bg-white rounded-xl border p-5 hover:shadow-sm hover:border-brand-200 transition";
+          const cardClass = c.highlight
+            ? `${baseClass} bg-gradient-to-br from-brand-50 to-violet-50 border-brand-200`
+            : baseClass;
+
+          const content = (
+            <>
+              <div className="flex items-center justify-between">
+                <Icon className={`h-5 w-5 mb-2 ${c.highlight ? "text-violet-600" : "text-brand-600"}`} />
+                {c.external && <ExternalLink className="h-3.5 w-3.5 text-slate-400" />}
+              </div>
               <h3 className="font-semibold">{c.title}</h3>
               <p className="text-xs text-slate-500 mt-1">{c.description}</p>
-            </div>
-          ) : (
-            <Link
-              key={c.title}
-              href={c.href}
-              className="bg-white rounded-xl border p-5 hover:shadow-sm hover:border-brand-200 transition"
-            >
-              <Icon className="h-5 w-5 text-brand-600 mb-2" />
-              <h3 className="font-semibold">{c.title}</h3>
-              <p className="text-xs text-slate-500 mt-1">{c.description}</p>
+            </>
+          );
+
+          if (c.external) {
+            return (
+              <a
+                key={c.title}
+                href={c.href}
+                target="_blank"
+                rel="noreferrer"
+                className={cardClass}
+              >
+                {content}
+              </a>
+            );
+          }
+
+          return (
+            <Link key={c.title} href={c.href} className={cardClass}>
+              {content}
             </Link>
           );
         })}

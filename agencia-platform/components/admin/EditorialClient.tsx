@@ -81,6 +81,9 @@ export default function EditorialClient() {
   const [generateOpen, setGenerateOpen] = useState(false);
   const [metricoolOpen, setMetricoolOpen] = useState(false);
   const [processing, setProcessing] = useState(false);
+  const [diagOpen, setDiagOpen] = useState(false);
+  const [diagData, setDiagData] = useState<any>(null);
+  const [diagLoading, setDiagLoading] = useState(false);
   const [processReport, setProcessReport] = useState<any>(null);
   const [actionMsg, setActionMsg] = useState<string | null>(null);
 
@@ -106,6 +109,15 @@ export default function EditorialClient() {
   useEffect(() => {
     load();
   }, [month, filterClient]);
+
+  async function openDiagnostic() {
+    setDiagOpen(true);
+    setDiagLoading(true);
+    setDiagData(null);
+    const r = await fetch("/api/v1/admin/pending-import-status");
+    if (r.ok) setDiagData(await r.json());
+    setDiagLoading(false);
+  }
 
   async function processPending() {
     if (!confirm("Procesar los datos aparcados desde la migración WP (publicaciones NV Dashboard + leads NV Leads). ¿Continuar?")) return;
@@ -186,6 +198,14 @@ export default function EditorialClient() {
         description="Migrado de NV Dashboard. Genera meses completos con IA, aprueba en lote, exporta a Metricool."
         actions={
           <>
+            <button
+              onClick={openDiagnostic}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-white border text-sm hover:bg-slate-50"
+              title="Ver qué datos hay aparcados desde WP"
+            >
+              <BarChart3 className="h-4 w-4" />
+              Ver pendiente
+            </button>
             <button
               onClick={processPending}
               disabled={processing}
@@ -462,6 +482,100 @@ export default function EditorialClient() {
         defaultClientId={filterClient !== "ALL" ? filterClient : undefined}
         onDone={() => { setMetricoolOpen(false); load(); }}
       />
+
+      <Modal
+        open={diagOpen}
+        onClose={() => setDiagOpen(false)}
+        title="Datos aparcados desde WP"
+        size="lg"
+      >
+        {diagLoading ? (
+          <div className="text-sm text-slate-500 flex items-center gap-2">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Consultando…
+          </div>
+        ) : !diagData ? (
+          <p className="text-sm text-slate-500">Sin datos.</p>
+        ) : (
+          <div className="space-y-4 text-sm">
+            {diagData.nvDashboard ? (
+              <div>
+                <h3 className="font-semibold mb-2">NV Dashboard</h3>
+                <ul className="space-y-1 text-slate-700">
+                  <li>Publicaciones aparcadas: <strong>{diagData.nvDashboard.publicationsCount}</strong></li>
+                  <li>Clientes en taxonomía nv_cliente: <strong>{diagData.nvDashboard.clientesTaxonomyCount}</strong></li>
+                  <li>Configuraciones por cliente: <strong>{diagData.nvDashboard.clienteConfigsKeys.length}</strong></li>
+                  <li>Importado: {diagData.nvDashboard.importedAt ? new Date(diagData.nvDashboard.importedAt).toLocaleString("es-ES") : "—"}</li>
+                  {diagData.nvDashboard.truncated && (
+                    <li className="text-amber-700">⚠️ Truncado durante import (datos parciales)</li>
+                  )}
+                </ul>
+
+                <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <div className="bg-slate-50 rounded-lg p-3">
+                    <div className="text-xs uppercase text-slate-500 mb-1">Desde taxonomía</div>
+                    <div className="text-xs space-y-0.5">
+                      {diagData.nvDashboard.clientesTaxonomyNames.length === 0 ? (
+                        <p className="italic text-slate-500">—</p>
+                      ) : (
+                        diagData.nvDashboard.clientesTaxonomyNames.slice(0, 20).map((n: string) => (
+                          <div key={n}>· {n}</div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                  <div className="bg-slate-50 rounded-lg p-3">
+                    <div className="text-xs uppercase text-slate-500 mb-1">Desde publicaciones</div>
+                    <div className="text-xs space-y-0.5">
+                      {diagData.nvDashboard.clientNamesFoundInPublications.length === 0 ? (
+                        <p className="italic text-slate-500">—</p>
+                      ) : (
+                        diagData.nvDashboard.clientNamesFoundInPublications.slice(0, 20).map((n: string) => (
+                          <div key={n}>· {n}</div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-3 px-3 py-2 rounded-lg bg-brand-50 border border-brand-200 text-xs">
+                  <strong>Resumen:</strong> {diagData.clientsFoundInPending.total} nombres distintos encontrados.{" "}
+                  {diagData.clientsFoundInPending.alreadyInDb} ya existen en tu BD ·{" "}
+                  {diagData.clientsFoundInPending.willBeCreated} se crearán al pulsar "Procesar aparcados".
+                </div>
+                {diagData.clientsFoundInPending.willBeCreatedNames.length > 0 && (
+                  <details className="mt-2 text-xs">
+                    <summary className="cursor-pointer text-slate-600">Ver nombres que se crearán</summary>
+                    <div className="mt-1 pl-4 text-slate-600">
+                      {diagData.clientsFoundInPending.willBeCreatedNames.join(", ")}
+                    </div>
+                  </details>
+                )}
+              </div>
+            ) : (
+              <p className="text-slate-500 italic">No hay datos NV Dashboard aparcados.</p>
+            )}
+
+            {diagData.nvLeads ? (
+              <div>
+                <h3 className="font-semibold mb-2">NV Leads Pro</h3>
+                <ul className="space-y-1 text-slate-700 text-xs">
+                  {Object.entries(diagData.nvLeads.tableCounts).map(([k, v]) => (
+                    <li key={k}>· {k}: <strong>{String(v)}</strong></li>
+                  ))}
+                </ul>
+                {diagData.nvLeads.truncated && (
+                  <p className="text-amber-700 text-xs mt-1">⚠️ Truncado durante import</p>
+                )}
+              </div>
+            ) : null}
+
+            <p className="text-xs text-slate-500">
+              Procesado por última vez: {diagData.processedAt ? new Date(diagData.processedAt).toLocaleString("es-ES") : "nunca"}
+            </p>
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }

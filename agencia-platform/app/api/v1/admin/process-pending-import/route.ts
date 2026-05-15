@@ -64,6 +64,10 @@ export const POST = withApi({ scope: "*" }, async (_req, { api }) => {
       ? pending.nvDashboard.clientesTaxonomy
       : [];
     const configs = (pending.nvDashboard.clienteConfigs ?? {}) as Record<string, any>;
+    console.log(
+      `[process-pending-import] NV Dashboard: ${taxes.length} clientes en taxonomía, ` +
+      `${Array.isArray(pending.nvDashboard.publications) ? pending.nvDashboard.publications.length : 0} publicaciones`
+    );
 
     for (const t of taxes) {
       try {

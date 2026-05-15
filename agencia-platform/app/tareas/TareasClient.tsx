@@ -27,7 +27,7 @@ import ProjectFormModal from "@/components/forms/ProjectFormModal";
 import BulkActionBar from "@/components/tareas/BulkActionBar";
 import { statusLabelOf, statusColorOf, priorityColors } from "@/lib/mock-data";
 import type { UiTask, UiProject, UiClient, UiMember } from "@/lib/db/queries";
-import { LayoutGrid, List, Plus, Filter, CalendarDays, FolderPlus, GripVertical, CheckSquare, Square, Settings2 } from "lucide-react";
+import { LayoutGrid, List, Plus, Filter, CalendarDays, FolderPlus, GripVertical, CheckSquare, Square, Settings2, Loader2 } from "lucide-react";
 import clsx from "clsx";
 
 type KanbanColumn = { id: string; label: string; color: string; order: number; isDone?: boolean };
@@ -347,8 +347,9 @@ export default function TareasClient({
         >
           <SortableContext items={orderedColumns.map((c) => c.id)} strategy={horizontalListSortingStrategy}>
             {/* Móvil: scroll horizontal con columnas de ~280px (típico kanban).
-                Tablet/desktop: grid uniforme. */}
-            <KanbanGrid columnCount={Math.min(orderedColumns.length, 5)}>
+                Tablet/desktop: grid uniforme. +1 columna placeholder al final
+                con un botón "+" para añadir columna en línea. */}
+            <KanbanGrid columnCount={Math.min(orderedColumns.length + 1, 6)}>
               {orderedColumns.map((col) => (
                 <KanbanColumnView
                   key={col.id}
@@ -365,6 +366,16 @@ export default function TareasClient({
                   columns={columns}
                 />
               ))}
+              <AddColumnButton
+                existingColumns={columns}
+                onCreated={async () => {
+                  const r = await fetch("/api/v1/kanban-columns");
+                  if (r.ok) {
+                    const d = await r.json();
+                    setColumns(d.items ?? []);
+                  }
+                }}
+              />
             </KanbanGrid>
           </SortableContext>
           <DragOverlay>
@@ -529,6 +540,167 @@ function KanbanGrid({
       }}
     >
       {children}
+    </div>
+  );
+}
+
+/**
+ * Placeholder con "+" al final de las columnas. Al pulsarlo se expande un
+ * formulario inline (nombre + color preset). Al guardar, llama PUT
+ * /api/v1/kanban-columns con la lista completa actualizada.
+ */
+function AddColumnButton({
+  existingColumns,
+  onCreated
+}: {
+  existingColumns: KanbanColumn[];
+  onCreated: () => void | Promise<void>;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [name, setName] = useState("");
+  const [color, setColor] = useState("bg-violet-100 text-violet-800 border-violet-300");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const colorPresets = [
+    { label: "Gris", value: "bg-slate-100 text-slate-700 border-slate-200" },
+    { label: "Azul", value: "bg-sky-100 text-sky-800 border-sky-300" },
+    { label: "Índigo", value: "bg-indigo-50 text-indigo-700 border-indigo-200" },
+    { label: "Ámbar", value: "bg-amber-100 text-amber-800 border-amber-300" },
+    { label: "Verde", value: "bg-emerald-100 text-emerald-800 border-emerald-300" },
+    { label: "Rosa", value: "bg-rose-100 text-rose-800 border-rose-300" },
+    { label: "Violeta", value: "bg-violet-100 text-violet-800 border-violet-300" }
+  ];
+
+  function slugifyId(s: string): string {
+    return s
+      .toUpperCase()
+      .normalize("NFD")
+      .replace(/[̀-ͯ]/g, "")
+      .replace(/[^A-Z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "")
+      .slice(0, 40);
+  }
+
+  async function save() {
+    setError(null);
+    const cleanId = slugifyId(name);
+    if (!name.trim() || !cleanId) {
+      setError("Nombre requerido");
+      return;
+    }
+    if (existingColumns.some((c) => c.id === cleanId)) {
+      setError("Ya existe una columna con ese ID");
+      return;
+    }
+    setSaving(true);
+    const next = [
+      ...existingColumns.map((c, i) => ({
+        id: c.id,
+        label: c.label,
+        color: c.color,
+        order: i,
+        isDone: c.isDone === true
+      })),
+      {
+        id: cleanId,
+        label: name.trim(),
+        color,
+        order: existingColumns.length,
+        isDone: false
+      }
+    ];
+    const r = await fetch("/api/v1/kanban-columns", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ columns: next })
+    });
+    setSaving(false);
+    if (!r.ok) {
+      const j = await r.json().catch(() => ({}));
+      setError(j?.error?.message ?? `Error ${r.status}`);
+      return;
+    }
+    setName("");
+    setEditing(false);
+    await onCreated();
+  }
+
+  if (!editing) {
+    return (
+      <button
+        type="button"
+        onClick={() => setEditing(true)}
+        className="bg-slate-50/40 border-2 border-dashed border-slate-200 rounded-xl p-3 min-h-[400px] flex flex-col items-center justify-center gap-2 text-slate-400 hover:bg-slate-100 hover:border-slate-300 hover:text-slate-700 transition"
+        title="Añadir columna"
+      >
+        <Plus className="h-6 w-6" />
+        <span className="text-xs font-medium">Nueva columna</span>
+      </button>
+    );
+  }
+
+  return (
+    <div className="bg-white border border-brand-300 rounded-xl p-3 min-h-[200px]">
+      <div className="text-xs uppercase tracking-wide text-slate-500 font-semibold mb-2">
+        Nueva columna
+      </div>
+      <input
+        autoFocus
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") save();
+          if (e.key === "Escape") setEditing(false);
+        }}
+        placeholder="Ej. Bloqueada"
+        maxLength={40}
+        className="w-full px-2 py-1.5 rounded-md border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 mb-2"
+      />
+      <div className="flex flex-wrap gap-1 mb-2">
+        {colorPresets.map((p) => (
+          <button
+            key={p.value}
+            type="button"
+            onClick={() => setColor(p.value)}
+            className={
+              "h-5 w-5 rounded-full border-2 transition " +
+              p.value.split(" ")[0] +
+              " " +
+              (color === p.value ? "border-slate-900 scale-110" : "border-white")
+            }
+            title={p.label}
+          />
+        ))}
+      </div>
+      {name && (
+        <div className="mb-2">
+          <span className={`text-xs px-2 py-0.5 rounded-md border ${color}`}>{name}</span>
+        </div>
+      )}
+      {error && <p className="text-xs text-rose-600 mb-2">{error}</p>}
+      <div className="flex items-center gap-1">
+        <button
+          type="button"
+          onClick={save}
+          disabled={saving || !name.trim()}
+          className="flex-1 inline-flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-md bg-brand-600 hover:bg-brand-700 text-white text-xs font-medium disabled:opacity-50"
+        >
+          {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+          Crear
+        </button>
+        <button
+          type="button"
+          onClick={() => { setEditing(false); setName(""); setError(null); }}
+          className="px-2 py-1.5 rounded-md border bg-white hover:bg-slate-50 text-xs"
+        >
+          Cancelar
+        </button>
+      </div>
+      <p className="text-[11px] text-slate-500 mt-2">
+        Más opciones (renombrar, reordenar, marcar como "Hecha") en{" "}
+        <a href="/admin/columnas" className="underline">/admin/columnas</a>.
+      </p>
     </div>
   );
 }
