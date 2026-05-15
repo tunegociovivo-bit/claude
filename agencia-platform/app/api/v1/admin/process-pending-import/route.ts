@@ -153,22 +153,108 @@ export const POST = withApi({ scope: "*" }, async (_req, { api }) => {
         }
 
         const status = mapStatus(p.status);
-        const scheduled = parseDate(meta?.fecha_publicacion ?? meta?.scheduled_for ?? p.date);
-        const networks: string[] = Array.isArray(meta?.redes) ? meta.redes : [];
-        const format = meta?.formato ?? meta?.format ?? null;
+        // Fecha: intentamos varios campos ACF habituales del plugin
+        const scheduled = parseDate(
+          meta?.fecha_publicacion ??
+          meta?.fecha ??
+          meta?.scheduled_for ??
+          meta?.fecha_programada ??
+          (meta?.fecha_dia && meta?.hora_publicacion ? `${meta.fecha_dia} ${meta.hora_publicacion}` : null) ??
+          p.date
+        );
+
+        // Redes: el plugin solía guardarlas como array, CSV o JSON
+        let networks: string[] = [];
+        const rawNets = meta?.redes ?? meta?.redes_sociales ?? meta?.plataformas ?? meta?.canales;
+        if (Array.isArray(rawNets)) {
+          networks = rawNets.map(String);
+        } else if (typeof rawNets === "string") {
+          try {
+            const j = JSON.parse(rawNets);
+            networks = Array.isArray(j) ? j.map(String) : rawNets.split(/[,;]/).map((s) => s.trim()).filter(Boolean);
+          } catch {
+            networks = rawNets.split(/[,;]/).map((s) => s.trim()).filter(Boolean);
+          }
+        }
+
+        const format = meta?.formato ?? meta?.format ?? meta?.tipo ?? meta?.tipo_publicacion ?? null;
+
+        // Copy / texto principal — buscamos en muchos campos ACF candidatos
+        const contentCandidates = [
+          meta?.copy,
+          meta?.copy_principal,
+          meta?.texto,
+          meta?.texto_publicacion,
+          meta?.contenido,
+          meta?.contenido_publicacion,
+          meta?.descripcion,
+          meta?.cuerpo,
+          meta?.post_text,
+          meta?.text
+        ];
+        const contentFromMeta = contentCandidates.find(
+          (v) => typeof v === "string" && v.trim().length > 0
+        );
+        const content = (contentFromMeta as string | undefined) ??
+          (typeof p.content === "string" && p.content.trim().length > 0 ? p.content : null);
+
+        // Imagen / foto — thumbnail destacada + posibles ACF
+        const mediaCandidates: string[] = [];
+        if (p.thumbnail) mediaCandidates.push(String(p.thumbnail));
+        for (const k of [
+          "imagen",
+          "imagen_principal",
+          "imagen_publicacion",
+          "foto",
+          "foto_principal",
+          "imagen_url",
+          "media",
+          "media_url",
+          "thumbnail",
+          "thumbnail_url"
+        ]) {
+          const v = meta?.[k];
+          if (typeof v === "string" && /^https?:\/\//.test(v)) mediaCandidates.push(v);
+          // ACF a veces guarda objeto image con .url
+          if (v && typeof v === "object" && typeof v.url === "string") mediaCandidates.push(v.url);
+        }
+        // Imágenes adicionales (galería): claves *_2, *_3, galeria, imagenes
+        const galleryCandidates = [meta?.imagenes, meta?.galeria, meta?.images];
+        for (const g of galleryCandidates) {
+          if (Array.isArray(g)) {
+            for (const item of g) {
+              if (typeof item === "string" && /^https?:\/\//.test(item)) mediaCandidates.push(item);
+              else if (item && typeof item === "object" && typeof item.url === "string") mediaCandidates.push(item.url);
+            }
+          }
+        }
+        // dedupe preservando orden
+        const seen = new Set<string>();
+        const mediaUrls = mediaCandidates.filter((u) => {
+          if (seen.has(u)) return false;
+          seen.add(u);
+          return true;
+        });
+        const thumbnail = mediaUrls[0] ?? null;
+
+        // Excerpt
+        const excerpt = (typeof p.excerpt === "string" && p.excerpt.trim()) ||
+          (typeof meta?.excerpt === "string" ? meta.excerpt : null) ||
+          (typeof meta?.resumen === "string" ? meta.resumen : null) ||
+          null;
 
         const data = {
           workspaceId: api.workspaceId,
           clientId,
           title: String(p.title ?? "Sin título").slice(0, 200),
-          content: typeof p.content === "string" ? p.content : null,
-          excerpt: typeof p.excerpt === "string" ? p.excerpt : null,
+          content,
+          excerpt,
           scheduledFor: scheduled,
           status,
           format: format ? String(format).slice(0, 40) : null,
           networks: JSON.stringify(networks),
-          thumbnail: p.thumbnail ?? null,
-          mediaUrls: JSON.stringify([]),
+          thumbnail,
+          mediaUrls: JSON.stringify(mediaUrls),
           metaJson: meta
         };
 

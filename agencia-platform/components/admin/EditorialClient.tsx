@@ -35,6 +35,7 @@ type EditorialPost = {
   networks: string;
   thumbnail: string | null;
   mediaUrls: string;
+  metaJson?: any; // metadatos originales del plugin WP (ACF fields)
   client?: { id: string; name: string } | null;
   _count?: { revisions: number };
 };
@@ -1132,8 +1133,90 @@ function PostFormModal({
           placeholder="Contenido completo de la publicación"
           className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
         />
+
+        {/* Preview de imágenes asociadas */}
+        {post && <MediaPreview post={post} />}
+
+        {/* Datos originales del plugin WP — todo lo que llegó en p.meta */}
+        {post && post.metaJson && Object.keys(post.metaJson as any).length > 0 && (
+          <details className="rounded-lg border bg-slate-50">
+            <summary className="cursor-pointer px-3 py-2 text-xs font-medium text-slate-700">
+              📦 Datos originales del plugin WordPress ({Object.keys(post.metaJson as any).length} campos)
+            </summary>
+            <div className="px-3 py-2 border-t bg-white">
+              <p className="text-[11px] text-slate-500 mb-2">
+                Todos los campos ACF / metadatos que tenía esta publicación en el plugin original.
+                Si alguno no se está mostrando bien arriba (copy, imagen, etc.), copia el valor desde aquí al campo correspondiente.
+              </p>
+              <dl className="text-xs space-y-1.5 max-h-80 overflow-y-auto">
+                {Object.entries(post.metaJson as any).map(([k, v]) => {
+                  if (v === null || v === undefined || v === "") return null;
+                  const isUrl = typeof v === "string" && /^https?:\/\//.test(v);
+                  const isImage = isUrl && /\.(jpe?g|png|gif|webp|svg)(\?|$)/i.test(v);
+                  const display = typeof v === "object" ? JSON.stringify(v, null, 2) : String(v);
+                  return (
+                    <div key={k} className="grid grid-cols-[140px_1fr] gap-2 items-start border-b border-slate-100 pb-1.5">
+                      <dt className="font-mono text-[11px] text-slate-500 truncate" title={k}>{k}</dt>
+                      <dd className="text-slate-700 break-words">
+                        {isImage ? (
+                          <>
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img src={v as string} alt={k} className="max-h-24 rounded border mb-1" />
+                            <a href={v as string} target="_blank" rel="noreferrer" className="text-[10px] text-brand-600 underline break-all">
+                              {v as string}
+                            </a>
+                          </>
+                        ) : isUrl ? (
+                          <a href={v as string} target="_blank" rel="noreferrer" className="text-brand-600 underline break-all">
+                            {v as string}
+                          </a>
+                        ) : (
+                          <pre className="whitespace-pre-wrap font-sans">{display.slice(0, 800)}{display.length > 800 ? "…" : ""}</pre>
+                        )}
+                      </dd>
+                    </div>
+                  );
+                })}
+              </dl>
+            </div>
+          </details>
+        )}
+
         {error && <p className="text-xs text-rose-600">{error}</p>}
       </form>
     </Modal>
+  );
+}
+
+function MediaPreview({ post }: { post: EditorialPost }) {
+  let urls: string[] = [];
+  try {
+    const parsed = JSON.parse(post.mediaUrls);
+    if (Array.isArray(parsed)) urls = parsed.filter((u) => typeof u === "string");
+  } catch {}
+  if (post.thumbnail && !urls.includes(post.thumbnail)) urls.unshift(post.thumbnail);
+  if (urls.length === 0) return null;
+  return (
+    <div>
+      <div className="text-xs font-medium text-slate-700 mb-1.5">Imágenes ({urls.length})</div>
+      <div className="flex gap-2 overflow-x-auto pb-1">
+        {urls.map((u, i) => (
+          <a
+            key={`${u}-${i}`}
+            href={u}
+            target="_blank"
+            rel="noreferrer"
+            className="shrink-0"
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={u}
+              alt={`media-${i}`}
+              className="h-24 w-24 object-cover rounded-lg border hover:border-brand-300"
+            />
+          </a>
+        ))}
+      </div>
+    </div>
   );
 }
