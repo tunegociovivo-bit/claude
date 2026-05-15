@@ -1,8 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Trash2, Loader2, AlertTriangle } from "lucide-react";
+import { Trash2, Loader2, AlertTriangle, Palette } from "lucide-react";
 import ClientFormModal from "@/components/forms/ClientFormModal";
 import Modal from "@/components/ui/Modal";
 
@@ -25,6 +26,14 @@ export default function ClienteDetailActions({ client }: { client: ClientLite })
 
   return (
     <>
+      <Link
+        href={`/clientes/${client.id}/editorial`}
+        className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-white border text-sm hover:bg-slate-50"
+        title="Brief, branding, colores, fuentes, refs visuales, Drive…"
+      >
+        <Palette className="h-4 w-4 text-brand-600" />
+        Editorial
+      </Link>
       <button
         onClick={() => setEditOpen(true)}
         className="px-3 py-2 rounded-lg bg-white border text-sm hover:bg-slate-50"

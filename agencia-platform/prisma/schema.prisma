@@ -146,9 +146,39 @@ model Client {
   since       DateTime?
   notes       String?      @db.Text
   asanaId     String?      @unique // trazabilidad migración
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
-  deletedAt   DateTime?
+
+  // ----- Editorial / NV Dashboard meta (migrado del plugin) -----
+  // Brief & branding básico
+  brandBrief        String? @db.Text
+  website           String?
+  brandColorPrimary String  @default("#1F2937")
+  brandColorAccent  String  @default("#2563EB")
+  brandColorText    String  @default("#FFFFFF")
+  // Logo
+  logoUrl      String?
+  logoPosition String  @default("br") // br | bl | tr | tl
+  // Patrón visual
+  visualPattern String @default("clean") // clean | frame
+  refsFidelity  Int    @default(50) // 0-100
+  // Competidores (texto libre, URL/nombre por línea)
+  competitors String? @db.Text
+  // Dimensiones por formato — JSON { imagen:{w,h,preset}, reel:{...}, ... }
+  dimensionsByFormat Json?
+  // Referencias visuales — JSON [{ url, type, personName }]
+  referenceImages Json?
+  // Fuentes corporativas — JSON [{ url, name, weight }]
+  fonts Json?
+  // Guía de estilo cacheada (generada por IA a partir de las refs visuales)
+  styleGuideCached String? @db.Text
+  styleGuideHash   String?
+  // Google Drive refs
+  driveMode        String  @default("pending") // configured | pending | no_drive_refs
+  driveRootId      String?
+  driveSubfolders  Json? // [{ name, id, type }]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
 
   workspace      Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   projects       Project[]
