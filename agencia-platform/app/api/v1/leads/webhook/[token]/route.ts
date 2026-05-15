@@ -1,23 +1,29 @@
 /**
- * Webhook público de la Evolution API / WAHA para mensajes entrantes.
- * El token de la ruta se compara con un valor guardado en
- * workspace.settings.integrations.evolution.webhookToken (no cifrado;
- * es un identificador opaco, no una credencial sensible).
+ * Webhook público WAHA / Evolution para mensajes entrantes. El token de
+ * la ruta se compara con `workspace.settings.integrations.evolution.webhookToken`
+ * (o el nuevo `workspace.settings.leads.webhookToken`).
  *
- * Configurar en Evolution: webhook URL = https://hub.negociovivo.app/api/v1/leads/webhook/<token>
+ * Configurar en WAHA: webhook URL =
+ *   https://<hub>/api/v1/leads/webhook/<token>
  *
- * Payload esperado (Evolution/WAHA estilo): { from: "+34...", body: "...", ... }
+ * Soporta payload nativo WAHA:
+ *   { event: "message", session: "default",
+ *     payload: { from: "34666...@c.us", body: "...", fromMe: false } }
+ * y otros formatos legacy.
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
+import { ingestInbox } from "@/lib/leads/inbox";
 
 export async function POST(req: NextRequest, { params }: { params: { token: string } }) {
-  // Buscamos qué workspace tiene este token configurado
   const workspaces = await prisma.workspace.findMany();
   const ws = workspaces.find((w) => {
     const s = (w.settings as any) ?? {};
-    return s?.integrations?.evolution?.webhookToken === params.token;
+    return (
+      s?.leads?.webhookToken === params.token ||
+      s?.integrations?.evolution?.webhookToken === params.token
+    );
   });
   if (!ws) {
     return NextResponse.json({ error: { code: "bad_token", message: "Token desconocido" } }, { status: 401 });
@@ -30,8 +36,17 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
     return NextResponse.json({ error: { code: "bad_json", message: "Payload inválido" } }, { status: 400 });
   }
 
-  // Heurística de extracción — diferentes proveedores envían formatos distintos.
+  // WAHA: ignorar mensajes fromMe (echo de los nuestros)
+  const fromMe =
+    body?.payload?.fromMe === true ||
+    body?.data?.key?.fromMe === true ||
+    body?.message?.fromMe === true;
+  if (fromMe) {
+    return NextResponse.json({ ok: true, ignored: "from_me" });
+  }
+
   const fromPhone =
+    body?.payload?.from ?? // WAHA v2
     body?.from ??
     body?.data?.key?.remoteJid ??
     body?.data?.from ??
@@ -39,42 +54,33 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
     body?.sender ??
     "";
   const messageBody =
+    body?.payload?.body ?? // WAHA v2
     body?.body ??
     body?.text ??
     body?.message?.body ??
     body?.data?.message?.text?.body ??
     body?.data?.message?.conversation ??
     "";
+  const externalMessageId =
+    body?.payload?.id ?? body?.data?.key?.id ?? body?.id ?? null;
+  const instanceName = body?.session ?? body?.instance ?? null;
 
   if (!fromPhone || typeof messageBody !== "string" || !messageBody.trim()) {
     return NextResponse.json({ ok: true, ignored: "missing_fields" });
   }
 
-  // Localizar lead si hay match por teléfono normalizado
-  const cleanPhone = String(fromPhone).replace(/[^\d+]/g, "");
-  const lead = cleanPhone
-    ? await prisma.lead.findFirst({
-        where: { workspaceId: ws.id, phone: { contains: cleanPhone.slice(-9) } }
-      })
-    : null;
-
-  await prisma.leadInboxMessage.create({
-    data: {
+  try {
+    const out = await ingestInbox({
       workspaceId: ws.id,
-      leadId: lead?.id ?? null,
-      fromPhone: String(fromPhone).slice(0, 60),
-      body: messageBody.slice(0, 4000),
-      meta: body as any
-    }
-  });
-
-  // Si el remitente coincide con un lead, marcamos contactStatus → REPLIED
-  if (lead && lead.contactStatus !== "REPLIED" && lead.contactStatus !== "CONVERTED") {
-    await prisma.lead.update({
-      where: { id: lead.id },
-      data: { contactStatus: "REPLIED" }
+      fromPhone: String(fromPhone),
+      text: messageBody,
+      externalMessageId: externalMessageId ? String(externalMessageId) : null,
+      instanceName: instanceName ? String(instanceName) : null,
+      meta: body
     });
+    return NextResponse.json({ ok: true, messageId: out.messageId, classification: out.classification });
+  } catch (e: any) {
+    console.error("[leads webhook] ingest error:", e);
+    return NextResponse.json({ ok: false, error: e?.message ?? String(e) }, { status: 500 });
   }
-
-  return NextResponse.json({ ok: true });
 }

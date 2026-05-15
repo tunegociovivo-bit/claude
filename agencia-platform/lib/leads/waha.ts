@@ -1,0 +1,138 @@
+/**
+ * Cliente WAHA (WhatsApp HTTP API). Auth con X-Api-Key.
+ *
+ * Migra NVL_Evolution_API + NVL_WhatsApp del plugin.
+ */
+
+import { prisma } from "@/lib/db/prisma";
+import { decryptSecret } from "@/lib/ai/crypto";
+
+export type WahaConfig = {
+  baseUrl: string;
+  apiKey: string;
+  session: string;
+  countryCode: string;
+};
+
+export async function getWahaConfig(workspaceId: string): Promise<WahaConfig> {
+  const ws = await prisma.workspace.findUnique({ where: { id: workspaceId } });
+  const settings: any = ws?.settings ?? {};
+  const leads = settings?.leads ?? {};
+
+  const baseUrl: string | null = leads.wahaUrl ?? process.env.WAHA_URL ?? null;
+  const encrypted: string | undefined = leads.wahaApiKey;
+  const apiKey =
+    (encrypted ? decryptSecret(encrypted) : null) ?? process.env.WAHA_API_KEY ?? null;
+  const session: string = leads.wahaSession ?? "default";
+  const countryCode: string = leads.whatsappCountryCode ?? "34";
+
+  if (!baseUrl) throw new Error("WAHA URL no configurada");
+  if (!apiKey) throw new Error("WAHA API key no configurada");
+
+  return { baseUrl: baseUrl.replace(/\/+$/, ""), apiKey, session, countryCode };
+}
+
+/**
+ * Normaliza un teléfono al formato E.164 sin "+" (que WAHA pide).
+ * Ej: "+34 666 12 34 56" → "34666123456"
+ */
+export function normalizePhone(raw: string | null | undefined, defaultCountryCode = "34"): string | null {
+  if (!raw) return null;
+  let digits = String(raw).replace(/\D/g, "");
+  if (!digits) return null;
+  // Si no empieza con código de país y tiene 9 dígitos (España), prepend 34
+  if (digits.length === 9 && !digits.startsWith(defaultCountryCode)) {
+    digits = defaultCountryCode + digits;
+  }
+  return digits;
+}
+
+export async function sendText(opts: {
+  workspaceId: string;
+  phoneNormalized: string;
+  text: string;
+  session?: string;
+}): Promise<{ messageId: string }> {
+  const cfg = await getWahaConfig(opts.workspaceId);
+  const chatId = `${opts.phoneNormalized}@c.us`;
+  const resp = await fetch(`${cfg.baseUrl}/api/sendText`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Api-Key": cfg.apiKey
+    },
+    body: JSON.stringify({
+      session: opts.session ?? cfg.session,
+      chatId,
+      text: opts.text
+    })
+  });
+  if (!resp.ok) {
+    const txt = await resp.text();
+    throw new Error(`WAHA sendText ${resp.status}: ${txt.slice(0, 200)}`);
+  }
+  const data = await resp.json();
+  return { messageId: String(data?.id ?? data?.key?.id ?? "") };
+}
+
+export async function getSession(opts: { workspaceId: string; session?: string }): Promise<any> {
+  const cfg = await getWahaConfig(opts.workspaceId);
+  const resp = await fetch(`${cfg.baseUrl}/api/sessions/${opts.session ?? cfg.session}`, {
+    headers: { "X-Api-Key": cfg.apiKey }
+  });
+  if (!resp.ok) throw new Error(`WAHA getSession ${resp.status}`);
+  return resp.json();
+}
+
+export async function startSession(opts: { workspaceId: string; session?: string }): Promise<any> {
+  const cfg = await getWahaConfig(opts.workspaceId);
+  const resp = await fetch(`${cfg.baseUrl}/api/sessions/start`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Api-Key": cfg.apiKey },
+    body: JSON.stringify({ name: opts.session ?? cfg.session })
+  });
+  if (!resp.ok) {
+    const txt = await resp.text();
+    throw new Error(`WAHA startSession ${resp.status}: ${txt.slice(0, 200)}`);
+  }
+  return resp.json();
+}
+
+/**
+ * Devuelve la URL del QR para escanear y vincular el dispositivo.
+ * El cliente debe hacer GET con header X-Api-Key.
+ */
+export function qrUrl(cfg: WahaConfig, session?: string): string {
+  return `${cfg.baseUrl}/api/${session ?? cfg.session}/auth/qr?format=image`;
+}
+
+/**
+ * Comprueba si un array de números tiene WhatsApp activo.
+ * Útil para batch validation.
+ */
+export async function checkNumbers(opts: {
+  workspaceId: string;
+  phones: string[]; // ya normalizados (sin +)
+}): Promise<Record<string, boolean>> {
+  const cfg = await getWahaConfig(opts.workspaceId);
+  const out: Record<string, boolean> = {};
+  // WAHA expone /api/{session}/check-number?phone=X — vamos uno a uno
+  for (const phone of opts.phones) {
+    try {
+      const resp = await fetch(`${cfg.baseUrl}/api/${cfg.session}/check-number?phone=${phone}`, {
+        headers: { "X-Api-Key": cfg.apiKey }
+      });
+      if (resp.ok) {
+        const j = await resp.json();
+        out[phone] = !!j?.numberExists;
+      } else {
+        out[phone] = false;
+      }
+    } catch {
+      out[phone] = false;
+    }
+    // Pequeño delay para no saturar
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  return out;
+}
