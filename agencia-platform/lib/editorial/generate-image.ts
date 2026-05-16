@@ -97,9 +97,16 @@ async function openaiImagesEdits(opts: {
 
 export function pickOpenAiSize(width: number, height: number): Size {
   const r = width / height;
-  if (r > 1.2) return "1536x1024"; // landscape
-  if (r < 0.83) return "1024x1536"; // portrait
-  return "1024x1024"; // square-ish
+  // Umbrales agresivos hacia square: gpt-image-2 con 1024x1536 o
+  // 1536x1024 tarda 50-100% más que con 1024x1024 (50% más píxeles).
+  // El plugin original usaba siempre 1024x1024 por esta razón.
+  // Para Instagram Feed 4:5 (ratio 0.8) preferimos square por
+  // velocidad — el overlay no se ve afectado y la imagen sirve igual.
+  // Sólo elegimos portrait/landscape para aspectos extremos (reels,
+  // YouTube landscape, etc.).
+  if (r > 1.5) return "1536x1024"; // landscape (16:9, 1.91:1)
+  if (r < 0.7) return "1024x1536"; // portrait (9:16 reels/stories)
+  return "1024x1024"; // square por defecto (incl. 4:5 Feed)
 }
 
 export type GenerateImageOptions = {

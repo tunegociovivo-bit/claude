@@ -589,42 +589,63 @@ export async function generateMonth(opts: GenerateMonthOptions): Promise<Generat
     // Import dinámico para no acoplar el bundle si no se usa.
     const { generateImageForPost } = await import("./generate-image");
     const quality = opts.imageQuality ?? "medium";
-    let idx = 0;
-    for (const postId of ids) {
-      idx++;
-      try {
-        await opts.onProgress?.(`Generando imagen ${idx}/${ids.length}…`, 50 + Math.floor((idx / ids.length) * 45));
-      } catch {}
-      // Antes de cada imagen, comprobamos cancelRequested del job.
-      // Si sí, paramos pero conservamos lo ya creado.
-      if (opts.jobId) {
+    // Paralelismo: 3 imágenes a la vez (como hacía el plugin original).
+    // Reduce tiempo total para batches grandes ~3x. Para 14 pubs:
+    // antes 14 × 90s secuencial = 21 min → ahora ~14/3 × 90s = 7 min.
+    // OpenAI no nos rate-limita con 3 paralelas en cuentas estándar.
+    const CONCURRENCY = 3;
+    let completed = 0;
+    let cancelled = false;
+    let cursor = 0;
+
+    async function worker(): Promise<void> {
+      while (cursor < ids.length && !cancelled) {
+        const myIdx = cursor++;
+        const postId = ids[myIdx];
+
+        // Check de cancelación cooperativa
+        if (opts.jobId) {
+          try {
+            const fresh = await prisma.backgroundJob.findUnique({
+              where: { id: opts.jobId },
+              select: { cancelRequested: true }
+            });
+            if (fresh?.cancelRequested) {
+              cancelled = true;
+              await opts.onProgress?.(`Cancelado por el usuario tras ${completed}/${ids.length} imágenes`, 95);
+              break;
+            }
+          } catch {}
+        }
+
         try {
-          const fresh = await prisma.backgroundJob.findUnique({
-            where: { id: opts.jobId },
-            select: { cancelRequested: true }
+          await generateImageForPost({
+            workspaceId: opts.workspaceId,
+            userId: opts.userId,
+            postId,
+            quality,
+            forceRosterPersons: opts.useRosterPersons
           });
-          if (fresh?.cancelRequested) {
-            await opts.onProgress?.(`Cancelado por el usuario en imagen ${idx}/${ids.length}`, 95);
-            break;
-          }
+          imagesGenerated++;
+        } catch (e: any) {
+          imagesFailed++;
+          failedImagePostIds.push(postId);
+          const msg = String(e?.message ?? e).slice(0, 200);
+          if (imageErrors.length < 5 && !imageErrors.includes(msg)) imageErrors.push(msg);
+        }
+        completed++;
+        try {
+          await opts.onProgress?.(
+            `Imagen ${completed}/${ids.length} lista (${CONCURRENCY} en paralelo)…`,
+            50 + Math.floor((completed / ids.length) * 45)
+          );
         } catch {}
       }
-      try {
-        await generateImageForPost({
-          workspaceId: opts.workspaceId,
-          userId: opts.userId,
-          postId,
-          quality,
-          forceRosterPersons: opts.useRosterPersons
-        });
-        imagesGenerated++;
-      } catch (e: any) {
-        imagesFailed++;
-        failedImagePostIds.push(postId);
-        const msg = String(e?.message ?? e).slice(0, 200);
-        if (imageErrors.length < 5 && !imageErrors.includes(msg)) imageErrors.push(msg);
-      }
     }
+
+    const workers: Promise<void>[] = [];
+    for (let i = 0; i < Math.min(CONCURRENCY, ids.length); i++) workers.push(worker());
+    await Promise.all(workers);
   }
 
   return {
