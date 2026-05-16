@@ -43,12 +43,38 @@ export async function parseAsanaCommentToTipTap(opts: {
 }): Promise<ParseResult> {
   const result: ParseResult = { doc: emptyDoc(), assetsImported: 0, assetsFailed: 0 };
 
-  // 1) Recolectar TODOS los asset_id mencionados (en html_text + text).
+  // 1) Recolectar todos los GIDs de attachment mencionados. Asana
+  // los embebe de DOS formas distintas:
+  //   a) URLs en el texto plain o links http:
+  //      https://app.asana.com/app/asana/-/get_asset?asset_id=1205…
+  //   b) Tags <a> en el html_text con `data-asana-gid="1205…"`,
+  //      típicamente con data-asana-type="attachment" y href vacío.
+  //      ESTE es el caso de las imágenes pegadas en el comentario —
+  //      sin href, así que el regex de URL no las pillaba antes.
   const html = opts.story.html_text ?? "";
   const text = opts.story.text ?? "";
   const assetIds = new Set<string>();
+  // 1.a) asset_id=N en URLs (text o html con href).
   for (const src of [html, text]) {
     for (const m of src.matchAll(/asset_id=(\d+)/g)) assetIds.add(m[1]);
+  }
+  // 1.b) <a data-asana-gid="N"> CON type="attachment" — el formato
+  // que Asana usa para imágenes pegadas en el cuerpo del comentario.
+  // OJO: `data-asana-gid` también se usa para MENCIONES de usuario
+  // (<a data-asana-gid="USERID">@Nombre</a>), así que filtramos por
+  // data-asana-type="attachment" para no intentar descargar
+  // attachments de IDs de usuario.
+  for (const m of html.matchAll(
+    /<a\s+[^>]*?data-asana-gid="(\d+)"[^>]*?data-asana-type="attachment"[^>]*>/gi
+  )) {
+    assetIds.add(m[1]);
+  }
+  // Y la variante con los atributos en orden inverso (Asana no
+  // garantiza orden).
+  for (const m of html.matchAll(
+    /<a\s+[^>]*?data-asana-type="attachment"[^>]*?data-asana-gid="(\d+)"[^>]*>/gi
+  )) {
+    assetIds.add(m[1]);
   }
 
   // 2) Descargar cada asset (en paralelo) y mapear assetId → URL final.
@@ -146,27 +172,39 @@ function htmlToTipTap(html: string, assets: Map<string, { url: string; alt: stri
     });
   }
 
-  const tagRe = /<a\s+[^>]*?href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi;
+  // Capturamos cualquier <a ...>...</a> con TODOS sus atributos.
+  // Decidimos qué es según: data-asana-type="attachment" + data-asana-gid
+  // → imagen embebida; href con asset_id=N → también imagen; href http
+  // → link normal; otros (data-asana-gid sin type=attachment) → mención.
+  const tagRe = /<a\s+([^>]*?)>([\s\S]*?)<\/a>/gi;
   let last = 0;
   for (const m of h.matchAll(tagRe)) {
     const start = m.index ?? 0;
     if (start > last) pushText(h.slice(last, start));
-    const href = m[1];
+    const attrs = m[1];
     const inner = stripTags(m[2]);
+    const hrefMatch = attrs.match(/href="([^"]*)"/);
+    const href = hrefMatch?.[1] ?? "";
+    const dataGidMatch = attrs.match(/data-asana-gid="(\d+)"/);
+    const dataType = attrs.match(/data-asana-type="([^"]+)"/)?.[1];
     const assetMatch = href.match(ASSET_ID_RE);
-    if (assetMatch) {
-      const assetId = assetMatch[1];
-      const asset = assets.get(assetId);
+
+    // Es un attachment si: tiene data-asana-type="attachment" Y
+    // data-asana-gid, O bien el href contiene asset_id=N.
+    const attachmentId =
+      (dataType === "attachment" && dataGidMatch ? dataGidMatch[1] : null) ??
+      assetMatch?.[1] ??
+      null;
+
+    if (attachmentId) {
+      const asset = assets.get(attachmentId);
       if (asset) {
-        // Imagen inline: cierra el párrafo actual, mete el nodo image,
-        // abre uno nuevo.
         flushParagraph();
         content.push({ type: "image", attrs: { src: asset.url, alt: asset.alt } });
       } else {
-        // Asset que no pudimos descargar — placeholder textual.
         currentParagraph.push({
           type: "text",
-          text: `[imagen perdida: ${inner || assetId}]`
+          text: `[imagen perdida: ${inner || attachmentId}]`
         });
       }
     } else if (href.startsWith("http")) {

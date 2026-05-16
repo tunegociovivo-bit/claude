@@ -447,7 +447,14 @@ async function runImport(jobId: string, opts: ImportOptions) {
         // bodyJson. Para comentarios sin assets, mantenemos el skip
         // rápido para no gastar API calls.
         const exists = await prisma.comment.findUnique({ where: { asanaId: story.gid } });
-        const hasAssets = /asset_id=\d+/.test((story.html_text ?? "") + (story.text ?? ""));
+        // Detectar si el comentario tiene attachments inline. Asana
+        // los embebe como `asset_id=N` (en text/href) o como
+        // `<a data-asana-type="attachment" data-asana-gid="N">` (en
+        // html_text — el caso de imágenes pegadas). Si NINGUNO está,
+        // saltamos el re-procesado para ahorrar API calls.
+        const combined = (story.html_text ?? "") + (story.text ?? "");
+        const hasAssets =
+          /asset_id=\d+/.test(combined) || /data-asana-type="attachment"/.test(combined);
         if (exists && !hasAssets) {
           stats.commentsSkipped++;
           continue;

@@ -262,12 +262,17 @@ export default function TareasClient({
 
   const tasksByColumn = useMemo(() => {
     const map: Record<string, UiTask[]> = {};
-    for (const c of orderedColumns) map[c.id] = [];
+    // Marca local: cuando una tarea es "compartida" en el proyecto
+    // que estamos viendo (no es su proyecto principal), queremos que
+    // aparezca ARRIBA de la columna. Lo conseguimos guardando dos
+    // arrays por columna: shared (arriba) y own (resto). Al final los
+    // concatenamos.
+    const shared: Record<string, UiTask[]> = {};
+    for (const c of orderedColumns) {
+      map[c.id] = [];
+      shared[c.id] = [];
+    }
     for (const t of filtered) {
-      // Multi-proyecto: si la tarea está en el proyecto principal,
-      // usamos t.status (su columna principal). Si solo está como
-      // EXTRA del proyecto filtrado, usamos t.extraProjectStatuses
-      // para saber en qué columna de ESTE proyecto aparece.
       let status: string;
       const isPrimary = t.projectId === filters.project || filters.project === "all";
       if (isPrimary) {
@@ -276,14 +281,18 @@ export default function TareasClient({
         const extraStatus = t.extraProjectStatuses?.[filters.project];
         status = extraStatus ?? (orderedColumns[0]?.id ?? String(t.status));
       }
-      if (map[status]) map[status].push(t);
+      const targetMap = isPrimary ? map : shared;
+      if (targetMap[status]) targetMap[status].push(t);
       else {
-        // Status que ya no existe en config → fallback a primera columna
         const first = orderedColumns[0]?.id;
-        if (first) map[first].push({ ...t, status: first });
+        if (first) (isPrimary ? map : shared)[first].push({ ...t, status: first });
       }
     }
-    return map;
+    // Concatenamos: primero las compartidas (entran arriba), luego
+    // las propias del proyecto.
+    const merged: Record<string, UiTask[]> = {};
+    for (const c of orderedColumns) merged[c.id] = [...shared[c.id], ...map[c.id]];
+    return merged;
   }, [filtered, orderedColumns, filters.project]);
 
   function persistColumnOrder(order: string[]) {
