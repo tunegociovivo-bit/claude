@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import PageHeader from "@/components/PageHeader";
 import Modal from "@/components/ui/Modal";
-import { Plus, Loader2, Trash2, Edit2, Shield, ShieldCheck } from "lucide-react";
+import { Plus, Loader2, Trash2, Edit2, Shield, ShieldCheck, ChevronDown, ChevronRight, Check, X as XIcon } from "lucide-react";
 import ImageUpload from "@/components/ui/ImageUpload";
 
 type Member = {
@@ -27,6 +27,56 @@ const roleStyle: Record<Member["role"], string> = {
   GUEST: "bg-slate-50 text-slate-600 border-slate-200"
 };
 
+// Matriz de capacidades por rol — refleja el gating actual del sistema.
+const PERMISSIONS: { group: string; items: { label: string; allow: Record<Member["role"], boolean> }[] }[] = [
+  {
+    group: "Datos financieros",
+    items: [
+      { label: "Ver MRR de cada cliente y MRR total", allow: { ADMIN: true, MEMBER: false, GUEST: false } },
+      { label: "Editar MRR desde la ficha de cliente", allow: { ADMIN: true, MEMBER: false, GUEST: false } }
+    ]
+  },
+  {
+    group: "Workspace y equipo",
+    items: [
+      { label: "Crear, editar y eliminar usuarios", allow: { ADMIN: true, MEMBER: false, GUEST: false } },
+      { label: "Configurar API keys, IA y integraciones (Asana, Drive, Metricool…)", allow: { ADMIN: true, MEMBER: false, GUEST: false } },
+      { label: "Ver auditoría y backups", allow: { ADMIN: true, MEMBER: false, GUEST: false } }
+    ]
+  },
+  {
+    group: "Clientes",
+    items: [
+      { label: "Ver listado y fichas de clientes", allow: { ADMIN: true, MEMBER: true, GUEST: true } },
+      { label: "Crear y editar clientes (datos, contacto, servicios)", allow: { ADMIN: true, MEMBER: true, GUEST: false } },
+      { label: "Acceder a credenciales/accesos del cliente", allow: { ADMIN: true, MEMBER: true, GUEST: false } },
+      { label: "Eliminar clientes", allow: { ADMIN: true, MEMBER: true, GUEST: false } }
+    ]
+  },
+  {
+    group: "Tareas y proyectos",
+    items: [
+      { label: "Ver tableros, lista y calendario", allow: { ADMIN: true, MEMBER: true, GUEST: true } },
+      { label: "Crear y editar tareas, proyectos y eventos", allow: { ADMIN: true, MEMBER: true, GUEST: false } }
+    ]
+  },
+  {
+    group: "Calendario editorial",
+    items: [
+      { label: "Ver publicaciones planificadas", allow: { ADMIN: true, MEMBER: true, GUEST: true } },
+      { label: "Crear/editar publicaciones y aprobar mes", allow: { ADMIN: true, MEMBER: true, GUEST: false } },
+      { label: "Generar copy/imagen con IA y exportar a Metricool", allow: { ADMIN: true, MEMBER: true, GUEST: false } }
+    ]
+  },
+  {
+    group: "Asistente IA (Hub)",
+    items: [
+      { label: "Chatear con el asistente y usar tools del workspace", allow: { ADMIN: true, MEMBER: true, GUEST: false } },
+      { label: "Configurar el modelo y la API key de IA", allow: { ADMIN: true, MEMBER: false, GUEST: false } }
+    ]
+  }
+];
+
 export default function UsuariosClient() {
   const [members, setMembers] = useState<Member[]>([]);
   const [loading, setLoading] = useState(true);
@@ -35,6 +85,13 @@ export default function UsuariosClient() {
   const [createOpen, setCreateOpen] = useState(false);
   const [editing, setEditing] = useState<Member | null>(null);
 
+  // Selección múltiple para bulk delete.
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+
+  // Panel "Permisos por rol" colapsado por defecto (no satura).
+  const [permsOpen, setPermsOpen] = useState(false);
+
   async function load() {
     setLoading(true);
     try {
@@ -42,6 +99,13 @@ export default function UsuariosClient() {
       if (r.ok) {
         const d = await r.json();
         setMembers(d.items ?? []);
+        // Limpia selección de IDs que ya no existen.
+        setSelected((s) => {
+          const next = new Set<string>();
+          const ids = new Set((d.items ?? []).map((m: Member) => m.id));
+          for (const id of s) if (ids.has(id)) next.add(id);
+          return next;
+        });
       } else {
         setError(`Error ${r.status}`);
       }
@@ -61,6 +125,37 @@ export default function UsuariosClient() {
     if (r.ok) load();
     else alert("No se pudo eliminar");
   }
+
+  function toggleSelect(id: string) {
+    setSelected((s) => {
+      const next = new Set(s);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+  function toggleSelectAll() {
+    setSelected((s) => (s.size === members.length ? new Set() : new Set(members.map((m) => m.id))));
+  }
+
+  async function handleBulkDelete() {
+    if (selected.size === 0) return;
+    const names = members.filter((m) => selected.has(m.id)).map((m) => m.name || m.email);
+    const preview = names.slice(0, 5).join(", ") + (names.length > 5 ? `, y ${names.length - 5} más` : "");
+    if (!confirm(`Vas a eliminar ${selected.size} usuario(s) del workspace:\n\n${preview}\n\n¿Continuar?`)) return;
+    setBulkDeleting(true);
+    const results = await Promise.allSettled(
+      Array.from(selected).map((id) => fetch(`/api/v1/users/${id}`, { method: "DELETE" }))
+    );
+    setBulkDeleting(false);
+    const failed = results.filter((r) => r.status === "rejected" || (r.status === "fulfilled" && !r.value.ok)).length;
+    if (failed > 0) alert(`${failed} usuario(s) no se pudieron eliminar.`);
+    setSelected(new Set());
+    load();
+  }
+
+  const allSelected = members.length > 0 && selected.size === members.length;
+  const someSelected = selected.size > 0 && !allSelected;
 
   return (
     <div className="max-w-5xl mx-auto">
@@ -84,6 +179,120 @@ export default function UsuariosClient() {
         <StatCard label="Miembros" value={members.filter((m) => m.role === "MEMBER").length} icon={<Shield className="h-4 w-4 text-sky-500" />} />
       </div>
 
+      {/* Permisos por rol — sección colapsable */}
+      <div className="bg-white rounded-xl border mb-6 overflow-hidden">
+        <button
+          type="button"
+          onClick={() => setPermsOpen((o) => !o)}
+          className="w-full flex items-center justify-between px-5 py-3 hover:bg-slate-50"
+        >
+          <div className="text-left">
+            <div className="text-sm font-semibold">Qué puede hacer cada rol</div>
+            <div className="text-xs text-slate-500 mt-0.5">
+              Resumen de los permisos de Administrador, Miembro e Invitado en toda la plataforma.
+            </div>
+          </div>
+          {permsOpen ? <ChevronDown className="h-4 w-4 text-slate-400" /> : <ChevronRight className="h-4 w-4 text-slate-400" />}
+        </button>
+        {permsOpen && (
+          <div className="border-t">
+            {/* Mini-resúmenes por rol */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 p-5 border-b bg-slate-50/50">
+              <RoleSummary
+                role="ADMIN"
+                title="Administrador"
+                tagline="Acceso total al workspace."
+                bullets={[
+                  "Ve datos financieros (MRR)",
+                  "Gestiona usuarios, API keys e integraciones",
+                  "Configura IA y backups"
+                ]}
+              />
+              <RoleSummary
+                role="MEMBER"
+                title="Miembro"
+                tagline="Uso diario operativo."
+                bullets={[
+                  "Crea y edita clientes, tareas y publicaciones",
+                  "Usa el asistente IA y el calendario editorial",
+                  "No ve MRR ni gestiona equipo/integraciones"
+                ]}
+              />
+              <RoleSummary
+                role="GUEST"
+                title="Invitado"
+                tagline="Solo lectura."
+                bullets={[
+                  "Ve listados de clientes, tareas y calendario",
+                  "No puede crear ni editar nada",
+                  "Sin acceso al asistente IA"
+                ]}
+              />
+            </div>
+            {/* Tabla detallada de capacidades */}
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+                  <tr>
+                    <th className="text-left px-5 py-2 font-medium">Capacidad</th>
+                    <th className="text-center px-3 py-2 font-medium w-24">Admin</th>
+                    <th className="text-center px-3 py-2 font-medium w-24">Miembro</th>
+                    <th className="text-center px-3 py-2 font-medium w-24">Invitado</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {PERMISSIONS.map((g) => (
+                    <Fragment key={g.group}>
+                      <tr className="bg-slate-50/40">
+                        <td colSpan={4} className="px-5 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-600">
+                          {g.group}
+                        </td>
+                      </tr>
+                      {g.items.map((it, i) => (
+                        <tr key={g.group + i} className="hover:bg-slate-50">
+                          <td className="px-5 py-2 text-slate-700">{it.label}</td>
+                          <td className="px-3 py-2 text-center"><Allow yes={it.allow.ADMIN} /></td>
+                          <td className="px-3 py-2 text-center"><Allow yes={it.allow.MEMBER} /></td>
+                          <td className="px-3 py-2 text-center"><Allow yes={it.allow.GUEST} /></td>
+                        </tr>
+                      ))}
+                    </Fragment>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className="px-5 py-3 text-[11px] text-slate-500 border-t bg-slate-50/50">
+              Permisos aplicados en la UI y en endpoints sensibles. El control granular por proyecto / cliente individual llegará más adelante.
+            </p>
+          </div>
+        )}
+      </div>
+
+      {/* Barra de bulk-delete cuando hay selección */}
+      {selected.size > 0 && (
+        <div className="mb-3 flex items-center justify-between gap-3 px-4 py-2.5 rounded-lg bg-rose-50 border border-rose-200">
+          <div className="text-sm text-rose-800">
+            <strong>{selected.size}</strong> usuario(s) seleccionado(s)
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setSelected(new Set())}
+              className="px-2.5 py-1 rounded text-xs text-slate-600 hover:bg-white"
+            >
+              Cancelar selección
+            </button>
+            <button
+              onClick={handleBulkDelete}
+              disabled={bulkDeleting}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-medium disabled:opacity-50"
+            >
+              {bulkDeleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+              Eliminar seleccionados
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="bg-white rounded-xl border overflow-x-auto">
         {loading ? (
           <div className="p-8 text-sm text-slate-500 flex items-center gap-2">
@@ -103,7 +312,19 @@ export default function UsuariosClient() {
           <table className="w-full text-sm">
             <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
               <tr>
-                <th className="text-left px-5 py-3">Usuario</th>
+                <th className="px-3 py-3 w-10">
+                  <input
+                    type="checkbox"
+                    checked={allSelected}
+                    ref={(el) => {
+                      if (el) el.indeterminate = someSelected;
+                    }}
+                    onChange={toggleSelectAll}
+                    className="accent-rose-600 h-4 w-4"
+                    aria-label="Seleccionar todos"
+                  />
+                </th>
+                <th className="text-left px-3 py-3">Usuario</th>
                 <th className="text-left px-3 py-3">Email</th>
                 <th className="text-left px-3 py-3">Rol</th>
                 <th className="text-left px-3 py-3">Desde</th>
@@ -111,43 +332,55 @@ export default function UsuariosClient() {
               </tr>
             </thead>
             <tbody className="divide-y">
-              {members.map((m) => (
-                <tr key={m.id} className="hover:bg-slate-50">
-                  <td className="px-5 py-3">
-                    <div className="flex items-center gap-3">
-                      <div className="h-8 w-8 rounded-full bg-brand-500 text-white grid place-items-center text-xs font-semibold">
-                        {(m.name || m.email).slice(0, 2).toUpperCase()}
+              {members.map((m) => {
+                const isSel = selected.has(m.id);
+                return (
+                  <tr key={m.id} className={"hover:bg-slate-50 " + (isSel ? "bg-rose-50/30" : "")}>
+                    <td className="px-3 py-3">
+                      <input
+                        type="checkbox"
+                        checked={isSel}
+                        onChange={() => toggleSelect(m.id)}
+                        className="accent-rose-600 h-4 w-4"
+                        aria-label={`Seleccionar ${m.name || m.email}`}
+                      />
+                    </td>
+                    <td className="px-3 py-3">
+                      <div className="flex items-center gap-3">
+                        <div className="h-8 w-8 rounded-full bg-brand-500 text-white grid place-items-center text-xs font-semibold">
+                          {(m.name || m.email).slice(0, 2).toUpperCase()}
+                        </div>
+                        <span className="font-medium">{m.name || "—"}</span>
                       </div>
-                      <span className="font-medium">{m.name || "—"}</span>
-                    </div>
-                  </td>
-                  <td className="px-3 py-3 text-slate-600">{m.email}</td>
-                  <td className="px-3 py-3">
-                    <span className={`text-xs px-2 py-0.5 rounded-md border ${roleStyle[m.role]}`}>
-                      {roleLabel[m.role]}
-                    </span>
-                  </td>
-                  <td className="px-3 py-3 text-xs text-slate-500">
-                    {new Date(m.joinedAt).toLocaleDateString("es-ES", { day: "2-digit", month: "short", year: "numeric" })}
-                  </td>
-                  <td className="px-5 py-3 text-right">
-                    <button
-                      onClick={() => setEditing(m)}
-                      className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs text-slate-600 hover:bg-slate-100"
-                    >
-                      <Edit2 className="h-3.5 w-3.5" />
-                      Editar
-                    </button>
-                    <button
-                      onClick={() => handleDelete(m)}
-                      className="ml-1 inline-flex items-center gap-1 px-2 py-1 rounded text-xs text-rose-600 hover:bg-rose-50"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                      Quitar
-                    </button>
-                  </td>
-                </tr>
-              ))}
+                    </td>
+                    <td className="px-3 py-3 text-slate-600">{m.email}</td>
+                    <td className="px-3 py-3">
+                      <span className={`text-xs px-2 py-0.5 rounded-md border ${roleStyle[m.role]}`}>
+                        {roleLabel[m.role]}
+                      </span>
+                    </td>
+                    <td className="px-3 py-3 text-xs text-slate-500">
+                      {new Date(m.joinedAt).toLocaleDateString("es-ES", { day: "2-digit", month: "short", year: "numeric" })}
+                    </td>
+                    <td className="px-5 py-3 text-right">
+                      <button
+                        onClick={() => setEditing(m)}
+                        className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs text-slate-600 hover:bg-slate-100"
+                      >
+                        <Edit2 className="h-3.5 w-3.5" />
+                        Editar
+                      </button>
+                      <button
+                        onClick={() => handleDelete(m)}
+                        className="ml-1 inline-flex items-center gap-1 px-2 py-1 rounded text-xs text-rose-600 hover:bg-rose-50"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                        Quitar
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         )}
@@ -174,6 +407,51 @@ export default function UsuariosClient() {
           load();
         }}
       />
+    </div>
+  );
+}
+
+function Allow({ yes }: { yes: boolean }) {
+  return yes ? (
+    <span className="inline-flex items-center justify-center h-5 w-5 rounded-full bg-emerald-50 text-emerald-600">
+      <Check className="h-3 w-3" />
+    </span>
+  ) : (
+    <span className="inline-flex items-center justify-center h-5 w-5 rounded-full bg-slate-100 text-slate-400">
+      <XIcon className="h-3 w-3" />
+    </span>
+  );
+}
+
+function RoleSummary({
+  role,
+  title,
+  tagline,
+  bullets
+}: {
+  role: Member["role"];
+  title: string;
+  tagline: string;
+  bullets: string[];
+}) {
+  const Icon = role === "ADMIN" ? ShieldCheck : Shield;
+  return (
+    <div className="bg-white rounded-lg border p-4">
+      <div className="flex items-center gap-2 mb-1">
+        <span className={`inline-flex items-center justify-center h-7 w-7 rounded-md border ${roleStyle[role]}`}>
+          <Icon className="h-3.5 w-3.5" />
+        </span>
+        <div className="font-semibold text-sm">{title}</div>
+      </div>
+      <p className="text-xs text-slate-500 mb-2">{tagline}</p>
+      <ul className="space-y-1">
+        {bullets.map((b) => (
+          <li key={b} className="text-xs text-slate-700 flex items-start gap-1.5">
+            <span className="text-brand-500 leading-none mt-0.5">•</span>
+            <span>{b}</span>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
