@@ -26,6 +26,18 @@ export type GenerateMonthOptions = {
   imageQuality?: "low" | "medium" | "high";
   // Callback opcional para reportar progreso en el job.
   onProgress?: (msg: string, pct: number) => Promise<void> | void;
+  // Modo "single post": cuando se rellena `singleTopic`, count se fuerza
+  // a 1, el título y la fecha vienen del usuario (no los inventa Claude)
+  // y el formato se respeta tal cual. Útil para "Nueva publicación con
+  // IA" desde el calendario.
+  singleTopic?: string;
+  singleFormat?: string;
+  singleScheduledFor?: Date;
+  // Hints opcionales para guiar la imagen. Vacío = Claude decide sola.
+  // imageIncludeHint: cosas/personas/objetos QUE SÍ deben aparecer.
+  // imageAvoidHint: cosas/personas/objetos QUE NO deben aparecer (negative).
+  imageIncludeHint?: string;
+  imageAvoidHint?: string;
 };
 
 export type GenerateMonthResult = {
@@ -152,8 +164,52 @@ function buildUserPrompt(opts: {
   mix: Required<GenerateMonthOptions>["mix"];
   copyLength: number;
   extraGuidance?: string;
+  singleTopic?: string;
+  singleFormat?: string;
+  imageIncludeHint?: string;
+  imageAvoidHint?: string;
 }) {
   const band = lengthBand(opts.copyLength);
+
+  // Bloque opcional de instrucciones visuales positivas/negativas. Se
+  // inyectan en el prompt del usuario para que Claude las incorpore al
+  // image_prompt de cada publicación.
+  const imageHints = (() => {
+    const blocks: string[] = [];
+    if (opts.imageIncludeHint?.trim()) {
+      blocks.push(
+        `## Imagen — qué SÍ debe aparecer (positivo)\n${opts.imageIncludeHint.trim()}\n\nIncorpora estos elementos en el campo "image_prompt" de cada publicación de forma natural y coherente con el copy.`
+      );
+    }
+    if (opts.imageAvoidHint?.trim()) {
+      blocks.push(
+        `## Imagen — qué NO debe aparecer (negativo)\n${opts.imageAvoidHint.trim()}\n\nMenciona explícitamente al final de cada "image_prompt": "do not include: [lista de cosas a evitar en inglés]". Refuerza la prohibición incluso si el copy podría sugerirlos.`
+      );
+    }
+    return blocks.join("\n\n");
+  })();
+
+  // Modo single post: el usuario pasa título y formato concretos.
+  if (opts.singleTopic) {
+    return [
+      `## Publicación individual a generar`,
+      `Tema/título fijo del usuario: "${opts.singleTopic}"`,
+      opts.singleFormat ? `Formato fijo: ${opts.singleFormat}` : "",
+      ``,
+      `Genera UNA sola publicación basada exactamente en ese tema/título. Devuelve el array "posts" con un único elemento.`,
+      `Usa ese mismo string como "title". El "format" debe ser exactamente "${opts.singleFormat ?? "imagen"}".`,
+      `Los campos "dayOfMonth" y "hourOfDay" no importan — pon cualquier valor válido, serán ignorados.`,
+      ``,
+      `## Longitud del copy`,
+      `${opts.copyLength}/100 → ${band.label} (${band.words})`,
+      ``,
+      opts.extraGuidance ? `## Instrucción extra del usuario\n${opts.extraGuidance}` : "",
+      imageHints
+    ]
+      .filter(Boolean)
+      .join("\n");
+  }
+
   const mixLines = Object.entries(opts.mix)
     .filter(([, v]) => v && v > 0)
     .map(([k, v]) => `- ${k}: ${v}% del total`)
@@ -170,6 +226,7 @@ function buildUserPrompt(opts: {
     `${opts.copyLength}/100 → ${band.label} (${band.words})`,
     ``,
     opts.extraGuidance ? `## Instrucción extra del usuario\n${opts.extraGuidance}` : "",
+    imageHints,
     ``,
     `Genera ahora las ${opts.count} publicaciones.`
   ]
@@ -266,6 +323,8 @@ export async function generateMonth(opts: GenerateMonthOptions): Promise<Generat
   });
   if (!client) throw new Error("Cliente no encontrado");
 
+  const isSingle = !!opts.singleTopic;
+  const effectiveCount = isSingle ? 1 : opts.count;
   const mix = { ...DEFAULT_MIX, ...(opts.mix ?? {}) };
   const copyLength = opts.copyLength ?? 50;
   const perNetwork = opts.perNetworkCopy ?? opts.networks.length > 1;
@@ -273,10 +332,14 @@ export async function generateMonth(opts: GenerateMonthOptions): Promise<Generat
   const system = buildSystemPrompt(client, opts.networks, perNetwork);
   const user = buildUserPrompt({
     month: opts.month,
-    count: opts.count,
+    count: effectiveCount,
     mix: mix as any,
     copyLength,
-    extraGuidance: opts.extraGuidance
+    extraGuidance: opts.extraGuidance,
+    singleTopic: opts.singleTopic,
+    singleFormat: opts.singleFormat,
+    imageIncludeHint: opts.imageIncludeHint,
+    imageAvoidHint: opts.imageAvoidHint
   });
 
   const responseSchema = buildResponseSchema({
@@ -300,7 +363,7 @@ export async function generateMonth(opts: GenerateMonthOptions): Promise<Generat
     system,
     user,
     schema: responseSchema as any,
-    maxTokens: Math.max(4096, 800 * opts.count),
+    maxTokens: Math.max(4096, 800 * effectiveCount),
     imageUrls: rosterPhotos.length > 0 ? rosterPhotos : undefined
   });
 
@@ -313,20 +376,26 @@ export async function generateMonth(opts: GenerateMonthOptions): Promise<Generat
 
   const records: Prisma.EditorialPostCreateManyInput[] = [];
   for (const p of ai.posts ?? []) {
-    let day = Number(p.dayOfMonth);
-    if (!Number.isFinite(day) || day < 1) day = 1;
-    if (day > daysInMonth) day = daysInMonth;
-    // Si ya hay 2 posts ese día, mover al siguiente día disponible
-    let safety = 0;
-    while (Array.from(usedDays.values()).filter((d) => d === day).length >= 2 && safety < daysInMonth) {
-      day = (day % daysInMonth) + 1;
-      safety++;
-    }
-    usedDays.add(day);
+    let scheduledFor: Date;
+    if (isSingle && opts.singleScheduledFor) {
+      // Modo single: la fecha la ha elegido el usuario en el modal.
+      scheduledFor = opts.singleScheduledFor;
+    } else {
+      let day = Number(p.dayOfMonth);
+      if (!Number.isFinite(day) || day < 1) day = 1;
+      if (day > daysInMonth) day = daysInMonth;
+      // Si ya hay 2 posts ese día, mover al siguiente día disponible
+      let safety = 0;
+      while (Array.from(usedDays.values()).filter((d) => d === day).length >= 2 && safety < daysInMonth) {
+        day = (day % daysInMonth) + 1;
+        safety++;
+      }
+      usedDays.add(day);
 
-    let hour = Number(p.hourOfDay);
-    if (!Number.isFinite(hour) || hour < 6 || hour > 22) hour = 12;
-    const scheduledFor = new Date(Date.UTC(y, m - 1, day, hour, 0, 0));
+      let hour = Number(p.hourOfDay);
+      if (!Number.isFinite(hour) || hour < 6 || hour > 22) hour = 12;
+      scheduledFor = new Date(Date.UTC(y, m - 1, day, hour, 0, 0));
+    }
 
     const copyByNetwork =
       p.copyByNetwork && typeof p.copyByNetwork === "object" && !Array.isArray(p.copyByNetwork)
@@ -347,15 +416,25 @@ export async function generateMonth(opts: GenerateMonthOptions): Promise<Generat
     const textPlacement = ["top", "center", "bottom"].includes(p.textPlacement) ? p.textPlacement : null;
     const imagePrompt = typeof p.imagePrompt === "string" && p.imagePrompt.trim() ? p.imagePrompt.trim() : null;
 
+    // Modo single: forzamos title y format del usuario, ignorando lo
+    // que Claude haya inventado (a veces se desvía aunque el prompt lo
+    // pida explícito).
+    const finalTitle = isSingle && opts.singleTopic
+      ? opts.singleTopic.slice(0, 200)
+      : String(p.title ?? "").slice(0, 200) || "Publicación generada";
+    const finalFormat = isSingle && opts.singleFormat
+      ? opts.singleFormat
+      : String(p.format ?? "imagen");
+
     records.push({
       workspaceId: opts.workspaceId,
       clientId: opts.clientId,
-      title: String(p.title ?? "").slice(0, 200) || "Publicación generada",
+      title: finalTitle,
       content: String(p.content ?? ""),
       hashtags: String(p.hashtags ?? "") || null,
       firstComment: p.firstComment ? String(p.firstComment) : null,
       copyByNetwork: copyByNetwork as any,
-      format: String(p.format ?? "imagen"),
+      format: finalFormat,
       networks: JSON.stringify(opts.networks),
       scheduledFor,
       status,

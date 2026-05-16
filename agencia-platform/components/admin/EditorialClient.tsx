@@ -1746,6 +1746,16 @@ function PostFormModal({
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Estado del panel "Generar con IA" — sólo aplica en modo creación.
+  // El usuario rellena título + ajustes y pulsa el botón; backend crea
+  // la publicación + imagen en background.
+  const [aiCopyLength, setAiCopyLength] = useState(50);
+  const [aiPerNetworkCopy, setAiPerNetworkCopy] = useState(true);
+  const [aiExtraGuidance, setAiExtraGuidance] = useState("");
+  const [aiImageInclude, setAiImageInclude] = useState("");
+  const [aiImageAvoid, setAiImageAvoid] = useState("");
+  const [aiImageQuality, setAiImageQuality] = useState<"low" | "medium" | "high">("medium");
+  const [aiRunning, setAiRunning] = useState(false);
 
   // Cuando abrimos el modal para editar, refrescamos detalle desde el servidor
   useEffect(() => {
@@ -1834,6 +1844,105 @@ function PostFormModal({
 
   function toggleNetwork(n: string) {
     setForm((f) => ({ ...f, networks: f.networks.includes(n) ? f.networks.filter((x) => x !== n) : [...f.networks, n] }));
+  }
+
+  // Cuando estamos creando y el cliente cambia, cargamos sus
+  // editorialDefaults para precargar los sliders del panel IA y las
+  // redes (los manuales sólo si están vacíos).
+  useEffect(() => {
+    if (!open || isEdit || !form.clientId) return;
+    let aborted = false;
+    fetch(`/api/v1/clients/${form.clientId}/editorial-meta`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (aborted || !data?.editorialDefaults) return;
+        const p = data.editorialDefaults;
+        if (typeof p.copyLength === "number") setAiCopyLength(Math.max(0, Math.min(100, p.copyLength)));
+        if (typeof p.perNetworkCopy === "boolean") setAiPerNetworkCopy(p.perNetworkCopy);
+        if (typeof p.extraGuidance === "string") setAiExtraGuidance(p.extraGuidance);
+        if (p.imageQuality === "low" || p.imageQuality === "medium" || p.imageQuality === "high") {
+          setAiImageQuality(p.imageQuality);
+        }
+        if (Array.isArray(p.networks) && p.networks.length > 0) {
+          setForm((f) => (f.networks.length === 0 ? { ...f, networks: p.networks } : f));
+        }
+      })
+      .catch(() => {});
+    return () => {
+      aborted = true;
+    };
+  }, [open, isEdit, form.clientId]);
+
+  // Mapea el formato del form (post/carousel) al formato AI/imagen.
+  function formatToAi(fmt: string): string {
+    if (fmt === "post") return "imagen";
+    if (fmt === "carousel") return "carrusel";
+    return fmt;
+  }
+
+  async function generateWithAi() {
+    if (!form.title.trim()) {
+      setError("El título es obligatorio para generar con IA.");
+      return;
+    }
+    if (!form.clientId) {
+      setError("Selecciona un cliente.");
+      return;
+    }
+    if (form.networks.length === 0) {
+      setError("Selecciona al menos una red.");
+      return;
+    }
+    setError(null);
+    setAiRunning(true);
+    const scheduledIso = form.scheduledFor
+      ? new Date(form.scheduledFor).toISOString()
+      : new Date().toISOString();
+    try {
+      const r = await fetch("/api/v1/editorial/generate-single", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          clientId: form.clientId,
+          title: form.title.trim(),
+          format: formatToAi(form.format),
+          networks: form.networks,
+          scheduledFor: scheduledIso,
+          copyLength: aiCopyLength,
+          perNetworkCopy: aiPerNetworkCopy,
+          extraGuidance: aiExtraGuidance || undefined,
+          imageIncludeHint: aiImageInclude || undefined,
+          imageAvoidHint: aiImageAvoid || undefined,
+          status: form.status === "REVIEW" ? "REVIEW" : "DRAFT",
+          imageQuality: aiImageQuality
+        })
+      });
+      const data = await r.json().catch(() => null);
+      if (!r.ok) {
+        setError(data?.error?.message ?? `Error ${r.status}`);
+        setAiRunning(false);
+        return;
+      }
+      // El toast global se ocupa del polling/notif.
+      try {
+        const existing = JSON.parse(localStorage.getItem("editorial.runningJobs") ?? "[]");
+        const clientName = clients.find((c) => c.id === form.clientId)?.name;
+        existing.push({
+          id: data.jobId,
+          startedAt: Date.now(),
+          clientName,
+          month: form.title.slice(0, 30) // mostramos topic en el toast
+        });
+        localStorage.setItem("editorial.runningJobs", JSON.stringify(existing));
+        window.dispatchEvent(new CustomEvent("editorial:job-started", { detail: { id: data.jobId } }));
+      } catch {}
+      setAiRunning(false);
+      onSaved();
+      onClose();
+    } catch (e) {
+      setError((e as Error).message);
+      setAiRunning(false);
+    }
   }
 
   async function submit(e: React.FormEvent) {
@@ -2115,6 +2224,22 @@ function PostFormModal({
             </button>
           )}
           <button type="button" onClick={onClose} className="px-3 py-2 rounded-lg text-sm border bg-white hover:bg-slate-50">Cancelar</button>
+          {!isEdit && (
+            <button
+              type="button"
+              onClick={generateWithAi}
+              disabled={aiRunning || !form.title.trim() || !form.clientId}
+              title={
+                !form.title.trim()
+                  ? "Escribe un título/tema arriba para activar"
+                  : "Claude genera copy + hashtags + comentario, y gpt-image-2 crea la imagen"
+              }
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-violet-600 hover:bg-violet-700 text-white text-sm font-medium disabled:opacity-50"
+            >
+              {aiRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+              Generar con IA
+            </button>
+          )}
           <button
             type="submit"
             form="editorial-form"
@@ -2167,6 +2292,118 @@ function PostFormModal({
             })}
           </div>
         </div>
+
+        {/* Panel "Generar con IA" — solo en modo creación. El usuario
+            rellena título + ajustes y pulsa el botón del footer. */}
+        {!isEdit && (
+          <div className="rounded-lg border border-violet-200 bg-violet-50/40 p-3 space-y-3">
+            <div className="flex items-center gap-2">
+              <Sparkles className="h-4 w-4 text-violet-600" />
+              <span className="text-sm font-medium text-violet-900">Generar con IA (opcional)</span>
+            </div>
+            <p className="text-[11px] text-slate-600">
+              Rellena el título con el tema/idea y pulsa <strong>Generar con IA</strong> abajo. Claude redactará copy + hashtags + primer comentario, y gpt-image-2 creará la imagen usando las refs del cliente. Deja todo en blanco si prefieres escribir la publicación a mano y pulsar <strong>Guardar</strong>.
+            </p>
+
+            <div>
+              <label className="block text-[11px] font-medium text-slate-700 mb-1">
+                Longitud del copy · <span className="text-violet-600">{aiCopyLength}%</span>{" "}
+                <span className="text-slate-500">
+                  ({aiCopyLength < 25
+                    ? "ultra-directo (40-100 palabras)"
+                    : aiCopyLength < 50
+                      ? "corto (60-180 palabras)"
+                      : aiCopyLength < 75
+                        ? "medio (100-300 palabras)"
+                        : "largo (200-450 palabras)"})
+                </span>
+              </label>
+              <input
+                type="range"
+                min={0}
+                max={100}
+                step={5}
+                value={aiCopyLength}
+                onChange={(e) => setAiCopyLength(Number(e.target.value))}
+                className="w-full accent-violet-600"
+              />
+            </div>
+
+            {form.networks.length > 1 && (
+              <label className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={aiPerNetworkCopy}
+                  onChange={(e) => setAiPerNetworkCopy(e.target.checked)}
+                  className="accent-violet-600"
+                />
+                Generar copy adaptado por cada red (más tokens, más nativo)
+              </label>
+            )}
+
+            <div>
+              <label className="block text-[11px] font-medium text-slate-700 mb-1">
+                Instrucción extra (opcional)
+              </label>
+              <textarea
+                value={aiExtraGuidance}
+                onChange={(e) => setAiExtraGuidance(e.target.value)}
+                rows={2}
+                placeholder="Ej. tono cercano, evita hablar de precios, incluye CTA a llamada gratuita…"
+                className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+              />
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-[11px] font-medium text-emerald-800 mb-1">
+                  Qué SÍ debe aparecer en la imagen (opcional)
+                </label>
+                <textarea
+                  value={aiImageInclude}
+                  onChange={(e) => setAiImageInclude(e.target.value)}
+                  rows={3}
+                  placeholder="Ej. Rochar examinando a una paciente, ambiente luminoso, plantas verdes…"
+                  className="w-full px-3 py-2 rounded-lg border border-emerald-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-medium text-rose-800 mb-1">
+                  Qué NO debe aparecer (negativo, opcional)
+                </label>
+                <textarea
+                  value={aiImageAvoid}
+                  onChange={(e) => setAiImageAvoid(e.target.value)}
+                  rows={3}
+                  placeholder="Ej. nada de jeringuillas, ningún logo de competidor, sin texto sobre la piel…"
+                  className="w-full px-3 py-2 rounded-lg border border-rose-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-rose-500"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <label className="text-[11px] font-medium text-slate-700">Calidad imagen:</label>
+              <div className="flex gap-1">
+                {(["low", "medium", "high"] as const).map((q) => (
+                  <button
+                    key={q}
+                    type="button"
+                    onClick={() => setAiImageQuality(q)}
+                    className={
+                      "px-2 py-1 rounded-md text-[11px] border " +
+                      (aiImageQuality === q
+                        ? "bg-violet-100 border-violet-300 text-violet-800 font-medium"
+                        : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50")
+                    }
+                  >
+                    {q === "low" ? "Baja (~$0.02)" : q === "medium" ? "Media (~$0.04)" : "Alta (~$0.17)"}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
         <textarea
           value={form.excerpt}
           onChange={(e) => setForm({ ...form, excerpt: e.target.value })}
