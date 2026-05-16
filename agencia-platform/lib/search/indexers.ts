@@ -52,6 +52,9 @@ export function textForDocument(d: { title: string; content?: any }): string {
   return [d.title, d.content ? tipTapToText(d.content) : null].filter(Boolean).join("\n\n");
 }
 
-export function textForComment(c: { body: string }): string {
+// `body` lo dejamos `unknown` para que el caller pueda pasar tanto
+// el campo `body` (String) como `bodyJson` (Prisma.JsonValue) sin
+// hacer casts. tipTapToText() ya distingue ambos casos.
+export function textForComment(c: { body: unknown }): string {
   return tipTapToText(c.body);
 }
