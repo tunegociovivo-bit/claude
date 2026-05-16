@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Loader2, CheckCircle2, XCircle, MessageSquare, Send } from "lucide-react";
+import { Loader2, CheckCircle2, XCircle, MessageSquare, Send, LayoutGrid, List } from "lucide-react";
 import PostThread from "./PostThread";
+import MonthGrid from "./MonthGrid";
 
 type Decision = { id: string; decision: string; comment: string | null; createdAt: string };
 type Post = {
@@ -106,17 +107,65 @@ export default function PublicApprovalView({ token }: { token: string }) {
 
         <SummaryStats posts={data.posts} accent={accent} />
 
-        {data.posts.length === 0 && (
+        {data.posts.length === 0 ? (
           <div className="rounded-xl border bg-white p-6 text-center text-sm text-slate-500">
             Aún no hay publicaciones cargadas para {data.month}.
           </div>
+        ) : (
+          <>
+            <ViewSwitcher data={data} accent={accent} token={token} onChanged={reload} />
+          </>
         )}
-
-        {data.posts.map((p) => (
-          <PostCard key={p.id} post={p} token={token} accent={accent} onChanged={reload} />
-        ))}
       </main>
     </div>
+  );
+}
+
+function ViewSwitcher({
+  data,
+  accent,
+  token,
+  onChanged
+}: {
+  data: Data;
+  accent: string;
+  token: string;
+  onChanged: () => void;
+}) {
+  const [view, setView] = useState<"calendar" | "list">("calendar");
+  return (
+    <>
+      <div className="flex items-center justify-end gap-1">
+        <div className="inline-flex rounded-lg border bg-white p-0.5">
+          <button
+            onClick={() => setView("calendar")}
+            className={
+              "px-3 py-1.5 rounded-md text-xs inline-flex items-center gap-1.5 " +
+              (view === "calendar" ? "bg-slate-100 text-slate-900" : "text-slate-500 hover:text-slate-700")
+            }
+          >
+            <LayoutGrid className="h-3.5 w-3.5" /> Calendario
+          </button>
+          <button
+            onClick={() => setView("list")}
+            className={
+              "px-3 py-1.5 rounded-md text-xs inline-flex items-center gap-1.5 " +
+              (view === "list" ? "bg-slate-100 text-slate-900" : "text-slate-500 hover:text-slate-700")
+            }
+          >
+            <List className="h-3.5 w-3.5" /> Lista
+          </button>
+        </div>
+      </div>
+      {view === "calendar" && (
+        <MonthGrid month={data.month} posts={data.posts as any} accent={accent} />
+      )}
+      {data.posts.map((p) => (
+        <div key={p.id} id={`post-${p.id}`} className="rounded-xl">
+          <PostCard post={p} token={token} accent={accent} onChanged={onChanged} />
+        </div>
+      ))}
+    </>
   );
 }
 

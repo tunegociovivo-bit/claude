@@ -59,6 +59,14 @@ export default function TareasClient({
   const { data: session } = useSession();
   const myUserId = (session?.user as any)?.id as string | undefined;
   const [view, setView] = useState<"kanban" | "list">("kanban");
+  // Por defecto en móvil cambiamos a vista lista — kanban con scroll
+  // horizontal en pantalla estrecha es frustrante. El usuario puede
+  // forzar kanban con el toggle.
+  useEffect(() => {
+    if (typeof window !== "undefined" && window.matchMedia("(max-width: 639px)").matches) {
+      setView("list");
+    }
+  }, []);
   const [filters, setFilters] = useState<TaskFilters>({
     ...DEFAULT_FILTERS,
     project: urlProject ?? "all"
@@ -372,8 +380,9 @@ export default function TareasClient({
         }
       />
 
-      <div className="flex items-center gap-2 mb-3 flex-wrap">
-        <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white border text-xs">
+      {/* Filtros: en móvil overflow-x scrollable; en >=sm wrap normal. */}
+      <div className="flex items-center gap-2 mb-3 flex-nowrap sm:flex-wrap overflow-x-auto sm:overflow-visible -mx-4 px-4 sm:mx-0 sm:px-0 scrollbar-thin">
+        <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white border text-xs shrink-0">
           <Filter className="h-3.5 w-3.5 text-slate-400" />
           <select
             value={filters.project}
@@ -389,7 +398,7 @@ export default function TareasClient({
         <select
           value={filters.client}
           onChange={(e) => setFilters((f) => ({ ...f, client: e.target.value }))}
-          className="px-3 py-1.5 rounded-lg bg-white border text-xs focus:outline-none"
+          className="px-3 py-1.5 rounded-lg bg-white border text-xs focus:outline-none shrink-0"
         >
           <option value="all">Todos los clientes</option>
           {clients.map((c) => (
@@ -399,7 +408,7 @@ export default function TareasClient({
         <select
           value={filters.assignee}
           onChange={(e) => setFilters((f) => ({ ...f, assignee: e.target.value }))}
-          className="px-3 py-1.5 rounded-lg bg-white border text-xs focus:outline-none"
+          className="px-3 py-1.5 rounded-lg bg-white border text-xs focus:outline-none shrink-0"
         >
           <option value="all">Todos los asignados</option>
           <option value="me">Mis tareas</option>
@@ -411,7 +420,7 @@ export default function TareasClient({
         <select
           value={filters.priority}
           onChange={(e) => setFilters((f) => ({ ...f, priority: e.target.value }))}
-          className="px-3 py-1.5 rounded-lg bg-white border text-xs focus:outline-none"
+          className="px-3 py-1.5 rounded-lg bg-white border text-xs focus:outline-none shrink-0"
         >
           <option value="all">Prioridad…</option>
           <option value="urgencia">🚨 Urgencia</option>
@@ -422,7 +431,7 @@ export default function TareasClient({
         <select
           value={filters.due}
           onChange={(e) => setFilters((f) => ({ ...f, due: e.target.value as TaskFilters["due"] }))}
-          className="px-3 py-1.5 rounded-lg bg-white border text-xs focus:outline-none"
+          className="px-3 py-1.5 rounded-lg bg-white border text-xs focus:outline-none shrink-0"
         >
           <option value="all">Vencimiento…</option>
           <option value="overdue">Vencidas</option>
@@ -435,11 +444,11 @@ export default function TareasClient({
           value={filters.q}
           onChange={(e) => setFilters((f) => ({ ...f, q: e.target.value }))}
           placeholder="Buscar título…"
-          className="px-3 py-1.5 rounded-lg bg-white border text-xs focus:outline-none w-40"
+          className="px-3 py-1.5 rounded-lg bg-white border text-xs focus:outline-none w-32 sm:w-40 shrink-0"
         />
         <a
           href="/admin/columnas"
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border text-xs text-slate-600 hover:text-slate-900 ml-auto"
+          className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border text-xs text-slate-600 hover:text-slate-900 ml-auto"
           title="Configurar columnas del kanban"
         >
           <Settings2 className="h-3.5 w-3.5" />
@@ -510,11 +519,11 @@ export default function TareasClient({
               <tr>
                 {selectionMode && <th className="w-10 px-3 py-3"></th>}
                 <th className="text-left px-5 py-3">Tarea</th>
-                <th className="text-left px-3 py-3">Proyecto</th>
+                <th className="text-left px-3 py-3 hidden md:table-cell">Proyecto</th>
                 <th className="text-left px-3 py-3">Estado</th>
-                <th className="text-left px-3 py-3">Prioridad</th>
-                <th className="text-left px-3 py-3">Asignados</th>
-                <th className="text-left px-3 py-3">Entrega</th>
+                <th className="text-left px-3 py-3 hidden lg:table-cell">Prioridad</th>
+                <th className="text-left px-3 py-3 hidden sm:table-cell">Asignados</th>
+                <th className="text-left px-3 py-3 hidden sm:table-cell">Entrega</th>
               </tr>
             </thead>
             <tbody className="divide-y">
@@ -538,11 +547,21 @@ export default function TareasClient({
                         />
                       </td>
                     )}
-                    <td className="px-5 py-3">
+                    <td className="px-3 sm:px-5 py-3">
                       <div className="font-medium">{t.title}</div>
-                      <div className="text-xs text-slate-500">{client?.name}</div>
+                      <div className="text-xs text-slate-500 truncate">
+                        {client?.name}
+                        {/* En móvil, condensamos prioridad y entrega bajo el título */}
+                        <span className="sm:hidden ml-2">
+                          {t.dueDate && (
+                            <span className="text-slate-400">
+                              · {new Date(t.dueDate).toLocaleDateString("es-ES", { day: "2-digit", month: "short" })}
+                            </span>
+                          )}
+                        </span>
+                      </div>
                     </td>
-                    <td className="px-3 py-3">
+                    <td className="px-3 py-3 hidden md:table-cell">
                       <div className="flex items-center gap-2">
                         <span className={`h-2 w-2 rounded-full ${project?.color ?? "bg-slate-300"}`} />
                         <span className="text-xs">{project?.name}</span>
@@ -553,16 +572,16 @@ export default function TareasClient({
                         {statusLabelOf(String(t.status), columns)}
                       </span>
                     </td>
-                    <td className="px-3 py-3">
+                    <td className="px-3 py-3 hidden lg:table-cell">
                       <span className={`text-xs px-2 py-1 rounded ${priorityColors[t.priority]}`}>
                         {priorityLabels[t.priority] ?? t.priority}
                       </span>
                     </td>
-                    <td className="px-3 py-3">
+                    <td className="px-3 py-3 hidden sm:table-cell">
                       <AvatarStack ids={t.assigneeIds} size={6} members={team} />
                     </td>
-                    <td className="px-3 py-3 text-xs text-slate-600">
-                      {new Date(t.dueDate).toLocaleDateString("es-ES", { day: "2-digit", month: "short" })}
+                    <td className="px-3 py-3 text-xs text-slate-600 hidden sm:table-cell">
+                      {t.dueDate && new Date(t.dueDate).toLocaleDateString("es-ES", { day: "2-digit", month: "short" })}
                     </td>
                   </tr>
                 );
@@ -619,11 +638,15 @@ function KanbanGrid({
   // Mínimo 320px por columna; si caben todas en pantalla, reparten el
   // espacio extra al 1fr. Si no caben, scroll horizontal. Quitamos el
   // cap de 6 columnas previo — Asana muestra todas las que existan.
+  // Tira con scroll horizontal. En móvil columnas más estrechas (~280px)
+  // para que se vea media columna siguiente y se intuya el swipe; con
+  // snap-start cada columna ancla cuando se hace swipe. En sm+ se
+  // abren para aprovechar pantalla.
   return (
     <div
-      className="grid grid-flow-col gap-3 sm:gap-4 overflow-x-auto pb-2 snap-x snap-mandatory md:snap-none flex-1 [&>*]:min-h-full"
+      className="grid grid-flow-col gap-2 sm:gap-4 overflow-x-auto pb-2 snap-x snap-mandatory sm:snap-none flex-1 [&>*]:min-h-full [&>*]:snap-start"
       style={{
-        gridAutoColumns: `minmax(320px, ${columnCount <= 6 ? "1fr" : "360px"})`
+        gridAutoColumns: `minmax(280px, ${columnCount <= 6 ? "1fr" : "360px"})`
       }}
     >
       {children}
