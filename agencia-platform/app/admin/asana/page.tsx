@@ -62,6 +62,13 @@ export default function AsanaImportPage() {
       });
       if (!r.ok) {
         const e = await r.json().catch(() => ({}));
+        // Si el server detectó que el token guardado ya no vale y lo
+        // borró, refrescamos el banner ("Token guardado" desaparece)
+        // para que el user pegue uno nuevo sin confusión.
+        const code = e?.error?.code;
+        if (code === "saved_token_invalid" || code === "decrypt_failed") {
+          loadSavedConnection();
+        }
         throw new Error(e?.error?.message ?? "Token no válido");
       }
       const data = await r.json();

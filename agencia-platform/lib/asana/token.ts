@@ -43,24 +43,16 @@ export async function saveAsanaToken(opts: {
   asanaUserId?: string | null;
 }): Promise<void> {
   const enc = encryptSecret(opts.token);
-  const existing = await prisma.asanaConnection.findFirst({ where: { userId: opts.userId } });
-  if (existing) {
-    await prisma.asanaConnection.update({
-      where: { id: existing.id },
-      data: {
-        accessTokenEnc: enc,
-        accessToken: "",
-        ...(opts.asanaUserId ? { asanaUserId: opts.asanaUserId } : {})
-      }
-    });
-  } else {
-    await prisma.asanaConnection.create({
-      data: {
-        userId: opts.userId,
-        accessToken: "",
-        accessTokenEnc: enc,
-        asanaUserId: opts.asanaUserId ?? null
-      }
-    });
-  }
+  // Borramos primero TODAS las filas que pueda haber del user — antes
+  // hacíamos findFirst+update, lo que dejaba filas duplicadas si en
+  // algún momento se crearon dos. Después insertamos una sola limpia.
+  await prisma.asanaConnection.deleteMany({ where: { userId: opts.userId } });
+  await prisma.asanaConnection.create({
+    data: {
+      userId: opts.userId,
+      accessToken: "",
+      accessTokenEnc: enc,
+      asanaUserId: opts.asanaUserId ?? null
+    }
+  });
 }
