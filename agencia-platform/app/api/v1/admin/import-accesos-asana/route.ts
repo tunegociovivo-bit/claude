@@ -32,7 +32,11 @@ import { listSubtasks, listSubtasksWithNotes, mapLimited } from "@/lib/asana/api
 
 const schema = z.object({
   rootTaskId: z.string().default("1201694137821107"),
-  onConflict: z.enum(["skip", "overwrite", "append"]).default("skip")
+  onConflict: z.enum(["skip", "overwrite", "append"]).default("skip"),
+  // Si true, los clientes que existen en Asana pero NO en BD se crean
+  // automáticamente con status=ACTIVE, prioridad=NORMAL y el accesos
+  // que venga (puede ser vacío si las sub-subtareas no tenían notes).
+  autoCreateMissing: z.boolean().default(false)
 });
 
 function normalize(s: string): string {
@@ -76,9 +80,14 @@ export const POST = withApi({ scope: "*" }, async (req, { api }) => {
     }
   });
 
-  runAsync(job.id, api.workspaceId, conn.accessToken, parsed.data.rootTaskId, parsed.data.onConflict).catch(
-    (e) => console.error("[import-accesos-asana] fallo crítico:", e)
-  );
+  runAsync(
+    job.id,
+    api.workspaceId,
+    conn.accessToken,
+    parsed.data.rootTaskId,
+    parsed.data.onConflict,
+    parsed.data.autoCreateMissing
+  ).catch((e) => console.error("[import-accesos-asana] fallo crítico:", e));
 
   return NextResponse.json({ jobId: job.id }, { status: 202 });
 });
@@ -88,7 +97,8 @@ async function runAsync(
   workspaceId: string,
   token: string,
   rootTaskId: string,
-  onConflict: "skip" | "overwrite" | "append"
+  onConflict: "skip" | "overwrite" | "append",
+  autoCreateMissing: boolean
 ) {
   const t0 = Date.now();
   const events: any[] = [];
@@ -172,25 +182,51 @@ async function runAsync(
       data: { progressMsg: "Aplicando a BD…", progressPct: 85 }
     });
     let updated = 0;
-    let skipped = 0;
-    const noMatch: string[] = [];
-    const skippedReasons: string[] = [];
+    let createdMissing = 0;
+    const skippedNoMatch: string[] = []; // sin match en BD y autoCreate=false
+    const skippedEmpty: string[] = []; // sub-subtareas Asana sin notes
+    const skippedAlreadyHadAccesos: string[] = []; // ya tenía + onConflict=skip
 
     for (const d of allData) {
-      if (!d.accesosText.trim()) {
-        skipped++;
-        continue;
-      }
       const m = matchClient(d.asanaName);
-      if (!m) {
-        noMatch.push(d.asanaName);
-        skipped++;
+      const hasContent = d.accesosText.trim().length > 0;
+
+      // Caso A: no hay match Y autoCreate=false → registramos como noMatch
+      if (!m && !autoCreateMissing) {
+        skippedNoMatch.push(d.asanaName);
         continue;
       }
+
+      // Caso B: hay match y el contenido viene vacío → no hay nada que escribir
+      if (m && !hasContent) {
+        skippedEmpty.push(m.name);
+        continue;
+      }
+
+      // Caso C: no match pero autoCreate=true → crear cliente nuevo
+      if (!m && autoCreateMissing) {
+        try {
+          await prisma.client.create({
+            data: {
+              workspaceId,
+              name: d.asanaName.trim().slice(0, 200),
+              status: "ACTIVE",
+              prioridad: "NORMAL" as any,
+              accesos: hasContent ? d.accesosText : null
+            }
+          });
+          createdMissing++;
+        } catch (e: any) {
+          await pushEvent("error", `Creando "${d.asanaName}" falló: ${String(e?.message ?? e).slice(0, 100)}`);
+        }
+        continue;
+      }
+
+      // Caso D: hay match, hay contenido → aplicar según onConflict
+      if (!m || !hasContent) continue; // typeguard, ya cubierto arriba
       const hasExisting = (m.existing?.length ?? 0) > 0;
       if (hasExisting && onConflict === "skip") {
-        skippedReasons.push(`${m.name}: ya tenía accesos`);
-        skipped++;
+        skippedAlreadyHadAccesos.push(m.name);
         continue;
       }
       let newAccesos = d.accesosText;
@@ -204,11 +240,31 @@ async function runAsync(
       updated++;
     }
 
-    if (noMatch.length > 0) {
-      await pushEvent("warn", `Sin match en BD: ${noMatch.slice(0, 10).join(", ")}${noMatch.length > 10 ? "…" : ""}`);
+    if (skippedNoMatch.length > 0) {
+      await pushEvent(
+        "warn",
+        `${skippedNoMatch.length} sin match en BD (activa "Auto-crear faltantes" para crearlos): ${skippedNoMatch.slice(0, 5).join(", ")}…`
+      );
+    }
+    if (skippedEmpty.length > 0) {
+      await pushEvent(
+        "info",
+        `${skippedEmpty.length} clientes con sub-subtareas vacías (sin credenciales en Asana)`
+      );
+    }
+    if (skippedAlreadyHadAccesos.length > 0) {
+      await pushEvent(
+        "info",
+        `${skippedAlreadyHadAccesos.length} clientes saltados porque ya tenían accesos (onConflict=skip)`
+      );
     }
 
-    const summary = `✓ ${updated} actualizados · ${skipped} saltados (${noMatch.length} sin match)`;
+    const summary =
+      `✓ ${updated} actualizados` +
+      (createdMissing > 0 ? ` · ${createdMissing} creados` : "") +
+      ` · ${skippedEmpty.length} sin credenciales en Asana` +
+      ` · ${skippedNoMatch.length} sin match BD` +
+      (skippedAlreadyHadAccesos.length > 0 ? ` · ${skippedAlreadyHadAccesos.length} ya tenían accesos` : "");
     await pushEvent("info", summary);
     await prisma.backgroundJob.update({
       where: { id: jobId },
@@ -220,9 +276,10 @@ async function runAsync(
         result: {
           totalAsana: allData.length,
           updated,
-          skipped,
-          noMatch: noMatch.slice(0, 50),
-          skippedReasons: skippedReasons.slice(0, 50)
+          createdMissing,
+          skippedNoMatch: skippedNoMatch.slice(0, 100),
+          skippedEmpty: skippedEmpty.slice(0, 100),
+          skippedAlreadyHadAccesos: skippedAlreadyHadAccesos.slice(0, 100)
         } as any
       }
     });

@@ -34,6 +34,7 @@ type DiagSummary = {
 export default function ImportAccesosAsanaClient() {
   const [rootTaskId, setRootTaskId] = useState("1201694137821107");
   const [onConflict, setOnConflict] = useState<"skip" | "overwrite" | "append">("skip");
+  const [autoCreateMissing, setAutoCreateMissing] = useState(false);
   const [jobId, setJobId] = useState<string | null>(null);
   const [status, setStatus] = useState<JobStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -103,7 +104,12 @@ export default function ImportAccesosAsanaClient() {
   }, [jobId, status?.status]);
 
   async function start() {
-    if (!confirm("¿Iniciar import desde Asana?\n\nVa a leer las 165 subtareas de la tarea CLIENTES (~2-3 min) y volcar los accesos en cada ficha. Con onConflict=skip los clientes que ya tienen accesos no se tocan.")) return;
+    if (!confirm(
+      "¿Iniciar import desde Asana?\n\n" +
+      (autoCreateMissing
+        ? "AUTO-CREAR ACTIVADO: los clientes que existen en Asana pero no en tu BD se CREARÁN automáticamente."
+        : "Sólo se actualizarán los clientes que ya existen en tu BD con el mismo nombre.")
+    )) return;
     setStarting(true);
     setError(null);
     setStatus(null);
@@ -112,7 +118,7 @@ export default function ImportAccesosAsanaClient() {
       const r = await fetch("/api/v1/admin/import-accesos-asana", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rootTaskId, onConflict })
+        body: JSON.stringify({ rootTaskId, onConflict, autoCreateMissing })
       });
       const data = await r.json();
       if (!r.ok) {
@@ -173,19 +179,38 @@ export default function ImportAccesosAsanaClient() {
           />
         </div>
 
-        <div className="flex items-center gap-3">
-          <label className="text-xs font-medium text-slate-700">
-            Si el cliente ya tiene accesos:
+        <div className="space-y-2">
+          <div className="flex items-center gap-3">
+            <label className="text-xs font-medium text-slate-700">
+              Si el cliente ya tiene accesos:
+            </label>
+            <select
+              value={onConflict}
+              onChange={(e) => setOnConflict(e.target.value as any)}
+              className="px-3 py-1.5 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+            >
+              <option value="skip">No tocar (saltar)</option>
+              <option value="overwrite">Sobreescribir</option>
+              <option value="append">Añadir al final</option>
+            </select>
+          </div>
+          <label className="flex items-start gap-2 text-xs text-slate-700 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={autoCreateMissing}
+              onChange={(e) => setAutoCreateMissing(e.target.checked)}
+              className="mt-0.5 accent-violet-600"
+            />
+            <span>
+              <strong>Auto-crear los clientes que faltan en BD</strong>
+              <br />
+              <span className="text-slate-500">
+                Si una subtarea Asana no matchea con ningún cliente de BD, créalo
+                automáticamente (status=activo, prioridad=normal). Útil cuando la mayoría
+                "sin match" del último run eran clientes que no tenías creados todavía.
+              </span>
+            </span>
           </label>
-          <select
-            value={onConflict}
-            onChange={(e) => setOnConflict(e.target.value as any)}
-            className="px-3 py-1.5 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
-          >
-            <option value="skip">No tocar (saltar)</option>
-            <option value="overwrite">Sobreescribir</option>
-            <option value="append">Añadir al final</option>
-          </select>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
@@ -250,25 +275,37 @@ export default function ImportAccesosAsanaClient() {
             {status.status === "COMPLETED" && status.result && (
               <div className="mt-3 text-xs space-y-1">
                 <p>Asana subtareas leídas: <strong>{status.result.totalAsana}</strong></p>
-                <p>Clientes actualizados: <strong>{status.result.updated}</strong></p>
-                <p>Saltados: <strong>{status.result.skipped}</strong></p>
-                {Array.isArray(status.result.noMatch) && status.result.noMatch.length > 0 && (
+                <p>✓ Clientes actualizados: <strong>{status.result.updated}</strong></p>
+                {(status.result.createdMissing ?? 0) > 0 && (
+                  <p>🆕 Clientes creados (no existían en BD): <strong>{status.result.createdMissing}</strong></p>
+                )}
+                {Array.isArray(status.result.skippedNoMatch) && status.result.skippedNoMatch.length > 0 && (
                   <details>
-                    <summary className="cursor-pointer">
-                      Sin match en BD ({status.result.noMatch.length})
+                    <summary className="cursor-pointer text-rose-700">
+                      ✗ Sin match en BD ({status.result.skippedNoMatch.length}) — activa "Auto-crear faltantes" para importarlos
                     </summary>
                     <ul className="ml-4 mt-1 list-disc">
-                      {status.result.noMatch.map((n: string, i: number) => <li key={i}>{n}</li>)}
+                      {status.result.skippedNoMatch.map((n: string, i: number) => <li key={i}>{n}</li>)}
                     </ul>
                   </details>
                 )}
-                {Array.isArray(status.result.skippedReasons) && status.result.skippedReasons.length > 0 && (
+                {Array.isArray(status.result.skippedEmpty) && status.result.skippedEmpty.length > 0 && (
                   <details>
-                    <summary className="cursor-pointer">
-                      Saltados con motivo ({status.result.skippedReasons.length})
+                    <summary className="cursor-pointer text-slate-700">
+                      ⊘ Sin credenciales en Asana ({status.result.skippedEmpty.length}) — las sub-subtareas estaban vacías
                     </summary>
                     <ul className="ml-4 mt-1 list-disc">
-                      {status.result.skippedReasons.map((n: string, i: number) => <li key={i}>{n}</li>)}
+                      {status.result.skippedEmpty.map((n: string, i: number) => <li key={i}>{n}</li>)}
+                    </ul>
+                  </details>
+                )}
+                {Array.isArray(status.result.skippedAlreadyHadAccesos) && status.result.skippedAlreadyHadAccesos.length > 0 && (
+                  <details>
+                    <summary className="cursor-pointer text-amber-700">
+                      ⚠ Ya tenían accesos ({status.result.skippedAlreadyHadAccesos.length}) — cambia onConflict a "Sobreescribir" o "Añadir" para actualizar
+                    </summary>
+                    <ul className="ml-4 mt-1 list-disc">
+                      {status.result.skippedAlreadyHadAccesos.map((n: string, i: number) => <li key={i}>{n}</li>)}
                     </ul>
                   </details>
                 )}

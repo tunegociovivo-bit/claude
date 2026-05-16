@@ -25,6 +25,8 @@ const KINDS = [
   "admin.import_accesos_asana"
 ];
 
+// (kind whitelist mantenido para compat con varios endpoints)
+
 export const GET = withApi({ scope: "*" }, async (_req, { params, api }) => {
   let job = await prisma.backgroundJob.findFirst({
     where: {
