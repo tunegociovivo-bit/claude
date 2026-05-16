@@ -29,7 +29,8 @@ import {
   KeyRound,
   Trash2,
   ListChecks,
-  FileCheck2
+  FileCheck2,
+  Calendar
 } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -64,6 +65,12 @@ const cards = [
     title: "Webhooks",
     description: "Dispara un POST a una URL externa (Make, Zapier, n8n) cuando algo cambia: tareas, clientes, MRR, aprobaciones.",
     icon: Webhook
+  },
+  {
+    href: "/perfil#gcal",
+    title: "Google Calendar",
+    description: "Cada miembro conecta su cuenta en /perfil. Bidireccional: tus eventos viajan en ambas direcciones.",
+    icon: Calendar
   },
   {
     href: "/admin/usuarios",

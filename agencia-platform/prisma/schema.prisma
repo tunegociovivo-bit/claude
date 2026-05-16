@@ -41,6 +41,7 @@ model User {
   vacationDays      VacationDay[]
   teamMessages      TeamMessage[]
   editorialMessages EditorialPostMessage[]
+  googleCalendarConnections GoogleCalendarConnection[]
 }
 
 // Calendarios externos del usuario (Google Calendar, Outlook, iCloud,
@@ -156,6 +157,7 @@ model Workspace {
   externalCalendars UserExternalCalendar[]
   vacationDays    VacationDay[]
   teamMessages    TeamMessage[]
+  googleCalendarConnections GoogleCalendarConnection[]
 }
 
 model Membership {
@@ -1154,11 +1156,24 @@ model CalendarEvent {
   endAt       DateTime?
   allDay      Boolean  @default(false)
   type        EventType @default(MEETING)
+  // Sincronización bidireccional con Google Calendar. Cuando un evento
+  // nace en el Hub y se empuja a Google, guardamos su id remoto.
+  // Cuando un evento viene de Google al sincronizar, también. El par
+  // (googleCalendarId, googleEventId) identifica únicamente un evento
+  // en Google. `googleOwnerUserId` apunta al user del Hub que tiene
+  // la conexión OAuth con la que se sincroniza este evento.
+  googleEventId     String?
+  googleCalendarId  String?
+  googleOwnerUserId String?
+  lastSyncedAt      DateTime?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   client    Client?   @relation(fields: [clientId], references: [id], onDelete: SetNull)
+
+  @@unique([googleCalendarId, googleEventId])
+  @@index([googleOwnerUserId])
 }
 
 enum EventType {
@@ -1491,4 +1506,47 @@ model DeliverableDecision {
   deliverable Deliverable @relation(fields: [deliverableId], references: [id], onDelete: Cascade)
 
   @@index([deliverableId, createdAt])
+}
+
+// ====================================================================
+// GOOGLE CALENDAR — integración bidireccional por usuario
+// ====================================================================
+//
+// A diferencia de UserExternalCalendar (que es read-only vía iCal),
+// esta tabla guarda los tokens OAuth para hacer push y pull contra
+// el API de Google Calendar. Tokens cifrados con encryptSecret().
+//
+// `syncToken` es el cursor incremental que Google nos devuelve tras
+// cada listado. La próxima llamada usa ese token y Google solo nos
+// manda lo cambiado. Si Google lo invalida (sucede tras 30 días sin
+// uso o si revocas permiso), reseteamos a null y hacemos full sync.
+//
+// `calendarId` por ahora siempre = "primary" del usuario; en un
+// futuro se puede ampliar a múltiples calendarios por user.
+model GoogleCalendarConnection {
+  id                    String   @id @default(cuid())
+  userId                String
+  workspaceId           String
+  googleAccountEmail    String
+  calendarId            String   @default("primary")
+  // Tokens cifrados con lib/ai/crypto.ts:encryptSecret
+  accessTokenEnc        String   @db.Text
+  refreshTokenEnc       String   @db.Text
+  expiresAt             DateTime
+  // Cursor de sync incremental Google Calendar API
+  syncToken             String?  @db.Text
+  // Direcciones permitidas: por defecto bidi. Si el user quiere
+  // solo importar (sin que sus cambios pisen Google), pone pushEnabled=false.
+  pullEnabled           Boolean  @default(true)
+  pushEnabled           Boolean  @default(true)
+  lastSyncedAt          DateTime?
+  lastError             String?  @db.Text
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, workspaceId])
+  @@index([workspaceId])
 }

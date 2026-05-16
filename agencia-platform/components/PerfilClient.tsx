@@ -5,6 +5,7 @@ import { signOut } from "next-auth/react";
 import PageHeader from "@/components/PageHeader";
 import ImageUpload from "@/components/ui/ImageUpload";
 import ExternalCalendarsSection from "@/components/ExternalCalendarsSection";
+import GoogleCalendarSection from "@/components/GoogleCalendarSection";
 import { Loader2, Save, LogOut } from "lucide-react";
 
 type Me = {
@@ -163,7 +164,10 @@ export default function PerfilClient() {
         </form>
       )}
 
-      {/* Calendarios externos vinculados (Google/Outlook/iCloud) */}
+      {/* Google Calendar (OAuth bidireccional) */}
+      <GoogleCalendarSection />
+
+      {/* Calendarios externos vinculados read-only por URL iCal */}
       <ExternalCalendarsSection />
 
       {/* Cerrar sesión */}
