@@ -27,7 +27,7 @@ import ProjectFormModal from "@/components/forms/ProjectFormModal";
 import BulkActionBar from "@/components/tareas/BulkActionBar";
 import { statusLabelOf, statusColorOf, priorityColors } from "@/lib/mock-data";
 import type { UiTask, UiProject, UiClient, UiMember } from "@/lib/db/queries";
-import { LayoutGrid, List, Plus, Filter, CalendarDays, FolderPlus, GripVertical, CheckSquare, Square, Settings2, Loader2 } from "lucide-react";
+import { LayoutGrid, List, Plus, Filter, CalendarDays, FolderPlus, GripVertical, CheckSquare, Square, Settings2, Loader2, Link2, Check } from "lucide-react";
 import clsx from "clsx";
 
 type KanbanColumn = { id: string; label: string; color: string; order: number; isDone?: boolean };
@@ -98,6 +98,20 @@ export default function TareasClient({
   const [newTaskOpen, setNewTaskOpen] = useState(false);
   const [newTaskStatus, setNewTaskStatus] = useState<string | undefined>();
   const [editingTask, setEditingTask] = useState<UiTask | null>(null);
+
+  // Deep-link: si la URL trae ?task=ID, abrimos automáticamente esa
+  // tarea al cargar. Permite que copies/pegues la URL desde el botón
+  // de Link2 y al abrirla salte directo a la tarea.
+  useEffect(() => {
+    const taskId = searchParams.get("task");
+    if (!taskId) return;
+    const t = tasks.find((x) => x.id === taskId);
+    if (t) {
+      setEditingTask(t);
+    }
+    // Si no la encontramos (todavía no han cargado), no insistimos —
+    // el efecto se reejecuta cuando `tasks` se actualiza.
+  }, [searchParams, tasks]);
   const [newProjectOpen, setNewProjectOpen] = useState(false);
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
 
@@ -869,10 +883,26 @@ function TaskCard({
   onToggleSelected?: () => void;
   columns?: KanbanColumn[];
 }) {
+  const [copied, setCopied] = useState(false);
+
+  async function copyTaskUrl(e: React.MouseEvent) {
+    e.stopPropagation();
+    e.preventDefault();
+    const url = `${window.location.origin}/tareas?task=${task.id}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // Fallback: selección por prompt
+      prompt("URL de la tarea (cópiala con Ctrl+C):", url);
+    }
+  }
+
   return (
     <div
       className={clsx(
-        "bg-white rounded-lg border p-3 transition cursor-pointer relative",
+        "bg-white rounded-lg border p-3 transition cursor-pointer relative group",
         isOverlay ? "shadow-2xl rotate-2 border-brand-400" : "hover:shadow-sm hover:border-brand-200",
         isSelected && "border-brand-400 ring-2 ring-brand-300/50"
       )}
@@ -886,7 +916,25 @@ function TaskCard({
           className="absolute top-2 right-2 h-4 w-4"
         />
       )}
-      <div className="flex items-start justify-between gap-2 mb-2 pr-6">
+      {/* Botón copiar URL — aparece en hover. No interfiere con drag&drop
+          ni con la apertura del modal porque hace stopPropagation. */}
+      {!selectionMode && (
+        <button
+          type="button"
+          onClick={copyTaskUrl}
+          onPointerDown={(e) => e.stopPropagation()}
+          className={
+            "absolute top-2 right-2 h-6 w-6 rounded grid place-items-center border transition opacity-0 group-hover:opacity-100 " +
+            (copied
+              ? "bg-emerald-50 border-emerald-300 text-emerald-700 opacity-100"
+              : "bg-white border-slate-200 text-slate-500 hover:text-brand-600 hover:border-brand-300")
+          }
+          title={copied ? "URL copiada" : "Copiar URL de la tarea"}
+        >
+          {copied ? <Check className="h-3.5 w-3.5" /> : <Link2 className="h-3.5 w-3.5" />}
+        </button>
+      )}
+      <div className="flex items-start justify-between gap-2 mb-2 pr-8">
         <p className="text-sm font-medium leading-snug">{task.title}</p>
         <span className={`shrink-0 text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded ${priorityColors[task.priority]}`}>
           {task.priority}
