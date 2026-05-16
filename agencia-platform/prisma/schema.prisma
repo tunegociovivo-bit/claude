@@ -38,6 +38,8 @@ model User {
   comments          Comment[]
   assignedTasks     TaskAssignee[]
   externalCalendars UserExternalCalendar[]
+  vacationDays      VacationDay[]
+  teamMessages      TeamMessage[]
 }
 
 // Calendarios externos del usuario (Google Calendar, Outlook, iCloud,
@@ -150,6 +152,8 @@ model Workspace {
   leadExclusions  LeadExclusion[]
   leadOptouts     LeadOptout[]
   externalCalendars UserExternalCalendar[]
+  vacationDays    VacationDay[]
+  teamMessages    TeamMessage[]
 }
 
 model Membership {
@@ -1342,4 +1346,48 @@ model AsanaImport {
   errorMsg    String?
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+}
+
+// ====================================================================
+// Equipo: vacaciones + chat grupal
+// ====================================================================
+
+// Un día de vacaciones marcado por un trabajador. Granularidad por día
+// (no por hora). Si la fecha ya pasó, queda lockedAt != null y no se
+// puede modificar/borrar — se considera registro histórico.
+model VacationDay {
+  id          String   @id @default(cuid())
+  workspaceId String
+  userId      String
+  date        DateTime @db.Date
+  note        String?
+  // Marca cuándo se "selló" el registro porque la fecha ya pasó. Si es
+  // null, todavía es modificable. La capa de aplicación lo rellena en
+  // el primer acceso después de que la fecha haya pasado.
+  lockedAt    DateTime?
+  createdAt   DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, userId, date])
+  @@index([workspaceId, date])
+}
+
+// Chat grupal del equipo. Un solo "canal" por workspace por ahora; si
+// más adelante hace falta multi-canal se añade channelId.
+model TeamMessage {
+  id          String   @id @default(cuid())
+  workspaceId String
+  authorId    String
+  body        String   @db.Text
+  // Lista opcional de referencias del tipo {kind:"task"|"project", id:"..."}
+  // para deep-links a tareas/proyectos. Se rellena al parsear el body.
+  references  Json?
+  createdAt   DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  author    User      @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, createdAt])
 }

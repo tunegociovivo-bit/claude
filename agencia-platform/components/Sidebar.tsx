@@ -7,6 +7,7 @@ import {
   LayoutDashboard,
   KanbanSquare,
   Users,
+  UsersRound,
   BookOpen,
   CalendarDays,
   Database,
@@ -43,6 +44,7 @@ const nav = [
   { href: "/", label: "Inicio", icon: LayoutDashboard, feature: "inicio" as const },
   { href: "/tareas", label: "Tareas", icon: KanbanSquare, feature: "tareas" as const },
   { href: "/clientes", label: "Clientes", icon: Users, feature: "clientes" as const },
+  { href: "/equipo", label: "Equipo", icon: UsersRound, feature: "equipo" as const },
   { href: "/documentos", label: "Documentos", icon: BookOpen, feature: "documentos" as const },
   { href: "/databases", label: "Bases de datos", icon: Database, feature: "databases" as const },
   { href: "/calendario", label: "Calendario", icon: CalendarDays, feature: "calendario" as const }
