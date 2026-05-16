@@ -4,6 +4,7 @@ import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { clientCreateSchema } from "@/lib/api/schemas";
 import { callerIsAdmin, redactMrr } from "@/lib/api/permissions";
+import { auditFromReq } from "@/lib/audit/log";
 
 export const GET = withApi({ scope: "clients:read" }, async (_req, { params, api }) => {
   const [client, isAdmin] = await Promise.all([
@@ -22,11 +23,15 @@ export const PATCH = withApi({ scope: "clients:write" }, async (req, { params, a
   const parsed = clientCreateSchema.partial().safeParse(body);
   if (!parsed.success) throw new ApiError(400, "validation_error", parsed.error.message);
 
-  // Si no es admin, descartamos mrr del payload — un MEMBER no debe
-  // poder modificarlo aunque la UI antigua lo mande.
   const isAdmin = await callerIsAdmin(api);
   const data: any = { ...parsed.data };
   if (!isAdmin) delete data.mrr;
+
+  // Snapshot anterior para el audit log si va a cambiar algo sensible.
+  const previous = await prisma.client.findFirst({
+    where: { id: params.id, workspaceId: api.workspaceId },
+    select: { id: true, name: true, mrr: true, status: true }
+  });
 
   const updated = await prisma.client.updateMany({
     where: { id: params.id, workspaceId: api.workspaceId },
@@ -34,14 +39,37 @@ export const PATCH = withApi({ scope: "clients:write" }, async (req, { params, a
   });
   if (updated.count === 0) throw new ApiError(404, "not_found", "Cliente no encontrado");
   const fresh = await prisma.client.findUnique({ where: { id: params.id } });
+
+  if (previous && data.mrr !== undefined && previous.mrr !== data.mrr) {
+    auditFromReq(req, api, {
+      action: "client.mrr_change",
+      targetType: "CLIENT",
+      targetId: params.id,
+      before: { mrr: previous.mrr },
+      after: { mrr: data.mrr }
+    });
+  } else if (Object.keys(data).length > 0) {
+    auditFromReq(req, api, {
+      action: "client.update",
+      targetType: "CLIENT",
+      targetId: params.id,
+      meta: { fields: Object.keys(data) }
+    });
+  }
+
   return NextResponse.json(redactMrr(fresh as any, isAdmin));
 });
 
-export const DELETE = withApi({ scope: "clients:write" }, async (_req, { params, api }) => {
+export const DELETE = withApi({ scope: "clients:write" }, async (req, { params, api }) => {
   const updated = await prisma.client.updateMany({
     where: { id: params.id, workspaceId: api.workspaceId, deletedAt: null },
     data: { deletedAt: new Date() }
   });
   if (updated.count === 0) throw new ApiError(404, "not_found", "Cliente no encontrado");
+  auditFromReq(req, api, {
+    action: "client.delete",
+    targetType: "CLIENT",
+    targetId: params.id
+  });
   return NextResponse.json({ ok: true });
 });

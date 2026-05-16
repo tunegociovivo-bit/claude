@@ -4,6 +4,7 @@ import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { taskCreateSchema } from "@/lib/api/schemas";
 import { notifyAssignment } from "@/lib/notifications/assignment";
+import { auditFromReq } from "@/lib/audit/log";
 
 export const GET = withApi({ scope: "tasks:read" }, async (_req, { params, api }) => {
   const task = await prisma.task.findFirst({
@@ -92,10 +93,22 @@ export const PATCH = withApi({ scope: "tasks:write" }, async (req, { params, api
   return NextResponse.json(result);
 });
 
-export const DELETE = withApi({ scope: "tasks:write" }, async (_req, { params, api }) => {
+export const DELETE = withApi({ scope: "tasks:write" }, async (req, { params, api }) => {
+  // Snapshot mínimo antes del borrado para que el audit deje rastro
+  // útil (el registro queda aunque la tarea ya no exista).
+  const snapshot = await prisma.task.findFirst({
+    where: { id: params.id, workspaceId: api.workspaceId },
+    select: { title: true, status: true, projectId: true, clientId: true }
+  });
   const del = await prisma.task.deleteMany({
     where: { id: params.id, workspaceId: api.workspaceId }
   });
   if (del.count === 0) throw new ApiError(404, "not_found", "Tarea no encontrada");
+  auditFromReq(req, api, {
+    action: "task.delete",
+    targetType: "TASK",
+    targetId: params.id,
+    before: snapshot
+  });
   return NextResponse.json({ ok: true });
 });
