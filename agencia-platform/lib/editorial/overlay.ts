@@ -321,39 +321,13 @@ export async function composeOverlayStructured(opts: StructuredOverlayOpts): Pro
     y0 = height - padding - totalH;
   }
 
-  // Crear canvas transparente para el overlay
+  // Crear canvas transparente para el overlay.
+  // NOTA: NO se pinta scrim / franja oscura detrás del texto. El plugin
+  // original tampoco lo hace y queda feo (banda visible sobre fotos
+  // claras). La legibilidad la cubre el sharp shadow del texto + el
+  // text_placement que Claude elige sobre la zona vacía del image_prompt.
   const canvas = createCanvas(width, height);
   const ctx = canvas.getContext("2d");
-
-  // SCRIM: gradiente sutil detrás de la zona del texto para garantizar
-  // legibilidad incluso si la imagen de fondo tiene rostros o zonas
-  // brillantes ahí. Equivalente conceptual al "frame" del plugin pero
-  // mucho más suave — sólo darken donde se necesita.
-  // El texto siempre se ancla a la izquierda (padding) y crece hacia la
-  // derecha hasta maxLineWidth. Hacemos un gradiente horizontal que
-  // oscurece la mitad izquierda y se desvanece a transparente en el
-  // centro/derecha, así Rochar/equipo a la derecha quedan visibles.
-  if (opts.pattern !== "frame") {
-    const maxLineW = Math.min(
-      width - padding * 2,
-      Math.max(
-        ...lines.map((l, i) => {
-          mctx.font = `${l.weight === "bold" ? "bold" : "normal"} ${lineHeights[i]}px "${family}", "Inter", system-ui, sans-serif`;
-          return mctx.measureText(l.text).width;
-        })
-      )
-    );
-    const scrimRight = Math.min(width, padding + maxLineW + Math.round(width * 0.12));
-    const fadeStart = Math.max(0, scrimRight - Math.round(width * 0.18));
-    const scrimTop = Math.max(0, y0 - Math.round(height * 0.04));
-    const scrimBottom = Math.min(height, y0 + totalH + Math.round(height * 0.04));
-    const grad = ctx.createLinearGradient(0, 0, scrimRight, 0);
-    grad.addColorStop(0, "rgba(0, 0, 0, 0.35)");
-    grad.addColorStop(Math.max(0, fadeStart / scrimRight), "rgba(0, 0, 0, 0.30)");
-    grad.addColorStop(1, "rgba(0, 0, 0, 0)");
-    ctx.fillStyle = grad;
-    ctx.fillRect(0, scrimTop, scrimRight, scrimBottom - scrimTop);
-  }
 
   // Frame diagonal estilo "Reva"
   if (opts.pattern === "frame") {
