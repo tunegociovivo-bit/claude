@@ -440,22 +440,18 @@ async function runImport(jobId: string, opts: ImportOptions) {
           stats.warnings.push(`Comentario sin email del autor: tarea ${t.name} → autor ${story.created_by.name ?? "?"}`);
           continue;
         }
-        // Idempotencia por asanaId del story. Con un giro: si el
-        // comentario YA existe pero tiene imágenes inline pendientes
-        // (asset_id en el html/text que aún apuntan a Asana), lo
-        // refrescamos descargando esas imágenes y actualizando el
-        // bodyJson. Para comentarios sin assets, mantenemos el skip
-        // rápido para no gastar API calls.
+        // Idempotencia por asanaId del story. Estrategia: si el
+        // comment YA existe Y tiene CUALQUIER referencia a Asana
+        // (URL app.asana.com, asset_id, data-asana-gid, tag <a>…)
+        // lo reprocesamos: puede contener attachments inline que
+        // antes no detectábamos por un patrón nuevo. Skip rápido
+        // solo si el comment ya existe y es puramente texto plano
+        // sin referencias a Asana.
         const exists = await prisma.comment.findUnique({ where: { asanaId: story.gid } });
-        // Detectar si el comentario tiene attachments inline. Asana
-        // los embebe como `asset_id=N` (en text/href) o como
-        // `<a data-asana-type="attachment" data-asana-gid="N">` (en
-        // html_text — el caso de imágenes pegadas). Si NINGUNO está,
-        // saltamos el re-procesado para ahorrar API calls.
         const combined = (story.html_text ?? "") + (story.text ?? "");
-        const hasAssets =
-          /asset_id=\d+/.test(combined) || /data-asana-type="attachment"/.test(combined);
-        if (exists && !hasAssets) {
+        const looksAsanaReferenced =
+          /app\.asana\.com|asset_id=\d+|data-asana-(?:gid|type)|<a\s/i.test(combined);
+        if (exists && !looksAsanaReferenced) {
           stats.commentsSkipped++;
           continue;
         }
