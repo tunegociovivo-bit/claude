@@ -1,7 +1,7 @@
 import PageHeader from "@/components/PageHeader";
 import AvatarStack from "@/components/AvatarStack";
 import { getDashboardData } from "@/lib/db/queries";
-import { isAdmin } from "@/lib/auth-utils";
+import { isAdmin, requireFeature } from "@/lib/auth-utils";
 import { statusLabels, statusColors, priorityColors } from "@/lib/mock-data";
 import { ArrowUpRight, CheckCircle2, Clock, Users, Briefcase, TrendingUp } from "lucide-react";
 import Link from "next/link";
@@ -9,6 +9,7 @@ import Link from "next/link";
 export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
+  await requireFeature("inicio");
   const { clients, tasks, projects, events, team } = await getDashboardData();
   const admin = await isAdmin();
   const today = new Date();

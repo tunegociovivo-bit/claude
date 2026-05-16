@@ -2,11 +2,12 @@ import PageHeader from "@/components/PageHeader";
 import ClientesActions from "@/components/clientes/ClientesActions";
 import ClientesListClient from "@/components/clientes/ClientesListClient";
 import { getClientsForUi, getProjectsForUi, getTasksForUi } from "@/lib/db/queries";
-import { isAdmin } from "@/lib/auth-utils";
+import { isAdmin, requireFeature } from "@/lib/auth-utils";
 
 export const dynamic = "force-dynamic";
 
 export default async function ClientesPage() {
+  await requireFeature("clientes");
   const [clients, projects, tasks, admin] = await Promise.all([
     getClientsForUi(),
     getProjectsForUi(),

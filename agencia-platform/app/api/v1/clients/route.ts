@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { clientCreateSchema } from "@/lib/api/schemas";
+import { callerIsAdmin, redactMrrList } from "@/lib/api/permissions";
 
 export const GET = withApi({ scope: "clients:read" }, async (req, { api }) => {
   const url = new URL(req.url);
@@ -17,12 +18,13 @@ export const GET = withApi({ scope: "clients:read" }, async (req, { api }) => {
   const where: any = { workspaceId: api.workspaceId, deletedAt: null };
   if (status) where.status = status;
 
-  const [items, total] = await Promise.all([
+  const [items, total, isAdmin] = await Promise.all([
     prisma.client.findMany({ where, take, skip, orderBy: { createdAt: "desc" } }),
-    prisma.client.count({ where })
+    prisma.client.count({ where }),
+    callerIsAdmin(api)
   ]);
 
-  return NextResponse.json({ items, total, limit: take, offset: skip });
+  return NextResponse.json({ items: redactMrrList(items as any, isAdmin), total, limit: take, offset: skip });
 });
 
 export const POST = withApi({ scope: "clients:write" }, async (req, { api }) => {
@@ -30,8 +32,13 @@ export const POST = withApi({ scope: "clients:write" }, async (req, { api }) => 
   const parsed = clientCreateSchema.safeParse(body);
   if (!parsed.success) throw new ApiError(400, "validation_error", parsed.error.message);
 
+  // Si el caller no es admin, ignoramos cualquier mrr que venga en el
+  // payload para que un MEMBER no pueda saltarse el gate vía API.
+  const isAdmin = await callerIsAdmin(api);
+  const data = isAdmin ? parsed.data : { ...parsed.data, mrr: undefined as any };
+
   const client = await prisma.client.create({
-    data: { ...parsed.data, workspaceId: api.workspaceId, since: new Date() }
+    data: { ...data, workspaceId: api.workspaceId, since: new Date() }
   });
-  return NextResponse.json(client, { status: 201 });
+  return NextResponse.json(redactMrrList([client as any], isAdmin)[0], { status: 201 });
 });

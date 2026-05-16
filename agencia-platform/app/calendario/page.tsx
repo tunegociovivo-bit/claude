@@ -2,10 +2,12 @@ import { getEventsForUi, getClientsForUi, getTasksForUi } from "@/lib/db/queries
 import CalendarioClient from "@/components/calendario/CalendarioClient";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
+import { requireFeature } from "@/lib/auth-utils";
 
 export const dynamic = "force-dynamic";
 
 export default async function CalendarioPage() {
+  await requireFeature("calendario");
   const [events, clients, tasks, session] = await Promise.all([
     getEventsForUi(),
     getClientsForUi(),

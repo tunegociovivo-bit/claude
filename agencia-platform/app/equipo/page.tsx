@@ -3,10 +3,12 @@ import { getTasksForUi, getTeamForUi } from "@/lib/db/queries";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db/prisma";
+import { requireFeature } from "@/lib/auth-utils";
 
 export const dynamic = "force-dynamic";
 
 export default async function EquipoPage() {
+  await requireFeature("equipo");
   const [tasks, team, session] = await Promise.all([
     getTasksForUi(),
     getTeamForUi(),
