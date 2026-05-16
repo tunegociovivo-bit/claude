@@ -1,5 +1,32 @@
 import { z } from "zod";
 
+export const SERVICIO_KEYS = [
+  "diseno_web",
+  "seo_web",
+  "seo_ia",
+  "gmb",
+  "sem",
+  "gestion_redes",
+  "campana_redes",
+  "mantenimiento",
+  "servidor",
+  "dominio"
+] as const;
+export type ServicioKey = (typeof SERVICIO_KEYS)[number];
+
+export const SERVICIO_LABELS: Record<ServicioKey, string> = {
+  diseno_web: "Diseño Web",
+  seo_web: "SEO WEB",
+  seo_ia: "SEO IA",
+  gmb: "GMB",
+  sem: "SEM",
+  gestion_redes: "Gestión Redes",
+  campana_redes: "Campaña Redes",
+  mantenimiento: "Mantenimiento",
+  servidor: "Servidor",
+  dominio: "Dominio"
+};
+
 export const clientCreateSchema = z.object({
   name: z.string().min(1),
   industry: z.string().optional(),
@@ -8,7 +35,12 @@ export const clientCreateSchema = z.object({
   email: z.string().email().optional(),
   phone: z.string().optional(),
   mrr: z.number().int().min(0).default(0),
-  notes: z.string().optional()
+  notes: z.string().optional(),
+  // Secciones nuevas del modal de edición de cliente.
+  infoGeneral: z.string().nullable().optional(),
+  accesos: z.string().nullable().optional(),
+  servicios: z.array(z.enum(SERVICIO_KEYS)).optional(),
+  kitDigital: z.boolean().optional()
 });
 
 // Schema de la ficha editorial del cliente (NV Dashboard). Todos opcionales:

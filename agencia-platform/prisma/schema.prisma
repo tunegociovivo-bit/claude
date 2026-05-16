@@ -150,6 +150,22 @@ model Client {
   notes       String?      @db.Text
   asanaId     String?      @unique // trazabilidad migración
 
+  // ----- Secciones nuevas del modal Editar cliente -----
+  // Información general libre (sector ampliado, ubicación, horarios,
+  // sucursales, tipo de empresa, etc.). Texto libre.
+  infoGeneral String? @db.Text
+  // Accesos: URLs/usuarios/passwords del cliente (cPanel, WP, GMB,
+  // Metricool, etc.). Texto libre por ahora; se podría cifrar en
+  // futuro con encryptSecret() como hacemos con las API keys.
+  accesos String? @db.Text
+  // Servicios contratados. Array de slugs predefinidos:
+  // "diseno_web" | "seo_web" | "seo_ia" | "gmb" | "sem" |
+  // "gestion_redes" | "campana_redes" | "mantenimiento" |
+  // "servidor" | "dominio"
+  servicios Json?
+  // Bono Kit Digital (ayudas Red.es). Boolean para reporting.
+  kitDigital Boolean @default(false)
+
   // ----- Editorial / NV Dashboard meta (migrado del plugin) -----
   // Brief & branding básico
   brandBrief        String? @db.Text

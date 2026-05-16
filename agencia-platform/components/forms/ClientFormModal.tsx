@@ -3,7 +3,32 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Modal from "@/components/ui/Modal";
-import { Loader2 } from "lucide-react";
+import { Loader2, KeyRound, Info, ListChecks } from "lucide-react";
+
+type ServicioKey =
+  | "diseno_web"
+  | "seo_web"
+  | "seo_ia"
+  | "gmb"
+  | "sem"
+  | "gestion_redes"
+  | "campana_redes"
+  | "mantenimiento"
+  | "servidor"
+  | "dominio";
+
+const SERVICIOS: { key: ServicioKey; label: string }[] = [
+  { key: "diseno_web", label: "Diseño Web" },
+  { key: "seo_web", label: "SEO WEB" },
+  { key: "seo_ia", label: "SEO IA" },
+  { key: "gmb", label: "GMB" },
+  { key: "sem", label: "SEM" },
+  { key: "gestion_redes", label: "Gestión Redes" },
+  { key: "campana_redes", label: "Campaña Redes" },
+  { key: "mantenimiento", label: "Mantenimiento" },
+  { key: "servidor", label: "Servidor" },
+  { key: "dominio", label: "Dominio" }
+];
 
 type ClientPayload = {
   id?: string;
@@ -15,6 +40,10 @@ type ClientPayload = {
   phone?: string;
   mrr?: number;
   notes?: string;
+  infoGeneral?: string | null;
+  accesos?: string | null;
+  servicios?: ServicioKey[];
+  kitDigital?: boolean;
 };
 
 const statusOptions = [
@@ -45,13 +74,42 @@ export default function ClientFormModal({
   useEffect(() => {
     if (!open) return;
     setError(null);
-    setForm(
-      client ?? { name: "", status: "ACTIVE", mrr: 0 }
-    );
-  }, [open, client]);
+    // Si estamos editando, traemos el detalle completo del cliente
+    // para tener infoGeneral / accesos / servicios / kitDigital (la
+    // prop client viene del listado y no incluye estos campos).
+    if (isEdit && client?.id) {
+      fetch(`/api/v1/clients/${client.id}`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((full) => {
+          if (full) {
+            setForm({
+              ...(client ?? { name: "" }),
+              ...full,
+              servicios: Array.isArray(full.servicios) ? full.servicios : [],
+              kitDigital: Boolean(full.kitDigital)
+            });
+          } else {
+            setForm(client ?? { name: "", status: "ACTIVE", mrr: 0 });
+          }
+        })
+        .catch(() => setForm(client ?? { name: "", status: "ACTIVE", mrr: 0 }));
+    } else {
+      setForm(client ?? { name: "", status: "ACTIVE", mrr: 0 });
+    }
+  }, [open, client, isEdit]);
 
   function update<K extends keyof ClientPayload>(key: K, val: ClientPayload[K]) {
     setForm((f) => ({ ...f, [key]: val }));
+  }
+
+  function toggleServicio(s: ServicioKey) {
+    setForm((f) => {
+      const curr = Array.isArray(f.servicios) ? f.servicios : [];
+      return {
+        ...f,
+        servicios: curr.includes(s) ? curr.filter((x) => x !== s) : [...curr, s]
+      };
+    });
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -70,7 +128,11 @@ export default function ClientFormModal({
       email: form.email || undefined,
       phone: form.phone || undefined,
       mrr: Number(form.mrr ?? 0),
-      notes: form.notes || undefined
+      notes: form.notes || undefined,
+      infoGeneral: form.infoGeneral ?? null,
+      accesos: form.accesos ?? null,
+      servicios: Array.isArray(form.servicios) ? form.servicios : [],
+      kitDigital: Boolean(form.kitDigital)
     };
     if (mode === "notes") {
       // sólo enviamos notes
@@ -205,6 +267,88 @@ export default function ClientFormModal({
                 className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
               />
             </div>
+
+            {/* Información General — texto libre con datos extra del
+                cliente: ubicación, horarios, sucursales, tipo de empresa,
+                CIF/NIF, etc. */}
+            <section className="rounded-xl border bg-slate-50/40 p-4">
+              <header className="flex items-center gap-2 mb-2">
+                <Info className="h-4 w-4 text-slate-500" />
+                <h3 className="text-sm font-semibold text-slate-900">Información general</h3>
+              </header>
+              <textarea
+                value={form.infoGeneral ?? ""}
+                onChange={(e) => update("infoGeneral", e.target.value)}
+                rows={4}
+                placeholder={
+                  "Datos adicionales del cliente: dirección, CIF, horarios, sucursales, persona responsable de facturación, particularidades…"
+                }
+                className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+              />
+            </section>
+
+            {/* Accesos — credenciales y URLs del cliente. Texto libre por
+                ahora. Aviso de sensibilidad. */}
+            <section className="rounded-xl border bg-amber-50/30 border-amber-200 p-4">
+              <header className="flex items-center gap-2 mb-2">
+                <KeyRound className="h-4 w-4 text-amber-700" />
+                <h3 className="text-sm font-semibold text-amber-900">Accesos</h3>
+                <span className="ml-auto text-[10px] text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded">
+                  Sensible
+                </span>
+              </header>
+              <textarea
+                value={form.accesos ?? ""}
+                onChange={(e) => update("accesos", e.target.value)}
+                rows={5}
+                placeholder={
+                  "Una entrada por línea, ej:\nWordPress · cliente.com/wp-admin · admin@cliente.com · contraseña-123\ncPanel · cpanel.cliente.com · user · pass\nGMB · cliente@gmail.com · 2FA en móvil de Pedro\nMetricool · admin@cliente.com · ..."
+                }
+                className="w-full px-3 py-2 rounded-lg border border-amber-200 bg-white text-sm font-mono focus:outline-none focus:ring-2 focus:ring-amber-500"
+              />
+              <p className="mt-1 text-[11px] text-amber-700">
+                Acceso restringido al workspace. Texto plano por ahora — para compartir con terceros usa la sección Magic Links del admin.
+              </p>
+            </section>
+
+            {/* Servicios contratados — multi-select con chips. */}
+            <section className="rounded-xl border bg-violet-50/30 border-violet-200 p-4">
+              <header className="flex items-center gap-2 mb-2">
+                <ListChecks className="h-4 w-4 text-violet-700" />
+                <h3 className="text-sm font-semibold text-violet-900">Servicios contratados</h3>
+              </header>
+              <div className="flex flex-wrap gap-1.5 mb-3">
+                {SERVICIOS.map((s) => {
+                  const sel = (form.servicios ?? []).includes(s.key);
+                  return (
+                    <button
+                      key={s.key}
+                      type="button"
+                      onClick={() => toggleServicio(s.key)}
+                      className={
+                        "px-2.5 py-1 rounded-md text-xs transition border " +
+                        (sel
+                          ? "bg-violet-100 border-violet-400 text-violet-800 font-medium"
+                          : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50")
+                      }
+                    >
+                      {sel ? "✓ " : ""}{s.label}
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="flex items-center gap-3">
+                <label className="text-xs font-medium text-slate-700">KIT DIGITAL:</label>
+                <select
+                  value={form.kitDigital ? "yes" : "no"}
+                  onChange={(e) => update("kitDigital", e.target.value === "yes")}
+                  className="px-3 py-1.5 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-violet-500"
+                >
+                  <option value="no">No</option>
+                  <option value="yes">Sí</option>
+                </select>
+              </div>
+            </section>
           </>
         )}
 
