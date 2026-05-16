@@ -287,7 +287,28 @@ export async function composeOverlayStructured(opts: StructuredOverlayOpts): Pro
 
   const { family } = await resolveFontFamily(opts.clientFonts);
 
-  const lineHeights = lines.map((l) => sizePx(l.size));
+  // Canvas separado solo para medir texto (necesario antes de saber la
+  // altura total). Equivalente a imagettfbbox del plugin.
+  const measureCanvas = createCanvas(width, height);
+  const mctx = measureCanvas.getContext("2d");
+
+  // Auto-fit por línea: si la línea con su tamaño solicitado se pasa del
+  // ancho útil (width - 2*padding), bajamos el tamaño hasta que cabe.
+  // Replica fit_text_size() del plugin PHP, pero línea a línea (Claude
+  // ya las pre-partió).
+  const maxLineW = width - padding * 2;
+  const minFsAbs = Math.max(14, Math.round(height * 0.022));
+  const lineHeights = lines.map((l) => {
+    let fs = sizePx(l.size);
+    const fw = l.weight === "bold" ? "bold" : "normal";
+    while (fs > minFsAbs) {
+      mctx.font = `${fw} ${fs}px "${family}", "Inter", system-ui, sans-serif`;
+      const w = mctx.measureText(l.text).width;
+      if (w <= maxLineW) break;
+      fs -= 2;
+    }
+    return fs;
+  });
   const gap = Math.round(height * 0.012);
   const totalH = lineHeights.reduce((a, b) => a + b, 0) + gap * (lines.length - 1);
 
@@ -318,7 +339,16 @@ export async function composeOverlayStructured(opts: StructuredOverlayOpts): Pro
     ctx.globalAlpha = 1;
   }
 
-  // Dibujar cada línea con sombra
+  // Dibujar cada línea con sombra estilo plugin:
+  //   1) sombra sharp (sin blur) offset +2,+3 alpha ~0.21 negro
+  //   2) fill plano con color brand
+  //   3) faux-bold = redibujar offset +1px en X
+  // Replica draw_text_with_thin_stroke() de class-rest-api.php:5805.
+  ctx.shadowColor = "transparent";
+  ctx.shadowBlur = 0;
+  ctx.shadowOffsetX = 0;
+  ctx.shadowOffsetY = 0;
+  ctx.textBaseline = "alphabetic";
   for (let i = 0; i < lines.length; i++) {
     const l = lines[i];
     const fs = lineHeights[i];
@@ -327,22 +357,20 @@ export async function composeOverlayStructured(opts: StructuredOverlayOpts): Pro
     const yLine = y0 + lineHeights.slice(0, i).reduce((a, b) => a + b, 0) + i * gap + fs * 0.82;
 
     ctx.font = `${fontWeight} ${fs}px "${family}", "Inter", system-ui, sans-serif`;
-    ctx.textBaseline = "alphabetic";
 
-    // Sombra suave por debajo
-    ctx.fillStyle = "rgba(0, 0, 0, 0.55)";
-    ctx.shadowColor = "rgba(0, 0, 0, 0.6)";
-    ctx.shadowBlur = Math.max(4, Math.round(fs * 0.18));
-    ctx.shadowOffsetX = 0;
-    ctx.shadowOffsetY = Math.max(2, Math.round(fs * 0.04));
-    ctx.fillText(l.text, padding, yLine);
+    // 1) Sombra sharp offset (+2, +3) alpha 0.21
+    ctx.fillStyle = "rgba(0, 0, 0, 0.21)";
+    ctx.fillText(l.text, padding + 2, yLine + 3);
 
-    // Texto principal encima, sin sombra (el blur de antes ya quedó)
-    ctx.shadowColor = "transparent";
-    ctx.shadowBlur = 0;
-    ctx.shadowOffsetY = 0;
+    // 2) Fill principal
     ctx.fillStyle = fillColor;
     ctx.fillText(l.text, padding, yLine);
+
+    // 3) Faux-bold (refuerzo si la fuente bold no estaba realmente
+    // disponible, igual que el plugin)
+    if (l.weight === "bold") {
+      ctx.fillText(l.text, padding + 1, yLine);
+    }
   }
 
   // Logo en la esquina configurada
