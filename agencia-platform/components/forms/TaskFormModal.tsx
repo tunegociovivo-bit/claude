@@ -7,9 +7,10 @@ import RichTextEditor from "@/components/editor/RichTextEditor";
 import AttachmentList from "@/components/files/AttachmentList";
 import CommentEditor from "@/components/forms/CommentEditor";
 import CommentRenderer from "@/components/forms/CommentRenderer";
+import MeetingRecorder from "@/components/forms/MeetingRecorder";
 import type { MentionCandidate } from "@/components/forms/mentionSuggestion";
 import type { UiProject, UiMember, UiTask } from "@/lib/db/queries";
-import { Loader2, Trash2, MessageSquare, X, CheckSquare, Check, ArrowLeft, ExternalLink } from "lucide-react";
+import { Loader2, Trash2, MessageSquare, X, CheckSquare, Check, ArrowLeft, ExternalLink, Mic } from "lucide-react";
 
 type Priority = "urgencia" | "alta";
 type KanbanColumn = { id: string; label: string; color: string; order: number; isDone?: boolean };
@@ -86,6 +87,7 @@ export default function TaskFormModal({
   const [comments, setComments] = useState<CommentItem[]>([]);
   const [postingComment, setPostingComment] = useState(false);
   const [mentionCandidates, setMentionCandidates] = useState<MentionCandidate[]>([]);
+  const [meetingOpen, setMeetingOpen] = useState(false);
   const editorKey = useRef(0);
 
   const [subtasks, setSubtasks] = useState<{ id: string; title: string; status: string }[]>([]);
@@ -494,10 +496,21 @@ export default function TaskFormModal({
 
           {isEdit && (
             <div className="pt-2">
-              <div className="text-xs font-medium text-slate-700 mb-2 flex items-center gap-1.5">
-                <MessageSquare className="h-3.5 w-3.5" />
-                Comentarios
-                <span className="text-slate-400">({comments.length})</span>
+              <div className="flex items-center justify-between mb-2">
+                <div className="text-xs font-medium text-slate-700 flex items-center gap-1.5">
+                  <MessageSquare className="h-3.5 w-3.5" />
+                  Comentarios
+                  <span className="text-slate-400">({comments.length})</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setMeetingOpen(true)}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-medium"
+                  title="Graba la reunión y la IA añadirá un resumen como comentario"
+                >
+                  <Mic className="h-3.5 w-3.5" />
+                  Grabar reunión
+                </button>
               </div>
               <div className="space-y-3">
                 {comments.map((c) => (
@@ -705,6 +718,14 @@ export default function TaskFormModal({
           </SidebarField>
         </aside>
       </form>
+      {currentTask && (
+        <MeetingRecorder
+          taskId={currentTask.id}
+          open={meetingOpen}
+          onClose={() => setMeetingOpen(false)}
+          onComment={(c) => setComments((prev) => [...prev, c])}
+        />
+      )}
     </Modal>
   );
 }
