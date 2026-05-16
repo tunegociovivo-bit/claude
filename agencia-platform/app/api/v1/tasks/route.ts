@@ -11,7 +11,7 @@ export const GET = withApi({ scope: "tasks:read" }, async (req, { api }) => {
   const status = url.searchParams.get("status") ?? undefined;
   const assignee = url.searchParams.get("assigneeId") ?? undefined;
 
-  const where: any = { workspaceId: api.workspaceId };
+  const where: any = { workspaceId: api.workspaceId, deletedAt: null };
   if (projectId) where.projectId = projectId;
   if (status) where.status = status;
   if (assignee) where.assignees = { some: { userId: assignee } };

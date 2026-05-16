@@ -297,6 +297,8 @@ model Project {
   asanaId     String?  @unique
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+  deletedAt   DateTime?
+  deletedById String?
 
   workspace Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   client    Client?          @relation(fields: [clientId], references: [id], onDelete: SetNull)
@@ -831,6 +833,12 @@ model Task {
   asanaId     String?      @unique
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
+  // Soft delete. Si != null, el registro está en la papelera. Las
+  // queries de UI filtran por `deletedAt: null`. La purga definitiva
+  // la hace el cron /api/cron/trash-purge cuando supera la
+  // retención (30 días por defecto).
+  deletedAt   DateTime?
+  deletedById String?
 
   workspace Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   project   Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
@@ -929,6 +937,8 @@ model Document {
   authorId    String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+  deletedAt   DateTime?
+  deletedById String?
 
   workspace Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   parent    Document?  @relation("Subpages", fields: [parentId], references: [id], onDelete: Cascade)

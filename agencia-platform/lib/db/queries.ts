@@ -108,7 +108,7 @@ export async function getProjectsForUi(): Promise<UiProject[]> {
   return tryPrisma(async () => {
     const { prisma } = await import("./prisma");
     const rows = await prisma.project.findMany({
-      where: { archived: false },
+      where: { archived: false, deletedAt: null } as any,
       orderBy: { createdAt: "asc" }
     });
     return rows.map<UiProject>((r) => ({
@@ -128,7 +128,8 @@ export async function getTasksForUi(): Promise<UiTask[]> {
     const rows = await prisma.task.findMany({
       // Solo top-level: las subtareas viven dentro del modal de la tarea padre,
       // no como tarjetas independientes en el Kanban.
-      where: { parentId: null },
+      // deletedAt: null → no incluir las que están en papelera.
+      where: { parentId: null, deletedAt: null } as any,
       include: { assignees: true, tags: { include: { tag: true } }, extraProjects: true },
       // order ASC = más arriba en la columna. Tareas recientes (con order = 0
       // por defecto) flotan arriba, y los reorders manuales (drag&drop) ganan.

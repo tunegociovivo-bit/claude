@@ -26,7 +26,9 @@ import {
   Code2,
   ExternalLink,
   AlertOctagon,
-  KeyRound
+  KeyRound,
+  Trash2,
+  ListChecks
 } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -98,6 +100,18 @@ const cards = [
     title: "Seguridad y copias",
     description: "Backups manuales y automáticos diarios. Histórico y descarga.",
     icon: Shield
+  },
+  {
+    href: "/admin/auditoria",
+    title: "Auditoría",
+    description: "Quién hizo qué, sobre qué y cuándo. Cambios de MRR, borrados, logins.",
+    icon: ListChecks
+  },
+  {
+    href: "/admin/papelera",
+    title: "Papelera",
+    description: "Tareas, proyectos, documentos y clientes borrados. Recupera o purga.",
+    icon: Trash2
   },
   {
     href: "/admin/errors",

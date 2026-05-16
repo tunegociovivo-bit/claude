@@ -8,7 +8,7 @@ import { auditFromReq } from "@/lib/audit/log";
 
 export const GET = withApi({ scope: "tasks:read" }, async (_req, { params, api }) => {
   const task = await prisma.task.findFirst({
-    where: { id: params.id, workspaceId: api.workspaceId },
+    where: { id: params.id, workspaceId: api.workspaceId, deletedAt: null } as any,
     include: {
       project: true,
       client: true,
@@ -94,21 +94,23 @@ export const PATCH = withApi({ scope: "tasks:write" }, async (req, { params, api
 });
 
 export const DELETE = withApi({ scope: "tasks:write" }, async (req, { params, api }) => {
-  // Snapshot mínimo antes del borrado para que el audit deje rastro
-  // útil (el registro queda aunque la tarea ya no exista).
+  // Soft-delete: marcamos deletedAt en vez de borrar. Recuperable
+  // desde /admin/papelera durante 30 días; el cron purga después.
   const snapshot = await prisma.task.findFirst({
-    where: { id: params.id, workspaceId: api.workspaceId },
+    where: { id: params.id, workspaceId: api.workspaceId, deletedAt: null },
     select: { title: true, status: true, projectId: true, clientId: true }
   });
-  const del = await prisma.task.deleteMany({
-    where: { id: params.id, workspaceId: api.workspaceId }
+  const del = await prisma.task.updateMany({
+    where: { id: params.id, workspaceId: api.workspaceId, deletedAt: null },
+    data: { deletedAt: new Date(), deletedById: api.userId ?? undefined } as any
   });
   if (del.count === 0) throw new ApiError(404, "not_found", "Tarea no encontrada");
   auditFromReq(req, api, {
     action: "task.delete",
     targetType: "TASK",
     targetId: params.id,
-    before: snapshot
+    before: snapshot,
+    meta: { soft: true }
   });
   return NextResponse.json({ ok: true });
 });

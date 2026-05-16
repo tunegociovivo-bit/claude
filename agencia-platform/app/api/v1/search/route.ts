@@ -42,8 +42,9 @@ export const GET = withApi({ scope: "tasks:read" }, async (req, { api }) => {
       where: {
         ...where,
         title: text,
+        deletedAt: null,
         ...(projectVisibility ? { project: projectVisibility } : {})
-      },
+      } as any,
       take: 6,
       orderBy: { updatedAt: "desc" },
       select: { id: true, title: true, client: { select: { name: true } } }
@@ -55,13 +56,13 @@ export const GET = withApi({ scope: "tasks:read" }, async (req, { api }) => {
       select: { id: true, name: true }
     }),
     prisma.project.findMany({
-      where: { ...where, name: text, ...(projectVisibility ?? {}) },
+      where: { ...where, name: text, deletedAt: null, ...(projectVisibility ?? {}) } as any,
       take: 6,
       orderBy: { updatedAt: "desc" },
       select: { id: true, name: true, client: { select: { name: true } } }
     }),
     prisma.document.findMany({
-      where: { ...where, title: text },
+      where: { ...where, title: text, deletedAt: null } as any,
       take: 6,
       orderBy: { updatedAt: "desc" },
       select: { id: true, title: true }
