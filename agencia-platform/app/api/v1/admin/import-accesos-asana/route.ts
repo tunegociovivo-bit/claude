@@ -28,7 +28,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
-import { listSubtasks, listSubtasksWithNotes, mapLimited } from "@/lib/asana/api";
+import { listSubtasksWithNotes, mapLimited } from "@/lib/asana/api";
 
 const schema = z.object({
   rootTaskId: z.string().default("1201694137821107"),
@@ -115,8 +115,10 @@ async function runAsync(
     });
     await pushEvent("info", `Job iniciado, leyendo subtareas de Asana task ${rootTaskId}`);
 
-    // 1) Lista de clientes (subtareas del root)
-    const clientSubtasks = await listSubtasks(token, rootTaskId);
+    // 1) Lista de clientes (subtareas del root) — pedimos notes también
+    // porque algunos clientes guardan las credenciales en la descripción
+    // de la propia subtarea cliente, no en sub-subtareas.
+    const clientSubtasks = await listSubtasksWithNotes(token, rootTaskId);
     await pushEvent("info", `${clientSubtasks.length} clientes encontrados en Asana`);
     await prisma.backgroundJob.update({
       where: { id: jobId },
@@ -138,8 +140,16 @@ async function runAsync(
           })
           .catch(() => {});
       }
-      // Formato: cada acceso como bloque "NOMBRE_ACCESO\nnotes"
+      // Formato: cada acceso como bloque "NOMBRE_ACCESO\nnotes".
+      // Patrón mixto en Asana: hay clientes con credenciales en
+      // sub-subtareas (1 por servicio) y otros que las tienen escritas
+      // directamente en la descripción de la subtarea cliente. Algunos
+      // tienen las dos cosas. Incluimos las dos fuentes para no perder
+      // datos: descripción del cliente primero, luego los bloques de
+      // sub-subtareas.
       const blocks: string[] = [];
+      const parentNotes = (sub.notes ?? "").trim();
+      if (parentNotes) blocks.push(parentNotes);
       for (const ss of subSubs) {
         const name = ss.name?.trim();
         const notes = (ss.notes ?? "").trim();
