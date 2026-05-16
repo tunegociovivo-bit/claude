@@ -78,52 +78,48 @@ export default function CommentEditor({
     setUploads((prev) => [...prev, { id: uploadId, name: file.name, progress: 0, sizeBytes: file.size }]);
 
     try {
-      // 1. Pedir URL firmada
-      const urlRes = await fetch("/api/v1/files/upload-url", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          filename: file.name,
-          contentType: file.type || "application/octet-stream",
-          sizeBytes: file.size,
-          targetType: "TASK",
-          targetId: taskId
-        })
-      });
-      if (!urlRes.ok) throw new Error(`No se pudo obtener URL de subida (${urlRes.status})`);
-      const { uploadUrl, s3Key, publicUrl } = await urlRes.json();
+      // Subida vía proxy del servidor (multipart POST). Evita CORS
+      // contra R2 que requeriría configuración del bucket. Más simple
+      // y robusto para archivos <50 MB; el server traga el binario y
+      // lo reenvía con sus credenciales.
+      //
+      // XMLHttpRequest sigue ofreciéndonos onprogress (fetch no lo
+      // expone aún en navegadores estables).
+      const form = new FormData();
+      form.append("file", file, file.name);
+      form.append("targetType", "TASK");
+      form.append("targetId", taskId);
 
-      // 2. Subida real con XHR (para tener progreso). Necesario porque
-      // fetch() no expone onprogress.
-      await new Promise<void>((resolve, reject) => {
+      const meta = await new Promise<any>((resolve, reject) => {
         const xhr = new XMLHttpRequest();
-        xhr.open("PUT", uploadUrl);
-        xhr.setRequestHeader("Content-Type", file.type || "application/octet-stream");
+        xhr.open("POST", "/api/v1/files/upload");
         xhr.upload.onprogress = (e) => {
           if (!e.lengthComputable) return;
           const pct = Math.round((e.loaded / e.total) * 100);
           setUploads((prev) => prev.map((u) => (u.id === uploadId ? { ...u, progress: pct } : u)));
         };
-        xhr.onload = () => (xhr.status < 300 ? resolve() : reject(new Error(`Upload ${xhr.status}`)));
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            try {
+              resolve(JSON.parse(xhr.responseText));
+            } catch {
+              reject(new Error("Respuesta del servidor inválida"));
+            }
+          } else {
+            let msg = `Upload ${xhr.status}`;
+            try {
+              const j = JSON.parse(xhr.responseText);
+              if (j?.error?.message) msg = j.error.message;
+              else if (j?.message) msg = j.message;
+            } catch {}
+            reject(new Error(msg));
+          }
+        };
         xhr.onerror = () => reject(new Error("Error de red al subir"));
-        xhr.send(file);
+        xhr.send(form);
       });
 
-      // 3. Registrar metadata
-      const metaRes = await fetch("/api/v1/files", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: file.name,
-          mimeType: file.type || "application/octet-stream",
-          sizeBytes: file.size,
-          s3Key,
-          targetType: "TASK",
-          targetId: taskId
-        })
-      });
-      const meta = metaRes.ok ? await metaRes.json() : null;
-      const finalUrl = (meta?.url ?? publicUrl) as string | undefined;
+      const finalUrl = meta?.url as string | undefined;
       if (!finalUrl) throw new Error("Sin URL pública del archivo");
 
       // 4. Insertar en el doc.

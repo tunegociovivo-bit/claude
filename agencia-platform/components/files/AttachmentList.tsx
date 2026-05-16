@@ -62,34 +62,18 @@ export default function AttachmentList({
     setUploading((prev) => [...prev, { name: file.name, progress: 0 }]);
 
     try {
-      // 1. Pedir URL firmada
-      const urlRes = await fetch("/api/v1/files/upload-url", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          filename: file.name,
-          contentType: file.type || "application/octet-stream",
-          sizeBytes: file.size,
-          targetType,
-          targetId
-        })
-      });
-      if (urlRes.status === 503) {
-        setDisabled(true);
-        setUploading((prev) => prev.filter((u) => u.name !== file.name));
-        return;
-      }
-      if (!urlRes.ok) {
-        const j = await urlRes.json().catch(() => ({}));
-        throw new Error(j.message || `Error ${urlRes.status}`);
-      }
-      const { uploadUrl, s3Key } = await urlRes.json();
+      // Subida vía proxy del servidor — multipart POST en lugar de
+      // signed URL + PUT directo a R2. Evita configurar CORS en el
+      // bucket y unifica el error handling. El server-side sube con
+      // sus credenciales y devuelve la fila File ya creada.
+      const form = new FormData();
+      form.append("file", file, file.name);
+      form.append("targetType", targetType);
+      form.append("targetId", targetId);
 
-      // 2. Subir a R2/S3
-      await new Promise<void>((resolve, reject) => {
+      const created = await new Promise<any>((resolve, reject) => {
         const xhr = new XMLHttpRequest();
-        xhr.open("PUT", uploadUrl);
-        xhr.setRequestHeader("Content-Type", file.type || "application/octet-stream");
+        xhr.open("POST", "/api/v1/files/upload");
         xhr.upload.onprogress = (e) => {
           if (!e.lengthComputable) return;
           const pct = (e.loaded / e.total) * 100;
@@ -97,26 +81,32 @@ export default function AttachmentList({
             prev.map((u) => (u.name === file.name ? { ...u, progress: pct } : u))
           );
         };
-        xhr.onload = () => (xhr.status < 300 ? resolve() : reject(new Error(`Upload falló ${xhr.status}`)));
+        xhr.onload = () => {
+          if (xhr.status === 503) {
+            setDisabled(true);
+            reject(new Error("Storage no configurado"));
+            return;
+          }
+          if (xhr.status >= 200 && xhr.status < 300) {
+            try {
+              resolve(JSON.parse(xhr.responseText));
+            } catch {
+              reject(new Error("Respuesta inválida"));
+            }
+          } else {
+            let msg = `Upload ${xhr.status}`;
+            try {
+              const j = JSON.parse(xhr.responseText);
+              if (j?.error?.message) msg = j.error.message;
+              else if (j?.message) msg = j.message;
+            } catch {}
+            reject(new Error(msg));
+          }
+        };
         xhr.onerror = () => reject(new Error("Error de red al subir"));
-        xhr.send(file);
+        xhr.send(form);
       });
 
-      // 3. Registrar metadata en BD
-      const metaRes = await fetch("/api/v1/files", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: file.name,
-          mimeType: file.type || "application/octet-stream",
-          sizeBytes: file.size,
-          s3Key,
-          targetType,
-          targetId
-        })
-      });
-      if (!metaRes.ok) throw new Error("No se pudo guardar el archivo");
-      const created = await metaRes.json();
       setItems((prev) => [created, ...prev]);
     } catch (e: any) {
       setError(e.message);

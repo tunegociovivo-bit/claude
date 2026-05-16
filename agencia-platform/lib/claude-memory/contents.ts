@@ -178,6 +178,16 @@ export const GOTCHAS = `
     \`<AppChrome>\` en app/layout.tsx. Si añades providers
     nuevos (theme, react-query…), ponerlos ahí dentro también.
     Nunca quitar SessionProvider sin reemplazo.
+
+11. **Subida de archivos: usar /api/v1/files/upload (proxy server)**.
+    El flow viejo (POST /upload-url → PUT signed URL al bucket
+    → POST /files con metadata) requiere configurar CORS en R2 a
+    medida. Sin CORS, el XHR del navegador falla con "Error de
+    red al subir". El endpoint /api/v1/files/upload acepta
+    multipart en el server y sube con credenciales internas: 1
+    request, 0 CORS. CommentEditor y AttachmentList ya lo usan.
+    Si quieres usar el flow rápido directo a R2 en el futuro,
+    configura la CORS Policy del bucket primero.
 `.trim();
 
 /**

@@ -559,21 +559,10 @@ export default function TaskFormModal({
 
           {isEdit && (
             <div className="pt-2">
-              <div className="flex items-center justify-between mb-2">
-                <div className="text-xs font-medium text-slate-700 flex items-center gap-1.5">
-                  <MessageSquare className="h-3.5 w-3.5" />
-                  Comentarios
-                  <span className="text-slate-400">({comments.length})</span>
-                </div>
-                <button
-                  type="button"
-                  onClick={openMeetingRecorder}
-                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-medium"
-                  title="Graba la reunión y la IA añadirá un resumen como comentario"
-                >
-                  <Mic className="h-3.5 w-3.5" />
-                  Grabar reunión
-                </button>
+              <div className="text-xs font-medium text-slate-700 mb-2 flex items-center gap-1.5">
+                <MessageSquare className="h-3.5 w-3.5" />
+                Comentarios
+                <span className="text-slate-400">({comments.length})</span>
               </div>
               <div className="space-y-3">
                 {comments.map((c) => (
