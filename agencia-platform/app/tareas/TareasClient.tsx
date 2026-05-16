@@ -462,6 +462,11 @@ export default function TareasClient({
     // flex column + min-h-screen para que las columnas se estiren hasta
     // abajo cuando no hay otra cosa que las empuje.
     <div className="flex flex-col min-h-[calc(100vh-8rem)]">
+      {/* Cabecera + filtros: ocultos en mobile. En el móvil ganamos
+          espacio vertical para las columnas — el user crea tareas
+          desde los FABs flotantes y filtra (cuando haga falta) desde
+          una hoja inferior que se abrirá con un botón. */}
+      <div className="hidden md:block">
       <PageHeader
         title="Tareas y proyectos"
         description={selectionMode ? `${selected.size} tareas seleccionadas` : "Gestiona el flujo de trabajo de toda la agencia."}
@@ -595,6 +600,7 @@ export default function TareasClient({
       </div>
       <div className="mb-5">
         <SavedFiltersBar filters={filters} onApply={setFilters} />
+      </div>
       </div>
 
       {view === "kanban" ? (
