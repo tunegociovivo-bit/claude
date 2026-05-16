@@ -88,7 +88,53 @@ export default function TaskFormModal({
   const [postingComment, setPostingComment] = useState(false);
   const [mentionCandidates, setMentionCandidates] = useState<MentionCandidate[]>([]);
   const [meetingOpen, setMeetingOpen] = useState(false);
+  const [savingForMeeting, setSavingForMeeting] = useState(false);
   const editorKey = useRef(0);
+
+  /**
+   * Abre el grabador de reunión. Si estamos en modo "nueva tarea",
+   * primero guarda la tarea para tener un id al que adjuntar el
+   * resumen como comentario; el modal pasa entonces a modo edición
+   * (se inserta en taskStack) y se abre el recorder.
+   */
+  async function openMeetingRecorder() {
+    if (currentTask) {
+      setMeetingOpen(true);
+      return;
+    }
+    if (!title.trim()) return setError("Pon un título a la tarea antes de grabar la reunión");
+    if (!projectId) return setError("Selecciona un proyecto antes de grabar la reunión");
+
+    setSavingForMeeting(true);
+    setError(null);
+    try {
+      const payload: any = {
+        title: title.trim(),
+        projectId,
+        projectIds,
+        status,
+        priority: priorityToApi[priority],
+        assigneeIds,
+        notifyDueRules
+      };
+      const r = await fetch("/api/v1/tasks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        return setError(j.message || `Error ${r.status}`);
+      }
+      const created = await r.json();
+      // Pasamos el modal a modo edición de la tarea recién creada.
+      setTaskStack([{ id: created.id, ...created } as CurrentTask]);
+      router.refresh();
+      setMeetingOpen(true);
+    } finally {
+      setSavingForMeeting(false);
+    }
+  }
 
   const [subtasks, setSubtasks] = useState<{ id: string; title: string; status: string }[]>([]);
   const [newSubtask, setNewSubtask] = useState("");
@@ -342,28 +388,33 @@ export default function TaskFormModal({
       footer={
         <>
           {isEdit && (
-            <>
-              <button
-                type="button"
-                onClick={handleDelete}
-                disabled={deleting || saving}
-                className="mr-auto inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm text-rose-600 hover:bg-rose-50 disabled:opacity-50"
-              >
-                {deleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
-                Eliminar
-              </button>
-              <button
-                type="button"
-                onClick={() => setMeetingOpen(true)}
-                disabled={saving}
-                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 font-medium"
-                title="Graba la reunión y la IA añadirá un resumen como comentario"
-              >
-                <Mic className="h-4 w-4" />
-                Grabar reunión
-              </button>
-            </>
+            <button
+              type="button"
+              onClick={handleDelete}
+              disabled={deleting || saving}
+              className="mr-auto inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm text-rose-600 hover:bg-rose-50 disabled:opacity-50"
+            >
+              {deleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+              Eliminar
+            </button>
           )}
+          <button
+            type="button"
+            onClick={openMeetingRecorder}
+            disabled={saving || savingForMeeting}
+            className={
+              "inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 font-medium disabled:opacity-50 " +
+              (isEdit ? "" : "mr-auto")
+            }
+            title={
+              isEdit
+                ? "Graba la reunión y la IA añadirá un resumen como comentario"
+                : "Guarda la tarea y abre el grabador. El resumen llegará como comentario."
+            }
+          >
+            {savingForMeeting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mic className="h-4 w-4" />}
+            Grabar reunión
+          </button>
           <button type="button" onClick={onClose} className="px-3 py-2 rounded-lg text-sm border bg-white hover:bg-slate-50">
             Cancelar
           </button>
@@ -516,7 +567,7 @@ export default function TaskFormModal({
                 </div>
                 <button
                   type="button"
-                  onClick={() => setMeetingOpen(true)}
+                  onClick={openMeetingRecorder}
                   className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-medium"
                   title="Graba la reunión y la IA añadirá un resumen como comentario"
                 >
