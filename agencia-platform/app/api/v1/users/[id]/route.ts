@@ -4,6 +4,7 @@ import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
+import { FEATURES } from "@/lib/features";
 
 const updateSchema = z.object({
   name: z.string().min(1).optional(),
@@ -11,7 +12,9 @@ const updateSchema = z.object({
   password: z.string().min(8).optional(),
   phone: z.string().nullable().optional(),
   image: z.string().url().nullable().optional(),
-  role: z.enum(["ADMIN", "MEMBER", "GUEST"]).optional()
+  role: z.enum(["ADMIN", "MEMBER", "GUEST"]).optional(),
+  // null = se aplican los defaults del rol. Array = sólo esas features.
+  features: z.array(z.enum(FEATURES as unknown as [string, ...string[]])).nullable().optional()
 });
 
 async function requireAdminInWorkspace(workspaceId: string, userId: string) {
@@ -27,7 +30,7 @@ export const PATCH = withApi({ scope: "*" }, async (req, { params, api }) => {
   const parsed = updateSchema.safeParse(body);
   if (!parsed.success) throw new ApiError(400, "validation_error", parsed.error.message);
 
-  const { name, email, password, role, phone, image } = parsed.data;
+  const { name, email, password, role, phone, image, features } = parsed.data;
 
   const member = await prisma.membership.findFirst({
     where: { workspaceId: api.workspaceId, userId: params.id }
@@ -44,8 +47,11 @@ export const PATCH = withApi({ scope: "*" }, async (req, { params, api }) => {
   if (Object.keys(userUpdate).length > 0) {
     await prisma.user.update({ where: { id: params.id }, data: userUpdate });
   }
-  if (role) {
-    await prisma.membership.update({ where: { id: member.id }, data: { role } });
+  const membershipUpdate: any = {};
+  if (role) membershipUpdate.role = role;
+  if (features !== undefined) membershipUpdate.features = features; // array | null
+  if (Object.keys(membershipUpdate).length > 0) {
+    await prisma.membership.update({ where: { id: member.id }, data: membershipUpdate });
   }
 
   const updated = await prisma.user.findUnique({

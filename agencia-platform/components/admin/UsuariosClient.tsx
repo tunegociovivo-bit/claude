@@ -5,6 +5,7 @@ import PageHeader from "@/components/PageHeader";
 import Modal from "@/components/ui/Modal";
 import { Plus, Loader2, Trash2, Edit2, Shield, ShieldCheck, ChevronDown, ChevronRight, Check, X as XIcon } from "lucide-react";
 import ImageUpload from "@/components/ui/ImageUpload";
+import { FEATURES, FEATURE_LABEL, FEATURE_DESCRIPTION, defaultFeaturesForRole, type Feature } from "@/lib/features";
 
 type Member = {
   id: string;
@@ -12,6 +13,7 @@ type Member = {
   email: string;
   image: string | null;
   role: "ADMIN" | "MEMBER" | "GUEST";
+  features?: string[] | null;
   joinedAt: string;
 };
 
@@ -485,6 +487,10 @@ function UserFormModal({
   const [phone, setPhone] = useState("");
   const [image, setImage] = useState("");
   const [role, setRole] = useState<Member["role"]>("MEMBER");
+  // featuresMode: "default" = aplicar defaults del rol (Membership.features = null).
+  // "custom" = lista explícita marcada por el admin.
+  const [featuresMode, setFeaturesMode] = useState<"default" | "custom">("default");
+  const [customFeatures, setCustomFeatures] = useState<Feature[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -498,6 +504,14 @@ function UserFormModal({
       setPassword("");
       setPhone((member as any).phone ?? "");
       setImage((member as any).image ?? "");
+      // features: null en BD → modo default. Array → modo custom.
+      if (Array.isArray(member.features)) {
+        setFeaturesMode("custom");
+        setCustomFeatures(member.features.filter((f): f is Feature => (FEATURES as readonly string[]).includes(f)));
+      } else {
+        setFeaturesMode("default");
+        setCustomFeatures(defaultFeaturesForRole(member.role));
+      }
     } else {
       setName("");
       setEmail("");
@@ -505,8 +519,20 @@ function UserFormModal({
       setPhone("");
       setImage("");
       setRole("MEMBER");
+      setFeaturesMode("default");
+      setCustomFeatures(defaultFeaturesForRole("MEMBER"));
     }
   }, [open, member]);
+
+  // Cuando cambia el rol y aún no se ha pasado a "custom", reseteamos
+  // los checks al default del nuevo rol para que se vea coherente.
+  useEffect(() => {
+    if (featuresMode === "default") setCustomFeatures(defaultFeaturesForRole(role));
+  }, [role, featuresMode]);
+
+  function toggleFeature(f: Feature) {
+    setCustomFeatures((arr) => (arr.includes(f) ? arr.filter((x) => x !== f) : [...arr, f]));
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -519,6 +545,14 @@ function UserFormModal({
     const method = isEdit ? "PATCH" : "POST";
     const payload: any = { name, email, role, phone: phone || null, image: image || null };
     if (password) payload.password = password;
+    // features: solo se envía al editar (PATCH). En el endpoint POST aún
+    // no se acepta; tras crear el usuario, edítalo para afinar. Para
+    // ADMIN siempre forzamos null (la lista no aplica a admins).
+    if (isEdit) {
+      if (role === "ADMIN") payload.features = null;
+      else if (featuresMode === "default") payload.features = null;
+      else payload.features = customFeatures;
+    }
 
     const r = await fetch(url, {
       method,
@@ -622,6 +656,94 @@ function UserFormModal({
             <option value="GUEST">Invitado — solo lectura</option>
           </select>
         </div>
+
+        {/* Acceso a herramientas: solo aplicable a no-admins. Para crear
+            un usuario nuevo el panel queda informativo (la lista se
+            guarda al editarlo después del POST). */}
+        {role !== "ADMIN" && (
+          <div className="border rounded-lg p-3 bg-slate-50/50">
+            <div className="flex items-start justify-between gap-3 mb-2">
+              <div>
+                <div className="text-xs font-semibold text-slate-700">Acceso a herramientas</div>
+                <div className="text-[11px] text-slate-500">
+                  {role === "MEMBER"
+                    ? "Por defecto un Miembro accede a todas. Restringe si este usuario sólo debe ver 1-2 secciones."
+                    : "Por defecto un Invitado accede a vistas de lectura. Puedes recortar más si quieres."}
+                </div>
+              </div>
+              <div className="inline-flex rounded-md border bg-white text-[11px] shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setFeaturesMode("default")}
+                  className={
+                    "px-2 py-1 rounded-l-md " +
+                    (featuresMode === "default" ? "bg-brand-50 text-brand-700 font-medium" : "text-slate-500 hover:bg-slate-50")
+                  }
+                >
+                  Por defecto del rol
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFeaturesMode("custom")}
+                  className={
+                    "px-2 py-1 rounded-r-md border-l " +
+                    (featuresMode === "custom" ? "bg-brand-50 text-brand-700 font-medium" : "text-slate-500 hover:bg-slate-50")
+                  }
+                >
+                  Personalizado
+                </button>
+              </div>
+            </div>
+
+            {!isEdit && featuresMode === "custom" && (
+              <p className="mb-2 text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1">
+                Las restricciones personalizadas se aplican al editar al usuario después de crearlo.
+              </p>
+            )}
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+              {FEATURES.map((f) => {
+                const checked = customFeatures.includes(f);
+                const disabled = featuresMode === "default";
+                return (
+                  <label
+                    key={f}
+                    className={
+                      "flex items-start gap-2 px-2 py-1.5 rounded border bg-white text-xs cursor-pointer " +
+                      (disabled ? "opacity-60 cursor-not-allowed " : "hover:border-brand-300 ") +
+                      (checked ? "border-brand-300" : "border-slate-200")
+                    }
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      disabled={disabled}
+                      onChange={() => toggleFeature(f)}
+                      className="accent-brand-600 mt-0.5"
+                    />
+                    <span className="flex-1 min-w-0">
+                      <span className="block font-medium text-slate-800">{FEATURE_LABEL[f]}</span>
+                      <span className="block text-[10px] text-slate-500 leading-tight">{FEATURE_DESCRIPTION[f]}</span>
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+
+            {featuresMode === "custom" && customFeatures.length === 0 && (
+              <p className="mt-2 text-[11px] text-rose-600">
+                Sin acceso a ninguna herramienta — el usuario sólo verá su perfil.
+              </p>
+            )}
+          </div>
+        )}
+
+        {role === "ADMIN" && (
+          <p className="text-[11px] text-slate-500 italic">
+            Los administradores siempre tienen acceso a todas las herramientas y a las opciones de gestión del workspace.
+          </p>
+        )}
+
         {error && <p className="text-xs text-rose-600">{error}</p>}
       </form>
     </Modal>

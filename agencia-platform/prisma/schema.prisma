@@ -157,6 +157,11 @@ model Membership {
   workspaceId String
   userId      String
   role        UserRole  @default(MEMBER)
+  // features: lista explícita de herramientas que este miembro puede usar.
+  // null = se aplican los defaults del rol (Admin todo, Member todos los
+  // estándar, Guest sólo lectura). Array = sólo las herramientas listadas.
+  // Se ignora para ADMIN (siempre tiene todo).
+  features    Json?
   joinedAt    DateTime  @default(now())
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)

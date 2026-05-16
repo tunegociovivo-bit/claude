@@ -40,12 +40,12 @@ const PLATFORM_ICONS: Record<string, typeof Star> = {
 };
 
 const nav = [
-  { href: "/", label: "Inicio", icon: LayoutDashboard },
-  { href: "/tareas", label: "Tareas", icon: KanbanSquare },
-  { href: "/clientes", label: "Clientes", icon: Users },
-  { href: "/documentos", label: "Documentos", icon: BookOpen },
-  { href: "/databases", label: "Bases de datos", icon: Database },
-  { href: "/calendario", label: "Calendario", icon: CalendarDays }
+  { href: "/", label: "Inicio", icon: LayoutDashboard, feature: "inicio" as const },
+  { href: "/tareas", label: "Tareas", icon: KanbanSquare, feature: "tareas" as const },
+  { href: "/clientes", label: "Clientes", icon: Users, feature: "clientes" as const },
+  { href: "/documentos", label: "Documentos", icon: BookOpen, feature: "documentos" as const },
+  { href: "/databases", label: "Bases de datos", icon: Database, feature: "databases" as const },
+  { href: "/calendario", label: "Calendario", icon: CalendarDays, feature: "calendario" as const }
 ];
 
 type SidebarProject = { id: string; name: string; color: string };
@@ -59,7 +59,7 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}
   const [clients, setClients] = useState<UiClient[]>([]);
   const [platforms, setPlatforms] = useState<SidebarPlatform[]>([]);
   const [newProjectOpen, setNewProjectOpen] = useState(false);
-  const [me, setMe] = useState<{ name: string | null; email: string; image: string | null; role: string | null } | null>(null);
+  const [me, setMe] = useState<{ name: string | null; email: string; image: string | null; role: string | null; features: string[] } | null>(null);
   const [workspace, setWorkspace] = useState<{ name: string; logo: string | null } | null>(null);
 
   // Orden custom por usuario (localStorage)
@@ -148,7 +148,8 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}
               name: data.user.name,
               email: data.user.email,
               image: data.user.image ?? null,
-              role: data.role
+              role: data.role,
+              features: Array.isArray(data.features) ? data.features : []
             });
           }
         }
@@ -187,7 +188,14 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}
       </Link>
 
       <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
-        {nav.map((item) => {
+        {nav
+          .filter((item) => {
+            // Mientras /me no haya respondido aún (me === null), mostramos
+            // todo para no parpadear. Cuando llegue, filtramos por features.
+            if (!me) return true;
+            return me.features.includes(item.feature);
+          })
+          .map((item) => {
           const Icon = item.icon;
           const active =
             pathname === item.href || (item.href !== "/" && pathname.startsWith(item.href));
