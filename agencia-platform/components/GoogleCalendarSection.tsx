@@ -12,6 +12,7 @@ type State = {
   lastSyncedAt: string | null;
   lastError: string | null;
   configured: boolean;
+  pushChannel?: { active: boolean; expiresAt: string | null };
 };
 
 const FEEDBACK: Record<string, { tone: "ok" | "error"; text: string }> = {
@@ -124,6 +125,20 @@ export default function GoogleCalendarSection() {
               : "Aún sin sincronizar — la próxima ejecución del cron (cada 15 min) traerá tus eventos."}
             {state.lastError && (
               <span className="block text-rose-600 mt-1">Último error: {state.lastError}</span>
+            )}
+            {state.pushChannel?.active ? (
+              <span className="block text-emerald-600 mt-1">
+                ✓ Notificaciones push activas. Los cambios en Google llegan al instante (canal caduca{" "}
+                {state.pushChannel.expiresAt
+                  ? new Date(state.pushChannel.expiresAt).toLocaleDateString("es-ES")
+                  : "—"}
+                ; se renueva solo).
+              </span>
+            ) : (
+              <span className="block text-amber-700 mt-1">
+                Push notifications inactivas: tu admin debe verificar el dominio en Google Search Console
+                + Cloud Console para que Google nos avise al instante. Mientras tanto, polling cada 15 min.
+              </span>
             )}
           </div>
           <div className="flex flex-wrap gap-2">

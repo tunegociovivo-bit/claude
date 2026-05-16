@@ -1547,6 +1547,7 @@ model GoogleCalendarConnection {
 
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  watchChannels GoogleCalendarWatchChannel[]
 
   @@unique([userId, workspaceId])
   @@index([workspaceId])
@@ -1592,4 +1593,28 @@ model SearchEmbedding {
   @@unique([entityType, entityId])
   @@index([workspaceId, entityType])
   @@index([workspaceId, model])
+}
+
+// Canales de notificación push de Google Calendar API. Cada canal
+// es la suscripción "avísame en esta URL cuando cambie algo" contra
+// el calendario de la conexión. Google los corta a los 30 días max,
+// así que hay que renovar antes de que expiren (cron diario).
+//
+// `channelId` es el UUID que enviamos a Google al crear el canal;
+// `resourceId` es lo que Google nos devuelve y lo necesitamos para
+// hacer channels.stop. `token` es el secreto compartido que Google
+// nos reenvía en cada webhook (cabecera X-Goog-Channel-Token); lo
+// usamos para validar que el webhook viene del canal que esperamos.
+model GoogleCalendarWatchChannel {
+  id           String   @id @default(cuid())
+  connectionId String
+  channelId    String   @unique
+  token        String
+  resourceId   String
+  expiration   DateTime
+  createdAt    DateTime @default(now())
+
+  connection GoogleCalendarConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  @@index([expiration])
 }

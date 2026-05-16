@@ -31,8 +31,16 @@ export async function GET() {
   if (!auth) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
   const conn = await prisma.googleCalendarConnection.findUnique({
-    where: { userId_workspaceId: auth }
+    where: { userId_workspaceId: auth },
+    include: {
+      watchChannels: {
+        select: { expiration: true },
+        orderBy: { expiration: "desc" },
+        take: 1
+      }
+    }
   });
+  const watch = conn?.watchChannels?.[0] ?? null;
   return NextResponse.json({
     connected: !!conn,
     googleAccountEmail: conn?.googleAccountEmail ?? null,
@@ -40,7 +48,10 @@ export async function GET() {
     pushEnabled: conn?.pushEnabled ?? null,
     lastSyncedAt: conn?.lastSyncedAt ?? null,
     lastError: conn?.lastError ?? null,
-    configured: !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET)
+    configured: !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET),
+    pushChannel: watch
+      ? { active: watch.expiration.getTime() > Date.now(), expiresAt: watch.expiration }
+      : { active: false, expiresAt: null }
   });
 }
 

@@ -12,6 +12,7 @@ import crypto from "node:crypto";
 import { prisma } from "@/lib/db/prisma";
 import { encryptSecret } from "@/lib/ai/crypto";
 import { exchangeCodeForTokens, getUserInfo } from "@/lib/integrations/google-calendar/oauth";
+import { createWatchForConnection } from "@/lib/integrations/google-calendar/watch";
 
 export const dynamic = "force-dynamic";
 
@@ -42,7 +43,7 @@ export async function GET(req: NextRequest) {
       return redirect(`?gcal=no_refresh`);
     }
     const info = await getUserInfo(tokens.access_token);
-    await prisma.googleCalendarConnection.upsert({
+    const conn = await prisma.googleCalendarConnection.upsert({
       where: { userId_workspaceId: { userId: parsed.userId, workspaceId: parsed.workspaceId } },
       create: {
         userId: parsed.userId,
@@ -64,6 +65,13 @@ export async function GET(req: NextRequest) {
         pushEnabled: true
       }
     });
+    // Registrar watch channel para push notifications. No bloqueante:
+    // si falla (porque el dominio aún no está verificado en Search
+    // Console o estamos en localhost), la cuenta queda conectada y
+    // el cron de polling cada 15min sigue siendo el plan B.
+    void createWatchForConnection(conn).catch((e) =>
+      console.warn("[gcal watch] no se pudo crear canal:", e?.message ?? e)
+    );
     return redirect(`?gcal=connected`);
   } catch (e: any) {
     console.warn("[gcal callback]", e?.message ?? e);

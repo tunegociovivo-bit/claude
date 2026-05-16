@@ -14,6 +14,7 @@ import { authOptions, getSessionWorkspaceId } from "@/lib/auth";
 import { prisma } from "@/lib/db/prisma";
 import { decryptSecret } from "@/lib/ai/crypto";
 import { revokeRefreshToken } from "@/lib/integrations/google-calendar/oauth";
+import { stopAllWatchesForConnection } from "@/lib/integrations/google-calendar/watch";
 
 export const dynamic = "force-dynamic";
 
@@ -28,6 +29,10 @@ export async function DELETE() {
     where: { userId_workspaceId: { userId, workspaceId } }
   });
   if (!conn) return NextResponse.json({ ok: true, alreadyDisconnected: true });
+
+  // Cierra cualquier watch channel activo en Google ANTES de borrar
+  // la conexión (necesitamos los tokens vivos para hacer channels.stop).
+  await stopAllWatchesForConnection(conn.id);
 
   const refreshToken = decryptSecret(conn.refreshTokenEnc);
   if (refreshToken) await revokeRefreshToken(refreshToken);
