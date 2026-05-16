@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { signOut } from "next-auth/react";
 import PageHeader from "@/components/PageHeader";
 import ImageUpload from "@/components/ui/ImageUpload";
 import ExternalCalendarsSection from "@/components/ExternalCalendarsSection";
-import { Loader2, Save } from "lucide-react";
+import { Loader2, Save, LogOut } from "lucide-react";
 
 type Me = {
   id: string;
@@ -164,6 +165,26 @@ export default function PerfilClient() {
 
       {/* Calendarios externos vinculados (Google/Outlook/iCloud) */}
       <ExternalCalendarsSection />
+
+      {/* Cerrar sesión */}
+      <div className="bg-white rounded-xl border p-5 mt-6 flex items-center justify-between">
+        <div>
+          <h3 className="text-sm font-semibold text-slate-900">Cerrar sesión</h3>
+          <p className="text-[11px] text-slate-500 mt-0.5">
+            Tendrás que volver a iniciar sesión la próxima vez que entres a la plataforma.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => {
+            if (confirm("¿Cerrar sesión?")) signOut({ callbackUrl: "/login" });
+          }}
+          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-700 text-sm font-medium"
+        >
+          <LogOut className="h-4 w-4" />
+          Cerrar sesión
+        </button>
+      </div>
     </div>
   );
 }
