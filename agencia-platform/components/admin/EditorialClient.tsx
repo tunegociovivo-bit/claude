@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import PageHeader from "@/components/PageHeader";
 import Modal from "@/components/ui/Modal";
 import EditorialJobsToast from "@/components/admin/EditorialJobsToast";
@@ -28,7 +28,10 @@ import {
   Pencil,
   Eye,
   Hourglass,
-  CheckCheck
+  CheckCheck,
+  Search,
+  X,
+  ChevronDown
 } from "lucide-react";
 import type { UiClient } from "@/lib/db/queries";
 
@@ -620,18 +623,11 @@ export default function EditorialClient() {
           </button>
         </div>
 
-        <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white border text-xs">
-          <Filter className="h-3.5 w-3.5 text-slate-400" />
-          <span className="text-slate-500">Cliente:</span>
-          <select
-            value={filterClient}
-            onChange={(e) => setFilterClient(e.target.value)}
-            className="bg-transparent font-medium focus:outline-none"
-          >
-            <option value="ALL">Todos</option>
-            {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </select>
-        </div>
+        <ClientFilterCombobox
+          clients={clients}
+          value={filterClient}
+          onChange={setFilterClient}
+        />
         <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white border text-xs">
           <span className="text-slate-500">Estado:</span>
           <select
@@ -862,6 +858,7 @@ export default function EditorialClient() {
         post={editing}
         clients={clients}
         defaultMonth={month}
+        defaultClientId={filterClient !== "ALL" ? filterClient : undefined}
         onSaved={() => { setFormOpen(false); load(); }}
       />
 
@@ -1968,6 +1965,7 @@ function PostFormModal({
   post,
   clients,
   defaultMonth,
+  defaultClientId,
   onSaved
 }: {
   open: boolean;
@@ -1975,6 +1973,7 @@ function PostFormModal({
   post: EditorialPost | null;
   clients: UiClient[];
   defaultMonth: string;
+  defaultClientId?: string;
   onSaved: () => void;
 }) {
   const isEdit = !!post;
@@ -2089,14 +2088,14 @@ function PostFormModal({
         scheduledFor: `${defaultMonth}-15T10:00`,
         status: "DRAFT",
         format: "post",
-        clientId: clients[0]?.id ?? "",
+        clientId: defaultClientId ?? clients[0]?.id ?? "",
         networks: ["instagram"],
         hashtags: "",
         firstComment: "",
         copyByNetwork: {}
       });
     }
-  }, [open, post, clients, defaultMonth]);
+  }, [open, post, clients, defaultMonth, defaultClientId]);
 
   function toggleNetwork(n: string) {
     setForm((f) => ({ ...f, networks: f.networks.includes(n) ? f.networks.filter((x) => x !== n) : [...f.networks, n] }));
@@ -4328,3 +4327,120 @@ function ApprovalLinkButton({ clientId, month }: { clientId: string; month: stri
   );
 }
 
+// Combobox de filtro de cliente con buscador. Lista alfabética + opción
+// "Todos" siempre arriba. Se cierra al click fuera o al elegir un cliente.
+function ClientFilterCombobox({
+  clients,
+  value,
+  onChange
+}: {
+  clients: UiClient[];
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const rootRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const sorted = useMemo(
+    () => [...clients].sort((a, b) => a.name.localeCompare(b.name, "es", { sensitivity: "base" })),
+    [clients]
+  );
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return sorted;
+    return sorted.filter((c) => c.name.toLowerCase().includes(q));
+  }, [sorted, query]);
+
+  const selectedName = value === "ALL" ? "Todos" : clients.find((c) => c.id === value)?.name ?? "Todos";
+
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => {
+      if (rootRef.current && !rootRef.current.contains(e.target as Node)) {
+        setOpen(false);
+        setQuery("");
+      }
+    };
+    document.addEventListener("mousedown", onDoc);
+    // Foco en el input de búsqueda al abrir
+    setTimeout(() => inputRef.current?.focus(), 0);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [open]);
+
+  function pick(id: string) {
+    onChange(id);
+    setOpen(false);
+    setQuery("");
+  }
+
+  return (
+    <div ref={rootRef} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white border text-xs hover:bg-slate-50"
+      >
+        <Filter className="h-3.5 w-3.5 text-slate-400" />
+        <span className="text-slate-500">Cliente:</span>
+        <span className="font-medium max-w-[180px] truncate">{selectedName}</span>
+        <ChevronDown className="h-3.5 w-3.5 text-slate-400" />
+      </button>
+      {open && (
+        <div className="absolute left-0 top-full mt-1 z-20 w-72 rounded-lg border bg-white shadow-lg p-2">
+          <div className="relative mb-2">
+            <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+            <input
+              ref={inputRef}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Buscar cliente…"
+              className="w-full pl-7 pr-7 py-1.5 rounded-md border bg-white text-xs focus:outline-none focus:ring-2 focus:ring-brand-500"
+            />
+            {query && (
+              <button
+                type="button"
+                onClick={() => { setQuery(""); inputRef.current?.focus(); }}
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            )}
+          </div>
+          <ul className="max-h-72 overflow-y-auto -mx-1">
+            <li>
+              <button
+                type="button"
+                onClick={() => pick("ALL")}
+                className={
+                  "w-full text-left px-2 py-1.5 rounded text-xs hover:bg-slate-100 " +
+                  (value === "ALL" ? "bg-brand-50 text-brand-700 font-medium" : "")
+                }
+              >
+                Todos
+              </button>
+            </li>
+            {filtered.map((c) => (
+              <li key={c.id}>
+                <button
+                  type="button"
+                  onClick={() => pick(c.id)}
+                  className={
+                    "w-full text-left px-2 py-1.5 rounded text-xs hover:bg-slate-100 truncate " +
+                    (value === c.id ? "bg-brand-50 text-brand-700 font-medium" : "")
+                  }
+                >
+                  {c.name}
+                </button>
+              </li>
+            ))}
+            {filtered.length === 0 && (
+              <li className="px-2 py-3 text-xs text-slate-400 text-center">Sin resultados</li>
+            )}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
