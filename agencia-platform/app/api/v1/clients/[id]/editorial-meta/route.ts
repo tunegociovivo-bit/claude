@@ -31,7 +31,8 @@ const META_SELECT = {
   driveMode: true,
   driveRootId: true,
   driveSubfolders: true,
-  imageModel: true
+  imageModel: true,
+  editorialDefaults: true
 } as const;
 
 export const GET = withApi({ scope: "clients:read" }, async (_req, { params, api }) => {

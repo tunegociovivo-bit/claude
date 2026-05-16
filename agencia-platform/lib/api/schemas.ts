@@ -93,7 +93,12 @@ export const clientEditorialMetaSchema = z.object({
       })
     )
     .optional(),
-  imageModel: z.enum(["openai-gpt-image-1", "freepik-seedream-v4"]).nullable().optional()
+  imageModel: z.enum(["openai-gpt-image-1", "freepik-seedream-v4"]).nullable().optional(),
+  // Preset del modal "Generar mes con IA" para este cliente. Sin schema
+  // estricto: la UI persiste lo que necesite (count, networks, mix,
+  // copyLength, perNetworkCopy, extraGuidance, status, generateImages,
+  // imageQuality). null para resetear al default global.
+  editorialDefaults: z.record(z.string(), z.any()).nullable().optional()
 });
 
 export const projectCreateSchema = z.object({

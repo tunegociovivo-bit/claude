@@ -1309,7 +1309,9 @@ function GenerateMonthModal({
   const [networks, setNetworks] = useState<string[]>(["instagram", "facebook"]);
   const [mix, setMix] = useState({ imagen: 50, reel: 25, carrusel: 15, story: 10, video: 0 });
   const [copyLength, setCopyLength] = useState(50);
-  const [perNetworkCopy, setPerNetworkCopy] = useState(false);
+  // Por defecto activado (recomendación del usuario) — copy nativo por red
+  // suele dar mejor resultado y los pocos tokens extra valen la pena.
+  const [perNetworkCopy, setPerNetworkCopy] = useState(true);
   const [extraGuidance, setExtraGuidance] = useState("");
   const [status, setStatus] = useState<"DRAFT" | "REVIEW">("DRAFT");
   const [generateImages, setGenerateImages] = useState(false);
@@ -1317,6 +1319,35 @@ function GenerateMonthModal({
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<any>(null);
+  // Preset persistido por cliente: cuando cambia clientId, hacemos GET de
+  // /editorial-meta y aplicamos editorialDefaults si existe.
+  const [presetLoaded, setPresetLoaded] = useState(false);
+  const [savingPreset, setSavingPreset] = useState(false);
+  const [presetSavedMsg, setPresetSavedMsg] = useState<string | null>(null);
+
+  // Aplica un preset (parcial) sobre los estados, ignorando keys ausentes.
+  function applyPreset(p: any) {
+    if (!p || typeof p !== "object") return;
+    if (typeof p.count === "number") setCount(Math.max(1, Math.min(40, p.count)));
+    if (Array.isArray(p.networks) && p.networks.length > 0) setNetworks(p.networks);
+    if (p.mix && typeof p.mix === "object") {
+      setMix({
+        imagen: Number(p.mix.imagen ?? 50),
+        reel: Number(p.mix.reel ?? 25),
+        carrusel: Number(p.mix.carrusel ?? 15),
+        story: Number(p.mix.story ?? 10),
+        video: Number(p.mix.video ?? 0)
+      });
+    }
+    if (typeof p.copyLength === "number") setCopyLength(Math.max(0, Math.min(100, p.copyLength)));
+    if (typeof p.perNetworkCopy === "boolean") setPerNetworkCopy(p.perNetworkCopy);
+    if (typeof p.extraGuidance === "string") setExtraGuidance(p.extraGuidance);
+    if (p.status === "DRAFT" || p.status === "REVIEW") setStatus(p.status);
+    if (typeof p.generateImages === "boolean") setGenerateImages(p.generateImages);
+    if (p.imageQuality === "low" || p.imageQuality === "medium" || p.imageQuality === "high") {
+      setImageQuality(p.imageQuality);
+    }
+  }
 
   useEffect(() => {
     if (!open) return;
@@ -1325,14 +1356,70 @@ function GenerateMonthModal({
     setNetworks(["instagram", "facebook"]);
     setMix({ imagen: 50, reel: 25, carrusel: 15, story: 10, video: 0 });
     setCopyLength(50);
-    setPerNetworkCopy(false);
+    setPerNetworkCopy(true);
     setExtraGuidance("");
     setStatus("DRAFT");
     setGenerateImages(false);
     setImageQuality("medium");
     setError(null);
     setResult(null);
+    setPresetLoaded(false);
+    setPresetSavedMsg(null);
   }, [open, clients]);
+
+  // Cuando cambia el cliente seleccionado, traemos sus editorialDefaults
+  // y los aplicamos encima del estado actual.
+  useEffect(() => {
+    if (!open || !clientId) return;
+    let aborted = false;
+    setPresetLoaded(false);
+    fetch(`/api/v1/clients/${clientId}/editorial-meta`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (aborted) return;
+        applyPreset(data?.editorialDefaults);
+        setPresetLoaded(true);
+      })
+      .catch(() => setPresetLoaded(true));
+    return () => {
+      aborted = true;
+    };
+  }, [open, clientId]);
+
+  async function savePreset() {
+    if (!clientId) return;
+    setSavingPreset(true);
+    setPresetSavedMsg(null);
+    const preset = {
+      count,
+      networks,
+      mix,
+      copyLength,
+      perNetworkCopy,
+      extraGuidance,
+      status,
+      generateImages,
+      imageQuality
+    };
+    try {
+      const r = await fetch(`/api/v1/clients/${clientId}/editorial-meta`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ editorialDefaults: preset })
+      });
+      if (!r.ok) {
+        const data = await r.json().catch(() => null);
+        setPresetSavedMsg(`Error: ${data?.error?.message ?? r.status}`);
+      } else {
+        setPresetSavedMsg("Preset guardado para este cliente ✓");
+      }
+    } catch (e) {
+      setPresetSavedMsg(`Error: ${(e as Error).message}`);
+    } finally {
+      setSavingPreset(false);
+      setTimeout(() => setPresetSavedMsg(null), 3500);
+    }
+  }
 
   function toggle(n: string) {
     setNetworks((arr) => (arr.includes(n) ? arr.filter((x) => x !== n) : [...arr, n]));
@@ -1405,17 +1492,35 @@ function GenerateMonthModal({
       title={`Generar mes con IA — ${month}`}
       size="lg"
       footer={
-        <>
-          <button onClick={onClose} className="px-3 py-2 rounded-lg text-sm border bg-white hover:bg-slate-50">Cancelar</button>
-          <button
-            onClick={run}
-            disabled={running || !clientId}
-            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-violet-600 hover:bg-violet-700 text-white text-sm font-medium disabled:opacity-50"
-          >
-            {running ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-            Generar
-          </button>
-        </>
+        <div className="flex items-center justify-between gap-3 w-full">
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={savePreset}
+              disabled={!clientId || savingPreset}
+              title="Guardar la configuración actual como predeterminada para este cliente"
+              className="px-3 py-2 rounded-lg text-xs border bg-white hover:bg-slate-50 disabled:opacity-50"
+            >
+              {savingPreset ? "Guardando…" : "Guardar preset para cliente"}
+            </button>
+            {presetSavedMsg && (
+              <span className={"text-xs " + (presetSavedMsg.startsWith("Error") ? "text-red-600" : "text-emerald-700")}>
+                {presetSavedMsg}
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <button onClick={onClose} className="px-3 py-2 rounded-lg text-sm border bg-white hover:bg-slate-50">Cancelar</button>
+            <button
+              onClick={run}
+              disabled={running || !clientId}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-violet-600 hover:bg-violet-700 text-white text-sm font-medium disabled:opacity-50"
+            >
+              {running ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+              Generar
+            </button>
+          </div>
+        </div>
       }
     >
       <div className="space-y-4">

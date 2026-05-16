@@ -181,6 +181,11 @@ model Client {
   // Modelo de imagen (override del default del workspace).
   // Valores: "openai-gpt-image-1" | "freepik-seedream-v4" | null = default
   imageModel       String?
+  // Preset del modal "Generar mes con IA" para este cliente: count,
+  // networks[], mix{}, copyLength, perNetworkCopy, extraGuidance,
+  // status, generateImages, imageQuality. Si null usa los defaults
+  // globales del modal.
+  editorialDefaults Json?
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
