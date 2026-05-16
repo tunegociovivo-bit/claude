@@ -46,7 +46,11 @@ export default function CommentEditor({
   const editor = useEditor({
     immediatelyRender: false,
     extensions: [
-      StarterKit.configure({ heading: false }),
+      // Heading habilitado para que los resúmenes de reunión (que
+      // tienen secciones "👥 Participantes", "✓ Decisiones", etc.)
+      // se rendericen correctamente. Sin heading, TipTap rechaza
+      // el nodo y el comentario queda vacío visualmente.
+      StarterKit.configure({ heading: { levels: [1, 2, 3] } }),
       Placeholder.configure({ placeholder }),
       Link.configure({ openOnClick: false, autolink: true }),
       Image.configure({ inline: false, allowBase64: false }),

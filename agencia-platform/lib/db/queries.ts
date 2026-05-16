@@ -44,12 +44,14 @@ const taskStatusToUi: Record<string, "todo" | "in_progress" | "review" | "done">
   CANCELLED: "done"
 };
 
-// Sólo exponemos dos niveles en la UI: URGENCIA y Alta. Las prioridades
-// LOW/MEDIUM legacy se promueven a "alta" para no perder visibilidad de
-// tareas creadas antes del cambio.
-const priorityToUi: Record<string, "urgencia" | "alta"> = {
-  LOW: "alta",
-  MEDIUM: "alta",
+// Tres niveles en la UI: URGENCIA, Alta y "media" (=Normal, sin
+// pill). LOW y MEDIUM de la BD caen a "media" para que no se
+// muestren con badge — antes promovíamos todo a "alta" lo que
+// hacía que CADA tarea importada de Asana saliera marcada como
+// urgente cuando en realidad eran de prioridad normal.
+const priorityToUi: Record<string, "urgencia" | "alta" | "media"> = {
+  LOW: "media",
+  MEDIUM: "media",
   HIGH: "alta",
   URGENT: "urgencia"
 };
@@ -111,14 +113,21 @@ export async function getProjectsForUi(): Promise<UiProject[]> {
       where: { archived: false, deletedAt: null } as any,
       orderBy: { createdAt: "asc" }
     });
-    return rows.map<UiProject>((r) => ({
-      id: r.id,
-      name: r.name,
-      clientId: r.clientId ?? "",
-      color: r.color,
-      description: r.description ?? "",
-      progress: r.progress
-    }));
+    return rows.map<UiProject>(
+      (r) =>
+        ({
+          id: r.id,
+          name: r.name,
+          clientId: r.clientId ?? "",
+          color: r.color,
+          description: r.description ?? "",
+          progress: r.progress,
+          // Columnas kanban propias del proyecto (importadas de Asana
+          // o configuradas a mano). Si null, TareasClient cae a las
+          // columnas globales del workspace.
+          kanbanColumns: (r as any).kanbanColumns ?? null
+        } as UiProject)
+    );
   }, mockProjects);
 }
 
@@ -177,10 +186,14 @@ export async function getTasksForUi(): Promise<UiTask[]> {
         projectId: r.projectId,
         projectIds,
         clientId: r.clientId ?? undefined,
-        dueDate: (r.dueDate ?? new Date()).toISOString().slice(0, 10),
+        // Si la tarea no tiene fecha, NO inventamos una (antes ponía
+        // "hoy" como fallback, lo que hacía que TODAS las tareas
+        // importadas de Asana sin due aparecieran con la fecha del
+        // import). El UI maneja undefined correctamente.
+        dueDate: r.dueDate ? r.dueDate.toISOString().slice(0, 10) : (undefined as any),
         dueTime: timeStr,
         dueAllDay: allDay,
-        priority: priorityToUi[r.priority] ?? "alta",
+        priority: priorityToUi[r.priority] ?? "media",
         tags: r.tags.map((t) => t.tag.name),
         notifyDueRules: (r as any).notifyDueRules ?? null
       };

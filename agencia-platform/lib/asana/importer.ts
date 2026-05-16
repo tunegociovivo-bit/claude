@@ -61,6 +61,43 @@ function statusFromSectionName(name?: string | null): TaskStatus {
   return TaskStatus.TODO;
 }
 
+// Convierte "Creatividades RRSS" → "CREATIVIDADES_RRSS" para usar
+// como id de KanbanColumn (debe coincidir con el regex que valida
+// /api/v1/kanban-columns: /^[A-Z0-9_]+$/).
+function slugifyColumnId(name: string): string {
+  return name
+    .toUpperCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/[^A-Z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 40);
+}
+
+// Paleta de colores para asignar a las columnas creadas desde
+// secciones de Asana. Mismo set que /admin/columnas + COLUMN_COLOR_PRESETS
+// de TareasClient — repetimos por orden para que columnas
+// secuenciales se distingan visualmente.
+const COLUMN_PALETTE: string[] = [
+  "bg-slate-100 text-slate-700 border-slate-200",
+  "bg-sky-100 text-sky-800 border-sky-300",
+  "bg-indigo-50 text-indigo-700 border-indigo-200",
+  "bg-amber-100 text-amber-800 border-amber-300",
+  "bg-emerald-100 text-emerald-800 border-emerald-300",
+  "bg-rose-100 text-rose-800 border-rose-300",
+  "bg-violet-100 text-violet-800 border-violet-300"
+];
+
+function findDoneColumnId(
+  info?: { sections: Map<string, { name: string; columnId: string }> }
+): string | null {
+  if (!info) return null;
+  for (const s of info.sections.values()) {
+    if (/(hecho|done|complete|publicad|finalizad)/i.test(s.name)) return s.columnId;
+  }
+  return null;
+}
+
 export async function startAsanaImport(opts: ImportOptions): Promise<string> {
   const job = await prisma.asanaImport.create({
     data: {
@@ -133,13 +170,45 @@ async function runImport(jobId: string, opts: ImportOptions) {
       userByGid.set(u.gid, userId);
     }
 
-    // ─── Proyectos + secciones ────────────────────────────────────────────────
-    type ProjectInfo = { localId: string; sections: Map<string, string> }; // sectionGid → sectionName
+    // ─── Proyectos + secciones (= columnas kanban del proyecto) ─────────────
+    // En Asana las secciones del proyecto (TAREAS, REUNIONES, SPLITS,
+    // CREATIVIDADES, CAMBIOS, …) son LAS COLUMNAS del tablero. Las
+    // traemos como `Project.kanbanColumns` para que el Hub reproduzca
+    // el tablero original cuando filtras por ese proyecto.
+    //
+    // sectionGid → { name, columnId } — columnId es el slug que usaremos
+    // como `status` en cada tarea para que caiga en la columna correcta.
+    type SectionInfo = { name: string; columnId: string };
+    type ProjectInfo = { localId: string; sections: Map<string, SectionInfo> };
     const projectByGid = new Map<string, ProjectInfo>();
 
     for await (const p of client.workspaceProjects(opts.asanaWorkspaceGid)) {
       if (opts.projectGids && !opts.projectGids.includes(p.gid)) continue;
       let local = await prisma.project.findUnique({ where: { asanaId: p.gid } });
+
+      // Recolectar secciones del proyecto en Asana, en su orden.
+      const sectionsList: { gid: string; name: string }[] = [];
+      for await (const s of client.projectSections(p.gid)) sectionsList.push({ gid: s.gid, name: s.name });
+
+      // Construir las kanbanColumns: id derivado del slug del nombre.
+      const usedIds = new Set<string>();
+      const palette = COLUMN_PALETTE;
+      const kanbanColumns = sectionsList.map((s, idx) => {
+        let id = slugifyColumnId(s.name);
+        if (!id) id = `COL_${idx + 1}`;
+        // Dedupe por si dos secciones generan el mismo slug.
+        let base = id;
+        let n = 2;
+        while (usedIds.has(id)) {
+          id = `${base}_${n}`;
+          n++;
+        }
+        usedIds.add(id);
+        const color = palette[idx % palette.length];
+        const isDone = /(hecho|done|complete|publicad|finalizad)/i.test(s.name);
+        return { id, label: s.name, color, order: idx, ...(isDone ? { isDone: true } : {}) };
+      });
+
       if (!local) {
         local = await prisma.project.create({
           data: {
@@ -148,19 +217,31 @@ async function runImport(jobId: string, opts: ImportOptions) {
             description: p.notes ?? "",
             archived: !!p.archived,
             color: "bg-brand-500",
-            asanaId: p.gid
-          }
+            asanaId: p.gid,
+            kanbanColumns: kanbanColumns as any
+          } as any
         });
         stats.projects++;
       } else {
         await prisma.project.update({
           where: { id: local.id },
-          data: { name: p.name, description: p.notes ?? "", archived: !!p.archived }
+          data: {
+            name: p.name,
+            description: p.notes ?? "",
+            archived: !!p.archived,
+            // Reemplazamos las columnas en cada import — son la fuente
+            // de verdad de Asana. Si el user editó nombres en el Hub
+            // se pierden, pero a cambio queda alineado con Asana
+            // mientras la migración esté en curso.
+            kanbanColumns: kanbanColumns as any
+          } as any
         });
       }
 
-      const sections = new Map<string, string>();
-      for await (const s of client.projectSections(p.gid)) sections.set(s.gid, s.name);
+      const sections = new Map<string, SectionInfo>();
+      sectionsList.forEach((s, i) => {
+        sections.set(s.gid, { name: s.name, columnId: kanbanColumns[i].id });
+      });
       projectByGid.set(p.gid, { localId: local.id, sections });
 
       await persistStats(jobId, stats);
@@ -215,10 +296,23 @@ async function runImport(jobId: string, opts: ImportOptions) {
       t: AsanaTask,
       projectLocalId: string,
       currentProjectGid: string,
-      sectionName?: string | null,
+      sectionGid?: string | null,
       parentGid?: string
     ) {
-      const status = t.completed ? TaskStatus.DONE : statusFromSectionName(sectionName);
+      // El status de la tarea es el ID de la columna del proyecto que
+      // se corresponde con la sección de Asana. Así la tarea cae en
+      // SU columna original (TAREAS, REUNIONES, SPLITS...) en lugar
+      // del genérico TODO. Si la tarea está completed, va a la primera
+      // columna marcada isDone (o "HECHO" en su nombre).
+      const projectInfo = projectByGid.get(currentProjectGid);
+      const sectionInfo = sectionGid ? projectInfo?.sections.get(sectionGid) : null;
+      let status: string;
+      if (t.completed) {
+        const doneCol = findDoneColumnId(projectInfo);
+        status = doneCol ?? sectionInfo?.columnId ?? TaskStatus.DONE;
+      } else {
+        status = sectionInfo?.columnId ?? statusFromSectionName(sectionInfo?.name) ?? TaskStatus.TODO;
+      }
       const due = t.due_at || t.due_on ? new Date(t.due_at ?? t.due_on!) : null;
       const priority = detectPriorityFromCustomFields(t.custom_fields);
       const parentLocal = parentGid ? taskByGid.get(parentGid) : null;
@@ -306,12 +400,11 @@ async function runImport(jobId: string, opts: ImportOptions) {
           .catch(() => {});
       }
 
-      // Tags + sección como tag suelto (no perdemos info)
-      const tagNames = [
-        ...(t.tags?.map((x) => x.name) ?? []),
-        ...(sectionName ? [`Sección: ${sectionName}`] : [])
-      ];
-      for (const name of tagNames) {
+      // Tags reales de Asana. La sección YA no se duplica como tag
+      // porque ahora se materializa como columna del proyecto
+      // (Project.kanbanColumns) y la tarea cae en su columna correcta
+      // vía `status`.
+      for (const name of t.tags?.map((x) => x.name) ?? []) {
         const tagId = await ensureTag(name);
         await prisma.taskTag.upsert({
           where: { taskId_tagId: { taskId: local.id, tagId } },
@@ -386,13 +479,14 @@ async function runImport(jobId: string, opts: ImportOptions) {
 
     for (const [projectGid, info] of projectByGid) {
       for await (const t of client.projectTasks(projectGid)) {
-        const sectionName = t.memberships?.find((m) => m.project.gid === projectGid)?.section?.name ?? null;
-        await upsertTask(t, info.localId, projectGid, sectionName);
+        const sectionGid = t.memberships?.find((m) => m.project.gid === projectGid)?.section?.gid ?? null;
+        await upsertTask(t, info.localId, projectGid, sectionGid);
         stats.tasks++;
 
-        // Subtareas — heredan el proyecto principal del padre.
+        // Subtareas — heredan el proyecto principal del padre y su
+        // sección (las subtareas en Asana no tienen sección propia).
         for await (const sub of client.taskSubtasks(t.gid)) {
-          await upsertTask(sub, info.localId, projectGid, sectionName, t.gid);
+          await upsertTask(sub, info.localId, projectGid, sectionGid, t.gid);
           stats.subtasks++;
         }
       }

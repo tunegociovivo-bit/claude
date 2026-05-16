@@ -23,7 +23,11 @@ export type Task = {
   assigneeIds: string[];
   clientId?: string;
   projectId: string;
-  dueDate: string;
+  // Optional: muchas tareas importadas de Asana NO tienen fecha.
+  // Antes inventábamos "hoy" como fallback y todas salían pintadas
+  // con la fecha del import; ahora es opcional y la UI maneja
+  // undefined.
+  dueDate?: string;
   priority: "urgencia" | "alta" | "baja" | "media";
   tags: string[];
 };

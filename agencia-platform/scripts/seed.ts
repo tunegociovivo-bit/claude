@@ -153,7 +153,7 @@ async function main() {
         title: t.title,
         status: taskStatusMap[t.status] ?? "TODO",
         priority: priorityMap[t.priority] ?? "MEDIUM",
-        dueDate: new Date(t.dueDate),
+        dueDate: t.dueDate ? new Date(t.dueDate) : null,
         assignees: { create: t.assigneeIds.map((id) => ({ userId: userIdMap.get(id)! })) },
         tags: { create: t.tags.map((tag) => ({ tagId: tagIdMap.get(tag)! })) }
       }

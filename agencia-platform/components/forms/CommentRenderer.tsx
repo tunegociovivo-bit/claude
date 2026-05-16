@@ -29,7 +29,11 @@ export default function CommentRenderer({ body }: { body: string }) {
     immediatelyRender: false,
     editable: false,
     extensions: [
-      StarterKit.configure({ heading: false }),
+      // Heading habilitado: los resúmenes de reunión incluyen
+      // secciones como "👥 Participantes" como heading nivel 3.
+      // Sin esto, el doc se considera inválido y el comentario
+      // aparece vacío aunque esté guardado.
+      StarterKit.configure({ heading: { levels: [1, 2, 3] } }),
       Link.configure({ openOnClick: true, autolink: true }),
       Image.configure({
         inline: false,
@@ -52,7 +56,14 @@ export default function CommentRenderer({ body }: { body: string }) {
         class:
           "prose prose-sm prose-slate max-w-none focus:outline-none " +
           "[&_p]:my-1 [&_p]:leading-relaxed " +
+          // Headings — los resúmenes de reunión los usan como
+          // separadores de sección. h3 destacado, h2 más grande,
+          // h1 reservado para casos raros.
+          "[&_h1]:text-base [&_h1]:font-bold [&_h1]:mt-3 [&_h1]:mb-1 " +
+          "[&_h2]:text-sm [&_h2]:font-bold [&_h2]:mt-3 [&_h2]:mb-1 " +
+          "[&_h3]:text-sm [&_h3]:font-semibold [&_h3]:mt-2 [&_h3]:mb-1 [&_h3]:text-slate-800 " +
           "[&_ul]:list-disc [&_ul]:ml-5 [&_ol]:list-decimal [&_ol]:ml-5 " +
+          "[&_blockquote]:border-l-2 [&_blockquote]:border-slate-300 [&_blockquote]:pl-3 [&_blockquote]:my-2 [&_blockquote]:text-slate-600 [&_blockquote]:text-[12px] " +
           "[&_a]:text-brand-600 [&_a]:underline " +
           "[&_img]:max-w-full [&_img]:rounded-md [&_img]:my-2 [&_img]:cursor-zoom-in"
       }

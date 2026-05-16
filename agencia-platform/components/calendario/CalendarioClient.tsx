@@ -124,14 +124,18 @@ export default function CalendarioClient({
   // Convertimos las tareas del usuario actual en chips para el calendario.
   const taskChips: TaskChip[] = useMemo(
     () =>
-      localTasks.map((t) => ({
-        kind: "task" as const,
-        id: t.id,
-        title: t.title,
-        date: t.dueDate,
-        time: t.dueAllDay === false ? t.dueTime : undefined,
-        allDay: t.dueAllDay !== false
-      })),
+      // Solo tareas con fecha — sin dueDate no tienen sitio en el
+      // calendario. Las tareas importadas sin due se omiten.
+      localTasks
+        .filter((t): t is typeof t & { dueDate: string } => !!t.dueDate)
+        .map((t) => ({
+          kind: "task" as const,
+          id: t.id,
+          title: t.title,
+          date: t.dueDate,
+          time: t.dueAllDay === false ? t.dueTime : undefined,
+          allDay: t.dueAllDay !== false
+        })),
     [localTasks]
   );
 

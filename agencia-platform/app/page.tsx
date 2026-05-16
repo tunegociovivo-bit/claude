@@ -28,8 +28,8 @@ export default async function DashboardPage() {
     .slice(0, 5);
 
   const myTasks = tasks
-    .filter((t) => t.status !== "done")
-    .sort((a, b) => a.dueDate.localeCompare(b.dueDate))
+    .filter((t) => t.status !== "done" && !!t.dueDate)
+    .sort((a, b) => (a.dueDate ?? "").localeCompare(b.dueDate ?? ""))
     .slice(0, 6);
 
   const stats = [
@@ -102,7 +102,9 @@ export default async function DashboardPage() {
                     {statusLabels[t.status]}
                   </span>
                   <div className="text-xs text-slate-500 w-20 text-right">
-                    {new Date(t.dueDate).toLocaleDateString("es-ES", { day: "2-digit", month: "short" })}
+                    {t.dueDate
+                      ? new Date(t.dueDate).toLocaleDateString("es-ES", { day: "2-digit", month: "short" })
+                      : "—"}
                   </div>
                   <AvatarStack ids={t.assigneeIds} members={team} />
                 </li>

@@ -95,7 +95,7 @@ export default function TareasClient({
   const [tasks, setTasks] = useState<UiTask[]>(initialTasks);
   useEffect(() => setTasks(initialTasks), [initialTasks]);
 
-  const [columns, setColumns] = useState<KanbanColumn[]>(FALLBACK_COLUMNS);
+  const [workspaceColumns, setWorkspaceColumns] = useState<KanbanColumn[]>(FALLBACK_COLUMNS);
   const [columnsLoaded, setColumnsLoaded] = useState(false);
   const [userColumnOrder, setUserColumnOrder] = useState<string[]>([]);
 
@@ -103,7 +103,7 @@ export default function TareasClient({
     fetch("/api/v1/kanban-columns")
       .then((r) => (r.ok ? r.json() : { items: FALLBACK_COLUMNS }))
       .then((d) => {
-        setColumns(d.items ?? FALLBACK_COLUMNS);
+        setWorkspaceColumns(d.items ?? FALLBACK_COLUMNS);
         setColumnsLoaded(true);
       });
     try {
@@ -111,6 +111,25 @@ export default function TareasClient({
       if (saved) setUserColumnOrder(JSON.parse(saved));
     } catch {}
   }, []);
+
+  // Columnas efectivas: si hay un proyecto filtrado y ese proyecto
+  // tiene columnas propias (project.kanbanColumns), usamos esas
+  // (importadas de Asana o configuradas a mano). Si no, las del
+  // workspace. Esto es lo que hace que cada proyecto tenga su
+  // propio tablero — equivalente a Asana.
+  const columns: KanbanColumn[] = useMemo(() => {
+    if (filters.project !== "all") {
+      const proj = projects.find((p) => p.id === filters.project) as any;
+      const pc = proj?.kanbanColumns;
+      if (Array.isArray(pc) && pc.length > 0) {
+        return pc as KanbanColumn[];
+      }
+    }
+    return workspaceColumns;
+  }, [filters.project, projects, workspaceColumns]);
+
+  // Compat con código previo
+  const setColumns = setWorkspaceColumns;
 
   useEffect(() => setFilters((f) => ({ ...f, project: urlProject ?? "all" })), [urlProject]);
 
