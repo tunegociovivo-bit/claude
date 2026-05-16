@@ -1391,3 +1391,17 @@ model TeamMessage {
 
   @@index([workspaceId, createdAt])
 }
+
+// Registro de notificaciones de tarea ya enviadas, para no duplicar.
+// Una fila por (taskId, ruleKey, userId). El cron crea estas filas
+// dentro de la misma transacción que envía el email; si reintenta y
+// ya existe, salta.
+model TaskNotificationSent {
+  taskId  String
+  ruleKey String
+  userId  String
+  sentAt  DateTime @default(now())
+
+  @@id([taskId, ruleKey, userId])
+  @@index([sentAt])
+}

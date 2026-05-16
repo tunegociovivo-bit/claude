@@ -19,6 +19,36 @@ export function getFromAddress(): string {
   );
 }
 
+export async function sendEmail(opts: {
+  to: string | string[];
+  subject: string;
+  html: string;
+  text?: string;
+}): Promise<{ id: string }> {
+  if (!isEmailEnabled()) {
+    throw new Error("Email no configurado. Define RESEND_API_KEY.");
+  }
+  const resp = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      from: getFromAddress(),
+      to: Array.isArray(opts.to) ? opts.to : [opts.to],
+      subject: opts.subject,
+      html: opts.html,
+      text: opts.text
+    })
+  });
+  if (!resp.ok) {
+    const body = await resp.text().catch(() => "");
+    throw new Error(`Resend ${resp.status}: ${body.slice(0, 200)}`);
+  }
+  return resp.json();
+}
+
 export async function sendEmailWithAttachment(opts: {
   to: string;
   subject: string;
