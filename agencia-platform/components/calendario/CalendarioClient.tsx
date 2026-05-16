@@ -241,10 +241,23 @@ export default function CalendarioClient({
             const dayEvents = eventsByDay.get(iso) ?? [];
             const isToday = iso === isoToday;
             return (
-              <button
+              // Antes era un <button>, pero los chips de evento son
+              // <div onClick> y eso es HTML inválido (interactivos
+              // anidados). El navegador reescribía el DOM y el click
+              // sobre un evento acababa disparando openNewEvent en vez
+              // de openEditEvent. Cambiado a <div role="button">.
+              <div
                 key={idx}
+                role="button"
+                tabIndex={0}
                 onClick={() => openNewEvent(iso)}
-                className="text-left border-r border-b last:border-r-0 p-1.5 overflow-hidden hover:bg-brand-50/50 transition"
+                onKeyDown={(ev) => {
+                  if (ev.key === "Enter" || ev.key === " ") {
+                    ev.preventDefault();
+                    openNewEvent(iso);
+                  }
+                }}
+                className="text-left border-r border-b last:border-r-0 p-1.5 overflow-hidden hover:bg-brand-50/50 transition cursor-pointer focus:outline-none focus:ring-2 focus:ring-brand-400 focus:ring-inset"
               >
                 <div className={`text-xs font-medium mb-1 ${isToday ? "text-brand-600" : "text-slate-700"}`}>
                   <span
@@ -294,7 +307,7 @@ export default function CalendarioClient({
                     <div className="text-[11px] text-slate-500 pl-1.5">+{dayEvents.length - 2} más</div>
                   )}
                 </div>
-              </button>
+              </div>
             );
           })}
         </div>
