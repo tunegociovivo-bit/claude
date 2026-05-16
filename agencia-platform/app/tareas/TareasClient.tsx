@@ -7,9 +7,12 @@ import {
   DragOverlay,
   MouseSensor,
   TouchSensor,
-  closestCorners,
+  closestCenter,
+  pointerWithin,
+  rectIntersection,
   useSensor,
   useSensors,
+  type CollisionDetection,
   type DragEndEvent,
   type DragStartEvent
 } from "@dnd-kit/core";
@@ -333,6 +336,22 @@ export default function TareasClient({
     useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 8 } })
   );
 
+  // Estrategia de detección de colisión híbrida — closestCorners
+  // funciona mal con touch + DragOverlay (a veces over=null al
+  // soltar, la tarea no se queda). Probamos en cascada:
+  //   1) pointerWithin: el puntero literalmente está sobre un drop
+  //      target → el más fiable en touch.
+  //   2) rectIntersection: el rect del overlay solapa con algún
+  //      target → cubre cuando el puntero queda en el padding.
+  //   3) closestCenter: fallback final por distancia al centro.
+  const collisionDetectionStrategy: CollisionDetection = (args) => {
+    const pointer = pointerWithin(args);
+    if (pointer.length > 0) return pointer;
+    const intersect = rectIntersection(args);
+    if (intersect.length > 0) return intersect;
+    return closestCenter(args);
+  };
+
   const tasksByColumn = useMemo(() => {
     const map: Record<string, UiTask[]> = {};
     // Marca local: cuando una tarea es "compartida" en el proyecto
@@ -615,7 +634,7 @@ export default function TareasClient({
       {view === "kanban" ? (
         <DndContext
           sensors={sensors}
-          collisionDetection={closestCorners}
+          collisionDetection={collisionDetectionStrategy}
           onDragStart={handleDragStart}
           onDragEnd={handleDragEnd}
         >
@@ -623,7 +642,11 @@ export default function TareasClient({
             {/* Móvil: scroll horizontal con columnas de ~280px (típico kanban).
                 Tablet/desktop: grid uniforme. +1 columna placeholder al final
                 con un botón "+" para añadir columna en línea. */}
-            <KanbanGrid columnCount={orderedColumns.length + 1} isMobile={isMobile}>
+            <KanbanGrid
+              columnCount={orderedColumns.length + 1}
+              isMobile={isMobile}
+              isDragging={!!activeDragId}
+            >
               {orderedColumns.map((col) => (
                 <KanbanColumnView
                   key={col.id}
@@ -864,19 +887,27 @@ export default function TareasClient({
 function KanbanGrid({
   columnCount,
   children,
-  isMobile
+  isMobile,
+  isDragging
 }: {
   columnCount: number;
   children: React.ReactNode;
   isMobile?: boolean;
+  isDragging?: boolean;
 }) {
   // Layout estilo Asana: en móvil columna casi al 100% del viewport
   // (88vw) con la siguiente asomando ~12vw para indicar swipe. Snap
   // mandatory ancla cada columna al hacer scroll horizontal. En sm+
   // columnas de 320-360px que ocupan más densas el ancho disponible.
+  //
+  // Durante drag desactivamos el snap — pelea con dnd-kit (la columna
+  // hace snap a la siguiente justo cuando intentas soltar una tarea
+  // sobre ella, y `over` queda mal) y bloquea el auto-scroll
+  // horizontal mientras arrastras una tarea entre columnas.
+  const snapClass = isDragging ? "" : "snap-x snap-mandatory sm:snap-none";
   return (
     <div
-      className="grid grid-flow-col gap-2 sm:gap-4 overflow-x-auto pb-2 snap-x snap-mandatory sm:snap-none flex-1 [&>*]:min-h-full [&>*]:snap-start"
+      className={`grid grid-flow-col gap-2 sm:gap-4 overflow-x-auto pb-2 ${snapClass} flex-1 [&>*]:min-h-full [&>*]:snap-start`}
       style={{
         gridAutoColumns: isMobile
           ? "88vw"
