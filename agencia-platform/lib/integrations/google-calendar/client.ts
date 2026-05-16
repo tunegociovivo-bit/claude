@@ -99,7 +99,7 @@ export async function listEventsIncremental(
   // Si no tenemos syncToken, hacemos full sync limitado a una ventana
   // razonable (los próximos 90 días). Una semana atrás para reflejar
   // cambios recientes a eventos pasados.
-  const baseParams = usedSyncToken
+  const baseParams: Record<string, string> = usedSyncToken
     ? { syncToken: usedSyncToken }
     : {
         timeMin: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),

@@ -25,7 +25,7 @@ export const PATCH = withApi({ scope: "tasks:write" }, async (req, { params, api
       dueAt: parsed.data.dueAt ? new Date(parsed.data.dueAt) : parsed.data.dueAt
     } as any
   });
-  if (updated.count === 0) throw new ApiError(404, "not_found");
+  if (updated.count === 0) throw new ApiError(404, "not_found", "Entregable no encontrado");
   auditFromReq(req, api, {
     action: "deliverable.update",
     targetType: "DELIVERABLE",
@@ -39,7 +39,7 @@ export const DELETE = withApi({ scope: "tasks:write" }, async (req, { params, ap
   const del = await prisma.deliverable.deleteMany({
     where: { id: params.id, workspaceId: api.workspaceId }
   });
-  if (del.count === 0) throw new ApiError(404, "not_found");
+  if (del.count === 0) throw new ApiError(404, "not_found", "Entregable no encontrado");
   auditFromReq(req, api, {
     action: "deliverable.delete",
     targetType: "DELIVERABLE",

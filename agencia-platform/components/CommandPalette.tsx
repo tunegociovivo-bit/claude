@@ -24,7 +24,13 @@ type Result =
   | { kind: "document"; id: string; title: string }
   | { kind: "action"; id: string; title: string; href: string; icon?: any };
 
-const STATIC_ACTIONS: Result[] = [
+// Anotamos con la variante concreta (action) para que TS sepa que
+// todos los STATIC_ACTIONS tienen `title` y `href`. Si la firma
+// fuera el union Result[], `a.title` rompería en el filter porque
+// las variantes client/project tienen `name`, no `title`.
+type ActionResult = Extract<Result, { kind: "action" }>;
+
+const STATIC_ACTIONS: ActionResult[] = [
   { kind: "action", id: "go-home", title: "Ir al inicio", href: "/", icon: Home },
   { kind: "action", id: "go-tasks", title: "Ir a tareas", href: "/tareas", icon: CheckSquare },
   { kind: "action", id: "go-clients", title: "Ir a clientes", href: "/clientes", icon: Users },

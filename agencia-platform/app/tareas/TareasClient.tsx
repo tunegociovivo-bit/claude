@@ -431,7 +431,7 @@ export default function TareasClient({
           <option value="me">Mis tareas</option>
           <option value="none">Sin asignar</option>
           {team.map((m) => (
-            <option key={m.id} value={m.id}>{m.name ?? m.email}</option>
+            <option key={m.id} value={m.id}>{m.name}</option>
           ))}
         </select>
         <select
