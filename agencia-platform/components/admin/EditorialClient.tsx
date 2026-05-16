@@ -4308,6 +4308,16 @@ function ApprovalLinkButton({ clientId, month }: { clientId: string; month: stri
                       Creado {new Date(l.createdAt).toLocaleString("es-ES")}
                       {l.expiresAt && <> · caduca {new Date(l.expiresAt).toLocaleDateString("es-ES")}</>}
                     </div>
+                    <div className="mt-1.5">
+                      <a
+                        href={`/p/cliente/${l.token}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-[10px] text-brand-700 hover:underline"
+                      >
+                        Vista de portal del cliente (proyectos + eventos) ↗
+                      </a>
+                    </div>
                   </div>
                 );
               })}

@@ -7,7 +7,7 @@ import TopBar from "@/components/TopBar";
 import AIAssistant from "@/components/ai/AIAssistant";
 import CommandPalette from "@/components/CommandPalette";
 
-const NO_CHROME_PREFIXES = ["/login", "/r/", "/v/"];
+const NO_CHROME_PREFIXES = ["/login", "/r/", "/v/", "/p/"];
 
 export default function AppChrome({ children }: { children: ReactNode }) {
   const pathname = usePathname();
