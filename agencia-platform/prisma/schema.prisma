@@ -21,27 +21,87 @@ model User {
   name          String?
   passwordHash  String?
   image         String?
-  phone         String?   // para futuras notificaciones SMS/WhatsApp
+  phone         String? // para futuras notificaciones SMS/WhatsApp
   emailVerified DateTime?
   role          UserRole  @default(MEMBER)
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
-  accounts          Account[]
-  sessions          Session[]
-  memberships       Membership[]
-  projectMembers    ProjectMember[]
-  ownedApiKeys      ApiKey[]
-  asanaTokens       AsanaConnection[]
-  notifications     Notification[]
-  pushSubscriptions PushSubscription[]
-  comments          Comment[]
-  assignedTasks     TaskAssignee[]
-  externalCalendars UserExternalCalendar[]
-  vacationDays      VacationDay[]
-  teamMessages      TeamMessage[]
-  editorialMessages EditorialPostMessage[]
+  // 2FA TOTP (RFC 6238). totpSecret es base32, cifrado con
+  // NEXTAUTH_SECRET (igual que los tokens Asana). totpEnabledAt se
+  // setea tras la primera verificación exitosa — antes de eso el
+  // user puede abortar la inscripción sin penalty.
+  totpSecret      String?
+  totpEnabledAt   DateTime?
+  // Códigos de recuperación: 8 strings de 10 chars hasheados (bcrypt).
+  // Se generan al activar 2FA. Cada uso los marca como consumidos.
+  totpBackupCodes Json?
+
+  // Para forzar verificación tras cambio de email crítico o
+  // re-verificación periódica. Si null, no se exige.
+  emailVerificationRequiredAt DateTime?
+
+  accounts                  Account[]
+  sessions                  Session[]
+  memberships               Membership[]
+  projectMembers            ProjectMember[]
+  ownedApiKeys              ApiKey[]
+  asanaTokens               AsanaConnection[]
+  notifications             Notification[]
+  pushSubscriptions         PushSubscription[]
+  comments                  Comment[]
+  assignedTasks             TaskAssignee[]
+  externalCalendars         UserExternalCalendar[]
+  vacationDays              VacationDay[]
+  teamMessages              TeamMessage[]
+  editorialMessages         EditorialPostMessage[]
   googleCalendarConnections GoogleCalendarConnection[]
+  userSessions              UserSession[]
+}
+
+// Registro de intentos de login para throttling/lockout. Se guardan
+// éxitos y fracasos. La lógica en lib/security/login-throttle.ts
+// rechaza nuevos intentos si en los últimos LOCK_WINDOW_MIN minutos
+// hubo >= LOCK_MAX_FAILS fallos para el mismo email O para la misma
+// IP. Limpieza periódica vía cron /api/cron/login-attempts-purge.
+model LoginAttempt {
+  id        String   @id @default(cuid())
+  email     String
+  ip        String
+  userAgent String?  @db.Text
+  success   Boolean
+  reason    String? // p.ej. "bad_password", "locked", "no_user"
+  createdAt DateTime @default(now())
+
+  @@index([email, createdAt])
+  @@index([ip, createdAt])
+}
+
+// Sesión activa de un usuario (manualmente trackeada — la JWT de
+// NextAuth no se guarda en BD, así que esto nos permite listar y
+// revocar dispositivos desde /perfil/seguridad). Se crea en el
+// callback de signIn y se actualiza lastSeenAt en cada request
+// autenticado (middleware). Para revocar: revokedAt != null hace que
+// authenticate() rechace cualquier petición con esa sessionId.
+model UserSession {
+  id            String    @id @default(cuid())
+  userId        String
+  // Identificador estable que viaja en la JWT como `sid`. Si no
+  // coincide con ninguna sesión viva, se rechaza la petición.
+  sid           String    @unique
+  deviceLabel   String? // p.ej. "Chrome on Mac", "Safari iOS"
+  ip            String?
+  userAgent     String?   @db.Text
+  createdAt     DateTime  @default(now())
+  lastSeenAt    DateTime  @default(now())
+  expiresAt     DateTime
+  revokedAt     DateTime?
+  revokedReason String? // "logout", "user_revoked", "password_changed", "admin_revoked"
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, revokedAt])
+  @@index([sid])
 }
 
 // Calendarios externos del usuario (Google Calendar, Outlook, iCloud,
@@ -110,6 +170,7 @@ model VerificationToken {
   identifier String
   token      String   @unique
   expires    DateTime
+
   @@unique([identifier, token])
 }
 
@@ -122,43 +183,43 @@ model Workspace {
   name      String
   slug      String   @unique
   logo      String?
-  settings  Json?    // { ai: { anthropicApiKey: "...", defaultModel: "..." }, ... }
+  settings  Json? // { ai: { anthropicApiKey: "...", defaultModel: "..." }, ... }
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  memberships  Membership[]
-  clients      Client[]
-  projects     Project[]
-  tasks        Task[]
-  documents    Document[]
-  databases    Database[]
-  tags         Tag[]
-  files        File[]
-  events       CalendarEvent[]
-  apiKeys      ApiKey[]
-  webhooks     Webhook[]
-  auditLogs    AuditLog[]
-  asanaImports AsanaImport[]
-  comments     Comment[]
-  reviewClients   ReviewClient[]
-  voiceBusinesses VoiceBusiness[]
-  editorialPosts  EditorialPost[]
-  approvalLinks   ClientApprovalLink[]
-  deliverables    Deliverable[]
-  credentialGrants CredentialAccessGrant[]
-  leadSearches    LeadSearch[]
-  leads           Lead[]
-  leadTemplates   LeadTemplate[]
-  leadSequences   LeadSequence[]
-  leadInboxMsgs   LeadInboxMessage[]
-  leadMessages    LeadMessage[]
-  leadExclusions  LeadExclusion[]
-  leadOptouts     LeadOptout[]
-  externalCalendars UserExternalCalendar[]
-  vacationDays    VacationDay[]
-  teamMessages    TeamMessage[]
+  memberships               Membership[]
+  clients                   Client[]
+  projects                  Project[]
+  tasks                     Task[]
+  documents                 Document[]
+  databases                 Database[]
+  tags                      Tag[]
+  files                     File[]
+  events                    CalendarEvent[]
+  apiKeys                   ApiKey[]
+  webhooks                  Webhook[]
+  auditLogs                 AuditLog[]
+  asanaImports              AsanaImport[]
+  comments                  Comment[]
+  reviewClients             ReviewClient[]
+  voiceBusinesses           VoiceBusiness[]
+  editorialPosts            EditorialPost[]
+  approvalLinks             ClientApprovalLink[]
+  deliverables              Deliverable[]
+  credentialGrants          CredentialAccessGrant[]
+  leadSearches              LeadSearch[]
+  leads                     Lead[]
+  leadTemplates             LeadTemplate[]
+  leadSequences             LeadSequence[]
+  leadInboxMsgs             LeadInboxMessage[]
+  leadMessages              LeadMessage[]
+  leadExclusions            LeadExclusion[]
+  leadOptouts               LeadOptout[]
+  externalCalendars         UserExternalCalendar[]
+  vacationDays              VacationDay[]
+  teamMessages              TeamMessage[]
   googleCalendarConnections GoogleCalendarConnection[]
-  searchEmbeddings SearchEmbedding[]
+  searchEmbeddings          SearchEmbedding[]
 }
 
 model Membership {
@@ -199,69 +260,69 @@ model Client {
   // ----- Secciones nuevas del modal Editar cliente -----
   // Información general libre (sector ampliado, ubicación, horarios,
   // sucursales, tipo de empresa, etc.). Texto libre.
-  infoGeneral String? @db.Text
+  infoGeneral String?         @db.Text
   // Accesos: URLs/usuarios/passwords del cliente (cPanel, WP, GMB,
   // Metricool, etc.). Texto libre por ahora; se podría cifrar en
   // futuro con encryptSecret() como hacemos con las API keys.
-  accesos String? @db.Text
+  accesos     String?         @db.Text
   // Servicios contratados. Array de slugs predefinidos:
   // "diseno_web" | "seo_web" | "seo_ia" | "gmb" | "sem" |
   // "gestion_redes" | "campana_redes" | "mantenimiento" |
   // "servidor" | "dominio"
-  servicios Json?
+  servicios   Json?
   // Bono Kit Digital (ayudas Red.es). Boolean para reporting.
-  kitDigital Boolean @default(false)
+  kitDigital  Boolean         @default(false)
   // Prioridad para el equipo interno (no es lo mismo que status).
   // ALTA → urgencia visual (rojo/rose en listados).
   // NORMAL → default.
   // BAJA → cliente de bajo mantenimiento (gris/verde).
-  prioridad ClientPrioridad @default(NORMAL)
+  prioridad   ClientPrioridad @default(NORMAL)
 
   // ----- Editorial / NV Dashboard meta (migrado del plugin) -----
   // Brief & branding básico
-  brandBrief        String? @db.Text
-  website           String?
-  brandColorPrimary String  @default("#1F2937")
-  brandColorAccent  String  @default("#2563EB")
-  brandColorText    String  @default("#FFFFFF")
+  brandBrief         String? @db.Text
+  website            String?
+  brandColorPrimary  String  @default("#1F2937")
+  brandColorAccent   String  @default("#2563EB")
+  brandColorText     String  @default("#FFFFFF")
   // Logo
-  logoUrl      String?
-  logoPosition String  @default("br") // br | bl | tr | tl
+  logoUrl            String?
+  logoPosition       String  @default("br") // br | bl | tr | tl
   // Patrón visual
-  visualPattern String @default("clean") // clean | frame
-  refsFidelity  Int    @default(50) // 0-100
+  visualPattern      String  @default("clean") // clean | frame
+  refsFidelity       Int     @default(50) // 0-100
   // Competidores (texto libre, URL/nombre por línea)
-  competitors String? @db.Text
+  competitors        String? @db.Text
   // Dimensiones por formato — JSON { imagen:{w,h,preset}, reel:{...}, ... }
   dimensionsByFormat Json?
   // Referencias visuales — JSON [{ url, type, personName }]
-  referenceImages Json?
+  referenceImages    Json?
   // Fuentes corporativas — JSON [{ url, name, weight }]
-  fonts Json?
+  fonts              Json?
   // Guía de estilo cacheada (generada por IA a partir de las refs visuales)
-  styleGuideCached String? @db.Text
-  styleGuideHash   String?
+  styleGuideCached   String? @db.Text
+  styleGuideHash     String?
   // Google Drive refs
-  driveMode        String  @default("pending") // configured | pending | no_drive_refs
-  driveRootId      String?
-  driveSubfolders  Json? // [{ name, id, type }]
+  driveMode          String  @default("pending") // configured | pending | no_drive_refs
+  driveRootId        String?
+  driveSubfolders    Json? // [{ name, id, type }]
   // Modelo de imagen (override del default del workspace).
   // Valores: "openai-gpt-image-1" | "freepik-seedream-v4" | null = default
-  imageModel       String?
+  imageModel         String?
   // Preset del modal "Generar mes con IA" para este cliente: count,
   // networks[], mix{}, copyLength, perNetworkCopy, extraGuidance,
   // status, generateImages, imageQuality. Si null usa los defaults
   // globales del modal.
-  editorialDefaults Json?
+  editorialDefaults  Json?
   // Negativo permanente de imagen: cosas/personas/objetos que NUNCA
   // deben aparecer en imágenes generadas para este cliente (free-text).
   // Se aplica automáticamente a TODAS las generaciones, incluso si el
   // user no rellena el cuadro de negativo en el modal.
-  imageGlobalAvoid String? @db.Text
+  imageGlobalAvoid   String? @db.Text
 
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  deletedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
   deletedById String?
 
   workspace      Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
@@ -292,28 +353,28 @@ enum ClientPrioridad {
 // ====================================================================
 
 model Project {
-  id          String   @id @default(cuid())
-  workspaceId String
-  clientId    String?
-  name        String
-  description String?  @db.Text
-  color       String   @default("bg-brand-500")
-  progress    Int      @default(0)
-  archived    Boolean  @default(false)
-  asanaId     String?  @unique
+  id            String    @id @default(cuid())
+  workspaceId   String
+  clientId      String?
+  name          String
+  description   String?   @db.Text
+  color         String    @default("bg-brand-500")
+  progress      Int       @default(0)
+  archived      Boolean   @default(false)
+  asanaId       String?   @unique
   // Columnas kanban específicas de este proyecto. Si null, se usan
   // las columnas globales del workspace (Workspace.settings.kanban.columns).
   // Cada item es { id, label, color, order, isDone? }, mismo shape
   // que las del workspace. La importación desde Asana las rellena
   // a partir de las secciones del proyecto.
   kanbanColumns Json?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  deletedAt   DateTime?
-  deletedById String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  deletedAt     DateTime?
+  deletedById   String?
 
   workspace Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  client    Client?          @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  client    Client?         @relation(fields: [clientId], references: [id], onDelete: SetNull)
   tasks     Task[]
   taskLinks TaskProject[]
   members   ProjectMember[]
@@ -343,21 +404,21 @@ model ProjectMember {
 // REVIEWS GENERATOR (migrado de Generador de Reseñas IA PRO de WordPress)
 // ====================================================================
 model ReviewClient {
-  id                   String   @id @default(cuid())
-  workspaceId          String
-  slug                 String   // identificador URL-safe único por workspace
-  name                 String
-  webUrl               String?
-  destinationUrl       String   // Trustpilot / Google Business / etc.
-  topics               String   @db.Text // un tema por línea
-  bannedWords          String?  // separadas por coma
-  recommendedWords     String?  // separadas por coma
-  extraInstructions    String?  @db.Text
-  model                String   @default("gpt-4o-mini")
-  createdAt            DateTime @default(now())
-  updatedAt            DateTime @updatedAt
+  id                String   @id @default(cuid())
+  workspaceId       String
+  slug              String // identificador URL-safe único por workspace
+  name              String
+  webUrl            String?
+  destinationUrl    String // Trustpilot / Google Business / etc.
+  topics            String   @db.Text // un tema por línea
+  bannedWords       String? // separadas por coma
+  recommendedWords  String? // separadas por coma
+  extraInstructions String?  @db.Text
+  model             String   @default("gpt-4o-mini")
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
-  workspace Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspace Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   history   ReviewHistory[]
 
   @@unique([workspaceId, slug])
@@ -382,43 +443,43 @@ model ReviewHistory {
 // EDITORIAL (migrado de NV Dashboard WP — calendario de publicaciones)
 // ====================================================================
 model EditorialPost {
-  id            String    @id @default(cuid())
-  workspaceId   String
-  clientId      String?
-  title         String
-  content       String?   @db.Text
-  excerpt       String?   @db.Text
-  scheduledFor  DateTime?
-  publishedAt   DateTime?
-  status        String    @default("DRAFT") // DRAFT|REVIEW|APPROVED|SCHEDULED|PUBLISHED|ARCHIVED
-  format        String?   // post|reel|story|video|blog|email|carousel
-  networks      String    @default("[]") // JSON array de redes destino
-  thumbnail     String?
-  mediaUrls     String    @default("[]") // JSON array
+  id             String    @id @default(cuid())
+  workspaceId    String
+  clientId       String?
+  title          String
+  content        String?   @db.Text
+  excerpt        String?   @db.Text
+  scheduledFor   DateTime?
+  publishedAt    DateTime?
+  status         String    @default("DRAFT") // DRAFT|REVIEW|APPROVED|SCHEDULED|PUBLISHED|ARCHIVED
+  format         String? // post|reel|story|video|blog|email|carousel
+  networks       String    @default("[]") // JSON array de redes destino
+  thumbnail      String?
+  mediaUrls      String    @default("[]") // JSON array
   // Copy distinto por red — JSON { instagram: "...", facebook: "...", ... }.
   // Si una red no aparece en el mapa, se usa `content` como fallback.
-  copyByNetwork Json?
-  hashtags      String?   @db.Text // copy compartido de hashtags (no por red)
-  firstComment  String?   @db.Text // primer comentario para Metricool
+  copyByNetwork  Json?
+  hashtags       String?   @db.Text // copy compartido de hashtags (no por red)
+  firstComment   String?   @db.Text // primer comentario para Metricool
   // Plan visual estructurado generado JUNTO al copy por Claude (migrado
   // del plugin NV Dashboard). Permite que la imagen IA respete personas
   // del roster y el overlay de texto se componga limpio sin alucinaciones.
   // headlineLines: array de {text, size:sm|md|lg|xl, color:white|accent|primary, weight:regular|bold}
-  headlineLines Json?
+  headlineLines  Json?
   // imagePrompt: prompt en inglés para gpt-image-1, con descripción física
   // de personas mencionadas en copy, espacio negativo, "no readable text".
-  imagePrompt   String?   @db.Text
+  imagePrompt    String?   @db.Text
   // textPlacement: top|center|bottom (lado opuesto a donde va la persona)
-  textPlacement String?
-  metaJson      Json?     // resto de ACF / metadatos
-  legacyWpId    Int?      @unique
-  metricoolJobId String?  // reservado para integración API directa (futura)
+  textPlacement  String?
+  metaJson       Json? // resto de ACF / metadatos
+  legacyWpId     Int?      @unique
+  metricoolJobId String? // reservado para integración API directa (futura)
   lastExportedAt DateTime? // última vez que se incluyó en un export CSV/Metricool
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
-  workspace Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  client    Client?            @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  workspace Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  client    Client?                @relation(fields: [clientId], references: [id], onDelete: SetNull)
   revisions EditorialRevision[]
   messages  EditorialPostMessage[]
 
@@ -435,14 +496,14 @@ model EditorialPost {
 // blanco y mostramos el nombre del cliente). Para el equipo,
 // `authorId` apunta al User humano y `authorType="TEAM"`.
 model EditorialPostMessage {
-  id          String   @id @default(cuid())
-  postId      String
-  authorType  String   // "CLIENT" | "TEAM"
-  authorId    String?  // null para el cliente, User.id para el equipo
-  authorName  String?  // fallback visible si authorId es null
-  body        String   @db.Text
+  id         String   @id @default(cuid())
+  postId     String
+  authorType String // "CLIENT" | "TEAM"
+  authorId   String? // null para el cliente, User.id para el equipo
+  authorName String? // fallback visible si authorId es null
+  body       String   @db.Text
   // En el futuro: attachments, mentions a nivel de mensaje, etc.
-  createdAt   DateTime @default(now())
+  createdAt  DateTime @default(now())
 
   post   EditorialPost @relation(fields: [postId], references: [id], onDelete: Cascade)
   author User?         @relation(fields: [authorId], references: [id], onDelete: SetNull)
@@ -468,16 +529,16 @@ model EditorialRevision {
 // El cliente entra sin login a /p/editorial/[token], ve las publicaciones
 // del mes, puede aprobar/rechazar y dejar comentarios.
 model ClientApprovalLink {
-  id          String   @id @default(cuid())
+  id          String    @id @default(cuid())
   workspaceId String
   clientId    String
-  token       String   @unique @default(cuid())
+  token       String    @unique @default(cuid())
   month       String // YYYY-MM
   createdById String?
   expiresAt   DateTime?
   revokedAt   DateTime?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
@@ -492,7 +553,7 @@ model ClientApprovalDecision {
   linkId    String
   postId    String
   decision  String // approved | rejected | comment
-  comment   String? @db.Text
+  comment   String?  @db.Text
   createdAt DateTime @default(now())
 
   @@index([linkId, postId])
@@ -503,23 +564,23 @@ model ClientApprovalDecision {
 // NV LEADS PRO (migrado: Google Places + WhatsApp + secuencias)
 // ====================================================================
 model LeadSearch {
-  id                  String    @id @default(cuid())
-  workspaceId         String
-  keyword             String
-  location            String
-  scope               String    @default("custom") // custom | spain (loop por provincias)
-  status              String    @default("PENDING") // PENDING|RUNNING|COMPLETED|FAILED
-  provincesScope      String    @default("[]") // JSON array (legacy)
-  totalProvinces      Int       @default(1)
-  processedProvinces  Int       @default(0)
-  currentProvince     String?
-  totalResults        Int       @default(0)
-  startedAt           DateTime?
-  completedAt         DateTime?
-  errorMessage        String?   @db.Text
-  legacyWpId          Int?      @unique
-  createdAt           DateTime  @default(now())
-  updatedAt           DateTime  @updatedAt @default(now())
+  id                 String    @id @default(cuid())
+  workspaceId        String
+  keyword            String
+  location           String
+  scope              String    @default("custom") // custom | spain (loop por provincias)
+  status             String    @default("PENDING") // PENDING|RUNNING|COMPLETED|FAILED
+  provincesScope     String    @default("[]") // JSON array (legacy)
+  totalProvinces     Int       @default(1)
+  processedProvinces Int       @default(0)
+  currentProvince    String?
+  totalResults       Int       @default(0)
+  startedAt          DateTime?
+  completedAt        DateTime?
+  errorMessage       String?   @db.Text
+  legacyWpId         Int?      @unique
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @default(now()) @updatedAt
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   leads     Lead[]
@@ -528,55 +589,55 @@ model LeadSearch {
 }
 
 model Lead {
-  id                    String    @id @default(cuid())
-  workspaceId           String
-  searchId              String?
-  placeId               String
+  id                  String    @id @default(cuid())
+  workspaceId         String
+  searchId            String?
+  placeId             String
   // Datos básicos del negocio (Google Places)
-  name                  String
-  address               String?
-  formattedAddress      String?
-  province              String?
-  phone                 String?
-  internationalPhone    String?
-  website               String?
-  category              String?
-  types                 Json?
-  latitude              Float?
-  longitude             Float?
-  position              Int?
-  gmbUrl                String?
-  businessStatus        String?
-  priceLevel            Int?
+  name                String
+  address             String?
+  formattedAddress    String?
+  province            String?
+  phone               String?
+  internationalPhone  String?
+  website             String?
+  category            String?
+  types               Json?
+  latitude            Float?
+  longitude           Float?
+  position            Int?
+  gmbUrl              String?
+  businessStatus      String?
+  priceLevel          Int?
   // Reviews
-  rating                Float?
-  reviewsCount          Int       @default(0)
-  reviewsJson           Json?
-  positivePct           Float?
-  negativePct           Float?
-  neutralPct            Float?
+  rating              Float?
+  reviewsCount        Int       @default(0)
+  reviewsJson         Json?
+  positivePct         Float?
+  negativePct         Float?
+  neutralPct          Float?
   // Datos crudos completos del API
-  rawData               Json?
+  rawData             Json?
   // Lead scorer (heurística)
-  score                 Int?      // 0-100
-  urgency               String?   // critica | alta | media | baja | descartar
-  scoreBreakdown        Json?
+  score               Int? // 0-100
+  urgency             String? // critica | alta | media | baja | descartar
+  scoreBreakdown      Json?
   // IA
-  aiOpener              String?   @db.Text
-  aiOpenerGeneratedAt   DateTime?
+  aiOpener            String?   @db.Text
+  aiOpenerGeneratedAt DateTime?
   // WhatsApp
-  hasWhatsapp           Boolean   @default(false)
-  whatsappChecked       Boolean   @default(false)
-  whatsappCheckedAt     DateTime?
+  hasWhatsapp         Boolean   @default(false)
+  whatsappChecked     Boolean   @default(false)
+  whatsappCheckedAt   DateTime?
   // Estado del contacto
-  contactStatus         String    @default("pending") // pending|contacted|responded|client|excluded|discarded
-  notes                 String?   @db.Text
-  legacyWpId            Int?      @unique
-  createdAt             DateTime  @default(now())
-  updatedAt             DateTime  @updatedAt
+  contactStatus       String    @default("pending") // pending|contacted|responded|client|excluded|discarded
+  notes               String?   @db.Text
+  legacyWpId          Int?      @unique
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
 
-  workspace     Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  search        LeadSearch?        @relation(fields: [searchId], references: [id], onDelete: SetNull)
+  workspace     Workspace                @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  search        LeadSearch?              @relation(fields: [searchId], references: [id], onDelete: SetNull)
   competitors   LeadCompetitor[]
   assignments   LeadSequenceAssignment[]
   inboxMessages LeadInboxMessage[]
@@ -592,22 +653,22 @@ model Lead {
 // Cola de envío de mensajes (saliente). Cron procesa items con
 // status="queued" y scheduledAt <= now respetando ventana y delays.
 model LeadMessage {
-  id                  String    @id @default(cuid())
-  workspaceId         String
-  leadId              String
-  templateId          String?
-  renderedMessage     String    @db.Text
-  channel             String    @default("whatsapp")
-  instanceName        String?   // sesión WAHA (default si null)
-  phoneNormalized     String    // E.164 sin +
-  status              String    @default("queued") // queued|sending|sent|failed|delivered|read
-  scheduledAt         DateTime?
-  sentAt              DateTime?
-  sendAttempts        Int       @default(0)
-  lastError           String?   @db.Text
-  externalMessageId   String?
-  priority            Int       @default(0)
-  createdAt           DateTime  @default(now())
+  id                String    @id @default(cuid())
+  workspaceId       String
+  leadId            String
+  templateId        String?
+  renderedMessage   String    @db.Text
+  channel           String    @default("whatsapp")
+  instanceName      String? // sesión WAHA (default si null)
+  phoneNormalized   String // E.164 sin +
+  status            String    @default("queued") // queued|sending|sent|failed|delivered|read
+  scheduledAt       DateTime?
+  sentAt            DateTime?
+  sendAttempts      Int       @default(0)
+  lastError         String?   @db.Text
+  externalMessageId String?
+  priority          Int       @default(0)
+  createdAt         DateTime  @default(now())
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   lead      Lead      @relation(fields: [leadId], references: [id], onDelete: Cascade)
@@ -618,13 +679,13 @@ model LeadMessage {
 }
 
 model LeadCompetitor {
-  id           String   @id @default(cuid())
+  id           String  @id @default(cuid())
   leadId       String
   placeId      String?
   name         String
   position     Int
   rating       Float?
-  reviewsCount Int      @default(0)
+  reviewsCount Int     @default(0)
 
   lead Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
 
@@ -682,15 +743,15 @@ model LeadSequenceStep {
 }
 
 model LeadSequenceAssignment {
-  id              String    @id @default(cuid())
-  leadId          String
-  sequenceId      String
-  status          String    @default("active") // active|paused|completed|stopped
-  currentStep     Int       @default(0)
-  nextRunAt       DateTime?
-  startedAt       DateTime  @default(now())
-  completedAt     DateTime?
-  stoppedReason   String?   // respuesta_recibida | manual | excluded | max_attempts
+  id            String    @id @default(cuid())
+  leadId        String
+  sequenceId    String
+  status        String    @default("active") // active|paused|completed|stopped
+  currentStep   Int       @default(0)
+  nextRunAt     DateTime?
+  startedAt     DateTime  @default(now())
+  completedAt   DateTime?
+  stoppedReason String? // respuesta_recibida | manual | excluded | max_attempts
 
   lead     Lead         @relation(fields: [leadId], references: [id], onDelete: Cascade)
   sequence LeadSequence @relation(fields: [sequenceId], references: [id], onDelete: Cascade)
@@ -767,17 +828,17 @@ model LeadOptout {
 // AI USAGE TRACKING — cuánto cuesta cada proyecto/trabajador en IA
 // ====================================================================
 model AiUsage {
-  id            String   @id @default(cuid())
-  workspaceId   String
-  userId        String?  // usuario que disparó la llamada (null = API key sin user)
-  projectId     String?  // si la llamada está atada a un proyecto
-  feature       String   // "chat", "summarize", "redactor", "reviews", "voice_draft", etc.
-  provider      String   // "anthropic" | "openai"
-  model         String   // "claude-opus-4-7", "gpt-4o-mini", "whisper-1", etc.
-  inputTokens   Int      @default(0)
-  outputTokens  Int      @default(0)
-  costMicros    Int      @default(0) // coste en micros de USD (1 USD = 1_000_000)
-  createdAt     DateTime @default(now())
+  id           String   @id @default(cuid())
+  workspaceId  String
+  userId       String? // usuario que disparó la llamada (null = API key sin user)
+  projectId    String? // si la llamada está atada a un proyecto
+  feature      String // "chat", "summarize", "redactor", "reviews", "voice_draft", etc.
+  provider     String // "anthropic" | "openai"
+  model        String // "claude-opus-4-7", "gpt-4o-mini", "whisper-1", etc.
+  inputTokens  Int      @default(0)
+  outputTokens Int      @default(0)
+  costMicros   Int      @default(0) // coste en micros de USD (1 USD = 1_000_000)
+  createdAt    DateTime @default(now())
 
   @@index([workspaceId, createdAt])
   @@index([userId, createdAt])
@@ -788,35 +849,35 @@ model AiUsage {
 // BACKUPS
 // ====================================================================
 model BackupRun {
-  id            String   @id @default(cuid())
-  workspaceId   String
-  startedAt     DateTime @default(now())
-  completedAt   DateTime?
-  status        String   @default("RUNNING") // RUNNING | COMPLETED | FAILED
-  trigger       String   @default("manual")  // manual | cron
-  destinations  String   @default("local")   // CSV: "local,r2,drive"
-  sizeBytes     Int?
-  downloadKey   String?  // s3Key en R2 si se subió allí
-  errorMessage  String?  @db.Text
+  id           String    @id @default(cuid())
+  workspaceId  String
+  startedAt    DateTime  @default(now())
+  completedAt  DateTime?
+  status       String    @default("RUNNING") // RUNNING | COMPLETED | FAILED
+  trigger      String    @default("manual") // manual | cron
+  destinations String    @default("local") // CSV: "local,r2,drive"
+  sizeBytes    Int?
+  downloadKey  String? // s3Key en R2 si se subió allí
+  errorMessage String?   @db.Text
 
   @@index([workspaceId, startedAt])
 }
 
 model VoiceBusiness {
-  id              String   @id @default(cuid())
-  workspaceId     String
-  slug            String   // identificador en /v/<slug>
-  name            String
-  location        String?
-  googleUrl       String?
-  trustpilotUrl   String?
-  introText       String?  @db.Text
-  disclaimer      String?  @db.Text
-  customPrompt    String?  @db.Text
-  maxSeconds      Int      @default(30)
-  aiProvider      String   @default("anthropic") // "anthropic" | "openai"
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id            String   @id @default(cuid())
+  workspaceId   String
+  slug          String // identificador en /v/<slug>
+  name          String
+  location      String?
+  googleUrl     String?
+  trustpilotUrl String?
+  introText     String?  @db.Text
+  disclaimer    String?  @db.Text
+  customPrompt  String?  @db.Text
+  maxSeconds    Int      @default(30)
+  aiProvider    String   @default("anthropic") // "anthropic" | "openai"
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
@@ -825,55 +886,55 @@ model VoiceBusiness {
 }
 
 model Task {
-  id          String       @id @default(cuid())
-  workspaceId String
-  projectId   String
-  clientId    String?
-  parentId    String?      // subtareas
-  title       String
-  description String?      @db.Text
-  status      String       @default("TODO")  // antes enum TaskStatus; ahora libre para soportar columnas custom del workspace
-  priority    TaskPriority @default(MEDIUM)
-  dueDate     DateTime?
+  id                String       @id @default(cuid())
+  workspaceId       String
+  projectId         String
+  clientId          String?
+  parentId          String? // subtareas
+  title             String
+  description       String?      @db.Text
+  status            String       @default("TODO") // antes enum TaskStatus; ahora libre para soportar columnas custom del workspace
+  priority          TaskPriority @default(MEDIUM)
+  dueDate           DateTime?
   // false = la tarea tiene hora concreta (la hora viene en dueDate).
   // true (default) = solo fecha, sin hora; en el calendario se renderiza
   // como evento de día completo. Mantenido true por defecto para que
   // las tareas existentes no cambien de comportamiento.
-  dueAllDay   Boolean   @default(true)
-  completedAt DateTime?
-  order       Int          @default(0)
-  asanaId     String?      @unique
+  dueAllDay         Boolean      @default(true)
+  completedAt       DateTime?
+  order             Int          @default(0)
+  asanaId           String?      @unique
   // URL pública del task en Asana (permalink_url de la API). Nos sirve
   // para que el equipo pueda ir al original durante la convivencia,
   // y para auditar la migración.
-  asanaPermalink String?
+  asanaPermalink    String?
   // Custom fields de Asana (priority, status custom, etc.) preservados
   // tal cual los devuelve la API. La estructura es la que Asana usa:
   // [{ gid, name, type, enum_value, text_value, number_value, ... }].
   // Lo guardamos para que el equipo pueda consultarlo desde la UI
   // aunque todavía no haya UI dedicada para cada custom field.
   asanaCustomFields Json?
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
   // Soft delete. Si != null, el registro está en la papelera. Las
   // queries de UI filtran por `deletedAt: null`. La purga definitiva
   // la hace el cron /api/cron/trash-purge cuando supera la
   // retención (30 días por defecto).
-  deletedAt   DateTime?
-  deletedById String?
+  deletedAt         DateTime?
+  deletedById       String?
 
-  workspace Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  project   Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  client    Client?        @relation(fields: [clientId], references: [id], onDelete: SetNull)
-  parent    Task?          @relation("Subtasks", fields: [parentId], references: [id], onDelete: Cascade)
-  subtasks  Task[]         @relation("Subtasks")
-  assignees TaskAssignee[]
-  tags      TaskTag[]
+  workspace      Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  project        Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  client         Client?        @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  parent         Task?          @relation("Subtasks", fields: [parentId], references: [id], onDelete: Cascade)
+  subtasks       Task[]         @relation("Subtasks")
+  assignees      TaskAssignee[]
+  tags           TaskTag[]
   // Proyectos EXTRA donde aparece la misma tarea. El proyecto principal
   // sigue siendo `projectId` (define la columna kanban canónica). Esta
   // tabla permite que la tarea aparezca también en los listados de
   // otros proyectos sin duplicar el registro.
-  extraProjects TaskProject[]
+  extraProjects  TaskProject[]
   // (Comment[] backref removido: la relación era polimórfica y
   // generaba FK constraints conflictivos contra Document. La query
   // de comentarios de una tarea se hace por targetType+targetId.)
@@ -924,16 +985,17 @@ enum TaskPriority {
 model TaskAssignee {
   taskId String
   userId String
-  task   Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  task   Task   @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   @@id([taskId, userId])
 }
 
 model Tag {
-  id          String   @id @default(cuid())
+  id          String    @id @default(cuid())
   workspaceId String
   name        String
-  color       String   @default("bg-slate-200")
+  color       String    @default("bg-slate-200")
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   tasks       TaskTag[]
 
@@ -943,8 +1005,9 @@ model Tag {
 model TaskTag {
   taskId String
   tagId  String
-  task   Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  tag    Tag  @relation(fields: [tagId], references: [id], onDelete: Cascade)
+  task   Task   @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  tag    Tag    @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
   @@id([taskId, tagId])
 }
 
@@ -953,19 +1016,19 @@ model TaskTag {
 // ====================================================================
 
 model Document {
-  id          String   @id @default(cuid())
+  id          String    @id @default(cuid())
   workspaceId String
-  parentId    String?  // permite subpáginas anidadas
-  title       String   @default("Sin título")
-  icon        String?  // emoji o nombre de icono Lucide
+  parentId    String? // permite subpáginas anidadas
+  title       String    @default("Sin título")
+  icon        String? // emoji o nombre de icono Lucide
   cover       String?
   category    String?
-  content     Json?    // contenido TipTap (ProseMirror doc); null si usa blocks
-  isTemplate  Boolean  @default(false)
-  archived    Boolean  @default(false)
+  content     Json? // contenido TipTap (ProseMirror doc); null si usa blocks
+  isTemplate  Boolean   @default(false)
+  archived    Boolean   @default(false)
   authorId    String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
   deletedAt   DateTime?
   deletedById String?
 
@@ -983,9 +1046,9 @@ model Document {
 model Block {
   id         String    @id @default(cuid())
   documentId String
-  parentId   String?   // bloques anidados (toggles, columnas)
+  parentId   String? // bloques anidados (toggles, columnas)
   type       BlockType
-  content    Json      // texto enriquecido + props del bloque
+  content    Json // texto enriquecido + props del bloque
   order      Int
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
@@ -1027,7 +1090,7 @@ enum BlockType {
 model Database {
   id          String   @id @default(cuid())
   workspaceId String
-  documentId  String?  // si es inline en un documento
+  documentId  String? // si es inline en un documento
   name        String
   icon        String?
   createdAt   DateTime @default(now())
@@ -1041,13 +1104,13 @@ model Database {
 }
 
 model DatabaseProperty {
-  id         String       @id @default(cuid())
+  id         String          @id @default(cuid())
   databaseId String
   name       String
   type       PropertyType
-  config     Json         // opciones según tipo (select options, formula, etc.)
-  order      Int          @default(0)
-  database   Database     @relation(fields: [databaseId], references: [id], onDelete: Cascade)
+  config     Json // opciones según tipo (select options, formula, etc.)
+  order      Int             @default(0)
+  database   Database        @relation(fields: [databaseId], references: [id], onDelete: Cascade)
   values     DatabaseValue[]
 
   @@unique([databaseId, name])
@@ -1073,23 +1136,23 @@ enum PropertyType {
 }
 
 model DatabaseRecord {
-  id         String          @id @default(cuid())
+  id         String   @id @default(cuid())
   databaseId String
-  title      String          @default("Sin título")
-  createdAt  DateTime        @default(now())
-  updatedAt  DateTime        @updatedAt
+  title      String   @default("Sin título")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
-  database   Database        @relation(fields: [databaseId], references: [id], onDelete: Cascade)
-  values     DatabaseValue[]
+  database Database        @relation(fields: [databaseId], references: [id], onDelete: Cascade)
+  values   DatabaseValue[]
 
   @@index([databaseId])
 }
 
 model DatabaseValue {
-  id         String   @id @default(cuid())
+  id         String           @id @default(cuid())
   recordId   String
   propertyId String
-  value      Json     // formato según PropertyType
+  value      Json // formato según PropertyType
   record     DatabaseRecord   @relation(fields: [recordId], references: [id], onDelete: Cascade)
   property   DatabaseProperty @relation(fields: [propertyId], references: [id], onDelete: Cascade)
 
@@ -1097,13 +1160,13 @@ model DatabaseValue {
 }
 
 model DatabaseView {
-  id         String       @id @default(cuid())
+  id         String   @id @default(cuid())
   databaseId String
   name       String
   type       ViewType
-  config     Json         // filtros, ordenación, agrupación, columnas visibles
-  order      Int          @default(0)
-  database   Database     @relation(fields: [databaseId], references: [id], onDelete: Cascade)
+  config     Json // filtros, ordenación, agrupación, columnas visibles
+  order      Int      @default(0)
+  database   Database @relation(fields: [databaseId], references: [id], onDelete: Cascade)
 }
 
 enum ViewType {
@@ -1120,7 +1183,7 @@ enum ViewType {
 // ====================================================================
 
 model Comment {
-  id          String      @id @default(cuid())
+  id          String        @id @default(cuid())
   workspaceId String
   authorId    String
   targetType  CommentTarget
@@ -1132,14 +1195,14 @@ model Comment {
   // TipTap completo en `bodyJson`. Las lecturas priorizan bodyJson
   // si existe. Lazy migration: al primer GET de un comentario
   // legacy se parsea body y se rellena bodyJson en background.
-  body        String      @db.Text
+  body        String        @db.Text
   bodyJson    Json?
   // GID de la "story" original de Asana cuando este comentario viene
   // de una importación. UNIQUE para idempotencia: si re-ejecutas
   // el import, los ya migrados se saltan en lugar de duplicarse.
-  asanaId     String?     @unique
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
+  asanaId     String?       @unique
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   author    User      @relation(fields: [authorId], references: [id], onDelete: Cascade)
@@ -1172,8 +1235,8 @@ model File {
   name        String
   mimeType    String
   sizeBytes   Int
-  s3Key       String   // ruta dentro del bucket
-  targetType  String?  // TASK | DOCUMENT | CLIENT | …
+  s3Key       String // ruta dentro del bucket
+  targetType  String? // TASK | DOCUMENT | CLIENT | …
   targetId    String?
   uploadedBy  String?
   // GID del attachment original de Asana cuando este archivo viene
@@ -1181,7 +1244,7 @@ model File {
   asanaId     String?  @unique
   createdAt   DateTime @default(now())
 
-  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspace    Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   deliverables Deliverable[]
 
   @@index([workspaceId])
@@ -1193,15 +1256,15 @@ model File {
 // ====================================================================
 
 model CalendarEvent {
-  id          String   @id @default(cuid())
-  workspaceId String
-  clientId    String?
-  title       String
-  description String?  @db.Text
-  startAt     DateTime
-  endAt       DateTime?
-  allDay      Boolean  @default(false)
-  type        EventType @default(MEETING)
+  id                String    @id @default(cuid())
+  workspaceId       String
+  clientId          String?
+  title             String
+  description       String?   @db.Text
+  startAt           DateTime
+  endAt             DateTime?
+  allDay            Boolean   @default(false)
+  type              EventType @default(MEETING)
   // Sincronización bidireccional con Google Calendar. Cuando un evento
   // nace en el Hub y se empuja a Google, guardamos su id remoto.
   // Cuando un evento viene de Google al sincronizar, también. El par
@@ -1212,8 +1275,8 @@ model CalendarEvent {
   googleCalendarId  String?
   googleOwnerUserId String?
   lastSyncedAt      DateTime?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   client    Client?   @relation(fields: [clientId], references: [id], onDelete: SetNull)
@@ -1235,17 +1298,17 @@ enum EventType {
 // ====================================================================
 
 model ApiKey {
-  id          String   @id @default(cuid())
+  id          String    @id @default(cuid())
   workspaceId String
-  userId      String?  // null si es key de servicio
+  userId      String? // null si es key de servicio
   name        String
-  prefix      String   @unique
-  hashed      String   // bcrypt
+  prefix      String    @unique
+  hashed      String // bcrypt
   scopes      String[] // ej: ["clients:read", "tasks:write"]
   lastUsedAt  DateTime?
   expiresAt   DateTime?
   revokedAt   DateTime?
-  createdAt   DateTime @default(now())
+  createdAt   DateTime  @default(now())
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   user      User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
@@ -1262,7 +1325,7 @@ model Webhook {
   active      Boolean  @default(true)
   createdAt   DateTime @default(now())
 
-  workspace Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspace  Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   deliveries WebhookDelivery[]
 }
 
@@ -1278,6 +1341,7 @@ model WebhookDelivery {
   createdAt  DateTime @default(now())
 
   webhook Webhook @relation(fields: [webhookId], references: [id], onDelete: Cascade)
+
   @@index([webhookId])
 }
 
@@ -1285,13 +1349,14 @@ model AuditLog {
   id          String   @id @default(cuid())
   workspaceId String
   actorId     String?
-  action      String   // ej: "task.created"
+  action      String // ej: "task.created"
   targetType  String?
   targetId    String?
   meta        Json?
   createdAt   DateTime @default(now())
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
   @@index([workspaceId])
   @@index([createdAt])
 }
@@ -1331,6 +1396,7 @@ model Notification {
   createdAt DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   @@index([userId, read])
 }
 
@@ -1347,56 +1413,56 @@ model Notification {
 // usan para no bloquear la respuesta HTTP cuando la operación tarda y el
 // proxy de Railway corta a los 30-60s.
 model BackgroundJob {
-  id          String    @id @default(cuid())
-  workspaceId String
-  userId      String?
-  kind        String    // editorial.generate_month | leads.search_batch | ...
-  status      String    @default("PENDING") // PENDING|RUNNING|COMPLETED|FAILED|CANCELLED
-  progressPct Int       @default(0) // 0-100
-  progressMsg String?   // mensaje legible "Generando publicación 3/14"
-  request     Json?     // params originales
-  result      Json?     // payload de éxito
+  id              String    @id @default(cuid())
+  workspaceId     String
+  userId          String?
+  kind            String // editorial.generate_month | leads.search_batch | ...
+  status          String    @default("PENDING") // PENDING|RUNNING|COMPLETED|FAILED|CANCELLED
+  progressPct     Int       @default(0) // 0-100
+  progressMsg     String? // mensaje legible "Generando publicación 3/14"
+  request         Json? // params originales
+  result          Json? // payload de éxito
   // Log de eventos del job para el toast expandible. Array de
   // { ts, level: "info"|"warn"|"error", message, durationMs? }.
-  events      Json?
+  events          Json?
   // Prompts enviados a Claude (system + user) — auditoría de "qué le
   // pedí exactamente al modelo". Sólo aplica a kinds de IA editorial.
-  systemPrompt String?  @db.Text
-  userPrompt   String?  @db.Text
+  systemPrompt    String?   @db.Text
+  userPrompt      String?   @db.Text
   // Bandera de cancelación cooperativa. El loop del job la mira entre
   // iteraciones y para limpiamente, conservando lo ya creado.
-  cancelRequested Boolean @default(false)
-  errorCode   String?
-  errorMessage String?  @db.Text
-  startedAt   DateTime?
-  completedAt DateTime?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  cancelRequested Boolean   @default(false)
+  errorCode       String?
+  errorMessage    String?   @db.Text
+  startedAt       DateTime?
+  completedAt     DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
   @@index([workspaceId, kind, status])
   @@index([workspaceId, createdAt])
 }
 
 model ErrorReport {
-  id              String    @id @default(cuid())
-  workspaceId     String?
-  userId          String?
-  source          String    // client | server | api
-  status          String    @default("REPORTED") // REPORTED | ACKNOWLEDGED | IN_PROGRESS | RESOLVED | DISMISSED
-  message         String    @db.Text
-  stack           String?   @db.Text
-  url             String?   // URL donde ocurrió
-  userAgent       String?
-  context         Json?     // info extra (params, body, etc.)
-  fingerprint     String?   // hash para agrupar errores parecidos
-  count           Int       @default(1) // veces que se ha repetido este fingerprint
-  githubIssueUrl  String?   // si se abrió issue automática
-  resolutionNote  String?   @db.Text
-  resolutionCommit String?  // SHA del commit que lo resolvió
-  acknowledgedAt  DateTime?
-  resolvedAt      DateTime?
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  id               String    @id @default(cuid())
+  workspaceId      String?
+  userId           String?
+  source           String // client | server | api
+  status           String    @default("REPORTED") // REPORTED | ACKNOWLEDGED | IN_PROGRESS | RESOLVED | DISMISSED
+  message          String    @db.Text
+  stack            String?   @db.Text
+  url              String? // URL donde ocurrió
+  userAgent        String?
+  context          Json? // info extra (params, body, etc.)
+  fingerprint      String? // hash para agrupar errores parecidos
+  count            Int       @default(1) // veces que se ha repetido este fingerprint
+  githubIssueUrl   String? // si se abrió issue automática
+  resolutionNote   String?   @db.Text
+  resolutionCommit String? // SHA del commit que lo resolvió
+  acknowledgedAt   DateTime?
+  resolvedAt       DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
   @@index([workspaceId, status])
   @@index([fingerprint])
@@ -1425,30 +1491,30 @@ model PushSubscription {
 // ====================================================================
 
 model AsanaConnection {
-  id           String   @id @default(cuid())
-  userId       String
+  id             String    @id @default(cuid())
+  userId         String
   // `accessToken` quedó como texto plano por una iteración temprana.
   // Lo mantenemos para no romper conexiones existentes, pero los
   // tokens nuevos se cifran en `accessTokenEnc` con encryptSecret().
   // El helper de lectura prefiere accessTokenEnc; si solo hay
   // accessToken, lo migra cifrándolo en el primer uso.
-  accessToken    String   @db.Text
-  accessTokenEnc String?  @db.Text
-  refreshToken   String?  @db.Text
+  accessToken    String    @db.Text
+  accessTokenEnc String?   @db.Text
+  refreshToken   String?   @db.Text
   expiresAt      DateTime?
   asanaUserId    String?
-  createdAt      DateTime @default(now())
+  createdAt      DateTime  @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model AsanaImport {
-  id          String   @id @default(cuid())
+  id          String    @id @default(cuid())
   workspaceId String
-  status      String   // PENDING | RUNNING | COMPLETED | FAILED
-  startedAt   DateTime @default(now())
+  status      String // PENDING | RUNNING | COMPLETED | FAILED
+  startedAt   DateTime  @default(now())
   finishedAt  DateTime?
-  stats       Json?    // { projects: 12, tasks: 340, attachments: 18, ... }
+  stats       Json? // { projects: 12, tasks: 340, attachments: 18, ... }
   errorMsg    String?
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
@@ -1462,16 +1528,16 @@ model AsanaImport {
 // (no por hora). Si la fecha ya pasó, queda lockedAt != null y no se
 // puede modificar/borrar — se considera registro histórico.
 model VacationDay {
-  id          String   @id @default(cuid())
+  id          String    @id @default(cuid())
   workspaceId String
   userId      String
-  date        DateTime @db.Date
+  date        DateTime  @db.Date
   note        String?
   // Marca cuándo se "selló" el registro porque la fecha ya pasó. Si es
   // null, todavía es modificable. La capa de aplicación lo rellena en
   // el primer acceso después de que la fecha haya pasado.
   lockedAt    DateTime?
-  createdAt   DateTime @default(now())
+  createdAt   DateTime  @default(now())
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -1512,7 +1578,6 @@ model TaskNotificationSent {
   @@index([sentAt])
 }
 
-
 // ====================================================================
 // DELIVERABLES — entregables genéricos para aprobación del cliente
 // ====================================================================
@@ -1527,21 +1592,21 @@ model TaskNotificationSent {
 // con `fileId` (nullable porque a veces se crea el slot antes de
 // adjuntar el archivo final).
 model Deliverable {
-  id            String   @id @default(cuid())
-  workspaceId   String
-  clientId      String
-  fileId        String?
-  title         String
-  description   String?  @db.Text
-  status        String   @default("PENDING") // PENDING|APPROVED|REJECTED
-  dueAt         DateTime?
-  createdById   String?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id          String    @id @default(cuid())
+  workspaceId String
+  clientId    String
+  fileId      String?
+  title       String
+  description String?   @db.Text
+  status      String    @default("PENDING") // PENDING|APPROVED|REJECTED
+  dueAt       DateTime?
+  createdById String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
-  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  client    Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  file      File?     @relation(fields: [fileId], references: [id], onDelete: SetNull)
+  workspace Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  client    Client                @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  file      File?                 @relation(fields: [fileId], references: [id], onDelete: SetNull)
   decisions DeliverableDecision[]
 
   @@index([workspaceId, status])
@@ -1551,7 +1616,7 @@ model Deliverable {
 model DeliverableDecision {
   id            String   @id @default(cuid())
   deliverableId String
-  decision      String   // "approved" | "rejected" | "comment"
+  decision      String // "approved" | "rejected" | "comment"
   comment       String?  @db.Text
   createdAt     DateTime @default(now())
 
@@ -1576,28 +1641,28 @@ model DeliverableDecision {
 // `calendarId` por ahora siempre = "primary" del usuario; en un
 // futuro se puede ampliar a múltiples calendarios por user.
 model GoogleCalendarConnection {
-  id                    String   @id @default(cuid())
-  userId                String
-  workspaceId           String
-  googleAccountEmail    String
-  calendarId            String   @default("primary")
+  id                 String    @id @default(cuid())
+  userId             String
+  workspaceId        String
+  googleAccountEmail String
+  calendarId         String    @default("primary")
   // Tokens cifrados con lib/ai/crypto.ts:encryptSecret
-  accessTokenEnc        String   @db.Text
-  refreshTokenEnc       String   @db.Text
-  expiresAt             DateTime
+  accessTokenEnc     String    @db.Text
+  refreshTokenEnc    String    @db.Text
+  expiresAt          DateTime
   // Cursor de sync incremental Google Calendar API
-  syncToken             String?  @db.Text
+  syncToken          String?   @db.Text
   // Direcciones permitidas: por defecto bidi. Si el user quiere
   // solo importar (sin que sus cambios pisen Google), pone pushEnabled=false.
-  pullEnabled           Boolean  @default(true)
-  pushEnabled           Boolean  @default(true)
-  lastSyncedAt          DateTime?
-  lastError             String?  @db.Text
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
+  pullEnabled        Boolean   @default(true)
+  pushEnabled        Boolean   @default(true)
+  lastSyncedAt       DateTime?
+  lastError          String?   @db.Text
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 
-  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user          User                         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace     Workspace                    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   watchChannels GoogleCalendarWatchChannel[]
 
   @@unique([userId, workspaceId])
@@ -1630,10 +1695,10 @@ model GoogleCalendarConnection {
 model SearchEmbedding {
   id          String   @id @default(cuid())
   workspaceId String
-  entityType  String   // "TASK" | "CLIENT" | "PROJECT" | "DOCUMENT" | "COMMENT"
+  entityType  String // "TASK" | "CLIENT" | "PROJECT" | "DOCUMENT" | "COMMENT"
   entityId    String
   text        String   @db.Text
-  embedding   Json     // number[] (1536 floats para text-embedding-3-small)
+  embedding   Json // number[] (1536 floats para text-embedding-3-small)
   model       String   @default("text-embedding-3-small")
   tokens      Int      @default(0)
   createdAt   DateTime @default(now())

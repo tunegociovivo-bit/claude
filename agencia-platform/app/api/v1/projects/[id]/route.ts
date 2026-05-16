@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { projectCreateSchema } from "@/lib/api/schemas";
+import { auditFromReq } from "@/lib/audit/log";
 
 export const GET = withApi({ scope: "projects:read" }, async (_req, { params, api }) => {
   const project = await prisma.project.findFirst({
@@ -31,16 +32,20 @@ export const PATCH = withApi({ scope: "projects:write" }, async (req, { params, 
 });
 
 /**
- * Borrado de proyecto. Requiere admin del workspace.
- * Acepta query string ?confirm=<id>: el cliente envía el propio id como
- * comprobación de seguridad de "doble consentimiento". Si no coincide,
- * se rechaza. La idea es que el cliente sea explícito y no haya borrados
- * accidentales por scripts.
+ * SOFT-delete de proyecto. Requiere admin del workspace. Doble
+ * confirmación: ?confirm=<id> debe coincidir + el frontend pide
+ * type-to-confirm (escribir el nombre exacto). El proyecto queda con
+ * deletedAt poblado y desaparece de las queries normales (todas
+ * filtran por deletedAt:null). Sus tareas no se tocan automáticamente
+ * — siguen pertenenciéndole pero también quedarán ocultas via la
+ * relación.
  *
- * Al borrar: por cascade se eliminan ProjectMember, Task (y sus subtareas,
- * comentarios, asignados). Los Files del workspace que apunten al proyecto
- * quedan sin target (no se cascadean) — los podemos limpiar después si hace
- * falta.
+ * Para recuperar: POST /api/v1/trash/project/[id].
+ * Para purga definitiva (cascade real): DELETE /api/v1/trash/project/[id]
+ * o el cron /api/cron/trash-purge que limpia >30 días.
+ *
+ * Para liberar las tareas a otro proyecto ANTES de borrar, el cliente
+ * llama primero a /api/v1/projects/[id]/move-tasks con el id destino.
  */
 const confirmSchema = z.object({
   confirmId: z.string().min(1),
@@ -57,7 +62,6 @@ export const DELETE = withApi({ scope: "projects:write" }, async (req, { params,
   }
 
   const url = new URL(req.url);
-  // Confirmación vía query OR body
   let confirmId = url.searchParams.get("confirm");
   if (!confirmId) {
     const body = await req.json().catch(() => ({}));
@@ -73,15 +77,27 @@ export const DELETE = withApi({ scope: "projects:write" }, async (req, { params,
   }
 
   const project = await prisma.project.findFirst({
-    where: { id: params.id, workspaceId: api.workspaceId },
-    include: { _count: { select: { tasks: true } } }
+    where: { id: params.id, workspaceId: api.workspaceId, deletedAt: null },
+    include: { _count: { select: { tasks: { where: { deletedAt: null } } } } }
   });
   if (!project) throw new ApiError(404, "not_found", "Proyecto no encontrado");
 
-  await prisma.project.delete({ where: { id: project.id } });
+  await prisma.project.update({
+    where: { id: project.id },
+    data: { deletedAt: new Date(), deletedById: api.userId }
+  });
+
+  auditFromReq(req, api, {
+    action: "project.soft_delete",
+    targetType: "PROJECT",
+    targetId: project.id,
+    before: { name: project.name, tasksCount: project._count.tasks },
+    meta: { recoverableFor: "30 days" }
+  });
 
   return NextResponse.json({
     ok: true,
-    deleted: { id: project.id, name: project.name, tasksDeleted: project._count.tasks }
+    deleted: { id: project.id, name: project.name, tasksSoftDeleted: project._count.tasks },
+    restoreUrl: `/admin/papelera`
   });
 });

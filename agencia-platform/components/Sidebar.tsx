@@ -419,6 +419,7 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}
       <DeleteProjectModal
         open={!!projectToDelete}
         project={projectToDelete}
+        allProjects={projects.map((p) => ({ id: p.id, name: p.name }))}
         onClose={() => setProjectToDelete(null)}
         onDeleted={() => {
           setProjectToDelete(null);
