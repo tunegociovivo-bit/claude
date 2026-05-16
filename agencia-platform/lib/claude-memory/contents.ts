@@ -168,6 +168,16 @@ export const GOTCHAS = `
 9. **El user prueba importaciones de Asana por partes**
    (1 proyecto, ver que va bien, repetir). No lanzar imports
    masivos hasta que él los pida.
+
+10. **SessionProvider de next-auth tiene que estar en el layout**.
+    Si en algún momento desaparece, cualquier componente que
+    use \`useSession()\` revienta con
+    "Cannot destructure property 'data' of useSession(...) as
+    it is undefined" — incluido TareasClient (ColumnHeader). Se
+    montó en components/Providers.tsx envolviendo
+    \`<AppChrome>\` en app/layout.tsx. Si añades providers
+    nuevos (theme, react-query…), ponerlos ahí dentro también.
+    Nunca quitar SessionProvider sin reemplazo.
 `.trim();
 
 /**
@@ -296,6 +306,28 @@ export const SPRINTS = [
       "comentar. CRITICAL: next.config.js webpack.externals con " +
       "@napi-rs/canvas/sharp/resvg porque " +
       "serverComponentsExternalPackages no cubre Route Handlers."
+  },
+  {
+    range: "e7bf9b7",
+    title: "Sección /admin/memoria-claude",
+    summary:
+      "Documento estable en lib/claude-memory/contents.ts " +
+      "(overview, arquitectura, gotchas, sprints, pendientes). " +
+      "Notas custom editables en workspace.settings.claudeMemory. " +
+      "UI con copy/download para pegar a Claude si pierde contexto."
+  },
+  {
+    range: "e1d203f → b1bfbfb",
+    title: "Build fix loop + restaurar SessionProvider",
+    summary:
+      "Cascada de fixes hasta que Railway aceptó el deploy: " +
+      "package-lock sync (npm install local), webpack externals " +
+      "como función async, ApiError con message obligatorio, " +
+      "AdminCard tipo explícito, textForComment unknown, " +
+      "deletedById en Client. Tras `npx tsc --noEmit` limpio. " +
+      "Bug aparte: SessionProvider había desaparecido del layout; " +
+      "user lo restauró creando components/Providers.tsx. /tareas " +
+      "volvió a cargar."
   }
 ] as const;
 
