@@ -297,7 +297,8 @@ async function runImport(jobId: string, opts: ImportOptions) {
       projectLocalId: string,
       currentProjectGid: string,
       sectionGid?: string | null,
-      parentGid?: string
+      parentGid?: string,
+      orderInColumn?: number
     ) {
       // El status de la tarea es el ID de la columna del proyecto que
       // se corresponde con la sección de Asana. Así la tarea cae en
@@ -330,7 +331,12 @@ async function runImport(jobId: string, opts: ImportOptions) {
             completedAt: t.completed_at ? new Date(t.completed_at) : null,
             parentId: parentLocal ?? null,
             asanaPermalink: t.permalink_url ?? null,
-            asanaCustomFields: (t.custom_fields ?? null) as any
+            asanaCustomFields: (t.custom_fields ?? null) as any,
+            // Solo sobrescribimos `order` si el caller lo proporciona
+            // (los re-imports preservan el orden de Asana). Si el user
+            // luego reordena manualmente con drag&drop, ese order se
+            // actualiza y prevalece hasta el siguiente import.
+            ...(typeof orderInColumn === "number" ? { order: orderInColumn } : {})
           } as any
         });
       } else {
@@ -347,7 +353,8 @@ async function runImport(jobId: string, opts: ImportOptions) {
             completedAt: t.completed_at ? new Date(t.completed_at) : null,
             asanaId: t.gid,
             asanaPermalink: t.permalink_url ?? null,
-            asanaCustomFields: (t.custom_fields ?? null) as any
+            asanaCustomFields: (t.custom_fields ?? null) as any,
+            order: orderInColumn ?? 0
           } as any
         });
       }
@@ -478,15 +485,29 @@ async function runImport(jobId: string, opts: ImportOptions) {
     }
 
     for (const [projectGid, info] of projectByGid) {
+      // Asana devuelve las tareas en el orden que tienen en el
+      // proyecto (top-to-bottom como las ve el user). Asignamos
+      // `order` incremental por columna para preservar ese orden,
+      // si no todas quedan con order=0 y el tie-break por createdAt
+      // las invierte. El order es POR COLUMNA: cada sección tiene su
+      // propia secuencia.
+      const orderPerColumn = new Map<string, number>();
       for await (const t of client.projectTasks(projectGid)) {
         const sectionGid = t.memberships?.find((m) => m.project.gid === projectGid)?.section?.gid ?? null;
-        await upsertTask(t, info.localId, projectGid, sectionGid);
+        const sectionInfo = sectionGid ? info.sections.get(sectionGid) : null;
+        const colKey = sectionInfo?.columnId ?? "__nocol__";
+        const nextOrder = orderPerColumn.get(colKey) ?? 0;
+        orderPerColumn.set(colKey, nextOrder + 1);
+        await upsertTask(t, info.localId, projectGid, sectionGid, undefined, nextOrder);
         stats.tasks++;
 
         // Subtareas — heredan el proyecto principal del padre y su
         // sección (las subtareas en Asana no tienen sección propia).
+        // El order de las subtareas también se incrementa secuencial.
+        let subOrder = 0;
         for await (const sub of client.taskSubtasks(t.gid)) {
-          await upsertTask(sub, info.localId, projectGid, sectionGid, t.gid);
+          await upsertTask(sub, info.localId, projectGid, sectionGid, t.gid, subOrder);
+          subOrder++;
           stats.subtasks++;
         }
       }
