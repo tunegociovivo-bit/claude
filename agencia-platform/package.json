@@ -13,7 +13,10 @@
     "db:seed": "tsx scripts/seed.ts",
     "db:bootstrap": "tsx scripts/bootstrap.ts",
     "db:reset": "prisma migrate reset --force",
-    "openapi": "tsx scripts/build-openapi.ts"
+    "openapi": "tsx scripts/build-openapi.ts",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:install": "playwright install --with-deps chromium"
   },
   "prisma": {
     "seed": "tsx scripts/seed.ts"
@@ -53,6 +56,7 @@
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@playwright/test": "^1.50.0",
     "@types/bcryptjs": "^2.4.6",
     "@types/node": "^20",
     "@types/react": "^18",
