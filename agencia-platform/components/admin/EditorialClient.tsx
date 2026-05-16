@@ -2006,6 +2006,8 @@ function PostFormModal({
   const [aiImageInclude, setAiImageInclude] = useState("");
   const [aiImageAvoid, setAiImageAvoid] = useState("");
   const [aiImageQuality, setAiImageQuality] = useState<"low" | "medium" | "high">("medium");
+  const [aiForcedRoster, setAiForcedRoster] = useState<string[]>([]);
+  const [aiRosterOptions, setAiRosterOptions] = useState<string[]>([]);
   const [aiRunning, setAiRunning] = useState(false);
 
   // Cuando abrimos el modal para editar, refrescamos detalle desde el servidor
@@ -2098,19 +2100,34 @@ function PostFormModal({
   }
 
   // Cuando estamos creando y el cliente cambia, cargamos sus
-  // editorialDefaults para precargar los sliders del panel IA y las
-  // redes (los manuales sólo si están vacíos).
+  // editorialDefaults + roster (referenceImages) para precargar el
+  // panel IA. Las redes manuales sólo si están vacías.
   useEffect(() => {
     if (!open || isEdit || !form.clientId) return;
     let aborted = false;
     fetch(`/api/v1/clients/${form.clientId}/editorial-meta`)
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
-        if (aborted || !data?.editorialDefaults) return;
-        const p = data.editorialDefaults;
+        if (aborted) return;
+        // Roster del cliente
+        const refs: any[] = Array.isArray(data?.referenceImages) ? data.referenceImages : [];
+        const names = Array.from(
+          new Set(
+            refs
+              .map((r) => (r?.personName ?? "").toString().trim())
+              .filter((n: string) => n.length > 0)
+          )
+        );
+        setAiRosterOptions(names);
+        // Preset
+        const p = data?.editorialDefaults;
+        if (!p) return;
         if (typeof p.copyLength === "number") setAiCopyLength(Math.max(0, Math.min(100, p.copyLength)));
         if (typeof p.perNetworkCopy === "boolean") setAiPerNetworkCopy(p.perNetworkCopy);
         if (typeof p.extraGuidance === "string") setAiExtraGuidance(p.extraGuidance);
+        if (typeof p.imageIncludeHint === "string") setAiImageInclude(p.imageIncludeHint);
+        if (typeof p.imageAvoidHint === "string") setAiImageAvoid(p.imageAvoidHint);
+        if (Array.isArray(p.forcedRoster)) setAiForcedRoster(p.forcedRoster.filter((n: any) => typeof n === "string"));
         if (p.imageQuality === "low" || p.imageQuality === "medium" || p.imageQuality === "high") {
           setAiImageQuality(p.imageQuality);
         }
@@ -2164,6 +2181,7 @@ function PostFormModal({
           extraGuidance: aiExtraGuidance || undefined,
           imageIncludeHint: aiImageInclude || undefined,
           imageAvoidHint: aiImageAvoid || undefined,
+          useRosterPersons: aiForcedRoster.length > 0 ? aiForcedRoster : undefined,
           status: form.status === "REVIEW" ? "REVIEW" : "DRAFT",
           imageQuality: aiImageQuality
         })
@@ -2604,6 +2622,41 @@ function PostFormModal({
                 className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
               />
             </div>
+
+            {aiRosterOptions.length > 0 && (
+              <div>
+                <label className="block text-[11px] font-medium text-slate-700 mb-1">
+                  Personas del roster forzadas <span className="text-slate-500">· deben salir en la imagen</span>
+                </label>
+                <div className="flex flex-wrap gap-1">
+                  {aiRosterOptions.map((name) => {
+                    const sel = aiForcedRoster.includes(name);
+                    return (
+                      <button
+                        key={name}
+                        type="button"
+                        onClick={() =>
+                          setAiForcedRoster((prev) =>
+                            prev.includes(name) ? prev.filter((x) => x !== name) : [...prev, name]
+                          )
+                        }
+                        className={
+                          "px-2 py-1 rounded-md text-[11px] transition border " +
+                          (sel
+                            ? "bg-violet-50 border-violet-300 text-violet-700 font-medium"
+                            : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50")
+                        }
+                      >
+                        {sel ? "✓ " : ""}{name}
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="mt-1 text-[10px] text-slate-500">
+                  Si no marcas nadie, Claude detecta a quién meter por mención en el copy (incluye "equipo" → todo el roster).
+                </p>
+              </div>
+            )}
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div>
