@@ -180,38 +180,68 @@ export async function generateImageForPost(opts: GenerateImageOptions): Promise<
       ? "freepik"
       : "openai";
 
-  // Detectar personas del roster mencionadas en este post para pasar
-  // sus fotos como reference_images a gpt-image-2 vía /v1/images/edits.
-  // Esto es lo que hacía el plugin original y por lo que las caras
-  // salían como personas reales y no genéricas.
+  // Detectar personas del roster que deben aparecer en la imagen.
+  // Reglas (en orden de prioridad):
+  //   1) Si el usuario fuerza una lista explícita (forceRosterPersons,
+  //      desde el modal), se usa esa lista tal cual.
+  //   2) Si el copy menciona un nombre concreto del roster → esa persona.
+  //   3) Si el copy menciona "equipo", "team", "nuestro equipo", etc.
+  //      → incluimos a TODAS las personas del roster cuyo type = "equipo".
+  //      Esto cubre el caso "Rochar y su equipo" donde sólo Rochar
+  //      matchea por nombre pero queremos también a Ana, Dra Angie, etc.
+  //   4) Si el copy menciona persona destacada + colectivo → añadimos
+  //      la persona destacada Y todo el equipo.
   const refs: any[] = Array.isArray(client?.referenceImages) ? client.referenceImages : [];
-  const peopleRefs = new Map<string, string[]>(); // personName → urls
+  // Indexamos por nombre con metadata de type (necesario para el matching
+  // por colectivos).
+  type PersonInfo = { name: string; type: string; urls: string[] };
+  const peopleByName = new Map<string, PersonInfo>();
   for (const r of refs) {
     const name = (r?.personName ?? "").toString().trim();
     const url = typeof r?.url === "string" ? r.url : null;
+    const type = (r?.type ?? "general").toString();
     if (!name || !url) continue;
-    if (!peopleRefs.has(name)) peopleRefs.set(name, []);
-    peopleRefs.get(name)!.push(url);
+    if (!peopleByName.has(name)) peopleByName.set(name, { name, type, urls: [] });
+    peopleByName.get(name)!.urls.push(url);
   }
+
   const haystack = `${post.title} ${post.content ?? ""}`.toLowerCase();
-  const referenceUrls: string[] = [];
-  // Si el usuario fuerza personas explícitamente (en el modal de mes /
-  // single), las usamos sí o sí. Si no, caemos al auto-detect por
-  // mención del nombre en el copy (comportamiento legacy).
+  const collectiveRegex = /\b(equipo|team|nuestro equipo|su equipo|todo el equipo|todos|nosotras|nosotros|profesionales|doctoras|doctores|nurses|enfermeras|enfermeros)\b/;
+  const mentionsCollective = collectiveRegex.test(haystack);
+
+  // Conjunto final de personas a incluir.
+  const includedNames = new Set<string>();
   const forced = (opts.forceRosterPersons ?? []).map((n) => n.toLowerCase().trim()).filter(Boolean);
-  for (const [name, urls] of peopleRefs.entries()) {
-    const matches = forced.length > 0
-      ? forced.includes(name.toLowerCase())
-      : haystack.includes(name.toLowerCase());
-    if (matches) {
-      // Máximo 2 fotos por persona, total 4. Más refs hace que
-      // OpenAI gpt-image-2 tarde MUCHÍSIMO (5+ min) y alucine
-      // composiciones de varios cuerpos. Para una sola persona,
-      // 2 fotos angle-frontal/perfil son suficientes para fijar
-      // identidad.
-      for (const u of urls.slice(0, 2)) {
-        if (referenceUrls.length < 4) referenceUrls.push(u);
+  if (forced.length > 0) {
+    // Modo "lista forzada" desde el modal: sólo estas personas.
+    for (const p of peopleByName.values()) {
+      if (forced.includes(p.name.toLowerCase())) includedNames.add(p.name);
+    }
+  } else {
+    // Modo auto-detect.
+    for (const p of peopleByName.values()) {
+      if (haystack.includes(p.name.toLowerCase())) {
+        includedNames.add(p.name);
       }
+    }
+    // Si el copy habla del "equipo", añadimos a TODOS los de type=equipo.
+    if (mentionsCollective) {
+      for (const p of peopleByName.values()) {
+        if (p.type === "equipo") includedNames.add(p.name);
+      }
+    }
+  }
+
+  // Construir referenceUrls. Máximo 2 fotos por persona. Limite global
+  // sube a 8 si hay >2 personas (gpt-image-2 los maneja, sólo se vuelve
+  // lento si pasamos de ~10).
+  const totalLimit = includedNames.size >= 3 ? 8 : 4;
+  const referenceUrls: string[] = [];
+  for (const name of includedNames) {
+    const info = peopleByName.get(name);
+    if (!info) continue;
+    for (const u of info.urls.slice(0, 2)) {
+      if (referenceUrls.length < totalLimit) referenceUrls.push(u);
     }
   }
 
