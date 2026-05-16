@@ -45,6 +45,27 @@ export default function MeetingRecorder({
   const [elapsed, setElapsed] = useState(0);
   const [blob, setBlob] = useState<Blob | null>(null);
   const [actionItems, setActionItems] = useState<{ title: string; assignee?: string; due?: string }[]>([]);
+  const [creatingSubtasks, setCreatingSubtasks] = useState(false);
+  const [subtasksCreated, setSubtasksCreated] = useState<number>(0);
+
+  async function createSubtasks() {
+    if (actionItems.length === 0) return;
+    setCreatingSubtasks(true);
+    try {
+      const r = await fetch(`/api/v1/tasks/${taskId}/subtasks/bulk`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ items: actionItems })
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const data = await r.json();
+      setSubtasksCreated(data.items?.length ?? 0);
+    } catch (e: any) {
+      setError(`No se pudieron crear las subtareas: ${e?.message ?? e}`);
+    } finally {
+      setCreatingSubtasks(false);
+    }
+  }
 
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<BlobPart[]>([]);
@@ -279,12 +300,32 @@ export default function MeetingRecorder({
               </div>
               {actionItems.length > 0 && (
                 <div className="text-xs text-slate-600 mt-3 text-left">
-                  Acciones detectadas:
-                  <ul className="list-disc ml-5 mt-1 space-y-0.5">
+                  <div className="font-medium text-slate-700 mb-1">
+                    Acciones detectadas ({actionItems.length}):
+                  </div>
+                  <ul className="list-disc ml-5 space-y-0.5">
                     {actionItems.map((a, i) => (
-                      <li key={i}>{a.title}{a.assignee ? ` — ${a.assignee}` : ""}{a.due ? ` (${a.due})` : ""}</li>
+                      <li key={i}>
+                        {a.title}
+                        {a.assignee ? ` — ${a.assignee}` : ""}
+                        {a.due ? ` (${a.due})` : ""}
+                      </li>
                     ))}
                   </ul>
+                  <button
+                    onClick={createSubtasks}
+                    disabled={creatingSubtasks}
+                    className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-brand-600 hover:bg-brand-700 text-white text-xs font-medium disabled:opacity-50"
+                  >
+                    {creatingSubtasks ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Sparkles className="h-3.5 w-3.5" />
+                    )}
+                    {subtasksCreated
+                      ? `✓ ${subtasksCreated} subtarea${subtasksCreated === 1 ? "" : "s"} creadas`
+                      : `Crear ${actionItems.length} subtarea${actionItems.length === 1 ? "" : "s"}`}
+                  </button>
                 </div>
               )}
               <button

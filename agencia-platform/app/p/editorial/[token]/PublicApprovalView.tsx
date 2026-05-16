@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Loader2, CheckCircle2, XCircle, MessageSquare, Send } from "lucide-react";
+import PostThread from "./PostThread";
 
 type Decision = { id: string; decision: string; comment: string | null; createdAt: string };
 type Post = {
@@ -323,6 +324,8 @@ function PostCard({
               Comentar
             </button>
           </div>
+
+          <PostThread token={token} postId={post.id} accent={accent} />
 
           {showComment && (
             <div className="flex gap-2 items-start pt-1">

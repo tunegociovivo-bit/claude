@@ -40,6 +40,7 @@ model User {
   externalCalendars UserExternalCalendar[]
   vacationDays      VacationDay[]
   teamMessages      TeamMessage[]
+  editorialMessages EditorialPostMessage[]
 }
 
 // Calendarios externos del usuario (Google Calendar, Outlook, iCloud,
@@ -405,10 +406,35 @@ model EditorialPost {
   workspace Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   client    Client?            @relation(fields: [clientId], references: [id], onDelete: SetNull)
   revisions EditorialRevision[]
+  messages  EditorialPostMessage[]
 
   @@index([workspaceId, status])
   @@index([clientId])
   @@index([scheduledFor])
+}
+
+// Mensajes de hilo en una pieza editorial. Permiten conversación
+// inline entre cliente y equipo dentro del panel de aprobación.
+// `authorType` distingue al cliente (sin login) del equipo (con
+// User). Para el cliente, `authorId` es null y guardamos su nombre
+// si lo proporciona el link público (típicamente lo dejamos en
+// blanco y mostramos el nombre del cliente). Para el equipo,
+// `authorId` apunta al User humano y `authorType="TEAM"`.
+model EditorialPostMessage {
+  id          String   @id @default(cuid())
+  postId      String
+  authorType  String   // "CLIENT" | "TEAM"
+  authorId    String?  // null para el cliente, User.id para el equipo
+  authorName  String?  // fallback visible si authorId es null
+  body        String   @db.Text
+  // En el futuro: attachments, mentions a nivel de mensaje, etc.
+  createdAt   DateTime @default(now())
+
+  post   EditorialPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  author User?         @relation(fields: [authorId], references: [id], onDelete: SetNull)
+
+  @@index([postId, createdAt])
+  @@index([authorId])
 }
 
 model EditorialRevision {

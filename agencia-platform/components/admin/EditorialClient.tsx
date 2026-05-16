@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import PageHeader from "@/components/PageHeader";
 import Modal from "@/components/ui/Modal";
 import EditorialJobsToast from "@/components/admin/EditorialJobsToast";
+import AdminPostThread from "@/components/editorial/AdminPostThread";
 import {
   Plus,
   Loader2,
@@ -2817,6 +2818,11 @@ function PostFormModal({
             onAdapted={() => onSaved()}
           />
         )}
+
+        {/* Hilo con el cliente — mensajes intercambiados desde el panel
+            público de aprobación. Solo se muestra si la pieza ya está
+            persistida (post.id existe). */}
+        {isEdit && post && <AdminPostThread postId={post.id} />}
 
         {/* Historial de revisiones (incluye acciones IA aplicadas) */}
         {isEdit && fullPost?.revisions && fullPost.revisions.length > 0 && (
