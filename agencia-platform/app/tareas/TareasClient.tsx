@@ -176,7 +176,17 @@ export default function TareasClient({
     return tasks.filter((t) => {
       if (filters.project !== "all" && t.projectId !== filters.project) return false;
       if (filters.client !== "all" && t.clientId !== filters.client) return false;
-      if (filters.priority !== "all" && String(t.priority) !== filters.priority) return false;
+      if (filters.priority !== "all") {
+        // "normal" agrupa todo lo que no sea alta ni urgencia (media,
+        // baja, "" o cualquier legacy). Para urgencia / alta exactos
+        // hacemos comparación directa.
+        const isAltaUrgencia = t.priority === "alta" || t.priority === "urgencia";
+        if (filters.priority === "normal") {
+          if (isAltaUrgencia) return false;
+        } else if (String(t.priority) !== filters.priority) {
+          return false;
+        }
+      }
       if (filters.status !== "all" && String(t.status) !== filters.status) return false;
       if (filters.assignee === "me") {
         if (!myUserId || !t.assigneeIds?.includes(myUserId)) return false;
@@ -445,8 +455,7 @@ export default function TareasClient({
           <option value="all">Prioridad…</option>
           <option value="urgencia">🚨 Urgencia</option>
           <option value="alta">Alta</option>
-          <option value="media">Media</option>
-          <option value="baja">Baja</option>
+          <option value="normal">Normal (sin prioridad)</option>
         </select>
         <select
           value={filters.due}
@@ -593,9 +602,14 @@ export default function TareasClient({
                       </span>
                     </td>
                     <td className="px-3 py-3 hidden lg:table-cell">
-                      <span className={`text-xs px-2 py-1 rounded ${priorityColors[t.priority] ?? "bg-slate-100 text-slate-600"}`}>
-                        {priorityLabels[t.priority] ?? t.priority ?? "—"}
-                      </span>
+                      {/* Solo mostramos pill si la prioridad es ALTA o
+                          URGENCIA; las demás (media/baja "normales")
+                          se dejan vacías para no añadir ruido. */}
+                      {(t.priority === "alta" || t.priority === "urgencia") && (
+                        <span className={`text-xs px-2 py-1 rounded ${priorityColors[t.priority]}`}>
+                          {priorityLabels[t.priority]}
+                        </span>
+                      )}
                     </td>
                     <td className="px-3 py-3 hidden sm:table-cell">
                       <AvatarStack ids={t.assigneeIds} size={6} members={team} />
@@ -864,7 +878,11 @@ function KanbanColumnView({
   const taskIds = tasks.map((t) => t.id);
 
   return (
-    <div ref={setNodeRef} style={style} className="group bg-slate-100/60 rounded-xl p-3 min-h-[400px] flex-1 flex flex-col">
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={`group rounded-xl p-3 min-h-[400px] flex-1 flex flex-col ${softBgFromColor(column.color)}`}
+    >
       <div className="flex items-center justify-between mb-3 px-1">
         <div className="flex items-center gap-2 min-w-0">
           <button
@@ -1058,9 +1076,11 @@ function TaskCard({
       )}
       <div className="flex items-start justify-between gap-2 mb-2 pr-8">
         <p className="text-sm font-medium leading-snug">{task.title}</p>
-        <span className={`shrink-0 text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded ${priorityColors[task.priority] ?? "bg-slate-100 text-slate-600"}`}>
-          {priorityLabels[task.priority] ?? task.priority ?? "—"}
-        </span>
+        {(task.priority === "alta" || task.priority === "urgencia") && (
+          <span className={`shrink-0 text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded ${priorityColors[task.priority]}`}>
+            {priorityLabels[task.priority]}
+          </span>
+        )}
       </div>
       <div className="flex items-center gap-2 text-xs text-slate-500 mb-3">
         <span className={`inline-block h-2 w-2 rounded-full ${project?.color ?? "bg-slate-300"}`} />
@@ -1239,4 +1259,34 @@ function ColumnHeader({
       )}
     </div>
   );
+}
+
+/**
+ * Dado el `color` (clase de header de columna), devuelve el fondo
+ * suave para todo el wrapper de la columna. Lista cerrada porque
+ * Tailwind necesita clases estáticas para purgar; los valores son
+ * los que ofrecen los presets en COLUMN_COLOR_PRESETS.
+ *
+ * Para tonos pastel devolvemos el bg-X-50; para tonos intensos
+ * (rosa, naranja, esmeralda, negro), un tono medio del mismo color
+ * para que la columna entera respire el mismo aire que la cabecera
+ * sin saturar.
+ */
+function softBgFromColor(color: string): string {
+  const m: Record<string, string> = {
+    "bg-slate-100 text-slate-700 border-slate-200": "bg-slate-100/60",
+    "bg-sky-100 text-sky-800 border-sky-300": "bg-sky-50",
+    "bg-indigo-50 text-indigo-700 border-indigo-200": "bg-indigo-50/60",
+    "bg-amber-100 text-amber-800 border-amber-300": "bg-amber-50",
+    "bg-emerald-100 text-emerald-800 border-emerald-300": "bg-emerald-50",
+    "bg-rose-100 text-rose-800 border-rose-300": "bg-rose-50",
+    "bg-violet-100 text-violet-800 border-violet-300": "bg-violet-50",
+    // Tonos intensos: usamos un tone-100 más vibrante en el wrapper
+    // para que se note que es una columna "fuerte" pero no sature.
+    "bg-rose-600 text-white border-rose-700": "bg-rose-100",
+    "bg-orange-500 text-white border-orange-700": "bg-orange-100",
+    "bg-emerald-600 text-white border-emerald-700": "bg-emerald-100",
+    "bg-slate-900 text-white border-slate-900": "bg-slate-200"
+  };
+  return m[color] ?? "bg-slate-100/60";
 }

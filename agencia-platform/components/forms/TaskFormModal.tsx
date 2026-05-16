@@ -12,15 +12,19 @@ import type { MentionCandidate } from "@/components/forms/mentionSuggestion";
 import type { UiProject, UiMember, UiTask } from "@/lib/db/queries";
 import { Loader2, Trash2, MessageSquare, X, CheckSquare, Check, ArrowLeft, ExternalLink, Mic } from "lucide-react";
 
-type Priority = "urgencia" | "alta";
+// Tres estados de prioridad: vacío (normal, default), Alta y URGENCIA.
+// El campo `priority` puede ser undefined cuando el user no marca nada,
+// y eso se mapea a MEDIUM en la BD (la prioridad neutra).
+type Priority = "urgencia" | "alta" | "";
 type KanbanColumn = { id: string; label: string; color: string; order: number; isDone?: boolean };
 
 const priorityOptions: { value: Priority; label: string }[] = [
-  { value: "urgencia", label: "🚨 URGENCIA" },
-  { value: "alta", label: "Alta" }
+  { value: "", label: "Normal (sin prioridad)" },
+  { value: "alta", label: "Alta" },
+  { value: "urgencia", label: "🚨 URGENCIA" }
 ];
 
-const priorityToApi: Record<Priority, string> = {
+const priorityToApi: Record<Exclude<Priority, "">, string> = {
   urgencia: "URGENT",
   alta: "HIGH"
 };
@@ -64,7 +68,7 @@ export default function TaskFormModal({
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState<any>(null);
   const [status, setStatus] = useState<string>("TODO");
-  const [priority, setPriority] = useState<Priority>("alta");
+  const [priority, setPriority] = useState<Priority>(""); // default = normal (sin prioridad)
   // Multi-proyecto: la tarea puede estar en N proyectos. El primero del
   // array es el "principal" (define la columna kanban). projectIds[0]
   // siempre corresponde al projectId del schema.
@@ -113,7 +117,10 @@ export default function TaskFormModal({
         projectId,
         projectIds,
         status,
-        priority: priorityToApi[priority],
+        // Si el user no marcó nada, mandamos MEDIUM (la prioridad
+        // neutra de Prisma). Solo se envían HIGH/URGENT cuando hay
+        // selección explícita.
+        priority: priority ? priorityToApi[priority] : "MEDIUM",
         assigneeIds,
         notifyDueRules
       };
@@ -154,9 +161,16 @@ export default function TaskFormModal({
     if (currentTask) {
       setTitle(currentTask.title);
       setStatus(String(currentTask.status));
-      // currentTask.priority viene del backend mapeado a "alta" o
-      // "urgencia"; si por compat llegó algo legacy lo normalizamos.
-      setPriority((currentTask.priority === "urgencia" ? "urgencia" : "alta") as Priority);
+      // currentTask.priority puede ser "urgencia", "alta" o cualquier
+      // otra cosa (media/baja legacy). Solo distinguimos los tres
+      // estados de UI: vacío (normal), Alta, URGENCIA.
+      setPriority(
+        currentTask.priority === "urgencia"
+          ? "urgencia"
+          : currentTask.priority === "alta"
+            ? "alta"
+            : ("" as Priority)
+      );
       setProjectIds(
         Array.isArray((currentTask as any).projectIds) && (currentTask as any).projectIds.length > 0
           ? (currentTask as any).projectIds
@@ -191,7 +205,7 @@ export default function TaskFormModal({
       setTitle("");
       setDescription(null);
       setStatus(defaultStatus ?? columns?.[0]?.id ?? "TODO");
-      setPriority("alta");
+      setPriority(""); // sin prioridad por defecto al crear nueva
       setProjectIds([defaultProjectId ?? projects[0]?.id ?? ""].filter(Boolean) as string[]);
       setAssigneeIds([]);
       setDueDate("");
@@ -358,7 +372,9 @@ export default function TaskFormModal({
       projectId: data.projectId,
       clientId: data.clientId ?? undefined,
       dueDate: data.dueDate ? new Date(data.dueDate).toISOString().slice(0, 10) : "",
-      priority: data.priority === "LOW" ? "baja" : data.priority === "HIGH" || data.priority === "URGENT" ? "alta" : "media",
+      // Mapeo BD → UI: solo distinguimos URGENT y HIGH; el resto
+      // (MEDIUM, LOW) se trata como "normal" (sin prioridad visible).
+      priority: data.priority === "URGENT" ? "urgencia" : data.priority === "HIGH" ? "alta" : "media",
       tags: (data.tags ?? []).map((t: any) => t.tag?.name ?? "").filter(Boolean),
       _parentId: data.parentId ?? null
     };
