@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db/prisma";
+import { resignPostMedia } from "@/lib/storage/resign";
 import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 
@@ -34,7 +35,10 @@ export const GET = withApi({ scope: "*" }, async (_req, { params, api }) => {
     }
   });
   if (!post) throw new ApiError(404, "not_found", "Publicación no encontrada");
-  return NextResponse.json(post);
+  // Re-firma URLs caducadas (R2 expira a 1h). Las URLs persistidas
+  // en thumbnail/mediaUrls se refrescan al vuelo.
+  const fresh = await resignPostMedia(post);
+  return NextResponse.json(fresh);
 });
 
 export const PATCH = withApi({ scope: "*" }, async (req, { params, api }) => {

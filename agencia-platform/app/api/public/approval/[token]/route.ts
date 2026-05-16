@@ -8,6 +8,7 @@
 
 import { NextResponse, type NextRequest } from "next/server";
 import { prisma } from "@/lib/db/prisma";
+import { resignPostMedia } from "@/lib/storage/resign";
 
 export const dynamic = "force-dynamic";
 
@@ -74,11 +75,18 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
   }
 
   const wsSettings: any = workspace?.settings ?? {};
+  // Re-firma URLs caducadas antes de mandar al cliente público.
+  const postsFresh = await Promise.all(
+    posts.map(async (p) => ({
+      ...(await resignPostMedia(p)),
+      decisions: decisionsByPost[p.id] ?? []
+    }))
+  );
   return NextResponse.json({
     workspace: { name: workspace?.name ?? "", logoUrl: wsSettings?.branding?.logoUrl ?? null },
     client,
     month: link.month,
     expiresAt: link.expiresAt,
-    posts: posts.map((p) => ({ ...p, decisions: decisionsByPost[p.id] ?? [] }))
+    posts: postsFresh
   });
 }

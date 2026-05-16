@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
+import { resignPostMedia } from "@/lib/storage/resign";
 
 const STATUSES = ["DRAFT", "REVIEW", "APPROVED", "SCHEDULED", "PUBLISHED", "ARCHIVED"] as const;
 
@@ -44,7 +45,10 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
     orderBy: { scheduledFor: "asc" },
     take: 500
   });
-  return NextResponse.json({ items });
+  // Re-firma URLs caducadas (R2 firmas duran 1h). Paralelo para no
+  // serializar 500 firmas.
+  const fresh = await Promise.all(items.map((p) => resignPostMedia(p)));
+  return NextResponse.json({ items: fresh });
 });
 
 export const POST = withApi({ scope: "*" }, async (req, { api }) => {
