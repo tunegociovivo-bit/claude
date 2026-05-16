@@ -6,7 +6,9 @@ import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
 import Link from "@tiptap/extension-link";
 import Image from "@tiptap/extension-image";
+import Mention from "@tiptap/extension-mention";
 import { Loader2, ImagePlus, Paperclip, Send } from "lucide-react";
+import { buildMentionSuggestion, type MentionCandidate } from "@/components/forms/mentionSuggestion";
 
 /**
  * Editor rich para escribir comentarios de tarea. Soporta texto con
@@ -22,13 +24,19 @@ export default function CommentEditor({
   taskId,
   onSubmit,
   submitting,
-  placeholder = "Escribe un comentario… arrastra imágenes o pega archivos."
+  mentionCandidates = [],
+  placeholder = "Escribe un comentario… arrastra imágenes, pega archivos o escribe @ para mencionar."
 }: {
   taskId: string;
   onSubmit: (doc: any) => void | Promise<void>;
   submitting?: boolean;
+  mentionCandidates?: MentionCandidate[];
   placeholder?: string;
 }) {
+  // Mantener candidatos vivos sin recrear el editor: la closure del
+  // suggestion plugin lee siempre la ref actualizada.
+  const candidatesRef = useRef<MentionCandidate[]>(mentionCandidates);
+  candidatesRef.current = mentionCandidates;
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -39,7 +47,14 @@ export default function CommentEditor({
       StarterKit.configure({ heading: false }),
       Placeholder.configure({ placeholder }),
       Link.configure({ openOnClick: false, autolink: true }),
-      Image.configure({ inline: false, allowBase64: false })
+      Image.configure({ inline: false, allowBase64: false }),
+      Mention.configure({
+        HTMLAttributes: { class: "bg-brand-100 text-brand-700 rounded px-1 py-0.5 text-[12px] font-medium" },
+        renderText({ node }) {
+          return `@${node.attrs.label ?? node.attrs.id}`;
+        },
+        suggestion: buildMentionSuggestion(() => candidatesRef.current)
+      })
     ],
     content: { type: "doc", content: [{ type: "paragraph" }] },
     editorProps: {

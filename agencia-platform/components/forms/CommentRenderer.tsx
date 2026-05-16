@@ -4,6 +4,7 @@ import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Link from "@tiptap/extension-link";
 import Image from "@tiptap/extension-image";
+import Mention from "@tiptap/extension-mention";
 
 /**
  * Render read-only de un comentario. Acepta:
@@ -25,7 +26,16 @@ export default function CommentRenderer({ body }: { body: string }) {
     extensions: [
       StarterKit.configure({ heading: false }),
       Link.configure({ openOnClick: true, autolink: true }),
-      Image.configure({ inline: false, allowBase64: false })
+      Image.configure({ inline: false, allowBase64: false }),
+      // En readonly el suggestion no se usa, pero necesitamos la
+      // extensión registrada para que TipTap entienda el nodo `mention`
+      // del JSON y lo pinte con la pill.
+      Mention.configure({
+        HTMLAttributes: { class: "bg-brand-100 text-brand-700 rounded px-1 py-0.5 text-[12px] font-medium" },
+        renderText({ node }) {
+          return `@${node.attrs.label ?? node.attrs.id}`;
+        }
+      })
     ],
     content: parsed ?? { type: "doc", content: [{ type: "paragraph" }] },
     editorProps: {

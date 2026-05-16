@@ -3,7 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
-import { extractMentionTokens, resolveMentions } from "@/lib/mentions";
+import { extractMentionTokens, extractMentionUserIds, resolveMentions } from "@/lib/mentions";
 import { sendPushToUser } from "@/lib/push/web-push";
 
 const commentCreateSchema = z.object({
@@ -49,14 +49,27 @@ export const POST = withApi({ scope: "tasks:write" }, async (req, { params, api 
     include: { author: { select: { id: true, name: true, image: true } } }
   });
 
-  // Resolver @menciones contra miembros del workspace y disparar notificaciones
+  // Resolver @menciones. El body nuevo (TipTap JSON) trae los userIds
+  // directos en nodos `mention.attrs.id`. El legacy texto plano sigue
+  // resolviéndose por regex contra emails. Unimos ambos resultados y
+  // deduplicamos.
+  const directIds = extractMentionUserIds(parsed.data.body);
   const tokens = extractMentionTokens(parsed.data.body);
-  if (tokens.length > 0) {
+  if (directIds.length > 0 || tokens.length > 0) {
     const workspaceUsers = await prisma.user.findMany({
       where: { memberships: { some: { workspaceId: api.workspaceId } } },
       select: { id: true, email: true, name: true }
     });
-    const mentioned = resolveMentions(tokens, workspaceUsers).filter((u) => u.id !== api.userId);
+    const byToken = resolveMentions(tokens, workspaceUsers);
+    const byId = workspaceUsers.filter((u) => directIds.includes(u.id));
+    const seen = new Set<string>();
+    const mentioned = [...byId, ...byToken]
+      .filter((u) => {
+        if (u.id === api.userId) return false;
+        if (seen.has(u.id)) return false;
+        seen.add(u.id);
+        return true;
+      });
     if (mentioned.length > 0) {
       const taskInfo = await prisma.task.findUnique({
         where: { id: params.id },

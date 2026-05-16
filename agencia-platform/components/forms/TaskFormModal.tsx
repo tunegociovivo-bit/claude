@@ -7,6 +7,7 @@ import RichTextEditor from "@/components/editor/RichTextEditor";
 import AttachmentList from "@/components/files/AttachmentList";
 import CommentEditor from "@/components/forms/CommentEditor";
 import CommentRenderer from "@/components/forms/CommentRenderer";
+import type { MentionCandidate } from "@/components/forms/mentionSuggestion";
 import type { UiProject, UiMember, UiTask } from "@/lib/db/queries";
 import { Loader2, Trash2, MessageSquare, X, CheckSquare, Check, ArrowLeft, ExternalLink } from "lucide-react";
 
@@ -84,6 +85,7 @@ export default function TaskFormModal({
 
   const [comments, setComments] = useState<CommentItem[]>([]);
   const [postingComment, setPostingComment] = useState(false);
+  const [mentionCandidates, setMentionCandidates] = useState<MentionCandidate[]>([]);
   const editorKey = useRef(0);
 
   const [subtasks, setSubtasks] = useState<{ id: string; title: string; status: string }[]>([]);
@@ -151,6 +153,20 @@ export default function TaskFormModal({
       setSubtasks([]);
     }
   }, [open, currentTask?.id, defaultStatus, defaultProjectId, projects, columns]);
+
+  // Carga candidatos a @mención (miembros del workspace) al abrir el
+  // modal. Se pasan por prop al CommentEditor; el editor se queda con
+  // la ref viva sin recrearse en cada cambio.
+  useEffect(() => {
+    if (!open) return;
+    fetch("/api/v1/users")
+      .then((r) => (r.ok ? r.json() : { items: [] }))
+      .then((d) =>
+        setMentionCandidates(
+          (d.items ?? []).map((u: any) => ({ id: u.id, name: u.name, email: u.email }))
+        )
+      );
+  }, [open]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -524,6 +540,7 @@ export default function TaskFormModal({
                     taskId={currentTask.id}
                     submitting={postingComment}
                     onSubmit={postComment}
+                    mentionCandidates={mentionCandidates}
                   />
                 )}
               </div>
