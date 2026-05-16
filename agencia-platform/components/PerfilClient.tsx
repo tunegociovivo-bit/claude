@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import PageHeader from "@/components/PageHeader";
 import ImageUpload from "@/components/ui/ImageUpload";
+import ExternalCalendarsSection from "@/components/ExternalCalendarsSection";
 import { Loader2, Save } from "lucide-react";
 
 type Me = {
@@ -160,6 +161,9 @@ export default function PerfilClient() {
           </div>
         </form>
       )}
+
+      {/* Calendarios externos vinculados (Google/Outlook/iCloud) */}
+      <ExternalCalendarsSection />
     </div>
   );
 }

@@ -37,6 +37,37 @@ model User {
   pushSubscriptions PushSubscription[]
   comments          Comment[]
   assignedTasks     TaskAssignee[]
+  externalCalendars UserExternalCalendar[]
+}
+
+// Calendarios externos del usuario (Google Calendar, Outlook, iCloud,
+// Proton...) vinculados vía "secret iCal URL". Se fetchean en el
+// /calendario para mostrar eventos personales junto a los de la
+// plataforma. Compatible con cualquier proveedor que exporte .ics.
+//
+// Cómo obtener la URL en Google Calendar:
+//   Settings → Settings for my calendars → [calendario] →
+//   "Integrate calendar" → "Secret address in iCal format"
+model UserExternalCalendar {
+  id           String    @id @default(cuid())
+  userId       String
+  workspaceId  String
+  name         String
+  icsUrl       String    @db.Text
+  // Hex color para distinguir en la grid del calendario. Default
+  // violeta para que destaque sobre los eventos del workspace.
+  color        String    @default("#8b5cf6")
+  enabled      Boolean   @default(true)
+  lastSyncedAt DateTime?
+  lastError    String?   @db.Text
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([workspaceId])
 }
 
 enum UserRole {
@@ -118,6 +149,7 @@ model Workspace {
   leadMessages    LeadMessage[]
   leadExclusions  LeadExclusion[]
   leadOptouts     LeadOptout[]
+  externalCalendars UserExternalCalendar[]
 }
 
 model Membership {
