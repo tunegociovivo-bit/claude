@@ -7,18 +7,20 @@ import Placeholder from "@tiptap/extension-placeholder";
 import Link from "@tiptap/extension-link";
 import Image from "@tiptap/extension-image";
 import Mention from "@tiptap/extension-mention";
-import { Loader2, ImagePlus, Paperclip, Send } from "lucide-react";
+import { Loader2, ImagePlus, Paperclip, Send, X } from "lucide-react";
 import { buildMentionSuggestion, type MentionCandidate } from "@/components/forms/mentionSuggestion";
 
 /**
  * Editor rich para escribir comentarios de tarea. Soporta texto con
- * formato, imágenes inline (cualquier punto del texto) y links a
- * archivos adjuntos. Las subidas usan el endpoint existente
- * `/api/v1/files/upload-url` que ya devuelve URL firmada para R2/S3.
+ * formato, @menciones, imágenes inline y adjuntos. Los adjuntos no
+ * imagen aparecen como un párrafo con icono + nombre + tamaño que
+ * funciona como link de descarga. CommentRenderer reconoce este
+ * patrón y lo pinta como tarjeta.
  *
- * El contenido se emite como JSON de TipTap. El padre lo serializa
- * (JSON.stringify) y lo envía al endpoint de comentarios tal cual; el
- * render readonly se hace con CommentRenderer.
+ * Las subidas se hacen con XMLHttpRequest para tener barra de
+ * progreso real; reusan el endpoint /api/v1/files/upload-url ya
+ * existente y registran metadata en /api/v1/files con
+ * targetType=TASK para que aparezcan también en AttachmentList.
  */
 export default function CommentEditor({
   taskId,
@@ -33,12 +35,12 @@ export default function CommentEditor({
   mentionCandidates?: MentionCandidate[];
   placeholder?: string;
 }) {
-  // Mantener candidatos vivos sin recrear el editor: la closure del
-  // suggestion plugin lee siempre la ref actualizada.
   const candidatesRef = useRef<MentionCandidate[]>(mentionCandidates);
   candidatesRef.current = mentionCandidates;
-  const [uploading, setUploading] = useState(false);
+
   const [error, setError] = useState<string | null>(null);
+  const [uploads, setUploads] = useState<UploadState[]>([]);
+  const imgRef = useRef<HTMLInputElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const editor = useEditor({
@@ -72,8 +74,11 @@ export default function CommentEditor({
   async function uploadAndInsert(file: File) {
     if (!editor || !taskId) return;
     setError(null);
-    setUploading(true);
+    const uploadId = Math.random().toString(36).slice(2);
+    setUploads((prev) => [...prev, { id: uploadId, name: file.name, progress: 0, sizeBytes: file.size }]);
+
     try {
+      // 1. Pedir URL firmada
       const urlRes = await fetch("/api/v1/files/upload-url", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -85,16 +90,26 @@ export default function CommentEditor({
           targetId: taskId
         })
       });
-      if (!urlRes.ok) throw new Error(`upload-url ${urlRes.status}`);
+      if (!urlRes.ok) throw new Error(`No se pudo obtener URL de subida (${urlRes.status})`);
       const { uploadUrl, s3Key, publicUrl } = await urlRes.json();
-      // Subida al storage firmado
-      const put = await fetch(uploadUrl, {
-        method: "PUT",
-        headers: { "Content-Type": file.type || "application/octet-stream" },
-        body: file
+
+      // 2. Subida real con XHR (para tener progreso). Necesario porque
+      // fetch() no expone onprogress.
+      await new Promise<void>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open("PUT", uploadUrl);
+        xhr.setRequestHeader("Content-Type", file.type || "application/octet-stream");
+        xhr.upload.onprogress = (e) => {
+          if (!e.lengthComputable) return;
+          const pct = Math.round((e.loaded / e.total) * 100);
+          setUploads((prev) => prev.map((u) => (u.id === uploadId ? { ...u, progress: pct } : u)));
+        };
+        xhr.onload = () => (xhr.status < 300 ? resolve() : reject(new Error(`Upload ${xhr.status}`)));
+        xhr.onerror = () => reject(new Error("Error de red al subir"));
+        xhr.send(file);
       });
-      if (!put.ok) throw new Error(`PUT ${put.status}`);
-      // Registrar metadata para que aparezca también en AttachmentList
+
+      // 3. Registrar metadata
       const metaRes = await fetch("/api/v1/files", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -109,11 +124,15 @@ export default function CommentEditor({
       });
       const meta = metaRes.ok ? await metaRes.json() : null;
       const finalUrl = (meta?.url ?? publicUrl) as string | undefined;
-      if (!finalUrl) throw new Error("Sin URL pública");
+      if (!finalUrl) throw new Error("Sin URL pública del archivo");
+
+      // 4. Insertar en el doc.
       if ((file.type || "").startsWith("image/")) {
         editor.chain().focus().setImage({ src: finalUrl, alt: file.name }).run();
       } else {
-        // Archivo no-imagen → link inline al final del párrafo actual
+        // Patrón "tarjeta de archivo": párrafo aislado con un único
+        // link cuyo TEXTO empieza con 📎 y contiene name · size. El
+        // CommentRenderer lo detecta y lo pinta como card.
         editor
           .chain()
           .focus()
@@ -122,17 +141,22 @@ export default function CommentEditor({
             content: [
               {
                 type: "text",
-                text: `📎 ${file.name}`,
-                marks: [{ type: "link", attrs: { href: finalUrl, target: "_blank" } }]
+                text: `📎 ${file.name} · ${formatSize(file.size)}`,
+                marks: [
+                  {
+                    type: "link",
+                    attrs: { href: finalUrl, target: "_blank", rel: "noopener noreferrer" }
+                  }
+                ]
               }
             ]
           })
           .run();
       }
     } catch (e: any) {
-      setError(e.message ?? String(e));
+      setError(e?.message ?? String(e));
     } finally {
-      setUploading(false);
+      setUploads((prev) => prev.filter((u) => u.id !== uploadId));
     }
   }
 
@@ -142,7 +166,6 @@ export default function CommentEditor({
   }
 
   async function handlePaste(ev: React.ClipboardEvent) {
-    // Permite Ctrl+V de imagen directamente.
     const items = Array.from(ev.clipboardData?.items ?? []);
     const files: File[] = [];
     for (const it of items) {
@@ -159,7 +182,6 @@ export default function CommentEditor({
   async function submit() {
     if (!editor) return;
     const doc = editor.getJSON();
-    // Si el doc está vacío (solo un párrafo vacío), no enviamos.
     const empty =
       !doc.content ||
       doc.content.length === 0 ||
@@ -176,6 +198,8 @@ export default function CommentEditor({
     }
   }
 
+  const anyUploading = uploads.length > 0;
+
   return (
     <div
       className="rounded-lg border bg-white p-2 focus-within:ring-2 focus-within:ring-brand-500"
@@ -188,7 +212,42 @@ export default function CommentEditor({
       }}
     >
       <EditorContent editor={editor} />
+
+      {uploads.length > 0 && (
+        <div className="mt-2 space-y-1.5">
+          {uploads.map((u) => (
+            <div key={u.id} className="flex items-center gap-2 text-[11px] text-slate-600">
+              <Loader2 className="h-3 w-3 animate-spin shrink-0" />
+              <span className="flex-1 truncate">
+                {u.name} ({formatSize(u.sizeBytes)})
+              </span>
+              <div className="w-24 h-1.5 bg-slate-100 rounded overflow-hidden">
+                <div
+                  className="h-full bg-brand-500 transition-all"
+                  style={{ width: `${u.progress}%` }}
+                />
+              </div>
+              <span className="w-8 text-right">{u.progress}%</span>
+            </div>
+          ))}
+        </div>
+      )}
+
       <div className="mt-2 flex items-center gap-1 border-t pt-2">
+        {/* Inputs ocultos: uno solo acepta imágenes, otro cualquier
+            archivo. Así "Imagen" abre el picker filtrado y los
+            usuarios no se equivocan. */}
+        <input
+          ref={imgRef}
+          type="file"
+          multiple
+          accept="image/*"
+          className="hidden"
+          onChange={(e) => {
+            handleFiles(e.target.files);
+            if (imgRef.current) imgRef.current.value = "";
+          }}
+        />
         <input
           ref={fileRef}
           type="file"
@@ -201,33 +260,32 @@ export default function CommentEditor({
         />
         <button
           type="button"
-          onClick={() => fileRef.current?.click()}
-          disabled={uploading}
+          onClick={() => imgRef.current?.click()}
+          disabled={anyUploading}
           className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs text-slate-600 hover:bg-slate-100 disabled:opacity-50"
-          title="Insertar imagen"
+          title="Insertar imagen (también puedes pegar con Ctrl+V o arrastrar)"
         >
           <ImagePlus className="h-3.5 w-3.5" /> Imagen
         </button>
         <button
           type="button"
           onClick={() => fileRef.current?.click()}
-          disabled={uploading}
+          disabled={anyUploading}
           className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs text-slate-600 hover:bg-slate-100 disabled:opacity-50"
-          title="Adjuntar archivo"
+          title="Adjuntar archivo (PDF, doc, vídeo, lo que sea)"
         >
           <Paperclip className="h-3.5 w-3.5" /> Archivo
         </button>
-        {uploading && (
-          <span className="text-[11px] text-slate-500 inline-flex items-center gap-1 ml-1">
-            <Loader2 className="h-3 w-3 animate-spin" /> subiendo…
+        {error && (
+          <span className="text-[11px] text-rose-600 ml-1 truncate inline-flex items-center gap-1">
+            <X className="h-3 w-3" /> {error}
           </span>
         )}
-        {error && <span className="text-[11px] text-rose-600 ml-1 truncate">{error}</span>}
         <div className="ml-auto" />
         <button
           type="button"
           onClick={submit}
-          disabled={submitting || uploading}
+          disabled={submitting || anyUploading}
           className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-brand-600 hover:bg-brand-700 text-white text-xs font-medium disabled:opacity-50"
         >
           {submitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
@@ -236,4 +294,13 @@ export default function CommentEditor({
       </div>
     </div>
   );
+}
+
+type UploadState = { id: string; name: string; progress: number; sizeBytes: number };
+
+function formatSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 }
