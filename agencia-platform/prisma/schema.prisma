@@ -867,7 +867,9 @@ model Task {
   // tabla permite que la tarea aparezca también en los listados de
   // otros proyectos sin duplicar el registro.
   extraProjects TaskProject[]
-  comments  Comment[]
+  // (Comment[] backref removido: la relación era polimórfica y
+  // generaba FK constraints conflictivos contra Document. La query
+  // de comentarios de una tarea se hace por targetType+targetId.)
   // Notificaciones por fecha de entrega — array de keys persistidas:
   // "day_7am", "1h_before", "10min_before". null = defaults
   // (todas activas). [] = ninguna. Sólo se programa el envío si la
@@ -959,7 +961,7 @@ model Document {
   parent    Document?  @relation("Subpages", fields: [parentId], references: [id], onDelete: Cascade)
   children  Document[] @relation("Subpages")
   blocks    Block[]
-  comments  Comment[]
+  // (Comment[] backref removido — ver nota en model Comment.)
   databases Database[] // un documento puede tener vista de DB inline
 
   @@index([workspaceId])
@@ -1111,7 +1113,15 @@ model Comment {
   authorId    String
   targetType  CommentTarget
   targetId    String
+  // `body` se mantiene como String por compatibilidad con
+  // comentarios antiguos importados de Asana (texto plano) y para
+  // que la búsqueda LIKE de SQL siga funcionando sin un GIN sobre
+  // un Json. Cuando hay rich text, también se persiste el doc
+  // TipTap completo en `bodyJson`. Las lecturas priorizan bodyJson
+  // si existe. Lazy migration: al primer GET de un comentario
+  // legacy se parsea body y se rellena bodyJson en background.
   body        String      @db.Text
+  bodyJson    Json?
   // GID de la "story" original de Asana cuando este comentario viene
   // de una importación. UNIQUE para idempotencia: si re-ejecutas
   // el import, los ya migrados se saltan en lugar de duplicarse.
@@ -1121,8 +1131,14 @@ model Comment {
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   author    User      @relation(fields: [authorId], references: [id], onDelete: Cascade)
-  task      Task?     @relation(fields: [targetId], references: [id], onDelete: Cascade, map: "Comment_task_fk")
-  document  Document? @relation(fields: [targetId], references: [id], onDelete: Cascade, map: "Comment_doc_fk")
+  // Nota: `targetId` es polimórfico (apunta a Task, Document, Client
+  // o Project según `targetType`). NO añadimos FK constraint porque
+  // Prisma exigiría que el id exista en TODAS las relaciones a la
+  // vez, lo que es imposible para un campo polimórfico — fallaba al
+  // crear un comentario de tarea porque la BD evaluaba también el
+  // FK contra Document. La integridad referencial se asegura en
+  // código (cada handler valida el target antes de crear el comment).
+  // La columna `targetId` queda como simple índice.
 
   @@index([targetType, targetId])
 }

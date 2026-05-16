@@ -157,7 +157,8 @@ export const POST = withApi({ scope: "tasks:write" }, async (req: NextRequest, {
       authorId: api.userId,
       targetType: "TASK",
       targetId: params.id,
-      body: JSON.stringify(doc)
+      body: JSON.stringify(doc),
+      bodyJson: doc as any
     },
     include: { author: { select: { id: true, name: true, image: true } } }
   });

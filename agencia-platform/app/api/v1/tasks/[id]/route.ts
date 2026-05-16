@@ -18,12 +18,18 @@ export const GET = withApi({ scope: "tasks:read" }, async (_req, { params, api }
       client: true,
       assignees: { include: { user: true } },
       tags: { include: { tag: true } },
-      subtasks: true,
-      comments: { include: { author: true }, orderBy: { createdAt: "asc" } }
+      subtasks: true
     }
   });
   if (!task) throw new ApiError(404, "not_found", "Tarea no encontrada");
-  return NextResponse.json(task);
+  // Los comentarios son polimórficos (sin FK directo en BD), así que
+  // los consultamos aparte por targetType + targetId.
+  const comments = await prisma.comment.findMany({
+    where: { workspaceId: api.workspaceId, targetType: "TASK", targetId: params.id },
+    include: { author: true },
+    orderBy: { createdAt: "asc" }
+  });
+  return NextResponse.json({ ...task, comments });
 });
 
 export const PATCH = withApi({ scope: "tasks:write" }, async (req, { params, api }) => {

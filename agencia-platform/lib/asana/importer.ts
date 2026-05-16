@@ -10,6 +10,7 @@ import { AsanaClient, type AsanaTask } from "./client";
 import { TaskPriority } from "@prisma/client";
 import { detectPriorityFromCustomFields } from "./priority";
 import { importAttachmentsForTask } from "./attachments";
+import { toTipTapDoc } from "@/lib/comments/body";
 
 // Antes TaskStatus era enum en Prisma; ahora es string libre para soportar
 // columnas custom del Kanban. Mantenemos los valores por defecto como
@@ -301,6 +302,10 @@ async function runImport(jobId: string, opts: ImportOptions) {
           stats.commentsSkipped++;
           continue;
         }
+        // Comentarios de Asana son texto plano. Guardamos también el
+        // bodyJson (envoltorio TipTap) para que la UI rich los pinte
+        // sin lazy migration al primer GET.
+        const importedDoc = toTipTapDoc(story.text);
         await prisma.comment.create({
           data: {
             workspaceId: opts.workspaceId,
@@ -308,6 +313,7 @@ async function runImport(jobId: string, opts: ImportOptions) {
             targetType: "TASK",
             targetId: local.id,
             body: story.text,
+            bodyJson: importedDoc as any,
             asanaId: story.gid,
             createdAt: new Date(story.created_at)
           }

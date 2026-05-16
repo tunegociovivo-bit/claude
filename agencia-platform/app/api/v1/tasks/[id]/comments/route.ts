@@ -5,6 +5,9 @@ import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { extractMentionTokens, extractMentionUserIds, resolveMentions } from "@/lib/mentions";
 import { sendPushToUser } from "@/lib/push/web-push";
+import { toTipTapDoc, serializeForString } from "@/lib/comments/body";
+import { indexEntity } from "@/lib/search/embeddings";
+import { extractText } from "@/lib/comments/body";
 
 const commentCreateSchema = z.object({
   body: z.string().min(1).max(8000)
@@ -22,7 +25,23 @@ export const GET = withApi({ scope: "tasks:read" }, async (_req, { params, api }
     include: { author: { select: { id: true, name: true, image: true } } },
     orderBy: { createdAt: "asc" }
   });
-  return NextResponse.json({ items });
+
+  // Lazy migration: si un comentario aún no tiene bodyJson, lo
+  // calculamos al vuelo y lo persistimos en background. La UI lee
+  // bodyJson directamente cuando exista; mantiene body como
+  // fallback para compatibilidad.
+  const enriched = items.map((c: any) => {
+    const json = c.bodyJson ?? toTipTapDoc(c.body);
+    if (!c.bodyJson) {
+      // Persistencia fire-and-forget — no bloquea la respuesta.
+      void prisma.comment
+        .update({ where: { id: c.id }, data: { bodyJson: json as any } })
+        .catch(() => {});
+    }
+    return { ...c, bodyJson: json };
+  });
+
+  return NextResponse.json({ items: enriched });
 });
 
 export const POST = withApi({ scope: "tasks:write" }, async (req, { params, api }) => {
@@ -38,16 +57,31 @@ export const POST = withApi({ scope: "tasks:write" }, async (req, { params, api 
   });
   if (!task) throw new ApiError(404, "not_found", "Tarea no encontrada");
 
+  // Persistimos en ambos campos: `body` (String NOT NULL legacy +
+  // SQL LIKE search) y `bodyJson` (TipTap doc completo para la UI
+  // rich y futuras búsquedas estructuradas).
+  const doc = toTipTapDoc(parsed.data.body);
+  const bodyString = serializeForString(parsed.data.body);
+
   const comment = await prisma.comment.create({
     data: {
       workspaceId: api.workspaceId,
       authorId: api.userId,
       targetType: "TASK",
       targetId: params.id,
-      body: parsed.data.body
+      body: bodyString,
+      bodyJson: doc as any
     },
     include: { author: { select: { id: true, name: true, image: true } } }
   });
+
+  // Indexa el comentario para búsqueda semántica (texto plano del doc).
+  void indexEntity({
+    workspaceId: api.workspaceId,
+    entityType: "COMMENT",
+    entityId: comment.id,
+    text: extractText(doc)
+  }).catch(() => {});
 
   // Resolver @menciones. El body nuevo (TipTap JSON) trae los userIds
   // directos en nodos `mention.attrs.id`. El legacy texto plano sigue
