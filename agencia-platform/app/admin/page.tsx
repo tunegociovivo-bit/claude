@@ -147,6 +147,12 @@ const cards = [
     icon: Upload
   },
   {
+    href: "/admin/import-accesos",
+    title: "Importar accesos desde tarea",
+    description: "Pega el contenido de la tarea con las credenciales por cliente y se vuelcan al campo Accesos de cada ficha con preview previa.",
+    icon: Upload
+  },
+  {
     href: "https://claude.ai/code/session_01CA9ihZJxnRBKpd64rc1mg9",
     title: "Sesión de Claude (mantenimiento)",
     description: "Atajo a la conversación de Claude donde se está desarrollando esta plataforma. Para pedir cambios o consultar el estado del proyecto.",
