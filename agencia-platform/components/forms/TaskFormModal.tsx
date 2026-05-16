@@ -392,8 +392,9 @@ export default function TaskFormModal({
                 key={editorKey.current}
                 initialContent={description}
                 onChange={setDescription}
-                placeholder="Describe la tarea, añade pasos, contexto…"
+                placeholder="Describe la tarea… / para bloques, @ para mencionar."
                 minHeight={140}
+                mentionCandidates={mentionCandidates}
               />
             </div>
           </div>

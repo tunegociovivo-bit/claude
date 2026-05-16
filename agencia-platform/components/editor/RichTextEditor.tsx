@@ -6,7 +6,11 @@ import Placeholder from "@tiptap/extension-placeholder";
 import TaskList from "@tiptap/extension-task-list";
 import TaskItem from "@tiptap/extension-task-item";
 import Link from "@tiptap/extension-link";
-import { useEffect } from "react";
+import Image from "@tiptap/extension-image";
+import Mention from "@tiptap/extension-mention";
+import { useEffect, useRef } from "react";
+import { SlashCommands } from "./SlashCommands";
+import { buildMentionSuggestion, type MentionCandidate } from "@/components/forms/mentionSuggestion";
 
 /**
  * RichTextEditor reutilizable basado en TipTap.
@@ -16,16 +20,20 @@ import { useEffect } from "react";
 export default function RichTextEditor({
   initialContent,
   onChange,
-  placeholder = "Escribe…",
+  placeholder = "Escribe… / para insertar bloques, @ para mencionar.",
   minHeight = 120,
-  readOnly = false
+  readOnly = false,
+  mentionCandidates = []
 }: {
   initialContent?: any;
   onChange?: (content: any) => void;
   placeholder?: string;
   minHeight?: number;
   readOnly?: boolean;
+  mentionCandidates?: MentionCandidate[];
 }) {
+  const candidatesRef = useRef<MentionCandidate[]>(mentionCandidates);
+  candidatesRef.current = mentionCandidates;
   const editor = useEditor({
     immediatelyRender: false,
     editable: !readOnly,
@@ -34,7 +42,16 @@ export default function RichTextEditor({
       Placeholder.configure({ placeholder }),
       TaskList,
       TaskItem.configure({ nested: true }),
-      Link.configure({ openOnClick: false, autolink: true })
+      Link.configure({ openOnClick: false, autolink: true }),
+      Image.configure({ inline: false, allowBase64: false }),
+      SlashCommands,
+      Mention.configure({
+        HTMLAttributes: { class: "bg-brand-100 text-brand-700 rounded px-1 py-0.5 text-[12px] font-medium" },
+        renderText({ node }) {
+          return `@${node.attrs.label ?? node.attrs.id}`;
+        },
+        suggestion: buildMentionSuggestion(() => candidatesRef.current)
+      })
     ],
     content: parseInitial(initialContent),
     onUpdate({ editor }) {

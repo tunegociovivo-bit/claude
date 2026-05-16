@@ -6,8 +6,10 @@ import Placeholder from "@tiptap/extension-placeholder";
 import TaskList from "@tiptap/extension-task-list";
 import TaskItem from "@tiptap/extension-task-item";
 import Link from "@tiptap/extension-link";
+import Mention from "@tiptap/extension-mention";
 import { SlashCommand } from "./SlashCommand";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import { buildMentionSuggestion, type MentionCandidate } from "@/components/forms/mentionSuggestion";
 
 type Props = {
   documentId: string;
@@ -19,6 +21,22 @@ type Props = {
 export default function BlockEditor({ documentId, initialContent, readOnly, onChange }: Props) {
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSaved = useRef<string>("");
+  const [mentionCandidates, setMentionCandidates] = useState<MentionCandidate[]>([]);
+  const candidatesRef = useRef<MentionCandidate[]>([]);
+  candidatesRef.current = mentionCandidates;
+
+  // Carga candidatos a @mención (miembros del workspace) una vez al
+  // montar. Misma fuente que en TaskFormModal.
+  useEffect(() => {
+    fetch("/api/v1/users")
+      .then((r) => (r.ok ? r.json() : { items: [] }))
+      .then((d) =>
+        setMentionCandidates(
+          (d.items ?? []).map((u: any) => ({ id: u.id, name: u.name, email: u.email }))
+        )
+      )
+      .catch(() => {});
+  }, []);
 
   const editor = useEditor({
     immediatelyRender: false,
@@ -34,6 +52,13 @@ export default function BlockEditor({ documentId, initialContent, readOnly, onCh
       TaskList,
       TaskItem.configure({ nested: true }),
       Link.configure({ openOnClick: false, autolink: true }),
+      Mention.configure({
+        HTMLAttributes: { class: "bg-brand-100 text-brand-700 rounded px-1 py-0.5 text-[12px] font-medium" },
+        renderText({ node }) {
+          return `@${node.attrs.label ?? node.attrs.id}`;
+        },
+        suggestion: buildMentionSuggestion(() => candidatesRef.current)
+      }),
       SlashCommand
     ],
     content: initialContent || { type: "doc", content: [{ type: "paragraph" }] },
