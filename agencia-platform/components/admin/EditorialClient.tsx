@@ -1313,8 +1313,22 @@ function GenerateMonthModal({
   // suele dar mejor resultado y los pocos tokens extra valen la pena.
   const [perNetworkCopy, setPerNetworkCopy] = useState(true);
   const [extraGuidance, setExtraGuidance] = useState("");
+  const [imageIncludeHint, setImageIncludeHint] = useState("");
+  const [imageAvoidHint, setImageAvoidHint] = useState("");
+  // Pillars temáticos. Sliders 0-100 con valores no normalizados —
+  // backend normaliza. Default razonable.
+  const [pillars, setPillars] = useState({ educativo: 30, producto: 30, testimonio: 20, social: 20 });
+  // Días de la semana permitidos (0=domingo..6=sábado). Default lun-vie.
+  const [allowedDays, setAllowedDays] = useState<number[]>([1, 2, 3, 4, 5]);
+  // Horas preferidas. Default plugin (10/12/18).
+  const [preferredHours, setPreferredHours] = useState<number[]>([10, 12, 18]);
+  // Personas del roster que SÍ deben aparecer (forzadas).
+  const [forcedRoster, setForcedRoster] = useState<string[]>([]);
+  const [rosterOptions, setRosterOptions] = useState<string[]>([]);
   const [status, setStatus] = useState<"DRAFT" | "REVIEW">("DRAFT");
-  const [generateImages, setGenerateImages] = useState(false);
+  // Pedido por el usuario: la generación de imagen siempre marcada por
+  // defecto.
+  const [generateImages, setGenerateImages] = useState(true);
   const [imageQuality, setImageQuality] = useState<"low" | "medium" | "high">("medium");
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1358,8 +1372,15 @@ function GenerateMonthModal({
     setCopyLength(50);
     setPerNetworkCopy(true);
     setExtraGuidance("");
+    setImageIncludeHint("");
+    setImageAvoidHint("");
+    setPillars({ educativo: 30, producto: 30, testimonio: 20, social: 20 });
+    setAllowedDays([1, 2, 3, 4, 5]);
+    setPreferredHours([10, 12, 18]);
+    setForcedRoster([]);
+    setRosterOptions([]);
     setStatus("DRAFT");
-    setGenerateImages(false);
+    setGenerateImages(true);
     setImageQuality("medium");
     setError(null);
     setResult(null);
