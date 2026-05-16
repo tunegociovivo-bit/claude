@@ -19,7 +19,7 @@ type ClientLite = {
   notes?: string;
 };
 
-export default function ClienteDetailActions({ client }: { client: ClientLite }) {
+export default function ClienteDetailActions({ client, isAdmin = false }: { client: ClientLite; isAdmin?: boolean }) {
   const [editOpen, setEditOpen] = useState(false);
   const [notesOpen, setNotesOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -54,8 +54,8 @@ export default function ClienteDetailActions({ client }: { client: ClientLite })
         <Trash2 className="h-4 w-4" />
         Eliminar
       </button>
-      <ClientFormModal open={editOpen} onClose={() => setEditOpen(false)} client={client} mode="edit" />
-      <ClientFormModal open={notesOpen} onClose={() => setNotesOpen(false)} client={client} mode="notes" />
+      <ClientFormModal open={editOpen} onClose={() => setEditOpen(false)} client={client} mode="edit" isAdmin={isAdmin} />
+      <ClientFormModal open={notesOpen} onClose={() => setNotesOpen(false)} client={client} mode="notes" isAdmin={isAdmin} />
       <DeleteClientModal open={deleteOpen} onClose={() => setDeleteOpen(false)} client={client} />
     </>
   );

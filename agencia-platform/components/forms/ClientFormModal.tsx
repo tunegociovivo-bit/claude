@@ -90,12 +90,14 @@ export default function ClientFormModal({
   open,
   onClose,
   client,
-  mode = "create"
+  mode = "create",
+  isAdmin = false
 }: {
   open: boolean;
   onClose: () => void;
   client?: ClientPayload | null;
   mode?: "create" | "edit" | "notes";
+  isAdmin?: boolean;
 }) {
   const router = useRouter();
   const isEdit = mode !== "create";
@@ -306,16 +308,18 @@ export default function ClientFormModal({
                   className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
                 />
               </div>
-              <div>
-                <label className="block text-xs font-medium text-slate-700 mb-1">MRR (€)</label>
-                <input
-                  type="number"
-                  min={0}
-                  value={form.mrr ?? 0}
-                  onChange={(e) => update("mrr", Number(e.target.value))}
-                  className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
-                />
-              </div>
+              {isAdmin && (
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">MRR (€)</label>
+                  <input
+                    type="number"
+                    min={0}
+                    value={form.mrr ?? 0}
+                    onChange={(e) => update("mrr", Number(e.target.value))}
+                    className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  />
+                </div>
+              )}
               <div>
                 <label className="block text-xs font-medium text-slate-700 mb-1">Email</label>
                 <input

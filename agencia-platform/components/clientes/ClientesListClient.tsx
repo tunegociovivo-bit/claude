@@ -65,11 +65,13 @@ const STORAGE_KEY = "clientes-view-prefs-v2";
 export default function ClientesListClient({
   clients: initialClients,
   projects,
-  tasks
+  tasks,
+  isAdmin = false
 }: {
   clients: UiClient[];
   projects: UiProject[];
   tasks: UiTask[];
+  isAdmin?: boolean;
 }) {
   // Preferencias persistidas en localStorage para que se mantengan al
   // navegar entre páginas. Default = vista lista (mejor para >50 clientes).
@@ -247,9 +249,9 @@ export default function ClientesListClient({
       </p>
 
       {view === "grid" ? (
-        <GridView clients={filtered} projects={projects} tasks={tasks} />
+        <GridView clients={filtered} projects={projects} tasks={tasks} isAdmin={isAdmin} />
       ) : (
-        <ListView clients={filtered} onLocalUpdate={patchClientLocal} />
+        <ListView clients={filtered} onLocalUpdate={patchClientLocal} isAdmin={isAdmin} />
       )}
     </div>
   );
@@ -272,11 +274,13 @@ async function patchClientRemote(id: string, payload: Record<string, any>): Prom
 function GridView({
   clients,
   projects,
-  tasks
+  tasks,
+  isAdmin
 }: {
   clients: UiClient[];
   projects: UiProject[];
   tasks: UiTask[];
+  isAdmin: boolean;
 }) {
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
@@ -347,10 +351,12 @@ function GridView({
                 <div className="text-slate-500">Tareas abiertas</div>
                 <div className="font-semibold">{clientTasks.length}</div>
               </div>
-              <div>
-                <div className="text-slate-500">MRR</div>
-                <div className="font-semibold">{c.mrr ? `${c.mrr} €` : "—"}</div>
-              </div>
+              {isAdmin && (
+                <div>
+                  <div className="text-slate-500">MRR</div>
+                  <div className="font-semibold">{c.mrr ? `${c.mrr} €` : "—"}</div>
+                </div>
+              )}
             </div>
           </Link>
         );
@@ -361,10 +367,12 @@ function GridView({
 
 function ListView({
   clients,
-  onLocalUpdate
+  onLocalUpdate,
+  isAdmin
 }: {
   clients: UiClient[];
   onLocalUpdate: (id: string, partial: Partial<UiClient>) => void;
+  isAdmin: boolean;
 }) {
   // Mapeo estado UI → enum backend. "no activo" UI → PAUSED en BD.
   const UI_TO_BACKEND_STATUS: Record<string, "ACTIVE" | "PAUSED"> = {
@@ -417,6 +425,7 @@ function ListView({
               <th className="text-left px-3 py-2 font-medium">Prioridad</th>
               <th className="text-left px-3 py-2 font-medium">KD</th>
               <th className="text-left px-3 py-2 font-medium">Servicios</th>
+              {isAdmin && <th className="text-right px-3 py-2 font-medium">MRR</th>}
               <th className="px-3 py-2"></th>
             </tr>
           </thead>
@@ -513,6 +522,11 @@ function ListView({
                       <span className="text-slate-400">—</span>
                     )}
                   </td>
+                  {isAdmin && (
+                    <td className="px-3 py-2 text-right tabular-nums text-xs">
+                      {c.mrr ? `${c.mrr.toLocaleString("es-ES")} €` : <span className="text-slate-400">—</span>}
+                    </td>
+                  )}
                   <td className="px-3 py-2 text-right">
                     <Link
                       href={`/clientes/${c.id}`}

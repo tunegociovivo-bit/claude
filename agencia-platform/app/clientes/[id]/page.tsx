@@ -10,18 +10,20 @@ import {
   getEventsForUi,
   getTeamForUi
 } from "@/lib/db/queries";
+import { isAdmin } from "@/lib/auth-utils";
 import { statusLabels, statusColors } from "@/lib/mock-data";
 import { Building2, Mail, Phone, Calendar, ArrowLeft, FileText } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
 export default async function ClienteDetailPage({ params }: { params: { id: string } }) {
-  const [clients, projects, tasks, events, team] = await Promise.all([
+  const [clients, projects, tasks, events, team, admin] = await Promise.all([
     getClientsForUi(),
     getProjectsForUi(),
     getTasksForUi(),
     getEventsForUi(),
-    getTeamForUi()
+    getTeamForUi(),
+    isAdmin()
   ]);
 
   const client = clients.find((c) => c.id === params.id);
@@ -44,6 +46,7 @@ export default async function ClienteDetailPage({ params }: { params: { id: stri
         description={`${client.industry} · Cliente desde ${new Date(client.since).toLocaleDateString("es-ES", { month: "long", year: "numeric" })}`}
         actions={
           <ClienteDetailActions
+            isAdmin={admin}
             client={{
               id: client.id,
               name: client.name,
@@ -167,11 +170,13 @@ export default async function ClienteDetailPage({ params }: { params: { id: stri
             </ul>
           </div>
 
-          <div className="bg-gradient-to-br from-brand-50 to-brand-100/50 rounded-xl border border-brand-200 p-6">
-            <div className="text-xs text-brand-700 font-medium uppercase tracking-wide">Facturación</div>
-            <div className="text-3xl font-semibold mt-1">{client.mrr.toLocaleString("es-ES")} €</div>
-            <div className="text-xs text-slate-600 mt-1">MRR estimado</div>
-          </div>
+          {admin && (
+            <div className="bg-gradient-to-br from-brand-50 to-brand-100/50 rounded-xl border border-brand-200 p-6">
+              <div className="text-xs text-brand-700 font-medium uppercase tracking-wide">Facturación</div>
+              <div className="text-3xl font-semibold mt-1">{client.mrr.toLocaleString("es-ES")} €</div>
+              <div className="text-xs text-slate-600 mt-1">MRR estimado</div>
+            </div>
+          )}
         </div>
       </div>
     </div>

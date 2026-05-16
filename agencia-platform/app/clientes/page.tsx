@@ -2,14 +2,16 @@ import PageHeader from "@/components/PageHeader";
 import ClientesActions from "@/components/clientes/ClientesActions";
 import ClientesListClient from "@/components/clientes/ClientesListClient";
 import { getClientsForUi, getProjectsForUi, getTasksForUi } from "@/lib/db/queries";
+import { isAdmin } from "@/lib/auth-utils";
 
 export const dynamic = "force-dynamic";
 
 export default async function ClientesPage() {
-  const [clients, projects, tasks] = await Promise.all([
+  const [clients, projects, tasks, admin] = await Promise.all([
     getClientsForUi(),
     getProjectsForUi(),
-    getTasksForUi()
+    getTasksForUi(),
+    isAdmin()
   ]);
 
   const totalMrr = clients.reduce((s, c) => s + c.mrr, 0);
@@ -22,7 +24,7 @@ export default async function ClientesPage() {
         actions={<ClientesActions />}
       />
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+      <div className={`grid grid-cols-1 ${admin ? "sm:grid-cols-3" : "sm:grid-cols-2"} gap-4 mb-6`}>
         <div className="bg-white rounded-xl border p-5">
           <div className="text-xs text-slate-500">Total cuentas</div>
           <div className="text-2xl font-semibold mt-1">{clients.length}</div>
@@ -33,13 +35,15 @@ export default async function ClientesPage() {
             {clients.filter((c) => c.status === "activo").length}
           </div>
         </div>
-        <div className="bg-white rounded-xl border p-5">
-          <div className="text-xs text-slate-500">MRR total</div>
-          <div className="text-2xl font-semibold mt-1">{totalMrr.toLocaleString("es-ES")} €</div>
-        </div>
+        {admin && (
+          <div className="bg-white rounded-xl border p-5">
+            <div className="text-xs text-slate-500">MRR total</div>
+            <div className="text-2xl font-semibold mt-1">{totalMrr.toLocaleString("es-ES")} €</div>
+          </div>
+        )}
       </div>
 
-      <ClientesListClient clients={clients} projects={projects} tasks={tasks} />
+      <ClientesListClient clients={clients} projects={projects} tasks={tasks} isAdmin={admin} />
     </div>
   );
 }

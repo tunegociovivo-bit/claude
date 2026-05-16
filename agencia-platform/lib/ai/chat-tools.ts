@@ -24,6 +24,15 @@ export const chatTools: ChatTool[] = [
       }
     },
     run: async (args, ctx) => {
+      // MRR solo lo ve un admin. Para no-admin lo omitimos del select.
+      let isAdmin = false;
+      if (ctx.userId) {
+        const m = await prisma.membership.findFirst({
+          where: { userId: ctx.userId, workspaceId: ctx.workspaceId },
+          select: { role: true }
+        });
+        isAdmin = m?.role === "ADMIN";
+      }
       const items = await prisma.client.findMany({
         where: {
           workspaceId: ctx.workspaceId,
@@ -39,7 +48,14 @@ export const chatTools: ChatTool[] = [
             : {})
         },
         take: 25,
-        select: { id: true, name: true, industry: true, status: true, mrr: true, email: true }
+        select: {
+          id: true,
+          name: true,
+          industry: true,
+          status: true,
+          email: true,
+          ...(isAdmin ? { mrr: true } : {})
+        }
       });
       return JSON.stringify(items);
     }

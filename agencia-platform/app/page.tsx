@@ -1,6 +1,7 @@
 import PageHeader from "@/components/PageHeader";
 import AvatarStack from "@/components/AvatarStack";
 import { getDashboardData } from "@/lib/db/queries";
+import { isAdmin } from "@/lib/auth-utils";
 import { statusLabels, statusColors, priorityColors } from "@/lib/mock-data";
 import { ArrowUpRight, CheckCircle2, Clock, Users, Briefcase, TrendingUp } from "lucide-react";
 import Link from "next/link";
@@ -9,6 +10,7 @@ export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
   const { clients, tasks, projects, events, team } = await getDashboardData();
+  const admin = await isAdmin();
   const today = new Date();
 
   const findClient = (id?: string) => clients.find((c) => c.id === id);
@@ -33,7 +35,9 @@ export default async function DashboardPage() {
     { label: "Clientes activos", value: activeClients, icon: Users, trend: `${clients.length} totales` },
     { label: "Tareas abiertas", value: openTasks, icon: Clock, trend: `${doneThisMonth} completadas` },
     { label: "Proyectos en curso", value: projects.length, icon: Briefcase, trend: "Todos al día" },
-    { label: "MRR estimado", value: `${mrr.toLocaleString("es-ES")} €`, icon: TrendingUp, trend: "+8% vs mes anterior" }
+    ...(admin
+      ? [{ label: "MRR estimado", value: `${mrr.toLocaleString("es-ES")} €`, icon: TrendingUp, trend: "+8% vs mes anterior" }]
+      : [])
   ];
 
   return (
@@ -43,7 +47,7 @@ export default async function DashboardPage() {
         description={`Hoy es ${today.toLocaleDateString("es-ES", { weekday: "long", day: "numeric", month: "long" })}`}
       />
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+      <div className={`grid grid-cols-1 sm:grid-cols-2 ${admin ? "lg:grid-cols-4" : "lg:grid-cols-3"} gap-4 mb-8`}>
         {stats.map((s) => {
           const Icon = s.icon;
           return (
