@@ -28,6 +28,7 @@ import {
 } from "lucide-react";
 import clsx from "clsx";
 import ProjectFormModal from "@/components/forms/ProjectFormModal";
+import DeleteProjectModal from "@/components/projects/DeleteProjectModal";
 import type { UiClient } from "@/lib/db/queries";
 
 type SidebarPlatform = { key: string; label: string; href: string };
@@ -63,6 +64,7 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}
   const [clients, setClients] = useState<UiClient[]>([]);
   const [platforms, setPlatforms] = useState<SidebarPlatform[]>([]);
   const [newProjectOpen, setNewProjectOpen] = useState(false);
+  const [projectToDelete, setProjectToDelete] = useState<{ id: string; name: string } | null>(null);
   const [me, setMe] = useState<{ name: string | null; email: string; image: string | null; role: string | null; features: string[] } | null>(null);
   const [workspace, setWorkspace] = useState<{ name: string; logo: string | null } | null>(null);
 
@@ -280,17 +282,9 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}
                   {me?.role === "ADMIN" && (
                     <button
                       type="button"
-                      onClick={async (e) => {
+                      onClick={(e) => {
                         e.preventDefault();
-                        const txt = `¿Eliminar PERMANENTEMENTE el proyecto "${p.name}"?\n\nSe borrarán también sus tareas. Esta acción no se puede deshacer.`;
-                        if (!confirm(txt)) return;
-                        const r = await fetch(`/api/v1/projects/${p.id}?confirm=${p.id}`, { method: "DELETE" });
-                        if (r.ok) {
-                          location.href = "/tareas";
-                        } else {
-                          const j = await r.json().catch(() => ({}));
-                          alert(`No se pudo eliminar: ${j?.error?.message ?? r.status}`);
-                        }
+                        setProjectToDelete({ id: p.id, name: p.name });
                       }}
                       className="hidden group-hover:grid h-5 w-5 place-items-center rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50 shrink-0"
                       title="Eliminar proyecto"
@@ -421,6 +415,15 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}
         open={newProjectOpen}
         onClose={() => setNewProjectOpen(false)}
         clients={clients}
+      />
+      <DeleteProjectModal
+        open={!!projectToDelete}
+        project={projectToDelete}
+        onClose={() => setProjectToDelete(null)}
+        onDeleted={() => {
+          setProjectToDelete(null);
+          location.href = "/tareas";
+        }}
       />
     </aside>
   );
