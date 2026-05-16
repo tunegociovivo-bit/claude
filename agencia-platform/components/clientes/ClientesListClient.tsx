@@ -407,19 +407,16 @@ function ListView({
   }
 
   return (
-    <div className="bg-white rounded-xl border overflow-hidden">
-      <div className="overflow-x-auto">
+    <div className="bg-white rounded-xl border">
+      <div className="overflow-visible">
         <table className="w-full text-sm">
           <thead className="bg-slate-50 border-b text-xs uppercase tracking-wide text-slate-500">
             <tr>
               <th className="text-left px-3 py-2 font-medium">Cliente</th>
-              <th className="text-left px-3 py-2 font-medium">Sector</th>
               <th className="text-left px-3 py-2 font-medium">Estado</th>
               <th className="text-left px-3 py-2 font-medium">Prioridad</th>
               <th className="text-left px-3 py-2 font-medium">KD</th>
               <th className="text-left px-3 py-2 font-medium">Servicios</th>
-              <th className="text-left px-3 py-2 font-medium">Contacto</th>
-              <th className="text-right px-3 py-2 font-medium">MRR</th>
               <th className="px-3 py-2"></th>
             </tr>
           </thead>
@@ -444,7 +441,6 @@ function ListView({
                       {c.name}
                     </Link>
                   </td>
-                  <td className="px-3 py-2 text-slate-600 text-xs">{c.industry || "—"}</td>
                   <td className="px-3 py-2">
                     <select
                       value={c.status}
@@ -490,17 +486,32 @@ function ListView({
                     />
                   </td>
                   <td className="px-3 py-2 text-xs text-slate-600">
-                    {Array.isArray(c.servicios) && c.servicios.length > 0
-                      ? c.servicios.length + (c.servicios.length === 1 ? " servicio" : " servicios")
-                      : <span className="text-slate-400">—</span>}
-                  </td>
-                  <td className="px-3 py-2 text-xs text-slate-600">
-                    {c.email && <div className="truncate max-w-[180px]">{c.email}</div>}
-                    {c.phone && <div className="text-slate-500">{c.phone}</div>}
-                    {!c.email && !c.phone && <span className="text-slate-400">—</span>}
-                  </td>
-                  <td className="px-3 py-2 text-right tabular-nums text-xs">
-                    {c.mrr ? `${c.mrr.toLocaleString("es-ES")} €` : <span className="text-slate-400">—</span>}
+                    {Array.isArray(c.servicios) && c.servicios.length > 0 ? (
+                      <span className="relative inline-block group/svc" title={c.servicios.join(", ")}>
+                        <span className="cursor-default border-b border-dotted border-slate-300">
+                          {c.servicios.length}
+                          {c.servicios.length === 1 ? " servicio" : " servicios"}
+                        </span>
+                        <span
+                          role="tooltip"
+                          className="pointer-events-none invisible group-hover/svc:visible opacity-0 group-hover/svc:opacity-100 transition-opacity absolute z-10 left-0 top-full mt-1 min-w-[160px] max-w-[260px] rounded-md border border-slate-200 bg-white shadow-lg p-2 text-[11px] text-slate-700"
+                        >
+                          <div className="font-semibold text-slate-500 uppercase tracking-wide text-[9px] mb-1">
+                            Servicios activos
+                          </div>
+                          <ul className="space-y-0.5">
+                            {c.servicios.map((s) => (
+                              <li key={s} className="flex items-start gap-1.5">
+                                <span className="text-brand-500 leading-none mt-0.5">•</span>
+                                <span>{s}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </span>
+                      </span>
+                    ) : (
+                      <span className="text-slate-400">—</span>
+                    )}
                   </td>
                   <td className="px-3 py-2 text-right">
                     <Link
