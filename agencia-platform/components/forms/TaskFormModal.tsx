@@ -5,11 +5,11 @@ import { useRouter } from "next/navigation";
 import Modal from "@/components/ui/Modal";
 import RichTextEditor from "@/components/editor/RichTextEditor";
 import AttachmentList from "@/components/files/AttachmentList";
-import MentionTextarea from "@/components/forms/MentionTextarea";
+import CommentEditor from "@/components/forms/CommentEditor";
+import CommentRenderer from "@/components/forms/CommentRenderer";
 import type { UiProject, UiMember, UiTask } from "@/lib/db/queries";
-import { Loader2, Trash2, MessageSquare, Send, X, CheckSquare, Check, ArrowLeft, ExternalLink } from "lucide-react";
+import { Loader2, Trash2, MessageSquare, X, CheckSquare, Check, ArrowLeft, ExternalLink } from "lucide-react";
 
-type MentionCandidate = { id: string; name: string | null; email: string };
 type Priority = "urgencia" | "alta";
 type KanbanColumn = { id: string; label: string; color: string; order: number; isDone?: boolean };
 
@@ -83,15 +83,12 @@ export default function TaskFormModal({
   const [error, setError] = useState<string | null>(null);
 
   const [comments, setComments] = useState<CommentItem[]>([]);
-  const [newComment, setNewComment] = useState("");
   const [postingComment, setPostingComment] = useState(false);
   const editorKey = useRef(0);
 
   const [subtasks, setSubtasks] = useState<{ id: string; title: string; status: string }[]>([]);
   const [newSubtask, setNewSubtask] = useState("");
   const [addingSubtask, setAddingSubtask] = useState(false);
-
-  const [mentionCandidates, setMentionCandidates] = useState<MentionCandidate[]>([]);
 
   // Sincroniza la pila con el task que llega por prop al abrir el modal.
   useEffect(() => {
@@ -103,7 +100,6 @@ export default function TaskFormModal({
   useEffect(() => {
     if (!open) return;
     setError(null);
-    setNewComment("");
     editorKey.current++;
     if (currentTask) {
       setTitle(currentTask.title);
@@ -155,17 +151,6 @@ export default function TaskFormModal({
       setSubtasks([]);
     }
   }, [open, currentTask?.id, defaultStatus, defaultProjectId, projects, columns]);
-
-  useEffect(() => {
-    if (!open) return;
-    fetch("/api/v1/users")
-      .then((r) => (r.ok ? r.json() : { items: [] }))
-      .then((d) =>
-        setMentionCandidates(
-          (d.items ?? []).map((u: any) => ({ id: u.id, name: u.name, email: u.email }))
-        )
-      );
-  }, [open]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -236,19 +221,18 @@ export default function TaskFormModal({
     else goBack();
   }
 
-  async function postComment() {
-    if (!currentTask || !newComment.trim()) return;
+  async function postComment(doc: any) {
+    if (!currentTask) return;
     setPostingComment(true);
     const r = await fetch(`/api/v1/tasks/${currentTask.id}/comments`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ body: newComment.trim() })
+      body: JSON.stringify({ body: JSON.stringify(doc) })
     });
     setPostingComment(false);
     if (!r.ok) return setError("No se pudo publicar el comentario");
     const c = await r.json();
     setComments((prev) => [...prev, c]);
-    setNewComment("");
   }
 
   async function deleteComment(id: string) {
@@ -516,9 +500,9 @@ export default function TaskFormModal({
                           })}
                         </span>
                       </div>
-                      <p className="text-sm text-slate-700 whitespace-pre-wrap mt-0.5">
-                        {renderWithMentions(c.body)}
-                      </p>
+                      <div className="text-sm text-slate-700 mt-0.5">
+                        <CommentRenderer body={c.body} />
+                      </div>
                     </div>
                     <button
                       type="button"
@@ -534,23 +518,14 @@ export default function TaskFormModal({
                   <p className="text-xs text-slate-500 italic">Aún no hay comentarios.</p>
                 )}
               </div>
-              <div className="mt-3 flex items-start gap-2">
-                <MentionTextarea
-                  value={newComment}
-                  onChange={setNewComment}
-                  candidates={mentionCandidates}
-                  rows={2}
-                  placeholder="Escribe un comentario… Escribe @ para mencionar (Cmd/Ctrl+Enter para enviar)"
-                  onSubmitShortcut={postComment}
-                />
-                <button
-                  type="button"
-                  onClick={postComment}
-                  disabled={postingComment || !newComment.trim()}
-                  className="px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium disabled:opacity-50 inline-flex items-center gap-1.5"
-                >
-                  {postingComment ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                </button>
+              <div className="mt-3">
+                {currentTask && (
+                  <CommentEditor
+                    taskId={currentTask.id}
+                    submitting={postingComment}
+                    onSubmit={postComment}
+                  />
+                )}
               </div>
             </div>
           )}
@@ -735,20 +710,3 @@ function initialsFromName(name: string | null): string {
     .toUpperCase();
 }
 
-function renderWithMentions(body: string): React.ReactNode[] {
-  const re = /@([a-zA-Z0-9._%+-]+(?:@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})?)/g;
-  const parts: React.ReactNode[] = [];
-  let lastIndex = 0;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(body)) !== null) {
-    if (m.index > lastIndex) parts.push(body.slice(lastIndex, m.index));
-    parts.push(
-      <span key={m.index} className="bg-brand-100 text-brand-700 rounded px-1 py-0.5 text-[12px] font-medium">
-        @{m[1]}
-      </span>
-    );
-    lastIndex = m.index + m[0].length;
-  }
-  if (lastIndex < body.length) parts.push(body.slice(lastIndex));
-  return parts;
-}
