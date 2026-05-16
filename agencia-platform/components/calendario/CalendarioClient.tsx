@@ -39,6 +39,10 @@ const typeLabels: Record<UiEvent["type"], string> = {
   campaña: "Campaña"
 };
 
+function backendEventType(t: UiEvent["type"]): string {
+  return ({ reunion: "MEETING", publicacion: "PUBLICATION", deadline: "DEADLINE", "campaña": "CAMPAIGN" } as any)[t] ?? "OTHER";
+}
+
 function buildMonth(year: number, month: number) {
   const first = new Date(year, month, 1);
   const firstWeekday = (first.getDay() + 6) % 7;
@@ -67,6 +71,15 @@ export default function CalendarioClient({
   const [open, setOpen] = useState(false);
   const [selectedDate, setSelectedDate] = useState<string | undefined>();
   const [editingEvent, setEditingEvent] = useState<UiEvent | null>(null);
+
+  // Drag & drop entre días: copia local de events/tasks para hacer
+  // updates optimistas. Si la PATCH falla, revertimos al snapshot.
+  const [localEvents, setLocalEvents] = useState<UiEvent[]>(events);
+  const [localTasks, setLocalTasks] = useState<UiTask[]>(myTasks);
+  useEffect(() => setLocalEvents(events), [events]);
+  useEffect(() => setLocalTasks(myTasks), [myTasks]);
+  const [dragging, setDragging] = useState<{ kind: "event" | "task"; id: string; fromDate: string } | null>(null);
+  const [dragHover, setDragHover] = useState<string | null>(null);
 
   const year = cursor.getFullYear();
   const month = cursor.getMonth();
@@ -111,7 +124,7 @@ export default function CalendarioClient({
   // Convertimos las tareas del usuario actual en chips para el calendario.
   const taskChips: TaskChip[] = useMemo(
     () =>
-      myTasks.map((t) => ({
+      localTasks.map((t) => ({
         kind: "task" as const,
         id: t.id,
         title: t.title,
@@ -119,12 +132,12 @@ export default function CalendarioClient({
         time: t.dueAllDay === false ? t.dueTime : undefined,
         allDay: t.dueAllDay !== false
       })),
-    [myTasks]
+    [localTasks]
   );
 
   const eventsByDay = useMemo(() => {
     const map = new Map<string, (UiEvent | ExternalEvent | TaskChip)[]>();
-    events.forEach((e) => {
+    localEvents.forEach((e) => {
       if (!map.has(e.date)) map.set(e.date, []);
       map.get(e.date)!.push(e);
     });
@@ -137,7 +150,51 @@ export default function CalendarioClient({
       map.get(t.date)!.push(t);
     });
     return map;
-  }, [events, visibleExternal, taskChips]);
+  }, [localEvents, visibleExternal, taskChips]);
+
+  // Drag handlers: actualizan el state local y disparan PATCH al backend.
+  async function moveItem(kind: "event" | "task", id: string, fromDate: string, toDate: string) {
+    if (fromDate === toDate) return;
+    if (kind === "event") {
+      const ev = localEvents.find((e) => e.id === id);
+      if (!ev) return;
+      // Preservar hora si existía.
+      const time = ev.time ?? "00:00";
+      const allDay = !ev.time;
+      const startAt = new Date(`${toDate}T${time}:00`).toISOString();
+      const prev = localEvents;
+      setLocalEvents(localEvents.map((e) => (e.id === id ? { ...e, date: toDate } : e)));
+      const r = await fetch(`/api/v1/events/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: ev.title, type: backendEventType(ev.type), startAt, allDay, clientId: ev.clientId || undefined })
+      });
+      if (!r.ok) {
+        setLocalEvents(prev);
+        alert("No se pudo mover el evento.");
+      } else {
+        router.refresh();
+      }
+    } else {
+      const t = localTasks.find((x) => x.id === id);
+      if (!t) return;
+      const time = t.dueAllDay === false && t.dueTime ? t.dueTime : "00:00";
+      const dueDate = new Date(`${toDate}T${time}:00`).toISOString();
+      const prev = localTasks;
+      setLocalTasks(localTasks.map((x) => (x.id === id ? { ...x, dueDate: toDate } : x)));
+      const r = await fetch(`/api/v1/tasks/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dueDate })
+      });
+      if (!r.ok) {
+        setLocalTasks(prev);
+        alert("No se pudo mover la tarea.");
+      } else {
+        router.refresh();
+      }
+    }
+  }
 
   function toggleCalendarVisibility(id: string) {
     setHidden((prev) => {
@@ -281,7 +338,26 @@ export default function CalendarioClient({
                     openNewEvent(iso);
                   }
                 }}
-                className="text-left border-r border-b last:border-r-0 p-1.5 overflow-hidden hover:bg-brand-50/50 transition cursor-pointer focus:outline-none focus:ring-2 focus:ring-brand-400 focus:ring-inset"
+                onDragOver={(ev) => {
+                  if (dragging) {
+                    ev.preventDefault();
+                    if (dragHover !== iso) setDragHover(iso);
+                  }
+                }}
+                onDragLeave={() => {
+                  if (dragHover === iso) setDragHover(null);
+                }}
+                onDrop={(ev) => {
+                  ev.preventDefault();
+                  setDragHover(null);
+                  if (!dragging) return;
+                  moveItem(dragging.kind, dragging.id, dragging.fromDate, iso);
+                  setDragging(null);
+                }}
+                className={
+                  "text-left border-r border-b last:border-r-0 p-1.5 overflow-hidden transition cursor-pointer focus:outline-none focus:ring-2 focus:ring-brand-400 focus:ring-inset " +
+                  (dragHover === iso ? "bg-brand-100 ring-2 ring-brand-400 ring-inset" : "hover:bg-brand-50/50")
+                }
               >
                 <div className={`text-xs font-medium mb-1 ${isToday ? "text-brand-600" : "text-slate-700"}`}>
                   <span
@@ -302,12 +378,22 @@ export default function CalendarioClient({
                       return (
                         <div
                           key={"task-" + t.id}
+                          draggable
+                          onDragStart={(ev) => {
+                            ev.stopPropagation();
+                            ev.dataTransfer.effectAllowed = "move";
+                            setDragging({ kind: "task", id: t.id, fromDate: t.date });
+                          }}
+                          onDragEnd={() => {
+                            setDragging(null);
+                            setDragHover(null);
+                          }}
                           onClick={(clickEv) => {
                             clickEv.stopPropagation();
                             router.push(`/tareas?task=${t.id}`);
                           }}
-                          className="text-[11px] px-1.5 py-0.5 rounded border truncate cursor-pointer hover:opacity-80 bg-amber-50 text-amber-800 border-amber-300 inline-flex items-center gap-1 w-full"
-                          title={`Tarea: ${t.title}${t.time ? ` · ${t.time}` : ""}`}
+                          className="text-[11px] px-1.5 py-0.5 rounded border truncate cursor-grab active:cursor-grabbing hover:opacity-80 bg-amber-50 text-amber-800 border-amber-300 inline-flex items-center gap-1 w-full"
+                          title={`Tarea: ${t.title}${t.time ? ` · ${t.time}` : ""} — arrastra para cambiar de día`}
                         >
                           <CheckSquare className="h-3 w-3 shrink-0" />
                           {t.time && <span className="font-medium">{t.time}</span>}
@@ -334,11 +420,21 @@ export default function CalendarioClient({
                     return (
                       <div
                         key={ev.id}
+                        draggable
+                        onDragStart={(dragEv) => {
+                          dragEv.stopPropagation();
+                          dragEv.dataTransfer.effectAllowed = "move";
+                          setDragging({ kind: "event", id: ev.id, fromDate: ev.date });
+                        }}
+                        onDragEnd={() => {
+                          setDragging(null);
+                          setDragHover(null);
+                        }}
                         onClick={(clickEv) => {
                           clickEv.stopPropagation();
                           openEditEvent(ev);
                         }}
-                        className={`text-[11px] px-1.5 py-0.5 rounded border truncate cursor-pointer hover:opacity-80 ${typeStyles[ev.type]}`}
+                        className={`text-[11px] px-1.5 py-0.5 rounded border truncate cursor-grab active:cursor-grabbing hover:opacity-80 ${typeStyles[ev.type]}`}
                         title="Click para editar/eliminar"
                       >
                         {ev.time && <span className="font-medium">{ev.time} </span>}

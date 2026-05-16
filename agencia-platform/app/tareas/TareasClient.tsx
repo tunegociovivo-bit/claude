@@ -108,6 +108,7 @@ export default function TareasClient({
     const t = tasks.find((x) => x.id === taskId);
     if (t) {
       setEditingTask(t);
+      setNewTaskOpen(true);
     }
     // Si no la encontramos (todavía no han cargado), no insistimos —
     // el efecto se reejecuta cuando `tasks` se actualiza.
