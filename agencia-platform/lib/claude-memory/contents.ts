@@ -344,6 +344,17 @@ export const SPRINTS = [
 export const PENDIENTES = `
 ## Pendientes conocidos al cierre del último sprint
 
+- **URGENTE: comentarios Asana siguen mostrando URLs**, no imágenes,
+  pese a varios refinos del parser (commits 459e260 → 2807c9e). Hay
+  un endpoint de diagnóstico /api/v1/admin/asana/debug-comment?
+  localTaskId=… que devuelve el html_text crudo de Asana — usarlo
+  para ver el formato real y refinar el regex. La hipótesis es que
+  Asana usa un patrón distinto al data-asana-type="attachment"
+  que asumimos.
+- **Tareas compartidas multi-proyecto deben aparecer ARRIBA** de su
+  columna en el proyecto extra (commit a986355). Si no se ve,
+  revisar que prisma db push se ejecutó para que TaskProject.status
+  exista.
 - E2E: subir adjunto a tarea, aprobar post desde /p/editorial
 - Notificar al CLIENTE por email cuando el equipo responde en el
   hilo del portal de aprobación (hoy solo se notifica al equipo

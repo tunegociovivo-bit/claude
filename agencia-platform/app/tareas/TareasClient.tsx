@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   DndContext,
   DragOverlay,
@@ -25,6 +25,9 @@ import AvatarStack from "@/components/AvatarStack";
 import TaskFormModal from "@/components/forms/TaskFormModal";
 import ProjectFormModal from "@/components/forms/ProjectFormModal";
 import BulkActionBar from "@/components/tareas/BulkActionBar";
+import MobileFABs from "@/components/tareas/MobileFABs";
+import VoiceTaskRecorder from "@/components/forms/VoiceTaskRecorder";
+import MeetingRecorder from "@/components/forms/MeetingRecorder";
 import { statusLabelOf, statusColorOf, priorityColors, priorityLabels } from "@/lib/mock-data";
 import type { UiTask, UiProject, UiClient, UiMember } from "@/lib/db/queries";
 import { LayoutGrid, List, Plus, Filter, CalendarDays, FolderPlus, GripVertical, CheckSquare, Square, Settings2, Loader2, Link2, Check } from "lucide-react";
@@ -72,17 +75,22 @@ export default function TareasClient({
   team: UiMember[];
 }) {
   const searchParams = useSearchParams();
+  const router = useRouter();
   const urlProject = searchParams.get("project");
   const { data: session } = useSession();
   const myUserId = (session?.user as any)?.id as string | undefined;
   const [view, setView] = useState<"kanban" | "list">("kanban");
-  // Por defecto en móvil cambiamos a vista lista — kanban con scroll
-  // horizontal en pantalla estrecha es frustrante. El usuario puede
-  // forzar kanban con el toggle.
+  const [isMobile, setIsMobile] = useState(false);
+  // En móvil mantenemos kanban (no list) — estilo Asana, una columna
+  // ancha visible con la siguiente asomando. Mucho más cómodo de
+  // navegar con el pulgar que una tabla.
   useEffect(() => {
-    if (typeof window !== "undefined" && window.matchMedia("(max-width: 639px)").matches) {
-      setView("list");
-    }
+    if (typeof window === "undefined") return;
+    const mq = window.matchMedia("(max-width: 767px)");
+    const apply = () => setIsMobile(mq.matches);
+    apply();
+    mq.addEventListener("change", apply);
+    return () => mq.removeEventListener("change", apply);
   }, []);
   const [filters, setFilters] = useState<TaskFilters>({
     ...DEFAULT_FILTERS,
@@ -169,6 +177,62 @@ export default function TareasClient({
   }, [searchParams, tasks]);
   const [newProjectOpen, setNewProjectOpen] = useState(false);
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
+
+  // Estados para los FABs mobile: grabador de voz para crear tarea
+  // (Whisper + Claude maquetan), grabador de reunión rápida (crea
+  // tarea auto-titulada y abre el grabador en un solo click).
+  const [voiceOpen, setVoiceOpen] = useState(false);
+  const [quickMeetingTaskId, setQuickMeetingTaskId] = useState<string | null>(null);
+  const [quickMeetingError, setQuickMeetingError] = useState<string | null>(null);
+  const [creatingQuickMeeting, setCreatingQuickMeeting] = useState(false);
+
+  async function handleQuickMeeting() {
+    if (creatingQuickMeeting) return;
+    // Si no hay proyecto filtrado, usamos el primero disponible. Si no
+    // hay ninguno, avisamos al user — sin proyecto la tarea no se
+    // puede crear.
+    const targetProject = projectFilter !== "all" ? projectFilter : projects[0]?.id;
+    if (!targetProject) {
+      setQuickMeetingError("Crea un proyecto antes de grabar una reunión");
+      return;
+    }
+    setCreatingQuickMeeting(true);
+    setQuickMeetingError(null);
+    try {
+      const now = new Date();
+      const pad = (n: number) => String(n).padStart(2, "0");
+      const title = `Reunión ${pad(now.getDate())}/${pad(now.getMonth() + 1)} ${pad(now.getHours())}:${pad(now.getMinutes())}`;
+      const r = await fetch("/api/v1/tasks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title,
+          projectId: targetProject,
+          status: orderedColumns[0]?.id ?? "TODO",
+          priority: "MEDIUM"
+        })
+      });
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        throw new Error(j.message || `Error ${r.status}`);
+      }
+      const created = await r.json();
+      setQuickMeetingTaskId(created.id);
+      router.refresh();
+    } catch (e: any) {
+      setQuickMeetingError(e?.message ?? "No se pudo crear la tarea");
+    } finally {
+      setCreatingQuickMeeting(false);
+    }
+  }
+
+  function handleTaskByText() {
+    openNewTask();
+  }
+
+  function handleTaskByVoice() {
+    setVoiceOpen(true);
+  }
 
   // Selección masiva
   const [selectionMode, setSelectionMode] = useState(false);
@@ -544,7 +608,7 @@ export default function TareasClient({
             {/* Móvil: scroll horizontal con columnas de ~280px (típico kanban).
                 Tablet/desktop: grid uniforme. +1 columna placeholder al final
                 con un botón "+" para añadir columna en línea. */}
-            <KanbanGrid columnCount={orderedColumns.length + 1}>
+            <KanbanGrid columnCount={orderedColumns.length + 1} isMobile={isMobile}>
               {orderedColumns.map((col) => (
                 <KanbanColumnView
                   key={col.id}
@@ -682,6 +746,82 @@ export default function TareasClient({
       />
       <ProjectFormModal open={newProjectOpen} onClose={() => setNewProjectOpen(false)} clients={clients} />
 
+      {/* FABs flotantes en mobile (solo md-): reunión rápida + crear tarea */}
+      <MobileFABs
+        onQuickMeeting={handleQuickMeeting}
+        onTaskByVoice={handleTaskByVoice}
+        onTaskByText={handleTaskByText}
+      />
+
+      {/* Modal grabador de tareas por voz (Whisper + Claude maquetan).
+          Si el user decide editar antes de crear, abrimos
+          TaskFormModal con preset — usamos editingTask como puente. */}
+      <VoiceTaskRecorder
+        open={voiceOpen}
+        onClose={() => setVoiceOpen(false)}
+        defaultProjectId={projectFilter !== "all" ? projectFilter : undefined}
+        onCreated={() => {
+          setVoiceOpen(false);
+          router.refresh();
+        }}
+        onOpenInForm={(preset) => {
+          setVoiceOpen(false);
+          // Pre-rellenamos un editingTask "virtual" para que
+          // TaskFormModal pinte los campos. id vacío lo trata como
+          // creación nueva.
+          setEditingTask({
+            id: "",
+            title: preset.title,
+            description: preset.description ?? "",
+            projectId: preset.projectId ?? (projectFilter !== "all" ? projectFilter : projects[0]?.id ?? ""),
+            assigneeIds: preset.assigneeIds ?? [],
+            priority: preset.priority === "urgent" ? "urgencia" : preset.priority === "high" ? "alta" : "",
+            dueDate: preset.dueDate,
+            status: orderedColumns[0]?.id ?? "TODO"
+          } as any);
+          setNewTaskOpen(true);
+        }}
+      />
+
+      {/* Grabador de reunión disparado desde FAB1 — abierto sobre la
+          tarea recién creada. onComment refresca el listado para que
+          el resumen aparezca al volver. */}
+      {quickMeetingTaskId && (
+        <MeetingRecorder
+          taskId={quickMeetingTaskId}
+          open={!!quickMeetingTaskId}
+          onClose={() => {
+            setQuickMeetingTaskId(null);
+            router.refresh();
+          }}
+          onComment={() => router.refresh()}
+        />
+      )}
+
+      {quickMeetingError && (
+        <div className="fixed inset-x-4 bottom-24 md:bottom-6 z-[70] mx-auto max-w-md rounded-lg bg-rose-600 text-white px-4 py-3 shadow-lg">
+          <div className="flex items-start gap-2">
+            <span className="text-sm flex-1">{quickMeetingError}</span>
+            <button
+              type="button"
+              onClick={() => setQuickMeetingError(null)}
+              className="text-white/80 hover:text-white text-sm"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
+
+      {creatingQuickMeeting && (
+        <div className="fixed inset-0 z-[70] grid place-items-center bg-slate-900/30 backdrop-blur-sm">
+          <div className="rounded-lg bg-white px-5 py-4 shadow-xl flex items-center gap-3">
+            <Loader2 className="h-5 w-5 animate-spin text-brand-600" />
+            <span className="text-sm font-medium">Creando tarea…</span>
+          </div>
+        </div>
+      )}
+
       {selectionMode && selected.size > 0 && (
         <BulkActionBar
           count={selected.size}
@@ -708,24 +848,24 @@ export default function TareasClient({
  */
 function KanbanGrid({
   columnCount,
-  children
+  children,
+  isMobile
 }: {
   columnCount: number;
   children: React.ReactNode;
+  isMobile?: boolean;
 }) {
-  // Layout estilo Asana: columnas anchas que aprovechan todo el ancho.
-  // Mínimo 320px por columna; si caben todas en pantalla, reparten el
-  // espacio extra al 1fr. Si no caben, scroll horizontal. Quitamos el
-  // cap de 6 columnas previo — Asana muestra todas las que existan.
-  // Tira con scroll horizontal. En móvil columnas más estrechas (~280px)
-  // para que se vea media columna siguiente y se intuya el swipe; con
-  // snap-start cada columna ancla cuando se hace swipe. En sm+ se
-  // abren para aprovechar pantalla.
+  // Layout estilo Asana: en móvil columna casi al 100% del viewport
+  // (88vw) con la siguiente asomando ~12vw para indicar swipe. Snap
+  // mandatory ancla cada columna al hacer scroll horizontal. En sm+
+  // columnas de 320-360px que ocupan más densas el ancho disponible.
   return (
     <div
       className="grid grid-flow-col gap-2 sm:gap-4 overflow-x-auto pb-2 snap-x snap-mandatory sm:snap-none flex-1 [&>*]:min-h-full [&>*]:snap-start"
       style={{
-        gridAutoColumns: `minmax(280px, ${columnCount <= 6 ? "1fr" : "360px"})`
+        gridAutoColumns: isMobile
+          ? "88vw"
+          : `minmax(320px, ${columnCount <= 6 ? "1fr" : "360px"})`
       }}
     >
       {children}
