@@ -1356,6 +1356,19 @@ function GenerateMonthModal({
     if (typeof p.copyLength === "number") setCopyLength(Math.max(0, Math.min(100, p.copyLength)));
     if (typeof p.perNetworkCopy === "boolean") setPerNetworkCopy(p.perNetworkCopy);
     if (typeof p.extraGuidance === "string") setExtraGuidance(p.extraGuidance);
+    if (typeof p.imageIncludeHint === "string") setImageIncludeHint(p.imageIncludeHint);
+    if (typeof p.imageAvoidHint === "string") setImageAvoidHint(p.imageAvoidHint);
+    if (p.pillars && typeof p.pillars === "object") {
+      setPillars({
+        educativo: Number(p.pillars.educativo ?? 30),
+        producto: Number(p.pillars.producto ?? 30),
+        testimonio: Number(p.pillars.testimonio ?? 20),
+        social: Number(p.pillars.social ?? 20)
+      });
+    }
+    if (Array.isArray(p.allowedDays)) setAllowedDays(p.allowedDays.filter((d: any) => Number.isInteger(d) && d >= 0 && d <= 6));
+    if (Array.isArray(p.preferredHours)) setPreferredHours(p.preferredHours.filter((h: any) => Number.isInteger(h) && h >= 0 && h <= 23));
+    if (Array.isArray(p.forcedRoster)) setForcedRoster(p.forcedRoster.filter((n: any) => typeof n === "string"));
     if (p.status === "DRAFT" || p.status === "REVIEW") setStatus(p.status);
     if (typeof p.generateImages === "boolean") setGenerateImages(p.generateImages);
     if (p.imageQuality === "low" || p.imageQuality === "medium" || p.imageQuality === "high") {
@@ -1399,6 +1412,17 @@ function GenerateMonthModal({
       .then((data) => {
         if (aborted) return;
         applyPreset(data?.editorialDefaults);
+        // Roster: extraemos nombres únicos de referenceImages que tengan
+        // personName, para pintar los chips de "personas a forzar".
+        const refs: any[] = Array.isArray(data?.referenceImages) ? data.referenceImages : [];
+        const names = Array.from(
+          new Set(
+            refs
+              .map((r) => (r?.personName ?? "").toString().trim())
+              .filter((n: string) => n.length > 0)
+          )
+        );
+        setRosterOptions(names);
         setPresetLoaded(true);
       })
       .catch(() => setPresetLoaded(true));
@@ -1418,6 +1442,12 @@ function GenerateMonthModal({
       copyLength,
       perNetworkCopy,
       extraGuidance,
+      imageIncludeHint,
+      imageAvoidHint,
+      pillars,
+      allowedDays,
+      preferredHours,
+      forcedRoster,
       status,
       generateImages,
       imageQuality
@@ -1455,6 +1485,16 @@ function GenerateMonthModal({
         ? "medio (100-300 palabras)"
         : "largo (200-450 palabras)";
 
+  // Estimación de coste. Modelo simple:
+  //   - Claude (entrada+salida): ~$0.02/post de media (Opus, copy
+  //     estructurado + headlines + image_prompt)
+  //   - Imagen: low=$0.02 · medium=$0.04 · high=$0.17 por imagen
+  // Sirve para que el user no dispare un "high × 30 pubs" sin querer.
+  const imgPerUnit = imageQuality === "low" ? 0.02 : imageQuality === "high" ? 0.17 : 0.04;
+  const claudeCost = count * 0.02;
+  const imageCost = generateImages ? count * imgPerUnit : 0;
+  const totalCost = claudeCost + imageCost;
+
   async function run() {
     if (!clientId) {
       setError("Selecciona un cliente");
@@ -1468,8 +1508,21 @@ function GenerateMonthModal({
       setError("El mix de formatos debe sumar > 0");
       return;
     }
+    if (allowedDays.length === 0) {
+      setError("Selecciona al menos un día de la semana permitido");
+      return;
+    }
+    if (preferredHours.length === 0) {
+      setError("Selecciona al menos una hora preferida");
+      return;
+    }
     setRunning(true);
     setError(null);
+    // Mapeamos pillars del UI (keys españolas) a tal cual al backend —
+    // se normalizan allí.
+    const pillarsBody = Object.fromEntries(
+      Object.entries(pillars).filter(([, v]) => v > 0)
+    );
     const r = await fetch("/api/v1/editorial/generate-month", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -1482,6 +1535,12 @@ function GenerateMonthModal({
         copyLength,
         perNetworkCopy,
         extraGuidance: extraGuidance || undefined,
+        imageIncludeHint: imageIncludeHint || undefined,
+        imageAvoidHint: imageAvoidHint || undefined,
+        pillars: Object.keys(pillarsBody).length > 0 ? pillarsBody : undefined,
+        allowedDaysOfWeek: allowedDays.length === 7 ? undefined : allowedDays,
+        preferredHours,
+        useRosterPersons: forcedRoster.length > 0 ? forcedRoster : undefined,
         status,
         generateImages,
         imageQuality
@@ -1686,6 +1745,167 @@ function GenerateMonthModal({
           />
         </div>
 
+        {/* Pillars temáticos */}
+        <div>
+          <label className="block text-xs font-medium text-slate-700 mb-1.5">
+            Pillars temáticos <span className="text-slate-500">· se reparten proporcionalmente</span>
+          </label>
+          <div className="grid grid-cols-4 gap-2">
+            {(["educativo", "producto", "testimonio", "social"] as const).map((k) => (
+              <div key={k} className="bg-slate-50 rounded-lg p-2">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-[11px] font-medium text-slate-700 capitalize">{k}</span>
+                  <span className="text-[11px] text-violet-600 font-medium">{pillars[k]}%</span>
+                </div>
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  step={5}
+                  value={pillars[k]}
+                  onChange={(e) => setPillars({ ...pillars, [k]: Number(e.target.value) })}
+                  className="w-full accent-violet-600"
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Días permitidos + horas preferidas */}
+        <div className="grid md:grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs font-medium text-slate-700 mb-1.5">
+              Días permitidos
+              {allowedDays.length === 7 && <span className="ml-1 text-[11px] text-slate-500">· todos</span>}
+            </label>
+            <div className="flex flex-wrap gap-1">
+              {[
+                { d: 1, label: "L" },
+                { d: 2, label: "M" },
+                { d: 3, label: "X" },
+                { d: 4, label: "J" },
+                { d: 5, label: "V" },
+                { d: 6, label: "S" },
+                { d: 0, label: "D" }
+              ].map(({ d, label }) => {
+                const sel = allowedDays.includes(d);
+                return (
+                  <button
+                    key={d}
+                    type="button"
+                    onClick={() =>
+                      setAllowedDays((prev) =>
+                        prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d]
+                      )
+                    }
+                    className={
+                      "w-8 h-8 rounded-md text-xs font-medium border " +
+                      (sel
+                        ? "bg-violet-50 border-violet-300 text-violet-700"
+                        : "bg-white border-slate-200 text-slate-400 hover:bg-slate-50")
+                    }
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-slate-700 mb-1.5">
+              Horas preferidas
+            </label>
+            <div className="flex flex-wrap gap-1">
+              {[8, 9, 10, 11, 12, 14, 16, 18, 20, 21].map((h) => {
+                const sel = preferredHours.includes(h);
+                return (
+                  <button
+                    key={h}
+                    type="button"
+                    onClick={() =>
+                      setPreferredHours((prev) =>
+                        prev.includes(h) ? prev.filter((x) => x !== h) : [...prev, h].sort((a, b) => a - b)
+                      )
+                    }
+                    className={
+                      "px-2 py-1 rounded-md text-[11px] font-medium border tabular-nums " +
+                      (sel
+                        ? "bg-violet-50 border-violet-300 text-violet-700"
+                        : "bg-white border-slate-200 text-slate-400 hover:bg-slate-50")
+                    }
+                  >
+                    {h.toString().padStart(2, "0")}h
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+
+        {/* Personas del roster forzadas */}
+        {rosterOptions.length > 0 && (
+          <div>
+            <label className="block text-xs font-medium text-slate-700 mb-1.5">
+              Personas del roster forzadas <span className="text-slate-500">· deben aparecer en TODAS las imágenes</span>
+            </label>
+            <div className="flex flex-wrap gap-1">
+              {rosterOptions.map((name) => {
+                const sel = forcedRoster.includes(name);
+                return (
+                  <button
+                    key={name}
+                    type="button"
+                    onClick={() =>
+                      setForcedRoster((prev) =>
+                        prev.includes(name) ? prev.filter((x) => x !== name) : [...prev, name]
+                      )
+                    }
+                    className={
+                      "px-2.5 py-1 rounded-md text-xs transition border " +
+                      (sel
+                        ? "bg-violet-50 border-violet-300 text-violet-700 font-medium"
+                        : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50")
+                    }
+                  >
+                    {sel ? "✓ " : ""}{name}
+                  </button>
+                );
+              })}
+            </div>
+            <p className="mt-1 text-[11px] text-slate-500">
+              Si no marcas nadie, Claude detecta personas auto-mágicamente por mención en el copy (incluye "equipo" → todo el roster type=equipo).
+            </p>
+          </div>
+        )}
+
+        {/* Guías de imagen positivo/negativo */}
+        <div className="grid md:grid-cols-2 gap-3">
+          <div>
+            <label className="block text-[11px] font-medium text-emerald-800 mb-1">
+              Qué SÍ debe aparecer (positivo, opcional)
+            </label>
+            <textarea
+              value={imageIncludeHint}
+              onChange={(e) => setImageIncludeHint(e.target.value)}
+              rows={2}
+              placeholder="Ej. ambiente luminoso, vegetación, instrumentos médicos modernos…"
+              className="w-full px-3 py-2 rounded-lg border border-emerald-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+            />
+          </div>
+          <div>
+            <label className="block text-[11px] font-medium text-rose-800 mb-1">
+              Qué NO debe aparecer (negativo, opcional)
+            </label>
+            <textarea
+              value={imageAvoidHint}
+              onChange={(e) => setImageAvoidHint(e.target.value)}
+              rows={2}
+              placeholder="Ej. nada de jeringuillas a la vista, sin logos de competidor…"
+              className="w-full px-3 py-2 rounded-lg border border-rose-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-rose-500"
+            />
+          </div>
+        </div>
+
         <div>
           <label className="block text-xs font-medium text-slate-700 mb-1">Instrucción extra (opcional)</label>
           <textarea
@@ -1695,6 +1915,16 @@ function GenerateMonthModal({
             placeholder="Ej. enfoca el mes en sostenibilidad. Incluye 2 testimonios. Evita hablar de precios."
             className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
           />
+        </div>
+
+        {/* Estimación de coste */}
+        <div className="rounded-lg border bg-amber-50/40 border-amber-200 px-3 py-2 text-xs text-amber-900 flex items-center gap-3">
+          <span className="font-medium">Coste estimado:</span>
+          <span>
+            Claude ~${claudeCost.toFixed(2)}
+            {generateImages && <> · Imágenes ~${imageCost.toFixed(2)} ({imageQuality})</>}
+          </span>
+          <span className="ml-auto font-bold tabular-nums">≈ ${totalCost.toFixed(2)}</span>
         </div>
 
         <div className="flex items-center gap-3">
