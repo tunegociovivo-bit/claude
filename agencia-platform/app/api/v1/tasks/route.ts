@@ -4,6 +4,7 @@ import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { taskCreateSchema } from "@/lib/api/schemas";
 import { notifyAssignment } from "@/lib/notifications/assignment";
+import { dispatchWebhook } from "@/lib/webhooks/dispatch";
 
 export const GET = withApi({ scope: "tasks:read" }, async (req, { api }) => {
   const url = new URL(req.url);
@@ -72,5 +73,15 @@ export const POST = withApi({ scope: "tasks:write" }, async (req, { api }) => {
     newAssigneeIds: assigneeIds,
     actorId: api.userId
   }).catch((e) => console.warn("[notif] assignment create:", e?.message ?? e));
+  // Webhook saliente — fire-and-forget.
+  dispatchWebhook(api.workspaceId, "task.created", {
+    id: task.id,
+    title: task.title,
+    status: task.status,
+    projectId: task.projectId,
+    clientId: task.clientId,
+    dueDate: task.dueDate,
+    assigneeIds
+  });
   return NextResponse.json(task, { status: 201 });
 });

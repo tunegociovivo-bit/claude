@@ -4,7 +4,9 @@ import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { taskCreateSchema } from "@/lib/api/schemas";
 import { notifyAssignment } from "@/lib/notifications/assignment";
+import { notifyNewMentions } from "@/lib/notifications/mentions-in-doc";
 import { auditFromReq } from "@/lib/audit/log";
+import { dispatchWebhook } from "@/lib/webhooks/dispatch";
 
 export const GET = withApi({ scope: "tasks:read" }, async (_req, { params, api }) => {
   const task = await prisma.task.findFirst({
@@ -44,6 +46,16 @@ export const PATCH = withApi({ scope: "tasks:write" }, async (req, { params, api
       })
     : [];
   const prevAssigneeIds = new Set(prevAssignees.map((a) => a.userId));
+
+  // Si llega `description` nueva, también capturamos la anterior para
+  // calcular las menciones nuevas (diff de @user mentions).
+  const prevDescription =
+    data.description !== undefined
+      ? await prisma.task.findUnique({
+          where: { id: params.id },
+          select: { description: true }
+        })
+      : null;
 
   const result = await prisma.$transaction(async (tx) => {
     const upd = await tx.task.updateMany({
@@ -90,6 +102,21 @@ export const PATCH = withApi({ scope: "tasks:write" }, async (req, { params, api
       }).catch((e) => console.warn("[notif] assignment patch:", e?.message ?? e));
     }
   }
+  // Notif por @menciones nuevas en la descripción rich.
+  if (data.description !== undefined) {
+    notifyNewMentions({
+      source: { kind: "task", id: params.id, title: result.title, workspaceId: api.workspaceId },
+      previousBody: prevDescription?.description,
+      nextBody: data.description,
+      actorId: api.userId
+    }).catch((e) => console.warn("[notif] mention task desc:", e?.message ?? e));
+  }
+  dispatchWebhook(api.workspaceId, "task.updated", {
+    id: params.id,
+    title: result.title,
+    status: result.status,
+    changedFields: Object.keys(data)
+  });
   return NextResponse.json(result);
 });
 
@@ -111,6 +138,10 @@ export const DELETE = withApi({ scope: "tasks:write" }, async (req, { params, ap
     targetId: params.id,
     before: snapshot,
     meta: { soft: true }
+  });
+  dispatchWebhook(api.workspaceId, "task.deleted", {
+    id: params.id,
+    title: snapshot?.title
   });
   return NextResponse.json({ ok: true });
 });

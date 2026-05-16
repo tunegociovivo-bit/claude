@@ -59,11 +59,10 @@ const cards = [
     icon: Download
   },
   {
-    href: "#",
+    href: "/admin/webhooks",
     title: "Webhooks",
-    description: "Próximamente: dispara eventos a sistemas externos cuando algo cambia.",
-    icon: Webhook,
-    disabled: true
+    description: "Dispara un POST a una URL externa (Make, Zapier, n8n) cuando algo cambia: tareas, clientes, MRR, aprobaciones.",
+    icon: Webhook
   },
   {
     href: "/admin/usuarios",

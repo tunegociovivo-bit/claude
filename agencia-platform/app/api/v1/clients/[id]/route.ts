@@ -5,6 +5,7 @@ import { ApiError } from "@/lib/api/auth";
 import { clientCreateSchema } from "@/lib/api/schemas";
 import { callerIsAdmin, redactMrr } from "@/lib/api/permissions";
 import { auditFromReq } from "@/lib/audit/log";
+import { dispatchWebhook } from "@/lib/webhooks/dispatch";
 
 export const GET = withApi({ scope: "clients:read" }, async (_req, { params, api }) => {
   const [client, isAdmin] = await Promise.all([
@@ -48,12 +49,21 @@ export const PATCH = withApi({ scope: "clients:write" }, async (req, { params, a
       before: { mrr: previous.mrr },
       after: { mrr: data.mrr }
     });
+    dispatchWebhook(api.workspaceId, "client.mrr_change", {
+      id: params.id,
+      previousMrr: previous.mrr,
+      newMrr: data.mrr
+    });
   } else if (Object.keys(data).length > 0) {
     auditFromReq(req, api, {
       action: "client.update",
       targetType: "CLIENT",
       targetId: params.id,
       meta: { fields: Object.keys(data) }
+    });
+    dispatchWebhook(api.workspaceId, "client.updated", {
+      id: params.id,
+      changedFields: Object.keys(data)
     });
   }
 
