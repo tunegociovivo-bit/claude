@@ -3,6 +3,20 @@ import { redirect } from "next/navigation";
 import PageHeader from "@/components/PageHeader";
 import { prisma } from "@/lib/db/prisma";
 import { getSessionWorkspaceId } from "@/lib/auth";
+import type { LucideIcon } from "lucide-react";
+
+type AdminCard = {
+  href: string;
+  title: string;
+  description: string;
+  icon: LucideIcon;
+  // Algunas cards son ofertas "Próximamente" que se renderizan
+  // grises y no clicables. Otras tienen highlight especial o
+  // abren en pestaña externa.
+  disabled?: boolean;
+  external?: boolean;
+  highlight?: boolean;
+};
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import {
@@ -37,7 +51,7 @@ import {
 
 export const dynamic = "force-dynamic";
 
-const cards = [
+const cards: AdminCard[] = [
   {
     href: "/admin/ai",
     title: "Configuración de IA",
