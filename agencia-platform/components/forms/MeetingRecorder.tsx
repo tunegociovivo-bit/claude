@@ -44,26 +44,39 @@ export default function MeetingRecorder({
   const [error, setError] = useState<string | null>(null);
   const [elapsed, setElapsed] = useState(0);
   const [blob, setBlob] = useState<Blob | null>(null);
-  const [actionItems, setActionItems] = useState<{ title: string; assignee?: string; due?: string }[]>([]);
-  const [creatingSubtasks, setCreatingSubtasks] = useState(false);
-  const [subtasksCreated, setSubtasksCreated] = useState<number>(0);
+  // Resumen completo devuelto por la IA. Se pinta en la fase "done"
+  // como panel rico (no solo "✓ resumen añadido al hilo").
+  const [summary, setSummary] = useState<MeetingSummary | null>(null);
+  // Por cada acción, el user decide si ejecutarla. La ejecución crea
+  // subtarea / email draft / evento de calendario / documento según
+  // el `tool` que asignó la IA.
+  const [actionSelection, setActionSelection] = useState<boolean[]>([]);
+  const [executing, setExecuting] = useState(false);
+  const [executedCounts, setExecutedCounts] = useState<null | {
+    subtasks: number;
+    emails: number;
+    events: number;
+    documents: number;
+  }>(null);
 
-  async function createSubtasks() {
-    if (actionItems.length === 0) return;
-    setCreatingSubtasks(true);
+  async function executeSelected() {
+    if (!summary) return;
+    const items = summary.action_items.filter((_, i) => actionSelection[i]);
+    if (items.length === 0) return;
+    setExecuting(true);
     try {
-      const r = await fetch(`/api/v1/tasks/${taskId}/subtasks/bulk`, {
+      const r = await fetch(`/api/v1/tasks/${taskId}/meeting/execute`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ items: actionItems })
+        body: JSON.stringify({ items })
       });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const data = await r.json();
-      setSubtasksCreated(data.items?.length ?? 0);
+      setExecutedCounts(data.counts);
     } catch (e: any) {
-      setError(`No se pudieron crear las subtareas: ${e?.message ?? e}`);
+      setError(`No se pudieron crear los elementos: ${e?.message ?? e}`);
     } finally {
-      setCreatingSubtasks(false);
+      setExecuting(false);
     }
   }
 
@@ -83,7 +96,9 @@ export default function MeetingRecorder({
     setError(null);
     setElapsed(0);
     setBlob(null);
-    setActionItems([]);
+    setSummary(null);
+    setActionSelection([]);
+    setExecutedCounts(null);
     chunksRef.current = [];
   }
 
@@ -175,7 +190,11 @@ export default function MeetingRecorder({
       }
       setPhase("summarizing");
       const data = await r.json();
-      setActionItems(data.actionItems ?? []);
+      const sum: MeetingSummary | null = data.summary ?? null;
+      setSummary(sum);
+      // Por defecto seleccionamos todas las ejecutables — el user
+      // deselecciona las que no quiera.
+      setActionSelection((sum?.action_items ?? []).map((a) => !!a.executable));
       if (data.comment) onComment(data.comment);
       setPhase("done");
     } catch (e: any) {
@@ -193,7 +212,14 @@ export default function MeetingRecorder({
         if (e.target === e.currentTarget && phase !== "recording" && phase !== "paused") onClose();
       }}
     >
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-md border overflow-hidden">
+      <div
+        className={
+          "bg-white rounded-xl shadow-2xl w-full border overflow-hidden " +
+          // Modal estrecho durante grabación; ancho al ver el resumen
+          // para que las secciones respiren sin truncarse.
+          (phase === "done" ? "max-w-3xl" : "max-w-md")
+        }
+      >
         <div className="px-5 py-4 border-b flex items-center gap-2">
           <Mic className="h-4 w-4 text-rose-600" />
           <h3 className="font-semibold text-slate-900 flex-1">Grabar reunión</h3>
@@ -293,48 +319,16 @@ export default function MeetingRecorder({
             </div>
           )}
 
-          {phase === "done" && (
-            <>
-              <div className="text-emerald-600 text-sm font-medium mb-2 inline-flex items-center gap-1">
-                ✓ Resumen añadido al hilo de comentarios
-              </div>
-              {actionItems.length > 0 && (
-                <div className="text-xs text-slate-600 mt-3 text-left">
-                  <div className="font-medium text-slate-700 mb-1">
-                    Acciones detectadas ({actionItems.length}):
-                  </div>
-                  <ul className="list-disc ml-5 space-y-0.5">
-                    {actionItems.map((a, i) => (
-                      <li key={i}>
-                        {a.title}
-                        {a.assignee ? ` — ${a.assignee}` : ""}
-                        {a.due ? ` (${a.due})` : ""}
-                      </li>
-                    ))}
-                  </ul>
-                  <button
-                    onClick={createSubtasks}
-                    disabled={creatingSubtasks}
-                    className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-brand-600 hover:bg-brand-700 text-white text-xs font-medium disabled:opacity-50"
-                  >
-                    {creatingSubtasks ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <Sparkles className="h-3.5 w-3.5" />
-                    )}
-                    {subtasksCreated
-                      ? `✓ ${subtasksCreated} subtarea${subtasksCreated === 1 ? "" : "s"} creadas`
-                      : `Crear ${actionItems.length} subtarea${actionItems.length === 1 ? "" : "s"}`}
-                  </button>
-                </div>
-              )}
-              <button
-                onClick={onClose}
-                className="mt-4 px-4 py-2 rounded-md bg-brand-600 hover:bg-brand-700 text-white text-sm"
-              >
-                Cerrar
-              </button>
-            </>
+          {phase === "done" && summary && (
+            <MeetingDonePanel
+              summary={summary}
+              actionSelection={actionSelection}
+              setActionSelection={setActionSelection}
+              executing={executing}
+              executedCounts={executedCounts}
+              onExecute={executeSelected}
+              onClose={onClose}
+            />
           )}
 
           {phase === "error" && (
@@ -358,4 +352,229 @@ function formatTime(sec: number): string {
   const m = Math.floor(sec / 60);
   const s = sec % 60;
   return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+}
+
+type ActionTool = "subtask" | "email" | "calendar_event" | "document";
+
+export type MeetingAction = {
+  title: string;
+  assignee?: string | null;
+  due?: string | null;
+  tool: ActionTool;
+  tool_details?: string | null;
+  executable: boolean;
+};
+
+export type MeetingSummary = {
+  summary: string;
+  participants: string[];
+  topics: string[];
+  critical_points: string[];
+  key_points: string[];
+  decisions: string[];
+  open_questions: string[];
+  action_items: MeetingAction[];
+};
+
+/**
+ * Panel post-grabación: muestra el resumen completo (no solo
+ * "✓ añadido al hilo") y permite seleccionar qué acciones quiere
+ * el usuario que se materialicen en el Hub. El render se hace en
+ * el modal del MeetingRecorder para que sea visible al instante
+ * sin tener que ir a buscar el comentario en el hilo.
+ */
+function MeetingDonePanel({
+  summary,
+  actionSelection,
+  setActionSelection,
+  executing,
+  executedCounts,
+  onExecute,
+  onClose
+}: {
+  summary: MeetingSummary;
+  actionSelection: boolean[];
+  setActionSelection: (next: boolean[]) => void;
+  executing: boolean;
+  executedCounts: null | { subtasks: number; emails: number; events: number; documents: number };
+  onExecute: () => void;
+  onClose: () => void;
+}) {
+  function toggle(i: number) {
+    const next = [...actionSelection];
+    next[i] = !next[i];
+    setActionSelection(next);
+  }
+
+  const selectedCount = actionSelection.filter(Boolean).length;
+  const totalExecuted = executedCounts
+    ? executedCounts.subtasks + executedCounts.emails + executedCounts.events + executedCounts.documents
+    : 0;
+
+  return (
+    <div className="text-left space-y-4 max-h-[60vh] overflow-y-auto pr-1">
+      <div className="text-emerald-700 text-xs font-medium inline-flex items-center gap-1.5">
+        ✓ Resumen completo añadido al hilo de comentarios
+      </div>
+
+      {summary.summary && (
+        <Section title="Resumen">
+          <p className="text-sm text-slate-700 leading-relaxed">{summary.summary}</p>
+        </Section>
+      )}
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        {summary.participants.length > 0 && (
+          <Section title="👥 Participantes">
+            <BulletList items={summary.participants} />
+          </Section>
+        )}
+        {summary.topics.length > 0 && (
+          <Section title="🗂️ Temas tratados">
+            <BulletList items={summary.topics} />
+          </Section>
+        )}
+      </div>
+
+      {summary.critical_points.length > 0 && (
+        <Section title="⚠️ Vital importancia" tone="danger">
+          <BulletList items={summary.critical_points} />
+        </Section>
+      )}
+
+      {summary.key_points.length > 0 && (
+        <Section title="📌 Puntos clave">
+          <BulletList items={summary.key_points} />
+        </Section>
+      )}
+
+      {summary.decisions.length > 0 && (
+        <Section title="✓ Decisiones">
+          <BulletList items={summary.decisions} />
+        </Section>
+      )}
+
+      {summary.open_questions.length > 0 && (
+        <Section title="❓ Preguntas abiertas">
+          <BulletList items={summary.open_questions} />
+        </Section>
+      )}
+
+      {summary.action_items.length > 0 && (
+        <Section title={`📋 Acciones detectadas (${summary.action_items.length})`}>
+          <p className="text-xs text-slate-500 mb-2">
+            Marca las que quieres que el sistema cree. Las ejecutables están preseleccionadas.
+          </p>
+          <ul className="space-y-1.5">
+            {summary.action_items.map((a, i) => (
+              <li key={i} className="flex items-start gap-2 bg-slate-50 rounded-md p-2">
+                <input
+                  type="checkbox"
+                  checked={!!actionSelection[i]}
+                  onChange={() => toggle(i)}
+                  disabled={!a.executable || executing || !!executedCounts}
+                  className="mt-0.5"
+                />
+                <div className="flex-1 min-w-0 text-xs">
+                  <div className="flex flex-wrap items-baseline gap-1.5">
+                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-white border text-[10px] text-slate-600">
+                      {toolBadge(a.tool)}
+                    </span>
+                    <span className="font-medium text-slate-900">{a.title}</span>
+                    {a.assignee && <span className="text-slate-500">→ {a.assignee}</span>}
+                    {a.due && <span className="text-slate-400">({a.due})</span>}
+                    {!a.executable && (
+                      <span className="text-[10px] text-amber-700 bg-amber-50 px-1 rounded">
+                        manual
+                      </span>
+                    )}
+                  </div>
+                  {a.tool_details && (
+                    <p className="text-[11px] text-slate-600 mt-0.5">{a.tool_details}</p>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ul>
+
+          {executedCounts ? (
+            <div className="mt-3 rounded-md bg-emerald-50 border border-emerald-200 px-3 py-2 text-xs text-emerald-800">
+              ✓ Creados {totalExecuted} elementos:{" "}
+              {executedCounts.subtasks > 0 && <span>{executedCounts.subtasks} subtarea{executedCounts.subtasks === 1 ? "" : "s"}</span>}
+              {executedCounts.emails > 0 && <span> · {executedCounts.emails} email{executedCounts.emails === 1 ? "" : "s"} draft</span>}
+              {executedCounts.events > 0 && <span> · {executedCounts.events} evento{executedCounts.events === 1 ? "" : "s"}</span>}
+              {executedCounts.documents > 0 && <span> · {executedCounts.documents} documento{executedCounts.documents === 1 ? "" : "s"}</span>}
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={onExecute}
+              disabled={selectedCount === 0 || executing}
+              className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-brand-600 hover:bg-brand-700 text-white text-xs font-medium disabled:opacity-50"
+            >
+              {executing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+              Crear {selectedCount} elemento{selectedCount === 1 ? "" : "s"} seleccionados
+            </button>
+          )}
+        </Section>
+      )}
+
+      <div className="pt-2 text-right">
+        <button
+          onClick={onClose}
+          className="px-4 py-2 rounded-md bg-brand-600 hover:bg-brand-700 text-white text-sm"
+        >
+          Cerrar
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function Section({
+  title,
+  children,
+  tone
+}: {
+  title: string;
+  children: React.ReactNode;
+  tone?: "danger";
+}) {
+  return (
+    <div
+      className={
+        "rounded-lg border p-3 " +
+        (tone === "danger" ? "bg-rose-50 border-rose-200" : "bg-white border-slate-200")
+      }
+    >
+      <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-1.5">
+        {title}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function BulletList({ items }: { items: string[] }) {
+  return (
+    <ul className="list-disc ml-4 space-y-0.5 text-xs text-slate-700">
+      {items.map((x, i) => (
+        <li key={i}>{x}</li>
+      ))}
+    </ul>
+  );
+}
+
+function toolBadge(tool: ActionTool): string {
+  switch (tool) {
+    case "email":
+      return "✉️ Email";
+    case "calendar_event":
+      return "📅 Evento";
+    case "document":
+      return "📄 Documento";
+    case "subtask":
+    default:
+      return "✅ Subtarea";
+  }
 }

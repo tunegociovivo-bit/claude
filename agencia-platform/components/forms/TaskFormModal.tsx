@@ -24,9 +24,13 @@ const priorityOptions: { value: Priority; label: string }[] = [
   { value: "urgencia", label: "🚨 URGENCIA" }
 ];
 
-const priorityToApi: Record<Exclude<Priority, "">, string> = {
-  urgencia: "URGENT",
-  alta: "HIGH"
+// Incluye "" → MEDIUM como mapping explícito para que TS pueda
+// indexar el record con cualquier valor del tipo Priority sin
+// guards en los call sites.
+const priorityToApi: Record<Priority, string> = {
+  "": "MEDIUM",
+  alta: "HIGH",
+  urgencia: "URGENT"
 };
 
 type CommentItem = {
@@ -117,10 +121,9 @@ export default function TaskFormModal({
         projectId,
         projectIds,
         status,
-        // Si el user no marcó nada, mandamos MEDIUM (la prioridad
-        // neutra de Prisma). Solo se envían HIGH/URGENT cuando hay
-        // selección explícita.
-        priority: priority ? priorityToApi[priority] : "MEDIUM",
+        // Si el user no marcó nada (priority === ""), priorityToApi
+        // ya mapea a MEDIUM (la prioridad neutra de Prisma).
+        priority: priorityToApi[priority],
         assigneeIds,
         notifyDueRules
       };

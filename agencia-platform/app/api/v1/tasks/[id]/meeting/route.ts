@@ -27,35 +27,64 @@ export const maxDuration = 300;
 
 const MAX_AUDIO_BYTES = 25 * 1024 * 1024; // límite duro de Whisper
 
-const SUMMARY_SYSTEM = `Eres un asistente que resume reuniones de trabajo de una agencia.
-Lee la transcripción y produce ÚNICAMENTE un JSON válido (sin texto antes ni después)
-con esta forma exacta:
+const SUMMARY_SYSTEM = `Eres un asistente que toma notas exhaustivas de reuniones
+de trabajo de una agencia. Lee la transcripción completa y produce ÚNICAMENTE
+un JSON válido (sin texto antes ni después) con esta forma exacta:
 
 {
-  "summary": "1-3 frases con la idea general de la reunión.",
-  "key_points": ["punto importante 1", "punto importante 2"],
-  "decisions": ["decisión tomada 1"],
+  "summary": "Párrafo completo (3-8 frases) con TODO lo importante: qué se habló, contexto, conclusiones, sensación general. NO 'frase corta', necesitamos contenido real.",
+  "participants": ["Nombre 1", "Nombre 2"],
+  "topics": ["Tema 1 que se trató", "Tema 2 que se trató"],
+  "critical_points": ["Cosa de vital importancia 1", "Cosa de vital importancia 2"],
+  "key_points": ["Punto destacable 1", "Punto destacable 2"],
+  "decisions": ["Decisión que se tomó"],
+  "open_questions": ["Pregunta sin resolver"],
   "action_items": [
-    { "title": "Tarea concreta", "assignee": "Nombre o null", "due": "YYYY-MM-DD o null" }
-  ],
-  "open_questions": ["pregunta sin resolver 1"]
+    {
+      "title": "Acción concreta y específica",
+      "assignee": "Nombre del responsable o null",
+      "due": "YYYY-MM-DD o null",
+      "tool": "subtask" | "email" | "calendar_event" | "document",
+      "tool_details": "Descripción breve de qué se ejecutaría: para email incluye destinatario y asunto sugerido; para calendar_event incluye fecha/hora propuesta; para document, el título sugerido del doc; para subtask, vacío.",
+      "executable": true | false
+    }
+  ]
 }
 
 Reglas:
 - Escribe en el mismo idioma de la transcripción (probablemente español).
 - Si una sección no aplica, devuelve una lista vacía, no la omitas.
-- En action_items, "assignee" debe ser el nombre mencionado o null si no se asignó.
-- En "due", interpreta fechas relativas ("el lunes", "esta semana") a la fecha
-  ISO concreta usando la referencia temporal que te dé el usuario; si no puedes,
-  pon null.
+- "participants": deduce de quién habla o de quién se menciona — pon nombres reales si los oyes, no descripciones genéricas.
+- "topics": son los GRANDES temas tratados, 3-7. Distinto de key_points (que son frases concretas).
+- "critical_points": cosas que NO se pueden olvidar, deadlines duros, urgencias, presupuestos cerrados, compromisos importantes.
+- "tool" indica qué tipo de acción es:
+    - "email"          → si hay que enviar un correo concreto a alguien.
+    - "calendar_event" → si hay que programar una reunión, recordatorio o evento en el calendario.
+    - "document"       → si hay que crear un documento, propuesta, brief, etc.
+    - "subtask"        → cualquier otra cosa, tarea genérica de seguimiento.
+- "executable": true si la acción se puede ejecutar de forma automatizada (ej. crear una subtarea, crear un evento, redactar un borrador de email, crear un doc). false si requiere intervención humana imprescindible (negociar precio, llamar por teléfono, ir físicamente).
+- "tool_details": detalles que necesitamos para ejecutar. Para emails sugiere destinatario + asunto + 1 línea de contenido. Para calendar, fecha y hora propuestas si se mencionaron. Para document, título sugerido.
+- En "due", interpreta fechas relativas ("el lunes", "esta semana") usando la fecha de referencia del usuario; si no puedes, pon null.
 - No inventes información que no esté en la transcripción.`;
+
+type ActionTool = "subtask" | "email" | "calendar_event" | "document";
 
 type Summary = {
   summary: string;
+  participants: string[];
+  topics: string[];
+  critical_points: string[];
   key_points: string[];
   decisions: string[];
-  action_items: { title: string; assignee?: string | null; due?: string | null }[];
   open_questions: string[];
+  action_items: {
+    title: string;
+    assignee?: string | null;
+    due?: string | null;
+    tool: ActionTool;
+    tool_details?: string | null;
+    executable: boolean;
+  }[];
 };
 
 export const POST = withApi({ scope: "tasks:write" }, async (req: NextRequest, { params, api }) => {
@@ -165,6 +194,10 @@ export const POST = withApi({ scope: "tasks:write" }, async (req: NextRequest, {
 
   return NextResponse.json({
     comment,
+    // Devolvemos el summary entero para que la UI pueda pintar el
+    // panel post-grabación con todas las secciones, no solo las
+    // acciones.
+    summary,
     actionItems: summary.action_items,
     transcript // por si la UI quiere mostrarlo expandible aparte
   });
@@ -180,19 +213,29 @@ function parseSummary(raw: string): Summary {
     throw new Error("Respuesta IA no es JSON");
   }
   const parsed = JSON.parse(cleaned.slice(start, end + 1));
+  const validTools: ActionTool[] = ["subtask", "email", "calendar_event", "document"];
   return {
     summary: String(parsed.summary ?? ""),
+    participants: Array.isArray(parsed.participants) ? parsed.participants.map(String) : [],
+    topics: Array.isArray(parsed.topics) ? parsed.topics.map(String) : [],
+    critical_points: Array.isArray(parsed.critical_points) ? parsed.critical_points.map(String) : [],
     key_points: Array.isArray(parsed.key_points) ? parsed.key_points.map(String) : [],
     decisions: Array.isArray(parsed.decisions) ? parsed.decisions.map(String) : [],
-    action_items: Array.isArray(parsed.action_items)
-      ? parsed.action_items.map((a: any) => ({
-          title: String(a.title ?? ""),
-          assignee: a.assignee ? String(a.assignee) : null,
-          due: a.due ? String(a.due) : null
-        }))
-      : [],
     open_questions: Array.isArray(parsed.open_questions)
       ? parsed.open_questions.map(String)
+      : [],
+    action_items: Array.isArray(parsed.action_items)
+      ? parsed.action_items.map((a: any) => {
+          const tool = validTools.includes(a.tool) ? (a.tool as ActionTool) : "subtask";
+          return {
+            title: String(a.title ?? ""),
+            assignee: a.assignee ? String(a.assignee) : null,
+            due: a.due ? String(a.due) : null,
+            tool,
+            tool_details: a.tool_details ? String(a.tool_details) : null,
+            executable: a.executable !== false // por defecto true
+          };
+        })
       : []
   };
 }
@@ -208,40 +251,60 @@ function buildCommentDoc(args: { summary: Summary; transcript: string; durationS
       type: "heading",
       attrs: { level: 3 },
       content: [{ type: "text", text: `🎙️ Resumen de reunión (${duration})` }]
-    },
-    paragraph(summary.summary)
+    }
   ];
 
+  if (summary.summary) {
+    content.push(paragraph(summary.summary));
+  }
+
+  if (summary.participants.length) {
+    content.push(heading("👥 Participantes"));
+    content.push(bulletList(summary.participants));
+  }
+
+  if (summary.topics.length) {
+    content.push(heading("🗂️ Temas tratados"));
+    content.push(bulletList(summary.topics));
+  }
+
+  if (summary.critical_points.length) {
+    content.push(heading("⚠️ Vital importancia"));
+    content.push(bulletList(summary.critical_points));
+  }
+
   if (summary.key_points.length) {
-    content.push(heading("Puntos clave"));
+    content.push(heading("📌 Puntos clave"));
     content.push(bulletList(summary.key_points));
   }
+
   if (summary.decisions.length) {
-    content.push(heading("Decisiones"));
+    content.push(heading("✓ Decisiones"));
     content.push(bulletList(summary.decisions));
   }
+
   if (summary.action_items.length) {
-    content.push(heading("Tareas pendientes"));
+    content.push(heading("📋 Acciones / tareas pendientes"));
     content.push(
       bulletList(
         summary.action_items.map((a) => {
-          const parts = [a.title];
+          const parts = [`[${labelForTool(a.tool)}] ${a.title}`];
           if (a.assignee) parts.push(`→ ${a.assignee}`);
           if (a.due) parts.push(`(${a.due})`);
+          if (a.tool_details) parts.push(`· ${a.tool_details}`);
           return parts.join(" ");
         })
       )
     );
   }
+
   if (summary.open_questions.length) {
-    content.push(heading("Preguntas abiertas"));
+    content.push(heading("❓ Preguntas abiertas"));
     content.push(bulletList(summary.open_questions));
   }
 
-  // Transcripción completa en un blockquote colapsable visual (TipTap
-  // no tiene "details" nativo; lo dejamos como blockquote pequeño
-  // para que no domine pero esté disponible).
-  content.push(heading("Transcripción"));
+  // Transcripción completa en un blockquote pequeño.
+  content.push(heading("📝 Transcripción"));
   content.push({
     type: "blockquote",
     content: transcript
@@ -251,6 +314,20 @@ function buildCommentDoc(args: { summary: Summary; transcript: string; durationS
   });
 
   return { type: "doc", content };
+}
+
+function labelForTool(tool: ActionTool): string {
+  switch (tool) {
+    case "email":
+      return "✉️ Email";
+    case "calendar_event":
+      return "📅 Evento";
+    case "document":
+      return "📄 Documento";
+    case "subtask":
+    default:
+      return "✅ Subtarea";
+  }
 }
 
 function paragraph(text: string): any {
