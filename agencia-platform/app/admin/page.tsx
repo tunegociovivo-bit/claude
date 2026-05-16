@@ -30,7 +30,8 @@ import {
   Trash2,
   ListChecks,
   FileCheck2,
-  Calendar
+  Calendar,
+  Search
 } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -125,6 +126,12 @@ const cards = [
     title: "Papelera",
     description: "Tareas, proyectos, documentos y clientes borrados. Recupera o purga.",
     icon: Trash2
+  },
+  {
+    href: "/admin/busqueda",
+    title: "Búsqueda semántica",
+    description: "Estado del índice de embeddings. Re-indexa tras importar o cambiar contenido masivo. Prueba queries en vivo.",
+    icon: Search
   },
   {
     href: "/admin/errors",

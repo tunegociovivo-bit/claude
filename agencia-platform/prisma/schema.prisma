@@ -158,6 +158,7 @@ model Workspace {
   vacationDays    VacationDay[]
   teamMessages    TeamMessage[]
   googleCalendarConnections GoogleCalendarConnection[]
+  searchEmbeddings SearchEmbedding[]
 }
 
 model Membership {
@@ -1549,4 +1550,46 @@ model GoogleCalendarConnection {
 
   @@unique([userId, workspaceId])
   @@index([workspaceId])
+}
+
+// ====================================================================
+// SEMANTIC SEARCH — embeddings por entidad para búsqueda por significado
+// ====================================================================
+//
+// Cada fila representa el vector de embedding de una entidad (tarea,
+// cliente, proyecto, documento, comentario). Lo almacenamos como Json
+// en lugar de usar pgvector para no obligar a habilitar la extensión
+// PostgreSQL — el cálculo de cosine similarity se hace en memoria al
+// buscar. Aceptable hasta ~50k filas; si crece más, se migra a
+// pgvector con un script de re-indexación.
+//
+// `entityType` es el modelo origen (TASK, CLIENT, PROJECT, DOCUMENT,
+// COMMENT). `entityId` su id. Garantizamos UNIQUE por (entityType,
+// entityId) para que cada entidad tenga un solo vector vigente.
+//
+// `text` es el texto preprocesado que generó el vector, lo guardamos
+// para mostrar snippet en los resultados y para detectar si ya
+// reflejaba el contenido actual (skip si no ha cambiado).
+//
+// `model` permite migrar entre modelos sin destruir índices —
+// guardamos qué modelo generó este vector y, al buscar, sólo
+// comparamos contra vectores del mismo modelo. Cuando se cambia el
+// modelo default, las filas viejas se re-indexan progresivamente.
+model SearchEmbedding {
+  id          String   @id @default(cuid())
+  workspaceId String
+  entityType  String   // "TASK" | "CLIENT" | "PROJECT" | "DOCUMENT" | "COMMENT"
+  entityId    String
+  text        String   @db.Text
+  embedding   Json     // number[] (1536 floats para text-embedding-3-small)
+  model       String   @default("text-embedding-3-small")
+  tokens      Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([entityType, entityId])
+  @@index([workspaceId, entityType])
+  @@index([workspaceId, model])
 }

@@ -6,6 +6,8 @@ import { clientCreateSchema } from "@/lib/api/schemas";
 import { callerIsAdmin, redactMrr } from "@/lib/api/permissions";
 import { auditFromReq } from "@/lib/audit/log";
 import { dispatchWebhook } from "@/lib/webhooks/dispatch";
+import { indexEntity, deleteEntityIndex } from "@/lib/search/embeddings";
+import { textForClient } from "@/lib/search/indexers";
 
 export const GET = withApi({ scope: "clients:read" }, async (_req, { params, api }) => {
   const [client, isAdmin] = await Promise.all([
@@ -67,6 +69,18 @@ export const PATCH = withApi({ scope: "clients:write" }, async (req, { params, a
     });
   }
 
+  // Re-indexa si tocaron campos indexables (name, industry, notes,
+  // infoGeneral, brandBrief, website, contactName).
+  const INDEXABLE = ["name", "industry", "notes", "infoGeneral", "brandBrief", "website", "contactName"];
+  if (fresh && INDEXABLE.some((k) => k in data)) {
+    void indexEntity({
+      workspaceId: api.workspaceId,
+      entityType: "CLIENT",
+      entityId: params.id,
+      text: textForClient(fresh as any)
+    }).catch(() => {});
+  }
+
   return NextResponse.json(redactMrr(fresh as any, isAdmin));
 });
 
@@ -81,5 +95,6 @@ export const DELETE = withApi({ scope: "clients:write" }, async (req, { params, 
     targetType: "CLIENT",
     targetId: params.id
   });
+  void deleteEntityIndex("CLIENT", params.id).catch(() => {});
   return NextResponse.json({ ok: true });
 });

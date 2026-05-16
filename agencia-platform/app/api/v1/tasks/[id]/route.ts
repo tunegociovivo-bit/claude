@@ -7,6 +7,8 @@ import { notifyAssignment } from "@/lib/notifications/assignment";
 import { notifyNewMentions } from "@/lib/notifications/mentions-in-doc";
 import { auditFromReq } from "@/lib/audit/log";
 import { dispatchWebhook } from "@/lib/webhooks/dispatch";
+import { indexEntity, deleteEntityIndex } from "@/lib/search/embeddings";
+import { textForTask } from "@/lib/search/indexers";
 
 export const GET = withApi({ scope: "tasks:read" }, async (_req, { params, api }) => {
   const task = await prisma.task.findFirst({
@@ -117,6 +119,18 @@ export const PATCH = withApi({ scope: "tasks:write" }, async (req, { params, api
     status: result.status,
     changedFields: Object.keys(data)
   });
+  // Re-indexa para semántica si cambiaron campos relevantes.
+  if ("title" in data || "description" in data) {
+    void indexEntity({
+      workspaceId: api.workspaceId,
+      entityType: "TASK",
+      entityId: params.id,
+      text: textForTask({
+        title: result.title,
+        description: (result as any).description
+      })
+    }).catch(() => {});
+  }
   return NextResponse.json(result);
 });
 
@@ -143,5 +157,6 @@ export const DELETE = withApi({ scope: "tasks:write" }, async (req, { params, ap
     id: params.id,
     title: snapshot?.title
   });
+  void deleteEntityIndex("TASK", params.id).catch(() => {});
   return NextResponse.json({ ok: true });
 });

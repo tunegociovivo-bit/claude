@@ -5,6 +5,8 @@ import { ApiError } from "@/lib/api/auth";
 import { taskCreateSchema } from "@/lib/api/schemas";
 import { notifyAssignment } from "@/lib/notifications/assignment";
 import { dispatchWebhook } from "@/lib/webhooks/dispatch";
+import { indexEntity } from "@/lib/search/embeddings";
+import { textForTask } from "@/lib/search/indexers";
 
 export const GET = withApi({ scope: "tasks:read" }, async (req, { api }) => {
   const url = new URL(req.url);
@@ -73,6 +75,13 @@ export const POST = withApi({ scope: "tasks:write" }, async (req, { api }) => {
     newAssigneeIds: assigneeIds,
     actorId: api.userId
   }).catch((e) => console.warn("[notif] assignment create:", e?.message ?? e));
+  // Indexa para búsqueda semántica — fire-and-forget.
+  void indexEntity({
+    workspaceId: api.workspaceId,
+    entityType: "TASK",
+    entityId: task.id,
+    text: textForTask(task as any)
+  }).catch(() => {});
   // Webhook saliente — fire-and-forget.
   dispatchWebhook(api.workspaceId, "task.created", {
     id: task.id,

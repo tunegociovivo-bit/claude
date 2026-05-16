@@ -4,6 +4,8 @@ import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { notifyNewMentions } from "@/lib/notifications/mentions-in-doc";
+import { indexEntity, deleteEntityIndex } from "@/lib/search/embeddings";
+import { textForDocument } from "@/lib/search/indexers";
 
 const patchSchema = z.object({
   title: z.string().optional(),
@@ -53,6 +55,15 @@ export const PATCH = withApi({ scope: "docs:write" }, async (req, { params, api 
     }).catch((e) => console.warn("[notif] mention doc:", e?.message ?? e));
   }
 
+  if (fresh && ("title" in parsed.data || "content" in parsed.data)) {
+    void indexEntity({
+      workspaceId: api.workspaceId,
+      entityType: "DOCUMENT",
+      entityId: params.id,
+      text: textForDocument(fresh as any)
+    }).catch(() => {});
+  }
+
   return NextResponse.json(fresh);
 });
 
@@ -62,5 +73,6 @@ export const DELETE = withApi({ scope: "docs:write" }, async (_req, { params, ap
     data: { archived: true }
   });
   if (updated.count === 0) throw new ApiError(404, "not_found", "Documento no encontrado");
+  void deleteEntityIndex("DOCUMENT", params.id).catch(() => {});
   return NextResponse.json({ ok: true });
 });

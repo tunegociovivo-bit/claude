@@ -75,7 +75,11 @@ export default function CommandPalette() {
     }
   }, [open]);
 
-  // Búsqueda remota debounced
+  // Búsqueda remota debounced. Lanzamos en paralelo el ILIKE clásico
+  // (instantáneo, match exacto por título/nombre) y la semántica
+  // (más lenta porque genera embedding, pero entiende intención).
+  // Mezclamos: primero los semánticos con score alto, luego los
+  // ILIKE que no estén ya cubiertos.
   useEffect(() => {
     if (!open || !q.trim()) {
       setRemote([]);
@@ -84,12 +88,31 @@ export default function CommandPalette() {
     const ctrl = new AbortController();
     const t = setTimeout(async () => {
       try {
-        const r = await fetch(`/api/v1/search?q=${encodeURIComponent(q)}`, {
+        const lexicalPromise = fetch(`/api/v1/search?q=${encodeURIComponent(q)}`, {
           signal: ctrl.signal
-        });
-        if (!r.ok) return;
-        const data = await r.json();
-        setRemote(data.items ?? []);
+        }).then((r) => (r.ok ? r.json() : { items: [] }));
+        // Solo lanzamos semántica si la query tiene 3+ chars (mínimo
+        // significativo y el endpoint la rechaza).
+        const semanticPromise =
+          q.trim().length >= 3
+            ? fetch(`/api/v1/search/semantic?q=${encodeURIComponent(q)}&topK=10`, {
+                signal: ctrl.signal
+              }).then((r) => (r.ok ? r.json() : { items: [] }))
+            : Promise.resolve({ items: [] });
+        const [lex, sem] = await Promise.all([lexicalPromise, semanticPromise]);
+
+        // Deduplicar por (kind, id). Semántica primero (ordena por
+        // score descendente y suele ser más relevante para queries
+        // largas).
+        const seen = new Set<string>();
+        const merged: any[] = [];
+        for (const it of (sem.items ?? []).concat(lex.items ?? [])) {
+          const key = `${it.kind}:${it.id}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          merged.push(it);
+        }
+        setRemote(merged);
       } catch {
         /* abort u offline */
       }
@@ -128,6 +151,14 @@ export default function CommandPalette() {
       case "action":
         router.push(r.href);
         break;
+      default: {
+        // Resultados extra del endpoint semántico (p. ej. "comment")
+        // que el lexical no devuelve. Saltamos a la entidad padre.
+        const anyR = r as any;
+        if (anyR.kind === "comment" && anyR.parentType === "TASK") {
+          router.push(`/tareas?task=${anyR.parentId}`);
+        }
+      }
     }
   }
 
@@ -229,8 +260,14 @@ function titleOf(r: Result): string {
   return r.name;
 }
 function subtitleOf(r: Result): string | null {
-  if (r.kind === "task") return r.clientName ?? null;
-  if (r.kind === "project") return r.clientName ?? null;
+  const anyR = r as any;
+  // Resultados del endpoint semántico traen `subtitle` y `snippet`;
+  // los del lexical traen `clientName`. Soportamos ambos para que
+  // los dos modos de búsqueda compartan la misma UI.
+  if (anyR.subtitle) return anyR.subtitle;
+  if (anyR.snippet) return anyR.snippet;
+  if (r.kind === "task") return (r as any).clientName ?? null;
+  if (r.kind === "project") return (r as any).clientName ?? null;
   return null;
 }
 function labelOf(r: Result): string {

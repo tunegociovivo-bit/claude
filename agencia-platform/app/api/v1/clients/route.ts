@@ -4,6 +4,8 @@ import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { clientCreateSchema } from "@/lib/api/schemas";
 import { callerIsAdmin, redactMrrList } from "@/lib/api/permissions";
+import { indexEntity } from "@/lib/search/embeddings";
+import { textForClient } from "@/lib/search/indexers";
 
 export const GET = withApi({ scope: "clients:read" }, async (req, { api }) => {
   const url = new URL(req.url);
@@ -40,5 +42,11 @@ export const POST = withApi({ scope: "clients:write" }, async (req, { api }) => 
   const client = await prisma.client.create({
     data: { ...data, workspaceId: api.workspaceId, since: new Date() }
   });
+  void indexEntity({
+    workspaceId: api.workspaceId,
+    entityType: "CLIENT",
+    entityId: client.id,
+    text: textForClient(client as any)
+  }).catch(() => {});
   return NextResponse.json(redactMrrList([client as any], isAdmin)[0], { status: 201 });
 });
