@@ -77,6 +77,10 @@ export default function TaskFormModal({
   // array es el "principal" (define la columna kanban). projectIds[0]
   // siempre corresponde al projectId del schema.
   const [projectIds, setProjectIds] = useState<string[]>([]);
+  // Columna seleccionada DENTRO de cada proyecto extra. Mapea
+  // projectId → columnId. El proyecto principal usa el campo
+  // "Estado" del modal.
+  const [extraProjectStatuses, setExtraProjectStatuses] = useState<Record<string, string>>({});
   const projectId = projectIds[0] ?? "";
   const [assigneeIds, setAssigneeIds] = useState<string[]>([]);
   const [dueDate, setDueDate] = useState<string>("");
@@ -120,6 +124,10 @@ export default function TaskFormModal({
         title: title.trim(),
         projectId,
         projectIds,
+        // Columna seleccionada en cada proyecto extra (multi-proyecto).
+        // Lo pasamos como objeto plano; el endpoint persiste en
+        // TaskProject.status.
+        extraProjectStatuses,
         status,
         // Si el user no marcó nada (priority === ""), priorityToApi
         // ya mapea a MEDIUM (la prioridad neutra de Prisma).
@@ -179,6 +187,20 @@ export default function TaskFormModal({
           ? (currentTask as any).projectIds
           : [currentTask.projectId]
       );
+      // Cargar las columnas elegidas para cada proyecto extra (si las
+      // hay). El principal NO entra aquí, usa el `status` general.
+      const eps = (currentTask as any).extraProjectStatuses as
+        | Record<string, string | null>
+        | undefined;
+      if (eps) {
+        const clean: Record<string, string> = {};
+        for (const [pid, st] of Object.entries(eps)) {
+          if (st) clean[pid] = st;
+        }
+        setExtraProjectStatuses(clean);
+      } else {
+        setExtraProjectStatuses({});
+      }
       setAssigneeIds(currentTask.assigneeIds);
       setDueDate(currentTask.dueDate ?? "");
       setDueTime(currentTask.dueAllDay === false && currentTask.dueTime ? currentTask.dueTime : "");
@@ -210,6 +232,7 @@ export default function TaskFormModal({
       setStatus(defaultStatus ?? columns?.[0]?.id ?? "TODO");
       setPriority(""); // sin prioridad por defecto al crear nueva
       setProjectIds([defaultProjectId ?? projects[0]?.id ?? ""].filter(Boolean) as string[]);
+      setExtraProjectStatuses({});
       setAssigneeIds([]);
       setDueDate("");
       setDueTime("");
@@ -657,45 +680,74 @@ export default function TaskFormModal({
           </SidebarField>
 
           <SidebarField label={`Proyectos (${projectIds.length})`}>
-            <div className="space-y-1 max-h-44 overflow-y-auto -mx-1 px-1">
+            <div className="space-y-1 max-h-60 overflow-y-auto -mx-1 px-1">
               {projects.map((p) => {
                 const sel = projectIds.includes(p.id);
                 const isPrimary = projectIds[0] === p.id;
+                // Columnas propias de este proyecto (si tiene kanban
+                // custom importado de Asana o configurado a mano).
+                const projectCols = ((p as any).kanbanColumns ?? null) as
+                  | { id: string; label: string }[]
+                  | null;
                 return (
-                  <label
-                    key={p.id}
-                    className={
-                      "flex items-center gap-2 px-2 py-1.5 rounded-md text-xs cursor-pointer transition " +
-                      (sel ? "bg-brand-50 text-brand-700" : "text-slate-700 hover:bg-slate-50")
-                    }
-                  >
-                    <input
-                      type="checkbox"
-                      checked={sel}
-                      onChange={() => {
-                        if (sel) {
-                          // Quitar — pero nunca dejar la lista vacía.
-                          if (projectIds.length === 1) return;
-                          setProjectIds(projectIds.filter((x) => x !== p.id));
-                        } else {
-                          setProjectIds([...projectIds, p.id]);
-                        }
-                      }}
-                      className="accent-brand-600"
-                    />
-                    <span className="flex-1 truncate">{p.name}</span>
-                    {isPrimary && projectIds.length > 1 && (
-                      <span className="text-[9px] uppercase tracking-wide px-1 rounded bg-brand-100 text-brand-700">
-                        principal
-                      </span>
+                  <div key={p.id}>
+                    <label
+                      className={
+                        "flex items-center gap-2 px-2 py-1.5 rounded-md text-xs cursor-pointer transition " +
+                        (sel ? "bg-brand-50 text-brand-700" : "text-slate-700 hover:bg-slate-50")
+                      }
+                    >
+                      <input
+                        type="checkbox"
+                        checked={sel}
+                        onChange={() => {
+                          if (sel) {
+                            if (projectIds.length === 1) return;
+                            setProjectIds(projectIds.filter((x) => x !== p.id));
+                            setExtraProjectStatuses((prev) => {
+                              const next = { ...prev };
+                              delete next[p.id];
+                              return next;
+                            });
+                          } else {
+                            setProjectIds([...projectIds, p.id]);
+                          }
+                        }}
+                        className="accent-brand-600"
+                      />
+                      <span className="flex-1 truncate">{p.name}</span>
+                      {isPrimary && projectIds.length > 1 && (
+                        <span className="text-[9px] uppercase tracking-wide px-1 rounded bg-brand-100 text-brand-700">
+                          principal
+                        </span>
+                      )}
+                    </label>
+                    {/* Selector de columna para los proyectos extra
+                        que tienen sus propias columnas. El principal
+                        usa el campo "Estado" general arriba. */}
+                    {sel && !isPrimary && projectCols && projectCols.length > 0 && (
+                      <div className="ml-7 mb-1 mt-0.5">
+                        <select
+                          value={extraProjectStatuses[p.id] ?? projectCols[0].id}
+                          onChange={(e) =>
+                            setExtraProjectStatuses((prev) => ({ ...prev, [p.id]: e.target.value }))
+                          }
+                          className="w-full px-2 py-1 rounded border bg-white text-[11px] focus:outline-none"
+                          title={`En qué columna aparece dentro de "${p.name}"`}
+                        >
+                          {projectCols.map((c) => (
+                            <option key={c.id} value={c.id}>{c.label}</option>
+                          ))}
+                        </select>
+                      </div>
                     )}
-                  </label>
+                  </div>
                 );
               })}
             </div>
             {projectIds.length > 1 && (
               <p className="mt-1 text-[10px] text-slate-500">
-                La tarea aparece en los {projectIds.length} proyectos. El "principal" define en qué tablero kanban se mueve.
+                La tarea aparece en los {projectIds.length} proyectos. El "principal" define en qué tablero kanban se mueve por defecto; en los extra eliges columna con el selector.
               </p>
             )}
           </SidebarField>

@@ -151,6 +151,10 @@ export const taskCreateSchema = z.object({
   // primero pasa a ser el principal (projectId) y los demás se guardan
   // como TaskProject. Si no llega, se respeta projectId tal cual.
   projectIds: z.array(z.string()).optional(),
+  // Multi-proyecto: columna específica DENTRO de cada proyecto extra
+  // (key = projectId, value = id de la columna en ese proyecto). El
+  // proyecto principal usa `status` global.
+  extraProjectStatuses: z.record(z.string(), z.string()).optional(),
   title: z.string().min(1),
   description: z.string().optional(),
   // Antes era enum cerrado; ahora libre (columnas configurables por workspace).

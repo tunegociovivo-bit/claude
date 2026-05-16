@@ -193,7 +193,13 @@ export default function TareasClient({
     weekEnd.setDate(weekEnd.getDate() + 7);
     const q = filters.q.trim().toLowerCase();
     return tasks.filter((t) => {
-      if (filters.project !== "all" && t.projectId !== filters.project) return false;
+      if (filters.project !== "all") {
+        // Multi-proyecto: la tarea aparece si su proyecto principal
+        // coincide O si está enlazada como extra (t.projectIds[0] es
+        // el principal y trae también los extras).
+        const allProjs = (t as any).projectIds ?? [t.projectId];
+        if (!allProjs.includes(filters.project)) return false;
+      }
       if (filters.client !== "all" && t.clientId !== filters.client) return false;
       if (filters.priority !== "all") {
         // "normal" agrupa todo lo que no sea alta ni urgencia (media,
@@ -258,16 +264,27 @@ export default function TareasClient({
     const map: Record<string, UiTask[]> = {};
     for (const c of orderedColumns) map[c.id] = [];
     for (const t of filtered) {
-      const status = String(t.status);
+      // Multi-proyecto: si la tarea está en el proyecto principal,
+      // usamos t.status (su columna principal). Si solo está como
+      // EXTRA del proyecto filtrado, usamos t.extraProjectStatuses
+      // para saber en qué columna de ESTE proyecto aparece.
+      let status: string;
+      const isPrimary = t.projectId === filters.project || filters.project === "all";
+      if (isPrimary) {
+        status = String(t.status);
+      } else {
+        const extraStatus = t.extraProjectStatuses?.[filters.project];
+        status = extraStatus ?? (orderedColumns[0]?.id ?? String(t.status));
+      }
       if (map[status]) map[status].push(t);
       else {
-        // Tareas con status que ya no existe en config → fallback a primera columna
+        // Status que ya no existe en config → fallback a primera columna
         const first = orderedColumns[0]?.id;
         if (first) map[first].push({ ...t, status: first });
       }
     }
     return map;
-  }, [filtered, orderedColumns]);
+  }, [filtered, orderedColumns, filters.project]);
 
   function persistColumnOrder(order: string[]) {
     setUserColumnOrder(order);

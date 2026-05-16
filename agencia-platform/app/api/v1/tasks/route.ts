@@ -52,10 +52,11 @@ export const POST = withApi({ scope: "tasks:write" }, async (req, { api }) => {
   const parsed = taskCreateSchema.safeParse(body);
   if (!parsed.success) throw new ApiError(400, "validation_error", parsed.error.message);
 
-  const { assigneeIds, dueAllDay, projectIds, notifyDueRules, ...data } = parsed.data;
+  const { assigneeIds, dueAllDay, projectIds, extraProjectStatuses, notifyDueRules, ...data } = parsed.data;
   // projectIds[0] manda como proyecto principal si llega; si no, projectId.
   const primaryProject = projectIds?.[0] ?? data.projectId;
   const extra = (projectIds ?? []).slice(1).filter((p) => p && p !== primaryProject);
+  const epsMap = extraProjectStatuses ?? {};
   const task = await prisma.task.create({
     data: {
       ...data,
@@ -65,7 +66,16 @@ export const POST = withApi({ scope: "tasks:write" }, async (req, { api }) => {
       ...(typeof dueAllDay === "boolean" ? { dueAllDay } : {}),
       ...(notifyDueRules !== undefined ? { notifyDueRules: notifyDueRules as any } : {}),
       assignees: { create: assigneeIds.map((uid) => ({ userId: uid })) },
-      ...(extra.length > 0 ? { extraProjects: { create: extra.map((projectId) => ({ projectId })) } } : {})
+      ...(extra.length > 0
+        ? {
+            extraProjects: {
+              create: extra.map((projectId) => ({
+                projectId,
+                status: epsMap[projectId] ?? null
+              }))
+            }
+          }
+        : {})
     } as any
   });
   // Notificación a los asignados al crear (excluyendo al actor).

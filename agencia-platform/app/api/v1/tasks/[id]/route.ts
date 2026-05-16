@@ -36,7 +36,8 @@ export const PATCH = withApi({ scope: "tasks:write" }, async (req, { params, api
   const body = await req.json().catch(() => null);
   const parsed = taskCreateSchema.partial().safeParse(body);
   if (!parsed.success) throw new ApiError(400, "validation_error", parsed.error.message);
-  const { assigneeIds, dueDate, dueAllDay, projectIds, notifyDueRules, ...data } = parsed.data;
+  const { assigneeIds, dueDate, dueAllDay, projectIds, extraProjectStatuses, notifyDueRules, ...data } =
+    parsed.data;
   // projectIds → si llega, projectIds[0] es el principal, resto va a TaskProject.
   let primaryProjectId: string | undefined;
   let extraProjectIds: string[] | undefined;
@@ -44,6 +45,7 @@ export const PATCH = withApi({ scope: "tasks:write" }, async (req, { params, api
     primaryProjectId = projectIds[0];
     extraProjectIds = projectIds.slice(1).filter((p) => p && p !== primaryProjectId);
   }
+  const epsMap = extraProjectStatuses ?? {};
 
   // Para notificar assignees añadidos en esta PATCH, leemos los
   // anteriores antes de tocarlos.
@@ -88,8 +90,23 @@ export const PATCH = withApi({ scope: "tasks:write" }, async (req, { params, api
       await (tx as any).taskProject.deleteMany({ where: { taskId: params.id } });
       if (extraProjectIds.length > 0) {
         await (tx as any).taskProject.createMany({
-          data: extraProjectIds.map((projectId) => ({ taskId: params.id, projectId }))
+          data: extraProjectIds.map((projectId) => ({
+            taskId: params.id,
+            projectId,
+            status: epsMap[projectId] ?? null
+          }))
         });
+      }
+    } else if (Object.keys(epsMap).length > 0) {
+      // El user no cambió la lista de proyectos pero SÍ las columnas
+      // de cada uno: actualizamos solo los status que cambian.
+      for (const [pid, st] of Object.entries(epsMap)) {
+        await (tx as any).taskProject
+          .update({
+            where: { taskId_projectId: { taskId: params.id, projectId: pid } },
+            data: { status: st }
+          })
+          .catch(() => {});
       }
     }
     return tx.task.findUnique({ where: { id: params.id }, include: { assignees: true } });

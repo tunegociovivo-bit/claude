@@ -894,6 +894,11 @@ model Task {
 model TaskProject {
   taskId    String
   projectId String
+  // Estado/columna en ESTE proyecto extra. Una tarea con
+  // proyecto principal A (status="EN_CURSO") puede aparecer en
+  // proyecto B en cualquier columna distinta (p.ej. "REVISION").
+  // Si null, en B aparece en la primera columna del proyecto.
+  status    String?
   task      Task    @relation(fields: [taskId], references: [id], onDelete: Cascade)
   project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 

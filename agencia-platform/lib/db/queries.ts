@@ -75,6 +75,10 @@ export type UiTask = (typeof mockTasks)[number] & {
   // Multi-proyecto: lista completa de proyectos en los que aparece la
   // tarea. projectIds[0] coincide siempre con projectId (compat).
   projectIds?: string[];
+  // Por cada proyecto extra (no principal), el ID de columna donde
+  // la tarea aparece DENTRO de ese proyecto. La columna principal
+  // sigue siendo `status`.
+  extraProjectStatuses?: Record<string, string | null>;
   notifyDueRules?: string[] | null;
 };
 export type UiProject = (typeof mockProjects)[number];
@@ -173,8 +177,12 @@ export async function getTasksForUi(): Promise<UiTask[]> {
         allDay = explicitAllDay ?? true;
         timeStr = undefined;
       }
-      const extra = ((r as any).extraProjects ?? []) as Array<{ projectId: string }>;
+      const extra = ((r as any).extraProjects ?? []) as Array<{ projectId: string; status: string | null }>;
       const projectIds = [r.projectId, ...extra.map((e) => e.projectId).filter((id) => id !== r.projectId)];
+      // Mapa projectId → status para los extras. La tarea cae en esa
+      // columna cuando estás filtrando por ese proyecto secundario.
+      const extraProjectStatuses: Record<string, string | null> = {};
+      for (const e of extra) if (e.projectId !== r.projectId) extraProjectStatuses[e.projectId] = e.status;
       return {
         id: r.id,
         title: r.title,
@@ -185,6 +193,7 @@ export async function getTasksForUi(): Promise<UiTask[]> {
         assigneeIds: r.assignees.map((a) => a.userId),
         projectId: r.projectId,
         projectIds,
+        extraProjectStatuses,
         clientId: r.clientId ?? undefined,
         // Si la tarea no tiene fecha, NO inventamos una (antes ponía
         // "hoy" como fallback, lo que hacía que TODAS las tareas
