@@ -25,7 +25,7 @@ import AvatarStack from "@/components/AvatarStack";
 import TaskFormModal from "@/components/forms/TaskFormModal";
 import ProjectFormModal from "@/components/forms/ProjectFormModal";
 import BulkActionBar from "@/components/tareas/BulkActionBar";
-import { statusLabelOf, statusColorOf, priorityColors } from "@/lib/mock-data";
+import { statusLabelOf, statusColorOf, priorityColors, priorityLabels } from "@/lib/mock-data";
 import type { UiTask, UiProject, UiClient, UiMember } from "@/lib/db/queries";
 import { LayoutGrid, List, Plus, Filter, CalendarDays, FolderPlus, GripVertical, CheckSquare, Square, Settings2, Loader2, Link2, Check } from "lucide-react";
 import clsx from "clsx";
@@ -271,7 +271,9 @@ export default function TareasClient({
   return (
     // Sin max-w: el tablero ocupa todo el ancho disponible, estilo Asana.
     // Las columnas se vuelven más anchas en monitores grandes.
-    <div>
+    // flex column + min-h-screen para que las columnas se estiren hasta
+    // abajo cuando no hay otra cosa que las empuje.
+    <div className="flex flex-col min-h-[calc(100vh-8rem)]">
       <PageHeader
         title="Tareas y proyectos"
         description={selectionMode ? `${selected.size} tareas seleccionadas` : "Gestiona el flujo de trabajo de toda la agencia."}
@@ -459,7 +461,7 @@ export default function TareasClient({
                     </td>
                     <td className="px-3 py-3">
                       <span className={`text-xs px-2 py-1 rounded ${priorityColors[t.priority]}`}>
-                        {t.priority}
+                        {priorityLabels[t.priority] ?? t.priority}
                       </span>
                     </td>
                     <td className="px-3 py-3">
@@ -503,35 +505,6 @@ export default function TareasClient({
           onCancel={clearSelection}
         />
       )}
-
-      <div className="mt-8">
-        <h2 className="text-sm font-semibold text-slate-500 uppercase tracking-wide mb-3">Proyectos activos</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          {projects.map((p) => {
-            const client = getClient(p.clientId);
-            const projectTasks = tasks.filter((t) => t.projectId === p.id);
-            return (
-              <div key={p.id} className="bg-white rounded-xl border p-5">
-                <div className="flex items-center gap-2 mb-3">
-                  <span className={`h-2.5 w-2.5 rounded-full ${p.color}`} />
-                  <span className="text-xs text-slate-500">{client?.name}</span>
-                </div>
-                <h3 className="font-semibold">{p.name}</h3>
-                <p className="text-xs text-slate-500 mt-1 line-clamp-2">{p.description}</p>
-                <div className="mt-4">
-                  <div className="flex items-center justify-between text-xs mb-1">
-                    <span className="text-slate-500">{projectTasks.length} tareas</span>
-                    <span className="font-medium">{p.progress}%</span>
-                  </div>
-                  <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                    <div className={`h-full ${p.color}`} style={{ width: `${p.progress}%` }} />
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
     </div>
   );
 }
@@ -554,7 +527,7 @@ function KanbanGrid({
   // cap de 6 columnas previo — Asana muestra todas las que existan.
   return (
     <div
-      className="grid grid-flow-col gap-3 sm:gap-4 overflow-x-auto pb-2 snap-x snap-mandatory md:snap-none"
+      className="grid grid-flow-col gap-3 sm:gap-4 overflow-x-auto pb-2 snap-x snap-mandatory md:snap-none flex-1 [&>*]:min-h-full"
       style={{
         gridAutoColumns: `minmax(320px, ${columnCount <= 6 ? "1fr" : "360px"})`
       }}
@@ -762,7 +735,7 @@ function KanbanColumnView({
   const taskIds = tasks.map((t) => t.id);
 
   return (
-    <div ref={setNodeRef} style={style} className="bg-slate-100/60 rounded-xl p-3 min-h-[400px] flex flex-col">
+    <div ref={setNodeRef} style={style} className="bg-slate-100/60 rounded-xl p-3 min-h-[400px] flex-1 flex flex-col">
       <div className="flex items-center justify-between mb-3 px-1">
         <div className="flex items-center gap-2 min-w-0">
           <button
@@ -943,7 +916,7 @@ function TaskCard({
       <div className="flex items-start justify-between gap-2 mb-2 pr-8">
         <p className="text-sm font-medium leading-snug">{task.title}</p>
         <span className={`shrink-0 text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded ${priorityColors[task.priority]}`}>
-          {task.priority}
+          {priorityLabels[task.priority] ?? task.priority}
         </span>
       </div>
       <div className="flex items-center gap-2 text-xs text-slate-500 mb-3">

@@ -296,6 +296,7 @@ model Project {
   workspace Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   client    Client?          @relation(fields: [clientId], references: [id], onDelete: SetNull)
   tasks     Task[]
+  taskLinks TaskProject[]
   members   ProjectMember[]
 
   @@index([workspaceId])
@@ -808,11 +809,34 @@ model Task {
   subtasks  Task[]         @relation("Subtasks")
   assignees TaskAssignee[]
   tags      TaskTag[]
+  // Proyectos EXTRA donde aparece la misma tarea. El proyecto principal
+  // sigue siendo `projectId` (define la columna kanban canónica). Esta
+  // tabla permite que la tarea aparezca también en los listados de
+  // otros proyectos sin duplicar el registro.
+  extraProjects TaskProject[]
   comments  Comment[]
+  // Notificaciones por fecha de entrega — array de keys persistidas:
+  // "day_7am", "1h_before", "10min_before". null = defaults
+  // (todas activas). [] = ninguna. Sólo se programa el envío si la
+  // tarea tiene dueDate.
+  notifyDueRules Json?
 
   @@index([workspaceId])
   @@index([projectId])
   @@index([status])
+}
+
+// Proyectos adicionales en los que aparece una tarea (multi-proyecto).
+// La tarea sigue teniendo UN proyecto principal en Task.projectId; los
+// extra van aquí. Pivot table simple.
+model TaskProject {
+  taskId    String
+  projectId String
+  task      Task    @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@id([taskId, projectId])
+  @@index([projectId])
 }
 
 enum TaskStatus {

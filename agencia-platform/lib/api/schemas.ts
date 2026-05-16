@@ -147,6 +147,10 @@ export const projectCreateSchema = z.object({
 
 export const taskCreateSchema = z.object({
   projectId: z.string(),
+  // Lista completa de proyectos donde aparece la tarea. Si llega, el
+  // primero pasa a ser el principal (projectId) y los demás se guardan
+  // como TaskProject. Si no llega, se respeta projectId tal cual.
+  projectIds: z.array(z.string()).optional(),
   title: z.string().min(1),
   description: z.string().optional(),
   // Antes era enum cerrado; ahora libre (columnas configurables por workspace).
@@ -154,6 +158,8 @@ export const taskCreateSchema = z.object({
   priority: z.enum(["LOW", "MEDIUM", "HIGH", "URGENT"]).default("MEDIUM"),
   dueDate: z.string().datetime().optional(),
   dueAllDay: z.boolean().optional(),
+  // Reglas de notificación por dueDate. null = defaults (las 3 activas).
+  notifyDueRules: z.array(z.enum(["day_7am", "1h_before", "10min_before"])).nullable().optional(),
   assigneeIds: z.array(z.string()).default([]),
   parentId: z.string().optional()
 });

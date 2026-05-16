@@ -10,18 +10,16 @@ import type { UiProject, UiMember, UiTask } from "@/lib/db/queries";
 import { Loader2, Trash2, MessageSquare, Send, X, CheckSquare, Check, ArrowLeft, ExternalLink } from "lucide-react";
 
 type MentionCandidate = { id: string; name: string | null; email: string };
-type Priority = "baja" | "media" | "alta";
+type Priority = "urgencia" | "alta";
 type KanbanColumn = { id: string; label: string; color: string; order: number; isDone?: boolean };
 
 const priorityOptions: { value: Priority; label: string }[] = [
-  { value: "baja", label: "Baja" },
-  { value: "media", label: "Media" },
+  { value: "urgencia", label: "🚨 URGENCIA" },
   { value: "alta", label: "Alta" }
 ];
 
 const priorityToApi: Record<Priority, string> = {
-  baja: "LOW",
-  media: "MEDIUM",
+  urgencia: "URGENT",
   alta: "HIGH"
 };
 
@@ -64,11 +62,22 @@ export default function TaskFormModal({
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState<any>(null);
   const [status, setStatus] = useState<string>("TODO");
-  const [priority, setPriority] = useState<Priority>("media");
-  const [projectId, setProjectId] = useState<string>("");
+  const [priority, setPriority] = useState<Priority>("alta");
+  // Multi-proyecto: la tarea puede estar en N proyectos. El primero del
+  // array es el "principal" (define la columna kanban). projectIds[0]
+  // siempre corresponde al projectId del schema.
+  const [projectIds, setProjectIds] = useState<string[]>([]);
+  const projectId = projectIds[0] ?? "";
   const [assigneeIds, setAssigneeIds] = useState<string[]>([]);
   const [dueDate, setDueDate] = useState<string>("");
   const [dueTime, setDueTime] = useState<string>("");
+  // Reglas de notificación. null = "usar defaults del backend".
+  // Array (incluido []) = preferencia explícita del usuario.
+  const [notifyDueRules, setNotifyDueRules] = useState<string[] | null>(null);
+  const effectiveRules = notifyDueRules ?? ["day_7am", "1h_before", "10min_before"];
+  function toggleRule(r: string) {
+    setNotifyDueRules(effectiveRules.includes(r) ? effectiveRules.filter((x) => x !== r) : [...effectiveRules, r]);
+  }
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -99,11 +108,18 @@ export default function TaskFormModal({
     if (currentTask) {
       setTitle(currentTask.title);
       setStatus(String(currentTask.status));
-      setPriority(currentTask.priority);
-      setProjectId(currentTask.projectId);
+      // currentTask.priority viene del backend mapeado a "alta" o
+      // "urgencia"; si por compat llegó algo legacy lo normalizamos.
+      setPriority((currentTask.priority === "urgencia" ? "urgencia" : "alta") as Priority);
+      setProjectIds(
+        Array.isArray((currentTask as any).projectIds) && (currentTask as any).projectIds.length > 0
+          ? (currentTask as any).projectIds
+          : [currentTask.projectId]
+      );
       setAssigneeIds(currentTask.assigneeIds);
       setDueDate(currentTask.dueDate ?? "");
       setDueTime(currentTask.dueAllDay === false && currentTask.dueTime ? currentTask.dueTime : "");
+      setNotifyDueRules(Array.isArray(currentTask.notifyDueRules) ? currentTask.notifyDueRules : null);
       // Fetch detalle: descripción + subtareas + comentarios
       fetch(`/api/v1/tasks/${currentTask.id}`)
         .then((r) => (r.ok ? r.json() : null))
@@ -129,11 +145,12 @@ export default function TaskFormModal({
       setTitle("");
       setDescription(null);
       setStatus(defaultStatus ?? columns?.[0]?.id ?? "TODO");
-      setPriority("media");
-      setProjectId(defaultProjectId ?? projects[0]?.id ?? "");
+      setPriority("alta");
+      setProjectIds([defaultProjectId ?? projects[0]?.id ?? ""].filter(Boolean) as string[]);
       setAssigneeIds([]);
       setDueDate("");
       setDueTime("");
+      setNotifyDueRules(null);
       setComments([]);
       setSubtasks([]);
     }
@@ -165,10 +182,12 @@ export default function TaskFormModal({
     const payload: any = {
       title: title.trim(),
       projectId,
+      projectIds,
       status,
       priority: priorityToApi[priority],
       assigneeIds,
-      description: descSerialized
+      description: descSerialized,
+      notifyDueRules
     };
     if (dueDate) {
       // Si hay hora, la combinamos. Si no, guardamos a las 00:00 y
@@ -556,15 +575,48 @@ export default function TaskFormModal({
             </select>
           </SidebarField>
 
-          <SidebarField label="Proyecto">
-            <select
-              value={projectId}
-              onChange={(e) => setProjectId(e.target.value)}
-              className="w-full px-2 py-1.5 rounded-md border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
-            >
-              <option value="" disabled>Selecciona…</option>
-              {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-            </select>
+          <SidebarField label={`Proyectos (${projectIds.length})`}>
+            <div className="space-y-1 max-h-44 overflow-y-auto -mx-1 px-1">
+              {projects.map((p) => {
+                const sel = projectIds.includes(p.id);
+                const isPrimary = projectIds[0] === p.id;
+                return (
+                  <label
+                    key={p.id}
+                    className={
+                      "flex items-center gap-2 px-2 py-1.5 rounded-md text-xs cursor-pointer transition " +
+                      (sel ? "bg-brand-50 text-brand-700" : "text-slate-700 hover:bg-slate-50")
+                    }
+                  >
+                    <input
+                      type="checkbox"
+                      checked={sel}
+                      onChange={() => {
+                        if (sel) {
+                          // Quitar — pero nunca dejar la lista vacía.
+                          if (projectIds.length === 1) return;
+                          setProjectIds(projectIds.filter((x) => x !== p.id));
+                        } else {
+                          setProjectIds([...projectIds, p.id]);
+                        }
+                      }}
+                      className="accent-brand-600"
+                    />
+                    <span className="flex-1 truncate">{p.name}</span>
+                    {isPrimary && projectIds.length > 1 && (
+                      <span className="text-[9px] uppercase tracking-wide px-1 rounded bg-brand-100 text-brand-700">
+                        principal
+                      </span>
+                    )}
+                  </label>
+                );
+              })}
+            </div>
+            {projectIds.length > 1 && (
+              <p className="mt-1 text-[10px] text-slate-500">
+                La tarea aparece en los {projectIds.length} proyectos. El "principal" define en qué tablero kanban se mueve.
+              </p>
+            )}
           </SidebarField>
 
           <SidebarField label="Fecha y hora de entrega">
@@ -600,6 +652,34 @@ export default function TaskFormModal({
               </p>
             </div>
           </SidebarField>
+
+          {dueDate && (
+            <SidebarField label="Notificaciones por email">
+              <div className="space-y-1 text-xs">
+                {[
+                  { key: "day_7am", label: "El mismo día a las 7:00" },
+                  { key: "1h_before", label: "1 hora antes" },
+                  { key: "10min_before", label: "10 minutos antes" }
+                ].map((r) => {
+                  const on = effectiveRules.includes(r.key);
+                  return (
+                    <label key={r.key} className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={on}
+                        onChange={() => toggleRule(r.key)}
+                        className="accent-brand-600"
+                      />
+                      <span className={on ? "text-slate-800" : "text-slate-500"}>{r.label}</span>
+                    </label>
+                  );
+                })}
+                <p className="text-[10px] text-slate-500 pt-1">
+                  Se enviará a cada asignado de la tarea.
+                </p>
+              </div>
+            </SidebarField>
+          )}
 
           <SidebarField label={`Asignados (${assigneeIds.length})`}>
             <div className="space-y-1 max-h-40 overflow-y-auto -mx-1 px-1">

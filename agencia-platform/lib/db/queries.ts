@@ -44,11 +44,14 @@ const taskStatusToUi: Record<string, "todo" | "in_progress" | "review" | "done">
   CANCELLED: "done"
 };
 
-const priorityToUi: Record<string, "baja" | "media" | "alta"> = {
-  LOW: "baja",
-  MEDIUM: "media",
+// Sólo exponemos dos niveles en la UI: URGENCIA y Alta. Las prioridades
+// LOW/MEDIUM legacy se promueven a "alta" para no perder visibilidad de
+// tareas creadas antes del cambio.
+const priorityToUi: Record<string, "urgencia" | "alta"> = {
+  LOW: "alta",
+  MEDIUM: "alta",
   HIGH: "alta",
-  URGENT: "alta"
+  URGENT: "urgencia"
 };
 
 const eventTypeToUi: Record<string, "publicacion" | "reunion" | "deadline" | "campaña"> = {
@@ -67,6 +70,10 @@ export type UiClient = (typeof mockClients)[number] & {
 export type UiTask = (typeof mockTasks)[number] & {
   dueTime?: string; // "HH:MM" si la tarea tiene hora concreta
   dueAllDay?: boolean;
+  // Multi-proyecto: lista completa de proyectos en los que aparece la
+  // tarea. projectIds[0] coincide siempre con projectId (compat).
+  projectIds?: string[];
+  notifyDueRules?: string[] | null;
 };
 export type UiProject = (typeof mockProjects)[number];
 export type UiEvent = (typeof mockEvents)[number];
@@ -122,13 +129,15 @@ export async function getTasksForUi(): Promise<UiTask[]> {
       // Solo top-level: las subtareas viven dentro del modal de la tarea padre,
       // no como tarjetas independientes en el Kanban.
       where: { parentId: null },
-      include: { assignees: true, tags: { include: { tag: true } } },
+      include: { assignees: true, tags: { include: { tag: true } }, extraProjects: true },
       // order ASC = más arriba en la columna. Tareas recientes (con order = 0
       // por defecto) flotan arriba, y los reorders manuales (drag&drop) ganan.
       orderBy: [{ order: "asc" }, { createdAt: "desc" }]
     });
     return rows.map<UiTask>((r) => {
       const allDay = (r as any).dueAllDay ?? true;
+      const extra = ((r as any).extraProjects ?? []) as Array<{ projectId: string }>;
+      const projectIds = [r.projectId, ...extra.map((e) => e.projectId).filter((id) => id !== r.projectId)];
       return {
         id: r.id,
         title: r.title,
@@ -138,12 +147,14 @@ export async function getTasksForUi(): Promise<UiTask[]> {
         status: r.status as any,
         assigneeIds: r.assignees.map((a) => a.userId),
         projectId: r.projectId,
+        projectIds,
         clientId: r.clientId ?? undefined,
         dueDate: (r.dueDate ?? new Date()).toISOString().slice(0, 10),
         dueTime: r.dueDate && !allDay ? r.dueDate.toISOString().slice(11, 16) : undefined,
         dueAllDay: allDay,
-        priority: priorityToUi[r.priority] ?? "media",
-        tags: r.tags.map((t) => t.tag.name)
+        priority: priorityToUi[r.priority] ?? "alta",
+        tags: r.tags.map((t) => t.tag.name),
+        notifyDueRules: (r as any).notifyDueRules ?? null
       };
     });
   }, mockTasks);

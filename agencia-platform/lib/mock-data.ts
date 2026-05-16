@@ -24,7 +24,7 @@ export type Task = {
   clientId?: string;
   projectId: string;
   dueDate: string;
-  priority: "baja" | "media" | "alta";
+  priority: "urgencia" | "alta" | "baja" | "media";
   tags: string[];
 };
 
@@ -409,9 +409,22 @@ export function statusColorOf(status: string, columns?: ColumnLike[]): string {
 }
 
 export const priorityColors: Record<Task["priority"], string> = {
+  // URGENCIA: rojo intenso pulsante para destacar al máximo.
+  urgencia: "bg-rose-600 text-white border border-rose-700 animate-pulse font-bold",
+  alta: "bg-rose-100 text-rose-700",
+  // Legacy: aún puede haber datos antiguos. Los downgradeamos al cargar
+  // (priorityToUi), pero el record necesita las keys para tipar.
   baja: "bg-slate-100 text-slate-600",
-  media: "bg-sky-100 text-sky-700",
-  alta: "bg-rose-100 text-rose-700"
+  media: "bg-sky-100 text-sky-700"
+};
+
+// Etiqueta visible para cada prioridad (en español, con emoticono para
+// URGENCIA para que cante en cualquier lista).
+export const priorityLabels: Record<Task["priority"], string> = {
+  urgencia: "🚨 URGENCIA",
+  alta: "Alta",
+  baja: "Baja",
+  media: "Media"
 };
 
 export function getClient(id?: string) {

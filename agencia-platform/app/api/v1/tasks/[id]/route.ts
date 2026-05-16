@@ -24,15 +24,24 @@ export const PATCH = withApi({ scope: "tasks:write" }, async (req, { params, api
   const body = await req.json().catch(() => null);
   const parsed = taskCreateSchema.partial().safeParse(body);
   if (!parsed.success) throw new ApiError(400, "validation_error", parsed.error.message);
-  const { assigneeIds, dueDate, dueAllDay, ...data } = parsed.data;
+  const { assigneeIds, dueDate, dueAllDay, projectIds, notifyDueRules, ...data } = parsed.data;
+  // projectIds → si llega, projectIds[0] es el principal, resto va a TaskProject.
+  let primaryProjectId: string | undefined;
+  let extraProjectIds: string[] | undefined;
+  if (projectIds) {
+    primaryProjectId = projectIds[0];
+    extraProjectIds = projectIds.slice(1).filter((p) => p && p !== primaryProjectId);
+  }
 
   const result = await prisma.$transaction(async (tx) => {
     const upd = await tx.task.updateMany({
       where: { id: params.id, workspaceId: api.workspaceId },
       data: {
         ...data,
+        ...(primaryProjectId ? { projectId: primaryProjectId } : {}),
         dueDate: dueDate ? new Date(dueDate) : undefined,
         ...(typeof dueAllDay === "boolean" ? { dueAllDay } : {}),
+        ...(notifyDueRules !== undefined ? { notifyDueRules: notifyDueRules as any } : {}),
         completedAt: data.status === "DONE" ? new Date() : data.status ? null : undefined
       } as any
     });
@@ -42,6 +51,14 @@ export const PATCH = withApi({ scope: "tasks:write" }, async (req, { params, api
       await tx.taskAssignee.createMany({
         data: assigneeIds.map((uid) => ({ taskId: params.id, userId: uid }))
       });
+    }
+    if (extraProjectIds !== undefined) {
+      await (tx as any).taskProject.deleteMany({ where: { taskId: params.id } });
+      if (extraProjectIds.length > 0) {
+        await (tx as any).taskProject.createMany({
+          data: extraProjectIds.map((projectId) => ({ taskId: params.id, projectId }))
+        });
+      }
     }
     return tx.task.findUnique({ where: { id: params.id }, include: { assignees: true } });
   });
