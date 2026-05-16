@@ -27,9 +27,13 @@ const statusLabels: Record<string, string> = {
 
 const prioridadStyles: Record<string, { card: string; badge: string; dot: string; label: string; weight: number }> = {
   ALTA: {
-    card: "border-l-4 border-l-rose-500 bg-rose-50/30",
-    badge: "bg-rose-100 text-rose-800 border-rose-400",
-    dot: "bg-rose-500 animate-pulse",
+    // Fondo intenso para que la tarjeta cante en la lista — pediste
+    // resaltar mucho más los clientes de prioridad alta. El degradado
+    // rojo + ring rose-300 deja la card destacada incluso en mobile.
+    card:
+      "border-l-4 border-l-rose-600 bg-gradient-to-r from-rose-100 to-rose-50 ring-1 ring-rose-300 shadow-sm",
+    badge: "bg-rose-600 text-white border-rose-700 font-semibold",
+    dot: "bg-rose-600 animate-pulse",
     label: "ALTA",
     weight: 0
   },

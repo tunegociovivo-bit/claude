@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import {
   DndContext,
@@ -35,6 +35,23 @@ import { useSession } from "next-auth/react";
 type KanbanColumn = { id: string; label: string; color: string; order: number; isDone?: boolean };
 
 const COLUMN_ORDER_KEY = "kanban-column-order-v2";
+
+// Presets de color para columnas. Usados también en ColumnHeaderMenu
+// para que el usuario pueda recolorear la columna en línea.
+export const COLUMN_COLOR_PRESETS: { label: string; value: string }[] = [
+  { label: "Gris", value: "bg-slate-100 text-slate-700 border-slate-200" },
+  { label: "Azul", value: "bg-sky-100 text-sky-800 border-sky-300" },
+  { label: "Índigo", value: "bg-indigo-50 text-indigo-700 border-indigo-200" },
+  { label: "Ámbar", value: "bg-amber-100 text-amber-800 border-amber-300" },
+  { label: "Verde", value: "bg-emerald-100 text-emerald-800 border-emerald-300" },
+  { label: "Rosa", value: "bg-rose-100 text-rose-800 border-rose-300" },
+  { label: "Violeta", value: "bg-violet-100 text-violet-800 border-violet-300" },
+  // Tonos intensos para columnas críticas (urgencias, bloqueos, etc.).
+  { label: "Rojo intenso", value: "bg-rose-600 text-white border-rose-700" },
+  { label: "Naranja intenso", value: "bg-orange-500 text-white border-orange-700" },
+  { label: "Verde intenso", value: "bg-emerald-600 text-white border-emerald-700" },
+  { label: "Negro", value: "bg-slate-900 text-white border-slate-900" }
+];
 
 const FALLBACK_COLUMNS: KanbanColumn[] = [
   { id: "TODO", label: "Por hacer", color: "bg-slate-100 text-slate-700 border-slate-200", order: 0 },
@@ -672,15 +689,7 @@ function AddColumnButton({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const colorPresets = [
-    { label: "Gris", value: "bg-slate-100 text-slate-700 border-slate-200" },
-    { label: "Azul", value: "bg-sky-100 text-sky-800 border-sky-300" },
-    { label: "Índigo", value: "bg-indigo-50 text-indigo-700 border-indigo-200" },
-    { label: "Ámbar", value: "bg-amber-100 text-amber-800 border-amber-300" },
-    { label: "Verde", value: "bg-emerald-100 text-emerald-800 border-emerald-300" },
-    { label: "Rosa", value: "bg-rose-100 text-rose-800 border-rose-300" },
-    { label: "Violeta", value: "bg-violet-100 text-violet-800 border-violet-300" }
-  ];
+  const colorPresets = COLUMN_COLOR_PRESETS;
 
   function slugifyId(s: string): string {
     return s
@@ -852,7 +861,7 @@ function KanbanColumnView({
   const taskIds = tasks.map((t) => t.id);
 
   return (
-    <div ref={setNodeRef} style={style} className="bg-slate-100/60 rounded-xl p-3 min-h-[400px] flex-1 flex flex-col">
+    <div ref={setNodeRef} style={style} className="group bg-slate-100/60 rounded-xl p-3 min-h-[400px] flex-1 flex flex-col">
       <div className="flex items-center justify-between mb-3 px-1">
         <div className="flex items-center gap-2 min-w-0">
           <button
@@ -863,10 +872,8 @@ function KanbanColumnView({
           >
             <GripVertical className="h-3.5 w-3.5" />
           </button>
-          <span className={`text-xs px-2 py-0.5 rounded-md border truncate ${column.color}`}>
-            {column.label}
-          </span>
-          <span className="text-xs text-slate-500">{tasks.length}</span>
+          <ColumnHeader column={column} allColumns={columns} />
+          <span className="text-xs text-slate-500 font-medium">{tasks.length}</span>
         </div>
         <button
           onClick={onAddTask}
@@ -1105,4 +1112,125 @@ function computeAlarmLevel(task: UiTask, nowMs: number): "none" | "preaviso" | "
   const startOfWindow = dueDay + 7 * 60 * 60 * 1000; // 07:00 UTC del día
   if (nowMs >= startOfWindow && nowMs < due) return "preaviso";
   return "none";
+}
+
+/**
+ * Header editable de una columna del Kanban: click para renombrar,
+ * icono de gota para recolorar. Solo admins pueden guardar; los
+ * miembros ven el header normal sin botones de edición.
+ *
+ * Por simplicidad de POST: como el endpoint pide TODAS las columnas
+ * en la actualización (PUT /api/v1/kanban-columns), recibimos
+ * `allColumns` y mandamos la lista entera con esta sustituida.
+ */
+function ColumnHeader({
+  column,
+  allColumns
+}: {
+  column: KanbanColumn;
+  allColumns: KanbanColumn[];
+}) {
+  const { data: session } = useSession();
+  const isAdmin = ((session?.user as any)?.role ?? "") === "ADMIN";
+  const [editing, setEditing] = useState(false);
+  const [draftName, setDraftName] = useState(column.label);
+  const [showColors, setShowColors] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (editing) {
+      setDraftName(column.label);
+      setTimeout(() => inputRef.current?.select(), 30);
+    }
+  }, [editing, column.label]);
+
+  async function persist(next: KanbanColumn) {
+    const all = allColumns.map((c) => (c.id === next.id ? next : c));
+    setSaving(true);
+    try {
+      const r = await fetch("/api/v1/kanban-columns", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ columns: all })
+      });
+      if (r.ok) {
+        // Refresca la página para que las columnas y filtros vean
+        // el cambio sin tener que recargar manualmente.
+        if (typeof window !== "undefined") window.location.reload();
+      }
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function commitName() {
+    const value = draftName.trim();
+    setEditing(false);
+    if (!value || value === column.label) return;
+    persist({ ...column, label: value });
+  }
+
+  function pickColor(value: string) {
+    setShowColors(false);
+    if (value === column.color) return;
+    persist({ ...column, color: value });
+  }
+
+  if (editing && isAdmin) {
+    return (
+      <input
+        ref={inputRef}
+        value={draftName}
+        onChange={(e) => setDraftName(e.target.value)}
+        onBlur={commitName}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") commitName();
+          if (e.key === "Escape") setEditing(false);
+        }}
+        disabled={saving}
+        className={`text-sm font-bold uppercase tracking-wide px-2.5 py-1 rounded-md border outline-none focus:ring-2 focus:ring-brand-500 ${column.color}`}
+        style={{ maxWidth: 200 }}
+      />
+    );
+  }
+
+  return (
+    <div className="relative inline-flex items-center gap-1 min-w-0">
+      <span
+        onDoubleClick={() => isAdmin && setEditing(true)}
+        className={`text-sm font-bold uppercase tracking-wide px-2.5 py-1 rounded-md border truncate ${column.color} ${isAdmin ? "cursor-pointer" : ""}`}
+        title={isAdmin ? "Doble click para renombrar" : column.label}
+      >
+        {column.label}
+      </span>
+      {isAdmin && (
+        <button
+          type="button"
+          onClick={() => setShowColors((v) => !v)}
+          className="text-slate-400 hover:text-slate-700 opacity-0 group-hover:opacity-100 transition shrink-0"
+          aria-label="Cambiar color"
+          title="Cambiar color"
+        >
+          {/* gota / dot circular */}
+          <span className={`block h-3 w-3 rounded-full border ${column.color}`} />
+        </button>
+      )}
+      {showColors && isAdmin && (
+        <div className="absolute top-full left-0 mt-1 z-20 bg-white rounded-lg border shadow-lg p-2 grid grid-cols-4 gap-1 w-[200px]">
+          {COLUMN_COLOR_PRESETS.map((p) => (
+            <button
+              key={p.value}
+              type="button"
+              onClick={() => pickColor(p.value)}
+              className={`h-7 rounded-md border ${p.value} text-[10px] font-bold uppercase tracking-tight`}
+              title={p.label}
+            >
+              Aa
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
