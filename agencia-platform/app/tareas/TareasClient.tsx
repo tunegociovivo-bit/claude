@@ -864,6 +864,15 @@ function TaskCard({
   columns?: KanbanColumn[];
 }) {
   const [copied, setCopied] = useState(false);
+  // Tick cada minuto para refrescar el estado de alarma visual sin
+  // recargar la página. Como el cálculo es puro y barato, no hay
+  // problema de rendimiento.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 60 * 1000);
+    return () => clearInterval(t);
+  }, []);
+  const alarmLevel = computeAlarmLevel(task, now);
 
   async function copyTaskUrl(e: React.MouseEvent) {
     e.stopPropagation();
@@ -882,8 +891,15 @@ function TaskCard({
   return (
     <div
       className={clsx(
-        "bg-white rounded-lg border p-3 transition cursor-pointer relative group",
-        isOverlay ? "shadow-2xl rotate-2 border-brand-400" : "hover:shadow-sm hover:border-brand-200",
+        "rounded-lg border p-3 transition cursor-pointer relative group",
+        // Alarma visual según proximidad del dueDate. Sólo aplica a
+        // tareas no completadas con fecha y antes del vencimiento.
+        alarmLevel === "urgent"
+          ? "bg-rose-600 text-white border-rose-700 shadow-lg shadow-rose-200 animate-pulse"
+          : alarmLevel === "preaviso"
+            ? "bg-white border-rose-500 ring-2 ring-rose-300/60"
+            : "bg-white",
+        isOverlay ? "shadow-2xl rotate-2 border-brand-400" : alarmLevel === "none" && "hover:shadow-sm hover:border-brand-200",
         isSelected && "border-brand-400 ring-2 ring-brand-300/50"
       )}
     >
@@ -942,4 +958,35 @@ function TaskCard({
       </div>
     </div>
   );
+}
+
+// Calcula el nivel de alarma visual de una tarea en función del tiempo
+// que falta hasta su dueDate. Se alimenta del mismo modelo que el cron
+// de notificaciones por email.
+//   none      → ya vencida, sin fecha, o aún a >24h
+//   preaviso  → dentro del día (después de las 07:00 UTC), pero a más
+//               de 1h del vencimiento → borde rojo
+//   urgent    → a 1h o menos del vencimiento, antes del vencimiento →
+//               tarjeta entera roja pulsante
+//   none (de nuevo) → tras la hora de vencimiento se quitan los colores
+//                     para que el equipo vea claro que ya pasó.
+function computeAlarmLevel(task: UiTask, nowMs: number): "none" | "preaviso" | "urgent" {
+  if (!task.dueDate) return "none";
+  // Reconstruimos el Date desde dueDate (YYYY-MM-DD) + hora opcional.
+  // Si la tarea es allDay usamos 23:59 como referencia de "fin del
+  // día", así un día de vacaciones no queda en rojo desde las 00:00.
+  const datePart = task.dueDate;
+  const timePart = task.dueTime ?? (task.dueAllDay !== false ? "23:59" : "00:00");
+  const due = new Date(`${datePart}T${timePart}:00.000Z`).getTime();
+  if (isNaN(due)) return "none";
+  const diffMs = due - nowMs;
+  if (diffMs < 0) return "none"; // ya vencida → estado normal
+  if (diffMs <= 60 * 60 * 1000) return "urgent"; // ≤ 1h
+  // "preaviso": mismo día y ya son ≥ 07:00 UTC (paridad con el cron
+  // day_7am). Por tanto sólo aplica el día del vencimiento, no varios
+  // días antes.
+  const dueDay = new Date(`${datePart}T00:00:00.000Z`).getTime();
+  const startOfWindow = dueDay + 7 * 60 * 60 * 1000; // 07:00 UTC del día
+  if (nowMs >= startOfWindow && nowMs < due) return "preaviso";
+  return "none";
 }
