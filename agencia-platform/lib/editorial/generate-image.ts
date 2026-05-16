@@ -245,6 +245,19 @@ export async function generateImageForPost(opts: GenerateImageOptions): Promise<
     }
   }
 
+  // Log diagnóstico: qué personas detectamos y por qué. Visible en
+  // Railway logs (kind=info). Permite saber si el matching falla por
+  // texto, por regex, o por refs ausentes.
+  console.log("[generate-image] roster decision:", JSON.stringify({
+    postId: post.id,
+    haystackPreview: haystack.slice(0, 200),
+    mentionsCollective,
+    forcedFromModal: forced,
+    peopleInRoster: Array.from(peopleByName.values()).map((p) => ({ name: p.name, type: p.type, photos: p.urls.length })),
+    includedPersons: Array.from(includedNames),
+    finalRefCount: referenceUrls.length
+  }));
+
   let buf: Buffer;
   let modelLabel: string;
   if (provider === "freepik") {

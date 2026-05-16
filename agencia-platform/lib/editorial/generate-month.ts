@@ -171,6 +171,9 @@ Reglas:
     `  · DEBE coincidir con la zona de espacio negativo reservada en image_prompt.`,
     `  · Si la persona va arriba o centro → bottom. Si la persona va abajo → top.`,
     `  · NUNCA pongas top si la persona ocupa la mitad superior (taparías la cara).`,
+    `  · NUNCA pongas center si hay UNA SOLA persona centrada — taparías su cara o torso. Mueve a bottom o top.`,
+    `  · REGLA DE ORO: el bloque de texto va en una franja horizontal completamente VACÍA (pared lisa, cielo, escritorio limpio, suelo). Si tu image_prompt no garantiza una franja vacía de ~35% de la altura libre de personas en la zona "text_placement", REESCRIBE el image_prompt para que sí.`,
+    `  · Para fotos donde el sujeto principal aparece sentado mirando a cámara en el centro, lo correcto es: composición con espacio negativo a la IZQUIERDA del sujeto + text_placement="center" (el scrim del overlay queda en la mitad izquierda). En este caso, el image_prompt debe especificar "subject seated on the right third of the frame, left two-thirds clear background, ample negative space on the left for vertical text overlay".`,
     ``,
     `Devuelve SIEMPRE un JSON con la forma del schema. Sin preámbulos ni comentarios fuera del JSON.`
   ]
