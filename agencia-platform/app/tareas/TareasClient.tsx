@@ -269,7 +269,9 @@ export default function TareasClient({
   const isAdmin = !columnsLoaded; // placeholder; usaremos el endpoint /me en futuro si hace falta
 
   return (
-    <div className="max-w-7xl mx-auto">
+    // Sin max-w: el tablero ocupa todo el ancho disponible, estilo Asana.
+    // Las columnas se vuelven más anchas en monitores grandes.
+    <div>
       <PageHeader
         title="Tareas y proyectos"
         description={selectionMode ? `${selected.size} tareas seleccionadas` : "Gestiona el flujo de trabajo de toda la agencia."}
@@ -363,7 +365,7 @@ export default function TareasClient({
             {/* Móvil: scroll horizontal con columnas de ~280px (típico kanban).
                 Tablet/desktop: grid uniforme. +1 columna placeholder al final
                 con un botón "+" para añadir columna en línea. */}
-            <KanbanGrid columnCount={Math.min(orderedColumns.length + 1, 6)}>
+            <KanbanGrid columnCount={orderedColumns.length + 1}>
               {orderedColumns.map((col) => (
                 <KanbanColumnView
                   key={col.id}
@@ -546,11 +548,15 @@ function KanbanGrid({
   columnCount: number;
   children: React.ReactNode;
 }) {
+  // Layout estilo Asana: columnas anchas que aprovechan todo el ancho.
+  // Mínimo 320px por columna; si caben todas en pantalla, reparten el
+  // espacio extra al 1fr. Si no caben, scroll horizontal. Quitamos el
+  // cap de 6 columnas previo — Asana muestra todas las que existan.
   return (
     <div
-      className="flex md:grid gap-3 sm:gap-4 overflow-x-auto md:overflow-visible pb-2 snap-x snap-mandatory md:snap-none [&>*]:w-[280px] [&>*]:shrink-0 [&>*]:snap-start md:[&>*]:w-auto md:[&>*]:shrink"
+      className="grid grid-flow-col gap-3 sm:gap-4 overflow-x-auto pb-2 snap-x snap-mandatory md:snap-none"
       style={{
-        gridTemplateColumns: `repeat(${columnCount}, minmax(0, 1fr))`
+        gridAutoColumns: `minmax(320px, ${columnCount <= 6 ? "1fr" : "360px"})`
       }}
     >
       {children}
