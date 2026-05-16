@@ -9,6 +9,7 @@ export const SERVICIO_KEYS = [
   "gestion_redes",
   "campana_redes",
   "resenas_qr",
+  "comercio_electronico",
   "mantenimiento",
   "servidor",
   "dominio"
@@ -24,6 +25,7 @@ export const SERVICIO_LABELS: Record<ServicioKey, string> = {
   gestion_redes: "Gestión Redes",
   campana_redes: "Campaña Redes",
   resenas_qr: "Reseñas QR",
+  comercio_electronico: "Comercio Electrónico",
   mantenimiento: "Mantenimiento",
   servidor: "Servidor",
   dominio: "Dominio"

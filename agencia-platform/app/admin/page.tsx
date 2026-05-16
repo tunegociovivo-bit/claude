@@ -141,6 +141,12 @@ const cards = [
     icon: Upload
   },
   {
+    href: "/admin/import-clients-list",
+    title: "Importar listado de clientes",
+    description: "Crea los 71 clientes del Sheet inicial con su prioridad y servicios. Idempotente — los que ya existen se saltan.",
+    icon: Upload
+  },
+  {
     href: "https://claude.ai/code/session_01CA9ihZJxnRBKpd64rc1mg9",
     title: "Sesión de Claude (mantenimiento)",
     description: "Atajo a la conversación de Claude donde se está desarrollando esta plataforma. Para pedir cambios o consultar el estado del proyecto.",

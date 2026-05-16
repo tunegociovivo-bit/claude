@@ -14,6 +14,7 @@ type ServicioKey =
   | "gestion_redes"
   | "campana_redes"
   | "resenas_qr"
+  | "comercio_electronico"
   | "mantenimiento"
   | "servidor"
   | "dominio";
@@ -27,6 +28,7 @@ const SERVICIOS: { key: ServicioKey; label: string }[] = [
   { key: "gestion_redes", label: "Gestión Redes" },
   { key: "campana_redes", label: "Campaña Redes" },
   { key: "resenas_qr", label: "Reseñas QR" },
+  { key: "comercio_electronico", label: "Comercio Electrónico" },
   { key: "mantenimiento", label: "Mantenimiento" },
   { key: "servidor", label: "Servidor" },
   { key: "dominio", label: "Dominio" }
