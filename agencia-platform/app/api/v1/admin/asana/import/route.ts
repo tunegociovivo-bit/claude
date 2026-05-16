@@ -1,12 +1,15 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { startAsanaImport } from "@/lib/asana/importer";
-import { saveAsanaToken } from "@/lib/asana/token";
+import { readAsanaToken, saveAsanaToken } from "@/lib/asana/token";
 
+// `token` ahora es opcional: si no llega, usamos el de AsanaConnection
+// guardado para el user actual.
 const schema = z.object({
-  token: z.string().min(10),
+  token: z.string().min(10).optional(),
   asanaWorkspaceGid: z.string().min(1),
   projectGids: z.array(z.string()).optional()
 });
@@ -16,17 +19,24 @@ export const POST = withApi({ scope: "admin" }, async (req, { api }) => {
   const parsed = schema.safeParse(body);
   if (!parsed.success) throw new ApiError(400, "validation_error", parsed.error.message);
 
-  // Guardamos el token cifrado en AsanaConnection si hay user. Si la
-  // llamada viene de una API key sin user humano, se usa el token
-  // del request directamente sin persistir.
-  if (api.userId) {
-    await saveAsanaToken({ userId: api.userId, token: parsed.data.token });
+  let token = parsed.data.token ?? null;
+  if (!token && api.userId) {
+    const conn = await prisma.asanaConnection.findFirst({ where: { userId: api.userId } });
+    token = conn ? readAsanaToken(conn) : null;
+  }
+  if (!token) throw new ApiError(400, "no_token", "Falta token de Asana");
+
+  // Guardamos el token cifrado en AsanaConnection si llegó nuevo y
+  // hay user. Si la llamada viene de una API key sin user humano, se
+  // usa el token directamente sin persistir.
+  if (parsed.data.token && api.userId) {
+    await saveAsanaToken({ userId: api.userId, token });
   }
 
   const jobId = await startAsanaImport({
     workspaceId: api.workspaceId,
     asanaWorkspaceGid: parsed.data.asanaWorkspaceGid,
-    token: parsed.data.token,
+    token,
     projectGids: parsed.data.projectGids
   });
 

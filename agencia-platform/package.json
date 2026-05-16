@@ -16,7 +16,8 @@
     "openapi": "tsx scripts/build-openapi.ts",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
-    "test:e2e:install": "playwright install --with-deps chromium"
+    "test:e2e:install": "playwright install --with-deps chromium",
+    "test:e2e:seed": "tsx scripts/seed-e2e.ts"
   },
   "prisma": {
     "seed": "tsx scripts/seed.ts"

@@ -18,6 +18,11 @@ type Job = {
 export default function AsanaImportPage() {
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
   const [token, setToken] = useState("");
+  const [savedConnection, setSavedConnection] = useState<{
+    hasToken: boolean;
+    asanaUserId: string | null;
+    createdAt: string | null;
+  } | null>(null);
   const [user, setUser] = useState<{ name?: string; email?: string } | null>(null);
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [wsGid, setWsGid] = useState<string>("");
@@ -37,18 +42,23 @@ export default function AsanaImportPage() {
       setHistory(data.items);
     }
   }
+  async function loadSavedConnection() {
+    const r = await fetch("/api/v1/admin/asana/connection");
+    if (r.ok) setSavedConnection(await r.json());
+  }
   useEffect(() => {
     loadHistory();
+    loadSavedConnection();
   }, []);
 
-  async function checkToken() {
+  async function checkToken(useSaved = false) {
     setError(null);
     setLoading(true);
     try {
       const r = await fetch("/api/v1/admin/asana/workspaces", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token })
+        body: JSON.stringify(useSaved ? { useSaved: true } : { token })
       });
       if (!r.ok) {
         const e = await r.json().catch(() => ({}));
@@ -59,10 +69,20 @@ export default function AsanaImportPage() {
       setWorkspaces(data.workspaces);
       setWsGid(data.workspaces[0]?.gid ?? "");
       setStep(2);
+      // Refrescamos para que aparezca "guardado" tras conectar la 1ª vez
+      loadSavedConnection();
     } catch (e: any) {
       setError(e?.message ?? "Error");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function forgetToken() {
+    if (!confirm("¿Borrar el token de Asana guardado?\n\nTendrás que volver a pegarlo la próxima vez.")) return;
+    const r = await fetch("/api/v1/admin/asana/connection", { method: "DELETE" });
+    if (r.ok) {
+      setSavedConnection({ hasToken: false, asanaUserId: null, createdAt: null });
     }
   }
 
@@ -73,7 +93,8 @@ export default function AsanaImportPage() {
       const r = await fetch("/api/v1/admin/asana/projects", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token, workspaceGid: wsGid })
+        // Sin token → el server usa el guardado si lo hay.
+        body: JSON.stringify({ workspaceGid: wsGid, ...(token ? { token } : {}) })
       });
       if (!r.ok) {
         const e = await r.json().catch(() => ({}));
@@ -94,7 +115,8 @@ export default function AsanaImportPage() {
     setError(null);
     setLoading(true);
     try {
-      const body: any = { token, asanaWorkspaceGid: wsGid };
+      const body: any = { asanaWorkspaceGid: wsGid };
+      if (token) body.token = token; // si no, el server usa el guardado
       if (!importAll) body.projectGids = Array.from(selectedProjects);
       const r = await fetch("/api/v1/admin/asana/import", {
         method: "POST",
@@ -190,20 +212,51 @@ export default function AsanaImportPage() {
             (sección "Developer apps" → "Create new token"). Solo se usa para esta importación y se guarda
             cifrado en tu cuenta de Agencia Hub.
           </p>
+
+          {savedConnection?.hasToken && (
+            <div className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 flex items-center gap-3">
+              <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+              <div className="flex-1 text-sm text-emerald-900">
+                Token guardado{" "}
+                {savedConnection.createdAt && (
+                  <span className="text-emerald-700">
+                    desde {new Date(savedConnection.createdAt).toLocaleDateString("es-ES")}
+                  </span>
+                )}
+                . Puedes reutilizarlo sin volver a pegarlo.
+              </div>
+              <button
+                onClick={() => checkToken(true)}
+                disabled={loading}
+                className="px-3 py-1.5 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-medium disabled:opacity-50"
+              >
+                {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Usar guardado"}
+              </button>
+              <button
+                onClick={forgetToken}
+                disabled={loading}
+                className="px-2 py-1.5 rounded-md border border-rose-200 bg-white hover:bg-rose-50 text-rose-700 text-xs disabled:opacity-50"
+                title="Olvidar token guardado"
+              >
+                Olvidar
+              </button>
+            </div>
+          )}
+
           <input
             type="password"
             value={token}
             onChange={(e) => setToken(e.target.value)}
-            placeholder="2/1209…"
+            placeholder={savedConnection?.hasToken ? "Pegar uno nuevo para sustituir el guardado…" : "2/1209…"}
             className="w-full px-3 py-2 rounded-lg border text-sm font-mono focus:outline-none focus:ring-2 focus:ring-brand-200"
           />
           <button
-            onClick={checkToken}
+            onClick={() => checkToken(false)}
             disabled={!token || loading}
             className="mt-4 inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium disabled:opacity-50"
           >
             {loading && <Loader2 className="h-4 w-4 animate-spin" />}
-            Continuar
+            {savedConnection?.hasToken ? "Reemplazar y continuar" : "Continuar"}
           </button>
         </div>
       )}

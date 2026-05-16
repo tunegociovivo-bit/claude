@@ -1,14 +1,24 @@
 import { NextResponse } from "next/server";
+import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { AsanaClient } from "@/lib/asana/client";
+import { readAsanaToken } from "@/lib/asana/token";
 
-export const POST = withApi({ scope: "admin" }, async (req) => {
+export const POST = withApi({ scope: "admin" }, async (req, { api }) => {
   const body = await req.json().catch(() => null);
-  if (!body?.token || !body?.workspaceGid) {
-    throw new ApiError(400, "validation_error", "Faltan token o workspaceGid");
+  if (!body?.workspaceGid) {
+    throw new ApiError(400, "validation_error", "Falta workspaceGid");
   }
-  const client = new AsanaClient(body.token);
+
+  let token: string | null = body?.token ?? null;
+  if (!token && api.userId) {
+    const conn = await prisma.asanaConnection.findFirst({ where: { userId: api.userId } });
+    token = conn ? readAsanaToken(conn) : null;
+  }
+  if (!token) throw new ApiError(400, "validation_error", "Falta token (o usa el guardado)");
+
+  const client = new AsanaClient(token);
   const items: { gid: string; name: string }[] = [];
   try {
     for await (const p of client.workspaceProjects(body.workspaceGid)) {

@@ -6,7 +6,7 @@
  * cuyo texto haya cambiado) y los indexa. Útil tras importar datos
  * legacy o cambiar el modelo de embedding.
  *
- * Body: { entityTypes?: ("TASK"|"CLIENT"|"PROJECT"|"DOCUMENT")[], limit?: number }
+ * Body: { entityTypes?: ("TASK"|"CLIENT"|"PROJECT"|"DOCUMENT"|"COMMENT")[], limit?: number }
  *
  * Sólo admin. Devuelve un resumen con cuántos se indexaron por tipo.
  * El proceso es síncrono para batches pequeños; para workspaces
@@ -22,6 +22,7 @@ import { callerIsAdmin } from "@/lib/api/permissions";
 import { indexEntity, type EntityType } from "@/lib/search/embeddings";
 import {
   textForClient,
+  textForComment,
   textForDocument,
   textForProject,
   textForTask
@@ -31,7 +32,7 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 const schema = z.object({
-  entityTypes: z.array(z.enum(["TASK", "CLIENT", "PROJECT", "DOCUMENT"])).optional(),
+  entityTypes: z.array(z.enum(["TASK", "CLIENT", "PROJECT", "DOCUMENT", "COMMENT"])).optional(),
   limit: z.number().int().min(1).max(500).optional()
 });
 
@@ -41,7 +42,7 @@ export const POST = withApi({ scope: "tasks:write" }, async (req, { api }) => {
   const parsed = schema.safeParse(body ?? {});
   if (!parsed.success) throw new ApiError(400, "validation_error", parsed.error.message);
   const limit = parsed.data.limit ?? 100;
-  const types = (parsed.data.entityTypes ?? ["TASK", "CLIENT", "PROJECT", "DOCUMENT"]) as EntityType[];
+  const types = (parsed.data.entityTypes ?? ["TASK", "CLIENT", "PROJECT", "DOCUMENT", "COMMENT"]) as EntityType[];
 
   const counts: Record<string, { indexed: number; skipped: number }> = {};
 
@@ -113,6 +114,25 @@ export const POST = withApi({ scope: "tasks:write" }, async (req, { api }) => {
         text: textForDocument(d as any)
       });
       r.updated ? counts.DOCUMENT.indexed++ : counts.DOCUMENT.skipped++;
+    }
+  }
+
+  if (types.includes("COMMENT")) {
+    counts.COMMENT = { indexed: 0, skipped: 0 };
+    const rows = await prisma.comment.findMany({
+      where: { workspaceId: api.workspaceId },
+      select: { id: true, body: true, bodyJson: true },
+      orderBy: { createdAt: "desc" },
+      take: limit
+    });
+    for (const c of rows) {
+      const r = await indexEntity({
+        workspaceId: api.workspaceId,
+        entityType: "COMMENT",
+        entityId: c.id,
+        text: textForComment({ body: c.bodyJson ?? c.body })
+      });
+      r.updated ? counts.COMMENT.indexed++ : counts.COMMENT.skipped++;
     }
   }
 

@@ -15,6 +15,7 @@ import { prisma } from "@/lib/db/prisma";
 import { indexEntity } from "@/lib/search/embeddings";
 import {
   textForClient,
+  textForComment,
   textForDocument,
   textForProject,
   textForTask
@@ -116,6 +117,24 @@ export async function GET(req: Request) {
         text: textForDocument(d as any)
       });
       if (r.updated) summary[ws.id].documents++;
+    }
+
+    summary[ws.id].comments = 0;
+    const comments = await prisma.comment.findMany({
+      where: { workspaceId: ws.id },
+      select: { id: true, body: true, bodyJson: true },
+      orderBy: { createdAt: "desc" },
+      take: PER_WORKSPACE_LIMIT
+    });
+    for (const c of comments) {
+      if (indexedSet.has(`COMMENT:${c.id}`)) continue;
+      const r = await indexEntity({
+        workspaceId: ws.id,
+        entityType: "COMMENT",
+        entityId: c.id,
+        text: textForComment({ body: c.bodyJson ?? c.body })
+      });
+      if (r.updated) summary[ws.id].comments++;
     }
   }
 

@@ -36,9 +36,29 @@ Si el user no existe, los tests autenticados se **skipean**, no fallan. Esto per
 - `tasks.spec.ts` — crear una tarea desde `/tareas` y verificar que aparece.
 - `mi-dia.spec.ts` — `/mi-dia` carga sin errores y el atajo Cmd+K abre el palette.
 
+## Seed reproducible
+
+```bash
+DATABASE_URL=postgres://... npm run test:e2e:seed
+```
+
+Crea (o resetea):
+- Workspace con slug `e2e` (configurable con `E2E_WORKSPACE_SLUG`)
+- User admin `e2e@test.local` / `e2e-password-123`
+- Cliente "E2E Cliente", proyecto "E2E Proyecto", tarea "E2E Tarea de muestra"
+- ClientApprovalLink válido por 90 días
+
+Es idempotente — re-ejecutar no duplica nada.
+
+## Tests que dependen del seed
+
+- `clientes.spec.ts` — verifica que la lista de clientes muestra "E2E Cliente"
+- `portal-cliente.spec.ts` — abre `/p/cliente/[token]` con el link del seed y comprueba que el portal público carga
+
+Si el seed no se ha ejecutado, esos tests se **skipean** (no fallan) con mensaje claro.
+
 ## Pendiente para próximos pases
 
-- Crear un cliente desde `/clientes`
+- Comentar en una tarea (con el editor rich)
 - Subir un adjunto a una tarea
-- Comentar en una tarea
-- Aprobar un post desde el portal público (con un `ClientApprovalLink` seedeado)
+- Aprobar un post desde `/p/editorial/[token]`

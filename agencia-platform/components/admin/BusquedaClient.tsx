@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Loader2, RefreshCw, Search, Sparkles } from "lucide-react";
 
-type Counts = { TASK: number; CLIENT: number; PROJECT: number; DOCUMENT: number };
+type Counts = { TASK: number; CLIENT: number; PROJECT: number; DOCUMENT: number; COMMENT: number };
 
 export default function BusquedaClient({
   indexed,
@@ -51,7 +51,7 @@ export default function BusquedaClient({
     }
   }
 
-  const types: (keyof Counts)[] = ["TASK", "CLIENT", "PROJECT", "DOCUMENT"];
+  const types: (keyof Counts)[] = ["TASK", "CLIENT", "PROJECT", "DOCUMENT", "COMMENT"];
 
   return (
     <div className="space-y-6">
