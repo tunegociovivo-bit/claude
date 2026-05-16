@@ -197,7 +197,10 @@ export default function TareasClient({
           if (filters.due === "week" && (d < today || d > weekEnd)) return false;
         }
       }
-      if (q && !t.title.toLowerCase().includes(q)) return false;
+      // Defensa: alguna tarea importada de Asana podría tener title
+      // vacío o null tras una eliminación parcial. No rompemos el
+      // filtro entero por eso.
+      if (q && !(t.title ?? "").toLowerCase().includes(q)) return false;
       return true;
     });
   }, [tasks, filters, myUserId]);
@@ -590,8 +593,8 @@ export default function TareasClient({
                       </span>
                     </td>
                     <td className="px-3 py-3 hidden lg:table-cell">
-                      <span className={`text-xs px-2 py-1 rounded ${priorityColors[t.priority]}`}>
-                        {priorityLabels[t.priority] ?? t.priority}
+                      <span className={`text-xs px-2 py-1 rounded ${priorityColors[t.priority] ?? "bg-slate-100 text-slate-600"}`}>
+                        {priorityLabels[t.priority] ?? t.priority ?? "—"}
                       </span>
                     </td>
                     <td className="px-3 py-3 hidden sm:table-cell">
@@ -1055,8 +1058,8 @@ function TaskCard({
       )}
       <div className="flex items-start justify-between gap-2 mb-2 pr-8">
         <p className="text-sm font-medium leading-snug">{task.title}</p>
-        <span className={`shrink-0 text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded ${priorityColors[task.priority]}`}>
-          {priorityLabels[task.priority] ?? task.priority}
+        <span className={`shrink-0 text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded ${priorityColors[task.priority] ?? "bg-slate-100 text-slate-600"}`}>
+          {priorityLabels[task.priority] ?? task.priority ?? "—"}
         </span>
       </div>
       <div className="flex items-center gap-2 text-xs text-slate-500 mb-3">
@@ -1095,10 +1098,13 @@ function TaskCard({
 //                     para que el equipo vea claro que ya pasó.
 function computeAlarmLevel(task: UiTask, nowMs: number): "none" | "preaviso" | "urgent" {
   if (!task.dueDate) return "none";
-  // Reconstruimos el Date desde dueDate (YYYY-MM-DD) + hora opcional.
-  // Si la tarea es allDay usamos 23:59 como referencia de "fin del
-  // día", así un día de vacaciones no queda en rojo desde las 00:00.
-  const datePart = task.dueDate;
+  // dueDate puede venir como YYYY-MM-DD (UiTask "limpio") o como
+  // string ISO completo "YYYY-MM-DDTHH:MM:SS.sssZ" (cuando viene de
+  // mutaciones recientes o imports de Asana). Normalizamos a parte
+  // de fecha YYYY-MM-DD antes de concatenar la hora.
+  const rawDate = String(task.dueDate ?? "");
+  const datePart = rawDate.slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(datePart)) return "none";
   const timePart = task.dueTime ?? (task.dueAllDay !== false ? "23:59" : "00:00");
   const due = new Date(`${datePart}T${timePart}:00.000Z`).getTime();
   if (isNaN(due)) return "none";
