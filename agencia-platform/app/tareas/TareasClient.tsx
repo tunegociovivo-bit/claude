@@ -5,7 +5,8 @@ import { useRouter, useSearchParams } from "next/navigation";
 import {
   DndContext,
   DragOverlay,
-  PointerSensor,
+  MouseSensor,
+  TouchSensor,
   closestCorners,
   useSensor,
   useSensors,
@@ -322,7 +323,15 @@ export default function TareasClient({
     setNewTaskOpen(true);
   }
 
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
+  // Sensores separados desktop/mobile:
+  //   - Mouse: arrastra al mover 8px (no hace falta mantener pulsado).
+  //   - Touch: long-press (250ms) con tolerancia de 8px antes de
+  //     activar drag. Sin esto el scroll vertical de la columna
+  //     pelea con dnd-kit y nada se mueve en mobile.
+  const sensors = useSensors(
+    useSensor(MouseSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 8 } })
+  );
 
   const tasksByColumn = useMemo(() => {
     const map: Record<string, UiTask[]> = {};
