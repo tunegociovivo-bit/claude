@@ -43,7 +43,16 @@ function LoginInner() {
     const res = await signIn("credentials", { email, password, redirect: false });
     setLoading(false);
     if (res?.error) {
-      setError("Email o contraseña incorrectos");
+      if (res.error.startsWith("AccountLocked")) {
+        const sec = parseInt(res.error.split(":")[1] ?? "900", 10);
+        const min = Math.ceil(sec / 60);
+        setError(
+          `Demasiados intentos fallidos. Cuenta bloqueada temporalmente. ` +
+            `Vuelve a intentarlo en ${min} minuto${min === 1 ? "" : "s"}.`
+        );
+      } else {
+        setError("Email o contraseña incorrectos");
+      }
     } else {
       const callbackUrl = searchParams.get("callbackUrl") || "/";
       router.push(callbackUrl);
