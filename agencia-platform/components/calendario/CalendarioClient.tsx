@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import PageHeader from "@/components/PageHeader";
 import EventFormModal from "@/components/forms/EventFormModal";
-import type { UiEvent, UiClient } from "@/lib/db/queries";
-import { Plus, ChevronLeft, ChevronRight, Calendar } from "lucide-react";
+import type { UiEvent, UiClient, UiTask } from "@/lib/db/queries";
+import { Plus, ChevronLeft, ChevronRight, Calendar, CheckSquare } from "lucide-react";
 
 type ExternalEvent = {
   id: string;
@@ -49,13 +50,18 @@ function buildMonth(year: number, month: number) {
   return cells;
 }
 
+type TaskChip = { kind: "task"; id: string; title: string; date: string; time?: string; allDay: boolean };
+
 export default function CalendarioClient({
   events,
-  clients
+  clients,
+  myTasks = []
 }: {
   events: UiEvent[];
   clients: UiClient[];
+  myTasks?: UiTask[];
 }) {
+  const router = useRouter();
   const today = useMemo(() => new Date(), []);
   const [cursor, setCursor] = useState(() => new Date(today.getFullYear(), today.getMonth(), 1));
   const [open, setOpen] = useState(false);
@@ -102,8 +108,22 @@ export default function CalendarioClient({
     [externalEvents, hidden]
   );
 
+  // Convertimos las tareas del usuario actual en chips para el calendario.
+  const taskChips: TaskChip[] = useMemo(
+    () =>
+      myTasks.map((t) => ({
+        kind: "task" as const,
+        id: t.id,
+        title: t.title,
+        date: t.dueDate,
+        time: t.dueAllDay === false ? t.dueTime : undefined,
+        allDay: t.dueAllDay !== false
+      })),
+    [myTasks]
+  );
+
   const eventsByDay = useMemo(() => {
-    const map = new Map<string, (UiEvent | ExternalEvent)[]>();
+    const map = new Map<string, (UiEvent | ExternalEvent | TaskChip)[]>();
     events.forEach((e) => {
       if (!map.has(e.date)) map.set(e.date, []);
       map.get(e.date)!.push(e);
@@ -112,8 +132,12 @@ export default function CalendarioClient({
       if (!map.has(e.date)) map.set(e.date, []);
       map.get(e.date)!.push(e);
     });
+    taskChips.forEach((t) => {
+      if (!map.has(t.date)) map.set(t.date, []);
+      map.get(t.date)!.push(t);
+    });
     return map;
-  }, [events, visibleExternal]);
+  }, [events, visibleExternal, taskChips]);
 
   function toggleCalendarVisibility(id: string) {
     setHidden((prev) => {
@@ -272,6 +296,25 @@ export default function CalendarioClient({
                 </div>
                 <div className="space-y-1">
                   {dayEvents.slice(0, 2).map((e) => {
+                    const isTask = (e as TaskChip).kind === "task";
+                    if (isTask) {
+                      const t = e as TaskChip;
+                      return (
+                        <div
+                          key={"task-" + t.id}
+                          onClick={(clickEv) => {
+                            clickEv.stopPropagation();
+                            router.push(`/tareas?task=${t.id}`);
+                          }}
+                          className="text-[11px] px-1.5 py-0.5 rounded border truncate cursor-pointer hover:opacity-80 bg-amber-50 text-amber-800 border-amber-300 inline-flex items-center gap-1 w-full"
+                          title={`Tarea: ${t.title}${t.time ? ` · ${t.time}` : ""}`}
+                        >
+                          <CheckSquare className="h-3 w-3 shrink-0" />
+                          {t.time && <span className="font-medium">{t.time}</span>}
+                          <span className="truncate">{t.title}</span>
+                        </div>
+                      );
+                    }
                     const isExt = (e as ExternalEvent).external === true;
                     if (isExt) {
                       const ex = e as ExternalEvent;

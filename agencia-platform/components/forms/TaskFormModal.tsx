@@ -68,6 +68,7 @@ export default function TaskFormModal({
   const [projectId, setProjectId] = useState<string>("");
   const [assigneeIds, setAssigneeIds] = useState<string[]>([]);
   const [dueDate, setDueDate] = useState<string>("");
+  const [dueTime, setDueTime] = useState<string>("");
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -102,6 +103,7 @@ export default function TaskFormModal({
       setProjectId(currentTask.projectId);
       setAssigneeIds(currentTask.assigneeIds);
       setDueDate(currentTask.dueDate ?? "");
+      setDueTime(currentTask.dueAllDay === false && currentTask.dueTime ? currentTask.dueTime : "");
       // Fetch detalle: descripción + subtareas + comentarios
       fetch(`/api/v1/tasks/${currentTask.id}`)
         .then((r) => (r.ok ? r.json() : null))
@@ -131,6 +133,7 @@ export default function TaskFormModal({
       setProjectId(defaultProjectId ?? projects[0]?.id ?? "");
       setAssigneeIds([]);
       setDueDate("");
+      setDueTime("");
       setComments([]);
       setSubtasks([]);
     }
@@ -167,7 +170,16 @@ export default function TaskFormModal({
       assigneeIds,
       description: descSerialized
     };
-    if (dueDate) payload.dueDate = new Date(dueDate).toISOString();
+    if (dueDate) {
+      // Si hay hora, la combinamos. Si no, guardamos a las 00:00 y
+      // marcamos dueAllDay=true para que el calendario lo trate como
+      // evento de día completo.
+      const iso = dueTime
+        ? new Date(`${dueDate}T${dueTime}:00`).toISOString()
+        : new Date(`${dueDate}T00:00:00`).toISOString();
+      payload.dueDate = iso;
+      payload.dueAllDay = !dueTime;
+    }
     // Si estamos editando una subtarea, conservamos su parentId (no se pierde)
     if (currentTask?._parentId) payload.parentId = currentTask._parentId;
 
@@ -555,13 +567,38 @@ export default function TaskFormModal({
             </select>
           </SidebarField>
 
-          <SidebarField label="Fecha de entrega">
-            <input
-              type="date"
-              value={dueDate}
-              onChange={(e) => setDueDate(e.target.value)}
-              className="w-full px-2 py-1.5 rounded-md border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
-            />
+          <SidebarField label="Fecha y hora de entrega">
+            <div className="space-y-1.5">
+              <input
+                type="date"
+                value={dueDate}
+                onChange={(e) => setDueDate(e.target.value)}
+                className="w-full px-2 py-1.5 rounded-md border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+              />
+              <div className="flex items-center gap-2">
+                <input
+                  type="time"
+                  value={dueTime}
+                  onChange={(e) => setDueTime(e.target.value)}
+                  disabled={!dueDate}
+                  placeholder="--:--"
+                  className="flex-1 px-2 py-1.5 rounded-md border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 disabled:bg-slate-50 disabled:text-slate-400"
+                />
+                {dueTime && (
+                  <button
+                    type="button"
+                    onClick={() => setDueTime("")}
+                    className="px-2 py-1 text-[11px] rounded-md text-slate-500 hover:bg-slate-100"
+                    title="Quitar hora (todo el día)"
+                  >
+                    Sin hora
+                  </button>
+                )}
+              </div>
+              <p className="text-[10px] text-slate-500">
+                Si añades hora y te asignas, aparecerá en tu calendario a esa hora exacta.
+              </p>
+            </div>
           </SidebarField>
 
           <SidebarField label={`Asignados (${assigneeIds.length})`}>

@@ -48,14 +48,15 @@ export const POST = withApi({ scope: "tasks:write" }, async (req, { api }) => {
   const parsed = taskCreateSchema.safeParse(body);
   if (!parsed.success) throw new ApiError(400, "validation_error", parsed.error.message);
 
-  const { assigneeIds, ...data } = parsed.data;
+  const { assigneeIds, dueAllDay, ...data } = parsed.data;
   const task = await prisma.task.create({
     data: {
       ...data,
       workspaceId: api.workspaceId,
       dueDate: data.dueDate ? new Date(data.dueDate) : null,
+      ...(typeof dueAllDay === "boolean" ? { dueAllDay } : {}),
       assignees: { create: assigneeIds.map((uid) => ({ userId: uid })) }
-    }
+    } as any
   });
   return NextResponse.json(task, { status: 201 });
 });

@@ -153,6 +153,7 @@ export const taskCreateSchema = z.object({
   status: z.string().min(1).default("TODO"),
   priority: z.enum(["LOW", "MEDIUM", "HIGH", "URGENT"]).default("MEDIUM"),
   dueDate: z.string().datetime().optional(),
+  dueAllDay: z.boolean().optional(),
   assigneeIds: z.array(z.string()).default([]),
   parentId: z.string().optional()
 });

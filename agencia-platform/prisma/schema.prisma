@@ -790,6 +790,11 @@ model Task {
   status      String       @default("TODO")  // antes enum TaskStatus; ahora libre para soportar columnas custom del workspace
   priority    TaskPriority @default(MEDIUM)
   dueDate     DateTime?
+  // false = la tarea tiene hora concreta (la hora viene en dueDate).
+  // true (default) = solo fecha, sin hora; en el calendario se renderiza
+  // como evento de día completo. Mantenido true por defecto para que
+  // las tareas existentes no cambien de comportamiento.
+  dueAllDay   Boolean   @default(true)
   completedAt DateTime?
   order       Int          @default(0)
   asanaId     String?      @unique

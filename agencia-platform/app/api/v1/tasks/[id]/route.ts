@@ -24,7 +24,7 @@ export const PATCH = withApi({ scope: "tasks:write" }, async (req, { params, api
   const body = await req.json().catch(() => null);
   const parsed = taskCreateSchema.partial().safeParse(body);
   if (!parsed.success) throw new ApiError(400, "validation_error", parsed.error.message);
-  const { assigneeIds, dueDate, ...data } = parsed.data;
+  const { assigneeIds, dueDate, dueAllDay, ...data } = parsed.data;
 
   const result = await prisma.$transaction(async (tx) => {
     const upd = await tx.task.updateMany({
@@ -32,8 +32,9 @@ export const PATCH = withApi({ scope: "tasks:write" }, async (req, { params, api
       data: {
         ...data,
         dueDate: dueDate ? new Date(dueDate) : undefined,
+        ...(typeof dueAllDay === "boolean" ? { dueAllDay } : {}),
         completedAt: data.status === "DONE" ? new Date() : data.status ? null : undefined
-      }
+      } as any
     });
     if (upd.count === 0) return null;
     if (assigneeIds) {

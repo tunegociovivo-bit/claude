@@ -64,7 +64,10 @@ export type UiClient = (typeof mockClients)[number] & {
   servicios?: string[];
   kitDigital?: boolean;
 };
-export type UiTask = (typeof mockTasks)[number];
+export type UiTask = (typeof mockTasks)[number] & {
+  dueTime?: string; // "HH:MM" si la tarea tiene hora concreta
+  dueAllDay?: boolean;
+};
 export type UiProject = (typeof mockProjects)[number];
 export type UiEvent = (typeof mockEvents)[number];
 export type UiMember = (typeof mockTeam)[number];
@@ -124,20 +127,25 @@ export async function getTasksForUi(): Promise<UiTask[]> {
       // por defecto) flotan arriba, y los reorders manuales (drag&drop) ganan.
       orderBy: [{ order: "asc" }, { createdAt: "desc" }]
     });
-    return rows.map<UiTask>((r) => ({
-      id: r.id,
-      title: r.title,
-      // Devolvemos el ID de columna tal cual está en BD. Por defecto
-      // "TODO" / "IN_PROGRESS" / "REVIEW" / "DONE", pero puede ser cualquier
-      // ID definido en workspace.settings.kanban.columns.
-      status: r.status as any,
-      assigneeIds: r.assignees.map((a) => a.userId),
-      projectId: r.projectId,
-      clientId: r.clientId ?? undefined,
-      dueDate: (r.dueDate ?? new Date()).toISOString().slice(0, 10),
-      priority: priorityToUi[r.priority] ?? "media",
-      tags: r.tags.map((t) => t.tag.name)
-    }));
+    return rows.map<UiTask>((r) => {
+      const allDay = (r as any).dueAllDay ?? true;
+      return {
+        id: r.id,
+        title: r.title,
+        // Devolvemos el ID de columna tal cual está en BD. Por defecto
+        // "TODO" / "IN_PROGRESS" / "REVIEW" / "DONE", pero puede ser cualquier
+        // ID definido en workspace.settings.kanban.columns.
+        status: r.status as any,
+        assigneeIds: r.assignees.map((a) => a.userId),
+        projectId: r.projectId,
+        clientId: r.clientId ?? undefined,
+        dueDate: (r.dueDate ?? new Date()).toISOString().slice(0, 10),
+        dueTime: r.dueDate && !allDay ? r.dueDate.toISOString().slice(11, 16) : undefined,
+        dueAllDay: allDay,
+        priority: priorityToUi[r.priority] ?? "media",
+        tags: r.tags.map((t) => t.tag.name)
+      };
+    });
   }, mockTasks);
 }
 
