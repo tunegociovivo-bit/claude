@@ -135,7 +135,34 @@ export async function getTasksForUi(): Promise<UiTask[]> {
       orderBy: [{ order: "asc" }, { createdAt: "desc" }]
     });
     return rows.map<UiTask>((r) => {
-      const allDay = (r as any).dueAllDay ?? true;
+      const explicitAllDay = (r as any).dueAllDay;
+      // Heurística: si la hora UTC almacenada NO es 00:00, hay hora
+      // real, aunque dueAllDay esté a true (cubre tareas creadas antes
+      // del cambio dueAllDay y también el caso en que el campo aún no
+      // estuviese en BD). Si es exactamente 00:00, lo tratamos como
+      // "todo el día" salvo que dueAllDay venga explícitamente false.
+      const d = r.dueDate ?? null;
+      let allDay: boolean;
+      let timeStr: string | undefined;
+      if (d) {
+        const hh = d.getUTCHours();
+        const mm = d.getUTCMinutes();
+        if (explicitAllDay === false) {
+          allDay = false;
+          timeStr = `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
+        } else if (hh === 0 && mm === 0) {
+          allDay = true;
+          timeStr = undefined;
+        } else {
+          // Hay hora distinta de 00:00 → hay hora real aunque dueAllDay
+          // no esté marcado (legacy).
+          allDay = false;
+          timeStr = `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
+        }
+      } else {
+        allDay = explicitAllDay ?? true;
+        timeStr = undefined;
+      }
       const extra = ((r as any).extraProjects ?? []) as Array<{ projectId: string }>;
       const projectIds = [r.projectId, ...extra.map((e) => e.projectId).filter((id) => id !== r.projectId)];
       return {
@@ -150,7 +177,7 @@ export async function getTasksForUi(): Promise<UiTask[]> {
         projectIds,
         clientId: r.clientId ?? undefined,
         dueDate: (r.dueDate ?? new Date()).toISOString().slice(0, 10),
-        dueTime: r.dueDate && !allDay ? r.dueDate.toISOString().slice(11, 16) : undefined,
+        dueTime: timeStr,
         dueAllDay: allDay,
         priority: priorityToUi[r.priority] ?? "alta",
         tags: r.tags.map((t) => t.tag.name),

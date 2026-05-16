@@ -190,12 +190,16 @@ export default function TaskFormModal({
       notifyDueRules
     };
     if (dueDate) {
-      // Si hay hora, la combinamos. Si no, guardamos a las 00:00 y
-      // marcamos dueAllDay=true para que el calendario lo trate como
-      // evento de día completo.
+      // Construimos el ISO directamente, SIN pasar por new Date(string).
+      // Si lo pasamos por Date, el navegador interpreta el string como
+      // hora local y al hacer toISOString() la convierte a UTC. Así,
+      // 14:30 en CEST se guardaría como 12:30Z y al releer y mostrar
+      // .slice(11,16) saldría 12:30 (el user lo ve como "no se guardó").
+      // Tratamos la hora del usuario como si fuera UTC: el sistema es
+      // consistente y la hora visual se mantiene siempre la que él puso.
       const iso = dueTime
-        ? new Date(`${dueDate}T${dueTime}:00`).toISOString()
-        : new Date(`${dueDate}T00:00:00`).toISOString();
+        ? `${dueDate}T${dueTime}:00.000Z`
+        : `${dueDate}T00:00:00.000Z`;
       payload.dueDate = iso;
       payload.dueAllDay = !dueTime;
     }
