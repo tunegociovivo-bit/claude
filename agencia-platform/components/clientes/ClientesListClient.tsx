@@ -16,8 +16,13 @@ import {
 
 const statusStyles: Record<string, string> = {
   activo: "bg-emerald-50 text-emerald-700 border-emerald-200",
-  pausa: "bg-amber-50 text-amber-800 border-amber-200",
-  prospecto: "bg-sky-50 text-sky-700 border-sky-200"
+  pausa: "bg-slate-100 text-slate-600 border-slate-300"
+};
+
+// Label visible para cada status — "pausa" se muestra como "no activo".
+const statusLabels: Record<string, string> = {
+  activo: "activo",
+  pausa: "no activo"
 };
 
 const prioridadStyles: Record<string, { card: string; badge: string; dot: string; label: string; weight: number }> = {
@@ -72,7 +77,7 @@ export default function ClientesListClient({
   const [sort, setSort] = useState<SortKey>("az");
   const [view, setView] = useState<ViewMode>("list");
   const [prioFilter, setPrioFilter] = useState<"all" | "ALTA" | "NORMAL" | "BAJA">("all");
-  const [statusFilter, setStatusFilter] = useState<"all" | "activo" | "pausa" | "prospecto">("all");
+  const [statusFilter, setStatusFilter] = useState<"all" | "activo" | "pausa">("all");
 
   // Estado local de clientes para que las ediciones inline se reflejen
   // sin re-fetch del servidor.
@@ -147,12 +152,12 @@ export default function ClientesListClient({
         }
       }
     };
-    // Wrap: los prospectos SIEMPRE al final, independientemente del
-    // sort. Dentro de cada grupo (clientes / prospectos) aplica el
+    // Wrap: los "no activos" (pausa) SIEMPRE al final, independientemente
+    // del sort. Dentro de cada grupo (activos / no activos) aplica el
     // comparador base.
     arr.sort((a, b) => {
-      const ap = a.status === "prospecto" ? 1 : 0;
-      const bp = b.status === "prospecto" ? 1 : 0;
+      const ap = a.status === "pausa" ? 1 : 0;
+      const bp = b.status === "pausa" ? 1 : 0;
       if (ap !== bp) return ap - bp;
       return baseCmp(a, b);
     });
@@ -210,8 +215,7 @@ export default function ClientesListClient({
         >
           <option value="all">Estado: todos</option>
           <option value="activo">Activo</option>
-          <option value="pausa">En pausa</option>
-          <option value="prospecto">Prospecto</option>
+          <option value="pausa">No activo</option>
         </select>
 
         <div className="flex items-center rounded-lg border bg-white">
@@ -305,7 +309,7 @@ function GridView({
 
             <div className="flex flex-wrap items-center gap-1.5 mb-3">
               <span className={`inline-block text-xs px-2 py-0.5 rounded-md border ${statusStyles[c.status]}`}>
-                {c.status}
+                {statusLabels[c.status] ?? c.status}
               </span>
               <span
                 className={
@@ -362,11 +366,10 @@ function ListView({
   clients: UiClient[];
   onLocalUpdate: (id: string, partial: Partial<UiClient>) => void;
 }) {
-  // Mapeo estado UI → enum backend.
-  const UI_TO_BACKEND_STATUS: Record<string, "ACTIVE" | "PAUSED" | "PROSPECT" | "CHURNED"> = {
+  // Mapeo estado UI → enum backend. "no activo" UI → PAUSED en BD.
+  const UI_TO_BACKEND_STATUS: Record<string, "ACTIVE" | "PAUSED"> = {
     activo: "ACTIVE",
-    pausa: "PAUSED",
-    prospecto: "PROSPECT"
+    pausa: "PAUSED"
   };
   const [saving, setSaving] = useState<Record<string, boolean>>({});
 
@@ -381,7 +384,7 @@ function ListView({
     }
   }
 
-  async function updateStatus(c: UiClient, statusUi: "activo" | "pausa" | "prospecto") {
+  async function updateStatus(c: UiClient, statusUi: "activo" | "pausa") {
     onLocalUpdate(c.id, { status: statusUi });
     setSaving((s) => ({ ...s, [c.id]: true }));
     const ok = await patchClientRemote(c.id, { status: UI_TO_BACKEND_STATUS[statusUi] });
@@ -425,7 +428,7 @@ function ListView({
               const prio = c.prioridad ?? "NORMAL";
               const pst = prioridadStyles[prio];
               const isHigh = prio === "ALTA";
-              const isProspect = c.status === "prospecto";
+              const isInactive = c.status === "pausa";
               const isSaving = !!saving[c.id];
               return (
                 <tr
@@ -433,7 +436,7 @@ function ListView({
                   className={
                     "hover:bg-slate-50 transition " +
                     (isHigh ? "bg-rose-50/30 " : "") +
-                    (isProspect ? "opacity-70 " : "")
+                    (isInactive ? "opacity-60 " : "")
                   }
                 >
                   <td className="px-3 py-2">
@@ -453,8 +456,7 @@ function ListView({
                       }
                     >
                       <option value="activo">activo</option>
-                      <option value="pausa">pausa</option>
-                      <option value="prospecto">prospecto</option>
+                      <option value="pausa">no activo</option>
                     </select>
                   </td>
                   <td className="px-3 py-2">

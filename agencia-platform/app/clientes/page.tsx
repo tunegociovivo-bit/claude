@@ -18,7 +18,7 @@ export default async function ClientesPage() {
     <div className="max-w-7xl mx-auto">
       <PageHeader
         title="Clientes"
-        description="Base de datos interna de cuentas y prospectos."
+        description="Base de datos interna de cuentas."
         actions={<ClientesActions />}
       />
 

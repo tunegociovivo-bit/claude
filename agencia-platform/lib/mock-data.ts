@@ -44,7 +44,7 @@ export type Client = {
   contactName: string;
   email: string;
   phone: string;
-  status: "activo" | "pausa" | "prospecto";
+  status: "activo" | "pausa";
   mrr: number;
   since: string;
   notes: string;
@@ -135,7 +135,7 @@ export const clients: Client[] = [
     contactName: "Nora Bermúdez",
     email: "nora@techsprint.io",
     phone: "+34 644 888 111",
-    status: "prospecto",
+    status: "pausa",
     mrr: 0,
     since: "2026-04-28",
     notes: "Propuesta enviada, esperando feedback."

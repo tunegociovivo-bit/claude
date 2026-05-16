@@ -26,10 +26,13 @@ async function tryPrisma<T, F>(fn: () => Promise<T>, fallback: F): Promise<T | F
   }
 }
 
-const statusToUi: Record<string, "activo" | "pausa" | "prospecto"> = {
+// En la UI sólo hay 2 estados: activo / pausa (label visible: "no activo").
+// PROSPECT y CHURNED de BD se mapean a "pausa" → quedan al final del
+// listado, como pidió el usuario.
+const statusToUi: Record<string, "activo" | "pausa"> = {
   ACTIVE: "activo",
   PAUSED: "pausa",
-  PROSPECT: "prospecto",
+  PROSPECT: "pausa",
   CHURNED: "pausa"
 };
 
