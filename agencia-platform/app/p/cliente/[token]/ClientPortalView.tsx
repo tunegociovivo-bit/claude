@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { CalendarDays, FolderKanban, CheckCircle2, AlertCircle, ExternalLink, Loader2 } from "lucide-react";
+import { CalendarDays, FolderKanban, CheckCircle2, AlertCircle, ExternalLink, Loader2, FileCheck2, Clock, XCircle } from "lucide-react";
+import ClientDeliverablesSection from "./ClientDeliverablesSection";
 
 type PortalData = {
   workspace: { name: string; logoUrl: string | null };
@@ -191,6 +192,8 @@ export default function ClientPortalView({ token }: { token: string }) {
             </div>
           </section>
         )}
+
+        <ClientDeliverablesSection token={token} accent={accent} />
 
         <section>
           <h2 className="flex items-center gap-2 text-sm font-medium text-slate-700 mb-3">

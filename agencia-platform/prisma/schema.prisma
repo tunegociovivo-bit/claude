@@ -143,6 +143,7 @@ model Workspace {
   voiceBusinesses VoiceBusiness[]
   editorialPosts  EditorialPost[]
   approvalLinks   ClientApprovalLink[]
+  deliverables    Deliverable[]
   credentialGrants CredentialAccessGrant[]
   leadSearches    LeadSearch[]
   leads           Lead[]
@@ -264,6 +265,7 @@ model Client {
   tasks          Task[]
   events         CalendarEvent[]
   editorialPosts EditorialPost[]
+  deliverables   Deliverable[]
 
   @@index([workspaceId])
 }
@@ -1132,6 +1134,7 @@ model File {
   createdAt   DateTime @default(now())
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  deliverables Deliverable[]
 
   @@index([workspaceId])
   @@index([targetType, targetId])
@@ -1442,3 +1445,50 @@ model TaskNotificationSent {
   @@index([sentAt])
 }
 
+
+// ====================================================================
+// DELIVERABLES — entregables genéricos para aprobación del cliente
+// ====================================================================
+//
+// Un "entregable" es cualquier pieza que la agencia entrega al cliente
+// y que requiere su visto bueno: un PDF de propuesta, un mockup, un
+// vídeo, un audio, etc. A diferencia de EditorialPost (que es
+// específico de redes sociales), Deliverable es agnóstico: el cliente
+// solo aprueba o pide cambios.
+//
+// El archivo en sí vive en File (storage R2/S3); Deliverable apunta
+// con `fileId` (nullable porque a veces se crea el slot antes de
+// adjuntar el archivo final).
+model Deliverable {
+  id            String   @id @default(cuid())
+  workspaceId   String
+  clientId      String
+  fileId        String?
+  title         String
+  description   String?  @db.Text
+  status        String   @default("PENDING") // PENDING|APPROVED|REJECTED
+  dueAt         DateTime?
+  createdById   String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  client    Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  file      File?     @relation(fields: [fileId], references: [id], onDelete: SetNull)
+  decisions DeliverableDecision[]
+
+  @@index([workspaceId, status])
+  @@index([clientId])
+}
+
+model DeliverableDecision {
+  id            String   @id @default(cuid())
+  deliverableId String
+  decision      String   // "approved" | "rejected" | "comment"
+  comment       String?  @db.Text
+  createdAt     DateTime @default(now())
+
+  deliverable Deliverable @relation(fields: [deliverableId], references: [id], onDelete: Cascade)
+
+  @@index([deliverableId, createdAt])
+}

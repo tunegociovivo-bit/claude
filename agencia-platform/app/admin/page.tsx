@@ -28,7 +28,8 @@ import {
   AlertOctagon,
   KeyRound,
   Trash2,
-  ListChecks
+  ListChecks,
+  FileCheck2
 } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -99,6 +100,12 @@ const cards = [
     title: "Seguridad y copias",
     description: "Backups manuales y automáticos diarios. Histórico y descarga.",
     icon: Shield
+  },
+  {
+    href: "/admin/entregables",
+    title: "Entregables",
+    description: "PDFs, mockups, vídeos para aprobación del cliente desde su portal.",
+    icon: FileCheck2
   },
   {
     href: "/admin/auditoria",
