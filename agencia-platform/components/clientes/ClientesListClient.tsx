@@ -55,10 +55,10 @@ const SORT_LABEL: Record<SortKey, string> = {
   priority: "Prioridad (ALTA primero)"
 };
 
-const STORAGE_KEY = "clientes-view-prefs-v1";
+const STORAGE_KEY = "clientes-view-prefs-v2";
 
 export default function ClientesListClient({
-  clients,
+  clients: initialClients,
   projects,
   tasks
 }: {
@@ -67,12 +67,23 @@ export default function ClientesListClient({
   tasks: UiTask[];
 }) {
   // Preferencias persistidas en localStorage para que se mantengan al
-  // navegar entre páginas.
+  // navegar entre páginas. Default = vista lista (mejor para >50 clientes).
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<SortKey>("az");
-  const [view, setView] = useState<ViewMode>("grid");
+  const [view, setView] = useState<ViewMode>("list");
   const [prioFilter, setPrioFilter] = useState<"all" | "ALTA" | "NORMAL" | "BAJA">("all");
   const [statusFilter, setStatusFilter] = useState<"all" | "activo" | "pausa" | "prospecto">("all");
+
+  // Estado local de clientes para que las ediciones inline se reflejen
+  // sin re-fetch del servidor.
+  const [data, setData] = useState<UiClient[]>(initialClients);
+  useEffect(() => {
+    setData(initialClients);
+  }, [initialClients]);
+
+  function patchClientLocal(id: string, partial: Partial<UiClient>) {
+    setData((arr) => arr.map((c) => (c.id === id ? { ...c, ...partial } : c)));
+  }
 
   useEffect(() => {
     try {
@@ -93,7 +104,7 @@ export default function ClientesListClient({
   }, [sort, view, prioFilter, statusFilter]);
 
   const filtered = useMemo(() => {
-    let arr = [...clients];
+    let arr = [...data];
     const q = search.trim().toLowerCase();
     if (q) {
       arr = arr.filter((c) => {
@@ -117,30 +128,36 @@ export default function ClientesListClient({
     if (statusFilter !== "all") {
       arr = arr.filter((c) => c.status === statusFilter);
     }
-    switch (sort) {
-      case "az":
-        arr.sort((a, b) => a.name.localeCompare(b.name, "es", { sensitivity: "base" }));
-        break;
-      case "za":
-        arr.sort((a, b) => b.name.localeCompare(a.name, "es", { sensitivity: "base" }));
-        break;
-      case "newest":
-        arr.sort((a, b) => (b.since ?? "").localeCompare(a.since ?? ""));
-        break;
-      case "oldest":
-        arr.sort((a, b) => (a.since ?? "").localeCompare(b.since ?? ""));
-        break;
-      case "priority":
-        arr.sort((a, b) => {
+    // Comparador base según el sort elegido.
+    const baseCmp = (a: UiClient, b: UiClient): number => {
+      switch (sort) {
+        case "az":
+          return a.name.localeCompare(b.name, "es", { sensitivity: "base" });
+        case "za":
+          return b.name.localeCompare(a.name, "es", { sensitivity: "base" });
+        case "newest":
+          return (b.since ?? "").localeCompare(a.since ?? "");
+        case "oldest":
+          return (a.since ?? "").localeCompare(b.since ?? "");
+        case "priority": {
           const wa = prioridadStyles[a.prioridad ?? "NORMAL"]?.weight ?? 1;
           const wb = prioridadStyles[b.prioridad ?? "NORMAL"]?.weight ?? 1;
           if (wa !== wb) return wa - wb;
           return a.name.localeCompare(b.name, "es", { sensitivity: "base" });
-        });
-        break;
-    }
+        }
+      }
+    };
+    // Wrap: los prospectos SIEMPRE al final, independientemente del
+    // sort. Dentro de cada grupo (clientes / prospectos) aplica el
+    // comparador base.
+    arr.sort((a, b) => {
+      const ap = a.status === "prospecto" ? 1 : 0;
+      const bp = b.status === "prospecto" ? 1 : 0;
+      if (ap !== bp) return ap - bp;
+      return baseCmp(a, b);
+    });
     return arr;
-  }, [clients, search, sort, prioFilter, statusFilter]);
+  }, [data, search, sort, prioFilter, statusFilter]);
 
   return (
     <div className="space-y-4">
@@ -222,16 +239,30 @@ export default function ClientesListClient({
       </div>
 
       <p className="text-xs text-slate-500">
-        Mostrando <strong>{filtered.length}</strong> de {clients.length} clientes
+        Mostrando <strong>{filtered.length}</strong> de {data.length} clientes
       </p>
 
       {view === "grid" ? (
         <GridView clients={filtered} projects={projects} tasks={tasks} />
       ) : (
-        <ListView clients={filtered} />
+        <ListView clients={filtered} onLocalUpdate={patchClientLocal} />
       )}
     </div>
   );
+}
+
+// PATCH inline en /api/v1/clients/[id]. Devuelve true si OK.
+async function patchClientRemote(id: string, payload: Record<string, any>): Promise<boolean> {
+  try {
+    const r = await fetch(`/api/v1/clients/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    return r.ok;
+  } catch {
+    return false;
+  }
 }
 
 function GridView({
@@ -324,7 +355,54 @@ function GridView({
   );
 }
 
-function ListView({ clients }: { clients: UiClient[] }) {
+function ListView({
+  clients,
+  onLocalUpdate
+}: {
+  clients: UiClient[];
+  onLocalUpdate: (id: string, partial: Partial<UiClient>) => void;
+}) {
+  // Mapeo estado UI → enum backend.
+  const UI_TO_BACKEND_STATUS: Record<string, "ACTIVE" | "PAUSED" | "PROSPECT" | "CHURNED"> = {
+    activo: "ACTIVE",
+    pausa: "PAUSED",
+    prospecto: "PROSPECT"
+  };
+  const [saving, setSaving] = useState<Record<string, boolean>>({});
+
+  async function updatePrio(c: UiClient, prio: "ALTA" | "NORMAL" | "BAJA") {
+    onLocalUpdate(c.id, { prioridad: prio });
+    setSaving((s) => ({ ...s, [c.id]: true }));
+    const ok = await patchClientRemote(c.id, { prioridad: prio });
+    setSaving((s) => ({ ...s, [c.id]: false }));
+    if (!ok) {
+      onLocalUpdate(c.id, { prioridad: c.prioridad });
+      alert("No se pudo guardar la prioridad");
+    }
+  }
+
+  async function updateStatus(c: UiClient, statusUi: "activo" | "pausa" | "prospecto") {
+    onLocalUpdate(c.id, { status: statusUi });
+    setSaving((s) => ({ ...s, [c.id]: true }));
+    const ok = await patchClientRemote(c.id, { status: UI_TO_BACKEND_STATUS[statusUi] });
+    setSaving((s) => ({ ...s, [c.id]: false }));
+    if (!ok) {
+      onLocalUpdate(c.id, { status: c.status });
+      alert("No se pudo guardar el estado");
+    }
+  }
+
+  async function updateKit(c: UiClient, kit: boolean) {
+    onLocalUpdate(c.id, { kitDigital: kit });
+    setSaving((s) => ({ ...s, [c.id]: true }));
+    const ok = await patchClientRemote(c.id, { kitDigital: kit });
+    setSaving((s) => ({ ...s, [c.id]: false }));
+    if (!ok) {
+      onLocalUpdate(c.id, { kitDigital: c.kitDigital });
+      alert("No se pudo guardar KIT DIGITAL");
+    }
+  }
+
   return (
     <div className="bg-white rounded-xl border overflow-hidden">
       <div className="overflow-x-auto">
@@ -335,6 +413,7 @@ function ListView({ clients }: { clients: UiClient[] }) {
               <th className="text-left px-3 py-2 font-medium">Sector</th>
               <th className="text-left px-3 py-2 font-medium">Estado</th>
               <th className="text-left px-3 py-2 font-medium">Prioridad</th>
+              <th className="text-left px-3 py-2 font-medium">KD</th>
               <th className="text-left px-3 py-2 font-medium">Servicios</th>
               <th className="text-left px-3 py-2 font-medium">Contacto</th>
               <th className="text-right px-3 py-2 font-medium">MRR</th>
@@ -346,12 +425,15 @@ function ListView({ clients }: { clients: UiClient[] }) {
               const prio = c.prioridad ?? "NORMAL";
               const pst = prioridadStyles[prio];
               const isHigh = prio === "ALTA";
+              const isProspect = c.status === "prospecto";
+              const isSaving = !!saving[c.id];
               return (
                 <tr
                   key={c.id}
                   className={
                     "hover:bg-slate-50 transition " +
-                    (isHigh ? "bg-rose-50/30" : "")
+                    (isHigh ? "bg-rose-50/30 " : "") +
+                    (isProspect ? "opacity-70 " : "")
                   }
                 >
                   <td className="px-3 py-2">
@@ -361,25 +443,49 @@ function ListView({ clients }: { clients: UiClient[] }) {
                   </td>
                   <td className="px-3 py-2 text-slate-600 text-xs">{c.industry || "—"}</td>
                   <td className="px-3 py-2">
-                    <span className={`inline-block text-[11px] px-2 py-0.5 rounded-md border ${statusStyles[c.status]}`}>
-                      {c.status}
-                    </span>
-                  </td>
-                  <td className="px-3 py-2">
-                    <span
+                    <select
+                      value={c.status}
+                      onChange={(e) => updateStatus(c, e.target.value as any)}
+                      disabled={isSaving}
                       className={
-                        "inline-flex items-center gap-1 text-[10px] font-bold tracking-wide px-2 py-0.5 rounded-md border " +
-                        pst.badge
+                        "text-[11px] px-1.5 py-0.5 rounded-md border focus:outline-none focus:ring-1 focus:ring-brand-500 disabled:opacity-50 " +
+                        statusStyles[c.status]
                       }
                     >
-                      <span className={"h-1.5 w-1.5 rounded-full " + pst.dot} />
-                      {pst.label}
-                    </span>
-                    {c.kitDigital && (
-                      <span className="ml-1 inline-flex items-center text-[10px] font-bold tracking-wide px-2 py-0.5 rounded-md border bg-indigo-50 text-indigo-800 border-indigo-300">
-                        KD
-                      </span>
-                    )}
+                      <option value="activo">activo</option>
+                      <option value="pausa">pausa</option>
+                      <option value="prospecto">prospecto</option>
+                    </select>
+                  </td>
+                  <td className="px-3 py-2">
+                    <div className="relative inline-block">
+                      <select
+                        value={prio}
+                        onChange={(e) => updatePrio(c, e.target.value as any)}
+                        disabled={isSaving}
+                        className={
+                          "text-[10px] font-bold tracking-wide pl-5 pr-1.5 py-0.5 rounded-md border appearance-none focus:outline-none focus:ring-1 focus:ring-brand-500 disabled:opacity-50 " +
+                          pst.badge
+                        }
+                      >
+                        <option value="ALTA">ALTA</option>
+                        <option value="NORMAL">NORMAL</option>
+                        <option value="BAJA">BAJA</option>
+                      </select>
+                      <span
+                        className={"absolute left-1.5 top-1/2 -translate-y-1/2 h-1.5 w-1.5 rounded-full pointer-events-none " + pst.dot}
+                      />
+                    </div>
+                  </td>
+                  <td className="px-3 py-2">
+                    <input
+                      type="checkbox"
+                      checked={!!c.kitDigital}
+                      onChange={(e) => updateKit(c, e.target.checked)}
+                      disabled={isSaving}
+                      className="accent-indigo-600 h-3.5 w-3.5"
+                      title="KIT DIGITAL"
+                    />
                   </td>
                   <td className="px-3 py-2 text-xs text-slate-600">
                     {Array.isArray(c.servicios) && c.servicios.length > 0
