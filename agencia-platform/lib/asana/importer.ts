@@ -10,6 +10,7 @@ import { AsanaClient, type AsanaTask } from "./client";
 import { TaskPriority } from "@prisma/client";
 import { detectPriorityFromCustomFields } from "./priority";
 import { importAttachmentsForTask } from "./attachments";
+import { parseAsanaCommentToTipTap } from "./comment-parser";
 import { toTipTapDoc } from "@/lib/comments/body";
 
 // Antes TaskStatus era enum en Prisma; ahora es string libre para soportar
@@ -426,7 +427,9 @@ async function runImport(jobId: string, opts: ImportOptions) {
       // map pero tiene email, lo creamos como GUEST pendiente.
       for await (const story of client.taskStories(t.gid)) {
         if (story.resource_subtype !== "comment_added") continue;
-        if (!story.text) continue;
+        // Algunos comentarios solo tienen imagen (html_text) sin texto.
+        // Aceptamos si al menos uno de los dos viene con contenido.
+        if (!story.text && !story.html_text) continue;
         if (!story.created_by?.gid) continue;
         const authorId = await ensureUser(
           story.created_by.gid,
@@ -443,18 +446,29 @@ async function runImport(jobId: string, opts: ImportOptions) {
           stats.commentsSkipped++;
           continue;
         }
-        // Comentarios de Asana son texto plano. Guardamos también el
-        // bodyJson (envoltorio TipTap) para que la UI rich los pinte
-        // sin lazy migration al primer GET.
-        const importedDoc = toTipTapDoc(story.text);
+        // Conversión rich del comentario: detecta imágenes inline
+        // (asset_id de Asana), las descarga y las inserta como nodos
+        // `image` en el bodyJson. Así el comentario en el Hub se ve
+        // visualmente igual que en Asana — imágenes embebidas, no
+        // links opacos.
+        const parsed = await parseAsanaCommentToTipTap({
+          client,
+          workspaceId: opts.workspaceId,
+          taskLocalId: local.id,
+          story: { gid: story.gid, text: story.text, html_text: story.html_text }
+        });
+        stats.attachmentsImported += parsed.assetsImported;
+        stats.attachmentsFailed += parsed.assetsFailed;
         await prisma.comment.create({
           data: {
             workspaceId: opts.workspaceId,
             authorId,
             targetType: "TASK",
             targetId: local.id,
-            body: story.text,
-            bodyJson: importedDoc as any,
+            // `body` para la lectura legacy (búsqueda LIKE), bodyJson
+            // para la UI rich con imágenes inline.
+            body: story.text ?? "",
+            bodyJson: parsed.doc as any,
             asanaId: story.gid,
             createdAt: new Date(story.created_at)
           }

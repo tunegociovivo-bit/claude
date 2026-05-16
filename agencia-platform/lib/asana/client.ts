@@ -172,7 +172,13 @@ export class AsanaClient {
 
   taskStories(taskGid: string) {
     return this.paginate<AsanaStory>(`/tasks/${taskGid}/stories`, {
-      opt_fields: "gid,type,resource_subtype,text,created_at,created_by.gid,created_by.name,created_by.email"
+      // Pedimos html_text además de text. Las imágenes inline de
+      // Asana solo aparecen en html_text (como
+      // <a href="https://app.asana.com/app/asana/-/get_asset?asset_id=...">).
+      // text las pierde o las deja como URL.
+      opt_fields:
+        "gid,type,resource_subtype,text,html_text,created_at," +
+        "created_by.gid,created_by.name,created_by.email"
     });
   }
 
