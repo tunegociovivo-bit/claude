@@ -29,6 +29,8 @@ import { statusLabelOf, statusColorOf, priorityColors, priorityLabels } from "@/
 import type { UiTask, UiProject, UiClient, UiMember } from "@/lib/db/queries";
 import { LayoutGrid, List, Plus, Filter, CalendarDays, FolderPlus, GripVertical, CheckSquare, Square, Settings2, Loader2, Link2, Check } from "lucide-react";
 import clsx from "clsx";
+import SavedFiltersBar, { DEFAULT_FILTERS, type TaskFilters } from "@/components/tareas/SavedFiltersBar";
+import { useSession } from "next-auth/react";
 
 type KanbanColumn = { id: string; label: string; color: string; order: number; isDone?: boolean };
 
@@ -54,8 +56,16 @@ export default function TareasClient({
 }) {
   const searchParams = useSearchParams();
   const urlProject = searchParams.get("project");
+  const { data: session } = useSession();
+  const myUserId = (session?.user as any)?.id as string | undefined;
   const [view, setView] = useState<"kanban" | "list">("kanban");
-  const [projectFilter, setProjectFilter] = useState<string>(urlProject ?? "all");
+  const [filters, setFilters] = useState<TaskFilters>({
+    ...DEFAULT_FILTERS,
+    project: urlProject ?? "all"
+  });
+  // Compat con código previo que usaba projectFilter — derivado.
+  const projectFilter = filters.project;
+  const setProjectFilter = (p: string) => setFilters((f) => ({ ...f, project: p }));
 
   const [tasks, setTasks] = useState<UiTask[]>(initialTasks);
   useEffect(() => setTasks(initialTasks), [initialTasks]);
@@ -77,7 +87,7 @@ export default function TareasClient({
     } catch {}
   }, []);
 
-  useEffect(() => setProjectFilter(urlProject ?? "all"), [urlProject]);
+  useEffect(() => setFilters((f) => ({ ...f, project: urlProject ?? "all" })), [urlProject]);
 
   // Aplicar el orden custom guardado en localStorage por usuario
   const orderedColumns = useMemo(() => {
@@ -132,10 +142,40 @@ export default function TareasClient({
     setSelectionMode(false);
   }
 
-  const filtered = useMemo(
-    () => tasks.filter((t) => projectFilter === "all" || t.projectId === projectFilter),
-    [tasks, projectFilter]
-  );
+  const filtered = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const weekEnd = new Date(today);
+    weekEnd.setDate(weekEnd.getDate() + 7);
+    const q = filters.q.trim().toLowerCase();
+    return tasks.filter((t) => {
+      if (filters.project !== "all" && t.projectId !== filters.project) return false;
+      if (filters.client !== "all" && t.clientId !== filters.client) return false;
+      if (filters.priority !== "all" && String(t.priority) !== filters.priority) return false;
+      if (filters.status !== "all" && String(t.status) !== filters.status) return false;
+      if (filters.assignee === "me") {
+        if (!myUserId || !t.assigneeIds?.includes(myUserId)) return false;
+      } else if (filters.assignee === "none") {
+        if (t.assigneeIds && t.assigneeIds.length > 0) return false;
+      } else if (filters.assignee !== "all") {
+        if (!t.assigneeIds?.includes(filters.assignee)) return false;
+      }
+      if (filters.due !== "all") {
+        if (filters.due === "no-date") {
+          if (t.dueDate) return false;
+        } else {
+          if (!t.dueDate) return false;
+          const d = new Date(t.dueDate);
+          d.setHours(0, 0, 0, 0);
+          if (filters.due === "overdue" && d >= today) return false;
+          if (filters.due === "today" && d.getTime() !== today.getTime()) return false;
+          if (filters.due === "week" && (d < today || d > weekEnd)) return false;
+        }
+      }
+      if (q && !t.title.toLowerCase().includes(q)) return false;
+      return true;
+    });
+  }, [tasks, filters, myUserId]);
   const getClient = (id?: string) => clients.find((c) => c.id === id);
   const getProject = (id?: string) => projects.find((p) => p.id === id);
 
@@ -332,29 +372,82 @@ export default function TareasClient({
         }
       />
 
-      <div className="flex items-center gap-2 mb-5">
+      <div className="flex items-center gap-2 mb-3 flex-wrap">
         <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white border text-xs">
           <Filter className="h-3.5 w-3.5 text-slate-400" />
-          <span className="text-slate-500">Proyecto:</span>
           <select
-            value={projectFilter}
-            onChange={(e) => setProjectFilter(e.target.value)}
+            value={filters.project}
+            onChange={(e) => setFilters((f) => ({ ...f, project: e.target.value }))}
             className="bg-transparent font-medium focus:outline-none"
           >
-            <option value="all">Todos</option>
+            <option value="all">Todos los proyectos</option>
             {projects.map((p) => (
               <option key={p.id} value={p.id}>{p.name}</option>
             ))}
           </select>
         </div>
+        <select
+          value={filters.client}
+          onChange={(e) => setFilters((f) => ({ ...f, client: e.target.value }))}
+          className="px-3 py-1.5 rounded-lg bg-white border text-xs focus:outline-none"
+        >
+          <option value="all">Todos los clientes</option>
+          {clients.map((c) => (
+            <option key={c.id} value={c.id}>{c.name}</option>
+          ))}
+        </select>
+        <select
+          value={filters.assignee}
+          onChange={(e) => setFilters((f) => ({ ...f, assignee: e.target.value }))}
+          className="px-3 py-1.5 rounded-lg bg-white border text-xs focus:outline-none"
+        >
+          <option value="all">Todos los asignados</option>
+          <option value="me">Mis tareas</option>
+          <option value="none">Sin asignar</option>
+          {team.map((m) => (
+            <option key={m.id} value={m.id}>{m.name ?? m.email}</option>
+          ))}
+        </select>
+        <select
+          value={filters.priority}
+          onChange={(e) => setFilters((f) => ({ ...f, priority: e.target.value }))}
+          className="px-3 py-1.5 rounded-lg bg-white border text-xs focus:outline-none"
+        >
+          <option value="all">Prioridad…</option>
+          <option value="urgencia">🚨 Urgencia</option>
+          <option value="alta">Alta</option>
+          <option value="media">Media</option>
+          <option value="baja">Baja</option>
+        </select>
+        <select
+          value={filters.due}
+          onChange={(e) => setFilters((f) => ({ ...f, due: e.target.value as TaskFilters["due"] }))}
+          className="px-3 py-1.5 rounded-lg bg-white border text-xs focus:outline-none"
+        >
+          <option value="all">Vencimiento…</option>
+          <option value="overdue">Vencidas</option>
+          <option value="today">Hoy</option>
+          <option value="week">Esta semana</option>
+          <option value="no-date">Sin fecha</option>
+        </select>
+        <input
+          type="text"
+          value={filters.q}
+          onChange={(e) => setFilters((f) => ({ ...f, q: e.target.value }))}
+          placeholder="Buscar título…"
+          className="px-3 py-1.5 rounded-lg bg-white border text-xs focus:outline-none w-40"
+        />
         <a
           href="/admin/columnas"
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border text-xs text-slate-600 hover:text-slate-900"
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border text-xs text-slate-600 hover:text-slate-900 ml-auto"
           title="Configurar columnas del kanban"
         >
           <Settings2 className="h-3.5 w-3.5" />
           Columnas
         </a>
+      </div>
+      <div className="mb-5">
+        <SavedFiltersBar filters={filters} onApply={setFilters} />
       </div>
 
       {view === "kanban" ? (

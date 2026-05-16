@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { taskCreateSchema } from "@/lib/api/schemas";
+import { notifyAssignment } from "@/lib/notifications/assignment";
 
 export const GET = withApi({ scope: "tasks:read" }, async (_req, { params, api }) => {
   const task = await prisma.task.findFirst({
@@ -32,6 +33,16 @@ export const PATCH = withApi({ scope: "tasks:write" }, async (req, { params, api
     primaryProjectId = projectIds[0];
     extraProjectIds = projectIds.slice(1).filter((p) => p && p !== primaryProjectId);
   }
+
+  // Para notificar assignees añadidos en esta PATCH, leemos los
+  // anteriores antes de tocarlos.
+  const prevAssignees = assigneeIds
+    ? await prisma.taskAssignee.findMany({
+        where: { taskId: params.id },
+        select: { userId: true }
+      })
+    : [];
+  const prevAssigneeIds = new Set(prevAssignees.map((a) => a.userId));
 
   const result = await prisma.$transaction(async (tx) => {
     const upd = await tx.task.updateMany({
@@ -64,6 +75,20 @@ export const PATCH = withApi({ scope: "tasks:write" }, async (req, { params, api
   });
 
   if (!result) throw new ApiError(404, "not_found", "Tarea no encontrada");
+
+  // Notificar a los assignees AÑADIDOS (no a los que ya estaban). Si
+  // assigneeIds no llegó en el body, no se tocaron — no notificamos.
+  if (assigneeIds) {
+    const added = assigneeIds.filter((id) => !prevAssigneeIds.has(id));
+    if (added.length > 0) {
+      notifyAssignment({
+        taskId: params.id,
+        taskTitle: result.title,
+        newAssigneeIds: added,
+        actorId: api.userId
+      }).catch((e) => console.warn("[notif] assignment patch:", e?.message ?? e));
+    }
+  }
   return NextResponse.json(result);
 });
 

@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { taskCreateSchema } from "@/lib/api/schemas";
+import { notifyAssignment } from "@/lib/notifications/assignment";
 
 export const GET = withApi({ scope: "tasks:read" }, async (req, { api }) => {
   const url = new URL(req.url);
@@ -64,5 +65,12 @@ export const POST = withApi({ scope: "tasks:write" }, async (req, { api }) => {
       ...(extra.length > 0 ? { extraProjects: { create: extra.map((projectId) => ({ projectId })) } } : {})
     } as any
   });
+  // Notificación a los asignados al crear (excluyendo al actor).
+  notifyAssignment({
+    taskId: task.id,
+    taskTitle: task.title,
+    newAssigneeIds: assigneeIds,
+    actorId: api.userId
+  }).catch((e) => console.warn("[notif] assignment create:", e?.message ?? e));
   return NextResponse.json(task, { status: 201 });
 });
