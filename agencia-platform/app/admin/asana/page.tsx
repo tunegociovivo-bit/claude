@@ -268,23 +268,46 @@ export default function AsanaImportPage() {
           </label>
 
           {!importAll && (
-            <ul className="max-h-72 overflow-y-auto border rounded-lg divide-y mb-3">
-              {projects.map((p) => (
-                <li key={p.gid} className="px-3 py-2 flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={selectedProjects.has(p.gid)}
-                    onChange={(e) => {
-                      const next = new Set(selectedProjects);
-                      if (e.target.checked) next.add(p.gid);
-                      else next.delete(p.gid);
-                      setSelectedProjects(next);
-                    }}
-                  />
-                  <span className="text-sm">{p.name}</span>
-                </li>
-              ))}
-            </ul>
+            <>
+              <div className="flex items-center justify-between mb-2 text-xs">
+                <span className="text-slate-600">
+                  {selectedProjects.size} de {projects.length} seleccionados
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedProjects(new Set(projects.map((p) => p.gid)))}
+                    className="px-2 py-1 rounded border bg-white hover:bg-slate-50 text-slate-700"
+                  >
+                    Seleccionar todos
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedProjects(new Set())}
+                    className="px-2 py-1 rounded border bg-white hover:bg-slate-50 text-slate-700"
+                  >
+                    Deseleccionar todos
+                  </button>
+                </div>
+              </div>
+              <ul className="max-h-72 overflow-y-auto border rounded-lg divide-y mb-3">
+                {projects.map((p) => (
+                  <li key={p.gid} className="px-3 py-2 flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={selectedProjects.has(p.gid)}
+                      onChange={(e) => {
+                        const next = new Set(selectedProjects);
+                        if (e.target.checked) next.add(p.gid);
+                        else next.delete(p.gid);
+                        setSelectedProjects(next);
+                      }}
+                    />
+                    <span className="text-sm">{p.name}</span>
+                  </li>
+                ))}
+              </ul>
+            </>
           )}
 
           <p className="text-xs text-slate-500 mb-4">
