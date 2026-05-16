@@ -12,6 +12,10 @@ type Attachment = {
   sizeBytes: number;
   s3Key: string;
   url: string | null;
+  // true cuando el adjunto NO está en nuestro storage sino en un
+  // servicio externo (Google Drive, Dropbox…). Importado de Asana
+  // pero sin posibilidad de descargar el binario.
+  isExternal?: boolean;
   createdAt: string;
 };
 
@@ -251,11 +255,22 @@ function AttachmentRow({
             className="text-sm font-medium text-slate-900 hover:text-brand-600 truncate block"
           >
             {attachment.name}
+            {attachment.isExternal && (
+              <span className="ml-1.5 text-[10px] uppercase tracking-wide px-1 py-0.5 rounded bg-sky-100 text-sky-700 border border-sky-200 align-middle">
+                externo
+              </span>
+            )}
           </a>
         ) : (
           <span className="text-sm font-medium text-slate-500 italic">{attachment.name}</span>
         )}
-        <div className="text-[11px] text-slate-500">{sizeStr}</div>
+        <div className="text-[11px] text-slate-500">
+          {attachment.isExternal ? (
+            <>Archivo en servicio externo (Drive/Dropbox/…) — abre en pestaña nueva</>
+          ) : (
+            sizeStr
+          )}
+        </div>
       </div>
       {onDelete && (
         <button

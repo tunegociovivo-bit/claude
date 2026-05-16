@@ -45,7 +45,15 @@ export type AsanaTask = {
   due_on?: string | null;
   due_at?: string | null;
   assignee?: AsanaUser | null;
+  // Followers: usuarios que reciben notificaciones de la tarea pero no
+  // son los asignados oficiales. Los traemos como assignees adicionales
+  // para no perder visibilidad en la migración.
+  followers?: AsanaUser[];
   parent?: { gid: string } | null;
+  // Asana permite una tarea en N proyectos a la vez. Cada membership
+  // dice en qué proyecto y sección está. El primero típicamente es el
+  // "principal" pero no hay nada oficial — el importer usa el que está
+  // procesando como principal y el resto van a TaskProject.
   memberships?: { project: { gid: string }; section?: { gid: string; name: string } }[];
   tags?: AsanaTag[];
   custom_fields?: AsanaCustomField[];
@@ -134,7 +142,9 @@ export class AsanaClient {
         // Asana exige listar SUB-campos también ("custom_fields.gid,custom_fields.name,...");
         // si pones solo "custom_fields" omite todo lo anidado.
         "gid,name,notes,html_notes,completed,completed_at,due_on,due_at," +
-          "assignee.gid,assignee.name,assignee.email,parent.gid," +
+          "assignee.gid,assignee.name,assignee.email," +
+          "followers.gid,followers.name,followers.email," +
+          "parent.gid," +
           "memberships.project.gid,memberships.section.gid,memberships.section.name," +
           "tags.gid,tags.name,permalink_url,created_at,modified_at," +
           "custom_fields.gid,custom_fields.name,custom_fields.type," +
@@ -150,7 +160,9 @@ export class AsanaClient {
     return this.paginate<AsanaTask>(`/tasks/${taskGid}/subtasks`, {
       opt_fields:
         "gid,name,notes,html_notes,completed,completed_at,due_on,due_at," +
-          "assignee.gid,assignee.name,assignee.email,parent.gid," +
+          "assignee.gid,assignee.name,assignee.email," +
+          "followers.gid,followers.name,followers.email," +
+          "parent.gid,memberships.project.gid," +
           "tags.gid,tags.name,permalink_url,created_at,modified_at," +
           "custom_fields.gid,custom_fields.name,custom_fields.type," +
           "custom_fields.enum_value.gid,custom_fields.enum_value.name," +

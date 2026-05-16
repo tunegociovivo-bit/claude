@@ -211,7 +211,13 @@ async function runImport(jobId: string, opts: ImportOptions) {
       return created.id;
     }
 
-    async function upsertTask(t: AsanaTask, projectLocalId: string, sectionName?: string | null, parentGid?: string) {
+    async function upsertTask(
+      t: AsanaTask,
+      projectLocalId: string,
+      currentProjectGid: string,
+      sectionName?: string | null,
+      parentGid?: string
+    ) {
       const status = t.completed ? TaskStatus.DONE : statusFromSectionName(sectionName);
       const due = t.due_at || t.due_on ? new Date(t.due_at ?? t.due_on!) : null;
       const priority = detectPriorityFromCustomFields(t.custom_fields);
@@ -253,16 +259,51 @@ async function runImport(jobId: string, opts: ImportOptions) {
       }
       taskByGid.set(t.gid, local.id);
 
-      // Asignados
-      if (t.assignee?.email) {
-        const uid = userByGid.get(t.assignee.gid);
-        if (uid) {
-          await prisma.taskAssignee.upsert({
-            where: { taskId_userId: { taskId: local.id, userId: uid } },
+      // Asignado oficial + followers (todos van a TaskAssignee para
+      // no perder visibilidad en la migración: en el Hub no hay
+      // distinción "follower vs assignee", lo que en Asana eran
+      // followers se ven en el Hub como co-asignados).
+      const assigneeGids = new Set<string>();
+      if (t.assignee?.gid) assigneeGids.add(t.assignee.gid);
+      for (const f of t.followers ?? []) {
+        if (f?.gid) assigneeGids.add(f.gid);
+      }
+      for (const gid of assigneeGids) {
+        // Si el user no está en el map por algún motivo, lo creamos
+        // al vuelo como GUEST (mismo flow que para autores de comments).
+        const userInfo =
+          t.assignee?.gid === gid
+            ? t.assignee
+            : t.followers?.find((f) => f.gid === gid);
+        const uid = await ensureUser(gid, userInfo?.name, userInfo?.email);
+        if (!uid) continue;
+        await prisma.taskAssignee.upsert({
+          where: { taskId_userId: { taskId: local.id, userId: uid } },
+          update: {},
+          create: { taskId: local.id, userId: uid }
+        });
+      }
+
+      // Multi-proyecto: si la tarea está en N proyectos de Asana, el
+      // que estamos procesando ahora va a `projectId` (principal); el
+      // resto los enlazamos vía TaskProject para que aparezca en
+      // varios kanbans sin duplicar el registro. Solo añadimos
+      // proyectos de Asana que ya hemos importado (estén en
+      // projectByGid del bucle); los demás se enlazarán en una
+      // pasada posterior si están en el mismo job.
+      const otherProjectGids = (t.memberships ?? [])
+        .map((m) => m.project?.gid)
+        .filter((gid): gid is string => !!gid && gid !== currentProjectGid);
+      for (const otherGid of otherProjectGids) {
+        const other = projectByGid.get(otherGid);
+        if (!other || other.localId === projectLocalId) continue;
+        await prisma.taskProject
+          .upsert({
+            where: { taskId_projectId: { taskId: local.id, projectId: other.localId } },
             update: {},
-            create: { taskId: local.id, userId: uid }
-          });
-        }
+            create: { taskId: local.id, projectId: other.localId }
+          })
+          .catch(() => {});
       }
 
       // Tags + sección como tag suelto (no perdemos info)
@@ -346,12 +387,12 @@ async function runImport(jobId: string, opts: ImportOptions) {
     for (const [projectGid, info] of projectByGid) {
       for await (const t of client.projectTasks(projectGid)) {
         const sectionName = t.memberships?.find((m) => m.project.gid === projectGid)?.section?.name ?? null;
-        await upsertTask(t, info.localId, sectionName);
+        await upsertTask(t, info.localId, projectGid, sectionName);
         stats.tasks++;
 
-        // subtareas (recursivas en 1 nivel; las anidadas se pueden añadir más tarde)
+        // Subtareas — heredan el proyecto principal del padre.
         for await (const sub of client.taskSubtasks(t.gid)) {
-          await upsertTask(sub, info.localId, sectionName, t.gid);
+          await upsertTask(sub, info.localId, projectGid, sectionName, t.gid);
           stats.subtasks++;
         }
       }

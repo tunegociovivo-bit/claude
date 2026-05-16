@@ -54,6 +54,7 @@ Es idempotente — re-ejecutar no duplica nada.
 
 - `clientes.spec.ts` — verifica que la lista de clientes muestra "E2E Cliente"
 - `portal-cliente.spec.ts` — abre `/p/cliente/[token]` con el link del seed y comprueba que el portal público carga
+- `comentarios.spec.ts` — abre la tarea "E2E Tarea de muestra", escribe un comentario rich y verifica que aparece en el hilo
 
 Si el seed no se ha ejecutado, esos tests se **skipean** (no fallan) con mensaje claro.
 

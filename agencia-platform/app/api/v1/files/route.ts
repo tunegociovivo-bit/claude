@@ -28,16 +28,29 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
     orderBy: { createdAt: "desc" }
   });
 
-  // Adjuntamos URLs firmadas/públicas para cada archivo
+  // Adjuntamos URLs firmadas/públicas. Caso especial: archivos
+  // importados de Asana como "externos" (gdrive/dropbox) tienen
+  // s3Key con prefijo "__external__:<url>"; no hay binario en R2 —
+  // devolvemos directamente la URL externa para que el cliente la
+  // abra al hacer click.
   const enriched = await Promise.all(
     items.map(async (f) => ({
       ...f,
-      url: isStorageEnabled() ? await signedDownloadUrl(f.s3Key) : null
+      url: await resolveFileUrl(f.s3Key),
+      isExternal: f.s3Key.startsWith("__external__:")
     }))
   );
 
   return NextResponse.json({ items: enriched });
 });
+
+async function resolveFileUrl(s3Key: string): Promise<string | null> {
+  if (s3Key.startsWith("__external__:")) {
+    return s3Key.slice("__external__:".length) || null;
+  }
+  if (!isStorageEnabled()) return null;
+  return signedDownloadUrl(s3Key);
+}
 
 export const POST = withApi({ scope: "*" }, async (req, { api }) => {
   const body = await req.json().catch(() => null);
@@ -56,8 +69,12 @@ export const POST = withApi({ scope: "*" }, async (req, { api }) => {
       uploadedBy: api.userId
     }
   });
-  return NextResponse.json({
-    ...file,
-    url: isStorageEnabled() ? await signedDownloadUrl(file.s3Key) : null
-  }, { status: 201 });
+  return NextResponse.json(
+    {
+      ...file,
+      url: await resolveFileUrl(file.s3Key),
+      isExternal: file.s3Key.startsWith("__external__:")
+    },
+    { status: 201 }
+  );
 });
