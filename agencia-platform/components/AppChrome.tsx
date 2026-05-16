@@ -5,6 +5,7 @@ import { Suspense, useEffect, useState, type ReactNode } from "react";
 import Sidebar from "@/components/Sidebar";
 import TopBar from "@/components/TopBar";
 import AIAssistant from "@/components/ai/AIAssistant";
+import CommandPalette from "@/components/CommandPalette";
 
 const NO_CHROME_PREFIXES = ["/login", "/r/", "/v/"];
 
@@ -67,6 +68,7 @@ export default function AppChrome({ children }: { children: ReactNode }) {
         </main>
       </div>
       <AIAssistant />
+      <CommandPalette />
     </div>
   );
 }

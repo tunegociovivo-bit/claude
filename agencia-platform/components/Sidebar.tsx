@@ -23,7 +23,8 @@ import {
   MessageSquare,
   ArrowUp,
   ArrowDown,
-  Trash2
+  Trash2,
+  Sunrise
 } from "lucide-react";
 import clsx from "clsx";
 import ProjectFormModal from "@/components/forms/ProjectFormModal";
@@ -42,6 +43,7 @@ const PLATFORM_ICONS: Record<string, typeof Star> = {
 
 const nav = [
   { href: "/", label: "Inicio", icon: LayoutDashboard, feature: "inicio" as const },
+  { href: "/mi-dia", label: "Mi día", icon: Sunrise, feature: "inicio" as const },
   { href: "/tareas", label: "Tareas", icon: KanbanSquare, feature: "tareas" as const },
   { href: "/clientes", label: "Clientes", icon: Users, feature: "clientes" as const },
   { href: "/equipo", label: "Equipo", icon: UsersRound, feature: "equipo" as const },
