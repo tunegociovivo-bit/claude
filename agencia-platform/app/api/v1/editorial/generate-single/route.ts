@@ -27,6 +27,7 @@ const schema = z.object({
   extraGuidance: z.string().optional(),
   imageIncludeHint: z.string().optional(),
   imageAvoidHint: z.string().optional(),
+  useRosterPersons: z.array(z.string()).optional(),
   status: z.enum(["DRAFT", "REVIEW"]).default("DRAFT"),
   // Siempre generamos imagen — el usuario quiso quitar el checkbox.
   imageQuality: z.enum(["low", "medium", "high"]).default("medium")
@@ -71,21 +72,29 @@ async function runJobAsync(
   userId: string | null,
   params: Params
 ) {
+  const t0 = Date.now();
+  const events: any[] = [];
+  const pushEvent = async (level: "info" | "warn" | "error", message: string) => {
+    events.push({ ts: Date.now() - t0, level, message });
+    await prisma.backgroundJob
+      .update({ where: { id: jobId }, data: { events: events as any } })
+      .catch(() => {});
+  };
+
   try {
     await prisma.backgroundJob.update({
       where: { id: jobId },
       data: { status: "RUNNING", startedAt: new Date(), progressMsg: "Llamando a Claude…", progressPct: 10 }
     });
+    await pushEvent("info", "Job iniciado, llamando a Claude…");
 
     const scheduledFor = new Date(params.scheduledFor);
-    // Derivamos el mes del scheduledFor (YYYY-MM en UTC) por compat con
-    // la firma de generateMonth, aunque en modo single no se usa para
-    // calcular fechas — la fecha viene de singleScheduledFor.
     const month = scheduledFor.toISOString().slice(0, 7);
 
     const result = await generateMonth({
       workspaceId,
       userId,
+      jobId,
       clientId: params.clientId,
       month,
       count: 1,
@@ -101,10 +110,12 @@ async function runJobAsync(
       singleScheduledFor: scheduledFor,
       imageIncludeHint: params.imageIncludeHint,
       imageAvoidHint: params.imageAvoidHint,
+      useRosterPersons: (params as any).useRosterPersons,
       onProgress: async (msg, pct) => {
         await prisma.backgroundJob
           .update({ where: { id: jobId }, data: { progressMsg: msg, progressPct: pct } })
           .catch(() => {});
+        await pushEvent("info", msg);
       }
     });
 
@@ -112,6 +123,12 @@ async function runJobAsync(
       result.count > 0
         ? `✓ Publicación creada · ${result.imagesGenerated > 0 ? "imagen lista" : result.imagesFailed > 0 ? "imagen falló" : "sin imagen"}`
         : `Sin resultado`;
+    await pushEvent("info", summary);
+    if (result.imageErrors && result.imageErrors.length > 0) {
+      for (const err of result.imageErrors) {
+        await pushEvent("error", `Imagen falló: ${err}`);
+      }
+    }
     await prisma.backgroundJob.update({
       where: { id: jobId },
       data: {
@@ -119,7 +136,9 @@ async function runJobAsync(
         completedAt: new Date(),
         progressPct: 100,
         progressMsg: summary,
-        result: result as any
+        result: result as any,
+        systemPrompt: result.systemPrompt ?? null,
+        userPrompt: result.userPrompt ?? null
       }
     });
   } catch (e: any) {
@@ -134,6 +153,7 @@ async function runJobAsync(
       code = h.code;
       message = h.message;
     }
+    await pushEvent("error", message);
     await prisma.backgroundJob.update({
       where: { id: jobId },
       data: {

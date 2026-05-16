@@ -186,6 +186,11 @@ model Client {
   // status, generateImages, imageQuality. Si null usa los defaults
   // globales del modal.
   editorialDefaults Json?
+  // Negativo permanente de imagen: cosas/personas/objetos que NUNCA
+  // deben aparecer en imágenes generadas para este cliente (free-text).
+  // Se aplica automáticamente a TODAS las generaciones, incluso si el
+  // user no rellena el cuadro de negativo en el modal.
+  imageGlobalAvoid String? @db.Text
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -1154,6 +1159,16 @@ model BackgroundJob {
   progressMsg String?   // mensaje legible "Generando publicación 3/14"
   request     Json?     // params originales
   result      Json?     // payload de éxito
+  // Log de eventos del job para el toast expandible. Array de
+  // { ts, level: "info"|"warn"|"error", message, durationMs? }.
+  events      Json?
+  // Prompts enviados a Claude (system + user) — auditoría de "qué le
+  // pedí exactamente al modelo". Sólo aplica a kinds de IA editorial.
+  systemPrompt String?  @db.Text
+  userPrompt   String?  @db.Text
+  // Bandera de cancelación cooperativa. El loop del job la mira entre
+  // iteraciones y para limpiamente, conservando lo ya creado.
+  cancelRequested Boolean @default(false)
   errorCode   String?
   errorMessage String?  @db.Text
   startedAt   DateTime?

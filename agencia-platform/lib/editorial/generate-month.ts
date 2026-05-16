@@ -38,6 +38,21 @@ export type GenerateMonthOptions = {
   // imageAvoidHint: cosas/personas/objetos QUE NO deben aparecer (negative).
   imageIncludeHint?: string;
   imageAvoidHint?: string;
+  // Pillars temáticos con peso (suma libre, se normaliza). Si vacío,
+  // Claude decide la mezcla. Ej: { educativo: 30, producto: 30,
+  // testimonio: 20, social: 20 }.
+  pillars?: Record<string, number>;
+  // Restricciones de calendario. Si vacío, Claude reparte como ve.
+  // allowedDaysOfWeek: array de 0=domingo..6=sábado.
+  // preferredHours: array de horas 0..23.
+  allowedDaysOfWeek?: number[];
+  preferredHours?: number[];
+  // Personas del roster que SÍ deben aparecer en TODAS las imágenes de
+  // esta tanda (override del auto-detect por mención en el copy).
+  useRosterPersons?: string[];
+  // ID del BackgroundJob para chequear cancelRequested entre
+  // iteraciones (cancelación cooperativa).
+  jobId?: string;
 };
 
 export type GenerateMonthResult = {
@@ -47,6 +62,11 @@ export type GenerateMonthResult = {
   imagesGenerated: number;
   imagesFailed: number;
   imageErrors: string[]; // primeros 5 mensajes únicos
+  /** IDs de posts cuya imagen falló (para retry directo). */
+  failedImagePostIds: string[];
+  /** Sistema/usuario prompt que se mandó a Claude (auditoría). */
+  systemPrompt?: string;
+  userPrompt?: string;
 };
 
 const DEFAULT_MIX = { imagen: 50, reel: 25, carrusel: 15, story: 10, video: 0 };
@@ -168,6 +188,11 @@ function buildUserPrompt(opts: {
   singleFormat?: string;
   imageIncludeHint?: string;
   imageAvoidHint?: string;
+  imageGlobalAvoid?: string;
+  pillars?: Record<string, number>;
+  allowedDaysOfWeek?: number[];
+  preferredHours?: number[];
+  useRosterPersons?: string[];
 }) {
   const band = lengthBand(opts.copyLength);
 
@@ -181,12 +206,52 @@ function buildUserPrompt(opts: {
         `## Imagen — qué SÍ debe aparecer (positivo)\n${opts.imageIncludeHint.trim()}\n\nIncorpora estos elementos en el campo "image_prompt" de cada publicación de forma natural y coherente con el copy.`
       );
     }
-    if (opts.imageAvoidHint?.trim()) {
+    // Combinamos el negativo de la tanda con el negativo permanente del
+    // cliente — se mandan los dos como una sola lista al modelo.
+    const avoid: string[] = [];
+    if (opts.imageGlobalAvoid?.trim()) avoid.push(opts.imageGlobalAvoid.trim());
+    if (opts.imageAvoidHint?.trim()) avoid.push(opts.imageAvoidHint.trim());
+    if (avoid.length > 0) {
       blocks.push(
-        `## Imagen — qué NO debe aparecer (negativo)\n${opts.imageAvoidHint.trim()}\n\nMenciona explícitamente al final de cada "image_prompt": "do not include: [lista de cosas a evitar en inglés]". Refuerza la prohibición incluso si el copy podría sugerirlos.`
+        `## Imagen — qué NO debe aparecer (negativo)\n${avoid.join("\n")}\n\nMenciona explícitamente al final de cada "image_prompt": "do not include: [lista de cosas a evitar en inglés]". Refuerza la prohibición incluso si el copy podría sugerirlos.`
       );
     }
     return blocks.join("\n\n");
+  })();
+
+  // Pillars temáticos: si el user los pasa con peso, los convertimos
+  // en porcentajes y se los damos a Claude como reparto sugerido.
+  const pillarsBlock = (() => {
+    if (!opts.pillars) return "";
+    const entries = Object.entries(opts.pillars).filter(([, v]) => v && v > 0);
+    if (entries.length === 0) return "";
+    const total = entries.reduce((a, [, v]) => a + v, 0);
+    const lines = entries.map(([k, v]) => `- ${k}: ${Math.round((v / total) * 100)}%`).join("\n");
+    return `## Pillars temáticos (reparto aproximado del mes)\n${lines}\n\nElige el pillar de cada publicación coherente con este mix global. No tiene que ser exacto — aproxímalo lo mejor que puedas dentro de N publicaciones.`;
+  })();
+
+  // Restricciones duras de calendario.
+  const calendarBlock = (() => {
+    const blocks: string[] = [];
+    if (opts.allowedDaysOfWeek && opts.allowedDaysOfWeek.length > 0 && opts.allowedDaysOfWeek.length < 7) {
+      const dayNames = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"];
+      const allowed = opts.allowedDaysOfWeek.map((d) => dayNames[d]).join(", ");
+      blocks.push(
+        `## Días permitidos\nSólo puedes programar publicaciones en: ${allowed}. Otros días están PROHIBIDOS. Si el "dayOfMonth" elegido cae en un día prohibido, mueve al día permitido más cercano.`
+      );
+    }
+    if (opts.preferredHours && opts.preferredHours.length > 0) {
+      blocks.push(
+        `## Horas preferidas\nUsa exclusivamente estas horas (formato 0-23) para el campo "hourOfDay": ${opts.preferredHours.join(", ")}. No uses ninguna otra.`
+      );
+    }
+    return blocks.join("\n\n");
+  })();
+
+  // Personas del roster que el user fuerza que aparezcan.
+  const rosterBlock = (() => {
+    if (!opts.useRosterPersons || opts.useRosterPersons.length === 0) return "";
+    return `## Personas del roster forzadas\nEstas personas DEBEN aparecer (o ser mencionadas explícitamente) en TODAS las publicaciones de esta tanda: ${opts.useRosterPersons.join(", ")}. Describe sus rasgos físicos en el image_prompt (sin nombres) tal y como te los he indicado en el system.`;
   })();
 
   // Modo single post: el usuario pasa título y formato concretos.
@@ -204,6 +269,7 @@ function buildUserPrompt(opts: {
       `${opts.copyLength}/100 → ${band.label} (${band.words})`,
       ``,
       opts.extraGuidance ? `## Instrucción extra del usuario\n${opts.extraGuidance}` : "",
+      rosterBlock,
       imageHints
     ]
       .filter(Boolean)
@@ -222,6 +288,9 @@ function buildUserPrompt(opts: {
     `## Mix de formatos (aprox)`,
     mixLines,
     ``,
+    pillarsBlock,
+    calendarBlock,
+    rosterBlock,
     `## Longitud del copy`,
     `${opts.copyLength}/100 → ${band.label} (${band.words})`,
     ``,
@@ -318,7 +387,9 @@ export async function generateMonth(opts: GenerateMonthOptions): Promise<Generat
       brandColorAccent: true,
       brandColorText: true,
       styleGuideCached: true,
-      competitors: true
+      competitors: true,
+      referenceImages: true,
+      imageGlobalAvoid: true
     }
   });
   if (!client) throw new Error("Cliente no encontrado");
@@ -339,7 +410,12 @@ export async function generateMonth(opts: GenerateMonthOptions): Promise<Generat
     singleTopic: opts.singleTopic,
     singleFormat: opts.singleFormat,
     imageIncludeHint: opts.imageIncludeHint,
-    imageAvoidHint: opts.imageAvoidHint
+    imageAvoidHint: opts.imageAvoidHint,
+    imageGlobalAvoid: (client as any).imageGlobalAvoid ?? undefined,
+    pillars: opts.pillars,
+    allowedDaysOfWeek: opts.allowedDaysOfWeek,
+    preferredHours: opts.preferredHours,
+    useRosterPersons: opts.useRosterPersons
   });
 
   const responseSchema = buildResponseSchema({
@@ -384,16 +460,50 @@ export async function generateMonth(opts: GenerateMonthOptions): Promise<Generat
       let day = Number(p.dayOfMonth);
       if (!Number.isFinite(day) || day < 1) day = 1;
       if (day > daysInMonth) day = daysInMonth;
+      // Restricción de días de la semana (allowedDaysOfWeek). Si Claude
+      // metió un día prohibido, lo movemos al permitido más cercano.
+      if (opts.allowedDaysOfWeek && opts.allowedDaysOfWeek.length > 0 && opts.allowedDaysOfWeek.length < 7) {
+        const allowed = new Set(opts.allowedDaysOfWeek);
+        let tries = 0;
+        while (tries < daysInMonth) {
+          const dow = new Date(Date.UTC(y, m - 1, day)).getUTCDay();
+          if (allowed.has(dow)) break;
+          day = (day % daysInMonth) + 1;
+          tries++;
+        }
+      }
       // Si ya hay 2 posts ese día, mover al siguiente día disponible
       let safety = 0;
       while (Array.from(usedDays.values()).filter((d) => d === day).length >= 2 && safety < daysInMonth) {
         day = (day % daysInMonth) + 1;
+        // Re-validar restricción de DOW
+        if (opts.allowedDaysOfWeek && opts.allowedDaysOfWeek.length > 0 && opts.allowedDaysOfWeek.length < 7) {
+          const allowed = new Set(opts.allowedDaysOfWeek);
+          while (!allowed.has(new Date(Date.UTC(y, m - 1, day)).getUTCDay()) && safety < daysInMonth * 2) {
+            day = (day % daysInMonth) + 1;
+            safety++;
+          }
+        }
         safety++;
       }
       usedDays.add(day);
 
       let hour = Number(p.hourOfDay);
       if (!Number.isFinite(hour) || hour < 6 || hour > 22) hour = 12;
+      // Restricción de horas preferidas: si Claude eligió una fuera de
+      // la lista, la "snapeamos" a la preferida más cercana.
+      if (opts.preferredHours && opts.preferredHours.length > 0) {
+        let closest = opts.preferredHours[0];
+        let bestDiff = Math.abs(hour - closest);
+        for (const h of opts.preferredHours) {
+          const d = Math.abs(hour - h);
+          if (d < bestDiff) {
+            bestDiff = d;
+            closest = h;
+          }
+        }
+        hour = closest;
+      }
       scheduledFor = new Date(Date.UTC(y, m - 1, day, hour, 0, 0));
     }
 
@@ -453,7 +563,10 @@ export async function generateMonth(opts: GenerateMonthOptions): Promise<Generat
       model: DEFAULT_MODEL,
       imagesGenerated: 0,
       imagesFailed: 0,
-      imageErrors: []
+      imageErrors: [],
+      failedImagePostIds: [],
+      systemPrompt: system,
+      userPrompt: user
     };
   }
 
@@ -468,6 +581,7 @@ export async function generateMonth(opts: GenerateMonthOptions): Promise<Generat
   let imagesGenerated = 0;
   let imagesFailed = 0;
   const imageErrors: string[] = [];
+  const failedImagePostIds: string[] = [];
   if (opts.generateImages && ids.length > 0) {
     // Import dinámico para no acoplar el bundle si no se usa.
     const { generateImageForPost } = await import("./generate-image");
@@ -478,16 +592,32 @@ export async function generateMonth(opts: GenerateMonthOptions): Promise<Generat
       try {
         await opts.onProgress?.(`Generando imagen ${idx}/${ids.length}…`, 50 + Math.floor((idx / ids.length) * 45));
       } catch {}
+      // Antes de cada imagen, comprobamos cancelRequested del job.
+      // Si sí, paramos pero conservamos lo ya creado.
+      if (opts.jobId) {
+        try {
+          const fresh = await prisma.backgroundJob.findUnique({
+            where: { id: opts.jobId },
+            select: { cancelRequested: true }
+          });
+          if (fresh?.cancelRequested) {
+            await opts.onProgress?.(`Cancelado por el usuario en imagen ${idx}/${ids.length}`, 95);
+            break;
+          }
+        } catch {}
+      }
       try {
         await generateImageForPost({
           workspaceId: opts.workspaceId,
           userId: opts.userId,
           postId,
-          quality
+          quality,
+          forceRosterPersons: opts.useRosterPersons
         });
         imagesGenerated++;
       } catch (e: any) {
         imagesFailed++;
+        failedImagePostIds.push(postId);
         const msg = String(e?.message ?? e).slice(0, 200);
         if (imageErrors.length < 5 && !imageErrors.includes(msg)) imageErrors.push(msg);
       }
@@ -500,6 +630,9 @@ export async function generateMonth(opts: GenerateMonthOptions): Promise<Generat
     model: DEFAULT_MODEL,
     imagesGenerated,
     imagesFailed,
-    imageErrors
+    imageErrors,
+    failedImagePostIds,
+    systemPrompt: system,
+    userPrompt: user
   };
 }

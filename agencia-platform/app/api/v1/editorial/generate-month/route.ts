@@ -34,8 +34,14 @@ const schema = z.object({
   copyLength: z.number().int().min(0).max(100).default(50),
   perNetworkCopy: z.boolean().default(false),
   extraGuidance: z.string().optional(),
+  imageIncludeHint: z.string().optional(),
+  imageAvoidHint: z.string().optional(),
+  pillars: z.record(z.string(), z.number().min(0).max(100)).optional(),
+  allowedDaysOfWeek: z.array(z.number().int().min(0).max(6)).optional(),
+  preferredHours: z.array(z.number().int().min(0).max(23)).optional(),
+  useRosterPersons: z.array(z.string()).optional(),
   status: z.enum(["DRAFT", "REVIEW"]).default("DRAFT"),
-  generateImages: z.boolean().default(false),
+  generateImages: z.boolean().default(true),
   imageQuality: z.enum(["low", "medium", "high"]).default("medium")
 });
 
@@ -79,14 +85,28 @@ async function runJobAsync(
   userId: string | null,
   params: z.infer<typeof schema>
 ) {
+  // Helper para añadir un evento al array events[] del job (log
+  // expandible en el toast). Cada evento: { ts, level, message }.
+  const t0 = Date.now();
+  const events: any[] = [];
+  const pushEvent = async (level: "info" | "warn" | "error", message: string) => {
+    events.push({ ts: Date.now() - t0, level, message });
+    await prisma.backgroundJob
+      .update({ where: { id: jobId }, data: { events: events as any } })
+      .catch(() => {});
+  };
+
   try {
     await prisma.backgroundJob.update({
       where: { id: jobId },
       data: { status: "RUNNING", startedAt: new Date(), progressMsg: "Llamando a Claude…", progressPct: 10 }
     });
+    await pushEvent("info", "Job iniciado, llamando a Claude…");
+
     const result = await generateMonth({
       workspaceId,
       userId,
+      jobId,
       ...params,
       onProgress: async (msg, pct) => {
         await prisma.backgroundJob
@@ -95,12 +115,20 @@ async function runJobAsync(
             data: { progressMsg: msg, progressPct: pct }
           })
           .catch(() => {});
+        await pushEvent("info", msg);
       }
     });
+
     const summary =
       params.generateImages && result.count > 0
-        ? `✓ ${result.count} publicaciones · ${result.imagesGenerated} imágenes ${result.imagesFailed > 0 ? `· ${result.imagesFailed} imágenes fallidas` : ""}`
+        ? `✓ ${result.count} publicaciones · ${result.imagesGenerated} imágenes ${result.imagesFailed > 0 ? `· ${result.imagesFailed} fallidas` : ""}`
         : `✓ ${result.count} publicaciones creadas`;
+    await pushEvent("info", summary);
+    if (result.imageErrors && result.imageErrors.length > 0) {
+      for (const err of result.imageErrors) {
+        await pushEvent("error", `Imagen falló: ${err}`);
+      }
+    }
     await prisma.backgroundJob.update({
       where: { id: jobId },
       data: {
@@ -108,7 +136,9 @@ async function runJobAsync(
         completedAt: new Date(),
         progressPct: 100,
         progressMsg: summary,
-        result: result as any
+        result: result as any,
+        systemPrompt: result.systemPrompt ?? null,
+        userPrompt: result.userPrompt ?? null
       }
     });
   } catch (e: any) {
@@ -123,6 +153,7 @@ async function runJobAsync(
       code = h.code;
       message = h.message;
     }
+    await pushEvent("error", message);
     await prisma.backgroundJob.update({
       where: { id: jobId },
       data: {

@@ -105,6 +105,10 @@ export type GenerateImageOptions = {
   quality?: "low" | "medium" | "high"; // mapea a gpt-image-1 quality
   promptOverride?: string; // si se quiere ignorar el copy y usar prompt libre
   format?: EditorialFormat; // si se quiere forzar un formato distinto del post
+  /** Override del auto-detect de personas: lista de nombres del roster
+   *  que SÍ deben aparecer (refs forzadas, ignorando si están mencionadas
+   *  o no en el copy). */
+  forceRosterPersons?: string[];
 };
 
 export async function generateImageForPost(opts: GenerateImageOptions): Promise<{
@@ -191,8 +195,15 @@ export async function generateImageForPost(opts: GenerateImageOptions): Promise<
   }
   const haystack = `${post.title} ${post.content ?? ""}`.toLowerCase();
   const referenceUrls: string[] = [];
+  // Si el usuario fuerza personas explícitamente (en el modal de mes /
+  // single), las usamos sí o sí. Si no, caemos al auto-detect por
+  // mención del nombre en el copy (comportamiento legacy).
+  const forced = (opts.forceRosterPersons ?? []).map((n) => n.toLowerCase().trim()).filter(Boolean);
   for (const [name, urls] of peopleRefs.entries()) {
-    if (haystack.includes(name.toLowerCase())) {
+    const matches = forced.length > 0
+      ? forced.includes(name.toLowerCase())
+      : haystack.includes(name.toLowerCase());
+    if (matches) {
       // Máximo 2 fotos por persona, total 4. Más refs hace que
       // OpenAI gpt-image-2 tarde MUCHÍSIMO (5+ min) y alucine
       // composiciones de varios cuerpos. Para una sola persona,
