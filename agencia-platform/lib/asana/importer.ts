@@ -440,12 +440,19 @@ async function runImport(jobId: string, opts: ImportOptions) {
           stats.warnings.push(`Comentario sin email del autor: tarea ${t.name} → autor ${story.created_by.name ?? "?"}`);
           continue;
         }
-        // Idempotencia por asanaId del story.
+        // Idempotencia por asanaId del story. Con un giro: si el
+        // comentario YA existe pero tiene imágenes inline pendientes
+        // (asset_id en el html/text que aún apuntan a Asana), lo
+        // refrescamos descargando esas imágenes y actualizando el
+        // bodyJson. Para comentarios sin assets, mantenemos el skip
+        // rápido para no gastar API calls.
         const exists = await prisma.comment.findUnique({ where: { asanaId: story.gid } });
-        if (exists) {
+        const hasAssets = /asset_id=\d+/.test((story.html_text ?? "") + (story.text ?? ""));
+        if (exists && !hasAssets) {
           stats.commentsSkipped++;
           continue;
         }
+
         // Conversión rich del comentario: detecta imágenes inline
         // (asset_id de Asana), las descarga y las inserta como nodos
         // `image` en el bodyJson. Así el comentario en el Hub se ve
@@ -459,21 +466,35 @@ async function runImport(jobId: string, opts: ImportOptions) {
         });
         stats.attachmentsImported += parsed.assetsImported;
         stats.attachmentsFailed += parsed.assetsFailed;
-        await prisma.comment.create({
-          data: {
-            workspaceId: opts.workspaceId,
-            authorId,
-            targetType: "TASK",
-            targetId: local.id,
-            // `body` para la lectura legacy (búsqueda LIKE), bodyJson
-            // para la UI rich con imágenes inline.
-            body: story.text ?? "",
-            bodyJson: parsed.doc as any,
-            asanaId: story.gid,
-            createdAt: new Date(story.created_at)
-          }
-        });
-        stats.comments++;
+
+        if (exists) {
+          // Refresh: actualizamos el bodyJson con las imágenes
+          // descargadas (y el body String por si cambió el texto).
+          await prisma.comment.update({
+            where: { id: exists.id },
+            data: {
+              body: story.text ?? "",
+              bodyJson: parsed.doc as any
+            }
+          });
+          stats.commentsSkipped++; // ya existía, solo refrescado
+        } else {
+          await prisma.comment.create({
+            data: {
+              workspaceId: opts.workspaceId,
+              authorId,
+              targetType: "TASK",
+              targetId: local.id,
+              // `body` para la lectura legacy (búsqueda LIKE), bodyJson
+              // para la UI rich con imágenes inline.
+              body: story.text ?? "",
+              bodyJson: parsed.doc as any,
+              asanaId: story.gid,
+              createdAt: new Date(story.created_at)
+            }
+          });
+          stats.comments++;
+        }
       }
 
       // Adjuntos: descarga + re-sube a R2. Idempotente por File.asanaId.
