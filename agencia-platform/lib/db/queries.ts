@@ -56,7 +56,11 @@ const eventTypeToUi: Record<string, "publicacion" | "reunion" | "deadline" | "ca
   OTHER: "reunion"
 };
 
-export type UiClient = (typeof mockClients)[number];
+export type UiClient = (typeof mockClients)[number] & {
+  prioridad?: "ALTA" | "NORMAL" | "BAJA";
+  servicios?: string[];
+  kitDigital?: boolean;
+};
 export type UiTask = (typeof mockTasks)[number];
 export type UiProject = (typeof mockProjects)[number];
 export type UiEvent = (typeof mockEvents)[number];
@@ -79,7 +83,10 @@ export async function getClientsForUi(): Promise<UiClient[]> {
       status: statusToUi[r.status] ?? "activo",
       mrr: r.mrr,
       since: (r.since ?? new Date()).toISOString().slice(0, 10),
-      notes: r.notes ?? ""
+      notes: r.notes ?? "",
+      prioridad: ((r as any).prioridad as "ALTA" | "NORMAL" | "BAJA" | undefined) ?? "NORMAL",
+      servicios: Array.isArray((r as any).servicios) ? ((r as any).servicios as string[]) : [],
+      kitDigital: Boolean((r as any).kitDigital)
     }));
   }, mockClients);
 }

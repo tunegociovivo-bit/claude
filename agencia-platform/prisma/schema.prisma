@@ -165,6 +165,11 @@ model Client {
   servicios Json?
   // Bono Kit Digital (ayudas Red.es). Boolean para reporting.
   kitDigital Boolean @default(false)
+  // Prioridad para el equipo interno (no es lo mismo que status).
+  // ALTA → urgencia visual (rojo/rose en listados).
+  // NORMAL → default.
+  // BAJA → cliente de bajo mantenimiento (gris/verde).
+  prioridad ClientPrioridad @default(NORMAL)
 
   // ----- Editorial / NV Dashboard meta (migrado del plugin) -----
   // Brief & branding básico
@@ -226,6 +231,12 @@ enum ClientStatus {
   PAUSED
   PROSPECT
   CHURNED
+}
+
+enum ClientPrioridad {
+  ALTA
+  NORMAL
+  BAJA
 }
 
 // ====================================================================

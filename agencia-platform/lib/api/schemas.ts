@@ -8,6 +8,7 @@ export const SERVICIO_KEYS = [
   "sem",
   "gestion_redes",
   "campana_redes",
+  "resenas_qr",
   "mantenimiento",
   "servidor",
   "dominio"
@@ -22,6 +23,7 @@ export const SERVICIO_LABELS: Record<ServicioKey, string> = {
   sem: "SEM",
   gestion_redes: "Gestión Redes",
   campana_redes: "Campaña Redes",
+  resenas_qr: "Reseñas QR",
   mantenimiento: "Mantenimiento",
   servidor: "Servidor",
   dominio: "Dominio"
@@ -40,7 +42,8 @@ export const clientCreateSchema = z.object({
   infoGeneral: z.string().nullable().optional(),
   accesos: z.string().nullable().optional(),
   servicios: z.array(z.enum(SERVICIO_KEYS)).optional(),
-  kitDigital: z.boolean().optional()
+  kitDigital: z.boolean().optional(),
+  prioridad: z.enum(["ALTA", "NORMAL", "BAJA"]).optional()
 });
 
 // Schema de la ficha editorial del cliente (NV Dashboard). Todos opcionales:

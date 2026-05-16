@@ -13,6 +13,7 @@ type ServicioKey =
   | "sem"
   | "gestion_redes"
   | "campana_redes"
+  | "resenas_qr"
   | "mantenimiento"
   | "servidor"
   | "dominio";
@@ -25,10 +26,13 @@ const SERVICIOS: { key: ServicioKey; label: string }[] = [
   { key: "sem", label: "SEM" },
   { key: "gestion_redes", label: "Gestión Redes" },
   { key: "campana_redes", label: "Campaña Redes" },
+  { key: "resenas_qr", label: "Reseñas QR" },
   { key: "mantenimiento", label: "Mantenimiento" },
   { key: "servidor", label: "Servidor" },
   { key: "dominio", label: "Dominio" }
 ];
+
+type Prioridad = "ALTA" | "NORMAL" | "BAJA";
 
 type ClientPayload = {
   id?: string;
@@ -44,6 +48,33 @@ type ClientPayload = {
   accesos?: string | null;
   servicios?: ServicioKey[];
   kitDigital?: boolean;
+  prioridad?: Prioridad;
+};
+
+// Estilos por nivel de prioridad. Las clases se usan tanto en el modal
+// como en cualquier badge en listados.
+export const PRIORIDAD_STYLES: Record<Prioridad, { bg: string; text: string; border: string; dot: string; label: string }> = {
+  ALTA: {
+    bg: "bg-rose-100",
+    text: "text-rose-800",
+    border: "border-rose-400",
+    dot: "bg-rose-500",
+    label: "ALTA"
+  },
+  NORMAL: {
+    bg: "bg-sky-50",
+    text: "text-sky-800",
+    border: "border-sky-300",
+    dot: "bg-sky-500",
+    label: "NORMAL"
+  },
+  BAJA: {
+    bg: "bg-emerald-50",
+    text: "text-emerald-800",
+    border: "border-emerald-300",
+    dot: "bg-emerald-500",
+    label: "BAJA"
+  }
 };
 
 const statusOptions = [
@@ -132,7 +163,8 @@ export default function ClientFormModal({
       infoGeneral: form.infoGeneral ?? null,
       accesos: form.accesos ?? null,
       servicios: Array.isArray(form.servicios) ? form.servicios : [],
-      kitDigital: Boolean(form.kitDigital)
+      kitDigital: Boolean(form.kitDigital),
+      prioridad: (form.prioridad ?? "NORMAL") as Prioridad
     };
     if (mode === "notes") {
       // sólo enviamos notes
@@ -221,6 +253,48 @@ export default function ClientFormModal({
                 >
                   {statusOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                 </select>
+              </div>
+              <div className="col-span-2">
+                <label className="block text-xs font-medium text-slate-700 mb-1">
+                  Prioridad
+                </label>
+                {(() => {
+                  const p: Prioridad = (form.prioridad ?? "NORMAL") as Prioridad;
+                  const st = PRIORIDAD_STYLES[p];
+                  return (
+                    <div className="flex items-center gap-2">
+                      <div className="relative flex-1">
+                        <select
+                          value={p}
+                          onChange={(e) => update("prioridad", e.target.value as Prioridad)}
+                          className={
+                            "w-full pl-8 pr-3 py-2 rounded-lg border text-sm font-medium focus:outline-none focus:ring-2 focus:ring-brand-500 " +
+                            st.bg + " " + st.text + " " + st.border
+                          }
+                        >
+                          <option value="ALTA">🔴 ALTA</option>
+                          <option value="NORMAL">🔵 NORMAL</option>
+                          <option value="BAJA">🟢 BAJA</option>
+                        </select>
+                        <span
+                          className={"absolute left-2.5 top-1/2 -translate-y-1/2 h-3 w-3 rounded-full " + st.dot}
+                        />
+                      </div>
+                      <span
+                        className={
+                          "inline-flex items-center gap-1 px-2 py-1 rounded-md border text-[11px] font-bold tracking-wide " +
+                          st.bg + " " + st.text + " " + st.border
+                        }
+                      >
+                        <span className={"h-1.5 w-1.5 rounded-full " + st.dot} />
+                        {st.label}
+                      </span>
+                    </div>
+                  );
+                })()}
+                <p className="mt-1 text-[11px] text-slate-500">
+                  Por defecto NORMAL. Usa ALTA para clientes que requieren atención inmediata — destacarán en rojo en el listado.
+                </p>
               </div>
               <div>
                 <label className="block text-xs font-medium text-slate-700 mb-1">Persona de contacto</label>

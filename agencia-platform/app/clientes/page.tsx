@@ -12,6 +12,27 @@ const statusStyles: Record<string, string> = {
   prospecto: "bg-sky-50 text-sky-700 border-sky-200"
 };
 
+const prioridadStyles: Record<string, { card: string; badge: string; dot: string; label: string }> = {
+  ALTA: {
+    card: "border-l-4 border-l-rose-500 bg-rose-50/30",
+    badge: "bg-rose-100 text-rose-800 border-rose-400",
+    dot: "bg-rose-500 animate-pulse",
+    label: "ALTA"
+  },
+  NORMAL: {
+    card: "",
+    badge: "bg-sky-50 text-sky-800 border-sky-300",
+    dot: "bg-sky-500",
+    label: "NORMAL"
+  },
+  BAJA: {
+    card: "",
+    badge: "bg-emerald-50 text-emerald-800 border-emerald-300",
+    dot: "bg-emerald-500",
+    label: "BAJA"
+  }
+};
+
 export default async function ClientesPage() {
   const [clients, projects, tasks] = await Promise.all([
     getClientsForUi(),
@@ -48,11 +69,16 @@ export default async function ClientesPage() {
         {clients.map((c) => {
           const clientProjects = projects.filter((p) => p.clientId === c.id);
           const clientTasks = tasks.filter((t) => t.clientId === c.id && t.status !== "done");
+          const prio = c.prioridad ?? "NORMAL";
+          const pst = prioridadStyles[prio];
           return (
             <Link
               key={c.id}
               href={`/clientes/${c.id}`}
-              className="bg-white rounded-xl border p-5 hover:shadow-sm hover:border-brand-200 transition group"
+              className={
+                "bg-white rounded-xl border p-5 hover:shadow-sm hover:border-brand-200 transition group " +
+                pst.card
+              }
             >
               <div className="flex items-start justify-between mb-4">
                 <div className="flex items-center gap-3">
@@ -67,9 +93,25 @@ export default async function ClientesPage() {
                 <ArrowUpRight className="h-4 w-4 text-slate-300 group-hover:text-brand-600" />
               </div>
 
-              <span className={`inline-block text-xs px-2 py-0.5 rounded-md border ${statusStyles[c.status]} mb-3`}>
-                {c.status}
-              </span>
+              <div className="flex flex-wrap items-center gap-1.5 mb-3">
+                <span className={`inline-block text-xs px-2 py-0.5 rounded-md border ${statusStyles[c.status]}`}>
+                  {c.status}
+                </span>
+                <span
+                  className={
+                    "inline-flex items-center gap-1 text-[10px] font-bold tracking-wide px-2 py-0.5 rounded-md border " +
+                    pst.badge
+                  }
+                >
+                  <span className={"h-1.5 w-1.5 rounded-full " + pst.dot} />
+                  {pst.label}
+                </span>
+                {c.kitDigital && (
+                  <span className="inline-flex items-center text-[10px] font-bold tracking-wide px-2 py-0.5 rounded-md border bg-indigo-50 text-indigo-800 border-indigo-300">
+                    KIT DIGITAL
+                  </span>
+                )}
+              </div>
 
               <div className="space-y-1.5 text-xs text-slate-600">
                 <div className="flex items-center gap-2 truncate">
