@@ -31,7 +31,8 @@ import {
   ListChecks,
   FileCheck2,
   Calendar,
-  Search
+  Search,
+  Brain
 } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -132,6 +133,12 @@ const cards = [
     title: "Búsqueda semántica",
     description: "Estado del índice de embeddings. Re-indexa tras importar o cambiar contenido masivo. Prueba queries en vivo.",
     icon: Search
+  },
+  {
+    href: "/admin/memoria-claude",
+    title: "Memoria del proyecto",
+    description: "Resumen completo del proyecto, arquitectura, gotchas, sprints y notas custom. Para pegar a Claude si pierde contexto.",
+    icon: Brain
   },
   {
     href: "/admin/errors",
