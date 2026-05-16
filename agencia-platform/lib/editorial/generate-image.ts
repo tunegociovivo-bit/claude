@@ -74,13 +74,17 @@ async function openaiImagesEdits(opts: {
     throw new Error("Ninguna referencia se pudo descargar. Comprueba que las URLs de las refs visuales son accesibles.");
   }
 
+  const t2 = Date.now();
+  console.log(`[openaiImagesEdits] enviando ${added} refs a OpenAI gpt-image-2, quality=${opts.quality}, size=${opts.size}`);
   const resp = await fetch("https://api.openai.com/v1/images/edits", {
     method: "POST",
     headers: { Authorization: `Bearer ${opts.apiKey}` },
     body: formData,
-    // Sin AbortSignal: puede tardar hasta 180s con refs y quality alta
+    // Hasta 180s — gpt-image-2 con 5 refs medium suele tardar 60-120s.
     signal: AbortSignal.timeout(180000)
   });
+  const t3 = Date.now();
+  console.log(`[openaiImagesEdits] OpenAI respondió en ${((t3 - t2) / 1000).toFixed(1)}s con status ${resp.status} (total con refs: ${((t3 - t0) / 1000).toFixed(1)}s)`);
   if (!resp.ok) {
     const txt = await resp.text();
     throw new Error(`OpenAI Images Edits ${resp.status}: ${txt.slice(0, 400)}`);
@@ -232,16 +236,22 @@ export async function generateImageForPost(opts: GenerateImageOptions): Promise<
     }
   }
 
-  // Construir referenceUrls. Máximo 2 fotos por persona. Limite global
-  // sube a 8 si hay >2 personas (gpt-image-2 los maneja, sólo se vuelve
-  // lento si pasamos de ~10).
-  const totalLimit = includedNames.size >= 3 ? 8 : 4;
+  // Construir referenceUrls. Cap total = 5 (compromiso entre fidelidad
+  // de identidad y latencia de OpenAI /edits — cada ref añade ~15-25s).
+  // Distribución:
+  //   1 persona  → 2 refs
+  //   2 personas → 4 refs (2+2)
+  //   3 personas → 5 refs (2+2+1)
+  //   4+ personas → 5 refs (1+1+1+1+1, prioriza diversidad de caras)
+  const names = Array.from(includedNames);
+  const TOTAL_CAP = 5;
+  const perPerson = names.length >= 4 ? 1 : 2;
   const referenceUrls: string[] = [];
-  for (const name of includedNames) {
+  for (const name of names) {
     const info = peopleByName.get(name);
     if (!info) continue;
-    for (const u of info.urls.slice(0, 2)) {
-      if (referenceUrls.length < totalLimit) referenceUrls.push(u);
+    for (const u of info.urls.slice(0, perPerson)) {
+      if (referenceUrls.length < TOTAL_CAP) referenceUrls.push(u);
     }
   }
 
