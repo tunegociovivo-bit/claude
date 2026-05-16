@@ -257,7 +257,10 @@ export default function EditorialClient() {
     const qs = `?month=${month}${filterClient !== "ALL" ? `&clientId=${filterClient}` : ""}`;
     const [pr, cr, sr] = await Promise.all([
       fetch(`/api/v1/editorial/posts${qs}`),
-      fetch("/api/v1/clients"),
+      // limit=500 (max) para traer TODOS los clientes — sin esto el
+      // default 50 corta y se pierden los creados primero (Clinica
+      // March, etc.) tras importar los 71 del sheet.
+      fetch("/api/v1/clients?limit=500"),
       fetch(`/api/v1/editorial/stats${qs}`)
     ]);
     if (pr.ok) setPosts((await pr.json()).items ?? []);

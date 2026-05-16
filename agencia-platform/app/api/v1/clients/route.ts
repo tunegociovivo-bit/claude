@@ -7,7 +7,11 @@ import { clientCreateSchema } from "@/lib/api/schemas";
 export const GET = withApi({ scope: "clients:read" }, async (req, { api }) => {
   const url = new URL(req.url);
   const status = url.searchParams.get("status") ?? undefined;
-  const take = Math.min(Number(url.searchParams.get("limit") ?? 50), 200);
+  // Default 500 y cap 500. Las UIs (TopBar, Sidebar, EditorialClient,
+  // ProyectosClient, redactor…) necesitan TODOS los clientes para
+  // dropdowns. Antes el default 50 cortaba y se perdían los más
+  // antiguos al haber muchos.
+  const take = Math.min(Number(url.searchParams.get("limit") ?? 500), 500);
   const skip = Number(url.searchParams.get("offset") ?? 0);
 
   const where: any = { workspaceId: api.workspaceId, deletedAt: null };
