@@ -8,6 +8,8 @@
 import { prisma } from "@/lib/db/prisma";
 import { AsanaClient, type AsanaTask } from "./client";
 import { TaskPriority } from "@prisma/client";
+import { detectPriorityFromCustomFields } from "./priority";
+import { importAttachmentsForTask } from "./attachments";
 
 // Antes TaskStatus era enum en Prisma; ahora es string libre para soportar
 // columnas custom del Kanban. Mantenemos los valores por defecto como
@@ -35,6 +37,16 @@ type Stats = {
   subtasks: number;
   comments: number;
   tags: number;
+  // Adjuntos descargados desde Asana y re-subidos al storage del Hub.
+  attachmentsImported: number;
+  // Adjuntos externos (gdrive/dropbox/etc.) referenciados como link
+  // pero no descargados (no tenemos download_url).
+  attachmentsExternal: number;
+  attachmentsFailed: number;
+  // Comentarios saltados porque ya existían (por asanaId).
+  commentsSkipped: number;
+  // Errores parciales: no rompen el job, pero se loggean.
+  warnings: string[];
   skipped: number;
 };
 
@@ -53,7 +65,7 @@ export async function startAsanaImport(opts: ImportOptions): Promise<string> {
     data: {
       workspaceId: opts.workspaceId,
       status: "PENDING",
-      stats: { users: 0, projects: 0, tasks: 0, subtasks: 0, comments: 0, tags: 0, skipped: 0 }
+      stats: emptyStats() as any
     }
   });
 
@@ -71,8 +83,25 @@ export async function startAsanaImport(opts: ImportOptions): Promise<string> {
   return job.id;
 }
 
+function emptyStats(): Stats {
+  return {
+    users: 0,
+    projects: 0,
+    tasks: 0,
+    subtasks: 0,
+    comments: 0,
+    tags: 0,
+    attachmentsImported: 0,
+    attachmentsExternal: 0,
+    attachmentsFailed: 0,
+    commentsSkipped: 0,
+    warnings: [],
+    skipped: 0
+  };
+}
+
 async function runImport(jobId: string, opts: ImportOptions) {
-  const stats: Stats = { users: 0, projects: 0, tasks: 0, subtasks: 0, comments: 0, tags: 0, skipped: 0 };
+  const stats: Stats = emptyStats();
   const client = new AsanaClient(opts.token);
 
   await prisma.asanaImport.update({ where: { id: jobId }, data: { status: "RUNNING" } });
@@ -152,10 +181,39 @@ async function runImport(jobId: string, opts: ImportOptions) {
       return t.id;
     }
 
+    /**
+     * Si una story de Asana cita a un usuario que NO está en el map
+     * (porque era un guest, un member que ya no está, o porque la
+     * paginación de users no lo devolvió), lo creamos al vuelo en
+     * estado "pendiente de verificar" — el user nos pidió no perder
+     * ningún comentario. Sólo se hace si tenemos email.
+     */
+    async function ensureUser(gid: string, name?: string | null, email?: string | null): Promise<string | null> {
+      const cached = userByGid.get(gid);
+      if (cached) return cached;
+      if (!email) return null;
+      const existing = await prisma.user.findUnique({ where: { email } });
+      if (existing) {
+        userByGid.set(gid, existing.id);
+        return existing.id;
+      }
+      const created = await prisma.user.create({
+        data: {
+          email,
+          name: name ?? email,
+          // emailVerified=null = "pendiente de verificar" funcionalmente
+          memberships: { create: { workspaceId: opts.workspaceId, role: "GUEST" } }
+        }
+      });
+      userByGid.set(gid, created.id);
+      stats.users++;
+      return created.id;
+    }
+
     async function upsertTask(t: AsanaTask, projectLocalId: string, sectionName?: string | null, parentGid?: string) {
       const status = t.completed ? TaskStatus.DONE : statusFromSectionName(sectionName);
       const due = t.due_at || t.due_on ? new Date(t.due_at ?? t.due_on!) : null;
-
+      const priority = detectPriorityFromCustomFields(t.custom_fields);
       const parentLocal = parentGid ? taskByGid.get(parentGid) : null;
 
       let local = await prisma.task.findUnique({ where: { asanaId: t.gid } });
@@ -166,10 +224,13 @@ async function runImport(jobId: string, opts: ImportOptions) {
             title: t.name,
             description: t.notes ?? "",
             status,
+            priority,
             dueDate: due,
             completedAt: t.completed_at ? new Date(t.completed_at) : null,
-            parentId: parentLocal ?? null
-          }
+            parentId: parentLocal ?? null,
+            asanaPermalink: t.permalink_url ?? null,
+            asanaCustomFields: (t.custom_fields ?? null) as any
+          } as any
         });
       } else {
         local = await prisma.task.create({
@@ -180,11 +241,13 @@ async function runImport(jobId: string, opts: ImportOptions) {
             title: t.name,
             description: t.notes ?? "",
             status,
-            priority: TaskPriority.MEDIUM,
+            priority,
             dueDate: due,
             completedAt: t.completed_at ? new Date(t.completed_at) : null,
-            asanaId: t.gid
-          }
+            asanaId: t.gid,
+            asanaPermalink: t.permalink_url ?? null,
+            asanaCustomFields: (t.custom_fields ?? null) as any
+          } as any
         });
       }
       taskByGid.set(t.gid, local.id);
@@ -216,35 +279,59 @@ async function runImport(jobId: string, opts: ImportOptions) {
         stats.tags++;
       }
 
-      // Comentarios (stories tipo "comment_added")
-      for await (const story of new AsanaClient(opts.token).taskStories(t.gid)) {
+      // Comentarios (stories tipo "comment_added"). Idempotente por
+      // Comment.asanaId == story.gid. Si el autor no estaba en el
+      // map pero tiene email, lo creamos como GUEST pendiente.
+      for await (const story of client.taskStories(t.gid)) {
         if (story.resource_subtype !== "comment_added") continue;
         if (!story.text) continue;
-        const authorId = story.created_by?.gid ? userByGid.get(story.created_by.gid) : null;
-        if (!authorId) continue; // saltamos si no podemos mapear el autor
-        // sin upsert por asanaId — Comment no tiene unique de asana; evitamos duplicar consultando antes
-        const exists = await prisma.comment.findFirst({
-          where: {
+        if (!story.created_by?.gid) continue;
+        const authorId = await ensureUser(
+          story.created_by.gid,
+          story.created_by.name,
+          story.created_by.email
+        );
+        if (!authorId) {
+          stats.warnings.push(`Comentario sin email del autor: tarea ${t.name} → autor ${story.created_by.name ?? "?"}`);
+          continue;
+        }
+        // Idempotencia por asanaId del story.
+        const exists = await prisma.comment.findUnique({ where: { asanaId: story.gid } });
+        if (exists) {
+          stats.commentsSkipped++;
+          continue;
+        }
+        await prisma.comment.create({
+          data: {
             workspaceId: opts.workspaceId,
+            authorId,
             targetType: "TASK",
             targetId: local.id,
             body: story.text,
-            authorId
+            asanaId: story.gid,
+            createdAt: new Date(story.created_at)
           }
         });
-        if (!exists) {
-          await prisma.comment.create({
-            data: {
-              workspaceId: opts.workspaceId,
-              authorId,
-              targetType: "TASK",
-              targetId: local.id,
-              body: story.text,
-              createdAt: new Date(story.created_at)
-            }
-          });
-          stats.comments++;
+        stats.comments++;
+      }
+
+      // Adjuntos: descarga + re-sube a R2. Idempotente por File.asanaId.
+      try {
+        const r = await importAttachmentsForTask({
+          client,
+          workspaceId: opts.workspaceId,
+          taskLocalId: local.id,
+          taskAsanaGid: t.gid
+        });
+        stats.attachmentsImported += r.imported;
+        stats.attachmentsExternal += r.externalLinked;
+        stats.attachmentsFailed += r.failed;
+        if (r.errors.length > 0) {
+          stats.warnings.push(`Adjuntos en "${t.name}": ${r.errors.slice(0, 3).join(" | ")}`);
         }
+      } catch (e: any) {
+        stats.attachmentsFailed++;
+        stats.warnings.push(`Adjuntos de "${t.name}" fallaron: ${String(e?.message ?? e).slice(0, 120)}`);
       }
 
       return local.id;

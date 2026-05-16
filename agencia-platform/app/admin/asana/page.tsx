@@ -325,21 +325,61 @@ export default function AsanaImportPage() {
           </h2>
 
           {job?.stats && (
-            <div className="grid grid-cols-3 sm:grid-cols-6 gap-3 mb-4">
-              {([
-                ["users", "Usuarios"],
-                ["projects", "Proyectos"],
-                ["tasks", "Tareas"],
-                ["subtasks", "Subtareas"],
-                ["tags", "Tags"],
-                ["comments", "Comentarios"]
-              ] as const).map(([k, l]) => (
-                <div key={k} className="bg-slate-50 rounded-lg p-3">
-                  <div className="text-xs text-slate-500">{l}</div>
-                  <div className="text-lg font-semibold">{job.stats?.[k] ?? 0}</div>
+            <>
+              <div className="grid grid-cols-3 sm:grid-cols-6 gap-3 mb-4">
+                {([
+                  ["users", "Usuarios"],
+                  ["projects", "Proyectos"],
+                  ["tasks", "Tareas"],
+                  ["subtasks", "Subtareas"],
+                  ["tags", "Tags"],
+                  ["comments", "Comentarios"]
+                ] as const).map(([k, l]) => (
+                  <div key={k} className="bg-slate-50 rounded-lg p-3">
+                    <div className="text-xs text-slate-500">{l}</div>
+                    <div className="text-lg font-semibold">{job.stats?.[k] ?? 0}</div>
+                  </div>
+                ))}
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+                <div className="bg-emerald-50 rounded-lg p-3">
+                  <div className="text-xs text-emerald-700">Adjuntos descargados</div>
+                  <div className="text-lg font-semibold text-emerald-900">
+                    {job.stats?.attachmentsImported ?? 0}
+                  </div>
                 </div>
-              ))}
-            </div>
+                <div className="bg-sky-50 rounded-lg p-3">
+                  <div className="text-xs text-sky-700">Adjuntos externos (link)</div>
+                  <div className="text-lg font-semibold text-sky-900">
+                    {job.stats?.attachmentsExternal ?? 0}
+                  </div>
+                </div>
+                <div className="bg-amber-50 rounded-lg p-3">
+                  <div className="text-xs text-amber-700">Adjuntos fallidos</div>
+                  <div className="text-lg font-semibold text-amber-900">
+                    {job.stats?.attachmentsFailed ?? 0}
+                  </div>
+                </div>
+                <div className="bg-slate-50 rounded-lg p-3">
+                  <div className="text-xs text-slate-600">Comentarios ya migrados</div>
+                  <div className="text-lg font-semibold text-slate-700">
+                    {job.stats?.commentsSkipped ?? 0}
+                  </div>
+                </div>
+              </div>
+              {Array.isArray(job.stats?.warnings) && job.stats.warnings.length > 0 && (
+                <details className="mb-4 rounded-lg border bg-amber-50/40 border-amber-200">
+                  <summary className="cursor-pointer px-3 py-2 text-xs text-amber-800 font-medium">
+                    Avisos ({job.stats.warnings.length})
+                  </summary>
+                  <ul className="px-3 pb-3 text-[11px] text-slate-700 space-y-0.5">
+                    {job.stats.warnings.slice(0, 50).map((w: string, i: number) => (
+                      <li key={i} className="font-mono">{w}</li>
+                    ))}
+                  </ul>
+                </details>
+              )}
+            </>
           )}
 
           {job?.errorMsg && (

@@ -836,6 +836,16 @@ model Task {
   completedAt DateTime?
   order       Int          @default(0)
   asanaId     String?      @unique
+  // URL pública del task en Asana (permalink_url de la API). Nos sirve
+  // para que el equipo pueda ir al original durante la convivencia,
+  // y para auditar la migración.
+  asanaPermalink String?
+  // Custom fields de Asana (priority, status custom, etc.) preservados
+  // tal cual los devuelve la API. La estructura es la que Asana usa:
+  // [{ gid, name, type, enum_value, text_value, number_value, ... }].
+  // Lo guardamos para que el equipo pueda consultarlo desde la UI
+  // aunque todavía no haya UI dedicada para cada custom field.
+  asanaCustomFields Json?
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
   // Soft delete. Si != null, el registro está en la papelera. Las
@@ -1102,6 +1112,10 @@ model Comment {
   targetType  CommentTarget
   targetId    String
   body        String      @db.Text
+  // GID de la "story" original de Asana cuando este comentario viene
+  // de una importación. UNIQUE para idempotencia: si re-ejecutas
+  // el import, los ya migrados se saltan en lugar de duplicarse.
+  asanaId     String?     @unique
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
 
@@ -1134,6 +1148,9 @@ model File {
   targetType  String?  // TASK | DOCUMENT | CLIENT | …
   targetId    String?
   uploadedBy  String?
+  // GID del attachment original de Asana cuando este archivo viene
+  // de una importación. UNIQUE para idempotencia.
+  asanaId     String?  @unique
   createdAt   DateTime @default(now())
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
@@ -1382,11 +1399,17 @@ model PushSubscription {
 model AsanaConnection {
   id           String   @id @default(cuid())
   userId       String
-  accessToken  String   @db.Text
-  refreshToken String?  @db.Text
-  expiresAt    DateTime?
-  asanaUserId  String?
-  createdAt    DateTime @default(now())
+  // `accessToken` quedó como texto plano por una iteración temprana.
+  // Lo mantenemos para no romper conexiones existentes, pero los
+  // tokens nuevos se cifran en `accessTokenEnc` con encryptSecret().
+  // El helper de lectura prefiere accessTokenEnc; si solo hay
+  // accessToken, lo migra cifrándolo en el primer uso.
+  accessToken    String   @db.Text
+  accessTokenEnc String?  @db.Text
+  refreshToken   String?  @db.Text
+  expiresAt      DateTime?
+  asanaUserId    String?
+  createdAt      DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
