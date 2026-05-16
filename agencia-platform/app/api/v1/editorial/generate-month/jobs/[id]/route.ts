@@ -17,7 +17,13 @@ const ZOMBIE_PENDING_MS = 90 * 1000; // 90s en PENDING = zombie
 const ZOMBIE_RUNNING_MS = 15 * 60 * 1000; // 15min en RUNNING = zombie
 
 // Aceptamos el mismo endpoint para ambos kinds — el front no distingue.
-const KINDS = ["editorial.generate_month", "editorial.generate_single"];
+const KINDS = [
+  "editorial.generate_month",
+  "editorial.generate_single",
+  "editorial.retry_images",
+  "editorial.regenerate_post",
+  "admin.import_accesos_asana"
+];
 
 export const GET = withApi({ scope: "*" }, async (_req, { params, api }) => {
   let job = await prisma.backgroundJob.findFirst({

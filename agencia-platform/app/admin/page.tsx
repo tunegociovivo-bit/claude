@@ -25,7 +25,8 @@ import {
   MessageSquare,
   Code2,
   ExternalLink,
-  AlertOctagon
+  AlertOctagon,
+  KeyRound
 } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -151,6 +152,12 @@ const cards = [
     title: "Importar accesos desde tarea",
     description: "Pega el contenido de la tarea con las credenciales por cliente y se vuelcan al campo Accesos de cada ficha con preview previa.",
     icon: Upload
+  },
+  {
+    href: "/admin/import-accesos-asana",
+    title: "Importar accesos desde Asana",
+    description: "Lee automáticamente las 165 subtareas de la tarea CLIENTES en Asana (con sus sub-subtareas de credenciales) y vuelca todo al campo Accesos de cada cliente. Background job con progreso visible.",
+    icon: KeyRound
   },
   {
     href: "https://claude.ai/code/session_01CA9ihZJxnRBKpd64rc1mg9",
