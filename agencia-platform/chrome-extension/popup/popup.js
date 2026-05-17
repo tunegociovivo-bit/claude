@@ -163,6 +163,32 @@ async function runDiagProbe() {
       out.meStatus = r.status;
       const txt = await r.text();
       out.meBody = txt.slice(0, 200);
+      // Si /me responde 200, persistimos al user en storage ya mismo —
+      // así no dependemos del SW para tener UI "loggeada". El cookie
+      // se ha enviado vía credentials:include aunque chrome.cookies.get
+      // no la encuentre (algunas cookies __Secure- no se exponen al
+      // chrome.cookies API pero sí van con fetch desde host_permissions).
+      if (r.status === 200) {
+        try {
+          const data = JSON.parse(txt);
+          if (data?.user?.id) {
+            await chrome.storage.local.set({
+              user: {
+                id: data.user.id,
+                name: data.user.name,
+                email: data.user.email,
+                image: data.user.image
+              },
+              workspace: { id: data.workspaceId, role: data.role },
+              state: "idle"
+            });
+            // Avisamos al SW para que arranque el polling de notifs
+            try {
+              chrome.runtime.sendMessage({ from: "popup", type: "check-session" });
+            } catch {}
+          }
+        } catch {}
+      }
     } catch (e) {
       out.meError = String(e?.message ?? e);
     }

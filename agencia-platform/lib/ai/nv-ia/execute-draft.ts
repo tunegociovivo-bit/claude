@@ -70,6 +70,22 @@ export async function executeDraft(draftId: string): Promise<{
         result = { ok: true, externalId: created.id };
         break;
       }
+      case "CALENDAR_EVENT": {
+        const ev = await prisma.calendarEvent.create({
+          data: {
+            workspaceId: draft.workspaceId,
+            clientId: payload.clientId ?? null,
+            title: payload.title,
+            description: payload.description ?? null,
+            startAt: new Date(payload.startIso),
+            endAt: payload.endIso ? new Date(payload.endIso) : null,
+            allDay: payload.allDay === true,
+            type: payload.type ?? "MEETING"
+          }
+        });
+        result = { ok: true, externalId: ev.id };
+        break;
+      }
       case "CUSTOM":
       default: {
         result = { ok: true }; // marcar como executed sin acción

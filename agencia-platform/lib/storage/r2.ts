@@ -103,6 +103,28 @@ export async function uploadBuffer(opts: {
 }
 
 /**
+ * Descarga el contenido de un objeto a un Buffer en memoria. Útil para
+ * procesarlo en server (parsear PDFs, extraer texto, etc).
+ *
+ * OJO: carga el archivo entero en RAM. Para archivos grandes pasar
+ * por streaming directamente con GetObjectCommand. Para Fase 3 de
+ * NV IA aceptamos hasta ~10MB sin streamear.
+ */
+export async function downloadBuffer(s3Key: string): Promise<Buffer> {
+  const resp = await client().send(
+    new GetObjectCommand({ Bucket: bucket(), Key: s3Key })
+  );
+  if (!resp.Body) throw new Error(`Body vacío al descargar ${s3Key}`);
+  // resp.Body es un ReadableStream — lo materializamos a Buffer.
+  const chunks: Buffer[] = [];
+  // @ts-expect-error AsyncIterable Response Body en Node 18+
+  for await (const chunk of resp.Body) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks);
+}
+
+/**
  * Genera una key S3 razonable: workspace/target/uuid-filename.
  */
 export function buildS3Key(opts: {

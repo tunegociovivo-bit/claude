@@ -10,6 +10,7 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { prisma } from "@/lib/db/prisma";
 import { semanticSearch } from "@/lib/search/embeddings";
+import { extractTextFromFile } from "./file-reader";
 import type { AiAgentConfig } from "./types";
 
 export type ToolContext = {
@@ -186,6 +187,75 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
         }
       },
       required: ["title", "content", "networks"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "list_task_files",
+    description:
+      "Lista los archivos adjuntos a la tarea actual (PDFs, docs, hojas de cálculo, imágenes...). Devuelve id, nombre, tipo MIME y tamaño. Úsalo ANTES de read_file_content para saber qué hay disponible.",
+    input_schema: {
+      type: "object",
+      properties: {},
+      additionalProperties: false
+    }
+  },
+  {
+    name: "read_file_content",
+    description:
+      "Lee el contenido en texto plano de un archivo adjunto de la tarea. Soporta PDF, DOCX, XLSX, TXT, MD, CSV, JSON, HTML. NO soporta imágenes todavía. Pasa el id del archivo obtenido de list_task_files. Si el archivo es enorme se trunca a 200K chars con marca visible.",
+    input_schema: {
+      type: "object",
+      properties: {
+        fileId: { type: "string", description: "ID del archivo (de list_task_files)" }
+      },
+      required: ["fileId"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "get_calendar_events",
+    description:
+      "Lee eventos del calendario del workspace en un rango de fechas. Útil para saber disponibilidad antes de proponer una reunión o para responder '¿qué tengo el viernes?'. Devuelve título, hora, cliente asociado.",
+    input_schema: {
+      type: "object",
+      properties: {
+        fromIso: {
+          type: "string",
+          description: "Fecha inicio en ISO 8601 (ej '2026-05-20T00:00:00Z'). Si lo omites, usa hoy."
+        },
+        toIso: {
+          type: "string",
+          description: "Fecha fin en ISO 8601. Si lo omites, usa hoy+7d."
+        },
+        clientId: {
+          type: "string",
+          description: "Filtra por cliente (opcional)."
+        }
+      },
+      additionalProperties: false
+    }
+  },
+  {
+    name: "draft_calendar_event",
+    description:
+      "Crea un BORRADOR de evento de calendario PARA QUE APRUEBE UN HUMANO antes de añadirlo. NO se crea automáticamente. Úsalo cuando alguien pide programar una reunión, recordar un hito, bloquear tiempo, etc. El evento aparece en /admin/nv-ia/drafts.",
+    input_schema: {
+      type: "object",
+      properties: {
+        title: { type: "string", description: "Título del evento (qué es)." },
+        description: { type: "string", description: "Descripción/agenda (opcional)." },
+        startIso: { type: "string", description: "Inicio en ISO 8601 con timezone." },
+        endIso: { type: "string", description: "Fin en ISO 8601 con timezone (opcional para all-day)." },
+        allDay: { type: "boolean", description: "true para evento de día completo." },
+        type: {
+          type: "string",
+          description: "Tipo: MEETING, DEADLINE, REMINDER, OTHER",
+          enum: ["MEETING", "DEADLINE", "REMINDER", "OTHER"]
+        },
+        clientId: { type: "string", description: "Cliente asociado (opcional)." }
+      },
+      required: ["title", "startIso"],
       additionalProperties: false
     }
   },
@@ -429,6 +499,152 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
     };
   },
 
+  async list_task_files(_input, ctx) {
+    const files = await prisma.file.findMany({
+      where: {
+        workspaceId: ctx.workspaceId,
+        targetType: "TASK",
+        targetId: ctx.taskId
+      },
+      orderBy: { createdAt: "asc" },
+      select: { id: true, name: true, mimeType: true, sizeBytes: true, createdAt: true }
+    });
+    return {
+      count: files.length,
+      files: files.map((f) => ({
+        id: f.id,
+        name: f.name,
+        mimeType: f.mimeType,
+        sizeBytes: f.sizeBytes,
+        sizeReadable: humanSize(f.sizeBytes)
+      }))
+    };
+  },
+
+  async read_file_content(input, ctx) {
+    const fileId = String(input?.fileId ?? "").trim();
+    if (!fileId) return { error: "fileId vacío" };
+    const file = await prisma.file.findFirst({
+      where: {
+        id: fileId,
+        workspaceId: ctx.workspaceId
+      }
+    });
+    if (!file) return { error: "Archivo no encontrado en este workspace" };
+    // Por defensa: solo dejamos leer archivos enlazados a la task o
+    // al mismo cliente/proyecto. Para Fase 3 dejamos TASK y los que
+    // no tienen targetType (sin owner) — no permitimos saltar a otra
+    // task ajena al run.
+    if (file.targetType && file.targetType !== "TASK") {
+      return { error: "Solo puedes leer adjuntos de tipo TASK por ahora" };
+    }
+    if (file.targetType === "TASK" && file.targetId !== ctx.taskId) {
+      return { error: "Ese archivo no pertenece a la tarea asignada a este run" };
+    }
+    const result = await extractTextFromFile({
+      s3Key: file.s3Key,
+      mimeType: file.mimeType,
+      filename: file.name,
+      sizeBytes: file.sizeBytes
+    });
+    if (!result.ok) return { error: result.error };
+    return {
+      ok: true,
+      filename: file.name,
+      mimeType: file.mimeType,
+      bytes: result.bytes,
+      truncated: result.truncated,
+      pages: result.pages,
+      sheets: result.sheets,
+      text: result.text
+    };
+  },
+
+  async get_calendar_events(input, ctx) {
+    const from = input?.fromIso ? new Date(input.fromIso) : new Date();
+    const to = input?.toIso
+      ? new Date(input.toIso)
+      : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    if (isNaN(from.getTime()) || isNaN(to.getTime())) {
+      return { error: "fromIso/toIso inválidos" };
+    }
+    if (to.getTime() - from.getTime() > 90 * 24 * 60 * 60 * 1000) {
+      return { error: "Rango máximo 90 días" };
+    }
+    const events = await prisma.calendarEvent.findMany({
+      where: {
+        workspaceId: ctx.workspaceId,
+        startAt: { gte: from, lte: to },
+        ...(input?.clientId ? { clientId: String(input.clientId) } : {})
+      },
+      orderBy: { startAt: "asc" },
+      take: 200,
+      include: { client: { select: { id: true, name: true } } }
+    });
+    return {
+      count: events.length,
+      fromIso: from.toISOString(),
+      toIso: to.toISOString(),
+      events: events.map((e) => ({
+        id: e.id,
+        title: e.title,
+        type: e.type,
+        startIso: e.startAt.toISOString(),
+        endIso: e.endAt?.toISOString() ?? null,
+        allDay: e.allDay,
+        client: e.client
+      }))
+    };
+  },
+
+  async draft_calendar_event(input, ctx) {
+    const title = String(input?.title ?? "").trim();
+    const startIso = String(input?.startIso ?? "").trim();
+    if (!title || !startIso) return { error: "title y startIso son obligatorios" };
+    const start = new Date(startIso);
+    if (isNaN(start.getTime())) return { error: "startIso inválido" };
+    let end: Date | null = null;
+    if (input?.endIso) {
+      end = new Date(String(input.endIso));
+      if (isNaN(end.getTime())) return { error: "endIso inválido" };
+      if (end <= start) return { error: "endIso debe ser posterior a startIso" };
+    }
+    const allDay = input?.allDay === true;
+    const type = ["MEETING", "DEADLINE", "REMINDER", "OTHER"].includes(input?.type)
+      ? input.type
+      : "MEETING";
+    const clientId = input?.clientId ? String(input.clientId) : null;
+    if (clientId) {
+      const c = await prisma.client.findFirst({
+        where: { id: clientId, workspaceId: ctx.workspaceId }
+      });
+      if (!c) return { error: "clientId no encontrado en el workspace" };
+    }
+    const draft = await prisma.aiDraft.create({
+      data: {
+        workspaceId: ctx.workspaceId,
+        aiAgentRunId: ctx.runId,
+        taskId: ctx.taskId,
+        kind: "CALENDAR_EVENT",
+        title: `Evento: ${title.slice(0, 60)} (${start.toLocaleString("es-ES")})`,
+        payload: {
+          title,
+          description: input?.description ?? null,
+          startIso: start.toISOString(),
+          endIso: end?.toISOString() ?? null,
+          allDay,
+          type,
+          clientId
+        }
+      }
+    });
+    return {
+      ok: true,
+      draftId: draft.id,
+      message: "Borrador de evento creado. Quedará pendiente hasta que un admin lo apruebe."
+    };
+  },
+
   async mark_complete(input, ctx) {
     const summary = String(input?.summary ?? "").trim();
     if (!summary) return { error: "summary vacío" };
@@ -455,3 +671,9 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
     return { ok: true, commentId: comment.id, completed: true };
   }
 };
+
+function humanSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes}B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)}MB`;
+}

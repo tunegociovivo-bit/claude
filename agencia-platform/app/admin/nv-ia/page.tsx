@@ -205,9 +205,15 @@ export default function NvIaAdminPage() {
               (Railway cron / GitHub Actions).
             </p>
             <p>
-              <strong>Tools disponibles:</strong> get_task_context, search_tasks, search_knowledge (RAG semántico),
-              add_comment, update_task_status, draft_email, draft_whatsapp, draft_editorial_post, mark_complete.
-              Los <code>draft_*</code> NO se envían/publican hasta que un admin los aprueba en{" "}
+              <strong>Tools disponibles (13):</strong>
+              <br />
+              <strong>Lectura:</strong> get_task_context, list_task_files, read_file_content (PDF/DOCX/XLSX/TXT),
+              search_tasks, search_knowledge (RAG semántico), get_calendar_events.
+              <br />
+              <strong>Escritura inmediata:</strong> add_comment, update_task_status, mark_complete.
+              <br />
+              <strong>Borradores (requieren aprobación):</strong> draft_email, draft_whatsapp, draft_editorial_post,
+              draft_calendar_event. Se aprueban en{" "}
               <a href="/admin/nv-ia/drafts" className="text-brand-600 underline">/admin/nv-ia/drafts</a>.
             </p>
           </div>

@@ -12,10 +12,11 @@ import {
   Clock,
   RefreshCw,
   AlertCircle,
-  Send
+  Send,
+  Calendar
 } from "lucide-react";
 
-type Kind = "EMAIL" | "WHATSAPP" | "EDITORIAL_POST" | "CUSTOM";
+type Kind = "EMAIL" | "WHATSAPP" | "EDITORIAL_POST" | "CALENDAR_EVENT" | "CUSTOM";
 type Status = "PENDING" | "APPROVED" | "REJECTED" | "EXECUTED" | "FAILED";
 
 type Draft = {
@@ -37,6 +38,7 @@ const KIND_LABEL: Record<Kind, string> = {
   EMAIL: "Email",
   WHATSAPP: "WhatsApp",
   EDITORIAL_POST: "Post editorial",
+  CALENDAR_EVENT: "Evento calendario",
   CUSTOM: "Acción libre"
 };
 
@@ -44,6 +46,7 @@ const KIND_ICON: Record<Kind, React.ElementType> = {
   EMAIL: Mail,
   WHATSAPP: MessageSquare,
   EDITORIAL_POST: FileText,
+  CALENDAR_EVENT: Calendar,
   CUSTOM: AlertCircle
 };
 
@@ -331,6 +334,26 @@ function DraftPreview({ kind, payload }: { kind: Kind; payload: any }) {
         <div className="bg-slate-50 p-2 rounded border whitespace-pre-wrap max-h-40 overflow-y-auto text-[11px]">
           {payload?.content}
         </div>
+      </div>
+    );
+  }
+  if (kind === "CALENDAR_EVENT") {
+    const start = payload?.startIso ? new Date(payload.startIso) : null;
+    const end = payload?.endIso ? new Date(payload.endIso) : null;
+    return (
+      <div className="mt-2 text-xs text-slate-600 space-y-1">
+        <div>
+          <strong>Inicio:</strong>{" "}
+          {start ? start.toLocaleString("es-ES", { dateStyle: "medium", timeStyle: "short" }) : "?"}
+          {end && ` → ${end.toLocaleString("es-ES", { dateStyle: "medium", timeStyle: "short" })}`}
+          {payload?.allDay && " (todo el día)"}
+        </div>
+        <div><strong>Tipo:</strong> {payload?.type ?? "MEETING"}</div>
+        {payload?.description && (
+          <div className="bg-slate-50 p-2 rounded border whitespace-pre-wrap max-h-32 overflow-y-auto text-[11px]">
+            {payload.description}
+          </div>
+        )}
       </div>
     );
   }

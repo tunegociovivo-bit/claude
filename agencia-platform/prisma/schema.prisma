@@ -1494,6 +1494,7 @@ enum AiDraftKind {
   EMAIL
   WHATSAPP
   EDITORIAL_POST
+  CALENDAR_EVENT
   CUSTOM // texto libre — para acciones que aún no tienen integración
 }
 
