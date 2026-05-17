@@ -39,7 +39,7 @@ export const GET = withApi({ scope: "*" }, async (_req, { params, api }) => {
   if (!target) throw new ApiError(404, "not_found", "Ese usuario no pertenece al workspace");
 
   const projects = await prisma.project.findMany({
-    where: { workspaceId: api.workspaceId, archived: false },
+    where: { workspaceId: api.workspaceId, archived: false, deletedAt: null } as any,
     select: {
       id: true,
       name: true,

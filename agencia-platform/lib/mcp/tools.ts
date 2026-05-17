@@ -53,7 +53,7 @@ export const mcpTools: McpTool[] = [
     },
     handler: async (args, ctx) => {
       return prisma.project.findMany({
-        where: { workspaceId: ctx.workspaceId, archived: false, clientId: args?.clientId }
+        where: { workspaceId: ctx.workspaceId, archived: false, deletedAt: null, clientId: args?.clientId } as any
       });
     }
   },

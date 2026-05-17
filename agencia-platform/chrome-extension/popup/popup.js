@@ -103,13 +103,13 @@ async function renderDiagnostic() {
   diagEl.textContent = lines.join("\n");
   try {
     const probeResult = await new Promise((resolve) => {
-      const timer = setTimeout(() => resolve(null), 5000);
+      const timer = setTimeout(() => resolve({ timeoutMs: 10000 }), 10000);
       try {
         chrome.runtime.sendMessage({ from: "popup", type: "diag-probe" }, (resp) => {
           clearTimeout(timer);
           if (chrome.runtime.lastError) {
             resolve({ error: chrome.runtime.lastError.message });
-          } else resolve(resp?.probe ?? null);
+          } else resolve(resp?.probe ?? { error: "respuesta vacía del SW" });
         });
       } catch (e) {
         clearTimeout(timer);
@@ -118,15 +118,17 @@ async function renderDiagnostic() {
     });
     if (probeResult) {
       lines.push("─── Probe Hub ───");
-      lines.push(`Cookie: ${probeResult.cookieName ?? "?"}${probeResult.cookieLen ? ` (len=${probeResult.cookieLen}, ${probeResult.cookieHead})` : ""}`);
-      if (probeResult.cookieReadError) lines.push(`Cookie error: ${probeResult.cookieReadError}`);
-      lines.push(`/me status: ${probeResult.meStatus ?? "—"}`);
-      if (probeResult.meBody) lines.push(`/me body: ${probeResult.meBody}`);
-      if (probeResult.meError) lines.push(`/me error: ${probeResult.meError}`);
+      if (probeResult.timeoutMs) {
+        lines.push(`Timeout (${probeResult.timeoutMs / 1000}s) — SW posiblemente inactivo. Cierra y reabre el popup.`);
+      } else {
+        lines.push(`Cookie: ${probeResult.cookieName ?? "?"}${probeResult.cookieLen ? ` (len=${probeResult.cookieLen}, ${probeResult.cookieHead})` : ""}`);
+        if (probeResult.cookieReadError) lines.push(`Cookie error: ${probeResult.cookieReadError}`);
+        lines.push(`/me status: ${probeResult.meStatus ?? "—"}`);
+        if (probeResult.meBody) lines.push(`/me body: ${probeResult.meBody}`);
+        if (probeResult.meError) lines.push(`/me error: ${probeResult.meError}`);
+      }
       if (probeResult.error) lines.push(`Probe error: ${probeResult.error}`);
       if (probeResult.fatal) lines.push(`Fatal: ${probeResult.fatal}`);
-    } else {
-      lines.push("Probe Hub: timeout (5s)");
     }
     diagEl.textContent = lines.join("\n");
   } catch (e) {

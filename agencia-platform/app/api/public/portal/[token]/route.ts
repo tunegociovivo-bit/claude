@@ -54,7 +54,7 @@ export async function GET(req: NextRequest, { params }: { params: { token: strin
       }
     }),
     prisma.project.findMany({
-      where: { workspaceId: link.workspaceId, clientId: link.clientId, archived: false },
+      where: { workspaceId: link.workspaceId, clientId: link.clientId, archived: false, deletedAt: null } as any,
       select: {
         id: true,
         name: true,

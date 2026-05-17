@@ -391,7 +391,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         // Llamada directa a /me con timeout 4s
         try {
           const ctrl = new AbortController();
-          const t = setTimeout(() => ctrl.abort(), 4000);
+          const t = setTimeout(() => ctrl.abort(), 7000);
           const r = await authedFetch("/api/v1/me", { signal: ctrl.signal });
           clearTimeout(t);
           out.meStatus = r.status;

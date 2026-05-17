@@ -7,7 +7,11 @@ import { projectCreateSchema } from "@/lib/api/schemas";
 export const GET = withApi({ scope: "projects:read" }, async (req, { api }) => {
   const url = new URL(req.url);
   const clientId = url.searchParams.get("clientId") ?? undefined;
-  const where: any = { workspaceId: api.workspaceId, archived: false };
+  // Excluimos archived (oculto manual) Y deletedAt (papelera). El DELETE
+  // del endpoint es soft-delete a `deletedAt`, así que sin este filtro
+  // los proyectos borrados seguirían apareciendo en el tablón hasta que
+  // el cron de trash-purge los limpiase a los 30 días.
+  const where: any = { workspaceId: api.workspaceId, archived: false, deletedAt: null };
   if (clientId) where.clientId = clientId;
 
   // Filtrado por permisos: si no eres ADMIN del workspace, sólo ves

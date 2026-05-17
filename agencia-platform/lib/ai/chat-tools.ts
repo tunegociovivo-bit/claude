@@ -146,8 +146,9 @@ export const chatTools: ChatTool[] = [
         where: {
           workspaceId: ctx.workspaceId,
           archived: false,
+          deletedAt: null,
           clientId: args?.clientId
-        },
+        } as any,
         select: {
           id: true,
           name: true,
