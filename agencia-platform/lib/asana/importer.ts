@@ -448,6 +448,31 @@ async function runImport(jobId: string, opts: ImportOptions) {
       // rate limit, 401), no perdemos las tareas, solo los comentarios
       // de esta. Lo registramos como warning para que el admin sepa
       // qué tareas revisar a mano.
+
+      // Pre-fetch de TODOS los adjuntos del task con su parent.gid.
+      // Asana adjunta los .txt/.pdf/etc de comentarios a la propia
+      // story (parent.resource_type === "story"); /attachments?parent=
+      // <story_gid> no siempre los devuelve, pero /tasks/<gid>/
+      // attachments con opt_fields=parent.gid sí los lista TODOS, con
+      // el parent correcto. Los agrupamos por story_gid para pasar al
+      // parser solo los del comentario que está procesando.
+      const attachmentsByStoryGid = new Map<string, string[]>();
+      try {
+        for await (const a of client.taskAttachments(t.gid)) {
+          const pgid = (a as any).parent?.gid;
+          const ptype = (a as any).parent?.resource_type;
+          if (pgid && ptype === "story") {
+            const list = attachmentsByStoryGid.get(pgid) ?? [];
+            list.push(a.gid);
+            attachmentsByStoryGid.set(pgid, list);
+          }
+        }
+      } catch (e: any) {
+        stats.warnings.push(
+          `No se pudo listar parents de adjuntos de "${t.name}": ${String(e?.message ?? e).slice(0, 120)}`
+        );
+      }
+
       try {
       for await (const story of client.taskStories(t.gid)) {
         try {
@@ -504,7 +529,10 @@ async function runImport(jobId: string, opts: ImportOptions) {
           client,
           workspaceId: opts.workspaceId,
           taskLocalId: local.id,
-          story: { gid: story.gid, text: story.text, html_text: story.html_text }
+          story: { gid: story.gid, text: story.text, html_text: story.html_text },
+          // Adjuntos cuyo parent es ESTA story — el parser los baja a
+          // R2 y los pega como "📎 nombre" al final del doc.
+          extraAttachmentGids: attachmentsByStoryGid.get(story.gid) ?? []
         });
         stats.attachmentsImported += parsed.assetsImported;
         stats.attachmentsFailed += parsed.assetsFailed;

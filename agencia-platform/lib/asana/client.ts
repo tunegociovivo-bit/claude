@@ -33,6 +33,14 @@ export type AsanaAttachment = {
   host?: string;
   size?: number; // bytes
   created_at?: string;
+  // parent.gid identifica si el adjunto pertenece al task (parent
+  // es el task) o a una story concreta (parent.resource_type =
+  // "story"). Sin esto un .txt arrastrado a un comentario aparecía
+  // en la lista de adjuntos del task pero NUNCA dentro del comentario.
+  parent?: {
+    gid: string;
+    resource_type?: "task" | "story" | string;
+  };
 };
 
 export type AsanaTask = {
@@ -195,10 +203,17 @@ export class AsanaClient {
    * Lista los adjuntos de una tarea. La API devuelve listado básico;
    * para tener `download_url` hay que llamar a attachment(gid) por
    * cada uno (download_url solo aparece en el endpoint específico).
+   *
+   * Pedimos también parent.gid y parent.resource_type — Asana
+   * devuelve "task" o "story" según dónde se adjuntó realmente el
+   * fichero. Así sabemos qué adjuntos van con el task y cuáles
+   * pertenecen a un comentario concreto, sin tener que hacer una
+   * llamada extra por cada uno.
    */
   taskAttachments(taskGid: string) {
     return this.paginate<AsanaAttachment>(`/tasks/${taskGid}/attachments`, {
-      opt_fields: "gid,name,resource_subtype,host,size,created_at,permanent_url,view_url"
+      opt_fields:
+        "gid,name,resource_subtype,host,size,created_at,permanent_url,view_url,parent.gid,parent.resource_type"
     });
   }
 
@@ -208,7 +223,8 @@ export class AsanaClient {
    */
   attachmentDetails(gid: string): Promise<{ data: AsanaAttachment }> {
     return this.req(`/attachments/${gid}`, {
-      opt_fields: "gid,name,resource_subtype,host,size,created_at,download_url,permanent_url,view_url"
+      opt_fields:
+        "gid,name,resource_subtype,host,size,created_at,download_url,permanent_url,view_url,parent.gid,parent.resource_type"
     });
   }
 

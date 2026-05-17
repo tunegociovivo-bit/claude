@@ -98,6 +98,11 @@ export async function parseAsanaCommentToTipTap(opts: {
   workspaceId: string;
   taskLocalId: string;
   story: { gid: string; text?: string; html_text?: string };
+  /** GIDs de adjuntos del task cuyo parent es ESTA story (los .txt,
+   *  .pdf, etc. arrastrados al cuerpo del comentario). El importer los
+   *  pre-calcula recorriendo /tasks/<gid>/attachments con
+   *  opt_fields=parent.gid y nos los pasa filtrados. */
+  extraAttachmentGids?: string[];
 }): Promise<ParseResult> {
   const result: ParseResult = { doc: emptyDoc(), assetsImported: 0, assetsFailed: 0 };
 
@@ -163,19 +168,35 @@ export async function parseAsanaCommentToTipTap(opts: {
   // 1.e) Adjuntos del COMENTARIO (no del html_text). Asana permite
   // arrastrar un .txt / .pdf / cualquier fichero al comentario y los
   // muestra como chips bajo el cuerpo del texto; NO los incluye en
-  // html_text. Hay que pedirlos aparte vía /attachments?parent=story_gid.
-  // Si falla la petición (token sin scope, story sin attachments),
-  // simplemente no añadimos nada — no rompe el resto.
+  // html_text.
+  //
+  // FUENTE A) extraAttachmentGids — el importer las pre-calcula
+  //   recorriendo /tasks/<gid>/attachments con parent.gid y nos las
+  //   pasa filtradas por story. Es la fuente FIABLE: la usa siempre
+  //   que viene poblada.
+  // FUENTE B) client.storyAttachments() — fallback vía
+  //   /attachments?parent=<story_gid>. Asana no documenta este
+  //   parámetro para stories y a veces devuelve [] aunque haya
+  //   adjuntos. Lo dejamos como red de seguridad por si llamamos
+  //   al parser fuera del importer (debug endpoint, scripts ad-hoc).
   const storyAttachmentIds: string[] = [];
-  try {
-    for await (const att of opts.client.storyAttachments(opts.story.gid)) {
-      if (att?.gid) {
-        storyAttachmentIds.push(att.gid);
-        assetIds.add(att.gid);
-      }
+  for (const gid of opts.extraAttachmentGids ?? []) {
+    if (gid) {
+      storyAttachmentIds.push(gid);
+      assetIds.add(gid);
     }
-  } catch {
-    // Sin acceso a /attachments?parent=story → ignorar.
+  }
+  if (storyAttachmentIds.length === 0) {
+    try {
+      for await (const att of opts.client.storyAttachments(opts.story.gid)) {
+        if (att?.gid) {
+          storyAttachmentIds.push(att.gid);
+          assetIds.add(att.gid);
+        }
+      }
+    } catch {
+      // Sin acceso a /attachments?parent=story → ignorar.
+    }
   }
 
   // 2) Descargar cada asset (en paralelo) y mapear assetId → URL final
