@@ -19,16 +19,15 @@ export default function ExtensionDownloadClient() {
   const [downloading, setDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState<string | null>(null);
 
-  // Pedimos solo los headers (HEAD no funciona en este endpoint, pero
-  // un GET truncado no merece la pena; hacemos una llamada ligera).
-  // Si el endpoint falla, no pasa nada — la versión es informativa.
   useEffect(() => {
-    fetch("/api/v1/extension/download", { method: "GET", headers: { Range: "bytes=0-0" } })
-      .then((r) => {
-        const v = r.headers.get("X-Extension-Version");
-        if (v) setVersion(v);
-        // Cancelar el cuerpo — no queremos descargarlo aún.
-        r.body?.cancel?.();
+    // Endpoint ligero específico — antes hacíamos un GET con Range:
+    // bytes=0-0 al endpoint pesado /download, lo que disparaba la
+    // generación del zip aunque cancelásemos. Con /info solo lee el
+    // manifest y un stat del dir.
+    fetch("/api/v1/extension/info", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d?.version) setVersion(d.version);
       })
       .catch(() => {});
   }, []);
