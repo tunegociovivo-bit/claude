@@ -1,0 +1,62 @@
+{
+  "manifest_version": 3,
+  "name": "Hub Reuniones",
+  "short_name": "Hub Reuniones",
+  "description": "Graba reuniones de Meet/Teams/Zoom/Whereby y genera automáticamente una tarea con resumen IA en Hub Negocio Vivo.",
+  "version": "0.1.0",
+  "icons": {
+    "16": "icons/icon-16.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
+  "action": {
+    "default_title": "Hub Reuniones",
+    "default_popup": "popup/popup.html",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "48": "icons/icon-48.png",
+      "128": "icons/icon-128.png"
+    }
+  },
+  "background": {
+    "service_worker": "background/service-worker.js",
+    "type": "module"
+  },
+  "permissions": [
+    "tabCapture",
+    "offscreen",
+    "storage",
+    "activeTab",
+    "scripting",
+    "notifications"
+  ],
+  "host_permissions": [
+    "https://hub.negociovivo.app/*",
+    "https://meet.google.com/*",
+    "https://teams.microsoft.com/*",
+    "https://teams.live.com/*",
+    "https://*.zoom.us/*",
+    "https://whereby.com/*",
+    "https://*.whereby.com/*",
+    "https://meet.jit.si/*",
+    "https://*.webex.com/*",
+    "https://*.gotomeeting.com/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://meet.google.com/*",
+        "https://teams.microsoft.com/*",
+        "https://teams.live.com/*",
+        "https://*.zoom.us/*",
+        "https://whereby.com/*",
+        "https://*.whereby.com/*",
+        "https://meet.jit.si/*",
+        "https://*.webex.com/*",
+        "https://*.gotomeeting.com/*"
+      ],
+      "js": ["content/meeting-detector.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

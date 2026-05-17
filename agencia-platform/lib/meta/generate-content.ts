@@ -39,7 +39,12 @@ import { getOpenAiKeyForWorkspace } from "@/lib/ai/openai";
 import { buildS3Key, isStorageEnabled, signedDownloadUrl, uploadBuffer } from "@/lib/storage/r2";
 import { logAiUsage } from "@/lib/ai/usage";
 
-const IMAGE_MODEL = "gpt-image-1"; // OpenAI /v1/images/generations
+// Modelo de imagen de OpenAI. Probamos primero "gpt-image-2" (el más
+// reciente, mejor composición y prompt-following) y si la API
+// devuelve 400 model_not_found caemos a "gpt-image-1". Así si OpenAI
+// retira / renombra el modelo, no se rompe la plataforma.
+const IMAGE_MODEL_PRIMARY = "gpt-image-2";
+const IMAGE_MODEL_FALLBACK = "gpt-image-1";
 const CAROUSEL_CARDS = 3;          // tarjetas por carrusel
 const PARALLEL_IMAGE_GENS = 2;     // concurrencia para no saturar OpenAI
 
@@ -175,16 +180,31 @@ export async function generateCopyForAd(opts: {
   }[opts.format];
 
   const system =
-    "Eres un copywriter senior de campañas Meta. Escribes copys en castellano " +
-    "que CONVIERTEN: titular gancho, texto principal que aporta valor o crea " +
-    "urgencia, descripción corta, y una llamada a la acción del catálogo Meta. " +
-    "Además, generas un imagePrompt EN INGLÉS muy descriptivo para un generador " +
-    "de imagen (gpt-image), describiendo composición fotográfica, estilo " +
-    "(realismo editorial), elementos visuales, paleta de color y espacio negativo " +
-    "abajo para overlay de texto. NO incluyas texto legible en la imagen — el " +
-    "texto se compone aparte. Variedad: si el user pide varios anuncios para el " +
-    "mismo conjunto, NO repitas el mismo enfoque, varía ángulo (testimonial, " +
-    "beneficio, problema/solución, prueba social, etc.).";
+    "Eres un creativo publicitario senior de campañas Meta (Facebook/Instagram). " +
+    "Escribes copys en castellano que CONVIERTEN: titular gancho (40 chars), texto " +
+    "principal que aporta valor o crea urgencia (90-150 chars), descripción corta, " +
+    "y una llamada a la acción del catálogo Meta apropiada al objetivo.\n\n" +
+    "MUY IMPORTANTE — el imagePrompt EN INGLÉS:\n" +
+    "Generas un prompt EXTREMADAMENTE detallado para un generador de imagen tipo " +
+    "gpt-image que tiene que producir un CREATIVO PUBLICITARIO de alta calidad, " +
+    "no una foto stock. Estructura recomendada:\n" +
+    "  1) Subject: protagonista concreto (persona con descripción física + " +
+    "     emoción + acción, o producto en uso real).\n" +
+    "  2) Scene: dónde, cuándo, ambiente, props.\n" +
+    "  3) Composition: punto focal único, rule of thirds, ángulo (low/eye/" +
+    "     high), distancia (close-up / medium / wide).\n" +
+    "  4) Lighting: golden hour, dramatic rim light, studio softbox, hard " +
+    "     contrast — sé específico, NO digas 'natural light'.\n" +
+    "  5) Color palette: 2-3 colores dominantes saturados.\n" +
+    "  6) Style cue: 'editorial fashion photography', 'commercial advertising " +
+    "     photography', 'cinematic 35mm look', etc. — NUNCA 'stock photo'.\n" +
+    "  7) Negative space: indica explícitamente dónde queda espacio limpio " +
+    "     para overlay de texto (bottom third para Feed, top+bottom thirds " +
+    "     para Stories).\n" +
+    "Variedad por anuncio del mismo conjunto: rota ángulos (testimonial, " +
+    "beneficio, problema/solución, prueba social, FOMO, urgencia, aspiracional). " +
+    "NO repitas el mismo enfoque dos veces. Detalla la foto como si la " +
+    "estuvieras describiendo a un fotógrafo profesional, no como un brief vago.";
 
   const user = `Campaña: "${opts.campaignName}"
 Objetivo en Meta: ${opts.objective}
@@ -234,33 +254,85 @@ export async function generateAdImage(opts: {
   }
   const apiKey = await getOpenAiKeyForWorkspace(opts.workspaceId);
   const size: ImageSize = opts.size ?? "1024x1024";
-  const quality = opts.quality ?? "medium";
+  // Subimos calidad por defecto a "high" — los anuncios de Meta se
+  // ven a tamaño grande y la diferencia de coste con "medium" es
+  // pequeña (~$0.10 vs $0.04) comparado con el impacto en CTR de
+  // una imagen con composición fina.
+  const quality = opts.quality ?? "high";
 
-  // Añadimos hardcoded la negación de texto en imagen — gpt-image
-  // tiende a alucinar letras en español.
-  const safePrompt =
-    opts.prompt +
-    "\n\nCRITICAL: NO readable text, NO letters, NO numbers, NO logos, NO watermarks. " +
-    "Editorial photographic realism. Composition with ample negative space at the bottom.";
+  // Wrap del prompt con directrices SPECÍFICAS de un anuncio Meta.
+  // Sin esto, gpt-image devuelve fotos genéricas tipo stock; con
+  // estas directivas pinta composiciones tipo creativo publicitario.
+  // Notas de diseño:
+  //   - "scroll-stopping" + "thumb-stopping" son términos canónicos
+  //     de Meta — el modelo los entiende y los aplica.
+  //   - Punto focal único + paleta saturada → la imagen "explota"
+  //     en el feed de Instagram/Facebook.
+  //   - Negative space para que cuando luego compongamos el copy
+  //     encima no quede pisado.
+  //   - Negación explícita de texto/letras: gpt-image alucina
+  //     palabras en español muy mal — el copy del anuncio se compone
+  //     aparte en Meta.
+  //   - "Real people, real lighting" → evita el aspecto stock-photo
+  //     plano que el modelo da por defecto.
+  const wrappedPrompt = [
+    `META ADS CREATIVE for ${
+      size === "1024x1024"
+        ? "Facebook/Instagram Feed (1:1)"
+        : size === "1024x1536"
+          ? "Instagram Stories / Reels (4:5)"
+          : "Right column / Marketplace (16:9)"
+    }.`,
+    ``,
+    opts.prompt,
+    ``,
+    `Creative direction:`,
+    `- Scroll-stopping, thumb-stopping composition. A single strong focal point that grabs attention in under 1 second when seen tiny on a mobile feed.`,
+    `- Vivid, saturated, high-contrast color palette. Bold lighting (golden hour, dramatic side-light, or punchy studio rim-light depending on subject). NOT muted, NOT flat-stock-photo.`,
+    `- Real people with believable expressions and authentic body language when the scene includes humans. Editorial photography style, NOT corporate stock.`,
+    `- Clear visual storytelling: emotion, problem→solution, before→after, or aspirational lifestyle — depending on the brief above.`,
+    `- Leave generous empty negative space toward the bottom-third (for IG Feed) or top-and-bottom thirds (for Stories) so the overlay copy and CTA button can sit comfortably without covering the subject.`,
+    `- Sharp focus on the subject, with shallow depth of field for the background.`,
+    ``,
+    `CRITICAL constraints:`,
+    `- ABSOLUTELY NO readable text, NO letters, NO numbers, NO words, NO captions, NO logos, NO watermarks, NO UI elements. The campaign copy is composed separately later — the IMAGE must be text-free.`,
+    `- No collage, no split frames, no graphic-design overlays. ONE photographic scene only.`,
+    `- 100% original — do not reproduce existing brand visuals or copyrighted imagery.`
+  ].join("\n");
 
-  const resp = await fetch("https://api.openai.com/v1/images/generations", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      model: IMAGE_MODEL,
-      prompt: safePrompt,
-      n: 1,
-      size,
-      quality,
-      output_format: "png"
-    })
-  });
+  // Llamada con fallback de modelo: gpt-image-2 si lo soporta la
+  // cuenta, gpt-image-1 si OpenAI responde 400 model_not_found.
+  async function call(model: string) {
+    const r = await fetch("https://api.openai.com/v1/images/generations", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model,
+        prompt: wrappedPrompt,
+        n: 1,
+        size,
+        quality,
+        output_format: "png"
+      })
+    });
+    return r;
+  }
+
+  let resp = await call(IMAGE_MODEL_PRIMARY);
+  let modelUsed = IMAGE_MODEL_PRIMARY;
   if (!resp.ok) {
     const txt = await resp.text();
-    throw new Error(`OpenAI Image ${resp.status}: ${txt.slice(0, 300)}`);
+    // Fallback solo si el problema es model not found o invalid model.
+    if (/model[_ ]not[_ ]found|invalid_model|does not have access|unknown.*model/i.test(txt)) {
+      resp = await call(IMAGE_MODEL_FALLBACK);
+      modelUsed = IMAGE_MODEL_FALLBACK;
+      if (!resp.ok) {
+        const txt2 = await resp.text();
+        throw new Error(`OpenAI Image ${resp.status} (fallback): ${txt2.slice(0, 300)}`);
+      }
+    } else {
+      throw new Error(`OpenAI Image ${resp.status}: ${txt.slice(0, 300)}`);
+    }
   }
   const data = await resp.json();
   const b64 = data?.data?.[0]?.b64_json;
@@ -280,7 +352,7 @@ export async function generateAdImage(opts: {
     workspaceId: opts.workspaceId,
     feature: "meta_ad_image",
     provider: "openai",
-    model: `${IMAGE_MODEL}-${quality}`,
+    model: `${modelUsed}-${quality}-${size}`,
     inputTokens: 0,
     outputTokens: 0
   }).catch(() => {});
