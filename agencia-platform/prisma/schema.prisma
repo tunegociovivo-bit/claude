@@ -1889,6 +1889,22 @@ model MetaCampaign {
   deletedAt   DateTime?
   deletedById String?
 
+  // Logo de la marca (1 URL en R2) — la IA lo coloca como footer del
+  // anuncio si está presente.
+  logoUrl String?
+  // Imágenes de referencia (productos, brand visuals, fotos de equipo)
+  // que la IA toma como inspiración estilística para el creativo. Hasta
+  // 5 URLs en R2. Pasadas al modelo via image-to-image (gpt-image-2 con
+  // /v1/images/edits).
+  referenceImageUrls String[]
+  // Sliders / preferencias que el user fija ANTES de generar — se
+  // mezclan con el imagePrompt para sesgar el estilo del anuncio.
+  //   { attentionLevel: 1-5,    // 1=discreto, 5=ultra llamativo
+  //     toneFormality: 1-5,     // 1=tuteo cercano, 5=usted formal
+  //     energyLevel: 1-5,       // 1=calmado, 5=urgente
+  //     styleHint: string }     // editorial|casual|corporate|playful|luxurious
+  generationSettings Json?
+
   workspace      Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   metaConnection MetaConnection?      @relation(fields: [metaConnectionId], references: [id], onDelete: SetNull)
   adsets         MetaAdset[]

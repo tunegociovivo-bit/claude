@@ -690,3 +690,100 @@ function extractValueProps(text?: string | null): string[] {
   if (bullets.length < 2) return [];
   return bullets.slice(0, 4);
 }
+
+/**
+ * Regenera UN anuncio concreto. Usa el customPrompt como prompt
+ * principal si viene; si no, reusa el imagePrompt original del copy
+ * existente. Si regenerateCopy=true, además pide a Claude un nuevo
+ * copy completo (lo que también refresca el imagePrompt).
+ *
+ * Persiste mediaVariants + mediaUrls al terminar. Marca contentStatus
+ * = READY_FOR_REVIEW en éxito o FAILED + lastError en fallo.
+ */
+export async function regenerateOneAd(opts: {
+  workspaceId: string;
+  campaignId: string;
+  adId: string;
+  customPrompt: string | null;
+  regenerateCopy: boolean;
+}): Promise<void> {
+  const campaign = await prisma.metaCampaign.findFirst({
+    where: { id: opts.campaignId, workspaceId: opts.workspaceId, deletedAt: null },
+    include: { adsets: true }
+  });
+  if (!campaign) throw new Error("Campaña no encontrada");
+  const ad = await prisma.metaAd.findFirst({
+    where: { id: opts.adId, adset: { campaignId: campaign.id } },
+    include: { adset: true }
+  });
+  if (!ad) throw new Error("Anuncio no encontrado");
+
+  // 1) Copy: si regenerateCopy, pedimos uno nuevo a Claude. Si no,
+  //    reusamos el que ya tiene el ad (headline + primaryText + cta).
+  let copy: any;
+  if (opts.regenerateCopy || !ad.headline) {
+    copy = await generateCopyForAd({
+      workspaceId: opts.workspaceId,
+      campaignName: campaign.name,
+      briefing: campaign.description ?? "",
+      objective: campaign.objective,
+      fanpageName: campaign.fanpageName,
+      segmentation: campaign.segmentationRaw,
+      audienceBrief: ad.adset.audienceBrief,
+      adsetLabel: ad.adset.label,
+      format: ad.format as "IMAGE" | "CAROUSEL" | "VIDEO",
+      adIndex: 0,
+      totalAdsInSet: 1
+    });
+    await prisma.metaAd.update({
+      where: { id: ad.id },
+      data: {
+        headline: copy.headline,
+        primaryText: copy.primaryText,
+        description: copy.description,
+        callToAction: copy.callToAction
+      }
+    });
+  } else {
+    copy = {
+      headline: ad.headline,
+      primaryText: ad.primaryText,
+      description: ad.description,
+      callToAction: ad.callToAction,
+      imagePrompt: opts.customPrompt || ad.primaryText || ad.headline || ""
+    };
+  }
+
+  const adCopy = {
+    headline: copy.headline,
+    primaryText: copy.primaryText,
+    callToAction: ctaLabelForUI(copy.callToAction),
+    brandName: campaign.fanpageName ?? undefined,
+    valueProps: extractValueProps(copy.primaryText)
+  };
+
+  // Si el user metió customPrompt, ese es el prompt principal. Si no,
+  // usamos el imagePrompt generado por Claude.
+  const prompt = opts.customPrompt?.trim() || copy.imagePrompt;
+
+  // Genera las 3 variantes. Para regen rápido podríamos generar solo
+  // la square, pero seguimos haciendo las 3 para mantener la
+  // consistencia con la primera generación.
+  const variants = await generateAdImageAllVariants({
+    workspaceId: opts.workspaceId,
+    prompt,
+    campaignId: campaign.id,
+    adId: ad.id + "-regen-" + Date.now(),
+    copy: adCopy
+  });
+
+  await prisma.metaAd.update({
+    where: { id: ad.id },
+    data: {
+      mediaUrls: [variants.square],
+      mediaVariants: variants as any,
+      contentStatus: "READY_FOR_REVIEW",
+      lastError: null
+    }
+  });
+}
