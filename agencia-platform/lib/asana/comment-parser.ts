@@ -76,6 +76,32 @@ export async function parseAsanaCommentToTipTap(opts: {
   )) {
     assetIds.add(m[1]);
   }
+  // 1.c) Formato NUEVO de Asana (visto en Autosmotos mayo 2026):
+  // las imágenes vienen como <img data-asana-gid="N" data-asana-type="attachment"
+  // src="https://asanausercontent.com/..."> directamente embebidas
+  // (sin <a> wrapper). El parser anterior las ignoraba completamente.
+  for (const m of html.matchAll(
+    /<img\s+[^>]*?data-asana-gid="(\d+)"[^>]*?data-asana-type="attachment"[^>]*>/gi
+  )) {
+    assetIds.add(m[1]);
+  }
+  for (const m of html.matchAll(
+    /<img\s+[^>]*?data-asana-type="attachment"[^>]*?data-asana-gid="(\d+)"[^>]*>/gi
+  )) {
+    assetIds.add(m[1]);
+  }
+  // 1.d) <object data-asana-type="attachment"> — Asana lo usa para
+  // embeds de Loom y similares dentro del comentario.
+  for (const m of html.matchAll(
+    /<object\s+[^>]*?data-asana-gid="(\d+)"[^>]*?data-asana-type="attachment"[^>]*>/gi
+  )) {
+    assetIds.add(m[1]);
+  }
+  for (const m of html.matchAll(
+    /<object\s+[^>]*?data-asana-type="attachment"[^>]*?data-asana-gid="(\d+)"[^>]*>/gi
+  )) {
+    assetIds.add(m[1]);
+  }
 
   // 2) Descargar cada asset (en paralelo) y mapear assetId → URL final.
   const assetUrls = new Map<string, { url: string; alt: string } | null>();
@@ -148,6 +174,41 @@ function htmlToTipTap(html: string, assets: Map<string, { url: string; alt: stri
     .replace(/<p[^>]*>/gi, "")
     .replace(/<\/div>/gi, "\n")
     .replace(/<div[^>]*>/gi, "");
+
+  // Asana embebe imágenes con <img data-asana-gid="N" data-asana-type=
+  // "attachment" src="https://asanausercontent.com/..."> y embeds tipo
+  // Loom con <object data-asana-gid="N" data-asana-type="attachment"
+  // data="https://www.loom.com/embed/..."></object>. Las normalizamos
+  // ANTES del loop principal a <a data-asana-gid="N" data-asana-type=
+  // "attachment">alt</a> para que la misma lógica de detección de
+  // attachments las pille. Para los <img> que NO tienen data-asana
+  // (raros) los dejamos pasar como <a> con el src para que se vea
+  // algún placeholder en vez de borrarlas.
+  h = h.replace(/<img\s+([^>]*?)\s*\/?>/gi, (_, attrs: string) => {
+    const gid = /data-asana-gid="(\d+)"/.exec(attrs)?.[1];
+    const type = /data-asana-type="([^"]+)"/.exec(attrs)?.[1];
+    const alt = /\balt="([^"]*)"/.exec(attrs)?.[1] ?? "";
+    if (type === "attachment" && gid) {
+      return `<a data-asana-gid="${gid}" data-asana-type="attachment">${alt || "imagen"}</a>`;
+    }
+    // <img> sin data-asana: probablemente externo. Lo dejamos como
+    // link al src.
+    const src = /\bsrc="([^"]+)"/.exec(attrs)?.[1];
+    if (src) return `<a href="${src}">${alt || src}</a>`;
+    return "";
+  });
+  h = h.replace(/<object\s+([^>]*?)>([\s\S]*?)<\/object>/gi, (_, attrs: string, inner: string) => {
+    const gid = /data-asana-gid="(\d+)"/.exec(attrs)?.[1];
+    const type = /data-asana-type="([^"]+)"/.exec(attrs)?.[1];
+    // El inner de un <object> de Loom/etc suele contener un fallback
+    // <a href="..."> — lo preservamos. Si no, ponemos un placeholder.
+    if (type === "attachment" && gid) {
+      const fallbackHref = /<a\s+[^>]*href="([^"]+)"/i.exec(inner)?.[1];
+      if (fallbackHref) return `<a href="${fallbackHref}">${fallbackHref}</a>`;
+      return `<a data-asana-gid="${gid}" data-asana-type="attachment">embed</a>`;
+    }
+    return inner;
+  });
 
   // Recorremos buscando <a ...>...</a>; cada match es un nodo aparte
   // (imagen si tiene asset_id en href, texto plano si no). Lo demás
