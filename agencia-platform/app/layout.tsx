@@ -30,16 +30,42 @@ export const metadata: Metadata = {
                                                           themeColor: "#5B6CFF"
                                                           };
 
-                                                          export default function RootLayout({ children }: { children: React.ReactNode }) {
-                                                            return (
-                                                                <html lang="es">
-                                                                      <body className="overscroll-none">
-                                                                              <Providers>
-                                                                                        <AppChrome>{children}</AppChrome>
-                                                                                                </Providers>
-                                                                                                        <ErrorReporter />
-                                                                                                                <PwaRegister />
-                                                                                                                      </body>
-                                                                                                                          </html>
-                                                                                                                            );
-                                                                                                                            }
+                                                          /**
+ * Script inline que captura `beforeinstallprompt` ANTES de que React
+ * hidrate. Chrome dispara este evento al cargar la página (a veces
+ * varios segundos antes de que monte PwaRegister); si no lo cogemos
+ * a tiempo, lo perdemos para siempre y el botón "Instalar app" nunca
+ * aparece. Guardamos el evento en window.__pwaInstallPrompt — el
+ * componente PwaRegister lo lee al montar.
+ */
+const earlyInstallCapture = `
+  (function () {
+    function onBeforeInstall(e) {
+      e.preventDefault();
+      window.__pwaInstallPrompt = e;
+      window.dispatchEvent(new CustomEvent("pwaInstallPromptReady"));
+    }
+    window.addEventListener("beforeinstallprompt", onBeforeInstall);
+    window.addEventListener("appinstalled", function () {
+      window.__pwaInstallPrompt = null;
+      window.__pwaInstalled = true;
+    });
+  })();
+`;
+
+export default function RootLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <html lang="es">
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: earlyInstallCapture }} />
+      </head>
+      <body className="overscroll-none">
+        <Providers>
+          <AppChrome>{children}</AppChrome>
+        </Providers>
+        <ErrorReporter />
+        <PwaRegister />
+      </body>
+    </html>
+  );
+}
