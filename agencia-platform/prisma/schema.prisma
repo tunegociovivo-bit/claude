@@ -1440,6 +1440,11 @@ model AiAgentRun {
   // Contexto extra del trigger (ej: "vence en 36h", "lleva 8 días
   // sin actividad"). Se inyecta en el primer mensaje al modelo.
   triggerContext String?            @db.Text
+  // Fase 50: timestamp del último ciclo del loop. El runner lo
+  // actualiza cada vez que vuelve de una llamada al modelo. Un
+  // watchdog cron marca como REQUIRES_HUMAN los RUNNING que no
+  // hacen tick en >10 min (proceso muerto: deploy, crash, OOM).
+  lastIterationAt DateTime?
   // Modelo usado (por si en el futuro queremos elegir Haiku/Sonnet/Opus)
   model         String              @default("claude-opus-4-7")
   summary       String?             @db.Text // resumen final de la IA al user

@@ -212,6 +212,18 @@ export async function executeAgentRun(opts: {
   try {
     for (let step = 0; step < config.maxStepsPerRun; step++) {
       stepsCount = step + 1;
+      // Fase 50: tick de "vida" del run. Si el proceso muere, el
+      // watchdog cron detecta runs RUNNING sin tick reciente y los
+      // marca REQUIRES_HUMAN — sin esto, un crash deja la task en
+      // RUNNING para siempre.
+      try {
+        await prisma.aiAgentRun.update({
+          where: { id: runId },
+          data: { lastIterationAt: new Date(), stepsCount }
+        });
+      } catch {
+        // no bloqueamos por un fallo del tick
+      }
 
       const resp = await client.messages.create({
         model: config.model,
