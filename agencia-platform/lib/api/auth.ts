@@ -3,12 +3,17 @@ import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/db/prisma";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
+import { touchSession } from "@/lib/security/sessions";
 
 export type ApiContext = {
   workspaceId: string;
   userId?: string;
   apiKeyId?: string;
   scopes: Set<string>;
+  /** sid de la sesión NextAuth si la auth vino por cookie. Permite a los
+   *  endpoints saber CUÁL es la sesión actual (para distinguirla en la
+   *  lista de "sesiones activas") y verificar que sigue viva. */
+  sid?: string;
 };
 
 export class ApiError extends Error {
@@ -49,10 +54,24 @@ export async function authenticate(req: NextRequest): Promise<ApiContext> {
   if (session?.user) {
     const u = session.user as any;
     if (!u.workspaceId) throw new ApiError(403, "no_workspace", "Usuario sin workspace asignado");
+
+    // Si la JWT trae sid (set en el callback signIn → jwt), validamos
+    // que la sesión sigue viva. Si fue revocada desde otro dispositivo,
+    // la cookie deja de funcionar de inmediato. Si NO trae sid (sesión
+    // creada antes de añadir este tracking) no rompemos retro-compat.
+    const sid = u.sid as string | undefined;
+    if (sid) {
+      const alive = await touchSession(sid);
+      if (!alive) {
+        throw new ApiError(401, "session_revoked", "Esta sesión ha sido revocada. Vuelve a iniciar sesión.");
+      }
+    }
+
     return {
       workspaceId: u.workspaceId,
       userId: u.id,
-      scopes: new Set(["*"]) // sesión humana = scope total
+      scopes: new Set(["*"]), // sesión humana = scope total
+      sid
     };
   }
 
