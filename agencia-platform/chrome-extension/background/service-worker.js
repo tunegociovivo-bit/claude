@@ -498,22 +498,17 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         chrome.action.setBadgeText({ text: "●", tabId: sender.tab?.id });
         chrome.action.setBadgeBackgroundColor({ color: "#dc2626", tabId: sender.tab?.id });
       }
-      // Auto-prompt: si el user está logueado y no hay ya una grabación
-      // en marcha, decimos al content-script que muestre el banner
-      // flotante con selector de proyecto/columna. Idempotente —
-      // el banner se monta solo si no existe ya en el DOM.
-      if (user && !recordingCtx && sender.tab?.id) {
-        try {
-          await chrome.tabs.sendMessage(sender.tab.id, { from: "sw", type: "show-record-banner" });
-        } catch {
-          // El content-script puede no estar listo en el primer ping;
-          // se reintenta solo en cuanto el detector vuelve a hacer ping.
-        }
-      }
-      sendResponse({ ok: true });
+      // Respondemos al content-script con la decisión: si está logueado
+      // y no hay grabación activa, debería mostrar el banner. El content
+      // hace pull en lugar de esperar a un push del SW (evita race
+      // conditions al cargar Meet/Teams cuando el SW aún está dormido).
+      sendResponse({
+        ok: true,
+        shouldShowBanner: !!(user && !recordingCtx)
+      });
       return;
     }
-    if (msg?.from === "content" && msg?.type === "fetch-projects") {
+    if ((msg?.from === "content" || msg?.from === "popup") && msg?.type === "fetch-projects") {
       try {
         const r = await authedFetch("/api/v1/projects");
         if (!r.ok) {

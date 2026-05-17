@@ -265,3 +265,11 @@ button:disabled { opacity: .5; cursor: not-allowed; }
   color: #94a3b8;
   margin-top: 2px;
 }
+
+.field { margin-bottom: 8px; }
+.lbl { display: block; font-size: 10px; color: #64748b; margin-bottom: 3px; font-weight: 500; }
+.select {
+  width: 100%; padding: 6px 8px; border-radius: 6px; border: 1px solid #cbd5e1;
+  background: #fff; font-size: 12px; font-family: inherit; color: #0f172a;
+}
+.select:focus { outline: 2px solid #6366f1; outline-offset: -1px; }

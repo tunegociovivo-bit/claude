@@ -256,6 +256,12 @@ async function render() {
   showState(state === "login" ? "idle" : state);
   if (state === "recording") { if (!elapsedTimer) startElapsedTimer(); }
   else stopElapsedTimer();
+  // Si estamos en idle (y logueados), cargamos la lista de proyectos
+  // para que el user pueda elegir destino antes de grabar. Cacheamos
+  // en window para no repegarlo en cada render.
+  if (state !== "recording" && state !== "uploading" && s.user) {
+    loadProjectSelectors().catch((e) => console.warn("projects load:", e?.message ?? e));
+  }
 
   if (state === "done" && s.lastTaskUrl) $("task-link").href = s.lastTaskUrl;
   if (state === "error") $("error-msg").textContent = s.lastError ?? "Error desconocido";
@@ -357,16 +363,26 @@ $("btn-recheck").addEventListener("click", async () => {
 
 $("btn-start").addEventListener("click", async () => {
   $("btn-start").disabled = true;
-  const r = await chrome.runtime.sendMessage({ from: "popup", type: "start" });
+  const projectId = $("proj-select")?.value || null;
+  const status = $("col-select")?.value || null;
+  const r = await chrome.runtime.sendMessage({ from: "popup", type: "start", projectId, status });
   if (!r?.ok) {
     $("error-msg").textContent = r?.error ?? "No se pudo arrancar";
     showState("error");
+    $("btn-start").disabled = false;
+    return;
   }
+  // Re-renderiza inmediatamente: el SW ya marcó state="recording" en storage,
+  // así el popup muestra el contador y el botón Detener sin esperar a la
+  // próxima apertura.
+  await render();
 });
 
 $("btn-stop").addEventListener("click", async () => {
   $("btn-stop").disabled = true;
   await chrome.runtime.sendMessage({ from: "popup", type: "stop" });
+  // El SW pone state="uploading" — re-render para mostrar spinner.
+  await render();
 });
 
 $("btn-new").addEventListener("click", async () => {
@@ -392,3 +408,57 @@ $("btn-mark-read").addEventListener("click", async () => {
 chrome.runtime.onMessage.addListener((msg) => {
   if (msg?.type === "state-changed" || msg?.type === "notifications-updated") render();
 });
+
+// Re-render automático cuando el SW cambia state/user/lastError/lastTaskUrl
+// en storage — así el popup se actualiza si la grabación termina por
+// sí sola (silencio prolongado, tab cerrada, upload completo).
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== "local") return;
+  if (changes.state || changes.user || changes.lastError || changes.lastTaskUrl) {
+    render();
+  }
+});
+
+let _projectsCache = null;
+async function loadProjectSelectors() {
+  const projSel = $("proj-select");
+  const colSel = $("col-select");
+  if (!projSel || !colSel) return;
+  if (!_projectsCache) {
+    const resp = await new Promise((resolve) => {
+      try {
+        chrome.runtime.sendMessage({ from: "popup", type: "fetch-projects" }, (r) => resolve(r));
+      } catch { resolve({ ok: false }); }
+    });
+    if (!resp?.ok || !Array.isArray(resp.projects) || resp.projects.length === 0) {
+      projSel.innerHTML = '<option value="">(sin proyectos disponibles)</option>';
+      colSel.innerHTML = '<option value="TODO">Por hacer</option>';
+      return;
+    }
+    _projectsCache = resp.projects;
+  }
+  // Mantenemos selección si ya había una válida
+  const prevProj = projSel.value;
+  projSel.innerHTML = _projectsCache
+    .map((p) => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join("");
+  if (prevProj && _projectsCache.some((p) => p.id === prevProj)) projSel.value = prevProj;
+
+  function syncCols() {
+    const p = _projectsCache.find((x) => x.id === projSel.value);
+    const cols = Array.isArray(p?.kanbanColumns) && p.kanbanColumns.length > 0
+      ? p.kanbanColumns.map((c) => ({ id: c.id ?? c.label, label: c.label ?? c.id }))
+      : [
+          { id: "TODO", label: "Por hacer" },
+          { id: "IN_PROGRESS", label: "En curso" },
+          { id: "REVIEW", label: "Revisión" },
+          { id: "DONE", label: "Hecho" }
+        ];
+    colSel.innerHTML = cols.map((c) => `<option value="${escapeHtml(c.id)}">${escapeHtml(c.label)}</option>`).join("");
+  }
+  projSel.onchange = syncCols;
+  syncCols();
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}

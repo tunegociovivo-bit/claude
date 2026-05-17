@@ -19,10 +19,20 @@
 (function () {
   function pingMeetingDetected() {
     try {
-      chrome.runtime.sendMessage({ from: "content", type: "meeting-detected" });
+      chrome.runtime.sendMessage({ from: "content", type: "meeting-detected" }, (resp) => {
+        // PULL: justo después del ping, preguntamos al SW si deberíamos
+        // mostrar el banner. Así no dependemos de que el SW alcance a
+        // empujar el mensaje antes de que nuestro onMessage listener
+        // esté listo (race condition al cargar Meet/Teams).
+        if (resp?.shouldShowBanner) tryMountBanner();
+      });
     } catch {}
   }
   pingMeetingDetected();
+  // Re-intentar 3 veces en los primeros 6s — Meet/Teams cargan en SPA
+  // y a veces la primera vez el SW aún no tiene user en storage.
+  setTimeout(pingMeetingDetected, 2000);
+  setTimeout(pingMeetingDetected, 6000);
 
   // Meet es SPA — si cambia la URL sin recargar, re-pingar
   let lastHref = location.href;
@@ -44,11 +54,15 @@
 
   chrome.runtime.onMessage.addListener((msg) => {
     if (msg?.from === "sw" && msg?.type === "show-record-banner") {
-      if (bannerOpen) return;
-      if (Date.now() - dismissedAt < DISMISS_COOLDOWN_MS) return;
-      mountBanner();
+      tryMountBanner();
     }
   });
+
+  function tryMountBanner() {
+    if (bannerOpen) return;
+    if (Date.now() - dismissedAt < DISMISS_COOLDOWN_MS) return;
+    mountBanner();
+  }
 
   function fetchProjects() {
     return new Promise((resolve) => {
