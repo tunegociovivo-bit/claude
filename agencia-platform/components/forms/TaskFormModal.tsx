@@ -202,13 +202,15 @@ export default function TaskFormModal({
           if (st) {
             clean[pid] = st;
           } else {
-            // Tarea legacy compartida con un proyecto que tiene columnas
-            // propias pero a la que nunca se le asignó una explícita
-            // (null en BD). Por defecto: primera columna del proyecto.
+            // Tarea legacy compartida sin columna explícita (null en
+            // BD): por defecto, primera columna del proyecto extra si
+            // tiene kanban propio; si no, primera del workspace.
             const proj = projects.find((pp) => pp.id === pid) as any;
-            const cols = proj?.kanbanColumns;
-            if (Array.isArray(cols) && cols.length > 0) {
-              clean[pid] = cols[0].id;
+            const ownCols = proj?.kanbanColumns;
+            if (Array.isArray(ownCols) && ownCols.length > 0) {
+              clean[pid] = ownCols[0].id;
+            } else if (Array.isArray(columns) && columns.length > 0) {
+              clean[pid] = (columns[0] as any).id;
             }
           }
         }
@@ -713,11 +715,19 @@ export default function TaskFormModal({
               {projects.map((p) => {
                 const sel = projectIds.includes(p.id);
                 const isPrimary = projectIds[0] === p.id;
-                // Columnas propias de este proyecto (si tiene kanban
-                // custom importado de Asana o configurado a mano).
-                const projectCols = ((p as any).kanbanColumns ?? null) as
+                // Columnas efectivas para el proyecto extra: si tiene
+                // kanban propio (importado de Asana o configurado a
+                // mano), lo usamos. Si no, caemos al kanban del
+                // workspace — antes no había dropdown en ese caso y
+                // el user no podía elegir columna para la tarea
+                // compartida → siempre acababa en la primera.
+                const ownCols = ((p as any).kanbanColumns ?? null) as
                   | { id: string; label: string }[]
                   | null;
+                const effectiveCols =
+                  ownCols && ownCols.length > 0
+                    ? ownCols
+                    : (columns as { id: string; label: string }[] | undefined) ?? [];
                 return (
                   <div key={p.id}>
                     <label
@@ -741,16 +751,16 @@ export default function TaskFormModal({
                           } else {
                             setProjectIds([...projectIds, p.id]);
                             // CRÍTICO: inicializa el status con la primera
-                            // columna del proyecto recién añadido. Sin esto,
-                            // el <select> muestra la primera columna como
-                            // default visual pero el state queda undefined
-                            // → al submit se manda null → la tarea aparece
-                            // en cualquier sitio menos donde el user pensó
-                            // que la estaba metiendo.
-                            if (projectCols && projectCols.length > 0) {
+                            // columna efectiva del proyecto recién añadido.
+                            // Sin esto el <select> mostraba la primera
+                            // columna pero el state quedaba undefined → al
+                            // submit se enviaba null → la tarea acababa en
+                            // la primera columna del kanban, no en la que
+                            // el user pensaba.
+                            if (effectiveCols.length > 0) {
                               setExtraProjectStatuses((prev) => ({
                                 ...prev,
-                                [p.id]: prev[p.id] ?? projectCols[0].id
+                                [p.id]: prev[p.id] ?? effectiveCols[0].id
                               }));
                             }
                           }
@@ -764,23 +774,30 @@ export default function TaskFormModal({
                         </span>
                       )}
                     </label>
-                    {/* Selector de columna para los proyectos extra
-                        que tienen sus propias columnas. El principal
-                        usa el campo "Estado" general arriba. */}
-                    {sel && !isPrimary && projectCols && projectCols.length > 0 && (
+                    {/* Selector de columna para los proyectos extra.
+                        Si el proyecto tiene kanban propio (custom o
+                        importado de Asana) usa esas columnas; si no,
+                        usa las del workspace. El principal usa el
+                        campo "Estado" general arriba. */}
+                    {sel && !isPrimary && effectiveCols.length > 0 && (
                       <div className="ml-7 mb-1 mt-0.5">
                         <select
-                          value={extraProjectStatuses[p.id] ?? projectCols[0].id}
+                          value={extraProjectStatuses[p.id] ?? effectiveCols[0].id}
                           onChange={(e) =>
                             setExtraProjectStatuses((prev) => ({ ...prev, [p.id]: e.target.value }))
                           }
                           className="w-full px-2 py-1 rounded border bg-white text-[11px] focus:outline-none"
                           title={`En qué columna aparece dentro de "${p.name}"`}
                         >
-                          {projectCols.map((c) => (
+                          {effectiveCols.map((c) => (
                             <option key={c.id} value={c.id}>{c.label}</option>
                           ))}
                         </select>
+                        {!ownCols && (
+                          <div className="text-[9px] text-slate-400 mt-0.5">
+                            Sin kanban propio · columnas del workspace
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
