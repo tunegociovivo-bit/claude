@@ -19,7 +19,10 @@ export const POST = withApi({ scope: "admin" }, async (req, { api }) => {
   const parsed = schema.safeParse(body);
   if (!parsed.success) throw new ApiError(400, "validation_error", parsed.error.message);
 
-  let token = parsed.data.token ?? null;
+  // Si el body trae token, lo trimeamos en sitio — antes pasábamos
+  // el string crudo y, si tenía \n o espacios invisibles del copy-paste,
+  // se persistía con basura y al usarlo después Asana devolvía 401.
+  let token = parsed.data.token ? parsed.data.token.trim() : null;
   if (!token && api.userId) {
     const conn = await prisma.asanaConnection.findFirst({ where: { userId: api.userId } });
     token = conn ? readAsanaToken(conn) : null;
@@ -27,8 +30,7 @@ export const POST = withApi({ scope: "admin" }, async (req, { api }) => {
   if (!token) throw new ApiError(400, "no_token", "Falta token de Asana");
 
   // Guardamos el token cifrado en AsanaConnection si llegó nuevo y
-  // hay user. Si la llamada viene de una API key sin user humano, se
-  // usa el token directamente sin persistir.
+  // hay user. saveAsanaToken también limpia internamente — doble red.
   if (parsed.data.token && api.userId) {
     await saveAsanaToken({ userId: api.userId, token });
   }

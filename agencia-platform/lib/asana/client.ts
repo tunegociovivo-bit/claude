@@ -72,7 +72,16 @@ export type AsanaStory = {
 };
 
 export class AsanaClient {
-  constructor(private token: string) {}
+  private token: string;
+  constructor(token: string) {
+    // Defensa: si alguien pasa el token sin trimear (un endpoint que
+    // se olvidó, un test, etc.), el header Authorization lleva \n y
+    // Asana devuelve 401 sin explicación útil. Trimeamos siempre.
+    this.token = (token ?? "").replace(/^﻿/, "").trim();
+    if (!this.token) {
+      throw new Error("AsanaClient: token vacío");
+    }
+  }
 
   private async req<T>(path: string, params?: Record<string, string>): Promise<T> {
     const url = new URL(BASE + path);
