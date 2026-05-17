@@ -23,6 +23,18 @@ import {
 import { transcribeAudioWithWhisper, getOpenAiKeyForWorkspace } from "@/lib/ai/openai";
 import { uploadBuffer, buildS3Key } from "@/lib/storage/r2";
 import { getWorkflowDefinition } from "./workflows";
+import {
+  holdedListInvoices,
+  holdedListContacts,
+  holdedListQuotes,
+  holdedGetInvoice,
+  holdedInvoiceStatusLabel
+} from "@/lib/integrations/holded";
+import {
+  stripeListCustomers,
+  stripeListInvoices,
+  stripeListSubscriptions
+} from "@/lib/integrations/stripe-light";
 import { signedDownloadUrl } from "@/lib/storage/r2";
 import { completeVision } from "@/lib/ai/anthropic";
 import { listDriveFiles } from "@/lib/integrations/google-drive";
@@ -542,6 +554,146 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
         eventEnd: { type: "string", description: "Para type=event: fecha/hora fin ISO." }
       },
       required: ["type", "body"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "holded_list_invoices",
+    description:
+      "Lista facturas del workspace en Holded. Filtros opcionales: status (0=pendiente, 1=pagada, 2=vencida, 3=cancelada, 4=borrador), limit. Útil para cashflow, recordatorios de pago, análisis de morosidad.",
+    input_schema: {
+      type: "object",
+      properties: {
+        status: { type: "number", description: "Filtro de status (0-4)." },
+        limit: { type: "number", description: "Máximo a devolver (default 50, máx 100)." }
+      },
+      additionalProperties: false
+    }
+  },
+  {
+    name: "holded_list_contacts",
+    description:
+      "Lista contactos/clientes en Holded. Útil para encontrar el contactId de un cliente antes de crear factura/presupuesto, o para validar que un cliente está dado de alta en contabilidad.",
+    input_schema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Filtro por nombre/email/CIF." },
+        limit: { type: "number", description: "Máximo (default 50)." }
+      },
+      additionalProperties: false
+    }
+  },
+  {
+    name: "holded_list_quotes",
+    description:
+      "Lista presupuestos (estimates) en Holded. Útil para seguimiento de propuestas comerciales no convertidas.",
+    input_schema: {
+      type: "object",
+      properties: {
+        limit: { type: "number" }
+      },
+      additionalProperties: false
+    }
+  },
+  {
+    name: "draft_holded_invoice",
+    description:
+      "Redacta un BORRADOR de factura en Holded para aprobación humana. Al aprobar, se crea como pendiente en Holded. Usa holded_list_contacts antes para obtener contactId del cliente. Para items: nombre, unidades, precio sin IVA, % IVA. Ej: { items: [{name:'Diseño web', units:1, subtotal:1500, tax:21}] }.",
+    input_schema: {
+      type: "object",
+      properties: {
+        contactId: { type: "string", description: "ID del contacto en Holded (de holded_list_contacts)." },
+        contactName: { type: "string", description: "Si no tienes contactId, nombre del cliente (Holded lo creará)." },
+        desc: { type: "string", description: "Descripción/concepto de la factura." },
+        items: {
+          type: "array",
+          description: "Líneas de la factura.",
+          items: {
+            type: "object",
+            properties: {
+              name: { type: "string" },
+              units: { type: "number" },
+              subtotal: { type: "number", description: "Precio unitario SIN IVA." },
+              tax: { type: "number", description: "% IVA (21, 10, 4, 0)." }
+            },
+            required: ["name", "units", "subtotal"]
+          }
+        },
+        notes: { type: "string", description: "Notas internas/cliente." }
+      },
+      required: ["items"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "draft_holded_quote",
+    description:
+      "Como draft_holded_invoice pero crea PRESUPUESTO (estimate). Mismo shape de items. Útil para enviar al cliente antes de facturar.",
+    input_schema: {
+      type: "object",
+      properties: {
+        contactId: { type: "string" },
+        contactName: { type: "string" },
+        desc: { type: "string" },
+        items: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              name: { type: "string" },
+              units: { type: "number" },
+              subtotal: { type: "number" },
+              tax: { type: "number" }
+            },
+            required: ["name", "units", "subtotal"]
+          }
+        },
+        notes: { type: "string" }
+      },
+      required: ["items"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "stripe_list_customers",
+    description:
+      "Lista clientes en Stripe. Para validar suscripciones activas, encontrar customerId, etc.",
+    input_schema: {
+      type: "object",
+      properties: {
+        query: { type: "string" },
+        limit: { type: "number" }
+      },
+      additionalProperties: false
+    }
+  },
+  {
+    name: "stripe_list_invoices",
+    description:
+      "Lista facturas Stripe. Filtros: customer (id), status (draft/open/paid/uncollectible/void), sinceDays. Útil para revisar suscripciones impagadas.",
+    input_schema: {
+      type: "object",
+      properties: {
+        customer: { type: "string" },
+        status: { type: "string", enum: ["draft", "open", "paid", "uncollectible", "void"] },
+        sinceDays: { type: "number" },
+        limit: { type: "number" }
+      },
+      additionalProperties: false
+    }
+  },
+  {
+    name: "draft_stripe_payment_link",
+    description:
+      "Crea un BORRADOR de payment link de Stripe (URL única para cobrar). Tras aprobación se crea en Stripe y devuelve la URL para enviar al cliente. amount en CÉNTIMOS de euro (€10 = 1000).",
+    input_schema: {
+      type: "object",
+      properties: {
+        productName: { type: "string" },
+        amount: { type: "number", description: "Importe en céntimos. €100 → 10000." },
+        currency: { type: "string", description: "ISO 4217 minúsculas. Default 'eur'." }
+      },
+      required: ["productName", "amount"],
       additionalProperties: false
     }
   },
@@ -1623,6 +1775,217 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
       draftId: draft.id,
       message:
         "Borrador de post GMB creado. La integración con Google Business Profile aún no está activa, así que el admin lo copiará a GMB manualmente tras aprobar. Cuando se construya la integración, este draft se auto-publicará al aprobar."
+    };
+  },
+
+  async holded_list_invoices(input, ctx) {
+    try {
+      const invoices = await holdedListInvoices({
+        workspaceId: ctx.workspaceId,
+        status: typeof input?.status === "number" ? input.status : undefined,
+        limit: typeof input?.limit === "number" ? input.limit : 50
+      });
+      return {
+        count: invoices.length,
+        invoices: invoices.map((i) => ({
+          id: i.id,
+          docNumber: i.docNumber,
+          contact: i.contactName ?? i.contact,
+          desc: i.desc,
+          date: i.date ? new Date(i.date * 1000).toISOString() : null,
+          dueDate: i.dueDate ? new Date(i.dueDate * 1000).toISOString() : null,
+          total: i.total,
+          status: holdedInvoiceStatusLabel(i.status),
+          statusCode: i.status,
+          currency: i.currency
+        }))
+      };
+    } catch (e: any) {
+      return { error: `Holded no disponible: ${e?.message ?? e}` };
+    }
+  },
+
+  async holded_list_contacts(input, ctx) {
+    try {
+      const contacts = await holdedListContacts({
+        workspaceId: ctx.workspaceId,
+        query: input?.query ? String(input.query) : undefined,
+        limit: typeof input?.limit === "number" ? input.limit : 50
+      });
+      return {
+        count: contacts.length,
+        contacts: contacts.map((c) => ({
+          id: c.id,
+          name: c.name,
+          email: c.email,
+          phone: c.phone,
+          code: c.code,
+          isperson: c.isperson
+        }))
+      };
+    } catch (e: any) {
+      return { error: `Holded no disponible: ${e?.message ?? e}` };
+    }
+  },
+
+  async holded_list_quotes(input, ctx) {
+    try {
+      const quotes = await holdedListQuotes({
+        workspaceId: ctx.workspaceId,
+        limit: typeof input?.limit === "number" ? input.limit : 50
+      });
+      return {
+        count: quotes.length,
+        quotes: quotes.map((q) => ({
+          id: q.id,
+          docNumber: q.docNumber,
+          contact: q.contactName,
+          desc: q.desc,
+          total: q.total,
+          status: holdedInvoiceStatusLabel(q.status)
+        }))
+      };
+    } catch (e: any) {
+      return { error: `Holded no disponible: ${e?.message ?? e}` };
+    }
+  },
+
+  async draft_holded_invoice(input, ctx) {
+    const items = Array.isArray(input?.items) ? input.items : [];
+    if (items.length === 0) return { error: "items vacío — añade al menos una línea" };
+    const draft = await prisma.aiDraft.create({
+      data: {
+        workspaceId: ctx.workspaceId,
+        aiAgentRunId: ctx.runId,
+        taskId: ctx.taskId,
+        kind: "HOLDED_INVOICE",
+        title: `Factura Holded → ${input?.contactName ?? input?.contactId ?? "?"}: ${input?.desc?.slice(0, 60) ?? "(sin desc)"}`,
+        payload: {
+          contactId: input?.contactId ?? null,
+          contactName: input?.contactName ?? null,
+          desc: input?.desc ?? null,
+          items,
+          notes: input?.notes ?? null
+        }
+      }
+    });
+    const auto = await maybeAutoApproveDraft(draft.id, "HOLDED_INVOICE", ctx);
+    return {
+      ok: true,
+      draftId: draft.id,
+      autoApproved: auto.autoApproved,
+      message: auto.autoApproved
+        ? "Factura creada y emitida en Holded."
+        : "Borrador de factura creado. Quedará pendiente en /admin/nv-ia/drafts."
+    };
+  },
+
+  async draft_holded_quote(input, ctx) {
+    const items = Array.isArray(input?.items) ? input.items : [];
+    if (items.length === 0) return { error: "items vacío" };
+    const draft = await prisma.aiDraft.create({
+      data: {
+        workspaceId: ctx.workspaceId,
+        aiAgentRunId: ctx.runId,
+        taskId: ctx.taskId,
+        kind: "HOLDED_QUOTE",
+        title: `Presupuesto Holded → ${input?.contactName ?? input?.contactId ?? "?"}: ${input?.desc?.slice(0, 60) ?? "(sin desc)"}`,
+        payload: {
+          contactId: input?.contactId ?? null,
+          contactName: input?.contactName ?? null,
+          desc: input?.desc ?? null,
+          items,
+          notes: input?.notes ?? null
+        }
+      }
+    });
+    const auto = await maybeAutoApproveDraft(draft.id, "HOLDED_QUOTE", ctx);
+    return {
+      ok: true,
+      draftId: draft.id,
+      autoApproved: auto.autoApproved,
+      message: auto.autoApproved
+        ? "Presupuesto creado y enviado en Holded."
+        : "Borrador de presupuesto creado. Pendiente de aprobación."
+    };
+  },
+
+  async stripe_list_customers(input, ctx) {
+    try {
+      const customers = await stripeListCustomers({
+        workspaceId: ctx.workspaceId,
+        query: input?.query ? String(input.query) : undefined,
+        limit: typeof input?.limit === "number" ? input.limit : 20
+      });
+      return {
+        count: customers.length,
+        customers: customers.map((c: any) => ({
+          id: c.id,
+          email: c.email,
+          name: c.name,
+          created: new Date(c.created * 1000).toISOString()
+        }))
+      };
+    } catch (e: any) {
+      return { error: `Stripe no disponible: ${e?.message ?? e}` };
+    }
+  },
+
+  async stripe_list_invoices(input, ctx) {
+    try {
+      const invoices = await stripeListInvoices({
+        workspaceId: ctx.workspaceId,
+        customer: input?.customer ? String(input.customer) : undefined,
+        status: input?.status,
+        sinceDays: typeof input?.sinceDays === "number" ? input.sinceDays : undefined,
+        limit: typeof input?.limit === "number" ? input.limit : 25
+      });
+      return {
+        count: invoices.length,
+        invoices: invoices.map((i: any) => ({
+          id: i.id,
+          number: i.number,
+          customer: i.customer,
+          amount_due: i.amount_due,
+          amount_paid: i.amount_paid,
+          currency: i.currency,
+          status: i.status,
+          due_date: i.due_date ? new Date(i.due_date * 1000).toISOString() : null,
+          hosted_invoice_url: i.hosted_invoice_url
+        }))
+      };
+    } catch (e: any) {
+      return { error: `Stripe no disponible: ${e?.message ?? e}` };
+    }
+  },
+
+  async draft_stripe_payment_link(input, ctx) {
+    const productName = String(input?.productName ?? "").trim();
+    const amount = Number(input?.amount) || 0;
+    if (!productName) return { error: "productName vacío" };
+    if (amount < 50) return { error: "amount mínimo Stripe es 50 céntimos" };
+    const draft = await prisma.aiDraft.create({
+      data: {
+        workspaceId: ctx.workspaceId,
+        aiAgentRunId: ctx.runId,
+        taskId: ctx.taskId,
+        kind: "STRIPE_PAYMENT_LINK",
+        title: `Payment link Stripe → ${productName}: ${(amount / 100).toFixed(2)}€`,
+        payload: {
+          productName,
+          amount,
+          currency: input?.currency ?? "eur"
+        }
+      }
+    });
+    const auto = await maybeAutoApproveDraft(draft.id, "STRIPE_PAYMENT_LINK", ctx);
+    return {
+      ok: true,
+      draftId: draft.id,
+      autoApproved: auto.autoApproved,
+      message: auto.autoApproved
+        ? `Payment link creado en Stripe. URL: ${auto.executionResult?.externalId ?? "(en executionResult)"}`
+        : "Borrador de payment link creado. Pendiente de aprobación."
     };
   },
 

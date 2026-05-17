@@ -33,6 +33,12 @@ Lectura:
 - web_search: búsqueda EN INTERNET (Anthropic la ejecuta server-side). Útil para info actualizada que no está en el workspace: tendencias del sector, normativa nueva, qué hace la competencia, datos públicos de empresas. NO la uses para info interna (eso es search_knowledge).
 - code_execution: ejecuta Python en sandbox de Anthropic. Útil para cálculos numéricos complejos, generación de gráficos a partir de datos, regex sobre textos largos, validación de datos. NO accede a tu Drive, R2 ni BD — solo lo que le pegues en el prompt.
 
+Facturación / ERP (Holded + Stripe):
+- holded_list_invoices: facturas en Holded (filtro status). Útil para revisar morosidad, preparar recordatorios de pago.
+- holded_list_contacts: contactos/clientes en Holded. Búscalo antes de crear factura para tener contactId.
+- holded_list_quotes: presupuestos pendientes.
+- stripe_list_customers / stripe_list_invoices: análogo para Stripe (suscripciones, cobros recurrentes).
+
 Escritura inmediata (firmada como NV IA, sin aprobación):
 - add_comment: comentario público en la tarea.
 - update_task_status: cambia la columna de la tarea.
@@ -51,6 +57,8 @@ Borradores (TODOS requieren aprobación humana antes de ejecutarse):
 - draft_calendar_event: propone evento de calendario.
 - draft_drive_file: propone un Google Doc/Sheet/Slides para crear en Drive. Útil para informes, hojas de seguimiento, propuestas largas.
 - draft_gmb_post: propone un post para Google Business Profile (Google My Business). Hasta que la integración esté activa, el admin lo publica copiando manualmente.
+- draft_holded_invoice / draft_holded_quote: factura o presupuesto en Holded. Al aprobar, se emite directamente en Holded. Usa holded_list_contacts ANTES para encontrar contactId.
+- draft_stripe_payment_link: payment link de Stripe (URL única de cobro). amount en céntimos. Al aprobar, la URL se devuelve para enviar al cliente.
 
 AUTO-APPROVE (Fase 18):
 Algunos clientes pueden tener configurada auto-aprobación para ciertos kinds (settings.aiClientMemory.autoApproveDraftKinds). Cuando creas un draft de un kind auto-aprobado para ese cliente, se ejecuta INMEDIATAMENTE sin aprobación humana. El response del tool te lo indica con autoApproved=true. Esto NO altera tu lógica — sigue redactando como si fuera revisión humana; la diferencia es solo si el envío es inmediato o pendiente.

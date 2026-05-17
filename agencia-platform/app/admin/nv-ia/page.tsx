@@ -419,20 +419,21 @@ export default function NvIaAdminPage() {
             <p>
               <strong>Tools disponibles (35):</strong>
               <br />
-              <strong>Lectura (15):</strong> get_task_context (auto-incluye 3 capas de memoria),
-              list_task_files, read_file_content (PDF/DOCX/XLSX/TXT), analyze_image (visión),
-              transcribe_audio (Whisper), list_drive_files, read_drive_file, search_tasks,
-              search_knowledge (RAG), get_calendar_events, get_team_members,
-              get_client_memory, get_workspace_memory, get_user_memory, web_search (Anthropic).
+              <strong>Lectura (20):</strong> get_task_context, list_task_files, read_file_content,
+              analyze_image, transcribe_audio, list_drive_files, read_drive_file, search_tasks,
+              search_knowledge, get_calendar_events, get_team_members, get_client_memory,
+              get_workspace_memory, get_user_memory, web_search, holded_list_invoices,
+              holded_list_contacts, holded_list_quotes, stripe_list_customers, stripe_list_invoices.
               <br />
               <strong>Escritura inmediata (12):</strong> add_comment, update_task_status,
               update_client_memory, update_workspace_memory, update_user_memory, assign_task,
               create_subtask, notify_user, tag_task, set_task_due_date, set_task_priority,
               mark_complete.
               <br />
-              <strong>Borradores (6, requieren aprobación salvo auto-approve por cliente):</strong>{" "}
+              <strong>Borradores (9, requieren aprobación salvo auto-approve por cliente):</strong>{" "}
               draft_email, draft_whatsapp, draft_editorial_post, draft_calendar_event,
-              draft_drive_file, draft_gmb_post. Se aprueban en{" "}
+              draft_drive_file, draft_gmb_post, draft_holded_invoice, draft_holded_quote,
+              draft_stripe_payment_link. Se aprueban en{" "}
               <a href="/admin/nv-ia/drafts" className="text-brand-600 underline">/admin/nv-ia/drafts</a>.
               <br />
               <strong>Análisis cruzado y auto-mejora (4):</strong> query_knowledge_graph (búsqueda

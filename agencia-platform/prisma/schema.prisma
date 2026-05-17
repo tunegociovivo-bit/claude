@@ -1685,6 +1685,9 @@ enum AiDraftKind {
   EDITORIAL_POST
   CALENDAR_EVENT
   DRIVE_FILE
+  HOLDED_INVOICE
+  HOLDED_QUOTE
+  STRIPE_PAYMENT_LINK
   CUSTOM // texto libre — para acciones que aún no tienen integración
 }
 

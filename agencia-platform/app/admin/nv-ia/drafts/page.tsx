@@ -17,7 +17,7 @@ import {
   FileSpreadsheet
 } from "lucide-react";
 
-type Kind = "EMAIL" | "WHATSAPP" | "EDITORIAL_POST" | "CALENDAR_EVENT" | "DRIVE_FILE" | "CUSTOM";
+type Kind = "EMAIL" | "WHATSAPP" | "EDITORIAL_POST" | "CALENDAR_EVENT" | "DRIVE_FILE" | "HOLDED_INVOICE" | "HOLDED_QUOTE" | "STRIPE_PAYMENT_LINK" | "CUSTOM";
 type Status = "PENDING" | "APPROVED" | "REJECTED" | "EXECUTED" | "FAILED";
 
 type Draft = {
@@ -41,6 +41,9 @@ const KIND_LABEL: Record<Kind, string> = {
   EDITORIAL_POST: "Post editorial",
   CALENDAR_EVENT: "Evento calendario",
   DRIVE_FILE: "Archivo Drive",
+  HOLDED_INVOICE: "Factura Holded",
+  HOLDED_QUOTE: "Presupuesto Holded",
+  STRIPE_PAYMENT_LINK: "Payment link Stripe",
   CUSTOM: "Acción libre"
 };
 
@@ -50,6 +53,9 @@ const KIND_ICON: Record<Kind, React.ElementType> = {
   EDITORIAL_POST: FileText,
   CALENDAR_EVENT: Calendar,
   DRIVE_FILE: FileSpreadsheet,
+  HOLDED_INVOICE: FileText,
+  HOLDED_QUOTE: FileText,
+  STRIPE_PAYMENT_LINK: FileText,
   CUSTOM: AlertCircle
 };
 
@@ -336,6 +342,55 @@ function DraftPreview({ kind, payload }: { kind: Kind; payload: any }) {
         <div><strong>Redes:</strong> {(payload?.networks ?? []).join(", ")}</div>
         <div className="bg-slate-50 p-2 rounded border whitespace-pre-wrap max-h-40 overflow-y-auto text-[11px]">
           {payload?.content}
+        </div>
+      </div>
+    );
+  }
+  if (kind === "HOLDED_INVOICE" || kind === "HOLDED_QUOTE") {
+    const items = Array.isArray(payload?.items) ? payload.items : [];
+    const subtotal = items.reduce((s: number, it: any) => s + (Number(it.subtotal) * Number(it.units) || 0), 0);
+    return (
+      <div className="mt-2 text-xs text-slate-600 space-y-1">
+        <div>
+          <strong>Cliente:</strong> {payload?.contactName ?? payload?.contactId ?? "?"}
+          {payload?.desc && <span> · {payload.desc}</span>}
+        </div>
+        <table className="w-full text-[11px] bg-slate-50 rounded border">
+          <thead>
+            <tr className="text-slate-500">
+              <th className="text-left px-2 py-1">Concepto</th>
+              <th className="text-right px-2 py-1">Uds</th>
+              <th className="text-right px-2 py-1">€/ud</th>
+              <th className="text-right px-2 py-1">IVA</th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((it: any, i: number) => (
+              <tr key={i} className="border-t">
+                <td className="px-2 py-1">{it.name}</td>
+                <td className="px-2 py-1 text-right">{it.units}</td>
+                <td className="px-2 py-1 text-right">{Number(it.subtotal).toFixed(2)}</td>
+                <td className="px-2 py-1 text-right">{it.tax ?? 21}%</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <div className="text-right font-medium pt-1">
+          Subtotal: {subtotal.toFixed(2)} €
+        </div>
+        {payload?.notes && (
+          <div className="bg-slate-50 p-2 rounded border-slate-200 text-[11px]">
+            {payload.notes}
+          </div>
+        )}
+      </div>
+    );
+  }
+  if (kind === "STRIPE_PAYMENT_LINK") {
+    return (
+      <div className="mt-2 text-xs text-slate-600 space-y-1">
+        <div>
+          <strong>{payload?.productName}</strong>: {(Number(payload?.amount) / 100).toFixed(2)} {(payload?.currency ?? "EUR").toUpperCase()}
         </div>
       </div>
     );

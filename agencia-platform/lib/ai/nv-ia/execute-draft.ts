@@ -18,6 +18,8 @@ import { prisma } from "@/lib/db/prisma";
 import { sendEmail, isEmailEnabled } from "@/lib/integrations/email";
 import { sendText } from "@/lib/leads/waha";
 import { createDriveNativeFile } from "@/lib/integrations/google-drive";
+import { holdedCreateInvoice, holdedCreateQuote } from "@/lib/integrations/holded";
+import { stripeCreatePaymentLink } from "@/lib/integrations/stripe-light";
 import { checkCompliance } from "./compliance";
 
 export async function executeDraft(draftId: string): Promise<{
@@ -133,6 +135,45 @@ export async function executeDraft(draftId: string): Promise<{
           }
         });
         result = { ok: true, externalId: ev.id };
+        break;
+      }
+      case "HOLDED_INVOICE": {
+        const r = await holdedCreateInvoice({
+          workspaceId: draft.workspaceId,
+          payload: {
+            contactId: payload.contactId ?? undefined,
+            contactName: payload.contactName ?? undefined,
+            desc: payload.desc ?? undefined,
+            items: payload.items ?? [],
+            notes: payload.notes ?? undefined
+          }
+        });
+        result = { ok: true, externalId: r.id ?? r.docNumber ?? "?" };
+        break;
+      }
+      case "HOLDED_QUOTE": {
+        const r = await holdedCreateQuote({
+          workspaceId: draft.workspaceId,
+          payload: {
+            contactId: payload.contactId ?? undefined,
+            contactName: payload.contactName ?? undefined,
+            desc: payload.desc ?? undefined,
+            items: payload.items ?? [],
+            notes: payload.notes ?? undefined
+          }
+        });
+        result = { ok: true, externalId: r.id ?? r.docNumber ?? "?" };
+        break;
+      }
+      case "STRIPE_PAYMENT_LINK": {
+        const r = await stripeCreatePaymentLink({
+          workspaceId: draft.workspaceId,
+          productName: payload.productName,
+          amount: payload.amount,
+          currency: payload.currency ?? "eur"
+        });
+        // Guardamos URL en executionResult para que el admin la copie
+        result = { ok: true, externalId: r.url };
         break;
       }
       case "CUSTOM":
