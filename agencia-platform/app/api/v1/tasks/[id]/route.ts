@@ -57,6 +57,19 @@ export const PATCH = withApi({ scope: "tasks:write" }, async (req, { params, api
     : [];
   const prevAssigneeIds = new Set(prevAssignees.map((a) => a.userId));
 
+  // Igual para extraProjectIds: necesitamos saber qué proyectos extra
+  // tenía ANTES de la PATCH para detectar si NV IA acaba de recibir
+  // la tarea por primera vez (hook de creación de AiAgentRun más abajo).
+  const prevExtraProjectIds =
+    extraProjectIds !== undefined
+      ? (
+          await (prisma as any).taskProject.findMany({
+            where: { taskId: params.id },
+            select: { projectId: true }
+          })
+        ).map((r: any) => r.projectId as string)
+      : undefined;
+
   // Si llega `description` nueva, también capturamos la anterior para
   // calcular las menciones nuevas (diff de @user mentions).
   const prevDescription =
@@ -113,6 +126,38 @@ export const PATCH = withApi({ scope: "tasks:write" }, async (req, { params, api
   });
 
   if (!result) throw new ApiError(404, "not_found", "Tarea no encontrada");
+
+  // Hook NV IA: si la tarea acaba de enlazarse al proyecto buzón de
+  // NV IA, disparamos un AiAgentRun en PENDING. El cron lo recoge.
+  // Sólo cuando extraProjectIds llegó EXPLÍCITAMENTE en el body (es
+  // decir, el user acaba de añadir/quitar proyectos), y solo si el
+  // inboxProjectId está en la nueva lista pero NO estaba en la
+  // anterior — para no duplicar runs si tocan otros proyectos extra.
+  if (extraProjectIds !== undefined) {
+    try {
+      const ws = await prisma.workspace.findUnique({
+        where: { id: api.workspaceId },
+        select: { settings: true }
+      });
+      const inboxId = (ws?.settings as any)?.aiAgent?.inboxProjectId;
+      if (inboxId && extraProjectIds.includes(inboxId)) {
+        // ¿Estaba ya en la lista anterior? Si sí, no es "nueva entrada".
+        const wasAlreadyLinked = prevExtraProjectIds?.includes(inboxId);
+        if (!wasAlreadyLinked) {
+          await prisma.aiAgentRun.create({
+            data: {
+              workspaceId: api.workspaceId,
+              taskId: params.id,
+              requesterId: api.userId ?? null,
+              status: "PENDING"
+            }
+          });
+        }
+      }
+    } catch (e) {
+      console.warn("[nv-ia] hook create-run failed:", (e as Error).message);
+    }
+  }
 
   // Notificar a los assignees AÑADIDOS (no a los que ya estaban). Si
   // assigneeIds no llegó en el body, no se tocaron — no notificamos.

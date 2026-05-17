@@ -223,6 +223,7 @@ model Workspace {
   searchEmbeddings          SearchEmbedding[]
   metaConnections           MetaConnection[]
   metaCampaigns             MetaCampaign[]
+  aiAgentRuns               AiAgentRun[]
 }
 
 model Membership {
@@ -1401,6 +1402,54 @@ model Notification {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, read])
+}
+
+// ===================================================================
+// NV IA — Agente autónomo (Fase 1)
+// ===================================================================
+// Cada vez que una Task se enlaza con el proyecto "buzón" de NV IA
+// (configurado en Workspace.settings.aiAgent.inboxProjectId) se crea
+// un AiAgentRun en estado PENDING. El cron /api/cron/ai-agent/process
+// los recoge y ejecuta un agent loop de Claude con tools acotadas
+// (Fase 1: read-only + comentar + cambiar estado + marcar done).
+//
+// log: array de steps {type, ts, tool?, input?, output?, text?, error?}
+//   para auditoría completa de cada acción. Permite revisar EXACTAMENTE
+//   qué hizo la IA antes de aprobar acciones más sensibles en Fase 2.
+//
+// requesterId: el user que disparó el run (al añadir la tarea al
+//   buzón IA). Se notifica al terminar.
+model AiAgentRun {
+  id            String              @id @default(cuid())
+  workspaceId   String
+  taskId        String
+  requesterId   String? // user que enlazó la task al proyecto IA
+  status        AiAgentRunStatus    @default(PENDING)
+  // Modelo usado (por si en el futuro queremos elegir Haiku/Sonnet/Opus)
+  model         String              @default("claude-opus-4-7")
+  summary       String?             @db.Text // resumen final de la IA al user
+  error         String?             @db.Text
+  log           Json                @default("[]") // steps
+  stepsCount    Int                 @default(0)
+  inputTokens   Int                 @default(0)
+  outputTokens  Int                 @default(0)
+  startedAt     DateTime?
+  finishedAt    DateTime?
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, status])
+  @@index([taskId])
+}
+
+enum AiAgentRunStatus {
+  PENDING       // creado, esperando worker
+  RUNNING       // agent loop en marcha
+  SUCCEEDED     // terminó OK, resumen disponible
+  FAILED        // error fatal (timeout, tokens, exception)
+  REQUIRES_HUMAN // la IA pidió ayuda — la tarea queda en mano del user
 }
 
 // Reportes automáticos de errores producidos en el frontend o backend.

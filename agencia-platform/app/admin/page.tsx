@@ -46,7 +46,8 @@ import {
   FileCheck2,
   Calendar,
   Search,
-  Brain
+  Brain,
+  Bot
 } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -57,6 +58,13 @@ const cards: AdminCard[] = [
     title: "Configuración de IA",
     description: "Conecta Anthropic para habilitar asistente, redactor, resúmenes y tag automático.",
     icon: Sparkles
+  },
+  {
+    href: "/admin/nv-ia",
+    title: "NV IA — Trabajador autónomo",
+    description: "Crea un user 'NV IA' que procesa tareas automáticamente cuando las enlazas a su proyecto buzón. Comenta, mueve estados, finaliza y notifica.",
+    icon: Bot,
+    highlight: true
   },
   {
     href: "/admin/redactor",
