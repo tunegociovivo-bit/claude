@@ -22,7 +22,7 @@ export type InboundTriggerOpts = {
   /** Identificador externo único (whatsapp messageId, email Message-Id) — para dedupe. */
   externalId: string;
   /** Trigger type a usar. */
-  trigger: "WHATSAPP_INBOUND" | "EMAIL_INBOUND";
+  trigger: "WHATSAPP_INBOUND" | "EMAIL_INBOUND" | "CALL_INBOUND";
   /** Título de la task (corto, accionable). Ej: "WhatsApp de +34600... — info sobre presupuesto". */
   taskTitle: string;
   /** Cuerpo del mensaje original (lo guardamos en description de la task). */
@@ -43,8 +43,13 @@ export async function triggerNvIaFromInbound(
   const aiCfg = (ws?.settings as any)?.aiAgent;
   if (!aiCfg?.userId || !aiCfg?.inboxProjectId) return null;
 
-  // Inbound config: settings.aiAgent.inbound.{whatsapp,email}.enabled
-  const inboundKey = opts.trigger === "WHATSAPP_INBOUND" ? "whatsapp" : "email";
+  // Inbound config: settings.aiAgent.inbound.{whatsapp,email,call}.enabled
+  const inboundKey =
+    opts.trigger === "WHATSAPP_INBOUND"
+      ? "whatsapp"
+      : opts.trigger === "CALL_INBOUND"
+      ? "call"
+      : "email";
   const inboundCfg = aiCfg?.inbound?.[inboundKey];
   if (!inboundCfg?.enabled) return null;
 
@@ -88,6 +93,8 @@ export async function triggerNvIaFromInbound(
   const triggerCtx =
     opts.trigger === "WHATSAPP_INBOUND"
       ? `WhatsApp entrante de ${opts.metadata.from ?? "?"}. Asunto: "${opts.taskTitle.slice(0, 100)}"`
+      : opts.trigger === "CALL_INBOUND"
+      ? `Llamada de ${opts.metadata.from ?? "?"} (${opts.metadata.durationSec ?? "?"}s). Transcripción en description.`
       : `Email entrante de ${opts.metadata.from ?? "?"} a ${opts.metadata.to ?? "?"}. Asunto: "${opts.metadata.subject ?? opts.taskTitle.slice(0, 100)}"`;
 
   const run = await prisma.aiAgentRun.create({

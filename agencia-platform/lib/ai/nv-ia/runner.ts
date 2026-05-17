@@ -60,8 +60,12 @@ Memoria persistente (3 capas, aprende entre runs):
 - get_workspace_memory / update_workspace_memory: GLOBAL del workspace — políticas, firma estándar, horario, criterios generales. get_task_context la inyecta SIEMPRE.
 - get_user_memory / update_user_memory: por MIEMBRO del equipo — sus áreas, especialidades, horarios. get_task_context inyecta la del requester. Lee la de OTROS miembros antes de assign_task/create_subtask para no asignar a alguien que no maneja ese tema o está fuera.
 
+Análisis cruzado y auto-mejora:
+- query_knowledge_graph: búsqueda CRUZADA filtrada por cliente/sector/fecha. Para preguntas como "muéstrame decisiones de pricing del sector salud en 2025 y agrupa por las que funcionaron". Más caro que search_knowledge — solo análisis cruzados.
+- propose_new_tool: cuando detectas un patrón recurrente que no puedes resolver con tus tools actuales, propón una nueva tool. El admin la implementa si le parece útil. ÚSALO SELECTIVAMENTE — máx 3 propuestas por run.
+
 Delegación a sub-agentes (solo para tareas grandes con piezas separables):
-- spawn_subagent(role, instruction): delega análisis/investigación/redacción/revisión a una sub-IA. Roles: researcher, writer, analyst, reviewer. Sub-agente es READ-ONLY (no escribe nada) — tú decides qué hacer con su output. Cap 5/run.
+- spawn_subagent(role, instruction): delega análisis/investigación/redacción/revisión a una sub-IA. Roles: researcher, writer, analyst, reviewer. Sub-agente es READ-ONLY. Cap 5/run.
 
 Cierre:
 - mark_complete: termina la tarea con resumen y notifica al solicitante.
@@ -147,7 +151,19 @@ export async function executeAgentRun(opts: {
   /** Id del AiAgentRun (necesario para enlazar drafts creados en este run). */
   runId: string;
   /** Cómo se disparó este run (afecta al prompt inicial). */
-  trigger?: "MANUAL" | "MENTION" | "PROACTIVE_DEADLINE" | "PROACTIVE_STALE" | "SCHEDULED" | "WHATSAPP_INBOUND" | "EMAIL_INBOUND";
+  trigger?:
+    | "MANUAL"
+    | "MENTION"
+    | "PROACTIVE_DEADLINE"
+    | "PROACTIVE_STALE"
+    | "SCHEDULED"
+    | "WHATSAPP_INBOUND"
+    | "EMAIL_INBOUND"
+    | "CALL_INBOUND"
+    | "STRATEGIC_REVIEW"
+    | "OWNER_MODE_CHECK"
+    | "COMPLIANCE_FLAG"
+    | "LEAD_OPPORTUNITY";
   /** Contexto extra del trigger (ej: "vence en 36h"). */
   triggerContext?: string | null;
 }): Promise<AgentRunResult> {
@@ -369,6 +385,16 @@ function buildInitialMessage(
       return `${base} ENTRADA EXTERNA — un cliente o lead te ha escrito por WhatsApp. ${ctx ? `Contexto: ${ctx}.` : ""} El cuerpo del mensaje está en la description de la task. Tu trabajo: leerlo (get_task_context), entender qué pide, y O bien redactar un draft de respuesta WhatsApp con draft_whatsapp (que el admin aprobará), O dejar un add_comment explicando si requiere acción humana (datos sensibles, decisión comercial, etc.). Si el mensaje es trivial (gracias, ok, etc.) cierra con mark_complete sin draft.`;
     case "EMAIL_INBOUND":
       return `${base} ENTRADA EXTERNA — alguien te ha escrito por email. ${ctx ? `Contexto: ${ctx}.` : ""} El cuerpo entero del email está en la description de la task. Tu trabajo: leerlo, identificar la pregunta/petición, y O bien redactar un draft de respuesta con draft_email (para aprobación), O dejar un add_comment proponiendo qué humano debe responder y por qué. Si es spam/newsletter/auto-reply, cierra con mark_complete sin draft.`;
+    case "CALL_INBOUND":
+      return `${base} LLAMADA TELEFÓNICA recibida. ${ctx ? `Contexto: ${ctx}.` : ""} La transcripción completa está en la description (puede tener errores de transcripción — interpreta con sentido común). Tu trabajo: identificar la intención (consulta, queja, urgencia, info commercial, otro), si el cliente está en BD usa get_client_memory, y deja un add_comment con resumen + propuesta de acción siguiente. Si requiere callback o email, draft_whatsapp/draft_email. Si requiere intervención humana específica, usa notify_user al miembro adecuado.`;
+    case "STRATEGIC_REVIEW":
+      return `${base} REVISIÓN ESTRATÉGICA (Co-CEO). ${ctx ? `Contexto: ${ctx}.` : ""} La description contiene métricas agregadas del trimestre. Tu trabajo: analizar (con spawn_subagent analyst si quieres), redactar un INFORME con 3 secciones: (1) Análisis del período cerrado, (2) Predicción del siguiente, (3) 3 iniciativas concretas con coste/beneficio. Deja el informe como add_comment largo Y create_subtask por cada iniciativa propuesta (sin asignar — el humano elige owner). NO marques mark_complete — deja que el humano decida si aprobar las iniciativas.`;
+    case "OWNER_MODE_CHECK":
+      return `${base} OWNER MODE — eres responsable de un cliente y este es tu check periódico. ${ctx ? `Contexto: ${ctx}.` : ""} Revisa los KPIs en el contexto, identifica desviaciones, propón acciones. Si KPI cae, escala con notify_user al gestor humano. Si todo OK, deja un add_comment breve de status y mark_complete.`;
+    case "COMPLIANCE_FLAG":
+      return `${base} COMPLIANCE BLOQUEÓ algo. ${ctx ? `Contexto: ${ctx}.` : ""} Revisa qué se intentó hacer y por qué se bloqueó. Reformula la acción para cumplir o escala con add_comment + notify_user al admin.`;
+    case "LEAD_OPPORTUNITY":
+      return `${base} OPORTUNIDAD DE NEGOCIO detectada. ${ctx ? `Contexto: ${ctx}.` : ""} Investiga al lead (search_knowledge si hay histórico, web_search para info pública). Si parece buena oportunidad, redacta draft_email de acercamiento personalizado. Si no encaja, mark_complete con razón.`;
     case "MANUAL":
     default:
       return `${base} Llama a get_task_context para leerla y procede.`;

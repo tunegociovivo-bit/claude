@@ -435,8 +435,17 @@ export default function NvIaAdminPage() {
               draft_drive_file, draft_gmb_post. Se aprueban en{" "}
               <a href="/admin/nv-ia/drafts" className="text-brand-600 underline">/admin/nv-ia/drafts</a>.
               <br />
+              <strong>Análisis cruzado y auto-mejora (2):</strong> query_knowledge_graph (búsqueda
+              cruzada con filtros cliente/sector/fecha), propose_new_tool (NV IA propone nuevas
+              tools cuando detecta patrones repetitivos).
+              <br />
               <strong>Delegación interna y avanzado (2):</strong> spawn_subagent (sub-IAs read-only
               para tareas grandes), code_execution (Python sandbox de Anthropic para cálculos).
+            </p>
+            <p className="mt-3">
+              <strong>Triggers (12):</strong> Manual, @mention, Proactive (deadline/stale),
+              Scheduled, Email/WhatsApp/Call inbound, Strategic Review (Co-CEO), Owner Mode Check,
+              Compliance Flag, Lead Opportunity.
             </p>
             <p>
               <strong>Cómo invocarla:</strong> (a) enlazando una tarea al proyecto buzón <em>🤖 NV IA — Tareas IA</em>;

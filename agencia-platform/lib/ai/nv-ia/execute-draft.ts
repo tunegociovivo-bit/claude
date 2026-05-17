@@ -18,6 +18,7 @@ import { prisma } from "@/lib/db/prisma";
 import { sendEmail, isEmailEnabled } from "@/lib/integrations/email";
 import { sendText } from "@/lib/leads/waha";
 import { createDriveNativeFile } from "@/lib/integrations/google-drive";
+import { checkCompliance } from "./compliance";
 
 export async function executeDraft(draftId: string): Promise<{
   ok: boolean;
@@ -30,6 +31,43 @@ export async function executeDraft(draftId: string): Promise<{
     return { ok: false, error: `draft no aprobado (status=${draft.status})` };
   }
   const payload = (draft.payload as any) ?? {};
+
+  // Fase 36: filtro compliance pre-ejecución para canales de salida
+  // que comunican con humanos externos (email/whatsapp/post/gmb).
+  // Bloquea si encuentra problema serio; marca el draft como FAILED
+  // con la razón y propone re-redacción. Drive files y calendar
+  // events se saltan el filtro (no son comunicación externa pura).
+  if (["EMAIL", "WHATSAPP", "EDITORIAL_POST", "CUSTOM"].includes(draft.kind)) {
+    const contentText =
+      payload.text ??
+      payload.body ??
+      payload.content ??
+      JSON.stringify(payload).slice(0, 4000);
+    const check = await checkCompliance({
+      workspaceId: draft.workspaceId,
+      kind: draft.kind,
+      contentText,
+      context: `draft id: ${draftId}`
+    });
+    if (!check.ok) {
+      await prisma.aiDraft.update({
+        where: { id: draftId },
+        data: {
+          status: "FAILED",
+          executedAt: new Date(),
+          executionResult: {
+            ok: false,
+            error: `COMPLIANCE BLOCKED: ${check.reason ?? "razón no especificada"}` +
+              (check.suggestion ? `\nSugerencia: ${check.suggestion}` : "")
+          } as any
+        }
+      });
+      return {
+        ok: false,
+        error: `Compliance bloqueó: ${check.reason ?? "sin detalle"}`
+      };
+    }
+  }
 
   try {
     let result: { ok: boolean; externalId?: string; error?: string };

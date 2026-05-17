@@ -544,6 +544,63 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
     }
   },
   {
+    name: "query_knowledge_graph",
+    description:
+      "Búsqueda CRUZADA en el workspace que liga entidades. Útil para responder preguntas tipo 'muéstrame todas las decisiones de pricing con clientes del sector salud en 2025 y agrupa por las que funcionaron'. Hace varias búsquedas semánticas + agrupa por cliente/sector + filtra por fechas. Más caro que search_knowledge — usar solo para análisis cruzados.",
+    input_schema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Pregunta o tema en lenguaje natural." },
+        clientFilter: {
+          type: "string",
+          description: "Nombre parcial de cliente para filtrar (opcional)."
+        },
+        industryFilter: {
+          type: "string",
+          description: "Sector/industria para filtrar (opcional)."
+        },
+        sinceDays: {
+          type: "number",
+          description: "Solo entidades de los últimos N días. Default 365."
+        }
+      },
+      required: ["query"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "propose_new_tool",
+    description:
+      "Propone una NUEVA tool que no tienes hoy y que crees que necesitas para automatizar un patrón recurrente que has visto. El admin revisa tu propuesta y, si le parece útil, su equipo de desarrollo la implementa y la añade a tus capacidades. ÚSALO SOLO cuando detectas un patrón claro que se repite (no para cada idea — sé selectiva). Describe: qué hace, qué argumentos toma, qué APIs/recursos necesita, y POR QUÉ la pides (qué runs se beneficiarían). La tool NO se ejecuta automáticamente — queda en /admin/nv-ia/proposed-tools.",
+    input_schema: {
+      type: "object",
+      properties: {
+        name: {
+          type: "string",
+          description: "Nombre en snake_case (ej: 'send_invoice_reminder')."
+        },
+        description: {
+          type: "string",
+          description: "Para qué sirve, qué problema resuelve. 2-4 frases."
+        },
+        inputSchema: {
+          type: "object",
+          description: "JSON Schema de los argumentos esperados (similar a las tools actuales)."
+        },
+        executorPseudoCode: {
+          type: "string",
+          description: "Pseudocódigo o TypeScript describiendo qué debería hacer la tool (qué consulta a BD, qué API externa, qué transformación). Es para el dev humano que la implemente."
+        },
+        rationale: {
+          type: "string",
+          description: "Por qué la pides. Cita ejemplos concretos (runs/tareas donde te habría ayudado). 2-4 frases."
+        }
+      },
+      required: ["name", "description", "inputSchema", "executorPseudoCode", "rationale"],
+      additionalProperties: false
+    }
+  },
+  {
     name: "spawn_subagent",
     description:
       "Delega una sub-tarea de investigación/análisis/redacción a un SUB-AGENTE especializado. Útil cuando la tarea es grande y tiene piezas independientes que puedes paralelizar mentalmente. El sub-agente trabaja sobre la MISMA tarea (mismo contexto) pero con una persona y tools restringidas. Devuelve un texto que puedes usar después. Tope: 5 sub-agentes por run. NO uses esto para todo — solo cuando hay una pieza claramente separable y compleja (ej: 'analizar el Excel de ventas Q4 y dame top 3 insights', 'redactar el primer borrador del email de 300 palabras').\n\nROLES:\n- researcher: busca y compila info del workspace (tareas, comentarios, Drive). Devuelve brief con hallazgos + referencias.\n- writer: redacta un texto concreto (email, post, propuesta). Devuelve el texto listo.\n- analyst: analiza datos de archivos/imágenes. Devuelve insights numerados con evidencia.\n- reviewer: revisa un borrador/decisión y propone mejoras/riesgos.\n\nLos sub-agentes son READ-ONLY — NO pueden comentar, asignar, ni crear drafts. Tú (el coordinator) usas su output para decidir qué hacer.",
@@ -1525,6 +1582,155 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
       draftId: draft.id,
       message:
         "Borrador de post GMB creado. La integración con Google Business Profile aún no está activa, así que el admin lo copiará a GMB manualmente tras aprobar. Cuando se construya la integración, este draft se auto-publicará al aprobar."
+    };
+  },
+
+  async query_knowledge_graph(input, ctx) {
+    const query = String(input?.query ?? "").trim();
+    if (!query) return { error: "query vacío" };
+    const sinceDays = Math.min(Math.max(Number(input?.sinceDays) || 365, 1), 1825);
+    const since = new Date(Date.now() - sinceDays * 24 * 60 * 60 * 1000);
+    const clientFilter = String(input?.clientFilter ?? "").trim();
+    const industryFilter = String(input?.industryFilter ?? "").trim();
+
+    // Resolvemos clientes que matchean filtros
+    let clientIds: string[] | null = null;
+    if (clientFilter || industryFilter) {
+      const clients = await prisma.client.findMany({
+        where: {
+          workspaceId: ctx.workspaceId,
+          ...(clientFilter ? { name: { contains: clientFilter, mode: "insensitive" as any } } : {}),
+          ...(industryFilter ? { industry: { contains: industryFilter, mode: "insensitive" as any } } : {})
+        },
+        select: { id: true, name: true, industry: true }
+      });
+      clientIds = clients.map((c) => c.id);
+      if (clientIds.length === 0) {
+        return { count: 0, results: [], note: "No hay clientes que matcheen los filtros" };
+      }
+    }
+
+    // Búsqueda semántica multi-tipo
+    const results = await semanticSearch({
+      workspaceId: ctx.workspaceId,
+      query,
+      topK: 25,
+      entityTypes: ["TASK", "COMMENT", "PROJECT", "CLIENT", "DOCUMENT"]
+    });
+
+    // Para cada hit, resolvemos su clientId (de Task→clientId,
+    // Project→clientId, Comment→targetType=Task→clientId, etc.)
+    // y filtramos por clientIds + fecha si aplica.
+    const enriched: any[] = [];
+    for (const r of results) {
+      let clientId: string | null = null;
+      let entityDate: Date | null = null;
+      try {
+        if (r.entityType === "TASK") {
+          const t = await prisma.task.findUnique({
+            where: { id: r.entityId },
+            select: { clientId: true, createdAt: true }
+          });
+          clientId = t?.clientId ?? null;
+          entityDate = t?.createdAt ?? null;
+        } else if (r.entityType === "COMMENT") {
+          const c = await prisma.comment.findUnique({
+            where: { id: r.entityId },
+            select: { targetType: true, targetId: true, createdAt: true }
+          });
+          entityDate = c?.createdAt ?? null;
+          if (c?.targetType === "TASK") {
+            const t = await prisma.task.findUnique({
+              where: { id: c.targetId },
+              select: { clientId: true }
+            });
+            clientId = t?.clientId ?? null;
+          }
+        } else if (r.entityType === "PROJECT") {
+          const p = await prisma.project.findUnique({
+            where: { id: r.entityId },
+            select: { clientId: true, createdAt: true }
+          });
+          clientId = p?.clientId ?? null;
+          entityDate = p?.createdAt ?? null;
+        } else if (r.entityType === "CLIENT") {
+          clientId = r.entityId;
+          const c = await prisma.client.findUnique({
+            where: { id: r.entityId },
+            select: { createdAt: true }
+          });
+          entityDate = c?.createdAt ?? null;
+        }
+      } catch {}
+      if (clientIds && (!clientId || !clientIds.includes(clientId))) continue;
+      if (entityDate && entityDate < since) continue;
+      enriched.push({
+        type: r.entityType,
+        id: r.entityId,
+        score: Math.round(r.score * 100) / 100,
+        text: r.text.slice(0, 400),
+        clientId,
+        date: entityDate?.toISOString() ?? null
+      });
+    }
+
+    // Agrupamos por cliente
+    const byClient: Record<string, any[]> = {};
+    for (const e of enriched) {
+      const key = e.clientId ?? "(sin cliente)";
+      byClient[key] = byClient[key] ?? [];
+      byClient[key].push(e);
+    }
+    return {
+      count: enriched.length,
+      groups: Object.entries(byClient).map(([cid, items]) => ({
+        clientId: cid,
+        count: items.length,
+        items
+      }))
+    };
+  },
+
+  async propose_new_tool(input, ctx) {
+    const name = String(input?.name ?? "").trim();
+    const description = String(input?.description ?? "").trim();
+    const executorPseudoCode = String(input?.executorPseudoCode ?? "").trim();
+    const rationale = String(input?.rationale ?? "").trim();
+    if (!name || !/^[a-z_][a-z0-9_]*$/.test(name)) {
+      return { error: "name debe ser snake_case (a-z, 0-9, _)" };
+    }
+    if (!description || !executorPseudoCode || !rationale) {
+      return { error: "description, executorPseudoCode y rationale son obligatorios" };
+    }
+    // Anti-spam: máximo 3 propuestas por run
+    const existingInRun = await prisma.aiProposedTool.count({
+      where: { proposedByRunId: ctx.runId }
+    });
+    if (existingInRun >= 3) {
+      return { error: "Ya has propuesto 3 tools en este run — concentra las mejoras" };
+    }
+    // Dedupe por name dentro del workspace
+    const dup = await prisma.aiProposedTool.findFirst({
+      where: { workspaceId: ctx.workspaceId, name, status: { in: ["PROPOSED", "APPROVED"] } }
+    });
+    if (dup) return { error: `Ya hay una tool propuesta con name="${name}" (status=${dup.status})` };
+
+    const created = await prisma.aiProposedTool.create({
+      data: {
+        workspaceId: ctx.workspaceId,
+        proposedByRunId: ctx.runId,
+        name,
+        description,
+        inputSchema: input?.inputSchema ?? {},
+        executorPseudoCode,
+        rationale,
+        status: "PROPOSED"
+      }
+    });
+    return {
+      ok: true,
+      proposedToolId: created.id,
+      message: "Propuesta guardada. El admin la verá en /admin/nv-ia/proposed-tools y decidirá si la implementa."
     };
   },
 
