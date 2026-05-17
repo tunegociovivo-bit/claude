@@ -232,6 +232,7 @@ model Workspace {
   aiProposedTools           AiProposedTool[]
   aiOwnerships              AiOwnership[]
   aiClientWorkflows         AiClientWorkflow[]
+  googleAdsConnection       GoogleAdsConnection?
 }
 
 model Membership {
@@ -2065,6 +2066,24 @@ model GoogleCalendarWatchChannel {
 //   6) (Fase 3) En reviewAt el cron pide informe a la IA.
 //
 // El token de Meta se cifra con NEXTAUTH_SECRET (encryptSecret).
+
+// Fase 52 — Google Ads. La API exige OAuth2 refresh_token (a obtener
+// vía consentimiento del user en una cuenta Google con acceso al
+// adsAccount), customer_id (la cuenta Google Ads a consultar) y un
+// developer_token de la app (env var compartido por todo el server).
+// loginCustomerId opcional: necesario solo si gestionas la cuenta
+// desde un MCC (manager account).
+model GoogleAdsConnection {
+  id                 String   @id @default(cuid())
+  workspaceId        String   @unique
+  refreshTokenEnc    String   @db.Text
+  customerId         String // "1234567890" sin guiones
+  loginCustomerId    String? // si gestionas desde un MCC
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+}
 
 model MetaConnection {
   id             String    @id @default(cuid())

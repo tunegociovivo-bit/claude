@@ -37,6 +37,13 @@ import {
 } from "@/lib/integrations/stripe-light";
 import { elevenlabsSynthesize } from "@/lib/integrations/elevenlabs";
 import { metricoolListBrands, metricoolGetStats } from "@/lib/integrations/metricool";
+import {
+  metaAdsListAdAccounts,
+  metaAdsListCampaigns,
+  metaAdsGetCampaignInsights,
+  metaAdsTopPerformers
+} from "@/lib/integrations/meta-ads";
+import { gadsListCampaigns, gadsCampaignMetrics } from "@/lib/integrations/google-ads";
 import { signedDownloadUrl } from "@/lib/storage/r2";
 import { completeVision } from "@/lib/ai/anthropic";
 import { listDriveFiles } from "@/lib/integrations/google-drive";
@@ -556,6 +563,83 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
         eventEnd: { type: "string", description: "Para type=event: fecha/hora fin ISO." }
       },
       required: ["type", "body"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "meta_ads_list_ad_accounts",
+    description:
+      "Lista cuentas publicitarias de Meta (Facebook/Instagram Ads) accesibles con la conexión Meta del workspace. Útil para encontrar el adAccountId si todavía no está configurado.",
+    input_schema: { type: "object", properties: {}, additionalProperties: false }
+  },
+  {
+    name: "meta_ads_list_campaigns",
+    description:
+      "Lista las campañas de Meta Ads del adAccount configurado. Filtra por status (ACTIVE, PAUSED, ARCHIVED). Devuelve id, name, objetivo, budget.",
+    input_schema: {
+      type: "object",
+      properties: {
+        status: { type: "string", enum: ["ACTIVE", "PAUSED", "ARCHIVED"] },
+        limit: { type: "number" }
+      },
+      additionalProperties: false
+    }
+  },
+  {
+    name: "meta_ads_get_campaign_insights",
+    description:
+      "Performance de una campaña Meta en un rango: impressions, clicks, spend, CTR, CPC, CPM, reach, frequency, actions. datePreset='last_7d|last_30d|last_90d' o pasa since/until ISO YYYY-MM-DD.",
+    input_schema: {
+      type: "object",
+      properties: {
+        campaignId: { type: "string" },
+        datePreset: { type: "string" },
+        since: { type: "string" },
+        until: { type: "string" }
+      },
+      required: ["campaignId"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "meta_ads_top_performers",
+    description:
+      "Top campañas Meta por una métrica (spend, impressions, ctr, reach) en un rango. Útil para informes y análisis cross-campaña sin tener que pedir cada insights por separado.",
+    input_schema: {
+      type: "object",
+      properties: {
+        metric: { type: "string", enum: ["spend", "impressions", "ctr", "reach"] },
+        datePreset: { type: "string" },
+        limit: { type: "number" }
+      },
+      additionalProperties: false
+    }
+  },
+  {
+    name: "google_ads_list_campaigns",
+    description:
+      "Campañas Google Ads del customerId configurado. Filtra por status (ENABLED, PAUSED, REMOVED). Devuelve id, name, type, budget en EUR, fechas.",
+    input_schema: {
+      type: "object",
+      properties: {
+        status: { type: "string", enum: ["ENABLED", "PAUSED", "REMOVED"] },
+        limit: { type: "number" }
+      },
+      additionalProperties: false
+    }
+  },
+  {
+    name: "google_ads_get_metrics",
+    description:
+      "Métricas de campañas Google Ads en un rango: impressions, clicks, cost en EUR, CTR, CPC, conversions, value de conversiones. Si pasas campaignId filtra a una sola; si lo omites, devuelve todas. datePreset='LAST_7_DAYS|LAST_30_DAYS|LAST_90_DAYS' o pasa since/until.",
+    input_schema: {
+      type: "object",
+      properties: {
+        campaignId: { type: "string" },
+        datePreset: { type: "string" },
+        since: { type: "string" },
+        until: { type: "string" }
+      },
       additionalProperties: false
     }
   },
@@ -1819,6 +1903,82 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
       message:
         "Borrador de post GMB creado. La integración con Google Business Profile aún no está activa, así que el admin lo copiará a GMB manualmente tras aprobar. Cuando se construya la integración, este draft se auto-publicará al aprobar."
     };
+  },
+
+  async meta_ads_list_ad_accounts(_input, ctx) {
+    try {
+      const accounts = await metaAdsListAdAccounts(ctx.workspaceId);
+      return { count: accounts.length, accounts };
+    } catch (e: any) {
+      return { error: `Meta Ads no disponible: ${e?.message ?? e}` };
+    }
+  },
+  async meta_ads_list_campaigns(input, ctx) {
+    try {
+      const campaigns = await metaAdsListCampaigns({
+        workspaceId: ctx.workspaceId,
+        status: input?.status,
+        limit: typeof input?.limit === "number" ? input.limit : 50
+      });
+      return { count: campaigns.length, campaigns };
+    } catch (e: any) {
+      return { error: `Meta Ads no disponible: ${e?.message ?? e}` };
+    }
+  },
+  async meta_ads_get_campaign_insights(input, ctx) {
+    const campaignId = String(input?.campaignId ?? "").trim();
+    if (!campaignId) return { error: "campaignId vacío" };
+    try {
+      const insights = await metaAdsGetCampaignInsights({
+        workspaceId: ctx.workspaceId,
+        campaignId,
+        datePreset: input?.datePreset ? String(input.datePreset) : undefined,
+        since: input?.since ? String(input.since) : undefined,
+        until: input?.until ? String(input.until) : undefined
+      });
+      return { ok: true, insights };
+    } catch (e: any) {
+      return { error: `Meta Ads no disponible: ${e?.message ?? e}` };
+    }
+  },
+  async meta_ads_top_performers(input, ctx) {
+    try {
+      const top = await metaAdsTopPerformers({
+        workspaceId: ctx.workspaceId,
+        datePreset: input?.datePreset ? String(input.datePreset) : undefined,
+        metric: input?.metric,
+        limit: typeof input?.limit === "number" ? input.limit : 10
+      });
+      return { count: top.length, top };
+    } catch (e: any) {
+      return { error: `Meta Ads no disponible: ${e?.message ?? e}` };
+    }
+  },
+  async google_ads_list_campaigns(input, ctx) {
+    try {
+      const campaigns = await gadsListCampaigns({
+        workspaceId: ctx.workspaceId,
+        status: input?.status,
+        limit: typeof input?.limit === "number" ? input.limit : 50
+      });
+      return { count: campaigns.length, campaigns };
+    } catch (e: any) {
+      return { error: `Google Ads no disponible: ${e?.message ?? e}` };
+    }
+  },
+  async google_ads_get_metrics(input, ctx) {
+    try {
+      const metrics = await gadsCampaignMetrics({
+        workspaceId: ctx.workspaceId,
+        campaignId: input?.campaignId ? String(input.campaignId) : undefined,
+        datePreset: input?.datePreset ? String(input.datePreset) : undefined,
+        since: input?.since ? String(input.since) : undefined,
+        until: input?.until ? String(input.until) : undefined
+      });
+      return { count: metrics.length, metrics };
+    } catch (e: any) {
+      return { error: `Google Ads no disponible: ${e?.message ?? e}` };
+    }
   },
 
   async generate_voice_audio(input, ctx) {

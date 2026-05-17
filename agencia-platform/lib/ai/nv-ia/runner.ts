@@ -34,10 +34,16 @@ Lectura:
 - code_execution: ejecuta Python en sandbox de Anthropic. Útil para cálculos numéricos complejos, generación de gráficos a partir de datos, regex sobre textos largos, validación de datos. NO accede a tu Drive, R2 ni BD — solo lo que le pegues en el prompt.
 
 Facturación / ERP (Holded + Stripe):
-- holded_list_invoices: facturas en Holded (filtro status). Útil para revisar morosidad, preparar recordatorios de pago.
-- holded_list_contacts: contactos/clientes en Holded. Búscalo antes de crear factura para tener contactId.
-- holded_list_quotes: presupuestos pendientes.
-- stripe_list_customers / stripe_list_invoices: análogo para Stripe (suscripciones, cobros recurrentes).
+- holded_list_invoices, holded_list_contacts, holded_list_quotes: lectura de Holded.
+- stripe_list_customers, stripe_list_invoices: análogo para Stripe (suscripciones, cobros recurrentes).
+
+Publicidad (Meta Ads + Google Ads):
+- meta_ads_list_ad_accounts, meta_ads_list_campaigns, meta_ads_get_campaign_insights,
+  meta_ads_top_performers: lectura de campañas Meta (FB/IG). Métricas: impressions,
+  clicks, spend, CTR, CPC, reach. Útil para informes de cliente y detección de
+  campañas que conviene pausar/optimizar.
+- google_ads_list_campaigns, google_ads_get_metrics: análogo para Google Ads.
+  Incluye conversions y conversion_value — clave para análisis de ROAS.
 
 Escritura inmediata (firmada como NV IA, sin aprobación):
 - add_comment: comentario público en la tarea.

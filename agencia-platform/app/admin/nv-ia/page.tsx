@@ -419,11 +419,10 @@ export default function NvIaAdminPage() {
             <p>
               <strong>Tools disponibles (35):</strong>
               <br />
-              <strong>Lectura (20):</strong> get_task_context, list_task_files, read_file_content,
-              analyze_image, transcribe_audio, list_drive_files, read_drive_file, search_tasks,
-              search_knowledge, get_calendar_events, get_team_members, get_client_memory,
-              get_workspace_memory, get_user_memory, web_search, holded_list_invoices,
-              holded_list_contacts, holded_list_quotes, stripe_list_customers, stripe_list_invoices.
+              <strong>Lectura (29):</strong> contexto + archivos + visión + voz + Drive + RAG
+              + calendario + equipo + memoria 3-capas + web + Holded (invoices/contacts/quotes)
+              + Stripe (customers/invoices) + Metricool (brands/stats) + Meta Ads
+              (ad_accounts/campaigns/insights/top) + Google Ads (campaigns/metrics).
               <br />
               <strong>Escritura inmediata (12):</strong> add_comment, update_task_status,
               update_client_memory, update_workspace_memory, update_user_memory, assign_task,
