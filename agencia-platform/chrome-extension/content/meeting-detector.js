@@ -66,12 +66,15 @@
 
   function fetchProjects() {
     return new Promise((resolve) => {
+      const timer = setTimeout(() => resolve({ ok: false, error: "timeout 10s del SW" }), 10000);
       try {
         chrome.runtime.sendMessage({ from: "content", type: "fetch-projects" }, (resp) => {
-          resolve(resp?.projects ?? []);
+          clearTimeout(timer);
+          resolve(resp ?? { ok: false, error: "respuesta vacía del SW" });
         });
-      } catch {
-        resolve([]);
+      } catch (e) {
+        clearTimeout(timer);
+        resolve({ ok: false, error: String(e?.message ?? e) });
       }
     });
   }
@@ -140,10 +143,15 @@
 
     const content = shadow.getElementById("content");
 
-    fetchProjects().then((projects) => {
+    fetchProjects().then((resp) => {
+      // resp puede venir como { ok:true, projects:[...] } o { ok:false, error }
+      const projects = Array.isArray(resp?.projects) ? resp.projects : (Array.isArray(resp) ? resp : []);
       if (projects.length === 0) {
+        const errMsg = resp?.error
+          ? `Error: ${resp.error}`
+          : "No se pudieron cargar los proyectos. Asegúrate de tener sesión en hub.negociovivo.app.";
         content.innerHTML = `
-          <div class="err">No se pudieron cargar los proyectos. Asegúrate de tener sesión en hub.negociovivo.app.</div>
+          <div class="err">${escapeText(errMsg)}</div>
           <button class="secondary" style="width:100%;margin-top:8px" id="retry-btn">Reintentar</button>
         `;
         shadow.getElementById("retry-btn").onclick = () => {

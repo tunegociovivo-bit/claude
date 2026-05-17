@@ -13,6 +13,7 @@ import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { callerIsAdmin } from "@/lib/api/permissions";
+import { appendClientMemoryNote } from "@/lib/ai/nv-ia/client-memory";
 
 export const dynamic = "force-dynamic";
 
@@ -41,5 +42,30 @@ export const POST = withApi({ scope: "*" }, async (req, { params, api }) => {
       reviewerNote: parsed.data.note ?? null
     }
   });
+
+  // Auto-feedback: si el draft tenía una task con cliente Y hubo
+  // nota de rechazo, la añadimos a la memoria del cliente. Así la
+  // IA aprende del rechazo automáticamente — no tiene que hacer
+  // nada para empezar a recordar "no le mandes esto en este tono".
+  if (parsed.data.note && draft.taskId) {
+    try {
+      const task = await prisma.task.findFirst({
+        where: { id: draft.taskId, workspaceId: api.workspaceId },
+        select: { clientId: true, title: true }
+      });
+      if (task?.clientId) {
+        await appendClientMemoryNote({
+          workspaceId: api.workspaceId,
+          clientId: task.clientId,
+          note: `Sobre "${draft.title.slice(0, 80)}" → ${parsed.data.note}`,
+          type: "rejected_draft",
+          by: api.userId ? `user:${api.userId}` : "admin"
+        });
+      }
+    } catch (e) {
+      console.warn("[nv-ia memory] append on reject failed:", (e as Error).message);
+    }
+  }
+
   return NextResponse.json({ ok: true, draft: updated });
 });

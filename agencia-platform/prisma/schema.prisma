@@ -225,6 +225,7 @@ model Workspace {
   metaCampaigns             MetaCampaign[]
   aiAgentRuns               AiAgentRun[]
   aiDrafts                  AiDraft[]
+  aiClientMemories          AiClientMemory[]
 }
 
 model Membership {
@@ -336,6 +337,7 @@ model Client {
   events         CalendarEvent[]
   editorialPosts EditorialPost[]
   deliverables   Deliverable[]
+  aiMemory       AiClientMemory?
 
   @@index([workspaceId])
 }
@@ -1463,6 +1465,31 @@ enum AiAgentRunTrigger {
   PROACTIVE_DEADLINE  // cron detectó deadline cercana sin progreso
   PROACTIVE_STALE     // cron detectó task estancada (IN_PROGRESS sin updates)
   SCHEDULED           // cron diario de revisión global
+}
+
+// Fase 8: memoria persistente que NV IA acumula sobre cada cliente
+// a través de los runs. Notas tipo:
+//   - Preferencias confirmadas (cliente prefiere tono formal)
+//   - Decisiones tomadas (acordamos usar Notion en lugar de Confluence)
+//   - Rechazos previos (no le gustó que mencionáramos competencia)
+//   - Restricciones (no contactar en horario de oficina)
+//
+// content es markdown plano. La IA o el admin lo edita; lo guardamos
+// con cap de 50KB — si crece más, los apends viejos se truncan con
+// marca. Cada actualización registra updatedBy ("nv-ia" o userId).
+model AiClientMemory {
+  id          String   @id @default(cuid())
+  workspaceId String
+  clientId    String   @unique
+  content     String   @db.Text @default("")
+  updatedBy   String? // "nv-ia" | userId del humano que editó
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  client    Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
 }
 
 // Fase 2: borradores generados por NV IA que necesitan aprobación

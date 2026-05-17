@@ -89,14 +89,24 @@ async function readHubSessionCookie() {
 async function authedFetch(path, init = {}) {
   const { hubUrl } = await getState();
   const headers = new Headers(init.headers ?? {});
-  const cookieValue = await readHubSessionCookie();
-  if (cookieValue) headers.set("Authorization", `Bearer ${cookieValue}`);
-  return fetch(`${hubUrl.replace(/\/$/, "")}${path}`, {
-    ...init,
-    headers,
-    credentials: "include",
-    cache: "no-store"
-  });
+  // Intentamos primero SIN Bearer — credentials:include adjunta la
+  // cookie del Hub si está disponible (probado: funciona aunque
+  // chrome.cookies.get no devuelva la cookie __Secure-).
+  const baseUrl = `${hubUrl.replace(/\/$/, "")}${path}`;
+  const opts = { ...init, headers, credentials: "include", cache: "no-store" };
+  let resp = await fetch(baseUrl, opts);
+  // Si el server rechaza por auth, reintentamos añadiendo Bearer con
+  // el JWT crudo de la cookie — fallback para entornos donde la
+  // cookie no se envíe por algún motivo (algunas configs de SameSite).
+  if (resp.status === 401 || resp.status === 403) {
+    const cookieValue = await readHubSessionCookie();
+    if (cookieValue) {
+      const retryHeaders = new Headers(headers);
+      retryHeaders.set("Authorization", `Bearer ${cookieValue}`);
+      resp = await fetch(baseUrl, { ...opts, headers: retryHeaders });
+    }
+  }
+  return resp;
 }
 
 /**
@@ -492,16 +502,24 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       return;
     }
     if (msg?.from === "content" && msg?.type === "meeting-detected") {
-      const { notifications, user } = await getState();
+      let { notifications, user } = await getState();
       const unread = notifications.filter((n) => !n.read).length;
       if (unread === 0) {
         chrome.action.setBadgeText({ text: "●", tabId: sender.tab?.id });
         chrome.action.setBadgeBackgroundColor({ color: "#dc2626", tabId: sender.tab?.id });
       }
+      // Si el SW aún no tiene `user` en storage (cold start, primera
+      // vez tras instalar la extensión), hacemos un syncSession AHORA
+      // mismo. Sin esto, el banner no se autoabre hasta que el user
+      // abra el popup por primera vez — UX rota.
+      if (!user) {
+        try { await syncSession(); } catch {}
+        ({ user } = await getState());
+      }
       // Respondemos al content-script con la decisión: si está logueado
-      // y no hay grabación activa, debería mostrar el banner. El content
-      // hace pull en lugar de esperar a un push del SW (evita race
-      // conditions al cargar Meet/Teams cuando el SW aún está dormido).
+      // y no hay grabación activa, debería mostrar el banner. Pull en
+      // lugar de push para evitar races (el content puede tardar en
+      // registrar su onMessage listener).
       sendResponse({
         ok: true,
         shouldShowBanner: !!(user && !recordingCtx)

@@ -420,18 +420,40 @@ chrome.storage.onChanged.addListener((changes, area) => {
 });
 
 let _projectsCache = null;
+async function fetchProjectsDirect() {
+  // Mismo patrón que el probe del diag: fetch directo desde el popup
+  // (no a través del SW) porque el popup tiene origin de extensión y
+  // host_permissions garantizan que credentials:include envía la
+  // cookie del Hub aunque chrome.cookies.get no la encuentre.
+  const stored = await chrome.storage.local.get(["hubUrl"]);
+  const hubUrl = stored.hubUrl ?? "https://hub.negociovivo.app";
+  try {
+    const r = await fetch(`${hubUrl.replace(/\/$/, "")}/api/v1/projects`, {
+      credentials: "include",
+      cache: "no-store"
+    });
+    if (!r.ok) return { ok: false, status: r.status };
+    const data = await r.json();
+    return { ok: true, projects: data.items ?? [] };
+  } catch (e) {
+    return { ok: false, error: String(e?.message ?? e) };
+  }
+}
+
 async function loadProjectSelectors() {
   const projSel = $("proj-select");
   const colSel = $("col-select");
   if (!projSel || !colSel) return;
   if (!_projectsCache) {
-    const resp = await new Promise((resolve) => {
-      try {
-        chrome.runtime.sendMessage({ from: "popup", type: "fetch-projects" }, (r) => resolve(r));
-      } catch { resolve({ ok: false }); }
-    });
-    if (!resp?.ok || !Array.isArray(resp.projects) || resp.projects.length === 0) {
-      projSel.innerHTML = '<option value="">(sin proyectos disponibles)</option>';
+    projSel.innerHTML = '<option value="">Cargando proyectos…</option>';
+    const resp = await fetchProjectsDirect();
+    if (!resp.ok) {
+      projSel.innerHTML = `<option value="">Error al cargar (${resp.status ?? resp.error ?? "?"})</option>`;
+      colSel.innerHTML = '<option value="TODO">Por hacer</option>';
+      return;
+    }
+    if (resp.projects.length === 0) {
+      projSel.innerHTML = '<option value="">(sin proyectos en este workspace)</option>';
       colSel.innerHTML = '<option value="TODO">Por hacer</option>';
       return;
     }

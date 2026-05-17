@@ -12,6 +12,7 @@ import { prisma } from "@/lib/db/prisma";
 import { semanticSearch } from "@/lib/search/embeddings";
 import { extractTextFromFile } from "./file-reader";
 import { readDriveFileText } from "./drive-reader";
+import { readClientMemory, appendClientMemoryNote } from "./client-memory";
 import { signedDownloadUrl } from "@/lib/storage/r2";
 import { completeVision } from "@/lib/ai/anthropic";
 import { listDriveFiles } from "@/lib/integrations/google-drive";
@@ -309,6 +310,43 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
     }
   },
   {
+    name: "get_client_memory",
+    description:
+      "Lee la memoria persistente que NV IA ha acumulado sobre un cliente: preferencias, decisiones, rechazos previos, restricciones. ÚSALO SI dudas del estilo a usar con un cliente o si te preguntas '¿cómo le hablamos a este cliente normalmente?'. Si la tarea actual tiene cliente, get_task_context YA te incluye esta memoria — solo llama aquí si quieres la de OTRO cliente o si necesitas refrescarla.",
+    input_schema: {
+      type: "object",
+      properties: {
+        clientId: {
+          type: "string",
+          description: "ID del cliente. Si lo omites, usa el cliente de la tarea actual."
+        }
+      },
+      additionalProperties: false
+    }
+  },
+  {
+    name: "update_client_memory",
+    description:
+      "Añade una nota a la memoria persistente de un cliente. Úsalo cuando aprendas algo IMPORTANTE que aplique a TODOS los futuros trabajos con ese cliente: tono preferido, restricciones, decisiones de estrategia. NO lo uses para detalles operativos de una tarea concreta (eso ya queda en comentarios). Sé conciso — una frase clara. Tipos: observation, preference, decision, rejected_draft, restriction.",
+    input_schema: {
+      type: "object",
+      properties: {
+        note: { type: "string", description: "Texto de la nota (1 frase, max 4000 chars)." },
+        type: {
+          type: "string",
+          enum: ["observation", "preference", "decision", "rejected_draft", "restriction"],
+          description: "Categoría — ayuda a la IA del futuro a filtrar/encontrar la nota."
+        },
+        clientId: {
+          type: "string",
+          description: "ID del cliente. Si lo omites, usa el cliente de la tarea actual."
+        }
+      },
+      required: ["note"],
+      additionalProperties: false
+    }
+  },
+  {
     name: "get_team_members",
     description:
       "Lista los miembros del workspace (id, nombre, email, rol). Útil ANTES de assign_task o create_subtask para saber a quién puedes asignar trabajo.",
@@ -405,6 +443,16 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
       include: { author: { select: { name: true, email: true } } },
       take: 50
     });
+    // Auto-inyección de memoria del cliente. Si el task tiene
+    // clientId y existe memoria acumulada de runs anteriores, la
+    // metemos aquí — ahorra a la IA hacer una tool call extra y
+    // garantiza que SIEMPRE tiene el contexto histórico antes de
+    // actuar (decisiones tomadas, preferencias, rechazos pasados).
+    let clientMemory: string | null = null;
+    if (task.clientId) {
+      const mem = await readClientMemory(ctx.workspaceId, task.clientId);
+      if (mem) clientMemory = mem;
+    }
     return {
       task: {
         id: task.id,
@@ -423,7 +471,8 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
         author: c.author?.name ?? c.author?.email ?? "?",
         createdAt: c.createdAt,
         body: c.body
-      }))
+      })),
+      clientMemory
     };
   },
 
@@ -833,6 +882,50 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
       truncated: result.truncated,
       text: result.text
     };
+  },
+
+  async get_client_memory(input, ctx) {
+    let clientId = input?.clientId ? String(input.clientId) : null;
+    if (!clientId) {
+      const t = await prisma.task.findFirst({
+        where: { id: ctx.taskId, workspaceId: ctx.workspaceId },
+        select: { clientId: true }
+      });
+      clientId = t?.clientId ?? null;
+    }
+    if (!clientId) return { error: "La tarea no tiene cliente asignado y no pasaste clientId" };
+    const mem = await readClientMemory(ctx.workspaceId, clientId);
+    return {
+      clientId,
+      hasMemory: mem.length > 0,
+      content: mem
+    };
+  },
+
+  async update_client_memory(input, ctx) {
+    let clientId = input?.clientId ? String(input.clientId) : null;
+    if (!clientId) {
+      const t = await prisma.task.findFirst({
+        where: { id: ctx.taskId, workspaceId: ctx.workspaceId },
+        select: { clientId: true }
+      });
+      clientId = t?.clientId ?? null;
+    }
+    if (!clientId) return { error: "La tarea no tiene cliente asignado y no pasaste clientId" };
+    const note = String(input?.note ?? "").trim();
+    if (!note) return { error: "note vacío" };
+    const type = ["observation", "preference", "decision", "rejected_draft", "restriction"].includes(input?.type)
+      ? input.type
+      : "observation";
+    const r = await appendClientMemoryNote({
+      workspaceId: ctx.workspaceId,
+      clientId,
+      note,
+      type,
+      by: "nv-ia"
+    });
+    if (!r.ok) return { error: r.error };
+    return { ok: true, clientId, size: r.size };
   },
 
   async get_team_members(_input, ctx) {
