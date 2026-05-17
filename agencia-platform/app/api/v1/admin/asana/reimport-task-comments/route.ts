@@ -170,10 +170,27 @@ export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api }) 
 
         const exists = await prisma.comment.findUnique({ where: { asanaId: story.gid } });
         if (exists) {
+          // Si el comentario existe pero apunta a OTRO targetId (porque
+          // una importación previa lo creó cuando la tarea local tenía
+          // un id distinto, o porque la tarea fue eliminada y re-creada),
+          // lo re-enlazamos al targetId actual. También sincronizamos
+          // workspaceId y targetType por defensa. Sin esto, los
+          // comentarios "huérfanos" no aparecen en el modal aunque el
+          // re-import diga "actualizado".
           await prisma.comment.update({
             where: { id: exists.id },
-            data: { body: story.text ?? "", bodyJson: parsed.doc as any }
+            data: {
+              body: story.text ?? "",
+              bodyJson: parsed.doc as any,
+              targetId: localTask.id,
+              targetType: "TASK",
+              workspaceId: api.workspaceId,
+              authorId
+            }
           });
+          if (exists.targetId !== localTask.id) {
+            base.reason = `relinked from ${exists.targetId}`;
+          }
           base.action = "updated";
           updated++;
         } else {

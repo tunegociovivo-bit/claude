@@ -510,15 +510,28 @@ async function runImport(jobId: string, opts: ImportOptions) {
         stats.attachmentsFailed += parsed.assetsFailed;
 
         if (exists) {
-          // Refresh: actualizamos el bodyJson con las imágenes
-          // descargadas (y el body String por si cambió el texto).
+          // Refresh: además de actualizar body/bodyJson, RE-LINK al
+          // targetId/workspaceId/authorId actuales por si una
+          // importación previa los dejó apuntando a una tarea local
+          // que ya no existe (re-creación, soft-delete + restore, etc).
+          // Sin esto los comentarios quedan huérfanos y no aparecen en
+          // el modal aunque el import diga "ya existía, refrescado".
           await prisma.comment.update({
             where: { id: exists.id },
             data: {
               body: story.text ?? "",
-              bodyJson: parsed.doc as any
+              bodyJson: parsed.doc as any,
+              targetId: local.id,
+              targetType: "TASK",
+              workspaceId: opts.workspaceId,
+              authorId
             }
           });
+          if (exists.targetId !== local.id) {
+            stats.warnings.push(
+              `Comentario ${story.gid} re-enlazado: ${exists.targetId} → ${local.id} (tarea "${t.name}")`
+            );
+          }
           stats.commentsSkipped++; // ya existía, solo refrescado
         } else {
           await prisma.comment.create({
