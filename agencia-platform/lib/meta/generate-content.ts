@@ -39,12 +39,17 @@ import { getOpenAiKeyForWorkspace } from "@/lib/ai/openai";
 import { buildS3Key, isStorageEnabled, signedDownloadUrl, uploadBuffer } from "@/lib/storage/r2";
 import { logAiUsage } from "@/lib/ai/usage";
 
-// Modelo de imagen de OpenAI. Probamos primero "gpt-image-2" (el más
-// reciente, mejor composición y prompt-following) y si la API
-// devuelve 400 model_not_found caemos a "gpt-image-1". Así si OpenAI
-// retira / renombra el modelo, no se rompe la plataforma.
-const IMAGE_MODEL_PRIMARY = "gpt-image-2";
-const IMAGE_MODEL_FALLBACK = "gpt-image-1";
+// Modelo de imagen de OpenAI. ORDEN INVERTIDO en v05/2026:
+// gpt-image-1 es el modelo confirmado y disponible en la API
+// /v1/images/generations. gpt-image-2 no parece estar disponible
+// todavía → si lo probábamos primero, cada llamada fallaba con 400
+// model_not_found, hacíamos retry con gpt-image-1, y el tiempo total
+// por imagen se duplicaba (genrations en HIGH quality ya tardan
+// 60-90s; con la doble llamada llegaban a 2-3 min).
+// Si en el futuro OpenAI publica gpt-image-2 con mejor calidad,
+// swappeamos las constantes.
+const IMAGE_MODEL_PRIMARY = "gpt-image-1";
+const IMAGE_MODEL_FALLBACK = "gpt-image-1"; // mismo modelo — sin fallback útil hoy
 const CAROUSEL_CARDS = 3;          // tarjetas por carrusel
 const PARALLEL_IMAGE_GENS = 2;     // concurrencia para no saturar OpenAI
 
@@ -363,11 +368,16 @@ export async function generateAdImage(opts: {
   }
   const apiKey = await getOpenAiKeyForWorkspace(opts.workspaceId);
   const size: ImageSize = opts.size ?? "1024x1024";
-  // Subimos calidad por defecto a "high" — los anuncios de Meta se
-  // ven a tamaño grande y la diferencia de coste con "medium" es
-  // pequeña (~$0.10 vs $0.04) comparado con el impacto en CTR de
-  // una imagen con composición fina.
-  const quality = opts.quality ?? "high";
+  // Calidad: "medium" por defecto. "high" tardaba 60-90s por imagen
+  // y, multiplicado por 3 variantes (square/portrait/landscape) por
+  // anuncio + worker pool de 2 ads concurrentes, las campañas con 5
+  // anuncios podían tardar 10 min y a veces el frontend se quedaba
+  // atascado mostrando "Generando…". El usuario reportó error largo
+  // tras subir a high. "medium" produce calidad suficiente para
+  // creativos publicitarios — el modelo gpt-image-1 ya da resultados
+  // limpios. Si en un anuncio concreto se quiere extra calidad,
+  // pasamos quality:"high" explícitamente.
+  const quality = opts.quality ?? "medium";
 
   // Wrap del prompt con directrices SPECÍFICAS de un anuncio Meta.
   // Sin esto, gpt-image devuelve fotos genéricas tipo stock; con
