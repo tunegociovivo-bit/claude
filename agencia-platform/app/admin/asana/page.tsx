@@ -12,6 +12,8 @@ type Job = {
   startedAt: string;
   finishedAt?: string | null;
   errorMsg?: string | null;
+  currentStage?: string | null;
+  lastHeartbeatAt?: string | null;
   stats?: any;
 };
 
@@ -406,6 +408,30 @@ export default function AsanaImportPage() {
               ? "Importación falló"
               : "Importando…"}
           </h2>
+
+          {/* Etapa actual + último heartbeat — para que el user vea
+              QUÉ está haciendo el job y si sigue vivo. Si hace >5 min
+              que no hay heartbeat, advertimos en rojo. */}
+          {job && (job.currentStage || job.lastHeartbeatAt) && (
+            <div className="mb-4 text-sm">
+              {job.currentStage && (
+                <div className="text-slate-700">
+                  <strong>Etapa:</strong> {job.currentStage}
+                </div>
+              )}
+              {job.lastHeartbeatAt && job.status === "RUNNING" && (() => {
+                const ageMs = Date.now() - new Date(job.lastHeartbeatAt).getTime();
+                const ageS = Math.round(ageMs / 1000);
+                const stale = ageMs > 5 * 60 * 1000;
+                return (
+                  <div className={stale ? "text-rose-700 font-medium" : "text-slate-500 text-xs"}>
+                    Última actualización hace {ageS < 60 ? `${ageS}s` : `${Math.round(ageS / 60)} min`}
+                    {stale && " — posible bloqueo, considera relanzar"}
+                  </div>
+                );
+              })()}
+            </div>
+          )}
 
           {job?.stats && (
             <>

@@ -1659,6 +1659,16 @@ model AsanaImport {
   status      String // PENDING | RUNNING | COMPLETED | FAILED
   startedAt   DateTime  @default(now())
   finishedAt  DateTime?
+  // Latido del background job: el importer actualiza este campo cada
+  // pocas operaciones. Si el UI ve status=RUNNING pero lastHeartbeatAt
+  // > 5 min sin actualizar, sabe que el proceso ha muerto (deploy,
+  // crash, OOM) y muestra "atascado — puedes relanzar".
+  lastHeartbeatAt DateTime?
+  // Etapa actual en lenguaje humano: "Leyendo usuarios de Asana",
+  // "Importando tareas (proyecto 3/12)", "Subiendo adjuntos", etc.
+  // El UI lo muestra para que el user vea QUÉ está haciendo, no solo
+  // contadores.
+  currentStage String?
   stats       Json? // { projects: 12, tasks: 340, attachments: 18, ... }
   errorMsg    String?
 

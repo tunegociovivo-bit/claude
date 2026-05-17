@@ -143,10 +143,14 @@ async function runImport(jobId: string, opts: ImportOptions) {
   const stats: Stats = emptyStats();
   const client = new AsanaClient(opts.token);
 
-  await prisma.asanaImport.update({ where: { id: jobId }, data: { status: "RUNNING" } });
+  await prisma.asanaImport.update({
+    where: { id: jobId },
+    data: { status: "RUNNING", lastHeartbeatAt: new Date(), currentStage: "Iniciando" }
+  });
 
   try {
     // ─── Usuarios ─────────────────────────────────────────────────────────────
+    await heartbeat(jobId, "Leyendo usuarios de Asana");
     const userByGid = new Map<string, string>(); // asanaGid → local userId
     for await (const u of client.workspaceUsers(opts.asanaWorkspaceGid)) {
       if (!u.email) {
@@ -183,6 +187,7 @@ async function runImport(jobId: string, opts: ImportOptions) {
     type ProjectInfo = { localId: string; sections: Map<string, SectionInfo> };
     const projectByGid = new Map<string, ProjectInfo>();
 
+    await heartbeat(jobId, "Leyendo proyectos y secciones");
     for await (const p of client.workspaceProjects(opts.asanaWorkspaceGid)) {
       if (opts.projectGids && !opts.projectGids.includes(p.gid)) continue;
       let local = await prisma.project.findUnique({ where: { asanaId: p.gid } });
@@ -614,7 +619,16 @@ async function runImport(jobId: string, opts: ImportOptions) {
       return local.id;
     }
 
+    const totalProjects = projectByGid.size;
+    let projectIdx = 0;
     for (const [projectGid, info] of projectByGid) {
+      projectIdx++;
+      const localProj = await prisma.project.findUnique({
+        where: { id: info.localId },
+        select: { name: true }
+      });
+      const projName = localProj?.name ?? projectGid;
+      await heartbeat(jobId, `Importando tareas — proyecto ${projectIdx}/${totalProjects}: ${projName}`);
       // Asana devuelve las tareas en el orden que tienen en el
       // proyecto (top-to-bottom como las ve el user). Asignamos
       // `order` incremental por columna para preservar ese orden,
@@ -658,7 +672,11 @@ async function runImport(jobId: string, opts: ImportOptions) {
         // Persistimos stats cada 25 tareas — así el UI ve progreso
         // real y, si el proceso muere, sabemos hasta dónde llegó.
         if (tasksThisProject % 25 === 0) {
-          await persistStats(jobId, stats);
+          await persistStats(
+            jobId,
+            stats,
+            `Importando tareas — proyecto ${projectIdx}/${totalProjects}: ${projName} (${tasksThisProject} en este proyecto)`
+          );
         }
       }
       await persistStats(jobId, stats);
@@ -681,7 +699,7 @@ async function runImport(jobId: string, opts: ImportOptions) {
   }
 }
 
-async function persistStats(jobId: string, stats: Stats) {
+async function persistStats(jobId: string, stats: Stats, stage?: string) {
   // Cap warnings a las últimas 200 líneas — sin esto, un proyecto
   // problemático puede generar miles de warnings y el JSON resultante
   // peta el límite de columna BD o el bundle del UI.
@@ -689,5 +707,28 @@ async function persistStats(jobId: string, stats: Stats) {
     ...stats,
     warnings: stats.warnings.length > 200 ? stats.warnings.slice(-200) : stats.warnings
   };
-  await prisma.asanaImport.update({ where: { id: jobId }, data: { stats: capped as any } });
+  await prisma.asanaImport.update({
+    where: { id: jobId },
+    data: {
+      stats: capped as any,
+      lastHeartbeatAt: new Date(),
+      ...(stage ? { currentStage: stage } : {})
+    }
+  });
+}
+
+/**
+ * Latido sin tocar stats — para etapas largas donde el contador no
+ * cambia (esperando una llamada Asana lenta, descargando un attachment
+ * grande). Sin esto el UI vería "atascado" cuando en realidad solo
+ * está aguantando una red lenta.
+ */
+async function heartbeat(jobId: string, stage?: string) {
+  await prisma.asanaImport.update({
+    where: { id: jobId },
+    data: {
+      lastHeartbeatAt: new Date(),
+      ...(stage ? { currentStage: stage } : {})
+    }
+  }).catch(() => {});
 }
