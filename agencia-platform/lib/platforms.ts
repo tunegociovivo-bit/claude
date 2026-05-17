@@ -13,7 +13,7 @@
  */
 
 import { LucideIcon } from "lucide-react";
-import { Star, Mic, FileText, Download, MessageSquare, Sparkles } from "lucide-react";
+import { Star, Mic, FileText, Download, MessageSquare, Sparkles, Megaphone } from "lucide-react";
 
 export type PlatformKey =
   | "reviews"
@@ -21,7 +21,8 @@ export type PlatformKey =
   | "nv_dashboard"
   | "nv_leads"
   | "redactor_ia"
-  | "asana_import";
+  | "asana_import"
+  | "meta_campaigns";
 
 export type PlatformDef = {
   key: PlatformKey;
@@ -82,6 +83,14 @@ export const PLATFORMS: PlatformDef[] = [
     description: "Captación de leads de Google My Business + secuencias WhatsApp.",
     href: "/admin/leads",
     icon: MessageSquare,
+    available: true
+  },
+  {
+    key: "meta_campaigns",
+    label: "Campaña Redes IA",
+    description: "Crea y lanza campañas publicitarias en Meta (Facebook/Instagram) asistido por IA: segmentación, copys, imágenes y revisión automática.",
+    href: "/campanas-meta",
+    icon: Megaphone,
     available: true
   }
 ];
