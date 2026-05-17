@@ -11,6 +11,10 @@ import type Anthropic from "@anthropic-ai/sdk";
 import { prisma } from "@/lib/db/prisma";
 import { semanticSearch } from "@/lib/search/embeddings";
 import { extractTextFromFile } from "./file-reader";
+import { readDriveFileText } from "./drive-reader";
+import { signedDownloadUrl } from "@/lib/storage/r2";
+import { completeVision } from "@/lib/ai/anthropic";
+import { listDriveFiles } from "@/lib/integrations/google-drive";
 import type { AiAgentConfig } from "./types";
 
 export type ToolContext = {
@@ -208,6 +212,51 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
       type: "object",
       properties: {
         fileId: { type: "string", description: "ID del archivo (de list_task_files)" }
+      },
+      required: ["fileId"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "analyze_image",
+    description:
+      "Analiza una imagen adjunta a la tarea (PNG, JPEG, GIF, WebP) y devuelve una descripción textual + transcripción de cualquier texto visible. Úsalo para entender mockups, screenshots de errores, logos, infografías, fotos de productos, capturas de chats. Pasa el fileId de list_task_files y opcionalmente una pregunta concreta.",
+    input_schema: {
+      type: "object",
+      properties: {
+        fileId: { type: "string", description: "ID del archivo (de list_task_files). Debe ser una imagen." },
+        question: {
+          type: "string",
+          description: "Pregunta concreta a responder sobre la imagen. Si la omites, la describo en general y extraigo el texto visible."
+        }
+      },
+      required: ["fileId"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "list_drive_files",
+    description:
+      "Lista archivos de la carpeta de Google Drive del workspace. Solo ves archivos dentro de la carpeta configurada — no puedes navegar por todo el Drive del cliente. Filtra opcionalmente por prefijo del nombre.",
+    input_schema: {
+      type: "object",
+      properties: {
+        namePrefix: {
+          type: "string",
+          description: "Filtro por nombre (case-insensitive, substring). Ej: 'brief' encuentra todos con 'brief' en el nombre."
+        }
+      },
+      additionalProperties: false
+    }
+  },
+  {
+    name: "read_drive_file",
+    description:
+      "Lee el contenido en texto plano de un archivo de Google Drive (de los que aparecen en list_drive_files). Soporta Google Docs (→ texto), Google Sheets (→ CSV de la primera hoja), Google Slides (→ texto), PDF, DOCX, XLSX, TXT, MD, CSV, JSON. NO soporta imágenes (esas no están en Drive típicamente; si lo están, descárgalas a la tarea y usa analyze_image).",
+    input_schema: {
+      type: "object",
+      properties: {
+        fileId: { type: "string", description: "ID del archivo en Drive (de list_drive_files)." }
       },
       required: ["fileId"],
       additionalProperties: false
@@ -642,6 +691,92 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
       ok: true,
       draftId: draft.id,
       message: "Borrador de evento creado. Quedará pendiente hasta que un admin lo apruebe."
+    };
+  },
+
+  async analyze_image(input, ctx) {
+    const fileId = String(input?.fileId ?? "").trim();
+    if (!fileId) return { error: "fileId vacío" };
+    const file = await prisma.file.findFirst({
+      where: { id: fileId, workspaceId: ctx.workspaceId }
+    });
+    if (!file) return { error: "Archivo no encontrado en este workspace" };
+    if (file.targetType === "TASK" && file.targetId !== ctx.taskId) {
+      return { error: "Ese archivo no pertenece a la tarea asignada" };
+    }
+    if (!file.mimeType?.startsWith("image/")) {
+      return { error: `No es una imagen (${file.mimeType}). Para PDFs/docs usa read_file_content.` };
+    }
+    // Tope de tamaño: imágenes >10MB las rechazamos para no quemar
+    // tokens. Claude vision limita a ~5MB por imagen igualmente.
+    if (file.sizeBytes > 10 * 1024 * 1024) {
+      return { error: `Imagen demasiado grande (${(file.sizeBytes / 1024 / 1024).toFixed(1)}MB > 10MB)` };
+    }
+    try {
+      // signedDownloadUrl da un URL temporal (1h) que Claude puede
+      // descargarse a sí mismo — no hace falta base64.
+      const url = await signedDownloadUrl(file.s3Key);
+      const question = String(input?.question ?? "").trim();
+      const userText =
+        question ||
+        "Describe esta imagen en detalle. Si contiene texto, transcríbelo literalmente. Si es un mockup/diseño UI, identifica los elementos clave. Si es un logo o pieza gráfica, describe colores, tipografía y estilo. Si es un screenshot de error, extrae el mensaje. Sé conciso pero completo.";
+      const text = await completeVision({
+        workspaceId: ctx.workspaceId,
+        system:
+          "Eres un asistente que analiza imágenes con precisión técnica. Responde solo lo que se te pide, en castellano, sin frases hechas.",
+        userText,
+        imageUrls: [url],
+        maxTokens: 2000,
+        userId: ctx.config.userId,
+        feature: "nv-ia-vision"
+      });
+      return {
+        ok: true,
+        fileId,
+        filename: file.name,
+        analysis: text
+      };
+    } catch (e: any) {
+      return { error: `Análisis de imagen falló: ${e?.message ?? e}` };
+    }
+  },
+
+  async list_drive_files(input, ctx) {
+    try {
+      const files = await listDriveFiles({
+        workspaceId: ctx.workspaceId,
+        namePrefix: input?.namePrefix ? String(input.namePrefix) : undefined
+      });
+      return {
+        count: files.length,
+        files: files.slice(0, 100).map((f) => ({
+          id: f.id,
+          name: f.name,
+          mimeType: f.mimeType,
+          sizeBytes: f.size ? Number(f.size) : null,
+          modifiedTime: f.modifiedTime
+        }))
+      };
+    } catch (e: any) {
+      return { error: `Drive no disponible: ${e?.message ?? e}` };
+    }
+  },
+
+  async read_drive_file(input, ctx) {
+    const fileId = String(input?.fileId ?? "").trim();
+    if (!fileId) return { error: "fileId vacío" };
+    const result = await readDriveFileText({
+      workspaceId: ctx.workspaceId,
+      fileId
+    });
+    if (!result.ok) return { error: result.error };
+    return {
+      ok: true,
+      name: result.name,
+      mimeType: result.mimeType,
+      bytes: result.bytes,
+      truncated: result.truncated,
+      text: result.text
     };
   },
 

@@ -108,6 +108,7 @@ async function getAccessToken(sa: ServiceAccountKey): Promise<string> {
 export type DriveFile = {
   id: string;
   name: string;
+  mimeType?: string;
   size?: string;
   createdTime?: string;
   modifiedTime?: string;
@@ -134,7 +135,7 @@ export async function listDriveFiles(opts: {
     "https://www.googleapis.com/drive/v3/files?" +
     new URLSearchParams({
       q,
-      fields: "files(id, name, size, createdTime, modifiedTime)",
+      fields: "files(id, name, mimeType, size, createdTime, modifiedTime)",
       pageSize: "100",
       orderBy: "createdTime desc"
     });
@@ -236,6 +237,94 @@ export async function deleteDriveFile(opts: {
  * Helper de "test connection": comprueba que el SA puede listar la
  * carpeta y devuelve metadatos básicos para que el admin lo verifique.
  */
+/**
+ * Descarga el contenido binario de un archivo NATIVO de Drive (PDF,
+ * DOCX, imágenes, etc — no Google Docs/Sheets/Slides, esos hay que
+ * exportarlos con exportDriveFile).
+ *
+ * SEGURIDAD: solo permitimos descargar archivos que estén DENTRO de
+ * la carpeta configurada del workspace. Si pasas un fileId arbitrario
+ * y no está en parents, tiramos 403 — esto evita que la IA (o cualquier
+ * caller) lea archivos del Drive del Service Account fuera del scope.
+ */
+export async function downloadDriveFile(opts: {
+  workspaceId: string;
+  fileId: string;
+}): Promise<{ buffer: Buffer; mimeType: string; name: string }> {
+  const { serviceAccount, folderId } = await getDriveConfig(opts.workspaceId);
+  const token = await getAccessToken(serviceAccount);
+
+  // 1. Metadata + verificación de parents.
+  const metaUrl =
+    `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(opts.fileId)}?` +
+    new URLSearchParams({ fields: "id,name,mimeType,parents,size" });
+  const metaResp = await fetch(metaUrl, { headers: { Authorization: `Bearer ${token}` } });
+  if (!metaResp.ok) {
+    const txt = await metaResp.text();
+    throw new Error(`Drive metadata ${metaResp.status}: ${txt.slice(0, 200)}`);
+  }
+  const meta = await metaResp.json();
+  if (!Array.isArray(meta.parents) || !meta.parents.includes(folderId)) {
+    throw new Error(`Acceso denegado: ${opts.fileId} no está dentro de la carpeta del workspace.`);
+  }
+
+  // 2. Descarga del media.
+  const dlUrl =
+    `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(opts.fileId)}?alt=media`;
+  const dlResp = await fetch(dlUrl, { headers: { Authorization: `Bearer ${token}` } });
+  if (!dlResp.ok) {
+    const txt = await dlResp.text();
+    throw new Error(`Drive download ${dlResp.status}: ${txt.slice(0, 200)}`);
+  }
+  const buf = Buffer.from(await dlResp.arrayBuffer());
+  return { buffer: buf, mimeType: meta.mimeType, name: meta.name };
+}
+
+/**
+ * Exporta un archivo nativo de Google Workspace (Docs, Sheets, Slides)
+ * a un mimeType estándar. Para Docs → text/plain, Sheets → text/csv,
+ * Slides → text/plain. NO sirve para archivos no-nativos (esos van por
+ * downloadDriveFile).
+ *
+ * MimeTypes de export soportados:
+ *   - text/plain         (Docs, Slides)
+ *   - text/csv           (Sheets — solo primera hoja)
+ *   - text/html          (Docs, Slides)
+ *   - application/pdf    (cualquiera)
+ */
+export async function exportDriveFile(opts: {
+  workspaceId: string;
+  fileId: string;
+  exportMimeType: string;
+}): Promise<{ buffer: Buffer; name: string; sourceMimeType: string }> {
+  const { serviceAccount, folderId } = await getDriveConfig(opts.workspaceId);
+  const token = await getAccessToken(serviceAccount);
+
+  const metaUrl =
+    `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(opts.fileId)}?` +
+    new URLSearchParams({ fields: "id,name,mimeType,parents" });
+  const metaResp = await fetch(metaUrl, { headers: { Authorization: `Bearer ${token}` } });
+  if (!metaResp.ok) {
+    const txt = await metaResp.text();
+    throw new Error(`Drive metadata ${metaResp.status}: ${txt.slice(0, 200)}`);
+  }
+  const meta = await metaResp.json();
+  if (!Array.isArray(meta.parents) || !meta.parents.includes(folderId)) {
+    throw new Error(`Acceso denegado: ${opts.fileId} no está dentro de la carpeta del workspace.`);
+  }
+
+  const exportUrl =
+    `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(opts.fileId)}/export?` +
+    new URLSearchParams({ mimeType: opts.exportMimeType });
+  const expResp = await fetch(exportUrl, { headers: { Authorization: `Bearer ${token}` } });
+  if (!expResp.ok) {
+    const txt = await expResp.text();
+    throw new Error(`Drive export ${expResp.status}: ${txt.slice(0, 200)}`);
+  }
+  const buf = Buffer.from(await expResp.arrayBuffer());
+  return { buffer: buf, name: meta.name, sourceMimeType: meta.mimeType };
+}
+
 export async function testDriveConnection(workspaceId: string): Promise<{
   ok: true;
   serviceAccountEmail: string;

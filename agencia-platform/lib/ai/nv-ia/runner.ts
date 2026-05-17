@@ -22,7 +22,10 @@ TOOLS DISPONIBLES:
 Lectura:
 - get_task_context: lee la tarea, el cliente y el hilo de comentarios. SIEMPRE primero.
 - list_task_files: lista los archivos adjuntos de la tarea.
-- read_file_content: extrae el texto de un PDF / DOCX / XLSX / TXT / MD / CSV / JSON / HTML adjunto. Pasa el fileId de list_task_files. NO soporta imágenes todavía.
+- read_file_content: extrae el texto de un PDF / DOCX / XLSX / TXT / MD / CSV / JSON / HTML adjunto. Pasa el fileId de list_task_files.
+- analyze_image: analiza una IMAGEN adjunta (PNG/JPEG/GIF/WebP) — mockup, screenshot, logo, infografía. Devuelve descripción y texto visible. Opcionalmente pasa una pregunta concreta.
+- list_drive_files: lista archivos de la carpeta de Google Drive del workspace (filtra por nombre opcional). Solo ves los archivos dentro de la carpeta configurada.
+- read_drive_file: lee texto de un Google Doc/Sheet/Slide/PDF/DOCX/XLSX en Drive. Pasa fileId de list_drive_files.
 - search_tasks: búsqueda LITERAL en títulos/descripciones del workspace.
 - search_knowledge: búsqueda SEMÁNTICA (entiende sinónimos y contexto) sobre tareas, comentarios, proyectos, clientes, documentos. Para responder "¿qué dijimos sobre X?".
 - get_calendar_events: eventos del calendario en un rango de fechas.

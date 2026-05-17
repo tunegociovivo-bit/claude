@@ -205,10 +205,12 @@ export default function NvIaAdminPage() {
               (Railway cron / GitHub Actions).
             </p>
             <p>
-              <strong>Tools disponibles (13):</strong>
+              <strong>Tools disponibles (16):</strong>
               <br />
               <strong>Lectura:</strong> get_task_context, list_task_files, read_file_content (PDF/DOCX/XLSX/TXT),
-              search_tasks, search_knowledge (RAG semántico), get_calendar_events.
+              analyze_image (visión sobre PNG/JPG/etc), list_drive_files, read_drive_file
+              (Google Docs/Sheets/Slides/PDF), search_tasks, search_knowledge (RAG semántico),
+              get_calendar_events.
               <br />
               <strong>Escritura inmediata:</strong> add_comment, update_task_status, mark_complete.
               <br />
