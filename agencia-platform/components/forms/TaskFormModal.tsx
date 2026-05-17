@@ -36,6 +36,10 @@ const priorityToApi: Record<Priority, string> = {
 type CommentItem = {
   id: string;
   body: string;
+  // bodyJson llega siempre desde /api/v1/tasks/[id]/comments (la API lo
+  // calcula al vuelo si no existe en BD). Para comentarios importados
+  // de Asana es donde vive el contenido rich con imágenes inline.
+  bodyJson?: any;
   createdAt: string;
   author: { id: string; name: string | null; image?: string | null };
 };
@@ -625,7 +629,7 @@ export default function TaskFormModal({
                         </span>
                       </div>
                       <div className="text-sm text-slate-700 mt-0.5">
-                        <CommentRenderer body={c.body} />
+                        <CommentRenderer body={c.body} bodyJson={c.bodyJson} />
                       </div>
                     </div>
                     <button

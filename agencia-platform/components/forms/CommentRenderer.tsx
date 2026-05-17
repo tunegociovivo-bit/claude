@@ -10,18 +10,23 @@ import Lightbox from "@/components/Lightbox";
 
 /**
  * Render read-only de un comentario. Acepta:
- *  - string que parsea como JSON de TipTap (formato nuevo con imágenes
- *    y links inline)
- *  - string de texto plano (formato legacy)
+ *  - `bodyJson`: doc TipTap directo (formato nuevo, lo que devuelve la
+ *    API en /api/v1/tasks/[id]/comments). Se prefiere si está presente.
+ *  - `body`: string. Si parsea como JSON de TipTap (legacy con todo
+ *    serializado en `body`), lo usa. Si no, lo pinta como texto plano.
  *
- * Cuando el body no es JSON válido se renderiza como texto plano
- * respetando saltos de línea (whitespace-pre-wrap).
+ * IMPORTANTE: los comentarios importados de Asana con imágenes
+ * inline tienen `body=""` (Asana puede mandar solo imagen sin texto)
+ * y todo el contenido rico en `bodyJson`. Si solo miráramos `body`
+ * el comentario aparecería vacío — bug visto tras la importación de
+ * Autosmotos en mayo 2026.
  *
  * Las imágenes inline son clicables y abren un Lightbox a tamaño
  * real con botón de descarga y "abrir en pestaña nueva".
  */
-export default function CommentRenderer({ body }: { body: string }) {
-  const parsed = tryParseDoc(body);
+export default function CommentRenderer({ body, bodyJson }: { body: string; bodyJson?: any }) {
+  // Preferencia: doc rico vía bodyJson > JSON serializado en body > texto plano.
+  const parsed = bodyJson && bodyJson.type === "doc" ? bodyJson : tryParseDoc(body);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const [lightbox, setLightbox] = useState<{ src: string; alt: string | null } | null>(null);
 
@@ -89,13 +94,25 @@ export default function CommentRenderer({ body }: { body: string }) {
     return () => node.removeEventListener("click", onClick);
   }, [parsed]);
 
+  // Si el doc parsed está vacío (un solo párrafo vacío) pero hay body
+  // de texto plano, preferimos pintarlo como texto. Cubre comentarios
+  // viejos con body de texto + bodyJson auto-generado vacío.
+  const isEmptyDoc =
+    parsed &&
+    Array.isArray(parsed.content) &&
+    parsed.content.length === 1 &&
+    parsed.content[0].type === "paragraph" &&
+    !parsed.content[0].content?.length;
+
   return (
     <>
       <div ref={wrapperRef}>
-        {parsed ? (
+        {parsed && !isEmptyDoc ? (
           <EditorContent editor={editor} />
-        ) : (
+        ) : body ? (
           <p className="text-sm text-slate-700 whitespace-pre-wrap">{body}</p>
+        ) : (
+          <p className="text-xs text-slate-400 italic">(Comentario sin contenido visible)</p>
         )}
       </div>
       <Lightbox
