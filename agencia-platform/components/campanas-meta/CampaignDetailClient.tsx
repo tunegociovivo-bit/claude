@@ -205,6 +205,9 @@ export default function CampaignDetailClient({ campaignId }: { campaignId: strin
         </Card>
       )}
 
+      {/* Ajustes de generación: sliders + assets (logo + referencias) */}
+      <GenerationSettingsCard campaign={c} onChanged={fetchCampaign} />
+
       {/* Segmentación */}
       <Card>
         <h3 className="font-semibold text-slate-900 mb-2 flex items-center gap-2">
@@ -292,7 +295,14 @@ export default function CampaignDetailClient({ campaignId }: { campaignId: strin
 
               <div className="grid sm:grid-cols-2 gap-2">
                 {adset.ads.map((ad: any, i: number) => (
-                  <AdCard key={ad.id} ad={ad} index={i} visualMode={c.visualMode} />
+                  <AdCard
+                    key={ad.id}
+                    ad={ad}
+                    index={i}
+                    visualMode={c.visualMode}
+                    campaignId={c.id}
+                    onRegenerated={fetchCampaign}
+                  />
                 ))}
               </div>
             </div>
@@ -380,10 +390,41 @@ const PLACEMENT_LABELS: Record<Placement, { label: string; hint: string; aspect:
   landscape: { label: "Marketplace", hint: "Right col · 1.91:1",   aspect: "aspect-[16/9]" }
 };
 
-function AdCard({ ad, index, visualMode }: { ad: any; index: number; visualMode: string }) {
+function AdCard({ ad, index, visualMode, campaignId, onRegenerated }: { ad: any; index: number; visualMode: string; campaignId?: string; onRegenerated?: () => void }) {
   const badge = AD_STATUS_BADGE[ad.contentStatus] ?? { label: ad.contentStatus, cls: "bg-slate-100 text-slate-600" };
   const hasMedia = Array.isArray(ad.mediaUrls) && ad.mediaUrls.length > 0;
   const isCarousel = ad.format === "CAROUSEL";
+  const [showRegen, setShowRegen] = useState(false);
+  const [customPrompt, setCustomPrompt] = useState<string>(ad.userNotes ?? "");
+  const [regenerateCopy, setRegenerateCopy] = useState(false);
+  const [regenerating, setRegenerating] = useState(false);
+
+  async function doRegenerate() {
+    if (!campaignId) return;
+    setRegenerating(true);
+    try {
+      const r = await fetch(
+        `/api/v1/meta/campaigns/${campaignId}/ads/${ad.id}/regenerate`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            customPrompt: customPrompt.trim() || null,
+            regenerateCopy
+          })
+        }
+      );
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        alert(`Error: ${j?.error?.message ?? r.status}`);
+      } else {
+        setShowRegen(false);
+        onRegenerated?.();
+      }
+    } finally {
+      setRegenerating(false);
+    }
+  }
 
   // Variantes por placement (Fase 2). Para IMAGE: {square,portrait,
   // landscape}. Para CAROUSEL: array de esos objetos (una entry por
@@ -500,6 +541,313 @@ function AdCard({ ad, index, visualMode }: { ad: any; index: number; visualMode:
           <span className="inline-block text-[10px] px-2 py-0.5 rounded-full bg-brand-100 text-brand-700 font-medium">
             CTA: {ad.callToAction}
           </span>
+        </div>
+      )}
+
+      {/* Botón "Regenerar este anuncio" + textarea opcional para
+          dar instrucciones libres al modelo ("misma foto pero en
+          exterior", "paleta más oscura"...). Solo si hay campaignId
+          y el ad no está GENERATING. */}
+      {campaignId && ad.contentStatus !== "GENERATING" && (
+        <div className="mt-3 pt-2 border-t">
+          {!showRegen ? (
+            <button
+              type="button"
+              onClick={() => setShowRegen(true)}
+              className="inline-flex items-center gap-1 text-[11px] text-brand-700 hover:text-brand-900"
+            >
+              <RefreshCw className="h-3 w-3" />
+              Regenerar con mis indicaciones
+            </button>
+          ) : (
+            <div className="space-y-2">
+              <label className="block text-[10px] text-slate-600">
+                Instrucciones libres para la IA (opcional)
+              </label>
+              <textarea
+                value={customPrompt}
+                onChange={(e) => setCustomPrompt(e.target.value)}
+                rows={2}
+                placeholder='Ej: "hazla en interior de oficina moderna, con tonos más cálidos y un café sobre la mesa"'
+                className="w-full px-2 py-1.5 rounded border text-xs bg-white"
+              />
+              <label className="inline-flex items-center gap-1.5 text-[11px] text-slate-600">
+                <input
+                  type="checkbox"
+                  checked={regenerateCopy}
+                  onChange={(e) => setRegenerateCopy(e.target.checked)}
+                />
+                Regenerar también el copy (headline + texto)
+              </label>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={doRegenerate}
+                  disabled={regenerating}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-brand-600 hover:bg-brand-700 text-white text-[11px] font-medium disabled:opacity-50"
+                >
+                  {regenerating && <Loader2 className="h-3 w-3 animate-spin" />}
+                  Regenerar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowRegen(false)}
+                  className="text-[11px] text-slate-500 hover:text-slate-800"
+                >
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Ajustes de generación: sliders + logo + imágenes de referencia
+// ─────────────────────────────────────────────────────────────────────
+
+function GenerationSettingsCard({ campaign, onChanged }: { campaign: any; onChanged: () => void }) {
+  const settings = (campaign.generationSettings ?? {}) as {
+    attentionLevel?: number;
+    toneFormality?: number;
+    energyLevel?: number;
+    styleHint?: string;
+  };
+  const [attentionLevel, setAttentionLevel] = useState<number>(settings.attentionLevel ?? 4);
+  const [toneFormality, setToneFormality] = useState<number>(settings.toneFormality ?? 2);
+  const [energyLevel, setEnergyLevel] = useState<number>(settings.energyLevel ?? 3);
+  const [styleHint, setStyleHint] = useState<string>(settings.styleHint ?? "editorial");
+  const [saving, setSaving] = useState(false);
+  const [savedMsg, setSavedMsg] = useState<string | null>(null);
+
+  async function save() {
+    setSaving(true);
+    try {
+      await fetch(`/api/v1/meta/campaigns/${campaign.id}/settings`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ attentionLevel, toneFormality, energyLevel, styleHint })
+      });
+      setSavedMsg("Guardado. Se aplicará en la próxima generación.");
+      setTimeout(() => setSavedMsg(null), 3000);
+      onChanged();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Card>
+      <h3 className="font-semibold text-slate-900 mb-3 flex items-center gap-2">
+        <Sparkles className="h-4 w-4 text-brand-600" />
+        Estilo del anuncio
+      </h3>
+      <div className="text-xs text-slate-500 mb-4">
+        Ajusta cómo quieres que sea el anuncio antes de generar. Se aplica
+        en la próxima generación o regeneración.
+      </div>
+      <div className="grid sm:grid-cols-2 gap-4">
+        <SliderField
+          label="Nivel de atención"
+          low="Discreto"
+          high="Ultra llamativo"
+          value={attentionLevel}
+          onChange={setAttentionLevel}
+        />
+        <SliderField
+          label="Tono"
+          low="Tuteo cercano"
+          high="Usted formal"
+          value={toneFormality}
+          onChange={setToneFormality}
+        />
+        <SliderField
+          label="Energía"
+          low="Calmado"
+          high="Urgente / FOMO"
+          value={energyLevel}
+          onChange={setEnergyLevel}
+        />
+        <div>
+          <label className="text-xs font-medium text-slate-700 block mb-1.5">
+            Estilo visual
+          </label>
+          <select
+            value={styleHint}
+            onChange={(e) => setStyleHint(e.target.value)}
+            className="w-full px-2 py-1.5 rounded border bg-white text-sm"
+          >
+            <option value="editorial">📷 Editorial (revista/lifestyle)</option>
+            <option value="casual">😊 Casual (cercano, fresco)</option>
+            <option value="corporate">💼 Corporativo (sobrio, fiable)</option>
+            <option value="playful">🎈 Playful (divertido, colorido)</option>
+            <option value="luxurious">✨ Lujoso (premium, elegante)</option>
+          </select>
+        </div>
+      </div>
+
+      <hr className="my-4" />
+
+      {/* Logo + imágenes de referencia */}
+      <h4 className="font-semibold text-slate-900 mb-2 text-sm">
+        Logo y referencias visuales
+      </h4>
+      <div className="text-xs text-slate-500 mb-3">
+        Sube tu logo (aparece de footer en el anuncio) y hasta 5 imágenes de
+        referencia (productos, fotos del equipo, brand visuals) — la IA las usa
+        de inspiración estilística.
+      </div>
+      <div className="grid sm:grid-cols-2 gap-4">
+        <AssetUploader
+          campaignId={campaign.id}
+          kind="logo"
+          label="Logo de la marca"
+          currentUrls={campaign.logoUrl ? [campaign.logoUrl] : []}
+          maxItems={1}
+          onChanged={onChanged}
+        />
+        <AssetUploader
+          campaignId={campaign.id}
+          kind="reference"
+          label={`Imágenes de referencia (${(campaign.referenceImageUrls ?? []).length}/5)`}
+          currentUrls={campaign.referenceImageUrls ?? []}
+          maxItems={5}
+          onChanged={onChanged}
+        />
+      </div>
+
+      <div className="mt-4 flex items-center gap-2">
+        <button
+          onClick={save}
+          disabled={saving}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium disabled:opacity-50"
+        >
+          {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+          Guardar ajustes
+        </button>
+        {savedMsg && <span className="text-xs text-emerald-700">{savedMsg}</span>}
+      </div>
+    </Card>
+  );
+}
+
+function SliderField({
+  label, low, high, value, onChange
+}: {
+  label: string; low: string; high: string; value: number; onChange: (n: number) => void;
+}) {
+  return (
+    <div>
+      <label className="text-xs font-medium text-slate-700 block mb-1.5">
+        {label} <span className="text-slate-400">({value}/5)</span>
+      </label>
+      <input
+        type="range"
+        min={1}
+        max={5}
+        step={1}
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+        className="w-full accent-brand-600"
+      />
+      <div className="flex justify-between text-[10px] text-slate-500 mt-0.5">
+        <span>{low}</span>
+        <span>{high}</span>
+      </div>
+    </div>
+  );
+}
+
+function AssetUploader({
+  campaignId, kind, label, currentUrls, maxItems, onChanged
+}: {
+  campaignId: string;
+  kind: "logo" | "reference";
+  label: string;
+  currentUrls: string[];
+  maxItems: number;
+  onChanged: () => void;
+}) {
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  async function upload(file: File) {
+    setUploading(true);
+    setError(null);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      form.append("kind", kind);
+      const r = await fetch(`/api/v1/meta/campaigns/${campaignId}/assets`, {
+        method: "POST",
+        body: form
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j?.error?.message ?? `Error ${r.status}`);
+      onChanged();
+    } catch (e: any) {
+      setError(e?.message ?? "Error al subir");
+    } finally {
+      setUploading(false);
+      if (inputRef.current) inputRef.current.value = "";
+    }
+  }
+
+  async function remove(url?: string) {
+    await fetch(`/api/v1/meta/campaigns/${campaignId}/assets`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(kind === "logo" ? { kind } : { kind, url })
+    });
+    onChanged();
+  }
+
+  const atMax = currentUrls.length >= maxItems;
+
+  return (
+    <div>
+      <label className="text-xs font-medium text-slate-700 block mb-1.5">{label}</label>
+      {currentUrls.length > 0 && (
+        <div className="flex flex-wrap gap-2 mb-2">
+          {currentUrls.map((u) => (
+            <div key={u} className="relative group">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={u} alt="" className="w-16 h-16 object-cover rounded border" />
+              <button
+                onClick={() => remove(kind === "logo" ? undefined : u)}
+                className="absolute -top-1 -right-1 h-5 w-5 rounded-full bg-rose-600 text-white text-xs hidden group-hover:grid place-items-center"
+                title="Quitar"
+              >
+                ×
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*"
+        disabled={uploading || atMax}
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          if (f) upload(f);
+        }}
+        className="block text-xs"
+      />
+      {atMax && (
+        <div className="text-[10px] text-slate-500 mt-1">
+          Máximo {maxItems} alcanzado. Borra alguno para subir más.
+        </div>
+      )}
+      {error && <div className="text-[10px] text-rose-700 mt-1">{error}</div>}
+      {uploading && (
+        <div className="text-[10px] text-slate-500 mt-1 inline-flex items-center gap-1">
+          <Loader2 className="h-3 w-3 animate-spin" /> Subiendo…
         </div>
       )}
     </div>

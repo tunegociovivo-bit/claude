@@ -651,6 +651,15 @@ export default function TaskFormModal({
                     fetch(`/api/v1/tasks/${currentTask!.id}/comments`)
                       .then((r) => (r.ok ? r.json() : { items: [] }))
                       .then((d) => setComments(d.items ?? []));
+                    // El botón también re-importa los attachments del
+                    // task (xps, pdf, txt sueltos). Avisamos al
+                    // AttachmentList para que se refresque sin tener
+                    // que cerrar y reabrir el modal.
+                    window.dispatchEvent(
+                      new CustomEvent("attachments-changed", {
+                        detail: { targetType: "TASK", targetId: currentTask!.id }
+                      })
+                    );
                   }}
                 />
               </div>

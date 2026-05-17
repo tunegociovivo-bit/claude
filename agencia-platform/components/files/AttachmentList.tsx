@@ -53,6 +53,22 @@ export default function AttachmentList({
     if (targetId) load();
   }, [targetId, load]);
 
+  // Listener para eventos externos que invaliden la lista — p.ej.
+  // cuando el botón "Re-importar de Asana" del modal de tarea
+  // sube nuevos attachments al task. Sin esto el user tenía que
+  // cerrar y reabrir el modal para verlos.
+  useEffect(() => {
+    function onExternalChange(e: Event) {
+      const detail = (e as CustomEvent).detail;
+      if (!detail) return;
+      if (detail.targetType === targetType && detail.targetId === targetId) {
+        load();
+      }
+    }
+    window.addEventListener("attachments-changed", onExternalChange);
+    return () => window.removeEventListener("attachments-changed", onExternalChange);
+  }, [targetType, targetId, load]);
+
   async function uploadFile(file: File) {
     if (file.size > MAX_FILE_BYTES) {
       setError(`"${file.name}" excede 50 MB`);

@@ -72,23 +72,11 @@ async function render() {
 
   $("cfg-hub-url").value = hubUrl;
 
-  // Sin user → pantalla de login
-  if (!s.user) {
-    showState("login");
-    $("notifications-block").classList.add("hidden");
-    $("user-chip").textContent = "no conectado";
-    return;
-  }
-
-  // Logueado
-  if (s.user?.email) $("user-chip").textContent = s.user.email;
-
-  // Diagnóstico visible — sin necesidad de abrir DevTools del SW.
-  // Cubre los datos más útiles para depurar cuando "no detecta":
-  // versión, URL+host de la tab activa, plataforma detectada,
-  // permisos del manifest, hora actual.
+  // === Diagnóstico SIEMPRE — antes del early return de login. ===
+  // Así si el user nos pasa el contenido del popup vemos qué pasa
+  // incluso cuando aún no ha conectado.
   const diagLines = [];
-  diagLines.push(`Versión: ${chrome.runtime.getManifest().version}`);
+  diagLines.push(`Versión ext.: ${chrome.runtime.getManifest().version}`);
   diagLines.push(`Hub URL: ${hubUrl}`);
   diagLines.push(`User: ${s.user?.email ?? "(no conectado)"}`);
   try {
@@ -99,9 +87,11 @@ async function render() {
     diagLines.push(`Tab URL: ${url}`);
     diagLines.push(`Tab host: ${host || "—"}`);
     diagLines.push(`Plataforma: ${platform ?? "no detectada"}`);
-    $("meeting-hint").textContent = platform
-      ? `📞 Detectada reunión de ${platform}`
-      : "ℹ️ Esta pestaña no parece una reunión, pero puedes grabar igualmente.";
+    if (s.user) {
+      $("meeting-hint").textContent = platform
+        ? `📞 Detectada reunión de ${platform}`
+        : "ℹ️ Esta pestaña no parece una reunión, pero puedes grabar igualmente.";
+    }
   } catch (e) {
     diagLines.push(`Error tabs.query: ${e?.message ?? e}`);
     $("meeting-hint").textContent = "";
@@ -111,6 +101,17 @@ async function render() {
   diagLines.push(`Hora local: ${new Date().toISOString()}`);
   const diagEl = $("diag-output");
   if (diagEl) diagEl.textContent = diagLines.join("\n");
+
+  // Sin user → pantalla de login (pero el diag YA está pintado arriba)
+  if (!s.user) {
+    showState("login");
+    $("notifications-block").classList.add("hidden");
+    $("user-chip").textContent = "no conectado";
+    return;
+  }
+
+  // Logueado
+  if (s.user?.email) $("user-chip").textContent = s.user.email;
 
   // Si el state dice "login" pero ya hay user (porque se acaba de
   // conectar), pasamos a idle.

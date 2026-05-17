@@ -30,10 +30,6 @@
       <section id="state-idle" class="state hidden">
         <button id="btn-start" class="primary">⏺ Grabar reunión</button>
         <div id="meeting-hint" class="muted small"></div>
-        <details class="diag">
-          <summary class="muted small">🔧 Diagnóstico</summary>
-          <pre id="diag-output" class="diag-pre">cargando…</pre>
-        </details>
       </section>
 
       <section id="state-recording" class="state hidden">
@@ -78,6 +74,14 @@
         <ul id="notif-list" class="notif-list"></ul>
         <p id="notif-empty" class="muted small hidden">Sin notificaciones nuevas.</p>
       </section>
+
+      <!-- Diagnóstico SIEMPRE visible — sin importar el estado. Útil
+           para ver versión, tab activa, plataforma detectada, etc.
+           sin tener que abrir DevTools del SW. -->
+      <details class="diag">
+        <summary class="muted small">🔧 Diagnóstico</summary>
+        <pre id="diag-output" class="diag-pre">cargando…</pre>
+      </details>
 
       <details id="config" class="config">
         <summary>Configuración avanzada</summary>
