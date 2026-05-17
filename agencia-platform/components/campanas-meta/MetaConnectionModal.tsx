@@ -95,20 +95,33 @@ export default function MetaConnectionModal({
           )}
 
           <div className="text-sm text-slate-600">
-            Pega aquí el <strong>Access Token de larga duración</strong> de tu cuenta de Meta.
-            Lo sacas del Business Manager:
+            Pega aquí tu <strong>Access Token</strong> de Meta.
+            Lo generas en el Graph API Explorer:
           </div>
           <ol className="text-xs text-slate-600 list-decimal list-inside space-y-1 pl-2">
             <li>
-              Ve a{" "}
-              <a href="https://business.facebook.com/settings/system-users" target="_blank" rel="noreferrer" className="text-brand-600 underline inline-flex items-center gap-0.5">
-                Business Manager → System Users
+              Abre{" "}
+              <a
+                href="https://developers.facebook.com/tools/explorer/"
+                target="_blank"
+                rel="noreferrer"
+                className="text-brand-600 underline inline-flex items-center gap-0.5"
+              >
+                Graph API Explorer
                 <ExternalLink className="h-3 w-3" />
               </a>
             </li>
-            <li>Crea/elige un System User con rol Admin sobre tu cuenta publicitaria.</li>
-            <li>"Generate New Token" → activa los permisos <code className="text-[10px]">ads_management</code>, <code className="text-[10px]">leads_retrieval</code>, <code className="text-[10px]">pages_manage_ads</code>, <code className="text-[10px]">pages_read_engagement</code>.</li>
-            <li>Copia el token y pégalo aquí abajo.</li>
+            <li>En "Meta App", selecciona tu app (o crea una).</li>
+            <li>En "User or Page", elige <strong>"Get User Access Token"</strong>.</li>
+            <li>
+              Añade los permisos:{" "}
+              <code className="text-[10px]">ads_management</code>,{" "}
+              <code className="text-[10px]">leads_retrieval</code>,{" "}
+              <code className="text-[10px]">pages_manage_ads</code>,{" "}
+              <code className="text-[10px]">pages_read_engagement</code>.
+            </li>
+            <li>Pulsa "Generate Access Token", confirma los permisos y copia el token.</li>
+            <li>Pégalo aquí abajo.</li>
           </ol>
 
           <div>
