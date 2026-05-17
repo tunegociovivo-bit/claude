@@ -732,7 +732,7 @@ function Step4Audience(props: any) {
 
       <Field
         label="Segmentación *"
-        hint="Describe en lenguaje natural a qué público va dirigida la campaña (en Fase 2 la IA lo expandirá en intereses, edades y comportamientos para Meta)."
+        hint='Describe en lenguaje natural a qué público va dirigida la campaña. Cuando pulses "Generar con IA" en la ficha, la IA lo expandirá en intereses, edades y comportamientos listos para Meta API.'
       >
         <textarea
           value={props.segmentationRaw}
@@ -793,7 +793,7 @@ function Step5Ads(props: any) {
               <Sparkles className="h-4 w-4 text-brand-600" />
               <div className="text-sm font-medium">La plataforma genera</div>
             </div>
-            <div className="text-xs text-slate-500">Imágenes y carruseles con gpt-image-1. Vídeos los subes tú.</div>
+            <div className="text-xs text-slate-500">La IA escribe el copy y genera imágenes/carruseles. Vídeos los subes tú.</div>
           </button>
           <button
             type="button"
@@ -851,7 +851,9 @@ function Step5Ads(props: any) {
         <Eye className="h-4 w-4 mt-0.5 shrink-0" />
         <div>
           <strong>Vista previa de cada anuncio</strong> con copy + visual aparecerá en la página
-          de la campaña tras crearla. En Fase 2 podrás aprobar/regenerar cada uno antes de lanzar a Meta.
+          de la campaña tras crearla. Cuando le des a <strong>"Generar con IA"</strong> en la
+          ficha de la campaña, la plataforma escribirá el copy y generará las imágenes; tú
+          revisas y apruebas antes de lanzar a Meta.
         </div>
       </div>
     </>
@@ -907,7 +909,7 @@ function Step6Leads(props: any) {
       {isLeadInstantForm && (
         <Field
           label="Preguntas del formulario instantáneo"
-          hint="En Fase 2 la IA propondrá preguntas óptimas según tu briefing. Por ahora ajústalas a mano."
+          hint='Ajústalas a tu gusto. La IA puede proponer un set óptimo según tu briefing cuando pulses "Generar con IA" en la ficha (próximamente).'
         >
           <div className="space-y-2">
             {props.formQuestions.map((q: FormQuestion, i: number) => (
