@@ -1,33 +1,209 @@
 /**
- * Content-script que se inyecta en los dominios de videoconferencia
- * listados en manifest.content_scripts.matches. Su único trabajo es
- * avisar al service worker de que esta pestaña ES una reunión, para
- * que ponga el badge rojo "●" en el icono. Sin esto el user no
- * tiene una pista visual de cuándo la extensión es útil.
+ * Content-script para páginas de videoconferencia (Meet, Teams, Zoom,
+ * etc — ver manifest.content_scripts.matches).
  *
- * NO captura audio ni hace nada más. La captura solo se inicia tras
- * un gesto explícito del user (click en el icono → popup → "Grabar"),
- * como exige Chrome para tabCapture.
+ * Dos cosas:
+ *  1. Avisa al service worker de que esta pestaña ES una reunión
+ *     (badge rojo en el icono).
+ *  2. Inyecta — bajo demanda del SW — un BANNER FLOTANTE en la
+ *     esquina con selector de proyecto + columna + botón "Grabar".
+ *     Así el user no tiene que pinchar el icono de la extensión.
+ *
+ * El banner usa Shadow DOM para aislarse del CSS de Meet/Teams y no
+ * romperse cuando estas apps re-renderizan su layout.
+ *
+ * NO captura audio. La captura se inicia tras un gesto explícito
+ * (click en "Grabar" del banner) — Chrome lo exige para tabCapture.
  */
 
 (function () {
-  try {
-    chrome.runtime.sendMessage({ from: "content", type: "meeting-detected" });
-  } catch {
-    // Si la extensión está deshabilitada o el contexto perdió la
-    // conexión con el service worker, no hacemos nada.
+  function pingMeetingDetected() {
+    try {
+      chrome.runtime.sendMessage({ from: "content", type: "meeting-detected" });
+    } catch {}
   }
+  pingMeetingDetected();
 
-  // Algunos meets navegan client-side sin recargar (Google Meet hace
-  // SPA cuando aceptas la cámara). Re-emitimos el ping en cambios
-  // de location para que el badge no se pierda.
+  // Meet es SPA — si cambia la URL sin recargar, re-pingar
   let lastHref = location.href;
   setInterval(() => {
     if (location.href !== lastHref) {
       lastHref = location.href;
-      try {
-        chrome.runtime.sendMessage({ from: "content", type: "meeting-detected" });
-      } catch {}
+      pingMeetingDetected();
     }
   }, 4000);
+
+  // ─────────────────────────────────────────────────────────────────
+  // Banner flotante — se monta cuando el SW pide "show-record-banner"
+  // ─────────────────────────────────────────────────────────────────
+
+  const BANNER_ID = "__nv-hub-record-banner__";
+  let bannerOpen = false;
+  let dismissedAt = 0;
+  const DISMISS_COOLDOWN_MS = 30 * 60 * 1000; // 30 min — si cerró, no insistir
+
+  chrome.runtime.onMessage.addListener((msg) => {
+    if (msg?.from === "sw" && msg?.type === "show-record-banner") {
+      if (bannerOpen) return;
+      if (Date.now() - dismissedAt < DISMISS_COOLDOWN_MS) return;
+      mountBanner();
+    }
+  });
+
+  function fetchProjects() {
+    return new Promise((resolve) => {
+      try {
+        chrome.runtime.sendMessage({ from: "content", type: "fetch-projects" }, (resp) => {
+          resolve(resp?.projects ?? []);
+        });
+      } catch {
+        resolve([]);
+      }
+    });
+  }
+
+  function startRecording(projectId, status) {
+    return new Promise((resolve) => {
+      try {
+        chrome.runtime.sendMessage(
+          { from: "content", type: "start-recording-from-banner", projectId, status },
+          (resp) => resolve(resp ?? { ok: false, error: "sin respuesta" })
+        );
+      } catch (e) {
+        resolve({ ok: false, error: String(e?.message ?? e) });
+      }
+    });
+  }
+
+  function mountBanner() {
+    if (document.getElementById(BANNER_ID)) return;
+    bannerOpen = true;
+
+    const host = document.createElement("div");
+    host.id = BANNER_ID;
+    host.style.cssText =
+      "position:fixed;top:16px;right:16px;z-index:2147483647;width:320px;max-width:calc(100vw - 32px);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;";
+    const shadow = host.attachShadow({ mode: "open" });
+    shadow.innerHTML = `
+      <style>
+        .card { background:#fff; border-radius:12px; box-shadow:0 10px 25px -5px rgba(0,0,0,.2),0 4px 6px -2px rgba(0,0,0,.05); border:1px solid #e2e8f0; padding:14px; color:#0f172a; font-size:13px; animation:slideIn .25s ease-out; }
+        @keyframes slideIn { from { transform:translateX(20px); opacity:0; } to { transform:translateX(0); opacity:1; } }
+        .header { display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; }
+        .title { font-weight:600; font-size:13px; display:flex; align-items:center; gap:6px; }
+        .dot { width:8px; height:8px; border-radius:50%; background:#ef4444; }
+        .close { background:transparent; border:0; cursor:pointer; color:#64748b; font-size:16px; line-height:1; padding:2px 6px; border-radius:4px; }
+        .close:hover { background:#f1f5f9; color:#0f172a; }
+        .row { margin-bottom:8px; }
+        label { display:block; font-size:11px; color:#64748b; margin-bottom:3px; font-weight:500; }
+        select, button.rec { width:100%; padding:7px 10px; border-radius:8px; border:1px solid #cbd5e1; background:#fff; font-size:12px; font-family:inherit; }
+        select:focus { outline:2px solid #6366f1; outline-offset:-1px; }
+        .actions { display:flex; gap:6px; margin-top:12px; }
+        button.rec { background:#ef4444; color:#fff; border:0; font-weight:600; cursor:pointer; transition:background .15s; display:flex; align-items:center; justify-content:center; gap:6px; }
+        button.rec:hover { background:#dc2626; }
+        button.rec:disabled { background:#94a3b8; cursor:not-allowed; }
+        button.secondary { background:transparent; color:#475569; border:1px solid #cbd5e1; padding:7px 10px; border-radius:8px; font-size:12px; cursor:pointer; font-family:inherit; }
+        button.secondary:hover { background:#f1f5f9; }
+        .err { color:#dc2626; font-size:11px; margin-top:6px; }
+        .muted { color:#64748b; font-size:11px; margin-top:8px; }
+        .loading { color:#64748b; font-size:12px; text-align:center; padding:20px 0; }
+      </style>
+      <div class="card">
+        <div class="header">
+          <div class="title"><span class="dot"></span><span>Reunión detectada</span></div>
+          <button class="close" id="close-btn" title="Cerrar">×</button>
+        </div>
+        <div id="content"><div class="loading">Cargando proyectos…</div></div>
+      </div>
+    `;
+    document.documentElement.appendChild(host);
+
+    const closeBtn = shadow.getElementById("close-btn");
+    closeBtn.onclick = () => {
+      dismissedAt = Date.now();
+      bannerOpen = false;
+      host.remove();
+    };
+
+    const content = shadow.getElementById("content");
+
+    fetchProjects().then((projects) => {
+      if (projects.length === 0) {
+        content.innerHTML = `
+          <div class="err">No se pudieron cargar los proyectos. Asegúrate de tener sesión en hub.negociovivo.app.</div>
+          <button class="secondary" style="width:100%;margin-top:8px" id="retry-btn">Reintentar</button>
+        `;
+        shadow.getElementById("retry-btn").onclick = () => {
+          host.remove();
+          bannerOpen = false;
+          mountBanner();
+        };
+        return;
+      }
+      const projectOpts = projects.map((p) => `<option value="${escapeAttr(p.id)}">${escapeText(p.name)}</option>`).join("");
+      content.innerHTML = `
+        <div class="row">
+          <label for="proj-sel">Proyecto destino</label>
+          <select id="proj-sel">${projectOpts}</select>
+        </div>
+        <div class="row">
+          <label for="col-sel">Columna</label>
+          <select id="col-sel"></select>
+        </div>
+        <div class="actions">
+          <button class="secondary" id="cancel-btn" style="flex:0 0 auto">Cancelar</button>
+          <button class="rec" id="rec-btn" style="flex:1">⏺ Grabar</button>
+        </div>
+        <div id="err" class="err" style="display:none"></div>
+        <div class="muted">Al detener se transcribe + resume con IA y se crea una tarea en el destino elegido.</div>
+      `;
+      const projSel = shadow.getElementById("proj-sel");
+      const colSel = shadow.getElementById("col-sel");
+      const recBtn = shadow.getElementById("rec-btn");
+      const cancelBtn = shadow.getElementById("cancel-btn");
+      const errEl = shadow.getElementById("err");
+
+      function syncColumns() {
+        const proj = projects.find((p) => p.id === projSel.value);
+        const cols = Array.isArray(proj?.kanbanColumns) && proj.kanbanColumns.length > 0
+          ? proj.kanbanColumns.map((c) => ({ id: c.id ?? c.label, label: c.label ?? c.id }))
+          : [
+              { id: "TODO", label: "Por hacer" },
+              { id: "IN_PROGRESS", label: "En curso" },
+              { id: "REVIEW", label: "Revisión" },
+              { id: "DONE", label: "Hecho" }
+            ];
+        colSel.innerHTML = cols.map((c) => `<option value="${escapeAttr(c.id)}">${escapeText(c.label)}</option>`).join("");
+      }
+      projSel.onchange = syncColumns;
+      syncColumns();
+
+      cancelBtn.onclick = closeBtn.onclick;
+
+      recBtn.onclick = async () => {
+        recBtn.disabled = true;
+        recBtn.textContent = "Iniciando…";
+        errEl.style.display = "none";
+        const r = await startRecording(projSel.value, colSel.value);
+        if (r.ok) {
+          content.innerHTML = `
+            <style>@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}} .rec-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#ef4444;animation:pulse 1.5s infinite;margin-right:6px;}</style>
+            <div style="text-align:center;padding:10px 0;">
+              <div style="font-size:14px;color:#ef4444;font-weight:600;margin-bottom:8px;"><span class="rec-dot"></span>Grabando</div>
+              <div style="font-size:11px;color:#64748b;">Abre la extensión cuando quieras detener.</div>
+            </div>
+          `;
+        } else {
+          recBtn.disabled = false;
+          recBtn.textContent = "⏺ Grabar";
+          errEl.textContent = "Error al iniciar: " + (r.error ?? "desconocido");
+          errEl.style.display = "block";
+        }
+      };
+    });
+  }
+
+  function escapeAttr(s) {
+    return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  }
+  function escapeText(s) { return escapeAttr(s); }
 })();

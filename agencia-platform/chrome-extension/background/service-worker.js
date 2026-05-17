@@ -192,11 +192,19 @@ const SILENCE_LEVEL = 8;
 const SILENCE_MIN = 3;
 const ASK_COOLDOWN_MS = 60_000 * 5;
 
-async function startRecording() {
+async function startRecording(opts = {}) {
   const { hubUrl, user } = await getState();
   if (!user) throw new Error("Sin sesión activa en el Hub. Abre hub.negociovivo.app y entra.");
 
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  // Si el caller pasó tabId (banner in-page), úsalo. Si no, tab activa.
+  let tab;
+  if (opts.tabId) {
+    try { tab = await chrome.tabs.get(opts.tabId); } catch {}
+  }
+  if (!tab) {
+    const [active] = await chrome.tabs.query({ active: true, currentWindow: true });
+    tab = active;
+  }
   if (!tab) throw new Error("No se ha podido detectar la pestaña activa.");
 
   await ensureOffscreen();
@@ -213,7 +221,11 @@ async function startRecording() {
     tabUrl: tab.url ?? "",
     startedAt: Date.now(),
     lastLoudAt: Date.now(),
-    askEndedAt: 0
+    askEndedAt: 0,
+    // Destino de la tarea resultante (banner in-page → user los eligió).
+    // Si null/undefined, el backend usará primer proyecto + status TODO.
+    projectId: opts.projectId ?? null,
+    status: opts.status ?? null
   };
 
   await setState({ state: "recording", lastError: null });
@@ -231,7 +243,10 @@ async function startRecording() {
     meetingUrl: tab.url ?? "",
     meetingTitle: tab.title ?? "",
     hubUrl,
-    sessionJwt
+    sessionJwt,
+    // Destino del task — el offscreen los pasa en form-data del upload.
+    projectId: recordingCtx.projectId,
+    status: recordingCtx.status
   });
 }
 
@@ -418,8 +433,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       return;
     }
     if (msg?.from === "popup" && msg?.type === "start") {
-      try { await startRecording(); sendResponse({ ok: true }); }
-      catch (e) {
+      try {
+        await startRecording({
+          projectId: msg.projectId ?? null,
+          status: msg.status ?? null
+        });
+        sendResponse({ ok: true });
+      } catch (e) {
         await setState({ state: "error", lastError: String(e?.message ?? e) });
         sendResponse({ ok: false, error: String(e?.message ?? e) });
       }
@@ -472,11 +492,57 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       return;
     }
     if (msg?.from === "content" && msg?.type === "meeting-detected") {
-      const { notifications } = await getState();
+      const { notifications, user } = await getState();
       const unread = notifications.filter((n) => !n.read).length;
       if (unread === 0) {
         chrome.action.setBadgeText({ text: "●", tabId: sender.tab?.id });
         chrome.action.setBadgeBackgroundColor({ color: "#dc2626", tabId: sender.tab?.id });
+      }
+      // Auto-prompt: si el user está logueado y no hay ya una grabación
+      // en marcha, decimos al content-script que muestre el banner
+      // flotante con selector de proyecto/columna. Idempotente —
+      // el banner se monta solo si no existe ya en el DOM.
+      if (user && !recordingCtx && sender.tab?.id) {
+        try {
+          await chrome.tabs.sendMessage(sender.tab.id, { from: "sw", type: "show-record-banner" });
+        } catch {
+          // El content-script puede no estar listo en el primer ping;
+          // se reintenta solo en cuanto el detector vuelve a hacer ping.
+        }
+      }
+      sendResponse({ ok: true });
+      return;
+    }
+    if (msg?.from === "content" && msg?.type === "fetch-projects") {
+      try {
+        const r = await authedFetch("/api/v1/projects");
+        if (!r.ok) {
+          sendResponse({ ok: false, error: `HTTP ${r.status}` });
+          return;
+        }
+        const data = await r.json();
+        const projects = (data.items ?? []).map((p) => ({
+          id: p.id,
+          name: p.name,
+          kanbanColumns: p.kanbanColumns ?? null
+        }));
+        sendResponse({ ok: true, projects });
+      } catch (e) {
+        sendResponse({ ok: false, error: String(e?.message ?? e) });
+      }
+      return;
+    }
+    if (msg?.from === "content" && msg?.type === "start-recording-from-banner") {
+      try {
+        await startRecording({
+          tabId: sender.tab?.id,
+          projectId: msg.projectId ?? null,
+          status: msg.status ?? null
+        });
+        sendResponse({ ok: true });
+      } catch (e) {
+        await setState({ state: "error", lastError: String(e?.message ?? e) });
+        sendResponse({ ok: false, error: String(e?.message ?? e) });
       }
       return;
     }

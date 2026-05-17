@@ -196,6 +196,11 @@ export const POST = withApi({ scope: "tasks:write" }, async (req, { api }) => {
   const audio = form.get("audio");
   const meetingUrl = String(form.get("meetingUrl") ?? "");
   const meetingTitle = String(form.get("meetingTitle") ?? "Reunión");
+  // Opcionales: si la extensión las envía (banner in-page con selector
+  // de destino), respetamos esos valores. Si no, fallback al primer
+  // proyecto vivo del workspace y status "TODO" como antes.
+  const requestedProjectId = String(form.get("projectId") ?? "").trim() || null;
+  const requestedStatus = String(form.get("status") ?? "").trim() || null;
 
   if (!(audio instanceof Blob)) {
     throw new ApiError(400, "no_audio", "Falta el campo 'audio'");
@@ -256,15 +261,23 @@ export const POST = withApi({ scope: "tasks:write" }, async (req, { api }) => {
     throw new ApiError(502, "claude_failed", `Claude falló al resumir: ${e?.message ?? e}`);
   }
 
-  // ── 3) Resolver projectId por defecto ──────────────────────────
-  // La extensión no sabe a qué proyecto va la tarea — la API key
-  // viene atada a un workspace. Usamos el primer proyecto vivo del
-  // workspace como destino. El user puede mover la tarea después.
-  const firstProject = await prisma.project.findFirst({
-    where: { workspaceId: api.workspaceId, deletedAt: null, archived: false },
-    orderBy: { createdAt: "asc" },
-    select: { id: true }
-  });
+  // ── 3) Resolver projectId destino ──────────────────────────────
+  // Prioridad: (a) projectId enviado por la extensión (si pertenece
+  // al workspace + no borrado), (b) primer proyecto vivo del workspace.
+  let firstProject: { id: string } | null = null;
+  if (requestedProjectId) {
+    firstProject = await prisma.project.findFirst({
+      where: { id: requestedProjectId, workspaceId: api.workspaceId, deletedAt: null } as any,
+      select: { id: true }
+    });
+  }
+  if (!firstProject) {
+    firstProject = await prisma.project.findFirst({
+      where: { workspaceId: api.workspaceId, deletedAt: null, archived: false } as any,
+      orderBy: { createdAt: "asc" },
+      select: { id: true }
+    });
+  }
   if (!firstProject) {
     throw new ApiError(
       404,
@@ -294,7 +307,11 @@ export const POST = withApi({ scope: "tasks:write" }, async (req, { api }) => {
       projectId: firstProject.id,
       title: taskTitle,
       description: `Reunión en ${platform} — ${meetingUrl || "(sin URL)"}\n\n${summary.summary}`,
-      status: "TODO",
+      // requestedStatus viene del banner in-page de la extensión.
+      // Si no llega o es invalido el frontend lo manejará, aquí lo
+      // pasamos tal cual — las columnas son strings libres por
+      // diseño (kanban custom por proyecto).
+      status: requestedStatus || "TODO",
       priority: "MEDIUM",
       ...(assigneeId
         ? { assignees: { create: [{ userId: assigneeId }] } }

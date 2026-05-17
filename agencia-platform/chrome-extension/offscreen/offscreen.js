@@ -32,7 +32,9 @@ async function startRecording(opts) {
     meetingUrl: opts.meetingUrl ?? "",
     meetingTitle: opts.meetingTitle ?? "Reunión",
     hubUrl: opts.hubUrl,
-    sessionJwt: opts.sessionJwt ?? null
+    sessionJwt: opts.sessionJwt ?? null,
+    projectId: opts.projectId ?? null,
+    status: opts.status ?? null
   };
 
   try {
@@ -149,6 +151,11 @@ async function onStop() {
     form.append("meetingUrl", ctx.meetingUrl);
     form.append("meetingTitle", ctx.meetingTitle);
     form.append("durationMs", String(approxDurationMs(blob.size)));
+    // Destino del task (banner in-page o popup). El backend los toma
+    // como opcionales — si vienen vacíos usa el primer proyecto del
+    // workspace y status "TODO" como fallback.
+    if (ctx.projectId) form.append("projectId", ctx.projectId);
+    if (ctx.status) form.append("status", ctx.status);
 
     // Auth: el SW nos pasó el JWT de la cookie de NextAuth (leído
     // con chrome.cookies.get porque SameSite=Lax bloquea cross-site
