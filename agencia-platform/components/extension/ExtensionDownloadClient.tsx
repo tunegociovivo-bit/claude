@@ -17,6 +17,7 @@ import { Download, Mic, Bell, ShieldCheck, Loader2, Copy, CheckCircle2 } from "l
 export default function ExtensionDownloadClient() {
   const [version, setVersion] = useState<string | null>(null);
   const [downloading, setDownloading] = useState(false);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
 
   // Pedimos solo los headers (HEAD no funciona en este endpoint, pero
   // un GET truncado no merece la pena; hacemos una llamada ligera).
@@ -34,19 +35,49 @@ export default function ExtensionDownloadClient() {
 
   async function download() {
     setDownloading(true);
+    setDownloadError(null);
     try {
-      // Forzamos el download con un <a download>. Más fiable que
-      // window.location.href porque preserva la cookie de sesión.
+      // Usamos fetch + blob en vez de <a download href> directo.
+      // El método con anchor "funciona" silenciosamente: si el server
+      // devuelve un error JSON o un 500, el browser descarta la
+      // respuesta sin avisar al user. Con fetch detectamos el error
+      // y lo mostramos en pantalla.
+      const r = await fetch("/api/v1/extension/download", {
+        method: "GET",
+        credentials: "include",
+        cache: "no-store"
+      });
+      if (!r.ok) {
+        let msg = `HTTP ${r.status}`;
+        try {
+          const j = await r.json();
+          msg = j?.error?.message ?? j?.message ?? msg;
+        } catch {
+          const t = await r.text().catch(() => "");
+          if (t) msg = t.slice(0, 300);
+        }
+        throw new Error(msg);
+      }
+      const blob = await r.blob();
+      // Pedimos el nombre del header Content-Disposition, fallback a
+      // un nombre estable con la versión.
+      const cd = r.headers.get("Content-Disposition") ?? "";
+      const m = cd.match(/filename="([^"]+)"/);
+      const filename = m?.[1] ?? `hub-extension-v${version ?? "0.0.0"}.zip`;
+      const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
-      a.href = "/api/v1/extension/download";
-      a.rel = "noopener";
+      a.href = url;
+      a.download = filename;
       document.body.appendChild(a);
       a.click();
       a.remove();
+      // Liberamos el blob URL en el siguiente tick (Chrome necesita
+      // tiempo para iniciar la descarga antes de revocarlo).
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
+    } catch (e: any) {
+      setDownloadError(e?.message ?? "Error desconocido al descargar");
     } finally {
-      // El descargado real es asíncrono; deshabilitamos el botón
-      // brevemente para que no haga doble-click.
-      setTimeout(() => setDownloading(false), 1500);
+      setDownloading(false);
     }
   }
 
@@ -83,9 +114,27 @@ export default function ExtensionDownloadClient() {
               Descargar .zip
             </button>
             <div className="text-xs opacity-80 mt-2">
-              El archivo es un .zip de unos 30 KB. Se descarga firmado
+              El archivo es un .zip de unos 50 KB. Se descarga firmado
               automáticamente con tu sesión.
             </div>
+            {downloadError && (
+              <div className="mt-3 px-3 py-2 rounded-lg bg-rose-100/90 text-rose-900 text-xs">
+                <div className="font-semibold mb-0.5">⚠️ Error al descargar</div>
+                <div className="font-mono break-words">{downloadError}</div>
+                <div className="opacity-75 mt-1">
+                  Si necesitas más detalle abre{" "}
+                  <a
+                    href="/api/v1/extension/download?debug=1"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="underline"
+                  >
+                    /api/v1/extension/download?debug=1
+                  </a>{" "}
+                  y pásame el JSON.
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>
