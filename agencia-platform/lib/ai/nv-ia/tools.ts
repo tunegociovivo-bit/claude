@@ -9,12 +9,15 @@
 
 import type Anthropic from "@anthropic-ai/sdk";
 import { prisma } from "@/lib/db/prisma";
+import { semanticSearch } from "@/lib/search/embeddings";
 import type { AiAgentConfig } from "./types";
 
 export type ToolContext = {
   workspaceId: string;
   taskId: string;
   config: AiAgentConfig;
+  /** Id del AiAgentRun que está ejecutando estas tools — para enlazar drafts. */
+  runId: string;
 };
 
 export type ToolExecutor = (input: any, ctx: ToolContext) => Promise<unknown>;
@@ -88,9 +91,108 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
     }
   },
   {
+    name: "search_knowledge",
+    description:
+      "Búsqueda SEMÁNTICA (no por palabras exactas) sobre todo el workspace — tareas, comentarios, proyectos, clientes y documentos. Devuelve los fragmentos más relevantes con su score. Úsalo para responder preguntas tipo '¿qué dijimos sobre X cliente?', '¿cómo resolvimos un problema parecido?', '¿qué decisiones tomamos sobre Y?'.",
+    input_schema: {
+      type: "object",
+      properties: {
+        query: {
+          type: "string",
+          description: "Pregunta o tema a buscar, en lenguaje natural."
+        },
+        topK: {
+          type: "number",
+          description: "Cuántos resultados quieres (default 5, máximo 15).",
+          default: 5
+        },
+        entityTypes: {
+          type: "array",
+          description: "Filtra por tipos. Omitir para buscar en todo.",
+          items: { type: "string", enum: ["TASK", "COMMENT", "PROJECT", "CLIENT", "DOCUMENT"] }
+        }
+      },
+      required: ["query"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "draft_email",
+    description:
+      "Redacta un email PARA QUE LO APRUEBE UN HUMANO antes de enviarlo. NO se envía automáticamente — el email aparece en /admin/nv-ia/drafts y un admin pulsa 'Aprobar y enviar'. Úsalo para responder a un cliente, comunicar entregables, hacer seguimiento, etc. Sé claro, profesional y conciso.",
+    input_schema: {
+      type: "object",
+      properties: {
+        to: {
+          type: "string",
+          description: "Email del destinatario. UN SOLO email (para múltiples destinatarios, pide al humano que duplique el draft)."
+        },
+        subject: {
+          type: "string",
+          description: "Asunto. Conciso y descriptivo."
+        },
+        body: {
+          type: "string",
+          description: "Cuerpo del email en texto plano con saltos de línea para los párrafos. Sin HTML — el sistema lo convierte. Firma con 'Equipo Negocio Vivo'."
+        }
+      },
+      required: ["to", "subject", "body"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "draft_whatsapp",
+    description:
+      "Redacta un mensaje de WhatsApp PARA QUE LO APRUEBE UN HUMANO antes de enviarlo. NO se envía automáticamente. Úsalo para mensajes breves a clientes con su teléfono ya conocido. El mensaje aparece en /admin/nv-ia/drafts.",
+    input_schema: {
+      type: "object",
+      properties: {
+        phone: {
+          type: "string",
+          description: "Teléfono en formato internacional con prefijo (+34..., +1..., etc.). Si solo tienes el número español sin prefijo, ponlo igual — el sistema normaliza."
+        },
+        text: {
+          type: "string",
+          description: "Texto del mensaje. Breve (idealmente < 800 chars). Tono coloquial, sin emojis salvo que sea muy natural."
+        }
+      },
+      required: ["phone", "text"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "draft_editorial_post",
+    description:
+      "Redacta un post editorial (Instagram, blog, LinkedIn, etc.) PARA QUE LO APRUEBE UN HUMANO antes de programarlo o publicarlo. NO se publica automáticamente — al aprobar se crea como DRAFT en /editorial.",
+    input_schema: {
+      type: "object",
+      properties: {
+        title: {
+          type: "string",
+          description: "Título interno del post (no se publica)."
+        },
+        content: {
+          type: "string",
+          description: "Cuerpo del post. Adáptalo al canal — para Instagram corto y con hashtags, para blog largo, para LinkedIn intermedio profesional."
+        },
+        networks: {
+          type: "array",
+          description: "Redes destino. Valores válidos: instagram, facebook, linkedin, twitter, blog, tiktok.",
+          items: { type: "string" }
+        },
+        clientId: {
+          type: "string",
+          description: "ID del cliente al que pertenece el post (opcional)."
+        }
+      },
+      required: ["title", "content", "networks"],
+      additionalProperties: false
+    }
+  },
+  {
     name: "mark_complete",
     description:
-      "Marca la tarea como COMPLETADA, añade un comentario final con el resumen de lo que has hecho, y notifica al solicitante. Es la ÚNICA forma correcta de terminar el run con éxito. El resumen debe ser claro y conciso: qué se ha hecho, qué entregables hay (si aplica), y cualquier dato relevante. Después de llamar a esta tool, NO sigas trabajando — el run termina.",
+      "Marca la tarea como COMPLETADA, añade un comentario final con el resumen de lo que has hecho, y notifica al solicitante. Es la ÚNICA forma correcta de terminar el run con éxito. El resumen debe ser claro y conciso: qué se ha hecho, qué entregables hay (si aplica), MENCIONA explícitamente cuántos drafts quedan pendientes de aprobación si los hay. Después de llamar a esta tool, NO sigas trabajando — el run termina.",
     input_schema: {
       type: "object",
       properties: {
@@ -214,6 +316,117 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
       select: { id: true, status: true, completedAt: true }
     });
     return { ok: true, task: updated };
+  },
+
+  async search_knowledge(input, ctx) {
+    const query = String(input?.query ?? "").trim();
+    if (!query) return { error: "query vacío" };
+    const topK = Math.min(Math.max(Number(input?.topK) || 5, 1), 15);
+    const entityTypes = Array.isArray(input?.entityTypes) ? input.entityTypes : undefined;
+    try {
+      const results = await semanticSearch({
+        workspaceId: ctx.workspaceId,
+        query,
+        topK,
+        entityTypes
+      });
+      return {
+        count: results.length,
+        results: results.map((r) => ({
+          type: r.entityType,
+          id: r.entityId,
+          score: Math.round(r.score * 100) / 100,
+          text: r.text.slice(0, 600)
+        }))
+      };
+    } catch (e: any) {
+      return { error: `Búsqueda semántica falló: ${e?.message ?? e}` };
+    }
+  },
+
+  async draft_email(input, ctx) {
+    const to = String(input?.to ?? "").trim();
+    const subject = String(input?.subject ?? "").trim();
+    const body = String(input?.body ?? "").trim();
+    if (!to || !subject || !body) return { error: "to/subject/body son obligatorios" };
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(to)) return { error: "email destinatario inválido" };
+    if (subject.length > 200) return { error: "subject demasiado largo (>200)" };
+    if (body.length > 12000) return { error: "body demasiado largo (>12000)" };
+    // body → html simple (párrafos por doble salto, <br> por simple)
+    const html = body
+      .split(/\n\n+/)
+      .map((p) => `<p>${p.replace(/\n/g, "<br/>")}</p>`)
+      .join("");
+    const draft = await prisma.aiDraft.create({
+      data: {
+        workspaceId: ctx.workspaceId,
+        aiAgentRunId: ctx.runId,
+        taskId: ctx.taskId,
+        kind: "EMAIL",
+        title: `Email a ${to}: ${subject.slice(0, 80)}`,
+        payload: { to, subject, html, text: body }
+      }
+    });
+    return {
+      ok: true,
+      draftId: draft.id,
+      message: "Borrador de email creado. Quedará pendiente hasta que un admin lo apruebe en /admin/nv-ia/drafts."
+    };
+  },
+
+  async draft_whatsapp(input, ctx) {
+    const { normalizePhone } = await import("@/lib/leads/waha");
+    const phone = normalizePhone(String(input?.phone ?? ""));
+    const text = String(input?.text ?? "").trim();
+    if (!phone) return { error: "teléfono inválido o no normalizable" };
+    if (!text) return { error: "text vacío" };
+    if (text.length > 2000) return { error: "mensaje demasiado largo (>2000)" };
+    const draft = await prisma.aiDraft.create({
+      data: {
+        workspaceId: ctx.workspaceId,
+        aiAgentRunId: ctx.runId,
+        taskId: ctx.taskId,
+        kind: "WHATSAPP",
+        title: `WhatsApp a +${phone}: ${text.slice(0, 60)}…`,
+        payload: { phoneNormalized: phone, text }
+      }
+    });
+    return {
+      ok: true,
+      draftId: draft.id,
+      message: "Borrador de WhatsApp creado. Quedará pendiente hasta que un admin lo apruebe."
+    };
+  },
+
+  async draft_editorial_post(input, ctx) {
+    const title = String(input?.title ?? "").trim();
+    const content = String(input?.content ?? "").trim();
+    const networks = Array.isArray(input?.networks) ? input.networks.map(String) : [];
+    if (!title || !content || networks.length === 0) {
+      return { error: "title, content y networks (al menos 1) son obligatorios" };
+    }
+    if (content.length > 8000) return { error: "content demasiado largo" };
+    const clientId = input?.clientId ? String(input.clientId) : null;
+    if (clientId) {
+      // Validamos que el cliente exista en el workspace
+      const c = await prisma.client.findFirst({ where: { id: clientId, workspaceId: ctx.workspaceId } });
+      if (!c) return { error: "clientId no encontrado en el workspace" };
+    }
+    const draft = await prisma.aiDraft.create({
+      data: {
+        workspaceId: ctx.workspaceId,
+        aiAgentRunId: ctx.runId,
+        taskId: ctx.taskId,
+        kind: "EDITORIAL_POST",
+        title: `Post (${networks.join(", ")}): ${title.slice(0, 60)}`,
+        payload: { title, content, networks, clientId }
+      }
+    });
+    return {
+      ok: true,
+      draftId: draft.id,
+      message: "Borrador de post editorial creado. Quedará pendiente hasta que un admin lo apruebe."
+    };
   },
 
   async mark_complete(input, ctx) {

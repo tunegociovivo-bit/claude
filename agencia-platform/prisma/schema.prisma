@@ -224,6 +224,7 @@ model Workspace {
   metaConnections           MetaConnection[]
   metaCampaigns             MetaCampaign[]
   aiAgentRuns               AiAgentRun[]
+  aiDrafts                  AiDraft[]
 }
 
 model Membership {
@@ -1450,6 +1451,58 @@ enum AiAgentRunStatus {
   SUCCEEDED     // terminó OK, resumen disponible
   FAILED        // error fatal (timeout, tokens, exception)
   REQUIRES_HUMAN // la IA pidió ayuda — la tarea queda en mano del user
+}
+
+// Fase 2: borradores generados por NV IA que necesitan aprobación
+// humana antes de ejecutarse (envío real de email/WhatsApp, creación
+// de un post editorial, etc). Filosofía: la IA escribe el borrador,
+// el humano lo lee, lo edita si quiere, y aprueba. Solo entonces se
+// hace la acción irreversible.
+//
+// payload (Json) contiene el shape específico del tipo de draft:
+//   - EMAIL:           { to, subject, html, text? }
+//   - WHATSAPP:        { phoneNormalized, text, clientId? }
+//   - EDITORIAL_POST:  { title, content, networks[], scheduledFor?, ... }
+//
+// executionResult: respuesta del backend al ejecutar (ej. messageId
+//   de Resend, gid del post creado), o el error si falló.
+model AiDraft {
+  id              String         @id @default(cuid())
+  workspaceId     String
+  aiAgentRunId    String? // run que lo creó (null si lo creó admin a mano)
+  taskId          String? // tarea de origen (opcional — drafts pueden venir de tareas IA)
+  kind            AiDraftKind
+  title           String // resumen humano-legible para la lista de aprobación
+  payload         Json
+  status          AiDraftStatus  @default(PENDING)
+  reviewedById    String? // user que aprobó/rechazó
+  reviewedAt      DateTime?
+  reviewerNote    String?        @db.Text
+  executedAt      DateTime?
+  executionResult Json? // { ok: true, externalId: "..." } | { ok: false, error: "..." }
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, status])
+  @@index([taskId])
+  @@index([aiAgentRunId])
+}
+
+enum AiDraftKind {
+  EMAIL
+  WHATSAPP
+  EDITORIAL_POST
+  CUSTOM // texto libre — para acciones que aún no tienen integración
+}
+
+enum AiDraftStatus {
+  PENDING     // recién creado, esperando review
+  APPROVED    // aprobado pero aún no ejecutado (race window)
+  REJECTED    // descartado, no se ejecuta
+  EXECUTED    // ejecutado con éxito
+  FAILED      // intentó ejecutarse y falló — admin puede reintentar
 }
 
 // Reportes automáticos de errores producidos en el frontend o backend.

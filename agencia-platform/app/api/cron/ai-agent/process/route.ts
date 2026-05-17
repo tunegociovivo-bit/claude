@@ -48,7 +48,8 @@ async function processOne(runId: string) {
     const result = await executeAgentRun({
       workspaceId: run.workspaceId,
       taskId: run.taskId,
-      config
+      config,
+      runId: run.id
     });
 
     await prisma.aiAgentRun.update({

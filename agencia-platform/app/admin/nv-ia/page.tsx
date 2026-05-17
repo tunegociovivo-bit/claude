@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import PageHeader from "@/components/PageHeader";
-import { Bot, Loader2, PlayCircle, RefreshCw, AlertCircle, CheckCircle2 } from "lucide-react";
+import { Bot, Loader2, PlayCircle, RefreshCw, AlertCircle, CheckCircle2, Inbox } from "lucide-react";
 
 type Status = {
   configured: boolean;
@@ -157,12 +157,21 @@ export default function NvIaAdminPage() {
             </div>
           </div>
 
-          <div className="mt-4 flex items-center gap-2 text-xs">
-            {Object.entries(status.runCounts ?? {}).map(([s, n]) => (
-              <span key={s} className={`px-2 py-0.5 rounded ${STATUS_STYLE[s as Run["status"]] ?? "bg-slate-100"}`}>
-                {s}: {n}
-              </span>
-            ))}
+          <div className="mt-4 flex items-center justify-between gap-2 flex-wrap">
+            <div className="flex items-center gap-2 text-xs flex-wrap">
+              {Object.entries(status.runCounts ?? {}).map(([s, n]) => (
+                <span key={s} className={`px-2 py-0.5 rounded ${STATUS_STYLE[s as Run["status"]] ?? "bg-slate-100"}`}>
+                  {s}: {n}
+                </span>
+              ))}
+            </div>
+            <a
+              href="/admin/nv-ia/drafts"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-700 text-white text-xs font-medium"
+            >
+              <Inbox className="h-3.5 w-3.5" />
+              Borradores pendientes →
+            </a>
           </div>
 
           <div className="mt-8 rounded-xl border bg-white">
@@ -196,8 +205,10 @@ export default function NvIaAdminPage() {
               (Railway cron / GitHub Actions).
             </p>
             <p>
-              <strong>Fase 1 — tools disponibles:</strong> get_task_context, search_tasks, add_comment,
-              update_task_status, mark_complete. Sin acceso a APIs externas, emails, ni a otros workspaces.
+              <strong>Tools disponibles:</strong> get_task_context, search_tasks, search_knowledge (RAG semántico),
+              add_comment, update_task_status, draft_email, draft_whatsapp, draft_editorial_post, mark_complete.
+              Los <code>draft_*</code> NO se envían/publican hasta que un admin los aprueba en{" "}
+              <a href="/admin/nv-ia/drafts" className="text-brand-600 underline">/admin/nv-ia/drafts</a>.
             </p>
           </div>
         </>

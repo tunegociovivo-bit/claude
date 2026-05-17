@@ -1,0 +1,101 @@
+/**
+ * Ejecuta un AiDraft aprobado. Cada `kind` se ejecuta de forma distinta:
+ *  - EMAIL          → Resend vía sendEmail()
+ *  - WHATSAPP       → WAHA vía sendText()
+ *  - EDITORIAL_POST → crea EditorialPost en estado DRAFT (el user lo
+ *                     edita después en /editorial — NO se publica aquí
+ *                     automáticamente, dos niveles de aprobación a
+ *                     propósito porque publicar es muy visible).
+ *  - CUSTOM         → no-op, solo se marca EXECUTED (el humano hace
+ *                     manualmente lo que el draft propone).
+ *
+ * Idempotente: si el draft no está en APPROVED, lanza error.
+ * Devuelve { ok, externalId?, error? } y lo persiste en
+ * executionResult del draft.
+ */
+
+import { prisma } from "@/lib/db/prisma";
+import { sendEmail, isEmailEnabled } from "@/lib/integrations/email";
+import { sendText } from "@/lib/leads/waha";
+
+export async function executeDraft(draftId: string): Promise<{
+  ok: boolean;
+  externalId?: string;
+  error?: string;
+}> {
+  const draft = await prisma.aiDraft.findUnique({ where: { id: draftId } });
+  if (!draft) return { ok: false, error: "draft no encontrado" };
+  if (draft.status !== "APPROVED") {
+    return { ok: false, error: `draft no aprobado (status=${draft.status})` };
+  }
+  const payload = (draft.payload as any) ?? {};
+
+  try {
+    let result: { ok: boolean; externalId?: string; error?: string };
+    switch (draft.kind) {
+      case "EMAIL": {
+        if (!isEmailEnabled()) {
+          result = { ok: false, error: "Resend no configurado (falta RESEND_API_KEY)" };
+          break;
+        }
+        const r = await sendEmail({
+          to: payload.to,
+          subject: payload.subject,
+          html: payload.html,
+          text: payload.text
+        });
+        result = { ok: true, externalId: r.id };
+        break;
+      }
+      case "WHATSAPP": {
+        const r = await sendText({
+          workspaceId: draft.workspaceId,
+          phoneNormalized: payload.phoneNormalized,
+          text: payload.text
+        });
+        result = { ok: true, externalId: r.messageId };
+        break;
+      }
+      case "EDITORIAL_POST": {
+        const created = await prisma.editorialPost.create({
+          data: {
+            workspaceId: draft.workspaceId,
+            clientId: payload.clientId ?? null,
+            title: payload.title,
+            content: payload.content ?? null,
+            networks: payload.networks ?? [],
+            status: "DRAFT" // el user lo programa/publica desde /editorial
+          } as any
+        });
+        result = { ok: true, externalId: created.id };
+        break;
+      }
+      case "CUSTOM":
+      default: {
+        result = { ok: true }; // marcar como executed sin acción
+        break;
+      }
+    }
+
+    await prisma.aiDraft.update({
+      where: { id: draftId },
+      data: {
+        status: result.ok ? "EXECUTED" : "FAILED",
+        executedAt: new Date(),
+        executionResult: result as any
+      }
+    });
+    return result;
+  } catch (e: any) {
+    const error = String(e?.message ?? e);
+    await prisma.aiDraft.update({
+      where: { id: draftId },
+      data: {
+        status: "FAILED",
+        executedAt: new Date(),
+        executionResult: { ok: false, error } as any
+      }
+    });
+    return { ok: false, error };
+  }
+}
