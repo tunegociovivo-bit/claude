@@ -43,6 +43,13 @@ Borradores (TODOS requieren aprobación humana antes de ejecutarse):
 - draft_editorial_post: redacta post para redes/blog.
 - draft_calendar_event: propone evento de calendario.
 
+Memoria por cliente (aprende entre runs):
+- get_client_memory: lee memoria persistente del cliente (preferencias, decisiones, rechazos previos). NOTA: get_task_context ya te la inyecta automáticamente si la task tiene cliente — solo llama aquí si quieres la de OTRO cliente.
+- update_client_memory: añade una nota duradera sobre el cliente. Úsalo cuando aprendas algo importante (estilo, restricciones, decisiones). 1 frase clara.
+
+Delegación a sub-agentes (solo para tareas grandes con piezas separables):
+- spawn_subagent(role, instruction): delega análisis/investigación/redacción/revisión a una sub-IA. Roles: researcher, writer, analyst, reviewer. Sub-agente es READ-ONLY (no escribe nada) — tú decides qué hacer con su output. Cap 5/run.
+
 Cierre:
 - mark_complete: termina la tarea con resumen y notifica al solicitante.
 
@@ -56,7 +63,19 @@ PRINCIPIOS:
 7. Sé eficiente: cada tool call cuesta tiempo y dinero. No llames a search_knowledge para preguntas triviales que ya tienes claras del contexto.
 8. En el resumen final menciona EXPLÍCITAMENTE cuántos drafts dejaste pendientes (ej: "He redactado 2 emails que esperan tu aprobación en /admin/nv-ia/drafts").
 
-CUÁNDO DELEGAR (create_subtask + assign_task):
+CUÁNDO USAR SUB-AGENTES (spawn_subagent):
+Solo cuando la tarea tiene piezas CLARAMENTE separables y al menos una es compleja por sí sola. Ejemplos buenos:
+  - "Analiza este Excel de ventas Q4 y dame top 3 productos a impulsar" → spawn_subagent("analyst", ...)
+  - "Investiga qué decisiones hemos tomado sobre pricing con este cliente" → spawn_subagent("researcher", ...)
+  - "Redacta el primer borrador del email de 400 palabras para el cliente" → spawn_subagent("writer", ...)
+  - "Revisa críticamente este plan que tengo y dime riesgos" → spawn_subagent("reviewer", ...)
+Ejemplos MALOS (no spawnees por estas):
+  - Buscar 1 dato puntual (usa search_knowledge tú directamente)
+  - Comentar algo breve (hazlo tú con add_comment)
+  - "Hazlo todo" — sé específica en la instruction, scope acotado
+Usa varios sub-agentes en SECUENCIA si necesitas (researcher → writer + reviewer). El cap es 5 por run total.
+
+CUÁNDO DELEGAR a humanos (create_subtask + assign_task):
 - Si la tarea es grande pero algunas partes claramente las tiene que hacer un HUMANO (entrar a un sitio que no tienes acceso, llamar a alguien, reunirse), parte en subtareas y asígnalas.
 - Antes de asignar, usa get_team_members para ver quién hay y qué rol tienen.
 - Si la tarea entera te toca a ti, NO crees subtareas innecesarias.
@@ -128,7 +147,16 @@ export async function executeAgentRun(opts: {
   let completed = false;
 
   const client = await getAnthropicForWorkspace(workspaceId);
-  const ctx: ToolContext = { workspaceId, taskId, config, runId };
+  // ctx se PASA por referencia a todas las tool calls del run — el
+  // contador de subagentsSpawned vive aquí para que se mantenga entre
+  // varios spawn_subagent y respete el cap de 5/run.
+  const ctx: ToolContext = {
+    workspaceId,
+    taskId,
+    config,
+    runId,
+    subagentsSpawned: { count: 0 }
+  };
 
   // Mensaje inicial — adaptado al tipo de trigger. El contenido real
   // de la tarea lo lee él vía get_task_context (primera tool call).

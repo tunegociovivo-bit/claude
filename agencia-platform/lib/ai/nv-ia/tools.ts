@@ -24,6 +24,8 @@ export type ToolContext = {
   config: AiAgentConfig;
   /** Id del AiAgentRun que está ejecutando estas tools — para enlazar drafts. */
   runId: string;
+  /** Contador de sub-agentes spawneados en este run (cap 5 para evitar costes desbocados). */
+  subagentsSpawned?: { count: number };
 };
 
 export type ToolExecutor = (input: any, ctx: ToolContext) => Promise<unknown>;
@@ -398,6 +400,27 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
         }
       },
       required: ["title"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "spawn_subagent",
+    description:
+      "Delega una sub-tarea de investigación/análisis/redacción a un SUB-AGENTE especializado. Útil cuando la tarea es grande y tiene piezas independientes que puedes paralelizar mentalmente. El sub-agente trabaja sobre la MISMA tarea (mismo contexto) pero con una persona y tools restringidas. Devuelve un texto que puedes usar después. Tope: 5 sub-agentes por run. NO uses esto para todo — solo cuando hay una pieza claramente separable y compleja (ej: 'analizar el Excel de ventas Q4 y dame top 3 insights', 'redactar el primer borrador del email de 300 palabras').\n\nROLES:\n- researcher: busca y compila info del workspace (tareas, comentarios, Drive). Devuelve brief con hallazgos + referencias.\n- writer: redacta un texto concreto (email, post, propuesta). Devuelve el texto listo.\n- analyst: analiza datos de archivos/imágenes. Devuelve insights numerados con evidencia.\n- reviewer: revisa un borrador/decisión y propone mejoras/riesgos.\n\nLos sub-agentes son READ-ONLY — NO pueden comentar, asignar, ni crear drafts. Tú (el coordinator) usas su output para decidir qué hacer.",
+    input_schema: {
+      type: "object",
+      properties: {
+        role: {
+          type: "string",
+          enum: ["researcher", "writer", "analyst", "reviewer"],
+          description: "Tipo de sub-agente."
+        },
+        instruction: {
+          type: "string",
+          description: "Instrucción CLARA y ACOTADA para el sub-agente (1-3 frases). Mejor pocos sub-agentes específicos que uno con instrucción vaga."
+        }
+      },
+      required: ["role", "instruction"],
       additionalProperties: false
     }
   },
@@ -1054,6 +1077,43 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
       ok: true,
       subtaskId: subtask.id,
       assignedCount: assigneeIds.length
+    };
+  },
+
+  async spawn_subagent(input, ctx) {
+    const role = String(input?.role ?? "").trim();
+    const instruction = String(input?.instruction ?? "").trim();
+    if (!["researcher", "writer", "analyst", "reviewer"].includes(role)) {
+      return { error: "role debe ser researcher | writer | analyst | reviewer" };
+    }
+    if (!instruction) return { error: "instruction vacía" };
+    if (instruction.length > 4000) return { error: "instruction demasiado larga (>4000)" };
+    // Cap 5 sub-agentes por run principal — el contador vive en
+    // ctx.subagentsSpawned compartido entre todas las tool calls
+    // del mismo run (el runner lo inicializa).
+    if (!ctx.subagentsSpawned) ctx.subagentsSpawned = { count: 0 };
+    if (ctx.subagentsSpawned.count >= 5) {
+      return { error: "Cap de 5 sub-agentes por run alcanzado. Termina con lo que tienes." };
+    }
+    ctx.subagentsSpawned.count++;
+    // Import dinámico para evitar circular (subagent → tools → ...).
+    const { runSubagent } = await import("./subagent");
+    const result = await runSubagent({
+      workspaceId: ctx.workspaceId,
+      taskId: ctx.taskId,
+      config: ctx.config,
+      parentRunId: ctx.runId,
+      role: role as any,
+      instruction
+    });
+    return {
+      ok: result.ok,
+      role,
+      result: result.text,
+      stepsUsed: result.stepsCount,
+      toolsUsed: result.toolsUsed,
+      tokensUsed: result.inputTokens + result.outputTokens,
+      ...(result.error ? { error: result.error } : {})
     };
   },
 

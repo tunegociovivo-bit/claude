@@ -306,19 +306,24 @@ export default function NvIaAdminPage() {
               (Railway cron / GitHub Actions).
             </p>
             <p>
-              <strong>Tools disponibles (19):</strong>
+              <strong>Tools disponibles (22):</strong>
               <br />
-              <strong>Lectura:</strong> get_task_context, list_task_files, read_file_content (PDF/DOCX/XLSX/TXT),
-              analyze_image (visión sobre PNG/JPG/etc), list_drive_files, read_drive_file
-              (Google Docs/Sheets/Slides/PDF), search_tasks, search_knowledge (RAG semántico),
-              get_calendar_events, get_team_members.
+              <strong>Lectura:</strong> get_task_context (auto-incluye memoria del cliente),
+              list_task_files, read_file_content (PDF/DOCX/XLSX/TXT), analyze_image (visión
+              PNG/JPG), list_drive_files, read_drive_file (Google Docs/Sheets/Slides/PDF),
+              search_tasks, search_knowledge (RAG semántico), get_calendar_events,
+              get_team_members, get_client_memory.
               <br />
-              <strong>Escritura inmediata:</strong> add_comment, update_task_status, assign_task,
-              create_subtask, mark_complete.
+              <strong>Escritura inmediata:</strong> add_comment, update_task_status,
+              update_client_memory, assign_task, create_subtask, mark_complete.
               <br />
-              <strong>Borradores (requieren aprobación):</strong> draft_email, draft_whatsapp, draft_editorial_post,
-              draft_calendar_event. Se aprueban en{" "}
+              <strong>Borradores (requieren aprobación):</strong> draft_email, draft_whatsapp,
+              draft_editorial_post, draft_calendar_event. Se aprueban en{" "}
               <a href="/admin/nv-ia/drafts" className="text-brand-600 underline">/admin/nv-ia/drafts</a>.
+              <br />
+              <strong>Delegación interna:</strong> spawn_subagent (researcher / writer /
+              analyst / reviewer — sub-IAs read-only para tareas grandes con piezas
+              separables; cap 5 por run).
             </p>
             <p>
               <strong>Cómo invocarla:</strong> (a) enlazando una tarea al proyecto buzón <em>🤖 NV IA — Tareas IA</em>;
