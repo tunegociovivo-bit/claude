@@ -175,6 +175,17 @@ export default function TareasClient({
     return workspaceColumns;
   }, [filters.project, projects, workspaceColumns]);
 
+  // Endpoint correcto al que mandar cambios de columnas: si estamos
+  // viendo un proyecto concreto, las ediciones son DE ESE PROYECTO
+  // (no del workspace global). Si estamos en "todos los proyectos",
+  // editamos el global del workspace. FIX del bug de "cambio columna
+  // en proyecto X y se cambia en proyecto Y" — antes todo iba al
+  // global del workspace independientemente del filtro.
+  const columnsEndpoint =
+    filters.project !== "all"
+      ? `/api/v1/projects/${filters.project}/kanban-columns`
+      : "/api/v1/kanban-columns";
+
   // Compat con código previo
   const setColumns = setWorkspaceColumns;
 
@@ -697,15 +708,27 @@ export default function TareasClient({
                   team={team}
                   columns={columns}
                   aiStatusByTask={aiStatusByTask}
+                  columnsEndpoint={columnsEndpoint}
                 />
               ))}
               <AddColumnButton
                 existingColumns={columns}
+                endpoint={columnsEndpoint}
                 onCreated={async () => {
-                  const r = await fetch("/api/v1/kanban-columns");
+                  // Recargamos las columnas DEL CONTEXTO ACTUAL (proyecto
+                  // o workspace). Y si era un proyecto, re-pedimos la lista
+                  // de proyectos para que projects[i].kanbanColumns refleje
+                  // lo nuevo en el siguiente useMemo.
+                  const r = await fetch(columnsEndpoint);
                   if (r.ok) {
                     const d = await r.json();
-                    setColumns(d.items ?? []);
+                    if (filters.project === "all") {
+                      setColumns(d.items ?? []);
+                    } else {
+                      // refresca tareas/projects para que kanbanColumns del
+                      // proyecto se hidrate. Lo más simple: reload.
+                      if (typeof window !== "undefined") window.location.reload();
+                    }
                   }
                 }}
               />
@@ -962,10 +985,14 @@ function KanbanGrid({
  */
 function AddColumnButton({
   existingColumns,
-  onCreated
+  onCreated,
+  endpoint
 }: {
   existingColumns: KanbanColumn[];
   onCreated: () => void | Promise<void>;
+  /** Endpoint donde PUT la lista actualizada. Workspace global o
+   *  proyecto-específico — el caller decide. */
+  endpoint: string;
 }) {
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState("");
@@ -1013,7 +1040,7 @@ function AddColumnButton({
         isDone: false
       }
     ];
-    const r = await fetch("/api/v1/kanban-columns", {
+    const r = await fetch(endpoint, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ columns: next })
@@ -1120,7 +1147,8 @@ function KanbanColumnView({
   getClient,
   team,
   columns,
-  aiStatusByTask
+  aiStatusByTask,
+  columnsEndpoint
 }: {
   column: KanbanColumn;
   tasks: UiTask[];
@@ -1134,6 +1162,8 @@ function KanbanColumnView({
   team: UiMember[];
   columns: KanbanColumn[];
   aiStatusByTask: Record<string, "working" | "done_unreviewed" | "needs_help" | null>;
+  /** Endpoint donde se PUTean cambios de columnas (workspace o proyecto). */
+  columnsEndpoint: string;
 }) {
   const { setNodeRef, attributes, listeners, transform, transition, isDragging } = useSortable({
     id: column.id,
@@ -1162,7 +1192,7 @@ function KanbanColumnView({
           >
             <GripVertical className="h-3.5 w-3.5" />
           </button>
-          <ColumnHeader column={column} allColumns={columns} />
+          <ColumnHeader column={column} allColumns={columns} endpoint={columnsEndpoint} />
           <span className="text-xs text-slate-500 font-medium">{tasks.length}</span>
         </div>
         <button
@@ -1439,10 +1469,13 @@ function computeAlarmLevel(task: UiTask, nowMs: number): "none" | "preaviso" | "
  */
 function ColumnHeader({
   column,
-  allColumns
+  allColumns,
+  endpoint
 }: {
   column: KanbanColumn;
   allColumns: KanbanColumn[];
+  /** Endpoint donde PUT los cambios (workspace o proyecto). */
+  endpoint: string;
 }) {
   const { data: session } = useSession();
   const isAdmin = ((session?.user as any)?.role ?? "") === "ADMIN";
@@ -1463,7 +1496,7 @@ function ColumnHeader({
     const all = allColumns.map((c) => (c.id === next.id ? next : c));
     setSaving(true);
     try {
-      const r = await fetch("/api/v1/kanban-columns", {
+      const r = await fetch(endpoint, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ columns: all })
