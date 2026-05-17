@@ -1949,8 +1949,23 @@ model MetaAd {
   description    String?
   callToAction   String? // p.ej. "LEARN_MORE", "SIGN_UP"
   destinationUrl String?
-  // URLs en R2 — para IMAGE: 1 elemento; CAROUSEL: 2-10; VIDEO: 1.
+  // URLs en R2 — para IMAGE: 1 elemento (square); CAROUSEL: 2-10
+  // (square); VIDEO: 1. Es el formato canónico usado de fallback /
+  // legacy. Las variantes específicas por placement viven en
+  // mediaVariants (ver abajo).
   mediaUrls      String[]
+  // Variantes de la imagen para los distintos placements de Meta.
+  // Para IMAGE: { square: url, portrait: url, landscape: url }.
+  // Para CAROUSEL: [ {square,portrait,landscape}, ... ] (1 entrada
+  // por tarjeta). Para VIDEO: null.
+  //   - square    1024x1024  → Feed (móvil + desktop, Instagram)
+  //   - portrait  1024x1536  → Stories, Reels, Feed 4:5
+  //   - landscape 1536x1024  → Columna derecha desktop, Marketplace,
+  //                            Audience Network
+  // Sin este campo la UI solo mostraba la cuadrada recortada y el
+  // user no podía ver el anuncio completo ni cómo se vería en cada
+  // placement antes de lanzar.
+  mediaVariants  Json?
   // Instrucciones libres del user para regenerar ("hazla más colorida")
   userNotes      String?             @db.Text
   contentStatus  MetaAdContentStatus @default(PLACEHOLDER)

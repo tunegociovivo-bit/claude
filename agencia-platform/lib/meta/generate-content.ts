@@ -292,6 +292,51 @@ export async function generateAdImage(opts: {
 // Orquestador: genera todo el contenido de una campaña
 // ─────────────────────────────────────────────────────────────────────
 
+/**
+ * Genera las 3 variantes de aspecto (square / portrait / landscape)
+ * para un mismo prompt EN PARALELO. Devuelve un objeto con las 3
+ * URLs en R2. Wall-clock similar a generar una sola (las 3 llamadas
+ * van a OpenAI a la vez), coste ≈ 3x.
+ *
+ * Mapeo a placements de Meta:
+ *   square    (1024x1024)  → Feed móvil + Feed desktop + Instagram Feed
+ *   portrait  (1024x1536)  → Stories, Reels, Feed 4:5 (recomendado)
+ *   landscape (1536x1024)  → Right column desktop, Marketplace,
+ *                            Audience Network
+ */
+export type AdImageVariants = {
+  square: string;
+  portrait: string;
+  landscape: string;
+};
+
+export async function generateAdImageAllVariants(opts: {
+  workspaceId: string;
+  prompt: string;
+  campaignId: string;
+  adId: string;
+  quality?: "low" | "medium" | "high";
+}): Promise<AdImageVariants> {
+  const [square, portrait, landscape] = await Promise.all([
+    generateAdImage({
+      ...opts,
+      adId: `${opts.adId}-sq`,
+      size: "1024x1024"
+    }),
+    generateAdImage({
+      ...opts,
+      adId: `${opts.adId}-pt`,
+      size: "1024x1536"
+    }),
+    generateAdImage({
+      ...opts,
+      adId: `${opts.adId}-ls`,
+      size: "1536x1024"
+    })
+  ]);
+  return { square, portrait, landscape };
+}
+
 export type GenerateContentReport = {
   segmentationExpanded: boolean;
   adsAttempted: number;
@@ -374,31 +419,40 @@ export async function generateAllContent(opts: {
         });
 
         let mediaUrls: string[] = [];
+        let mediaVariants: any = null;
         if (t.ad.format === "IMAGE") {
-          const url = await generateAdImage({
+          // Generamos las 3 variantes de aspecto en paralelo. Meta
+          // necesita square (Feed), portrait (Stories/Reels) y
+          // landscape (Marketplace/Right column) para que el anuncio
+          // se vea bien en todos los placements.
+          const variants = await generateAdImageAllVariants({
             workspaceId: opts.workspaceId,
             prompt: copy.imagePrompt,
             campaignId: campaign.id,
-            adId: t.ad.id,
-            size: "1024x1024"
+            adId: t.ad.id
           });
-          mediaUrls = [url];
+          mediaVariants = variants;
+          mediaUrls = [variants.square]; // fallback / legacy compat
         } else if (t.ad.format === "CAROUSEL") {
           // Generamos N tarjetas. Cada una usa el imagePrompt principal
           // + la variación de ángulo en altImageVariations si existe.
+          // Para cada tarjeta producimos las 3 variantes en paralelo —
+          // así el carrusel se ve igual de bien en Feed, Stories y
+          // Marketplace.
           const variations = [copy.imagePrompt, ...(copy.altImageVariations ?? []).slice(0, CAROUSEL_CARDS - 1)];
           while (variations.length < CAROUSEL_CARDS) variations.push(copy.imagePrompt);
-          mediaUrls = await Promise.all(
+          const cards = await Promise.all(
             variations.slice(0, CAROUSEL_CARDS).map((p, k) =>
-              generateAdImage({
+              generateAdImageAllVariants({
                 workspaceId: opts.workspaceId,
                 prompt: p,
                 campaignId: campaign.id,
-                adId: `${t.ad.id}-card${k}`,
-                size: "1024x1024"
+                adId: `${t.ad.id}-card${k}`
               })
             )
           );
+          mediaVariants = cards; // array de {square, portrait, landscape}
+          mediaUrls = cards.map((c) => c.square);
         }
         // VIDEO: solo copy, mediaUrls vacío (vídeo se sube manual)
 
@@ -410,6 +464,7 @@ export async function generateAllContent(opts: {
             description: copy.description,
             callToAction: copy.callToAction,
             mediaUrls,
+            mediaVariants: mediaVariants as any,
             contentStatus: "READY_FOR_REVIEW",
             lastError: null
           }

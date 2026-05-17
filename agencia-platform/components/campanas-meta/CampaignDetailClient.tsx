@@ -373,10 +373,31 @@ function Card({ children }: { children: React.ReactNode }) {
   return <div className="bg-white rounded-xl border p-4 mb-4">{children}</div>;
 }
 
+type Placement = "square" | "portrait" | "landscape";
+const PLACEMENT_LABELS: Record<Placement, { label: string; hint: string; aspect: string }> = {
+  square:    { label: "Feed",     hint: "Móvil + desktop · 1:1",  aspect: "aspect-square" },
+  portrait:  { label: "Stories",  hint: "Reels · 4:5 / 9:16",      aspect: "aspect-[4/5]" },
+  landscape: { label: "Marketplace", hint: "Right col · 1.91:1",   aspect: "aspect-[16/9]" }
+};
+
 function AdCard({ ad, index, visualMode }: { ad: any; index: number; visualMode: string }) {
   const badge = AD_STATUS_BADGE[ad.contentStatus] ?? { label: ad.contentStatus, cls: "bg-slate-100 text-slate-600" };
   const hasMedia = Array.isArray(ad.mediaUrls) && ad.mediaUrls.length > 0;
   const isCarousel = ad.format === "CAROUSEL";
+
+  // Variantes por placement (Fase 2). Para IMAGE: {square,portrait,
+  // landscape}. Para CAROUSEL: array de esos objetos (una entry por
+  // tarjeta). Si mediaVariants no existe (campañas anteriores al
+  // cambio), caemos a la cuadrada de mediaUrls.
+  const variantsObj: Record<Placement, string> | null = (() => {
+    if (!ad.mediaVariants) return null;
+    if (isCarousel) return null; // se trata aparte abajo
+    return ad.mediaVariants as Record<Placement, string>;
+  })();
+  const carouselVariants: Record<Placement, string>[] | null =
+    isCarousel && Array.isArray(ad.mediaVariants) ? ad.mediaVariants : null;
+
+  const [placement, setPlacement] = useState<Placement>("square");
 
   return (
     <div className="bg-white rounded border p-3">
@@ -387,17 +408,55 @@ function AdCard({ ad, index, visualMode }: { ad: any; index: number; visualMode:
         </span>
       </div>
 
-      {hasMedia ? (
+      {/* Selector de placement — solo si hay variantes generadas */}
+      {(variantsObj || carouselVariants) && (
+        <div className="flex gap-0.5 mb-2 p-0.5 rounded-md bg-slate-100 text-[10px]">
+          {(Object.keys(PLACEMENT_LABELS) as Placement[]).map((p) => (
+            <button
+              key={p}
+              type="button"
+              onClick={() => setPlacement(p)}
+              className={`flex-1 px-2 py-1 rounded ${
+                placement === p
+                  ? "bg-white text-slate-900 shadow-sm font-medium"
+                  : "text-slate-500 hover:text-slate-800"
+              }`}
+              title={PLACEMENT_LABELS[p].hint}
+            >
+              {PLACEMENT_LABELS[p].label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {hasMedia || variantsObj || carouselVariants ? (
         isCarousel ? (
           <div className="grid grid-cols-3 gap-1 mb-2">
-            {ad.mediaUrls.slice(0, 3).map((src: string, k: number) => (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img key={k} src={src} alt="" className="w-full h-20 object-cover rounded" />
+            {(carouselVariants ?? ad.mediaUrls.slice(0, 3).map((u: string) => ({ square: u, portrait: u, landscape: u })) as Record<Placement, string>[]).slice(0, 3).map((card: Record<Placement, string>, k: number) => (
+              <div
+                key={k}
+                className={`w-full ${PLACEMENT_LABELS[placement].aspect} rounded bg-slate-50 border overflow-hidden`}
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={card[placement] ?? card.square} alt="" className="w-full h-full object-contain" />
+              </div>
             ))}
           </div>
         ) : (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={ad.mediaUrls[0]} alt="" className="w-full h-40 object-cover rounded mb-2" />
+          // IMAGE: muestra la variante seleccionada COMPLETA (object-contain)
+          // dentro de un wrapper con el aspect-ratio correcto del placement.
+          // Antes usábamos object-cover + altura fija → solo se veía la
+          // parte central. Ahora ves el anuncio entero con su composición.
+          <div
+            className={`w-full ${PLACEMENT_LABELS[placement].aspect} rounded bg-slate-50 border overflow-hidden mb-2`}
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={variantsObj?.[placement] ?? variantsObj?.square ?? ad.mediaUrls[0]}
+              alt=""
+              className="w-full h-full object-contain"
+            />
+          </div>
         )
       ) : ad.format === "VIDEO" ? (
         <div className="w-full h-32 rounded bg-slate-100 border border-dashed border-slate-300 grid place-items-center mb-2">
