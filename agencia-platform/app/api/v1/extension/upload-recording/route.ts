@@ -179,12 +179,11 @@ function buildCommentDoc(s: MeetingSummary, meetingUrl: string, platform: string
 }
 
 export const POST = withApi({ scope: "tasks:write" }, async (req, { api }) => {
-  if (!api.apiKeyId) {
-    throw new ApiError(
-      401,
-      "api_key_required",
-      "Este endpoint solo acepta autenticación por API key (extensión)."
-    );
+  // Acepta auth por API key (legacy: v0.1 de la extensión) O por
+  // sesión NextAuth (v0.2+: la extensión usa cookie del Hub). Las
+  // dos resuelven a un userId — el assignee de la tarea.
+  if (!api.userId && !api.apiKeyId) {
+    throw new ApiError(401, "auth_required", "Sesión requerida");
   }
 
   let form: FormData;
@@ -275,12 +274,16 @@ export const POST = withApi({ scope: "tasks:write" }, async (req, { api }) => {
   }
 
   // ── 4) Crear tarea + comentario con el resumen ────────────────
-  // assigneeId: el dueño del api key (si existe). Si no, queda sin
-  // asignar y el equipo la verá igual.
-  const apiKey = await prisma.apiKey.findUnique({
-    where: { id: api.apiKeyId },
-    select: { userId: true }
-  });
+  // assigneeId: api.userId si viene de sesión NextAuth (cookie de
+  // extensión v0.2+); o el dueño de la API key si es legacy v0.1.
+  let assigneeId: string | null = api.userId ?? null;
+  if (!assigneeId && api.apiKeyId) {
+    const apiKey = await prisma.apiKey.findUnique({
+      where: { id: api.apiKeyId },
+      select: { userId: true }
+    });
+    assigneeId = apiKey?.userId ?? null;
+  }
 
   const taskTitle = summary.title?.trim() || `Reunión ${new Date().toLocaleString("es-ES", { dateStyle: "short", timeStyle: "short" })}`;
   const commentDoc = buildCommentDoc(summary, meetingUrl, platform);
@@ -293,19 +296,19 @@ export const POST = withApi({ scope: "tasks:write" }, async (req, { api }) => {
       description: `Reunión en ${platform} — ${meetingUrl || "(sin URL)"}\n\n${summary.summary}`,
       status: "TODO",
       priority: "MEDIUM",
-      ...(apiKey?.userId
-        ? { assignees: { create: [{ userId: apiKey.userId }] } }
+      ...(assigneeId
+        ? { assignees: { create: [{ userId: assigneeId }] } }
         : {})
     } as any
   });
 
   // El resumen rich va como comentario para que se vea con las
   // secciones formateadas (heading, bullets) en el modal de tarea.
-  if (apiKey?.userId) {
+  if (assigneeId) {
     await prisma.comment.create({
       data: {
         workspaceId: api.workspaceId,
-        authorId: apiKey.userId,
+        authorId: assigneeId,
         targetType: "TASK",
         targetId: task.id,
         body: summary.summary,

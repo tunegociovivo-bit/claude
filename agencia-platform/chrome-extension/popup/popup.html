@@ -10,41 +10,28 @@
       <div class="logo">⏺</div>
       <div class="title">
         <strong>Hub Negocio Vivo</strong>
-        <span class="version" id="user-chip">v0.1.0</span>
+        <span class="version" id="user-chip">v0.2.0</span>
       </div>
-      <button id="btn-logout" class="icon-btn hidden" title="Cerrar sesión">⎋</button>
     </header>
 
     <main>
-      <!-- Estado: necesita login -->
+      <!-- Sin sesión en el Hub -->
       <section id="state-login" class="state hidden">
-        <p class="muted small">
-          Conecta con tu cuenta del Hub para grabar reuniones y recibir
-          notificaciones de tareas y menciones.
+        <p class="muted">
+          Necesitas <strong>iniciar sesión en hub.negociovivo.app</strong> en este navegador.
+          La extensión se vincula sola — no hay que meter usuario ni contraseña aquí.
         </p>
-        <label>
-          Email
-          <input id="login-email" type="email" autocomplete="email" placeholder="tu@email.com" />
-        </label>
-        <label>
-          Contraseña
-          <input id="login-password" type="password" autocomplete="current-password" placeholder="••••••••" />
-        </label>
-        <label id="login-totp-label" class="hidden">
-          Código 2FA
-          <input id="login-totp" type="text" inputmode="numeric" autocomplete="one-time-code" placeholder="6 dígitos" />
-        </label>
-        <button id="btn-login" class="primary">Entrar</button>
+        <button id="btn-open-login" class="primary">🌐 Conectar con Hub</button>
+        <button id="btn-recheck" class="ghost">↻ Ya he iniciado sesión, reintentar</button>
         <p id="login-error" class="error small hidden"></p>
       </section>
 
-      <!-- Estado: idle (logueado, sin grabar) -->
+      <!-- Logueado, listo para grabar -->
       <section id="state-idle" class="state hidden">
         <button id="btn-start" class="primary">⏺ Grabar reunión</button>
         <div id="meeting-hint" class="muted small"></div>
       </section>
 
-      <!-- Estado: recording -->
       <section id="state-recording" class="state hidden">
         <div class="rec-indicator">
           <span class="dot"></span>
@@ -58,7 +45,6 @@
         <button id="btn-stop" class="danger">⏹ Detener y subir</button>
       </section>
 
-      <!-- Estado: uploading -->
       <section id="state-uploading" class="state hidden">
         <div class="spinner"></div>
         <p>Subiendo y procesando en el Hub…</p>
@@ -68,20 +54,17 @@
         </p>
       </section>
 
-      <!-- Estado: done -->
       <section id="state-done" class="state hidden">
         <p class="ok">✅ Tarea creada</p>
         <a id="task-link" target="_blank" class="primary as-button">Abrir tarea</a>
         <button id="btn-new" class="ghost">Grabar otra</button>
       </section>
 
-      <!-- Estado: error -->
       <section id="state-error" class="state hidden">
         <p class="error">⚠️ <span id="error-msg">Error</span></p>
         <button id="btn-retry" class="ghost">Volver a intentarlo</button>
       </section>
 
-      <!-- Notificaciones del Hub (siempre visibles cuando hay sesión) -->
       <section id="notifications-block" class="notifications hidden">
         <div class="notifications-header">
           <span>🔔 Notificaciones</span>
@@ -92,7 +75,7 @@
         <p id="notif-empty" class="muted small hidden">Sin notificaciones nuevas.</p>
       </section>
 
-      <details id="config" class="config hidden">
+      <details id="config" class="config">
         <summary>Configuración avanzada</summary>
         <label>
           URL del Hub

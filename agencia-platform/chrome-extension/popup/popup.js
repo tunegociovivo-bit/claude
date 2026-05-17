@@ -1,21 +1,21 @@
 /**
- * Popup de la extensión Hub Reuniones.
+ * Popup de la extensión Hub Negocio Vivo.
  *
  * Estados:
- *   - login        — sin token guardado, muestra form email+password
- *                    (con paso adicional 2FA si el server lo pide).
+ *   - login        — sin sesión en el Hub. Pinta "Conectar con Hub"
+ *                    (abre /login en una pestaña) + "Ya he entrado, reintentar".
  *   - idle         — logueado, esperando que pulse "Grabar".
  *   - recording    — captura en curso.
  *   - uploading    — subida + procesado en el Hub.
  *   - done / error
  *
- * Notificaciones: se pintan SIEMPRE que hay sesión, debajo del estado
- * actual. El service worker es quien hace el polling (chrome.alarms)
- * y guarda el resultado en chrome.storage.local. Aquí solo leemos.
+ * Auth: la extensión usa la COOKIE de sesión del Hub directamente
+ * (host_permissions + credentials: include). No hay formulario.
+ * Detecta sesión al abrir el popup llamando a /api/v1/me.
  *
- * El popup se cierra muchas veces — toda la persistencia va a
- * chrome.storage.local y todo lo que necesite "tick" (cronómetro,
- * polling) lo hace el service worker.
+ * Notificaciones: se pintan SIEMPRE que hay sesión, debajo del estado
+ * actual. El service worker es quien hace el polling y guarda el
+ * resultado en chrome.storage.local.
  */
 
 const $ = (id) => document.getElementById(id);
@@ -64,32 +64,25 @@ function timeAgo(iso) {
 
 async function render() {
   const s = await chrome.storage.local.get([
-    "state", "apiKey", "hubUrl", "user", "workspace",
-    "lastTaskUrl", "lastError", "notifications", "needsTotp"
+    "state", "hubUrl", "user", "workspace",
+    "lastTaskUrl", "lastError", "notifications"
   ]);
   const state = s.state ?? "idle";
-  const apiKey = s.apiKey ?? "";
   const hubUrl = s.hubUrl ?? "https://hub.negociovivo.app";
 
   $("cfg-hub-url").value = hubUrl;
 
-  // ── Sin token: pantalla de login ──
-  if (!apiKey) {
+  // Sin user → pantalla de login
+  if (!s.user) {
     showState("login");
-    $("btn-logout").classList.add("hidden");
     $("notifications-block").classList.add("hidden");
-    $("config").classList.remove("hidden");
-    if (s.needsTotp) $("login-totp-label").classList.remove("hidden");
-    else $("login-totp-label").classList.add("hidden");
+    $("user-chip").textContent = "no conectado";
     return;
   }
 
-  // ── Logueado ──
-  $("btn-logout").classList.remove("hidden");
-  $("config").classList.add("hidden");
+  // Logueado
   if (s.user?.email) $("user-chip").textContent = s.user.email;
 
-  // Pista contextual sobre la tab actual
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     const host = tab?.url ? new URL(tab.url).host : "";
@@ -99,7 +92,9 @@ async function render() {
       : "ℹ️ Esta pestaña no parece una reunión, pero puedes grabar igualmente.";
   } catch { $("meeting-hint").textContent = ""; }
 
-  showState(state);
+  // Si el state dice "login" pero ya hay user (porque se acaba de
+  // conectar), pasamos a idle.
+  showState(state === "login" ? "idle" : state);
   if (state === "recording") { if (!elapsedTimer) startElapsedTimer(); }
   else stopElapsedTimer();
 
@@ -141,7 +136,9 @@ function renderNotifications(items, hubUrl) {
     li.appendChild(dot);
     li.appendChild(body);
     li.addEventListener("click", () => {
-      if (n.link) chrome.tabs.create({ url: n.link.startsWith("http") ? n.link : hubUrl.replace(/\/$/, "") + n.link });
+      if (n.link) chrome.tabs.create({
+        url: n.link.startsWith("http") ? n.link : hubUrl.replace(/\/$/, "") + n.link
+      });
     });
     list.appendChild(li);
   }
@@ -157,37 +154,27 @@ function iconFor(type) {
 
 // ─── Listeners ──────────────────────────────────────────────────────
 
-$("btn-login").addEventListener("click", async () => {
-  const email = $("login-email").value.trim();
-  const password = $("login-password").value;
-  const totpCode = $("login-totp").value.trim();
-  if (!email || !password) {
-    $("login-error").textContent = "Email y contraseña obligatorios.";
-    $("login-error").classList.remove("hidden");
-    return;
-  }
-  $("btn-login").disabled = true;
-  $("login-error").classList.add("hidden");
-  const r = await chrome.runtime.sendMessage({
-    from: "popup", type: "login", email, password, totpCode
-  });
-  $("btn-login").disabled = false;
-  if (!r?.ok) {
-    if (r?.code === "totp_required") {
-      $("login-totp-label").classList.remove("hidden");
-      $("login-error").textContent = "Introduce el código de 2FA.";
-    } else {
-      $("login-error").textContent = r?.error ?? "Error al entrar";
-    }
-    $("login-error").classList.remove("hidden");
-    return;
-  }
+// Al abrir el popup, comprobamos sesión por si el user acaba de
+// iniciar sesión en una pestaña aparte y aún no se ha reflejado.
+(async () => {
+  await chrome.runtime.sendMessage({ from: "popup", type: "check-session" });
   render();
+})();
+
+$("btn-open-login").addEventListener("click", async () => {
+  await chrome.runtime.sendMessage({ from: "popup", type: "open-login" });
 });
 
-$("btn-logout").addEventListener("click", async () => {
-  if (!confirm("¿Cerrar sesión en esta extensión?")) return;
-  await chrome.runtime.sendMessage({ from: "popup", type: "logout" });
+$("btn-recheck").addEventListener("click", async () => {
+  $("btn-recheck").disabled = true;
+  $("login-error").classList.add("hidden");
+  const r = await chrome.runtime.sendMessage({ from: "popup", type: "check-session" });
+  $("btn-recheck").disabled = false;
+  if (!r?.ok) {
+    $("login-error").textContent =
+      "Aún no detecto sesión. Asegúrate de haber iniciado sesión en hub.negociovivo.app y vuelve a probar.";
+    $("login-error").classList.remove("hidden");
+  }
   render();
 });
 
@@ -217,7 +204,7 @@ $("btn-retry").addEventListener("click", async () => {
 
 $("btn-save-config").addEventListener("click", async () => {
   const hubUrl = $("cfg-hub-url").value.trim() || "https://hub.negociovivo.app";
-  await chrome.storage.local.set({ hubUrl });
+  await chrome.runtime.sendMessage({ from: "popup", type: "save-hub-url", hubUrl });
   render();
 });
 
@@ -228,5 +215,3 @@ $("btn-mark-read").addEventListener("click", async () => {
 chrome.runtime.onMessage.addListener((msg) => {
   if (msg?.type === "state-changed" || msg?.type === "notifications-updated") render();
 });
-
-render();

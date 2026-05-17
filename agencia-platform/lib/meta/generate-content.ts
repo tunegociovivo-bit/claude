@@ -248,6 +248,16 @@ export async function generateAdImage(opts: {
   quality?: "low" | "medium" | "high";
   campaignId: string;
   adId: string;
+  /** Copy del anuncio (headline, primaryText, CTA). Si viene, le
+   *  pedimos al modelo que GENERE el anuncio terminado con ese texto
+   *  ya integrado en el diseño — no solo la foto de fondo. */
+  copy?: {
+    headline?: string;
+    primaryText?: string;
+    callToAction?: string;
+    brandName?: string;
+    valueProps?: string[];
+  };
 }): Promise<string> {
   if (!isStorageEnabled()) {
     throw new Error("STORAGE_* no configurado — no se pueden guardar imágenes generadas");
@@ -275,30 +285,72 @@ export async function generateAdImage(opts: {
   //     aparte en Meta.
   //   - "Real people, real lighting" → evita el aspecto stock-photo
   //     plano que el modelo da por defecto.
-  const wrappedPrompt = [
-    `META ADS CREATIVE for ${
-      size === "1024x1024"
-        ? "Facebook/Instagram Feed (1:1)"
-        : size === "1024x1536"
-          ? "Instagram Stories / Reels (4:5)"
-          : "Right column / Marketplace (16:9)"
-    }.`,
-    ``,
-    opts.prompt,
-    ``,
-    `Creative direction:`,
-    `- Scroll-stopping, thumb-stopping composition. A single strong focal point that grabs attention in under 1 second when seen tiny on a mobile feed.`,
-    `- Vivid, saturated, high-contrast color palette. Bold lighting (golden hour, dramatic side-light, or punchy studio rim-light depending on subject). NOT muted, NOT flat-stock-photo.`,
-    `- Real people with believable expressions and authentic body language when the scene includes humans. Editorial photography style, NOT corporate stock.`,
-    `- Clear visual storytelling: emotion, problem→solution, before→after, or aspirational lifestyle — depending on the brief above.`,
-    `- Leave generous empty negative space toward the bottom-third (for IG Feed) or top-and-bottom thirds (for Stories) so the overlay copy and CTA button can sit comfortably without covering the subject.`,
-    `- Sharp focus on the subject, with shallow depth of field for the background.`,
-    ``,
-    `CRITICAL constraints:`,
-    `- ABSOLUTELY NO readable text, NO letters, NO numbers, NO words, NO captions, NO logos, NO watermarks, NO UI elements. The campaign copy is composed separately later — the IMAGE must be text-free.`,
-    `- No collage, no split frames, no graphic-design overlays. ONE photographic scene only.`,
-    `- 100% original — do not reproduce existing brand visuals or copyrighted imagery.`
-  ].join("\n");
+  // Si nos pasan `copy`, generamos un ANUNCIO COMPLETO DISEÑADO con
+  // texto, value props y CTA integrados (estilo Freepik). Si no,
+  // generamos solo la foto de fondo (modo legacy/fallback).
+  //
+  // Riesgo conocido: gpt-image puede alucinar letras en español
+  // (acentos mal, palabras inventadas). Le pedimos EXPLÍCITAMENTE
+  // que respete los textos en castellano EXACTOS, y le damos un layout
+  // tipo poster. Si después de probar el texto sale mal, hay que
+  // pasar al pipeline de overlay con sharp+SVG.
+  const wantsCompleteAd = !!(opts.copy?.headline || opts.copy?.primaryText);
+  const placement =
+    size === "1024x1024"
+      ? "Facebook/Instagram Feed (1:1 square)"
+      : size === "1024x1536"
+        ? "Instagram Stories / Reels (vertical 4:5)"
+        : "Right column / Marketplace (landscape 16:9)";
+
+  const wrappedPrompt = wantsCompleteAd
+    ? [
+        `Design a COMPLETE Meta Ads creative poster for ${placement}.`,
+        `This must look like a finished, designed ad (NOT a plain photo).`,
+        `Inspiration: high-end Freepik/Canva ad templates — bold composition,`,
+        `branded color blocks, sharp typography, value props with icons, CTA bar at bottom.`,
+        ``,
+        `=== CAMPAIGN BRIEF ===`,
+        opts.prompt,
+        ``,
+        `=== TEXT TO RENDER ON THE AD (Spanish, render EXACTLY as written) ===`,
+        opts.copy?.headline ? `HEADLINE (large, bold, top of frame): "${opts.copy.headline}"` : "",
+        opts.copy?.primaryText ? `SUBHEADING / BODY (medium, below headline): "${opts.copy.primaryText}"` : "",
+        opts.copy?.valueProps && opts.copy.valueProps.length > 0
+          ? `VALUE PROPS (small, with simple line icons, in a row at mid-bottom):\n${opts.copy.valueProps.map((v, i) => `  ${i + 1}. "${v}"`).join("\n")}`
+          : "",
+        opts.copy?.callToAction
+          ? `CTA BUTTON (bottom of frame, contrasting color pill): "${opts.copy.callToAction}"`
+          : "",
+        opts.copy?.brandName
+          ? `BRAND NAME (small footer, optional): "${opts.copy.brandName}"`
+          : "",
+        ``,
+        `=== DESIGN DIRECTIONS ===`,
+        `- A hero photographic image fills 40-60% of the frame (real person or product, editorial style, dramatic lighting, vivid colors).`,
+        `- The rest is design overlay: a dark color block (deep navy or brand color) with the text rendered in clean sans-serif typography (Inter / Helvetica / Montserrat-like).`,
+        `- Headlines have multiple weights and colors for visual hierarchy (e.g. white + brand accent color for emphasis words).`,
+        `- Value props arranged in a horizontal row with simple monoline icons (gears, dollar sign, chart, AI chip, lock — pick what fits).`,
+        `- CTA button is a horizontal pill in a bold accent color (electric blue, orange, green) with white text.`,
+        `- Use consistent saturated brand palette throughout (2-3 colors max).`,
+        `- All text MUST be perfectly readable. If you cannot render the exact Spanish text above with correct spelling and accents, leave that area empty rather than producing garbled text.`,
+        ``,
+        `=== HARD CONSTRAINTS ===`,
+        `- Render the Spanish text EXACTLY as written above, including accents (á, é, í, ó, ú, ñ). DO NOT invent or change letters.`,
+        `- DO NOT include any other random text, watermarks, logos other than the brand name above, or stock-photo signatures.`,
+        `- This is a FINISHED ADVERTISEMENT poster, not a draft, not a photo background — design ready to publish on Meta.`
+      ].filter(Boolean).join("\n")
+    : [
+        // Modo legacy: solo foto, sin texto (fallback si no hay copy).
+        `Photographic background for a Meta Ads creative — ${placement}.`,
+        ``,
+        opts.prompt,
+        ``,
+        `- Scroll-stopping composition. Single strong focal point.`,
+        `- Vivid saturated palette, dramatic editorial lighting.`,
+        `- Generous negative space at bottom for overlay text added later.`,
+        `- ABSOLUTELY NO text, letters, numbers, logos, watermarks.`,
+        `- One photographic scene only — no collages.`
+      ].join("\n");
 
   // Llamada con fallback de modelo: gpt-image-2 si lo soporta la
   // cuenta, gpt-image-1 si OpenAI responde 400 model_not_found.
@@ -388,6 +440,15 @@ export async function generateAdImageAllVariants(opts: {
   campaignId: string;
   adId: string;
   quality?: "low" | "medium" | "high";
+  /** Si viene, generamos el anuncio COMPLETO diseñado (con texto,
+   *  value props, CTA). Si no, solo la foto de fondo (modo legacy). */
+  copy?: {
+    headline?: string;
+    primaryText?: string;
+    callToAction?: string;
+    brandName?: string;
+    valueProps?: string[];
+  };
 }): Promise<AdImageVariants> {
   const [square, portrait, landscape] = await Promise.all([
     generateAdImage({
@@ -490,18 +551,28 @@ export async function generateAllContent(opts: {
           totalAdsInSet: t.total
         });
 
+        // Pasamos el copy estructurado al generador de imagen para
+        // que produzca el anuncio COMPLETO (texto + value props +
+        // CTA bar), no solo la foto de fondo. Extraemos hasta 4
+        // value props del primaryText si es bullet-list, si no
+        // dejamos vacío y el modelo no los pinta.
+        const adCopy = {
+          headline: copy.headline,
+          primaryText: copy.primaryText,
+          callToAction: ctaLabelForUI(copy.callToAction),
+          brandName: campaign.fanpageName ?? undefined,
+          valueProps: extractValueProps(copy.primaryText)
+        };
+
         let mediaUrls: string[] = [];
         let mediaVariants: any = null;
         if (t.ad.format === "IMAGE") {
-          // Generamos las 3 variantes de aspecto en paralelo. Meta
-          // necesita square (Feed), portrait (Stories/Reels) y
-          // landscape (Marketplace/Right column) para que el anuncio
-          // se vea bien en todos los placements.
           const variants = await generateAdImageAllVariants({
             workspaceId: opts.workspaceId,
             prompt: copy.imagePrompt,
             campaignId: campaign.id,
-            adId: t.ad.id
+            adId: t.ad.id,
+            copy: adCopy
           });
           mediaVariants = variants;
           mediaUrls = [variants.square]; // fallback / legacy compat
@@ -519,7 +590,8 @@ export async function generateAllContent(opts: {
                 workspaceId: opts.workspaceId,
                 prompt: p,
                 campaignId: campaign.id,
-                adId: `${t.ad.id}-card${k}`
+                adId: `${t.ad.id}-card${k}`,
+                copy: adCopy
               })
             )
           );
@@ -574,4 +646,47 @@ export async function generateAllContent(opts: {
   });
 
   return report;
+}
+
+/**
+ * Mapea los CTA codes de Meta (LEARN_MORE, SIGN_UP, …) a etiquetas
+ * en castellano legibles que se renderizan en el botón del anuncio.
+ */
+function ctaLabelForUI(code?: string): string | undefined {
+  if (!code) return undefined;
+  const map: Record<string, string> = {
+    LEARN_MORE: "Saber más",
+    SIGN_UP: "Regístrate",
+    GET_QUOTE: "Pide presupuesto",
+    CONTACT_US: "Contáctanos",
+    APPLY_NOW: "Solicítalo",
+    SHOP_NOW: "Comprar ahora",
+    GET_OFFER: "Llévatelo",
+    ORDER_NOW: "Pídelo ya",
+    BOOK_TRAVEL: "Reservar",
+    SEE_MORE: "Ver más",
+    INSTALL_NOW: "Instalar",
+    USE_APP: "Abrir app",
+    LIKE_PAGE: "Me gusta",
+    WATCH_MORE: "Ver vídeo"
+  };
+  return map[code] ?? code.replace(/_/g, " ").toLowerCase();
+}
+
+/**
+ * Si el primaryText viene en formato lista (líneas con "-", "•",
+ * "✓" o numeradas), extrae hasta 4 ítems para pintarlos como value
+ * props en el anuncio. Si el copy es un párrafo, devuelve [] y el
+ * modelo no pinta esa sección.
+ */
+function extractValueProps(text?: string | null): string[] {
+  if (!text) return [];
+  const lines = text.split(/\n+/).map((l) => l.trim()).filter(Boolean);
+  const bullets = lines
+    .map((l) => l.replace(/^([\-•✓✅*]|\d+[.)])\s*/, "").trim())
+    .filter((l, i, arr) => l && l !== arr[i - 1])
+    .filter((_, _i, arr) => arr.length >= 2 && arr.length <= 6);
+  // Solo lo consideramos lista si > 1 línea quedó tras el strip.
+  if (bullets.length < 2) return [];
+  return bullets.slice(0, 4);
 }

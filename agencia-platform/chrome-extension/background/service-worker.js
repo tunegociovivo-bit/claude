@@ -1,26 +1,30 @@
 /**
- * Service worker (MV3) que coordina la extensión Hub Negocio Vivo.
+ * Service worker (MV3) de la extensión Hub Negocio Vivo.
  *
- * Responsabilidades:
- *  1. Login con email + password (POST /api/v1/extension/login) que
- *     devuelve un token (API key tipo ag_*). Lo guarda en
- *     chrome.storage.local. El popup nunca toca el password después
- *     de loguear; todas las llamadas posteriores van con el token.
- *  2. Grabación: tabCapture.getMediaStreamId → offscreen MediaRecorder →
- *     POST /api/v1/extension/upload-recording.
- *  3. Polling de notificaciones: cada NOTIF_POLL_MIN minutos llama a
- *     /api/v1/notifications?unread=true y compara con la última lista
- *     guardada. Las nuevas aparecen como notificación nativa de Chrome
- *     (chrome.notifications.create) — el user las ve aunque el popup
- *     esté cerrado.
- *  4. Badge en el icono: número de notificaciones no leídas en el
- *     icono (sobre el rojo si está en una reunión, prevalece el
- *     contador si hay > 0 no leídas).
+ * Auth: usa la COOKIE de sesión de hub.negociovivo.app. No hay
+ * formulario en el popup — si el user está logueado en el navegador
+ * (cualquier pestaña), la extensión lo detecta y se vincula sola.
+ * Si no, el popup muestra un único botón "Conectar con Hub" que
+ * abre /login en una pestaña; cuando el user vuelve al popup ya
+ * tiene cookie y funciona.
+ *
+ * Implementación:
+ *  - host_permissions sobre hub.negociovivo.app + permiso "cookies".
+ *  - fetch(...) desde background/popup/offscreen lleva
+ *    credentials: "include" y Chrome envía la cookie de sesión
+ *    automáticamente.
+ *  - Polling cada 5 min a /api/v1/me para refrescar el estado
+ *    "logueado" y detectar logout en otra pestaña.
+ *
+ * Resto sin cambios: grabación con tabCapture + offscreen +
+ * MediaRecorder, polling de notificaciones, detección de fin de
+ * reunión.
  */
 
 const HUB_BASE_DEFAULT = "https://hub.negociovivo.app";
 const OFFSCREEN_PATH = "offscreen/offscreen.html";
-const NOTIF_POLL_MIN = 2; // chrome.alarms tick
+const NOTIF_POLL_MIN = 2;
+const SESSION_POLL_MIN = 5; // refrescar el "logueado" cada 5 min
 
 // ─────────────────────────────────────────────────────────────────────
 // Estado persistido
@@ -28,21 +32,18 @@ const NOTIF_POLL_MIN = 2; // chrome.alarms tick
 
 async function getState() {
   const r = await chrome.storage.local.get([
-    "state", "apiKey", "hubUrl", "user", "workspace",
-    "lastTaskUrl", "lastError", "notifications", "lastNotifSeenAt",
-    "needsTotp"
+    "state", "hubUrl", "user", "workspace",
+    "lastTaskUrl", "lastError", "notifications", "lastNotifSeenAt"
   ]);
   return {
     state: r.state ?? "idle",
-    apiKey: r.apiKey ?? null,
     hubUrl: r.hubUrl ?? HUB_BASE_DEFAULT,
     user: r.user ?? null,
     workspace: r.workspace ?? null,
     lastTaskUrl: r.lastTaskUrl ?? null,
     lastError: r.lastError ?? null,
     notifications: r.notifications ?? [],
-    lastNotifSeenAt: r.lastNotifSeenAt ?? 0,
-    needsTotp: !!r.needsTotp
+    lastNotifSeenAt: r.lastNotifSeenAt ?? 0
   };
 }
 async function setState(patch) {
@@ -53,56 +54,71 @@ async function setState(patch) {
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// Auth
+// Auth via cookie de sesión del Hub
 // ─────────────────────────────────────────────────────────────────────
 
-async function deviceLabel() {
-  // chrome.runtime.getPlatformInfo() devuelve {os, arch}. Suficiente
-  // para distinguir "Chrome en Mac" / "Chrome en Windows".
-  try {
-    const p = await chrome.runtime.getPlatformInfo();
-    const os = ({ mac: "Mac", win: "Windows", linux: "Linux", cros: "ChromeOS", android: "Android" })[p.os] ?? p.os;
-    return `Chrome en ${os}`;
-  } catch {
-    return "Extensión Chrome";
-  }
-}
-
-async function login({ email, password, totpCode }) {
+/**
+ * Llama a /api/v1/me con la cookie de sesión. Si el user está
+ * logueado en el Hub en cualquier pestaña, el navegador envía la
+ * cookie y nos devuelve {user, workspaceId, role}.
+ *
+ * Devuelve null si no hay sesión (401) o si la red falló.
+ */
+async function fetchSessionUser() {
   const { hubUrl } = await getState();
-  const resp = await fetch(`${hubUrl.replace(/\/$/, "")}/api/v1/extension/login`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, password, totpCode, deviceLabel: await deviceLabel() })
-  });
-  const data = await resp.json().catch(() => ({}));
-  if (!resp.ok) {
-    const code = data?.error?.code ?? "error";
-    const message = data?.error?.message ?? `HTTP ${resp.status}`;
-    if (code === "totp_required") {
-      await setState({ needsTotp: true });
-    }
-    return { ok: false, code, error: message };
+  try {
+    const r = await fetch(`${hubUrl.replace(/\/$/, "")}/api/v1/me`, {
+      method: "GET",
+      credentials: "include",
+      cache: "no-store"
+    });
+    if (r.status === 401 || r.status === 403) return null;
+    if (!r.ok) return null;
+    const data = await r.json();
+    if (!data?.user?.id) return null;
+    return {
+      user: { id: data.user.id, name: data.user.name, email: data.user.email, image: data.user.image },
+      workspaceId: data.workspaceId,
+      role: data.role
+    };
+  } catch {
+    return null;
   }
-  await setState({
-    apiKey: data.token,
-    user: data.user,
-    workspace: data.workspace,
-    needsTotp: false,
-    state: "idle",
-    notifications: [],
-    lastNotifSeenAt: Date.now()
-  });
-  // Arranca el polling inmediatamente
-  await ensureNotificationsAlarm();
-  pollNotifications();
-  return { ok: true };
 }
 
-async function logout() {
-  await chrome.storage.local.clear();
-  await setState({}); // dispara render
-  await chrome.alarms.clear("poll-notifications");
+/**
+ * Refresca el estado de sesión y persiste user/workspace. Si el
+ * estado cambia (logueado ⇄ no logueado), avisa al popup vía
+ * state-changed.
+ */
+async function syncSession() {
+  const info = await fetchSessionUser();
+  const curr = await getState();
+  if (info) {
+    if (!curr.user || curr.user.id !== info.user.id) {
+      await setState({
+        user: info.user,
+        workspace: { id: info.workspaceId, role: info.role },
+        state: curr.state === "login" ? "idle" : curr.state
+      });
+      // Arranca el polling de notificaciones tras login
+      await ensureNotificationsAlarm();
+      pollNotifications();
+    }
+  } else {
+    // Sin sesión — limpiamos user para que el popup pinte el botón
+    // "Conectar con Hub".
+    if (curr.user) {
+      await setState({
+        user: null,
+        workspace: null,
+        notifications: [],
+        state: "login"
+      });
+      await chrome.alarms.clear("poll-notifications");
+    }
+  }
+  return !!info;
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -134,24 +150,14 @@ async function closeOffscreen() {
 // Recording
 // ─────────────────────────────────────────────────────────────────────
 
-// Estado en RAM del SW para la grabación en curso. Si Chrome reinicia
-// el SW (suele pasar), pierdes este estado y la detección de fin de
-// reunión se desactiva — la grabación en sí sigue en el offscreen
-// hasta que el user pulse Stop manualmente, así que el peor caso es
-// "no te pregunto, pero no pasa nada".
 let recordingCtx = null;
-// { tabId, startedAt, lastLoudAt, askEndedAt }
-
-// Umbrales de "silencio largo" — si el RMS reportado por el offscreen
-// está por debajo de SILENCE_LEVEL durante SILENCE_MIN min, asumimos
-// que la reunión ya terminó y preguntamos al user.
-const SILENCE_LEVEL = 8;       // 0-1000, ~ruido de oficina vacía
-const SILENCE_MIN = 3;         // minutos
-const ASK_COOLDOWN_MS = 60_000 * 5; // no volver a preguntar antes de 5 min
+const SILENCE_LEVEL = 8;
+const SILENCE_MIN = 3;
+const ASK_COOLDOWN_MS = 60_000 * 5;
 
 async function startRecording() {
-  const { apiKey, hubUrl } = await getState();
-  if (!apiKey) throw new Error("Sin sesión. Entra primero con tu email/contraseña.");
+  const { hubUrl, user } = await getState();
+  if (!user) throw new Error("Sin sesión activa en el Hub. Abre hub.negociovivo.app y entra.");
 
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab) throw new Error("No se ha podido detectar la pestaña activa.");
@@ -181,23 +187,17 @@ async function startRecording() {
     streamId,
     meetingUrl: tab.url ?? "",
     meetingTitle: tab.title ?? "",
-    hubUrl,
-    apiKey
+    hubUrl
+    // OJO: ya no pasamos apiKey. El offscreen sube con credentials: include
+    // y la cookie de sesión viaja.
   });
 }
 
-/**
- * Pregunta al user via notificación con botones si la reunión ya
- * terminó. El user decide:
- *   - [Subir ahora] → llama a stopRecording, igual que el botón
- *     del popup.
- *   - [Sigo grabando] → marca cooldown para no volver a molestar
- *     en 5 minutos.
- *
- * No usar más de una notificación de "reunión terminada" al mismo
- * tiempo. La id "meeting-ended-prompt" es estable, Chrome reemplaza
- * la anterior si existe.
- */
+async function stopRecording() {
+  await chrome.runtime.sendMessage({ target: "offscreen", type: "stop-recording" });
+  await setState({ state: "uploading" });
+}
+
 async function askIfMeetingEnded(reason) {
   if (!recordingCtx) return;
   const now = Date.now();
@@ -224,57 +224,45 @@ async function askIfMeetingEnded(reason) {
   });
 }
 
-async function stopRecording() {
-  await chrome.runtime.sendMessage({ target: "offscreen", type: "stop-recording" });
-  await setState({ state: "uploading" });
-}
-
 // ─────────────────────────────────────────────────────────────────────
 // Notificaciones del Hub (polling)
 // ─────────────────────────────────────────────────────────────────────
 
 async function ensureNotificationsAlarm() {
   await chrome.alarms.clear("poll-notifications");
+  await chrome.alarms.clear("poll-session");
   await chrome.alarms.create("poll-notifications", {
     periodInMinutes: NOTIF_POLL_MIN,
-    delayInMinutes: 0.05 // ~3s al instalar
+    delayInMinutes: 0.05
+  });
+  await chrome.alarms.create("poll-session", {
+    periodInMinutes: SESSION_POLL_MIN,
+    delayInMinutes: SESSION_POLL_MIN
   });
 }
 
 async function pollNotifications() {
-  const { apiKey, hubUrl, notifications, lastNotifSeenAt } = await getState();
-  if (!apiKey) return;
+  const { user, hubUrl, notifications, lastNotifSeenAt } = await getState();
+  if (!user) return;
   try {
     const r = await fetch(`${hubUrl.replace(/\/$/, "")}/api/v1/notifications`, {
-      headers: { Authorization: `Bearer ${apiKey}` },
+      credentials: "include",
       cache: "no-store"
     });
     if (r.status === 401) {
-      // Token caducado o revocado — forzar logout silencioso.
-      await logout();
-      chrome.notifications.create({
-        type: "basic",
-        iconUrl: chrome.runtime.getURL("icons/icon-128.png"),
-        title: "Hub: sesión expirada",
-        message: "Vuelve a iniciar sesión en la extensión.",
-        priority: 1
-      });
+      // Cookie caducada o user hizo logout en otra tab — reflejamos.
+      await syncSession();
       return;
     }
     if (!r.ok) return;
     const data = await r.json();
     const items = Array.isArray(data.items) ? data.items : [];
 
-    // Detectar NUEVAS: las que no estaban en la lista anterior O
-    // que tienen createdAt > lastNotifSeenAt. Las mostramos como
-    // notificación nativa para que el user las vea sin abrir el
-    // popup — la idea es alertar de menciones y alarmas a tiempo.
     const prevIds = new Set(notifications.map((n) => n.id));
     const fresh = items.filter(
       (n) => !prevIds.has(n.id) && new Date(n.createdAt).getTime() > lastNotifSeenAt
     );
     for (const n of fresh.slice(0, 3)) {
-      // Solo notificación si NO está leída (las leídas no molestan)
       if (n.read) continue;
       const title = titleFor(n.type);
       chrome.notifications.create(`hub-notif-${n.id}`, {
@@ -283,25 +271,18 @@ async function pollNotifications() {
         title,
         message: n.body || "Tienes una notificación nueva en Hub",
         priority: priorityFor(n.type),
-        requireInteraction: /due|alarm|reminder/i.test(n.type) // alarmas: no se cierran solas
+        requireInteraction: /due|alarm|reminder/i.test(n.type)
       });
     }
 
-    // Persistir
-    await setState({
-      notifications: items,
-      lastNotifSeenAt: Date.now()
-    });
+    await setState({ notifications: items, lastNotifSeenAt: Date.now() });
 
-    // Badge en el icono (no leídas)
     const unread = items.filter((n) => !n.read).length;
     chrome.action.setBadgeBackgroundColor({ color: "#dc2626" });
     chrome.action.setBadgeText({ text: unread > 0 ? String(unread) : "" });
 
     chrome.runtime.sendMessage({ type: "notifications-updated" }).catch(() => {});
   } catch (e) {
-    // Red abajo o Hub caído — ignoramos silenciosamente; el siguiente
-    // tick lo reintenta.
     console.warn("[poll-notifications]", e?.message ?? e);
   }
 }
@@ -314,23 +295,28 @@ function titleFor(type) {
   return "🔔 Hub";
 }
 function priorityFor(type) {
-  if (/due|alarm|reminder|deadline/i.test(type)) return 2; // más visible
+  if (/due|alarm|reminder|deadline/i.test(type)) return 2;
   if (/mention/i.test(type)) return 2;
   return 1;
 }
 
 async function markAllRead() {
-  const { apiKey, hubUrl } = await getState();
-  if (!apiKey) return;
+  const { hubUrl, user } = await getState();
+  if (!user) return;
   try {
     await fetch(`${hubUrl.replace(/\/$/, "")}/api/v1/notifications`, {
       method: "PATCH",
-      headers: { Authorization: `Bearer ${apiKey}` }
+      credentials: "include"
     });
     await pollNotifications();
   } catch (e) {
     console.warn(e);
   }
+}
+
+async function openHubLogin() {
+  const { hubUrl } = await getState();
+  await chrome.tabs.create({ url: `${hubUrl.replace(/\/$/, "")}/login` });
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -339,20 +325,25 @@ async function markAllRead() {
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   (async () => {
-    if (msg?.from === "popup" && msg?.type === "login") {
-      sendResponse(await login(msg));
+    if (msg?.from === "popup" && msg?.type === "check-session") {
+      const ok = await syncSession();
+      sendResponse({ ok });
       return;
     }
-    if (msg?.from === "popup" && msg?.type === "logout") {
-      await logout();
+    if (msg?.from === "popup" && msg?.type === "open-login") {
+      await openHubLogin();
+      sendResponse({ ok: true });
+      return;
+    }
+    if (msg?.from === "popup" && msg?.type === "save-hub-url") {
+      await chrome.storage.local.set({ hubUrl: msg.hubUrl ?? HUB_BASE_DEFAULT });
+      await syncSession();
       sendResponse({ ok: true });
       return;
     }
     if (msg?.from === "popup" && msg?.type === "start") {
-      try {
-        await startRecording();
-        sendResponse({ ok: true });
-      } catch (e) {
+      try { await startRecording(); sendResponse({ ok: true }); }
+      catch (e) {
         await setState({ state: "error", lastError: String(e?.message ?? e) });
         sendResponse({ ok: false, error: String(e?.message ?? e) });
       }
@@ -369,24 +360,17 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       return;
     }
     if (msg?.from === "offscreen" && msg?.type === "audio-level") {
-      // Detección de silencio. Si el RMS supera el umbral, marcamos
-      // actividad. Si llevamos más de SILENCE_MIN minutos sin pasar
-      // del umbral Y estamos grabando, preguntamos al user si la
-      // reunión terminó.
       if (recordingCtx) {
         if (typeof msg.level === "number" && msg.level >= SILENCE_LEVEL) {
           recordingCtx.lastLoudAt = Date.now();
         } else {
           const silentMs = Date.now() - recordingCtx.lastLoudAt;
-          if (silentMs >= SILENCE_MIN * 60_000) {
-            askIfMeetingEnded("silence");
-          }
+          if (silentMs >= SILENCE_MIN * 60_000) askIfMeetingEnded("silence");
         }
       }
       return;
     }
     if (msg?.from === "offscreen" && msg?.type === "upload-result") {
-      // Tras subir limpiamos el contexto de reunión activa.
       recordingCtx = null;
       chrome.notifications.clear("meeting-ended-prompt");
       if (msg.ok) {
@@ -412,8 +396,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       return;
     }
     if (msg?.from === "content" && msg?.type === "meeting-detected") {
-      // Solo cambiamos el badge si NO hay notificaciones no leídas —
-      // el contador prevalece para no confundir al user.
       const { notifications } = await getState();
       const unread = notifications.filter((n) => !n.read).length;
       if (unread === 0) {
@@ -426,16 +408,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   return true;
 });
 
-// Click en notificación nativa → abre el link de la notif si lo tiene.
 chrome.notifications.onClicked.addListener(async (notificationId) => {
   chrome.notifications.clear(notificationId);
   const { lastTaskUrl, hubUrl, notifications } = await getState();
-  // Si la notif es de una grabación recién subida → abrir tarea.
   if (lastTaskUrl && !notificationId.startsWith("hub-notif-")) {
     chrome.tabs.create({ url: lastTaskUrl });
     return;
   }
-  // Si es de Hub (hub-notif-<id>): abrir el link de la notif.
   const id = notificationId.replace(/^hub-notif-/, "");
   const notif = notifications.find((n) => n.id === id);
   if (notif?.link) {
@@ -448,44 +427,41 @@ chrome.notifications.onClicked.addListener(async (notificationId) => {
   }
 });
 
-// Alarma de polling
-chrome.alarms.onAlarm.addListener(async (alarm) => {
-  if (alarm.name === "poll-notifications") {
-    await pollNotifications();
+chrome.notifications.onButtonClicked.addListener(async (notificationId, buttonIdx) => {
+  if (notificationId !== "meeting-ended-prompt") return;
+  chrome.notifications.clear(notificationId);
+  if (buttonIdx === 0) {
+    try { await stopRecording(); } catch (e) { console.warn("[meeting-ended] stop failed:", e); }
+  } else {
+    if (recordingCtx) recordingCtx.lastLoudAt = Date.now();
   }
 });
 
-// Al instalar / actualizar
+chrome.alarms.onAlarm.addListener(async (alarm) => {
+  if (alarm.name === "poll-notifications") {
+    await pollNotifications();
+  } else if (alarm.name === "poll-session") {
+    await syncSession();
+  }
+});
+
+// Al instalar / actualizar: chequea sesión y abre la pestaña del
+// Hub si no hay cookie. Si hay → ya estamos listos.
 chrome.runtime.onInstalled.addListener(async () => {
-  const { apiKey } = await getState();
-  if (apiKey) {
+  const ok = await syncSession();
+  if (ok) {
     await ensureNotificationsAlarm();
   } else {
-    // Abrir popup para que el user se loguee.
     chrome.action.openPopup?.().catch(() => {});
   }
 });
 
-// Re-armar la alarma al arrancar el navegador
 chrome.runtime.onStartup.addListener(async () => {
-  const { apiKey } = await getState();
-  if (apiKey) await ensureNotificationsAlarm();
+  const ok = await syncSession();
+  if (ok) await ensureNotificationsAlarm();
 });
 
-// ─────────────────────────────────────────────────────────────────────
-// Detección de fin de reunión
-// ─────────────────────────────────────────────────────────────────────
-
-/**
- * Heurística para saber si una URL sigue siendo de una reunión activa.
- * Se basa en patrones específicos por plataforma:
- *   - Google Meet: meet.google.com/<id> con guiones (la lobby es meet.google.com sin path).
- *   - Teams: teams.microsoft.com/_#/meetup-join/... o /meeting/...
- *   - Zoom: zoom.us/j/<id> o /wc/<id>/join
- *   - Whereby: whereby.com/<room>
- *   - Jitsi: meet.jit.si/<room>
- * Si no encaja en ningún patrón, asumimos que ya no es la reunión.
- */
+// Detector de fin de reunión: tab cerrada / URL cambia / silencio.
 function urlIsActiveMeeting(url) {
   if (!url) return false;
   try {
@@ -493,68 +469,30 @@ function urlIsActiveMeeting(url) {
     const h = u.hostname;
     const p = u.pathname;
     if (/meet\.google\.com$/i.test(h)) return /^\/[a-z0-9-]{8,}/i.test(p);
-    if (/teams\.(microsoft|live)\.com$/i.test(h))
-      return /meetup-join|meeting|conf/i.test(p + u.hash);
-    if (/zoom\.us$/i.test(h) || h.endsWith(".zoom.us"))
-      return /\/j\/\d+|\/wc\/\d+|\/meeting/i.test(p);
-    if (h.endsWith("whereby.com")) return p.length > 1; // /<room>
+    if (/teams\.(microsoft|live)\.com$/i.test(h)) return /meetup-join|meeting|conf/i.test(p + u.hash);
+    if (/zoom\.us$/i.test(h) || h.endsWith(".zoom.us")) return /\/j\/\d+|\/wc\/\d+|\/meeting/i.test(p);
+    if (h.endsWith("whereby.com")) return p.length > 1;
     if (/meet\.jit\.si$/i.test(h)) return p.length > 1;
     if (h.endsWith(".webex.com")) return /meet|join/i.test(p);
     if (h.endsWith(".gotomeeting.com")) return p.length > 1;
-    // Hosts no listados: asumimos que es reunión si el host estaba en
-    // las URLs originales — no cortamos para no falsos positivos.
     return true;
   } catch {
     return false;
   }
 }
 
-// Tab cerrada → si era la de la grabación, preguntamos. (También
-// podríamos detener directamente, pero darle la opción al user es
-// más seguro: a veces se cierra una pestaña por error y quiere
-// seguir grabando si la reabre rápido.)
 chrome.tabs.onRemoved.addListener((tabId) => {
   if (recordingCtx && recordingCtx.tabId === tabId) {
     askIfMeetingEnded("tab_closed");
   }
 });
 
-// Cambio de URL en la tab de la grabación. Si la URL nueva ya no
-// parece una reunión activa, preguntamos.
-chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   if (!recordingCtx || recordingCtx.tabId !== tabId) return;
-  // Solo nos importa cuando cambia URL (no cuando carga, cambia
-  // título, etc.).
   if (!changeInfo.url) return;
-  // Si la URL nueva es del mismo dominio + path con sentido de
-  // reunión, ignoramos. Si NO, preguntamos.
   if (urlIsActiveMeeting(changeInfo.url)) {
     recordingCtx.tabUrl = changeInfo.url;
     return;
   }
   askIfMeetingEnded("url_change");
 });
-
-// Botones de la notificación de fin de reunión. 0 = subir, 1 = sigo.
-chrome.notifications.onButtonClicked.addListener(async (notificationId, buttonIdx) => {
-  if (notificationId !== "meeting-ended-prompt") return;
-  chrome.notifications.clear(notificationId);
-  if (buttonIdx === 0) {
-    // Subir ahora
-    try {
-      await stopRecording();
-    } catch (e) {
-      console.warn("[meeting-ended] stop failed:", e);
-    }
-  } else {
-    // Sigo grabando — el cooldown ya está marcado, no insistiremos
-    // en 5 minutos. Reseteamos lastLoudAt para no preguntar otra vez
-    // inmediatamente si lo que provocó la pregunta fue silencio.
-    if (recordingCtx) recordingCtx.lastLoudAt = Date.now();
-  }
-});
-
-// Si el user clica el cuerpo de la notificación (no los botones),
-// también lo tratamos como "abre el popup" para que decida ahí.
-// El handler global de chrome.notifications.onClicked ya cubre eso
-// arriba — solo añadimos un fast-path para el caso meeting-ended.

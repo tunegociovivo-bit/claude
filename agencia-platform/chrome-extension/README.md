@@ -25,17 +25,27 @@ navegador del equipo.
 > sobre la extensión. No se actualiza sola — al ser sideload hay que
 > recargar manualmente cuando se publique una versión nueva.
 
-## 2. Iniciar sesión
+## 2. Conectar con tu sesión del Hub (auto)
 
-1. Pulsa el icono de la extensión en Chrome.
-2. Introduce tu **email y contraseña** del Hub (los mismos que usas
-   en hub.negociovivo.app).
-3. Si tienes 2FA activado, te pedirá el código de 6 dígitos del
-   authenticator.
-4. La extensión guarda un token de sesión válido 90 días y queda
-   ligada a tu usuario — desde ese momento sabrá quién eres,
-   recibirás tus notificaciones y las tareas que cree irán
-   asignadas a ti.
+A partir de v0.2 **no hay formulario de login**. La extensión
+detecta automáticamente si ya tienes sesión iniciada en
+hub.negociovivo.app dentro de cualquier pestaña del navegador y
+se vincula sola.
+
+Primer uso:
+1. Asegúrate de tener sesión iniciada en hub.negociovivo.app
+   en este navegador (si no, abre la web y entra).
+2. Pulsa el icono de la extensión.
+3. Si te detecta la sesión → entra directamente al modo "Grabar".
+4. Si no detecta sesión → pulsa **"🌐 Conectar con Hub"** y la
+   extensión abre la web del Hub en una pestaña. Inicia sesión
+   ahí (con email/contraseña + 2FA si aplica). Vuelve al popup
+   de la extensión y pulsa **"↻ Ya he iniciado sesión,
+   reintentar"** — ya estás conectado.
+
+Cuando hagas logout en cualquier pestaña del Hub, la extensión
+lo detecta en el siguiente polling (~5 min) y pide que vuelvas a
+conectar.
 
 Para cerrar sesión: icono ⎋ arriba a la derecha del popup.
 

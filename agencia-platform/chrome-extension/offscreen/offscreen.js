@@ -16,7 +16,7 @@
 let mediaRecorder = null;
 let chunks = [];
 let stream = null;
-let ctx = null; // {meetingUrl, meetingTitle, hubUrl, apiKey}
+let ctx = null; // {meetingUrl, meetingTitle, hubUrl}
 
 chrome.runtime.onMessage.addListener((msg) => {
   if (msg?.target !== "offscreen") return;
@@ -31,8 +31,7 @@ async function startRecording(opts) {
   ctx = {
     meetingUrl: opts.meetingUrl ?? "",
     meetingTitle: opts.meetingTitle ?? "Reunión",
-    hubUrl: opts.hubUrl,
-    apiKey: opts.apiKey
+    hubUrl: opts.hubUrl
   };
 
   try {
@@ -150,11 +149,12 @@ async function onStop() {
     form.append("meetingTitle", ctx.meetingTitle);
     form.append("durationMs", String(approxDurationMs(blob.size)));
 
+    // Auth: cookie de sesión del Hub. Chrome la incluye automáticamente
+    // si tenemos host_permissions sobre el dominio y pasamos
+    // credentials: "include". Adiós API key manual.
     const resp = await fetch(`${ctx.hubUrl.replace(/\/$/, "")}/api/v1/extension/upload-recording`, {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${ctx.apiKey}`
-      },
+      credentials: "include",
       body: form
     });
     if (!resp.ok) {
