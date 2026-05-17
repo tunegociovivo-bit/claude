@@ -366,6 +366,46 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       sendResponse({ ok });
       return;
     }
+    if (msg?.from === "popup" && msg?.type === "diag-probe") {
+      // Probe completo: cookie + llamada a /me. Devolvemos solo
+      // metadatos (longitud, primeros chars) — NUNCA el token entero.
+      const out = {};
+      try {
+        const { hubUrl } = await getState();
+        out.hubUrl = hubUrl;
+        const names = ["__Secure-next-auth.session-token", "next-auth.session-token"];
+        for (const name of names) {
+          try {
+            const c = await chrome.cookies.get({ url: hubUrl, name });
+            if (c?.value) {
+              out.cookieName = name;
+              out.cookieLen = c.value.length;
+              out.cookieHead = c.value.slice(0, 8) + "…";
+              break;
+            }
+          } catch (e) {
+            out.cookieReadError = String(e?.message ?? e);
+          }
+        }
+        if (!out.cookieName) out.cookieName = "(no encontrada)";
+        // Llamada directa a /me con timeout 4s
+        try {
+          const ctrl = new AbortController();
+          const t = setTimeout(() => ctrl.abort(), 4000);
+          const r = await authedFetch("/api/v1/me", { signal: ctrl.signal });
+          clearTimeout(t);
+          out.meStatus = r.status;
+          const txt = await r.text();
+          out.meBody = txt.slice(0, 200);
+        } catch (e) {
+          out.meError = String(e?.message ?? e);
+        }
+      } catch (e) {
+        out.fatal = String(e?.message ?? e);
+      }
+      sendResponse({ ok: true, probe: out });
+      return;
+    }
     if (msg?.from === "popup" && msg?.type === "open-login") {
       await openHubLogin();
       sendResponse({ ok: true });

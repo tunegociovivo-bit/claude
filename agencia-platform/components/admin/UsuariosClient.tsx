@@ -389,7 +389,7 @@ export default function UsuariosClient() {
       </div>
 
       <p className="mt-4 text-xs text-slate-500">
-        El control granular de permisos por proyecto (qué trabajador entra a qué proyecto) llegará en el próximo PR.
+        Para limitar a qué proyectos accede cada miembro o invitado, edita el usuario y desmarca los proyectos en la sección "Acceso a proyectos".
       </p>
 
       <UserFormModal
@@ -491,6 +491,16 @@ function UserFormModal({
   // "custom" = lista explícita marcada por el admin.
   const [featuresMode, setFeaturesMode] = useState<"default" | "custom">("default");
   const [customFeatures, setCustomFeatures] = useState<Feature[]>([]);
+  // Acceso por proyecto (solo edición + no-admin). Lo cargamos asíncronamente
+  // al abrir el modal con el user existente. allowedProjectIds = los que el
+  // admin tiene marcados ahora mismo en la UI; al guardar, mandamos esa lista
+  // a PUT /users/:id/project-access que reconcilia ProjectMember.
+  const [projectsLoading, setProjectsLoading] = useState(false);
+  const [projects, setProjects] = useState<
+    { id: string; name: string; clientName: string | null; hasMember: boolean; isOpenProject: boolean }[]
+  >([]);
+  const [allowedProjectIds, setAllowedProjectIds] = useState<Set<string>>(new Set());
+  const [projectFilter, setProjectFilter] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -521,6 +531,40 @@ function UserFormModal({
       setRole("MEMBER");
       setFeaturesMode("default");
       setCustomFeatures(defaultFeaturesForRole("MEMBER"));
+    }
+    // Reset proyectos al cambiar de modal
+    setProjects([]);
+    setAllowedProjectIds(new Set());
+    setProjectFilter("");
+    // Cargar acceso a proyectos solo en edición (en creación, el user
+    // aún no existe en BD).
+    if (member && open) {
+      setProjectsLoading(true);
+      fetch(`/api/v1/users/${member.id}/project-access`, { cache: "no-store" })
+        .then(async (r) => {
+          if (!r.ok) throw new Error(`Error ${r.status}`);
+          return r.json();
+        })
+        .then((data) => {
+          const items = (data.items ?? []) as typeof projects;
+          setProjects(items);
+          // Si el proyecto está "abierto" (sin members) Y el user no tiene
+          // member row, lo consideramos "tiene acceso" en la UI inicial —
+          // así no le quitamos accesos por accidente al primer guardado.
+          // Si el admin marca/desmarca explícitamente, eso es lo que se
+          // persiste.
+          const initial = new Set<string>();
+          for (const p of items) {
+            if (p.hasMember || p.isOpenProject) initial.add(p.id);
+          }
+          setAllowedProjectIds(initial);
+        })
+        .catch((e) => {
+          // No bloqueamos la edición principal por esto — el error se
+          // pinta en la sección de proyectos.
+          console.warn("project-access load failed", e);
+        })
+        .finally(() => setProjectsLoading(false));
     }
   }, [open, member]);
 
@@ -559,12 +603,46 @@ function UserFormModal({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload)
     });
-    setSaving(false);
     if (!r.ok) {
+      setSaving(false);
       const j = await r.json().catch(() => ({}));
       return setError(j.message || `Error ${r.status}`);
     }
+    // Persistimos también el acceso a proyectos si estamos editando un
+    // no-admin. Para crear, el endpoint POST aún no acepta projects —
+    // tras crearlo se edita.
+    if (isEdit && member && role !== "ADMIN") {
+      try {
+        const pr = await fetch(`/api/v1/users/${member.id}/project-access`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ projectIds: [...allowedProjectIds] })
+        });
+        if (!pr.ok) {
+          setSaving(false);
+          const j = await pr.json().catch(() => ({}));
+          return setError(j.message || `Error guardando acceso a proyectos (${pr.status})`);
+        }
+      } catch (e: any) {
+        setSaving(false);
+        return setError(e?.message ?? "Error guardando acceso a proyectos");
+      }
+    }
+    setSaving(false);
     onSaved();
+  }
+
+  function toggleProject(id: string) {
+    setAllowedProjectIds((s) => {
+      const n = new Set(s);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
+  }
+  function selectAllProjects(value: boolean) {
+    if (value) setAllowedProjectIds(new Set(projects.map((p) => p.id)));
+    else setAllowedProjectIds(new Set());
   }
 
   return (
@@ -742,6 +820,103 @@ function UserFormModal({
           <p className="text-[11px] text-slate-500 italic">
             Los administradores siempre tienen acceso a todas las herramientas y a las opciones de gestión del workspace.
           </p>
+        )}
+
+        {/* Acceso por proyecto: solo en edición + no-admin. ADMIN ven todo
+            siempre, no tiene sentido restringir. En creación, primero hay
+            que crear el user (POST) y luego editarlo para asignar proyectos. */}
+        {isEdit && role !== "ADMIN" && (
+          <div className="border rounded-lg p-3 bg-slate-50/50">
+            <div className="flex items-start justify-between gap-3 mb-2">
+              <div>
+                <div className="text-xs font-semibold text-slate-700">Acceso a proyectos</div>
+                <div className="text-[11px] text-slate-500">
+                  Marca los proyectos que este usuario puede ver y trabajar. Si lo desmarcas, no aparecerán en su Kanban/listado.
+                </div>
+              </div>
+              <div className="inline-flex rounded-md border bg-white text-[11px] shrink-0">
+                <button
+                  type="button"
+                  onClick={() => selectAllProjects(true)}
+                  className="px-2 py-1 rounded-l-md text-slate-600 hover:bg-slate-50"
+                >
+                  Todos
+                </button>
+                <button
+                  type="button"
+                  onClick={() => selectAllProjects(false)}
+                  className="px-2 py-1 rounded-r-md border-l text-slate-600 hover:bg-slate-50"
+                >
+                  Ninguno
+                </button>
+              </div>
+            </div>
+
+            {projectsLoading ? (
+              <div className="flex items-center gap-2 text-xs text-slate-500 py-2">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" /> Cargando proyectos…
+              </div>
+            ) : projects.length === 0 ? (
+              <p className="text-[11px] text-slate-500 italic">No hay proyectos en el workspace.</p>
+            ) : (
+              <>
+                <input
+                  type="search"
+                  value={projectFilter}
+                  onChange={(e) => setProjectFilter(e.target.value)}
+                  placeholder={`Filtrar (${projects.length} proyectos)…`}
+                  className="w-full mb-2 px-2 py-1.5 rounded border bg-white text-xs focus:outline-none focus:ring-2 focus:ring-brand-500"
+                />
+                <div className="max-h-56 overflow-y-auto border rounded bg-white">
+                  {projects
+                    .filter((p) => {
+                      if (!projectFilter.trim()) return true;
+                      const q = projectFilter.trim().toLowerCase();
+                      return (
+                        p.name.toLowerCase().includes(q) ||
+                        (p.clientName ?? "").toLowerCase().includes(q)
+                      );
+                    })
+                    .map((p) => {
+                      const checked = allowedProjectIds.has(p.id);
+                      return (
+                        <label
+                          key={p.id}
+                          className={
+                            "flex items-center gap-2 px-2 py-1.5 border-b last:border-b-0 text-xs cursor-pointer hover:bg-slate-50 " +
+                            (checked ? "bg-brand-50/30" : "")
+                          }
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => toggleProject(p.id)}
+                            className="accent-brand-600"
+                          />
+                          <span className="flex-1 min-w-0">
+                            <span className="block font-medium text-slate-800 truncate">{p.name}</span>
+                            {p.clientName && (
+                              <span className="block text-[10px] text-slate-500 truncate">{p.clientName}</span>
+                            )}
+                          </span>
+                          {p.isOpenProject && !p.hasMember && (
+                            <span
+                              title="Proyecto sin miembros asignados — visible para todo el workspace"
+                              className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded"
+                            >
+                              abierto
+                            </span>
+                          )}
+                        </label>
+                      );
+                    })}
+                </div>
+                <p className="mt-2 text-[10px] text-slate-500">
+                  {allowedProjectIds.size} de {projects.length} marcados. Los proyectos "abiertos" lo son hasta que asignas a alguien — desde ese momento, solo los asignados los ven.
+                </p>
+              </>
+            )}
+          </div>
         )}
 
         {error && <p className="text-xs text-rose-600">{error}</p>}

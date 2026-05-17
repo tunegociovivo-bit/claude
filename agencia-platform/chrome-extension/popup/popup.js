@@ -98,7 +98,41 @@ async function renderDiagnostic() {
     lines.push(`tabs.query error: ${e?.message ?? e}`);
   }
   lines.push(`Hora local: ${new Date().toISOString()}`);
+  // Pintamos ya lo que tengamos, y luego añadimos el probe asíncrono
+  // (cookie + llamada a /me) cuando llegue, sin bloquear el render.
   diagEl.textContent = lines.join("\n");
+  try {
+    const probeResult = await new Promise((resolve) => {
+      const timer = setTimeout(() => resolve(null), 5000);
+      try {
+        chrome.runtime.sendMessage({ from: "popup", type: "diag-probe" }, (resp) => {
+          clearTimeout(timer);
+          if (chrome.runtime.lastError) {
+            resolve({ error: chrome.runtime.lastError.message });
+          } else resolve(resp?.probe ?? null);
+        });
+      } catch (e) {
+        clearTimeout(timer);
+        resolve({ error: String(e?.message ?? e) });
+      }
+    });
+    if (probeResult) {
+      lines.push("─── Probe Hub ───");
+      lines.push(`Cookie: ${probeResult.cookieName ?? "?"}${probeResult.cookieLen ? ` (len=${probeResult.cookieLen}, ${probeResult.cookieHead})` : ""}`);
+      if (probeResult.cookieReadError) lines.push(`Cookie error: ${probeResult.cookieReadError}`);
+      lines.push(`/me status: ${probeResult.meStatus ?? "—"}`);
+      if (probeResult.meBody) lines.push(`/me body: ${probeResult.meBody}`);
+      if (probeResult.meError) lines.push(`/me error: ${probeResult.meError}`);
+      if (probeResult.error) lines.push(`Probe error: ${probeResult.error}`);
+      if (probeResult.fatal) lines.push(`Fatal: ${probeResult.fatal}`);
+    } else {
+      lines.push("Probe Hub: timeout (5s)");
+    }
+    diagEl.textContent = lines.join("\n");
+  } catch (e) {
+    lines.push(`Probe Hub error: ${e?.message ?? e}`);
+    diagEl.textContent = lines.join("\n");
+  }
 }
 
 async function render() {

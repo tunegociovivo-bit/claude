@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/db/prisma";
 import { getServerSession } from "next-auth";
-import { getToken } from "next-auth/jwt";
+import { decode as nextAuthDecode } from "next-auth/jwt";
 import { authOptions } from "@/lib/auth";
 import { touchSession } from "@/lib/security/sessions";
 
@@ -61,13 +61,14 @@ export async function authenticate(req: NextRequest): Promise<ApiContext> {
     const rawJwt = header.slice("Bearer ".length).trim();
     if (rawJwt) {
       try {
-        const decoded = await getToken({
-          req: { headers: { cookie: `next-auth.session-token=${rawJwt}` } } as any,
-          secret: process.env.NEXTAUTH_SECRET ?? "",
-          // Probamos sin secure primero; si NextAuth está en HTTPS
-          // production, el cookieName puede ser __Secure- prefixed.
-          // getToken intenta varios; el secret es lo único crítico.
-          raw: false
+        // Decode directo del JWT, sin pasar por getToken (que tiene
+        // toda la lógica de cookie-name detection — __Secure- prefix
+        // según NEXTAUTH_URL/HTTPS — y a veces no acierta cuando lo
+        // llamas con una request sintética). decode solo necesita
+        // el JWE/JWT y el secret.
+        const decoded = await nextAuthDecode({
+          token: rawJwt,
+          secret: process.env.NEXTAUTH_SECRET ?? ""
         });
         if (decoded && typeof decoded === "object" && (decoded as any).uid) {
           const tok = decoded as any;
