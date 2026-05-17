@@ -344,17 +344,35 @@ export const SPRINTS = [
 export const PENDIENTES = `
 ## Pendientes conocidos al cierre del último sprint
 
-- **URGENTE: comentarios Asana siguen mostrando URLs**, no imágenes,
-  pese a varios refinos del parser (commits 459e260 → 2807c9e). Hay
-  un endpoint de diagnóstico /api/v1/admin/asana/debug-comment?
-  localTaskId=… que devuelve el html_text crudo de Asana — usarlo
-  para ver el formato real y refinar el regex. La hipótesis es que
-  Asana usa un patrón distinto al data-asana-type="attachment"
-  que asumimos.
-- **Tareas compartidas multi-proyecto deben aparecer ARRIBA** de su
-  columna en el proyecto extra (commit a986355). Si no se ve,
-  revisar que prisma db push se ejecutó para que TaskProject.status
-  exista.
+- **IDEA / FUTURO: extensión de Chrome para grabar reuniones**.
+  Petición del user (mayo 2026): que el Hub tenga una extensión
+  oficial de Chrome que detecte cuando se abre una reunión por
+  Meet, Teams, Zoom, Whereby, etc., y AUTOMÁTICAMENTE grabe el
+  audio de toda la sesión, suba la grabación al Hub al terminar,
+  cree una tarea en /tareas con el resumen IA (Whisper + Claude,
+  mismo flow que el MeetingRecorder ya existente) y enlace de
+  vuelta a la reunión.
+  Notas técnicas para cuando se aborde:
+    · Detección por content-script sobre dominios meet.google.com,
+      teams.microsoft.com, zoom.us, whereby.com, gather.town, etc.
+    · API chrome.tabCapture para capturar el audio de la tab (no
+      necesita micrófono físico).
+    · Auth con el Hub: el user logueado en hub.negociovivo.app pasa
+      un token al ext via cookies cross-site o un flujo de
+      onboarding tipo "abrir Hub → click conectar extension".
+    · Subida fragmentada (chunks de 5-10 min) para que reuniones
+      largas no fallen por timeout. El backend ya tiene endpoint
+      MeetingRecorder/transcribe que acepta multipart.
+    · UI mínima del ext: pill flotante "🔴 Grabando para Hub" con
+      botón pausar / parar / cancelar.
+    · Privacidad: aviso "esta reunión se está grabando para tu
+      espacio de Hub" para cumplir GDPR / leyes locales.
+    · Distribución: Chrome Web Store (cuenta de developer) o
+      sideload por enterprise policy para los del equipo.
+  Estimación gruesa: 1-2 semanas de un dev. Documentar al user el
+  trade-off entre publicar en Chrome Web Store (proceso largo de
+  revisión) vs distribuir privado por enterprise.
+
 - E2E: subir adjunto a tarea, aprobar post desde /p/editorial
 - Notificar al CLIENTE por email cuando el equipo responde en el
   hilo del portal de aprobación (hoy solo se notifica al equipo
@@ -369,6 +387,26 @@ export const PENDIENTES = `
   ya está en formato correcto.
 - Test de carga de la búsqueda semántica con >10k items por
   workspace (hoy es teoría, no se ha medido en producción).
+
+## Resueltos recientemente (mayo 2026) — para memoria
+
+- ✅ Comentarios Asana con imágenes inline (commits fc075e3, 004da57,
+  85f42b7). El bug real era doble: 1) el renderer leía body en vez
+  de bodyJson; 2) el parser solo detectaba <a> tags, no <img> ni
+  <object> que es como Asana embebe ahora. Bonus: adjuntos no-imagen
+  como link de descarga, vídeos Loom/YouTube/Vimeo como iframe
+  embebido.
+- ✅ Tareas compartidas en la columna asignada (commit 5f21ad5).
+  El form NUNCA enviaba extraProjectStatuses en handleSubmit (solo
+  en openMeetingRecorder). 1 línea de fix.
+- ✅ Token Asana guardado fallaba: encryptSecret guardaba el token
+  con \n/whitespace del copy-paste. Trim agresivo en save/read/client
+  (commit 28a36ff).
+- ✅ Importer perdía comentarios si Asana no devolvía email o gid del
+  autor. Fabricamos placeholder con email/gid sintético estable
+  (commits 874ac91, 9436e63).
+- ✅ Comentarios huérfanos con targetId obsoleto. El re-import ahora
+  re-enlaza al targetId actual (commit c36b18c).
 
 ## Cosas que DEJAR como están (no son bugs)
 
