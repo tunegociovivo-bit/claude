@@ -107,6 +107,7 @@ export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api }) 
     authorName: string | null;
     authorGid: string | null;
     hadAuthorEmail: boolean;
+    extraAttachments?: number;
   };
   const perStory: PerStory[] = [];
   let storiesFound = 0;
@@ -114,6 +115,39 @@ export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api }) 
   let updated = 0;
   let skipped = 0;
   let errors = 0;
+
+  // CRÍTICO: pre-fetch de TODOS los adjuntos del task pidiendo
+  // parent.gid + parent.resource_type. Asana adjunta los .txt/.pdf
+  // arrastrados al cuerpo del comentario a la propia story
+  // (parent.resource_type === "story"). Sin este pre-fetch, el botón
+  // "Re-importar de Asana" perdía esos adjuntos aunque el importer
+  // completo SÍ los recuperase. Diagnóstico devuelto en el JSON
+  // como extraAttachments por story para que el admin vea cuántos
+  // se han enganchado a cada comentario.
+  const attachmentsByStoryGid = new Map<string, string[]>();
+  const attachmentDebug: { all: number; byStory: number; byTask: number; orphan: number } = {
+    all: 0, byStory: 0, byTask: 0, orphan: 0
+  };
+  try {
+    for await (const a of client.taskAttachments(asanaGid)) {
+      attachmentDebug.all++;
+      const pgid = (a as any).parent?.gid;
+      const ptype = (a as any).parent?.resource_type;
+      if (pgid && ptype === "story") {
+        attachmentDebug.byStory++;
+        const list = attachmentsByStoryGid.get(pgid) ?? [];
+        list.push(a.gid);
+        attachmentsByStoryGid.set(pgid, list);
+      } else if (pgid && ptype === "task") {
+        attachmentDebug.byTask++;
+      } else {
+        attachmentDebug.orphan++;
+      }
+    }
+  } catch {
+    // Si la lista falla, seguimos sin extras — los inline del
+    // html_text se procesan igual.
+  }
 
   try {
     for await (const story of client.taskStories(asanaGid)) {
@@ -161,11 +195,14 @@ export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api }) 
           continue;
         }
 
+        const storyExtras = attachmentsByStoryGid.get(story.gid) ?? [];
+        base.extraAttachments = storyExtras.length;
         const parsed = await parseAsanaCommentToTipTap({
           client,
           workspaceId: api.workspaceId,
           taskLocalId: localTask.id,
-          story: { gid: story.gid, text: story.text, html_text: story.html_text }
+          story: { gid: story.gid, text: story.text, html_text: story.html_text },
+          extraAttachmentGids: storyExtras
         });
 
         const exists = await prisma.comment.findUnique({ where: { asanaId: story.gid } });
@@ -237,6 +274,7 @@ export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api }) 
     updated,
     skipped,
     errors,
-    perStory
+    perStory,
+    attachmentDebug
   });
 });
