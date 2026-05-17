@@ -11,7 +11,7 @@
  * proveedor de email para que POSTea aquí. Si el token no coincide
  * con ningún workspace → 404.
  *
- * Crea una task en el proyecto buzón de NV IA con el contenido del
+ * Crea una task en el proyecto buzón de Sonia con el contenido del
  * email y dispara un AiAgentRun(EMAIL_INBOUND). La IA luego decide:
  *   - Si es una pregunta concreta → draft_email de respuesta
  *   - Si es info útil sin pregunta → add_comment archivando
@@ -112,7 +112,7 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
   });
 
   if (!r) {
-    // NV IA no configurada o inbound desactivado — devolvemos 200
+    // Sonia no configurada o inbound desactivado — devolvemos 200
     // para que el proveedor no reintente. Logueamos para visibilidad.
     return NextResponse.json({
       ok: true,

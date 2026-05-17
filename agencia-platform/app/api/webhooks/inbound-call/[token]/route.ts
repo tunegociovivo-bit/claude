@@ -8,7 +8,7 @@
  *   - Aircall (post-call webhook)
  *   - Cualquier servicio que haga POST con shape compatible
  *
- * NV IA procesa la llamada: clasifica intención, busca cliente conocido,
+ * Sonia procesa la llamada: clasifica intención, busca cliente conocido,
  * redacta acción siguiente (email de seguimiento, callback agendado,
  * tarea para humano si requiere intervención).
  *

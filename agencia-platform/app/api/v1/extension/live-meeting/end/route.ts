@@ -104,7 +104,7 @@ export const POST = withApi({ scope: "*" }, async (req, { api }) => {
       ? `**Participantes mencionados:** ${summary.participants.join(", ")}\n\n`
       : "") +
     (allSuggestions.length
-      ? `**Sugerencias NV IA en vivo (${allSuggestions.length}):**\n${allSuggestions
+      ? `**Sugerencias Sonia en vivo (${allSuggestions.length}):**\n${allSuggestions
           .map((s: any) => `- [${s.type}] ${s.title}${s.body ? ` — ${s.body}` : ""}`)
           .join("\n")}\n\n`
       : "") +

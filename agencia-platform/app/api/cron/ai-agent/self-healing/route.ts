@@ -1,10 +1,10 @@
 /**
  * Cron Self-Healing (Fase 44).
  *
- * NV IA analiza sus propios fallos: agrupa runs FAILED de los últimos
+ * Sonia analiza sus propios fallos: agrupa runs FAILED de los últimos
  * 7d por patrón de error (primeros 80 chars del error). Si encuentra
  * un patrón con >=3 ocurrencias, crea una task de auto-diagnóstico
- * con AiAgentRun(SELF_HEALING) — NV IA investiga el patrón y propone:
+ * con AiAgentRun(SELF_HEALING) — Sonia investiga el patrón y propone:
  *   - una propose_new_tool si falta capacidad
  *   - un update_workspace_memory con un workaround si es prompt
  *   - escalar al admin si requiere fix de código
@@ -83,7 +83,7 @@ export async function GET(req: NextRequest) {
     }
 
     const description =
-      `Auto-diagnóstico de NV IA — patrones de fallo recurrentes en los últimos 7 días.\n\n` +
+      `Auto-diagnóstico de Sonia — patrones de fallo recurrentes en los últimos 7 días.\n\n` +
       patterns
         .map(
           ([, g], i) =>

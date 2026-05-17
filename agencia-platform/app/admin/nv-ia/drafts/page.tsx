@@ -95,7 +95,7 @@ export default function NvIaDraftsPage() {
   return (
     <div className="max-w-5xl mx-auto py-8 px-4">
       <PageHeader
-        title="NV IA — Borradores pendientes"
+        title="Sonia — Borradores pendientes"
         description="Emails, mensajes y posts redactados por la IA. Revisa, aprueba para ejecutar, o rechaza."
       />
 

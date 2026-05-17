@@ -176,7 +176,7 @@
         </div>
         <div class="row" style="display:flex;align-items:center;gap:6px;font-size:11px;">
           <input type="checkbox" id="live-mode" style="margin:0;cursor:pointer" />
-          <label for="live-mode" style="cursor:pointer;color:#475569;">⚡ Asistencia en vivo (NV IA sugiere durante la reunión)</label>
+          <label for="live-mode" style="cursor:pointer;color:#475569;">⚡ Asistencia en vivo (Sonia sugiere durante la reunión)</label>
         </div>
         <div class="actions">
           <button class="secondary" id="cancel-btn" style="flex:0 0 auto">Cancelar</button>
@@ -266,7 +266,7 @@
         </style>
         <div class="panel">
           <div class="head">
-            <span class="title"><span class="dot"></span>NV IA en vivo</span>
+            <span class="title"><span class="dot"></span>Sonia en vivo</span>
             <button class="close" id="ls-close">×</button>
           </div>
           <div class="list" id="ls-list"></div>

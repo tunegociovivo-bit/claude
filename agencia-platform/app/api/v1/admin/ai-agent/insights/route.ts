@@ -1,7 +1,7 @@
 /**
  * GET /api/v1/admin/ai-agent/insights?days=7
  *
- * Métricas agregadas para que el admin vea cómo se comporta NV IA:
+ * Métricas agregadas para que el admin vea cómo se comporta Sonia:
  *   - runs por status / trigger
  *   - tasa de aprobación de drafts (EXECUTED vs REJECTED)
  *   - tools más usadas (top 15)

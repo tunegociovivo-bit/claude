@@ -1,5 +1,5 @@
 /**
- * Tools del agente NV IA — Fase 1.
+ * Tools del agente Sonia — Fase 1.
  *
  * Filosofía de Fase 1: read-mostly. Solo 2 write tools (add_comment,
  * update_task_status) y un finalizer (mark_complete) — todas reversibles
@@ -113,7 +113,7 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
   {
     name: "add_comment",
     description:
-      "Añade un comentario público a la tarea, firmado como 'NV IA'. Úsalo para: hacer preguntas al equipo si te falta información, dar updates de progreso, o documentar decisiones. NO uses esto para el resumen final — para eso usa mark_complete. Visible para todos los miembros con acceso a la tarea.",
+      "Añade un comentario público a la tarea, firmado como 'Sonia'. Úsalo para: hacer preguntas al equipo si te falta información, dar updates de progreso, o documentar decisiones. NO uses esto para el resumen final — para eso usa mark_complete. Visible para todos los miembros con acceso a la tarea.",
     input_schema: {
       type: "object",
       properties: {
@@ -358,7 +358,7 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
   {
     name: "get_client_memory",
     description:
-      "Lee la memoria persistente que NV IA ha acumulado sobre un cliente: preferencias, decisiones, rechazos previos, restricciones. ÚSALO SI dudas del estilo a usar con un cliente o si te preguntas '¿cómo le hablamos a este cliente normalmente?'. Si la tarea actual tiene cliente, get_task_context YA te incluye esta memoria — solo llama aquí si quieres la de OTRO cliente o si necesitas refrescarla.",
+      "Lee la memoria persistente que Sonia ha acumulado sobre un cliente: preferencias, decisiones, rechazos previos, restricciones. ÚSALO SI dudas del estilo a usar con un cliente o si te preguntas '¿cómo le hablamos a este cliente normalmente?'. Si la tarea actual tiene cliente, get_task_context YA te incluye esta memoria — solo llama aquí si quieres la de OTRO cliente o si necesitas refrescarla.",
     input_schema: {
       type: "object",
       properties: {
@@ -459,7 +459,7 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
   {
     name: "assign_task",
     description:
-      "Asigna la tarea actual a uno o varios miembros del workspace. REEMPLAZA los assignees existentes (no añade). Pasa lista vacía para desasignar a todos. El user NV IA NO debería incluirse aquí — ella ya está procesando la tarea.",
+      "Asigna la tarea actual a uno o varios miembros del workspace. REEMPLAZA los assignees existentes (no añade). Pasa lista vacía para desasignar a todos. El user Sonia NO debería incluirse aquí — ella ya está procesando la tarea.",
     input_schema: {
       type: "object",
       properties: {
@@ -569,7 +569,7 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
   {
     name: "get_pricing_rules",
     description:
-      "Lista los servicios con sus precios y rangos de negociación admitidos. NV IA puede ofrecer descuentos hasta minAmountEur (más allá requiere escalación). Devuelve también los tradeoffs configurados (compromisos que justifican rebaja). LLAMA ESTO ANTES de proponer cualquier deal — son las únicas reglas que tienes permitidas.",
+      "Lista los servicios con sus precios y rangos de negociación admitidos. Sonia puede ofrecer descuentos hasta minAmountEur (más allá requiere escalación). Devuelve también los tradeoffs configurados (compromisos que justifican rebaja). LLAMA ESTO ANTES de proponer cualquier deal — son las únicas reglas que tienes permitidas.",
     input_schema: { type: "object", properties: {}, additionalProperties: false }
   },
   {
@@ -626,7 +626,7 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
   {
     name: "counter_offer",
     description:
-      "Ajusta los términos del deal en respuesta a una contraoferta del cliente. NV IA puede: bajar precio dentro del rango (>= minAmountEur), añadir condiciones/tradeoffs ('te lo dejo en X si te comprometes a 12 meses'), cambiar el alcance. Cualquier cambio fuera del rango permitido = ESCALATED, no se aplica. Loguea la negociación. Marca el deal como NEGOTIATING. Devuelve sugerencia de mensaje pero NO envía — usa draft_email/draft_whatsapp después.",
+      "Ajusta los términos del deal en respuesta a una contraoferta del cliente. Sonia puede: bajar precio dentro del rango (>= minAmountEur), añadir condiciones/tradeoffs ('te lo dejo en X si te comprometes a 12 meses'), cambiar el alcance. Cualquier cambio fuera del rango permitido = ESCALATED, no se aplica. Loguea la negociación. Marca el deal como NEGOTIATING. Devuelve sugerencia de mensaje pero NO envía — usa draft_email/draft_whatsapp después.",
     input_schema: {
       type: "object",
       properties: {
@@ -930,7 +930,7 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
   {
     name: "start_client_workflow",
     description:
-      "Arranca un workflow automático sobre un cliente — secuencia de pasos programados por días que NV IA ejecuta automáticamente. Tipos soportados: 'onboarding_7d' (cliente nuevo, 5 pasos en 7 días), 'onboarding_30d' (5 pasos en 30 días), 'renewal_30d' (4 pasos antes de renovación), 'churn_recovery_14d' (4 pasos para recuperar cliente en riesgo). Cada paso es una task nueva que NV IA procesa.",
+      "Arranca un workflow automático sobre un cliente — secuencia de pasos programados por días que Sonia ejecuta automáticamente. Tipos soportados: 'onboarding_7d' (cliente nuevo, 5 pasos en 7 días), 'onboarding_30d' (5 pasos en 30 días), 'renewal_30d' (4 pasos antes de renovación), 'churn_recovery_14d' (4 pasos para recuperar cliente en riesgo). Cada paso es una task nueva que Sonia procesa.",
     input_schema: {
       type: "object",
       properties: {
@@ -1163,7 +1163,7 @@ async function maybeAutoApproveDraft(
       where: { id: draftId },
       data: {
         status: "APPROVED",
-        reviewedById: ctx.config.userId, // firma: NV IA misma como reviewer auto
+        reviewedById: ctx.config.userId, // firma: Sonia misma como reviewer auto
         reviewedAt: new Date(),
         reviewerNote: "Auto-aprobado por regla del cliente"
       }
@@ -1770,7 +1770,7 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
     return {
       count: members.length,
       members: members
-        .filter((m) => m.userId !== ctx.config.userId) // excluir NV IA misma
+        .filter((m) => m.userId !== ctx.config.userId) // excluir Sonia misma
         .map((m) => ({
           id: m.user.id,
           name: m.user.name,
@@ -1814,7 +1814,7 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
         data: userIds.map((uid: string) => ({
           userId: uid,
           type: "assignment",
-          body: `NV IA te ha asignado una tarea`,
+          body: `Sonia te ha asignado una tarea`,
           link: `/tasks/${ctx.taskId}`
         }))
       }).catch(() => {});
@@ -1877,7 +1877,7 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
         data: assigneeIds.map((uid: string) => ({
           userId: uid,
           type: "assignment",
-          body: `NV IA te ha asignado una subtarea: "${title.slice(0, 60)}"`,
+          body: `Sonia te ha asignado una subtarea: "${title.slice(0, 60)}"`,
           link: `/tasks/${subtask.id}`
         }))
       }).catch(() => {});
@@ -2218,7 +2218,7 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
         } as any
       }
     });
-    // Sugerimos texto de respuesta para que NV IA lo use con draft_email/whatsapp
+    // Sugerimos texto de respuesta para que Sonia lo use con draft_email/whatsapp
     const itemsText = newItems
       .map((it: any) => `· ${it.name}: ${it.units} × ${Number(it.amountEur).toFixed(2)}€${it.terms ? ` (${it.terms})` : ""}`)
       .join("\n");
@@ -2947,12 +2947,12 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
       select: { userId: true }
     });
     if (!m) return { error: "ese user no pertenece al workspace" };
-    if (userId === ctx.config.userId) return { error: "NV IA no se auto-notifica" };
+    if (userId === ctx.config.userId) return { error: "Sonia no se auto-notifica" };
     await prisma.notification.create({
       data: {
         userId,
         type: "ai_notify",
-        body: `NV IA: ${body}`,
+        body: `Sonia: ${body}`,
         link: input?.link ? String(input.link).slice(0, 500) : null
       }
     });
@@ -3021,7 +3021,7 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
     const summary = String(input?.summary ?? "").trim();
     if (!summary) return { error: "summary vacío" };
     if (summary.length > 8000) return { error: "summary demasiado largo" };
-    // 1. Comentario final firmado como NV IA
+    // 1. Comentario final firmado como Sonia
     const comment = await prisma.comment.create({
       data: {
         workspaceId: ctx.workspaceId,

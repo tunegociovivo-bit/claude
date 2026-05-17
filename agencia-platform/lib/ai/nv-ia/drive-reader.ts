@@ -5,7 +5,7 @@
  * nativos de Google Workspace (Docs, Sheets, Slides — exportados al
  * mimeType correcto antes de extraer).
  *
- * Fase 4 NV IA. La seguridad (sandbox a la carpeta del workspace)
+ * Fase 4 Sonia. La seguridad (sandbox a la carpeta del workspace)
  * se aplica en lib/integrations/google-drive.ts — aquí confiamos en
  * que el caller pasó un fileId que ya está validado.
  */

@@ -3,7 +3,7 @@
  * PUT  /api/v1/admin/ai-agent/clients/:clientId/auto-approve
  *      body: { kinds: string[] }  // EMAIL, WHATSAPP, EDITORIAL_POST, CALENDAR_EVENT, DRIVE_FILE
  *
- * Lee/define qué tipos de draft de NV IA se auto-aprueban en este
+ * Lee/define qué tipos de draft de Sonia se auto-aprueban en este
  * cliente. Mientras la lista esté vacía, todo draft requiere
  * revisión humana (comportamiento por defecto, seguro).
  *

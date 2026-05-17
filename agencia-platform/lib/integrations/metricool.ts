@@ -6,7 +6,7 @@
  * settings.integrations.metricool.{ apiToken, defaultBlogId? }
  *
  * El "blogId" en Metricool es el ID de la marca/cuenta. Cada workspace
- * puede gestionar varias marcas — los tools de NV IA aceptan blogId
+ * puede gestionar varias marcas — los tools de Sonia aceptan blogId
  * opcional y caen al default si se omite.
  *
  * Docs: https://app.metricool.com/api/api-docs.html

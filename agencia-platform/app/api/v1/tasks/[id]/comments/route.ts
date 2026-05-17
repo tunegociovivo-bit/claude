@@ -90,7 +90,7 @@ export const POST = withApi({ scope: "tasks:write" }, async (req, { params, api 
   const directIds = extractMentionUserIds(parsed.data.body);
   const tokens = extractMentionTokens(parsed.data.body);
 
-  // ── Hook NV IA: @nv-ia mention dispara un run ──────────────────
+  // ── Hook Sonia: @nv-ia mention dispara un run ──────────────────
   // Si el comentario menciona a la user IA del workspace (por su
   // userId en un mention node, o por el handle "@nv-ia" en texto
   // plano) creamos un AiAgentRun en PENDING para que la procese.
@@ -103,8 +103,12 @@ export const POST = withApi({ scope: "tasks:write" }, async (req, { params, api 
     });
     const aiUserId = (ws?.settings as any)?.aiAgent?.userId;
     const plainBody = bodyString.toLowerCase();
+    // Acepta @sonia (naming actual), @nv-ia / @nvia (legacy compat
+     // para mantener funcionando los workspaces que ya tenían el nombre
+     // antiguo cuando se acuñó el handle en sus procesos/docs).
     const mentionsAi =
       (aiUserId && directIds.includes(aiUserId)) ||
+      /@sonia\b/i.test(plainBody) ||
       /@nv[\s-]?ia\b/i.test(plainBody);
     if (aiUserId && mentionsAi && api.userId !== aiUserId) {
       await prisma.aiAgentRun.create({

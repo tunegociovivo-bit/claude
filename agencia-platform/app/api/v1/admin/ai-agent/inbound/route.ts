@@ -47,7 +47,7 @@ export const PUT = withApi({ scope: "*" }, async (req, { api }) => {
   const ws = await prisma.workspace.findUnique({ where: { id: api.workspaceId } });
   const settings: any = (ws?.settings as any) ?? {};
   if (!settings.aiAgent) {
-    throw new ApiError(400, "not_initialized", "NV IA no está inicializada");
+    throw new ApiError(400, "not_initialized", "Sonia no está inicializada");
   }
   settings.aiAgent.inbound = settings.aiAgent.inbound ?? {};
   if (parsed.data.email) {

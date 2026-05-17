@@ -100,9 +100,9 @@ MÉTRICAS DEL PERÍODO (${days} días desde ${since.toISOString().slice(0, 10)})
 ACTIVIDAD:
 - ${taskCount} tareas creadas, ${taskDoneCount} completadas (${taskCount > 0 ? Math.round((taskDoneCount / taskCount) * 100) : 0}%).
 - ${clientCount} clientes activos totales.
-- ${runsCount} runs de NV IA ejecutados.
+- ${runsCount} runs de Sonia ejecutados.
 
-NV IA:
+Sonia:
 - ${draftCount} borradores creados.
 - ${draftExecuted} ejecutados, ${draftRejected} rechazados.
 - Tasa de aprobación: ${

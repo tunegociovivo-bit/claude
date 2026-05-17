@@ -1,5 +1,5 @@
 /**
- * Endpoints de gestión de drafts de NV IA (aprobación humana).
+ * Endpoints de gestión de drafts de Sonia (aprobación humana).
  *
  * GET    /api/v1/admin/ai-agent/drafts          — lista (filtros por status, kind, limit)
  * POST   /api/v1/admin/ai-agent/drafts/:id/approve — aprobar + ejecutar

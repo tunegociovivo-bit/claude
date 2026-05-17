@@ -1,15 +1,15 @@
 /**
  * Helper para Fase 10: cuando llega un evento externo (WhatsApp o
- * email entrante) y NV IA está configurada con inbound activo,
+ * email entrante) y Sonia está configurada con inbound activo,
  * creamos una TASK en el proyecto buzón con el contenido del mensaje
  * y disparamos un AiAgentRun con el trigger adecuado.
  *
- * NV IA lo procesa: clasifica, busca contexto del cliente
+ * Sonia lo procesa: clasifica, busca contexto del cliente
  * (clientMemory si existe), y o redacta un draft de respuesta o
  * deja un comentario con propuesta de acción.
  *
  * SAFETY:
- * - Si NV IA no está configurada → no-op silencioso (devuelve null)
+ * - Si Sonia no está configurada → no-op silencioso (devuelve null)
  * - Si inbound no está activo en settings → no-op
  * - Tope: no creamos task duplicada si ya hay otra del mismo
  *   externalMessageId en las últimas 24h

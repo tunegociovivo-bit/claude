@@ -1420,9 +1420,9 @@ model Notification {
 }
 
 // ===================================================================
-// NV IA — Agente autónomo (Fase 1)
+// Sonia — Agente autónomo (Fase 1)
 // ===================================================================
-// Cada vez que una Task se enlaza con el proyecto "buzón" de NV IA
+// Cada vez que una Task se enlaza con el proyecto "buzón" de Sonia
 // (configurado en Workspace.settings.aiAgent.inboxProjectId) se crea
 // un AiAgentRun en estado PENDING. El cron /api/cron/ai-agent/process
 // los recoge y ejecuta un agent loop de Claude con tools acotadas
@@ -1511,7 +1511,7 @@ model LiveMeetingSession {
   @@index([userId])
 }
 
-// Φ3 — Negociación autónoma. NV IA gestiona deals con leads/clientes
+// Φ3 — Negociación autónoma. Sonia gestiona deals con leads/clientes
 // dentro de rangos pre-aprobados por el admin.
 model PricingService {
   id            String    @id @default(cuid())
@@ -1519,9 +1519,9 @@ model PricingService {
   name          String // "Diseño web", "Gestión RRSS mensual", etc.
   description   String?   @db.Text
   baseAmountEur Float // precio "lista" en EUR
-  minAmountEur  Float // mínimo aceptable — NV IA no baja de aquí sin escalación
+  minAmountEur  Float // mínimo aceptable — Sonia no baja de aquí sin escalación
   unit          String    @default("one_time") // "one_time" | "monthly" | "hourly"
-  // Trade-offs que NV IA puede ofrecer durante la negociación.
+  // Trade-offs que Sonia puede ofrecer durante la negociación.
   // Json shape: [{ if: "discount_pct >= 15", then: "min_term_months >= 12" }]
   // o simple lista de items: ["compromiso 12m", "sin módulo X", "pago 100% upfront"]
   tradeoffs     Json      @default("[]")
@@ -1548,7 +1548,7 @@ model Deal {
   negotiationLog  Json     @default("[]") // [{ ts, actor, action, snapshot }]
   currentValueEur Float?
   // Estado libre — lo que llevamos negociado en lenguaje natural,
-  // para que NV IA lo lea sin parsear el log entero.
+  // para que Sonia lo lea sin parsear el log entero.
   notes           String?  @db.Text
   expectedCloseAt DateTime?
   closedAt        DateTime?
@@ -1573,7 +1573,7 @@ enum AiAgentRunTrigger {
   EMAIL_INBOUND       // llegó email vía /api/webhooks/inbound-email
   CALL_INBOUND        // llamada telefónica recibida (Twilio/Vonage/Aircall)
   STRATEGIC_REVIEW    // Co-CEO trimestral (Fase 40)
-  OWNER_MODE_CHECK    // Owner mode: cliente bajo responsabilidad de NV IA (Fase 31)
+  OWNER_MODE_CHECK    // Owner mode: cliente bajo responsabilidad de Sonia (Fase 31)
   COMPLIANCE_FLAG     // Filtro de compliance bloqueó algo (Fase 36)
   LEAD_OPPORTUNITY    // Detección de señal de oportunidad (Fase 35)
   WORKFLOW_STEP       // Paso de un workflow automático (Fase 41)
@@ -1588,7 +1588,7 @@ enum AiAgentRunTrigger {
 // arranca un workflow tipo "onboarding 7 días" que ejecuta pasos
 // programados: día 0 email bienvenida, día 1 recolectar info, día 3
 // primer entregable, día 7 reunión check-in. Cada paso es una task
-// en el inbox de NV IA con trigger=WORKFLOW_STEP.
+// en el inbox de Sonia con trigger=WORKFLOW_STEP.
 model AiClientWorkflow {
   id            String   @id @default(cuid())
   workspaceId   String
@@ -1615,7 +1615,7 @@ model AiClientWorkflow {
   @@index([clientId])
 }
 
-// Fase 8: memoria persistente que NV IA acumula sobre cada cliente
+// Fase 8: memoria persistente que Sonia acumula sobre cada cliente
 // a través de los runs. Notas tipo:
 //   - Preferencias confirmadas (cliente prefiere tono formal)
 //   - Decisiones tomadas (acordamos usar Notion en lugar de Confluence)
@@ -1625,7 +1625,7 @@ model AiClientWorkflow {
 // content es markdown plano. La IA o el admin lo edita; lo guardamos
 // con cap de 50KB — si crece más, los apends viejos se truncan con
 // marca. Cada actualización registra updatedBy ("nv-ia" o userId).
-// Fase 31: Owner mode — NV IA es RESPONSABLE de un cliente con KPIs
+// Fase 31: Owner mode — Sonia es RESPONSABLE de un cliente con KPIs
 // medibles. El cron OWNER_MODE_CHECK la dispara periódicamente (default
 // semanal) para que revise estado, identifique desviaciones, escale.
 model AiOwnership {
@@ -1659,7 +1659,7 @@ model AiClientMemory {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   // Fase 18: si autoApproveDraftKinds tiene valores (ej:
-  // ["WHATSAPP", "EMAIL"]), los drafts de NV IA sobre tareas de
+  // ["WHATSAPP", "EMAIL"]), los drafts de Sonia sobre tareas de
   // este cliente y de ese kind se auto-aprueban + ejecutan sin
   // esperar revisión humana. Solo activable manualmente por admin
   // tras observar tasa de aprobación alta. Sin esto = comportamiento
@@ -1672,10 +1672,10 @@ model AiClientMemory {
   @@index([workspaceId])
 }
 
-// Fase 34: NV IA puede PROPONER nuevas tools cuando detecta patrones
+// Fase 34: Sonia puede PROPONER nuevas tools cuando detecta patrones
 // repetitivos. NO se ejecutan automáticamente — el admin revisa el
 // código TypeScript propuesto, lo añade manualmente a tools.ts si
-// le parece bien, y NV IA gana una capacidad nueva.
+// le parece bien, y Sonia gana una capacidad nueva.
 //
 // La IA escribe:
 //   - name: "send_invoice_reminder" (snake_case)
@@ -1723,7 +1723,7 @@ model AiWorkspaceMemory {
 }
 
 // Fase 17: memoria por MIEMBRO del equipo — sus áreas, horarios,
-// preferencias. NV IA la usa al decidir a quién delegar.
+// preferencias. Sonia la usa al decidir a quién delegar.
 model AiUserMemory {
   id          String   @id @default(cuid())
   workspaceId String
@@ -1740,7 +1740,7 @@ model AiUserMemory {
   @@index([workspaceId])
 }
 
-// Fase 2: borradores generados por NV IA que necesitan aprobación
+// Fase 2: borradores generados por Sonia que necesitan aprobación
 // humana antes de ejecutarse (envío real de email/WhatsApp, creación
 // de un post editorial, etc). Filosofía: la IA escribe el borrador,
 // el humano lo lee, lo edita si quiere, y aprueba. Solo entonces se

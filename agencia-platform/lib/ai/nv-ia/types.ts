@@ -1,11 +1,11 @@
 /**
- * Tipos compartidos del agente "NV IA". Fase 1.
+ * Tipos compartidos del agente "Sonia". Fase 1.
  */
 
 export type AiAgentConfig = {
-  /** User.id del usuario "NV IA". Las acciones (comentarios, status) se le firman a él. */
+  /** User.id del usuario "Sonia". Las acciones (comentarios, status) se le firman a él. */
   userId: string;
-  /** Project.id del proyecto buzón ("🤖 NV IA — Tareas IA"). */
+  /** Project.id del proyecto buzón ("🤖 Sonia — Tareas IA"). */
   inboxProjectId: string;
   /** Modelo Claude por defecto. */
   model: string;

@@ -53,7 +53,7 @@ export async function GET(req: NextRequest) {
     const dueAt = new Date(wf.startedAt.getTime() + step.dayOffset * 24 * 60 * 60 * 1000);
     if (now < dueAt) continue;
 
-    // Cargar config NV IA del workspace
+    // Cargar config Sonia del workspace
     const ws = await prisma.workspace.findUnique({
       where: { id: wf.workspaceId },
       select: { settings: true }

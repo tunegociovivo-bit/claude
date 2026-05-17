@@ -1,7 +1,7 @@
 /**
- * Sub-agentes especializados de NV IA (Fase 9).
+ * Sub-agentes especializados de Sonia (Fase 9).
  *
- * El coordinator (NV IA principal) puede invocar sub-agentes para
+ * El coordinator (Sonia principal) puede invocar sub-agentes para
  * delegar SUBTAREAS de investigación, análisis o redacción larga.
  * Cada sub-agente:
  *   - tiene un system prompt especializado (persona+criterio)
@@ -25,10 +25,10 @@ import type { AgentLogStep, AiAgentConfig } from "./types";
 export type SubagentRole = "researcher" | "writer" | "analyst" | "reviewer";
 
 const SUBAGENT_SYSTEM: Record<SubagentRole, string> = {
-  researcher: `Eres un sub-agente INVESTIGADOR de NV IA. El coordinator te pide buscar y compilar información. Tu output: un brief estructurado con HALLAZGOS concretos + REFERENCIAS (ids de tareas, comentarios, archivos donde lo encontraste). Sin opinión, sin recomendaciones — solo hechos. Sé exhaustivo: si hay 5 fuentes relevantes, menciona las 5.`,
-  writer: `Eres un sub-agente REDACTOR de NV IA. El coordinator te pide redactar un texto concreto (email, post, propuesta, resumen). Tu output: el texto pedido, listo para usar — sin meta-comentarios tipo "aquí tienes el borrador". Si necesitas contexto del cliente, léelo. Adapta tono y registro al cliente.`,
-  analyst: `Eres un sub-agente ANALISTA de NV IA. El coordinator te pasa datos (PDFs, hojas de cálculo, imágenes) y te pide análisis. Tu output: insights numerados, cada uno con evidencia concreta. Identifica patrones, anomalías, oportunidades. Sin recomendaciones de acción (eso es del coordinator) — solo análisis.`,
-  reviewer: `Eres un sub-agente REVISOR de NV IA. El coordinator te pasa un borrador/decisión y te pide opinión crítica. Tu output: lista de RIESGOS, OMISIONES, MEJORAS sugeridas. Sé directo y específico — no "considera revisar X" sino "X tiene este problema concreto". Si todo está bien, dilo claramente sin inventar críticas.`
+  researcher: `Eres un sub-agente INVESTIGADOR de Sonia. El coordinator te pide buscar y compilar información. Tu output: un brief estructurado con HALLAZGOS concretos + REFERENCIAS (ids de tareas, comentarios, archivos donde lo encontraste). Sin opinión, sin recomendaciones — solo hechos. Sé exhaustivo: si hay 5 fuentes relevantes, menciona las 5.`,
+  writer: `Eres un sub-agente REDACTOR de Sonia. El coordinator te pide redactar un texto concreto (email, post, propuesta, resumen). Tu output: el texto pedido, listo para usar — sin meta-comentarios tipo "aquí tienes el borrador". Si necesitas contexto del cliente, léelo. Adapta tono y registro al cliente.`,
+  analyst: `Eres un sub-agente ANALISTA de Sonia. El coordinator te pasa datos (PDFs, hojas de cálculo, imágenes) y te pide análisis. Tu output: insights numerados, cada uno con evidencia concreta. Identifica patrones, anomalías, oportunidades. Sin recomendaciones de acción (eso es del coordinator) — solo análisis.`,
+  reviewer: `Eres un sub-agente REVISOR de Sonia. El coordinator te pasa un borrador/decisión y te pide opinión crítica. Tu output: lista de RIESGOS, OMISIONES, MEJORAS sugeridas. Sé directo y específico — no "considera revisar X" sino "X tiene este problema concreto". Si todo está bien, dilo claramente sin inventar críticas.`
 };
 
 const SUBAGENT_TOOLS: Record<SubagentRole, string[]> = {
@@ -114,7 +114,7 @@ export async function runSubagent(opts: {
     const messages: Anthropic.MessageParam[] = [
       {
         role: "user",
-        content: `El coordinator (NV IA) te ha invocado con esta instrucción:\n\n${instruction}\n\n(Contexto: estás trabajando sobre la tarea con id ${taskId}. Puedes llamar a get_task_context si necesitas el detalle.)\n\nCuando hayas terminado, responde con tu output final en texto plano. NO llames a más tools si ya tienes lo que necesitas — para — solo escribe la respuesta.`
+        content: `El coordinator (Sonia) te ha invocado con esta instrucción:\n\n${instruction}\n\n(Contexto: estás trabajando sobre la tarea con id ${taskId}. Puedes llamar a get_task_context si necesitas el detalle.)\n\nCuando hayas terminado, responde con tu output final en texto plano. NO llames a más tools si ya tienes lo que necesitas — para — solo escribe la respuesta.`
       }
     ];
 

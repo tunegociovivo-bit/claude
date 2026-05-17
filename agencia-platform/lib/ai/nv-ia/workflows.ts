@@ -5,7 +5,7 @@
  * desde el inicio). El cron /api/cron/ai-agent/workflow-tick recorre
  * AiClientWorkflow ACTIVE, mira si el next step ya tocó por dayOffset,
  * y dispara AiAgentRun(WORKFLOW_STEP) con instrucción específica del
- * paso. NV IA decide qué hacer (redactar email, agendar reunión,
+ * paso. Sonia decide qué hacer (redactar email, agendar reunión,
  * preparar entregable, escalar al equipo).
  *
  * Las definiciones están aquí en código — son la fuente de la verdad.
@@ -18,7 +18,7 @@ export type WorkflowStep = {
   label: string;
   /** Días desde startedAt para que toque este paso. */
   dayOffset: number;
-  /** Instrucción para NV IA — qué hacer en este paso. */
+  /** Instrucción para Sonia — qué hacer en este paso. */
   prompt: string;
 };
 

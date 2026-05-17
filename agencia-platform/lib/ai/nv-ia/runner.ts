@@ -1,5 +1,5 @@
 /**
- * Runner del agente NV IA — Fase 1.
+ * Runner del agente Sonia — Fase 1.
  *
  * Toma un AiAgentRun en PENDING, ejecuta el agent loop de Claude con
  * las tools definidas, y persiste el resultado.
@@ -16,7 +16,7 @@ import { logAiUsage } from "@/lib/ai/usage";
 import { TOOL_DEFINITIONS, TOOL_EXECUTORS, type ToolContext } from "./tools";
 import { DEFAULT_AGENT_CONFIG, type AgentLogStep, type AgentRunResult, type AiAgentConfig } from "./types";
 
-const SYSTEM_PROMPT = `Eres "NV IA", la asistente autónoma de Negocio Vivo. Funcionas como una secretaria muy resolutiva: te asignan tareas vía el proyecto "Tareas IA" y las completas usando las herramientas disponibles.
+const SYSTEM_PROMPT = `Eres "Sonia", la asistente autónoma de Negocio Vivo. Funcionas como una secretaria muy resolutiva: te asignan tareas vía el proyecto "Tareas IA" y las completas usando las herramientas disponibles.
 
 TOOLS DISPONIBLES:
 Lectura:
@@ -52,7 +52,7 @@ Publicidad (Meta Ads + Google Ads):
 - google_ads_list_campaigns, google_ads_get_metrics: análogo para Google Ads.
   Incluye conversions y conversion_value — clave para análisis de ROAS.
 
-Escritura inmediata (firmada como NV IA, sin aprobación):
+Escritura inmediata (firmada como Sonia, sin aprobación):
 - add_comment: comentario público en la tarea.
 - update_task_status: cambia la columna de la tarea.
 - get_team_members: lista los miembros del workspace (id, nombre, rol).
@@ -135,7 +135,7 @@ ESTILO DE COMUNICACIÓN:
 LÍMITES:
 - Tienes un budget de ${DEFAULT_AGENT_CONFIG.maxStepsPerRun} pasos máximo por tarea. Sé eficiente.
 - Solo trabajas en el workspace del que recibes la tarea. Nunca lo cruzas.
-- Toda acción de escritura queda firmada como "NV IA" y registrada para auditoría.`;
+- Toda acción de escritura queda firmada como "Sonia" y registrada para auditoría.`;
 
 /**
  * Carga la config del agente desde Workspace.settings.aiAgent. Throws
@@ -147,7 +147,7 @@ export async function loadAgentConfig(workspaceId: string): Promise<AiAgentConfi
   const cfg = settings?.aiAgent;
   if (!cfg?.userId || !cfg?.inboxProjectId) {
     throw new Error(
-      "NV IA no está configurada en este workspace. Llama a POST /api/v1/admin/ai-agent/init primero."
+      "Sonia no está configurada en este workspace. Llama a POST /api/v1/admin/ai-agent/init primero."
     );
   }
   return {
@@ -440,7 +440,7 @@ function buildInitialMessage(
     case "CHURN_RISK":
       return `${base} RIESGO DE CHURN detectado por el cron. ${ctx ? `Contexto: ${ctx}.` : ""} Tu plan: 1) Investiga qué pasó con query_knowledge_graph + get_client_memory (últimos 60 días, comentarios negativos, deadlines fallados). 2) Si confirmas riesgo: considera start_client_workflow('churn_recovery_14d') que arranca secuencia de 4 pasos en 14 días. 3) Notify_user al gestor de cuenta con tu diagnóstico. 4) mark_complete con el plan elegido.`;
     case "SELF_HEALING":
-      return `${base} AUTO-DIAGNÓSTICO de NV IA. ${ctx ? `Contexto: ${ctx}.` : ""} El cron detectó patrones de fallos recurrentes — están en la description. Para cada patrón decide: propose_new_tool si falta capacidad, update_workspace_memory con workaround si es prompt, o notify_user al admin si es bug. Cierra con mark_complete.`;
+      return `${base} AUTO-DIAGNÓSTICO de Sonia. ${ctx ? `Contexto: ${ctx}.` : ""} El cron detectó patrones de fallos recurrentes — están en la description. Para cada patrón decide: propose_new_tool si falta capacidad, update_workspace_memory con workaround si es prompt, o notify_user al admin si es bug. Cierra con mark_complete.`;
     case "NEGOTIATION":
       return `${base} NEGOCIACIÓN ACTIVA con un lead/cliente. ${ctx ? `Contexto: ${ctx}.` : ""} 1) Lee get_pricing_rules ANTES de proponer precios. 2) Si es contacto nuevo, create_deal. 3) Para responder a una contraoferta del lead, counter_offer y luego draft_email/whatsapp con suggestedReply. 4) Cuando se cierre, close_deal(outcome) + si won, draft_holded_invoice. NUNCA pases bajo minAmountEur sin escalar.`;
     case "LIVE_MEETING_TICK":

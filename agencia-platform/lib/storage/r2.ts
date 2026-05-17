@@ -108,7 +108,7 @@ export async function uploadBuffer(opts: {
  *
  * OJO: carga el archivo entero en RAM. Para archivos grandes pasar
  * por streaming directamente con GetObjectCommand. Para Fase 3 de
- * NV IA aceptamos hasta ~10MB sin streamear.
+ * Sonia aceptamos hasta ~10MB sin streamear.
  */
 export async function downloadBuffer(s3Key: string): Promise<Buffer> {
   const resp = await client().send(

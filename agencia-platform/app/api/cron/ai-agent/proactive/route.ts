@@ -1,7 +1,7 @@
 /**
- * Cron de proactividad de NV IA.
+ * Cron de proactividad de Sonia.
  *
- * Recorre todos los workspaces que tengan NV IA configurada Y
+ * Recorre todos los workspaces que tengan Sonia configurada Y
  * proactividad activada (settings.aiAgent.proactiveEnabled === true),
  * detecta tareas EN RIESGO según dos criterios y crea AiAgentRun
  * en PENDING para cada una. El cron normal /process se encargará

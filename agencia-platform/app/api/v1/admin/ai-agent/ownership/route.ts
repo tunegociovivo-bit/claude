@@ -3,7 +3,7 @@
  * POST /api/v1/admin/ai-agent/ownership          → crea/actualiza ownership
  *      body: { clientId, kpis, checkFreqDays?, active? }
  *
- * Owner mode (Fase 31): pones clientes "bajo responsabilidad" de NV IA
+ * Owner mode (Fase 31): pones clientes "bajo responsabilidad" de Sonia
  * con KPIs medibles. El cron /api/cron/ai-agent/owner-check dispara
  * revisiones periódicas.
  */

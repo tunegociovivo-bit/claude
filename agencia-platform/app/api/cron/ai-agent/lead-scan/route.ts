@@ -5,7 +5,7 @@
  * de oportunidad: leads que respondieron pero no cerraron en N días,
  * leads en estado "qualified" sin actividad reciente, etc.
  *
- * Para cada uno crea AiAgentRun(LEAD_OPPORTUNITY). NV IA investiga
+ * Para cada uno crea AiAgentRun(LEAD_OPPORTUNITY). Sonia investiga
  * con web_search (info pública de la empresa) y propone draft de
  * acercamiento personalizado.
  *

@@ -30,7 +30,7 @@ export type LiveSuggestion = {
   relevance: number;
 };
 
-const SYSTEM_PROMPT = `Eres NV IA en MODO ASISTENTE EN VIVO durante una videollamada. Te llega la transcripción reciente (últimos 1-2 minutos) y debes devolver UN JSON con sugerencias ÚTILES y BREVES que puedan ayudar al asistente humano en tiempo real.
+const SYSTEM_PROMPT = `Eres Sonia en MODO ASISTENTE EN VIVO durante una videollamada. Te llega la transcripción reciente (últimos 1-2 minutos) y debes devolver UN JSON con sugerencias ÚTILES y BREVES que puedan ayudar al asistente humano en tiempo real.
 
 Tipos de sugerencias:
 - "action_item": acción acordada o pedida que deberá crearse como tarea. body con detalle.

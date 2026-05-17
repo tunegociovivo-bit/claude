@@ -2,7 +2,7 @@
  * GET /api/v1/admin/ai-agent/memory
  *
  * Lista todos los clientes del workspace con un resumen (tamaño +
- * última actualización) de la memoria que NV IA tiene de cada uno.
+ * última actualización) de la memoria que Sonia tiene de cada uno.
  * Solo admin. Incluye clientes SIN memoria — para que el admin pueda
  * "abrir" memoria nueva si quiere preseed manual.
  */

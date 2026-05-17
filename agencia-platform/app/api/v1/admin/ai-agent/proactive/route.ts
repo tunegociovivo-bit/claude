@@ -2,7 +2,7 @@
  * GET  /api/v1/admin/ai-agent/proactive
  * PUT  /api/v1/admin/ai-agent/proactive
  *
- * Lee y actualiza la config de proactividad de NV IA del workspace:
+ * Lee y actualiza la config de proactividad de Sonia del workspace:
  *   enabled, deadlineHours (1-168), staleDays (1-60), maxRunsPerCron (1-25)
  *
  * Sólo admin.
@@ -50,7 +50,7 @@ export const PUT = withApi({ scope: "*" }, async (req, { api }) => {
   const ws = await prisma.workspace.findUnique({ where: { id: api.workspaceId } });
   const settings: any = (ws?.settings as any) ?? {};
   if (!settings.aiAgent) {
-    throw new ApiError(400, "not_initialized", "NV IA no está inicializada en este workspace. Inicialízala primero.");
+    throw new ApiError(400, "not_initialized", "Sonia no está inicializada en este workspace. Inicialízala primero.");
   }
   settings.aiAgent.proactive = {
     enabled: parsed.data.enabled,

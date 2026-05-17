@@ -199,10 +199,10 @@ export async function ingestInbox(opts: {
       });
     }
 
-    // Fase 10 NV IA: si está activada la entrada por WhatsApp, le
+    // Fase 10 Sonia: si está activada la entrada por WhatsApp, le
     // pasamos la conversación para que clasifique más fino y
     // redacte un draft de respuesta o deje un comentario con plan.
-    // Fire-and-forget: no bloqueamos al webhook si NV IA falla.
+    // Fire-and-forget: no bloqueamos al webhook si Sonia falla.
     try {
       const { triggerNvIaFromInbound } = await import("@/lib/ai/nv-ia/inbound-trigger");
       void triggerNvIaFromInbound({

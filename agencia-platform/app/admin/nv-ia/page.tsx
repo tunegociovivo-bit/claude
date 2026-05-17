@@ -160,8 +160,8 @@ export default function NvIaAdminPage() {
   return (
     <div className="max-w-5xl mx-auto py-8 px-4">
       <PageHeader
-        title="NV IA — Trabajador autónomo"
-        description="Crea un user 'NV IA' y un proyecto buzón. Cualquier tarea que enlaces a ese proyecto se procesa automáticamente."
+        title="Sonia — Trabajador autónomo"
+        description="Crea un user 'Sonia' y un proyecto buzón. Cualquier tarea que enlaces a ese proyecto se procesa automáticamente."
       />
 
       {error && (
@@ -177,13 +177,13 @@ export default function NvIaAdminPage() {
         </div>
       ) : !status?.configured ? (
         <div className="mt-6 rounded-xl border bg-white p-6">
-          <h2 className="font-semibold text-slate-900 mb-2">NV IA aún no está inicializada en este workspace</h2>
+          <h2 className="font-semibold text-slate-900 mb-2">Sonia aún no está inicializada en este workspace</h2>
           <p className="text-sm text-slate-600 mb-4">
             Al inicializar se crea:
           </p>
           <ul className="text-sm text-slate-600 space-y-1 mb-4 list-disc list-inside">
-            <li>Un usuario <strong>NV IA</strong> (sistema, no puede hacer login).</li>
-            <li>Un proyecto <strong>🤖 NV IA — Tareas IA</strong> como buzón.</li>
+            <li>Un usuario <strong>Sonia</strong> (sistema, no puede hacer login).</li>
+            <li>Un proyecto <strong>🤖 Sonia — Tareas IA</strong> como buzón.</li>
             <li>Configuración con tope de 25 pasos y 200K tokens por tarea.</li>
           </ul>
           <p className="text-xs text-slate-500 mb-4">
@@ -196,7 +196,7 @@ export default function NvIaAdminPage() {
             className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-violet-600 hover:bg-violet-700 text-white text-sm font-medium disabled:opacity-50"
           >
             {initing ? <Loader2 className="h-4 w-4 animate-spin" /> : <PlayCircle className="h-4 w-4" />}
-            Inicializar NV IA
+            Inicializar Sonia
           </button>
         </div>
       ) : (
@@ -256,10 +256,10 @@ export default function NvIaAdminPage() {
             <div className="mt-6 rounded-xl border bg-white p-4">
               <div className="flex items-center justify-between mb-3">
                 <div>
-                  <h2 className="font-semibold text-sm">Proactividad — NV IA se dispara sola</h2>
+                  <h2 className="font-semibold text-sm">Proactividad — Sonia se dispara sola</h2>
                   <p className="text-xs text-slate-500 mt-0.5">
                     Cuando está activa, un cron revisa cada 15-60 min las tareas con deadline próximo
-                    o estancadas y NV IA deja un comentario con plan/aviso. Dedupe 24h por tarea.
+                    o estancadas y Sonia deja un comentario con plan/aviso. Dedupe 24h por tarea.
                   </p>
                 </div>
                 <label className="inline-flex items-center gap-2 cursor-pointer">
@@ -322,9 +322,9 @@ export default function NvIaAdminPage() {
 
           {inbound && (
             <div className="mt-6 rounded-xl border bg-white p-4">
-              <h2 className="font-semibold text-sm">Entrada externa — clientes contactan y NV IA atiende</h2>
+              <h2 className="font-semibold text-sm">Entrada externa — clientes contactan y Sonia atiende</h2>
               <p className="text-xs text-slate-500 mt-0.5 mb-3">
-                Cuando un cliente envía email o WhatsApp, NV IA crea una tarea en el buzón con el contenido y
+                Cuando un cliente envía email o WhatsApp, Sonia crea una tarea en el buzón con el contenido y
                 redacta una propuesta de respuesta para tu aprobación. Lo más cerca de "secretaria automática".
               </p>
 
@@ -334,7 +334,7 @@ export default function NvIaAdminPage() {
                     <div className="text-sm font-medium">💬 WhatsApp entrante</div>
                     <p className="text-[11px] text-slate-500 mt-0.5">
                       Cuando un lead/cliente responde a WhatsApp (clasificado como interesado, objeción o info_request)
-                      NV IA recibe el mensaje y prepara draft. Requiere tener Leads/WAHA configurado.
+                      Sonia recibe el mensaje y prepara draft. Requiere tener Leads/WAHA configurado.
                     </p>
                   </div>
                   <label className="inline-flex items-center gap-2 cursor-pointer shrink-0">
@@ -355,7 +355,7 @@ export default function NvIaAdminPage() {
                       <div className="text-sm font-medium">📧 Email entrante</div>
                       <p className="text-[11px] text-slate-500 mt-0.5">
                         Configura tu proveedor de email (Resend Inbound, ImprovMX, Postmark, etc.) para hacer POST
-                        a la URL de abajo. NV IA crea una tarea y prepara draft de respuesta.
+                        a la URL de abajo. Sonia crea una tarea y prepara draft de respuesta.
                       </p>
                     </div>
                     <label className="inline-flex items-center gap-2 cursor-pointer shrink-0">
@@ -436,7 +436,7 @@ export default function NvIaAdminPage() {
               <a href="/admin/nv-ia/drafts" className="text-brand-600 underline">/admin/nv-ia/drafts</a>.
               <br />
               <strong>Análisis cruzado y auto-mejora (4):</strong> query_knowledge_graph (búsqueda
-              cruzada con filtros cliente/sector/fecha), propose_new_tool (NV IA propone nuevas
+              cruzada con filtros cliente/sector/fecha), propose_new_tool (Sonia propone nuevas
               tools cuando detecta patrones repetitivos), start_client_workflow (secuencias
               automáticas tipo onboarding 7d / renewal 30d / churn recovery 14d), generate_image
               (gpt-image-1 → adjunto a la task).
@@ -451,7 +451,7 @@ export default function NvIaAdminPage() {
               Self-Healing (Fase 44).
             </p>
             <p>
-              <strong>Cómo invocarla:</strong> (a) enlazando una tarea al proyecto buzón <em>🤖 NV IA — Tareas IA</em>;
+              <strong>Cómo invocarla:</strong> (a) enlazando una tarea al proyecto buzón <em>🤖 Sonia — Tareas IA</em>;
               o (b) mencionándola con <code>@nv-ia</code> en cualquier comentario.
             </p>
           </div>

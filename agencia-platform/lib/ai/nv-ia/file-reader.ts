@@ -1,5 +1,5 @@
 /**
- * Extrae texto plano de un File adjunto para que NV IA pueda leerlo.
+ * Extrae texto plano de un File adjunto para que Sonia pueda leerlo.
  *
  * Cobertura Fase 3:
  *   - PDF       → pdf-parse

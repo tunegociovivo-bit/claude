@@ -1,5 +1,5 @@
 /**
- * Cron de NV IA: procesa AiAgentRun en PENDING.
+ * Cron de Sonia: procesa AiAgentRun en PENDING.
  *
  * Debe llamarse cada 1-2 min (GitHub Actions / Railway cron). Coge
  * hasta N runs PENDING de cualquier workspace, los marca RUNNING,
@@ -73,10 +73,10 @@ async function processOne(runId: string) {
       const link = `/tasks/${run.taskId}`;
       const body =
         result.status === "SUCCEEDED"
-          ? `✅ NV IA terminó: ${result.summary?.slice(0, 140) ?? ""}`
+          ? `✅ Sonia terminó: ${result.summary?.slice(0, 140) ?? ""}`
           : result.status === "REQUIRES_HUMAN"
-          ? `⚠️ NV IA necesita tu ayuda con una tarea — revisa los comentarios.`
-          : `❌ NV IA falló al procesar una tarea: ${result.error?.slice(0, 140) ?? "error desconocido"}`;
+          ? `⚠️ Sonia necesita tu ayuda con una tarea — revisa los comentarios.`
+          : `❌ Sonia falló al procesar una tarea: ${result.error?.slice(0, 140) ?? "error desconocido"}`;
       await prisma.notification.create({
         data: {
           userId: run.requesterId,

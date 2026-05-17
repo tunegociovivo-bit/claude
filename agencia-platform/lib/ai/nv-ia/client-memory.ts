@@ -1,5 +1,5 @@
 /**
- * Helpers de memoria persistente de NV IA — 3 capas:
+ * Helpers de memoria persistente de Sonia — 3 capas:
  *   - CLIENT memory (Fase 8): por cliente, una fila por client.
  *   - WORKSPACE memory (Fase 17): global al workspace.
  *   - USER memory (Fase 17): por miembro del equipo.

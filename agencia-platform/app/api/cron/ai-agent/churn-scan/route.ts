@@ -7,7 +7,7 @@
  *   - Sin actividad nueva en 30+ días (cliente que estaba activo).
  *
  * Para cada cliente en riesgo crea task + AiAgentRun(CHURN_RISK).
- * NV IA puede iniciar workflow churn_recovery_14d, o redactar
+ * Sonia puede iniciar workflow churn_recovery_14d, o redactar
  * outreach personalizado, o escalar al gestor.
  *
  * Dedupe 30 días por cliente.

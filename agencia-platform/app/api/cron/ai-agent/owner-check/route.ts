@@ -39,7 +39,7 @@ export async function GET(req: NextRequest) {
       const dueAt = new Date(o.lastCheckAt.getTime() + o.checkFreqDays * 24 * 60 * 60 * 1000);
       if (now < dueAt) continue;
     }
-    // Cargamos config de NV IA del workspace para usar el proyecto buzón
+    // Cargamos config de Sonia del workspace para usar el proyecto buzón
     const ws = await prisma.workspace.findUnique({
       where: { id: o.workspaceId },
       select: { settings: true }

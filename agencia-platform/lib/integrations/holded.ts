@@ -161,7 +161,7 @@ export async function holdedListQuotes(opts: {
 }
 
 // ─────────────────────────────────────────────────────────────────
-// Crear factura / presupuesto (los drafts de NV IA llaman aquí)
+// Crear factura / presupuesto (los drafts de Sonia llaman aquí)
 // ─────────────────────────────────────────────────────────────────
 
 export type HoldedCreateDocPayload = {

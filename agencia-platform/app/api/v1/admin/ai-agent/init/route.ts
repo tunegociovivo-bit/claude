@@ -1,17 +1,17 @@
 /**
  * POST /api/v1/admin/ai-agent/init
  *
- * Bootstrap de NV IA en el workspace actual. Idempotente — se puede
+ * Bootstrap de Sonia en el workspace actual. Idempotente — se puede
  * llamar tantas veces como haga falta; si ya existe, devuelve el
  * estado actual sin tocar nada.
  *
  * Crea:
- *  1. User "NV IA" (un User real del sistema, sin contraseña — no
+ *  1. User "Sonia" (un User real del sistema, sin contraseña — no
  *     puede hacer login). Su Membership en el workspace es MEMBER.
- *  2. Proyecto "🤖 NV IA — Tareas IA" (el "buzón"). Cuando alguien
+ *  2. Proyecto "🤖 Sonia — Tareas IA" (el "buzón"). Cuando alguien
  *     enlaza una tarea suya a este proyecto vía TaskProject, se
  *     dispara un AiAgentRun en PENDING.
- *  3. ProjectMember del user NV IA en ese proyecto.
+ *  3. ProjectMember del user Sonia en ese proyecto.
  *  4. Guarda { userId, inboxProjectId, model, maxStepsPerRun,
  *     maxTokensPerRun } en Workspace.settings.aiAgent.
  *
@@ -26,15 +26,15 @@ import { callerIsAdmin } from "@/lib/api/permissions";
 import { DEFAULT_AGENT_CONFIG } from "@/lib/ai/nv-ia/types";
 
 const AI_USER_EMAIL = "nv-ia@negociovivo.app";
-const AI_USER_NAME = "NV IA";
-const AI_PROJECT_NAME = "🤖 NV IA — Tareas IA";
+const AI_USER_NAME = "Sonia";
+const AI_PROJECT_NAME = "🤖 Sonia — Tareas IA";
 
 export const POST = withApi({ scope: "*" }, async (_req, { api }) => {
   if (!(await callerIsAdmin(api))) {
-    throw new ApiError(403, "forbidden", "Solo admin del workspace puede inicializar NV IA");
+    throw new ApiError(403, "forbidden", "Solo admin del workspace puede inicializar Sonia");
   }
 
-  // 1. User NV IA
+  // 1. User Sonia
   let aiUser = await prisma.user.findUnique({ where: { email: AI_USER_EMAIL } });
   if (!aiUser) {
     aiUser = await prisma.user.create({
@@ -45,6 +45,13 @@ export const POST = withApi({ scope: "*" }, async (_req, { api }) => {
         passwordHash: null,
         role: "MEMBER"
       }
+    });
+  } else if (aiUser.name !== AI_USER_NAME) {
+    // Migración: si el user de IA existe pero tiene nombre antiguo
+    // ("NV IA"), lo renombramos a "Sonia" (idempotente).
+    aiUser = await prisma.user.update({
+      where: { id: aiUser.id },
+      data: { name: AI_USER_NAME }
     });
   }
 
@@ -62,11 +69,14 @@ export const POST = withApi({ scope: "*" }, async (_req, { api }) => {
     });
   }
 
-  // 3. Proyecto buzón. Buscamos por nombre exacto dentro del workspace.
+  // 3. Proyecto buzón. Buscamos por nombre exacto dentro del workspace
+  //    O por el nombre antiguo ("🤖 NV IA — Tareas IA") para migrar
+  //    workspaces ya inicializados con el naming previo.
+  const LEGACY_PROJECT_NAME = "🤖 NV IA — Tareas IA";
   let inboxProject = await prisma.project.findFirst({
     where: {
       workspaceId: api.workspaceId,
-      name: AI_PROJECT_NAME,
+      name: { in: [AI_PROJECT_NAME, LEGACY_PROJECT_NAME] },
       deletedAt: null
     } as any
   });
@@ -76,13 +86,19 @@ export const POST = withApi({ scope: "*" }, async (_req, { api }) => {
         workspaceId: api.workspaceId,
         name: AI_PROJECT_NAME,
         description:
-          "Buzón de tareas para NV IA. Cualquier tarea que enlaces a este proyecto (vía 'Compartir con proyecto') será procesada automáticamente por la IA.",
+          "Buzón de tareas para Sonia. Cualquier tarea que enlaces a este proyecto (vía 'Compartir con proyecto') será procesada automáticamente por la IA.",
         color: "bg-violet-500"
       }
     });
+  } else if (inboxProject.name === LEGACY_PROJECT_NAME) {
+    // Migración: rename del proyecto buzón al nuevo naming.
+    inboxProject = await prisma.project.update({
+      where: { id: inboxProject.id },
+      data: { name: AI_PROJECT_NAME }
+    });
   }
 
-  // 4. NV IA es ProjectMember del buzón (para que aparezca como asignada
+  // 4. Sonia es ProjectMember del buzón (para que aparezca como asignada
   //    posible y vea la tarea en sus listados).
   const existingPM = await prisma.projectMember.findUnique({
     where: { projectId_userId: { projectId: inboxProject.id, userId: aiUser.id } }
@@ -118,7 +134,7 @@ export const POST = withApi({ scope: "*" }, async (_req, { api }) => {
 });
 
 /**
- * GET → devuelve el estado actual de NV IA en el workspace (si está
+ * GET → devuelve el estado actual de Sonia en el workspace (si está
  * configurada, qué config tiene, contador de runs recientes).
  */
 export const GET = withApi({ scope: "*" }, async (_req, { api }) => {

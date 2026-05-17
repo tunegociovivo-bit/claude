@@ -65,7 +65,7 @@ export default function NvIaInsightsPage() {
   return (
     <div className="max-w-6xl mx-auto py-8 px-4">
       <PageHeader
-        title="NV IA — Métricas y salud"
+        title="Sonia — Métricas y salud"
         description="Cómo se está comportando la IA: qué dispara los runs, qué tools usa, cuánto cuesta, qué decisiones requieren tu intervención."
       />
 

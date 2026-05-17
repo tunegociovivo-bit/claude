@@ -61,8 +61,8 @@ const cards: AdminCard[] = [
   },
   {
     href: "/admin/nv-ia",
-    title: "NV IA — Trabajador autónomo",
-    description: "Crea un user 'NV IA' que procesa tareas automáticamente cuando las enlazas a su proyecto buzón. Comenta, mueve estados, finaliza y notifica.",
+    title: "Sonia — Trabajador autónomo",
+    description: "Crea un user 'Sonia' que procesa tareas automáticamente cuando las enlazas a su proyecto buzón. Comenta, mueve estados, finaliza y notifica.",
     icon: Bot,
     highlight: true
   },
