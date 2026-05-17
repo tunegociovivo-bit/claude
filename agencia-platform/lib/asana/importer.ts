@@ -274,22 +274,39 @@ async function runImport(jobId: string, opts: ImportOptions) {
     async function ensureUser(gid: string, name?: string | null, email?: string | null): Promise<string | null> {
       const cached = userByGid.get(gid);
       if (cached) return cached;
-      if (!email) return null;
-      const existing = await prisma.user.findUnique({ where: { email } });
+
+      // Si Asana NO devuelve email (cuenta privada, sin scope adecuado,
+      // o cliente externo) — antes devolvíamos null y los comentarios
+      // se descartaban silenciosamente. Ahora fabricamos un email
+      // sintético estable basado en el gid de Asana, así dos
+      // comentarios del mismo autor sin email quedan atribuidos al
+      // mismo usuario placeholder. Más adelante el admin puede
+      // fusionarlos con cuentas reales si lo necesita.
+      const effectiveEmail = email ?? `asana-${gid}@imported.local`;
+      const effectiveName = name ?? (email ? email : `Usuario Asana ${gid.slice(-6)}`);
+
+      const existing = await prisma.user.findUnique({ where: { email: effectiveEmail } });
       if (existing) {
         userByGid.set(gid, existing.id);
         return existing.id;
       }
       const created = await prisma.user.create({
         data: {
-          email,
-          name: name ?? email,
+          email: effectiveEmail,
+          name: effectiveName,
           // emailVerified=null = "pendiente de verificar" funcionalmente
           memberships: { create: { workspaceId: opts.workspaceId, role: "GUEST" } }
         }
       });
       userByGid.set(gid, created.id);
       stats.users++;
+      if (!email) {
+        // Solo trackeamos esto como warning si es la primera vez que vemos
+        // este gid — para no inundar stats.warnings con miles de líneas.
+        stats.warnings.push(
+          `Asana no expuso email del autor ${name ?? gid}; creado usuario placeholder ${effectiveEmail}`
+        );
+      }
       return created.id;
     }
 
@@ -423,8 +440,10 @@ async function runImport(jobId: string, opts: ImportOptions) {
       }
 
       // Comentarios (stories tipo "comment_added"). Idempotente por
-      // Comment.asanaId == story.gid. Si el autor no estaba en el
-      // map pero tiene email, lo creamos como GUEST pendiente.
+      // Comment.asanaId == story.gid. ensureUser fabrica un usuario
+      // placeholder con email sintético si Asana no expone el email
+      // del autor (caso típico de cuentas privadas) — así NUNCA se
+      // pierde un comentario por falta de email.
       for await (const story of client.taskStories(t.gid)) {
         if (story.resource_subtype !== "comment_added") continue;
         // Algunos comentarios solo tienen imagen (html_text) sin texto.
