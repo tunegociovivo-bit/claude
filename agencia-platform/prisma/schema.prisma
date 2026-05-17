@@ -57,6 +57,7 @@ model User {
   editorialMessages         EditorialPostMessage[]
   googleCalendarConnections GoogleCalendarConnection[]
   userSessions              UserSession[]
+  MetaConnection            MetaConnection[]
 }
 
 // Registro de intentos de login para throttling/lockout. Se guardan
@@ -220,6 +221,8 @@ model Workspace {
   teamMessages              TeamMessage[]
   googleCalendarConnections GoogleCalendarConnection[]
   searchEmbeddings          SearchEmbedding[]
+  metaConnections           MetaConnection[]
+  metaCampaigns             MetaCampaign[]
 }
 
 model Membership {
@@ -1733,4 +1736,248 @@ model GoogleCalendarWatchChannel {
   connection GoogleCalendarConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
 
   @@index([expiration])
+}
+
+// ====================================================================
+// CAMPAÑA REDES IA — planificador y ejecutor de campañas en Meta Ads
+// ====================================================================
+//
+// Workflow alto nivel:
+//   1) El user rellena un wizard con todo el setup (token, fanpage,
+//      tipo de campaña, conjuntos, segmentación, nº de anuncios…).
+//   2) MetaCampaign se guarda como DRAFT con la config completa.
+//   3) Se crea automáticamente una Task con todo el detalle + links.
+//   4) (Fase 2) La IA expande la segmentación y propone copy+imagen
+//      por cada MetaAd → preview → user aprueba.
+//   5) (Fase 2) Llamada a Meta Marketing API: crea campaign, ad sets,
+//      ads; rellena los xxxId de Meta y pasa el status a ACTIVE.
+//   6) (Fase 3) En reviewAt el cron pide informe a la IA.
+//
+// El token de Meta se cifra con NEXTAUTH_SECRET (encryptSecret).
+
+model MetaConnection {
+  id             String    @id @default(cuid())
+  workspaceId    String
+  userId         String
+  // Token de larga duración del usuario de Meta. Cifrado.
+  accessTokenEnc String    @db.Text
+  // Opcional: id de la cuenta de Meta del user (no del business).
+  metaUserId     String?
+  expiresAt      DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  campaigns MetaCampaign[]
+
+  @@unique([userId, workspaceId])
+  @@index([workspaceId])
+}
+
+enum MetaCampaignStatus {
+  DRAFT // creada en Hub pero todavía no enviada a Meta
+  PENDING_REVIEW // user pidió generar copys/imágenes, pendiente de su aprobación
+  APPROVED // user dio el visto bueno a previews
+  LAUNCHING // enviando a Meta API
+  ACTIVE // ya en Meta, corriendo
+  PAUSED
+  COMPLETED
+  FAILED // error al crear en Meta — ver lastError
+}
+
+enum MetaCampaignObjective {
+  LEADS // clientes potenciales
+  TRAFFIC // tráfico
+  ENGAGEMENT
+  CONVERSIONS
+  AWARENESS
+  SALES
+  APP_PROMOTION
+  VIDEO_VIEWS
+  REACH
+}
+
+enum MetaLeadDestination {
+  INSTANT_FORM // formularios instantáneos en Meta
+  WEBSITE // formulario en web propia
+  MESSENGER
+  WHATSAPP
+  PHONE_CALL
+}
+
+enum MetaAdsetMode {
+  COLD_ONLY // 1 conjunto público frío
+  COLD_PLUS_REMARKETING // 2 conjuntos
+  CUSTOM // user define cuántos y a quién va cada uno
+}
+
+model MetaCampaign {
+  id          String  @id @default(cuid())
+  workspaceId String
+  // Opcional — campaña ligada a un cliente del CRM. Útil para que
+  // aparezca en la ficha del cliente y para imputar costes.
+  clientId    String?
+  // User que la creó / asignado de la campaña ("el que va a
+  // generar la campaña" en el spec del user).
+  ownerId     String
+
+  // Identidad y descripción
+  name        String
+  description String? @db.Text // "público objetivo, contexto, briefing…"
+
+  // Datos básicos del setup
+  metaConnectionId String? // de qué conexión / token sale
+  adsManagerUrl    String? // URL de business.facebook.com/adsmanager — para el sidebar
+  fanpageUrl       String?
+  fanpageName      String?
+
+  // Programación y presupuesto
+  startDate        DateTime
+  endDate          DateTime? // null si "sin fecha de finalización"
+  dailyBudgetCents Int // en céntimos para evitar floats
+
+  // Objetivo + destino (este último solo aplica si LEADS)
+  objective       MetaCampaignObjective
+  leadDestination MetaLeadDestination?
+
+  // Aprobación políticas Meta (legal)
+  metaPoliciesAccepted   Boolean   @default(false)
+  metaPoliciesAcceptedAt DateTime?
+
+  // Conjuntos de anuncios
+  adsetMode  MetaAdsetMode
+  adsetCount Int           @default(1)
+
+  // Segmentación libre que la IA expandirá en Fase 2.
+  // En `expandedSegmentation` queda el JSON ya digerido (intereses,
+  // edades, comportamientos…) listo para Meta.
+  segmentationRaw      String @db.Text
+  expandedSegmentation Json?
+
+  // Geo
+  locationsIncluded String[] // p.ej. ["Madrid", "Barcelona", "ES"]
+  locationsExcluded String[]
+
+  // Quién genera el contenido visual: VISUAL_BY_USER el user los sube,
+  // VISUAL_BY_AI los genera gpt-image-1 / gpt-image-2.
+  visualMode MetaVisualMode
+
+  // Para campañas de LEAD con INSTANT_FORM: preguntas propuestas por
+  // IA, aprobadas por el user. Cada item: { question, type, required, options? }
+  formQuestions           Json?
+  formQuestionsApprovedAt DateTime?
+
+  // Emails que reciben los leads (para el escenario de Make)
+  leadEmails String[]
+
+  // Cuándo el cron debe pedir informe a la IA.
+  reviewAt     DateTime?
+  reviewSentAt DateTime?
+
+  // Estado + integración con Meta
+  status         MetaCampaignStatus @default(DRAFT)
+  metaCampaignId String?            @unique // id real en Meta tras crear
+  makeScenarioId String? // id del escenario de Make creado en Fase 3
+  // Task generada en /tareas al crear — link bidireccional para que
+  // borrar la campaña pueda limpiar la task (o viceversa).
+  taskId         String?
+
+  lastError   String?   @db.Text
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+  deletedById String?
+
+  workspace      Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  metaConnection MetaConnection?      @relation(fields: [metaConnectionId], references: [id], onDelete: SetNull)
+  adsets         MetaAdset[]
+  reviews        MetaCampaignReview[]
+
+  @@index([workspaceId, status])
+  @@index([clientId])
+  @@index([ownerId])
+  @@index([reviewAt])
+}
+
+enum MetaVisualMode {
+  USER_UPLOADS
+  AI_GENERATES
+}
+
+// Conjunto de anuncios. Define la audiencia y el subpresupuesto si
+// procede. La cantidad de MetaAd dentro depende del wizard.
+model MetaAdset {
+  id            String  @id @default(cuid())
+  campaignId    String
+  // "público frío", "remarketing 30d", "custom: lookalike 1% IT"
+  label         String
+  // Para CUSTOM: descripción del público objetivo concreto. La IA la
+  // expande igual que la segmentación de la campaña.
+  audienceBrief String? @db.Text
+  metaAdsetId   String? @unique // tras crear en Meta
+
+  ads      MetaAd[]
+  campaign MetaCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@index([campaignId])
+}
+
+enum MetaAdFormat {
+  IMAGE
+  CAROUSEL
+  VIDEO
+}
+
+enum MetaAdContentStatus {
+  PLACEHOLDER // aún no se ha generado nada
+  GENERATING // llamada a OpenAI / freepik en curso
+  READY_FOR_REVIEW
+  APPROVED
+  PUBLISHED
+  FAILED
+}
+
+// Cada anuncio individual. Para CAROUSEL, mediaUrls tendrá 2-10 entradas.
+model MetaAd {
+  id             String              @id @default(cuid())
+  adsetId        String
+  format         MetaAdFormat
+  // Copy generado por la IA o tecleado a mano.
+  headline       String?
+  primaryText    String?             @db.Text
+  description    String?
+  callToAction   String? // p.ej. "LEARN_MORE", "SIGN_UP"
+  destinationUrl String?
+  // URLs en R2 — para IMAGE: 1 elemento; CAROUSEL: 2-10; VIDEO: 1.
+  mediaUrls      String[]
+  // Instrucciones libres del user para regenerar ("hazla más colorida")
+  userNotes      String?             @db.Text
+  contentStatus  MetaAdContentStatus @default(PLACEHOLDER)
+  metaAdId       String?             @unique
+  lastError      String?             @db.Text
+
+  adset MetaAdset @relation(fields: [adsetId], references: [id], onDelete: Cascade)
+
+  @@index([adsetId])
+}
+
+// Snapshot de cómo iba la campaña en una fecha concreta. Lo genera
+// el cron en reviewAt y queda registrado para histórico.
+model MetaCampaignReview {
+  id                String    @id @default(cuid())
+  campaignId        String
+  generatedAt       DateTime  @default(now())
+  // Stats que sacamos de Meta API en ese momento.
+  metrics           Json
+  // Resumen + recomendaciones de la IA.
+  summary           String    @db.Text
+  recommendations   Json?
+  autoFixOffered    Boolean   @default(false)
+  autoFixAcceptedAt DateTime?
+  autoFixResult     Json?
+
+  campaign MetaCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@index([campaignId, generatedAt])
 }
