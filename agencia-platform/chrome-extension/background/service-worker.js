@@ -58,20 +58,57 @@ async function setState(patch) {
 // ─────────────────────────────────────────────────────────────────────
 
 /**
- * Llama a /api/v1/me con la cookie de sesión. Si el user está
- * logueado en el Hub en cualquier pestaña, el navegador envía la
- * cookie y nos devuelve {user, workspaceId, role}.
+ * Lee la cookie de sesión de NextAuth desde Chrome (con
+ * chrome.cookies.get, que sí puede leer cookies HttpOnly del Hub
+ * gracias al permiso "cookies"). NextAuth usa dos nombres según el
+ * entorno: __Secure-next-auth.session-token en HTTPS production,
+ * next-auth.session-token en local HTTP. Probamos los dos.
+ *
+ * Devolvemos solo el VALUE (el JWT firmado) para luego mandarlo
+ * como Authorization: Bearer al Hub — credentials: include no
+ * sirve porque la cookie es SameSite=Lax y Chrome no la envía
+ * cross-site desde el contexto chrome-extension://.
+ */
+async function readHubSessionCookie() {
+  const { hubUrl } = await getState();
+  const names = [
+    "__Secure-next-auth.session-token",
+    "next-auth.session-token"
+  ];
+  for (const name of names) {
+    try {
+      const c = await chrome.cookies.get({ url: hubUrl, name });
+      if (c?.value) return c.value;
+    } catch {
+      // Sin permiso "cookies" o dominio mal configurado: seguimos
+    }
+  }
+  return null;
+}
+
+async function authedFetch(path, init = {}) {
+  const { hubUrl } = await getState();
+  const headers = new Headers(init.headers ?? {});
+  const cookieValue = await readHubSessionCookie();
+  if (cookieValue) headers.set("Authorization", `Bearer ${cookieValue}`);
+  return fetch(`${hubUrl.replace(/\/$/, "")}${path}`, {
+    ...init,
+    headers,
+    credentials: "include",
+    cache: "no-store"
+  });
+}
+
+/**
+ * Llama a /api/v1/me con la cookie de sesión leída de Chrome y
+ * pasada como Bearer (porque SameSite=Lax bloquea cookies cross-site
+ * desde extension contexts).
  *
  * Devuelve null si no hay sesión (401) o si la red falló.
  */
 async function fetchSessionUser() {
-  const { hubUrl } = await getState();
   try {
-    const r = await fetch(`${hubUrl.replace(/\/$/, "")}/api/v1/me`, {
-      method: "GET",
-      credentials: "include",
-      cache: "no-store"
-    });
+    const r = await authedFetch("/api/v1/me");
     if (r.status === 401 || r.status === 403) return null;
     if (!r.ok) return null;
     const data = await r.json();
@@ -181,15 +218,20 @@ async function startRecording() {
 
   await setState({ state: "recording", lastError: null });
 
+  // Leemos la cookie de sesión del Hub UNA vez y se la pasamos al
+  // offscreen para que la mande como Authorization Bearer en la
+  // subida. SameSite=Lax bloquea cookies cross-site desde extension
+  // contexts, por eso no podemos confiar en credentials: include.
+  const sessionJwt = await readHubSessionCookie();
+
   await chrome.runtime.sendMessage({
     target: "offscreen",
     type: "start-recording",
     streamId,
     meetingUrl: tab.url ?? "",
     meetingTitle: tab.title ?? "",
-    hubUrl
-    // OJO: ya no pasamos apiKey. El offscreen sube con credentials: include
-    // y la cookie de sesión viaja.
+    hubUrl,
+    sessionJwt
   });
 }
 
@@ -245,10 +287,7 @@ async function pollNotifications() {
   const { user, hubUrl, notifications, lastNotifSeenAt } = await getState();
   if (!user) return;
   try {
-    const r = await fetch(`${hubUrl.replace(/\/$/, "")}/api/v1/notifications`, {
-      credentials: "include",
-      cache: "no-store"
-    });
+    const r = await authedFetch("/api/v1/notifications");
     if (r.status === 401) {
       // Cookie caducada o user hizo logout en otra tab — reflejamos.
       await syncSession();
@@ -304,10 +343,7 @@ async function markAllRead() {
   const { hubUrl, user } = await getState();
   if (!user) return;
   try {
-    await fetch(`${hubUrl.replace(/\/$/, "")}/api/v1/notifications`, {
-      method: "PATCH",
-      credentials: "include"
-    });
+    await authedFetch("/api/v1/notifications", { method: "PATCH" });
     await pollNotifications();
   } catch (e) {
     console.warn(e);

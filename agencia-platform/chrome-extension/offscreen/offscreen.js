@@ -31,7 +31,8 @@ async function startRecording(opts) {
   ctx = {
     meetingUrl: opts.meetingUrl ?? "",
     meetingTitle: opts.meetingTitle ?? "Reunión",
-    hubUrl: opts.hubUrl
+    hubUrl: opts.hubUrl,
+    sessionJwt: opts.sessionJwt ?? null
   };
 
   try {
@@ -149,12 +150,17 @@ async function onStop() {
     form.append("meetingTitle", ctx.meetingTitle);
     form.append("durationMs", String(approxDurationMs(blob.size)));
 
-    // Auth: cookie de sesión del Hub. Chrome la incluye automáticamente
-    // si tenemos host_permissions sobre el dominio y pasamos
-    // credentials: "include". Adiós API key manual.
+    // Auth: el SW nos pasó el JWT de la cookie de NextAuth (leído
+    // con chrome.cookies.get porque SameSite=Lax bloquea cross-site
+    // desde el contexto chrome-extension://). Lo mandamos como
+    // Authorization Bearer — el Hub lo decodifica con NEXTAUTH_SECRET
+    // igual que validaría una cookie normal.
+    const headers = {};
+    if (ctx.sessionJwt) headers["Authorization"] = `Bearer ${ctx.sessionJwt}`;
     const resp = await fetch(`${ctx.hubUrl.replace(/\/$/, "")}/api/v1/extension/upload-recording`, {
       method: "POST",
       credentials: "include",
+      headers,
       body: form
     });
     if (!resp.ok) {

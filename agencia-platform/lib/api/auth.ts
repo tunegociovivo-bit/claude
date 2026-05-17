@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/db/prisma";
 import { getServerSession } from "next-auth";
+import { getToken } from "next-auth/jwt";
 import { authOptions } from "@/lib/auth";
 import { touchSession } from "@/lib/security/sessions";
 
@@ -49,7 +50,53 @@ export async function authenticate(req: NextRequest): Promise<ApiContext> {
     };
   }
 
-  // Sesión de NextAuth
+  // Authorization: Bearer <jwt-de-NextAuth> — usado por la extensión
+  // de Chrome. Como las cookies NextAuth tienen SameSite=Lax, Chrome
+  // NO las envía cross-site desde el contexto de extensión a pesar
+  // de host_permissions. La extensión las LEE con chrome.cookies.get
+  // y las pasa explícitamente en este header. Aquí intentamos
+  // decodificar el token como JWT NextAuth si NO empieza por el
+  // prefix de API key.
+  if (header?.startsWith("Bearer ") && !header.includes(PREFIX)) {
+    const rawJwt = header.slice("Bearer ".length).trim();
+    if (rawJwt) {
+      try {
+        const decoded = await getToken({
+          req: { headers: { cookie: `next-auth.session-token=${rawJwt}` } } as any,
+          secret: process.env.NEXTAUTH_SECRET ?? "",
+          // Probamos sin secure primero; si NextAuth está en HTTPS
+          // production, el cookieName puede ser __Secure- prefixed.
+          // getToken intenta varios; el secret es lo único crítico.
+          raw: false
+        });
+        if (decoded && typeof decoded === "object" && (decoded as any).uid) {
+          const tok = decoded as any;
+          // Si la JWT trae sid, validamos como en el flow de cookie.
+          const sid = tok.sid as string | undefined;
+          if (sid) {
+            const alive = await touchSession(sid);
+            if (!alive) {
+              throw new ApiError(401, "session_revoked", "Esta sesión ha sido revocada. Vuelve a iniciar sesión en el Hub.");
+            }
+          }
+          if (!tok.workspaceId) throw new ApiError(403, "no_workspace", "Usuario sin workspace asignado");
+          return {
+            workspaceId: tok.workspaceId as string,
+            userId: tok.uid as string,
+            scopes: new Set(["*"]),
+            sid
+          };
+        }
+      } catch (e: any) {
+        // Si la decodificación falla pero el header parece JWT, lo
+        // pasamos abajo (cookie clásica) por si funcionara — no
+        // queremos romper si el token llega mal formado.
+        if (e instanceof ApiError) throw e;
+      }
+    }
+  }
+
+  // Sesión de NextAuth (vía cookie estándar, web normal)
   const session = await getServerSession(authOptions);
   if (session?.user) {
     const u = session.user as any;
