@@ -10,7 +10,7 @@ import CommentRenderer from "@/components/forms/CommentRenderer";
 import MeetingRecorder from "@/components/forms/MeetingRecorder";
 import type { MentionCandidate } from "@/components/forms/mentionSuggestion";
 import type { UiProject, UiMember, UiTask } from "@/lib/db/queries";
-import { Loader2, Trash2, MessageSquare, X, CheckSquare, Check, ArrowLeft, ExternalLink, Mic } from "lucide-react";
+import { Loader2, Trash2, MessageSquare, X, CheckSquare, Check, ArrowLeft, ExternalLink, Mic, RefreshCw } from "lucide-react";
 
 // Tres estados de prioridad: vacío (normal, default), Alta y URGENCIA.
 // El campo `priority` puede ser undefined cuando el user no marca nada,
@@ -636,6 +636,15 @@ export default function TaskFormModal({
                 <MessageSquare className="h-3.5 w-3.5" />
                 Comentarios
                 <span className="text-slate-400">({comments.length})</span>
+                <ReimportCommentsButton
+                  taskId={currentTask!.id}
+                  onDone={() => {
+                    // Re-fetch de comentarios tras la re-importación.
+                    fetch(`/api/v1/tasks/${currentTask!.id}/comments`)
+                      .then((r) => (r.ok ? r.json() : { items: [] }))
+                      .then((d) => setComments(d.items ?? []));
+                  }}
+                />
               </div>
               <div className="space-y-3">
                 {comments.map((c) => (
@@ -931,3 +940,60 @@ function initialsFromName(name: string | null): string {
     .toUpperCase();
 }
 
+
+/**
+ * Botón pequeño "Re-importar comentarios" — solo visible para admins
+ * en tareas que vienen de Asana. Llama a
+ * /api/v1/admin/asana/reimport-task-comments?localTaskId=... y
+ * muestra un mini-informe (created/updated/skipped/errors). Útil
+ * para recuperar comentarios de tareas concretas sin volver a
+ * re-importar todo el workspace.
+ */
+function ReimportCommentsButton({ taskId, onDone }: { taskId: string; onDone: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [report, setReport] = useState<string | null>(null);
+
+  async function run() {
+    setBusy(true);
+    setReport(null);
+    try {
+      const r = await fetch(
+        `/api/v1/admin/asana/reimport-task-comments?localTaskId=${encodeURIComponent(taskId)}`,
+        { method: "POST" }
+      );
+      const j = await r.json();
+      if (!r.ok) {
+        setReport(`✗ ${j?.error?.message ?? `Error ${r.status}`}`);
+        return;
+      }
+      const parts: string[] = [];
+      if (j.created > 0) parts.push(`✓ ${j.created} nuevos`);
+      if (j.updated > 0) parts.push(`↻ ${j.updated} actualizados`);
+      if (j.skipped > 0) parts.push(`· ${j.skipped} sin cambios`);
+      if (j.errors > 0) parts.push(`✗ ${j.errors} errores`);
+      if (j.storiesFound === 0) parts.push("(Asana no devolvió ningún comentario para esta tarea)");
+      setReport(parts.join(" · ") || "Sin novedades");
+      onDone();
+    } catch (e: any) {
+      setReport(`✗ ${e?.message ?? "Error de red"}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="ml-auto flex items-center gap-2">
+      {report && <span className="text-[10px] text-slate-500">{report}</span>}
+      <button
+        type="button"
+        onClick={run}
+        disabled={busy}
+        title="Vuelve a importar los comentarios de esta tarea desde Asana (solo admin)"
+        className="inline-flex items-center gap-1 text-[10px] text-brand-600 hover:text-brand-700 disabled:opacity-50"
+      >
+        {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+        Re-importar de Asana
+      </button>
+    </div>
+  );
+}
