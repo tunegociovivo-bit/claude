@@ -1,5 +1,5 @@
 /** @type {import('next').NextConfig} */
-const NATIVE_PACKAGES = ['@napi-rs/canvas', 'sharp', '@resvg/resvg-js'];
+const NATIVE_PACKAGES = ['@napi-rs/canvas', 'sharp', '@resvg/resvg-js', 'archiver'];
 
 // Timestamp del build (ms epoch). Se evalúa una vez al ejecutar
 // `next build` y se inyecta como env pública. La UI lo lee para
@@ -21,10 +21,16 @@ const nextConfig = {
     //   Module parse failed: Unexpected character ' ' (1:0)
     //   trying to parse skia.linux-x64-musl.node as JS
     experimental: {
-        serverComponentsExternalPackages: NATIVE_PACKAGES
-    },
-    outputFileTracingIncludes: {
-        '/api/**/*': ['./public/fonts/**/*']
+        serverComponentsExternalPackages: NATIVE_PACKAGES,
+        // outputFileTracingIncludes vive en `experimental` en Next 14.x.
+        // /public/fonts es necesario para el overlay del editorial.
+        // /chrome-extension es la carpeta fuente de la extensión que
+        // se sirve zipeada al vuelo en /api/v1/extension/download —
+        // sin incluirla en el trace, Railway no la bundlea en el
+        // standalone build y el endpoint 404ea en producción.
+        outputFileTracingIncludes: {
+            '/api/**/*': ['./public/fonts/**/*', './chrome-extension/**/*']
+        }
     },
     webpack: (config, { isServer }) => {
         if (!isServer) return config;
