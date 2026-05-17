@@ -29,10 +29,16 @@
     } catch {}
   }
   pingMeetingDetected();
-  // Re-intentar 3 veces en los primeros 6s — Meet/Teams cargan en SPA
-  // y a veces la primera vez el SW aún no tiene user en storage.
-  setTimeout(pingMeetingDetected, 2000);
-  setTimeout(pingMeetingDetected, 6000);
+  // Reintentos agresivos durante los primeros 30s — el SW puede tardar
+  // en arrancar (cold start), o el user puede acabar de iniciar sesión
+  // en el Hub en otra pestaña y aún no tener "user" en storage.
+  setTimeout(pingMeetingDetected, 1500);
+  setTimeout(pingMeetingDetected, 4000);
+  setTimeout(pingMeetingDetected, 10000);
+  setTimeout(pingMeetingDetected, 20000);
+  // Y un ping cada 30s mientras siga abierta la pestaña, por si el user
+  // se loguea en el Hub a mitad de reunión.
+  setInterval(pingMeetingDetected, 30000);
 
   // Meet es SPA — si cambia la URL sin recargar, re-pingar
   let lastHref = location.href;
@@ -41,7 +47,7 @@
       lastHref = location.href;
       pingMeetingDetected();
     }
-  }, 4000);
+  }, 3000);
 
   // ─────────────────────────────────────────────────────────────────
   // Banner flotante — se monta cuando el SW pide "show-record-banner"

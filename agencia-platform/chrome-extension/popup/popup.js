@@ -365,23 +365,32 @@ $("btn-start").addEventListener("click", async () => {
   $("btn-start").disabled = true;
   const projectId = $("proj-select")?.value || null;
   const status = $("col-select")?.value || null;
+  // Optimistic UI — pintamos "recording" YA, sin esperar a que el SW
+  // termine getMediaStreamId + offscreen. Si el SW falla, revertimos
+  // a error. Esto resuelve el "no aparece timer ni botón Detener"
+  // mientras el SW está negociando la captura (puede tardar 1-2s).
+  showState("recording");
+  startElapsedTimer();
+  $("btn-stop").disabled = false;
   const r = await chrome.runtime.sendMessage({ from: "popup", type: "start", projectId, status });
   if (!r?.ok) {
+    stopElapsedTimer();
     $("error-msg").textContent = r?.error ?? "No se pudo arrancar";
     showState("error");
     $("btn-start").disabled = false;
     return;
   }
-  // Re-renderiza inmediatamente: el SW ya marcó state="recording" en storage,
-  // así el popup muestra el contador y el botón Detener sin esperar a la
-  // próxima apertura.
-  await render();
+  // No re-renderizamos: el SW ya marcó state="recording" en storage y
+  // la UI ya está en ese estado.
 });
 
 $("btn-stop").addEventListener("click", async () => {
   $("btn-stop").disabled = true;
+  // Manda al SW Y limpia el timer local — el SW puede tardar en
+  // responder pero el user ya ve que dejó de contar.
+  stopElapsedTimer();
   await chrome.runtime.sendMessage({ from: "popup", type: "stop" });
-  // El SW pone state="uploading" — re-render para mostrar spinner.
+  // El SW pone state="uploading" o "idle" — re-render para reflejar.
   await render();
 });
 

@@ -229,14 +229,31 @@ async function startRecording(opts = {}) {
   }
   if (!tab) throw new Error("No se ha podido detectar la pestaña activa.");
 
-  await ensureOffscreen();
-  const streamId = await new Promise((resolve, reject) => {
-    chrome.tabCapture.getMediaStreamId({ targetTabId: tab.id }, (id) => {
-      if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
-      else if (!id) reject(new Error("getMediaStreamId devolvió vacío"));
-      else resolve(id);
+  // CRÍTICO: getMediaStreamId debe llamarse con el gesto de usuario
+  // todavía "fresco" (<5s desde el click). Cualquier await previo
+  // consume tiempo del gesto. ensureOffscreen suele ser <50ms pero
+  // mejor ponerlo en paralelo. La cookie y la sesión live se leen
+  // DESPUÉS — no las necesitamos para arrancar la captura.
+  const offscreenP = ensureOffscreen();
+
+  let streamId;
+  try {
+    streamId = await new Promise((resolve, reject) => {
+      chrome.tabCapture.getMediaStreamId({ targetTabId: tab.id }, (id) => {
+        if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
+        else if (!id) reject(new Error("getMediaStreamId devolvió vacío"));
+        else resolve(id);
+      });
     });
-  });
+  } catch (e) {
+    // Mensaje más útil: tabCapture falla típicamente por (a) la tab no
+    // está activa o (b) el gesto de usuario expiró. Lo reportamos claro.
+    throw new Error(
+      `No se pudo capturar la pestaña (${e.message}). ` +
+      `Asegúrate de pulsar "Grabar" estando en la pestaña de la reunión.`
+    );
+  }
+  await offscreenP;
 
   recordingCtx = {
     tabId: tab.id,
@@ -250,6 +267,9 @@ async function startRecording(opts = {}) {
     status: opts.status ?? null
   };
 
+  // Marcamos "recording" YA — esto dispara onChanged en el popup que
+  // pinta el timer + botón Detener instantáneamente. Antes ocurría
+  // después de leer cookie + live-start, lo que daba 1-3s de "limbo".
   await setState({ state: "recording", lastError: null });
 
   // Leemos la cookie de sesión del Hub UNA vez y se la pasamos al
@@ -258,12 +278,15 @@ async function startRecording(opts = {}) {
   // contexts, por eso no podemos confiar en credentials: include.
   const sessionJwt = await readHubSessionCookie();
 
-  // Φ5 — si el user pidió modo "live" (asistencia en directo),
-  // pre-creamos una LiveMeetingSession en el Hub. El offscreen
-  // empezará a mandar chunks cada 20s a su /chunk endpoint.
+  // Φ5 — si el user pidió modo "live", pre-creamos LiveMeetingSession.
+  // Con timeout para que un backend lento no bloquee el inicio de la
+  // grabación (si falla, simplemente no hay modo live — la grabación
+  // sigue funcionando).
   let liveSessionId = null;
   if (opts.live) {
     try {
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), 4000);
       const r = await authedFetch("/api/v1/extension/live-meeting/start", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -271,8 +294,10 @@ async function startRecording(opts = {}) {
           platform: detectMeetingPlatform(tab.url ?? ""),
           meetingUrl: tab.url ?? "",
           meetingTitle: tab.title ?? ""
-        })
+        }),
+        signal: ctrl.signal
       });
+      clearTimeout(t);
       if (r.ok) {
         const data = await r.json();
         liveSessionId = data.sessionId;
@@ -283,7 +308,11 @@ async function startRecording(opts = {}) {
     }
   }
 
-  await chrome.runtime.sendMessage({
+  // No await — el sendMessage al offscreen no necesita respuesta.
+  // El offscreen tiene su propio listener y arranca al recibirlo.
+  // Esperar aquí solo añade latencia y a veces se cuelga si no hay
+  // listener (timing del createDocument).
+  chrome.runtime.sendMessage({
     target: "offscreen",
     type: "start-recording",
     streamId,
@@ -294,11 +323,18 @@ async function startRecording(opts = {}) {
     projectId: recordingCtx.projectId,
     status: recordingCtx.status,
     liveSessionId
-  });
+  }).catch(() => {});
 }
 
 async function stopRecording() {
-  await chrome.runtime.sendMessage({ target: "offscreen", type: "stop-recording" });
+  // Si no hay offscreen ni recordingCtx (porque startRecording falló
+  // a medias), no hay nada que parar — limpiamos estado y salimos.
+  // Esto evita que el botón "Detener" se quede sin efecto.
+  if (!recordingCtx && !(await hasOffscreenDocument())) {
+    await setState({ state: "idle", lastError: null });
+    return;
+  }
+  chrome.runtime.sendMessage({ target: "offscreen", type: "stop-recording" }).catch(() => {});
   await setState({ state: "uploading" });
   // Φ5 — finalizar LiveMeetingSession si hubo modo live activo.
   // El upload final del audio entero (existing flow) sigue intacto.
@@ -784,12 +820,31 @@ chrome.tabs.onActivated.addListener(async ({ tabId }) => {
 // Al instalar / arrancar el SW: escanea TODAS las tabs existentes y
 // badgea las que sean reuniones. Sin esto, si la Meet ya estaba
 // abierta antes de instalar, el badge no se ponía nunca.
+// ADEMÁS: inyectamos el content-script meeting-detector.js en esas
+// tabs — los content_scripts del manifest SOLO se inyectan en tabs
+// nuevas/recargadas, no en las que ya estaban abiertas. Sin esto,
+// abrir una Meet ANTES de instalar la extensión = banner nunca aparece
+// hasta que el user refresca manualmente.
 async function scanExistingTabsForMeetings() {
   try {
     const tabs = await chrome.tabs.query({});
     for (const tab of tabs) {
       if (tab.id != null && tab.url) {
         updateMeetingBadgeForTab(tab.id, tab.url);
+        try {
+          if (hostIsMeetingPlatform(new URL(tab.url).host)) {
+            // executeScript es idempotente con files duplicados — si ya
+            // está inyectado por el manifest, los listeners no se
+            // duplican porque están dentro de una IIFE que cachea
+            // estado en variables del módulo (bannerOpen, etc.). En
+            // caso de doble inyección, peor caso = dos pings, no
+            // duplicar banners.
+            chrome.scripting.executeScript({
+              target: { tabId: tab.id },
+              files: ["content/meeting-detector.js"]
+            }).catch(() => {});
+          }
+        } catch {}
       }
     }
   } catch {}
