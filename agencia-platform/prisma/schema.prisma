@@ -235,6 +235,7 @@ model Workspace {
   googleAdsConnection       GoogleAdsConnection?
   pricingServices           PricingService[]
   deals                     Deal[]
+  liveMeetingSessions       LiveMeetingSession[]
 }
 
 model Membership {
@@ -1473,6 +1474,41 @@ enum AiAgentRunStatus {
   SUCCEEDED     // terminó OK, resumen disponible
   FAILED        // error fatal (timeout, tokens, exception)
   REQUIRES_HUMAN // la IA pidió ayuda — la tarea queda en mano del user
+}
+
+// Φ5 — Asistencia en vivo durante videollamadas. La extensión Chrome
+// graba en chunks; cada chunk se envía a backend, se transcribe con
+// Whisper, se procesa con Claude en modo "asistente en vivo", y se
+// devuelven sugerencias contextuales (búsquedas, action items, tone
+// alerts) que la extensión muestra como overlay flotante.
+//
+// Al terminar la reunión se crea una task normal con el transcript
+// completo + resumen + action items extraídos.
+model LiveMeetingSession {
+  id              String   @id @default(cuid())
+  workspaceId     String
+  userId          String // quien arrancó la sesión
+  taskId          String? // task creada al finalizar
+  platform        String // "meet" | "teams" | "zoom" | ...
+  meetingUrl      String?
+  meetingTitle    String?
+  startedAt       DateTime @default(now())
+  endedAt         DateTime?
+  status          String   @default("LIVE") // LIVE | ENDED | FAILED
+  // Append-only — concat del texto de cada chunk transcrito.
+  fullTranscript  String   @default("") @db.Text
+  // Append-only — { ts, chunkIdx, transcript, suggestions[] }
+  suggestionsLog  Json     @default("[]")
+  // Para throttling — cuándo procesamos la última vez con Claude.
+  lastProcessedAt DateTime?
+  chunksReceived  Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, status])
+  @@index([userId])
 }
 
 // Φ3 — Negociación autónoma. NV IA gestiona deals con leads/clientes

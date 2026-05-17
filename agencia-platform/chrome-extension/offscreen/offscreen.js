@@ -34,7 +34,9 @@ async function startRecording(opts) {
     hubUrl: opts.hubUrl,
     sessionJwt: opts.sessionJwt ?? null,
     projectId: opts.projectId ?? null,
-    status: opts.status ?? null
+    status: opts.status ?? null,
+    // Φ5 — si el SW pre-creó una LiveMeetingSession, pasa el id aquí
+    liveSessionId: opts.liveSessionId ?? null
   };
 
   try {
@@ -110,15 +112,69 @@ async function startRecording(opts) {
     return reportError(`MediaRecorder no se pudo crear: ${e.message}`);
   }
   chunks = [];
+  // Φ5 — Live mode: acumulamos pequeños chunks aparte, cada 20s
+  // los enviamos al backend para procesamiento en vivo (transcript +
+  // sugerencias contextuales). NO afecta a la grabación final.
+  let liveBuffer = [];
+  let liveTimer = null;
+  let liveBusy = false;
+  async function flushLive() {
+    if (liveBusy) return;
+    if (!ctx.liveSessionId) return;
+    if (liveBuffer.length === 0) return;
+    liveBusy = true;
+    const slice = new Blob(liveBuffer, { type: mime });
+    liveBuffer = [];
+    try {
+      const fd = new FormData();
+      fd.append("audio", slice, `live-${Date.now()}.webm`);
+      fd.append("sessionId", ctx.liveSessionId);
+      const headers = {};
+      if (ctx.sessionJwt) headers["Authorization"] = `Bearer ${ctx.sessionJwt}`;
+      const r = await fetch(`${ctx.hubUrl.replace(/\/$/, "")}/api/v1/extension/live-meeting/chunk`, {
+        method: "POST",
+        headers,
+        credentials: "include",
+        body: fd
+      });
+      const data = await r.json().catch(() => ({}));
+      if (data?.suggestions?.length) {
+        // Avisamos al SW que reenvíe a la pestaña meeting (content script)
+        try {
+          chrome.runtime.sendMessage({
+            from: "offscreen",
+            type: "live-suggestions",
+            sessionId: ctx.liveSessionId,
+            suggestions: data.suggestions
+          });
+        } catch {}
+      }
+    } catch (e) {
+      // No bloqueamos la grabación principal por fallos del live mode
+      console.warn("[offscreen] live chunk failed:", e?.message ?? e);
+    } finally {
+      liveBusy = false;
+    }
+  }
   mediaRecorder.ondataavailable = (e) => {
-    if (e.data && e.data.size > 0) chunks.push(e.data);
+    if (e.data && e.data.size > 0) {
+      chunks.push(e.data);
+      if (ctx.liveSessionId) liveBuffer.push(e.data);
+    }
   };
-  mediaRecorder.onstop = onStop;
+  mediaRecorder.onstop = () => {
+    if (liveTimer) { clearInterval(liveTimer); liveTimer = null; }
+    onStop();
+  };
   mediaRecorder.onerror = (e) => reportError(`MediaRecorder error: ${e.error?.message ?? e}`);
 
   // Pedimos datos cada 5s para que ondataavailable se dispare y no
   // perdamos todo si Chrome decide cerrar la pestaña inesperadamente.
   mediaRecorder.start(5000);
+  // Live mode: flush al backend cada 20s
+  if (ctx.liveSessionId) {
+    liveTimer = setInterval(flushLive, 20000);
+  }
 }
 
 function stopRecording() {

@@ -202,6 +202,18 @@ const SILENCE_LEVEL = 8;
 const SILENCE_MIN = 3;
 const ASK_COOLDOWN_MS = 60_000 * 5;
 
+function detectMeetingPlatform(url) {
+  const u = (url ?? "").toLowerCase();
+  if (u.includes("meet.google.com")) return "meet";
+  if (u.includes("teams.microsoft.com") || u.includes("teams.live.com")) return "teams";
+  if (u.includes("zoom.us")) return "zoom";
+  if (u.includes("whereby.com")) return "whereby";
+  if (u.includes("meet.jit.si")) return "jitsi";
+  if (u.includes("webex.com")) return "webex";
+  if (u.includes("gotomeeting.com")) return "gotomeeting";
+  return "unknown";
+}
+
 async function startRecording(opts = {}) {
   const { hubUrl, user } = await getState();
   if (!user) throw new Error("Sin sesión activa en el Hub. Abre hub.negociovivo.app y entra.");
@@ -246,6 +258,31 @@ async function startRecording(opts = {}) {
   // contexts, por eso no podemos confiar en credentials: include.
   const sessionJwt = await readHubSessionCookie();
 
+  // Φ5 — si el user pidió modo "live" (asistencia en directo),
+  // pre-creamos una LiveMeetingSession en el Hub. El offscreen
+  // empezará a mandar chunks cada 20s a su /chunk endpoint.
+  let liveSessionId = null;
+  if (opts.live) {
+    try {
+      const r = await authedFetch("/api/v1/extension/live-meeting/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          platform: detectMeetingPlatform(tab.url ?? ""),
+          meetingUrl: tab.url ?? "",
+          meetingTitle: tab.title ?? ""
+        })
+      });
+      if (r.ok) {
+        const data = await r.json();
+        liveSessionId = data.sessionId;
+        recordingCtx.liveSessionId = liveSessionId;
+      }
+    } catch (e) {
+      console.warn("[sw] live-meeting/start failed:", e?.message ?? e);
+    }
+  }
+
   await chrome.runtime.sendMessage({
     target: "offscreen",
     type: "start-recording",
@@ -254,15 +291,32 @@ async function startRecording(opts = {}) {
     meetingTitle: tab.title ?? "",
     hubUrl,
     sessionJwt,
-    // Destino del task — el offscreen los pasa en form-data del upload.
     projectId: recordingCtx.projectId,
-    status: recordingCtx.status
+    status: recordingCtx.status,
+    liveSessionId
   });
 }
 
 async function stopRecording() {
   await chrome.runtime.sendMessage({ target: "offscreen", type: "stop-recording" });
   await setState({ state: "uploading" });
+  // Φ5 — finalizar LiveMeetingSession si hubo modo live activo.
+  // El upload final del audio entero (existing flow) sigue intacto.
+  if (recordingCtx?.liveSessionId) {
+    try {
+      await authedFetch("/api/v1/extension/live-meeting/end", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sessionId: recordingCtx.liveSessionId,
+          projectId: recordingCtx.projectId ?? undefined,
+          status: recordingCtx.status ?? undefined
+        })
+      });
+    } catch (e) {
+      console.warn("[sw] live-meeting/end failed:", e?.message ?? e);
+    }
+  }
 }
 
 async function askIfMeetingEnded(reason) {
@@ -465,6 +519,24 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       sendResponse({ ok: true });
       return;
     }
+    if (msg?.from === "offscreen" && msg?.type === "live-suggestions") {
+      // Φ5 — el offscreen recibió sugerencias del backend tras un
+      // chunk live. Las reenviamos a la pestaña de la reunión para
+      // que el content-script las muestre en overlay flotante.
+      if (recordingCtx?.tabId && Array.isArray(msg.suggestions)) {
+        try {
+          await chrome.tabs.sendMessage(recordingCtx.tabId, {
+            from: "sw",
+            type: "live-suggestions",
+            sessionId: msg.sessionId,
+            suggestions: msg.suggestions
+          });
+        } catch {
+          // El content-script puede no estar listo o la pestaña ya cerrada.
+        }
+      }
+      return;
+    }
     if (msg?.from === "offscreen" && msg?.type === "audio-level") {
       if (recordingCtx) {
         if (typeof msg.level === "number" && msg.level >= SILENCE_LEVEL) {
@@ -550,7 +622,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         await startRecording({
           tabId: sender.tab?.id,
           projectId: msg.projectId ?? null,
-          status: msg.status ?? null
+          status: msg.status ?? null,
+          live: !!msg.live
         });
         sendResponse({ ok: true });
       } catch (e) {

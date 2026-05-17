@@ -56,6 +56,9 @@
     if (msg?.from === "sw" && msg?.type === "show-record-banner") {
       tryMountBanner();
     }
+    if (msg?.from === "sw" && msg?.type === "live-suggestions") {
+      showLiveSuggestions(msg.suggestions ?? []);
+    }
   });
 
   function tryMountBanner() {
@@ -79,11 +82,11 @@
     });
   }
 
-  function startRecording(projectId, status) {
+  function startRecording(projectId, status, live) {
     return new Promise((resolve) => {
       try {
         chrome.runtime.sendMessage(
-          { from: "content", type: "start-recording-from-banner", projectId, status },
+          { from: "content", type: "start-recording-from-banner", projectId, status, live: !!live },
           (resp) => resolve(resp ?? { ok: false, error: "sin respuesta" })
         );
       } catch (e) {
@@ -171,6 +174,10 @@
           <label for="col-sel">Columna</label>
           <select id="col-sel"></select>
         </div>
+        <div class="row" style="display:flex;align-items:center;gap:6px;font-size:11px;">
+          <input type="checkbox" id="live-mode" style="margin:0;cursor:pointer" />
+          <label for="live-mode" style="cursor:pointer;color:#475569;">⚡ Asistencia en vivo (NV IA sugiere durante la reunión)</label>
+        </div>
         <div class="actions">
           <button class="secondary" id="cancel-btn" style="flex:0 0 auto">Cancelar</button>
           <button class="rec" id="rec-btn" style="flex:1">⏺ Grabar</button>
@@ -205,7 +212,8 @@
         recBtn.disabled = true;
         recBtn.textContent = "Iniciando…";
         errEl.style.display = "none";
-        const r = await startRecording(projSel.value, colSel.value);
+        const liveMode = !!shadow.getElementById("live-mode").checked;
+        const r = await startRecording(projSel.value, colSel.value, liveMode);
         if (r.ok) {
           content.innerHTML = `
             <style>@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}} .rec-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#ef4444;animation:pulse 1.5s infinite;margin-right:6px;}</style>
@@ -222,6 +230,64 @@
         }
       };
     });
+  }
+
+  // Φ5 — overlay flotante con sugerencias en vivo
+  const LIVE_PANEL_ID = "__nv-hub-live-panel__";
+  function showLiveSuggestions(suggestions) {
+    if (!Array.isArray(suggestions) || suggestions.length === 0) return;
+    let host = document.getElementById(LIVE_PANEL_ID);
+    let shadow;
+    if (!host) {
+      host = document.createElement("div");
+      host.id = LIVE_PANEL_ID;
+      host.style.cssText =
+        "position:fixed;bottom:16px;right:16px;z-index:2147483646;width:340px;max-width:calc(100vw - 32px);max-height:60vh;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;";
+      shadow = host.attachShadow({ mode: "open" });
+      shadow.innerHTML = `
+        <style>
+          .panel { background:#fff; border-radius:12px; box-shadow:0 10px 25px -5px rgba(0,0,0,.2); border:1px solid #e2e8f0; max-height:60vh; display:flex; flex-direction:column; }
+          .head { display:flex; justify-content:space-between; align-items:center; padding:10px 14px; border-bottom:1px solid #e2e8f0; }
+          .title { font-size:12px; font-weight:600; color:#0f172a; display:flex; align-items:center; gap:6px; }
+          .dot { width:8px; height:8px; border-radius:50%; background:#10b981; animation:p 1.5s infinite; }
+          @keyframes p { 0%,100%{opacity:1} 50%{opacity:.4} }
+          .close { background:transparent; border:0; cursor:pointer; color:#64748b; font-size:18px; padding:2px 6px; }
+          .list { padding:8px; overflow-y:auto; flex:1; }
+          .item { padding:8px 10px; margin-bottom:6px; border-left:3px solid #6366f1; background:#f8fafc; border-radius:6px; }
+          .item.action_item { border-color:#10b981; }
+          .item.tone_alert { border-color:#ef4444; }
+          .item.decision_point { border-color:#f59e0b; }
+          .t { font-size:12px; font-weight:600; color:#0f172a; margin-bottom:3px; }
+          .b { font-size:11px; color:#475569; line-height:1.4; }
+          .tag { display:inline-block; font-size:9px; text-transform:uppercase; letter-spacing:0.05em; color:#6366f1; margin-right:4px; font-weight:600; }
+          .item.action_item .tag { color:#10b981; }
+          .item.tone_alert .tag { color:#ef4444; }
+          .item.decision_point .tag { color:#f59e0b; }
+        </style>
+        <div class="panel">
+          <div class="head">
+            <span class="title"><span class="dot"></span>NV IA en vivo</span>
+            <button class="close" id="ls-close">×</button>
+          </div>
+          <div class="list" id="ls-list"></div>
+        </div>
+      `;
+      document.documentElement.appendChild(host);
+      shadow.getElementById("ls-close").onclick = () => host.remove();
+    } else {
+      shadow = host.shadowRoot;
+    }
+    const list = shadow.getElementById("ls-list");
+    // Prepend nuevas sugerencias (las últimas arriba)
+    for (const s of suggestions) {
+      const div = document.createElement("div");
+      div.className = "item " + s.type;
+      const tagMap = { action_item: "Acción", info_lookup: "Buscar", tone_alert: "Tono", search_suggestion: "Tema", decision_point: "Decisión" };
+      div.innerHTML = `<div class="t"><span class="tag">${escapeAttr(tagMap[s.type] ?? s.type)}</span>${escapeAttr(s.title)}</div>` + (s.body ? `<div class="b">${escapeAttr(s.body)}</div>` : "");
+      list.insertBefore(div, list.firstChild);
+    }
+    // Cap visible — quedan en DOM pero no se ven más de 20
+    while (list.children.length > 20) list.removeChild(list.lastChild);
   }
 
   function escapeAttr(s) {
