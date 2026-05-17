@@ -20,7 +20,9 @@ import {
   readUserMemory,
   appendUserMemoryNote
 } from "./client-memory";
-import { transcribeAudioWithWhisper } from "@/lib/ai/openai";
+import { transcribeAudioWithWhisper, getOpenAiKeyForWorkspace } from "@/lib/ai/openai";
+import { uploadBuffer, buildS3Key } from "@/lib/storage/r2";
+import { getWorkflowDefinition } from "./workflows";
 import { signedDownloadUrl } from "@/lib/storage/r2";
 import { completeVision } from "@/lib/ai/anthropic";
 import { listDriveFiles } from "@/lib/integrations/google-drive";
@@ -540,6 +542,45 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
         eventEnd: { type: "string", description: "Para type=event: fecha/hora fin ISO." }
       },
       required: ["type", "body"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "start_client_workflow",
+    description:
+      "Arranca un workflow automático sobre un cliente — secuencia de pasos programados por días que NV IA ejecuta automáticamente. Tipos soportados: 'onboarding_7d' (cliente nuevo, 5 pasos en 7 días), 'onboarding_30d' (5 pasos en 30 días), 'renewal_30d' (4 pasos antes de renovación), 'churn_recovery_14d' (4 pasos para recuperar cliente en riesgo). Cada paso es una task nueva que NV IA procesa.",
+    input_schema: {
+      type: "object",
+      properties: {
+        clientId: { type: "string", description: "ID del cliente. Si lo omites, usa el de la tarea actual." },
+        workflowType: {
+          type: "string",
+          enum: ["onboarding_7d", "onboarding_30d", "renewal_30d", "churn_recovery_14d"]
+        }
+      },
+      required: ["workflowType"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "generate_image",
+    description:
+      "Genera una imagen con IA (gpt-image-1 de OpenAI). Devuelve la imagen como adjunto de la tarea actual + URL. Útil para: visuales de posts editoriales, mockups, ilustraciones de propuestas, imágenes de relleno para Drive docs. Pasa prompt descriptivo en castellano o inglés. Tamaños: 'square' (1024x1024), 'portrait' (1024x1536), 'landscape' (1536x1024).",
+    input_schema: {
+      type: "object",
+      properties: {
+        prompt: { type: "string", description: "Descripción detallada de la imagen. Max 4000 chars." },
+        size: {
+          type: "string",
+          enum: ["square", "portrait", "landscape"],
+          description: "Aspecto de la imagen. Default square."
+        },
+        purpose: {
+          type: "string",
+          description: "Para qué se usa (post, propuesta, mockup, etc) — solo para el filename."
+        }
+      },
+      required: ["prompt"],
       additionalProperties: false
     }
   },
@@ -1583,6 +1624,112 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
       message:
         "Borrador de post GMB creado. La integración con Google Business Profile aún no está activa, así que el admin lo copiará a GMB manualmente tras aprobar. Cuando se construya la integración, este draft se auto-publicará al aprobar."
     };
+  },
+
+  async start_client_workflow(input, ctx) {
+    const workflowType = String(input?.workflowType ?? "").trim();
+    let clientId = input?.clientId ? String(input.clientId) : null;
+    if (!clientId) {
+      const t = await prisma.task.findFirst({
+        where: { id: ctx.taskId, workspaceId: ctx.workspaceId },
+        select: { clientId: true }
+      });
+      clientId = t?.clientId ?? null;
+    }
+    if (!clientId) return { error: "La tarea no tiene cliente y no pasaste clientId" };
+    const steps = getWorkflowDefinition(workflowType);
+    if (!steps) return { error: `workflowType desconocido: ${workflowType}` };
+    // No iniciar otro workflow del mismo tipo si ya hay uno ACTIVE
+    const dup = await prisma.aiClientWorkflow.findFirst({
+      where: { workspaceId: ctx.workspaceId, clientId, workflowType, status: "ACTIVE" }
+    });
+    if (dup) return { error: `Ya hay un workflow ${workflowType} activo para este cliente (id ${dup.id})` };
+    const wf = await prisma.aiClientWorkflow.create({
+      data: {
+        workspaceId: ctx.workspaceId,
+        clientId,
+        workflowType,
+        steps: steps as any,
+        nextStepIdx: 0,
+        status: "ACTIVE"
+      }
+    });
+    return {
+      ok: true,
+      workflowId: wf.id,
+      stepsTotal: steps.length,
+      message: `Workflow '${workflowType}' iniciado con ${steps.length} pasos. El cron workflow-tick procesará el primero pronto.`
+    };
+  },
+
+  async generate_image(input, ctx) {
+    const prompt = String(input?.prompt ?? "").trim();
+    if (!prompt) return { error: "prompt vacío" };
+    if (prompt.length > 4000) return { error: "prompt demasiado largo (>4000)" };
+    const sizeMap: Record<string, string> = {
+      square: "1024x1024",
+      portrait: "1024x1536",
+      landscape: "1536x1024"
+    };
+    const size = sizeMap[String(input?.size ?? "square")] ?? "1024x1024";
+    const purpose = String(input?.purpose ?? "image");
+    try {
+      const apiKey = await getOpenAiKeyForWorkspace(ctx.workspaceId);
+      const resp = await fetch("https://api.openai.com/v1/images/generations", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          model: "gpt-image-1",
+          prompt,
+          size,
+          n: 1,
+          response_format: "b64_json",
+          quality: "medium"
+        })
+      });
+      if (!resp.ok) {
+        const txt = await resp.text();
+        return { error: `OpenAI imagen ${resp.status}: ${txt.slice(0, 200)}` };
+      }
+      const data = await resp.json();
+      const b64 = data?.data?.[0]?.b64_json;
+      if (!b64) return { error: "OpenAI no devolvió imagen" };
+      // Subir a R2 + crear File adjunto a la task
+      const filename = `nv-ia-${purpose.replace(/[^a-z0-9-]/gi, "-").slice(0, 30)}-${Date.now()}.png`;
+      const s3Key = buildS3Key({
+        workspaceId: ctx.workspaceId,
+        targetType: "TASK",
+        targetId: ctx.taskId,
+        filename
+      });
+      const buf = Buffer.from(b64, "base64");
+      await uploadBuffer({ s3Key, body: buf, contentType: "image/png" });
+      const file = await prisma.file.create({
+        data: {
+          workspaceId: ctx.workspaceId,
+          name: filename,
+          mimeType: "image/png",
+          sizeBytes: buf.length,
+          s3Key,
+          targetType: "TASK",
+          targetId: ctx.taskId,
+          uploadedBy: ctx.config.userId
+        }
+      });
+      return {
+        ok: true,
+        fileId: file.id,
+        filename,
+        size,
+        sizeBytes: buf.length,
+        message: "Imagen generada y adjuntada a la tarea actual."
+      };
+    } catch (e: any) {
+      return { error: `Generación de imagen falló: ${e?.message ?? e}` };
+    }
   },
 
   async query_knowledge_graph(input, ctx) {

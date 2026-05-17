@@ -61,8 +61,10 @@ Memoria persistente (3 capas, aprende entre runs):
 - get_user_memory / update_user_memory: por MIEMBRO del equipo — sus áreas, especialidades, horarios. get_task_context inyecta la del requester. Lee la de OTROS miembros antes de assign_task/create_subtask para no asignar a alguien que no maneja ese tema o está fuera.
 
 Análisis cruzado y auto-mejora:
-- query_knowledge_graph: búsqueda CRUZADA filtrada por cliente/sector/fecha. Para preguntas como "muéstrame decisiones de pricing del sector salud en 2025 y agrupa por las que funcionaron". Más caro que search_knowledge — solo análisis cruzados.
-- propose_new_tool: cuando detectas un patrón recurrente que no puedes resolver con tus tools actuales, propón una nueva tool. El admin la implementa si le parece útil. ÚSALO SELECTIVAMENTE — máx 3 propuestas por run.
+- query_knowledge_graph: búsqueda CRUZADA filtrada por cliente/sector/fecha.
+- propose_new_tool: cuando detectas un patrón recurrente que no puedes resolver con tus tools, propón una nueva tool. Max 3 por run.
+- start_client_workflow: arranca secuencia automática de pasos para un cliente (onboarding_7d, renewal_30d, churn_recovery_14d, etc.). El cron ejecuta cada paso solo cuando le toca por días.
+- generate_image: crea imagen con OpenAI gpt-image-1 y la adjunta a la task. Útil para draft_editorial_post o ilustrar Drive docs.
 
 Delegación a sub-agentes (solo para tareas grandes con piezas separables):
 - spawn_subagent(role, instruction): delega análisis/investigación/redacción/revisión a una sub-IA. Roles: researcher, writer, analyst, reviewer. Sub-agente es READ-ONLY. Cap 5/run.
@@ -163,7 +165,10 @@ export async function executeAgentRun(opts: {
     | "STRATEGIC_REVIEW"
     | "OWNER_MODE_CHECK"
     | "COMPLIANCE_FLAG"
-    | "LEAD_OPPORTUNITY";
+    | "LEAD_OPPORTUNITY"
+    | "WORKFLOW_STEP"
+    | "CHURN_RISK"
+    | "SELF_HEALING";
   /** Contexto extra del trigger (ej: "vence en 36h"). */
   triggerContext?: string | null;
 }): Promise<AgentRunResult> {
@@ -395,6 +400,12 @@ function buildInitialMessage(
       return `${base} COMPLIANCE BLOQUEÓ algo. ${ctx ? `Contexto: ${ctx}.` : ""} Revisa qué se intentó hacer y por qué se bloqueó. Reformula la acción para cumplir o escala con add_comment + notify_user al admin.`;
     case "LEAD_OPPORTUNITY":
       return `${base} OPORTUNIDAD DE NEGOCIO detectada. ${ctx ? `Contexto: ${ctx}.` : ""} Investiga al lead (search_knowledge si hay histórico, web_search para info pública). Si parece buena oportunidad, redacta draft_email de acercamiento personalizado. Si no encaja, mark_complete con razón.`;
+    case "WORKFLOW_STEP":
+      return `${base} PASO DE WORKFLOW automático. ${ctx ? `Contexto: ${ctx}.` : ""} La INSTRUCCIÓN específica de este paso está en la description de la task. Síguela al pie y cierra con mark_complete cuando hayas dejado los drafts/comentarios correspondientes. El cron avanzará al siguiente paso solo cuando toque por fecha.`;
+    case "CHURN_RISK":
+      return `${base} RIESGO DE CHURN detectado por el cron. ${ctx ? `Contexto: ${ctx}.` : ""} Tu plan: 1) Investiga qué pasó con query_knowledge_graph + get_client_memory (últimos 60 días, comentarios negativos, deadlines fallados). 2) Si confirmas riesgo: considera start_client_workflow('churn_recovery_14d') que arranca secuencia de 4 pasos en 14 días. 3) Notify_user al gestor de cuenta con tu diagnóstico. 4) mark_complete con el plan elegido.`;
+    case "SELF_HEALING":
+      return `${base} AUTO-DIAGNÓSTICO de NV IA. ${ctx ? `Contexto: ${ctx}.` : ""} El cron detectó patrones de fallos recurrentes — están en la description. Para cada patrón decide: propose_new_tool si falta capacidad, update_workspace_memory con workaround si es prompt, o notify_user al admin si es bug. Cierra con mark_complete.`;
     case "MANUAL":
     default:
       return `${base} Llama a get_task_context para leerla y procede.`;

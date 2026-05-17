@@ -231,6 +231,7 @@ model Workspace {
   aiUserMemories            AiUserMemory[]
   aiProposedTools           AiProposedTool[]
   aiOwnerships              AiOwnership[]
+  aiClientWorkflows         AiClientWorkflow[]
 }
 
 model Membership {
@@ -344,6 +345,7 @@ model Client {
   deliverables   Deliverable[]
   aiMemory       AiClientMemory?
   aiOwnership    AiOwnership?
+  aiWorkflows    AiClientWorkflow[]
 
   @@index([workspaceId])
 }
@@ -1478,6 +1480,41 @@ enum AiAgentRunTrigger {
   OWNER_MODE_CHECK    // Owner mode: cliente bajo responsabilidad de NV IA (Fase 31)
   COMPLIANCE_FLAG     // Filtro de compliance bloqueó algo (Fase 36)
   LEAD_OPPORTUNITY    // Detección de señal de oportunidad (Fase 35)
+  WORKFLOW_STEP       // Paso de un workflow automático (Fase 41)
+  CHURN_RISK          // Señal de fuga de cliente detectada (Fase 43)
+  SELF_HEALING        // Cron de auto-mejora detectó patrón de fallos (Fase 44)
+}
+
+// Fase 41 — Workflows automáticos por cliente.
+// Cuando se ficha un cliente nuevo (o se promueve un lead) se
+// arranca un workflow tipo "onboarding 7 días" que ejecuta pasos
+// programados: día 0 email bienvenida, día 1 recolectar info, día 3
+// primer entregable, día 7 reunión check-in. Cada paso es una task
+// en el inbox de NV IA con trigger=WORKFLOW_STEP.
+model AiClientWorkflow {
+  id            String   @id @default(cuid())
+  workspaceId   String
+  clientId      String
+  // Tipo del workflow (clave para buscar la definición en code):
+  // "onboarding_7d", "renewal_30d", "churn_recovery_14d", custom...
+  workflowType  String
+  // Plantilla de pasos como Json: [{ id, label, dayOffset, prompt }].
+  // Se copia desde la definición en code al crear (snapshot — si
+  // cambia la plantilla, los workflows ya iniciados no se ven afectados).
+  steps         Json     @default("[]")
+  // Índice del próximo paso a ejecutar (0-based).
+  nextStepIdx   Int      @default(0)
+  status        String   @default("ACTIVE") // ACTIVE | PAUSED | COMPLETED | ABANDONED
+  startedAt     DateTime @default(now())
+  completedAt   DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  client    Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, status])
+  @@index([clientId])
 }
 
 // Fase 8: memoria persistente que NV IA acumula sobre cada cliente
