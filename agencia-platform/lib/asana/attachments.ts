@@ -37,9 +37,32 @@ export async function importAttachmentsForTask(opts: {
   const storageOk = isStorageEnabled();
   for await (const a of opts.client.taskAttachments(opts.taskAsanaGid)) {
     try {
-      // Idempotencia
+      // Idempotencia. PERO: si el File existe con un targetId/
+      // workspaceId obsoleto (porque la tarea local fue re-creada,
+      // re-importada, soft-deleted, etc.), lo RE-ENLAZAMOS al task
+      // actual en lugar de saltarlo. Sin esto los adjuntos quedaban
+      // huérfanos y nunca aparecían en la AttachmentList del modal
+      // aunque el botón dijera "skipped" — mismo bug que ya tuvimos
+      // con los comentarios.
       const existing = await prisma.file.findUnique({ where: { asanaId: a.gid } });
       if (existing) {
+        const needsRelink =
+          existing.targetId !== opts.taskLocalId ||
+          existing.targetType !== "TASK" ||
+          existing.workspaceId !== opts.workspaceId;
+        if (needsRelink) {
+          await prisma.file.update({
+            where: { id: existing.id },
+            data: {
+              targetId: opts.taskLocalId,
+              targetType: "TASK",
+              workspaceId: opts.workspaceId
+            }
+          });
+          result.errors.push(
+            `Adjunto "${a.name}" re-enlazado: ${existing.targetId} → ${opts.taskLocalId}`
+          );
+        }
         result.skipped++;
         continue;
       }
