@@ -37,6 +37,13 @@ Facturación / ERP (Holded + Stripe):
 - holded_list_invoices, holded_list_contacts, holded_list_quotes: lectura de Holded.
 - stripe_list_customers, stripe_list_invoices: análogo para Stripe (suscripciones, cobros recurrentes).
 
+Negociación autónoma (Φ3):
+- get_pricing_rules: ANTES de cualquier negociación lee los servicios + rangos permitidos. NO inventes precios fuera de min/max — si el cliente pide menos del min, ESCALA con close_deal(outcome='escalated').
+- create_deal: abre Deal cuando detectas intención de compra clara.
+- propose_deal_to_lead(channel='email'|'whatsapp'): genera draft con la propuesta.
+- counter_offer: ajusta términos en respuesta a contraoferta. Si el nuevo precio cae bajo el min de un servicio, la tool marca ESCALATED automáticamente y NO aplica.
+- close_deal(outcome='won'|'lost'|'escalated'): cierra el ciclo. Si WON, después crea factura/presupuesto con draft_holded_*.
+
 Publicidad (Meta Ads + Google Ads):
 - meta_ads_list_ad_accounts, meta_ads_list_campaigns, meta_ads_get_campaign_insights,
   meta_ads_top_performers: lectura de campañas Meta (FB/IG). Métricas: impressions,
@@ -182,7 +189,9 @@ export async function executeAgentRun(opts: {
     | "LEAD_OPPORTUNITY"
     | "WORKFLOW_STEP"
     | "CHURN_RISK"
-    | "SELF_HEALING";
+    | "SELF_HEALING"
+    | "NEGOTIATION"
+    | "LIVE_MEETING_TICK";
   /** Contexto extra del trigger (ej: "vence en 36h"). */
   triggerContext?: string | null;
 }): Promise<AgentRunResult> {
@@ -432,6 +441,10 @@ function buildInitialMessage(
       return `${base} RIESGO DE CHURN detectado por el cron. ${ctx ? `Contexto: ${ctx}.` : ""} Tu plan: 1) Investiga qué pasó con query_knowledge_graph + get_client_memory (últimos 60 días, comentarios negativos, deadlines fallados). 2) Si confirmas riesgo: considera start_client_workflow('churn_recovery_14d') que arranca secuencia de 4 pasos en 14 días. 3) Notify_user al gestor de cuenta con tu diagnóstico. 4) mark_complete con el plan elegido.`;
     case "SELF_HEALING":
       return `${base} AUTO-DIAGNÓSTICO de NV IA. ${ctx ? `Contexto: ${ctx}.` : ""} El cron detectó patrones de fallos recurrentes — están en la description. Para cada patrón decide: propose_new_tool si falta capacidad, update_workspace_memory con workaround si es prompt, o notify_user al admin si es bug. Cierra con mark_complete.`;
+    case "NEGOTIATION":
+      return `${base} NEGOCIACIÓN ACTIVA con un lead/cliente. ${ctx ? `Contexto: ${ctx}.` : ""} 1) Lee get_pricing_rules ANTES de proponer precios. 2) Si es contacto nuevo, create_deal. 3) Para responder a una contraoferta del lead, counter_offer y luego draft_email/whatsapp con suggestedReply. 4) Cuando se cierre, close_deal(outcome) + si won, draft_holded_invoice. NUNCA pases bajo minAmountEur sin escalar.`;
+    case "LIVE_MEETING_TICK":
+      return `${base} ASISTENCIA EN VIVO durante una reunión. ${ctx ? `Contexto: ${ctx}.` : ""} La description tiene la transcripción reciente. NO actúes sobre tools de escritura (drafts, comments) — solo OBSERVA y devuelve sugerencias breves vía add_comment marcado como "[LIVE]". Útil: identificar acción items, datos buscables (clientes mencionados, contratos), tono del cliente.`;
     case "MANUAL":
     default:
       return `${base} Llama a get_task_context para leerla y procede.`;

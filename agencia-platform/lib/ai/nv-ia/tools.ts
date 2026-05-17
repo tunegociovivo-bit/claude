@@ -567,6 +567,109 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
     }
   },
   {
+    name: "get_pricing_rules",
+    description:
+      "Lista los servicios con sus precios y rangos de negociación admitidos. NV IA puede ofrecer descuentos hasta minAmountEur (más allá requiere escalación). Devuelve también los tradeoffs configurados (compromisos que justifican rebaja). LLAMA ESTO ANTES de proponer cualquier deal — son las únicas reglas que tienes permitidas.",
+    input_schema: { type: "object", properties: {}, additionalProperties: false }
+  },
+  {
+    name: "create_deal",
+    description:
+      "Abre un Deal en estado PROSPECT cuando detectas que un lead/cliente está en proceso de compra. Asocia opcionalmente leadId o clientId. items[] = lo que se ofrece inicialmente (puedes ajustar luego con propose_deal o counter_offer). El Deal se ve en /admin/nv-ia/deals.",
+    input_schema: {
+      type: "object",
+      properties: {
+        leadId: { type: "string", description: "ID del Lead si existe en BD." },
+        clientId: { type: "string", description: "ID del Client si es upsell." },
+        contactName: { type: "string" },
+        contactEmail: { type: "string" },
+        contactPhone: { type: "string" },
+        items: {
+          type: "array",
+          description: "Líneas iniciales del deal.",
+          items: {
+            type: "object",
+            properties: {
+              serviceId: { type: "string", description: "ID de PricingService." },
+              name: { type: "string" },
+              units: { type: "number" },
+              amountEur: { type: "number", description: "Precio EUR por unidad (debe ser >= minAmountEur)." },
+              unit: { type: "string", enum: ["one_time", "monthly", "hourly"] }
+            },
+            required: ["name", "units", "amountEur"]
+          }
+        },
+        notes: { type: "string" }
+      },
+      required: ["items"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "propose_deal_to_lead",
+    description:
+      "Genera draft de comunicación al lead con la propuesta inicial. Prepara email (o WhatsApp si solo tienes phone) con la propuesta detallada — pasa por aprobación humana antes de salir, igual que cualquier draft_email/draft_whatsapp. Marca el deal como PROPOSED.",
+    input_schema: {
+      type: "object",
+      properties: {
+        dealId: { type: "string" },
+        channel: { type: "string", enum: ["email", "whatsapp"], description: "Canal a usar para la propuesta." },
+        coverMessage: {
+          type: "string",
+          description: "Mensaje envoltorio sobre la propuesta — la lista de items la genero yo formateada."
+        }
+      },
+      required: ["dealId", "channel"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "counter_offer",
+    description:
+      "Ajusta los términos del deal en respuesta a una contraoferta del cliente. NV IA puede: bajar precio dentro del rango (>= minAmountEur), añadir condiciones/tradeoffs ('te lo dejo en X si te comprometes a 12 meses'), cambiar el alcance. Cualquier cambio fuera del rango permitido = ESCALATED, no se aplica. Loguea la negociación. Marca el deal como NEGOTIATING. Devuelve sugerencia de mensaje pero NO envía — usa draft_email/draft_whatsapp después.",
+    input_schema: {
+      type: "object",
+      properties: {
+        dealId: { type: "string" },
+        newItems: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              serviceId: { type: "string" },
+              name: { type: "string" },
+              units: { type: "number" },
+              amountEur: { type: "number" },
+              unit: { type: "string", enum: ["one_time", "monthly", "hourly"] },
+              terms: { type: "string", description: "Condiciones especiales aplicadas (ej: 'compromiso 12m')." }
+            }
+          }
+        },
+        justification: {
+          type: "string",
+          description: "Por qué este nuevo precio/condición — para el audit log."
+        }
+      },
+      required: ["dealId", "newItems", "justification"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "close_deal",
+    description:
+      "Cierra un deal como ganado o perdido. Si WON: opcionalmente crea factura/presupuesto en Holded con los items finales (draft_holded_invoice/draft_holded_quote separados — esta tool solo marca el estado). Si LOST: razon del perdido se guarda. Actualiza el Lead asociado si lo hay.",
+    input_schema: {
+      type: "object",
+      properties: {
+        dealId: { type: "string" },
+        outcome: { type: "string", enum: ["won", "lost", "escalated"] },
+        reason: { type: "string", description: "Si LOST/ESCALATED, por qué." }
+      },
+      required: ["dealId", "outcome"],
+      additionalProperties: false
+    }
+  },
+  {
     name: "meta_ads_list_ad_accounts",
     description:
       "Lista cuentas publicitarias de Meta (Facebook/Instagram Ads) accesibles con la conexión Meta del workspace. Útil para encontrar el adAccountId si todavía no está configurado.",
@@ -1902,6 +2005,276 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
       draftId: draft.id,
       message:
         "Borrador de post GMB creado. La integración con Google Business Profile aún no está activa, así que el admin lo copiará a GMB manualmente tras aprobar. Cuando se construya la integración, este draft se auto-publicará al aprobar."
+    };
+  },
+
+  async get_pricing_rules(_input, ctx) {
+    const services = await prisma.pricingService.findMany({
+      where: { workspaceId: ctx.workspaceId, active: true },
+      orderBy: { name: "asc" }
+    });
+    if (services.length === 0) {
+      return {
+        count: 0,
+        message:
+          "Sin reglas de pricing configuradas. El admin debe crearlas en /admin/nv-ia/pricing antes de que puedas negociar. Bloquea negociación con add_comment explicando."
+      };
+    }
+    return {
+      count: services.length,
+      services: services.map((s) => ({
+        id: s.id,
+        name: s.name,
+        description: s.description,
+        baseAmountEur: s.baseAmountEur,
+        minAmountEur: s.minAmountEur,
+        unit: s.unit,
+        tradeoffs: s.tradeoffs
+      }))
+    };
+  },
+
+  async create_deal(input, ctx) {
+    const items = Array.isArray(input?.items) ? input.items : [];
+    if (items.length === 0) return { error: "items vacío" };
+    // Valida cada item contra PricingService si trae serviceId
+    for (const it of items) {
+      if (it.serviceId) {
+        const svc = await prisma.pricingService.findFirst({
+          where: { id: it.serviceId, workspaceId: ctx.workspaceId }
+        });
+        if (!svc) return { error: `serviceId ${it.serviceId} no existe` };
+        if (Number(it.amountEur) < svc.minAmountEur) {
+          return {
+            error: `precio ${it.amountEur}€ < minAmountEur ${svc.minAmountEur}€ del servicio ${svc.name}. Sube el precio o escala con close_deal(outcome=escalated).`
+          };
+        }
+      }
+    }
+    const currentValueEur = items.reduce(
+      (sum: number, it: any) => sum + Number(it.amountEur) * Number(it.units || 1),
+      0
+    );
+    const deal = await prisma.deal.create({
+      data: {
+        workspaceId: ctx.workspaceId,
+        leadId: input?.leadId ? String(input.leadId) : null,
+        clientId: input?.clientId ? String(input.clientId) : null,
+        contactName: input?.contactName ? String(input.contactName) : null,
+        contactEmail: input?.contactEmail ? String(input.contactEmail) : null,
+        contactPhone: input?.contactPhone ? String(input.contactPhone) : null,
+        status: "PROSPECT",
+        proposedItems: items as any,
+        currentValueEur,
+        notes: input?.notes ? String(input.notes) : null,
+        negotiationLog: [
+          {
+            ts: new Date().toISOString(),
+            actor: "nv-ia",
+            action: "created",
+            snapshot: { items, value: currentValueEur }
+          }
+        ] as any
+      }
+    });
+    return { ok: true, dealId: deal.id, currentValueEur };
+  },
+
+  async propose_deal_to_lead(input, ctx) {
+    const dealId = String(input?.dealId ?? "").trim();
+    if (!dealId) return { error: "dealId vacío" };
+    const channel = String(input?.channel ?? "").trim();
+    if (!["email", "whatsapp"].includes(channel)) return { error: "channel debe ser email | whatsapp" };
+    const deal = await prisma.deal.findFirst({
+      where: { id: dealId, workspaceId: ctx.workspaceId }
+    });
+    if (!deal) return { error: "deal no encontrado" };
+
+    const items = (deal.proposedItems as any[]) ?? [];
+    const itemsText = items
+      .map(
+        (it: any) =>
+          `· ${it.name}: ${it.units} × ${Number(it.amountEur).toFixed(2)}€${it.unit === "monthly" ? "/mes" : ""}${it.terms ? ` (${it.terms})` : ""}`
+      )
+      .join("\n");
+    const total = items.reduce(
+      (s: number, it: any) => s + Number(it.amountEur) * Number(it.units || 1),
+      0
+    );
+    const cover = String(input?.coverMessage ?? "Te paso la propuesta:");
+
+    // Creamos draft (email o whatsapp) con la propuesta formateada.
+    // Marcamos el deal como PROPOSED.
+    const body =
+      `${cover}\n\nPropuesta:\n${itemsText}\n\nTotal: ${total.toFixed(2)}€ (sin IVA).\n\n` +
+      `¿Te parece bien o quieres que ajustemos algo?`;
+    let draftKind: string;
+    let draftPayload: any;
+    if (channel === "email") {
+      const to = deal.contactEmail;
+      if (!to) return { error: "Deal sin contactEmail — usa channel=whatsapp o añade email primero" };
+      draftKind = "EMAIL";
+      const html = body
+        .split("\n\n")
+        .map((p) => `<p>${p.replace(/\n/g, "<br/>")}</p>`)
+        .join("");
+      draftPayload = {
+        to,
+        subject: `Propuesta — ${items.length} servicio${items.length === 1 ? "" : "s"}`,
+        html,
+        text: body
+      };
+    } else {
+      const { normalizePhone } = await import("@/lib/leads/waha");
+      const phone = normalizePhone(deal.contactPhone ?? "");
+      if (!phone) return { error: "Deal sin teléfono normalizable — usa channel=email" };
+      draftKind = "WHATSAPP";
+      draftPayload = { phoneNormalized: phone, text: body };
+    }
+    const draft = await prisma.aiDraft.create({
+      data: {
+        workspaceId: ctx.workspaceId,
+        aiAgentRunId: ctx.runId,
+        taskId: ctx.taskId,
+        kind: draftKind as any,
+        title: `Propuesta deal ${dealId.slice(0, 8)} → ${deal.contactName ?? deal.contactEmail ?? deal.contactPhone}`,
+        payload: draftPayload
+      }
+    });
+    await prisma.deal.update({
+      where: { id: dealId },
+      data: {
+        status: "PROPOSED",
+        negotiationLog: {
+          push: {
+            ts: new Date().toISOString(),
+            actor: "nv-ia",
+            action: "proposed",
+            snapshot: { channel, draftId: draft.id }
+          }
+        } as any
+      }
+    });
+    return { ok: true, draftId: draft.id, dealStatus: "PROPOSED" };
+  },
+
+  async counter_offer(input, ctx) {
+    const dealId = String(input?.dealId ?? "").trim();
+    const newItems = Array.isArray(input?.newItems) ? input.newItems : [];
+    const justification = String(input?.justification ?? "").trim();
+    if (!dealId || newItems.length === 0 || !justification) {
+      return { error: "dealId, newItems y justification obligatorios" };
+    }
+    const deal = await prisma.deal.findFirst({
+      where: { id: dealId, workspaceId: ctx.workspaceId }
+    });
+    if (!deal) return { error: "deal no encontrado" };
+
+    // Validación rango — cada item con serviceId debe estar >= min
+    for (const it of newItems) {
+      if (it.serviceId) {
+        const svc = await prisma.pricingService.findFirst({
+          where: { id: it.serviceId, workspaceId: ctx.workspaceId }
+        });
+        if (svc && Number(it.amountEur) < svc.minAmountEur) {
+          await prisma.deal.update({
+            where: { id: dealId },
+            data: {
+              status: "ESCALATED",
+              negotiationLog: {
+                push: {
+                  ts: new Date().toISOString(),
+                  actor: "nv-ia",
+                  action: "escalated_below_min",
+                  snapshot: { service: svc.name, requested: it.amountEur, min: svc.minAmountEur }
+                }
+              } as any
+            }
+          });
+          return {
+            error: `Precio ${it.amountEur}€ bajo min ${svc.minAmountEur}€ de ${svc.name}. Deal marcado ESCALATED — humano debe decidir.`,
+            escalated: true
+          };
+        }
+      }
+    }
+    const newValueEur = newItems.reduce(
+      (s: number, it: any) => s + Number(it.amountEur) * Number(it.units || 1),
+      0
+    );
+    await prisma.deal.update({
+      where: { id: dealId },
+      data: {
+        status: "NEGOTIATING",
+        proposedItems: newItems as any,
+        currentValueEur: newValueEur,
+        negotiationLog: {
+          push: {
+            ts: new Date().toISOString(),
+            actor: "nv-ia",
+            action: "counter_offer",
+            snapshot: { items: newItems, justification, value: newValueEur }
+          }
+        } as any
+      }
+    });
+    // Sugerimos texto de respuesta para que NV IA lo use con draft_email/whatsapp
+    const itemsText = newItems
+      .map((it: any) => `· ${it.name}: ${it.units} × ${Number(it.amountEur).toFixed(2)}€${it.terms ? ` (${it.terms})` : ""}`)
+      .join("\n");
+    return {
+      ok: true,
+      newValueEur,
+      suggestedReply:
+        `He revisado tu propuesta. Te puedo dejar esto:\n\n${itemsText}\n\nTotal: ${newValueEur.toFixed(2)}€.\n\n${justification}\n\n¿Cerramos así?`,
+      message: "Términos actualizados. Usa draft_email o draft_whatsapp con suggestedReply para enviar."
+    };
+  },
+
+  async close_deal(input, ctx) {
+    const dealId = String(input?.dealId ?? "").trim();
+    const outcome = String(input?.outcome ?? "").trim();
+    if (!["won", "lost", "escalated"].includes(outcome)) {
+      return { error: "outcome debe ser won | lost | escalated" };
+    }
+    const reason = input?.reason ? String(input.reason) : null;
+    const statusMap: Record<string, string> = {
+      won: "CLOSED_WON",
+      lost: "CLOSED_LOST",
+      escalated: "ESCALATED"
+    };
+    const updated = await prisma.deal.update({
+      where: { id: dealId },
+      data: {
+        status: statusMap[outcome],
+        closedAt: outcome === "escalated" ? null : new Date(),
+        closedReason: reason,
+        negotiationLog: {
+          push: {
+            ts: new Date().toISOString(),
+            actor: "nv-ia",
+            action: `closed_${outcome}`,
+            snapshot: { reason }
+          }
+        } as any
+      }
+    });
+    // Si WON Y hay leadId, marcamos lead como "client"
+    if (outcome === "won" && updated.leadId) {
+      await prisma.lead.update({
+        where: { id: updated.leadId },
+        data: { contactStatus: "client" }
+      }).catch(() => {});
+    }
+    return {
+      ok: true,
+      dealStatus: statusMap[outcome],
+      nextStep:
+        outcome === "won"
+          ? "Crea factura/presupuesto con draft_holded_invoice o draft_holded_quote usando los proposedItems del deal."
+          : outcome === "lost"
+          ? "Considera update_client_memory con la razón del NO para futuras negociaciones."
+          : "El admin tiene que revisar en /admin/nv-ia/deals."
     };
   },
 

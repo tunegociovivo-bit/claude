@@ -233,6 +233,8 @@ model Workspace {
   aiOwnerships              AiOwnership[]
   aiClientWorkflows         AiClientWorkflow[]
   googleAdsConnection       GoogleAdsConnection?
+  pricingServices           PricingService[]
+  deals                     Deal[]
 }
 
 model Membership {
@@ -1473,6 +1475,58 @@ enum AiAgentRunStatus {
   REQUIRES_HUMAN // la IA pidió ayuda — la tarea queda en mano del user
 }
 
+// Φ3 — Negociación autónoma. NV IA gestiona deals con leads/clientes
+// dentro de rangos pre-aprobados por el admin.
+model PricingService {
+  id            String    @id @default(cuid())
+  workspaceId   String
+  name          String // "Diseño web", "Gestión RRSS mensual", etc.
+  description   String?   @db.Text
+  baseAmountEur Float // precio "lista" en EUR
+  minAmountEur  Float // mínimo aceptable — NV IA no baja de aquí sin escalación
+  unit          String    @default("one_time") // "one_time" | "monthly" | "hourly"
+  // Trade-offs que NV IA puede ofrecer durante la negociación.
+  // Json shape: [{ if: "discount_pct >= 15", then: "min_term_months >= 12" }]
+  // o simple lista de items: ["compromiso 12m", "sin módulo X", "pago 100% upfront"]
+  tradeoffs     Json      @default("[]")
+  active        Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, active])
+}
+
+model Deal {
+  id              String   @id @default(cuid())
+  workspaceId     String
+  leadId          String? // si conocemos el Lead en BD
+  clientId        String? // si ya es cliente nuestro (upsell)
+  contactName     String?
+  contactEmail    String?
+  contactPhone    String?
+  status          String   @default("PROSPECT")
+  // PROSPECT | PROPOSED | NEGOTIATING | CLOSED_WON | CLOSED_LOST | ESCALATED
+  proposedItems   Json     @default("[]") // [{ serviceId, name, units, amountEur, unit }]
+  negotiationLog  Json     @default("[]") // [{ ts, actor, action, snapshot }]
+  currentValueEur Float?
+  // Estado libre — lo que llevamos negociado en lenguaje natural,
+  // para que NV IA lo lea sin parsear el log entero.
+  notes           String?  @db.Text
+  expectedCloseAt DateTime?
+  closedAt        DateTime?
+  closedReason    String?  @db.Text
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, status])
+  @@index([leadId])
+  @@index([clientId])
+}
+
 enum AiAgentRunTrigger {
   MANUAL              // user enlazó la task al proyecto buzón
   MENTION             // @nv-ia en un comentario
@@ -1489,6 +1543,8 @@ enum AiAgentRunTrigger {
   WORKFLOW_STEP       // Paso de un workflow automático (Fase 41)
   CHURN_RISK          // Señal de fuga de cliente detectada (Fase 43)
   SELF_HEALING        // Cron de auto-mejora detectó patrón de fallos (Fase 44)
+  NEGOTIATION        // Lead/cliente en proceso de negociación (Φ3)
+  LIVE_MEETING_TICK  // Tick de transcripción en vivo durante meeting (Φ5)
 }
 
 // Fase 41 — Workflows automáticos por cliente.
