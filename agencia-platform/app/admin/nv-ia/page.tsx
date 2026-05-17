@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import PageHeader from "@/components/PageHeader";
-import { Bot, Loader2, PlayCircle, RefreshCw, AlertCircle, CheckCircle2, Inbox } from "lucide-react";
+import { Bot, Loader2, PlayCircle, RefreshCw, AlertCircle, CheckCircle2, Inbox, BarChart3 } from "lucide-react";
 
 type Status = {
   configured: boolean;
@@ -234,13 +234,22 @@ export default function NvIaAdminPage() {
                 </span>
               ))}
             </div>
-            <a
-              href="/admin/nv-ia/drafts"
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-700 text-white text-xs font-medium"
-            >
-              <Inbox className="h-3.5 w-3.5" />
-              Borradores pendientes →
-            </a>
+            <div className="flex items-center gap-2">
+              <a
+                href="/admin/nv-ia/insights"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border bg-white hover:bg-slate-50 text-xs font-medium text-slate-700"
+              >
+                <BarChart3 className="h-3.5 w-3.5" />
+                Insights
+              </a>
+              <a
+                href="/admin/nv-ia/drafts"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-700 text-white text-xs font-medium"
+              >
+                <Inbox className="h-3.5 w-3.5" />
+                Borradores pendientes →
+              </a>
+            </div>
           </div>
 
           {proactive && (
