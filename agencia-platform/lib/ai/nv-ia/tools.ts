@@ -309,6 +309,61 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
     }
   },
   {
+    name: "get_team_members",
+    description:
+      "Lista los miembros del workspace (id, nombre, email, rol). Útil ANTES de assign_task o create_subtask para saber a quién puedes asignar trabajo.",
+    input_schema: {
+      type: "object",
+      properties: {},
+      additionalProperties: false
+    }
+  },
+  {
+    name: "assign_task",
+    description:
+      "Asigna la tarea actual a uno o varios miembros del workspace. REEMPLAZA los assignees existentes (no añade). Pasa lista vacía para desasignar a todos. El user NV IA NO debería incluirse aquí — ella ya está procesando la tarea.",
+    input_schema: {
+      type: "object",
+      properties: {
+        userIds: {
+          type: "array",
+          items: { type: "string" },
+          description: "IDs de los users a asignar (de get_team_members). Pasa array vacío [] para desasignar a todos."
+        }
+      },
+      required: ["userIds"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "create_subtask",
+    description:
+      "Crea una SUBTAREA hija de la tarea actual. Útil para partir trabajos grandes en pasos asignables a personas distintas. La subtarea queda en el MISMO proyecto que la padre. Si pasas assigneeIds, se asignan al crear. Devuelve el id de la nueva tarea.",
+    input_schema: {
+      type: "object",
+      properties: {
+        title: { type: "string", description: "Título corto, accionable. Ej: 'Preparar borrador del informe Q4'." },
+        description: { type: "string", description: "Detalle opcional de qué hay que hacer." },
+        assigneeIds: {
+          type: "array",
+          items: { type: "string" },
+          description: "Users a asignar a la subtarea (de get_team_members). Opcional."
+        },
+        priority: {
+          type: "string",
+          enum: ["LOW", "MEDIUM", "HIGH", "URGENT"],
+          description: "Prioridad. Default MEDIUM."
+        },
+        dueDateIso: {
+          type: "string",
+          description: "Fecha límite en ISO 8601 (opcional). Ej: '2026-05-31'."
+        }
+      },
+      required: ["title"],
+      additionalProperties: false
+    }
+  },
+  {
     name: "mark_complete",
     description:
       "Marca la tarea como COMPLETADA, añade un comentario final con el resumen de lo que has hecho, y notifica al solicitante. Es la ÚNICA forma correcta de terminar el run con éxito. El resumen debe ser claro y conciso: qué se ha hecho, qué entregables hay (si aplica), MENCIONA explícitamente cuántos drafts quedan pendientes de aprobación si los hay. Después de llamar a esta tool, NO sigas trabajando — el run termina.",
@@ -777,6 +832,135 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
       bytes: result.bytes,
       truncated: result.truncated,
       text: result.text
+    };
+  },
+
+  async get_team_members(_input, ctx) {
+    const members = await prisma.membership.findMany({
+      where: { workspaceId: ctx.workspaceId },
+      include: {
+        user: { select: { id: true, name: true, email: true, image: true } }
+      }
+    });
+    return {
+      count: members.length,
+      members: members
+        .filter((m) => m.userId !== ctx.config.userId) // excluir NV IA misma
+        .map((m) => ({
+          id: m.user.id,
+          name: m.user.name,
+          email: m.user.email,
+          role: m.role
+        }))
+    };
+  },
+
+  async assign_task(input, ctx) {
+    const userIds: string[] | null = Array.isArray(input?.userIds)
+      ? (input.userIds as unknown[]).map(String)
+      : null;
+    if (!userIds) return { error: "userIds debe ser un array" };
+    if (userIds.length > 20) return { error: "demasiados asignados (>20)" };
+    // Validamos que todos pertenezcan al workspace
+    if (userIds.length > 0) {
+      const valid = await prisma.membership.findMany({
+        where: { workspaceId: ctx.workspaceId, userId: { in: userIds } },
+        select: { userId: true }
+      });
+      const validSet = new Set(valid.map((v) => v.userId));
+      const invalid = userIds.filter((id: string) => !validSet.has(id));
+      if (invalid.length > 0) {
+        return { error: `Estos users no son del workspace: ${invalid.join(", ")}` };
+      }
+    }
+    await prisma.$transaction([
+      prisma.taskAssignee.deleteMany({ where: { taskId: ctx.taskId } }),
+      ...(userIds.length > 0
+        ? [
+            prisma.taskAssignee.createMany({
+              data: userIds.map((userId) => ({ taskId: ctx.taskId, userId }))
+            })
+          ]
+        : [])
+    ]);
+    // Notificar a los nuevos asignados — la IA está delegando trabajo.
+    if (userIds.length > 0) {
+      await prisma.notification.createMany({
+        data: userIds.map((uid: string) => ({
+          userId: uid,
+          type: "assignment",
+          body: `NV IA te ha asignado una tarea`,
+          link: `/tasks/${ctx.taskId}`
+        }))
+      }).catch(() => {});
+    }
+    return { ok: true, assignedCount: userIds.length };
+  },
+
+  async create_subtask(input, ctx) {
+    const title = String(input?.title ?? "").trim();
+    if (!title) return { error: "title vacío" };
+    if (title.length > 500) return { error: "title demasiado largo (>500)" };
+    const parent = await prisma.task.findFirst({
+      where: { id: ctx.taskId, workspaceId: ctx.workspaceId },
+      select: { projectId: true, clientId: true }
+    });
+    if (!parent) return { error: "Tarea padre no encontrada" };
+
+    const assigneeIds: string[] = Array.isArray(input?.assigneeIds)
+      ? (input.assigneeIds as unknown[]).map(String)
+      : [];
+    if (assigneeIds.length > 0) {
+      const valid = await prisma.membership.findMany({
+        where: { workspaceId: ctx.workspaceId, userId: { in: assigneeIds } },
+        select: { userId: true }
+      });
+      const validSet = new Set(valid.map((v) => v.userId));
+      const invalid = assigneeIds.filter((id: string) => !validSet.has(id));
+      if (invalid.length > 0) {
+        return { error: `Estos users no son del workspace: ${invalid.join(", ")}` };
+      }
+    }
+
+    const priority = ["LOW", "MEDIUM", "HIGH", "URGENT"].includes(input?.priority)
+      ? input.priority
+      : "MEDIUM";
+    let dueDate: Date | null = null;
+    if (input?.dueDateIso) {
+      const d = new Date(String(input.dueDateIso));
+      if (!isNaN(d.getTime())) dueDate = d;
+    }
+
+    const subtask = await prisma.task.create({
+      data: {
+        workspaceId: ctx.workspaceId,
+        projectId: parent.projectId,
+        clientId: parent.clientId,
+        parentId: ctx.taskId,
+        title,
+        description: input?.description ? String(input.description) : null,
+        status: "TODO",
+        priority: priority as any,
+        dueDate
+      }
+    });
+    if (assigneeIds.length > 0) {
+      await prisma.taskAssignee.createMany({
+        data: assigneeIds.map((userId: string) => ({ taskId: subtask.id, userId }))
+      });
+      await prisma.notification.createMany({
+        data: assigneeIds.map((uid: string) => ({
+          userId: uid,
+          type: "assignment",
+          body: `NV IA te ha asignado una subtarea: "${title.slice(0, 60)}"`,
+          link: `/tasks/${subtask.id}`
+        }))
+      }).catch(() => {});
+    }
+    return {
+      ok: true,
+      subtaskId: subtask.id,
+      assignedCount: assigneeIds.length
     };
   },
 

@@ -89,6 +89,37 @@ export const POST = withApi({ scope: "tasks:write" }, async (req, { params, api 
   // deduplicamos.
   const directIds = extractMentionUserIds(parsed.data.body);
   const tokens = extractMentionTokens(parsed.data.body);
+
+  // ── Hook NV IA: @nv-ia mention dispara un run ──────────────────
+  // Si el comentario menciona a la user IA del workspace (por su
+  // userId en un mention node, o por el handle "@nv-ia" en texto
+  // plano) creamos un AiAgentRun en PENDING para que la procese.
+  // Es una vía conversacional alternativa al "compartir con el
+  // proyecto buzón" — más informal y sin salirte del thread.
+  try {
+    const ws = await prisma.workspace.findUnique({
+      where: { id: api.workspaceId },
+      select: { settings: true }
+    });
+    const aiUserId = (ws?.settings as any)?.aiAgent?.userId;
+    const plainBody = bodyString.toLowerCase();
+    const mentionsAi =
+      (aiUserId && directIds.includes(aiUserId)) ||
+      /@nv[\s-]?ia\b/i.test(plainBody);
+    if (aiUserId && mentionsAi && api.userId !== aiUserId) {
+      await prisma.aiAgentRun.create({
+        data: {
+          workspaceId: api.workspaceId,
+          taskId: params.id,
+          requesterId: api.userId,
+          status: "PENDING"
+        }
+      });
+    }
+  } catch (e) {
+    console.warn("[nv-ia] mention hook failed:", (e as Error).message);
+  }
+
   if (directIds.length > 0 || tokens.length > 0) {
     const workspaceUsers = await prisma.user.findMany({
       where: { memberships: { some: { workspaceId: api.workspaceId } } },

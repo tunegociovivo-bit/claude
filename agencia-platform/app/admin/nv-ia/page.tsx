@@ -205,18 +205,23 @@ export default function NvIaAdminPage() {
               (Railway cron / GitHub Actions).
             </p>
             <p>
-              <strong>Tools disponibles (16):</strong>
+              <strong>Tools disponibles (19):</strong>
               <br />
               <strong>Lectura:</strong> get_task_context, list_task_files, read_file_content (PDF/DOCX/XLSX/TXT),
               analyze_image (visión sobre PNG/JPG/etc), list_drive_files, read_drive_file
               (Google Docs/Sheets/Slides/PDF), search_tasks, search_knowledge (RAG semántico),
-              get_calendar_events.
+              get_calendar_events, get_team_members.
               <br />
-              <strong>Escritura inmediata:</strong> add_comment, update_task_status, mark_complete.
+              <strong>Escritura inmediata:</strong> add_comment, update_task_status, assign_task,
+              create_subtask, mark_complete.
               <br />
               <strong>Borradores (requieren aprobación):</strong> draft_email, draft_whatsapp, draft_editorial_post,
               draft_calendar_event. Se aprueban en{" "}
               <a href="/admin/nv-ia/drafts" className="text-brand-600 underline">/admin/nv-ia/drafts</a>.
+            </p>
+            <p>
+              <strong>Cómo invocarla:</strong> (a) enlazando una tarea al proyecto buzón <em>🤖 NV IA — Tareas IA</em>;
+              o (b) mencionándola con <code>@nv-ia</code> en cualquier comentario.
             </p>
           </div>
         </>
