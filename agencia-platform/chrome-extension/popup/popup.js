@@ -101,40 +101,75 @@ async function renderDiagnostic() {
   // Pintamos ya lo que tengamos, y luego añadimos el probe asíncrono
   // (cookie + llamada a /me) cuando llegue, sin bloquear el render.
   diagEl.textContent = lines.join("\n");
+  // El probe lo hacemos DIRECTAMENTE desde el popup en lugar de
+  // mandar un mensaje al SW. El popup tiene los mismos permisos
+  // (cookies + host_permissions), así eliminamos el round-trip y
+  // dejamos de depender de que el SW esté despierto.
   try {
-    const probeResult = await new Promise((resolve) => {
-      const timer = setTimeout(() => resolve({ timeoutMs: 10000 }), 10000);
-      try {
-        chrome.runtime.sendMessage({ from: "popup", type: "diag-probe" }, (resp) => {
-          clearTimeout(timer);
-          if (chrome.runtime.lastError) {
-            resolve({ error: chrome.runtime.lastError.message });
-          } else resolve(resp?.probe ?? { error: "respuesta vacía del SW" });
-        });
-      } catch (e) {
-        clearTimeout(timer);
-        resolve({ error: String(e?.message ?? e) });
-      }
-    });
-    if (probeResult) {
-      lines.push("─── Probe Hub ───");
-      if (probeResult.timeoutMs) {
-        lines.push(`Timeout (${probeResult.timeoutMs / 1000}s) — SW posiblemente inactivo. Cierra y reabre el popup.`);
-      } else {
-        lines.push(`Cookie: ${probeResult.cookieName ?? "?"}${probeResult.cookieLen ? ` (len=${probeResult.cookieLen}, ${probeResult.cookieHead})` : ""}`);
-        if (probeResult.cookieReadError) lines.push(`Cookie error: ${probeResult.cookieReadError}`);
-        lines.push(`/me status: ${probeResult.meStatus ?? "—"}`);
-        if (probeResult.meBody) lines.push(`/me body: ${probeResult.meBody}`);
-        if (probeResult.meError) lines.push(`/me error: ${probeResult.meError}`);
-      }
-      if (probeResult.error) lines.push(`Probe error: ${probeResult.error}`);
-      if (probeResult.fatal) lines.push(`Fatal: ${probeResult.fatal}`);
-    }
+    const probeResult = await runDiagProbe();
+    lines.push("─── Probe Hub ───");
+    lines.push(`Cookie: ${probeResult.cookieName ?? "?"}${probeResult.cookieLen ? ` (len=${probeResult.cookieLen}, ${probeResult.cookieHead})` : ""}`);
+    if (probeResult.cookieReadError) lines.push(`Cookie error: ${probeResult.cookieReadError}`);
+    lines.push(`/me status: ${probeResult.meStatus ?? "—"}`);
+    if (probeResult.meBody) lines.push(`/me body: ${probeResult.meBody}`);
+    if (probeResult.meError) lines.push(`/me error: ${probeResult.meError}`);
+    if (probeResult.fatal) lines.push(`Fatal: ${probeResult.fatal}`);
     diagEl.textContent = lines.join("\n");
   } catch (e) {
     lines.push(`Probe Hub error: ${e?.message ?? e}`);
     diagEl.textContent = lines.join("\n");
   }
+}
+
+/**
+ * Probe directo desde el popup: lee cookie de hub.negociovivo.app y
+ * hace fetch a /api/v1/me con Authorization: Bearer <jwt>. Sin pasar
+ * por el SW — evita timeouts cuando el SW está cold-start o dormido.
+ */
+async function runDiagProbe() {
+  const out = {};
+  try {
+    const stored = await chrome.storage.local.get(["hubUrl"]);
+    const hubUrl = stored.hubUrl ?? "https://hub.negociovivo.app";
+    out.hubUrl = hubUrl;
+    let cookieValue = null;
+    for (const name of ["__Secure-next-auth.session-token", "next-auth.session-token"]) {
+      try {
+        const c = await chrome.cookies.get({ url: hubUrl, name });
+        if (c?.value) {
+          out.cookieName = name;
+          out.cookieLen = c.value.length;
+          out.cookieHead = c.value.slice(0, 8) + "…";
+          cookieValue = c.value;
+          break;
+        }
+      } catch (e) {
+        out.cookieReadError = String(e?.message ?? e);
+      }
+    }
+    if (!out.cookieName) out.cookieName = "(no encontrada)";
+    try {
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), 7000);
+      const headers = new Headers();
+      if (cookieValue) headers.set("Authorization", `Bearer ${cookieValue}`);
+      const r = await fetch(`${hubUrl.replace(/\/$/, "")}/api/v1/me`, {
+        signal: ctrl.signal,
+        headers,
+        credentials: "include",
+        cache: "no-store"
+      });
+      clearTimeout(t);
+      out.meStatus = r.status;
+      const txt = await r.text();
+      out.meBody = txt.slice(0, 200);
+    } catch (e) {
+      out.meError = String(e?.message ?? e);
+    }
+  } catch (e) {
+    out.fatal = String(e?.message ?? e);
+  }
+  return out;
 }
 
 async function render() {
