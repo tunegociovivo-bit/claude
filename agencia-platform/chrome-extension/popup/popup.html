@@ -10,7 +10,7 @@
       <div class="logo">⏺</div>
       <div class="title">
         <strong>Hub Negocio Vivo</strong>
-        <span class="version" id="user-chip">v0.2.1</span>
+        <span class="version" id="user-chip">v0.2.2</span>
       </div>
     </header>
 
@@ -30,6 +30,10 @@
       <section id="state-idle" class="state hidden">
         <button id="btn-start" class="primary">⏺ Grabar reunión</button>
         <div id="meeting-hint" class="muted small"></div>
+        <details class="diag">
+          <summary class="muted small">🔧 Diagnóstico</summary>
+          <pre id="diag-output" class="diag-pre">cargando…</pre>
+        </details>
       </section>
 
       <section id="state-recording" class="state hidden">

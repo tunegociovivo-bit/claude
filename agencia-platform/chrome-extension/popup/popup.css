@@ -114,6 +114,22 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 .config code { background: #e2e8f0; padding: 0 4px; border-radius: 3px; font-size: 10px; }
 .config a { color: #4f46e5; }
 
+.diag { margin-top: 8px; }
+.diag summary { cursor: pointer; padding: 4px 0; }
+.diag-pre {
+  margin: 4px 0 0;
+  padding: 6px 8px;
+  background: #0f172a;
+  color: #cbd5e1;
+  border-radius: 6px;
+  font-size: 10px;
+  font-family: ui-monospace, monospace;
+  max-height: 180px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
 #meeting-hint:not(:empty) {
   background: #ecfdf5;
   border: 1px solid #6ee7b7;

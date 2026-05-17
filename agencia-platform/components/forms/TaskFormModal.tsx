@@ -975,11 +975,17 @@ function ReimportCommentsButton({ taskId, onDone }: { taskId: string; onDone: ()
         return;
       }
       const parts: string[] = [];
-      if (j.created > 0) parts.push(`✓ ${j.created} nuevos`);
+      if (j.created > 0) parts.push(`✓ ${j.created} comentarios nuevos`);
       if (j.updated > 0) parts.push(`↻ ${j.updated} actualizados`);
       if (j.skipped > 0) parts.push(`· ${j.skipped} sin cambios`);
       if (j.errors > 0) parts.push(`✗ ${j.errors} errores`);
       if (j.storiesFound === 0) parts.push("(Asana no devolvió ningún comentario para esta tarea)");
+      // Task-level attachments (xps, txt, pdf sueltos) — aparecen en
+      // la sección "Adjuntos" del modal, no dentro de comentarios.
+      if (j.taskAttachments?.imported > 0)
+        parts.push(`📎 ${j.taskAttachments.imported} adjuntos nuevos`);
+      if (j.taskAttachments?.externalLinked > 0)
+        parts.push(`🔗 ${j.taskAttachments.externalLinked} externos`);
       setReport(parts.join(" · ") || "Sin novedades");
       onDone();
     } catch (e: any) {

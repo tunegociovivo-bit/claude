@@ -83,14 +83,34 @@ async function render() {
   // Logueado
   if (s.user?.email) $("user-chip").textContent = s.user.email;
 
+  // Diagnóstico visible — sin necesidad de abrir DevTools del SW.
+  // Cubre los datos más útiles para depurar cuando "no detecta":
+  // versión, URL+host de la tab activa, plataforma detectada,
+  // permisos del manifest, hora actual.
+  const diagLines = [];
+  diagLines.push(`Versión: ${chrome.runtime.getManifest().version}`);
+  diagLines.push(`Hub URL: ${hubUrl}`);
+  diagLines.push(`User: ${s.user?.email ?? "(no conectado)"}`);
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const url = tab?.url ?? "(sin url, ¿pestaña privada/extension?)";
     const host = tab?.url ? new URL(tab.url).host : "";
     const platform = detectPlatform(host);
+    diagLines.push(`Tab URL: ${url}`);
+    diagLines.push(`Tab host: ${host || "—"}`);
+    diagLines.push(`Plataforma: ${platform ?? "no detectada"}`);
     $("meeting-hint").textContent = platform
       ? `📞 Detectada reunión de ${platform}`
       : "ℹ️ Esta pestaña no parece una reunión, pero puedes grabar igualmente.";
-  } catch { $("meeting-hint").textContent = ""; }
+  } catch (e) {
+    diagLines.push(`Error tabs.query: ${e?.message ?? e}`);
+    $("meeting-hint").textContent = "";
+  }
+  diagLines.push(`Estado SW: ${s.state}`);
+  diagLines.push(`Notif no leídas: ${(s.notifications ?? []).filter((n) => !n.read).length}`);
+  diagLines.push(`Hora local: ${new Date().toISOString()}`);
+  const diagEl = $("diag-output");
+  if (diagEl) diagEl.textContent = diagLines.join("\n");
 
   // Si el state dice "login" pero ya hay user (porque se acaba de
   // conectar), pasamos a idle.

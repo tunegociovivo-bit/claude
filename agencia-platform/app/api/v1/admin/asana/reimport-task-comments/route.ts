@@ -31,6 +31,7 @@ import { callerIsAdmin } from "@/lib/api/permissions";
 import { AsanaClient } from "@/lib/asana/client";
 import { readAsanaToken } from "@/lib/asana/token";
 import { parseAsanaCommentToTipTap } from "@/lib/asana/comment-parser";
+import { importAttachmentsForTask } from "@/lib/asana/attachments";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -264,6 +265,27 @@ export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api }) 
     );
   }
 
+  // Importar TODOS los attachments del task (con sus parent.gid).
+  // Asana NO expone comment→attachment vía API (lo confirmamos en el
+  // debug-attachments: parent.resource_type es siempre "task"). Los
+  // ficheros sueltos (xps, txt, pdf que el user "ve dentro de un
+  // comentario" en Asana UI) viven a nivel de task en la API. Los
+  // importamos como File con targetType="TASK" → aparecen en el
+  // AttachmentList del modal de tarea (sección "Adjuntos") debajo
+  // de los comentarios. NO van INSIDE de un comentario concreto
+  // (esa info Asana no la da), pero al menos están visibles.
+  let attachmentsResult: any = null;
+  try {
+    attachmentsResult = await importAttachmentsForTask({
+      client,
+      workspaceId: api.workspaceId,
+      taskLocalId: localTask.id,
+      taskAsanaGid: asanaGid
+    });
+  } catch (e: any) {
+    attachmentsResult = { error: String(e?.message ?? e).slice(0, 300) };
+  }
+
   return NextResponse.json({
     ok: true,
     taskAsanaGid: asanaGid,
@@ -275,6 +297,7 @@ export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api }) 
     skipped,
     errors,
     perStory,
-    attachmentDebug
+    attachmentDebug,
+    taskAttachments: attachmentsResult
   });
 });
