@@ -1459,6 +1459,11 @@ model AiAgentRun {
   outputTokens  Int                 @default(0)
   startedAt     DateTime?
   finishedAt    DateTime?
+  // Φ — UI: cuándo un humano "revisó" el resultado de este run. Mientras
+  // sea null y status sea SUCCEEDED/REQUIRES_HUMAN, la task parpadea
+  // verde/naranja en el tablón. Se rellena automáticamente al editar la
+  // task (PATCH significa que el humano la atendió) o vía endpoint manual.
+  humanReviewedAt DateTime?
   createdAt     DateTime            @default(now())
   updatedAt     DateTime            @updatedAt
 

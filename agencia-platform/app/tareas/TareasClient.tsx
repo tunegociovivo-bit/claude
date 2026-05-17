@@ -107,6 +107,41 @@ export default function TareasClient({
   const [tasks, setTasks] = useState<UiTask[]>(initialTasks);
   useEffect(() => setTasks(initialTasks), [initialTasks]);
 
+  // Sonia — estado visual por task. Poll cada 15s sobre las tasks
+  // visibles. "working" = morado parpadeante, "done_unreviewed" =
+  // verde, "needs_help" = naranja.
+  const [aiStatusByTask, setAiStatusByTask] = useState<
+    Record<string, "working" | "done_unreviewed" | "needs_help" | null>
+  >({});
+  useEffect(() => {
+    let cancelled = false;
+    async function poll() {
+      if (tasks.length === 0) return;
+      const ids = tasks.slice(0, 500).map((t) => t.id).join(",");
+      try {
+        const r = await fetch(`/api/v1/tasks/ai-status?taskIds=${encodeURIComponent(ids)}`, {
+          cache: "no-store"
+        });
+        if (!r.ok) return;
+        const data = await r.json();
+        if (cancelled) return;
+        const next: Record<string, any> = {};
+        for (const it of data.items ?? []) {
+          if (it.aiStatus) next[it.taskId] = it.aiStatus;
+        }
+        setAiStatusByTask(next);
+      } catch {
+        // silent
+      }
+    }
+    poll();
+    const t = setInterval(poll, 15_000);
+    return () => {
+      cancelled = true;
+      clearInterval(t);
+    };
+  }, [tasks.length]);
+
   const [workspaceColumns, setWorkspaceColumns] = useState<KanbanColumn[]>(FALLBACK_COLUMNS);
   const [columnsLoaded, setColumnsLoaded] = useState(false);
   const [userColumnOrder, setUserColumnOrder] = useState<string[]>([]);
@@ -661,6 +696,7 @@ export default function TareasClient({
                   getClient={getClient}
                   team={team}
                   columns={columns}
+                  aiStatusByTask={aiStatusByTask}
                 />
               ))}
               <AddColumnButton
@@ -1083,7 +1119,8 @@ function KanbanColumnView({
   getProject,
   getClient,
   team,
-  columns
+  columns,
+  aiStatusByTask
 }: {
   column: KanbanColumn;
   tasks: UiTask[];
@@ -1096,6 +1133,7 @@ function KanbanColumnView({
   getClient: (id?: string) => UiClient | undefined;
   team: UiMember[];
   columns: KanbanColumn[];
+  aiStatusByTask: Record<string, "working" | "done_unreviewed" | "needs_help" | null>;
 }) {
   const { setNodeRef, attributes, listeners, transform, transition, isDragging } = useSortable({
     id: column.id,
@@ -1150,6 +1188,7 @@ function KanbanColumnView({
               isSelected={selectedIds.has(t.id)}
               onToggleSelected={() => onToggleSelected(t.id)}
               columns={columns}
+              aiStatus={aiStatusByTask[t.id] ?? null}
             />
           ))}
           {tasks.length === 0 && (
@@ -1172,7 +1211,8 @@ function SortableTask({
   selectionMode,
   isSelected,
   onToggleSelected,
-  columns
+  columns,
+  aiStatus
 }: {
   task: UiTask;
   project?: UiProject;
@@ -1183,6 +1223,7 @@ function SortableTask({
   isSelected: boolean;
   onToggleSelected: () => void;
   columns: KanbanColumn[];
+  aiStatus?: "working" | "done_unreviewed" | "needs_help" | null;
 }) {
   const { setNodeRef, attributes, listeners, transform, transition, isDragging } = useSortable({
     id: task.id,
@@ -1212,6 +1253,7 @@ function SortableTask({
         isSelected={isSelected}
         onToggleSelected={onToggleSelected}
         columns={columns}
+        aiStatus={aiStatus}
       />
     </div>
   );
@@ -1226,7 +1268,8 @@ function TaskCard({
   selectionMode,
   isSelected,
   onToggleSelected,
-  columns
+  columns,
+  aiStatus
 }: {
   task: UiTask;
   project?: UiProject;
@@ -1237,6 +1280,7 @@ function TaskCard({
   isSelected?: boolean;
   onToggleSelected?: () => void;
   columns?: KanbanColumn[];
+  aiStatus?: "working" | "done_unreviewed" | "needs_help" | null;
 }) {
   const [copied, setCopied] = useState(false);
   // Tick cada minuto para refrescar el estado de alarma visual sin
@@ -1275,7 +1319,20 @@ function TaskCard({
             ? "bg-white border-rose-500 ring-2 ring-rose-300/60"
             : "bg-white",
         isOverlay ? "shadow-2xl rotate-2 border-brand-400" : alarmLevel === "none" && "hover:shadow-sm hover:border-brand-200",
-        isSelected && "border-brand-400 ring-2 ring-brand-300/50"
+        isSelected && "border-brand-400 ring-2 ring-brand-300/50",
+        // Sonia — indicador visual del último run de la IA sobre esta task.
+        // Domina sobre alarmLevel "preaviso" pero NO sobre "urgent" (rojo
+        // del deadline es más crítico). El "animate-pulse" de Tailwind
+        // hace fade in/out cada 2s — efecto "parpadeo".
+        aiStatus === "working" &&
+          alarmLevel !== "urgent" &&
+          "ring-2 ring-violet-500 shadow-lg shadow-violet-300 animate-pulse",
+        aiStatus === "done_unreviewed" &&
+          alarmLevel !== "urgent" &&
+          "ring-2 ring-emerald-500 shadow-lg shadow-emerald-300 animate-pulse",
+        aiStatus === "needs_help" &&
+          alarmLevel !== "urgent" &&
+          "ring-2 ring-amber-500 shadow-lg shadow-amber-300 animate-pulse"
       )}
     >
       {selectionMode && (

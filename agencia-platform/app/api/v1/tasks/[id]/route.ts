@@ -127,6 +127,32 @@ export const PATCH = withApi({ scope: "tasks:write" }, async (req, { params, api
 
   if (!result) throw new ApiError(404, "not_found", "Tarea no encontrada");
 
+  // Sonia: si el humano EDITA la task (PATCH), interpretamos que ya
+  // ha "atendido" lo que Sonia hizo — apagamos el parpadeo verde/
+  // naranja marcando humanReviewedAt en runs SUCCEEDED/REQUIRES_HUMAN/
+  // FAILED no revisados. NO afecta a runs PENDING/RUNNING (todavía
+  // está trabajando — el morado sigue).
+  // Excepción: si el editor es el propio user de Sonia (porque Sonia
+  // hizo update_task_status), NO marcamos como revisado.
+  try {
+    const ws = await prisma.workspace.findUnique({
+      where: { id: api.workspaceId },
+      select: { settings: true }
+    });
+    const sonyaUserId = (ws?.settings as any)?.aiAgent?.userId;
+    if (api.userId && api.userId !== sonyaUserId) {
+      await prisma.aiAgentRun.updateMany({
+        where: {
+          taskId: params.id,
+          workspaceId: api.workspaceId,
+          humanReviewedAt: null,
+          status: { in: ["SUCCEEDED", "REQUIRES_HUMAN", "FAILED"] }
+        },
+        data: { humanReviewedAt: new Date() }
+      });
+    }
+  } catch {}
+
   // Hook Sonia: si la tarea acaba de enlazarse al proyecto buzón de
   // Sonia, disparamos un AiAgentRun en PENDING. El cron lo recoge.
   // Sólo cuando extraProjectIds llegó EXPLÍCITAMENTE en el body (es
