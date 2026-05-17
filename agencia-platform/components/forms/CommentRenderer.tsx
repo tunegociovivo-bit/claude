@@ -6,7 +6,48 @@ import StarterKit from "@tiptap/starter-kit";
 import Link from "@tiptap/extension-link";
 import Image from "@tiptap/extension-image";
 import Mention from "@tiptap/extension-mention";
+import { Node, mergeAttributes } from "@tiptap/core";
 import Lightbox from "@/components/Lightbox";
+
+/**
+ * Nodo `iframe` para embeber vídeos (Loom, YouTube, Vimeo) dentro
+ * de un comentario importado de Asana. El importer detecta las URLs
+ * de video y emite { type: "iframe", attrs: { src, "data-provider" } }
+ * — sin esta extensión TipTap no sabría qué hacer con ese tipo y
+ * lo descartaría en silencio (volveríamos al problema de ver solo
+ * la URL). El render es un <iframe> con aspecto 16:9 sandbox-ed.
+ */
+const IframeEmbed = Node.create({
+  name: "iframe",
+  group: "block",
+  atom: true,
+  draggable: false,
+  selectable: false,
+  addAttributes() {
+    return {
+      src: { default: "" },
+      "data-provider": { default: null }
+    };
+  },
+  parseHTML() {
+    return [{ tag: "iframe" }];
+  },
+  renderHTML({ HTMLAttributes }) {
+    return [
+      "div",
+      { class: "video-embed relative aspect-video my-2 rounded-md overflow-hidden bg-slate-100" },
+      [
+        "iframe",
+        mergeAttributes(HTMLAttributes, {
+          frameborder: "0",
+          allow: "autoplay; fullscreen; picture-in-picture; clipboard-write",
+          allowfullscreen: "true",
+          class: "absolute inset-0 w-full h-full"
+        })
+      ]
+    ];
+  }
+});
 
 /**
  * Render read-only de un comentario. Acepta:
@@ -53,7 +94,8 @@ export default function CommentRenderer({ body, bodyJson }: { body: string; body
         renderText({ node }) {
           return `@${node.attrs.label ?? node.attrs.id}`;
         }
-      })
+      }),
+      IframeEmbed
     ],
     content: parsed ?? { type: "doc", content: [{ type: "paragraph" }] },
     editorProps: {

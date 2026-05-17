@@ -35,6 +35,64 @@ type ParseResult = {
 const ASSET_ID_RE = /asset_id=(\d+)/;
 const ASSET_HREF_RE = /https?:\/\/app\.asana\.com\/[^"'<>\s]*asset_id=\d+[^"'<>\s]*/g;
 
+/**
+ * Reconoce URLs de plataformas de vídeo que admitan embed-iframe y
+ * devuelve la URL de embed lista para meter en un <iframe>. Si la
+ * URL no es de un proveedor reconocido, devuelve null.
+ *
+ * Soportados:
+ *  - Loom: https://www.loom.com/share/<id>?sid=...  →  /embed/<id>
+ *  - YouTube: https://www.youtube.com/watch?v=ID  o  youtu.be/ID  →  /embed/ID
+ *  - Vimeo: https://vimeo.com/<id>  →  https://player.vimeo.com/video/<id>
+ */
+export function detectVideoEmbed(url: string): { src: string; provider: "loom" | "youtube" | "vimeo" } | null {
+  // Loom
+  const loom = url.match(/^https?:\/\/(?:www\.)?loom\.com\/share\/([a-z0-9]+)/i);
+  if (loom) return { src: `https://www.loom.com/embed/${loom[1]}`, provider: "loom" };
+  // YouTube watch?v=  o  youtu.be/ID
+  const yt1 = url.match(/^https?:\/\/(?:www\.)?youtube\.com\/watch\?[^"'\s]*?[&?]v=([\w-]+)/i);
+  if (yt1) return { src: `https://www.youtube.com/embed/${yt1[1]}`, provider: "youtube" };
+  const yt2 = url.match(/^https?:\/\/youtu\.be\/([\w-]+)/i);
+  if (yt2) return { src: `https://www.youtube.com/embed/${yt2[1]}`, provider: "youtube" };
+  // Vimeo
+  const vm = url.match(/^https?:\/\/(?:www\.)?vimeo\.com\/(\d+)/i);
+  if (vm) return { src: `https://player.vimeo.com/video/${vm[1]}`, provider: "vimeo" };
+  return null;
+}
+
+/**
+ * Empuja una URL al contenido del comentario: si es de un proveedor
+ * de vídeo reconocido, emite un nodo `iframe` (TipTap lo renderiza
+ * como player embebido); si no, lo deja como link normal.
+ *
+ * `content` y `currentParagraph` son los buffers del builder de doc;
+ * `flushParagraph` los vacía. Devuelve true si emitió un iframe
+ * (para que el caller no añada también el texto del link).
+ */
+function tryPushVideoOrLink(
+  url: string,
+  innerText: string,
+  content: any[],
+  currentParagraph: any[],
+  flushParagraph: () => void
+): boolean {
+  const video = detectVideoEmbed(url);
+  if (video) {
+    flushParagraph();
+    content.push({
+      type: "iframe",
+      attrs: { src: video.src, "data-provider": video.provider }
+    });
+    return true;
+  }
+  currentParagraph.push({
+    type: "text",
+    text: innerText || url,
+    marks: [{ type: "link", attrs: { href: url, target: "_blank" } }]
+  });
+  return false;
+}
+
 export async function parseAsanaCommentToTipTap(opts: {
   client: AsanaClient;
   workspaceId: string;
@@ -103,8 +161,12 @@ export async function parseAsanaCommentToTipTap(opts: {
     assetIds.add(m[1]);
   }
 
-  // 2) Descargar cada asset (en paralelo) y mapear assetId → URL final.
-  const assetUrls = new Map<string, { url: string; alt: string } | null>();
+  // 2) Descargar cada asset (en paralelo) y mapear assetId → URL final
+  //    + metadatos (isImage, mime, name) para decidir qué nodo TipTap
+  //    crear: si es imagen, nodo `image`; si no, párrafo con link de
+  //    descarga (PDF, XPS, ZIP, docx...).
+  type AssetEntry = { url: string; alt: string; isImage: boolean; mime: string; name: string };
+  const assetUrls = new Map<string, AssetEntry | null>();
   await Promise.all(
     Array.from(assetIds).map(async (id) => {
       try {
@@ -115,10 +177,23 @@ export async function parseAsanaCommentToTipTap(opts: {
           assetUrls.set(id, null);
           return;
         }
+        // Detección de imagen: por content-type del head (preferido)
+        // o por extensión del filename como fallback. Cubrir
+        // explícitamente XPS, PDF, ZIP, doc, xlsx para que NO entren
+        // como imagen rota.
+        const ext = (name.split(".").pop() ?? "").toLowerCase();
+        const isImageExt = /^(jpe?g|png|webp|gif|bmp|svg|heic)$/i.test(ext);
+
         if (!isStorageEnabled()) {
           // Sin storage propio, dejamos al menos el download_url de
           // Asana — temporal pero al menos vivos durante la migración.
-          assetUrls.set(id, { url: downloadUrl, alt: name });
+          assetUrls.set(id, {
+            url: downloadUrl,
+            alt: name,
+            isImage: isImageExt,
+            mime: "",
+            name
+          });
           return;
         }
         const r = await fetch(downloadUrl);
@@ -127,6 +202,9 @@ export async function parseAsanaCommentToTipTap(opts: {
           return;
         }
         const contentType = r.headers.get("content-type") ?? "application/octet-stream";
+        const isImage =
+          contentType.startsWith("image/") ||
+          (contentType === "application/octet-stream" && isImageExt);
         const buf = Buffer.from(await r.arrayBuffer());
         const s3Key = buildS3Key({
           workspaceId: opts.workspaceId,
@@ -136,7 +214,7 @@ export async function parseAsanaCommentToTipTap(opts: {
         });
         await uploadBuffer({ s3Key, body: buf, contentType });
         const publicUrl = await signedDownloadUrl(s3Key);
-        assetUrls.set(id, { url: publicUrl, alt: name });
+        assetUrls.set(id, { url: publicUrl, alt: name, isImage, mime: contentType, name });
         result.assetsImported++;
       } catch {
         result.assetsFailed++;
@@ -160,7 +238,9 @@ function emptyDoc(): any {
  * pragmático: no necesitamos perfección semántica, solo preservar
  * texto + imágenes inline.
  */
-function htmlToTipTap(html: string, assets: Map<string, { url: string; alt: string } | null>): any {
+type AssetEntry = { url: string; alt: string; isImage: boolean; mime: string; name: string };
+
+function htmlToTipTap(html: string, assets: Map<string, AssetEntry | null>): any {
   // Quitar wrapper <body>…</body> si lo hay.
   let h = html.trim();
   if (h.startsWith("<body>")) h = h.slice(6);
@@ -200,8 +280,14 @@ function htmlToTipTap(html: string, assets: Map<string, { url: string; alt: stri
   h = h.replace(/<object\s+([^>]*?)>([\s\S]*?)<\/object>/gi, (_, attrs: string, inner: string) => {
     const gid = /data-asana-gid="(\d+)"/.exec(attrs)?.[1];
     const type = /data-asana-type="([^"]+)"/.exec(attrs)?.[1];
-    // El inner de un <object> de Loom/etc suele contener un fallback
-    // <a href="..."> — lo preservamos. Si no, ponemos un placeholder.
+    // Si el <object> tiene data="https://www.loom.com/embed/..." lo
+    // usamos directamente — es ya la URL de embed lista para iframe.
+    // Si no, el inner suele tener un <a href=".../share/..."> fallback
+    // que también funciona (tryPushVideoOrLink lo convierte a embed).
+    const dataAttr = /\bdata="([^"]+)"/.exec(attrs)?.[1];
+    if (dataAttr && /^https?:/i.test(dataAttr)) {
+      return `<a href="${dataAttr}">${dataAttr}</a>`;
+    }
     if (type === "attachment" && gid) {
       const fallbackHref = /<a\s+[^>]*href="([^"]+)"/i.exec(inner)?.[1];
       if (fallbackHref) return `<a href="${fallbackHref}">${fallbackHref}</a>`;
@@ -260,21 +346,38 @@ function htmlToTipTap(html: string, assets: Map<string, { url: string; alt: stri
     if (attachmentId) {
       const asset = assets.get(attachmentId);
       if (asset) {
-        flushParagraph();
-        content.push({ type: "image", attrs: { src: asset.url, alt: asset.alt } });
+        if (asset.isImage) {
+          flushParagraph();
+          content.push({ type: "image", attrs: { src: asset.url, alt: asset.alt } });
+        } else {
+          // Adjunto no-imagen (PDF, XPS, ZIP, docx…). Como nodo
+          // imagen daría una imagen rota; lo emitimos como párrafo
+          // con link 📎 al fichero. Así el user puede descargarlo.
+          flushParagraph();
+          content.push({
+            type: "paragraph",
+            content: [
+              {
+                type: "text",
+                text: `📎 ${asset.name}`,
+                marks: [{ type: "link", attrs: { href: asset.url, target: "_blank" } }]
+              }
+            ]
+          });
+        }
       } else {
         currentParagraph.push({
           type: "text",
-          text: `[imagen perdida: ${inner || attachmentId}]`
+          text: `[adjunto perdido: ${inner || attachmentId}]`
         });
       }
     } else if (href.startsWith("http")) {
-      // Link normal: texto con mark link.
-      currentParagraph.push({
-        type: "text",
-        text: inner || href,
-        marks: [{ type: "link", attrs: { href, target: "_blank" } }]
-      });
+      // Link normal — pero antes intentamos detectar si es URL de
+      // vídeo de Loom/YouTube/Vimeo. Si lo es, emitimos un nodo
+      // `iframe` con el embed; el render del comentario lo pinta
+      // como player. Así no perdemos el comportamiento que tiene
+      // Asana de mostrar el vídeo directamente.
+      tryPushVideoOrLink(href, inner, content, currentParagraph, flushParagraph);
     } else {
       // Mención de Asana u otro <a> sin asset_id ni href http
       // (data-asana-gid). Mantenemos el texto del label como
@@ -290,7 +393,7 @@ function htmlToTipTap(html: string, assets: Map<string, { url: string; alt: stri
   return { type: "doc", content };
 }
 
-function textToTipTap(text: string, assets: Map<string, { url: string; alt: string } | null>): any {
+function textToTipTap(text: string, assets: Map<string, AssetEntry | null>): any {
   if (!text) return emptyDoc();
 
   // Sustituimos URLs de get_asset por nodos image. Como aquí trabajamos
@@ -322,9 +425,22 @@ function textToTipTap(text: string, assets: Map<string, { url: string; alt: stri
       const asset = assets.get(idMatch[1]);
       if (asset) {
         flushParagraph();
-        content.push({ type: "image", attrs: { src: asset.url, alt: asset.alt } });
+        if (asset.isImage) {
+          content.push({ type: "image", attrs: { src: asset.url, alt: asset.alt } });
+        } else {
+          content.push({
+            type: "paragraph",
+            content: [
+              {
+                type: "text",
+                text: `📎 ${asset.name}`,
+                marks: [{ type: "link", attrs: { href: asset.url, target: "_blank" } }]
+              }
+            ]
+          });
+        }
       } else {
-        currentParagraph.push({ type: "text", text: `[imagen perdida]` });
+        currentParagraph.push({ type: "text", text: `[adjunto perdido]` });
       }
     }
     cursor = start + href.length;
