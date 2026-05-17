@@ -622,23 +622,43 @@ async function runImport(jobId: string, opts: ImportOptions) {
       // las invierte. El order es POR COLUMNA: cada sección tiene su
       // propia secuencia.
       const orderPerColumn = new Map<string, number>();
+      let tasksThisProject = 0;
       for await (const t of client.projectTasks(projectGid)) {
-        const sectionGid = t.memberships?.find((m) => m.project.gid === projectGid)?.section?.gid ?? null;
-        const sectionInfo = sectionGid ? info.sections.get(sectionGid) : null;
-        const colKey = sectionInfo?.columnId ?? "__nocol__";
-        const nextOrder = orderPerColumn.get(colKey) ?? 0;
-        orderPerColumn.set(colKey, nextOrder + 1);
-        await upsertTask(t, info.localId, projectGid, sectionGid, undefined, nextOrder);
-        stats.tasks++;
+        // CRÍTICO: cada tarea se importa en su propio try/catch. Si
+        // upsertTask falla por una tarea concreta (atributo raro,
+        // race condition, conflict en unique), antes mataba el import
+        // entero y perdías las 800 tareas siguientes. Ahora logueamos
+        // warning y seguimos. La tarea fallida se podrá re-importar
+        // sin duplicar por idempotencia con asanaId.
+        try {
+          const sectionGid = t.memberships?.find((m) => m.project.gid === projectGid)?.section?.gid ?? null;
+          const sectionInfo = sectionGid ? info.sections.get(sectionGid) : null;
+          const colKey = sectionInfo?.columnId ?? "__nocol__";
+          const nextOrder = orderPerColumn.get(colKey) ?? 0;
+          orderPerColumn.set(colKey, nextOrder + 1);
+          await upsertTask(t, info.localId, projectGid, sectionGid, undefined, nextOrder);
+          stats.tasks++;
 
-        // Subtareas — heredan el proyecto principal del padre y su
-        // sección (las subtareas en Asana no tienen sección propia).
-        // El order de las subtareas también se incrementa secuencial.
-        let subOrder = 0;
-        for await (const sub of client.taskSubtasks(t.gid)) {
-          await upsertTask(sub, info.localId, projectGid, sectionGid, t.gid, subOrder);
-          subOrder++;
-          stats.subtasks++;
+          // Subtareas — heredan el proyecto principal del padre y su
+          // sección (las subtareas en Asana no tienen sección propia).
+          let subOrder = 0;
+          for await (const sub of client.taskSubtasks(t.gid)) {
+            try {
+              await upsertTask(sub, info.localId, projectGid, sectionGid, t.gid, subOrder);
+              subOrder++;
+              stats.subtasks++;
+            } catch (e: any) {
+              stats.warnings.push(`subtarea ${sub.gid} de ${t.gid}: ${String(e?.message ?? e).slice(0, 200)}`);
+            }
+          }
+        } catch (e: any) {
+          stats.warnings.push(`tarea ${t.gid} "${t.name?.slice(0, 60)}": ${String(e?.message ?? e).slice(0, 200)}`);
+        }
+        tasksThisProject++;
+        // Persistimos stats cada 25 tareas — así el UI ve progreso
+        // real y, si el proceso muere, sabemos hasta dónde llegó.
+        if (tasksThisProject % 25 === 0) {
+          await persistStats(jobId, stats);
         }
       }
       await persistStats(jobId, stats);
@@ -662,5 +682,12 @@ async function runImport(jobId: string, opts: ImportOptions) {
 }
 
 async function persistStats(jobId: string, stats: Stats) {
-  await prisma.asanaImport.update({ where: { id: jobId }, data: { stats: stats as any } });
+  // Cap warnings a las últimas 200 líneas — sin esto, un proyecto
+  // problemático puede generar miles de warnings y el JSON resultante
+  // peta el límite de columna BD o el bundle del UI.
+  const capped: Stats = {
+    ...stats,
+    warnings: stats.warnings.length > 200 ? stats.warnings.slice(-200) : stats.warnings
+  };
+  await prisma.asanaImport.update({ where: { id: jobId }, data: { stats: capped as any } });
 }

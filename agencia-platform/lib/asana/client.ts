@@ -91,22 +91,55 @@ export class AsanaClient {
     }
   }
 
-  private async req<T>(path: string, params?: Record<string, string>): Promise<T> {
+  private async req<T>(path: string, params?: Record<string, string>, attempt = 0): Promise<T> {
     const url = new URL(BASE + path);
     if (params) for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
 
-    const res = await fetch(url, {
-      headers: {
-        Authorization: `Bearer ${this.token}`,
-        Accept: "application/json"
-      },
-      // Asana respeta rate-limit con 429 → simple retry tras Retry-After
-      cache: "no-store"
-    });
+    // Timeout DURO de 45s por llamada — sin esto, si Asana queda en
+    // negro la fetch nunca termina y el import entero se cuelga
+    // indefinidamente sin marcar status=FAILED ni progreso.
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 45_000);
+
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        headers: {
+          Authorization: `Bearer ${this.token}`,
+          Accept: "application/json"
+        },
+        cache: "no-store",
+        signal: ctrl.signal
+      });
+    } catch (e: any) {
+      clearTimeout(timer);
+      // AbortError (timeout) o ECONNRESET / network blip — reintentamos
+      // hasta 4 veces con backoff exponencial 1s/2s/4s/8s. La mayoría
+      // son transient — sin esto, perdemos el import entero por un
+      // hipo de red.
+      if (attempt < 4) {
+        const backoff = 1000 * 2 ** attempt;
+        await new Promise((r) => setTimeout(r, backoff));
+        return this.req<T>(path, params, attempt + 1);
+      }
+      throw new Error(`Asana network error tras 4 retries en ${path}: ${e?.message ?? e}`);
+    }
+    clearTimeout(timer);
+
     if (res.status === 429) {
-      const retry = Number(res.headers.get("Retry-After") ?? "5");
+      // Rate limit: respetamos Retry-After. Si llega un segundo 429
+      // seguido, vamos sumando backoff por seguridad (no asumir que
+      // Retry-After bajará por sí solo).
+      const retry = Math.max(Number(res.headers.get("Retry-After") ?? "5"), 5);
       await new Promise((r) => setTimeout(r, retry * 1000));
-      return this.req<T>(path, params);
+      return this.req<T>(path, params, attempt);
+    }
+    // Errores transient del lado de Asana (502/503/504, ocasionalmente
+    // 500). Antes mataban el import; ahora se reintentan con backoff.
+    if (res.status >= 500 && res.status < 600 && attempt < 4) {
+      const backoff = 1000 * 2 ** attempt;
+      await new Promise((r) => setTimeout(r, backoff));
+      return this.req<T>(path, params, attempt + 1);
     }
     if (!res.ok) {
       const body = await res.text();
