@@ -58,6 +58,7 @@ model User {
   googleCalendarConnections GoogleCalendarConnection[]
   userSessions              UserSession[]
   MetaConnection            MetaConnection[]
+  aiMemoryEntries           AiUserMemory[]
 }
 
 // Registro de intentos de login para throttling/lockout. Se guardan
@@ -226,6 +227,8 @@ model Workspace {
   aiAgentRuns               AiAgentRun[]
   aiDrafts                  AiDraft[]
   aiClientMemories          AiClientMemory[]
+  aiWorkspaceMemory         AiWorkspaceMemory?
+  aiUserMemories            AiUserMemory[]
 }
 
 model Membership {
@@ -1484,13 +1487,52 @@ model AiClientMemory {
   workspaceId String
   clientId    String   @unique
   content     String   @db.Text @default("")
-  updatedBy   String? // "nv-ia" | userId del humano que editó
+  updatedBy   String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+  // Fase 18: si autoApproveDraftKinds tiene valores (ej:
+  // ["WHATSAPP", "EMAIL"]), los drafts de NV IA sobre tareas de
+  // este cliente y de ese kind se auto-aprueban + ejecutan sin
+  // esperar revisión humana. Solo activable manualmente por admin
+  // tras observar tasa de aprobación alta. Sin esto = comportamiento
+  // por defecto (todo draft requiere aprobación).
+  autoApproveDraftKinds String[] @default([])
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   client    Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
 
+  @@index([workspaceId])
+}
+
+// Fase 17: memoria GLOBAL del workspace — políticas, firma estándar,
+// horario, dirección, todo lo que aplica a TODA la comunicación.
+// Una sola fila por workspace.
+model AiWorkspaceMemory {
+  id          String   @id @default(cuid())
+  workspaceId String   @unique
+  content     String   @db.Text @default("")
+  updatedBy   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+}
+
+// Fase 17: memoria por MIEMBRO del equipo — sus áreas, horarios,
+// preferencias. NV IA la usa al decidir a quién delegar.
+model AiUserMemory {
+  id          String   @id @default(cuid())
+  workspaceId String
+  userId      String
+  content     String   @db.Text @default("")
+  updatedBy   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, userId])
   @@index([workspaceId])
 }
 

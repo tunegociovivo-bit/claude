@@ -417,25 +417,26 @@ export default function NvIaAdminPage() {
               (Railway cron / GitHub Actions).
             </p>
             <p>
-              <strong>Tools disponibles (24):</strong>
+              <strong>Tools disponibles (35):</strong>
               <br />
-              <strong>Lectura:</strong> get_task_context (auto-incluye memoria del cliente),
-              list_task_files, read_file_content (PDF/DOCX/XLSX/TXT), analyze_image (visión
-              PNG/JPG), transcribe_audio (Whisper sobre WebM/MP3/M4A), list_drive_files,
-              read_drive_file (Google Docs/Sheets/Slides/PDF), search_tasks, search_knowledge
-              (RAG semántico), get_calendar_events, get_team_members, get_client_memory.
+              <strong>Lectura (15):</strong> get_task_context (auto-incluye 3 capas de memoria),
+              list_task_files, read_file_content (PDF/DOCX/XLSX/TXT), analyze_image (visión),
+              transcribe_audio (Whisper), list_drive_files, read_drive_file, search_tasks,
+              search_knowledge (RAG), get_calendar_events, get_team_members,
+              get_client_memory, get_workspace_memory, get_user_memory, web_search (Anthropic).
               <br />
-              <strong>Escritura inmediata:</strong> add_comment, update_task_status,
-              update_client_memory, assign_task, create_subtask, mark_complete.
+              <strong>Escritura inmediata (12):</strong> add_comment, update_task_status,
+              update_client_memory, update_workspace_memory, update_user_memory, assign_task,
+              create_subtask, notify_user, tag_task, set_task_due_date, set_task_priority,
+              mark_complete.
               <br />
-              <strong>Borradores (requieren aprobación):</strong> draft_email, draft_whatsapp,
-              draft_editorial_post, draft_calendar_event, draft_drive_file (Doc/Sheet/Slides).
-              Se aprueban en{" "}
+              <strong>Borradores (6, requieren aprobación salvo auto-approve por cliente):</strong>{" "}
+              draft_email, draft_whatsapp, draft_editorial_post, draft_calendar_event,
+              draft_drive_file, draft_gmb_post. Se aprueban en{" "}
               <a href="/admin/nv-ia/drafts" className="text-brand-600 underline">/admin/nv-ia/drafts</a>.
               <br />
-              <strong>Delegación interna:</strong> spawn_subagent (researcher / writer /
-              analyst / reviewer — sub-IAs read-only para tareas grandes con piezas
-              separables; cap 5 por run).
+              <strong>Delegación interna y avanzado (2):</strong> spawn_subagent (sub-IAs read-only
+              para tareas grandes), code_execution (Python sandbox de Anthropic para cálculos).
             </p>
             <p>
               <strong>Cómo invocarla:</strong> (a) enlazando una tarea al proyecto buzón <em>🤖 NV IA — Tareas IA</em>;

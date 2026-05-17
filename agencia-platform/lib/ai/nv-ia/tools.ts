@@ -12,7 +12,14 @@ import { prisma } from "@/lib/db/prisma";
 import { semanticSearch } from "@/lib/search/embeddings";
 import { extractTextFromFile } from "./file-reader";
 import { readDriveFileText } from "./drive-reader";
-import { readClientMemory, appendClientMemoryNote } from "./client-memory";
+import {
+  readClientMemory,
+  appendClientMemoryNote,
+  readWorkspaceMemory,
+  appendWorkspaceMemoryNote,
+  readUserMemory,
+  appendUserMemoryNote
+} from "./client-memory";
 import { transcribeAudioWithWhisper } from "@/lib/ai/openai";
 import { signedDownloadUrl } from "@/lib/storage/r2";
 import { completeVision } from "@/lib/ai/anthropic";
@@ -363,6 +370,60 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
     }
   },
   {
+    name: "get_workspace_memory",
+    description:
+      "Lee la memoria GLOBAL del workspace — políticas, firma estándar, horario, dirección, criterios generales que aplican a TODA la comunicación. get_task_context ya te la inyecta automáticamente; solo llama aquí si necesitas refrescarla.",
+    input_schema: { type: "object", properties: {}, additionalProperties: false }
+  },
+  {
+    name: "update_workspace_memory",
+    description:
+      "Añade una nota a la memoria global del workspace. Úsalo cuando descubras algo que aplica a TODO el workspace (no solo a un cliente). Ej: 'firmar siempre como Equipo Negocio Vivo', 'horario lun-vie 9-18', 'fuera de horario solo respondemos urgencias'. NO uses esto para detalles de un cliente concreto — para eso update_client_memory.",
+    input_schema: {
+      type: "object",
+      properties: {
+        note: { type: "string", description: "1 frase clara. Max 4000 chars." },
+        type: {
+          type: "string",
+          enum: ["observation", "preference", "decision", "rejected_draft", "restriction"]
+        }
+      },
+      required: ["note"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "get_user_memory",
+    description:
+      "Lee la memoria de un MIEMBRO del equipo — sus áreas, especialidades, horarios, preferencias de delegación. Útil ANTES de assign_task o create_subtask para no asignar a alguien que p.ej. está de vacaciones o no maneja ese tema. get_task_context ya inyecta la memoria del REQUESTER, así que solo llama aquí si quieres la de OTRO miembro.",
+    input_schema: {
+      type: "object",
+      properties: {
+        userId: { type: "string", description: "ID del miembro (de get_team_members)." }
+      },
+      required: ["userId"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "update_user_memory",
+    description:
+      "Añade una nota sobre un miembro del equipo. Útil cuando aprendes algo sobre sus áreas/preferencias que mejora futuras asignaciones. Ej: 'María lleva Cliente Acme', 'Juan no responde después de las 18h', 'Lucía solo hace contenido visual'.",
+    input_schema: {
+      type: "object",
+      properties: {
+        userId: { type: "string", description: "ID del miembro." },
+        note: { type: "string", description: "1 frase clara. Max 4000 chars." },
+        type: {
+          type: "string",
+          enum: ["observation", "preference", "decision", "rejected_draft", "restriction"]
+        }
+      },
+      required: ["userId", "note"],
+      additionalProperties: false
+    }
+  },
+  {
     name: "get_team_members",
     description:
       "Lista los miembros del workspace (id, nombre, email, rol). Útil ANTES de assign_task o create_subtask para saber a quién puedes asignar trabajo.",
@@ -452,6 +513,33 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
         }
       },
       required: ["fileName", "kind", "content"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "draft_gmb_post",
+    description:
+      "Redacta un post para Google Business Profile (Google My Business) PARA APROBACIÓN HUMANA. Como la integración con GMB aún no está disponible, el draft se guarda como CUSTOM y el admin lo copia/pega manualmente en GMB tras aprobar. Útil para: ofertas, eventos, novedades del negocio. Tipos GMB: 'standard' (post normal), 'event' (con fechas), 'offer' (con descuento).",
+    input_schema: {
+      type: "object",
+      properties: {
+        clientId: { type: "string", description: "Cliente al que aplica (opcional)." },
+        type: {
+          type: "string",
+          enum: ["standard", "event", "offer"],
+          description: "Tipo de post de GMB."
+        },
+        title: { type: "string", description: "Titular del post. Max 100 chars." },
+        body: { type: "string", description: "Cuerpo del post. Recomendado 150-300 chars (GMB recorta visualmente más allá)." },
+        callToAction: {
+          type: "string",
+          description: "CTA opcional. Valores típicos GMB: BOOK, ORDER, SHOP, LEARN_MORE, SIGN_UP, CALL."
+        },
+        ctaUrl: { type: "string", description: "URL del CTA si aplica." },
+        eventStart: { type: "string", description: "Para type=event: fecha/hora inicio ISO." },
+        eventEnd: { type: "string", description: "Para type=event: fecha/hora fin ISO." }
+      },
+      required: ["type", "body"],
       additionalProperties: false
     }
   },
@@ -565,6 +653,50 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
  * IMPORTANTE: ningún executor accede a recursos fuera del workspace
  * del run. Todos filtran por ctx.workspaceId.
  */
+/**
+ * Fase 18 — Auto-approve por cliente.
+ * Tras crear un draft, comprueba si el cliente de la tarea tiene
+ * autoApproveDraftKinds que incluya este kind. Si sí, aprueba y
+ * ejecuta sincrónicamente. Devuelve info para que el executor del
+ * tool añada el resultado al output.
+ */
+async function maybeAutoApproveDraft(
+  draftId: string,
+  kind: string,
+  ctx: ToolContext
+): Promise<{ autoApproved: boolean; executionResult?: any }> {
+  try {
+    const task = await prisma.task.findFirst({
+      where: { id: ctx.taskId, workspaceId: ctx.workspaceId },
+      select: { clientId: true }
+    });
+    if (!task?.clientId) return { autoApproved: false };
+    const mem = await prisma.aiClientMemory.findUnique({
+      where: { clientId: task.clientId },
+      select: { autoApproveDraftKinds: true }
+    });
+    if (!mem || !mem.autoApproveDraftKinds.includes(kind)) {
+      return { autoApproved: false };
+    }
+    // Hay regla auto-approve: marcamos APPROVED y ejecutamos.
+    await prisma.aiDraft.update({
+      where: { id: draftId },
+      data: {
+        status: "APPROVED",
+        reviewedById: ctx.config.userId, // firma: NV IA misma como reviewer auto
+        reviewedAt: new Date(),
+        reviewerNote: "Auto-aprobado por regla del cliente"
+      }
+    });
+    const { executeDraft } = await import("./execute-draft");
+    const result = await executeDraft(draftId);
+    return { autoApproved: true, executionResult: result };
+  } catch (e: any) {
+    console.warn("[nv-ia auto-approve] fail:", e?.message ?? e);
+    return { autoApproved: false };
+  }
+}
+
 export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
   async get_task_context(_input, ctx) {
     const task = await prisma.task.findFirst({
@@ -582,16 +714,30 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
       include: { author: { select: { name: true, email: true } } },
       take: 50
     });
-    // Auto-inyección de memoria del cliente. Si el task tiene
-    // clientId y existe memoria acumulada de runs anteriores, la
-    // metemos aquí — ahorra a la IA hacer una tool call extra y
-    // garantiza que SIEMPRE tiene el contexto histórico antes de
-    // actuar (decisiones tomadas, preferencias, rechazos pasados).
-    let clientMemory: string | null = null;
-    if (task.clientId) {
-      const mem = await readClientMemory(ctx.workspaceId, task.clientId);
-      if (mem) clientMemory = mem;
-    }
+    // Auto-inyección de las 3 capas de memoria. Ahorra tool calls
+    // extra y garantiza que la IA SIEMPRE arranca con el contexto
+    // histórico completo: políticas globales del workspace, info
+    // del miembro que pide la tarea (si es manual/mention), y
+    // todo lo acumulado del cliente (decisiones, rechazos, etc).
+    const [wsMemory, clientMemory] = await Promise.all([
+      readWorkspaceMemory(ctx.workspaceId),
+      task.clientId ? readClientMemory(ctx.workspaceId, task.clientId) : Promise.resolve("")
+    ]);
+    // Memoria del requester (quien enlazó la task): la sacamos del
+    // AiAgentRun de este run.
+    let requesterMemory: string | null = null;
+    let requesterId: string | null = null;
+    try {
+      const thisRun = await prisma.aiAgentRun.findUnique({
+        where: { id: ctx.runId },
+        select: { requesterId: true }
+      });
+      requesterId = thisRun?.requesterId ?? null;
+      if (requesterId) {
+        const m = await readUserMemory(ctx.workspaceId, requesterId);
+        if (m) requesterMemory = m;
+      }
+    } catch {}
     return {
       task: {
         id: task.id,
@@ -611,7 +757,10 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
         createdAt: c.createdAt,
         body: c.body
       })),
-      clientMemory
+      workspaceMemory: wsMemory || null,
+      requesterId,
+      requesterMemory,
+      clientMemory: clientMemory || null
     };
   },
 
@@ -729,10 +878,15 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
         payload: { to, subject, html, text: body }
       }
     });
+    const auto = await maybeAutoApproveDraft(draft.id, "EMAIL", ctx);
     return {
       ok: true,
       draftId: draft.id,
-      message: "Borrador de email creado. Quedará pendiente hasta que un admin lo apruebe en /admin/nv-ia/drafts."
+      autoApproved: auto.autoApproved,
+      executionResult: auto.executionResult,
+      message: auto.autoApproved
+        ? "Borrador de email creado y AUTO-ENVIADO (regla del cliente). " + (auto.executionResult?.ok ? "Entregado correctamente." : `Error al enviar: ${auto.executionResult?.error}`)
+        : "Borrador de email creado. Quedará pendiente hasta que un admin lo apruebe en /admin/nv-ia/drafts."
     };
   },
 
@@ -753,10 +907,15 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
         payload: { phoneNormalized: phone, text }
       }
     });
+    const auto = await maybeAutoApproveDraft(draft.id, "WHATSAPP", ctx);
     return {
       ok: true,
       draftId: draft.id,
-      message: "Borrador de WhatsApp creado. Quedará pendiente hasta que un admin lo apruebe."
+      autoApproved: auto.autoApproved,
+      executionResult: auto.executionResult,
+      message: auto.autoApproved
+        ? "Borrador de WhatsApp creado y AUTO-ENVIADO (regla del cliente)."
+        : "Borrador de WhatsApp creado. Quedará pendiente hasta que un admin lo apruebe."
     };
   },
 
@@ -784,10 +943,14 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
         payload: { title, content, networks, clientId }
       }
     });
+    const auto = await maybeAutoApproveDraft(draft.id, "EDITORIAL_POST", ctx);
     return {
       ok: true,
       draftId: draft.id,
-      message: "Borrador de post editorial creado. Quedará pendiente hasta que un admin lo apruebe."
+      autoApproved: auto.autoApproved,
+      message: auto.autoApproved
+        ? "Borrador de post creado y AUTO-PROGRAMADO en /editorial como DRAFT."
+        : "Borrador de post editorial creado. Quedará pendiente hasta que un admin lo apruebe."
     };
   },
 
@@ -930,10 +1093,14 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
         }
       }
     });
+    const auto = await maybeAutoApproveDraft(draft.id, "CALENDAR_EVENT", ctx);
     return {
       ok: true,
       draftId: draft.id,
-      message: "Borrador de evento creado. Quedará pendiente hasta que un admin lo apruebe."
+      autoApproved: auto.autoApproved,
+      message: auto.autoApproved
+        ? "Borrador de evento creado y AUTO-AÑADIDO al calendario."
+        : "Borrador de evento creado. Quedará pendiente hasta que un admin lo apruebe."
     };
   },
 
@@ -1065,6 +1232,52 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
     });
     if (!r.ok) return { error: r.error };
     return { ok: true, clientId, size: r.size };
+  },
+
+  async get_workspace_memory(_input, ctx) {
+    const content = await readWorkspaceMemory(ctx.workspaceId);
+    return { hasMemory: content.length > 0, content };
+  },
+
+  async update_workspace_memory(input, ctx) {
+    const note = String(input?.note ?? "").trim();
+    if (!note) return { error: "note vacío" };
+    const type = ["observation", "preference", "decision", "rejected_draft", "restriction"].includes(input?.type)
+      ? input.type
+      : "observation";
+    const r = await appendWorkspaceMemoryNote({
+      workspaceId: ctx.workspaceId,
+      note,
+      type,
+      by: "nv-ia"
+    });
+    if (!r.ok) return { error: r.error };
+    return { ok: true, size: r.size };
+  },
+
+  async get_user_memory(input, ctx) {
+    const userId = String(input?.userId ?? "").trim();
+    if (!userId) return { error: "userId vacío" };
+    const content = await readUserMemory(ctx.workspaceId, userId);
+    return { hasMemory: content.length > 0, content, userId };
+  },
+
+  async update_user_memory(input, ctx) {
+    const userId = String(input?.userId ?? "").trim();
+    const note = String(input?.note ?? "").trim();
+    if (!userId || !note) return { error: "userId y note son obligatorios" };
+    const type = ["observation", "preference", "decision", "rejected_draft", "restriction"].includes(input?.type)
+      ? input.type
+      : "observation";
+    const r = await appendUserMemoryNote({
+      workspaceId: ctx.workspaceId,
+      userId,
+      note,
+      type,
+      by: "nv-ia"
+    });
+    if (!r.ok) return { error: r.error };
+    return { ok: true, size: r.size };
   },
 
   async get_team_members(_input, ctx) {
@@ -1259,10 +1472,59 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
         payload: { fileName, kind, content }
       }
     });
+    const auto = await maybeAutoApproveDraft(draft.id, "DRIVE_FILE", ctx);
     return {
       ok: true,
       draftId: draft.id,
-      message: "Borrador de archivo de Drive creado. Al aprobar se subirá a la carpeta del workspace."
+      autoApproved: auto.autoApproved,
+      message: auto.autoApproved
+        ? "Borrador de archivo creado y AUTO-SUBIDO a Drive del workspace."
+        : "Borrador de archivo de Drive creado. Al aprobar se subirá a la carpeta del workspace."
+    };
+  },
+
+  async draft_gmb_post(input, ctx) {
+    const type = String(input?.type ?? "").trim();
+    const body = String(input?.body ?? "").trim();
+    if (!["standard", "event", "offer"].includes(type)) {
+      return { error: "type debe ser standard | event | offer" };
+    }
+    if (!body) return { error: "body vacío" };
+    if (body.length > 1500) return { error: "body demasiado largo (>1500 chars)" };
+    const clientId = input?.clientId ? String(input.clientId) : null;
+    if (clientId) {
+      const c = await prisma.client.findFirst({
+        where: { id: clientId, workspaceId: ctx.workspaceId }
+      });
+      if (!c) return { error: "clientId no encontrado en el workspace" };
+    }
+    const title = String(input?.title ?? "").slice(0, 100);
+    const draft = await prisma.aiDraft.create({
+      data: {
+        workspaceId: ctx.workspaceId,
+        aiAgentRunId: ctx.runId,
+        taskId: ctx.taskId,
+        kind: "CUSTOM",
+        title: `GMB ${type}: ${title || body.slice(0, 60)}`,
+        payload: {
+          // Marcamos subtype para distinguir de otros CUSTOM en UI.
+          subtype: "gmb_post",
+          gmbType: type,
+          title,
+          body,
+          callToAction: input?.callToAction ? String(input.callToAction) : null,
+          ctaUrl: input?.ctaUrl ? String(input.ctaUrl) : null,
+          eventStart: input?.eventStart ? String(input.eventStart) : null,
+          eventEnd: input?.eventEnd ? String(input.eventEnd) : null,
+          clientId
+        }
+      }
+    });
+    return {
+      ok: true,
+      draftId: draft.id,
+      message:
+        "Borrador de post GMB creado. La integración con Google Business Profile aún no está activa, así que el admin lo copiará a GMB manualmente tras aprobar. Cuando se construya la integración, este draft se auto-publicará al aprobar."
     };
   },
 
