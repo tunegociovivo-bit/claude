@@ -160,6 +160,23 @@ export async function parseAsanaCommentToTipTap(opts: {
   )) {
     assetIds.add(m[1]);
   }
+  // 1.e) Adjuntos del COMENTARIO (no del html_text). Asana permite
+  // arrastrar un .txt / .pdf / cualquier fichero al comentario y los
+  // muestra como chips bajo el cuerpo del texto; NO los incluye en
+  // html_text. Hay que pedirlos aparte vía /attachments?parent=story_gid.
+  // Si falla la petición (token sin scope, story sin attachments),
+  // simplemente no añadimos nada — no rompe el resto.
+  const storyAttachmentIds: string[] = [];
+  try {
+    for await (const att of opts.client.storyAttachments(opts.story.gid)) {
+      if (att?.gid) {
+        storyAttachmentIds.push(att.gid);
+        assetIds.add(att.gid);
+      }
+    }
+  } catch {
+    // Sin acceso a /attachments?parent=story → ignorar.
+  }
 
   // 2) Descargar cada asset (en paralelo) y mapear assetId → URL final
   //    + metadatos (isImage, mime, name) para decidir qué nodo TipTap
@@ -226,6 +243,42 @@ export async function parseAsanaCommentToTipTap(opts: {
   // 3) Construir el doc TipTap.
   // Preferimos html_text porque tiene markup; si no hay, caemos a text.
   result.doc = html ? htmlToTipTap(html, assetUrls) : textToTipTap(text, assetUrls);
+
+  // Apéndice: adjuntos del comentario que NO aparecen en html_text
+  // (los que vienen de /attachments?parent=story_gid). Los añadimos
+  // como nodos al final del doc para que el user los vea: si son
+  // imágenes → image node; si no → "📎 nombre" como link.
+  // Filtramos asset IDs que ya están presentes en el html_text para no
+  // duplicar.
+  const inlineIds = new Set<string>();
+  if (html) {
+    for (const m of html.matchAll(/data-asana-gid="(\d+)"/g)) inlineIds.add(m[1]);
+    for (const m of html.matchAll(/asset_id=(\d+)/g)) inlineIds.add(m[1]);
+  }
+  for (const id of storyAttachmentIds) {
+    if (inlineIds.has(id)) continue;
+    const asset = assetUrls.get(id);
+    if (!asset) continue;
+    if (!Array.isArray(result.doc.content)) result.doc.content = [];
+    if (asset.isImage) {
+      result.doc.content.push({
+        type: "image",
+        attrs: { src: asset.url, alt: asset.alt }
+      });
+    } else {
+      result.doc.content.push({
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            text: `📎 ${asset.name}`,
+            marks: [{ type: "link", attrs: { href: asset.url, target: "_blank" } }]
+          }
+        ]
+      });
+    }
+  }
+
   return result;
 }
 

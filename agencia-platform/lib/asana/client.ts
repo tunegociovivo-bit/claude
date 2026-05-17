@@ -211,4 +211,19 @@ export class AsanaClient {
       opt_fields: "gid,name,resource_subtype,host,size,created_at,download_url,permanent_url,view_url"
     });
   }
+
+  /**
+   * Adjuntos asociados a una STORY (comentario) concreta. Asana
+   * permite que un user adjunte ficheros directamente a un comentario;
+   * estos NO aparecen ni en /tasks/{gid}/attachments ni en el
+   * html_text de la story — solo via /attachments?parent={story_gid}.
+   * Sin esto, comentarios como "aquí va el archivo.txt" salen vacíos
+   * en el Hub aunque en Asana se vean perfectos.
+   */
+  storyAttachments(storyGid: string) {
+    return this.paginate<AsanaAttachment>(`/attachments`, {
+      parent: storyGid,
+      opt_fields: "gid,name,resource_subtype,host,size,created_at,download_url,permanent_url,view_url"
+    });
+  }
 }
