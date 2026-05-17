@@ -10,7 +10,7 @@ import CommentRenderer from "@/components/forms/CommentRenderer";
 import MeetingRecorder from "@/components/forms/MeetingRecorder";
 import type { MentionCandidate } from "@/components/forms/mentionSuggestion";
 import type { UiProject, UiMember, UiTask } from "@/lib/db/queries";
-import { Loader2, Trash2, MessageSquare, X, CheckSquare, Check, ArrowLeft, ExternalLink, Mic, RefreshCw } from "lucide-react";
+import { Loader2, Trash2, MessageSquare, X, CheckSquare, Check, ArrowLeft, ExternalLink, Mic, RefreshCw, Bot } from "lucide-react";
 
 // Tres estados de prioridad: vacío (normal, default), Alta y URGENCIA.
 // El campo `priority` puede ser undefined cuando el user no marca nada,
@@ -350,6 +350,37 @@ export default function TaskFormModal({
     else goBack();
   }
 
+  // Lanza a Sonia AHORA — bypass del cron y del dedupe de "comparte
+  // con buzón". Si ya hay un run pendiente/en marcha, el endpoint
+  // devuelve el existente sin duplicar.
+  const [sendingToSonia, setSendingToSonia] = useState(false);
+  async function sendToSonia() {
+    if (!currentTask) return;
+    setSendingToSonia(true);
+    setError(null);
+    try {
+      // Inline=0 → encola en PENDING (rápido, no bloquea UI). El cron
+      // lo procesa en 1-2 min; mientras tanto la tarjeta parpadea morado.
+      const r = await fetch(`/api/v1/tasks/${currentTask.id}/ai-process?inline=0`, {
+        method: "POST"
+      });
+      const data = await r.json().catch(() => null);
+      if (!r.ok || !data?.ok) {
+        setError(data?.error || data?.message || `Sonia: HTTP ${r.status}`);
+        return;
+      }
+      if (data.deduped) {
+        setError(`Sonia ya está trabajando en esta tarea (run ${data.runId}, ${data.status}).`);
+      } else {
+        setError(`✓ Enviada a Sonia. Se procesará en breve (run ${data.runId}).`);
+      }
+    } catch (e: any) {
+      setError(`Sonia: ${e?.message ?? e}`);
+    } finally {
+      setSendingToSonia(false);
+    }
+  }
+
   async function postComment(doc: any) {
     if (!currentTask) return;
     setPostingComment(true);
@@ -463,6 +494,18 @@ export default function TaskFormModal({
             >
               {deleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
               Eliminar
+            </button>
+          )}
+          {isEdit && (
+            <button
+              type="button"
+              onClick={sendToSonia}
+              disabled={sendingToSonia || saving}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm border border-violet-200 bg-violet-50 hover:bg-violet-100 text-violet-700 font-medium disabled:opacity-50"
+              title="Encola un run de Sonia para esta tarea (sin esperar a que la enlaces al proyecto buzón)"
+            >
+              {sendingToSonia ? <Loader2 className="h-4 w-4 animate-spin" /> : <Bot className="h-4 w-4" />}
+              Pedir a Sonia
             </button>
           )}
           <button
