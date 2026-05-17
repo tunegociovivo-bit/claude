@@ -241,6 +241,102 @@ Devuelve el JSON con el copy y el imagePrompt en inglés.`;
 
 type ImageSize = "1024x1024" | "1024x1536" | "1536x1024";
 
+export type AdGenerationSettings = {
+  /** 1=anuncio discreto y limpio · 5=ultra llamativo, scroll-stopping max */
+  attentionLevel?: number;
+  /** 1=tuteo cercano · 5=usted formal/serio */
+  toneFormality?: number;
+  /** 1=calmado/aspiracional · 5=urgente, FOMO, exclamaciones */
+  energyLevel?: number;
+  /** Estilo visual general — editorial|casual|corporate|playful|luxurious */
+  styleHint?: string;
+};
+
+/**
+ * Convierte los valores de los sliders + styleHint en frases en
+ * inglés que se inyectan al prompt del modelo. Cada slider produce
+ * 1-2 directivas concretas en lugar de un número abstracto que el
+ * modelo no entiende. Si el user no ha tocado los sliders, devuelve
+ * defaults razonables.
+ */
+function settingsToPromptLines(s: AdGenerationSettings | null | undefined): string[] {
+  const attention = clamp(s?.attentionLevel ?? 4, 1, 5);
+  const tone = clamp(s?.toneFormality ?? 2, 1, 5);
+  const energy = clamp(s?.energyLevel ?? 3, 1, 5);
+  const style = s?.styleHint ?? "editorial";
+  const lines: string[] = [];
+
+  // Atención visual
+  if (attention >= 5) {
+    lines.push(
+      "VISUAL INTENSITY: MAX. Loud, scroll-stopping aesthetic — neon-accent colors, dramatic high-contrast lighting, oversized headline typography, energetic composition with strong diagonals. The ad must SLAP attention in 0.5 seconds when shown tiny on a mobile feed."
+    );
+  } else if (attention >= 4) {
+    lines.push(
+      "VISUAL INTENSITY: HIGH. Bold saturated palette, confident typography hierarchy, clear focal point. Eye-catching but still polished, not chaotic."
+    );
+  } else if (attention === 3) {
+    lines.push("VISUAL INTENSITY: BALANCED. Refined, professional, eye-catching without being aggressive.");
+  } else if (attention === 2) {
+    lines.push("VISUAL INTENSITY: SUBTLE. Calm, premium feel. Restrained typography, muted but rich tones, generous breathing space.");
+  } else {
+    lines.push(
+      "VISUAL INTENSITY: VERY DISCREET. Minimalist, almost-editorial aesthetic. Thin typography, neutral palette (beige/grey/off-white), lots of whitespace. Like a luxury fashion campaign or a high-end magazine spread."
+    );
+  }
+
+  // Tono del copy (afecta cómo el modelo renderiza el headline)
+  if (tone >= 4) {
+    lines.push(
+      "TONE: FORMAL — render the Spanish copy as if it were addressed using 'usted'. Serif or refined sans-serif. Confident, business-grade, no exclamation marks, no emojis."
+    );
+  } else if (tone === 3) {
+    lines.push("TONE: NEUTRAL — clear and professional, addressed as 'tú' but no slang.");
+  } else if (tone === 2) {
+    lines.push("TONE: CLOSE — friendly 'tú', warm and approachable.");
+  } else {
+    lines.push(
+      "TONE: VERY CLOSE — casual, conversational 'tú', as if a friend talking. Allow contractions, may include emojis if they fit the headline."
+    );
+  }
+
+  // Energía
+  if (energy >= 5) {
+    lines.push(
+      "ENERGY: URGENCY + FOMO. Push visual cues of scarcity / countdown / 'only today'. Loud exclamations in the copy area, bold accent color for urgency words (red/orange highlight)."
+    );
+  } else if (energy >= 4) {
+    lines.push("ENERGY: HIGH. Active body language if there's a person, motion blur or dynamic angles, urgent feel without exclamations.");
+  } else if (energy === 3) {
+    lines.push("ENERGY: MEDIUM. Confident, decisive, neither aspirational-slow nor urgent.");
+  } else if (energy === 2) {
+    lines.push("ENERGY: LOW. Aspirational, slow, calm pacing. Soft natural light, relaxed body language.");
+  } else {
+    lines.push("ENERGY: MEDITATIVE. Serene, almost slow-cinema feel. Soft diffuse light, contemplative pose, muted action.");
+  }
+
+  // Estilo visual
+  const styleMap: Record<string, string> = {
+    editorial:
+      "STYLE: EDITORIAL FASHION photography. Vogue/GQ aesthetic. Cinematic 35mm look, dramatic side lighting, rich blacks, premium feel.",
+    casual:
+      "STYLE: CASUAL LIFESTYLE. Bright daylight, candid feel, real people in real spaces. Inspired by Instagram-native content from creators like @aimee_song, not corporate stock.",
+    corporate:
+      "STYLE: CORPORATE TRUST. Polished, restrained palette dominated by deep navy / steel / white. Clean lines, architectural backgrounds, business attire. Inspired by McKinsey / Goldman ads.",
+    playful:
+      "STYLE: PLAYFUL POP. Saturated primary colors (mostly pop red/yellow/electric blue), oversized graphic shapes, retro-modern (think Mailchimp / Notion / Slack ads). Fun, optimistic, slightly absurd.",
+    luxurious:
+      "STYLE: LUXURY PREMIUM. Dark moody palette (deep charcoal, gold, oxblood). Slow elegant lighting, marble / velvet textures, refined typography. Aston Martin / Tom Ford / Aman Resorts vibe."
+  };
+  lines.push(styleMap[style] ?? styleMap.editorial);
+
+  return lines;
+}
+
+function clamp(n: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, Math.round(n)));
+}
+
 export async function generateAdImage(opts: {
   workspaceId: string;
   prompt: string;
@@ -258,6 +354,9 @@ export async function generateAdImage(opts: {
     brandName?: string;
     valueProps?: string[];
   };
+  /** Ajustes del user (sliders + styleHint). Si vienen, se inyectan
+   *  como directivas al modelo. Si no, se usan defaults razonables. */
+  settings?: AdGenerationSettings;
 }): Promise<string> {
   if (!isStorageEnabled()) {
     throw new Error("STORAGE_* no configurado — no se pueden guardar imágenes generadas");
@@ -302,6 +401,12 @@ export async function generateAdImage(opts: {
         ? "Instagram Stories / Reels (vertical 4:5)"
         : "Right column / Marketplace (landscape 16:9)";
 
+  // Directivas de los sliders (atención / tono / energía / estilo).
+  // El user las fija en la ficha de la campaña y se inyectan aquí
+  // como instrucciones concretas en inglés. Si no las ha tocado se
+  // usan defaults razonables.
+  const settingsLines = settingsToPromptLines(opts.settings);
+
   const wrappedPrompt = wantsCompleteAd
     ? [
         `Design a COMPLETE Meta Ads creative poster for ${placement}.`,
@@ -311,6 +416,9 @@ export async function generateAdImage(opts: {
         ``,
         `=== CAMPAIGN BRIEF ===`,
         opts.prompt,
+        ``,
+        `=== USER PREFERENCES (sliders + style hint) ===`,
+        ...settingsLines.map((l) => `- ${l}`),
         ``,
         `=== TEXT TO RENDER ON THE AD (Spanish, render EXACTLY as written) ===`,
         opts.copy?.headline ? `HEADLINE (large, bold, top of frame): "${opts.copy.headline}"` : "",
@@ -326,11 +434,11 @@ export async function generateAdImage(opts: {
           : "",
         ``,
         `=== DESIGN DIRECTIONS ===`,
-        `- A hero photographic image fills 40-60% of the frame (real person or product, editorial style, dramatic lighting, vivid colors).`,
-        `- The rest is design overlay: a dark color block (deep navy or brand color) with the text rendered in clean sans-serif typography (Inter / Helvetica / Montserrat-like).`,
-        `- Headlines have multiple weights and colors for visual hierarchy (e.g. white + brand accent color for emphasis words).`,
-        `- Value props arranged in a horizontal row with simple monoline icons (gears, dollar sign, chart, AI chip, lock — pick what fits).`,
-        `- CTA button is a horizontal pill in a bold accent color (electric blue, orange, green) with white text.`,
+        `- A hero photographic image fills 40-60% of the frame (real person or product, dramatic lighting, vivid colors). The exact aesthetic comes from the STYLE directive above — follow that first.`,
+        `- The rest is design overlay: a color block (palette dictated by STYLE above) with the text rendered in sans-serif typography (Inter / Helvetica / Montserrat-like).`,
+        `- Headlines have multiple weights and colors for visual hierarchy (one accent color from the palette for emphasis words).`,
+        `- Value props arranged in a horizontal row with simple monoline icons (gears, dollar sign, chart, AI chip, lock — pick what fits the brief).`,
+        `- CTA button is a horizontal pill in a bold accent color (the palette/intensity is determined by the VISUAL INTENSITY + STYLE directives above).`,
         `- Use consistent saturated brand palette throughout (2-3 colors max).`,
         `- All text MUST be perfectly readable. If you cannot render the exact Spanish text above with correct spelling and accents, leave that area empty rather than producing garbled text.`,
         ``,
@@ -345,8 +453,10 @@ export async function generateAdImage(opts: {
         ``,
         opts.prompt,
         ``,
-        `- Scroll-stopping composition. Single strong focal point.`,
-        `- Vivid saturated palette, dramatic editorial lighting.`,
+        `=== USER PREFERENCES ===`,
+        ...settingsLines.map((l) => `- ${l}`),
+        ``,
+        `- Single strong focal point.`,
         `- Generous negative space at bottom for overlay text added later.`,
         `- ABSOLUTELY NO text, letters, numbers, logos, watermarks.`,
         `- One photographic scene only — no collages.`
@@ -449,6 +559,9 @@ export async function generateAdImageAllVariants(opts: {
     brandName?: string;
     valueProps?: string[];
   };
+  /** Sliders del user (atención / tono / energía / estilo). Se
+   *  inyectan al prompt en inglés como directivas concretas. */
+  settings?: AdGenerationSettings;
 }): Promise<AdImageVariants> {
   const [square, portrait, landscape] = await Promise.all([
     generateAdImage({
@@ -564,6 +677,10 @@ export async function generateAllContent(opts: {
           valueProps: extractValueProps(copy.primaryText)
         };
 
+        // Sliders del user para esta campaña (atención / tono /
+        // energía / estilo). Pueden ser null si nunca los tocó.
+        const adSettings = (campaign.generationSettings as AdGenerationSettings | null) ?? undefined;
+
         let mediaUrls: string[] = [];
         let mediaVariants: any = null;
         if (t.ad.format === "IMAGE") {
@@ -572,7 +689,8 @@ export async function generateAllContent(opts: {
             prompt: copy.imagePrompt,
             campaignId: campaign.id,
             adId: t.ad.id,
-            copy: adCopy
+            copy: adCopy,
+            settings: adSettings
           });
           mediaVariants = variants;
           mediaUrls = [variants.square]; // fallback / legacy compat
@@ -591,7 +709,8 @@ export async function generateAllContent(opts: {
                 prompt: p,
                 campaignId: campaign.id,
                 adId: `${t.ad.id}-card${k}`,
-                copy: adCopy
+                copy: adCopy,
+                settings: adSettings
               })
             )
           );
@@ -774,7 +893,8 @@ export async function regenerateOneAd(opts: {
     prompt,
     campaignId: campaign.id,
     adId: ad.id + "-regen-" + Date.now(),
-    copy: adCopy
+    copy: adCopy,
+    settings: (campaign.generationSettings as AdGenerationSettings | null) ?? undefined
   });
 
   await prisma.metaAd.update({
