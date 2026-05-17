@@ -199,7 +199,18 @@ export default function TaskFormModal({
       if (eps) {
         const clean: Record<string, string> = {};
         for (const [pid, st] of Object.entries(eps)) {
-          if (st) clean[pid] = st;
+          if (st) {
+            clean[pid] = st;
+          } else {
+            // Tarea legacy compartida con un proyecto que tiene columnas
+            // propias pero a la que nunca se le asignó una explícita
+            // (null en BD). Por defecto: primera columna del proyecto.
+            const proj = projects.find((pp) => pp.id === pid) as any;
+            const cols = proj?.kanbanColumns;
+            if (Array.isArray(cols) && cols.length > 0) {
+              clean[pid] = cols[0].id;
+            }
+          }
         }
         setExtraProjectStatuses(clean);
       } else {
@@ -495,6 +506,20 @@ export default function TaskFormModal({
             className="w-full text-lg font-semibold px-0 py-1 bg-transparent border-0 border-b border-transparent focus:border-brand-500 focus:outline-none focus:ring-0"
             placeholder="Título de la tarea…"
           />
+          {isEdit && currentTask?.id && (
+            <button
+              type="button"
+              title="Copiar ID de la tarea (para soporte / debug)"
+              onClick={async () => {
+                try {
+                  await navigator.clipboard.writeText(currentTask.id);
+                } catch {}
+              }}
+              className="text-[10px] font-mono text-slate-400 hover:text-slate-600 -mt-2"
+            >
+              ID: {currentTask.id} <span className="ml-1">📋</span>
+            </button>
+          )}
 
           <div>
             <div className="text-xs font-medium text-slate-700 mb-1">Descripción</div>
@@ -715,6 +740,19 @@ export default function TaskFormModal({
                             });
                           } else {
                             setProjectIds([...projectIds, p.id]);
+                            // CRÍTICO: inicializa el status con la primera
+                            // columna del proyecto recién añadido. Sin esto,
+                            // el <select> muestra la primera columna como
+                            // default visual pero el state queda undefined
+                            // → al submit se manda null → la tarea aparece
+                            // en cualquier sitio menos donde el user pensó
+                            // que la estaba metiendo.
+                            if (projectCols && projectCols.length > 0) {
+                              setExtraProjectStatuses((prev) => ({
+                                ...prev,
+                                [p.id]: prev[p.id] ?? projectCols[0].id
+                              }));
+                            }
                           }
                         }}
                         className="accent-brand-600"
