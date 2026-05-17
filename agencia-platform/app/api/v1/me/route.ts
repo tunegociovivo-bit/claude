@@ -9,7 +9,16 @@ export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
   }
   const user = await prisma.user.findUnique({
     where: { id: api.userId },
-    select: { id: true, name: true, email: true, image: true, phone: true, role: true }
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      image: true,
+      phone: true,
+      role: true,
+      emailVerified: true,
+      totpEnabledAt: true
+    }
   });
   const membership = await prisma.membership.findFirst({
     where: { userId: api.userId, workspaceId: api.workspaceId }
