@@ -496,3 +496,81 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   }
   askIfMeetingEnded("url_change");
 });
+
+// ─────────────────────────────────────────────────────────────────────
+// Badge "estás en una reunión" — independiente del content script
+// ─────────────────────────────────────────────────────────────────────
+//
+// El content-script meeting-detector.js se inyecta solo en pestañas
+// NUEVAS (o que recargas) después de instalar la extensión. Si la
+// reunión ya estaba abierta antes de instalar, el badge nunca se
+// pintaba. Aquí lo gestionamos también desde el SW vía tabs.onUpdated
+// + scan inicial al instalar, así no depende del content script.
+
+function hostIsMeetingPlatform(host) {
+  if (!host) return false;
+  return (
+    /meet\.google\.com$/i.test(host) ||
+    /teams\.(microsoft|live)\.com$/i.test(host) ||
+    /zoom\.us$/i.test(host) || host.endsWith(".zoom.us") ||
+    host.endsWith("whereby.com") ||
+    /meet\.jit\.si$/i.test(host) ||
+    host.endsWith(".webex.com") ||
+    host.endsWith(".gotomeeting.com")
+  );
+}
+
+async function updateMeetingBadgeForTab(tabId, url) {
+  let isMeeting = false;
+  try {
+    if (url) isMeeting = hostIsMeetingPlatform(new URL(url).host);
+  } catch {}
+  // Si esta tab es la que está grabando, prevalece el badge de
+  // notificaciones (gestionado en pollNotifications). El content
+  // script ya respeta esto. Replicamos aquí.
+  const { notifications } = await getState();
+  const unread = notifications.filter((n) => !n.read).length;
+  if (unread > 0) return; // que el contador global mande
+  if (isMeeting) {
+    chrome.action.setBadgeText({ text: "●", tabId });
+    chrome.action.setBadgeBackgroundColor({ color: "#dc2626", tabId });
+  } else {
+    chrome.action.setBadgeText({ text: "", tabId });
+  }
+}
+
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  // Solo nos importa cuando cambia URL o termina de cargar
+  if (changeInfo.url || changeInfo.status === "complete") {
+    updateMeetingBadgeForTab(tabId, changeInfo.url ?? tab.url);
+  }
+});
+
+chrome.tabs.onActivated.addListener(async ({ tabId }) => {
+  try {
+    const tab = await chrome.tabs.get(tabId);
+    updateMeetingBadgeForTab(tabId, tab.url);
+  } catch {}
+});
+
+// Al instalar / arrancar el SW: escanea TODAS las tabs existentes y
+// badgea las que sean reuniones. Sin esto, si la Meet ya estaba
+// abierta antes de instalar, el badge no se ponía nunca.
+async function scanExistingTabsForMeetings() {
+  try {
+    const tabs = await chrome.tabs.query({});
+    for (const tab of tabs) {
+      if (tab.id != null && tab.url) {
+        updateMeetingBadgeForTab(tab.id, tab.url);
+      }
+    }
+  } catch {}
+}
+chrome.runtime.onInstalled.addListener(() => {
+  scanExistingTabsForMeetings();
+});
+chrome.runtime.onStartup.addListener(() => {
+  scanExistingTabsForMeetings();
+});
+// Y un scan adicional cuando el SW arranca por demanda.
+scanExistingTabsForMeetings();
