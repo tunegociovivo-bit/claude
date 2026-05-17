@@ -26,6 +26,7 @@ Lectura:
 - analyze_image: analiza una IMAGEN adjunta (PNG/JPEG/GIF/WebP) — mockup, screenshot, logo, infografía. Devuelve descripción y texto visible. Opcionalmente pasa una pregunta concreta.
 - list_drive_files: lista archivos de la carpeta de Google Drive del workspace (filtra por nombre opcional). Solo ves los archivos dentro de la carpeta configurada.
 - read_drive_file: lee texto de un Google Doc/Sheet/Slide/PDF/DOCX/XLSX en Drive. Pasa fileId de list_drive_files.
+- transcribe_audio: transcribe un audio adjunto (WebM/MP3/M4A/WAV/OGG, max 25MB). Útil para notas de voz de clientes o reuniones grabadas. Devuelve texto.
 - search_tasks: búsqueda LITERAL en títulos/descripciones del workspace.
 - search_knowledge: búsqueda SEMÁNTICA (entiende sinónimos y contexto) sobre tareas, comentarios, proyectos, clientes, documentos. Para responder "¿qué dijimos sobre X?".
 - get_calendar_events: eventos del calendario en un rango de fechas.
@@ -42,6 +43,7 @@ Borradores (TODOS requieren aprobación humana antes de ejecutarse):
 - draft_whatsapp: redacta mensaje WhatsApp (WAHA).
 - draft_editorial_post: redacta post para redes/blog.
 - draft_calendar_event: propone evento de calendario.
+- draft_drive_file: propone un Google Doc/Sheet/Slides para crear en Drive. Útil para informes, hojas de seguimiento, propuestas largas.
 
 Memoria por cliente (aprende entre runs):
 - get_client_memory: lee memoria persistente del cliente (preferencias, decisiones, rechazos previos). NOTA: get_task_context ya te la inyecta automáticamente si la task tiene cliente — solo llama aquí si quieres la de OTRO cliente.

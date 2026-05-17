@@ -13,10 +13,11 @@ import {
   RefreshCw,
   AlertCircle,
   Send,
-  Calendar
+  Calendar,
+  FileSpreadsheet
 } from "lucide-react";
 
-type Kind = "EMAIL" | "WHATSAPP" | "EDITORIAL_POST" | "CALENDAR_EVENT" | "CUSTOM";
+type Kind = "EMAIL" | "WHATSAPP" | "EDITORIAL_POST" | "CALENDAR_EVENT" | "DRIVE_FILE" | "CUSTOM";
 type Status = "PENDING" | "APPROVED" | "REJECTED" | "EXECUTED" | "FAILED";
 
 type Draft = {
@@ -39,6 +40,7 @@ const KIND_LABEL: Record<Kind, string> = {
   WHATSAPP: "WhatsApp",
   EDITORIAL_POST: "Post editorial",
   CALENDAR_EVENT: "Evento calendario",
+  DRIVE_FILE: "Archivo Drive",
   CUSTOM: "Acción libre"
 };
 
@@ -47,6 +49,7 @@ const KIND_ICON: Record<Kind, React.ElementType> = {
   WHATSAPP: MessageSquare,
   EDITORIAL_POST: FileText,
   CALENDAR_EVENT: Calendar,
+  DRIVE_FILE: FileSpreadsheet,
   CUSTOM: AlertCircle
 };
 
@@ -333,6 +336,19 @@ function DraftPreview({ kind, payload }: { kind: Kind; payload: any }) {
         <div><strong>Redes:</strong> {(payload?.networks ?? []).join(", ")}</div>
         <div className="bg-slate-50 p-2 rounded border whitespace-pre-wrap max-h-40 overflow-y-auto text-[11px]">
           {payload?.content}
+        </div>
+      </div>
+    );
+  }
+  if (kind === "DRIVE_FILE") {
+    return (
+      <div className="mt-2 text-xs text-slate-600 space-y-1">
+        <div>
+          <strong>Nombre:</strong> {payload?.fileName} ({payload?.kind === "document" ? "Google Doc" : payload?.kind === "spreadsheet" ? "Google Sheet" : "Google Slides"})
+        </div>
+        <div className="bg-slate-50 p-2 rounded border whitespace-pre-wrap max-h-48 overflow-y-auto text-[11px] font-mono">
+          {String(payload?.content ?? "").slice(0, 2000)}
+          {String(payload?.content ?? "").length > 2000 && "\n\n[...]"}
         </div>
       </div>
     );

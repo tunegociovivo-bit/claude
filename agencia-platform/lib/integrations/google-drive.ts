@@ -247,6 +247,80 @@ export async function deleteDriveFile(opts: {
  * y no está en parents, tiramos 403 — esto evita que la IA (o cualquier
  * caller) lea archivos del Drive del Service Account fuera del scope.
  */
+/**
+ * Crea un fichero NATIVO de Google Workspace (Doc/Sheet/Slide) en la
+ * carpeta configurada del workspace. Drive auto-convierte el body
+ * (text/plain, text/csv o text/html) al tipo nativo.
+ *
+ * Para Sheets: el contenido se pasa como CSV (text/csv) y Drive lo
+ * convierte automáticamente — una hoja única. Para multi-hoja
+ * hay que usar la Sheets API por separado (no incluido en Fase 12).
+ *
+ * IMPORTANTE: NO sobrescribe si ya existe un fichero con ese nombre
+ * — crea uno nuevo siempre. Drive permite ficheros con nombre
+ * idéntico, lo que en nuestro caso es deseable (un draft aprobado
+ * dos veces no debería pisar el primero).
+ */
+export async function createDriveNativeFile(opts: {
+  workspaceId: string;
+  fileName: string;
+  /** "document" → Google Doc, "spreadsheet" → Google Sheet, "presentation" → Slides */
+  kind: "document" | "spreadsheet" | "presentation";
+  /** Texto plano (Doc/Slide) o CSV (Sheet). HTML también soportado
+   *  para Doc — útil si quieres preservar negritas/listas. */
+  content: string;
+  /** "text/plain" (default), "text/csv" (Sheets), "text/html" (Doc con formato). */
+  sourceMimeType?: string;
+}): Promise<{ id: string; name: string; webViewLink: string }> {
+  const { serviceAccount, folderId } = await getDriveConfig(opts.workspaceId);
+  const token = await getAccessToken(serviceAccount);
+
+  const targetMime =
+    opts.kind === "document"
+      ? "application/vnd.google-apps.document"
+      : opts.kind === "spreadsheet"
+      ? "application/vnd.google-apps.spreadsheet"
+      : "application/vnd.google-apps.presentation";
+  const sourceMime =
+    opts.sourceMimeType ?? (opts.kind === "spreadsheet" ? "text/csv" : "text/plain");
+
+  const boundary = "----nv-ia-drive-boundary-" + Math.random().toString(36).slice(2);
+  const metadata = JSON.stringify({
+    name: opts.fileName,
+    parents: [folderId],
+    mimeType: targetMime // ← clave: Drive convierte source → target
+  });
+  const head = Buffer.from(
+    `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${metadata}\r\n--${boundary}\r\nContent-Type: ${sourceMime}; charset=UTF-8\r\n\r\n`,
+    "utf8"
+  );
+  const tail = Buffer.from(`\r\n--${boundary}--`, "utf8");
+  const bodyBuf = Buffer.from(opts.content, "utf8");
+  const multipart = Buffer.concat([head, bodyBuf, tail]);
+
+  const resp = await fetch(
+    "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,webViewLink",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": `multipart/related; boundary=${boundary}`
+      },
+      body: multipart as unknown as BodyInit
+    }
+  );
+  if (!resp.ok) {
+    const txt = await resp.text();
+    throw new Error(`Drive create native ${resp.status}: ${txt.slice(0, 300)}`);
+  }
+  const data = await resp.json();
+  return {
+    id: data.id,
+    name: data.name,
+    webViewLink: data.webViewLink ?? `https://drive.google.com/file/d/${data.id}/view`
+  };
+}
+
 export async function downloadDriveFile(opts: {
   workspaceId: string;
   fileId: string;

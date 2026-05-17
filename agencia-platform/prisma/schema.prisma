@@ -1536,6 +1536,7 @@ enum AiDraftKind {
   WHATSAPP
   EDITORIAL_POST
   CALENDAR_EVENT
+  DRIVE_FILE
   CUSTOM // texto libre — para acciones que aún no tienen integración
 }
 

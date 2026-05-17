@@ -17,6 +17,7 @@
 import { prisma } from "@/lib/db/prisma";
 import { sendEmail, isEmailEnabled } from "@/lib/integrations/email";
 import { sendText } from "@/lib/leads/waha";
+import { createDriveNativeFile } from "@/lib/integrations/google-drive";
 
 export async function executeDraft(draftId: string): Promise<{
   ok: boolean;
@@ -68,6 +69,16 @@ export async function executeDraft(draftId: string): Promise<{
           } as any
         });
         result = { ok: true, externalId: created.id };
+        break;
+      }
+      case "DRIVE_FILE": {
+        const f = await createDriveNativeFile({
+          workspaceId: draft.workspaceId,
+          fileName: payload.fileName,
+          kind: payload.kind,
+          content: payload.content
+        });
+        result = { ok: true, externalId: f.id };
         break;
       }
       case "CALENDAR_EVENT": {

@@ -13,6 +13,7 @@ import { semanticSearch } from "@/lib/search/embeddings";
 import { extractTextFromFile } from "./file-reader";
 import { readDriveFileText } from "./drive-reader";
 import { readClientMemory, appendClientMemoryNote } from "./client-memory";
+import { transcribeAudioWithWhisper } from "@/lib/ai/openai";
 import { signedDownloadUrl } from "@/lib/storage/r2";
 import { completeVision } from "@/lib/ai/anthropic";
 import { listDriveFiles } from "@/lib/integrations/google-drive";
@@ -400,6 +401,44 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
         }
       },
       required: ["title"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "transcribe_audio",
+    description:
+      "Transcribe un archivo de AUDIO adjunto a la tarea usando Whisper. Soporta WebM, MP3, M4A, WAV, OGG (formatos típicos de notas de voz). Devuelve el texto transcrito. Pásalo el fileId de un audio que veas en list_task_files. Útil para notas de voz que mandan clientes o reuniones grabadas adjuntas.",
+    input_schema: {
+      type: "object",
+      properties: {
+        fileId: { type: "string", description: "ID del archivo audio (de list_task_files)." }
+      },
+      required: ["fileId"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "draft_drive_file",
+    description:
+      "Crea un BORRADOR de archivo de Google Drive (Doc / Sheet / Slide) PARA QUE LO APRUEBE UN HUMANO antes de subir. Al aprobar se crea como nativo de Google Workspace en la carpeta de Drive del workspace. Úsalo para: preparar informes, hojas de seguimiento, presentaciones simples, propuestas largas que no encajan como email.",
+    input_schema: {
+      type: "object",
+      properties: {
+        fileName: {
+          type: "string",
+          description: "Nombre del archivo (sin extensión, Drive la añade). Ej: 'Propuesta campaña Navidad Acme'."
+        },
+        kind: {
+          type: "string",
+          enum: ["document", "spreadsheet", "presentation"],
+          description: "Tipo Google Workspace. 'document' = Doc, 'spreadsheet' = Sheet (contenido como CSV), 'presentation' = Slides."
+        },
+        content: {
+          type: "string",
+          description: "Contenido. Para Doc: texto plano o HTML básico (saltos de párrafo, listas con guiones). Para Sheet: CSV con primera fila de cabeceras. Para Slides: texto plano (Google convierte párrafos en slides). Max 50K chars."
+        }
+      },
+      required: ["fileName", "kind", "content"],
       additionalProperties: false
     }
   },
@@ -1077,6 +1116,76 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
       ok: true,
       subtaskId: subtask.id,
       assignedCount: assigneeIds.length
+    };
+  },
+
+  async transcribe_audio(input, ctx) {
+    const fileId = String(input?.fileId ?? "").trim();
+    if (!fileId) return { error: "fileId vacío" };
+    const file = await prisma.file.findFirst({
+      where: { id: fileId, workspaceId: ctx.workspaceId }
+    });
+    if (!file) return { error: "Archivo no encontrado en este workspace" };
+    if (file.targetType === "TASK" && file.targetId !== ctx.taskId) {
+      return { error: "Ese archivo no pertenece a la tarea asignada" };
+    }
+    const mime = (file.mimeType ?? "").toLowerCase();
+    const lower = file.name.toLowerCase();
+    const isAudio =
+      mime.startsWith("audio/") ||
+      /\.(webm|mp3|m4a|wav|ogg|opus|flac)$/i.test(lower);
+    if (!isAudio) return { error: `No es un archivo de audio (${mime || lower})` };
+    if (file.sizeBytes > 25 * 1024 * 1024) {
+      return { error: `Audio demasiado grande (${(file.sizeBytes / 1024 / 1024).toFixed(1)}MB > 25MB de Whisper)` };
+    }
+    try {
+      const { downloadBuffer } = await import("@/lib/storage/r2");
+      const buf = await downloadBuffer(file.s3Key);
+      // Buffer → Uint8Array (ArrayBufferLike incompatible con BlobPart)
+      const u8 = new Uint8Array(buf);
+      const blob = new Blob([u8], { type: file.mimeType || "audio/webm" });
+      const text = await transcribeAudioWithWhisper({
+        workspaceId: ctx.workspaceId,
+        audio: blob,
+        filename: file.name,
+        language: "es"
+      });
+      return {
+        ok: true,
+        fileId,
+        filename: file.name,
+        durationSeconds: null,
+        transcript: text
+      };
+    } catch (e: any) {
+      return { error: `Transcripción falló: ${e?.message ?? e}` };
+    }
+  },
+
+  async draft_drive_file(input, ctx) {
+    const fileName = String(input?.fileName ?? "").trim();
+    const kind = String(input?.kind ?? "").trim();
+    const content = String(input?.content ?? "").trim();
+    if (!fileName) return { error: "fileName vacío" };
+    if (!["document", "spreadsheet", "presentation"].includes(kind)) {
+      return { error: "kind debe ser document | spreadsheet | presentation" };
+    }
+    if (!content) return { error: "content vacío" };
+    if (content.length > 50_000) return { error: "content demasiado largo (>50K chars)" };
+    const draft = await prisma.aiDraft.create({
+      data: {
+        workspaceId: ctx.workspaceId,
+        aiAgentRunId: ctx.runId,
+        taskId: ctx.taskId,
+        kind: "DRIVE_FILE",
+        title: `${kind === "document" ? "Doc" : kind === "spreadsheet" ? "Sheet" : "Slides"}: ${fileName.slice(0, 80)}`,
+        payload: { fileName, kind, content }
+      }
+    });
+    return {
+      ok: true,
+      draftId: draft.id,
+      message: "Borrador de archivo de Drive creado. Al aprobar se subirá a la carpeta del workspace."
     };
   },
 
