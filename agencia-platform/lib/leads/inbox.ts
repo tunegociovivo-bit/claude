@@ -198,6 +198,27 @@ export async function ingestInbox(opts: {
         data: { status: "stopped", stoppedReason: "respuesta_recibida", completedAt: new Date() }
       });
     }
+
+    // Fase 10 NV IA: si está activada la entrada por WhatsApp, le
+    // pasamos la conversación para que clasifique más fino y
+    // redacte un draft de respuesta o deje un comentario con plan.
+    // Fire-and-forget: no bloqueamos al webhook si NV IA falla.
+    try {
+      const { triggerNvIaFromInbound } = await import("@/lib/ai/nv-ia/inbound-trigger");
+      void triggerNvIaFromInbound({
+        workspaceId: opts.workspaceId,
+        externalId: opts.externalMessageId ?? `whatsapp-${msg.id}`,
+        trigger: "WHATSAPP_INBOUND",
+        taskTitle: `💬 WhatsApp de ${phoneNormalized}: ${opts.text.slice(0, 100)}`,
+        body: opts.text,
+        metadata: {
+          from: phoneNormalized,
+          classification: classified.classification,
+          confidence: String(classified.confidence)
+        },
+        clientId: null
+      }).catch((e) => console.warn("[nv-ia inbound-whatsapp]:", e?.message ?? e));
+    } catch {}
   }
 
   return { messageId: msg.id, classification: classified.classification, leadId };

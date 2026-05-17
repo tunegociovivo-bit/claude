@@ -1,0 +1,70 @@
+/**
+ * GET  /api/v1/admin/ai-agent/inbound  → lee config + URL del webhook
+ * PUT  /api/v1/admin/ai-agent/inbound  → activa/desactiva
+ *                                         body: { email?: {enabled}, whatsapp?: {enabled} }
+ * POST /api/v1/admin/ai-agent/inbound/regenerate-email-token →
+ *      genera token aleatorio nuevo para el endpoint inbound-email
+ *
+ * Sólo admin.
+ */
+
+import { NextResponse } from "next/server";
+import { z } from "zod";
+import { randomBytes } from "crypto";
+import { prisma } from "@/lib/db/prisma";
+import { withApi } from "@/lib/api/handler";
+import { ApiError } from "@/lib/api/auth";
+import { callerIsAdmin } from "@/lib/api/permissions";
+
+export const dynamic = "force-dynamic";
+
+export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
+  if (!(await callerIsAdmin(api))) throw new ApiError(403, "forbidden", "Solo admin");
+  const ws = await prisma.workspace.findUnique({ where: { id: api.workspaceId } });
+  const cfg = (ws?.settings as any)?.aiAgent?.inbound ?? {};
+  return NextResponse.json({
+    email: {
+      enabled: cfg.email?.enabled === true,
+      webhookToken: cfg.email?.webhookToken ?? null
+    },
+    whatsapp: {
+      enabled: cfg.whatsapp?.enabled === true
+    }
+  });
+});
+
+const putSchema = z.object({
+  email: z.object({ enabled: z.boolean() }).optional(),
+  whatsapp: z.object({ enabled: z.boolean() }).optional()
+});
+
+export const PUT = withApi({ scope: "*" }, async (req, { api }) => {
+  if (!(await callerIsAdmin(api))) throw new ApiError(403, "forbidden", "Solo admin");
+  const body = await req.json().catch(() => null);
+  const parsed = putSchema.safeParse(body);
+  if (!parsed.success) throw new ApiError(400, "validation_error", parsed.error.message);
+
+  const ws = await prisma.workspace.findUnique({ where: { id: api.workspaceId } });
+  const settings: any = (ws?.settings as any) ?? {};
+  if (!settings.aiAgent) {
+    throw new ApiError(400, "not_initialized", "NV IA no está inicializada");
+  }
+  settings.aiAgent.inbound = settings.aiAgent.inbound ?? {};
+  if (parsed.data.email) {
+    settings.aiAgent.inbound.email = {
+      enabled: parsed.data.email.enabled,
+      // Si se está activando email Y no hay token, generamos uno.
+      webhookToken:
+        settings.aiAgent.inbound.email?.webhookToken ??
+        (parsed.data.email.enabled ? randomBytes(24).toString("hex") : null)
+    };
+  }
+  if (parsed.data.whatsapp) {
+    settings.aiAgent.inbound.whatsapp = { enabled: parsed.data.whatsapp.enabled };
+  }
+  await prisma.workspace.update({
+    where: { id: api.workspaceId },
+    data: { settings }
+  });
+  return NextResponse.json({ ok: true, inbound: settings.aiAgent.inbound });
+});

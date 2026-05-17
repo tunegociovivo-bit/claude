@@ -134,7 +134,7 @@ export async function executeAgentRun(opts: {
   /** Id del AiAgentRun (necesario para enlazar drafts creados en este run). */
   runId: string;
   /** Cómo se disparó este run (afecta al prompt inicial). */
-  trigger?: "MANUAL" | "MENTION" | "PROACTIVE_DEADLINE" | "PROACTIVE_STALE" | "SCHEDULED";
+  trigger?: "MANUAL" | "MENTION" | "PROACTIVE_DEADLINE" | "PROACTIVE_STALE" | "SCHEDULED" | "WHATSAPP_INBOUND" | "EMAIL_INBOUND";
   /** Contexto extra del trigger (ej: "vence en 36h"). */
   triggerContext?: string | null;
 }): Promise<AgentRunResult> {
@@ -352,6 +352,10 @@ function buildInitialMessage(
       return `${base} TE HAS DISPARADO TÚ MISMA — el cron detectó que esta tarea lleva mucho tiempo sin actividad estando en marcha. ${ctx ? `Contexto: ${ctx}.` : ""} Tu trabajo: revisar qué pasó (último comentario, último cambio), y dejar un add_comment preguntando estado (a quién corresponda) o proponiendo desbloqueo. NO marques mark_complete.`;
     case "SCHEDULED":
       return `${base} TE HAS DISPARADO TÚ MISMA en un repaso programado. ${ctx ? `Contexto: ${ctx}.` : ""} Procede según el contexto.`;
+    case "WHATSAPP_INBOUND":
+      return `${base} ENTRADA EXTERNA — un cliente o lead te ha escrito por WhatsApp. ${ctx ? `Contexto: ${ctx}.` : ""} El cuerpo del mensaje está en la description de la task. Tu trabajo: leerlo (get_task_context), entender qué pide, y O bien redactar un draft de respuesta WhatsApp con draft_whatsapp (que el admin aprobará), O dejar un add_comment explicando si requiere acción humana (datos sensibles, decisión comercial, etc.). Si el mensaje es trivial (gracias, ok, etc.) cierra con mark_complete sin draft.`;
+    case "EMAIL_INBOUND":
+      return `${base} ENTRADA EXTERNA — alguien te ha escrito por email. ${ctx ? `Contexto: ${ctx}.` : ""} El cuerpo entero del email está en la description de la task. Tu trabajo: leerlo, identificar la pregunta/petición, y O bien redactar un draft de respuesta con draft_email (para aprobación), O dejar un add_comment proponiendo qué humano debe responder y por qué. Si es spam/newsletter/auto-reply, cierra con mark_complete sin draft.`;
     case "MANUAL":
     default:
       return `${base} Llama a get_task_context para leerla y procede.`;

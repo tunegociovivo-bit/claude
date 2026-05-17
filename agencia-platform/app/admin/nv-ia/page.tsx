@@ -48,11 +48,18 @@ type ProactiveCfg = {
   maxRunsPerCron: number;
 };
 
+type InboundCfg = {
+  email: { enabled: boolean; webhookToken: string | null };
+  whatsapp: { enabled: boolean };
+};
+
 export default function NvIaAdminPage() {
   const [status, setStatus] = useState<Status | null>(null);
   const [runs, setRuns] = useState<Run[]>([]);
   const [proactive, setProactive] = useState<ProactiveCfg | null>(null);
   const [savingProactive, setSavingProactive] = useState(false);
+  const [inbound, setInbound] = useState<InboundCfg | null>(null);
+  const [savingInbound, setSavingInbound] = useState(false);
   const [loading, setLoading] = useState(true);
   const [initing, setIniting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -60,10 +67,11 @@ export default function NvIaAdminPage() {
   async function loadStatus() {
     setLoading(true);
     try {
-      const [sR, rR, pR] = await Promise.all([
+      const [sR, rR, pR, iR] = await Promise.all([
         fetch("/api/v1/admin/ai-agent/init", { cache: "no-store" }),
         fetch("/api/v1/admin/ai-agent/runs?limit=20", { cache: "no-store" }),
-        fetch("/api/v1/admin/ai-agent/proactive", { cache: "no-store" })
+        fetch("/api/v1/admin/ai-agent/proactive", { cache: "no-store" }),
+        fetch("/api/v1/admin/ai-agent/inbound", { cache: "no-store" })
       ]);
       if (sR.ok) setStatus(await sR.json());
       if (rR.ok) {
@@ -71,6 +79,7 @@ export default function NvIaAdminPage() {
         setRuns(j.items ?? []);
       }
       if (pR.ok) setProactive(await pR.json());
+      if (iR.ok) setInbound(await iR.json());
     } catch (e: any) {
       setError(String(e?.message ?? e));
     } finally {
@@ -101,6 +110,33 @@ export default function NvIaAdminPage() {
       setError(String(e?.message ?? e));
     } finally {
       setSavingProactive(false);
+    }
+  }
+
+  async function saveInbound(next: Partial<{ email: { enabled: boolean; webhookToken?: string | null }; whatsapp: { enabled: boolean } }>) {
+    setSavingInbound(true);
+    setError(null);
+    try {
+      // El endpoint PUT solo necesita {enabled} — strip webhookToken
+      // del body por si llega (el back lo gestiona internamente).
+      const body: any = {};
+      if (next.email) body.email = { enabled: next.email.enabled };
+      if (next.whatsapp) body.whatsapp = { enabled: next.whatsapp.enabled };
+      const r = await fetch("/api/v1/admin/ai-agent/inbound", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body)
+      });
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        throw new Error(j.message || `Error ${r.status}`);
+      }
+      const j = await r.json();
+      setInbound(j.inbound ?? null);
+    } catch (e: any) {
+      setError(String(e?.message ?? e));
+    } finally {
+      setSavingInbound(false);
     }
   }
 
@@ -272,6 +308,72 @@ export default function NvIaAdminPage() {
                 <strong>Para que funcione:</strong> programa una llamada periódica (cada 15-60 min) a{" "}
                 <code>GET /api/cron/ai-agent/proactive?secret=$CRON_SECRET</code>.
               </p>
+            </div>
+          )}
+
+          {inbound && (
+            <div className="mt-6 rounded-xl border bg-white p-4">
+              <h2 className="font-semibold text-sm">Entrada externa — clientes contactan y NV IA atiende</h2>
+              <p className="text-xs text-slate-500 mt-0.5 mb-3">
+                Cuando un cliente envía email o WhatsApp, NV IA crea una tarea en el buzón con el contenido y
+                redacta una propuesta de respuesta para tu aprobación. Lo más cerca de "secretaria automática".
+              </p>
+
+              <div className="space-y-3">
+                <div className="flex items-start justify-between gap-3 p-3 rounded-lg border bg-slate-50/50">
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium">💬 WhatsApp entrante</div>
+                    <p className="text-[11px] text-slate-500 mt-0.5">
+                      Cuando un lead/cliente responde a WhatsApp (clasificado como interesado, objeción o info_request)
+                      NV IA recibe el mensaje y prepara draft. Requiere tener Leads/WAHA configurado.
+                    </p>
+                  </div>
+                  <label className="inline-flex items-center gap-2 cursor-pointer shrink-0">
+                    <input
+                      type="checkbox"
+                      checked={inbound.whatsapp.enabled}
+                      disabled={savingInbound}
+                      onChange={(e) => saveInbound({ whatsapp: { enabled: e.target.checked } })}
+                      className="accent-violet-600 h-4 w-4"
+                    />
+                    <span className="text-xs font-medium">{inbound.whatsapp.enabled ? "Activo" : "Inactivo"}</span>
+                  </label>
+                </div>
+
+                <div className="p-3 rounded-lg border bg-slate-50/50">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-medium">📧 Email entrante</div>
+                      <p className="text-[11px] text-slate-500 mt-0.5">
+                        Configura tu proveedor de email (Resend Inbound, ImprovMX, Postmark, etc.) para hacer POST
+                        a la URL de abajo. NV IA crea una tarea y prepara draft de respuesta.
+                      </p>
+                    </div>
+                    <label className="inline-flex items-center gap-2 cursor-pointer shrink-0">
+                      <input
+                        type="checkbox"
+                        checked={inbound.email.enabled}
+                        disabled={savingInbound}
+                        onChange={(e) => saveInbound({ email: { enabled: e.target.checked, webhookToken: inbound.email.webhookToken } })}
+                        className="accent-violet-600 h-4 w-4"
+                      />
+                      <span className="text-xs font-medium">{inbound.email.enabled ? "Activo" : "Inactivo"}</span>
+                    </label>
+                  </div>
+                  {inbound.email.enabled && inbound.email.webhookToken && (
+                    <div className="mt-3">
+                      <label className="block text-[11px] text-slate-600 mb-1">URL del webhook (configúrala en tu proveedor):</label>
+                      <code className="block text-[11px] bg-white border rounded px-2 py-1.5 break-all">
+                        {typeof window !== "undefined" ? window.location.origin : ""}/api/webhooks/inbound-email/{inbound.email.webhookToken}
+                      </code>
+                      <p className="text-[10px] text-slate-500 mt-1">
+                        Acepta JSON con campos: <code>from, to, subject, text/html, messageId</code>. Compatible con
+                        Resend Inbound, ImprovMX, Postmark Inbound Parse y similares.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
           )}
 

@@ -1465,6 +1465,8 @@ enum AiAgentRunTrigger {
   PROACTIVE_DEADLINE  // cron detectó deadline cercana sin progreso
   PROACTIVE_STALE     // cron detectó task estancada (IN_PROGRESS sin updates)
   SCHEDULED           // cron diario de revisión global
+  WHATSAPP_INBOUND    // llegó WhatsApp de cliente vía /leads/webhook
+  EMAIL_INBOUND       // llegó email vía /api/webhooks/inbound-email
 }
 
 // Fase 8: memoria persistente que NV IA acumula sobre cada cliente
