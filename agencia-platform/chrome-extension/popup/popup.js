@@ -62,45 +62,86 @@ function timeAgo(iso) {
   return `hace ${Math.floor(sec / 86400)} d`;
 }
 
+/**
+ * Pinta el panel de diagnóstico. Independiente del resto del render:
+ * cualquier fallo aquí dentro acaba en un mensaje legible en el
+ * propio panel — nunca deja "cargando…" infinito.
+ */
+async function renderDiagnostic() {
+  const diagEl = $("diag-output");
+  if (!diagEl) return;
+  const lines = [];
+  try {
+    lines.push(`Versión ext.: ${chrome.runtime.getManifest().version}`);
+  } catch (e) {
+    lines.push(`Versión ext.: (error: ${e?.message ?? e})`);
+  }
+  try {
+    const s = await chrome.storage.local.get(["hubUrl", "user", "state", "notifications", "lastError"]);
+    lines.push(`Hub URL: ${s.hubUrl ?? "(default)"}`);
+    lines.push(`User: ${s.user?.email ?? "(no conectado)"}`);
+    lines.push(`Estado SW: ${s.state ?? "idle"}`);
+    lines.push(`Notif no leídas: ${(s.notifications ?? []).filter((n) => !n.read).length}`);
+    if (s.lastError) lines.push(`Último error: ${s.lastError}`);
+  } catch (e) {
+    lines.push(`Storage error: ${e?.message ?? e}`);
+  }
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const url = tab?.url ?? "(sin URL)";
+    const host = tab?.url ? new URL(tab.url).host : "";
+    const platform = detectPlatform(host);
+    lines.push(`Tab URL: ${url}`);
+    lines.push(`Tab host: ${host || "—"}`);
+    lines.push(`Plataforma: ${platform ?? "no detectada"}`);
+  } catch (e) {
+    lines.push(`tabs.query error: ${e?.message ?? e}`);
+  }
+  lines.push(`Hora local: ${new Date().toISOString()}`);
+  diagEl.textContent = lines.join("\n");
+}
+
 async function render() {
-  const s = await chrome.storage.local.get([
-    "state", "hubUrl", "user", "workspace",
-    "lastTaskUrl", "lastError", "notifications"
-  ]);
+  // SIEMPRE pintamos el diagnóstico, aunque cualquier paso falle.
+  // Lo construimos en su propio try/catch encapsulado, antes de tocar
+  // el resto del popup, para no romper el render entero por un
+  // chrome.tabs.query fallido o un storage corrupto.
+  await renderDiagnostic();
+
+  let s;
+  try {
+    s = await chrome.storage.local.get([
+      "state", "hubUrl", "user", "workspace",
+      "lastTaskUrl", "lastError", "notifications"
+    ]);
+  } catch (e) {
+    console.warn("[popup] storage.get failed:", e);
+    s = {};
+  }
   const state = s.state ?? "idle";
   const hubUrl = s.hubUrl ?? "https://hub.negociovivo.app";
 
-  $("cfg-hub-url").value = hubUrl;
+  const cfgHub = $("cfg-hub-url");
+  if (cfgHub) cfgHub.value = hubUrl;
 
-  // === Diagnóstico SIEMPRE — antes del early return de login. ===
-  // Así si el user nos pasa el contenido del popup vemos qué pasa
-  // incluso cuando aún no ha conectado.
-  const diagLines = [];
-  diagLines.push(`Versión ext.: ${chrome.runtime.getManifest().version}`);
-  diagLines.push(`Hub URL: ${hubUrl}`);
-  diagLines.push(`User: ${s.user?.email ?? "(no conectado)"}`);
-  try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    const url = tab?.url ?? "(sin url, ¿pestaña privada/extension?)";
-    const host = tab?.url ? new URL(tab.url).host : "";
-    const platform = detectPlatform(host);
-    diagLines.push(`Tab URL: ${url}`);
-    diagLines.push(`Tab host: ${host || "—"}`);
-    diagLines.push(`Plataforma: ${platform ?? "no detectada"}`);
-    if (s.user) {
-      $("meeting-hint").textContent = platform
-        ? `📞 Detectada reunión de ${platform}`
-        : "ℹ️ Esta pestaña no parece una reunión, pero puedes grabar igualmente.";
+  // Pintar el "meeting hint" — solo si el user está logueado, si
+  // no, la sección está oculta de todos modos.
+  if (s.user) {
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      const host = tab?.url ? new URL(tab.url).host : "";
+      const platform = detectPlatform(host);
+      const hintEl = $("meeting-hint");
+      if (hintEl) {
+        hintEl.textContent = platform
+          ? `📞 Detectada reunión de ${platform}`
+          : "ℹ️ Esta pestaña no parece una reunión, pero puedes grabar igualmente.";
+      }
+    } catch {
+      const hintEl = $("meeting-hint");
+      if (hintEl) hintEl.textContent = "";
     }
-  } catch (e) {
-    diagLines.push(`Error tabs.query: ${e?.message ?? e}`);
-    $("meeting-hint").textContent = "";
   }
-  diagLines.push(`Estado SW: ${s.state}`);
-  diagLines.push(`Notif no leídas: ${(s.notifications ?? []).filter((n) => !n.read).length}`);
-  diagLines.push(`Hora local: ${new Date().toISOString()}`);
-  const diagEl = $("diag-output");
-  if (diagEl) diagEl.textContent = diagLines.join("\n");
 
   // Sin user → pantalla de login (pero el diag YA está pintado arriba)
   if (!s.user) {
@@ -177,9 +218,27 @@ function iconFor(type) {
 
 // Al abrir el popup, comprobamos sesión por si el user acaba de
 // iniciar sesión en una pestaña aparte y aún no se ha reflejado.
+// Init: pinta el popup INMEDIATAMENTE con lo que haya en storage.
+// Luego, sin bloquear, pide al SW que revalide la sesión (puede
+// tardar 5-10s si el SW está dormido o si la red está lenta). Si la
+// llamada falla o se cuelga, NO afecta al render — antes la
+// extensión se quedaba en "cargando…" porque awaitábamos esa llamada.
+render();
 (async () => {
-  await chrome.runtime.sendMessage({ from: "popup", type: "check-session" });
-  render();
+  try {
+    // Promise.race con timeout — si el SW no responde en 8s,
+    // seguimos adelante con lo que ya pintamos.
+    const result = await Promise.race([
+      chrome.runtime.sendMessage({ from: "popup", type: "check-session" }),
+      new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), 8000))
+    ]);
+    // Si llegó respuesta, refrescamos por si cambió el estado de sesión.
+    if (result) render();
+  } catch (e) {
+    // Timeout o SW caído — no hacemos nada, el popup ya está pintado
+    // con el estado de storage. El user verá el diag y sabrá qué pasa.
+    console.warn("[popup] check-session falló:", e?.message ?? e);
+  }
 })();
 
 $("btn-open-login").addEventListener("click", async () => {
