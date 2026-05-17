@@ -27,7 +27,7 @@ const channelGuides: Record<string, string> = {
     "Genera 3 variantes de copy de anuncio (Meta o Google Ads): título (≤30 chars), descripción (≤90 chars) y CTA. Indica para qué fase del funnel sirve cada una."
 };
 
-export const POST = withApi({ scope: "ai" }, async (req, { api }) => {
+export const POST = withApi({ scope: "ai", rate: "ai" }, async (req, { api }) => {
   const body = await req.json().catch(() => null);
   const parsed = schema.safeParse(body);
   if (!parsed.success) throw new ApiError(400, "validation_error", parsed.error.message);

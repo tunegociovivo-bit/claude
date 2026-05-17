@@ -17,6 +17,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { decryptSecret } from "@/lib/ai/crypto";
+import { rateLimitPublic } from "@/lib/api/handler";
 
 export const dynamic = "force-dynamic";
 
@@ -30,6 +31,11 @@ function safeDecrypt(v: any): string | null {
 }
 
 export async function GET(req: NextRequest, { params }: { params: { token: string } }) {
+  // Endpoint MUY sensible (entrega credenciales). Rate-limit duro por
+  // IP — 10/min, no debería leerse más que una vez por sesión legítima.
+  const rl = rateLimitPublic(req, { tag: "credentials", limit: 10 });
+  if (rl) return rl;
+
   if (!params.token || params.token.length < 32) {
     return NextResponse.json({ error: { code: "bad_token", message: "Token inválido" } }, { status: 400 });
   }

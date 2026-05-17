@@ -19,10 +19,14 @@
 
 import { NextResponse, type NextRequest } from "next/server";
 import { prisma } from "@/lib/db/prisma";
+import { rateLimitPublic } from "@/lib/api/handler";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(_req: NextRequest, { params }: { params: { token: string } }) {
+export async function GET(req: NextRequest, { params }: { params: { token: string } }) {
+  const rl = rateLimitPublic(req, { tag: "portal", limit: 60 });
+  if (rl) return rl;
+
   const link = await prisma.clientApprovalLink.findUnique({
     where: { token: params.token }
   });

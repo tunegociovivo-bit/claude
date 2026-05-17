@@ -26,7 +26,7 @@ Si la respuesta es operativa (listar tareas, contar clientes, etc.) y no requier
 
 No expongas IDs internos al usuario salvo que los pida.`;
 
-export const POST = withApi({ scope: "ai" }, async (req, { api }) => {
+export const POST = withApi({ scope: "ai", rate: "ai" }, async (req, { api }) => {
   const body = await req.json().catch(() => null);
   const parsed = schema.safeParse(body);
   if (!parsed.success) throw new ApiError(400, "validation_error", parsed.error.message);

@@ -41,7 +41,7 @@ export const POST = withApi({ scope: "tasks:write" }, async (req, { params, api 
   return NextResponse.json({ ok: true });
 });
 
-export const DELETE = withApi({ scope: "tasks:write" }, async (req, { params, api }) => {
+export const DELETE = withApi({ scope: "tasks:write", rate: "destructive" }, async (req, { params, api }) => {
   if (!(await callerIsAdmin(api))) throw new ApiError(403, "forbidden", "Solo admin");
   const model = params.model as TrashableModel;
   if (!VALID.has(model)) throw new ApiError(400, "invalid_model", "Modelo no válido");

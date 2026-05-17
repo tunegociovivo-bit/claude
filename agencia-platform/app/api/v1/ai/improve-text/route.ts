@@ -18,7 +18,7 @@ const actionPrompts: Record<string, string> = {
   fix: "Corrige ortografía, gramática y puntuación. Mejora claridad sin cambiar el significado ni el idioma."
 };
 
-export const POST = withApi({ scope: "ai" }, async (req, { api }) => {
+export const POST = withApi({ scope: "ai", rate: "ai" }, async (req, { api }) => {
   const body = await req.json().catch(() => null);
   const parsed = schema.safeParse(body);
   if (!parsed.success) throw new ApiError(400, "validation_error", parsed.error.message);

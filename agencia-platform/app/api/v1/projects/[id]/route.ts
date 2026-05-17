@@ -52,7 +52,7 @@ const confirmSchema = z.object({
   reason: z.string().optional()
 });
 
-export const DELETE = withApi({ scope: "projects:write" }, async (req, { params, api }) => {
+export const DELETE = withApi({ scope: "projects:write", rate: "destructive" }, async (req, { params, api }) => {
   if (!api.userId) throw new ApiError(401, "no_user", "Sesión requerida");
   const me = await prisma.membership.findFirst({
     where: { workspaceId: api.workspaceId, userId: api.userId }

@@ -9,10 +9,16 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { resignPostMedia } from "@/lib/storage/resign";
+import { rateLimitPublic } from "@/lib/api/handler";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(_req: NextRequest, { params }: { params: { token: string } }) {
+export async function GET(req: NextRequest, { params }: { params: { token: string } }) {
+  // Rate-limit por IP: el portal de aprobación es público (sin auth),
+  // así que sin esto un atacante puede probar tokens en bucle.
+  const rl = rateLimitPublic(req, { tag: "approval", limit: 60 });
+  if (rl) return rl;
+
   const link = await prisma.clientApprovalLink.findUnique({
     where: { token: params.token }
   });
