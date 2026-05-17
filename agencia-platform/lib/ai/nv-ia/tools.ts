@@ -35,6 +35,8 @@ import {
   stripeListInvoices,
   stripeListSubscriptions
 } from "@/lib/integrations/stripe-light";
+import { elevenlabsSynthesize } from "@/lib/integrations/elevenlabs";
+import { metricoolListBrands, metricoolGetStats } from "@/lib/integrations/metricool";
 import { signedDownloadUrl } from "@/lib/storage/r2";
 import { completeVision } from "@/lib/ai/anthropic";
 import { listDriveFiles } from "@/lib/integrations/google-drive";
@@ -554,6 +556,47 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
         eventEnd: { type: "string", description: "Para type=event: fecha/hora fin ISO." }
       },
       required: ["type", "body"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "generate_voice_audio",
+    description:
+      "Genera un audio MP3 con la voz de la marca (ElevenLabs) a partir de un texto. Útil para responder a notas de voz por WhatsApp con otra nota de voz natural, en lugar de texto. El audio se adjunta a la task actual; tú puedes usar su fileId en draft_whatsapp_voice (próxima fase) o el admin lo descarga y reenvía. Max 4000 chars del texto. Tono coloquial recomendado (estás 'hablando', no escribiendo).",
+    input_schema: {
+      type: "object",
+      properties: {
+        text: { type: "string", description: "Lo que quieres que diga la voz." }
+      },
+      required: ["text"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "metricool_list_brands",
+    description:
+      "Lista las marcas/cuentas configuradas en Metricool del workspace. Útil para encontrar el blogId antes de pedir estadísticas.",
+    input_schema: {
+      type: "object",
+      properties: {},
+      additionalProperties: false
+    }
+  },
+  {
+    name: "metricool_get_stats",
+    description:
+      "Obtiene métricas de redes sociales desde Metricool (Instagram, Facebook, TikTok, LinkedIn, Twitter, GMB). Útil para informes de cliente, análisis de qué contenido funcionó, comparar períodos. Filtros: network, from, to. Si no pasas blogId usa el default del workspace.",
+    input_schema: {
+      type: "object",
+      properties: {
+        blogId: { type: "string", description: "ID de la marca en Metricool (de metricool_list_brands)." },
+        network: {
+          type: "string",
+          enum: ["instagram", "facebook", "twitter", "linkedin", "tiktok", "gmb"]
+        },
+        from: { type: "string", description: "Fecha inicio (YYYY-MM-DD)." },
+        to: { type: "string", description: "Fecha fin (YYYY-MM-DD)." }
+      },
       additionalProperties: false
     }
   },
@@ -1776,6 +1819,85 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
       message:
         "Borrador de post GMB creado. La integración con Google Business Profile aún no está activa, así que el admin lo copiará a GMB manualmente tras aprobar. Cuando se construya la integración, este draft se auto-publicará al aprobar."
     };
+  },
+
+  async generate_voice_audio(input, ctx) {
+    const text = String(input?.text ?? "").trim();
+    if (!text) return { error: "text vacío" };
+    if (text.length > 4000) return { error: "text demasiado largo (>4000)" };
+    try {
+      const buf = await elevenlabsSynthesize({ workspaceId: ctx.workspaceId, text });
+      const filename = `nv-ia-voice-${Date.now()}.mp3`;
+      const s3Key = buildS3Key({
+        workspaceId: ctx.workspaceId,
+        targetType: "TASK",
+        targetId: ctx.taskId,
+        filename
+      });
+      await uploadBuffer({ s3Key, body: buf, contentType: "audio/mpeg" });
+      const file = await prisma.file.create({
+        data: {
+          workspaceId: ctx.workspaceId,
+          name: filename,
+          mimeType: "audio/mpeg",
+          sizeBytes: buf.length,
+          s3Key,
+          targetType: "TASK",
+          targetId: ctx.taskId,
+          uploadedBy: ctx.config.userId
+        }
+      });
+      return {
+        ok: true,
+        fileId: file.id,
+        filename,
+        sizeBytes: buf.length,
+        durationApproxSeconds: Math.round(buf.length / 16_000), // rough estimate at 128kbps
+        message: "Audio generado y adjuntado a la tarea. El admin lo escucha y decide si reenviarlo."
+      };
+    } catch (e: any) {
+      return { error: `Voz falló: ${e?.message ?? e}` };
+    }
+  },
+
+  async metricool_list_brands(_input, ctx) {
+    try {
+      const brands = await metricoolListBrands({ workspaceId: ctx.workspaceId });
+      return {
+        count: Array.isArray(brands) ? brands.length : 0,
+        brands: (Array.isArray(brands) ? brands : []).map((b: any) => ({
+          id: b.id ?? b.blogId,
+          name: b.name ?? b.title,
+          networks: b.networks ?? b.profiles
+        }))
+      };
+    } catch (e: any) {
+      return { error: `Metricool no disponible: ${e?.message ?? e}` };
+    }
+  },
+
+  async metricool_get_stats(input, ctx) {
+    try {
+      const stats = await metricoolGetStats({
+        workspaceId: ctx.workspaceId,
+        blogId: input?.blogId ? String(input.blogId) : undefined,
+        network: input?.network,
+        from: input?.from ? String(input.from) : undefined,
+        to: input?.to ? String(input.to) : undefined
+      });
+      // Cap defensivo del response — Metricool puede devolver mucho JSON
+      const str = JSON.stringify(stats);
+      if (str.length > 12_000) {
+        return {
+          ok: true,
+          truncated: true,
+          preview: str.slice(0, 12_000) + "...[truncado]"
+        };
+      }
+      return { ok: true, stats };
+    } catch (e: any) {
+      return { error: `Metricool no disponible: ${e?.message ?? e}` };
+    }
   },
 
   async holded_list_invoices(input, ctx) {
