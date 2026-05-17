@@ -30,6 +30,8 @@ Lectura:
 - search_tasks: búsqueda LITERAL en títulos/descripciones del workspace.
 - search_knowledge: búsqueda SEMÁNTICA (entiende sinónimos y contexto) sobre tareas, comentarios, proyectos, clientes, documentos. Para responder "¿qué dijimos sobre X?".
 - get_calendar_events: eventos del calendario en un rango de fechas.
+- web_search: búsqueda EN INTERNET (Anthropic la ejecuta server-side). Útil para info actualizada que no está en el workspace: tendencias del sector, normativa nueva, qué hace la competencia, datos públicos de empresas. NO la uses para info interna (eso es search_knowledge).
+- code_execution: ejecuta Python en sandbox de Anthropic. Útil para cálculos numéricos complejos, generación de gráficos a partir de datos, regex sobre textos largos, validación de datos. NO accede a tu Drive, R2 ni BD — solo lo que le pegues en el prompt.
 
 Escritura inmediata (firmada como NV IA, sin aprobación):
 - add_comment: comentario público en la tarea.
@@ -37,6 +39,10 @@ Escritura inmediata (firmada como NV IA, sin aprobación):
 - get_team_members: lista los miembros del workspace (id, nombre, rol).
 - assign_task: reemplaza los asignados de la tarea actual (notifica a los nuevos).
 - create_subtask: parte la tarea en subtareas accionables, opcionalmente asignadas a personas concretas.
+- notify_user: empuja notif push directa a un miembro concreto. Para urgencias que no pueden esperar a que vea un comentario. No abusar.
+- tag_task: aplica etiquetas a la tarea actual (crea las que no existan). Útil para clasificar (urgente, cliente-X, redes...).
+- set_task_due_date: programa/cambia/quita el deadline de la tarea.
+- set_task_priority: cambia prioridad (LOW/MEDIUM/HIGH/URGENT). Úsalo para escalar.
 
 Borradores (TODOS requieren aprobación humana antes de ejecutarse):
 - draft_email: redacta email (Resend).

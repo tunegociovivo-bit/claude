@@ -36,6 +36,19 @@ export type ToolExecutor = (input: any, ctx: ToolContext) => Promise<unknown>;
  * tiene. Cada tool tiene un executor correspondiente abajo.
  */
 export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
+  // ────────────────────────────────────────────────────────────────
+  // Server-side tools de Anthropic (Fase 14+16)
+  // Estas las ejecuta Anthropic, no nosotros. Solo las declaramos.
+  // El modelo las usa autónomamente y los resultados aparecen en
+  // el response como bloques server_tool_use / *_tool_result.
+  // ────────────────────────────────────────────────────────────────
+  // @ts-expect-error — Anthropic SDK type es Tool con input_schema, pero
+  // los server tools solo necesitan {type, name}. SDK lo acepta en runtime.
+  { type: "web_search_20260209", name: "web_search" },
+  // @ts-expect-error — mismo motivo. Code execution corre en sandbox de
+  // Anthropic, sin acceso a nuestros datos — solo cálculos puros que
+  // la IA escribe en Python (estadística, gráficos, análisis numérico).
+  { type: "code_execution_20260120", name: "code_execution" },
   {
     name: "get_task_context",
     description:
@@ -460,6 +473,70 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
         }
       },
       required: ["role", "instruction"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "notify_user",
+    description:
+      "Manda una notificación PUSH directa a un miembro del workspace. Útil para alertarle de algo urgente que has dejado en una tarea (sin esperar a que vea el comentario). Pasa el userId de get_team_members. body corto (1-2 frases). link opcional al sitio relevante. NO abuses — usa solo para cosas que requieren acción rápida.",
+    input_schema: {
+      type: "object",
+      properties: {
+        userId: { type: "string", description: "ID del user a notificar (de get_team_members)." },
+        body: { type: "string", description: "Mensaje breve. Max 280 chars." },
+        link: { type: "string", description: "URL relativa opcional (ej: '/tasks/abc123')." }
+      },
+      required: ["userId", "body"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "tag_task",
+    description:
+      "Aplica una o varias etiquetas a la tarea actual. Si una etiqueta no existe en el workspace, la creas con un color por defecto. Útil para clasificar tareas (urgente, cliente-X, redes, web, fiscal...). REEMPLAZA las etiquetas existentes — pasa todas las que quieras dejar.",
+    input_schema: {
+      type: "object",
+      properties: {
+        tagNames: {
+          type: "array",
+          items: { type: "string" },
+          description: "Nombres de tags. Si alguno no existe se crea. Max 10 tags."
+        }
+      },
+      required: ["tagNames"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "set_task_due_date",
+    description:
+      "Programa o cambia la fecha límite de la tarea actual. Pasa null para quitar el deadline. Usar cuando una tarea sin deadline lo necesita o un deadline cambia.",
+    input_schema: {
+      type: "object",
+      properties: {
+        dueDateIso: {
+          type: "string",
+          description: "Fecha en ISO 8601 (ej: '2026-06-15' o '2026-06-15T17:00:00Z'). Pasa 'null' como string para quitar."
+        }
+      },
+      required: ["dueDateIso"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "set_task_priority",
+    description:
+      "Cambia la prioridad de la tarea actual. Valores: LOW, MEDIUM, HIGH, URGENT. Úsalo cuando detectes que una tarea debería escalarse (ej: cliente VIP, deadline duro acercándose).",
+    input_schema: {
+      type: "object",
+      properties: {
+        priority: {
+          type: "string",
+          enum: ["LOW", "MEDIUM", "HIGH", "URGENT"]
+        }
+      },
+      required: ["priority"],
       additionalProperties: false
     }
   },
@@ -1224,6 +1301,87 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
       tokensUsed: result.inputTokens + result.outputTokens,
       ...(result.error ? { error: result.error } : {})
     };
+  },
+
+  async notify_user(input, ctx) {
+    const userId = String(input?.userId ?? "").trim();
+    const body = String(input?.body ?? "").trim();
+    if (!userId || !body) return { error: "userId y body son obligatorios" };
+    if (body.length > 280) return { error: "body demasiado largo (>280)" };
+    // Validamos membership del workspace para no notificar a externos
+    const m = await prisma.membership.findFirst({
+      where: { workspaceId: ctx.workspaceId, userId },
+      select: { userId: true }
+    });
+    if (!m) return { error: "ese user no pertenece al workspace" };
+    if (userId === ctx.config.userId) return { error: "NV IA no se auto-notifica" };
+    await prisma.notification.create({
+      data: {
+        userId,
+        type: "ai_notify",
+        body: `NV IA: ${body}`,
+        link: input?.link ? String(input.link).slice(0, 500) : null
+      }
+    });
+    return { ok: true };
+  },
+
+  async tag_task(input, ctx) {
+    const names: string[] = Array.isArray(input?.tagNames)
+      ? (input.tagNames as unknown[]).map((n) => String(n).trim()).filter(Boolean)
+      : [];
+    if (names.length === 0) return { error: "tagNames vacío" };
+    if (names.length > 10) return { error: "máximo 10 tags" };
+    // Upsert por (workspaceId, name) — crea las que no existan.
+    const colors = ["bg-slate-200", "bg-sky-100", "bg-amber-100", "bg-emerald-100", "bg-rose-100", "bg-violet-100"];
+    const tagIds: string[] = [];
+    for (let i = 0; i < names.length; i++) {
+      const t = await prisma.tag.upsert({
+        where: { workspaceId_name: { workspaceId: ctx.workspaceId, name: names[i] } },
+        create: {
+          workspaceId: ctx.workspaceId,
+          name: names[i],
+          color: colors[i % colors.length]
+        },
+        update: {}
+      });
+      tagIds.push(t.id);
+    }
+    // Reemplazo: borra TaskTag existentes y crea los nuevos.
+    await prisma.$transaction([
+      prisma.taskTag.deleteMany({ where: { taskId: ctx.taskId } }),
+      prisma.taskTag.createMany({
+        data: tagIds.map((tagId) => ({ taskId: ctx.taskId, tagId }))
+      })
+    ]);
+    return { ok: true, applied: names };
+  },
+
+  async set_task_due_date(input, ctx) {
+    const raw = String(input?.dueDateIso ?? "").trim();
+    let dueDate: Date | null = null;
+    if (raw && raw !== "null") {
+      const d = new Date(raw);
+      if (isNaN(d.getTime())) return { error: "dueDateIso inválido (esperaba ISO 8601 o 'null')" };
+      dueDate = d;
+    }
+    await prisma.task.update({
+      where: { id: ctx.taskId },
+      data: { dueDate }
+    });
+    return { ok: true, dueDate: dueDate?.toISOString() ?? null };
+  },
+
+  async set_task_priority(input, ctx) {
+    const p = String(input?.priority ?? "").trim();
+    if (!["LOW", "MEDIUM", "HIGH", "URGENT"].includes(p)) {
+      return { error: "priority debe ser LOW | MEDIUM | HIGH | URGENT" };
+    }
+    await prisma.task.update({
+      where: { id: ctx.taskId },
+      data: { priority: p as any }
+    });
+    return { ok: true, priority: p };
   },
 
   async mark_complete(input, ctx) {
