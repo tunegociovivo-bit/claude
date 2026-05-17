@@ -1426,6 +1426,10 @@ model AiAgentRun {
   taskId        String
   requesterId   String? // user que enlazó la task al proyecto IA
   status        AiAgentRunStatus    @default(PENDING)
+  trigger       AiAgentRunTrigger   @default(MANUAL)
+  // Contexto extra del trigger (ej: "vence en 36h", "lleva 8 días
+  // sin actividad"). Se inyecta en el primer mensaje al modelo.
+  triggerContext String?            @db.Text
   // Modelo usado (por si en el futuro queremos elegir Haiku/Sonnet/Opus)
   model         String              @default("claude-opus-4-7")
   summary       String?             @db.Text // resumen final de la IA al user
@@ -1451,6 +1455,14 @@ enum AiAgentRunStatus {
   SUCCEEDED     // terminó OK, resumen disponible
   FAILED        // error fatal (timeout, tokens, exception)
   REQUIRES_HUMAN // la IA pidió ayuda — la tarea queda en mano del user
+}
+
+enum AiAgentRunTrigger {
+  MANUAL              // user enlazó la task al proyecto buzón
+  MENTION             // @nv-ia en un comentario
+  PROACTIVE_DEADLINE  // cron detectó deadline cercana sin progreso
+  PROACTIVE_STALE     // cron detectó task estancada (IN_PROGRESS sin updates)
+  SCHEDULED           // cron diario de revisión global
 }
 
 // Fase 2: borradores generados por NV IA que necesitan aprobación

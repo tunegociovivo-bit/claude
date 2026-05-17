@@ -114,8 +114,12 @@ export async function executeAgentRun(opts: {
   config: AiAgentConfig;
   /** Id del AiAgentRun (necesario para enlazar drafts creados en este run). */
   runId: string;
+  /** Cómo se disparó este run (afecta al prompt inicial). */
+  trigger?: "MANUAL" | "MENTION" | "PROACTIVE_DEADLINE" | "PROACTIVE_STALE" | "SCHEDULED";
+  /** Contexto extra del trigger (ej: "vence en 36h"). */
+  triggerContext?: string | null;
 }): Promise<AgentRunResult> {
-  const { workspaceId, taskId, config, runId } = opts;
+  const { workspaceId, taskId, config, runId, trigger = "MANUAL", triggerContext } = opts;
   const log: AgentLogStep[] = [{ type: "start", ts: nowIso(), taskId }];
   let inputTokens = 0;
   let outputTokens = 0;
@@ -126,13 +130,11 @@ export async function executeAgentRun(opts: {
   const client = await getAnthropicForWorkspace(workspaceId);
   const ctx: ToolContext = { workspaceId, taskId, config, runId };
 
-  // Mensaje inicial — le decimos a Claude qué task tiene asignada.
-  // El cuerpo real lo lee él vía get_task_context (primera tool call).
+  // Mensaje inicial — adaptado al tipo de trigger. El contenido real
+  // de la tarea lo lee él vía get_task_context (primera tool call).
+  const initialContent = buildInitialMessage(taskId, trigger, triggerContext);
   const messages: Anthropic.MessageParam[] = [
-    {
-      role: "user",
-      content: `Tienes asignada la tarea con id ${taskId}. Llama a get_task_context para leerla y procede.`
-    }
+    { role: "user", content: initialContent }
   ];
 
   // Agent loop manual (no usamos el toolRunner del SDK porque queremos
@@ -304,5 +306,26 @@ export async function executeAgentRun(opts: {
       inputTokens,
       outputTokens
     };
+  }
+}
+
+function buildInitialMessage(
+  taskId: string,
+  trigger: string,
+  ctx: string | null | undefined
+): string {
+  const base = `Tienes asignada la tarea con id ${taskId}.`;
+  switch (trigger) {
+    case "MENTION":
+      return `${base} ALGUIEN TE HA MENCIONADO (@nv-ia) en un comentario — lee con get_task_context el hilo completo. Frecuentemente solo te están haciendo una pregunta puntual que responder con add_comment, NO un trabajo grande. Decide tras leer.`;
+    case "PROACTIVE_DEADLINE":
+      return `${base} TE HAS DISPARADO TÚ MISMA — el cron detectó que esta tarea está cerca de su deadline sin progreso suficiente. ${ctx ? `Contexto: ${ctx}.` : ""} Tu trabajo: leer la tarea, revisar comentarios recientes, y dejar un add_comment con un PLAN concreto de qué hacer (pasos accionables) o un aviso si está bloqueada esperando algo. Si puedes delegar partes con create_subtask + assign_task, hazlo. NO marques mark_complete a menos que la tarea esté realmente terminada — esto es un alert, no una resolución.`;
+    case "PROACTIVE_STALE":
+      return `${base} TE HAS DISPARADO TÚ MISMA — el cron detectó que esta tarea lleva mucho tiempo sin actividad estando en marcha. ${ctx ? `Contexto: ${ctx}.` : ""} Tu trabajo: revisar qué pasó (último comentario, último cambio), y dejar un add_comment preguntando estado (a quién corresponda) o proponiendo desbloqueo. NO marques mark_complete.`;
+    case "SCHEDULED":
+      return `${base} TE HAS DISPARADO TÚ MISMA en un repaso programado. ${ctx ? `Contexto: ${ctx}.` : ""} Procede según el contexto.`;
+    case "MANUAL":
+    default:
+      return `${base} Llama a get_task_context para leerla y procede.`;
   }
 }

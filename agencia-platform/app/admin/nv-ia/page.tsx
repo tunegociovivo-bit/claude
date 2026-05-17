@@ -41,9 +41,18 @@ const STATUS_STYLE: Record<Run["status"], string> = {
   REQUIRES_HUMAN: "bg-amber-100 text-amber-700"
 };
 
+type ProactiveCfg = {
+  enabled: boolean;
+  deadlineHours: number;
+  staleDays: number;
+  maxRunsPerCron: number;
+};
+
 export default function NvIaAdminPage() {
   const [status, setStatus] = useState<Status | null>(null);
   const [runs, setRuns] = useState<Run[]>([]);
+  const [proactive, setProactive] = useState<ProactiveCfg | null>(null);
+  const [savingProactive, setSavingProactive] = useState(false);
   const [loading, setLoading] = useState(true);
   const [initing, setIniting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -51,15 +60,17 @@ export default function NvIaAdminPage() {
   async function loadStatus() {
     setLoading(true);
     try {
-      const [sR, rR] = await Promise.all([
+      const [sR, rR, pR] = await Promise.all([
         fetch("/api/v1/admin/ai-agent/init", { cache: "no-store" }),
-        fetch("/api/v1/admin/ai-agent/runs?limit=20", { cache: "no-store" })
+        fetch("/api/v1/admin/ai-agent/runs?limit=20", { cache: "no-store" }),
+        fetch("/api/v1/admin/ai-agent/proactive", { cache: "no-store" })
       ]);
       if (sR.ok) setStatus(await sR.json());
       if (rR.ok) {
         const j = await rR.json();
         setRuns(j.items ?? []);
       }
+      if (pR.ok) setProactive(await pR.json());
     } catch (e: any) {
       setError(String(e?.message ?? e));
     } finally {
@@ -70,6 +81,28 @@ export default function NvIaAdminPage() {
   useEffect(() => {
     loadStatus();
   }, []);
+
+  async function saveProactive(next: ProactiveCfg) {
+    setSavingProactive(true);
+    setError(null);
+    try {
+      const r = await fetch("/api/v1/admin/ai-agent/proactive", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(next)
+      });
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        throw new Error(j.message || `Error ${r.status}`);
+      }
+      const j = await r.json();
+      setProactive(j.proactive);
+    } catch (e: any) {
+      setError(String(e?.message ?? e));
+    } finally {
+      setSavingProactive(false);
+    }
+  }
 
   async function initialize() {
     setIniting(true);
@@ -174,7 +207,75 @@ export default function NvIaAdminPage() {
             </a>
           </div>
 
-          <div className="mt-8 rounded-xl border bg-white">
+          {proactive && (
+            <div className="mt-6 rounded-xl border bg-white p-4">
+              <div className="flex items-center justify-between mb-3">
+                <div>
+                  <h2 className="font-semibold text-sm">Proactividad — NV IA se dispara sola</h2>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Cuando está activa, un cron revisa cada 15-60 min las tareas con deadline próximo
+                    o estancadas y NV IA deja un comentario con plan/aviso. Dedupe 24h por tarea.
+                  </p>
+                </div>
+                <label className="inline-flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={proactive.enabled}
+                    disabled={savingProactive}
+                    onChange={(e) => saveProactive({ ...proactive, enabled: e.target.checked })}
+                    className="accent-violet-600 h-4 w-4"
+                  />
+                  <span className="text-sm font-medium">{proactive.enabled ? "Activa" : "Inactiva"}</span>
+                </label>
+              </div>
+              {proactive.enabled && (
+                <div className="grid sm:grid-cols-3 gap-3 mt-2 text-xs">
+                  <div>
+                    <label className="block text-slate-600 mb-1">Aviso si vence en próximas (horas)</label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={168}
+                      value={proactive.deadlineHours}
+                      onChange={(e) => setProactive({ ...proactive, deadlineHours: Number(e.target.value) })}
+                      onBlur={() => saveProactive(proactive)}
+                      className="w-full px-2 py-1.5 rounded border text-xs"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-slate-600 mb-1">"Estancada" si IN_PROGRESS sin updates (días)</label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={60}
+                      value={proactive.staleDays}
+                      onChange={(e) => setProactive({ ...proactive, staleDays: Number(e.target.value) })}
+                      onBlur={() => saveProactive(proactive)}
+                      className="w-full px-2 py-1.5 rounded border text-xs"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-slate-600 mb-1">Tope de runs por ejecución del cron</label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={25}
+                      value={proactive.maxRunsPerCron}
+                      onChange={(e) => setProactive({ ...proactive, maxRunsPerCron: Number(e.target.value) })}
+                      onBlur={() => saveProactive(proactive)}
+                      className="w-full px-2 py-1.5 rounded border text-xs"
+                    />
+                  </div>
+                </div>
+              )}
+              <p className="text-[11px] text-slate-500 mt-3">
+                <strong>Para que funcione:</strong> programa una llamada periódica (cada 15-60 min) a{" "}
+                <code>GET /api/cron/ai-agent/proactive?secret=$CRON_SECRET</code>.
+              </p>
+            </div>
+          )}
+
+          <div className="mt-6 rounded-xl border bg-white">
             <div className="flex items-center justify-between p-4 border-b">
               <h2 className="font-semibold text-sm">Runs recientes</h2>
               <button
