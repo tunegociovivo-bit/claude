@@ -25,9 +25,17 @@ export async function GET() {
     process.env.GIT_COMMIT_SHA ??
     "unknown";
 
+  // Timestamp del build inyectado por next.config.js en build time.
+  // Mucho más fiable que VERCEL_GIT_COMMIT_DATE (que Railway no setea).
+  const buildTs = process.env.NEXT_PUBLIC_BUILD_TIMESTAMP
+    ? Number(process.env.NEXT_PUBLIC_BUILD_TIMESTAMP)
+    : null;
+
   return NextResponse.json({
     commit,
     commitShort: commit.slice(0, 7),
+    buildTimestamp: buildTs,
+    buildIso: buildTs ? new Date(buildTs).toISOString() : null,
     deployedAt: process.env.VERCEL_GIT_COMMIT_DATE ?? null,
     branch:
       process.env.VERCEL_GIT_COMMIT_REF ??

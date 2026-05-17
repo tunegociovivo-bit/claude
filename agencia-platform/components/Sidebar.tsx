@@ -411,6 +411,8 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}
         </Link>
       </div>
 
+      <VersionBadge />
+
       <ProjectFormModal
         open={newProjectOpen}
         onClose={() => setNewProjectOpen(false)}
@@ -472,4 +474,95 @@ function initialsFromName(s: string): string {
     .slice(0, 2)
     .join("")
     .toUpperCase();
+}
+
+/**
+ * Mini badge en la parte inferior izquierda del sidebar con la
+ * versión del CRM que se está sirviendo ahora mismo (SHA corto +
+ * rama). Si Railway todavía no terminó el deploy, este badge sigue
+ * mostrando el commit anterior — así sabes a simple vista si la
+ * página que estás viendo ya incluye tu último push o no.
+ *
+ * Hover muestra el SHA completo y el branch. Click sobre el badge
+ * fuerza un re-fetch (sin recargar la página) para verificar tras
+ * un deploy reciente.
+ */
+type VersionInfo = {
+  commitShort: string;
+  commit: string;
+  branch: string | null;
+  buildTimestamp: number | null;
+  buildIso: string | null;
+};
+
+function formatRelative(ms: number): string {
+  const diff = Date.now() - ms;
+  const sec = Math.floor(diff / 1000);
+  if (sec < 60) return "ahora mismo";
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `hace ${min} min`;
+  const h = Math.floor(min / 60);
+  if (h < 24) return `hace ${h} h`;
+  const d = Math.floor(h / 24);
+  return `hace ${d} d`;
+}
+
+function formatDayHour(ms: number): string {
+  const d = new Date(ms);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${pad(d.getDate())}/${pad(d.getMonth() + 1)} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function VersionBadge() {
+  const [info, setInfo] = useState<VersionInfo | null>(null);
+  const [loading, setLoading] = useState(false);
+  // Tick para que el "hace X min" se actualice solo cada minuto.
+  const [, setTick] = useState(0);
+
+  async function load() {
+    setLoading(true);
+    try {
+      const r = await fetch("/api/version", { cache: "no-store" });
+      if (r.ok) setInfo(await r.json());
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    load();
+    const id = setInterval(() => setTick((t) => t + 1), 60_000);
+    return () => clearInterval(id);
+  }, []);
+
+  return (
+    <div className="px-3 py-2 border-t bg-slate-50 text-[10px] text-slate-500 shrink-0">
+      <button
+        type="button"
+        onClick={load}
+        disabled={loading}
+        title={
+          info
+            ? `Commit: ${info.commit}\nBranch: ${info.branch ?? "—"}\nBuild: ${
+                info.buildIso ?? "?"
+              }\nClick para refrescar`
+            : "Cargando versión…"
+        }
+        className="font-mono hover:text-slate-800 truncate w-full text-left disabled:opacity-50 leading-tight"
+      >
+        <div>
+          v {info?.commitShort ?? "?"}
+          {info?.branch && info.branch !== "main" && (
+            <span className="ml-1.5 text-slate-400">· {info.branch.slice(0, 16)}</span>
+          )}
+          {loading && <span className="ml-1.5">…</span>}
+        </div>
+        {info?.buildTimestamp && (
+          <div className="text-slate-400 mt-0.5">
+            {formatDayHour(info.buildTimestamp)} · {formatRelative(info.buildTimestamp)}
+          </div>
+        )}
+      </button>
+    </div>
+  );
 }

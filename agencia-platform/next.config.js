@@ -1,9 +1,18 @@
 /** @type {import('next').NextConfig} */
 const NATIVE_PACKAGES = ['@napi-rs/canvas', 'sharp', '@resvg/resvg-js'];
 
+// Timestamp del build (ms epoch). Se evalúa una vez al ejecutar
+// `next build` y se inyecta como env pública. La UI lo lee para
+// mostrar "hace 5 min" en el badge del sidebar y saber a simple
+// vista si el deploy está al día.
+const BUILD_TIMESTAMP = String(Date.now());
+
 const nextConfig = {
     reactStrictMode: true,
     output: 'standalone',
+    env: {
+        NEXT_PUBLIC_BUILD_TIMESTAMP: BUILD_TIMESTAMP
+    },
     // serverComponentsExternalPackages cubre Server Components. La
     // config webpack.externals de abajo cubre además Route Handlers
     // (app/api/.../route.ts), que es donde realmente se usan estos
