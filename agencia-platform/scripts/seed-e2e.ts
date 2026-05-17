@@ -114,6 +114,73 @@ async function main() {
 
   console.log(`[seed-e2e] OK — workspace=${ws.id}, user=${user.id}, client=${client.id}, project=${project.id}`);
   console.log(`[seed-e2e] approval link público en: /p/cliente/${link.token}  /p/editorial/${link.token}`);
+
+  // ──────────────────────────────────────────────────────────────
+  // Segundo workspace + user totalmente aislado, para tests de
+  // multi-tenancy. El test verifica que e2e2 NO puede acceder a
+  // recursos de e2e (404, no 403 — para no filtrar la existencia).
+  // ──────────────────────────────────────────────────────────────
+  const SLUG_2 = process.env.E2E_WORKSPACE_SLUG_2 ?? "e2e2";
+  const EMAIL_2 = process.env.E2E_USER_EMAIL_2 ?? "e2e2@test.local";
+  const PASSWORD_2 = process.env.E2E_USER_PASSWORD_2 ?? "e2e2-password-456";
+
+  const ws2 = await prisma.workspace.upsert({
+    where: { slug: SLUG_2 },
+    update: { name: "E2E Workspace 2" },
+    create: { slug: SLUG_2, name: "E2E Workspace 2" }
+  });
+  const passwordHash2 = await bcrypt.hash(PASSWORD_2, 10);
+  const user2 = await prisma.user.upsert({
+    where: { email: EMAIL_2 },
+    update: { passwordHash: passwordHash2, name: "E2E Tester 2" },
+    create: { email: EMAIL_2, name: "E2E Tester 2", passwordHash: passwordHash2, role: "ADMIN" }
+  });
+  await prisma.membership.upsert({
+    where: { workspaceId_userId: { workspaceId: ws2.id, userId: user2.id } },
+    update: { role: "ADMIN" },
+    create: { workspaceId: ws2.id, userId: user2.id, role: "ADMIN" }
+  });
+
+  // Recursos exclusivos del WS2 — los tests de aislamiento intentan
+  // leerlos desde el WS1 y deben recibir 404.
+  let client2 = await prisma.client.findFirst({
+    where: { workspaceId: ws2.id, name: "E2E2 Cliente Privado" }
+  });
+  if (!client2) {
+    client2 = await prisma.client.create({
+      data: {
+        workspaceId: ws2.id,
+        name: "E2E2 Cliente Privado",
+        industry: "Aislamiento",
+        contactName: "Solo WS2"
+      }
+    });
+  }
+  let project2 = await prisma.project.findFirst({
+    where: { workspaceId: ws2.id, name: "E2E2 Proyecto Privado" }
+  });
+  if (!project2) {
+    project2 = await prisma.project.create({
+      data: { workspaceId: ws2.id, clientId: client2.id, name: "E2E2 Proyecto Privado" }
+    });
+  }
+  const task2Exists = await prisma.task.findFirst({
+    where: { workspaceId: ws2.id, title: "E2E2 Tarea Privada" }
+  });
+  if (!task2Exists) {
+    await prisma.task.create({
+      data: {
+        workspaceId: ws2.id,
+        projectId: project2.id,
+        clientId: client2.id,
+        title: "E2E2 Tarea Privada",
+        status: "TODO",
+        priority: "MEDIUM"
+      } as any
+    });
+  }
+
+  console.log(`[seed-e2e] WS2 — workspace=${ws2.id}, user=${user2.id}, project=${project2.id}, client=${client2.id}`);
 }
 
 main()
