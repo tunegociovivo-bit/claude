@@ -444,19 +444,39 @@ async function runImport(jobId: string, opts: ImportOptions) {
       // placeholder con email sintético si Asana no expone el email
       // del autor (caso típico de cuentas privadas) — así NUNCA se
       // pierde un comentario por falta de email.
+      // Wrapper externo: si Asana falla la paginación de stories (red,
+      // rate limit, 401), no perdemos las tareas, solo los comentarios
+      // de esta. Lo registramos como warning para que el admin sepa
+      // qué tareas revisar a mano.
+      try {
       for await (const story of client.taskStories(t.gid)) {
+        try {
         if (story.resource_subtype !== "comment_added") continue;
         // Algunos comentarios solo tienen imagen (html_text) sin texto.
         // Aceptamos si al menos uno de los dos viene con contenido.
         if (!story.text && !story.html_text) continue;
-        if (!story.created_by?.gid) continue;
+        // ANTES: if (!story.created_by?.gid) continue; → descartaba
+        // silenciosamente comentarios de autores cuyo gid Asana ya no
+        // devuelve (cuentas dadas de baja, exempleados, autores
+        // anonimizados). Para Autosmotos esto perdía toda la
+        // conversación con Hermary/Alejandro. Ahora fabricamos un gid
+        // sintético a partir del nombre si Asana no lo da, y dejamos
+        // que ensureUser cree el usuario placeholder igual que
+        // hacemos cuando falta el email.
+        const authorGid =
+          story.created_by?.gid ??
+          (story.created_by?.name
+            ? `name-${story.created_by.name.replace(/\s+/g, "_").toLowerCase()}`
+            : `anon-story-${story.gid}`);
         const authorId = await ensureUser(
-          story.created_by.gid,
-          story.created_by.name,
-          story.created_by.email
+          authorGid,
+          story.created_by?.name,
+          story.created_by?.email
         );
         if (!authorId) {
-          stats.warnings.push(`Comentario sin email del autor: tarea ${t.name} → autor ${story.created_by.name ?? "?"}`);
+          // ensureUser ya no debería devolver null nunca (siempre
+          // crea placeholder), pero por defensa lo dejamos.
+          stats.warnings.push(`Comentario sin autor resoluble: tarea ${t.name}`);
           continue;
         }
         // Idempotencia por asanaId del story. Estrategia: si el
@@ -517,6 +537,18 @@ async function runImport(jobId: string, opts: ImportOptions) {
           });
           stats.comments++;
         }
+        } catch (e: any) {
+          // Un comentario problemático no debe abortar el resto.
+          // Trackeamos para que el admin investigue.
+          stats.warnings.push(
+            `Comentario ${story.gid} de "${t.name}" falló: ${String(e?.message ?? e).slice(0, 200)}`
+          );
+        }
+      }
+      } catch (e: any) {
+        stats.warnings.push(
+          `No se pudieron listar comentarios de "${t.name}": ${String(e?.message ?? e).slice(0, 200)}`
+        );
       }
 
       // Adjuntos: descarga + re-sube a R2. Idempotente por File.asanaId.
