@@ -289,6 +289,14 @@ export default function TaskFormModal({
       title: title.trim(),
       projectId,
       projectIds,
+      // CRÍTICO: la columna seleccionada para cada proyecto extra
+      // va EN ESTE campo. Sin esto, el PATCH/POST no la persiste y
+      // todas las tareas compartidas caen siempre en la primera
+      // columna del kanban del proyecto extra (típicamente "TAREAS
+      // URGENTES" o equivalente). Antes solo se enviaba en el flujo
+      // de "Grabar reunión rápida" — el flow normal de guardado lo
+      // omitía y el bug pasaba desapercibido.
+      extraProjectStatuses,
       status,
       priority: priorityToApi[priority],
       assigneeIds,
