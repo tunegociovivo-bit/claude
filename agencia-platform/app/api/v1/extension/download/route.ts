@@ -129,25 +129,50 @@ export const GET = withApi({}, async (req, { api }) => {
 
   const version = await readManifestVersion(extDir);
 
-  // Construimos el zip COMPLETO en un Buffer. El total < 100 KB, no
-  // merece la pena streaming.
-  const zipBuffer: Buffer = await new Promise((resolve, reject) => {
-    const archive = archiver("zip", { zlib: { level: 6 } });
-    const chunks: Buffer[] = [];
-    archive.on("data", (chunk: Buffer) => chunks.push(chunk));
-    archive.on("end", () => resolve(Buffer.concat(chunks)));
-    archive.on("error", (err) => reject(err));
-    archive.on("warning", (err: any) => {
-      // ENOENT en warning no es fatal (algún fichero opcional faltante)
-      if (err?.code !== "ENOENT") reject(err);
-    });
+  // Construimos el zip COMPLETO en un Buffer leyendo los ficheros con
+  // fs.readFile y haciendo archive.append(buffer). Es más verboso pero
+  // muchísimo más fiable que archive.directory() que internamente usa
+  // streams y se queda colgado si Railway tarda en abrir algún fd o
+  // si fs.stat falla en cualquier fichero (p. ej. un symlink raro).
+  // Para 12 ficheros / 50KB no merece la pena streamear.
+  const files = await listFiles(extDir);
+  if (files.length === 0) {
+    throw new ApiError(500, "empty_extension_dir", `Directorio ${extDir} vacío`);
+  }
 
-    // Añadimos todos los ficheros recursivamente. directory() es más
-    // simple que glob() y no depende de patrones — coge todo lo que
-    // hay bajo extDir.
-    archive.directory(extDir, false);
-    archive.finalize().catch((err) => reject(err));
-  });
+  let zipBuffer: Buffer;
+  try {
+    zipBuffer = await new Promise<Buffer>(async (resolve, reject) => {
+      const archive = archiver("zip", { zlib: { level: 6 }, forceLocalTime: true });
+      const chunks: Buffer[] = [];
+      archive.on("data", (chunk: Buffer) => chunks.push(chunk));
+      archive.on("end", () => resolve(Buffer.concat(chunks)));
+      archive.on("error", (err) => reject(err));
+      archive.on("warning", (err: any) => {
+        // ENOENT no rompe. Otros warnings tampoco — antes los
+        // tratábamos como fatal y eso podía cancelar el zip por
+        // problemas de permisos triviales.
+        console.warn("[extension-download] archiver warn:", err?.message ?? err);
+      });
+
+      try {
+        for (const f of files) {
+          const full = path.join(extDir, f.rel);
+          const buf = await fs.readFile(full);
+          archive.append(buf, { name: f.rel });
+        }
+        await archive.finalize();
+      } catch (err) {
+        reject(err);
+      }
+    });
+  } catch (e: any) {
+    throw new ApiError(
+      500,
+      "zip_failed",
+      `No se pudo generar el zip: ${e?.message ?? e}. Path: ${extDir}, ficheros: ${files.length}`
+    );
+  }
 
   const filename = `hub-extension-v${version}.zip`;
   // Los typings de NextResponse en Next 14 mezclan BodyInit Web y

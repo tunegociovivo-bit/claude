@@ -134,6 +134,21 @@ async function closeOffscreen() {
 // Recording
 // ─────────────────────────────────────────────────────────────────────
 
+// Estado en RAM del SW para la grabación en curso. Si Chrome reinicia
+// el SW (suele pasar), pierdes este estado y la detección de fin de
+// reunión se desactiva — la grabación en sí sigue en el offscreen
+// hasta que el user pulse Stop manualmente, así que el peor caso es
+// "no te pregunto, pero no pasa nada".
+let recordingCtx = null;
+// { tabId, startedAt, lastLoudAt, askEndedAt }
+
+// Umbrales de "silencio largo" — si el RMS reportado por el offscreen
+// está por debajo de SILENCE_LEVEL durante SILENCE_MIN min, asumimos
+// que la reunión ya terminó y preguntamos al user.
+const SILENCE_LEVEL = 8;       // 0-1000, ~ruido de oficina vacía
+const SILENCE_MIN = 3;         // minutos
+const ASK_COOLDOWN_MS = 60_000 * 5; // no volver a preguntar antes de 5 min
+
 async function startRecording() {
   const { apiKey, hubUrl } = await getState();
   if (!apiKey) throw new Error("Sin sesión. Entra primero con tu email/contraseña.");
@@ -150,6 +165,14 @@ async function startRecording() {
     });
   });
 
+  recordingCtx = {
+    tabId: tab.id,
+    tabUrl: tab.url ?? "",
+    startedAt: Date.now(),
+    lastLoudAt: Date.now(),
+    askEndedAt: 0
+  };
+
   await setState({ state: "recording", lastError: null });
 
   await chrome.runtime.sendMessage({
@@ -160,6 +183,44 @@ async function startRecording() {
     meetingTitle: tab.title ?? "",
     hubUrl,
     apiKey
+  });
+}
+
+/**
+ * Pregunta al user via notificación con botones si la reunión ya
+ * terminó. El user decide:
+ *   - [Subir ahora] → llama a stopRecording, igual que el botón
+ *     del popup.
+ *   - [Sigo grabando] → marca cooldown para no volver a molestar
+ *     en 5 minutos.
+ *
+ * No usar más de una notificación de "reunión terminada" al mismo
+ * tiempo. La id "meeting-ended-prompt" es estable, Chrome reemplaza
+ * la anterior si existe.
+ */
+async function askIfMeetingEnded(reason) {
+  if (!recordingCtx) return;
+  const now = Date.now();
+  if (now - recordingCtx.askEndedAt < ASK_COOLDOWN_MS) return;
+  recordingCtx.askEndedAt = now;
+
+  const reasonText = {
+    tab_closed: "Has cerrado la pestaña de la reunión.",
+    url_change: "Ya no estás en la URL de la reunión.",
+    silence: `Llevamos ${SILENCE_MIN} minutos sin oír audio.`
+  }[reason] ?? "La reunión parece haber terminado.";
+
+  chrome.notifications.create("meeting-ended-prompt", {
+    type: "basic",
+    iconUrl: chrome.runtime.getURL("icons/icon-128.png"),
+    title: "¿Reunión terminada?",
+    message: `${reasonText} Pulsa "Subir ahora" para generar la tarea con el resumen IA o "Sigo grabando" si continúa.`,
+    priority: 2,
+    requireInteraction: true,
+    buttons: [
+      { title: "✓ Subir ahora" },
+      { title: "⟳ Sigo grabando" }
+    ]
   });
 }
 
@@ -307,7 +368,27 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       sendResponse({ ok: true });
       return;
     }
+    if (msg?.from === "offscreen" && msg?.type === "audio-level") {
+      // Detección de silencio. Si el RMS supera el umbral, marcamos
+      // actividad. Si llevamos más de SILENCE_MIN minutos sin pasar
+      // del umbral Y estamos grabando, preguntamos al user si la
+      // reunión terminó.
+      if (recordingCtx) {
+        if (typeof msg.level === "number" && msg.level >= SILENCE_LEVEL) {
+          recordingCtx.lastLoudAt = Date.now();
+        } else {
+          const silentMs = Date.now() - recordingCtx.lastLoudAt;
+          if (silentMs >= SILENCE_MIN * 60_000) {
+            askIfMeetingEnded("silence");
+          }
+        }
+      }
+      return;
+    }
     if (msg?.from === "offscreen" && msg?.type === "upload-result") {
+      // Tras subir limpiamos el contexto de reunión activa.
+      recordingCtx = null;
+      chrome.notifications.clear("meeting-ended-prompt");
       if (msg.ok) {
         await setState({ state: "done", lastTaskUrl: msg.taskUrl, lastError: null });
         chrome.notifications.create({
@@ -390,3 +471,90 @@ chrome.runtime.onStartup.addListener(async () => {
   const { apiKey } = await getState();
   if (apiKey) await ensureNotificationsAlarm();
 });
+
+// ─────────────────────────────────────────────────────────────────────
+// Detección de fin de reunión
+// ─────────────────────────────────────────────────────────────────────
+
+/**
+ * Heurística para saber si una URL sigue siendo de una reunión activa.
+ * Se basa en patrones específicos por plataforma:
+ *   - Google Meet: meet.google.com/<id> con guiones (la lobby es meet.google.com sin path).
+ *   - Teams: teams.microsoft.com/_#/meetup-join/... o /meeting/...
+ *   - Zoom: zoom.us/j/<id> o /wc/<id>/join
+ *   - Whereby: whereby.com/<room>
+ *   - Jitsi: meet.jit.si/<room>
+ * Si no encaja en ningún patrón, asumimos que ya no es la reunión.
+ */
+function urlIsActiveMeeting(url) {
+  if (!url) return false;
+  try {
+    const u = new URL(url);
+    const h = u.hostname;
+    const p = u.pathname;
+    if (/meet\.google\.com$/i.test(h)) return /^\/[a-z0-9-]{8,}/i.test(p);
+    if (/teams\.(microsoft|live)\.com$/i.test(h))
+      return /meetup-join|meeting|conf/i.test(p + u.hash);
+    if (/zoom\.us$/i.test(h) || h.endsWith(".zoom.us"))
+      return /\/j\/\d+|\/wc\/\d+|\/meeting/i.test(p);
+    if (h.endsWith("whereby.com")) return p.length > 1; // /<room>
+    if (/meet\.jit\.si$/i.test(h)) return p.length > 1;
+    if (h.endsWith(".webex.com")) return /meet|join/i.test(p);
+    if (h.endsWith(".gotomeeting.com")) return p.length > 1;
+    // Hosts no listados: asumimos que es reunión si el host estaba en
+    // las URLs originales — no cortamos para no falsos positivos.
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Tab cerrada → si era la de la grabación, preguntamos. (También
+// podríamos detener directamente, pero darle la opción al user es
+// más seguro: a veces se cierra una pestaña por error y quiere
+// seguir grabando si la reabre rápido.)
+chrome.tabs.onRemoved.addListener((tabId) => {
+  if (recordingCtx && recordingCtx.tabId === tabId) {
+    askIfMeetingEnded("tab_closed");
+  }
+});
+
+// Cambio de URL en la tab de la grabación. Si la URL nueva ya no
+// parece una reunión activa, preguntamos.
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  if (!recordingCtx || recordingCtx.tabId !== tabId) return;
+  // Solo nos importa cuando cambia URL (no cuando carga, cambia
+  // título, etc.).
+  if (!changeInfo.url) return;
+  // Si la URL nueva es del mismo dominio + path con sentido de
+  // reunión, ignoramos. Si NO, preguntamos.
+  if (urlIsActiveMeeting(changeInfo.url)) {
+    recordingCtx.tabUrl = changeInfo.url;
+    return;
+  }
+  askIfMeetingEnded("url_change");
+});
+
+// Botones de la notificación de fin de reunión. 0 = subir, 1 = sigo.
+chrome.notifications.onButtonClicked.addListener(async (notificationId, buttonIdx) => {
+  if (notificationId !== "meeting-ended-prompt") return;
+  chrome.notifications.clear(notificationId);
+  if (buttonIdx === 0) {
+    // Subir ahora
+    try {
+      await stopRecording();
+    } catch (e) {
+      console.warn("[meeting-ended] stop failed:", e);
+    }
+  } else {
+    // Sigo grabando — el cooldown ya está marcado, no insistiremos
+    // en 5 minutos. Reseteamos lastLoudAt para no preguntar otra vez
+    // inmediatamente si lo que provocó la pregunta fue silencio.
+    if (recordingCtx) recordingCtx.lastLoudAt = Date.now();
+  }
+});
+
+// Si el user clica el cuerpo de la notificación (no los botones),
+// también lo tratamos como "abre el popup" para que decida ahí.
+// El handler global de chrome.notifications.onClicked ya cubre eso
+// arriba — solo añadimos un fast-path para el caso meeting-ended.

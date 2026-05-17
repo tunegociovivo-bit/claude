@@ -56,11 +56,43 @@ async function startRecording(opts) {
   // ¡OJO! Al capturar audio de la tab Chrome MUTEA la salida por
   // defecto — la reunión deja de oírse en los altavoces. Conectamos
   // el stream a un nuevo AudioContext para reproducirlo localmente
-  // mientras también lo grabamos.
+  // mientras también lo grabamos. Y de paso colgamos un AnalyserNode
+  // que detecta silencio prolongado: si la reunión "termina" porque
+  // se desconectaron todos, llevamos N minutos sin audio → el
+  // background pregunta al user si quiere parar y subir.
   try {
     const audioCtx = new AudioContext();
     const source = audioCtx.createMediaStreamSource(stream);
     source.connect(audioCtx.destination);
+
+    const analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 2048;
+    source.connect(analyser);
+    const buf = new Uint8Array(analyser.fftSize);
+
+    // Muestreo cada 5s. Notificamos al SW del nivel de audio (0-255)
+    // y él decide qué hacer (umbral + ventana). Aquí no hacemos
+    // lógica de negocio, solo sensores.
+    const sampleInterval = setInterval(() => {
+      if (!mediaRecorder || mediaRecorder.state === "inactive") {
+        clearInterval(sampleInterval);
+        return;
+      }
+      analyser.getByteTimeDomainData(buf);
+      // RMS — más estable que peak para detectar silencio.
+      let sum = 0;
+      for (let i = 0; i < buf.length; i++) {
+        const v = (buf[i] - 128) / 128;
+        sum += v * v;
+      }
+      const rms = Math.sqrt(sum / buf.length);
+      const level = Math.round(rms * 1000); // 0-1000 aprox
+      chrome.runtime.sendMessage({
+        from: "offscreen",
+        type: "audio-level",
+        level
+      }).catch(() => {});
+    }, 5000);
   } catch {
     // Si falla, al menos seguimos grabando — el user solo oye mal.
   }
