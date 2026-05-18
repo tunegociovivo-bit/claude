@@ -100,6 +100,56 @@ export async function processOneRun(runId: string): Promise<ProcessResult> {
         .catch(() => {});
     }
 
+    // AUTO-PROMOCIÓN FAILED → REQUIRES_HUMAN para errores técnicos.
+    //
+    // Filosofía: Sonia NUNCA debería declararse FAILED sin antes
+    // pedirme ayuda a mí (Claude Code). Si el error es técnico (bug
+    // del runner, error 4xx/5xx de Anthropic, payload mal formado,
+    // tool sin implementar...), no es problema del user — es
+    // problema MIO que debo arreglar.
+    //
+    // Promovemos a REQUIRES_HUMAN + comentario "estoy investigando"
+    // para que la UI muestre azul "Claude trabajando" en vez de
+    // rojo "Sonia falló". Cuando Claude termine el fix, el endpoint
+    // ai-reprocess re-dispara la task automáticamente.
+    //
+    // Si en cambio el error es de credenciales / config del workspace
+    // (token caducado, permiso denegado, integración no configurada),
+    // mantenemos FAILED — Claude no puede arreglar eso, el user sí.
+    let finalStatus = result.status;
+    if (result.status === "FAILED" && classifyError(result.error ?? "") === "technical") {
+      finalStatus = "REQUIRES_HUMAN" as any;
+      const explainer =
+        `❓ Me he topado con un problema técnico al procesar esta tarea y se lo he pedido a Claude Code para que lo arregle:\n\n` +
+        `**Error:** ${(result.error ?? "(sin detalle)").slice(0, 400)}\n\n` +
+        `Mientras tanto no necesitas hacer nada — cuando Claude aplique la mejora, la tarea se re-procesa automáticamente y recibirás aviso.`;
+      try {
+        await prisma.aiAgentRun.update({
+          where: { id: runId },
+          data: { status: finalStatus as any }
+        });
+        // Comentario informativo firmado por Sonia.
+        const ws = await prisma.workspace.findUnique({
+          where: { id: run.workspaceId },
+          select: { settings: true }
+        }).catch(() => null);
+        const aiUserId = (ws?.settings as any)?.aiAgent?.userId;
+        if (aiUserId) {
+          await prisma.comment.create({
+            data: {
+              workspaceId: run.workspaceId,
+              authorId: aiUserId,
+              targetType: "TASK",
+              targetId: run.taskId,
+              body: explainer
+            }
+          }).catch(() => {});
+        }
+      } catch (e) {
+        console.warn("[sonia] promote FAILED→REQUIRES_HUMAN:", (e as Error).message);
+      }
+    }
+
     // AUTO-ESCALACIÓN a Claude Code via GitHub Issue.
     // Cuando Sonia falla o pide ayuda, abrimos un issue con @claude
     // mention y el contexto entero. Si el repo tiene la GitHub App
@@ -108,7 +158,7 @@ export async function processOneRun(runId: string): Promise<ProcessResult> {
     // sin que el user tenga que hacer nada.
     // Si las env vars no están configuradas, esto es no-op
     // silencioso (no rompe el run ni la notificación al user).
-    if (result.status === "FAILED" || result.status === "REQUIRES_HUMAN") {
+    if (finalStatus === "FAILED" || finalStatus === "REQUIRES_HUMAN") {
       void escalateRunToGitHub(runId)
         .then((esc) => {
           if (esc.ok) {
@@ -122,7 +172,7 @@ export async function processOneRun(runId: string): Promise<ProcessResult> {
         .catch((e) => console.warn("[sonia] escalateRunToGitHub crash:", e?.message ?? e));
     }
 
-    return { runId, status: result.status, steps: result.stepsCount };
+    return { runId, status: finalStatus, steps: result.stepsCount };
   } catch (e: any) {
     const msg = String(e?.message ?? e);
     await prisma.aiAgentRun
@@ -171,4 +221,49 @@ export function processRunInBackground(runId: string): void {
       console.error("[sonia] no se pudo marcar FAILED:", e2);
     }
   });
+}
+
+/**
+ * Clasifica el error de un run para decidir si:
+ *   - "credential": el error es de credencial/permiso/config del
+ *     workspace. Claude NO puede arreglarlo con código — solo el
+ *     user puede dar un token nuevo, configurar la integración,
+ *     etc. Mantenemos FAILED para que se vea claro al user.
+ *   - "technical": bug del runner, error de API ajena (Anthropic
+ *     4xx/5xx, Meta 500), tool sin implementar, payload mal
+ *     formado, timeout interno, etc. Lo arreglo yo (Claude) con
+ *     código. Promovemos a REQUIRES_HUMAN y escalamos.
+ */
+function classifyError(errorMsg: string): "credential" | "technical" {
+  const m = errorMsg.toLowerCase();
+  const credentialPatterns = [
+    "session has expired",
+    "session is invalid",
+    "user logged out",
+    "access token",
+    "invalid token",
+    "token caducado",
+    "token inválido",
+    "no api key",
+    "api key inválida",
+    "api key no configurada",
+    "permission",
+    "permiso",
+    "401",
+    "403",
+    "unauthorized",
+    "forbidden",
+    "no autorizado",
+    "metaconnection caducada",
+    "metaconnection no configurada",
+    "ai key falta",
+    "no hay api key",
+    "rate limit",
+    "quota exceeded",
+    "cuota agotada"
+  ];
+  for (const p of credentialPatterns) {
+    if (m.includes(p)) return "credential";
+  }
+  return "technical";
 }
