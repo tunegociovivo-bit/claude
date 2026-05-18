@@ -19,7 +19,7 @@
 // VERSION != actual. Subir el número aquí FUERZA a todos los
 // navegadores con la PWA cacheada a re-descargar todo.
 
-const VERSION = "v6-2026-05-18";
+const VERSION = "v7-2026-05-18b";
 const SHELL_CACHE = `hub-shell-${VERSION}`;
 const API_CACHE = `hub-api-${VERSION}`;
 

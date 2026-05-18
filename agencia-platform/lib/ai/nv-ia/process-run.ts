@@ -147,7 +147,28 @@ export async function processOneRun(runId: string): Promise<ProcessResult> {
  * run quedado en RUNNING/PENDING y lo recogerá.
  */
 export function processRunInBackground(runId: string): void {
-  void processOneRun(runId).catch((e) => {
-    console.error("[sonia] background processRun fail:", runId, e?.message ?? e);
+  void processOneRun(runId).catch(async (e) => {
+    // CRÍTICO: si processOneRun lanza una excepción que escapa de
+    // su propio try/catch interno (poco frecuente pero pasa: error
+    // de import del runner, error al cargar config, etc.), antes
+    // solo se logueaba. El run quedaba PENDING para siempre.
+    //
+    // Ahora marcamos el run como FAILED aquí mismo con el mensaje
+    // de error visible. El user verá "Sonia falló" en lugar de
+    // "Sonia bloqueada" — diagnosticable.
+    const msg = String(e?.message ?? e);
+    console.error("[sonia] background processRun fail:", runId, msg);
+    try {
+      await prisma.aiAgentRun.update({
+        where: { id: runId },
+        data: {
+          status: "FAILED",
+          error: `processRunInBackground crash: ${msg}`,
+          finishedAt: new Date()
+        }
+      });
+    } catch (e2) {
+      console.error("[sonia] no se pudo marcar FAILED:", e2);
+    }
   });
 }

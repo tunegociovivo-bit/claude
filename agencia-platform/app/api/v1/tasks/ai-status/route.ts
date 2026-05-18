@@ -19,6 +19,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
 import { extractEscalationFromLog } from "@/lib/ai/nv-ia/escalate";
+import { processRunInBackground } from "@/lib/ai/nv-ia/process-run";
 
 export const dynamic = "force-dynamic";
 
@@ -50,6 +51,27 @@ export const GET = withApi({ scope: "tasks:read" }, async (req, { api }) => {
   const latestByTask = new Map<string, typeof runs[number]>();
   for (const r of runs) {
     if (!latestByTask.has(r.taskId)) latestByTask.set(r.taskId, r);
+  }
+
+  // WATCHDOG IMPLÍCITO: si hay runs PENDING que llevan >45s en la
+  // cola, los re-disparamos fire-and-forget. processRunInBackground
+  // es idempotente (lock optimista en updateMany) — si ya está
+  // corriendo otro proceso, simplemente skip.
+  //
+  // Pasa cuando processRunInBackground se llamó pero crasheó al
+  // import / al primer await, sin llegar a marcar RUNNING. Antes el
+  // run quedaba PENDING para siempre y el user veía "Sonia bloqueada".
+  // Ahora cada vez que abres /tareas, el polling de la UI actúa como
+  // watchdog: re-dispara los PENDING viejos y Sonia arranca.
+  const PENDING_STALE_MS = 45_000;
+  const now = Date.now();
+  for (const r of latestByTask.values()) {
+    if (
+      r.status === "PENDING" &&
+      now - (r.startedAt ?? r.createdAt).getTime() > PENDING_STALE_MS
+    ) {
+      processRunInBackground(r.id);
+    }
   }
 
   // Para detectar "Sonia te ha contestado": leemos los últimos
