@@ -1,147 +1,80 @@
 // Service worker de Agencia Hub.
 //
-// Funciones:
-//  1. Notificaciones push (web-push) — el original.
-//  2. Cache del shell (HTML, JS, CSS, iconos) para que la app
-//     abra sin red. Estrategia: network-first con fallback al
-//     cache; los assets de _next/static se cachean cache-first
-//     porque son inmutables.
-//  3. Caché de respuestas GET de la API recientes (stale-while-
-//     revalidate) para que /mi-dia y /tareas muestren la última
-//     vista vista al perder conexión.
-//  4. Queue de mutaciones offline. PATCH/POST/DELETE a la API
-//     que fallen por red se guardan en IndexedDB y se reintentan
-//     cuando vuelve la conexión.
+// ⚠️ ESTA VERSIÓN ESTÁ MUY ADELGAZADA RESPECTO A LA ANTERIOR ⚠️
 //
-// VERSION: bump esto en CADA cambio de UI que el user deba ver al
-// instante (no esperar al ciclo natural de invalidación). El install
-// activa skipWaiting y el activate borra todas las caches con
-// VERSION != actual. Subir el número aquí FUERZA a todos los
-// navegadores con la PWA cacheada a re-descargar todo.
+// El SW anterior (v2-v8) cacheaba /_next/static/* con cache-first
+// y HTML con network-first. Resultado: en el navegador del user
+// quedaba un SW antiguo sirviendo CHUNKS JS viejos durante semanas,
+// y mis fixes nuevos nunca se veían aunque Railway deployara bien.
+// Bump de VERSION + skipWaiting NO arregló esto porque la pestaña
+// del user no tenía mi listener controllerchange (circular: para
+// ver el listener nuevo hace falta cargar el JS nuevo).
+//
+// Solución definitiva: NO INTERCEPTAR fetch de /_next/static ni de
+// HTML. El browser pide directamente a red (cache HTTP normal con
+// hash de Next, que es lo correcto). Sacrificamos modo offline
+// completo a cambio de garantía absoluta de que el user siempre
+// ve la versión actual desplegada.
+//
+// Lo que SÍ sigue haciendo el SW:
+//   1. Notificaciones push (web-push).
+//   2. Cola offline de mutaciones (POST/PATCH/DELETE): si la red
+//      falla, guardamos en IndexedDB y reintentamos al volver
+//      online.
+//
+// Si el user quiere offline mode más fuerte en el futuro,
+// reintroducir cache PERO con purga agresiva por VERSION en
+// activate.
 
-const VERSION = "v8-2026-05-18c";
-const SHELL_CACHE = `hub-shell-${VERSION}`;
-const API_CACHE = `hub-api-${VERSION}`;
-
-// Recursos cacheables al instalar.
-const SHELL_URLS = [
-  "/",
-  "/mi-dia",
-  "/tareas",
-  "/manifest.webmanifest",
-  "/icon-192.png",
-  "/icon-512.png"
-];
+const VERSION = "v9-2026-05-18-no-cache";
 
 self.addEventListener("install", (event) => {
-  event.waitUntil(
-    caches
-      .open(SHELL_CACHE)
-      .then((c) => c.addAll(SHELL_URLS).catch(() => {})) // si alguno falla, seguimos
-      .then(() => self.skipWaiting())
-  );
+  // Activación inmediata: no esperar a que el SW viejo libere.
+  event.waitUntil(self.skipWaiting());
 });
 
 self.addEventListener("activate", (event) => {
   event.waitUntil(
     (async () => {
+      // Borra TODAS las caches que pueda haber dejado el SW viejo
+      // (hub-shell-v2 / hub-api-v2 / etc.). Sin esto, los chunks
+      // antiguos persisten aunque ya no los usemos para fetch —
+      // y la cuota de almacenamiento crece sin razón.
       const keys = await caches.keys();
-      // Borra caches de versiones anteriores
-      await Promise.all(keys.filter((k) => !k.endsWith(VERSION)).map((k) => caches.delete(k)));
+      await Promise.all(keys.map((k) => caches.delete(k)));
+      // Toma control de las pestañas existentes.
       await self.clients.claim();
+      // Avisa a todas las pestañas para que se recarguen una vez
+      // (con el listener controllerchange del layout). Si la
+      // pestaña tiene JS viejo SIN ese listener, no pasa nada —
+      // el script inline del HTML hará la limpieza al próximo
+      // render.
     })()
   );
 });
 
+// NO interceptamos fetch. Que el browser hable directamente con
+// la red. Los assets de /_next/static/* tienen hash en el nombre
+// → cache HTTP eterno es seguro. El HTML va por red cada vez
+// (Next ya marca como no-store los pages dinámicos).
+
+// Cola offline de mutaciones (solo para POST/PATCH/DELETE a la API).
+// Si la red falla, encolamos en IndexedDB y reintentamos al
+// recuperar conexión.
 self.addEventListener("fetch", (event) => {
   const req = event.request;
+  if (!["POST", "PATCH", "DELETE", "PUT"].includes(req.method)) return;
   const url = new URL(req.url);
-
-  // Solo nuestro origen
   if (url.origin !== self.location.origin) return;
-
-  // GETs
-  if (req.method === "GET") {
-    // Assets inmutables de Next: cache-first.
-    if (url.pathname.startsWith("/_next/static")) {
-      event.respondWith(cacheFirst(req, SHELL_CACHE));
-      return;
-    }
-    // API: stale-while-revalidate (sirve lo cacheado y refresca
-    // en background). Si falla la red y no hay cache, 503 JSON.
-    if (url.pathname.startsWith("/api/")) {
-      event.respondWith(staleWhileRevalidate(req, API_CACHE));
-      return;
-    }
-    // HTML páginas: network-first, fallback cache.
-    if (req.mode === "navigate" || req.headers.get("accept")?.includes("text/html")) {
-      event.respondWith(networkFirst(req, SHELL_CACHE));
-      return;
-    }
-  }
-
-  // Mutaciones (POST/PATCH/DELETE/PUT): si la red falla, encolamos.
-  if (["POST", "PATCH", "DELETE", "PUT"].includes(req.method) && url.pathname.startsWith("/api/")) {
-    event.respondWith(networkOrQueue(req));
-  }
+  if (!url.pathname.startsWith("/api/")) return;
+  event.respondWith(networkOrQueue(req));
 });
-
-async function cacheFirst(req, cacheName) {
-  const cache = await caches.open(cacheName);
-  const cached = await cache.match(req);
-  if (cached) return cached;
-  try {
-    const fresh = await fetch(req);
-    if (fresh.ok) cache.put(req, fresh.clone());
-    return fresh;
-  } catch {
-    return new Response("offline", { status: 503 });
-  }
-}
-
-async function networkFirst(req, cacheName) {
-  const cache = await caches.open(cacheName);
-  try {
-    const fresh = await fetch(req);
-    if (fresh.ok) cache.put(req, fresh.clone());
-    return fresh;
-  } catch {
-    const cached = await cache.match(req);
-    if (cached) return cached;
-    // Fallback genérico para navegaciones sin caché.
-    return (
-      (await cache.match("/")) ||
-      new Response("Sin conexión", { status: 503, headers: { "Content-Type": "text/plain" } })
-    );
-  }
-}
-
-async function staleWhileRevalidate(req, cacheName) {
-  const cache = await caches.open(cacheName);
-  const cached = await cache.match(req);
-  const refresh = fetch(req)
-    .then((res) => {
-      if (res && res.ok) cache.put(req, res.clone());
-      return res;
-    })
-    .catch(() => null);
-  return (
-    cached ||
-    (await refresh) ||
-    new Response(JSON.stringify({ error: "offline" }), {
-      status: 503,
-      headers: { "Content-Type": "application/json" }
-    })
-  );
-}
 
 async function networkOrQueue(req) {
   try {
     return await fetch(req.clone());
   } catch {
-    // Sin red. Guardamos en queue para reintentar.
     await enqueueRequest(req);
-    // Avisar a las ventanas activas de que hay una mutación pendiente.
     broadcast({ type: "queued", url: req.url, method: req.method });
     return new Response(
       JSON.stringify({ ok: true, queued: true, message: "Sin conexión: guardado para sincronizar" }),
@@ -151,8 +84,6 @@ async function networkOrQueue(req) {
 }
 
 // ---- IndexedDB queue ----
-// Mantenemos una store sencilla "outbox" con las requests pendientes.
-// Cuando 'online' vuelve, las reintentamos en orden.
 
 const DB_NAME = "hub-outbox-v1";
 const STORE = "requests";
@@ -195,7 +126,6 @@ async function flushQueue() {
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
   });
-
   for (const item of all) {
     try {
       const r = await fetch(item.url, {
@@ -204,8 +134,6 @@ async function flushQueue() {
         body: item.body
       });
       if (r.ok || r.status < 500) {
-        // Éxito o error definitivo del cliente (400/404/...). Quitar
-        // de la queue: reintentar 400 indefinidamente no va a arreglarlo.
         await new Promise((resolve) => {
           const tx = db.transaction(STORE, "readwrite");
           tx.objectStore(STORE).delete(item.id);
@@ -215,13 +143,17 @@ async function flushQueue() {
         broadcast({ type: "flushed", url: item.url, ok: r.ok, status: r.status });
       }
     } catch {
-      // Red sigue caída. Lo dejamos para el siguiente intento.
+      // Red sigue caída.
     }
   }
 }
 
 self.addEventListener("message", (event) => {
   if (event.data?.type === "FLUSH_QUEUE") flushQueue();
+  if (event.data?.type === "SKIP_WAITING") self.skipWaiting();
+  if (event.data?.type === "GET_VERSION" && event.ports?.[0]) {
+    event.ports[0].postMessage({ version: VERSION });
+  }
 });
 
 self.addEventListener("sync", (event) => {
@@ -234,15 +166,13 @@ function broadcast(msg) {
     .then((clientsArr) => clientsArr.forEach((c) => c.postMessage(msg)));
 }
 
-// ---- Push (mantenido del SW original) ----
+// ---- Push notifications (mantenido del SW original) ----
 
 self.addEventListener("push", (event) => {
   let data = { title: "Agencia Hub", body: "Tienes una notificación nueva", link: "/" };
   try {
     if (event.data) data = { ...data, ...event.data.json() };
-  } catch {
-    // payload no JSON
-  }
+  } catch {}
   const options = {
     body: data.body,
     icon: "/icon-192.png",
