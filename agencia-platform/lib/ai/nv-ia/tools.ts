@@ -1652,6 +1652,120 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
       additionalProperties: false
     }
   },
+  // ──────────────────────────────────────────────────────────────
+  // COMUNICACIONES: send (no draft) — para casos donde no necesitas
+  // que el humano apruebe el draft antes (notificaciones rutinarias,
+  // confirmaciones a leads, follow-ups con copy ya validado).
+  //
+  // CAVEAT: para mensajes COMERCIALES nuevos a un cliente o lead,
+  // SIEMPRE prefiere draft_email / draft_whatsapp (que pasan por
+  // aprobación humana). send_* es para casos rutinarios.
+  // ──────────────────────────────────────────────────────────────
+  {
+    name: "send_email",
+    description:
+      "Envía un email REAL (no draft) inmediatamente vía Resend. Úsala SOLO para:\n- Notificaciones rutinarias al cliente (informe mensual, confirmación de descarga, alerta de KPI).\n- Follow-ups automáticos con copy ya validado.\n- Mensajes internos al equipo.\n\nNO la uses para: primer contacto comercial a un lead (eso es draft_email + aprobación), copy nuevo a un cliente importante.\n\nSi el copy es importante o nuevo, mejor draft_email — pasa por aprobación humana.",
+    input_schema: {
+      type: "object",
+      properties: {
+        to: {
+          oneOf: [
+            { type: "string" },
+            { type: "array", items: { type: "string" } }
+          ],
+          description: "Email destinatario (o array si son varios)."
+        },
+        subject: { type: "string" },
+        html: { type: "string", description: "Cuerpo en HTML. Si vas a entregar un informe, usa HTML con estilos inline para que se vea bien en cualquier cliente de email." },
+        text: { type: "string", description: "Versión texto plano del email (opcional, recomendado para deliverability)." },
+        attachFileId: { type: "string", description: "OPCIONAL: ID de un File del workspace (de list_task_files) para adjuntar al email." }
+      },
+      required: ["to", "subject", "html"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "send_whatsapp_message",
+    description:
+      "Envía un mensaje de WhatsApp REAL (no draft) inmediatamente vía WAHA. Mismas reglas que send_email: úsala para mensajes rutinarios/confirmaciones, NO para primer contacto comercial.\n\nEl número debe estar normalizado (con código país, sin +). Si pasas '676383281' o '+34676383281' la tool intenta normalizar a '34676383281'.",
+    input_schema: {
+      type: "object",
+      properties: {
+        toPhone: { type: "string", description: "Teléfono del destinatario. Cualquier formato — se normaliza." },
+        body: { type: "string", description: "Texto del mensaje. Soporta emoji y saltos de línea \\n." },
+        defaultCountryCode: { type: "string", description: "Código país a asumir si toPhone viene sin él (default '34' para España)." }
+      },
+      required: ["toPhone", "body"],
+      additionalProperties: false
+    }
+  },
+  // ──────────────────────────────────────────────────────────────
+  // HOLDED: facturación / presupuestos / contactos (write)
+  // ──────────────────────────────────────────────────────────────
+  {
+    name: "holded_create_invoice",
+    description:
+      "Crea una factura en Holded para un contacto existente. Requiere conocer el contactId — usa holded_list_contacts antes si solo tienes el nombre del cliente.\n\nLa factura se crea EN BORRADOR (status=0). Un admin la revisa y envía manualmente desde Holded.",
+    input_schema: {
+      type: "object",
+      properties: {
+        contactId: { type: "string", description: "ID del contacto en Holded (de holded_list_contacts)." },
+        contactName: { type: "string", description: "Nombre del contacto (denormalizado, requerido por la API)." },
+        items: {
+          type: "array",
+          description: "Líneas de la factura.",
+          items: {
+            type: "object",
+            properties: {
+              name: { type: "string", description: "Concepto del servicio o producto." },
+              units: { type: "number", description: "Cantidad (default 1)." },
+              subtotal: { type: "number", description: "Precio unitario SIN IVA en euros." },
+              taxes: { type: "array", items: { type: "number" }, description: "Array de tipos de IVA, ej [21]. Default [21]." }
+            },
+            required: ["name", "subtotal"],
+            additionalProperties: false
+          }
+        },
+        date: { type: "number", description: "Timestamp UNIX de la fecha de emisión (default: ahora)." },
+        dueDate: { type: "number", description: "Timestamp UNIX del vencimiento (opcional)." },
+        notes: { type: "string", description: "Notas internas o para el cliente." },
+        currency: { type: "string", description: "Código ISO de moneda. Default 'eur'." }
+      },
+      required: ["contactId", "contactName", "items"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "holded_create_quote",
+    description: "Crea un presupuesto (quote) en Holded. Mismos campos que invoice pero el documento es un PRESUPUESTO no factura.",
+    input_schema: {
+      type: "object",
+      properties: {
+        contactId: { type: "string" },
+        contactName: { type: "string" },
+        items: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              name: { type: "string" },
+              units: { type: "number" },
+              subtotal: { type: "number" },
+              taxes: { type: "array", items: { type: "number" } }
+            },
+            required: ["name", "subtotal"],
+            additionalProperties: false
+          }
+        },
+        date: { type: "number" },
+        dueDate: { type: "number" },
+        notes: { type: "string" },
+        currency: { type: "string" }
+      },
+      required: ["contactId", "contactName", "items"],
+      additionalProperties: false
+    }
+  },
   {
     name: "record_lesson",
     description:
@@ -4457,6 +4571,156 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
       message:
         "Run marcado como REQUIRES_HUMAN. Issue de mejora se crea en background. NO sigas trabajando — termina el run aquí."
     };
+  },
+  async send_email(input, ctx) {
+    try {
+      const { sendEmail, sendEmailWithAttachment, isEmailEnabled } = await import("@/lib/integrations/email");
+      if (!isEmailEnabled()) {
+        return { error: "Email no configurado. Define RESEND_API_KEY en el workspace." };
+      }
+      const to = Array.isArray(input?.to) ? input.to.map(String) : String(input?.to ?? "");
+      const subject = String(input?.subject ?? "");
+      const html = String(input?.html ?? "");
+      const text = input?.text ? String(input.text) : undefined;
+      if (!subject || !html) return { error: "subject y html son obligatorios" };
+
+      const attachFileId = input?.attachFileId ? String(input.attachFileId) : null;
+      if (attachFileId) {
+        const file = await prisma.file.findFirst({
+          where: { id: attachFileId, workspaceId: ctx.workspaceId }
+        });
+        if (!file) return { error: `File ${attachFileId} no encontrado` };
+        const { downloadBuffer } = await import("@/lib/storage/r2");
+        const buf = await downloadBuffer(file.s3Key);
+        const result = await sendEmailWithAttachment({
+          to: Array.isArray(to) ? to[0] : to,
+          subject,
+          html,
+          text,
+          attachment: { filename: file.name, content: buf, contentType: file.mimeType }
+        });
+        await prisma.comment.create({
+          data: {
+            workspaceId: ctx.workspaceId,
+            authorId: ctx.config.userId,
+            targetType: "TASK",
+            targetId: ctx.taskId,
+            body: `📧 Email enviado a **${Array.isArray(to) ? to.join(", ") : to}** con adjunto **${file.name}**. Asunto: "${subject}". ID Resend: \`${result.id}\``
+          }
+        });
+        return { ok: true, id: result.id, attached: file.name };
+      }
+      const result = await sendEmail({ to, subject, html, text });
+      await prisma.comment.create({
+        data: {
+          workspaceId: ctx.workspaceId,
+          authorId: ctx.config.userId,
+          targetType: "TASK",
+          targetId: ctx.taskId,
+          body: `📧 Email enviado a **${Array.isArray(to) ? to.join(", ") : to}**. Asunto: "${subject}". ID Resend: \`${result.id}\``
+        }
+      });
+      return { ok: true, id: result.id };
+    } catch (e: any) {
+      return { error: `send_email: ${e?.message ?? e}` };
+    }
+  },
+  async send_whatsapp_message(input, ctx) {
+    try {
+      const { sendText, normalizePhone } = await import("@/lib/leads/waha");
+      const rawPhone = String(input?.toPhone ?? "");
+      const country = input?.defaultCountryCode ? String(input.defaultCountryCode) : "34";
+      const phone = normalizePhone(rawPhone, country);
+      if (!phone) return { error: `Teléfono inválido: ${rawPhone}` };
+      const body = String(input?.body ?? "");
+      if (!body) return { error: "body vacío" };
+
+      const result = await sendText({
+        workspaceId: ctx.workspaceId,
+        phoneNormalized: phone,
+        text: body
+      });
+      await prisma.comment.create({
+        data: {
+          workspaceId: ctx.workspaceId,
+          authorId: ctx.config.userId,
+          targetType: "TASK",
+          targetId: ctx.taskId,
+          body: `💬 WhatsApp enviado a **+${phone}**. Mensaje: "${body.slice(0, 100)}${body.length > 100 ? "…" : ""}"`
+        }
+      });
+      return { ok: true, phone, result };
+    } catch (e: any) {
+      return { error: `send_whatsapp_message: ${e?.message ?? e}` };
+    }
+  },
+  async holded_create_invoice(input, ctx) {
+    try {
+      const { holdedCreateInvoice } = await import("@/lib/integrations/holded");
+      const items = Array.isArray(input?.items) ? input.items : [];
+      if (items.length === 0) return { error: "items vacío" };
+      const payload: any = {
+        contactId: String(input?.contactId ?? ""),
+        contact: String(input?.contactName ?? ""),
+        items: items.map((it: any) => ({
+          name: String(it.name ?? ""),
+          units: typeof it.units === "number" ? it.units : 1,
+          subtotal: Number(it.subtotal ?? 0),
+          taxes: Array.isArray(it.taxes) ? it.taxes : [21]
+        })),
+        currency: input?.currency ? String(input.currency) : "eur"
+      };
+      if (input?.date) payload.date = Number(input.date);
+      if (input?.dueDate) payload.dueDate = Number(input.dueDate);
+      if (input?.notes) payload.notes = String(input.notes);
+      const result = await holdedCreateInvoice({ workspaceId: ctx.workspaceId, payload });
+      await prisma.comment.create({
+        data: {
+          workspaceId: ctx.workspaceId,
+          authorId: ctx.config.userId,
+          targetType: "TASK",
+          targetId: ctx.taskId,
+          body: `🧾 Factura Holded creada (BORRADOR): \`${result.docNumber ?? result.id}\` para **${input?.contactName}**. Revisa y envía desde Holded.`
+        }
+      });
+      return { ok: true, ...result };
+    } catch (e: any) {
+      return { error: `holded_create_invoice: ${e?.message ?? e}` };
+    }
+  },
+  async holded_create_quote(input, ctx) {
+    try {
+      const { holdedCreateQuote } = await import("@/lib/integrations/holded");
+      const items = Array.isArray(input?.items) ? input.items : [];
+      if (items.length === 0) return { error: "items vacío" };
+      const payload: any = {
+        contactId: String(input?.contactId ?? ""),
+        contact: String(input?.contactName ?? ""),
+        items: items.map((it: any) => ({
+          name: String(it.name ?? ""),
+          units: typeof it.units === "number" ? it.units : 1,
+          subtotal: Number(it.subtotal ?? 0),
+          taxes: Array.isArray(it.taxes) ? it.taxes : [21]
+        })),
+        currency: input?.currency ? String(input.currency) : "eur"
+      };
+      if (input?.date) payload.date = Number(input.date);
+      if (input?.dueDate) payload.dueDate = Number(input.dueDate);
+      if (input?.notes) payload.notes = String(input.notes);
+      const result = await holdedCreateQuote({ workspaceId: ctx.workspaceId, payload });
+      await prisma.comment.create({
+        data: {
+          workspaceId: ctx.workspaceId,
+          authorId: ctx.config.userId,
+          targetType: "TASK",
+          targetId: ctx.taskId,
+          body: `📄 Presupuesto Holded creado: \`${result.docNumber ?? result.id}\` para **${input?.contactName}**.`
+        }
+      });
+      return { ok: true, ...result };
+    } catch (e: any) {
+      return { error: `holded_create_quote: ${e?.message ?? e}` };
+    }
   },
   async record_lesson(input, ctx) {
     try {

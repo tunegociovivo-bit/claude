@@ -240,6 +240,22 @@ Cierre:
 - mark_complete: termina la tarea con resumen y notifica al solicitante.
 - escalate_to_claude(reason, blockingType, suggestedFix?, whatICompletedAnyway?): cuando te topas con una LIMITACIÓN REAL del sistema (falta tool, API caída, formato no soportable, config faltante, comportamiento ambiguo de integración), úsala EN VEZ DE cerrar con mark_complete diciendo "no puedo". Marca el run REQUIRES_HUMAN y abre un issue de mejora en GitHub. Claude analiza, arregla el código, y re-procesa la task — el user no toca nada. La próxima vez funcionará.
 
+Envío directo (sin draft + aprobación, para mensajes rutinarios):
+- send_email({ to, subject, html, text?, attachFileId? }): envía email
+  REAL vía Resend. attachFileId opcional para adjuntar un File del
+  workspace. ÚSALA SOLO para notificaciones rutinarias / confirmaciones
+  / envíos automáticos con copy ya validado. NO la uses para primer
+  contacto comercial — eso es draft_email + aprobación humana.
+- send_whatsapp_message({ toPhone, body }): WhatsApp real vía WAHA.
+  Mismas reglas: solo rutinario, no comercial nuevo.
+
+Facturación Holded (write):
+- holded_create_invoice({ contactId, contactName, items[{name, units?,
+  subtotal, taxes?}], date?, dueDate?, notes?, currency? }): crea
+  factura EN BORRADOR. El admin la revisa y envía manualmente desde
+  Holded. items.subtotal en euros SIN IVA. taxes default [21].
+- holded_create_quote: igual pero presupuesto.
+
 MEMORIA PERSISTENTE (aprende entre runs):
 - record_lesson({ scope, lesson, triggerPattern? }): graba una lección
   aprendida que se cargará automáticamente en runs FUTUROS similares.
@@ -504,6 +520,18 @@ export async function executeAgentRun(opts: {
         // de respuestas con muchos tool_use blocks o text largos,
         // dejando turns sin tool_use → bucle se rompía con 400.
         max_tokens: 8192,
+        // EXTENDED THINKING: Opus 4 puede "pensar" tokens internos antes
+        // de actuar. Sin esto, decide cada paso con la primera respuesta
+        // que se le ocurre. Con thinking activado planifica MEJOR, sobre
+        // todo en tareas de varios pasos (crear campaña Meta, generar
+        // informe consolidando 3 fuentes, etc.). Coste: 5-15s extra por
+        // turn de pensamiento + ~5K tokens internos. Vale la pena para
+        // calidad. Lo activamos solo en los primeros 3 pasos (donde se
+        // toman las decisiones grandes); a partir del 4º paso es ejecución
+        // mecánica donde no aporta.
+        ...(step < 3
+          ? { thinking: { type: "enabled" as const, budget_tokens: 5000 } }
+          : {}),
         system: [
           { type: "text", text: SYSTEM_PROMPT, cache_control: { type: "ephemeral" } as any }
         ],
