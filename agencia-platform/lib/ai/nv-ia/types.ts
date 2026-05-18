@@ -28,7 +28,9 @@ export type AgentLogStep =
   | { type: "tool_use"; ts: string; tool: string; input: unknown; toolUseId: string }
   | { type: "tool_result"; ts: string; toolUseId: string; output: unknown; isError?: boolean }
   | { type: "stop"; ts: string; reason: string; summary?: string }
-  | { type: "error"; ts: string; message: string };
+  | { type: "error"; ts: string; message: string }
+  | { type: "info"; ts: string; text: string }
+  | { type: "escalation"; ts: string; issueUrl: string; issueNumber: number };
 
 export type AgentRunResult = {
   status: "SUCCEEDED" | "FAILED" | "REQUIRES_HUMAN";

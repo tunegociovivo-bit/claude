@@ -16,6 +16,11 @@ import { logAiUsage } from "@/lib/ai/usage";
 import { TOOL_DEFINITIONS, TOOL_EXECUTORS, type ToolContext } from "./tools";
 import { DEFAULT_AGENT_CONFIG, type AgentLogStep, type AgentRunResult, type AiAgentConfig } from "./types";
 import {
+  loadLessonsForRun,
+  formatLessonsForPrompt,
+  inferScopesForTask
+} from "./lessons";
+import {
   extractAdhocCredentials,
   loadStoredAdhocCredentials,
   persistAdhocCredentials
@@ -235,6 +240,22 @@ Cierre:
 - mark_complete: termina la tarea con resumen y notifica al solicitante.
 - escalate_to_claude(reason, blockingType, suggestedFix?, whatICompletedAnyway?): cuando te topas con una LIMITACIÓN REAL del sistema (falta tool, API caída, formato no soportable, config faltante, comportamiento ambiguo de integración), úsala EN VEZ DE cerrar con mark_complete diciendo "no puedo". Marca el run REQUIRES_HUMAN y abre un issue de mejora en GitHub. Claude analiza, arregla el código, y re-procesa la task — el user no toca nada. La próxima vez funcionará.
 
+MEMORIA PERSISTENTE (aprende entre runs):
+- record_lesson({ scope, lesson, triggerPattern? }): graba una lección
+  aprendida que se cargará automáticamente en runs FUTUROS similares.
+  Úsala cuando descubras algo NUEVO Y ÚTIL durante este run:
+    · Un patrón de cómo el cliente prefiere las cosas.
+    · Un error y su workaround (ej: "Cuando user pega múltiples
+      tokens Meta, usa el último no el primero").
+    · Una config por defecto que el user siempre quiere.
+    · Una tool nueva que descubriste cómo usar mejor.
+  Las lecciones aparecerán en TUS futuros initial messages bajo
+  "📚 LECCIONES APRENDIDAS DE TAREAS ANTERIORES" — no tendrás que
+  re-descubrir nada.
+  Formato lesson: CORTA, ACCIONABLE, ≤200 chars. "Cuando X, haz Y".
+  NO abuses: lecciones triviales ensucian la memoria. Pregunta:
+  "¿esto le servirá a mi yo-futuro en otra task?". Si no, no la grabes.
+
 PRINCIPIOS:
 1. SIEMPRE empieza llamando a get_task_context.
 2. Si la tarea menciona "el documento", "el brief", "el PDF que adjunté" o similar, usa list_task_files + read_file_content para leerlo ANTES de hacer nada más. No le pidas al humano que te lo pase si ya está adjunto.
@@ -375,6 +396,7 @@ export async function executeAgentRun(opts: {
   let stepsCount = 0;
   let summary: string | null = null;
   let completed = false;
+  let reflexionsDone = 0;
 
   const client = await getAnthropicForWorkspace(workspaceId);
 
@@ -387,7 +409,7 @@ export async function executeAgentRun(opts: {
   const adhocCredentials = await loadAdhocCredentialsForTask(taskId, workspaceId);
   if (Object.keys(adhocCredentials).length > 0) {
     log.push({
-      type: "info" as any,
+      type: "info",
       ts: nowIso(),
       text: `Credenciales ad-hoc cargadas: ${Object.keys(adhocCredentials).join(", ")}`
     });
@@ -417,6 +439,42 @@ export async function executeAgentRun(opts: {
       `Las tools de integración las usarán automáticamente — NO las pidas al user ni las copies en comentarios. ` +
       `Quedan guardadas cifradas hasta que se sustituyan por otras nuevas con el mismo KEY.`;
   }
+
+  // MEMORIA PERSISTENTE: cargamos las lecciones aprendidas de runs
+  // anteriores que aplican a este contexto y las inyectamos al
+  // initial message. Así Sonia "recuerda" entre tasks sin necesidad
+  // de reentrenar el modelo. Las lecciones nuevas se persisten con
+  // la tool record_lesson durante el run.
+  try {
+    const task = await prisma.task.findUnique({
+      where: { id: taskId },
+      select: { title: true, description: true, clientId: true }
+    });
+    if (task) {
+      const scopes = inferScopesForTask({
+        taskTitle: task.title,
+        taskDescription: task.description ?? "",
+        clientId: task.clientId
+      });
+      const lessons = await loadLessonsForRun({
+        workspaceId,
+        contextText: `${task.title}\n\n${task.description ?? ""}\n\n${triggerContext ?? ""}`,
+        scopes,
+        limit: 12
+      });
+      if (lessons.length > 0) {
+        initialContent += formatLessonsForPrompt(lessons);
+        log.push({
+          type: "info",
+          ts: nowIso(),
+          text: `Cargadas ${lessons.length} lecciones de memoria persistente: ${lessons.map((l) => l.scope).join(", ")}`
+        });
+      }
+    }
+  } catch (e) {
+    console.warn("[sonia] loadLessons:", (e as Error).message);
+  }
+
   const messages: Anthropic.MessageParam[] = [
     { role: "user", content: initialContent }
   ];
@@ -612,6 +670,50 @@ export async function executeAgentRun(opts: {
             outputTokens
           };
         }
+
+        // ─── CAPA DE REFLEXIÓN ───────────────────────────────────
+        // Antes de cerrar el run con SUCCEEDED, llamamos a un
+        // "reviewer" interno que evalúa: ¿la entrega cumple lo que
+        // pidió el user?
+        //   - Si el reviewer dice OK → cerramos normal.
+        //   - Si detecta GAP → seguimos iterando con un mensaje del
+        //     reviewer explicando qué falta. Sonia tiene oportunidad
+        //     de corregir antes de cerrar definitivamente.
+        // Cap 2 reflexiones por run para no entrar en bucle.
+        if (reflexionsDone < 2) {
+          try {
+            const review = await runReviewer(client, config, {
+              initialContent,
+              log,
+              summary: summary ?? ""
+            });
+            if (!review.ok && review.gap) {
+              reflexionsDone++;
+              log.push({
+                type: "info",
+                ts: nowIso(),
+                text: `REVIEWER detectó gap (reflexión ${reflexionsDone}/2): ${review.gap}`
+              });
+              // Inyectamos el feedback del reviewer como mensaje user.
+              // El modelo NO ha cerrado de verdad — el cliente vio
+              // mark_complete pero internamente decidimos reabrir.
+              messages.push({
+                role: "user",
+                content:
+                  `REVIEWER INTERNO ha revisado tu entrega y detectó este problema:\n\n` +
+                  `**${review.gap}**\n\n` +
+                  `Continúa el trabajo y arréglalo. Si crees que el reviewer se equivoca y la entrega SÍ está completa, escribe un add_comment explicando por qué y vuelve a llamar mark_complete con summary actualizado. (Solo te quedan ${2 - reflexionsDone} reflexión(es) más antes de cerrar definitivamente.)`
+              });
+              completed = false;
+              summary = null;
+              continue; // siguiente iteración del agent loop
+            }
+          } catch (e) {
+            // Si el reviewer falla, NO bloqueamos — cerramos normal.
+            console.warn("[sonia] reviewer failed:", (e as Error).message);
+          }
+        }
+
         break;
       }
 
@@ -721,4 +823,118 @@ function buildInitialMessage(
     default:
       return `${base} Llama a get_task_context para leerla y procede.`;
   }
+}
+
+/**
+ * Capa de reflexión: tras un mark_complete, se llama a este reviewer
+ * que evalúa si la entrega de Sonia cumple lo que el user pidió.
+ *
+ * Es una segunda invocación al modelo con prompt distinto — no usa
+ * tools, solo evalúa el log + summary contra el initial message
+ * (que es lo que pidió el user).
+ *
+ * Devuelve { ok: true } si la entrega está completa, o
+ * { ok: false, gap: "qué falta concretamente" } si detecta problema.
+ *
+ * Filosofía: ser SEVERO con la calidad pero no perfeccionista. El
+ * reviewer solo objeta si hay un GAP CLARO — no por preferencias
+ * estéticas o detalles menores. La idea es atrapar "olvidé pedir
+ * X" o "Sonia entregó sin la pieza Y que el user pidió", no
+ * micromanagement.
+ */
+async function runReviewer(
+  client: Anthropic,
+  config: AiAgentConfig,
+  ctx: { initialContent: string; log: AgentLogStep[]; summary: string }
+): Promise<{ ok: boolean; gap?: string }> {
+  // Resumen compacto del log para no inflar tokens. Solo los pasos
+  // de tool_use + tool_result + text del modelo.
+  const logSummary = ctx.log
+    .filter((s) => ["tool_use", "tool_result", "text", "info"].includes(s.type))
+    .slice(-30)
+    .map((s) => {
+      if (s.type === "tool_use") {
+        const t = s as any;
+        return `[tool_use] ${t.tool}(${JSON.stringify(t.input ?? {}).slice(0, 120)})`;
+      }
+      if (s.type === "tool_result") {
+        const r = s as any;
+        const out = typeof r.output === "string" ? r.output : JSON.stringify(r.output ?? {});
+        return `[tool_result${r.isError ? " ERROR" : ""}] ${out.slice(0, 150)}`;
+      }
+      if (s.type === "text") return `[text] ${(s as any).text.slice(0, 150)}`;
+      if (s.type === "info") return `[info] ${(s as any).text.slice(0, 150)}`;
+      return "";
+    })
+    .filter(Boolean)
+    .join("\n");
+
+  const reviewerSystem = `Eres el revisor de calidad de "Sonia" (un agente IA que ejecuta tareas para una agencia de marketing). Te paso:
+1. La PETICIÓN ORIGINAL del user (mensaje inicial al agente).
+2. El LOG de lo que Sonia hizo (resumen de tools llamadas + resultados + textos).
+3. El SUMMARY final que Sonia va a entregar al user vía mark_complete.
+
+Tu trabajo: decidir si la entrega CUMPLE lo que pidió el user.
+
+Sé severo pero pragmático. Objeta SOLO si hay GAP CLARO. Ejemplos válidos de gap:
+- El user pidió "descarga leads y haz Excel bonito" pero Sonia descargó leads y NO generó Excel.
+- El user pidió 3 cosas y Sonia solo hizo 2.
+- El user pidió un entregable (excel, pdf, link) y NO se adjuntó.
+- Sonia dijo en el summary "lo hice" pero el log no muestra que llamara a la tool real.
+
+NO objetes por:
+- Preferencias estéticas menores (color del Excel, fuente).
+- Falta de info que el user no proporcionó.
+- Detalles que el user no pidió explícitamente.
+
+Responde EXCLUSIVAMENTE con un JSON sin markdown, en una de estas dos formas:
+{"ok": true}
+{"ok": false, "gap": "Explicación CORTA de qué falta (1-2 frases, accionable)."}`;
+
+  const userMsg = `PETICIÓN ORIGINAL DEL USER:
+"""
+${ctx.initialContent.slice(0, 4000)}
+"""
+
+LOG DE LA EJECUCIÓN DE SONIA:
+"""
+${logSummary.slice(0, 6000)}
+"""
+
+SUMMARY QUE SONIA VA A ENTREGAR (mark_complete):
+"""
+${ctx.summary.slice(0, 2000)}
+"""
+
+¿La entrega cumple? Responde solo con JSON.`;
+
+  const resp = await client.messages.create({
+    model: config.model,
+    max_tokens: 400,
+    system: reviewerSystem,
+    messages: [{ role: "user", content: userMsg }]
+  });
+
+  const text = resp.content
+    .filter((b) => b.type === "text")
+    .map((b: any) => b.text)
+    .join("")
+    .trim();
+  // Parsing tolerante: el modelo a veces escribe ```json ... ``` aunque
+  // pidamos sin markdown.
+  const cleaned = text
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/, "")
+    .trim();
+  try {
+    const parsed = JSON.parse(cleaned);
+    if (parsed.ok === true) return { ok: true };
+    if (parsed.ok === false && typeof parsed.gap === "string") {
+      return { ok: false, gap: parsed.gap };
+    }
+  } catch {
+    // Si el reviewer no devolvió JSON parseable, lo damos por OK
+    // (no bloqueamos por bug del reviewer).
+  }
+  return { ok: true };
 }

@@ -1651,6 +1651,43 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
       required: ["reason", "blockingType"],
       additionalProperties: false
     }
+  },
+  {
+    name: "record_lesson",
+    description:
+      "MEMORIA PERSISTENTE: graba una lección aprendida que se cargará en runs FUTUROS similares. Úsala cuando descubras algo útil durante este run que no quieres olvidar la próxima vez. Las lecciones se inyectan automáticamente al system prompt de runs futuros que matcheen el scope y triggerPattern.\n\nFORMATO de la lección: instrucción CORTA y ACCIONABLE. Mal: 'En mayo de 2026 hicimos X y resultó Y'. Bien: 'Cuando el user pegue múltiples tokens Meta en comentarios, usa el ÚLTIMO no el primero'.\n\nNO abuses — graba SOLO lecciones que ahorrarán tiempo en runs futuros (errores resueltos, patrones del cliente, configs por defecto que el user prefiere, etc.). Lecciones triviales o muy específicas a UNA task ensucian la memoria.\n\nLas duplicadas se deduplican automáticamente. Idempotente.",
+    input_schema: {
+      type: "object",
+      properties: {
+        scope: {
+          type: "string",
+          description:
+            "Cuándo aplicar esta lección. Opciones:\n" +
+            "  'general'                       → siempre cargar (úsalo con cuidado)\n" +
+            "  'task_type:meta_lead_campaign'  → tasks de crear campañas Lead Ads\n" +
+            "  'task_type:download_leads'      → tasks de descargar leads\n" +
+            "  'task_type:report'              → tasks de generar informes\n" +
+            "  'task_type:google_ads'          → tasks de Google Ads\n" +
+            "  'task_type:billing'             → tasks de Holded/facturas\n" +
+            "  'task_type:outbound_comms'      → tasks de email/whatsapp marketing\n" +
+            "  'task_type:seo'                 → tasks de SEO\n" +
+            "  'tool:meta_ads'                 → cualquier uso de meta_ads_*\n" +
+            "  'client:<clientId>'             → solo tasks de UN cliente concreto\n" +
+            "  'error_pattern:<keyword>'       → cuando aparezca cierto error"
+        },
+        lesson: {
+          type: "string",
+          description: "El texto de la lección. Corto (≤ 200 chars idealmente), accionable, en castellano. 'Cuando X, haz Y porque Z'."
+        },
+        triggerPattern: {
+          type: "string",
+          description:
+            "OPCIONAL. Regex o keyword que debe estar en el contexto de la task para activar la lección (case-insensitive). Si null, se aplica siempre que el scope matchee. Ej: 'session has expired', 'rs advocats', 'meta\\\\s*ads'."
+        }
+      },
+      required: ["scope", "lesson"],
+      additionalProperties: false
+    }
   }
 ];
 
@@ -4420,6 +4457,33 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
       message:
         "Run marcado como REQUIRES_HUMAN. Issue de mejora se crea en background. NO sigas trabajando — termina el run aquí."
     };
+  },
+  async record_lesson(input, ctx) {
+    try {
+      const { recordLesson } = await import("@/lib/ai/nv-ia/lessons");
+      const scope = String(input?.scope ?? "general").trim();
+      const lesson = String(input?.lesson ?? "").trim();
+      const triggerPattern = input?.triggerPattern ? String(input.triggerPattern).trim() : null;
+      if (!lesson) return { error: "lesson vacía" };
+      const result = await recordLesson({
+        workspaceId: ctx.workspaceId,
+        scope,
+        lesson,
+        triggerPattern,
+        source: "sonia_self",
+        taskId: ctx.taskId
+      });
+      return {
+        ok: true,
+        lessonId: result.id,
+        created: result.created,
+        message: result.created
+          ? "Lección guardada — se cargará en runs futuros similares."
+          : "Lección ya existía — useCount incrementado."
+      };
+    } catch (e: any) {
+      return { error: `record_lesson: ${e?.message ?? e}` };
+    }
   }
 };
 

@@ -227,6 +227,7 @@ model Workspace {
   aiAgentRuns               AiAgentRun[]
   aiDrafts                  AiDraft[]
   aiClientMemories          AiClientMemory[]
+  aiAgentLessons            AiAgentLesson[]
   aiWorkspaceMemory         AiWorkspaceMemory?
   aiUserMemories            AiUserMemory[]
   aiProposedTools           AiProposedTool[]
@@ -2467,4 +2468,57 @@ model MetaCampaignReview {
   campaign MetaCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
 
   @@index([campaignId, generatedAt])
+}
+
+// ====================================================================
+// AI AGENT — MEMORIA PERSISTENTE (lecciones aprendidas)
+//
+// Cada vez que Sonia descubre cómo hacer algo (porque Claude se lo
+// arregló tras una escalación, porque ella misma resolvió un caso
+// difícil, o porque un admin se lo enseñó manualmente), se persiste
+// como AiAgentLesson. En cada run posterior, el runner carga las
+// lecciones relevantes al contexto y las inyecta en el initial
+// message. Así Sonia "aprende" entre runs sin necesidad de
+// reentrenar el modelo.
+// ====================================================================
+
+model AiAgentLesson {
+  id          String  @id @default(cuid())
+  workspaceId String
+  // Scope semántico — usado para filtrar qué lecciones cargar en
+  // cada run. Convención:
+  //   "general"                    → siempre cargar
+  //   "tool:meta_ads_*"            → si la task mencione meta ads
+  //   "client:<clientId>"          → si el task tiene ese client
+  //   "task_type:meta_lead_campaign" → si trigger context coincide
+  //   "error_pattern:robots_txt"   → match por palabra clave error
+  scope       String
+  // Texto natural que se inyecta en el system prompt cuando aplica.
+  // Pensado como instrucción accionable, ej:
+  //   "Cuando el user pegue múltiples tokens Meta en comentarios,
+  //    usa el ÚLTIMO (más reciente), no el primero."
+  lesson      String  @db.Text
+  // Patrón regex/keyword para refinar el matching dentro del scope.
+  // Opcional: si null, se carga siempre que el scope aplique.
+  triggerPattern String? @db.Text
+  // Quién creó la lección. Solo para auditoría:
+  //   "claude"     → Claude Code tras resolver una escalación
+  //   "sonia_self" → Sonia llamó record_lesson durante un run
+  //   "human"      → un admin del workspace
+  source      String  @default("sonia_self")
+  // Task donde se aprendió (opcional, para auditoría).
+  taskId      String?
+  // Cuántas veces se ha cargado/aplicado esta lección. Las más
+  // usadas se priorizan cuando hay muchas y hay que recortar.
+  useCount    Int     @default(0)
+  lastUsedAt  DateTime?
+  // Lecciones obsoletas pueden inactivarse sin borrar (para auditoría).
+  isActive    Boolean @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, scope, isActive])
+  @@index([workspaceId, useCount])
 }
