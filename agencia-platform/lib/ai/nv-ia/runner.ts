@@ -402,7 +402,11 @@ export async function executeAgentRun(opts: {
 
       const resp = await client.messages.create({
         model: config.model,
-        max_tokens: 4096,
+        // 8192 (Opus 4) cubre con holgura tool_use+text en un turn.
+        // Antes era 4096 y causaba stop_reason="max_tokens" a mitad
+        // de respuestas con muchos tool_use blocks o text largos,
+        // dejando turns sin tool_use → bucle se rompía con 400.
+        max_tokens: 8192,
         system: [
           { type: "text", text: SYSTEM_PROMPT, cache_control: { type: "ephemeral" } as any }
         ],
@@ -456,6 +460,33 @@ export async function executeAgentRun(opts: {
         // Defensivo: la API dice tool_use pero no hay bloques tool_use.
         throw new Error("stop_reason=tool_use sin bloques tool_use en content");
       }
+      if (toolUses.length === 0) {
+        // El modelo respondió SIN tool_use y SIN end_turn (típicamente
+        // stop_reason="max_tokens" porque agotó el output_tokens budget
+        // a mitad de un mensaje, o algún stop_sequence raro).
+        // Antes pushábamos messages.push({ role:"user", content:[] })
+        // → Anthropic 400 "user messages must have non-empty content"
+        // en la siguiente iteración. Bug capturado en producción.
+        // Salimos limpio como REQUIRES_HUMAN.
+        log.push({
+          type: "stop",
+          ts: nowIso(),
+          reason: `no_tool_use_${resp.stop_reason ?? "unknown"}`
+        });
+        return {
+          status: "REQUIRES_HUMAN",
+          summary: null,
+          error:
+            `Modelo paró en stop_reason="${resp.stop_reason}" sin tool_use ni mark_complete. ` +
+            (resp.stop_reason === "max_tokens"
+              ? "Probablemente max_tokens del response agotado — el mensaje del modelo se cortó."
+              : "Razón inesperada — revisar log."),
+          log,
+          stepsCount,
+          inputTokens,
+          outputTokens
+        };
+      }
 
       // Echo del turn del assistant
       messages.push({ role: "assistant", content: resp.content });
@@ -498,10 +529,20 @@ export async function executeAgentRun(opts: {
           // Marcamos un flag para que el wrap-up NO sobrescriba status.
           (tu as any)._wasEscalation = true;
         }
+        // CRÍTICO: content NO puede ser "" — Anthropic rechaza con
+        // "user messages must have non-empty content". Si la tool
+        // devuelve undefined / null / object→"undefined", forzamos
+        // un placeholder mínimo que el modelo entiende.
+        let resultContent = JSON.stringify(output).slice(0, 8000);
+        if (!resultContent || resultContent.trim() === "") {
+          resultContent = isError
+            ? '{"error":"tool devolvió respuesta vacía"}'
+            : '{"ok":true,"note":"tool ejecutada sin output"}';
+        }
         toolResults.push({
           type: "tool_result",
           tool_use_id: tu.id,
-          content: JSON.stringify(output).slice(0, 8000),
+          content: resultContent,
           is_error: isError
         });
       }
