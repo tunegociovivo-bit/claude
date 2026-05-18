@@ -5,12 +5,18 @@ import PageHeader from "@/components/PageHeader";
 import Modal from "@/components/ui/Modal";
 import { Plus, Loader2, Trash2, Edit2, Copy, ExternalLink, Key } from "lucide-react";
 
+type ReviewMode = "AI_GENERATOR" | "STAR_REDIRECT";
+
 type ReviewClient = {
   id: string;
   slug: string;
   name: string;
   webUrl: string | null;
   destinationUrl: string;
+  mode: ReviewMode;
+  positiveUrl: string | null;
+  negativeUrl: string | null;
+  placeId: string | null;
   topics: string;
   bannedWords: string | null;
   recommendedWords: string | null;
@@ -123,8 +129,8 @@ export default function ReviewsClient() {
               <tr>
                 <th className="text-left px-5 py-3">Cliente</th>
                 <th className="text-left px-3 py-3">Slug</th>
+                <th className="text-left px-3 py-3">Modo</th>
                 <th className="text-left px-3 py-3">Destino</th>
-                <th className="text-left px-3 py-3">Modelo</th>
                 <th className="text-right px-5 py-3">Acciones</th>
               </tr>
             </thead>
@@ -136,17 +142,39 @@ export default function ReviewsClient() {
                     <code className="text-xs bg-slate-100 px-1.5 py-0.5 rounded">{c.slug}</code>
                   </td>
                   <td className="px-3 py-3">
-                    <a
-                      href={c.destinationUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex items-center gap-1 text-xs text-slate-600 hover:text-brand-600"
-                    >
-                      {new URL(c.destinationUrl).hostname}
-                      <ExternalLink className="h-3 w-3" />
-                    </a>
+                    {c.mode === "STAR_REDIRECT" ? (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-200">
+                        ★ Redirect
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-violet-50 text-violet-700 border border-violet-200">
+                        🤖 IA · {c.model}
+                      </span>
+                    )}
                   </td>
-                  <td className="px-3 py-3 text-xs text-slate-500">{c.model}</td>
+                  <td className="px-3 py-3">
+                    {(() => {
+                      const target =
+                        c.mode === "STAR_REDIRECT"
+                          ? c.positiveUrl ?? c.destinationUrl
+                          : c.destinationUrl;
+                      let host = target;
+                      try {
+                        host = new URL(target).hostname;
+                      } catch {}
+                      return (
+                        <a
+                          href={target}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center gap-1 text-xs text-slate-600 hover:text-brand-600"
+                        >
+                          {host}
+                          <ExternalLink className="h-3 w-3" />
+                        </a>
+                      );
+                    })()}
+                  </td>
                   <td className="px-5 py-3 text-right">
                     <button
                       onClick={() => copyEmbed(c.slug)}
@@ -228,7 +256,11 @@ function ClientFormModal({
     slug: "",
     name: "",
     webUrl: "",
+    mode: "AI_GENERATOR" as ReviewMode,
     destinationUrl: "",
+    positiveUrl: "",
+    negativeUrl: "",
+    placeId: "",
     topics: DEFAULT_TOPICS,
     bannedWords: DEFAULT_BANNED,
     recommendedWords: DEFAULT_RECOMMENDED,
@@ -246,7 +278,11 @@ function ClientFormModal({
         slug: client.slug,
         name: client.name,
         webUrl: client.webUrl ?? "",
+        mode: client.mode ?? "AI_GENERATOR",
         destinationUrl: client.destinationUrl,
+        positiveUrl: client.positiveUrl ?? "",
+        negativeUrl: client.negativeUrl ?? "",
+        placeId: client.placeId ?? "",
         topics: client.topics,
         bannedWords: client.bannedWords ?? "",
         recommendedWords: client.recommendedWords ?? "",
@@ -258,7 +294,11 @@ function ClientFormModal({
         slug: "",
         name: "",
         webUrl: "",
+        mode: "AI_GENERATOR",
         destinationUrl: "",
+        positiveUrl: "",
+        negativeUrl: "",
+        placeId: "",
         topics: DEFAULT_TOPICS,
         bannedWords: DEFAULT_BANNED,
         recommendedWords: DEFAULT_RECOMMENDED,
@@ -354,17 +394,21 @@ function ClientFormModal({
               className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 disabled:bg-slate-50"
             />
           </div>
-          <div>
-            <label className="block text-xs font-medium text-slate-700 mb-1">Modelo OpenAI</label>
+          <div className="col-span-2">
+            <label className="block text-xs font-medium text-slate-700 mb-1">Modo de funcionamiento *</label>
             <select
-              value={form.model}
-              onChange={(e) => setForm((f) => ({ ...f, model: e.target.value }))}
+              value={form.mode}
+              onChange={(e) => setForm((f) => ({ ...f, mode: e.target.value as ReviewMode }))}
               className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
             >
-              <option value="gpt-4o-mini">gpt-4o-mini (rápido y barato)</option>
-              <option value="gpt-4o">gpt-4o (mejor calidad)</option>
-              <option value="gpt-4-turbo">gpt-4-turbo</option>
+              <option value="AI_GENERATOR">Generador de reseñas IA (cliente cuenta su experiencia y OpenAI redacta)</option>
+              <option value="STAR_REDIRECT">Redirección por estrellas (4-5★ → Google · 1-3★ → form interno)</option>
             </select>
+            <p className="text-[11px] text-slate-500 mt-1">
+              {form.mode === "AI_GENERATOR"
+                ? "La landing pública pide al cliente que escriba su experiencia y OpenAI redacta la reseña en el estilo configurado."
+                : "Equivalente al plugin 'Automatic Choice'. La landing muestra 5 estrellas; las altas envían a Google My Business, las bajas a una página de contacto interna."}
+            </p>
           </div>
           <div>
             <label className="block text-xs font-medium text-slate-700 mb-1">URL web del cliente</label>
@@ -376,57 +420,135 @@ function ClientFormModal({
               placeholder="https://midominio.com"
             />
           </div>
-          <div>
-            <label className="block text-xs font-medium text-slate-700 mb-1">URL destino (Trustpilot/Google) *</label>
-            <input
-              value={form.destinationUrl}
-              onChange={(e) => setForm((f) => ({ ...f, destinationUrl: e.target.value }))}
-              type="url"
-              required
-              className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
-              placeholder="https://es.trustpilot.com/evaluate/..."
-            />
-          </div>
+
+          {form.mode === "AI_GENERATOR" && (
+            <>
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">Modelo OpenAI</label>
+                <select
+                  value={form.model}
+                  onChange={(e) => setForm((f) => ({ ...f, model: e.target.value }))}
+                  className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+                >
+                  <option value="gpt-4o-mini">gpt-4o-mini (rápido y barato)</option>
+                  <option value="gpt-4o">gpt-4o (mejor calidad)</option>
+                  <option value="gpt-4-turbo">gpt-4-turbo</option>
+                </select>
+              </div>
+              <div className="col-span-2">
+                <label className="block text-xs font-medium text-slate-700 mb-1">URL destino (Trustpilot/Google) *</label>
+                <input
+                  value={form.destinationUrl}
+                  onChange={(e) => setForm((f) => ({ ...f, destinationUrl: e.target.value }))}
+                  type="url"
+                  required={form.mode === "AI_GENERATOR"}
+                  className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  placeholder="https://es.trustpilot.com/evaluate/..."
+                />
+              </div>
+            </>
+          )}
+
+          {form.mode === "STAR_REDIRECT" && (
+            <>
+              <div className="col-span-2 p-3 rounded-lg bg-sky-50 border border-sky-200 text-[12px] text-sky-900">
+                💡 <strong>Truco:</strong> pega el <em>Place ID</em> de Google de la ficha del cliente y la URL pública (4-5★) se genera sola. Para encontrarlo usa{" "}
+                <a
+                  href="https://whitespark.ca/google-review-link-generator/"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-sky-700 underline"
+                >
+                  whitespark.ca/google-review-link-generator
+                </a>{" "}
+                — funciona también si pegas la URL completa de whitespark.
+              </div>
+              <div className="col-span-2">
+                <label className="block text-xs font-medium text-slate-700 mb-1">Google Place ID o URL whitespark</label>
+                <input
+                  value={form.placeId}
+                  onChange={(e) => setForm((f) => ({ ...f, placeId: e.target.value }))}
+                  className="w-full px-3 py-2 rounded-lg border bg-white text-sm font-mono focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  placeholder="ChIJ... o https://search.google.com/local/writereview?placeid=..."
+                />
+                <p className="text-[11px] text-slate-500 mt-1">
+                  Opcional si rellenas la URL positiva manualmente abajo.
+                </p>
+              </div>
+              <div className="col-span-2">
+                <label className="block text-xs font-medium text-slate-700 mb-1">
+                  URL para 4-5 estrellas (Google My Business)
+                </label>
+                <input
+                  value={form.positiveUrl}
+                  onChange={(e) => setForm((f) => ({ ...f, positiveUrl: e.target.value }))}
+                  type="url"
+                  className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  placeholder="Se genera automáticamente desde el Place ID — o pégala tú"
+                />
+              </div>
+              <div className="col-span-2">
+                <label className="block text-xs font-medium text-slate-700 mb-1">
+                  URL para 1-3 estrellas (formulario interno) *
+                </label>
+                <input
+                  value={form.negativeUrl}
+                  onChange={(e) => setForm((f) => ({ ...f, negativeUrl: e.target.value }))}
+                  type="url"
+                  required={form.mode === "STAR_REDIRECT"}
+                  className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  placeholder="https://midominio.com/contacto-resenas/"
+                />
+                <p className="text-[11px] text-slate-500 mt-1">
+                  Captura el feedback negativo SIN que acabe en Google. Crea una página simple con formulario en la web del cliente.
+                </p>
+              </div>
+            </>
+          )}
         </div>
 
-        <div>
-          <label className="block text-xs font-medium text-slate-700 mb-1">Temas (uno por línea)</label>
-          <textarea
-            value={form.topics}
-            onChange={(e) => setForm((f) => ({ ...f, topics: e.target.value }))}
-            rows={4}
-            className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
-          />
-          <p className="text-[11px] text-slate-500 mt-1">Se elige uno al azar en cada generación.</p>
-        </div>
+        {form.mode === "AI_GENERATOR" && (
+          <>
+            <div>
+              <label className="block text-xs font-medium text-slate-700 mb-1">Temas (uno por línea)</label>
+              <textarea
+                value={form.topics}
+                onChange={(e) => setForm((f) => ({ ...f, topics: e.target.value }))}
+                rows={4}
+                className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+              />
+              <p className="text-[11px] text-slate-500 mt-1">Se elige uno al azar en cada generación.</p>
+            </div>
 
-        <div>
-          <label className="block text-xs font-medium text-slate-700 mb-1">Palabras prohibidas</label>
-          <input
-            value={form.bannedWords}
-            onChange={(e) => setForm((f) => ({ ...f, bannedWords: e.target.value }))}
-            className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
-          />
-        </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-700 mb-1">Palabras prohibidas</label>
+              <input
+                value={form.bannedWords}
+                onChange={(e) => setForm((f) => ({ ...f, bannedWords: e.target.value }))}
+                className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+              />
+            </div>
 
-        <div>
-          <label className="block text-xs font-medium text-slate-700 mb-1">Palabras / expresiones recomendadas</label>
-          <input
-            value={form.recommendedWords}
-            onChange={(e) => setForm((f) => ({ ...f, recommendedWords: e.target.value }))}
-            className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
-          />
-        </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-700 mb-1">Palabras / expresiones recomendadas</label>
+              <input
+                value={form.recommendedWords}
+                onChange={(e) => setForm((f) => ({ ...f, recommendedWords: e.target.value }))}
+                className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+              />
+            </div>
 
-        <div>
-          <label className="block text-xs font-medium text-slate-700 mb-1">Instrucciones extra al prompt</label>
-          <textarea
-            value={form.extraInstructions}
-            onChange={(e) => setForm((f) => ({ ...f, extraInstructions: e.target.value }))}
-            rows={2}
-            className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
-          />
-        </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-700 mb-1">Instrucciones extra al prompt</label>
+              <textarea
+                value={form.extraInstructions}
+                onChange={(e) => setForm((f) => ({ ...f, extraInstructions: e.target.value }))}
+                rows={2}
+                className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+              />
+            </div>
+          </>
+        )}
 
         {error && <p className="text-xs text-rose-600">{error}</p>}
       </form>

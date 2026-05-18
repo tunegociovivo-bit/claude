@@ -428,11 +428,35 @@ model ReviewClient {
   slug              String // identificador URL-safe único por workspace
   name              String
   webUrl            String?
-  destinationUrl    String // Trustpilot / Google Business / etc.
-  topics            String   @db.Text // un tema por línea
-  bannedWords       String? // separadas por coma
-  recommendedWords  String? // separadas por coma
-  extraInstructions String?  @db.Text
+  // destinationUrl es OPCIONAL: lo usa el modo AI_GENERATOR (la web
+  // a la que se manda al user para pegar el texto IA). En modo
+  // STAR_REDIRECT se ignora y se usan positiveUrl/negativeUrl.
+  // Por compatibilidad con registros existentes lo dejamos no-null
+  // y los nuevos clientes en modo STAR_REDIRECT lo dejan en "" o
+  // duplicado de positiveUrl.
+  destinationUrl    String
+  // Modo de funcionamiento del cliente público en /r/[slug]:
+  //   AI_GENERATOR  → modo histórico: cliente cuenta su experiencia,
+  //                   OpenAI redacta la reseña al estilo configurado,
+  //                   y se le redirige a destinationUrl con el texto
+  //                   listo para pegar.
+  //   STAR_REDIRECT → modo "Automatic Choice": landing con 5 estrellas;
+  //                   si elige 4-5 → positiveUrl (típicamente GMB);
+  //                   si elige 1-3 → negativeUrl (form interno de la
+  //                   agencia para captar feedback negativo SIN que
+  //                   acabe en Google).
+  mode              ReviewMode @default(AI_GENERATOR)
+  // STAR_REDIRECT — destinos por puntuación.
+  positiveUrl       String?
+  negativeUrl       String?
+  // Google Place ID — opcional, helper para auto-generar positiveUrl
+  // con el formato de whitespark:
+  //   https://search.google.com/local/writereview?placeid=<placeId>
+  placeId           String?
+  topics            String   @db.Text // un tema por línea (solo AI_GENERATOR)
+  bannedWords       String? // separadas por coma (solo AI_GENERATOR)
+  recommendedWords  String? // separadas por coma (solo AI_GENERATOR)
+  extraInstructions String?  @db.Text // (solo AI_GENERATOR)
   model             String   @default("gpt-4o-mini")
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
@@ -442,6 +466,11 @@ model ReviewClient {
 
   @@unique([workspaceId, slug])
   @@index([workspaceId])
+}
+
+enum ReviewMode {
+  AI_GENERATOR
+  STAR_REDIRECT
 }
 
 model ReviewHistory {
