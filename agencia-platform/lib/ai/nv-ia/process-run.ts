@@ -20,6 +20,7 @@
 
 import { prisma } from "@/lib/db/prisma";
 import { executeAgentRun, loadAgentConfig } from "@/lib/ai/nv-ia/runner";
+import { escalateRunToGitHub } from "@/lib/ai/nv-ia/escalate";
 
 export type ProcessResult =
   | { skipped: true; runId: string }
@@ -99,6 +100,28 @@ export async function processOneRun(runId: string): Promise<ProcessResult> {
         .catch(() => {});
     }
 
+    // AUTO-ESCALACIÓN a Claude Code via GitHub Issue.
+    // Cuando Sonia falla o pide ayuda, abrimos un issue con @claude
+    // mention y el contexto entero. Si el repo tiene la GitHub App
+    // de Claude Code instalada, Claude lo analiza solo, hace PR
+    // con el fix, y re-dispara la task — TOTALMENTE automático
+    // sin que el user tenga que hacer nada.
+    // Si las env vars no están configuradas, esto es no-op
+    // silencioso (no rompe el run ni la notificación al user).
+    if (result.status === "FAILED" || result.status === "REQUIRES_HUMAN") {
+      void escalateRunToGitHub(runId)
+        .then((esc) => {
+          if (esc.ok) {
+            console.log(`[sonia] escalado run ${runId} → ${esc.issueUrl}`);
+          } else if (esc.skipped) {
+            console.log(`[sonia] escalación skip: ${esc.reason}`);
+          } else {
+            console.warn(`[sonia] escalación fallida: ${esc.error}`);
+          }
+        })
+        .catch((e) => console.warn("[sonia] escalateRunToGitHub crash:", e?.message ?? e));
+    }
+
     return { runId, status: result.status, steps: result.stepsCount };
   } catch (e: any) {
     const msg = String(e?.message ?? e);
@@ -108,6 +131,9 @@ export async function processOneRun(runId: string): Promise<ProcessResult> {
         data: { status: "FAILED", error: msg, finishedAt: new Date() }
       })
       .catch(() => {});
+    // Igual escalamos cuando el runner explotó por completo (excepción
+    // no capturada). Esto suele ser bug del runner, no de la task.
+    void escalateRunToGitHub(runId).catch(() => {});
     return { runId, status: "FAILED", error: msg };
   }
 }
