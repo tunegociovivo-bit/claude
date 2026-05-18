@@ -23,10 +23,18 @@ import { processRunInBackground } from "@/lib/ai/nv-ia/process-run";
 
 export const dynamic = "force-dynamic";
 
-export const GET = withApi({ scope: "tasks:read" }, async (req, { api }) => {
-  const url = new URL(req.url);
-  const raw = url.searchParams.get("taskIds") ?? "";
-  const ids = raw.split(",").map((s) => s.trim()).filter(Boolean).slice(0, 500);
+/**
+ * Lógica compartida entre GET y POST. Acepta lista de taskIds y
+ * devuelve estados de Sonia por task. Extraída en función propia
+ * para poder reutilizarla en ambos métodos.
+ *
+ * GET con ?taskIds=a,b,c — para compatibilidad con clientes viejos.
+ * POST con body {taskIds:[...]} — recomendado, evita el límite de
+ * tamaño de URL/header del edge (Railway devuelve HTTP 431 con
+ * querystrings grandes — pasaba en workspaces con >300 tasks).
+ */
+async function handler(api: any, ids: string[]) {
+  ids = ids.slice(0, 1000);
   if (ids.length === 0) return NextResponse.json({ items: [] });
 
   const runs = await prisma.aiAgentRun.findMany({
@@ -206,6 +214,27 @@ export const GET = withApi({ scope: "tasks:read" }, async (req, { api }) => {
   });
 
   return NextResponse.json({ items });
+}
+
+// GET /api/v1/tasks/ai-status?taskIds=id1,id2,id3
+// Compatibilidad con clientes viejos. Limitado a ~100 ids por el
+// tamaño máximo de URL del edge.
+export const GET = withApi({ scope: "tasks:read" }, async (req, { api }) => {
+  const url = new URL(req.url);
+  const raw = url.searchParams.get("taskIds") ?? "";
+  const ids = raw.split(",").map((s) => s.trim()).filter(Boolean);
+  return handler(api, ids);
+});
+
+// POST /api/v1/tasks/ai-status  body: { taskIds: [...] }
+// Recomendado — evita el HTTP 431 del edge cuando hay muchos
+// taskIds. Lo usa el polling de /tareas (TareasClient).
+export const POST = withApi({ scope: "tasks:read" }, async (req, { api }) => {
+  const body = await req.json().catch(() => ({}));
+  const raw = Array.isArray(body?.taskIds) ? body.taskIds : [];
+  const ids = raw
+    .filter((x: unknown): x is string => typeof x === "string" && x.length > 0);
+  return handler(api, ids);
 });
 
 /** Convierte un nombre técnico de tool en texto legible para el badge. */

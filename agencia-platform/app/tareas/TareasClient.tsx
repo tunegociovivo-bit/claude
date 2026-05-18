@@ -186,9 +186,17 @@ export default function TareasClient({
         setAiDebug((d) => ({ ...d, lastPollAt: Date.now(), lastPollError: "tasks.length===0", pollCount: d.pollCount + 1 }));
         return;
       }
-      const ids = tasks.slice(0, 500).map((t) => t.id).join(",");
+      // POST con body en lugar de GET con querystring — el edge de
+      // Railway devuelve HTTP 431 ("Request Header Fields Too
+      // Large") cuando la URL excede ~8KB. Con workspaces que tienen
+      // muchas tareas (2100 de un import de Asana), 200+ IDs ya
+      // disparan el error y el polling no devolvía nada.
+      const idArray = tasks.slice(0, 1000).map((t) => t.id);
       try {
-        const r = await fetch(`/api/v1/tasks/ai-status?taskIds=${encodeURIComponent(ids)}`, {
+        const r = await fetch(`/api/v1/tasks/ai-status`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ taskIds: idArray }),
           cache: "no-store"
         });
         if (!r.ok) {
