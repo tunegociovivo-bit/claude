@@ -1766,6 +1766,151 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
       additionalProperties: false
     }
   },
+  // ──────────────────────────────────────────────────────────────
+  // STRIPE write (suscripciones, customers, refunds)
+  // ──────────────────────────────────────────────────────────────
+  {
+    name: "stripe_create_customer",
+    description: "Crea un customer en Stripe. Útil tras cerrar deal con un lead — el customer queda listo para cobrarle vía payment_link o subscription. Idempotente por email (Stripe NO dedupe automático, así que si pasas el mismo email puede crear duplicado — usa stripe_list_customers antes si dudas).",
+    input_schema: {
+      type: "object",
+      properties: {
+        email: { type: "string" },
+        name: { type: "string" },
+        phone: { type: "string" },
+        metadata: { type: "object", additionalProperties: { type: "string" }, description: "Pares clave-valor para auditoría. Ej: { lead_id: '...', source: 'meta_ads' }." }
+      },
+      required: ["email"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "stripe_create_subscription",
+    description: "Crea una suscripción recurrente en Stripe para un customer existente + un price existente. El price hay que crearlo previamente en el dashboard de Stripe (define producto + €/mes o €/año). Devuelve la subscription en estado 'incomplete' — el cliente recibe la URL de checkout para completar el pago. Útil para SaaS o servicios mensuales fijos.",
+    input_schema: {
+      type: "object",
+      properties: {
+        customerId: { type: "string", description: "ID del customer (de stripe_list_customers o stripe_create_customer)." },
+        priceId: { type: "string", description: "ID del price (de stripe_list_prices)." },
+        trialDays: { type: "number", description: "Días de trial sin cobro (opcional)." },
+        metadata: { type: "object", additionalProperties: { type: "string" } }
+      },
+      required: ["customerId", "priceId"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "stripe_list_prices",
+    description: "Lista los products + prices configurados en Stripe — para descubrir qué priceId pasar a create_subscription o create_payment_link.",
+    input_schema: {
+      type: "object",
+      properties: {
+        active: { type: "boolean", description: "Default true (solo activos)." },
+        limit: { type: "number" }
+      },
+      additionalProperties: false
+    }
+  },
+  {
+    name: "stripe_refund_charge",
+    description: "Devuelve un charge previo en Stripe. Pasa amountCents para refund parcial (ej. 1500 = 15€); omite para refund completo. NO la uses sin confirmación del user — es operación financiera irreversible.",
+    input_schema: {
+      type: "object",
+      properties: {
+        chargeId: { type: "string" },
+        amountCents: { type: "number" },
+        reason: { type: "string", enum: ["duplicate", "fraudulent", "requested_by_customer"] }
+      },
+      required: ["chargeId"],
+      additionalProperties: false
+    }
+  },
+  // ──────────────────────────────────────────────────────────────
+  // WORDPRESS write
+  // ──────────────────────────────────────────────────────────────
+  {
+    name: "wp_list_posts",
+    description: "Lista los posts de WordPress del cliente (config en Client.settings.wordpress, fallback al workspace). Útil para conocer qué contenido existe antes de publicar.",
+    input_schema: {
+      type: "object",
+      properties: {
+        clientId: { type: "string", description: "Opcional. Si no se pasa usa la config del workspace." },
+        status: { type: "string", enum: ["publish", "draft", "private", "future", "any"] },
+        search: { type: "string" },
+        limit: { type: "number" }
+      },
+      additionalProperties: false
+    }
+  },
+  {
+    name: "wp_list_categories",
+    description: "Lista categorías de WordPress (para saber qué categoryId pasar a wp_create_post).",
+    input_schema: {
+      type: "object",
+      properties: { clientId: { type: "string" } },
+      additionalProperties: false
+    }
+  },
+  {
+    name: "wp_create_post",
+    description: "Crea un post en WordPress. Por defecto en DRAFT (status='draft') — el admin revisa y publica. Pasa status='publish' SOLO con confirmación explícita del user.\n\nPara SEO incluye yoastMetaTitle + yoastMetaDescription (compatible Yoast SEO + Rank Math).\nPara feature image: pasa featuredMediaUrl con una URL pública (la sube automáticamente al Media Library) o featuredMediaId si ya está subida.\n\nEl contenido debe ser HTML válido (con <p>, <h2>, <ul>, etc). Si tienes Markdown, convierte antes.",
+    input_schema: {
+      type: "object",
+      properties: {
+        clientId: { type: "string" },
+        title: { type: "string" },
+        content: { type: "string", description: "HTML válido." },
+        excerpt: { type: "string" },
+        status: { type: "string", enum: ["publish", "draft", "private", "future"], description: "Default 'draft'." },
+        slug: { type: "string" },
+        categories: { type: "array", items: { type: "number" } },
+        tags: { type: "array", items: { type: "number" } },
+        featuredMediaUrl: { type: "string", description: "URL pública de la imagen destacada — se descarga e importa al Media Library del WP." },
+        featuredMediaId: { type: "number", description: "Alternativa: ID de media ya subida." },
+        yoastMetaTitle: { type: "string" },
+        yoastMetaDescription: { type: "string" }
+      },
+      required: ["title", "content"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "wp_update_post",
+    description: "Modifica un post existente. Pasa solo los campos que cambian.",
+    input_schema: {
+      type: "object",
+      properties: {
+        clientId: { type: "string" },
+        postId: { type: "number" },
+        title: { type: "string" },
+        content: { type: "string" },
+        excerpt: { type: "string" },
+        status: { type: "string", enum: ["publish", "draft", "private", "future"] },
+        categories: { type: "array", items: { type: "number" } },
+        tags: { type: "array", items: { type: "number" } }
+      },
+      required: ["postId"],
+      additionalProperties: false
+    }
+  },
+  // ──────────────────────────────────────────────────────────────
+  // IMAGEN IA con BRAND del cliente
+  // ──────────────────────────────────────────────────────────────
+  {
+    name: "generate_brand_image",
+    description: "Genera una imagen con IA (OpenAI gpt-image-1) aplicando el BRAND del cliente: brandBrief + colores + styleGuideCached. La imagen se sube a R2 y se adjunta a la task automáticamente.\n\nUSO TÍPICO: 'genera un anuncio cuadrado para Instagram sobre la oferta de septiembre del cliente X'. Pasas clientId + prompt corto, y la tool enriquece con todo el contexto del cliente.\n\nFormatos: 'square' (1024×1024, IG feed), 'story' (1024×1792, IG/FB story), 'landscape' (1792×1024, FB feed/web banner), 'portrait' (1024×1536, Pinterest).\n\nQuality: 'low' (~$0.01/img, draft), 'medium' (~$0.04, default), 'high' (~$0.12, entrega final).\n\nNUNCA pongas texto en el prompt — la IA escribe mal letras. El texto se compone separado después.",
+    input_schema: {
+      type: "object",
+      properties: {
+        clientId: { type: "string", description: "Cliente al que aplicar el brand. Si no se pasa, la imagen es genérica (sin colores/style guide aplicados)." },
+        prompt: { type: "string", description: "Descripción visual de la imagen (sin pedir texto). 1-3 frases descriptivas." },
+        format: { type: "string", enum: ["square", "story", "landscape", "portrait"], description: "Default 'square'." },
+        quality: { type: "string", enum: ["low", "medium", "high"], description: "Default 'medium'." }
+      },
+      required: ["prompt"],
+      additionalProperties: false
+    }
+  },
   {
     name: "record_lesson",
     description:
@@ -4720,6 +4865,187 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
       return { ok: true, ...result };
     } catch (e: any) {
       return { error: `holded_create_quote: ${e?.message ?? e}` };
+    }
+  },
+  async stripe_create_customer(input, ctx) {
+    try {
+      const { stripeCreateCustomer } = await import("@/lib/integrations/stripe-light");
+      const meta = typeof input?.metadata === "object" && input.metadata !== null
+        ? Object.fromEntries(Object.entries(input.metadata).filter(([, v]) => typeof v === "string").map(([k, v]) => [k, String(v)]))
+        : undefined;
+      const r = await stripeCreateCustomer({
+        workspaceId: ctx.workspaceId,
+        email: String(input?.email ?? ""),
+        name: input?.name ? String(input.name) : undefined,
+        phone: input?.phone ? String(input.phone) : undefined,
+        metadata: meta
+      });
+      return { ok: true, ...r };
+    } catch (e: any) {
+      return { error: `stripe_create_customer: ${e?.message ?? e}` };
+    }
+  },
+  async stripe_create_subscription(input, ctx) {
+    try {
+      const { stripeCreateSubscription } = await import("@/lib/integrations/stripe-light");
+      const meta = typeof input?.metadata === "object" && input.metadata !== null
+        ? Object.fromEntries(Object.entries(input.metadata).filter(([, v]) => typeof v === "string").map(([k, v]) => [k, String(v)]))
+        : undefined;
+      const r = await stripeCreateSubscription({
+        workspaceId: ctx.workspaceId,
+        customerId: String(input?.customerId ?? ""),
+        priceId: String(input?.priceId ?? ""),
+        trialDays: typeof input?.trialDays === "number" ? input.trialDays : undefined,
+        metadata: meta
+      });
+      return { ok: true, ...r };
+    } catch (e: any) {
+      return { error: `stripe_create_subscription: ${e?.message ?? e}` };
+    }
+  },
+  async stripe_list_prices(input, ctx) {
+    try {
+      const { stripeListPrices } = await import("@/lib/integrations/stripe-light");
+      const items = await stripeListPrices({
+        workspaceId: ctx.workspaceId,
+        active: typeof input?.active === "boolean" ? input.active : true,
+        limit: typeof input?.limit === "number" ? input.limit : undefined
+      });
+      return { count: items.length, items };
+    } catch (e: any) {
+      return { error: `stripe_list_prices: ${e?.message ?? e}` };
+    }
+  },
+  async stripe_refund_charge(input, ctx) {
+    try {
+      const { stripeRefundCharge } = await import("@/lib/integrations/stripe-light");
+      const r = await stripeRefundCharge({
+        workspaceId: ctx.workspaceId,
+        chargeId: String(input?.chargeId ?? ""),
+        amountCents: typeof input?.amountCents === "number" ? input.amountCents : undefined,
+        reason: input?.reason as any
+      });
+      return { ok: true, ...r };
+    } catch (e: any) {
+      return { error: `stripe_refund_charge: ${e?.message ?? e}` };
+    }
+  },
+  async wp_list_posts(input, ctx) {
+    try {
+      const { wpListPosts } = await import("@/lib/integrations/wordpress");
+      const items = await wpListPosts({
+        workspaceId: ctx.workspaceId,
+        clientId: input?.clientId ? String(input.clientId) : null,
+        status: input?.status as any,
+        search: input?.search ? String(input.search) : undefined,
+        limit: typeof input?.limit === "number" ? input.limit : undefined
+      });
+      return { count: items.length, items };
+    } catch (e: any) {
+      return { error: `wp_list_posts: ${e?.message ?? e}` };
+    }
+  },
+  async wp_list_categories(input, ctx) {
+    try {
+      const { wpListCategories } = await import("@/lib/integrations/wordpress");
+      const items = await wpListCategories({
+        workspaceId: ctx.workspaceId,
+        clientId: input?.clientId ? String(input.clientId) : null
+      });
+      return { count: items.length, items };
+    } catch (e: any) {
+      return { error: `wp_list_categories: ${e?.message ?? e}` };
+    }
+  },
+  async wp_create_post(input, ctx) {
+    try {
+      const { wpCreatePost } = await import("@/lib/integrations/wordpress");
+      const r = await wpCreatePost({
+        workspaceId: ctx.workspaceId,
+        clientId: input?.clientId ? String(input.clientId) : null,
+        title: String(input?.title ?? ""),
+        content: String(input?.content ?? ""),
+        excerpt: input?.excerpt ? String(input.excerpt) : undefined,
+        status: (input?.status as any) ?? "draft",
+        slug: input?.slug ? String(input.slug) : undefined,
+        categories: Array.isArray(input?.categories) ? input.categories.map(Number) : undefined,
+        tags: Array.isArray(input?.tags) ? input.tags.map(Number) : undefined,
+        featuredMediaUrl: input?.featuredMediaUrl ? String(input.featuredMediaUrl) : undefined,
+        featuredMediaId: typeof input?.featuredMediaId === "number" ? input.featuredMediaId : undefined,
+        yoastMetaTitle: input?.yoastMetaTitle ? String(input.yoastMetaTitle) : undefined,
+        yoastMetaDescription: input?.yoastMetaDescription ? String(input.yoastMetaDescription) : undefined
+      });
+      await prisma.comment.create({
+        data: {
+          workspaceId: ctx.workspaceId,
+          authorId: ctx.config.userId,
+          targetType: "TASK",
+          targetId: ctx.taskId,
+          body: `📝 Post WordPress creado (${r.status}): [${input?.title}](${r.link})`
+        }
+      });
+      return { ok: true, ...r };
+    } catch (e: any) {
+      return { error: `wp_create_post: ${e?.message ?? e}` };
+    }
+  },
+  async wp_update_post(input, ctx) {
+    try {
+      const { wpUpdatePost } = await import("@/lib/integrations/wordpress");
+      const r = await wpUpdatePost({
+        workspaceId: ctx.workspaceId,
+        clientId: input?.clientId ? String(input.clientId) : null,
+        postId: Number(input?.postId ?? 0),
+        title: input?.title ? String(input.title) : undefined,
+        content: input?.content ? String(input.content) : undefined,
+        excerpt: input?.excerpt !== undefined ? String(input.excerpt) : undefined,
+        status: input?.status as any,
+        categories: Array.isArray(input?.categories) ? input.categories.map(Number) : undefined,
+        tags: Array.isArray(input?.tags) ? input.tags.map(Number) : undefined
+      });
+      return { ok: true, ...r };
+    } catch (e: any) {
+      return { error: `wp_update_post: ${e?.message ?? e}` };
+    }
+  },
+  async generate_brand_image(input, ctx) {
+    try {
+      const { generateBrandImage } = await import("@/lib/files/brand-image");
+      // Inferir clientId del task si no se pasa.
+      let clientId = input?.clientId ? String(input.clientId) : null;
+      if (!clientId) {
+        const task = await prisma.task.findUnique({
+          where: { id: ctx.taskId },
+          select: { clientId: true }
+        });
+        clientId = task?.clientId ?? null;
+      }
+      const r = await generateBrandImage({
+        workspaceId: ctx.workspaceId,
+        clientId,
+        prompt: String(input?.prompt ?? ""),
+        format: input?.format as any,
+        quality: input?.quality as any,
+        attachToTaskId: ctx.taskId,
+        uploadedByUserId: ctx.config.userId
+      });
+      await prisma.comment.create({
+        data: {
+          workspaceId: ctx.workspaceId,
+          authorId: ctx.config.userId,
+          targetType: "TASK",
+          targetId: ctx.taskId,
+          body: `🎨 Imagen generada con IA y adjuntada (${(r.sizeBytes / 1024).toFixed(0)} KB${clientId ? `, brand del cliente aplicado` : ""}).`
+        }
+      });
+      return {
+        ok: true,
+        fileId: r.fileId,
+        sizeBytes: r.sizeBytes,
+        url: r.url
+      };
+    } catch (e: any) {
+      return { error: `generate_brand_image: ${e?.message ?? e}` };
     }
   },
   async record_lesson(input, ctx) {

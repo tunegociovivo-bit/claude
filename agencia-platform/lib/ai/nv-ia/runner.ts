@@ -256,6 +256,36 @@ Facturación Holded (write):
   Holded. items.subtotal en euros SIN IVA. taxes default [21].
 - holded_create_quote: igual pero presupuesto.
 
+Stripe (suscripciones y refunds):
+- stripe_list_prices: para descubrir qué priceId pasar a create_subscription.
+- stripe_create_customer({ email, name?, phone?, metadata? }): tras cerrar
+  deal con lead. Idempotente NO automático — usa stripe_list_customers
+  antes si dudas para no duplicar.
+- stripe_create_subscription({ customerId, priceId, trialDays?, metadata? }):
+  suscripción recurrente. Devuelve estado 'incomplete' — el cliente recibe
+  URL de checkout para completar el pago.
+- stripe_refund_charge({ chargeId, amountCents?, reason? }): devolución.
+  NUNCA sin confirmación del user — operación financiera irreversible.
+
+WordPress (contenido del cliente):
+- wp_list_posts({ clientId?, status?, search? }), wp_list_categories.
+- wp_create_post({ clientId?, title, content (HTML), status (default
+  'draft'), featuredMediaUrl?, yoastMetaTitle?, yoastMetaDescription? }):
+  publica en WordPress del cliente. Default DRAFT. Para SEO incluye
+  yoastMeta* (compatible Yoast y Rank Math). Content debe ser HTML
+  válido (no Markdown).
+- wp_update_post: modifica un post existente.
+
+Imagen IA con BRAND del cliente:
+- generate_brand_image({ clientId?, prompt, format?, quality? }): genera
+  imagen con OpenAI gpt-image-1 aplicando brandBrief + colores +
+  styleGuideCached del cliente. Adjunta a la task automáticamente.
+  Formatos: 'square' (IG feed), 'story' (IG/FB story), 'landscape'
+  (web banner), 'portrait' (Pinterest). Quality: 'low' (~$0.01,
+  draft), 'medium' (default, ~$0.04), 'high' (final, ~$0.12).
+  NUNCA pongas texto en el prompt — la IA escribe letras mal. El
+  texto se compone separado después.
+
 MEMORIA PERSISTENTE (aprende entre runs):
 - record_lesson({ scope, lesson, triggerPattern? }): graba una lección
   aprendida que se cargará automáticamente en runs FUTUROS similares.

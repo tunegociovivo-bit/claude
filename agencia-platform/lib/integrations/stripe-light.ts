@@ -132,3 +132,113 @@ export async function stripeCreatePaymentLink(opts: {
   );
   return { id: link.id, url: link.url };
 }
+
+/**
+ * Crea un customer en Stripe. Útil tras cerrar deal con un lead nuevo
+ * — el customer queda en Stripe listo para cobrarle vía payment_link
+ * o subscription.
+ */
+export async function stripeCreateCustomer(opts: {
+  workspaceId: string;
+  email: string;
+  name?: string;
+  phone?: string;
+  metadata?: Record<string, string>;
+}): Promise<{ id: string; email: string }> {
+  const body = new URLSearchParams();
+  body.set("email", opts.email);
+  if (opts.name) body.set("name", opts.name);
+  if (opts.phone) body.set("phone", opts.phone);
+  if (opts.metadata) {
+    for (const [k, v] of Object.entries(opts.metadata)) {
+      body.set(`metadata[${k}]`, v);
+    }
+  }
+  const data = await stripeFetch<any>(opts.workspaceId, "/customers", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body
+  });
+  return { id: data.id, email: data.email };
+}
+
+/**
+ * Crea una subscription (recurrente) en Stripe para un customer +
+ * un price existente. El price (mensual / anual con € fijos) hay
+ * que crearlo previamente en el dashboard de Stripe.
+ *
+ * Por seguridad, NO cobra inmediatamente — usa trial_period_days
+ * o crea la subscription en estado "incomplete" para que el cliente
+ * complete el pago vía checkout / payment intent.
+ */
+export async function stripeCreateSubscription(opts: {
+  workspaceId: string;
+  customerId: string;
+  priceId: string;
+  trialDays?: number;
+  metadata?: Record<string, string>;
+}): Promise<{ id: string; status: string; latest_invoice?: string }> {
+  const body = new URLSearchParams();
+  body.set("customer", opts.customerId);
+  body.set("items[0][price]", opts.priceId);
+  if (opts.trialDays) body.set("trial_period_days", String(opts.trialDays));
+  body.set("payment_behavior", "default_incomplete");
+  body.set("payment_settings[save_default_payment_method]", "on_subscription");
+  body.set("expand[]", "latest_invoice.payment_intent");
+  if (opts.metadata) {
+    for (const [k, v] of Object.entries(opts.metadata)) {
+      body.set(`metadata[${k}]`, v);
+    }
+  }
+  const data = await stripeFetch<any>(opts.workspaceId, "/subscriptions", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body
+  });
+  return { id: data.id, status: data.status, latest_invoice: data.latest_invoice?.id };
+}
+
+/**
+ * Lista los products + prices configurados — útil para descubrir
+ * qué priceId pasar a stripeCreateSubscription o stripeCreatePaymentLink.
+ */
+export async function stripeListPrices(opts: {
+  workspaceId: string;
+  active?: boolean;
+  limit?: number;
+}): Promise<Array<{ id: string; productName: string; unitAmount: number; currency: string; interval?: string }>> {
+  const params = new URLSearchParams({
+    limit: String(opts.limit ?? 50),
+    expand: "data.product"
+  });
+  if (opts.active !== undefined) params.set("active", String(opts.active));
+  const data = await stripeFetch<any>(opts.workspaceId, `/prices?${params.toString()}`);
+  return (data.data ?? []).map((p: any) => ({
+    id: p.id,
+    productName: p.product?.name ?? "",
+    unitAmount: p.unit_amount ?? 0,
+    currency: p.currency ?? "eur",
+    interval: p.recurring?.interval
+  }));
+}
+
+/**
+ * Genera un refund de un charge (devolución).
+ */
+export async function stripeRefundCharge(opts: {
+  workspaceId: string;
+  chargeId: string;
+  amountCents?: number;
+  reason?: "duplicate" | "fraudulent" | "requested_by_customer";
+}): Promise<{ id: string; status: string }> {
+  const body = new URLSearchParams();
+  body.set("charge", opts.chargeId);
+  if (opts.amountCents) body.set("amount", String(opts.amountCents));
+  if (opts.reason) body.set("reason", opts.reason);
+  const data = await stripeFetch<any>(opts.workspaceId, "/refunds", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body
+  });
+  return { id: data.id, status: data.status };
+}
