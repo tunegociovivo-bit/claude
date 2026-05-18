@@ -442,7 +442,7 @@ export async function generateMonth(opts: GenerateMonthOptions): Promise<Generat
     system,
     user,
     schema: responseSchema as any,
-    maxTokens: Math.max(4096, 800 * effectiveCount),
+    maxTokens: Math.min(32000, Math.max(8192, 1200 * effectiveCount)),
     imageUrls: rosterPhotos.length > 0 ? rosterPhotos : undefined
   });
 

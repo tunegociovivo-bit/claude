@@ -239,7 +239,32 @@ export async function completeJson<T = any>(opts: {
   } as any);
   const text = resp.content.find((b) => b.type === "text") as any;
   if (!text) throw new Error("Sin respuesta de texto del modelo");
-  return JSON.parse(text.text) as T;
+  if (resp.stop_reason === "max_tokens") {
+    // El JSON está cortado a mitad — JSON.parse fallará con "Unterminated
+    // string". Avisamos al caller con un mensaje accionable en lugar de
+    // dejar que el parser explote ciegamente.
+    throw new Error(
+      `Respuesta truncada por max_tokens (${opts.maxTokens ?? 2048}). ` +
+        `Reduce el tamaño del prompt o aumenta maxTokens. ` +
+        `Texto recibido hasta cortarse: ${text.text.length} chars.`
+    );
+  }
+  try {
+    return JSON.parse(text.text) as T;
+  } catch (e: any) {
+    // Último intento: ¿hay un objeto JSON válido dentro del texto?
+    // (a veces el modelo añade prosa antes pese al schema).
+    const m = /\{[\s\S]*\}/.exec(text.text);
+    if (m) {
+      try {
+        return JSON.parse(m[0]) as T;
+      } catch {}
+    }
+    throw new Error(
+      `JSON inválido del modelo (${e?.message ?? e}). Stop reason: ${resp.stop_reason}. ` +
+        `Primeros 200 chars: ${text.text.slice(0, 200)}`
+    );
+  }
 }
 
 /**
