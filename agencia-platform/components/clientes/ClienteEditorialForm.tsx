@@ -184,13 +184,21 @@ export default function ClienteEditorialForm({ initial }: { initial: Meta }) {
 
       <Section emoji="🏷️" title="Logo corporativo" description="PNG con fondo transparente. Si subes un JPG con fondo blanco se verá feo.">
         <div className="space-y-3">
-          <input
-            type="url"
-            value={form.logoUrl ?? ""}
-            onChange={(e) => patch("logoUrl", e.target.value)}
-            placeholder="https://… (URL pública del logo, recomendado PNG)"
-            className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
-          />
+          <div className="flex gap-2">
+            <input
+              type="url"
+              value={form.logoUrl ?? ""}
+              onChange={(e) => patch("logoUrl", e.target.value)}
+              placeholder="https://… (URL pública del logo, recomendado PNG)"
+              className="flex-1 px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+            />
+            <UploadImageButton
+              clientId={form.id}
+              accept="image/png,image/jpeg,image/svg+xml,image/webp"
+              onUploaded={(url) => patch("logoUrl", url)}
+              label="Subir"
+            />
+          </div>
           {form.logoUrl && (
             <div className="rounded-lg border bg-slate-50 p-3 inline-block">
               {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -255,7 +263,11 @@ export default function ClienteEditorialForm({ initial }: { initial: Meta }) {
         title="Imágenes de referencia visual"
         description="Sube fotos del cliente y categoriza cada imagen (CEO, equipo, instalaciones, pacientes, productos…). La IA analiza estas refs para extraer el ADN visual de la marca."
       >
-        <RefsEditor value={form.referenceImages ?? []} onChange={(v) => patch("referenceImages", v)} />
+        <RefsEditor
+          value={form.referenceImages ?? []}
+          onChange={(v) => patch("referenceImages", v)}
+          clientId={form.id}
+        />
       </Section>
 
       <Section
@@ -456,7 +468,15 @@ function DimensionsEditor({
   );
 }
 
-function RefsEditor({ value, onChange }: { value: ReferenceImage[]; onChange: (v: ReferenceImage[]) => void }) {
+function RefsEditor({
+  value,
+  onChange,
+  clientId
+}: {
+  value: ReferenceImage[];
+  onChange: (v: ReferenceImage[]) => void;
+  clientId: string;
+}) {
   const [newUrl, setNewUrl] = useState("");
   const grouped = useMemo(() => {
     const out: Record<string, number> = {};
@@ -506,6 +526,12 @@ function RefsEditor({ value, onChange }: { value: ReferenceImage[]; onChange: (v
           <Plus className="h-4 w-4" />
           Añadir
         </button>
+        <UploadImageButton
+          clientId={clientId}
+          accept="image/*"
+          onUploaded={(url) => onChange([...value, { url, type: "general" }])}
+          label="Subir archivo"
+        />
       </div>
       {value.length === 0 ? (
         <div className="rounded-lg border border-dashed bg-slate-50 p-4 text-xs text-slate-500 text-center">
@@ -907,5 +933,101 @@ function DriveEditor({
         </>
       )}
     </div>
+  );
+}
+
+/**
+ * Botón "Subir archivo" con file picker oculto. Sube a R2 via el
+ * endpoint /api/v1/files/upload y llama onUploaded con la URL
+ * pública resultante.
+ *
+ * Asociamos cada subida al cliente (targetType=CLIENT) para que el
+ * File quede vinculado en BD — útil para encontrar después qué
+ * imágenes pertenecen a qué cliente y para que la limpieza por
+ * eliminación de cliente cascadee.
+ *
+ * Si el endpoint devuelve URL signed (sin STORAGE_PUBLIC_URL
+ * configurado), avisamos al user porque expira en 1h y no sirve
+ * para campos persistentes.
+ */
+function UploadImageButton({
+  clientId,
+  accept,
+  onUploaded,
+  label
+}: {
+  clientId: string;
+  accept: string;
+  onUploaded: (url: string) => void;
+  label: string;
+}) {
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const inputId = useMemo(
+    () => `upload-img-${Math.random().toString(36).slice(2, 10)}`,
+    []
+  );
+
+  async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setError(null);
+    setUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("targetType", "CLIENT");
+      if (clientId) fd.append("targetId", clientId);
+      const r = await fetch("/api/v1/files/upload", { method: "POST", body: fd });
+      const data = await r.json().catch(() => null);
+      if (!r.ok || !data?.url) {
+        setError(data?.error?.message || `Subida falló (HTTP ${r.status})`);
+        return;
+      }
+      // Heurística: si la URL contiene "X-Amz-Signature" o "Signature=",
+      // es una URL firmada que expira en 1h. Aviso al user — no debería
+      // guardarse en campos persistentes.
+      const isSigned = /X-Amz-Signature|[?&]Signature=/.test(data.url);
+      if (isSigned) {
+        setError(
+          "⚠️ El bucket no tiene URL pública configurada (STORAGE_PUBLIC_URL). La URL caduca en 1h. Avisa al admin para configurarlo o pega manualmente una URL pública."
+        );
+      }
+      onUploaded(data.url);
+    } catch (err: any) {
+      setError(`Error: ${err?.message ?? err}`);
+    } finally {
+      setUploading(false);
+      // Reset input para permitir subir el mismo archivo otra vez.
+      e.target.value = "";
+    }
+  }
+
+  return (
+    <>
+      <input
+        id={inputId}
+        type="file"
+        accept={accept}
+        onChange={handleFile}
+        className="hidden"
+      />
+      <label
+        htmlFor={inputId}
+        className={
+          "inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border text-sm cursor-pointer " +
+          (uploading
+            ? "bg-slate-100 text-slate-400 cursor-wait"
+            : "bg-slate-50 hover:bg-slate-100 border-slate-300 text-slate-700")
+        }
+        title="Subir archivo desde tu dispositivo"
+      >
+        {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+        {label}
+      </label>
+      {error && (
+        <span className="text-xs text-rose-600 ml-2 self-center max-w-md">{error}</span>
+      )}
+    </>
   );
 }

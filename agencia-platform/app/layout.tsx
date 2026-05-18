@@ -77,7 +77,7 @@ const earlyInstallCapture = `
  */
 const swSelfHeal = `
   (function () {
-    var EXPECTED = "v9-2026-05-18-no-cache";
+    var EXPECTED = "v10-2026-05-18-upload";
     if (!('serviceWorker' in navigator)) return;
     var key = "hub_sw_v_seen";
     var seen = null;
