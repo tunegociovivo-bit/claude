@@ -159,11 +159,18 @@ async function handler(api: any, ids: string[]) {
       | "needs_help"
       | "claude_working"
       | "ai_replied"
+      | "failed"
       | null = null;
     if (r.status === "PENDING" || r.status === "RUNNING") visual = "working";
     else if (r.status === "SUCCEEDED" && !r.humanReviewedAt) visual = "done_unreviewed";
     else if (r.status === "REQUIRES_HUMAN" && !r.humanReviewedAt) {
       visual = escalation ? "claude_working" : "needs_help";
+    } else if (r.status === "FAILED" && !r.humanReviewedAt) {
+      // CRÍTICO: si Sonia falla (timeout API, error de tool,
+      // excepción no capturada) ANTES había null como visual y la
+      // card volvía a blanca → el user no se enteraba. Ahora pinta
+      // rojo intenso parpadeante con badge "❌ Sonia falló".
+      visual = "failed";
     } else if (
       // Sonia añadió un comentario después del último humanReviewedAt
       // del run (incluso aunque el run esté SUCCEEDED+reviewed). Esto

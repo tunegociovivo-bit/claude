@@ -56,6 +56,10 @@ type AiStatusInfo = {
    *   claude_working   → azul, Sonia escaló y Claude (otro agente)
    *                      está mejorando el sistema; el user no
    *                      tiene que hacer nada
+   *   failed           → ROJO INTENSO PARPADEANTE, Sonia falló
+   *                      (timeout, error API, excepción). Antes
+   *                      este caso devolvía null → la card volvía
+   *                      a blanca y el user no se enteraba.
    */
   aiStatus:
     | "working"
@@ -63,6 +67,7 @@ type AiStatusInfo = {
     | "done_unreviewed"
     | "needs_help"
     | "claude_working"
+    | "failed"
     | null;
   runId?: string;
   runStatus?: string;
@@ -1521,12 +1526,15 @@ function TaskCard({
       // ai_replied: CYAN BRILLANTE PARPADEANTE — "Sonia te ha
       // contestado, no te lo pierdas". Es el más llamativo de todos:
       // ring grueso + glow intenso + animación más rápida.
-      ai_replied:      { ring: "#06b6d4", glow: "rgba(6,182,212,0.75)", bg: "#ecfeff" }
+      ai_replied:      { ring: "#06b6d4", glow: "rgba(6,182,212,0.75)", bg: "#ecfeff" },
+      // failed: ROJO INTENSO PARPADEANTE — "Sonia falló, abre la
+      // tarea para ver qué pasó". Tan llamativo como ai_replied.
+      failed:          { ring: "#ef4444", glow: "rgba(239,68,68,0.7)", bg: "#fef2f2" }
     } as const;
     const c = colors[aiStatus];
-    // El estado ai_replied parpadea más rápido y con halo mayor que
-    // los demás — es el que más necesita captar la atención.
-    const isUrgentAttention = aiStatus === "ai_replied";
+    // ai_replied y failed parpadean más rápido y con halo mayor
+    // que los demás — son los que más necesitan captar atención.
+    const isUrgentAttention = aiStatus === "ai_replied" || aiStatus === "failed";
     soniaStyle = {
       boxShadow: isUrgentAttention
         ? `0 0 0 4px ${c.ring}, 0 0 28px 8px ${c.glow}`
@@ -1885,6 +1893,13 @@ function AiStatusBadge({
     tooltip = info.lastAiCommentPreview
       ? `«${info.lastAiCommentPreview}» — Click para marcar revisado.`
       : "Sonia añadió un comentario nuevo. Click para abrir.";
+  } else if (info.aiStatus === "failed") {
+    label = `❌ Sonia falló`;
+    bg = "#ef4444";
+    border = "#dc2626";
+    tooltip = info.error
+      ? `Error: ${info.error}. Click para abrir y ver detalles. Usa "Forzar reintento" si quieres relanzar.`
+      : "Sonia falló sin mensaje claro. Abre la tarea para ver el log.";
   } else {
     return null;
   }
@@ -1990,6 +2005,12 @@ function AiStatusBanner({ info, now }: { info: AiStatusInfo; now: number }) {
       ? `Por: ${info.summary.slice(0, 80)}`
       : "El user no tiene que hacer nada — Claude lo resuelve y re-procesa.";
     bg = "#0ea5e9";
+  } else if (info.aiStatus === "failed") {
+    line1 = `❌ SONIA FALLÓ EN ESTA TAREA`;
+    line2 = info.error
+      ? info.error
+      : "Sin mensaje de error. Abre la tarea y mira el log del run.";
+    bg = "#ef4444";
   } else {
     return null;
   }
@@ -2147,7 +2168,8 @@ function AiSoniaDebugPanel({
                   ai_replied: "#06b6d4",
                   done_unreviewed: "#10b981",
                   needs_help: "#f59e0b",
-                  claude_working: "#0ea5e9"
+                  claude_working: "#0ea5e9",
+                  failed: "#ef4444"
                 };
                 const color = colorByStatus[info.aiStatus ?? ""] ?? "#94a3b8";
                 return (
