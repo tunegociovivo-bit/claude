@@ -26,7 +26,7 @@
 // reintroducir cache PERO con purga agresiva por VERSION en
 // activate.
 
-const VERSION = "v33-2026-05-18-followup-cron-replay";
+const VERSION = "v34-2026-05-18-weekly-summary-autotag";
 
 self.addEventListener("install", (event) => {
   // Activación inmediata: no esperar a que el SW viejo libere.

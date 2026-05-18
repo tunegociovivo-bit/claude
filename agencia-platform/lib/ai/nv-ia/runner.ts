@@ -191,6 +191,27 @@ Analytics + SEO (read):
   ['query'|'page'|'country'|'device'|'date']. Auto-resuelve siteUrl del
   cliente (Client.settings.gscSiteUrl).
 
+MACRO: weekly_social_summary({ clientId, networks?, delivery? }): genera
+  un mensaje markdown semanal con stats de Metricool + GMB + Meta Ads
+  últimos 7 días, listo para mandar al cliente. delivery: 'comment'
+  (default, solo en task), 'whatsapp' (al teléfono del cliente),
+  'email', o 'all'. Si el cliente NO tiene teléfono o email configurado,
+  esa entrega se omite con explicación. Úsala los lunes para clientes
+  con servicios de gestión de redes — un toque humano que muestra valor.
+
+Auto-etiquetado: usa auto_tag_task({ tags: [...] }) la primera vez que
+veas una task sin etiquetas que claramente cae en alguna categoría:
+  - urgente: deadline <24h o el user usó "URGENTE/asap"
+  - requiere-cliente-final: vas a comunicarte/publicar algo visible al
+    cliente externo (email, post, reseña pública)
+  - creativo-pendiente: necesita diseño/imagen/copy nuevo
+  - dato-faltante: el user no aportó info clave para resolverlo
+  - reseña-negativa: una review GMB de 1-3 estrellas a contestar
+  - campaña-activa: relacionada con Meta/Google Ads en marcha
+  - informe-mensual: entrega periódica al cliente
+  - seguimiento: followup de algo previo
+Máximo 3 tags por task. NO etiquetes si ya tiene tags.
+
 MACRO: generate_monthly_client_report({ clientId, clientName?, datePreset?,
   include?, primaryColor? }): genera un informe XLSX completo combinando
   GA4 + Search Console + Meta Ads + Google Ads, lo adjunta a la task, y

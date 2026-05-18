@@ -57,6 +57,7 @@ import {
 import { ga4GetReport } from "@/lib/integrations/ga4";
 import { searchConsoleQuery } from "@/lib/integrations/search-console";
 import { generateMonthlyClientReport } from "@/lib/reports/monthly-client-report";
+import { generateWeeklySocialSummary } from "@/lib/reports/weekly-social-summary";
 import {
   gmbListAccounts,
   gmbListLocations,
@@ -1510,6 +1511,69 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
     }
   },
   {
+    name: "weekly_social_summary",
+    description:
+      "MACRO. Genera un resumen semanal de redes sociales para un cliente, combinando Metricool (instagram/facebook/tiktok/etc) + GMB insights + Meta Ads de los últimos 7 días. Devuelve el mensaje markdown listo para mandar al cliente. Modos de entrega: 'comment' (solo lo deja en la task), 'whatsapp' (manda al teléfono del cliente vía WAHA), 'email' (manda al email del cliente), 'all'. Best-effort: si una fuente falla, sigue con las demás y omite las que cayeron del resumen. Usa request_user_approval ANTES si el cliente es nuevo o si los datos parecen raros — un mensaje semanal incorrecto daña la relación.",
+    input_schema: {
+      type: "object",
+      properties: {
+        clientId: { type: "string" },
+        networks: {
+          type: "array",
+          items: {
+            type: "string",
+            enum: ["instagram", "facebook", "tiktok", "linkedin", "twitter", "gmb"]
+          },
+          description: "Default: ['instagram','facebook','gmb']"
+        },
+        skipMetaAds: {
+          type: "boolean",
+          description: "true si el cliente no tiene campañas activas (evita la sección Meta Ads)."
+        },
+        delivery: {
+          type: "string",
+          enum: ["comment", "whatsapp", "email", "all"],
+          description: "Default 'comment'."
+        },
+        emailSubject: {
+          type: "string",
+          description: "Solo aplica si delivery incluye email. Default 'Resumen semanal — {cliente}'."
+        }
+      },
+      required: ["clientId"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "auto_tag_task",
+    description:
+      "Analiza el contexto de la task actual y le aplica etiquetas inteligentes: 'urgente' (deadline <24h o lenguaje del user), 'requiere-cliente-final' (acción visible al cliente que necesita aprobación), 'creativo-pendiente' (falta diseño/imagen/copy), 'dato-faltante' (necesita info no disponible). Devuelve las tags aplicadas. SOLO usa cuando la task está sin tags y tiene contenido relevante — no spamees.",
+    input_schema: {
+      type: "object",
+      properties: {
+        tags: {
+          type: "array",
+          items: {
+            type: "string",
+            enum: [
+              "urgente",
+              "requiere-cliente-final",
+              "creativo-pendiente",
+              "dato-faltante",
+              "reseña-negativa",
+              "campaña-activa",
+              "informe-mensual",
+              "seguimiento"
+            ]
+          },
+          description: "Etiquetas a aplicar. Mínimo 1, máximo 3."
+        }
+      },
+      required: ["tags"],
+      additionalProperties: false
+    }
+  },
+  {
     name: "gmb_unreplied_reviews_briefing",
     description:
       "Devuelve las reseñas SIN responder de un cliente, ya agrupadas por sentimiento (positivas 4-5★ / neutrales 3★ / negativas 1-2★) Y enriquecidas con el contexto del cliente (brandBrief, styleGuide cacheado, brand colors, contacto). Pensado para que Sonia procese las reseñas pendientes con un solo turno de contexto en lugar de hacer N llamadas. Después usas gmb_reply_to_review para responder cada una. RECUERDA: las negativas pídelas con request_user_approval antes de publicar.",
@@ -2435,6 +2499,14 @@ async function maybeAutoApproveDraft(
 // Compacta una reseña GMB para el briefing — quitamos campos que el
 // modelo no necesita (createTime ya viene como string, etc.) y dejamos
 // reviewName porque se necesita para gmb_reply_to_review.
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
 function stripReviewForBriefing(r: {
   reviewName: string;
   reviewer: string;
@@ -4675,6 +4747,135 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
       return res;
     } catch (e: any) {
       return { error: `gmb_get_insights: ${e?.message ?? e}` };
+    }
+  },
+
+  async weekly_social_summary(input, ctx) {
+    try {
+      const clientId = String(input?.clientId ?? "").trim();
+      if (!clientId) return { error: "clientId requerido" };
+      const delivery = (input?.delivery as string) ?? "comment";
+      const result = await generateWeeklySocialSummary({
+        workspaceId: ctx.workspaceId,
+        clientId,
+        networks: Array.isArray(input?.networks) ? input.networks : undefined,
+        skipMetaAds: !!input?.skipMetaAds
+      });
+
+      const deliveryReport: Record<string, "ok" | "skipped" | string> = {};
+
+      if (delivery === "comment" || delivery === "all") {
+        await prisma.comment.create({
+          data: {
+            workspaceId: ctx.workspaceId,
+            authorId: ctx.config.userId,
+            targetType: "TASK",
+            targetId: ctx.taskId,
+            body: result.summary
+          }
+        });
+        deliveryReport.comment = "ok";
+      }
+
+      if ((delivery === "whatsapp" || delivery === "all") && result.clientPhone) {
+        try {
+          const { sendText, normalizePhone } = await import("@/lib/leads/waha");
+          const phoneNormalized = normalizePhone(result.clientPhone);
+          if (!phoneNormalized) throw new Error("Teléfono inválido");
+          await sendText({
+            workspaceId: ctx.workspaceId,
+            phoneNormalized,
+            text: result.summary
+          });
+          deliveryReport.whatsapp = "ok";
+        } catch (e: any) {
+          deliveryReport.whatsapp = e?.message ?? String(e);
+        }
+      } else if (delivery === "whatsapp" || delivery === "all") {
+        deliveryReport.whatsapp = "skipped: cliente sin teléfono";
+      }
+
+      if ((delivery === "email" || delivery === "all") && result.clientEmail) {
+        try {
+          const { sendEmail, isEmailEnabled } = await import("@/lib/integrations/email");
+          if (!isEmailEnabled()) throw new Error("Email no configurado en el workspace");
+          const subject =
+            (input?.emailSubject as string | undefined) ??
+            `Resumen semanal — ${result.clientName ?? "tu negocio"}`;
+          // Markdown a texto plano para el email
+          await sendEmail({
+            to: result.clientEmail,
+            subject,
+            text: result.summary,
+            html: `<pre style="font-family:Helvetica,Arial,sans-serif;white-space:pre-wrap;font-size:14px">${escapeHtml(
+              result.summary
+            )}</pre>`
+          });
+          deliveryReport.email = "ok";
+        } catch (e: any) {
+          deliveryReport.email = e?.message ?? String(e);
+        }
+      } else if (delivery === "email" || delivery === "all") {
+        deliveryReport.email = "skipped: cliente sin email";
+      }
+
+      return {
+        ok: true,
+        clientName: result.clientName,
+        delivery: deliveryReport,
+        sources: result.sources,
+        summaryPreview: result.summary.slice(0, 400)
+      };
+    } catch (e: any) {
+      return { error: `weekly_social_summary: ${e?.message ?? e}` };
+    }
+  },
+
+  async auto_tag_task(input, ctx) {
+    try {
+      const tags = Array.isArray(input?.tags) ? input.tags.slice(0, 3) : [];
+      if (tags.length === 0) return { error: "tags vacío" };
+
+      // Crea/recupera cada Tag (idempotente, único por workspace+name)
+      const tagIds: string[] = [];
+      const colorByTag: Record<string, string> = {
+        urgente: "bg-rose-200",
+        "requiere-cliente-final": "bg-amber-200",
+        "creativo-pendiente": "bg-violet-200",
+        "dato-faltante": "bg-slate-300",
+        "reseña-negativa": "bg-orange-200",
+        "campaña-activa": "bg-emerald-200",
+        "informe-mensual": "bg-sky-200",
+        seguimiento: "bg-indigo-200"
+      };
+      for (const name of tags) {
+        const t = await prisma.tag.upsert({
+          where: {
+            workspaceId_name: { workspaceId: ctx.workspaceId, name: String(name) }
+          },
+          update: {},
+          create: {
+            workspaceId: ctx.workspaceId,
+            name: String(name),
+            color: colorByTag[String(name)] ?? "bg-slate-200"
+          },
+          select: { id: true }
+        });
+        tagIds.push(t.id);
+      }
+
+      // Aplicar a la task (idempotente)
+      for (const tagId of tagIds) {
+        await prisma.taskTag.upsert({
+          where: { taskId_tagId: { taskId: ctx.taskId, tagId } },
+          update: {},
+          create: { taskId: ctx.taskId, tagId }
+        });
+      }
+
+      return { ok: true, applied: tags };
+    } catch (e: any) {
+      return { error: `auto_tag_task: ${e?.message ?? e}` };
     }
   },
 
