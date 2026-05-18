@@ -149,8 +149,13 @@ Análisis cruzado y auto-mejora:
 Delegación a sub-agentes (solo para tareas grandes con piezas separables):
 - spawn_subagent(role, instruction): delega análisis/investigación/redacción/revisión a una sub-IA. Roles: researcher, writer, analyst, reviewer. Sub-agente es READ-ONLY. Cap 5/run.
 
+Entregar archivos / informes:
+- attach_file_to_task: adjunta CUALQUIER archivo (PDF, DOCX, HTML, MD, TXT, CSV, JSON, imagen) directamente a la tarea, firmado por ti. Pasa contentText (UTF-8) o contentBase64 (binario). El user lo ve en la lista de adjuntos del task SIN tener que ir a Drive. ÚSALA cuando el user pida algo "como adjunto", "descargable", "que me lo subas aquí".
+- attach_report_to_task: ATAJO para informes. Pasas título + markdown; Sonia genera HTML maquetado (A4, headers, tablas, tipografía) y lo adjunta como .html. El user lo abre en navegador y Ctrl+P → "Guardar como PDF" para tenerlo en PDF. ÚSALA SIEMPRE para informes formales (analíticas, propuestas, resúmenes ejecutivos).
+
 Cierre:
 - mark_complete: termina la tarea con resumen y notifica al solicitante.
+- escalate_to_claude(reason, blockingType, suggestedFix?, whatICompletedAnyway?): cuando te topas con una LIMITACIÓN REAL del sistema (falta tool, API caída, formato no soportable, config faltante, comportamiento ambiguo de integración), úsala EN VEZ DE cerrar con mark_complete diciendo "no puedo". Marca el run REQUIRES_HUMAN y abre un issue de mejora en GitHub. Claude analiza, arregla el código, y re-procesa la task — el user no toca nada. La próxima vez funcionará.
 
 PRINCIPIOS:
 1. SIEMPRE empieza llamando a get_task_context.
@@ -159,6 +164,7 @@ PRINCIPIOS:
 4. Si la solicitud es ambigua o te falta información crítica, usa add_comment para preguntar y termina (sin mark_complete). El humano responderá; el run se reactivará en otra iteración.
 5. Las acciones IRREVERSIBLES (mandar email/WhatsApp, publicar post, crear evento de calendario) SIEMPRE pasan por draft_*. Tú dejas el borrador listo; el humano da el OK final. NUNCA prometas en un comentario que "ya he enviado" o "ya he programado" — solo lo has redactado.
 6. Si la tarea requiere acciones que ni tus tools ni un draft cubren (modificar facturas, mover archivos en Drive, ejecutar código), descríbelo en add_comment con precisión y termina sin mark_complete.
+7. **NUNCA cierres con mark_complete diciendo "no tengo tool para X" o "el sistema no soporta Y" — eso es una LIMITACIÓN del sistema y debe ir por escalate_to_claude.** mark_complete es para tareas TERMINADAS con éxito. Si te falta capacidad técnica, escala — así el sistema mejora y la próxima vez podrás. Si te falta INFORMACIÓN del user (criterio, decisión, dato concreto), eso sí va con add_comment + termina sin mark_complete (no es escalación, es esperar respuesta humana).
 7. Sé eficiente: cada tool call cuesta tiempo y dinero. No llames a search_knowledge para preguntas triviales que ya tienes claras del contexto.
 8. En el resumen final menciona EXPLÍCITAMENTE cuántos drafts dejaste pendientes (ej: "He redactado 2 emails que esperan tu aprobación en /admin/nv-ia/drafts").
 
@@ -437,6 +443,16 @@ export async function executeAgentRun(opts: {
           completed = true;
           summary = String((tu.input as any)?.summary ?? "");
         }
+        // escalate_to_claude también cierra el run — ya marcó
+        // REQUIRES_HUMAN en BD y disparó la escalación. Si seguimos
+        // iterando, el modelo puede liarse llamando a mark_complete
+        // por encima y reescribiría el status. Salimos limpio.
+        if (tu.name === "escalate_to_claude" && !isError) {
+          completed = true;
+          summary = `Escalado: ${String((tu.input as any)?.reason ?? "").slice(0, 200)}`;
+          // Marcamos un flag para que el wrap-up NO sobrescriba status.
+          (tu as any)._wasEscalation = true;
+        }
         toolResults.push({
           type: "tool_result",
           tool_use_id: tu.id,
@@ -446,9 +462,31 @@ export async function executeAgentRun(opts: {
       }
       messages.push({ role: "user", content: toolResults });
 
-      // Cortocircuito: si llamó a mark_complete con éxito, no seguimos.
+      // Cortocircuito: si llamó a mark_complete o escalate_to_claude, no seguimos.
       if (completed) {
-        log.push({ type: "stop", ts: nowIso(), reason: "mark_complete", summary: summary ?? undefined });
+        const wasEscalation = resp.content.some(
+          (b: any) => b.type === "tool_use" && b.name === "escalate_to_claude"
+        );
+        log.push({
+          type: "stop",
+          ts: nowIso(),
+          reason: wasEscalation ? "escalate_to_claude" : "mark_complete",
+          summary: summary ?? undefined
+        });
+        if (wasEscalation) {
+          // escalate_to_claude ya escribió status=REQUIRES_HUMAN
+          // en BD. Devolvemos consistente para que process-run
+          // no sobreescriba con SUCCEEDED.
+          return {
+            status: "REQUIRES_HUMAN",
+            summary,
+            error: null,
+            log,
+            stepsCount,
+            inputTokens,
+            outputTokens
+          };
+        }
         break;
       }
 

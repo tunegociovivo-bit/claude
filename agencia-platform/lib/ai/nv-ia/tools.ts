@@ -47,6 +47,9 @@ import { gadsListCampaigns, gadsCampaignMetrics } from "@/lib/integrations/googl
 import { signedDownloadUrl } from "@/lib/storage/r2";
 import { completeVision } from "@/lib/ai/anthropic";
 import { listDriveFiles } from "@/lib/integrations/google-drive";
+import { uploadAttachmentForTask } from "@/lib/files/sonia-upload";
+import { markdownToHtmlBody, wrapAsReportHtml } from "@/lib/files/markdown-html";
+import { escalateRunToGitHub } from "./escalate";
 import type { AiAgentConfig } from "./types";
 
 export type ToolContext = {
@@ -1134,6 +1137,116 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
         }
       },
       required: ["summary"],
+      additionalProperties: false
+    }
+  },
+  // ────────────────────────────────────────────────────────────────
+  // Adjuntar archivos a la tarea (entregables, informes, PDFs)
+  // ────────────────────────────────────────────────────────────────
+  {
+    name: "attach_file_to_task",
+    description:
+      "Adjunta un archivo CUALQUIERA (PDF, DOCX, HTML, MD, TXT, CSV, JSON, imagen, etc.) directamente a la tarea actual. El archivo aparece en la lista de adjuntos del task como si lo hubiera subido el user, firmado por Sonia. Pasa el contenido en `contentText` (UTF-8 para texto plano) O en `contentBase64` (para binarios). Usa esta tool en vez de Google Doc cuando el user quiera el archivo COMO ADJUNTO de la tarea — más cómodo que ir a Drive.",
+    input_schema: {
+      type: "object",
+      properties: {
+        filename: {
+          type: "string",
+          description:
+            "Nombre del archivo con extensión (ej: 'informe-meta-novaextranjeria-mayo.html', 'datos.csv', 'logo.png')."
+        },
+        mimeType: {
+          type: "string",
+          description:
+            "Mime type del archivo. Ej: text/html, application/pdf, text/markdown, text/csv, application/json, image/png."
+        },
+        contentText: {
+          type: "string",
+          description:
+            "Contenido en texto plano UTF-8 (para HTML, MD, TXT, CSV, JSON, etc.). Mutuamente excluyente con contentBase64."
+        },
+        contentBase64: {
+          type: "string",
+          description:
+            "Contenido binario en base64 (para PDF, DOCX, imágenes). Mutuamente excluyente con contentText."
+        },
+        description: {
+          type: "string",
+          description:
+            "Descripción opcional para el comentario que añade Sonia al adjuntar ('Aquí tienes el informe que pediste, abierto en navegador → Ctrl+P para PDF'). Si no la pasas, el comentario es escueto."
+        }
+      },
+      required: ["filename", "mimeType"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "attach_report_to_task",
+    description:
+      "ATAJO PROFESIONAL para entregar un INFORME. Pasas título + cuerpo en MARKDOWN; Sonia lo convierte a HTML estilizado (con headers, tablas, listas), lo envuelve en un documento A4 con cabecera/pie, y lo adjunta a la task como `.html`. El user puede abrirlo en navegador y hacer Ctrl+P → 'Guardar como PDF' para tenerlo en PDF. Más rápido y consistente que generar HTML manualmente. ÚSALA SIEMPRE para informes, propuestas y entregables formales.",
+    input_schema: {
+      type: "object",
+      properties: {
+        filename: {
+          type: "string",
+          description:
+            "Nombre del archivo .html (ej: 'informe-meta-mayo-2026.html'). Termina en .html."
+        },
+        title: {
+          type: "string",
+          description: "Título del informe que aparece en la cabecera del documento."
+        },
+        subtitle: {
+          type: "string",
+          description:
+            "Subtítulo opcional para la cabecera (ej: 'Cliente: Novaextranjería · Periodo: 30 días')."
+        },
+        markdown: {
+          type: "string",
+          description:
+            "Cuerpo del informe en Markdown. Soporta # headers, listas, tablas pipe |col|col|, **bold**, *italic*, `code`, [links](url), ---. NO necesitas escribir HTML — Sonia lo genera por ti."
+        },
+        footer: {
+          type: "string",
+          description: "Pie de página opcional del documento."
+        }
+      },
+      required: ["filename", "title", "markdown"],
+      additionalProperties: false
+    }
+  },
+  // ────────────────────────────────────────────────────────────────
+  // Escalación a Claude Code (self-improvement)
+  // ────────────────────────────────────────────────────────────────
+  {
+    name: "escalate_to_claude",
+    description:
+      "Cuando te topas con una LIMITACIÓN TÉCNICA (falta tool para algo, API caduca/inalcanzable, formato no soportable, falta config en el workspace, comportamiento ambiguo en una integración) y NO PUEDES completar la tarea como el user quiere, llama a esta tool EN VEZ DE cerrar con mark_complete diciendo 'no puedo'. Esto: (1) marca el run como REQUIRES_HUMAN, (2) abre un issue en GitHub con el contexto entero y `@claude` mention, y (3) Claude Code analiza, hace fix de código, y re-dispara la task automáticamente. El user no tiene que hacer NADA — la limitación se convierte en mejora permanente del sistema. NO ABUSES: solo úsala para limitaciones REALES del sistema, no para tareas que requieren juicio humano (esas usan mark_complete con un summary claro pidiendo guidance).",
+    input_schema: {
+      type: "object",
+      properties: {
+        reason: {
+          type: "string",
+          description:
+            "Qué te impide completar la tarea, en 1-3 frases concretas. Ej: 'No tengo tool para adjuntar PDFs directos al task; solo puedo subir Google Docs a Drive.'"
+        },
+        blockingType: {
+          type: "string",
+          enum: ["missing_tool", "api_error", "missing_config", "ambiguous_request", "format_unsupported", "other"],
+          description: "Categoría del bloqueo. Ayuda a Claude a saber dónde mirar en el código."
+        },
+        suggestedFix: {
+          type: "string",
+          description:
+            "OPCIONAL pero MUY útil: tu propuesta de qué tool nueva / qué fix de código resolvería esto en el futuro. Ej: 'Añadir tool attach_pdf_to_task que use puppeteer para render HTML→PDF y suba a R2.'"
+        },
+        whatICompletedAnyway: {
+          type: "string",
+          description:
+            "OPCIONAL: qué SÍ pudiste hacer pese a la limitación. Ej: 'He preparado el informe completo como Google Doc en Drive con el draft pending de aprobación'. Aparece en el comentario al user."
+        }
+      },
+      required: ["reason", "blockingType"],
       additionalProperties: false
     }
   }
@@ -3057,6 +3170,181 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
       data: { status: "DONE", completedAt: new Date() }
     });
     return { ok: true, commentId: comment.id, completed: true };
+  },
+  async attach_file_to_task(input, ctx) {
+    const filename = String(input?.filename ?? "").trim();
+    const mimeType = String(input?.mimeType ?? "").trim();
+    const contentText = typeof input?.contentText === "string" ? input.contentText : null;
+    const contentBase64 = typeof input?.contentBase64 === "string" ? input.contentBase64 : null;
+    const description =
+      typeof input?.description === "string" ? input.description.trim() : "";
+
+    if (!filename) return { error: "filename vacío" };
+    if (!mimeType) return { error: "mimeType vacío" };
+    if (!contentText && !contentBase64) {
+      return { error: "Debes pasar contentText O contentBase64." };
+    }
+    if (contentText && contentBase64) {
+      return { error: "Pasa SOLO uno: contentText o contentBase64, no ambos." };
+    }
+    let buf: Buffer;
+    try {
+      buf = contentText
+        ? Buffer.from(contentText, "utf-8")
+        : Buffer.from(contentBase64!, "base64");
+    } catch (e: any) {
+      return { error: `decode falló: ${e?.message ?? e}` };
+    }
+    // Límite suave: 15MB. Más grande probablemente sea ruido.
+    if (buf.length > 15 * 1024 * 1024) {
+      return { error: `Archivo demasiado grande: ${humanSize(buf.length)} (max 15MB)` };
+    }
+    try {
+      const result = await uploadAttachmentForTask({
+        workspaceId: ctx.workspaceId,
+        taskId: ctx.taskId,
+        filename,
+        body: buf,
+        mimeType,
+        uploadedByUserId: ctx.config.userId
+      });
+      // Comentario informativo firmado como Sonia.
+      const note = description || `He adjuntado el archivo **${filename}** (${humanSize(buf.length)}).`;
+      await prisma.comment.create({
+        data: {
+          workspaceId: ctx.workspaceId,
+          authorId: ctx.config.userId,
+          targetType: "TASK",
+          targetId: ctx.taskId,
+          body: `📎 ${note}`,
+          bodyJson: {
+            type: "doc",
+            content: [{ type: "paragraph", content: [{ type: "text", text: `📎 ${note}` }] }]
+          }
+        }
+      });
+      return {
+        ok: true,
+        fileId: result.fileId,
+        filename: result.filename,
+        sizeBytes: result.sizeBytes,
+        mimeType: result.mimeType
+      };
+    } catch (e: any) {
+      return { error: `attach falló: ${e?.message ?? e}` };
+    }
+  },
+  async attach_report_to_task(input, ctx) {
+    const filename = String(input?.filename ?? "informe.html").trim();
+    const title = String(input?.title ?? "").trim();
+    const markdown = String(input?.markdown ?? "").trim();
+    const subtitle =
+      typeof input?.subtitle === "string" ? input.subtitle.trim() : undefined;
+    const footer = typeof input?.footer === "string" ? input.footer.trim() : undefined;
+    if (!title) return { error: "title vacío" };
+    if (!markdown) return { error: "markdown vacío" };
+    if (markdown.length > 200_000) {
+      return { error: "markdown demasiado largo (>200KB)" };
+    }
+    const bodyHtml = markdownToHtmlBody(markdown);
+    const html = wrapAsReportHtml({ title, bodyHtml, subtitle, footer });
+    const safeName = /\.html?$/i.test(filename) ? filename : `${filename}.html`;
+    try {
+      const result = await uploadAttachmentForTask({
+        workspaceId: ctx.workspaceId,
+        taskId: ctx.taskId,
+        filename: safeName,
+        body: Buffer.from(html, "utf-8"),
+        mimeType: "text/html",
+        uploadedByUserId: ctx.config.userId
+      });
+      const note = `📎 He adjuntado el informe **${title}** como ${safeName} (${humanSize(result.sizeBytes)}). Ábrelo en el navegador para verlo maquetado; usa Ctrl+P → "Guardar como PDF" si lo quieres en PDF para el cliente.`;
+      await prisma.comment.create({
+        data: {
+          workspaceId: ctx.workspaceId,
+          authorId: ctx.config.userId,
+          targetType: "TASK",
+          targetId: ctx.taskId,
+          body: note,
+          bodyJson: {
+            type: "doc",
+            content: [{ type: "paragraph", content: [{ type: "text", text: note }] }]
+          }
+        }
+      });
+      return {
+        ok: true,
+        fileId: result.fileId,
+        filename: result.filename,
+        sizeBytes: result.sizeBytes
+      };
+    } catch (e: any) {
+      return { error: `attach_report falló: ${e?.message ?? e}` };
+    }
+  },
+  async escalate_to_claude(input, ctx) {
+    const reason = String(input?.reason ?? "").trim();
+    const blockingType = String(input?.blockingType ?? "other").trim();
+    const suggestedFix =
+      typeof input?.suggestedFix === "string" ? input.suggestedFix.trim() : "";
+    const whatIDid =
+      typeof input?.whatICompletedAnyway === "string"
+        ? input.whatICompletedAnyway.trim()
+        : "";
+    if (!reason) return { error: "reason vacío" };
+
+    // 1) Comentario informativo al user explicando que escalamos
+    //    para mejorar el sistema. Tono honesto: "no he podido X
+    //    pero Claude lo va a arreglar".
+    const noteLines = [
+      `⚙️ **He escalado esta limitación a Claude Code para que mejore el sistema.**`,
+      ``,
+      `**Bloqueo (${blockingType}):** ${reason}`,
+      whatIDid ? `\n**Lo que sí he completado:** ${whatIDid}` : "",
+      suggestedFix ? `\n**Propuesta:** ${suggestedFix}` : "",
+      ``,
+      `Claude analizará el código, aplicará la mejora correspondiente, y re-procesará esta tarea automáticamente. Recibirás una notificación cuando esté lista.`
+    ].filter(Boolean);
+    const noteText = noteLines.join("\n");
+    await prisma.comment.create({
+      data: {
+        workspaceId: ctx.workspaceId,
+        authorId: ctx.config.userId,
+        targetType: "TASK",
+        targetId: ctx.taskId,
+        body: noteText,
+        bodyJson: {
+          type: "doc",
+          content: [{ type: "paragraph", content: [{ type: "text", text: noteText }] }]
+        }
+      }
+    });
+
+    // 2) Marcar el run como REQUIRES_HUMAN antes de disparar la
+     // escalación — para que escalateRunToGitHub lea el status
+     // correcto y genere el issue. NOTA: el runner aún no ha
+     // terminado, pero asumimos que esto es lo último que llama.
+    await prisma.aiAgentRun.update({
+      where: { id: ctx.runId },
+      data: {
+        status: "REQUIRES_HUMAN",
+        summary: `Escalado a Claude: ${reason.slice(0, 200)}`,
+        error: `[${blockingType}] ${reason}${suggestedFix ? ` | Fix sugerido: ${suggestedFix}` : ""}`,
+        finishedAt: new Date()
+      }
+    });
+
+    // 3) Disparar escalación fire-and-forget.
+    void escalateRunToGitHub(ctx.runId).catch((e) =>
+      console.warn("[sonia] escalate_to_claude → escalateRunToGitHub:", e?.message ?? e)
+    );
+
+    return {
+      ok: true,
+      escalated: true,
+      message:
+        "Run marcado como REQUIRES_HUMAN. Issue de mejora se crea en background. NO sigas trabajando — termina el run aquí."
+    };
   }
 };
 
