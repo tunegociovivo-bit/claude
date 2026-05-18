@@ -33,3 +33,24 @@ body {
 .scrollbar-thin::-webkit-scrollbar-track {
   background: transparent;
 }
+
+/* Animación del indicador de estado de Sonia en TaskCard.
+   Definida aquí en lugar de via animate-pulse de Tailwind por dos
+   razones:
+   1) Garantiza que el frame NO se purga jamás en build de prod
+      (esto explicaba que a veces no se viese el morado).
+   2) animate-pulse de Tailwind opera sobre opacity de TODO el
+      contenido — el texto del card quedaba semi-transparente en
+      el valle del pulso. Aquí solo varía la sombra y el brillo,
+      manteniendo el contenido legible.
+   El TaskCard pasa el color via box-shadow inline; aquí solo
+   modulamos su intensidad. */
+@keyframes sonia-pulse {
+  0%,
+  100% {
+    filter: brightness(1);
+  }
+  50% {
+    filter: brightness(1.05);
+  }
+}

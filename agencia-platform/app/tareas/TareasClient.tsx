@@ -147,7 +147,13 @@ export default function TareasClient({
         const r = await fetch(`/api/v1/tasks/ai-status?taskIds=${encodeURIComponent(ids)}`, {
           cache: "no-store"
         });
-        if (!r.ok) return;
+        if (!r.ok) {
+          // Loguear el fallo en lugar de silenciar — sin esto el bug
+          // de "no aparece el morado" es invisible. Ver consola del
+          // browser si el indicador no aparece.
+          console.warn(`[ai-status] HTTP ${r.status} — el indicador de Sonia no se pintará`);
+          return;
+        }
         const data = await r.json();
         if (cancelled) return;
         const next: Record<string, AiStatusInfo> = {};
@@ -166,9 +172,16 @@ export default function TareasClient({
             };
           }
         }
+        // Log cuando hay cambios activos — para diagnosticar
+        // "Sonia trabaja pero no veo el morado". Aparece en consola
+        // del browser cada poll.
+        const activeCount = Object.keys(next).length;
+        if (activeCount > 0) {
+          console.log(`[ai-status] ${activeCount} task(s) con estado activo:`, next);
+        }
         setAiStatusByTask(next);
-      } catch {
-        // silent
+      } catch (e) {
+        console.warn("[ai-status] fetch error:", e);
       }
     }
 
@@ -1416,8 +1429,28 @@ function TaskCard({
     }
   }
 
+  // Estilos inline para el indicador de Sonia. Los inline NO se
+  // purgan jamás — antes con Tailwind+clsx a veces se perdían en
+  // build de producción y el indicador no se veía. Borde + sombra +
+  // animación CSS propia (sonia-pulse) garantizan visibilidad.
+  let soniaStyle: React.CSSProperties = {};
+  if (aiStatus && alarmLevel !== "urgent") {
+    const colors = {
+      working:        { ring: "#7c3aed", glow: "rgba(124,58,237,0.45)", bg: "#f5f3ff" },
+      done_unreviewed:{ ring: "#10b981", glow: "rgba(16,185,129,0.45)", bg: "#ecfdf5" },
+      needs_help:     { ring: "#f59e0b", glow: "rgba(245,158,11,0.55)", bg: "#fffbeb" }
+    } as const;
+    const c = colors[aiStatus];
+    soniaStyle = {
+      boxShadow: `0 0 0 3px ${c.ring}, 0 0 18px 4px ${c.glow}`,
+      backgroundColor: c.bg,
+      animation: "sonia-pulse 1.6s ease-in-out infinite"
+    };
+  }
+
   return (
     <div
+      style={soniaStyle}
       className={clsx(
         "rounded-lg border p-3 transition cursor-pointer relative group",
         // Alarma visual según proximidad del dueDate. Sólo aplica a
@@ -1426,22 +1459,13 @@ function TaskCard({
           ? "bg-rose-600 text-white border-rose-700 shadow-lg shadow-rose-200 animate-pulse"
           : alarmLevel === "preaviso"
             ? "bg-white border-rose-500 ring-2 ring-rose-300/60"
-            : "bg-white",
-        isOverlay ? "shadow-2xl rotate-2 border-brand-400" : alarmLevel === "none" && "hover:shadow-sm hover:border-brand-200",
-        isSelected && "border-brand-400 ring-2 ring-brand-300/50",
-        // Sonia — indicador visual del último run de la IA sobre esta task.
-        // Domina sobre alarmLevel "preaviso" pero NO sobre "urgent" (rojo
-        // del deadline es más crítico). El "animate-pulse" de Tailwind
-        // hace fade in/out cada 2s — efecto "parpadeo".
-        aiStatus === "working" &&
-          alarmLevel !== "urgent" &&
-          "ring-2 ring-violet-500 shadow-lg shadow-violet-300 animate-pulse",
-        aiStatus === "done_unreviewed" &&
-          alarmLevel !== "urgent" &&
-          "ring-2 ring-emerald-500 shadow-lg shadow-emerald-300 animate-pulse",
-        aiStatus === "needs_help" &&
-          alarmLevel !== "urgent" &&
-          "ring-2 ring-amber-500 shadow-lg shadow-amber-300 animate-pulse"
+            : aiStatus
+              ? "" // bg lo pone soniaStyle (inline). alarmLevel ya
+                   // es "none" en esta rama (urgent/preaviso
+                   // chequeados antes).
+              : "bg-white",
+        isOverlay ? "shadow-2xl rotate-2 border-brand-400" : alarmLevel === "none" && !aiStatus && "hover:shadow-sm hover:border-brand-200",
+        isSelected && !aiStatus && "border-brand-400 ring-2 ring-brand-300/50"
       )}
     >
       {aiStatus && (
