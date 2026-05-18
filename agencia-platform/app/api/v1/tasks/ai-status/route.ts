@@ -19,6 +19,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
 import { extractEscalationFromLog } from "@/lib/ai/nv-ia/escalate";
+import { getEscalationStatus } from "@/lib/ai/nv-ia/escalate-status";
 import { processRunInBackground } from "@/lib/ai/nv-ia/process-run";
 
 export const dynamic = "force-dynamic";
@@ -134,7 +135,7 @@ async function handler(api: any, ids: string[]) {
     }
   }
 
-  const items = ids.map((id) => {
+  const items = await Promise.all(ids.map(async (id) => {
     const r = latestByTask.get(id);
     const lastComment = lastCommentByTask.get(id);
     const lastCommentIsAi = aiUserId && lastComment?.authorId === aiUserId;
@@ -213,12 +214,18 @@ async function handler(api: any, ids: string[]) {
       reviewed: !!r.humanReviewedAt,
       escalationIssueUrl: escalation?.issueUrl ?? null,
       escalationIssueNumber: escalation?.issueNumber ?? null,
+      // Solo consultamos GitHub si el visual es claude_working — para
+      // las demás tasks no aporta info. Caché 60s en el helper evita
+      // saturar la API de GitHub.
+      claudeProgress: visual === "claude_working"
+        ? await getEscalationStatus(r.log).catch(() => null)
+        : null,
       lastStepText,
       lastToolName,
       lastAiCommentAt: lastCommentIsAi ? lastComment!.createdAt.toISOString() : null,
       lastAiCommentPreview: lastCommentIsAi ? lastComment!.body.slice(0, 140) : null
     };
-  });
+  }));
 
   return NextResponse.json({ items });
 }

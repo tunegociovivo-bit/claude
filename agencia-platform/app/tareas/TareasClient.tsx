@@ -80,6 +80,21 @@ type AiStatusInfo = {
   /** Si hay escalación a Claude, URL del issue en GitHub. */
   escalationIssueUrl?: string | null;
   escalationIssueNumber?: number | null;
+  /** Estado en vivo del trabajo de Claude sobre el issue de
+   *  escalación. Consultado a GitHub API (con cache 60s). Null si
+   *  no hay escalación o GitHub no responde. */
+  claudeProgress?: {
+    state: "investigating" | "pr_open" | "pr_merged" | "closed" | "unknown";
+    issueUrl: string;
+    issueNumber: number;
+    prUrl?: string;
+    prNumber?: number;
+    prState?: "open" | "closed" | "merged";
+    lastActivityAt?: string;
+    commentCount: number;
+    humanLabel: string;
+    staleWarning?: boolean;
+  } | null;
   /** Texto humano de qué está haciendo Sonia AHORA mismo. */
   lastStepText?: string | null;
   /** Nombre técnico de la última tool ejecutada. */
@@ -276,6 +291,7 @@ export default function TareasClient({
               reviewed: it.reviewed,
               escalationIssueUrl: it.escalationIssueUrl,
               escalationIssueNumber: it.escalationIssueNumber,
+              claudeProgress: it.claudeProgress,
               lastStepText: it.lastStepText,
               lastToolName: it.lastToolName,
               lastAiCommentAt: it.lastAiCommentAt,
@@ -1935,15 +1951,24 @@ function AiStatusBadge({
     border = "#d97706";
     tooltip = info.summary ?? info.error ?? "Sonia necesita tu intervención.";
   } else if (info.aiStatus === "claude_working") {
-    label = info.escalationIssueNumber
-      ? `🛠 Claude mejorando · #${info.escalationIssueNumber}`
-      : `🛠 Claude mejorando`;
-    bg = "#0ea5e9";
-    border = "#0284c7";
-    tooltip =
-      (info.summary ? info.summary + " — " : "") +
-      "Claude está mejorando el sistema para resolver esto. Click para abrir el issue en GitHub.";
-    href = info.escalationIssueUrl ?? null;
+    const prog = info.claudeProgress;
+    if (prog?.state === "pr_merged") {
+      label = `🛠 PR mergeado · re-procesando`;
+    } else if (prog?.state === "pr_open") {
+      label = `🛠 PR #${prog.prNumber} listo`;
+    } else if (prog?.staleWarning) {
+      label = `⚠️ Claude sin actividad`;
+    } else if (info.escalationIssueNumber) {
+      label = `🛠 Claude · #${info.escalationIssueNumber}`;
+    } else {
+      label = `🛠 Claude mejorando`;
+    }
+    bg = prog?.staleWarning ? "#f59e0b" : "#0ea5e9";
+    border = prog?.staleWarning ? "#d97706" : "#0284c7";
+    tooltip = prog?.humanLabel ??
+      ((info.summary ? info.summary + " — " : "") +
+        "Claude está mejorando el sistema para resolver esto. Click para abrir el issue en GitHub.");
+    href = prog?.prUrl ?? info.escalationIssueUrl ?? null;
   } else if (info.aiStatus === "ai_replied") {
     label = `💬 Sonia ha contestado`;
     bg = "#06b6d4";
@@ -2058,11 +2083,27 @@ function AiStatusBanner({ info, now }: { info: AiStatusInfo; now: number }) {
     line2 = info.summary || info.error || null;
     bg = "#f59e0b";
   } else if (info.aiStatus === "claude_working") {
-    line1 = `🛠 Claude está mejorando el sistema${info.escalationIssueNumber ? ` · issue #${info.escalationIssueNumber}` : ""}`;
-    line2 = info.summary
-      ? `Por: ${info.summary.slice(0, 80)}`
-      : "El user no tiene que hacer nada — Claude lo resuelve y re-procesa.";
-    bg = "#0ea5e9";
+    const prog = info.claudeProgress;
+    if (prog?.state === "pr_merged") {
+      line1 = `🛠 PR mergeado · re-procesando tarea`;
+      bg = "#0ea5e9";
+    } else if (prog?.state === "pr_open") {
+      line1 = `🛠 Claude tiene PR #${prog.prNumber} listo`;
+      bg = "#0ea5e9";
+    } else if (prog?.staleWarning) {
+      line1 = `⚠️ Claude sin actividad — revisa GitHub`;
+      bg = "#f59e0b";
+    } else if (prog) {
+      line1 = `🛠 Claude investigando${info.escalationIssueNumber ? ` · issue #${info.escalationIssueNumber}` : ""}`;
+      bg = "#0ea5e9";
+    } else {
+      line1 = `🛠 Claude está mejorando el sistema${info.escalationIssueNumber ? ` · issue #${info.escalationIssueNumber}` : ""}`;
+      bg = "#0ea5e9";
+    }
+    line2 = prog?.humanLabel ??
+      (info.summary
+        ? `Por: ${info.summary.slice(0, 80)}`
+        : "El user no tiene que hacer nada — Claude lo resuelve y re-procesa.");
   } else if (info.aiStatus === "failed") {
     line1 = `❌ SONIA FALLÓ EN ESTA TAREA`;
     line2 = info.error
