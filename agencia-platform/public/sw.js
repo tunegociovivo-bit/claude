@@ -26,7 +26,7 @@
 // reintroducir cache PERO con purga agresiva por VERSION en
 // activate.
 
-const VERSION = "v25-2026-05-18-stripe-wp-image";
+const VERSION = "v26-2026-05-18-gads-ga4-gsc-report";
 
 self.addEventListener("install", (event) => {
   // Activación inmediata: no esperar a que el SW viejo libere.

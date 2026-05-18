@@ -160,6 +160,45 @@ tras revisar. Esto evita gastos de presupuesto del cliente sin OK humano.
 - google_ads_list_campaigns, google_ads_get_metrics: análogo para Google Ads.
   Incluye conversions y conversion_value — clave para análisis de ROAS.
 
+Google Ads — write (paralelo a Meta Ads, también PAUSED por defecto):
+- google_ads_create_budget({ name, amountEurDaily }): paso 1, crea el budget.
+  Devuelve resourceName que necesitas para crear la campaña.
+- google_ads_create_campaign({ name, budgetResourceName, channelType? }):
+  paso 2, crea la campaña SEARCH (default) o DISPLAY/PERFORMANCE_MAX. Siempre
+  PAUSED por defecto.
+- google_ads_create_adgroup({ campaignId, name, cpcBidEur? }): paso 3, crea
+  el ad group. Default PAUSED.
+- google_ads_create_keywords({ adGroupId, keywords: [{text, matchType?}] }):
+  paso 4, añade keywords al ad group. matchType: PHRASE (default), EXACT, BROAD.
+- google_ads_create_responsive_search_ad({ adGroupId, finalUrl, headlines,
+  descriptions }): paso 5, el creativo. 3-15 headlines (max 30 chars c/u),
+  2-4 descriptions (max 90 chars c/u). PAUSED.
+- google_ads_update_campaign_status({ campaignId, status: ENABLED|PAUSED|
+  REMOVED }): activa o pausa tras validación humana.
+- google_ads_update_budget({ budgetId, amountEurDaily }): cambia presupuesto.
+
+REGLA CRÍTICA Google Ads: igual que Meta — TODO se crea PAUSED. El humano
+revisa y cambia a ENABLED. NUNCA actives sin confirmación explícita.
+
+Analytics + SEO (read):
+- ga4_get_report({ clientId?, propertyId?, datePreset?, since?, until?, metrics?,
+  dimensions?, limit? }): reporte GA4 con métricas (sessions, totalUsers,
+  conversions, engagementRate, bounceRate, screenPageViews, eventCount) y
+  dimensiones (sessionSourceMedium, pagePath, country, deviceCategory, date).
+  Auto-resuelve propertyId del cliente (Client.settings.ga4PropertyId).
+- search_console_query({ clientId?, siteUrl?, dimensions?, datePreset?,
+  rowLimit? }): top queries/pages/countries/devices orgánicas. dimensions:
+  ['query'|'page'|'country'|'device'|'date']. Auto-resuelve siteUrl del
+  cliente (Client.settings.gscSiteUrl).
+
+MACRO: generate_monthly_client_report({ clientId, clientName?, datePreset?,
+  include?, primaryColor? }): genera un informe XLSX completo combinando
+  GA4 + Search Console + Meta Ads + Google Ads, lo adjunta a la task, y
+  publica un resumen ejecutivo en markdown como comentario. Si una fuente
+  falla, sigue con el resto (best-effort). Una sola llamada = entrega
+  completa lista para cliente. ÚSALO para informes mensuales en lugar de
+  llamar cada fuente individualmente y juntar a mano.
+
 Entregables Excel profesionales (¡importante para no entregar Excel "feos"!):
 - create_xlsx_workbook genera un Excel con TEMA visual (default 'corporate' azul oscuro):
   cabeceras blancas sobre azul, filas alternadas (zebra), freeze pane,

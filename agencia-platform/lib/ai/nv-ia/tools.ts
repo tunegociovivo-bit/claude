@@ -43,7 +43,20 @@ import {
   metaAdsGetCampaignInsights,
   metaAdsTopPerformers
 } from "@/lib/integrations/meta-ads";
-import { gadsListCampaigns, gadsCampaignMetrics } from "@/lib/integrations/google-ads";
+import {
+  gadsListCampaigns,
+  gadsCampaignMetrics,
+  gadsCreateCampaignBudget,
+  gadsCreateCampaign,
+  gadsUpdateCampaignStatus,
+  gadsUpdateBudget,
+  gadsCreateAdGroup,
+  gadsCreateKeywords,
+  gadsCreateResponsiveSearchAd
+} from "@/lib/integrations/google-ads";
+import { ga4GetReport } from "@/lib/integrations/ga4";
+import { searchConsoleQuery } from "@/lib/integrations/search-console";
+import { generateMonthlyClientReport } from "@/lib/reports/monthly-client-report";
 import { signedDownloadUrl } from "@/lib/storage/r2";
 import { completeVision } from "@/lib/ai/anthropic";
 import { listDriveFiles } from "@/lib/integrations/google-drive";
@@ -1160,6 +1173,194 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
         datePreset: { type: "string" },
         since: { type: "string" },
         until: { type: "string" }
+      },
+      additionalProperties: false
+    }
+  },
+  {
+    name: "google_ads_create_budget",
+    description:
+      "Crea un Campaign Budget en Google Ads (prerequisito de crear campaña). Devuelve resourceName + budgetId. amountEurDaily es el presupuesto diario en euros. Se crea como non-shared.",
+    input_schema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Nombre del budget (no visible al user final)." },
+        amountEurDaily: { type: "number", description: "Presupuesto diario en EUR." },
+        deliveryMethod: { type: "string", enum: ["STANDARD", "ACCELERATED"] }
+      },
+      required: ["name", "amountEurDaily"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "google_ads_create_campaign",
+    description:
+      "Crea una campaña Google Ads. SIEMPRE en PAUSED por defecto (el humano valida antes de gastar). Necesita budgetResourceName previo (de google_ads_create_budget). channelType default 'SEARCH'.",
+    input_schema: {
+      type: "object",
+      properties: {
+        name: { type: "string" },
+        budgetResourceName: {
+          type: "string",
+          description: "Devuelto por google_ads_create_budget — formato customers/X/campaignBudgets/Y."
+        },
+        channelType: { type: "string", enum: ["SEARCH", "DISPLAY", "PERFORMANCE_MAX"] },
+        status: { type: "string", enum: ["ENABLED", "PAUSED"] },
+        startDate: { type: "string", description: "YYYY-MM-DD" },
+        endDate: { type: "string", description: "YYYY-MM-DD" }
+      },
+      required: ["name", "budgetResourceName"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "google_ads_update_campaign_status",
+    description:
+      "Cambia el status de una campaña Google Ads. Útil para pausar (PAUSED) campañas que rinden mal, o ENABLED tras validación del humano. REMOVED = borrado lógico.",
+    input_schema: {
+      type: "object",
+      properties: {
+        campaignId: { type: "string" },
+        status: { type: "string", enum: ["ENABLED", "PAUSED", "REMOVED"] }
+      },
+      required: ["campaignId", "status"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "google_ads_update_budget",
+    description:
+      "Modifica el presupuesto diario de un Campaign Budget existente. amountEurDaily en EUR.",
+    input_schema: {
+      type: "object",
+      properties: {
+        budgetId: { type: "string" },
+        amountEurDaily: { type: "number" }
+      },
+      required: ["budgetId", "amountEurDaily"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "google_ads_create_adgroup",
+    description:
+      "Crea un Ad Group dentro de una campaña Google Ads. cpcBidEur es el CPC máximo (€). status default PAUSED. type fijo SEARCH_STANDARD.",
+    input_schema: {
+      type: "object",
+      properties: {
+        campaignId: { type: "string" },
+        name: { type: "string" },
+        cpcBidEur: { type: "number" },
+        status: { type: "string", enum: ["ENABLED", "PAUSED"] }
+      },
+      required: ["campaignId", "name"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "google_ads_create_keywords",
+    description:
+      "Añade keywords a un Ad Group. Acepta hasta ~100 keywords por llamada. matchType: PHRASE (default), EXACT, BROAD.",
+    input_schema: {
+      type: "object",
+      properties: {
+        adGroupId: { type: "string" },
+        keywords: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              text: { type: "string" },
+              matchType: { type: "string", enum: ["EXACT", "PHRASE", "BROAD"] }
+            },
+            required: ["text"],
+            additionalProperties: false
+          }
+        }
+      },
+      required: ["adGroupId", "keywords"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "google_ads_create_responsive_search_ad",
+    description:
+      "Crea un Responsive Search Ad en un Ad Group. headlines (3-15, max 30 chars c/u), descriptions (2-4, max 90 chars c/u). Se crea PAUSED. finalUrl es la landing.",
+    input_schema: {
+      type: "object",
+      properties: {
+        adGroupId: { type: "string" },
+        finalUrl: { type: "string" },
+        headlines: { type: "array", items: { type: "string" } },
+        descriptions: { type: "array", items: { type: "string" } },
+        path1: { type: "string", description: "Path opcional del display URL (≤15 chars)." },
+        path2: { type: "string", description: "Path opcional del display URL (≤15 chars)." }
+      },
+      required: ["adGroupId", "finalUrl", "headlines", "descriptions"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "ga4_get_report",
+    description:
+      "Reporte GA4 (Google Analytics 4). Devuelve métricas + dimensiones del propertyId configurado (Client.settings.ga4PropertyId o Workspace.settings.integrations.ga4.defaultPropertyId; puedes también pasar propertyId explícito). Métricas comunes: sessions, totalUsers, conversions, engagementRate, bounceRate, screenPageViews, eventCount. Dimensiones comunes: sessionSourceMedium, pagePath, country, deviceCategory, date. datePreset: 'last_7_days'|'last_30_days'|'last_90_days'.",
+    input_schema: {
+      type: "object",
+      properties: {
+        propertyId: { type: "string" },
+        clientId: { type: "string", description: "Para autoresolver propertyId desde Client.settings.ga4PropertyId." },
+        datePreset: { type: "string" },
+        since: { type: "string", description: "YYYY-MM-DD" },
+        until: { type: "string", description: "YYYY-MM-DD" },
+        metrics: { type: "array", items: { type: "string" } },
+        dimensions: { type: "array", items: { type: "string" } },
+        limit: { type: "number" }
+      },
+      additionalProperties: false
+    }
+  },
+  {
+    name: "search_console_query",
+    description:
+      "Datos de Search Console (SEO orgánico). dimensions: ['query'|'page'|'country'|'device'|'date']. siteUrl es la propiedad como está en SC (ej. 'sc-domain:negociovivo.app' o 'https://negociovivo.app/'). Auto-resuelve desde Client.settings.gscSiteUrl si no se pasa. Devuelve clicks, impressions, ctr, position.",
+    input_schema: {
+      type: "object",
+      properties: {
+        siteUrl: { type: "string" },
+        clientId: { type: "string" },
+        since: { type: "string" },
+        until: { type: "string" },
+        datePreset: { type: "string", enum: ["last_7_days", "last_30_days", "last_90_days"] },
+        dimensions: {
+          type: "array",
+          items: { type: "string", enum: ["query", "page", "country", "device", "date"] }
+        },
+        rowLimit: { type: "number" }
+      },
+      additionalProperties: false
+    }
+  },
+  {
+    name: "generate_monthly_client_report",
+    description:
+      "MACRO. Genera un informe XLSX completo combinando GA4 + Search Console + Meta Ads + Google Ads. El XLSX se adjunta automáticamente a la task actual y se publica un comentario con el resumen ejecutivo en markdown. Si alguna fuente falla, sigue con el resto (best-effort). Ideal para informes mensuales de cliente — una sola llamada y entrega todo.",
+    input_schema: {
+      type: "object",
+      properties: {
+        clientId: { type: "string", description: "Para resolver propertyId GA4 + siteUrl GSC del cliente." },
+        clientName: { type: "string", description: "Solo para títulos y nombre del archivo." },
+        datePreset: {
+          type: "string",
+          enum: ["last_7_days", "last_30_days", "last_90_days"],
+          description: "Default last_30_days."
+        },
+        since: { type: "string" },
+        until: { type: "string" },
+        include: {
+          type: "array",
+          items: { type: "string", enum: ["ga4", "searchConsole", "metaAds", "googleAds"] }
+        },
+        primaryColor: { type: "string", description: "Hex color para el header del XLSX." }
       },
       additionalProperties: false
     }
@@ -3850,6 +4051,193 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
       return { count: metrics.length, metrics };
     } catch (e: any) {
       return { error: `Google Ads no disponible: ${e?.message ?? e}` };
+    }
+  },
+
+  async google_ads_create_budget(input, ctx) {
+    try {
+      const res = await gadsCreateCampaignBudget({
+        workspaceId: ctx.workspaceId,
+        name: String(input?.name ?? "").trim() || `budget-${Date.now()}`,
+        amountEurDaily: Number(input?.amountEurDaily ?? 0),
+        deliveryMethod: input?.deliveryMethod
+      });
+      return { ok: true, ...res };
+    } catch (e: any) {
+      return { error: `google_ads_create_budget: ${e?.message ?? e}` };
+    }
+  },
+  async google_ads_create_campaign(input, ctx) {
+    try {
+      const res = await gadsCreateCampaign({
+        workspaceId: ctx.workspaceId,
+        name: String(input?.name ?? "").trim(),
+        budgetResourceName: String(input?.budgetResourceName ?? ""),
+        channelType: input?.channelType,
+        status: input?.status ?? "PAUSED",
+        startDate: input?.startDate,
+        endDate: input?.endDate
+      });
+      return { ok: true, ...res, note: "Creada en PAUSED. Activa con google_ads_update_campaign_status cuando el humano valide." };
+    } catch (e: any) {
+      return { error: `google_ads_create_campaign: ${e?.message ?? e}` };
+    }
+  },
+  async google_ads_update_campaign_status(input, ctx) {
+    try {
+      const res = await gadsUpdateCampaignStatus({
+        workspaceId: ctx.workspaceId,
+        campaignId: String(input?.campaignId ?? ""),
+        status: input?.status
+      });
+      return { ok: true, ...res };
+    } catch (e: any) {
+      return { error: `google_ads_update_campaign_status: ${e?.message ?? e}` };
+    }
+  },
+  async google_ads_update_budget(input, ctx) {
+    try {
+      const res = await gadsUpdateBudget({
+        workspaceId: ctx.workspaceId,
+        budgetId: String(input?.budgetId ?? ""),
+        amountEurDaily: Number(input?.amountEurDaily ?? 0)
+      });
+      return { ok: true, ...res };
+    } catch (e: any) {
+      return { error: `google_ads_update_budget: ${e?.message ?? e}` };
+    }
+  },
+  async google_ads_create_adgroup(input, ctx) {
+    try {
+      const res = await gadsCreateAdGroup({
+        workspaceId: ctx.workspaceId,
+        campaignId: String(input?.campaignId ?? ""),
+        name: String(input?.name ?? "").trim(),
+        cpcBidEur: input?.cpcBidEur ? Number(input.cpcBidEur) : undefined,
+        status: input?.status ?? "PAUSED"
+      });
+      return { ok: true, ...res };
+    } catch (e: any) {
+      return { error: `google_ads_create_adgroup: ${e?.message ?? e}` };
+    }
+  },
+  async google_ads_create_keywords(input, ctx) {
+    try {
+      const kws = Array.isArray(input?.keywords) ? input.keywords : [];
+      if (!kws.length) return { error: "keywords vacío" };
+      const res = await gadsCreateKeywords({
+        workspaceId: ctx.workspaceId,
+        adGroupId: String(input?.adGroupId ?? ""),
+        keywords: kws.map((k: any) => ({
+          text: String(k?.text ?? "").trim(),
+          matchType: k?.matchType
+        })).filter((k: any) => k.text)
+      });
+      return { ok: true, ...res };
+    } catch (e: any) {
+      return { error: `google_ads_create_keywords: ${e?.message ?? e}` };
+    }
+  },
+  async google_ads_create_responsive_search_ad(input, ctx) {
+    try {
+      const res = await gadsCreateResponsiveSearchAd({
+        workspaceId: ctx.workspaceId,
+        adGroupId: String(input?.adGroupId ?? ""),
+        finalUrl: String(input?.finalUrl ?? ""),
+        headlines: Array.isArray(input?.headlines) ? input.headlines.map(String) : [],
+        descriptions: Array.isArray(input?.descriptions) ? input.descriptions.map(String) : [],
+        path1: input?.path1 ? String(input.path1) : undefined,
+        path2: input?.path2 ? String(input.path2) : undefined
+      });
+      return { ok: true, ...res, note: "Ad creado en PAUSED." };
+    } catch (e: any) {
+      return { error: `google_ads_create_responsive_search_ad: ${e?.message ?? e}` };
+    }
+  },
+
+  async ga4_get_report(input, ctx) {
+    try {
+      const out = await ga4GetReport({
+        workspaceId: ctx.workspaceId,
+        propertyId: input?.propertyId ? String(input.propertyId) : undefined,
+        clientId: input?.clientId ? String(input.clientId) : undefined,
+        datePreset: input?.datePreset ? String(input.datePreset) : undefined,
+        since: input?.since ? String(input.since) : undefined,
+        until: input?.until ? String(input.until) : undefined,
+        metrics: Array.isArray(input?.metrics) ? input.metrics.map(String) : undefined,
+        dimensions: Array.isArray(input?.dimensions) ? input.dimensions.map(String) : undefined,
+        limit: input?.limit ? Number(input.limit) : undefined
+      });
+      return out;
+    } catch (e: any) {
+      return { error: `ga4_get_report: ${e?.message ?? e}` };
+    }
+  },
+  async search_console_query(input, ctx) {
+    try {
+      const out = await searchConsoleQuery({
+        workspaceId: ctx.workspaceId,
+        siteUrl: input?.siteUrl ? String(input.siteUrl) : undefined,
+        clientId: input?.clientId ? String(input.clientId) : undefined,
+        since: input?.since ? String(input.since) : undefined,
+        until: input?.until ? String(input.until) : undefined,
+        datePreset: input?.datePreset ? String(input.datePreset) : undefined,
+        dimensions: Array.isArray(input?.dimensions) ? input.dimensions : undefined,
+        rowLimit: input?.rowLimit ? Number(input.rowLimit) : undefined
+      });
+      return out;
+    } catch (e: any) {
+      return { error: `search_console_query: ${e?.message ?? e}` };
+    }
+  },
+  async generate_monthly_client_report(input, ctx) {
+    try {
+      let clientName = input?.clientName ? String(input.clientName) : undefined;
+      const clientId = input?.clientId ? String(input.clientId) : undefined;
+      if (clientId && !clientName) {
+        const c = await prisma.client.findFirst({
+          where: { id: clientId, workspaceId: ctx.workspaceId },
+          select: { name: true }
+        });
+        clientName = c?.name ?? undefined;
+      }
+      const report = await generateMonthlyClientReport({
+        workspaceId: ctx.workspaceId,
+        clientId,
+        clientName,
+        datePreset: input?.datePreset ? String(input.datePreset) : undefined,
+        since: input?.since ? String(input.since) : undefined,
+        until: input?.until ? String(input.until) : undefined,
+        include: Array.isArray(input?.include) ? input.include : undefined,
+        primaryColor: input?.primaryColor ? String(input.primaryColor) : undefined
+      });
+      const file = await uploadAttachmentForTask({
+        workspaceId: ctx.workspaceId,
+        taskId: ctx.taskId,
+        filename: report.filename,
+        body: report.buffer,
+        mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        uploadedByUserId: ctx.config.userId
+      });
+      await prisma.comment.create({
+        data: {
+          workspaceId: ctx.workspaceId,
+          authorId: ctx.config.userId,
+          targetType: "TASK",
+          targetId: ctx.taskId,
+          body: report.summary + `\n\n📎 Informe completo: **${file.filename}**`
+        }
+      });
+      return {
+        ok: true,
+        fileId: file.fileId,
+        filename: file.filename,
+        sizeBytes: file.sizeBytes,
+        sources: report.sources,
+        summary: report.summary.slice(0, 800)
+      };
+    } catch (e: any) {
+      return { error: `generate_monthly_client_report: ${e?.message ?? e}` };
     }
   },
 
