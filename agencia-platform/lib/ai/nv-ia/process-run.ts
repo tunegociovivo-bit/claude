@@ -55,6 +55,51 @@ export async function processOneRun(runId: string): Promise<ProcessResult> {
 
   try {
     const config = await loadAgentConfig(run.workspaceId);
+
+    // Multi-LLM routing opcional. Si Workspace.settings.aiAgent.modelRouting
+    // está en "auto" o "cost_saver", aplicamos heurística al título +
+    // descripción de la task y bajamos a Sonnet/Haiku cuando podemos —
+    // ahorro 5-15× en tokens sin perder calidad en tareas simples.
+    try {
+      const ws = await prisma.workspace.findUnique({
+        where: { id: run.workspaceId },
+        select: { settings: true }
+      });
+      const routing = ((ws?.settings as any)?.aiAgent?.modelRouting ?? "always_opus") as
+        | "always_opus"
+        | "auto"
+        | "cost_saver";
+      if (routing !== "always_opus") {
+        const t = await prisma.task.findFirst({
+          where: { id: run.taskId, workspaceId: run.workspaceId },
+          select: { title: true, description: true }
+        });
+        if (t) {
+          const { pickModelForTask } = await import("@/lib/ai/nv-ia/model-router");
+          const picked = pickModelForTask({
+            routing,
+            title: t.title,
+            description: t.description,
+            fallback: (config.model as any) ?? "claude-opus-4-7"
+          });
+          if (picked.model !== config.model) {
+            console.log(
+              `[sonia] modelRouting=${routing} → ${picked.model} (${picked.reason})`
+            );
+            config.model = picked.model;
+            // Persistimos el modelo elegido en el run para que se vea
+            // en el dashboard y en el replay.
+            await prisma.aiAgentRun.update({
+              where: { id: runId },
+              data: { model: picked.model }
+            });
+          }
+        }
+      }
+    } catch (routerErr: any) {
+      console.warn(`[sonia] modelRouting fallback (no aplicado):`, routerErr?.message);
+    }
+
     console.log(`[sonia] executeAgentRun: task=${run.taskId} model=${config.model}`);
     const result = await executeAgentRun({
       workspaceId: run.workspaceId,

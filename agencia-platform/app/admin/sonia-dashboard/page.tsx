@@ -55,6 +55,28 @@ export default function SoniaDashboardPage() {
   const [days, setDays] = useState(7);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [routing, setRouting] = useState<"always_opus" | "auto" | "cost_saver">("always_opus");
+
+  async function loadRouting() {
+    try {
+      const r = await fetch("/api/v1/admin/sonia-model-routing");
+      if (r.ok) {
+        const d = await r.json();
+        if (d.routing) setRouting(d.routing);
+      }
+    } catch {}
+  }
+  async function saveRouting(next: "always_opus" | "auto" | "cost_saver") {
+    setRouting(next);
+    await fetch("/api/v1/admin/sonia-model-routing", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ routing: next })
+    });
+  }
+  useEffect(() => {
+    loadRouting();
+  }, []);
 
   async function load() {
     setLoading(true);
@@ -139,6 +161,48 @@ export default function SoniaDashboardPage() {
               value={data.totals.requiresHuman.toString()}
               hint={`${data.totals.failed} fallaron`}
             />
+          </div>
+
+          {/* Model routing control */}
+          <div className="bg-white rounded-xl border p-4 mb-4">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <div>
+                <h3 className="font-semibold text-sm flex items-center gap-2">
+                  ⚡ Multi-LLM routing
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Tareas simples con modelos más baratos. Opus = $75/M output;
+                  Sonnet = $15/M (5× más barato); Haiku = $4/M (15×). Ahorro
+                  estimado en modo auto: 30-50%.
+                </p>
+              </div>
+              <div className="flex gap-1 bg-slate-100 rounded-lg p-0.5">
+                {([
+                  { v: "always_opus", label: "Siempre Opus", hint: "Sin ahorro" },
+                  { v: "auto", label: "Auto", hint: "Heurística conservadora" },
+                  { v: "cost_saver", label: "Cost saver", hint: "Agresivo" }
+                ] as const).map((opt) => (
+                  <button
+                    key={opt.v}
+                    onClick={() => saveRouting(opt.v)}
+                    title={opt.hint}
+                    className={
+                      "px-2.5 py-1 rounded text-xs font-medium transition-colors " +
+                      (routing === opt.v
+                        ? "bg-brand-600 text-white shadow"
+                        : "text-slate-600 hover:bg-slate-200")
+                    }
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="text-[11px] text-slate-400 mt-2">
+              Override puntual por task: añade <code>[model:opus]</code>,{" "}
+              <code>[model:sonnet]</code> o <code>[model:haiku]</code> en la
+              descripción.
+            </div>
           </div>
 
           {/* Daily chart */}

@@ -77,7 +77,7 @@ const earlyInstallCapture = `
  */
 const swSelfHeal = `
   (function () {
-    var EXPECTED = "v34-2026-05-18-weekly-summary-autotag";
+    var EXPECTED = "v35-2026-05-18-multi-llm-routing";
     if (!('serviceWorker' in navigator)) return;
     var key = "hub_sw_v_seen";
     var seen = null;

@@ -26,7 +26,7 @@
 // reintroducir cache PERO con purga agresiva por VERSION en
 // activate.
 
-const VERSION = "v34-2026-05-18-weekly-summary-autotag";
+const VERSION = "v35-2026-05-18-multi-llm-routing";
 
 self.addEventListener("install", (event) => {
   // Activación inmediata: no esperar a que el SW viejo libere.
