@@ -56,6 +56,10 @@ export default function SoniaDashboardPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [routing, setRouting] = useState<"always_opus" | "auto" | "cost_saver">("always_opus");
+  const [budgetUsd, setBudgetUsd] = useState<number | null>(null);
+  const [budgetSpent, setBudgetSpent] = useState<number>(0);
+  const [budgetInput, setBudgetInput] = useState<string>("");
+  const [savingBudget, setSavingBudget] = useState(false);
 
   async function loadRouting() {
     try {
@@ -74,8 +78,35 @@ export default function SoniaDashboardPage() {
       body: JSON.stringify({ routing: next })
     });
   }
+  async function loadBudget() {
+    try {
+      const r = await fetch("/api/v1/admin/sonia-budget");
+      if (r.ok) {
+        const d = await r.json();
+        setBudgetUsd(d.budgetUsd);
+        setBudgetSpent(d.spentUsd ?? 0);
+        setBudgetInput(d.budgetUsd ? String(d.budgetUsd) : "");
+      }
+    } catch {}
+  }
+  async function saveBudget() {
+    setSavingBudget(true);
+    try {
+      const v = budgetInput.trim();
+      const budget = v === "" ? null : Number(v);
+      await fetch("/api/v1/admin/sonia-budget", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ budgetUsd: budget })
+      });
+      await loadBudget();
+    } finally {
+      setSavingBudget(false);
+    }
+  }
   useEffect(() => {
     loadRouting();
+    loadBudget();
   }, []);
 
   async function load() {
@@ -161,6 +192,66 @@ export default function SoniaDashboardPage() {
               value={data.totals.requiresHuman.toString()}
               hint={`${data.totals.failed} fallaron`}
             />
+          </div>
+
+          {/* Budget control */}
+          <div className="bg-white rounded-xl border p-4 mb-3">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <div>
+                <h3 className="font-semibold text-sm flex items-center gap-2">
+                  💰 Presupuesto mensual del workspace
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Tope $USD. Al 80% Sonia avisa. Al 100% bloquea nuevos runs y
+                  los marca como necesitan-humano hasta que aumentes el tope o
+                  arranque el siguiente mes.
+                </p>
+                {budgetUsd !== null && (
+                  <div className="mt-2 max-w-md">
+                    <div className="flex justify-between text-[11px] mb-1">
+                      <span className="font-medium">
+                        ${budgetSpent.toFixed(2)} / ${budgetUsd.toFixed(2)}
+                      </span>
+                      <span className="text-slate-500">
+                        {Math.min(100, Math.round((budgetSpent / budgetUsd) * 100))}%
+                      </span>
+                    </div>
+                    <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                      <div
+                        className={
+                          "h-full rounded-full " +
+                          (budgetSpent >= budgetUsd
+                            ? "bg-rose-500"
+                            : budgetSpent >= budgetUsd * 0.8
+                              ? "bg-amber-500"
+                              : "bg-emerald-500")
+                        }
+                        style={{
+                          width: `${Math.min(100, (budgetSpent / budgetUsd) * 100)}%`
+                        }}
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-slate-500">$</span>
+                <input
+                  type="number"
+                  value={budgetInput}
+                  onChange={(e) => setBudgetInput(e.target.value)}
+                  placeholder="sin tope"
+                  className="w-28 rounded-lg border border-slate-300 p-1.5 text-sm"
+                />
+                <button
+                  onClick={saveBudget}
+                  disabled={savingBudget}
+                  className="text-xs bg-brand-600 hover:bg-brand-700 disabled:bg-slate-300 text-white px-3 py-1.5 rounded-lg"
+                >
+                  {savingBudget ? "..." : "Guardar"}
+                </button>
+              </div>
+            </div>
           </div>
 
           {/* Model routing control */}

@@ -54,6 +54,33 @@ export async function processOneRun(runId: string): Promise<ProcessResult> {
   }
 
   try {
+    // Guard de presupuesto: si el cliente/workspace agotó su tope
+    // mensual, paramos antes de gastar tokens.
+    try {
+      const { checkBudgetBeforeRun } = await import("@/lib/ai/nv-ia/budget");
+      const budget = await checkBudgetBeforeRun({
+        workspaceId: run.workspaceId,
+        taskId: run.taskId
+      });
+      if (!budget.ok) {
+        await prisma.aiAgentRun.update({
+          where: { id: runId },
+          data: {
+            status: "REQUIRES_HUMAN",
+            error: budget.reason,
+            summary: `Bloqueado por presupuesto. Aumenta el tope en Workspace.settings.aiAgent.monthlyBudgetUsd ${budget.scope === "client" ? "o Client.settings.aiAgent.monthlyBudgetUsd" : ""} para reanudar.`,
+            finishedAt: new Date()
+          }
+        });
+        return { skipped: false, runId, status: "REQUIRES_HUMAN" } as any;
+      }
+      if (budget.level === "warning") {
+        console.warn(`[sonia budget] ${budget.reason}`);
+      }
+    } catch (budgetErr: any) {
+      console.warn(`[sonia budget] check fallo, sigo sin guard:`, budgetErr?.message);
+    }
+
     const config = await loadAgentConfig(run.workspaceId);
 
     // Multi-LLM routing opcional. Si Workspace.settings.aiAgent.modelRouting
