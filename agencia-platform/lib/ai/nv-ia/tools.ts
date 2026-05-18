@@ -5753,6 +5753,42 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
       | "high";
     if (!question) return { error: "question vacío" };
 
+    // Autopilot: si el cliente está en modo autonomous (Trust >= 80
+    // confirmado manualmente por el admin), saltamos aprobaciones de
+    // riesgo low/medium. high siempre requiere aprobación.
+    if (risk !== "high") {
+      const task = await prisma.task.findFirst({
+        where: { id: ctx.taskId, workspaceId: ctx.workspaceId },
+        select: { clientId: true }
+      });
+      if (task?.clientId) {
+        const client = await prisma.client.findFirst({
+          where: { id: task.clientId, workspaceId: ctx.workspaceId }
+        });
+        const autonomous = !!(client as any)?.settings?.aiAgent?.autonomous;
+        if (autonomous) {
+          // Deja una nota informativa (auditoría) pero no bloquea.
+          await prisma.comment.create({
+            data: {
+              workspaceId: ctx.workspaceId,
+              authorId: ctx.config.userId,
+              targetType: "TASK",
+              targetId: ctx.taskId,
+              body: `🤖 _(autopilot)_ Ejecutando sin pedir confirmación: **${action}** (${risk}).`
+            }
+          });
+          return {
+            ok: true,
+            autoApproved: true,
+            message:
+              "Cliente en modo autopilot. Aprobación NO requerida para riesgo " +
+              risk +
+              ". Sigue ejecutando la acción."
+          };
+        }
+      }
+    }
+
     const riskEmoji = risk === "high" ? "🚨" : risk === "medium" ? "⚠️" : "🔍";
     const noteText = [
       `${riskEmoji} **Necesito tu aprobación antes de seguir.**`,

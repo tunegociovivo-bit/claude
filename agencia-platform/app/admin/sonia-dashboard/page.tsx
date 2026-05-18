@@ -134,21 +134,35 @@ export default function SoniaDashboardPage() {
         title="Dashboard de Sonia"
         description="Qué hace, cuánto cuesta, dónde está fallando. Para que sepas si vale la pena."
         actions={
-          <div className="flex gap-1 bg-white border rounded-lg p-0.5">
-            {[1, 7, 30, 90].map((d) => (
-              <button
-                key={d}
-                onClick={() => setDays(d)}
-                className={
-                  "px-2.5 py-1 rounded text-xs font-medium " +
-                  (days === d
-                    ? "bg-brand-600 text-white"
-                    : "text-slate-600 hover:bg-slate-100")
-                }
-              >
-                {d === 1 ? "Hoy" : `${d} días`}
-              </button>
-            ))}
+          <div className="flex items-center gap-2">
+            <a
+              href="/admin/sonia-trust"
+              className="text-xs px-2.5 py-1 rounded bg-white border hover:bg-slate-50"
+            >
+              Trust por cliente →
+            </a>
+            <a
+              href="/admin/sonia-voice-test"
+              className="text-xs px-2.5 py-1 rounded bg-white border hover:bg-slate-50"
+            >
+              Probar voz →
+            </a>
+            <div className="flex gap-1 bg-white border rounded-lg p-0.5">
+              {[1, 7, 30, 90].map((d) => (
+                <button
+                  key={d}
+                  onClick={() => setDays(d)}
+                  className={
+                    "px-2.5 py-1 rounded text-xs font-medium " +
+                    (days === d
+                      ? "bg-brand-600 text-white"
+                      : "text-slate-600 hover:bg-slate-100")
+                  }
+                >
+                  {d === 1 ? "Hoy" : `${d} días`}
+                </button>
+              ))}
+            </div>
           </div>
         }
       />
