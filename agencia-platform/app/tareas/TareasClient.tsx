@@ -157,6 +157,18 @@ export default function TareasClient({
   // morado aparece casi al instante cuando arrancas un run, y el
   // gasto de polling baja cuando no hay nada activo.
   const [aiStatusByTask, setAiStatusByTask] = useState<Record<string, AiStatusInfo>>({});
+  // Diagnóstico visible — para que el user vea si el polling está
+  // vivo y qué responde el endpoint. Sin esto el bug "no veo el
+  // morado" es invisible: la card no parpadea y no sé si es porque
+  // (a) el run terminó rápido (b) el polling falla (c) el render
+  // no aplica el estilo. Con este panel veo (a) y (b) directamente.
+  const [aiDebug, setAiDebug] = useState<{
+    lastPollAt: number | null;
+    lastPollOk: boolean;
+    lastPollError: string | null;
+    activeCount: number;
+    pollCount: number;
+  }>({ lastPollAt: null, lastPollOk: false, lastPollError: null, activeCount: 0, pollCount: 0 });
   // Ref para que poll() lea el state actual sin reinstalar el interval
   // cada vez que cambia. Sin esto, cambiar deps del useEffect mata y
   // reabre el interval — perdíamos el ritmo.
@@ -170,17 +182,19 @@ export default function TareasClient({
     let timer: ReturnType<typeof setTimeout> | null = null;
 
     async function pollOnce() {
-      if (tasks.length === 0) return;
+      if (tasks.length === 0) {
+        setAiDebug((d) => ({ ...d, lastPollAt: Date.now(), lastPollError: "tasks.length===0", pollCount: d.pollCount + 1 }));
+        return;
+      }
       const ids = tasks.slice(0, 500).map((t) => t.id).join(",");
       try {
         const r = await fetch(`/api/v1/tasks/ai-status?taskIds=${encodeURIComponent(ids)}`, {
           cache: "no-store"
         });
         if (!r.ok) {
-          // Loguear el fallo en lugar de silenciar — sin esto el bug
-          // de "no aparece el morado" es invisible. Ver consola del
-          // browser si el indicador no aparece.
-          console.warn(`[ai-status] HTTP ${r.status} — el indicador de Sonia no se pintará`);
+          const errMsg = `HTTP ${r.status}`;
+          console.warn(`[ai-status] ${errMsg} — el indicador de Sonia no se pintará`);
+          setAiDebug((d) => ({ ...d, lastPollAt: Date.now(), lastPollOk: false, lastPollError: errMsg, pollCount: d.pollCount + 1 }));
           return;
         }
         const data = await r.json();
@@ -207,16 +221,22 @@ export default function TareasClient({
             };
           }
         }
-        // Log cuando hay cambios activos — para diagnosticar
-        // "Sonia trabaja pero no veo el morado". Aparece en consola
-        // del browser cada poll.
         const activeCount = Object.keys(next).length;
         if (activeCount > 0) {
           console.log(`[ai-status] ${activeCount} task(s) con estado activo:`, next);
         }
         setAiStatusByTask(next);
-      } catch (e) {
+        setAiDebug((d) => ({
+          lastPollAt: Date.now(),
+          lastPollOk: true,
+          lastPollError: null,
+          activeCount,
+          pollCount: d.pollCount + 1
+        }));
+      } catch (e: any) {
+        const errMsg = String(e?.message ?? e);
         console.warn("[ai-status] fetch error:", e);
+        setAiDebug((d) => ({ ...d, lastPollAt: Date.now(), lastPollOk: false, lastPollError: errMsg, pollCount: d.pollCount + 1 }));
       }
     }
 
@@ -654,6 +674,16 @@ export default function TareasClient({
           espacio vertical para las columnas — el user crea tareas
           desde los FABs flotantes y filtra (cuando haga falta) desde
           una hoja inferior que se abrirá con un botón. */}
+
+      {/* Panel diagnóstico de Sonia — visible siempre. Muestra estado
+          del polling y nº de tasks activas. Sin esto el bug
+          "no veo el morado" es invisible. Si lastPollError = null y
+          activeCount > 0, debería verse el banner morado en las
+          tarjetas. Si activeCount = 0 cuando le pediste a Sonia algo,
+          es problema de backend (no creó el run). Si hay error, es
+          de auth/network. */}
+      <AiSoniaDebugPanel debug={aiDebug} activeMap={aiStatusByTask} />
+
       <div className="hidden md:block">
       <PageHeader
         title="Tareas y proyectos"
@@ -1996,4 +2026,84 @@ function formatDuration(ms: number): string {
   const h = Math.floor(m / 60);
   const rm = m % 60;
   return rm > 0 ? `${h}h ${rm}m` : `${h}h`;
+}
+
+/**
+ * Panel visible siempre en /tareas con el estado del polling de
+ * Sonia. Si "no veo el morado", este panel revela en qué paso falla
+ * el sistema: polling muerto, backend devuelve 401, runs vacíos, etc.
+ *
+ * Visible solo en desktop (md+) para no estorbar en móvil.
+ */
+function AiSoniaDebugPanel({
+  debug,
+  activeMap
+}: {
+  debug: {
+    lastPollAt: number | null;
+    lastPollOk: boolean;
+    lastPollError: string | null;
+    activeCount: number;
+    pollCount: number;
+  };
+  activeMap: Record<string, AiStatusInfo>;
+}) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
+  const secsSincePoll = debug.lastPollAt
+    ? Math.floor((now - debug.lastPollAt) / 1000)
+    : null;
+  const statesByCount: Record<string, number> = {};
+  for (const v of Object.values(activeMap)) {
+    if (v.aiStatus) statesByCount[v.aiStatus] = (statesByCount[v.aiStatus] ?? 0) + 1;
+  }
+  const isHealthy = debug.lastPollOk && secsSincePoll !== null && secsSincePoll < 30;
+  return (
+    <div
+      className="hidden md:flex items-center gap-3 px-3 py-1.5 text-xs border-b bg-slate-50"
+      style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" }}
+    >
+      <span
+        style={{
+          display: "inline-block",
+          width: 8,
+          height: 8,
+          borderRadius: 99,
+          backgroundColor: isHealthy ? "#10b981" : debug.lastPollError ? "#ef4444" : "#94a3b8"
+        }}
+        title={isHealthy ? "Polling activo" : "Polling no responde"}
+      />
+      <span className="text-slate-700 font-semibold">Sonia status</span>
+      <span className="text-slate-500">
+        polling: {debug.pollCount} chequeos
+        {secsSincePoll !== null && ` · último hace ${secsSincePoll}s`}
+      </span>
+      {debug.lastPollError && (
+        <span className="text-rose-600 font-semibold">
+          ⚠ {debug.lastPollError}
+        </span>
+      )}
+      <span className="text-slate-500">
+        activos: {debug.activeCount}
+        {debug.activeCount > 0 &&
+          " — " +
+            Object.entries(statesByCount)
+              .map(([k, n]) => `${n}×${k}`)
+              .join(", ")}
+      </span>
+      {debug.activeCount > 0 && (
+        <span className="ml-auto text-violet-700 font-semibold">
+          → si no ves el indicador en la tarjeta correspondiente, es bug de render. Pásame screenshot.
+        </span>
+      )}
+      {debug.activeCount === 0 && debug.lastPollOk && (
+        <span className="ml-auto text-slate-500 italic">
+          Sin runs activos. Si acabas de pulsar "Pedir a Sonia", esperar 2-5s y refrescar este conteo.
+        </span>
+      )}
+    </div>
+  );
 }

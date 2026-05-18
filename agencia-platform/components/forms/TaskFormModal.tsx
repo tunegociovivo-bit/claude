@@ -167,11 +167,37 @@ export default function TaskFormModal({
   const [newSubtask, setNewSubtask] = useState("");
   const [addingSubtask, setAddingSubtask] = useState(false);
 
-  // Sincroniza la pila con el task que llega por prop al abrir el modal.
+  // Sincroniza la pila con el task que llega por prop al abrir el
+  // modal. Cuando se abre en modo "Nueva tarea" (task=null), hacemos
+  // RESET EAGER aquí mismo — antes había un render intermedio con
+  // currentTask aún apuntando a la tarea anterior (porque taskStack
+  // se actualizaba en este efecto pero el effect de recargar datos
+  // miraba al closure VIEJO de currentTask). Resultado: la descripción
+  // de la tarea anterior se quedaba pintada en "Nueva tarea".
   useEffect(() => {
     if (!open) return;
-    setTaskStack(task ? [task as CurrentTask] : []);
-  }, [open, task]);
+    if (task) {
+      setTaskStack([task as CurrentTask]);
+    } else {
+      // Reset agresivo de TODO el state del modal. Sin esto el editor
+      // mantenía buffer de la tarea anterior.
+      setTaskStack([]);
+      setTitle("");
+      setDescription(null);
+      setEditorKey((k) => k + 1);
+      setStatus(defaultStatus ?? columns?.[0]?.id ?? "TODO");
+      setPriority("");
+      setProjectIds([defaultProjectId ?? projects[0]?.id ?? ""].filter(Boolean) as string[]);
+      setExtraProjectStatuses({});
+      setAssigneeIds([]);
+      setDueDate("");
+      setDueTime("");
+      setNotifyDueRules(null);
+      setComments([]);
+      setSubtasks([]);
+      setError(null);
+    }
+  }, [open, task, defaultStatus, defaultProjectId, projects, columns]);
 
   // Cuando cambia la tarea activa (apertura o navegación a subtarea), recarga datos.
   useEffect(() => {
