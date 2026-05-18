@@ -139,7 +139,7 @@ function LoginInner() {
           <h2 className="text-2xl font-semibold text-slate-900 mb-1">Inicia sesión</h2>
           <p className="text-sm text-slate-500 mb-7">Accede con tu cuenta de trabajador.</p>
 
-          <form onSubmit={submit} className="space-y-4">
+          <form onSubmit={submit} className="space-y-4" autoComplete="off">
             {!totpStep ? (
               <>
                 <div>
@@ -151,7 +151,18 @@ function LoginInner() {
                     type="email"
                     required
                     autoFocus
-                    autoComplete="email"
+                    /*
+                     * autoComplete="off" + name único: evita que el
+                     * navegador pre-rellene este campo con credenciales
+                     * GUARDADAS de OTRA persona que usó ese navegador
+                     * antes (fuga reportada por el user — el trabajador
+                     * veía pre-rellenado el email demo de un admin).
+                     * Trade-off: los password managers tampoco
+                     * autorellenan; el user reintroduce credenciales
+                     * la primera vez en cada equipo.
+                     */
+                    autoComplete="off"
+                    name="login-email-no-autofill"
                     inputMode="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
@@ -177,7 +188,14 @@ function LoginInner() {
                     <input
                       type={showPassword ? "text" : "password"}
                       required
-                      autoComplete="current-password"
+                      // autoComplete="new-password" engaña al navegador
+                      // para que NO sugiera contraseñas guardadas (lo
+                      // trata como un campo de "nueva contraseña"). Es
+                      // el truco estándar para login compartido en
+                      // equipos donde no quieres que el navegador
+                      // recuerde / autocomplete.
+                      autoComplete="new-password"
+                      name="login-pwd-no-autofill"
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       placeholder="••••••••"

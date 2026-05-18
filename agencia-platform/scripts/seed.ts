@@ -53,6 +53,34 @@ const eventTypeMap: Record<string, EventType> = {
 };
 
 async function main() {
+  // ─── GUARD DE SEGURIDAD ─────────────────────────────────────────
+  // Este seed BORRA TODO antes de crear usuarios demo (u1..uN con
+  // password "agencia123"). Si se ejecuta contra producción:
+  //   1) Se pierden TODOS los datos reales (tasks, proyectos, etc).
+  //   2) Se crean cuentas admin conocidas que cualquiera podría usar.
+  //
+  // El user reportó fuga: el navegador del trabajador autocompletaba
+  // con esas credenciales porque alguien las usó antes — los usuarios
+  // demo aún viven en BD de producción.
+  //
+  // A partir de ahora el seed SOLO se ejecuta si:
+  //   - DATABASE_URL apunta a localhost / 127.0.0.1, O
+  //   - La env var ALLOW_SEED=1 está explícitamente puesta.
+  // En cualquier otro caso ABORTA inmediatamente.
+  const dbUrl = process.env.DATABASE_URL ?? "";
+  const isLocal = /(?:localhost|127\.0\.0\.1|::1)/.test(dbUrl);
+  const allowed = process.env.ALLOW_SEED === "1";
+  if (!isLocal && !allowed) {
+    console.error(
+      "[seed] ABORTADO. DATABASE_URL no parece local y ALLOW_SEED!=1.\n" +
+        "Este script borra todos los datos y crea cuentas demo —\n" +
+        "ejecutarlo en producción es una FUGA DE SEGURIDAD y pérdida\n" +
+        "de datos.\n" +
+        "Si REALMENTE quieres ejecutar el seed, exporta ALLOW_SEED=1."
+    );
+    process.exit(1);
+  }
+
   console.log("Limpiando datos antiguos…");
   await prisma.$transaction([
     prisma.databaseValue.deleteMany(),
