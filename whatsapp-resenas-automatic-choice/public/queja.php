@@ -10,15 +10,15 @@ require_once __DIR__ . '/../src/mailer.php';
 
 $token = $_GET['t'] ?? $_POST['t'] ?? '';
 $stars = (int) ($_GET['s'] ?? $_POST['s'] ?? 0);
-$datos = verificarToken($token);
+$datos = $token !== '' ? verificarToken($token) : null;
 
-if (!$datos || $stars < 1 || $stars > 3) {
+if ($stars < 1 || $stars > 3) {
     http_response_code(400);
-    exit('Enlace inválido o caducado.');
+    exit('Puntuación no válida.');
 }
 
-$idCliente = $datos['id']  ?? 'desconocido';
-$nombre    = $datos['n']   ?? '';
+$idCliente = $datos['id'] ?? 'anónimo';
+$nombre    = $datos['n']  ?? '';
 $enviado   = false;
 $errorMsg  = '';
 
