@@ -238,7 +238,7 @@ export default function SoniaDashboardPage() {
                     <tr key={r.runId} className="border-t hover:bg-slate-50">
                       <td className="px-3 py-1.5 truncate max-w-[180px]" title={r.taskTitle}>
                         <a
-                          href={`/tareas?task=${r.taskId}`}
+                          href={`/admin/sonia-run/${r.runId}`}
                           className="text-brand-600 hover:underline"
                         >
                           {r.taskTitle}
