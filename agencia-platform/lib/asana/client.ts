@@ -149,15 +149,30 @@ export class AsanaClient {
   }
 
   async *paginate<T>(path: string, params: Record<string, string> = {}, key = "data"): AsyncGenerator<T> {
+    // CRÍTICO: Asana invalida el offset/next_page token a los ~60s.
+    // Si el consumidor hace trabajo pesado entre items (upsertTask,
+    // descargar adjuntos, crear comments…), la siguiente fetch falla
+    // con "Your pagination token has expired" y se pierde el resto.
+    //
+    // Solución: drenar TODAS las páginas back-to-back ANTES de empezar
+    // a yieldear. Las fetches se encadenan en segundos (cada una con
+    // limit=100, máximo 21 fetches para 2100 items), muy dentro del
+    // TTL del offset. Luego cedemos los items al consumidor sin más
+    // llamadas a Asana — pueda tardar lo que quiera procesando.
+    //
+    // Coste de memoria: 100 items × tamaño del item. Para 2100 tareas
+    // con todos sus opt_fields, ~500KB. Aceptable.
+    const all: T[] = [];
     let offset: string | undefined;
     do {
       const q: Record<string, string> = { ...params, limit: "100" };
       if (offset) q.offset = offset;
       const resp = await this.req<any>(path, q);
       const items = resp[key] ?? [];
-      for (const it of items) yield it as T;
+      for (const it of items) all.push(it as T);
       offset = resp.next_page?.offset;
     } while (offset);
+    for (const it of all) yield it;
   }
 
   me(): Promise<{ data: AsanaUser & { workspaces: AsanaWorkspace[] } }> {
