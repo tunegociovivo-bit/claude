@@ -44,6 +44,7 @@ export const GET = withApi({ scope: "tasks:read" }, async (req, { api }) => {
       finishedAt: true,
       createdAt: true,
       updatedAt: true,
+      lastIterationAt: true,
       log: true
     }
   });
@@ -53,17 +54,21 @@ export const GET = withApi({ scope: "tasks:read" }, async (req, { api }) => {
     if (!latestByTask.has(r.taskId)) latestByTask.set(r.taskId, r);
   }
 
-  // WATCHDOG IMPLÍCITO: si hay runs PENDING que llevan >45s en la
-  // cola, los re-disparamos fire-and-forget. processRunInBackground
-  // es idempotente (lock optimista en updateMany) — si ya está
-  // corriendo otro proceso, simplemente skip.
+  // WATCHDOG IMPLÍCITO — cada poll de la UI actúa como watchdog
+  // sobre los runs visibles. Dos casos:
   //
-  // Pasa cuando processRunInBackground se llamó pero crasheó al
-  // import / al primer await, sin llegar a marcar RUNNING. Antes el
-  // run quedaba PENDING para siempre y el user veía "Sonia bloqueada".
-  // Ahora cada vez que abres /tareas, el polling de la UI actúa como
-  // watchdog: re-dispara los PENDING viejos y Sonia arranca.
+  // 1. PENDING viejo (>45s): processRunInBackground crasheó antes
+  //    de hacer el lock PENDING→RUNNING. Lo re-disparamos —
+  //    idempotente por lock optimista.
+  //
+  // 2. RUNNING colgado: el runner mete tick `lastIterationAt` en
+  //    cada paso del agent loop. Si lleva >3min sin tick, el
+  //    proceso está muerto (Railway redeploy, OOM, timeout API
+  //    sin retry). Lo marcamos FAILED + notificamos al requester.
+  //    SIN esto el run se queda RUNNING para siempre y la card
+  //    no avanza, el user no recibe nada.
   const PENDING_STALE_MS = 45_000;
+  const RUNNING_DEAD_MS = 3 * 60_000;
   const now = Date.now();
   for (const r of latestByTask.values()) {
     if (
@@ -71,6 +76,17 @@ export const GET = withApi({ scope: "tasks:read" }, async (req, { api }) => {
       now - (r.startedAt ?? r.createdAt).getTime() > PENDING_STALE_MS
     ) {
       processRunInBackground(r.id);
+      continue;
+    }
+    if (r.status === "RUNNING") {
+      // Si nunca hubo tick, usamos startedAt. Si no, el último tick.
+      const lastBeat = (r.lastIterationAt ?? r.startedAt ?? r.createdAt).getTime();
+      if (now - lastBeat > RUNNING_DEAD_MS) {
+        // Fire-and-forget: matar el run colgado y avisar.
+        void killStuckRun(r.id, api.workspaceId, lastBeat).catch((e) =>
+          console.warn("[ai-status] killStuckRun:", e?.message ?? e)
+        );
+      }
     }
   }
 
@@ -225,4 +241,67 @@ function humanizeTool(name: string): string {
     spawn_subagent: "pidiendo ayuda a sub-agente"
   };
   return map[name] ?? name.replace(/_/g, " ");
+}
+
+/**
+ * Mata un run que lleva demasiado tiempo en RUNNING sin tick.
+ *
+ * Estrategia:
+ *   1. Lock optimista: solo actuamos si el run sigue RUNNING y su
+ *      lastIterationAt no se ha movido entre que lo vimos en el
+ *      poll y este update (evita matar runs que justo acaban de
+ *      revivir).
+ *   2. Marcar FAILED con motivo explícito.
+ *   3. Crear notification para el requester con call-to-action de
+ *      "forzar reintento".
+ *   4. Disparar escalación a Claude Code — si Sonia se cuelga es
+ *      bug del runner que vale la pena investigar.
+ */
+async function killStuckRun(runId: string, workspaceId: string, lastBeatMs: number): Promise<void> {
+  const errorMsg = `Run colgado en RUNNING sin tick durante >3min. Probable: proceso muerto (deploy / OOM / timeout API sin retry). Matado por watchdog del polling.`;
+
+  // Update condicionado: si lastIterationAt cambió mientras tanto,
+  // el run revivió → NO matamos.
+  const expected = new Date(lastBeatMs);
+  const r = await prisma.aiAgentRun.updateMany({
+    where: {
+      id: runId,
+      workspaceId,
+      status: "RUNNING",
+      OR: [
+        { lastIterationAt: null },
+        { lastIterationAt: { lte: expected } }
+      ]
+    },
+    data: {
+      status: "FAILED",
+      error: errorMsg,
+      finishedAt: new Date()
+    }
+  });
+  if (r.count === 0) return; // ya cambió, no era stuck de verdad
+
+  // Notificar al requester con link a la tarea.
+  const run = await prisma.aiAgentRun.findUnique({
+    where: { id: runId },
+    select: { taskId: true, requesterId: true }
+  });
+  if (run?.requesterId) {
+    await prisma.notification
+      .create({
+        data: {
+          userId: run.requesterId,
+          type: "ai_agent_stuck",
+          body: `⚠️ Sonia se quedó colgada en una tarea (run ${runId.slice(0, 8)}). El watchdog la ha marcado como fallida. Abre la tarea y pulsa "Pedir a Sonia" para reintentar.`,
+          link: `/tareas?task=${run.taskId}`
+        }
+      })
+      .catch(() => {});
+  }
+
+  // Escalar para que Claude analice por qué se colgó.
+  try {
+    const { escalateRunToGitHub } = await import("@/lib/ai/nv-ia/escalate");
+    void escalateRunToGitHub(runId).catch(() => {});
+  } catch {}
 }

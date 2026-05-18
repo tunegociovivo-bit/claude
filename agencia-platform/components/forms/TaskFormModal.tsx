@@ -401,12 +401,41 @@ export default function TaskFormModal({
         return;
       }
       if (data.deduped) {
-        setError(`Sonia ya está trabajando en esta tarea (run ${data.runId}, ${data.status}).`);
+        setError(`Sonia ya está trabajando en esta tarea (run ${data.runId}, ${data.status}). Si lleva colgado mucho rato, usa "Forzar reintento" abajo.`);
       } else {
         setError(`✓ Enviada a Sonia. Se procesará en breve (run ${data.runId}).`);
       }
     } catch (e: any) {
       setError(`Sonia: ${e?.message ?? e}`);
+    } finally {
+      setSendingToSonia(false);
+    }
+  }
+
+  // Force-retry: mata cualquier run PENDING/RUNNING y arranca otro.
+  // Útil cuando Sonia se queda colgada y no puedes esperar al
+  // watchdog automático.
+  async function forceRetrySonia() {
+    if (!currentTask) return;
+    if (!confirm("¿Forzar reintento? Si Sonia está procesando algo ahora mismo, se abortará y arrancará de cero.")) return;
+    setSendingToSonia(true);
+    setError(null);
+    try {
+      const r = await fetch(`/api/v1/tasks/${currentTask.id}/ai-force-retry`, {
+        method: "POST"
+      });
+      const data = await r.json().catch(() => null);
+      if (!r.ok || !data?.ok) {
+        setError(data?.error || data?.message || `Force-retry: HTTP ${r.status}`);
+        return;
+      }
+      setError(
+        data.aborted > 0
+          ? `✓ Abortados ${data.aborted} run(s) colgado(s). Nuevo run arrancando (${data.runId}).`
+          : `✓ Nuevo run arrancando (${data.runId}).`
+      );
+    } catch (e: any) {
+      setError(`Force-retry: ${e?.message ?? e}`);
     } finally {
       setSendingToSonia(false);
     }
@@ -537,6 +566,18 @@ export default function TaskFormModal({
             >
               {sendingToSonia ? <Loader2 className="h-4 w-4 animate-spin" /> : <Bot className="h-4 w-4" />}
               Pedir a Sonia
+            </button>
+          )}
+          {isEdit && (
+            <button
+              type="button"
+              onClick={forceRetrySonia}
+              disabled={sendingToSonia || saving}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 font-medium disabled:opacity-50"
+              title="Mata cualquier run de Sonia colgado en esta tarea y arranca uno nuevo. Úsalo si Sonia lleva mucho rato 'trabajando' sin avanzar."
+            >
+              <RefreshCw className="h-4 w-4" />
+              Forzar reintento
             </button>
           )}
           <button
