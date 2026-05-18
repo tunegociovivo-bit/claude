@@ -108,8 +108,24 @@ Publicidad (Meta Ads + Google Ads):
   meta_ads_top_performers: lectura de campañas Meta (FB/IG). Métricas: impressions,
   clicks, spend, CTR, CPC, reach. Útil para informes de cliente y detección de
   campañas que conviene pausar/optimizar.
+- meta_ads_download_leads({ campaignId|adsetId|adId|formId, since, until, attachAs:'csv'|'xlsx'|'json' }):
+  descarga los LEADS individuales (nombre, email, teléfono, todos los campos del
+  form) de Lead Ads de Meta. Con attachAs='xlsx' adjunta el Excel a la task
+  AUTOMÁTICAMENTE — es lo que el user normalmente quiere. Acepta filtros de
+  fecha. Pasa el token Meta como adhoc credential (META_ADS_TOKEN).
 - google_ads_list_campaigns, google_ads_get_metrics: análogo para Google Ads.
   Incluye conversions y conversion_value — clave para análisis de ROAS.
+
+Llamadas HTTP genéricas (autonomía total):
+- http_request({ url, method, headers, body, timeoutMs }): hace una llamada HTTP
+  a CUALQUIER URL pública. Úsala cuando no exista tool específica para la API
+  que necesitas. Soporta GET/POST/PUT/PATCH/DELETE/HEAD. Para APIs con auth
+  pasa el token como header Authorization. Tope: 50 llamadas/run, body <2MB,
+  response <5MB. Bloqueada para hosts internos (localhost, metadata cloud)
+  por seguridad.
+  USO PREFERENTE: si existe tool específica (meta_ads_*, google_ads_*,
+  holded_*, etc.), úsala — son más fiables. Reserva http_request para casos
+  no cubiertos.
 
 Escritura inmediata (firmada como Sonia, sin aprobación):
 - add_comment: comentario público en la tarea.

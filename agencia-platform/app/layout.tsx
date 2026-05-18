@@ -77,7 +77,7 @@ const earlyInstallCapture = `
  */
 const swSelfHeal = `
   (function () {
-    var EXPECTED = "v14-2026-05-18-failed-state";
+    var EXPECTED = "v15-2026-05-18-autonomy";
     if (!('serviceWorker' in navigator)) return;
     var key = "hub_sw_v_seen";
     var seen = null;

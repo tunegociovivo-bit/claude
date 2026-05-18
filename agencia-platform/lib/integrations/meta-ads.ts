@@ -186,3 +186,178 @@ export async function metaAdsTopPerformers(opts: {
   });
   return enriched.slice(0, opts.limit ?? 10);
 }
+
+/**
+ * Lista los ads hijos de una campaña o adset, para luego pedir
+ * leads de cada uno.
+ */
+export async function metaAdsListAds(opts: {
+  workspaceId: string;
+  campaignId?: string;
+  adsetId?: string;
+  adhoc?: Record<string, string>;
+  limit?: number;
+}) {
+  const cfg = await getMetaAdsConfig(opts.workspaceId, opts.adhoc);
+  let parent: string;
+  if (opts.adsetId) parent = opts.adsetId;
+  else if (opts.campaignId) parent = opts.campaignId;
+  else throw new Error("Pasa campaignId o adsetId");
+  const params = new URLSearchParams({
+    fields: "id,name,status,adset_id,campaign_id,creative",
+    limit: String(opts.limit ?? 200)
+  });
+  const data = await metaFetch<any>(
+    `${GRAPH}/${parent}/ads?${params.toString()}`,
+    cfg.accessToken
+  );
+  return data.data ?? [];
+}
+
+/**
+ * Descarga los leads (personas que rellenaron un formulario de
+ * Lead Ads) de una campaña, adset, ad o form concreto. Devuelve
+ * un array plano con created_time + cada campo del formulario
+ * como columna (nombre, email, teléfono, etc.).
+ *
+ * La API de Meta da los leads en `field_data: [{name, values:[v]}]`.
+ * Aquí lo aplanamos para que sea fácilmente exportable a CSV.
+ *
+ * Si pasas campaignId/adsetId, recorre todos sus ads hijos y agrega
+ * los leads de cada uno. Si pasas formId, va directo al form.
+ * Filtra por rango de fechas (since/until) en created_time.
+ *
+ * Tope duro: 5000 leads por llamada (paginación con cursor next).
+ * Para volúmenes mayores, pedir por adId individual o reducir el
+ * rango de fechas.
+ */
+export async function metaAdsDownloadLeads(opts: {
+  workspaceId: string;
+  campaignId?: string;
+  adsetId?: string;
+  adId?: string;
+  formId?: string;
+  since?: string; // YYYY-MM-DD
+  until?: string;
+  adhoc?: Record<string, string>;
+}): Promise<{
+  count: number;
+  leads: Array<Record<string, string>>;
+  source: string;
+}> {
+  const cfg = await getMetaAdsConfig(opts.workspaceId, opts.adhoc);
+
+  // 1) Resolver las "fuentes" de leads. Si es campaignId o adsetId,
+  //    listamos los ads hijos. Si es adId o formId, directo.
+  let adIds: string[] = [];
+  if (opts.adId) {
+    adIds = [opts.adId];
+  } else if (opts.adsetId) {
+    const ads = await metaAdsListAds({
+      workspaceId: opts.workspaceId,
+      adsetId: opts.adsetId,
+      adhoc: opts.adhoc
+    });
+    adIds = ads.map((a: any) => a.id);
+  } else if (opts.campaignId) {
+    const ads = await metaAdsListAds({
+      workspaceId: opts.workspaceId,
+      campaignId: opts.campaignId,
+      adhoc: opts.adhoc
+    });
+    adIds = ads.map((a: any) => a.id);
+  } else if (!opts.formId) {
+    throw new Error(
+      "Debes pasar uno de: campaignId, adsetId, adId, formId"
+    );
+  }
+
+  const sinceTs = opts.since ? Math.floor(new Date(opts.since).getTime() / 1000) : null;
+  const untilTs = opts.until ? Math.floor((new Date(opts.until).getTime() + 86_400_000) / 1000) : null;
+
+  // 2) Recorrer cada source y descargar leads paginando.
+  const allLeads: Array<Record<string, string>> = [];
+  const sources = opts.formId ? [`form:${opts.formId}`] : adIds.map((id) => `ad:${id}`);
+  const HARD_LIMIT = 5000;
+
+  for (const source of sources) {
+    if (allLeads.length >= HARD_LIMIT) break;
+    const [kind, id] = source.split(":");
+    const path = kind === "form" ? `/${id}/leads` : `/${id}/leads`;
+    const params = new URLSearchParams({
+      fields: "id,created_time,field_data,ad_id,form_id,campaign_id,adset_id",
+      limit: "200"
+    });
+    if (sinceTs) {
+      params.set(
+        "filtering",
+        JSON.stringify([{ field: "time_created", operator: "GREATER_THAN", value: sinceTs }])
+      );
+    }
+    let url = `${GRAPH}${path}?${params.toString()}`;
+    while (url && allLeads.length < HARD_LIMIT) {
+      const resp: any = await metaFetch(url, cfg.accessToken);
+      const items = resp.data ?? [];
+      for (const lead of items) {
+        if (untilTs && lead.created_time) {
+          const ts = Math.floor(new Date(lead.created_time).getTime() / 1000);
+          if (ts > untilTs) continue;
+        }
+        // Aplanar field_data → un objeto plano con cada campo como columna.
+        const row: Record<string, string> = {
+          lead_id: lead.id,
+          created_time: lead.created_time ?? "",
+          ad_id: lead.ad_id ?? "",
+          form_id: lead.form_id ?? "",
+          campaign_id: lead.campaign_id ?? "",
+          adset_id: lead.adset_id ?? ""
+        };
+        for (const fd of lead.field_data ?? []) {
+          const colName = String(fd.name ?? "").trim();
+          if (!colName) continue;
+          const val = Array.isArray(fd.values) ? fd.values.join("; ") : String(fd.values ?? "");
+          row[colName] = val;
+        }
+        allLeads.push(row);
+      }
+      // Paginación con next cursor.
+      url = resp.paging?.next ?? "";
+    }
+  }
+
+  return {
+    count: allLeads.length,
+    leads: allLeads,
+    source: opts.formId
+      ? `form:${opts.formId}`
+      : opts.adId
+        ? `ad:${opts.adId}`
+        : opts.adsetId
+          ? `adset:${opts.adsetId}`
+          : `campaign:${opts.campaignId}`
+  };
+}
+
+/** Helper: convierte un array de objetos a CSV con escape RFC 4180. */
+export function leadsToCsv(rows: Array<Record<string, string>>): string {
+  if (rows.length === 0) return "";
+  // Recolectar todas las columnas (la unión de keys de todas las filas).
+  const allKeys = new Set<string>();
+  for (const r of rows) for (const k of Object.keys(r)) allKeys.add(k);
+  // Orden: meta-fields primero, luego el resto alfabético.
+  const metaOrder = ["created_time", "lead_id", "ad_id", "form_id", "campaign_id", "adset_id"];
+  const headers = [
+    ...metaOrder.filter((k) => allKeys.has(k)),
+    ...Array.from(allKeys).filter((k) => !metaOrder.includes(k)).sort()
+  ];
+  function esc(v: unknown): string {
+    const s = v == null ? "" : String(v);
+    if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+    return s;
+  }
+  const lines = [headers.join(",")];
+  for (const row of rows) {
+    lines.push(headers.map((h) => esc(row[h] ?? "")).join(","));
+  }
+  return lines.join("\n");
+}

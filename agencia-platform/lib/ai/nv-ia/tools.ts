@@ -59,6 +59,8 @@ export type ToolContext = {
   runId: string;
   /** Contador de sub-agentes spawneados en este run (cap 5 para evitar costes desbocados). */
   subagentsSpawned?: { count: number };
+  /** Contador de http_request en este run (cap 50 para evitar abuso). */
+  httpRequests?: { count: number };
   /**
    * Credenciales temporales inyectadas en la tarea (descripción o
    * comentarios) para este run. Las tools de integración (meta-ads,
@@ -730,6 +732,54 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
         datePreset: { type: "string" },
         limit: { type: "number" }
       },
+      additionalProperties: false
+    }
+  },
+  {
+    name: "meta_ads_download_leads",
+    description:
+      "Descarga los LEADS (personas que rellenaron formularios de Lead Ads) de una o varias campañas/adsets/ads/forms de Meta. Devuelve nombres, emails, teléfonos y cualquier campo del formulario. Filtra por rango de fechas. SI pasas `attachAs:'csv'` o `'xlsx'`, automáticamente adjunta el archivo a la task — esto es lo que el user normalmente quiere (\"genérame un Excel bonito con los leads\"). Si pasas `attachAs:'json'` o lo omites, devuelve los datos en el response y tú decides qué hacer.",
+    input_schema: {
+      type: "object",
+      properties: {
+        campaignId: { type: "string", description: "ID de la campaña (numérico). Bajan todos los leads de sus ads hijos." },
+        adsetId: { type: "string", description: "ID del adset (numérico). Bajan los leads de sus ads hijos." },
+        adId: { type: "string", description: "ID de un ad concreto (numérico)." },
+        formId: { type: "string", description: "ID del lead form (numérico). Solo si conoces el form directamente." },
+        since: { type: "string", description: "Fecha desde, formato YYYY-MM-DD. Inclusiva." },
+        until: { type: "string", description: "Fecha hasta, formato YYYY-MM-DD. Inclusiva." },
+        attachAs: {
+          type: "string",
+          enum: ["csv", "xlsx", "json"],
+          description: "csv → adjunta .csv a la task. xlsx → adjunta .xlsx con cabeceras estiladas. json → devuelve los datos en el response sin adjuntar."
+        },
+        filename: { type: "string", description: "Nombre del archivo (sin extensión). Default: 'leads-meta-<source>-<fecha>'" }
+      },
+      additionalProperties: false
+    }
+  },
+  {
+    name: "http_request",
+    description:
+      "Hace una llamada HTTP a CUALQUIER URL pública. Te permite total autonomía cuando no existe una tool específica para la API que necesitas. ÚSALA con cabeza:\n- Para APIs externas con auth (incluye Authorization header).\n- Para webhooks, IFTTT, Zapier, etc.\n- Para descargar contenido público (un PDF, un JSON, un HTML).\n\nNO la uses como sustituta cuando ya existe tool específica (meta_ads_*, google_ads_*, holded_*, etc) — esas son más fiables y validan tipos.\n\nLímites: timeout 30s, body request <2MB, body response <5MB (se trunca si es mayor). NO permite host=localhost ni IPs privadas (anti-SSRF). Tope 50 llamadas por run.\n\nResponse: { status, statusText, headers, body }. El body viene como texto (si no es UTF-8 válido, devuelve base64).",
+    input_schema: {
+      type: "object",
+      properties: {
+        url: { type: "string", description: "URL completa con protocolo (https:// recomendado)." },
+        method: {
+          type: "string",
+          enum: ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"],
+          description: "Método HTTP. Default: GET."
+        },
+        headers: {
+          type: "object",
+          description: "Cabeceras como { 'Authorization': 'Bearer ...', 'Content-Type': 'application/json' }. Pasa el token como te lo dieron (sin re-encodear).",
+          additionalProperties: { type: "string" }
+        },
+        body: { type: "string", description: "Cuerpo del request como string. Si es JSON, hazlo JSON.stringify tú antes." },
+        timeoutMs: { type: "number", description: "Timeout en ms (1000-30000). Default 15000." }
+      },
+      required: ["url"],
       additionalProperties: false
     }
   },
@@ -2453,6 +2503,200 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
       return { count: top.length, top };
     } catch (e: any) {
       return { error: `Meta Ads no disponible: ${e?.message ?? e}` };
+    }
+  },
+  async meta_ads_download_leads(input, ctx) {
+    try {
+      const { metaAdsDownloadLeads, leadsToCsv } = await import("@/lib/integrations/meta-ads");
+      const result = await metaAdsDownloadLeads({
+        workspaceId: ctx.workspaceId,
+        campaignId: input?.campaignId ? String(input.campaignId) : undefined,
+        adsetId: input?.adsetId ? String(input.adsetId) : undefined,
+        adId: input?.adId ? String(input.adId) : undefined,
+        formId: input?.formId ? String(input.formId) : undefined,
+        since: input?.since ? String(input.since) : undefined,
+        until: input?.until ? String(input.until) : undefined,
+        adhoc: ctx.adhocCredentials
+      });
+
+      const attachAs = String(input?.attachAs ?? "json");
+      const baseName = String(input?.filename ?? `leads-meta-${result.source.replace(/[^a-z0-9]/gi, "_")}-${new Date().toISOString().slice(0, 10)}`);
+
+      if (attachAs === "json" || result.count === 0) {
+        return {
+          ok: true,
+          count: result.count,
+          source: result.source,
+          leads: result.leads.slice(0, 100), // primeros 100 para no inflar contexto
+          truncated: result.leads.length > 100
+        };
+      }
+
+      if (attachAs === "csv") {
+        const csv = leadsToCsv(result.leads);
+        const { uploadAttachmentForTask } = await import("@/lib/files/sonia-upload");
+        const file = await uploadAttachmentForTask({
+          workspaceId: ctx.workspaceId,
+          taskId: ctx.taskId,
+          filename: `${baseName}.csv`,
+          body: Buffer.from("﻿" + csv, "utf-8"), // BOM para Excel
+          mimeType: "text/csv",
+          uploadedByUserId: ctx.config.userId
+        });
+        await prisma.comment.create({
+          data: {
+            workspaceId: ctx.workspaceId,
+            authorId: ctx.config.userId,
+            targetType: "TASK",
+            targetId: ctx.taskId,
+            body: `📎 He adjuntado **${baseName}.csv** con ${result.count} leads (${file.sizeBytes} bytes). Source: ${result.source}.`
+          }
+        });
+        return { ok: true, count: result.count, fileId: file.fileId, filename: file.filename };
+      }
+
+      if (attachAs === "xlsx") {
+        const XLSX = await import("xlsx");
+        const ws = XLSX.utils.json_to_sheet(result.leads);
+        // Auto-width básico: max(longitud header, longitud max valor)
+        const range = XLSX.utils.decode_range(ws["!ref"] ?? "A1");
+        const colWidths: any[] = [];
+        for (let c = range.s.c; c <= range.e.c; c++) {
+          let max = 10;
+          for (let r = range.s.r; r <= range.e.r; r++) {
+            const addr = XLSX.utils.encode_cell({ r, c });
+            const cell = (ws as any)[addr];
+            if (cell?.v) max = Math.max(max, String(cell.v).length);
+          }
+          colWidths.push({ wch: Math.min(50, max + 2) });
+        }
+        (ws as any)["!cols"] = colWidths;
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "Leads");
+        const buf: Buffer = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
+        const { uploadAttachmentForTask } = await import("@/lib/files/sonia-upload");
+        const file = await uploadAttachmentForTask({
+          workspaceId: ctx.workspaceId,
+          taskId: ctx.taskId,
+          filename: `${baseName}.xlsx`,
+          body: buf,
+          mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          uploadedByUserId: ctx.config.userId
+        });
+        await prisma.comment.create({
+          data: {
+            workspaceId: ctx.workspaceId,
+            authorId: ctx.config.userId,
+            targetType: "TASK",
+            targetId: ctx.taskId,
+            body: `📎 He adjuntado **${baseName}.xlsx** con ${result.count} leads. Source: ${result.source}.`
+          }
+        });
+        return { ok: true, count: result.count, fileId: file.fileId, filename: file.filename };
+      }
+
+      return { error: `attachAs desconocido: ${attachAs}` };
+    } catch (e: any) {
+      return { error: `meta_ads_download_leads: ${e?.message ?? e}` };
+    }
+  },
+  async http_request(input, ctx) {
+    // Cap por run para evitar abuso.
+    ctx.httpRequests = ctx.httpRequests ?? { count: 0 };
+    if (ctx.httpRequests.count >= 50) {
+      return { error: "Tope de 50 http_request por run alcanzado. Termina la tarea o usa otra estrategia." };
+    }
+    ctx.httpRequests.count++;
+
+    const url = String(input?.url ?? "").trim();
+    if (!url) return { error: "url vacío" };
+    let parsed: URL;
+    try {
+      parsed = new URL(url);
+    } catch {
+      return { error: "URL inválida" };
+    }
+    if (!["http:", "https:"].includes(parsed.protocol)) {
+      return { error: "Solo http(s)" };
+    }
+    // Anti-SSRF básico: bloquear hosts internos / metadata cloud.
+    const host = parsed.hostname.toLowerCase();
+    const isPrivate =
+      host === "localhost" ||
+      host === "0.0.0.0" ||
+      host === "169.254.169.254" || // AWS/GCP metadata
+      /^127\./.test(host) ||
+      /^10\./.test(host) ||
+      /^192\.168\./.test(host) ||
+      /^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(host) ||
+      host.endsWith(".internal") ||
+      host.endsWith(".local");
+    if (isPrivate) {
+      return { error: `Host bloqueado por seguridad (IP privada/metadata): ${host}` };
+    }
+
+    const method = String(input?.method ?? "GET").toUpperCase();
+    const headers: Record<string, string> = {};
+    if (input?.headers && typeof input.headers === "object") {
+      for (const [k, v] of Object.entries(input.headers)) {
+        if (typeof v === "string") headers[k] = v;
+      }
+    }
+    const body = typeof input?.body === "string" ? input.body : undefined;
+    if (body && body.length > 2 * 1024 * 1024) {
+      return { error: "Body de request > 2MB" };
+    }
+    const timeoutMs = Math.max(1000, Math.min(30000, Number(input?.timeoutMs ?? 15000)));
+
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    try {
+      const r = await fetch(url, {
+        method,
+        headers,
+        body: ["GET", "HEAD"].includes(method) ? undefined : body,
+        signal: ctrl.signal,
+        redirect: "follow"
+      });
+      clearTimeout(timer);
+      const respHeaders: Record<string, string> = {};
+      r.headers.forEach((v, k) => {
+        // Filtra cookies (riesgo de filtración de sesiones).
+        if (k.toLowerCase() !== "set-cookie") respHeaders[k] = v;
+      });
+      const buf = Buffer.from(await r.arrayBuffer());
+      const truncated = buf.length > 5 * 1024 * 1024;
+      const slice = truncated ? buf.subarray(0, 5 * 1024 * 1024) : buf;
+      // Intentar text UTF-8, fallback a base64 si binario.
+      let bodyText: string;
+      let bodyEncoding: "utf-8" | "base64" = "utf-8";
+      try {
+        bodyText = slice.toString("utf-8");
+        // Heurística: si tiene muchos \x00 o caracteres de control,
+        // probablemente es binario → mejor base64.
+        const controlChars = bodyText.match(/[\x00-\x08\x0E-\x1F]/g);
+        if (controlChars && controlChars.length > slice.length * 0.01) {
+          bodyText = slice.toString("base64");
+          bodyEncoding = "base64";
+        }
+      } catch {
+        bodyText = slice.toString("base64");
+        bodyEncoding = "base64";
+      }
+      return {
+        ok: r.ok,
+        status: r.status,
+        statusText: r.statusText,
+        headers: respHeaders,
+        bodyEncoding,
+        body: bodyText,
+        truncated,
+        sizeBytes: buf.length
+      };
+    } catch (e: any) {
+      clearTimeout(timer);
+      const msg = e?.name === "AbortError" ? `timeout tras ${timeoutMs}ms` : String(e?.message ?? e);
+      return { error: `http_request: ${msg}` };
     }
   },
   async google_ads_list_campaigns(input, ctx) {

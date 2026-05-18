@@ -165,43 +165,40 @@ export function extractAdhocCredentials(text: string): Record<string, string> {
  *   - Stripe keys (sk_live_..., sk_test_...)
  *   - Resend keys (re_...)
  *
- * Solo rellena claves que NO estén ya en `out` (las explícitas con
- * label tienen prioridad).
+ * IMPORTANTE: cuando hay MÚLTIPLES coincidencias del mismo tipo,
+ * ganael ÚLTIMO. Esto es crítico cuando el user pega un token en
+ * la descripción y luego lo sustituye N veces en comentarios — el
+ * más reciente (último) es el válido. Antes ganaba el primero y
+ * Sonia usaba siempre el token viejo caducado aunque hubieras
+ * pegado uno nuevo justo después.
  */
 function detectByValue(text: string): Record<string, string> {
   const out: Record<string, string> = {};
 
-  // Token Meta — patrón "EAA" seguido de [A-Za-z0-9] al menos 100 chars.
-  // Los tokens reales son ~200-300 chars. Capturamos el bloque hasta
-  // que aparezca un char no válido (espacio, nueva línea, etc.).
+  // Token Meta — todas las ocurrencias; gana la última.
   const META_TOKEN_RE = /\b(EAA[A-Za-z0-9_-]{100,})\b/g;
   let m: RegExpExecArray | null;
   while ((m = META_TOKEN_RE.exec(text)) !== null) {
-    if (!out.META_ADS_TOKEN) out.META_ADS_TOKEN = m[1];
+    out.META_ADS_TOKEN = m[1];
   }
 
-  // Ad Account ID — "act=NNNN" o "act_NNNN" (URLs de Ads Manager, o
-  // contexto plano). Normalizamos al formato "act_xxx" que es el que
-  // la API de Meta acepta.
+  // Ad Account ID — gana la última (caso típico: user corrige el
+  // número en un comentario posterior).
   const ACT_RE = /\bact[=_](\d{6,20})\b/gi;
   while ((m = ACT_RE.exec(text)) !== null) {
-    if (!out.META_ADS_AD_ACCOUNT_ID) out.META_ADS_AD_ACCOUNT_ID = `act_${m[1]}`;
+    out.META_ADS_AD_ACCOUNT_ID = `act_${m[1]}`;
   }
 
-  // Business ID — útil para context aunque no sea credencial.
-  // Lo dejamos comentado, no es estrictamente necesario.
-
-  // Stripe (sk_live_ o sk_test_). Capturamos hasta 200 chars de
-  // base64-like.
+  // Stripe — última gana.
   const STRIPE_RE = /\b(sk_(?:live|test)_[A-Za-z0-9]{20,200})\b/g;
   while ((m = STRIPE_RE.exec(text)) !== null) {
-    if (!out.STRIPE_KEY) out.STRIPE_KEY = m[1];
+    out.STRIPE_KEY = m[1];
   }
 
-  // Resend (re_...)
+  // Resend — última gana.
   const RESEND_RE = /\b(re_[A-Za-z0-9_-]{20,100})\b/g;
   while ((m = RESEND_RE.exec(text)) !== null) {
-    if (!out.RESEND_KEY) out.RESEND_KEY = m[1];
+    out.RESEND_KEY = m[1];
   }
 
   return out;
