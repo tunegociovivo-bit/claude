@@ -35,18 +35,26 @@ export type ProcessResult =
  * con `void` no necesitan try/catch.
  */
 export async function processOneRun(runId: string): Promise<ProcessResult> {
+  console.log(`[sonia] processOneRun start: ${runId}`);
   // Lock optimista: solo si sigue PENDING.
   const claimed = await prisma.aiAgentRun.updateMany({
     where: { id: runId, status: "PENDING" },
     data: { status: "RUNNING", startedAt: new Date() }
   });
-  if (claimed.count === 0) return { skipped: true, runId };
+  if (claimed.count === 0) {
+    console.log(`[sonia] processOneRun skipped (not PENDING anymore): ${runId}`);
+    return { skipped: true, runId };
+  }
 
   const run = await prisma.aiAgentRun.findUnique({ where: { id: runId } });
-  if (!run) return { skipped: true, runId };
+  if (!run) {
+    console.log(`[sonia] processOneRun skipped (run not found): ${runId}`);
+    return { skipped: true, runId };
+  }
 
   try {
     const config = await loadAgentConfig(run.workspaceId);
+    console.log(`[sonia] executeAgentRun: task=${run.taskId} model=${config.model}`);
     const result = await executeAgentRun({
       workspaceId: run.workspaceId,
       taskId: run.taskId,
@@ -55,6 +63,7 @@ export async function processOneRun(runId: string): Promise<ProcessResult> {
       trigger: run.trigger,
       triggerContext: run.triggerContext
     });
+    console.log(`[sonia] run ${runId} → ${result.status} (${result.stepsCount} steps)`);
 
     await prisma.aiAgentRun.update({
       where: { id: runId },

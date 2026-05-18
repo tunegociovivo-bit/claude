@@ -63,6 +63,21 @@ export const POST = withApi({ scope: "tasks:write" }, async (req, { params, api 
     select: { id: true, status: true, createdAt: true }
   });
   if (inFlight) {
+    // Si está PENDING (legado de antes de que tuviéramos background
+    // trigger, o porque el cron no corre), DISPARARLO ahora —
+    // es lo que quiere el user al pulsar el botón "Pedir a Sonia".
+    // Si está RUNNING, solo informamos (algo lo está procesando ya).
+    if (inFlight.status === "PENDING") {
+      processRunInBackground(inFlight.id);
+      return NextResponse.json({
+        ok: true,
+        deduped: true,
+        kicked: true,
+        runId: inFlight.id,
+        status: inFlight.status,
+        message: `Run PENDING despertado. Sonia arranca ya.`
+      });
+    }
     return NextResponse.json({
       ok: true,
       deduped: true,
