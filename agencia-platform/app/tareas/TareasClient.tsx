@@ -690,7 +690,12 @@ export default function TareasClient({
           tarjetas. Si activeCount = 0 cuando le pediste a Sonia algo,
           es problema de backend (no creó el run). Si hay error, es
           de auth/network. */}
-      <AiSoniaDebugPanel debug={aiDebug} activeMap={aiStatusByTask} />
+      <AiSoniaDebugPanel
+        debug={aiDebug}
+        activeMap={aiStatusByTask}
+        tasks={tasks}
+        onOpenTask={openEditTask}
+      />
 
       <div className="hidden md:block">
       <PageHeader
@@ -2045,7 +2050,9 @@ function formatDuration(ms: number): string {
  */
 function AiSoniaDebugPanel({
   debug,
-  activeMap
+  activeMap,
+  tasks,
+  onOpenTask
 }: {
   debug: {
     lastPollAt: number | null;
@@ -2055,8 +2062,11 @@ function AiSoniaDebugPanel({
     pollCount: number;
   };
   activeMap: Record<string, AiStatusInfo>;
+  tasks: UiTask[];
+  onOpenTask: (t: UiTask) => void;
 }) {
   const [now, setNow] = useState(() => Date.now());
+  const [expanded, setExpanded] = useState(false);
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
@@ -2069,48 +2079,134 @@ function AiSoniaDebugPanel({
     if (v.aiStatus) statesByCount[v.aiStatus] = (statesByCount[v.aiStatus] ?? 0) + 1;
   }
   const isHealthy = debug.lastPollOk && secsSincePoll !== null && secsSincePoll < 30;
+  // Lookup taskId → task (para mostrar título + saber si está
+  // visible en el filtro actual).
+  const taskById = new Map(tasks.map((t) => [t.id, t]));
+  const activeEntries = Object.entries(activeMap)
+    .filter(([, v]) => v.aiStatus !== null)
+    .map(([taskId, info]) => ({ taskId, info, task: taskById.get(taskId) }));
   return (
     <div
-      className="hidden md:flex items-center gap-3 px-3 py-1.5 text-xs border-b bg-slate-50"
+      className="hidden md:block text-xs border-b bg-slate-50"
       style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" }}
     >
-      <span
-        style={{
-          display: "inline-block",
-          width: 8,
-          height: 8,
-          borderRadius: 99,
-          backgroundColor: isHealthy ? "#10b981" : debug.lastPollError ? "#ef4444" : "#94a3b8"
-        }}
-        title={isHealthy ? "Polling activo" : "Polling no responde"}
-      />
-      <span className="text-slate-700 font-semibold">Sonia status</span>
-      <span className="text-slate-500">
-        polling: {debug.pollCount} chequeos
-        {secsSincePoll !== null && ` · último hace ${secsSincePoll}s`}
-      </span>
-      {debug.lastPollError && (
-        <span className="text-rose-600 font-semibold">
-          ⚠ {debug.lastPollError}
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        className="w-full flex items-center gap-3 px-3 py-1.5 hover:bg-slate-100 transition text-left"
+        title="Click para expandir/contraer detalles"
+      >
+        <span
+          style={{
+            display: "inline-block",
+            width: 8,
+            height: 8,
+            borderRadius: 99,
+            backgroundColor: isHealthy ? "#10b981" : debug.lastPollError ? "#ef4444" : "#94a3b8"
+          }}
+        />
+        <span className="text-slate-700 font-semibold">Sonia status</span>
+        <span className="text-slate-500">
+          polling: {debug.pollCount} chequeos
+          {secsSincePoll !== null && ` · último hace ${secsSincePoll}s`}
         </span>
-      )}
-      <span className="text-slate-500">
-        activos: {debug.activeCount}
-        {debug.activeCount > 0 &&
-          " — " +
-            Object.entries(statesByCount)
-              .map(([k, n]) => `${n}×${k}`)
-              .join(", ")}
-      </span>
-      {debug.activeCount > 0 && (
-        <span className="ml-auto text-violet-700 font-semibold">
-          → si no ves el indicador en la tarjeta correspondiente, es bug de render. Pásame screenshot.
+        {debug.lastPollError && (
+          <span className="text-rose-600 font-semibold">⚠ {debug.lastPollError}</span>
+        )}
+        <span className="text-slate-500">
+          activos: {debug.activeCount}
+          {debug.activeCount > 0 &&
+            " — " +
+              Object.entries(statesByCount)
+                .map(([k, n]) => `${n}×${k}`)
+                .join(", ")}
         </span>
-      )}
-      {debug.activeCount === 0 && debug.lastPollOk && (
-        <span className="ml-auto text-slate-500 italic">
-          Sin runs activos. Si acabas de pulsar "Pedir a Sonia", esperar 2-5s y refrescar este conteo.
-        </span>
+        {debug.activeCount > 0 && (
+          <span className="ml-auto text-violet-700 font-semibold">
+            {expanded ? "▾ Ocultar detalle" : "▸ Ver detalle"}
+          </span>
+        )}
+      </button>
+      {expanded && activeEntries.length > 0 && (
+        <div className="px-3 pb-2 pt-1 border-t border-slate-200">
+          <table className="w-full text-[11px]">
+            <thead>
+              <tr className="text-slate-500">
+                <th className="text-left pr-3 py-1">Estado</th>
+                <th className="text-left pr-3 py-1">Task</th>
+                <th className="text-left pr-3 py-1">¿Visible aquí?</th>
+                <th className="text-left pr-3 py-1">RunId / startedAt</th>
+                <th className="text-left pr-3 py-1">Acción</th>
+              </tr>
+            </thead>
+            <tbody>
+              {activeEntries.map(({ taskId, info, task }) => {
+                const visible = !!task;
+                const colorByStatus: Record<string, string> = {
+                  working: "#7c3aed",
+                  ai_replied: "#06b6d4",
+                  done_unreviewed: "#10b981",
+                  needs_help: "#f59e0b",
+                  claude_working: "#0ea5e9"
+                };
+                const color = colorByStatus[info.aiStatus ?? ""] ?? "#94a3b8";
+                return (
+                  <tr key={taskId} className="border-t border-slate-100">
+                    <td className="pr-3 py-1">
+                      <span
+                        style={{
+                          display: "inline-block",
+                          padding: "1px 6px",
+                          borderRadius: 4,
+                          color: "#fff",
+                          backgroundColor: color,
+                          fontSize: 10,
+                          fontWeight: 600
+                        }}
+                      >
+                        {info.aiStatus}
+                      </span>
+                    </td>
+                    <td className="pr-3 py-1 text-slate-700">
+                      {task ? task.title.slice(0, 50) : <em className="text-slate-400">(no en este filtro)</em>}
+                    </td>
+                    <td className="pr-3 py-1">
+                      {visible ? (
+                        <span className="text-emerald-700">✓ debería verse pintada</span>
+                      ) : (
+                        <span className="text-slate-500">— en otro filtro/proyecto</span>
+                      )}
+                    </td>
+                    <td className="pr-3 py-1 text-slate-500">
+                      <code>{(info.runId ?? "").slice(0, 8)}</code>
+                      {info.startedAt && " · " + new Date(info.startedAt).toLocaleTimeString()}
+                    </td>
+                    <td className="pr-3 py-1">
+                      {task ? (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onOpenTask(task);
+                          }}
+                          className="text-brand-600 hover:underline"
+                        >
+                          abrir
+                        </button>
+                      ) : (
+                        <span className="text-slate-400">—</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          <div className="mt-1 text-[10px] text-slate-500">
+            Las filas con "✓ debería verse pintada" son tasks visibles en el filtro actual. Si esa task NO tiene
+            badge ni borde en la card, abre DevTools y mándame screenshot.
+          </div>
+        </div>
       )}
     </div>
   );
