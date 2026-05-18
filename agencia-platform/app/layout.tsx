@@ -77,7 +77,7 @@ const earlyInstallCapture = `
  */
 const swSelfHeal = `
   (function () {
-    var EXPECTED = "v31-2026-05-18-sonia-dashboard";
+    var EXPECTED = "v32-2026-05-18-gmb-briefing";
     if (!('serviceWorker' in navigator)) return;
     var key = "hub_sw_v_seen";
     var seen = null;

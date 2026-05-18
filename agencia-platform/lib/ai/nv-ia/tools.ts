@@ -1510,6 +1510,24 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
     }
   },
   {
+    name: "gmb_unreplied_reviews_briefing",
+    description:
+      "Devuelve las reseñas SIN responder de un cliente, ya agrupadas por sentimiento (positivas 4-5★ / neutrales 3★ / negativas 1-2★) Y enriquecidas con el contexto del cliente (brandBrief, styleGuide cacheado, brand colors, contacto). Pensado para que Sonia procese las reseñas pendientes con un solo turno de contexto en lugar de hacer N llamadas. Después usas gmb_reply_to_review para responder cada una. RECUERDA: las negativas pídelas con request_user_approval antes de publicar.",
+    input_schema: {
+      type: "object",
+      properties: {
+        clientId: { type: "string" },
+        accountId: { type: "string" },
+        locationId: { type: "string" },
+        maxReviews: {
+          type: "number",
+          description: "Tope de reseñas a procesar en una pasada. Default 15."
+        }
+      },
+      additionalProperties: false
+    }
+  },
+  {
     name: "generate_voice_audio",
     description:
       "Genera un audio MP3 con la voz de la marca (ElevenLabs) a partir de un texto. Útil para responder a notas de voz por WhatsApp con otra nota de voz natural, en lugar de texto. El audio se adjunta a la task actual; tú puedes usar su fileId en draft_whatsapp_voice (próxima fase) o el admin lo descarga y reenvía. Max 4000 chars del texto. Tono coloquial recomendado (estás 'hablando', no escribiendo).",
@@ -2412,6 +2430,25 @@ async function maybeAutoApproveDraft(
     console.warn("[nv-ia auto-approve] fail:", e?.message ?? e);
     return { autoApproved: false };
   }
+}
+
+// Compacta una reseña GMB para el briefing — quitamos campos que el
+// modelo no necesita (createTime ya viene como string, etc.) y dejamos
+// reviewName porque se necesita para gmb_reply_to_review.
+function stripReviewForBriefing(r: {
+  reviewName: string;
+  reviewer: string;
+  rating: number;
+  comment: string | null;
+  createTime: string;
+}) {
+  return {
+    reviewName: r.reviewName,
+    reviewer: r.reviewer,
+    rating: r.rating,
+    comment: r.comment,
+    createTime: r.createTime
+  };
 }
 
 export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
@@ -4555,6 +4592,75 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
       return { error: `gmb_create_post: ${e?.message ?? e}` };
     }
   },
+  async gmb_unreplied_reviews_briefing(input, ctx) {
+    try {
+      const reviews = await gmbListReviews({
+        workspaceId: ctx.workspaceId,
+        clientId: input?.clientId ? String(input.clientId) : undefined,
+        accountId: input?.accountId ? String(input.accountId) : undefined,
+        locationId: input?.locationId ? String(input.locationId) : undefined,
+        pageSize: input?.maxReviews ? Number(input.maxReviews) : 15
+      });
+      const unreplied = reviews.filter((r) => !r.reply);
+      const positives = unreplied.filter((r) => r.rating >= 4);
+      const neutral = unreplied.filter((r) => r.rating === 3);
+      const negatives = unreplied.filter((r) => r.rating > 0 && r.rating <= 2);
+
+      // Enriquecer con contexto cliente si tenemos clientId
+      let clientContext: any = null;
+      if (input?.clientId) {
+        const c = await prisma.client.findFirst({
+          where: { id: String(input.clientId), workspaceId: ctx.workspaceId },
+          select: {
+            name: true,
+            brandBrief: true,
+            brandColorPrimary: true,
+            brandColorAccent: true,
+            styleGuideCached: true,
+            email: true,
+            phone: true,
+            website: true,
+            notes: true
+          }
+        });
+        if (c) {
+          clientContext = {
+            name: c.name,
+            brandBrief: c.brandBrief?.slice(0, 800),
+            styleGuide: c.styleGuideCached?.slice(0, 1500),
+            colors: { primary: c.brandColorPrimary, accent: c.brandColorAccent },
+            contact: {
+              email: c.email,
+              phone: c.phone,
+              website: c.website
+            },
+            notes: c.notes?.slice(0, 400)
+          };
+        }
+      }
+
+      return {
+        totalUnreplied: unreplied.length,
+        bySentiment: {
+          positives: positives.map(stripReviewForBriefing),
+          neutral: neutral.map(stripReviewForBriefing),
+          negatives: negatives.map(stripReviewForBriefing)
+        },
+        clientContext,
+        instructions: {
+          positives:
+            "Agradece breve, menciona algo específico del comentario, invita a volver. Tono del brandBrief.",
+          neutral:
+            "Reconoce el feedback, pregunta amablemente qué mejorar. Cero defensiva.",
+          negatives:
+            "REQUIERE request_user_approval antes de publicar. Tono: reconocer, disculpa si procede, mover offline (teléfono/email del cliente). NUNCA negar ni atacar."
+        }
+      };
+    } catch (e: any) {
+      return { error: `gmb_unreplied_reviews_briefing: ${e?.message ?? e}` };
+    }
+  },
+
   async gmb_get_insights(input, ctx) {
     try {
       const res = await gmbGetInsights({
