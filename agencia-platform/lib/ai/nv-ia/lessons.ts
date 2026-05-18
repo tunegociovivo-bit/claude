@@ -108,7 +108,7 @@ export async function recordLesson(opts: {
   scope: string;
   lesson: string;
   triggerPattern?: string | null;
-  source: "claude" | "sonia_self" | "human";
+  source: "claude" | "sonia_self" | "human" | "auto_extracted";
   taskId?: string | null;
 }): Promise<{ id: string; created: boolean }> {
   const lessonText = opts.lesson.trim();

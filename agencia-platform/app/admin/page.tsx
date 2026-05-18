@@ -97,6 +97,13 @@ const SECTIONS: AdminSection[] = [
         icon: Volume2
       },
       {
+        href: "/admin/sonia-lessons",
+        title: "Lecciones aprendidas",
+        description:
+          "Memoria persistente de Sonia. Lecciones manuales + auto-extraídas de tu feedback en hilos de tareas. Aplica todo lo aprendido en runs futuros.",
+        icon: Brain
+      },
+      {
         href: "/admin/memoria-claude",
         title: "Memoria del proyecto",
         description:
