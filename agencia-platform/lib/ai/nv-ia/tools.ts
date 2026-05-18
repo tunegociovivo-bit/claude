@@ -57,6 +57,19 @@ export type ToolContext = {
   runId: string;
   /** Contador de sub-agentes spawneados en este run (cap 5 para evitar costes desbocados). */
   subagentsSpawned?: { count: number };
+  /**
+   * Credenciales temporales inyectadas en la tarea (descripción o
+   * comentarios) para este run. Las tools de integración (meta-ads,
+   * google-ads, holded, stripe, waha, resend, elevenlabs) las
+   * priorizan sobre las del workspace cifrado.
+   *
+   * Caso de uso: el user pega un token Meta temporal cuando la
+   * integración oficial caducó, sin tener que reconectar.
+   *
+   * Claves canónicas: META_ADS_TOKEN, META_ADS_AD_ACCOUNT_ID, etc.
+   * Ver lib/ai/nv-ia/adhoc-credentials.ts.
+   */
+  adhocCredentials?: Record<string, string>;
 };
 
 export type ToolExecutor = (input: any, ctx: ToolContext) => Promise<unknown>;
@@ -2280,7 +2293,7 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
 
   async meta_ads_list_ad_accounts(_input, ctx) {
     try {
-      const accounts = await metaAdsListAdAccounts(ctx.workspaceId);
+      const accounts = await metaAdsListAdAccounts(ctx.workspaceId, ctx.adhocCredentials);
       return { count: accounts.length, accounts };
     } catch (e: any) {
       return { error: `Meta Ads no disponible: ${e?.message ?? e}` };
@@ -2291,7 +2304,8 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
       const campaigns = await metaAdsListCampaigns({
         workspaceId: ctx.workspaceId,
         status: input?.status,
-        limit: typeof input?.limit === "number" ? input.limit : 50
+        limit: typeof input?.limit === "number" ? input.limit : 50,
+        adhoc: ctx.adhocCredentials
       });
       return { count: campaigns.length, campaigns };
     } catch (e: any) {
@@ -2307,7 +2321,8 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
         campaignId,
         datePreset: input?.datePreset ? String(input.datePreset) : undefined,
         since: input?.since ? String(input.since) : undefined,
-        until: input?.until ? String(input.until) : undefined
+        until: input?.until ? String(input.until) : undefined,
+        adhoc: ctx.adhocCredentials
       });
       return { ok: true, insights };
     } catch (e: any) {
@@ -2320,7 +2335,8 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
         workspaceId: ctx.workspaceId,
         datePreset: input?.datePreset ? String(input.datePreset) : undefined,
         metric: input?.metric,
-        limit: typeof input?.limit === "number" ? input.limit : 10
+        limit: typeof input?.limit === "number" ? input.limit : 10,
+        adhoc: ctx.adhocCredentials
       });
       return { count: top.length, top };
     } catch (e: any) {
