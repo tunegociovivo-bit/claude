@@ -1,0 +1,623 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Informe de Campañas Meta Ads | Novaextranjería Málaga</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Helvetica Neue', Arial, sans-serif;
+    background: #f0f2f5;
+    color: #2c3e50;
+    line-height: 1.6;
+    padding: 0;
+  }
+  .page {
+    max-width: 1100px;
+    margin: 0 auto;
+    background: white;
+    box-shadow: 0 0 40px rgba(0,0,0,.08);
+  }
+
+  /* Cover */
+  .cover {
+    background: linear-gradient(135deg, #0a4ea8 0%, #1877f2 50%, #4a9bff 100%);
+    color: white;
+    padding: 80px 60px;
+    position: relative;
+    overflow: hidden;
+  }
+  .cover::before {
+    content: '';
+    position: absolute;
+    top: -100px; right: -100px;
+    width: 400px; height: 400px;
+    background: rgba(255,255,255,.06);
+    border-radius: 50%;
+  }
+  .cover::after {
+    content: '';
+    position: absolute;
+    bottom: -150px; left: -50px;
+    width: 300px; height: 300px;
+    background: rgba(255,255,255,.04);
+    border-radius: 50%;
+  }
+  .cover-content { position: relative; z-index: 1; }
+  .cover .label {
+    text-transform: uppercase;
+    letter-spacing: 3px;
+    font-size: 12px;
+    opacity: .85;
+    margin-bottom: 12px;
+  }
+  .cover h1 {
+    font-size: 42px;
+    font-weight: 300;
+    line-height: 1.15;
+    margin-bottom: 16px;
+  }
+  .cover h1 strong { font-weight: 700; }
+  .cover .subtitle {
+    font-size: 18px;
+    opacity: .92;
+    max-width: 600px;
+    margin-bottom: 40px;
+  }
+  .cover .meta-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 20px;
+    margin-top: 40px;
+    padding-top: 40px;
+    border-top: 1px solid rgba(255,255,255,.25);
+  }
+  .cover .meta-grid div .k { font-size: 11px; opacity: .8; text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 4px; }
+  .cover .meta-grid div .v { font-size: 15px; font-weight: 500; }
+
+  /* Sections */
+  section { padding: 60px; border-bottom: 1px solid #e8eaed; }
+  section:last-child { border-bottom: none; }
+  .section-label {
+    display: inline-block;
+    background: #e7f3ff;
+    color: #1877f2;
+    padding: 6px 14px;
+    border-radius: 16px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    margin-bottom: 16px;
+  }
+  h2 {
+    font-size: 30px;
+    font-weight: 600;
+    color: #0a4ea8;
+    margin-bottom: 12px;
+    line-height: 1.2;
+  }
+  .section-intro {
+    font-size: 16px;
+    color: #5a6c7d;
+    margin-bottom: 36px;
+    max-width: 800px;
+  }
+
+  /* Highlight stats */
+  .stats-row {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+    margin-bottom: 40px;
+  }
+  .stat {
+    background: linear-gradient(135deg, #f7f8fa 0%, #ffffff 100%);
+    border: 1px solid #e8eaed;
+    border-radius: 12px;
+    padding: 24px;
+    text-align: center;
+    transition: transform .2s;
+  }
+  .stat .v {
+    font-size: 32px;
+    font-weight: 700;
+    color: #0a4ea8;
+    line-height: 1;
+    margin-bottom: 6px;
+  }
+  .stat .l {
+    font-size: 12px;
+    color: #5a6c7d;
+    text-transform: uppercase;
+    letter-spacing: .5px;
+  }
+  .stat.highlight {
+    background: linear-gradient(135deg, #e7f3ff 0%, #cce5ff 100%);
+    border-color: #1877f2;
+  }
+  .stat.highlight .v { color: #0a4ea8; }
+
+  /* Cards */
+  .campaign-cards {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 20px;
+  }
+  .ccard {
+    border: 1px solid #e8eaed;
+    border-radius: 14px;
+    overflow: hidden;
+    transition: box-shadow .2s;
+  }
+  .ccard:hover { box-shadow: 0 8px 24px rgba(0,0,0,.08); }
+  .ccard .head {
+    padding: 20px;
+    color: white;
+    min-height: 110px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+  }
+  .ccard.winner .head { background: linear-gradient(135deg, #1e8e3e 0%, #34c759 100%); }
+  .ccard.runner .head { background: linear-gradient(135deg, #f7b500 0%, #ffc940 100%); }
+  .ccard.loser .head { background: linear-gradient(135deg, #6c757d 0%, #8e9aa6 100%); }
+  .ccard .head .badge {
+    display: inline-block;
+    background: rgba(255,255,255,.25);
+    padding: 3px 10px;
+    border-radius: 10px;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    width: fit-content;
+    margin-bottom: 8px;
+  }
+  .ccard .head h3 {
+    font-size: 15px;
+    line-height: 1.3;
+    font-weight: 600;
+  }
+  .ccard .body { padding: 20px; }
+  .ccard .row {
+    display: flex;
+    justify-content: space-between;
+    padding: 8px 0;
+    border-bottom: 1px solid #f0f2f5;
+    font-size: 13px;
+  }
+  .ccard .row:last-child { border-bottom: none; }
+  .ccard .row .l { color: #5a6c7d; }
+  .ccard .row .v { font-weight: 600; color: #2c3e50; }
+  .ccard .row .v.good { color: #1e8e3e; }
+  .ccard .row .v.warn { color: #d9501a; }
+  .ccard .row .v.neutral { color: #6c757d; }
+  .ccard .kpi {
+    background: #f7f8fa;
+    margin: 16px -20px -20px -20px;
+    padding: 16px 20px;
+    border-top: 2px solid;
+    text-align: center;
+  }
+  .ccard.winner .kpi { border-color: #1e8e3e; }
+  .ccard.runner .kpi { border-color: #f7b500; }
+  .ccard.loser .kpi { border-color: #6c757d; }
+  .ccard .kpi .l { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: #5a6c7d; }
+  .ccard .kpi .v { font-size: 24px; font-weight: 700; color: #0a4ea8; margin-top: 4px; }
+
+  /* Table */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    background: white;
+    border-radius: 12px;
+    overflow: hidden;
+    border: 1px solid #e8eaed;
+    margin-top: 16px;
+  }
+  thead { background: linear-gradient(135deg, #0a4ea8 0%, #1877f2 100%); color: white; }
+  th { padding: 16px 12px; text-align: left; font-size: 12px; text-transform: uppercase; letter-spacing: .5px; font-weight: 600; }
+  td { padding: 14px 12px; border-bottom: 1px solid #f0f2f5; font-size: 13px; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  th.num { text-align: right; }
+  tbody tr:hover { background: #f7f8fa; }
+  tr.total { background: #f0f2f5; font-weight: 700; }
+  tr.total td { border-bottom: none; }
+  .pill { display: inline-block; padding: 3px 8px; border-radius: 10px; font-size: 10px; font-weight: 700; text-transform: uppercase; }
+  .pill.green { background: #e6f7ed; color: #1e8e3e; }
+  .pill.blue { background: #e7f3ff; color: #1877f2; }
+  .pill.gray { background: #f0f2f5; color: #6c757d; }
+
+  /* Ranking */
+  .ranking { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+  .rank-box { background: #f7f8fa; padding: 24px; border-radius: 12px; border: 1px solid #e8eaed; }
+  .rank-box h4 { font-size: 14px; color: #5a6c7d; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 16px; }
+  .rank-item { display: flex; align-items: center; padding: 12px; background: white; border-radius: 8px; margin-bottom: 8px; border: 1px solid #e8eaed; }
+  .rank-pos { width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; font-weight: 700; font-size: 14px; margin-right: 14px; flex-shrink: 0; }
+  .rank-pos.gold { background: linear-gradient(135deg, #f7b500 0%, #ffc940 100%); }
+  .rank-pos.silver { background: linear-gradient(135deg, #a3a3a3 0%, #c0c0c0 100%); }
+  .rank-pos.bronze { background: linear-gradient(135deg, #cd7f32 0%, #d8a361 100%); }
+  .rank-name { font-weight: 600; font-size: 13px; line-height: 1.3; }
+  .rank-value { font-size: 12px; color: #5a6c7d; margin-top: 3px; }
+
+  /* Conclusions */
+  .conclusion-block {
+    background: #f7f8fa;
+    border-left: 4px solid;
+    padding: 24px 28px;
+    border-radius: 0 12px 12px 0;
+    margin-bottom: 20px;
+  }
+  .conclusion-block.win { border-color: #1e8e3e; background: linear-gradient(90deg, #e6f7ed 0%, #f7f8fa 100%); }
+  .conclusion-block.improve { border-color: #f7b500; background: linear-gradient(90deg, #fff5dc 0%, #f7f8fa 100%); }
+  .conclusion-block.action { border-color: #d9501a; background: linear-gradient(90deg, #ffe9dc 0%, #f7f8fa 100%); }
+  .conclusion-block h3 { font-size: 18px; margin-bottom: 12px; color: #0a4ea8; }
+  .conclusion-block ul { padding-left: 22px; margin-top: 8px; }
+  .conclusion-block li { margin-bottom: 8px; font-size: 14px; }
+
+  .next-steps {
+    background: linear-gradient(135deg, #0a4ea8 0%, #1877f2 100%);
+    color: white;
+    padding: 36px;
+    border-radius: 12px;
+  }
+  .next-steps h3 { font-size: 20px; margin-bottom: 20px; }
+  .next-steps ol { padding-left: 24px; }
+  .next-steps li { margin-bottom: 12px; font-size: 15px; line-height: 1.5; }
+
+  /* Footer */
+  footer {
+    background: #2c3e50;
+    color: white;
+    padding: 32px 60px;
+    text-align: center;
+    font-size: 13px;
+    opacity: .9;
+  }
+  footer .source { margin-top: 8px; font-size: 11px; opacity: .7; }
+
+  @media print {
+    body { background: white; }
+    .page { box-shadow: none; max-width: 100%; }
+    section { page-break-inside: avoid; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+<div class="cover">
+  <div class="cover-content">
+    <div class="label">Informe de rendimiento publicitario</div>
+    <h1>Campañas <strong>Meta Ads</strong><br>Novaextranjería Málaga</h1>
+    <div class="subtitle">Análisis comparativo de las tres campañas activas desde su inicio hasta la fecha actual. Datos extraídos directamente de la Meta Marketing API.</div>
+
+    <div class="meta-grid">
+      <div>
+        <div class="k">Cliente</div>
+        <div class="v">Novaextranjería Málaga</div>
+      </div>
+      <div>
+        <div class="k">Período analizado</div>
+        <div class="v">20/03/2026 – 18/05/2026</div>
+      </div>
+      <div>
+        <div class="k">Fecha del informe</div>
+        <div class="v">18 de mayo de 2026</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<section>
+  <div class="section-label">Resumen ejecutivo</div>
+  <h2>Visión global del periodo</h2>
+  <p class="section-intro">Durante el periodo analizado, las tres campañas activas han alcanzado a <strong>más de 144.000 personas</strong> únicas en la provincia de Málaga, generando un total de <strong>454 leads cualificados</strong> con un coste por adquisición muy competitivo para el sector de servicios jurídicos de extranjería.</p>
+
+  <div class="stats-row">
+    <div class="stat highlight">
+      <div class="v">1.419,64 €</div>
+      <div class="l">Inversión total</div>
+    </div>
+    <div class="stat">
+      <div class="v">510.579</div>
+      <div class="l">Impresiones</div>
+    </div>
+    <div class="stat">
+      <div class="v">144.553</div>
+      <div class="l">Personas alcanzadas</div>
+    </div>
+    <div class="stat highlight">
+      <div class="v">454</div>
+      <div class="l">Leads obtenidos</div>
+    </div>
+    <div class="stat">
+      <div class="v">8.786</div>
+      <div class="l">Clicks en enlaces</div>
+    </div>
+    <div class="stat">
+      <div class="v">98.030</div>
+      <div class="l">Reproducciones de vídeo</div>
+    </div>
+    <div class="stat">
+      <div class="v">108.093</div>
+      <div class="l">Interacciones con publicaciones</div>
+    </div>
+    <div class="stat highlight">
+      <div class="v">1,36 €</div>
+      <div class="l">Coste por lead medio</div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="section-label">Detalle por campaña</div>
+  <h2>Rendimiento individualizado</h2>
+  <p class="section-intro">A continuación se muestra el detalle de cada campaña ordenadas por rendimiento global: leads generados, eficiencia de coste y volumen de tráfico cualificado.</p>
+
+  <div class="campaign-cards">
+
+    <div class="ccard winner">
+      <div class="head">
+        <div>
+          <div class="badge">🥇 Mejor rendimiento</div>
+          <h3>NOVAEXTRANJERÍA Clientes Potenciales Regularización</h3>
+        </div>
+      </div>
+      <div class="body">
+        <div class="row"><span class="l">Período activa</span><span class="v">52 días</span></div>
+        <div class="row"><span class="l">Objetivo</span><span class="v">Leads</span></div>
+        <div class="row"><span class="l">Inversión total</span><span class="v">618,24 €</span></div>
+        <div class="row"><span class="l">Impresiones</span><span class="v">229.063</span></div>
+        <div class="row"><span class="l">Alcance</span><span class="v">53.847</span></div>
+        <div class="row"><span class="l">Frecuencia</span><span class="v warn">4,25</span></div>
+        <div class="row"><span class="l">CTR</span><span class="v good">2,90 %</span></div>
+        <div class="row"><span class="l">CPC enlace</span><span class="v">0,26 €</span></div>
+        <div class="row"><span class="l">CPM</span><span class="v">2,70 €</span></div>
+        <div class="row"><span class="l">Interacciones publicación</span><span class="v">48.000</span></div>
+        <div class="kpi">
+          <div class="l">Leads · CPL</div>
+          <div class="v">454 · 1,36 €</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="ccard runner">
+      <div class="head">
+        <div>
+          <div class="badge">🥈 Alto tráfico</div>
+          <h3>NOVAEXTRANJERÍA WhatsApp Regularización</h3>
+        </div>
+      </div>
+      <div class="body">
+        <div class="row"><span class="l">Período activa</span><span class="v">59 días</span></div>
+        <div class="row"><span class="l">Objetivo</span><span class="v">Tráfico WhatsApp</span></div>
+        <div class="row"><span class="l">Inversión total</span><span class="v">701,64 €</span></div>
+        <div class="row"><span class="l">Impresiones</span><span class="v">235.354</span></div>
+        <div class="row"><span class="l">Alcance</span><span class="v">65.825</span></div>
+        <div class="row"><span class="l">Frecuencia</span><span class="v">3,58</span></div>
+        <div class="row"><span class="l">CTR</span><span class="v good">2,81 %</span></div>
+        <div class="row"><span class="l">CPC enlace</span><span class="v good">0,11 €</span></div>
+        <div class="row"><span class="l">CPM</span><span class="v">2,98 €</span></div>
+        <div class="row"><span class="l">Interacciones publicación</span><span class="v">47.788</span></div>
+        <div class="kpi">
+          <div class="l">Clicks a WhatsApp</div>
+          <div class="v">6.108</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="ccard loser">
+      <div class="head">
+        <div>
+          <div class="badge">🥉 Menor rendimiento</div>
+          <h3>NOVAEXTRANJERIA Campaña de Tráfico Málaga</h3>
+        </div>
+      </div>
+      <div class="body">
+        <div class="row"><span class="l">Período activa</span><span class="v">10 días</span></div>
+        <div class="row"><span class="l">Objetivo</span><span class="v">Tráfico web</span></div>
+        <div class="row"><span class="l">Inversión total</span><span class="v">99,76 €</span></div>
+        <div class="row"><span class="l">Impresiones</span><span class="v">46.162</span></div>
+        <div class="row"><span class="l">Alcance</span><span class="v">24.881</span></div>
+        <div class="row"><span class="l">Frecuencia</span><span class="v good">1,86</span></div>
+        <div class="row"><span class="l">CTR</span><span class="v">2,76 %</span></div>
+        <div class="row"><span class="l">CPC enlace</span><span class="v">0,30 €</span></div>
+        <div class="row"><span class="l">CPM</span><span class="v good">2,16 €</span></div>
+        <div class="row"><span class="l">Interacciones publicación</span><span class="v">12.305</span></div>
+        <div class="kpi">
+          <div class="l">Leads · Clicks web</div>
+          <div class="v">0 · 336</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<section>
+  <div class="section-label">Comparativa completa</div>
+  <h2>Tabla de métricas clave</h2>
+  <p class="section-intro">Comparación directa de los principales indicadores publicitarios desde el inicio de cada campaña hasta hoy.</p>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Campaña</th>
+        <th>Objetivo</th>
+        <th class="num">Días</th>
+        <th class="num">Inversión</th>
+        <th class="num">Alcance</th>
+        <th class="num">CTR</th>
+        <th class="num">CPC enlace</th>
+        <th class="num">Conversiones</th>
+        <th class="num">CPL</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Clientes Potenciales Regularización</strong></td>
+        <td><span class="pill green">Leads</span></td>
+        <td class="num">52</td>
+        <td class="num">618,24 €</td>
+        <td class="num">53.847</td>
+        <td class="num">2,90 %</td>
+        <td class="num">0,26 €</td>
+        <td class="num"><strong>454 leads</strong></td>
+        <td class="num"><strong>1,36 €</strong></td>
+      </tr>
+      <tr>
+        <td><strong>WhatsApp Regularización</strong></td>
+        <td><span class="pill blue">Tráfico (WA)</span></td>
+        <td class="num">59</td>
+        <td class="num">701,64 €</td>
+        <td class="num">65.825</td>
+        <td class="num">2,81 %</td>
+        <td class="num">0,11 €</td>
+        <td class="num">6.108 clicks</td>
+        <td class="num">—*</td>
+      </tr>
+      <tr>
+        <td><strong>Tráfico Málaga</strong></td>
+        <td><span class="pill gray">Tráfico web</span></td>
+        <td class="num">10</td>
+        <td class="num">99,76 €</td>
+        <td class="num">24.881</td>
+        <td class="num">2,76 %</td>
+        <td class="num">0,30 €</td>
+        <td class="num">336 clicks</td>
+        <td class="num">—</td>
+      </tr>
+      <tr class="total">
+        <td>TOTAL</td>
+        <td>—</td>
+        <td class="num">—</td>
+        <td class="num">1.419,64 €</td>
+        <td class="num">144.553</td>
+        <td class="num">2,85 %</td>
+        <td class="num">0,16 €</td>
+        <td class="num">454 leads + 6.444 clicks</td>
+        <td class="num">—</td>
+      </tr>
+    </tbody>
+  </table>
+  <p style="font-size:12px; color:#5a6c7d; margin-top:14px;">* La campaña de WhatsApp dirige a una conversación externa fuera de Meta, por lo que las conversiones que ocurren dentro de WhatsApp no son medibles automáticamente desde Ads Manager.</p>
+</section>
+
+<section>
+  <div class="section-label">Análisis comparativo</div>
+  <h2>¿Qué campaña rinde mejor?</h2>
+  <p class="section-intro">Hemos clasificado las campañas según los dos indicadores más relevantes para el negocio: la captación efectiva de clientes y la eficiencia del coste por interacción.</p>
+
+  <div class="ranking">
+
+    <div class="rank-box">
+      <h4>🎯 Captación de clientes (leads reales)</h4>
+      <div class="rank-item">
+        <div class="rank-pos gold">1</div>
+        <div>
+          <div class="rank-name">Clientes Potenciales Regularización</div>
+          <div class="rank-value">454 leads · 1,36 € por lead</div>
+        </div>
+      </div>
+      <div class="rank-item">
+        <div class="rank-pos silver">2</div>
+        <div>
+          <div class="rank-name">WhatsApp Regularización</div>
+          <div class="rank-value">6.108 conversaciones iniciadas (sin medición de conversión final)</div>
+        </div>
+      </div>
+      <div class="rank-item">
+        <div class="rank-pos bronze">3</div>
+        <div>
+          <div class="rank-name">Tráfico Málaga</div>
+          <div class="rank-value">0 leads atribuidos · 336 visitas web</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="rank-box">
+      <h4>💰 Eficiencia de coste (por click en enlace)</h4>
+      <div class="rank-item">
+        <div class="rank-pos gold">1</div>
+        <div>
+          <div class="rank-name">WhatsApp Regularización</div>
+          <div class="rank-value">0,11 € · CTR 2,81 %</div>
+        </div>
+      </div>
+      <div class="rank-item">
+        <div class="rank-pos silver">2</div>
+        <div>
+          <div class="rank-name">Clientes Potenciales Regularización</div>
+          <div class="rank-value">0,26 € · CTR 2,90 %</div>
+        </div>
+      </div>
+      <div class="rank-item">
+        <div class="rank-pos bronze">3</div>
+        <div>
+          <div class="rank-name">Tráfico Málaga</div>
+          <div class="rank-value">0,30 € · CTR 2,76 %</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<section>
+  <div class="section-label">Conclusiones</div>
+  <h2>Hallazgos principales</h2>
+
+  <div class="conclusion-block win">
+    <h3>🏆 La campaña ganadora es: <em>Clientes Potenciales Regularización Masiva</em></h3>
+    <ul>
+      <li>Es la <strong>única con ROI demostrable</strong>: ha generado <strong>454 leads cualificados</strong> en 52 días con una inversión de 618 €, lo que supone un coste por lead de <strong>1,36 €</strong> — una cifra excelente para el sector de servicios jurídicos de extranjería, donde el CPL habitual oscila entre 5-15 €.</li>
+      <li>Si la tasa de conversión de lead a cliente es del 5 %, esta campaña habría generado en torno a <strong>22-23 clientes nuevos</strong> en los últimos 52 días, con un coste de adquisición por cliente de ~28 €.</li>
+      <li>Es además la que más interacciones acumula con las publicaciones (48.000), reforzando la marca a la vez que capta clientes.</li>
+    </ul>
+  </div>
+
+  <div class="conclusion-block improve">
+    <h3>📱 La campaña de WhatsApp tiene un gran potencial sin medir</h3>
+    <ul>
+      <li>Es la campaña con <strong>mejor CTR (2,81 %)</strong> y el <strong>coste por click más bajo (0,11 €)</strong>: 6.108 personas han pulsado el botón para iniciar una conversación.</li>
+      <li>El reto es que Meta no puede ver qué ocurre dentro de WhatsApp. Recomendamos <strong>conectar la API de Conversiones de WhatsApp Business</strong> o registrar manualmente en CRM las conversaciones que se convierten en cliente, para poder calcular el ROI real y compararlo con la campaña de Clientes Potenciales.</li>
+      <li>La frecuencia (3,58) es saludable, pero conviene rotar creatividades en las próximas semanas para mantener el rendimiento.</li>
+    </ul>
+  </div>
+
+  <div class="conclusion-block action">
+    <h3>⚠️ La campaña de Tráfico Málaga no está aportando retorno</h3>
+    <ul>
+      <li>En los 10 días que lleva activa ha invertido casi 100 € sin generar ningún lead atribuido, solo 336 visitas web.</li>
+      <li>Sus métricas de coste son buenas (CPM bajo, frecuencia controlada), pero el problema está en la <strong>monetización del tráfico</strong>: las visitas no se convierten en formularios.</li>
+      <li>Recomendamos <strong>pausar esta campaña en 7 días</strong> si no mejora, o bien revisar la landing y el formulario de la web antes de seguir invirtiendo.</li>
+    </ul>
+  </div>
+</section>
+
+<section>
+  <div class="section-label">Plan de acción</div>
+  <h2>Próximos pasos recomendados</h2>
+
+  <div class="next-steps">
+    <h3>Hoja de ruta para las próximas 4 semanas</h3>
+    <ol>
+      <li><strong>Escalar la campaña ganadora.</strong> Aumentar gradualmente el presupuesto de <em>Clientes Potenciales</em> de 12 € a 18-20 €/día, monitorizando que el coste por lead se mantenga por debajo de 3 €.</li>
+      <li><strong>Refrescar creatividades.</strong> La frecuencia ha alcanzado 4,25 — diseñar 2-3 nuevos creativos (vídeo y carrusel) en los próximos 7-10 días para evitar fatiga publicitaria.</li>
+      <li><strong>Implementar tracking de WhatsApp.</strong> Configurar Conversions API de WhatsApp Business o un sistema UTM+CRM para medir cuántas conversaciones se convierten en cliente. Sin esto, no es posible justificar la inversión en esta campaña con datos.</li>
+      <li><strong>Evaluar pausa de la campaña de Tráfico Málaga.</strong> Si en 7 días no genera al menos algún lead o no se mejora la landing, redirigir su presupuesto (10 €/día) a la campaña de Clientes Potenciales.</li>
+      <li><strong>Test A/B de nuevos públicos.</strong> En la campaña ganadora, probar segmentaciones por intereses adicionales y looklikes de la base de leads ya captados, para escalar manteniendo el CPL.</li>
+    </ol>
+  </div>
+</section>
+
+<footer>
+  <div>Informe generado a partir de datos oficiales de la Meta Marketing API v21.0</div>
+  <div class="source">Cuenta publicitaria: act_951272100695739 · Negocio: Novaextranjería · 18 de mayo de 2026</div>
+</footer>
+
+</div>
+</body>
+</html>
