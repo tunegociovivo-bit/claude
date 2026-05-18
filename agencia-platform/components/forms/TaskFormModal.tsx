@@ -105,7 +105,12 @@ export default function TaskFormModal({
   const [mentionCandidates, setMentionCandidates] = useState<MentionCandidate[]>([]);
   const [meetingOpen, setMeetingOpen] = useState(false);
   const [savingForMeeting, setSavingForMeeting] = useState(false);
-  const editorKey = useRef(0);
+  // editorKey usa useState (no useRef) para garantizar que React
+  // re-renderiza con la key nueva — un useRef.current++ NO triggea
+  // render, y el RichTextEditor mantiene su buffer interno con el
+  // contenido de la tarea anterior. Bug visto al abrir "Nueva tarea"
+  // después de haber abierto una tarea con descripción larga.
+  const [editorKey, setEditorKey] = useState(0);
 
   /**
    * Abre el grabador de reunión. Si estamos en modo "nueva tarea",
@@ -172,7 +177,7 @@ export default function TaskFormModal({
   useEffect(() => {
     if (!open) return;
     setError(null);
-    editorKey.current++;
+    setEditorKey((k) => k + 1);
     if (currentTask) {
       setTitle(currentTask.title);
       setStatus(String(currentTask.status));
@@ -578,7 +583,7 @@ export default function TaskFormModal({
             <div className="text-xs font-medium text-slate-700 mb-1">Descripción</div>
             <div className="border rounded-lg p-3 bg-white">
               <RichTextEditor
-                key={editorKey.current}
+                key={editorKey}
                 initialContent={description}
                 onChange={setDescription}
                 placeholder="Describe la tarea… / para bloques, @ para mencionar."

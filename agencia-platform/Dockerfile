@@ -15,9 +15,17 @@ RUN npx prisma generate && npm run build
 FROM node:20-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
-RUN apk add --no-cache libc6-compat openssl tini && \
+# Chromium + libs para que puppeteer-core pueda renderizar HTML→PDF
+# (tool attach_report_pdf_to_task de Sonia). Usamos el chromium del
+# repo de Alpine (≈140MB) en vez de @sparticuz/chromium para evitar
+# problemas de glibc — Alpine es musl.
+RUN apk add --no-cache \
+                libc6-compat openssl tini \
+                chromium nss freetype harfbuzz ca-certificates ttf-freefont && \
         addgroup -g 1001 -S nodejs && \
                 adduser -S nextjs -u 1001
+ENV PUPPETEER_SKIP_DOWNLOAD=true
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
                 RUN mkdir -p ./public
                 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
                 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
