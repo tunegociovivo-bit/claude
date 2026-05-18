@@ -48,17 +48,34 @@
  */
 
 const KEY_ALIASES: Record<string, string> = {
-  // Meta Ads
+  // Meta Ads — token (todas las variantes humanas que vemos en
+  // tareas reales: "Token meta", "meta token", "access token meta",
+  // "token de meta", "facebook token", etc.)
   meta_ads_token: "META_ADS_TOKEN",
   meta_token: "META_ADS_TOKEN",
-  fb_ads_token: "META_ADS_TOKEN",
-  fb_access_token: "META_ADS_TOKEN",
-  facebook_access_token: "META_ADS_TOKEN",
+  token_meta: "META_ADS_TOKEN",
+  token_de_meta: "META_ADS_TOKEN",
+  meta_de_token: "META_ADS_TOKEN",
+  access_token_meta: "META_ADS_TOKEN",
   meta_access_token: "META_ADS_TOKEN",
+  fb_ads_token: "META_ADS_TOKEN",
+  fb_token: "META_ADS_TOKEN",
+  fb_access_token: "META_ADS_TOKEN",
+  facebook_token: "META_ADS_TOKEN",
+  facebook_access_token: "META_ADS_TOKEN",
+  // Meta Ads — ad account
   meta_ads_ad_account_id: "META_ADS_AD_ACCOUNT_ID",
   meta_ads_account: "META_ADS_AD_ACCOUNT_ID",
+  meta_account_id: "META_ADS_AD_ACCOUNT_ID",
+  meta_ad_account: "META_ADS_AD_ACCOUNT_ID",
   ad_account_id: "META_ADS_AD_ACCOUNT_ID",
+  ad_account: "META_ADS_AD_ACCOUNT_ID",
+  cuenta_publicitaria: "META_ADS_AD_ACCOUNT_ID",
+  cuenta_anuncios: "META_ADS_AD_ACCOUNT_ID",
+  cuenta_de_anuncios: "META_ADS_AD_ACCOUNT_ID",
+  cuenta_de_ads: "META_ADS_AD_ACCOUNT_ID",
   fb_ad_account: "META_ADS_AD_ACCOUNT_ID",
+  act: "META_ADS_AD_ACCOUNT_ID",
   // Google Ads
   google_ads_token: "GOOGLE_ADS_TOKEN",
   google_ads_developer_token: "GOOGLE_ADS_DEVELOPER_TOKEN",
@@ -129,6 +146,63 @@ export function extractAdhocCredentials(text: string): Record<string, string> {
   // Quitamos los bloques fenced ya procesados para no duplicar.
   const stripped = text.replace(FENCE_RE, "");
   Object.assign(out, parseLinesAsCreds(stripped));
+
+  // ── 3) Detección por VALOR (heurística sobre el contenido). ──
+  // Sin esto, "Token meta: EAA..." quedaba como TOKEN_META en vez
+  // de META_ADS_TOKEN (el alias no cubría todas las variantes
+  // humanas), y act=NNNN dentro de URLs no se detectaba en absoluto.
+  // Estas reglas le permiten a Sonia "encontrar" credenciales aunque
+  // el user no las etiquete formalmente.
+  Object.assign(out, detectByValue(text));
+
+  return out;
+}
+
+/**
+ * Heurísticas por contenido del valor, no por label. Útiles para:
+ *   - Tokens Meta sueltos (empiezan por "EAA", >100 chars)
+ *   - act_NNNN o act=NNNN dentro de URLs de Ads Manager
+ *   - Stripe keys (sk_live_..., sk_test_...)
+ *   - Resend keys (re_...)
+ *
+ * Solo rellena claves que NO estén ya en `out` (las explícitas con
+ * label tienen prioridad).
+ */
+function detectByValue(text: string): Record<string, string> {
+  const out: Record<string, string> = {};
+
+  // Token Meta — patrón "EAA" seguido de [A-Za-z0-9] al menos 100 chars.
+  // Los tokens reales son ~200-300 chars. Capturamos el bloque hasta
+  // que aparezca un char no válido (espacio, nueva línea, etc.).
+  const META_TOKEN_RE = /\b(EAA[A-Za-z0-9_-]{100,})\b/g;
+  let m: RegExpExecArray | null;
+  while ((m = META_TOKEN_RE.exec(text)) !== null) {
+    if (!out.META_ADS_TOKEN) out.META_ADS_TOKEN = m[1];
+  }
+
+  // Ad Account ID — "act=NNNN" o "act_NNNN" (URLs de Ads Manager, o
+  // contexto plano). Normalizamos al formato "act_xxx" que es el que
+  // la API de Meta acepta.
+  const ACT_RE = /\bact[=_](\d{6,20})\b/gi;
+  while ((m = ACT_RE.exec(text)) !== null) {
+    if (!out.META_ADS_AD_ACCOUNT_ID) out.META_ADS_AD_ACCOUNT_ID = `act_${m[1]}`;
+  }
+
+  // Business ID — útil para context aunque no sea credencial.
+  // Lo dejamos comentado, no es estrictamente necesario.
+
+  // Stripe (sk_live_ o sk_test_). Capturamos hasta 200 chars de
+  // base64-like.
+  const STRIPE_RE = /\b(sk_(?:live|test)_[A-Za-z0-9]{20,200})\b/g;
+  while ((m = STRIPE_RE.exec(text)) !== null) {
+    if (!out.STRIPE_KEY) out.STRIPE_KEY = m[1];
+  }
+
+  // Resend (re_...)
+  const RESEND_RE = /\b(re_[A-Za-z0-9_-]{20,100})\b/g;
+  while ((m = RESEND_RE.exec(text)) !== null) {
+    if (!out.RESEND_KEY) out.RESEND_KEY = m[1];
+  }
 
   return out;
 }
