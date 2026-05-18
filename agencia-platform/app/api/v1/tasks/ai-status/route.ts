@@ -2,17 +2,17 @@
  * GET /api/v1/tasks/ai-status?taskIds=id1,id2,id3
  *
  * Devuelve, para cada taskId, el último AiAgentRun (status + si está
- * pendiente de revisión humana). Usado por el cliente de /tareas
- * para pintar el borde parpadeante en las tarjetas:
- *   - morado: hay run RUNNING o PENDING (Sonia trabajando)
- *   - verde:  último run SUCCEEDED sin humanReviewedAt
- *   - naranja: último run REQUIRES_HUMAN sin humanReviewedAt
- *   - null:   nada activo / ya revisado
+ * pendiente de revisión humana) Y datos enriquecidos para mostrar
+ * en UI un badge informativo:
+ *   - aiStatus: "working" | "done_unreviewed" | "needs_help" | null
+ *   - startedAt: cuándo arrancó (para "🤖 Trabajando 2m 14s")
+ *   - finishedAt: cuándo terminó (para "✓ Lista hace 3m")
+ *   - summary: resumen de éxito (50 primeros chars)
+ *   - error: motivo de fallo (50 primeros chars)
+ *   - stepsCount: cuántos pasos ejecutó
+ *   - runId: para acciones tipo "marcar revisado"
  *
- * Solo devuelve estados de tasks DEL workspace del caller — los ids
- * de otro workspace simplemente no aparecen en la respuesta.
- *
- * Mantenemos response ultra-ligera para que sea pollable cada N segundos
+ * Mantenemos response ligera para que sea pollable cada N segundos
  * por la UI sin coste apreciable.
  */
 import { NextResponse } from "next/server";
@@ -27,17 +27,20 @@ export const GET = withApi({ scope: "tasks:read" }, async (req, { api }) => {
   const ids = raw.split(",").map((s) => s.trim()).filter(Boolean).slice(0, 500);
   if (ids.length === 0) return NextResponse.json({ items: [] });
 
-  // Para cada task, el último AiAgentRun. Hacemos una query por la
-  // tabla entera filtrando por workspaceId + taskId IN, ordenamos por
-  // createdAt desc, y en cliente reducimos a "el primero por taskId".
-  // Más eficiente que N queries.
   const runs = await prisma.aiAgentRun.findMany({
     where: { workspaceId: api.workspaceId, taskId: { in: ids } },
     orderBy: { createdAt: "desc" },
     select: {
+      id: true,
       taskId: true,
       status: true,
       humanReviewedAt: true,
+      summary: true,
+      error: true,
+      stepsCount: true,
+      startedAt: true,
+      finishedAt: true,
+      createdAt: true,
       updatedAt: true
     }
   });
@@ -50,7 +53,6 @@ export const GET = withApi({ scope: "tasks:read" }, async (req, { api }) => {
   const items = ids.map((id) => {
     const r = latestByTask.get(id);
     if (!r) return { taskId: id, aiStatus: null };
-    // Visual state simplificado para el cliente
     let visual: "working" | "done_unreviewed" | "needs_help" | null = null;
     if (r.status === "PENDING" || r.status === "RUNNING") visual = "working";
     else if (r.status === "SUCCEEDED" && !r.humanReviewedAt) visual = "done_unreviewed";
@@ -58,7 +60,15 @@ export const GET = withApi({ scope: "tasks:read" }, async (req, { api }) => {
     return {
       taskId: id,
       aiStatus: visual,
-      raw: { status: r.status, reviewed: !!r.humanReviewedAt, updatedAt: r.updatedAt }
+      runId: r.id,
+      runStatus: r.status,
+      // ISOs — el cliente calcula "hace 2m" localmente.
+      startedAt: (r.startedAt ?? r.createdAt).toISOString(),
+      finishedAt: r.finishedAt ? r.finishedAt.toISOString() : null,
+      summary: r.summary ? r.summary.slice(0, 140) : null,
+      error: r.error ? r.error.slice(0, 140) : null,
+      stepsCount: r.stepsCount,
+      reviewed: !!r.humanReviewedAt
     };
   });
 

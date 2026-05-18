@@ -41,6 +41,21 @@ import { useSession } from "next-auth/react";
 
 type KanbanColumn = { id: string; label: string; color: string; order: number; isDone?: boolean };
 
+/** Estado del último AiAgentRun para una task, tal y como llega de
+ * /api/v1/tasks/ai-status. Se propaga a TaskCard para pintar borde
+ * de color + badge informativo. */
+type AiStatusInfo = {
+  aiStatus: "working" | "done_unreviewed" | "needs_help" | null;
+  runId?: string;
+  runStatus?: string;
+  startedAt?: string;
+  finishedAt?: string | null;
+  summary?: string | null;
+  error?: string | null;
+  stepsCount?: number;
+  reviewed?: boolean;
+};
+
 const COLUMN_ORDER_KEY = "kanban-column-order-v2";
 
 // Presets de color para columnas. Usados también en ColumnHeaderMenu
@@ -107,15 +122,25 @@ export default function TareasClient({
   const [tasks, setTasks] = useState<UiTask[]>(initialTasks);
   useEffect(() => setTasks(initialTasks), [initialTasks]);
 
-  // Sonia — estado visual por task. Poll cada 15s sobre las tasks
-  // visibles. "working" = morado parpadeante, "done_unreviewed" =
-  // verde, "needs_help" = naranja.
-  const [aiStatusByTask, setAiStatusByTask] = useState<
-    Record<string, "working" | "done_unreviewed" | "needs_help" | null>
-  >({});
+  // Sonia — estado visual + datos enriquecidos por task. Polling
+  // ADAPTATIVO: si hay tasks "activas" (Sonia trabajando, lista
+  // sin revisar, o pide ayuda) → cada 4s; si no → cada 20s. Así el
+  // morado aparece casi al instante cuando arrancas un run, y el
+  // gasto de polling baja cuando no hay nada activo.
+  const [aiStatusByTask, setAiStatusByTask] = useState<Record<string, AiStatusInfo>>({});
+  // Ref para que poll() lea el state actual sin reinstalar el interval
+  // cada vez que cambia. Sin esto, cambiar deps del useEffect mata y
+  // reabre el interval — perdíamos el ritmo.
+  const aiStatusRef = useRef<Record<string, AiStatusInfo>>({});
+  useEffect(() => {
+    aiStatusRef.current = aiStatusByTask;
+  }, [aiStatusByTask]);
+
   useEffect(() => {
     let cancelled = false;
-    async function poll() {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    async function pollOnce() {
       if (tasks.length === 0) return;
       const ids = tasks.slice(0, 500).map((t) => t.id).join(",");
       try {
@@ -125,22 +150,63 @@ export default function TareasClient({
         if (!r.ok) return;
         const data = await r.json();
         if (cancelled) return;
-        const next: Record<string, any> = {};
+        const next: Record<string, AiStatusInfo> = {};
         for (const it of data.items ?? []) {
-          if (it.aiStatus) next[it.taskId] = it.aiStatus;
+          if (it.aiStatus) {
+            next[it.taskId] = {
+              aiStatus: it.aiStatus,
+              runId: it.runId,
+              runStatus: it.runStatus,
+              startedAt: it.startedAt,
+              finishedAt: it.finishedAt,
+              summary: it.summary,
+              error: it.error,
+              stepsCount: it.stepsCount,
+              reviewed: it.reviewed
+            };
+          }
         }
         setAiStatusByTask(next);
       } catch {
         // silent
       }
     }
-    poll();
-    const t = setInterval(poll, 15_000);
+
+    function scheduleNext() {
+      if (cancelled) return;
+      // Adaptativo: si alguna task tiene aiStatus activo (working /
+      // done_unreviewed / needs_help), polling rápido; si no, lento.
+      const hasActive = Object.values(aiStatusRef.current).some(
+        (s) => s && s.aiStatus !== null
+      );
+      const delay = hasActive ? 4000 : 20000;
+      timer = setTimeout(async () => {
+        await pollOnce();
+        scheduleNext();
+      }, delay);
+    }
+
+    // Primer poll inmediato, luego loop adaptativo.
+    pollOnce().then(() => scheduleNext());
+
     return () => {
       cancelled = true;
-      clearInterval(t);
+      if (timer) clearTimeout(timer);
     };
   }, [tasks.length]);
+
+  // Marcar runs como revisados (apaga el verde) — handler compartido
+  // por todas las cards, pasado en context-like prop drilling.
+  async function markAiReviewed(taskId: string) {
+    try {
+      await fetch(`/api/v1/tasks/${taskId}/ai-mark-reviewed`, { method: "POST" });
+      setAiStatusByTask((prev) => {
+        const cur = prev[taskId];
+        if (!cur) return prev;
+        return { ...prev, [taskId]: { ...cur, aiStatus: null, reviewed: true } };
+      });
+    } catch {}
+  }
 
   const [workspaceColumns, setWorkspaceColumns] = useState<KanbanColumn[]>(FALLBACK_COLUMNS);
   const [columnsLoaded, setColumnsLoaded] = useState(false);
@@ -708,6 +774,7 @@ export default function TareasClient({
                   team={team}
                   columns={columns}
                   aiStatusByTask={aiStatusByTask}
+                  onMarkAiReviewed={markAiReviewed}
                   columnsEndpoint={columnsEndpoint}
                 />
               ))}
@@ -1148,6 +1215,7 @@ function KanbanColumnView({
   team,
   columns,
   aiStatusByTask,
+  onMarkAiReviewed,
   columnsEndpoint
 }: {
   column: KanbanColumn;
@@ -1161,7 +1229,8 @@ function KanbanColumnView({
   getClient: (id?: string) => UiClient | undefined;
   team: UiMember[];
   columns: KanbanColumn[];
-  aiStatusByTask: Record<string, "working" | "done_unreviewed" | "needs_help" | null>;
+  aiStatusByTask: Record<string, AiStatusInfo>;
+  onMarkAiReviewed?: (taskId: string) => void;
   /** Endpoint donde se PUTean cambios de columnas (workspace o proyecto). */
   columnsEndpoint: string;
 }) {
@@ -1218,7 +1287,8 @@ function KanbanColumnView({
               isSelected={selectedIds.has(t.id)}
               onToggleSelected={() => onToggleSelected(t.id)}
               columns={columns}
-              aiStatus={aiStatusByTask[t.id] ?? null}
+              aiInfo={aiStatusByTask[t.id]}
+              onMarkAiReviewed={onMarkAiReviewed}
             />
           ))}
           {tasks.length === 0 && (
@@ -1242,7 +1312,8 @@ function SortableTask({
   isSelected,
   onToggleSelected,
   columns,
-  aiStatus
+  aiInfo,
+  onMarkAiReviewed
 }: {
   task: UiTask;
   project?: UiProject;
@@ -1253,7 +1324,8 @@ function SortableTask({
   isSelected: boolean;
   onToggleSelected: () => void;
   columns: KanbanColumn[];
-  aiStatus?: "working" | "done_unreviewed" | "needs_help" | null;
+  aiInfo?: AiStatusInfo;
+  onMarkAiReviewed?: (taskId: string) => void;
 }) {
   const { setNodeRef, attributes, listeners, transform, transition, isDragging } = useSortable({
     id: task.id,
@@ -1283,7 +1355,8 @@ function SortableTask({
         isSelected={isSelected}
         onToggleSelected={onToggleSelected}
         columns={columns}
-        aiStatus={aiStatus}
+        aiInfo={aiInfo}
+        onMarkAiReviewed={onMarkAiReviewed}
       />
     </div>
   );
@@ -1299,7 +1372,8 @@ function TaskCard({
   isSelected,
   onToggleSelected,
   columns,
-  aiStatus
+  aiInfo,
+  onMarkAiReviewed
 }: {
   task: UiTask;
   project?: UiProject;
@@ -1310,17 +1384,22 @@ function TaskCard({
   isSelected?: boolean;
   onToggleSelected?: () => void;
   columns?: KanbanColumn[];
-  aiStatus?: "working" | "done_unreviewed" | "needs_help" | null;
+  aiInfo?: AiStatusInfo;
+  onMarkAiReviewed?: (taskId: string) => void;
 }) {
+  const aiStatus = aiInfo?.aiStatus ?? null;
   const [copied, setCopied] = useState(false);
-  // Tick cada minuto para refrescar el estado de alarma visual sin
-  // recargar la página. Como el cálculo es puro y barato, no hay
-  // problema de rendimiento.
+  // Tick para refrescar el estado de alarma visual + el "🤖
+  // Trabajando 1m 14s" del badge de Sonia. Si Sonia está
+  // trabajando ahora mismo, tick cada 1s (el contador del badge
+  // avanza suave); si no, cada 60s (basta para la alarma de
+  // deadline). El interval se reinicia cuando aiStatus cambia.
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), 60 * 1000);
+    const ms = aiStatus === "working" ? 1000 : 60 * 1000;
+    const t = setInterval(() => setNow(Date.now()), ms);
     return () => clearInterval(t);
-  }, []);
+  }, [aiStatus]);
   const alarmLevel = computeAlarmLevel(task, now);
 
   async function copyTaskUrl(e: React.MouseEvent) {
@@ -1365,6 +1444,17 @@ function TaskCard({
           "ring-2 ring-amber-500 shadow-lg shadow-amber-300 animate-pulse"
       )}
     >
+      {aiStatus && (
+        <AiStatusBadge
+          info={aiInfo!}
+          now={now}
+          onMarkReviewed={
+            aiStatus === "done_unreviewed" && onMarkAiReviewed
+              ? () => onMarkAiReviewed(task.id)
+              : undefined
+          }
+        />
+      )}
       {selectionMode && (
         <input
           type="checkbox"
@@ -1610,4 +1700,81 @@ function softBgFromColor(color: string): string {
     "bg-slate-900 text-white border-slate-900": "bg-slate-200"
   };
   return m[color] ?? "bg-slate-100/60";
+}
+
+/**
+ * Badge informativo de Sonia en la esquina superior-izquierda de
+ * la card. Muestra:
+ *   - working: "🤖 Trabajando 2m 14s" (morado, parpadea)
+ *   - done_unreviewed: "✓ Lista hace 3m" (verde, clic = marcar revisado)
+ *   - needs_help: "⚠️ Pide ayuda" (naranja)
+ *
+ * Tooltip nativo (title=) con summary/error completo si los hay.
+ */
+function AiStatusBadge({
+  info,
+  now,
+  onMarkReviewed
+}: {
+  info: AiStatusInfo;
+  now: number;
+  onMarkReviewed?: () => void;
+}) {
+  const refMs = info.startedAt ? new Date(info.startedAt).getTime() : null;
+  const endMs = info.finishedAt ? new Date(info.finishedAt).getTime() : null;
+  const elapsedMs =
+    info.aiStatus === "working" && refMs
+      ? Math.max(0, now - refMs)
+      : endMs && refMs
+        ? Math.max(0, endMs - refMs)
+        : 0;
+  const sinceFinishedMs = endMs ? Math.max(0, now - endMs) : 0;
+
+  let label: string;
+  let color: string;
+  let tooltip = "";
+  if (info.aiStatus === "working") {
+    label = `🤖 Trabajando ${formatDuration(elapsedMs)}`;
+    color = "bg-violet-600 text-white border-violet-700";
+    tooltip = `Sonia trabajando — ${info.stepsCount ?? 0} pasos. ${info.runStatus === "PENDING" ? "Aún en cola." : "Ejecutando tools."}`;
+  } else if (info.aiStatus === "done_unreviewed") {
+    label = `✓ Lista${sinceFinishedMs > 0 ? ` · hace ${formatDuration(sinceFinishedMs)}` : ""}`;
+    color = "bg-emerald-600 text-white border-emerald-700 cursor-pointer";
+    tooltip = info.summary ?? "Sonia terminó. Click para marcar revisado.";
+  } else if (info.aiStatus === "needs_help") {
+    label = `⚠️ Pide ayuda`;
+    color = "bg-amber-500 text-white border-amber-600";
+    tooltip = info.summary ?? info.error ?? "Sonia necesita tu intervención.";
+  } else {
+    return null;
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        if (onMarkReviewed) {
+          e.stopPropagation();
+          e.preventDefault();
+          onMarkReviewed();
+        }
+      }}
+      onPointerDown={(e) => e.stopPropagation()}
+      title={tooltip}
+      className={`absolute -top-2 -left-2 z-10 px-2 py-0.5 rounded-full border text-[11px] font-semibold shadow-sm ${color} ${onMarkReviewed ? "hover:scale-105 transition" : ""}`}
+    >
+      {label}
+    </button>
+  );
+}
+
+function formatDuration(ms: number): string {
+  const s = Math.floor(ms / 1000);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  const rs = s % 60;
+  if (m < 60) return rs > 0 ? `${m}m ${rs}s` : `${m}m`;
+  const h = Math.floor(m / 60);
+  const rm = m % 60;
+  return rm > 0 ? `${h}h ${rm}m` : `${h}h`;
 }
