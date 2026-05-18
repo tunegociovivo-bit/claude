@@ -60,6 +60,7 @@ export default function SoniaDashboardPage() {
   const [budgetSpent, setBudgetSpent] = useState<number>(0);
   const [budgetInput, setBudgetInput] = useState<string>("");
   const [savingBudget, setSavingBudget] = useState(false);
+  const [proactive, setProactive] = useState(false);
 
   async function loadRouting() {
     try {
@@ -104,9 +105,27 @@ export default function SoniaDashboardPage() {
       setSavingBudget(false);
     }
   }
+  async function loadProactive() {
+    try {
+      const r = await fetch("/api/v1/admin/sonia-proactive-toggle");
+      if (r.ok) {
+        const d = await r.json();
+        setProactive(!!d.enabled);
+      }
+    } catch {}
+  }
+  async function toggleProactive(next: boolean) {
+    setProactive(next);
+    await fetch("/api/v1/admin/sonia-proactive-toggle", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled: next })
+    });
+  }
   useEffect(() => {
     loadRouting();
     loadBudget();
+    loadProactive();
   }, []);
 
   async function load() {
@@ -266,6 +285,29 @@ export default function SoniaDashboardPage() {
                 </button>
               </div>
             </div>
+          </div>
+
+          {/* Proactive insights */}
+          <div className="bg-white rounded-xl border p-4 mb-3 flex items-center justify-between flex-wrap gap-2">
+            <div>
+              <h3 className="font-semibold text-sm flex items-center gap-2">
+                🔮 Insights proactivos
+              </h3>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Cron diario: Sonia revisa cada cliente y crea tasks si detecta
+                reseñas negativas nuevas, caídas de tráfico GA4, clientes sin
+                posts en 14 días, etc. Sin spam — dedup por (cliente, señal, día).
+              </p>
+            </div>
+            <label className="inline-flex items-center gap-2 cursor-pointer text-xs">
+              <input
+                type="checkbox"
+                checked={proactive}
+                onChange={(e) => toggleProactive(e.target.checked)}
+                className="accent-brand-600"
+              />
+              <span>{proactive ? "Activado" : "Desactivado"}</span>
+            </label>
           </div>
 
           {/* Model routing control */}
