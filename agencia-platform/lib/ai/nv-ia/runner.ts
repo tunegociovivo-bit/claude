@@ -589,17 +589,18 @@ export async function executeAgentRun(opts: {
         // de respuestas con muchos tool_use blocks o text largos,
         // dejando turns sin tool_use → bucle se rompía con 400.
         max_tokens: 8192,
-        // EXTENDED THINKING: Opus 4 puede "pensar" tokens internos antes
-        // de actuar. Sin esto, decide cada paso con la primera respuesta
-        // que se le ocurre. Con thinking activado planifica MEJOR, sobre
-        // todo en tareas de varios pasos (crear campaña Meta, generar
-        // informe consolidando 3 fuentes, etc.). Coste: 5-15s extra por
-        // turn de pensamiento + ~5K tokens internos. Vale la pena para
-        // calidad. Lo activamos solo en los primeros 3 pasos (donde se
-        // toman las decisiones grandes); a partir del 4º paso es ejecución
-        // mecánica donde no aporta.
+        // EXTENDED THINKING: Opus 4.7 usa la API "adaptive" (sustituye
+        // a la antigua "enabled" + budget_tokens, que devolvía
+        // "thinking.type.enabled is not supported for this model"). Con
+        // adaptive + effort=high el modelo decide cuánto pensar; effort
+        // medium/low gasta menos. Lo activamos solo en los primeros 3
+        // pasos (donde se toman las decisiones grandes); a partir del 4º
+        // paso es ejecución mecánica donde no aporta.
         ...(step < 3
-          ? { thinking: { type: "enabled" as const, budget_tokens: 5000 } }
+          ? {
+              thinking: { type: "adaptive" as const },
+              output_config: { effort: "high" as const }
+            }
           : {}),
         system: [
           { type: "text", text: SYSTEM_PROMPT, cache_control: { type: "ephemeral" } as any }
