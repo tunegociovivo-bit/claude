@@ -1853,6 +1853,74 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
       additionalProperties: false
     }
   },
+  {
+    name: "request_user_approval",
+    description:
+      "Pide aprobación humana explícita ANTES de ejecutar una acción arriesgada (mandar email a cliente, publicar en WP, activar campaña, hacer transacción Stripe, etc.). Esto pausa el run y notifica al admin con la pregunta concreta. El admin contesta 'ok'/'no' como comentario en la task; cuando contesta, la task se relanza y tú lees la respuesta en los comentarios. USO TÍPICO: 'voy a mandar este email a cliente, ¿OK?' antes de send_email a un dominio externo; 'voy a activar la campaña con presupuesto 50€/día, ¿OK?' antes de un meta_ads_update_status. NO la uses para preguntas de aclaración menores — para esas usa mark_complete con una pregunta.",
+    input_schema: {
+      type: "object",
+      properties: {
+        question: {
+          type: "string",
+          description:
+            "Pregunta concreta y accionable al admin. Ej: '¿Activo la campaña 6750... con presupuesto 50€/día? El creativo se ve bien pero el targeting es amplio.'"
+        },
+        actionSummary: {
+          type: "string",
+          description:
+            "Resumen 1 línea de la acción que ejecutarás si aprueba. Para audit log."
+        },
+        riskLevel: {
+          type: "string",
+          enum: ["low", "medium", "high"],
+          description:
+            "low = email interno; medium = email externo a cliente; high = dinero, publicación pública, cambios irreversibles."
+        }
+      },
+      required: ["question", "actionSummary", "riskLevel"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "schedule_followup",
+    description:
+      "Crea una task futura para ti misma. Útil cuando una acción tiene que esperar (un lead que tiene que contestarte en 3 días, un cliente que pediste info hace tiempo, un seguimiento post-campaña). En la fecha programada, Sonia recibirá la task como cualquier otra y la procesará. NO sustituye al recordatorio del calendario — esto crea una task accionable en el Hub.",
+    input_schema: {
+      type: "object",
+      properties: {
+        title: { type: "string" },
+        description: { type: "string", description: "Contexto que necesitarás tú misma en el futuro — sé generosa." },
+        whenIso: {
+          type: "string",
+          description: "Fecha+hora ISO en la que reanudar. Ej: '2026-05-25T09:00:00Z'."
+        },
+        clientId: { type: "string", description: "Cliente al que aplica, opcional." }
+      },
+      required: ["title", "whenIso"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "delegate_to_human",
+    description:
+      "Crea una task asignada a un user específico del equipo (no a Sonia). Útil cuando detectas que algo necesita juicio humano (revisar diseño, hablar por teléfono con cliente, decidir entre 2 ofertas). Distinto de escalate_to_claude: aquí no hay fallo de Sonia, simplemente una sub-tarea humana legítima. Distinto de request_user_approval: aquí desbloqueas y sigues con TU task; el humano hace lo suyo en paralelo.",
+    input_schema: {
+      type: "object",
+      properties: {
+        userIdOrEmail: {
+          type: "string",
+          description:
+            "ID o email del user al que asignar. Si no estás segura del ID, pasa el email — buscamos por ambos."
+        },
+        title: { type: "string" },
+        description: { type: "string" },
+        dueDate: { type: "string", description: "ISO, opcional. Default 3 días desde ahora." },
+        priority: { type: "string", enum: ["LOW", "NORMAL", "HIGH", "URGENT"] }
+      },
+      required: ["userIdOrEmail", "title"],
+      additionalProperties: false
+    }
+  },
   // ──────────────────────────────────────────────────────────────
   // COMUNICACIONES: send (no draft) — para casos donde no necesitas
   // que el humano apruebe el draft antes (notificaciones rutinarias,
@@ -5105,6 +5173,168 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
         "Run marcado como REQUIRES_HUMAN. Issue de mejora se crea en background. NO sigas trabajando — termina el run aquí."
     };
   },
+
+  async request_user_approval(input, ctx) {
+    const question = String(input?.question ?? "").trim();
+    const action = String(input?.actionSummary ?? "").trim();
+    const risk = String(input?.riskLevel ?? "medium").trim() as
+      | "low"
+      | "medium"
+      | "high";
+    if (!question) return { error: "question vacío" };
+
+    const riskEmoji = risk === "high" ? "🚨" : risk === "medium" ? "⚠️" : "🔍";
+    const noteText = [
+      `${riskEmoji} **Necesito tu aprobación antes de seguir.**`,
+      ``,
+      `**Acción:** ${action || "(sin descripción)"}`,
+      `**Pregunta:** ${question}`,
+      ``,
+      `Contéstame con **"ok"**, **"sí"**, **"adelante"** para que ejecute, o **"no"** / **"cancela"** para abortar. Cualquier otra respuesta la interpretaré como instrucción adicional.`
+    ].join("\n");
+
+    await prisma.comment.create({
+      data: {
+        workspaceId: ctx.workspaceId,
+        authorId: ctx.config.userId,
+        targetType: "TASK",
+        targetId: ctx.taskId,
+        body: noteText,
+        bodyJson: {
+          type: "doc",
+          content: [{ type: "paragraph", content: [{ type: "text", text: noteText }] }]
+        }
+      }
+    });
+
+    // Marca el run como REQUIRES_HUMAN para que el flow del polling
+    // muestre el badge naranja "Sonia necesita ayuda". Cuando el user
+    // comenta, se relanza la task — Sonia leerá la respuesta y seguirá.
+    await prisma.aiAgentRun.update({
+      where: { id: ctx.runId },
+      data: {
+        status: "REQUIRES_HUMAN",
+        summary: `Esperando aprobación: ${question.slice(0, 160)}`,
+        finishedAt: new Date()
+      }
+    });
+
+    return {
+      ok: true,
+      awaitingApproval: true,
+      message:
+        "Pregunta enviada al admin. Run marcado REQUIRES_HUMAN. TERMINA el run aquí — cuando el admin responda, la task se relanza y leerás su contestación en los comentarios."
+    };
+  },
+
+  async schedule_followup(input, ctx) {
+    try {
+      const title = String(input?.title ?? "").trim();
+      const whenIso = String(input?.whenIso ?? "").trim();
+      if (!title) return { error: "title vacío" };
+      const dueDate = new Date(whenIso);
+      if (Number.isNaN(dueDate.getTime())) return { error: "whenIso inválido" };
+
+      // Si hay clientId, encadenamos el cliente al proyecto IA del workspace
+      // (asumimos que ya está creado — si no, la task se crea sin project).
+      const clientId = input?.clientId ? String(input.clientId) : undefined;
+      let projectId: string | undefined;
+      // Reutilizamos el proyecto del padre si existe; si no, dejamos sin
+      // project (queda en "tareas sin proyecto", todavía accionable).
+      const parent = await prisma.task.findFirst({
+        where: { id: ctx.taskId, workspaceId: ctx.workspaceId },
+        select: { projectId: true }
+      });
+      if (parent?.projectId) projectId = parent.projectId;
+
+      const task = await prisma.task.create({
+        data: {
+          workspaceId: ctx.workspaceId,
+          title: `🔁 ${title}`,
+          description:
+            (typeof input?.description === "string" ? input.description : "") +
+            `\n\n_(Auto-creada por Sonia como seguimiento de la task ${ctx.taskId})_`,
+          status: "TODO",
+          priority: "NORMAL",
+          projectId,
+          clientId: clientId ?? null,
+          dueDate
+        } as any
+      });
+      return {
+        ok: true,
+        taskId: task.id,
+        scheduledFor: dueDate.toISOString(),
+        message: `Followup programado: la task '${task.title}' aparecerá el ${dueDate.toISOString()}.`
+      };
+    } catch (e: any) {
+      return { error: `schedule_followup: ${e?.message ?? e}` };
+    }
+  },
+
+  async delegate_to_human(input, ctx) {
+    try {
+      const ref = String(input?.userIdOrEmail ?? "").trim();
+      if (!ref) return { error: "userIdOrEmail vacío" };
+      const title = String(input?.title ?? "").trim();
+      if (!title) return { error: "title vacío" };
+      // Buscar el user por id o email dentro del workspace
+      const user = await prisma.user.findFirst({
+        where: {
+          OR: [{ id: ref }, { email: ref }],
+          memberships: { some: { workspaceId: ctx.workspaceId } }
+        },
+        select: { id: true, name: true, email: true }
+      });
+      if (!user) return { error: `Usuario '${ref}' no encontrado en el workspace.` };
+
+      const dueDate = input?.dueDate
+        ? new Date(String(input.dueDate))
+        : new Date(Date.now() + 3 * 86400_000);
+
+      const parent = await prisma.task.findFirst({
+        where: { id: ctx.taskId, workspaceId: ctx.workspaceId },
+        select: { projectId: true, clientId: true }
+      });
+
+      const task = await prisma.task.create({
+        data: {
+          workspaceId: ctx.workspaceId,
+          title: `👤 ${title}`,
+          description:
+            (typeof input?.description === "string" ? input.description : "") +
+            `\n\n_(Delegada por Sonia desde la task ${ctx.taskId})_`,
+          status: "TODO",
+          priority: (input?.priority as any) ?? "NORMAL",
+          projectId: parent?.projectId,
+          clientId: parent?.clientId,
+          dueDate,
+          assignees: { create: [{ userId: user.id }] }
+        } as any
+      });
+
+      // Comentario en la task original para que el admin vea el reparto.
+      await prisma.comment.create({
+        data: {
+          workspaceId: ctx.workspaceId,
+          authorId: ctx.config.userId,
+          targetType: "TASK",
+          targetId: ctx.taskId,
+          body: `👤 He delegado a **${user.name ?? user.email ?? user.id}** una sub-tarea: "${task.title}". Vence el ${dueDate.toISOString().slice(0, 10)}.`
+        }
+      });
+
+      return {
+        ok: true,
+        taskId: task.id,
+        assignedTo: { id: user.id, name: user.name, email: user.email },
+        message: `Task delegada a ${user.name ?? user.email}. Yo puedo seguir con la mía.`
+      };
+    } catch (e: any) {
+      return { error: `delegate_to_human: ${e?.message ?? e}` };
+    }
+  },
+
   async send_email(input, ctx) {
     try {
       const { sendEmail, sendEmailWithAttachment, isEmailEnabled } = await import("@/lib/integrations/email");

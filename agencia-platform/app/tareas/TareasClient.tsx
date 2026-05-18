@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   DndContext,
@@ -204,16 +204,29 @@ export default function TareasClient({
   //   - failed           → "buzzer" grave (algo se rompió)
   //   - claude_working   → "blip" subtle (Claude está al cargo)
   //
-  // Toggle persistente en localStorage para silenciarlo si molesta.
-  const [soundEnabled, setSoundEnabled] = useState(true);
+  // 3-state notification preference. Default = "voice" (Sonia te dice
+  // con su voz qué task ha terminado, no tienes que buscar en el panel).
+  // localStorage key actualizada — los users con valor antiguo
+  // "sonia_sound_enabled" se migran a "voice" o "off" automáticamente.
+  const [notifyMode, setNotifyMode] = useState<"voice" | "sound" | "off">("voice");
   useEffect(() => {
     try {
-      const stored = localStorage.getItem("sonia_sound_enabled");
-      if (stored === "0") setSoundEnabled(false);
+      const v = localStorage.getItem("sonia_notify_mode");
+      if (v === "voice" || v === "sound" || v === "off") {
+        setNotifyMode(v);
+      } else {
+        // Migración del flag antiguo
+        const legacy = localStorage.getItem("sonia_sound_enabled");
+        if (legacy === "0") setNotifyMode("off");
+        else if (legacy === "1") setNotifyMode("voice"); // upgrade a voz
+      }
     } catch {}
   }, []);
   const lastSeenStatusRef = useRef<Record<string, AiStatusInfo["aiStatus"]>>({});
   const isInitialPollRef = useRef(true);
+  // Cache de Audio elements que ya están reproduciéndose por taskId —
+  // evita repetir el mismo TTS si el estado se repinta en otro poll.
+  const playingVoiceRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     const prev = lastSeenStatusRef.current;
     const next: Record<string, AiStatusInfo["aiStatus"]> = {};
@@ -238,13 +251,63 @@ export default function TareasClient({
       aiStatusRef.current = aiStatusByTask;
       return;
     }
-    if (soundEnabled) {
+    if (notifyMode !== "off") {
       for (const tr of transitions) {
-        playSoniaSound(tr.to);
+        // SOLO transiciones "destacables" generan voz (para no quemar
+        // créditos de ElevenLabs en cada working/claude_working). Las
+        // que pasan a working o claude_working siguen sonando con beep
+        // discreto si está modo voice — el beep es gratis y útil para
+        // saber que arrancó.
+        const isDestacable =
+          tr.to === "done_unreviewed" ||
+          tr.to === "needs_help" ||
+          tr.to === "ai_replied" ||
+          tr.to === "failed";
+        if (notifyMode === "voice" && isDestacable) {
+          playSoniaVoice(tr.taskId).catch(() => {
+            // Si voz falla, fallback a beep
+            playSoniaSound(tr.to);
+          });
+        } else if (notifyMode === "voice" && (tr.to === "working" || tr.to === "claude_working")) {
+          // Beep discreto en modo voz para arranques (sin gastar TTS).
+          playSoniaSound(tr.to);
+        } else if (notifyMode === "sound") {
+          playSoniaSound(tr.to);
+        }
       }
     }
     aiStatusRef.current = aiStatusByTask;
-  }, [aiStatusByTask, soundEnabled]);
+  }, [aiStatusByTask, notifyMode]);
+
+  // Helper para reproducir voz — fetch el audio del endpoint y play.
+  // Definido como useCallback para que sea referenciable en handlers.
+  const playSoniaVoice = useCallback(async (taskId: string): Promise<void> => {
+    if (playingVoiceRef.current.has(taskId)) return;
+    playingVoiceRef.current.add(taskId);
+    try {
+      const r = await fetch(`/api/v1/tasks/${encodeURIComponent(taskId)}/sonia-speak`, {
+        method: "GET"
+      });
+      if (r.status === 204 || !r.ok) {
+        throw new Error(`speak ${r.status}`);
+      }
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      audio.onended = () => {
+        URL.revokeObjectURL(url);
+        playingVoiceRef.current.delete(taskId);
+      };
+      audio.onerror = () => {
+        URL.revokeObjectURL(url);
+        playingVoiceRef.current.delete(taskId);
+      };
+      await audio.play();
+    } catch (e) {
+      playingVoiceRef.current.delete(taskId);
+      throw e;
+    }
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -765,12 +828,16 @@ export default function TareasClient({
         activeMap={aiStatusByTask}
         tasks={tasks}
         onOpenTask={openEditTask}
-        soundEnabled={soundEnabled}
-        onToggleSound={() => {
-          setSoundEnabled((v) => {
-            const next = !v;
-            try { localStorage.setItem("sonia_sound_enabled", next ? "1" : "0"); } catch {}
-            if (next) playSoniaSound("done_unreviewed");
+        notifyMode={notifyMode}
+        onCycleNotifyMode={() => {
+          setNotifyMode((m) => {
+            // voice → sound → off → voice
+            const next: "voice" | "sound" | "off" =
+              m === "voice" ? "sound" : m === "sound" ? "off" : "voice";
+            try { localStorage.setItem("sonia_notify_mode", next); } catch {}
+            // Preview del nuevo modo: tocar algo audible para feedback.
+            if (next === "sound") playSoniaSound("done_unreviewed");
+            // Para "voice" no hacemos preview (requeriría un taskId real).
             return next;
           });
         }}
@@ -2173,8 +2240,8 @@ function AiSoniaDebugPanel({
   activeMap,
   tasks,
   onOpenTask,
-  soundEnabled,
-  onToggleSound
+  notifyMode,
+  onCycleNotifyMode
 }: {
   debug: {
     lastPollAt: number | null;
@@ -2186,8 +2253,8 @@ function AiSoniaDebugPanel({
   activeMap: Record<string, AiStatusInfo>;
   tasks: UiTask[];
   onOpenTask: (t: UiTask) => void;
-  soundEnabled: boolean;
-  onToggleSound: () => void;
+  notifyMode: "voice" | "sound" | "off";
+  onCycleNotifyMode: () => void;
 }) {
   const [now, setNow] = useState(() => Date.now());
   const [expanded, setExpanded] = useState(false);
@@ -2250,28 +2317,36 @@ function AiSoniaDebugPanel({
           tabIndex={0}
           onClick={(e) => {
             e.stopPropagation();
-            onToggleSound();
+            onCycleNotifyMode();
           }}
           onKeyDown={(e) => {
             if (e.key === " " || e.key === "Enter") {
               e.preventDefault();
               e.stopPropagation();
-              onToggleSound();
+              onCycleNotifyMode();
             }
           }}
           className={
             "ml-auto inline-flex items-center gap-1 px-2 py-0.5 rounded-md cursor-pointer select-none " +
-            (soundEnabled
-              ? "bg-emerald-100 text-emerald-800 hover:bg-emerald-200"
-              : "bg-slate-200 text-slate-600 hover:bg-slate-300")
+            (notifyMode === "voice"
+              ? "bg-violet-100 text-violet-800 hover:bg-violet-200"
+              : notifyMode === "sound"
+                ? "bg-emerald-100 text-emerald-800 hover:bg-emerald-200"
+                : "bg-slate-200 text-slate-600 hover:bg-slate-300")
           }
           title={
-            soundEnabled
-              ? "Sonidos ACTIVADOS — Sonia te avisará por audio cuando arranque, conteste, termine o se bloquee. Click para silenciar."
-              : "Sonidos SILENCIADOS. Click para activarlos."
+            notifyMode === "voice"
+              ? "Notificaciones por VOZ — Sonia te dice con su voz qué task ha terminado, qué te ha contestado o si necesita ayuda. Click para cambiar a sonido."
+              : notifyMode === "sound"
+                ? "Notificaciones por SONIDO — beeps por evento. Click para silenciar."
+                : "Notificaciones SILENCIADAS. Click para activar voz."
           }
         >
-          {soundEnabled ? "🔔 sonido" : "🔕 silencio"}
+          {notifyMode === "voice"
+            ? "🎙 voz"
+            : notifyMode === "sound"
+              ? "🔔 sonido"
+              : "🔕 silencio"}
         </span>
         {debug.activeCount > 0 && (
           <span className="text-violet-700 font-semibold">

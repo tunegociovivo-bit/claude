@@ -77,7 +77,7 @@ const earlyInstallCapture = `
  */
 const swSelfHeal = `
   (function () {
-    var EXPECTED = "v26-2026-05-18-gads-ga4-gsc-report";
+    var EXPECTED = "v27-2026-05-18-voice-followup-delegate";
     if (!('serviceWorker' in navigator)) return;
     var key = "hub_sw_v_seen";
     var seen = null;

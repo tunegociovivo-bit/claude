@@ -26,7 +26,7 @@
 // reintroducir cache PERO con purga agresiva por VERSION en
 // activate.
 
-const VERSION = "v26-2026-05-18-gads-ga4-gsc-report";
+const VERSION = "v27-2026-05-18-voice-followup-delegate";
 
 self.addEventListener("install", (event) => {
   // Activación inmediata: no esperar a que el SW viejo libere.
