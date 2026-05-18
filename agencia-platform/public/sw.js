@@ -12,8 +12,14 @@
 //  4. Queue de mutaciones offline. PATCH/POST/DELETE a la API
 //     que fallen por red se guardan en IndexedDB y se reintentan
 //     cuando vuelve la conexión.
+//
+// VERSION: bump esto en CADA cambio de UI que el user deba ver al
+// instante (no esperar al ciclo natural de invalidación). El install
+// activa skipWaiting y el activate borra todas las caches con
+// VERSION != actual. Subir el número aquí FUERZA a todos los
+// navegadores con la PWA cacheada a re-descargar todo.
 
-const VERSION = "v2";
+const VERSION = "v6-2026-05-18";
 const SHELL_CACHE = `hub-shell-${VERSION}`;
 const API_CACHE = `hub-api-${VERSION}`;
 

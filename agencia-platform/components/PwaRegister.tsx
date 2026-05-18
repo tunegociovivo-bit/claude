@@ -79,6 +79,29 @@ export default function PwaRegister() {
     if (window.location.protocol !== "https:" && window.location.hostname !== "localhost") return;
     navigator.serviceWorker.register("/sw.js", { scope: "/" }).catch(() => {});
 
+    // CRÍTICO: cuando se publica una versión nueva del SW (cambia
+    // VERSION en sw.js), el nuevo se instala + activa con
+    // skipWaiting()+clients.claim(). En ese momento se dispara
+    // controllerchange en TODOS los clientes (pestañas) controlados.
+    // Si no recargamos, la pestaña sigue viendo el JS/HTML viejo en
+    // RAM y los cambios visuales no aparecen aunque el deploy haya
+    // ido bien.
+    //
+    // Guard `swControllerChangeHandled` para evitar bucles si por
+    // alguna razón el evento se dispara varias veces.
+    let reloadScheduled = false;
+    function onControllerChange() {
+      if (reloadScheduled) return;
+      reloadScheduled = true;
+      // Pequeño delay para no recargar a mitad de una mutación del user.
+      // Es un trade-off: si está editando algo se pierde, pero el JS
+      // viejo dejaría de funcionar pronto de todos modos. 500ms le da
+      // tiempo a Save in flight a llegar a red antes de recargar.
+      console.log("[pwa] nuevo Service Worker activo — recargando la página…");
+      setTimeout(() => window.location.reload(), 500);
+    }
+    navigator.serviceWorker.addEventListener("controllerchange", onControllerChange);
+
     function onOnline() {
       setOnline(true);
       navigator.serviceWorker.controller?.postMessage({ type: "FLUSH_QUEUE" });
@@ -117,6 +140,7 @@ export default function PwaRegister() {
       window.removeEventListener("online", onOnline);
       window.removeEventListener("offline", onOffline);
       navigator.serviceWorker.removeEventListener("message", onMessage);
+      navigator.serviceWorker.removeEventListener("controllerchange", onControllerChange);
       window.removeEventListener("beforeinstallprompt", onBeforeInstall as any);
       window.removeEventListener("appinstalled", onInstalled);
       window.removeEventListener("pwaInstallPromptReady", onEarlyPromptReady);
