@@ -361,3 +361,630 @@ export function leadsToCsv(rows: Array<Record<string, string>>): string {
   }
   return lines.join("\n");
 }
+
+// ============================================================================
+// META MARKETING API — WRITE OPERATIONS
+// ============================================================================
+//
+// Todas las funciones de creación van con status="PAUSED" por DEFAULT.
+// El humano (admin) debe revisar manualmente y activar en Ads Manager
+// — esto es deliberado: una IA creando campañas que gastan dinero del
+// cliente sin aprobación humana es zona prohibida. La macro
+// metaAdsCreateLeadCampaign DEVUELVE la URL de Ads Manager para review.
+//
+// Conversión de presupuesto: Meta API quiere cantidades en la SUBUNIDAD
+// de la moneda (céntimos para EUR). 15€/día → daily_budget=1500.
+
+/** Helper POST contra Graph API. Acepta payload JSON, devuelve JSON. */
+async function metaPost<T = any>(
+  path: string,
+  accessToken: string,
+  payload: Record<string, unknown>
+): Promise<T> {
+  // Meta acepta access_token también en el body — más limpio que en URL.
+  const body = new URLSearchParams();
+  for (const [k, v] of Object.entries(payload)) {
+    if (v === undefined || v === null) continue;
+    body.set(k, typeof v === "object" ? JSON.stringify(v) : String(v));
+  }
+  body.set("access_token", accessToken);
+  const r = await fetch(`${GRAPH}${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body
+  });
+  if (!r.ok) {
+    const t = await r.text();
+    throw new Error(`Meta Ads POST ${path} ${r.status}: ${t.slice(0, 400)}`);
+  }
+  return r.json();
+}
+
+function eurosToCentavos(eur: number): number {
+  return Math.round(eur * 100);
+}
+
+function adAccountPath(adAccountId: string): string {
+  return adAccountId.startsWith("act_") ? `/${adAccountId}` : `/act_${adAccountId}`;
+}
+
+// ─── Páginas de Facebook (necesarias para Lead Ads) ─────────────
+
+/**
+ * Lista las páginas de Facebook que el usuario del token puede
+ * usar para lanzar Lead Ads. Cada Lead Form va asociado a una
+ * página, y los anuncios también.
+ *
+ * Devuelve también el page access token de cada una — pero NO lo
+ * devolvemos en la respuesta para no filtrarlo al modelo. El que
+ * llama desde server-side lo usa internamente.
+ */
+export async function metaAdsListPages(opts: {
+  workspaceId: string;
+  adhoc?: Record<string, string>;
+}): Promise<Array<{ id: string; name: string; category?: string }>> {
+  // Reusa el token (usuario) — el endpoint /me/accounts devuelve
+  // las pages del user con su page_access_token (lo necesitamos
+  // internamente para crear leadgen_forms).
+  let token = opts.adhoc?.META_ADS_TOKEN ?? null;
+  if (!token) {
+    const conn = await prisma.metaConnection.findFirst({
+      where: { workspaceId: opts.workspaceId }
+    });
+    if (!conn) throw new Error("MetaConnection no configurada");
+    token = decryptSecret(conn.accessTokenEnc);
+    if (!token) throw new Error("token inválido");
+  }
+  const data = await metaFetch<any>(
+    `${GRAPH}/me/accounts?fields=id,name,category,access_token&limit=100`,
+    token
+  );
+  return (data.data ?? []).map((p: any) => ({
+    id: p.id,
+    name: p.name,
+    category: p.category
+    // OJO: NO exponemos access_token al modelo. Se obtiene
+    // internamente cuando se necesita.
+  }));
+}
+
+/** Resuelve el page_access_token de una página concreta. Server-side only. */
+async function getPageAccessToken(
+  workspaceId: string,
+  pageId: string,
+  adhoc?: Record<string, string>
+): Promise<string> {
+  let token = adhoc?.META_ADS_TOKEN ?? null;
+  if (!token) {
+    const conn = await prisma.metaConnection.findFirst({ where: { workspaceId } });
+    if (!conn) throw new Error("MetaConnection no configurada");
+    token = decryptSecret(conn.accessTokenEnc);
+    if (!token) throw new Error("token inválido");
+  }
+  const data = await metaFetch<any>(`${GRAPH}/${pageId}?fields=access_token`, token);
+  if (!data?.access_token) {
+    throw new Error(
+      `No se pudo obtener page_access_token para page=${pageId}. El user del token debe tener rol en esa página.`
+    );
+  }
+  return data.access_token;
+}
+
+// ─── Campañas ────────────────────────────────────────────────────
+
+/**
+ * Crea una campaña en PAUSED por defecto. El humano la activa en
+ * Ads Manager tras revisar.
+ *
+ * objective common: OUTCOME_LEADS, OUTCOME_TRAFFIC, OUTCOME_SALES,
+ * OUTCOME_AWARENESS, OUTCOME_ENGAGEMENT, OUTCOME_APP_PROMOTION.
+ */
+export async function metaAdsCreateCampaign(opts: {
+  workspaceId: string;
+  name: string;
+  objective: string;
+  dailyBudgetEur?: number;
+  lifetimeBudgetEur?: number;
+  status?: "PAUSED" | "ACTIVE";
+  adhoc?: Record<string, string>;
+}): Promise<{ id: string; name: string }> {
+  const cfg = await getMetaAdsConfig(opts.workspaceId, opts.adhoc);
+  const payload: Record<string, unknown> = {
+    name: opts.name,
+    objective: opts.objective,
+    status: opts.status ?? "PAUSED",
+    special_ad_categories: "[]" // requerido por la API aunque sea vacío
+  };
+  if (opts.dailyBudgetEur) payload.daily_budget = eurosToCentavos(opts.dailyBudgetEur);
+  if (opts.lifetimeBudgetEur) payload.lifetime_budget = eurosToCentavos(opts.lifetimeBudgetEur);
+  const data = await metaPost<{ id: string }>(
+    `${adAccountPath(cfg.adAccountId)}/campaigns`,
+    cfg.accessToken,
+    payload
+  );
+  return { id: data.id, name: opts.name };
+}
+
+export async function metaAdsUpdateCampaign(opts: {
+  workspaceId: string;
+  campaignId: string;
+  name?: string;
+  status?: "ACTIVE" | "PAUSED" | "DELETED" | "ARCHIVED";
+  dailyBudgetEur?: number;
+  lifetimeBudgetEur?: number;
+  adhoc?: Record<string, string>;
+}): Promise<{ success: boolean }> {
+  const cfg = await getMetaAdsConfig(opts.workspaceId, opts.adhoc);
+  const payload: Record<string, unknown> = {};
+  if (opts.name) payload.name = opts.name;
+  if (opts.status) payload.status = opts.status;
+  if (opts.dailyBudgetEur) payload.daily_budget = eurosToCentavos(opts.dailyBudgetEur);
+  if (opts.lifetimeBudgetEur) payload.lifetime_budget = eurosToCentavos(opts.lifetimeBudgetEur);
+  if (Object.keys(payload).length === 0) {
+    throw new Error("Pasa al menos un campo a actualizar (name, status, daily/lifetimeBudgetEur)");
+  }
+  await metaPost(`/${opts.campaignId}`, cfg.accessToken, payload);
+  return { success: true };
+}
+
+// ─── Adsets ──────────────────────────────────────────────────────
+
+/**
+ * Crea un adset. Para Lead Ads el optimization_goal típico es
+ * LEAD_GENERATION + destination_type=ON_AD (formulario instantáneo).
+ *
+ * Targeting mínimo: { geo_locations: { countries: ['ES'] } }.
+ */
+export async function metaAdsCreateAdset(opts: {
+  workspaceId: string;
+  campaignId: string;
+  name: string;
+  dailyBudgetEur?: number;
+  /** Targeting objeto Meta. Mínimo: { geo_locations: { countries: ['ES'] } }. */
+  targeting: Record<string, unknown>;
+  optimizationGoal?: string;
+  billingEvent?: string;
+  destinationType?: string;
+  /** ISO 8601. Default: ahora. */
+  startTime?: string;
+  endTime?: string;
+  status?: "PAUSED" | "ACTIVE";
+  adhoc?: Record<string, string>;
+}): Promise<{ id: string; name: string }> {
+  const cfg = await getMetaAdsConfig(opts.workspaceId, opts.adhoc);
+  const payload: Record<string, unknown> = {
+    name: opts.name,
+    campaign_id: opts.campaignId,
+    optimization_goal: opts.optimizationGoal ?? "LEAD_GENERATION",
+    billing_event: opts.billingEvent ?? "IMPRESSIONS",
+    destination_type: opts.destinationType ?? "ON_AD",
+    targeting: opts.targeting,
+    status: opts.status ?? "PAUSED",
+    start_time: opts.startTime ?? new Date(Date.now() + 60_000).toISOString()
+  };
+  if (opts.dailyBudgetEur) payload.daily_budget = eurosToCentavos(opts.dailyBudgetEur);
+  if (opts.endTime) payload.end_time = opts.endTime;
+  const data = await metaPost<{ id: string }>(
+    `${adAccountPath(cfg.adAccountId)}/adsets`,
+    cfg.accessToken,
+    payload
+  );
+  return { id: data.id, name: opts.name };
+}
+
+export async function metaAdsUpdateAdset(opts: {
+  workspaceId: string;
+  adsetId: string;
+  name?: string;
+  status?: "ACTIVE" | "PAUSED" | "DELETED" | "ARCHIVED";
+  dailyBudgetEur?: number;
+  targeting?: Record<string, unknown>;
+  adhoc?: Record<string, string>;
+}): Promise<{ success: boolean }> {
+  const cfg = await getMetaAdsConfig(opts.workspaceId, opts.adhoc);
+  const payload: Record<string, unknown> = {};
+  if (opts.name) payload.name = opts.name;
+  if (opts.status) payload.status = opts.status;
+  if (opts.dailyBudgetEur) payload.daily_budget = eurosToCentavos(opts.dailyBudgetEur);
+  if (opts.targeting) payload.targeting = opts.targeting;
+  if (Object.keys(payload).length === 0) throw new Error("Pasa al menos un campo");
+  await metaPost(`/${opts.adsetId}`, cfg.accessToken, payload);
+  return { success: true };
+}
+
+// ─── Lead Forms ──────────────────────────────────────────────────
+
+/**
+ * Crea un formulario de Lead Ads en una página. Los formularios
+ * de Meta requieren OBLIGATORIAMENTE:
+ *   - privacy_policy.url (link a política de privacidad del cliente)
+ *   - questions[] con tipos válidos
+ *
+ * Tipos de pregunta soportados (subset común):
+ *   - FULL_NAME, EMAIL, PHONE_NUMBER, CITY, STATE, ZIP_CODE,
+ *     COUNTRY, COMPANY_NAME, JOB_TITLE, MARITAL_STATUS, RELATIONSHIP_STATUS
+ *   - CUSTOM con type=SHORT_ANSWER, MULTIPLE_CHOICE, CONDITIONAL
+ *
+ * Pregunta CUSTOM con opciones:
+ *   { type: "CUSTOM", key: "tipo_despido", label: "¿Qué tipo de despido?",
+ *     options: [{ key: "disciplinario", value: "Disciplinario" }, ...] }
+ */
+export async function metaAdsCreateLeadForm(opts: {
+  workspaceId: string;
+  pageId: string;
+  name: string;
+  questions: Array<{
+    type: string;
+    key?: string;
+    label?: string;
+    options?: Array<{ key: string; value: string }>;
+  }>;
+  privacyPolicyUrl: string;
+  privacyPolicyLinkText?: string;
+  followUpActionUrl?: string;
+  /** Locale del form: "es_ES" para España. */
+  locale?: string;
+  adhoc?: Record<string, string>;
+}): Promise<{ id: string; name: string }> {
+  const pageToken = await getPageAccessToken(opts.workspaceId, opts.pageId, opts.adhoc);
+  const payload: Record<string, unknown> = {
+    name: opts.name,
+    questions: opts.questions,
+    privacy_policy: {
+      url: opts.privacyPolicyUrl,
+      link_text: opts.privacyPolicyLinkText ?? "Política de privacidad"
+    },
+    locale: opts.locale ?? "es_ES"
+  };
+  if (opts.followUpActionUrl) payload.follow_up_action_url = opts.followUpActionUrl;
+  const data = await metaPost<{ id: string }>(
+    `/${opts.pageId}/leadgen_forms`,
+    pageToken,
+    payload
+  );
+  return { id: data.id, name: opts.name };
+}
+
+export async function metaAdsListLeadForms(opts: {
+  workspaceId: string;
+  pageId: string;
+  adhoc?: Record<string, string>;
+}): Promise<Array<{ id: string; name: string; status: string; created_time: string }>> {
+  const pageToken = await getPageAccessToken(opts.workspaceId, opts.pageId, opts.adhoc);
+  const data = await metaFetch<any>(
+    `${GRAPH}/${opts.pageId}/leadgen_forms?fields=id,name,status,created_time&limit=100`,
+    pageToken
+  );
+  return data.data ?? [];
+}
+
+// ─── Imágenes / Creatives ────────────────────────────────────────
+
+/**
+ * Sube una imagen a la ad account y devuelve el image_hash que se
+ * usa para construir creativos.
+ *
+ * Recibe el File ID local (un adjunto subido a R2) — descarga el
+ * binario y lo envía a Meta como multipart.
+ */
+export async function metaAdsUploadImage(opts: {
+  workspaceId: string;
+  fileId: string;
+  adhoc?: Record<string, string>;
+}): Promise<{ hash: string; url: string }> {
+  const cfg = await getMetaAdsConfig(opts.workspaceId, opts.adhoc);
+  const file = await prisma.file.findFirst({
+    where: { id: opts.fileId, workspaceId: opts.workspaceId }
+  });
+  if (!file) throw new Error(`File ${opts.fileId} no encontrado en el workspace`);
+  const { downloadBuffer } = await import("@/lib/storage/r2");
+  const buf = await downloadBuffer(file.s3Key);
+
+  // Multipart upload a /act_X/adimages.
+  const form = new FormData();
+  const blob = new Blob([buf as any], { type: file.mimeType });
+  form.append("file", blob, file.name);
+  form.append("access_token", cfg.accessToken);
+  const r = await fetch(`${GRAPH}${adAccountPath(cfg.adAccountId)}/adimages`, {
+    method: "POST",
+    body: form as any
+  });
+  if (!r.ok) {
+    const t = await r.text();
+    throw new Error(`Meta Ads upload image ${r.status}: ${t.slice(0, 400)}`);
+  }
+  const data: any = await r.json();
+  // Response shape: { images: { "filename.jpg": { hash, url } } }
+  const first = data.images && Object.values(data.images)[0];
+  if (!first || typeof first !== "object") {
+    throw new Error("Respuesta de adimages sin hash");
+  }
+  return { hash: (first as any).hash, url: (first as any).url };
+}
+
+/**
+ * Crea un ad creative para Lead Ads:
+ *   - Asociado a una page (pageId)
+ *   - Link al lead form (lead_gen_form_id)
+ *   - Imagen única (single image)
+ *
+ * Para video / carousel: extender más adelante.
+ */
+export async function metaAdsCreateAdCreative(opts: {
+  workspaceId: string;
+  name: string;
+  pageId: string;
+  leadFormId: string;
+  imageHash: string;
+  /** Texto principal (encima del anuncio) */
+  primaryText: string;
+  /** Headline (debajo de la imagen, ~25-40 chars). */
+  headline?: string;
+  /** Descripción opcional. */
+  description?: string;
+  /** Call to action: LEARN_MORE, CONTACT_US, SIGN_UP, GET_QUOTE, etc. */
+  callToAction?: string;
+  adhoc?: Record<string, string>;
+}): Promise<{ id: string }> {
+  const cfg = await getMetaAdsConfig(opts.workspaceId, opts.adhoc);
+  const objectStorySpec = {
+    page_id: opts.pageId,
+    link_data: {
+      image_hash: opts.imageHash,
+      message: opts.primaryText,
+      name: opts.headline ?? undefined,
+      description: opts.description ?? undefined,
+      // Link "fantasma" que se sobreescribe por el lead form.
+      link: "https://fb.me/leadgen",
+      call_to_action: {
+        type: opts.callToAction ?? "SIGN_UP",
+        value: { lead_gen_form_id: opts.leadFormId }
+      }
+    }
+  };
+  const data = await metaPost<{ id: string }>(
+    `${adAccountPath(cfg.adAccountId)}/adcreatives`,
+    cfg.accessToken,
+    {
+      name: opts.name,
+      object_story_spec: objectStorySpec
+    }
+  );
+  return { id: data.id };
+}
+
+// ─── Ads ─────────────────────────────────────────────────────────
+
+export async function metaAdsCreateAd(opts: {
+  workspaceId: string;
+  adsetId: string;
+  name: string;
+  creativeId: string;
+  status?: "PAUSED" | "ACTIVE";
+  adhoc?: Record<string, string>;
+}): Promise<{ id: string; name: string }> {
+  const cfg = await getMetaAdsConfig(opts.workspaceId, opts.adhoc);
+  const data = await metaPost<{ id: string }>(
+    `${adAccountPath(cfg.adAccountId)}/ads`,
+    cfg.accessToken,
+    {
+      name: opts.name,
+      adset_id: opts.adsetId,
+      creative: { creative_id: opts.creativeId },
+      status: opts.status ?? "PAUSED"
+    }
+  );
+  return { id: data.id, name: opts.name };
+}
+
+export async function metaAdsUpdateAd(opts: {
+  workspaceId: string;
+  adId: string;
+  name?: string;
+  status?: "ACTIVE" | "PAUSED" | "DELETED" | "ARCHIVED";
+  adhoc?: Record<string, string>;
+}): Promise<{ success: boolean }> {
+  const cfg = await getMetaAdsConfig(opts.workspaceId, opts.adhoc);
+  const payload: Record<string, unknown> = {};
+  if (opts.name) payload.name = opts.name;
+  if (opts.status) payload.status = opts.status;
+  if (Object.keys(payload).length === 0) throw new Error("Pasa al menos un campo");
+  await metaPost(`/${opts.adId}`, cfg.accessToken, payload);
+  return { success: true };
+}
+
+/** Preview HTML del ad — útil para mostrarle al user antes de activar. */
+export async function metaAdsGetAdPreview(opts: {
+  workspaceId: string;
+  adId: string;
+  format?: string;
+  adhoc?: Record<string, string>;
+}): Promise<{ body: string; format: string }> {
+  const cfg = await getMetaAdsConfig(opts.workspaceId, opts.adhoc);
+  const format = opts.format ?? "DESKTOP_FEED_STANDARD";
+  const data = await metaFetch<any>(
+    `${GRAPH}/${opts.adId}/previews?ad_format=${format}`,
+    cfg.accessToken
+  );
+  return { body: data.data?.[0]?.body ?? "", format };
+}
+
+// ─── Targeting search (intereses / lugares) ──────────────────────
+
+/**
+ * Búsqueda en el árbol de targeting de Meta. Útil para resolver
+ * "interés: agencias de viajes" → su ID numérico antes de meterlo
+ * en targeting de un adset.
+ *
+ * type: 'adinterest' | 'adgeolocation' | 'adlocale' | etc.
+ */
+export async function metaAdsTargetingSearch(opts: {
+  workspaceId: string;
+  q: string;
+  type?: string;
+  limit?: number;
+  adhoc?: Record<string, string>;
+}): Promise<Array<{ id: string; name: string; type: string; audience_size?: number }>> {
+  const cfg = await getMetaAdsConfig(opts.workspaceId, opts.adhoc);
+  const params = new URLSearchParams({
+    q: opts.q,
+    type: opts.type ?? "adinterest",
+    limit: String(opts.limit ?? 25)
+  });
+  const data = await metaFetch<any>(
+    `${GRAPH}/search?${params.toString()}`,
+    cfg.accessToken
+  );
+  return (data.data ?? []).map((d: any) => ({
+    id: d.id,
+    name: d.name,
+    type: d.type ?? opts.type ?? "adinterest",
+    audience_size: d.audience_size
+  }));
+}
+
+// ─── Macro tool — caso típico que pide Sonia ─────────────────────
+
+/**
+ * Orquesta TODO el flujo de creación de una Lead Ads campaign en
+ * una sola llamada:
+ *   1. Crea campaign (objective OUTCOME_LEADS, PAUSED)
+ *   2. Crea adset (LEAD_GENERATION, daily budget, targeting)
+ *   3. Crea lead form en la page (questions + privacy policy)
+ *   4. Sube imagen del adjunto → image_hash
+ *   5. Crea ad_creative con la imagen + lead form
+ *   6. Crea ad linked al adset + creative
+ *   7. Devuelve todos los IDs + URL de Ads Manager
+ *
+ * Todo queda en PAUSED — el humano revisa y activa manualmente.
+ * Si algún paso falla, los pasos anteriores quedan creados (en
+ * PAUSED) — la API de Meta no tiene transacciones. Devolvemos qué
+ * se creó y qué falló.
+ */
+export async function metaAdsCreateLeadCampaign(opts: {
+  workspaceId: string;
+  campaignName: string;
+  pageId: string;
+  dailyBudgetEur: number;
+  countries: string[];
+  ageMin?: number;
+  ageMax?: number;
+  formName: string;
+  formQuestions: Array<{ type: string; key?: string; label?: string; options?: Array<{ key: string; value: string }> }>;
+  privacyPolicyUrl: string;
+  imageFileId: string;
+  adName: string;
+  primaryText: string;
+  headline?: string;
+  description?: string;
+  callToAction?: string;
+  followUpActionUrl?: string;
+  adhoc?: Record<string, string>;
+}): Promise<{
+  ok: boolean;
+  campaignId?: string;
+  adsetId?: string;
+  formId?: string;
+  imageHash?: string;
+  creativeId?: string;
+  adId?: string;
+  adsManagerUrl?: string;
+  error?: string;
+  step?: string;
+}> {
+  const cfg = await getMetaAdsConfig(opts.workspaceId, opts.adhoc);
+  const adAccount = cfg.adAccountId.startsWith("act_") ? cfg.adAccountId : `act_${cfg.adAccountId}`;
+  const adAccountNumeric = adAccount.replace(/^act_/, "");
+
+  const out: any = { ok: false };
+  try {
+    // 1. Campaign
+    out.step = "campaign";
+    const campaign = await metaAdsCreateCampaign({
+      workspaceId: opts.workspaceId,
+      name: opts.campaignName,
+      objective: "OUTCOME_LEADS",
+      status: "PAUSED",
+      adhoc: opts.adhoc
+    });
+    out.campaignId = campaign.id;
+
+    // 2. Adset
+    out.step = "adset";
+    const targeting: Record<string, unknown> = {
+      geo_locations: { countries: opts.countries }
+    };
+    if (opts.ageMin) targeting.age_min = opts.ageMin;
+    if (opts.ageMax) targeting.age_max = opts.ageMax;
+    const adset = await metaAdsCreateAdset({
+      workspaceId: opts.workspaceId,
+      campaignId: campaign.id,
+      name: `${opts.campaignName} — adset`,
+      dailyBudgetEur: opts.dailyBudgetEur,
+      targeting,
+      status: "PAUSED",
+      adhoc: opts.adhoc
+    });
+    out.adsetId = adset.id;
+
+    // 3. Lead form
+    out.step = "lead_form";
+    const form = await metaAdsCreateLeadForm({
+      workspaceId: opts.workspaceId,
+      pageId: opts.pageId,
+      name: opts.formName,
+      questions: opts.formQuestions,
+      privacyPolicyUrl: opts.privacyPolicyUrl,
+      followUpActionUrl: opts.followUpActionUrl,
+      adhoc: opts.adhoc
+    });
+    out.formId = form.id;
+
+    // 4. Imagen
+    out.step = "upload_image";
+    const image = await metaAdsUploadImage({
+      workspaceId: opts.workspaceId,
+      fileId: opts.imageFileId,
+      adhoc: opts.adhoc
+    });
+    out.imageHash = image.hash;
+
+    // 5. Creative
+    out.step = "creative";
+    const creative = await metaAdsCreateAdCreative({
+      workspaceId: opts.workspaceId,
+      name: `${opts.adName} — creative`,
+      pageId: opts.pageId,
+      leadFormId: form.id,
+      imageHash: image.hash,
+      primaryText: opts.primaryText,
+      headline: opts.headline,
+      description: opts.description,
+      callToAction: opts.callToAction ?? "LEARN_MORE",
+      adhoc: opts.adhoc
+    });
+    out.creativeId = creative.id;
+
+    // 6. Ad
+    out.step = "ad";
+    const ad = await metaAdsCreateAd({
+      workspaceId: opts.workspaceId,
+      adsetId: adset.id,
+      name: opts.adName,
+      creativeId: creative.id,
+      status: "PAUSED",
+      adhoc: opts.adhoc
+    });
+    out.adId = ad.id;
+
+    out.adsManagerUrl =
+      `https://adsmanager.facebook.com/adsmanager/manage/campaigns?act=${adAccountNumeric}` +
+      `&selected_campaign_ids=${campaign.id}`;
+    out.ok = true;
+    delete out.step;
+    return out;
+  } catch (e: any) {
+    out.error = String(e?.message ?? e);
+    return out;
+  }
+}

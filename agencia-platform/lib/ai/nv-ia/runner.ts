@@ -113,6 +113,45 @@ Publicidad (Meta Ads + Google Ads):
   form) de Lead Ads de Meta. Con attachAs='xlsx' adjunta el Excel a la task
   AUTOMÁTICAMENTE — es lo que el user normalmente quiere. Acepta filtros de
   fecha. Pasa el token Meta como adhoc credential (META_ADS_TOKEN).
+
+CREAR / GESTIONAR campañas Meta Ads (escritura — TODAS crean en PAUSED por defecto):
+- meta_ads_create_lead_campaign({ campaignName, pageId, dailyBudgetEur, countries,
+  ageMin?, ageMax?, formName, formQuestions[], privacyPolicyUrl, imageFileId,
+  adName, primaryText, headline?, description?, callToAction?, followUpActionUrl? }):
+  MACRO TOOL para el caso típico "créame una campaña de Lead Ads para X". En UNA
+  SOLA LLAMADA: crea campaign + adset + lead form + sube imagen + crea creative
+  + crea ad. Todo en PAUSED — el humano activa después en Ads Manager. Devuelve
+  todos los IDs + URL de Ads Manager para revisar.
+
+  Pre-flow obligatorio antes de llamar esta macro:
+   1. list_task_files para localizar la imagen del anuncio (devuelve imageFileId).
+   2. meta_ads_list_pages para que el user (o tú) confirme qué page usar (pageId).
+   3. Pide al user privacyPolicyUrl si no la has visto (obligatorio por GDPR).
+   4. Confirma formQuestions completas — si el user pasa una pregunta MULTIPLE_CHOICE
+      sin opciones de respuesta, PÍDELE las opciones antes de crear el form.
+
+- meta_ads_list_pages: lista las pages disponibles para Lead Ads.
+- meta_ads_list_lead_forms({ pageId }): lista forms existentes de una page (para
+  reutilizar en vez de crear duplicados).
+- meta_ads_targeting_search({ q, type:'adinterest'|'adgeolocation'|'adlocale' }):
+  resuelve nombres de intereses/lugares → IDs numéricos para meter en targeting.
+
+- Tools individuales (cuando la macro no encaja y quieres construir paso a paso):
+  meta_ads_create_campaign, meta_ads_create_adset, meta_ads_create_lead_form,
+  meta_ads_upload_image (sube .jpg/.png a la ad account → image_hash),
+  meta_ads_create_ad_creative, meta_ads_create_ad.
+
+- Gestión / control de campañas activas:
+  meta_ads_update_campaign({ campaignId, status?, name?, dailyBudgetEur? }) —
+    pausar/reanudar/cambiar presupuesto.
+  meta_ads_update_adset({ adsetId, ... }) — igual a nivel adset.
+  meta_ads_update_ad({ adId, status?, name? }) — igual a nivel ad.
+  meta_ads_get_ad_preview({ adId, format? }) — preview HTML del ad antes de
+    activar. Útil para mostrarle al user cómo se verá.
+
+REGLA CRÍTICA: NUNCA crees algo en status=ACTIVE sin confirmación explícita del
+user. El default es siempre PAUSED. El user activa manualmente en Ads Manager
+tras revisar. Esto evita gastos de presupuesto del cliente sin OK humano.
 - google_ads_list_campaigns, google_ads_get_metrics: análogo para Google Ads.
   Incluye conversions y conversion_value — clave para análisis de ROAS.
 

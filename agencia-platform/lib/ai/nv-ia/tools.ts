@@ -758,6 +758,280 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
       additionalProperties: false
     }
   },
+  // ──────────────────────────────────────────────────────────────
+  // META ADS — WRITE (creación/gestión de campañas Lead Ads)
+  // Todas crean en PAUSED por defecto. Macro create_lead_campaign
+  // es la que Sonia usará más a menudo en el día a día (un solo
+  // call que monta campaign + adset + form + imagen + creative + ad).
+  // ──────────────────────────────────────────────────────────────
+  {
+    name: "meta_ads_list_pages",
+    description: "Lista las páginas de Facebook que el usuario del token puede usar para Lead Ads. Necesario antes de crear lead forms — cada form va asociado a una page. Devuelve [{id, name, category}].",
+    input_schema: { type: "object", properties: {}, additionalProperties: false }
+  },
+  {
+    name: "meta_ads_list_lead_forms",
+    description: "Lista los lead forms existentes en una page. Útil para reutilizar un form en lugar de crear uno nuevo, o para enseñarle al user qué formularios tiene activos.",
+    input_schema: {
+      type: "object",
+      properties: {
+        pageId: { type: "string", description: "ID numérico de la page (de meta_ads_list_pages)." }
+      },
+      required: ["pageId"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "meta_ads_targeting_search",
+    description: "Busca intereses, ubicaciones, etc. para construir el targeting de un adset. Type 'adinterest' (default) busca intereses; 'adgeolocation' busca regiones/ciudades; 'adlocale' idiomas. Devuelve [{id, name, type, audience_size}].",
+    input_schema: {
+      type: "object",
+      properties: {
+        q: { type: "string", description: "Texto a buscar (ej: 'travel', 'fitness', 'Barcelona')." },
+        type: { type: "string", enum: ["adinterest", "adgeolocation", "adlocale"], description: "Tipo de búsqueda." },
+        limit: { type: "number" }
+      },
+      required: ["q"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "meta_ads_create_lead_campaign",
+    description: "MACRO TOOL — orquesta el flujo entero de crear una Lead Ads campaign en UNA SOLA LLAMADA: campaign + adset + lead form + subida de imagen + creative + ad. Todo queda en PAUSED para que el humano revise en Ads Manager antes de activar. Es la tool que usarás más a menudo cuando el user pida 'crea una campaña de leads en Meta para...'. \n\nFlujo completo:\n  1. Crea campaign (OUTCOME_LEADS, PAUSED)\n  2. Crea adset (LEAD_GENERATION, daily budget, targeting por países + edad)\n  3. Crea lead form con las questions custom\n  4. Sube la imagen del adjunto local (imageFileId, lo obtienes de list_task_files)\n  5. Crea creative con la imagen + link al form\n  6. Crea ad linked al adset + creative\n\nDevuelve todos los IDs creados + adsManagerUrl para que el user revise. Si algún paso falla, los anteriores quedan creados en PAUSED y se devuelve { ok: false, step: 'paso_donde_falló', error: 'mensaje' }.",
+    input_schema: {
+      type: "object",
+      properties: {
+        campaignName: { type: "string", description: "Nombre de la campaña (ej: 'RS Advocats - Lead Ads Despidos')." },
+        pageId: { type: "string", description: "ID de la page (de meta_ads_list_pages)." },
+        dailyBudgetEur: { type: "number", description: "Presupuesto diario en euros (ej: 15)." },
+        countries: { type: "array", items: { type: "string" }, description: "Códigos ISO 2 letras: ['ES'], ['ES','PT','FR'], etc." },
+        ageMin: { type: "number" },
+        ageMax: { type: "number" },
+        formName: { type: "string", description: "Nombre del lead form (visible al user en Page Setting)." },
+        formQuestions: {
+          type: "array",
+          description: "Preguntas del formulario. Tipos estándar: FULL_NAME, EMAIL, PHONE_NUMBER, CITY, STATE, ZIP_CODE, COUNTRY, COMPANY_NAME, JOB_TITLE. Para preguntas custom: type='CUSTOM' + label + options (si es selección múltiple).",
+          items: {
+            type: "object",
+            properties: {
+              type: { type: "string", description: "Tipo del campo. 'EMAIL', 'PHONE_NUMBER', 'FULL_NAME', 'CUSTOM', etc." },
+              key: { type: "string", description: "Identificador interno (snake_case)." },
+              label: { type: "string", description: "Texto visible para el user (CUSTOM)." },
+              options: {
+                type: "array",
+                description: "Opciones para selección múltiple (CUSTOM con tipo MULTIPLE_CHOICE).",
+                items: {
+                  type: "object",
+                  properties: {
+                    key: { type: "string" },
+                    value: { type: "string" }
+                  },
+                  required: ["key", "value"],
+                  additionalProperties: false
+                }
+              }
+            },
+            required: ["type"],
+            additionalProperties: false
+          }
+        },
+        privacyPolicyUrl: { type: "string", description: "URL a la política de privacidad del cliente (OBLIGATORIO por la GDPR)." },
+        imageFileId: { type: "string", description: "ID del File local (adjunto a la task) con la creatividad. Usa list_task_files para encontrarlo." },
+        adName: { type: "string", description: "Nombre del ad concreto." },
+        primaryText: { type: "string", description: "Texto principal del anuncio (encima de la imagen). 1-2 frases con hook." },
+        headline: { type: "string", description: "Headline corto (40 chars max, debajo de la imagen)." },
+        description: { type: "string", description: "Descripción opcional." },
+        callToAction: { type: "string", description: "CTA: LEARN_MORE, SIGN_UP, GET_QUOTE, CONTACT_US, GET_OFFER, BOOK_NOW. Default SIGN_UP para Lead Ads.", enum: ["LEARN_MORE", "SIGN_UP", "GET_QUOTE", "CONTACT_US", "GET_OFFER", "BOOK_NOW", "DOWNLOAD", "APPLY_NOW"] },
+        followUpActionUrl: { type: "string", description: "URL opcional donde mandar al user tras enviar el form (gracias-page)." }
+      },
+      required: ["campaignName", "pageId", "dailyBudgetEur", "countries", "formName", "formQuestions", "privacyPolicyUrl", "imageFileId", "adName", "primaryText"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "meta_ads_create_campaign",
+    description: "Crea SOLO una campaign en PAUSED. Útil cuando quieres montar la campaign manualmente paso a paso (en vez de usar la macro). Objetivos comunes: OUTCOME_LEADS, OUTCOME_TRAFFIC, OUTCOME_SALES, OUTCOME_AWARENESS, OUTCOME_ENGAGEMENT, OUTCOME_APP_PROMOTION.",
+    input_schema: {
+      type: "object",
+      properties: {
+        name: { type: "string" },
+        objective: { type: "string", description: "Objetivo de la campaign." },
+        dailyBudgetEur: { type: "number" },
+        lifetimeBudgetEur: { type: "number", description: "Alternativo a dailyBudgetEur." },
+        status: { type: "string", enum: ["PAUSED", "ACTIVE"] }
+      },
+      required: ["name", "objective"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "meta_ads_create_adset",
+    description: "Crea un adset dentro de una campaign existente. Targeting mínimo: { geo_locations: { countries: ['ES'] } }. Para Lead Ads, optimizationGoal='LEAD_GENERATION' + destinationType='ON_AD'.",
+    input_schema: {
+      type: "object",
+      properties: {
+        campaignId: { type: "string" },
+        name: { type: "string" },
+        dailyBudgetEur: { type: "number" },
+        targeting: { type: "object", additionalProperties: true, description: "Objeto targeting de Meta. Mínimo: { geo_locations: { countries: ['ES'] } }. Opcional: age_min, age_max, interests: [{id,name}], etc." },
+        optimizationGoal: { type: "string" },
+        billingEvent: { type: "string" },
+        destinationType: { type: "string" },
+        startTime: { type: "string", description: "ISO 8601." },
+        endTime: { type: "string", description: "ISO 8601 opcional." },
+        status: { type: "string", enum: ["PAUSED", "ACTIVE"] }
+      },
+      required: ["campaignId", "name", "targeting"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "meta_ads_create_lead_form",
+    description: "Crea un lead form en una page de Facebook. Necesario antes de poder lanzar un Lead Ad.",
+    input_schema: {
+      type: "object",
+      properties: {
+        pageId: { type: "string" },
+        name: { type: "string" },
+        questions: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              type: { type: "string" },
+              key: { type: "string" },
+              label: { type: "string" },
+              options: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    key: { type: "string" },
+                    value: { type: "string" }
+                  },
+                  required: ["key", "value"],
+                  additionalProperties: false
+                }
+              }
+            },
+            required: ["type"],
+            additionalProperties: false
+          }
+        },
+        privacyPolicyUrl: { type: "string" },
+        privacyPolicyLinkText: { type: "string" },
+        followUpActionUrl: { type: "string" },
+        locale: { type: "string" }
+      },
+      required: ["pageId", "name", "questions", "privacyPolicyUrl"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "meta_ads_upload_image",
+    description: "Sube una imagen a la ad account (la creatividad de un anuncio). Recibe el fileId de un adjunto local de la task. Devuelve el image_hash que necesitas para crear el creative.",
+    input_schema: {
+      type: "object",
+      properties: {
+        fileId: { type: "string", description: "ID del File local (de list_task_files)." }
+      },
+      required: ["fileId"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "meta_ads_create_ad_creative",
+    description: "Crea un ad creative (la creatividad del anuncio) para Lead Ads: page + lead form + imagen + textos.",
+    input_schema: {
+      type: "object",
+      properties: {
+        name: { type: "string" },
+        pageId: { type: "string" },
+        leadFormId: { type: "string" },
+        imageHash: { type: "string", description: "Del meta_ads_upload_image." },
+        primaryText: { type: "string" },
+        headline: { type: "string" },
+        description: { type: "string" },
+        callToAction: { type: "string", enum: ["LEARN_MORE", "SIGN_UP", "GET_QUOTE", "CONTACT_US", "GET_OFFER", "BOOK_NOW", "DOWNLOAD", "APPLY_NOW"] }
+      },
+      required: ["name", "pageId", "leadFormId", "imageHash", "primaryText"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "meta_ads_create_ad",
+    description: "Crea un ad concreto (el último paso): adset + creative ya existentes. Status PAUSED por defecto.",
+    input_schema: {
+      type: "object",
+      properties: {
+        adsetId: { type: "string" },
+        name: { type: "string" },
+        creativeId: { type: "string" },
+        status: { type: "string", enum: ["PAUSED", "ACTIVE"] }
+      },
+      required: ["adsetId", "name", "creativeId"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "meta_ads_update_campaign",
+    description: "Modifica una campaign existente: pausar/reanudar, cambiar nombre, cambiar presupuesto. Estados: ACTIVE, PAUSED, DELETED, ARCHIVED.",
+    input_schema: {
+      type: "object",
+      properties: {
+        campaignId: { type: "string" },
+        name: { type: "string" },
+        status: { type: "string", enum: ["ACTIVE", "PAUSED", "DELETED", "ARCHIVED"] },
+        dailyBudgetEur: { type: "number" },
+        lifetimeBudgetEur: { type: "number" }
+      },
+      required: ["campaignId"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "meta_ads_update_adset",
+    description: "Modifica un adset: status, nombre, presupuesto diario, targeting.",
+    input_schema: {
+      type: "object",
+      properties: {
+        adsetId: { type: "string" },
+        name: { type: "string" },
+        status: { type: "string", enum: ["ACTIVE", "PAUSED", "DELETED", "ARCHIVED"] },
+        dailyBudgetEur: { type: "number" },
+        targeting: { type: "object", additionalProperties: true }
+      },
+      required: ["adsetId"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "meta_ads_update_ad",
+    description: "Modifica un ad: status, nombre.",
+    input_schema: {
+      type: "object",
+      properties: {
+        adId: { type: "string" },
+        name: { type: "string" },
+        status: { type: "string", enum: ["ACTIVE", "PAUSED", "DELETED", "ARCHIVED"] }
+      },
+      required: ["adId"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "meta_ads_get_ad_preview",
+    description: "Preview HTML de un ad — útil para mostrarle al user cómo se verá el anuncio antes de activarlo. Format default 'DESKTOP_FEED_STANDARD'. Otros: MOBILE_FEED_STANDARD, INSTAGRAM_STANDARD, INSTAGRAM_STORY.",
+    input_schema: {
+      type: "object",
+      properties: {
+        adId: { type: "string" },
+        format: { type: "string" }
+      },
+      required: ["adId"],
+      additionalProperties: false
+    }
+  },
   {
     name: "http_request",
     description:
@@ -2701,6 +2975,282 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
       return { error: `attachAs desconocido: ${attachAs}` };
     } catch (e: any) {
       return { error: `meta_ads_download_leads: ${e?.message ?? e}` };
+    }
+  },
+  // ──────────────────────────────────────────────────────────────
+  // META ADS — WRITE EXECUTORS
+  // ──────────────────────────────────────────────────────────────
+  async meta_ads_list_pages(_input, ctx) {
+    try {
+      const { metaAdsListPages } = await import("@/lib/integrations/meta-ads");
+      const pages = await metaAdsListPages({
+        workspaceId: ctx.workspaceId,
+        adhoc: ctx.adhocCredentials
+      });
+      return { count: pages.length, pages };
+    } catch (e: any) {
+      return { error: `meta_ads_list_pages: ${e?.message ?? e}` };
+    }
+  },
+  async meta_ads_list_lead_forms(input, ctx) {
+    try {
+      const { metaAdsListLeadForms } = await import("@/lib/integrations/meta-ads");
+      const forms = await metaAdsListLeadForms({
+        workspaceId: ctx.workspaceId,
+        pageId: String(input?.pageId ?? ""),
+        adhoc: ctx.adhocCredentials
+      });
+      return { count: forms.length, forms };
+    } catch (e: any) {
+      return { error: `meta_ads_list_lead_forms: ${e?.message ?? e}` };
+    }
+  },
+  async meta_ads_targeting_search(input, ctx) {
+    try {
+      const { metaAdsTargetingSearch } = await import("@/lib/integrations/meta-ads");
+      const results = await metaAdsTargetingSearch({
+        workspaceId: ctx.workspaceId,
+        q: String(input?.q ?? ""),
+        type: input?.type ? String(input.type) : undefined,
+        limit: typeof input?.limit === "number" ? input.limit : undefined,
+        adhoc: ctx.adhocCredentials
+      });
+      return { count: results.length, results };
+    } catch (e: any) {
+      return { error: `meta_ads_targeting_search: ${e?.message ?? e}` };
+    }
+  },
+  async meta_ads_create_lead_campaign(input, ctx) {
+    try {
+      const { metaAdsCreateLeadCampaign } = await import("@/lib/integrations/meta-ads");
+      const result = await metaAdsCreateLeadCampaign({
+        workspaceId: ctx.workspaceId,
+        campaignName: String(input?.campaignName ?? ""),
+        pageId: String(input?.pageId ?? ""),
+        dailyBudgetEur: Number(input?.dailyBudgetEur ?? 0),
+        countries: Array.isArray(input?.countries) ? input.countries.map(String) : ["ES"],
+        ageMin: typeof input?.ageMin === "number" ? input.ageMin : undefined,
+        ageMax: typeof input?.ageMax === "number" ? input.ageMax : undefined,
+        formName: String(input?.formName ?? ""),
+        formQuestions: Array.isArray(input?.formQuestions) ? input.formQuestions : [],
+        privacyPolicyUrl: String(input?.privacyPolicyUrl ?? ""),
+        imageFileId: String(input?.imageFileId ?? ""),
+        adName: String(input?.adName ?? ""),
+        primaryText: String(input?.primaryText ?? ""),
+        headline: input?.headline ? String(input.headline) : undefined,
+        description: input?.description ? String(input.description) : undefined,
+        callToAction: input?.callToAction ? String(input.callToAction) : undefined,
+        followUpActionUrl: input?.followUpActionUrl ? String(input.followUpActionUrl) : undefined,
+        adhoc: ctx.adhocCredentials
+      });
+      // Comentario informativo firmado por Sonia con resumen.
+      if (result.ok) {
+        await prisma.comment.create({
+          data: {
+            workspaceId: ctx.workspaceId,
+            authorId: ctx.config.userId,
+            targetType: "TASK",
+            targetId: ctx.taskId,
+            body:
+              `🚀 **Campaña Meta Ads creada (en PAUSED — pendiente de tu revisión):**\n\n` +
+              `- Campaign: \`${result.campaignId}\`\n` +
+              `- Adset: \`${result.adsetId}\`\n` +
+              `- Lead Form: \`${result.formId}\`\n` +
+              `- Ad: \`${result.adId}\`\n\n` +
+              `[Abrir en Ads Manager para revisar y activar](${result.adsManagerUrl})\n\n` +
+              `⚠️ La campaña está PAUSADA — entra en Ads Manager, revisa la creatividad y el copy, y dale a activar manualmente cuando esté lista.`
+          }
+        });
+      } else {
+        await prisma.comment.create({
+          data: {
+            workspaceId: ctx.workspaceId,
+            authorId: ctx.config.userId,
+            targetType: "TASK",
+            targetId: ctx.taskId,
+            body:
+              `⚠️ **Fallo creando la campaña Meta Ads.**\n\n` +
+              `Falló en el paso \`${result.step}\`: ${result.error}\n\n` +
+              (result.campaignId ? `Campaign creado: \`${result.campaignId}\` (queda PAUSED)\n` : "") +
+              (result.adsetId ? `Adset creado: \`${result.adsetId}\`\n` : "") +
+              (result.formId ? `Lead Form creado: \`${result.formId}\`\n` : "") +
+              `\nRevisa el error y vuélveme a llamar — los recursos creados quedan en Ads Manager.`
+          }
+        });
+      }
+      return result;
+    } catch (e: any) {
+      return { error: `meta_ads_create_lead_campaign: ${e?.message ?? e}` };
+    }
+  },
+  async meta_ads_create_campaign(input, ctx) {
+    try {
+      const { metaAdsCreateCampaign } = await import("@/lib/integrations/meta-ads");
+      const r = await metaAdsCreateCampaign({
+        workspaceId: ctx.workspaceId,
+        name: String(input?.name ?? ""),
+        objective: String(input?.objective ?? "OUTCOME_LEADS"),
+        dailyBudgetEur: typeof input?.dailyBudgetEur === "number" ? input.dailyBudgetEur : undefined,
+        lifetimeBudgetEur: typeof input?.lifetimeBudgetEur === "number" ? input.lifetimeBudgetEur : undefined,
+        status: input?.status === "ACTIVE" ? "ACTIVE" : "PAUSED",
+        adhoc: ctx.adhocCredentials
+      });
+      return { ok: true, ...r };
+    } catch (e: any) {
+      return { error: `meta_ads_create_campaign: ${e?.message ?? e}` };
+    }
+  },
+  async meta_ads_create_adset(input, ctx) {
+    try {
+      const { metaAdsCreateAdset } = await import("@/lib/integrations/meta-ads");
+      const r = await metaAdsCreateAdset({
+        workspaceId: ctx.workspaceId,
+        campaignId: String(input?.campaignId ?? ""),
+        name: String(input?.name ?? ""),
+        dailyBudgetEur: typeof input?.dailyBudgetEur === "number" ? input.dailyBudgetEur : undefined,
+        targeting: typeof input?.targeting === "object" && input.targeting !== null ? input.targeting : { geo_locations: { countries: ["ES"] } },
+        optimizationGoal: input?.optimizationGoal ? String(input.optimizationGoal) : undefined,
+        billingEvent: input?.billingEvent ? String(input.billingEvent) : undefined,
+        destinationType: input?.destinationType ? String(input.destinationType) : undefined,
+        startTime: input?.startTime ? String(input.startTime) : undefined,
+        endTime: input?.endTime ? String(input.endTime) : undefined,
+        status: input?.status === "ACTIVE" ? "ACTIVE" : "PAUSED",
+        adhoc: ctx.adhocCredentials
+      });
+      return { ok: true, ...r };
+    } catch (e: any) {
+      return { error: `meta_ads_create_adset: ${e?.message ?? e}` };
+    }
+  },
+  async meta_ads_create_lead_form(input, ctx) {
+    try {
+      const { metaAdsCreateLeadForm } = await import("@/lib/integrations/meta-ads");
+      const r = await metaAdsCreateLeadForm({
+        workspaceId: ctx.workspaceId,
+        pageId: String(input?.pageId ?? ""),
+        name: String(input?.name ?? ""),
+        questions: Array.isArray(input?.questions) ? input.questions : [],
+        privacyPolicyUrl: String(input?.privacyPolicyUrl ?? ""),
+        privacyPolicyLinkText: input?.privacyPolicyLinkText ? String(input.privacyPolicyLinkText) : undefined,
+        followUpActionUrl: input?.followUpActionUrl ? String(input.followUpActionUrl) : undefined,
+        locale: input?.locale ? String(input.locale) : undefined,
+        adhoc: ctx.adhocCredentials
+      });
+      return { ok: true, ...r };
+    } catch (e: any) {
+      return { error: `meta_ads_create_lead_form: ${e?.message ?? e}` };
+    }
+  },
+  async meta_ads_upload_image(input, ctx) {
+    try {
+      const { metaAdsUploadImage } = await import("@/lib/integrations/meta-ads");
+      const r = await metaAdsUploadImage({
+        workspaceId: ctx.workspaceId,
+        fileId: String(input?.fileId ?? ""),
+        adhoc: ctx.adhocCredentials
+      });
+      return { ok: true, ...r };
+    } catch (e: any) {
+      return { error: `meta_ads_upload_image: ${e?.message ?? e}` };
+    }
+  },
+  async meta_ads_create_ad_creative(input, ctx) {
+    try {
+      const { metaAdsCreateAdCreative } = await import("@/lib/integrations/meta-ads");
+      const r = await metaAdsCreateAdCreative({
+        workspaceId: ctx.workspaceId,
+        name: String(input?.name ?? ""),
+        pageId: String(input?.pageId ?? ""),
+        leadFormId: String(input?.leadFormId ?? ""),
+        imageHash: String(input?.imageHash ?? ""),
+        primaryText: String(input?.primaryText ?? ""),
+        headline: input?.headline ? String(input.headline) : undefined,
+        description: input?.description ? String(input.description) : undefined,
+        callToAction: input?.callToAction ? String(input.callToAction) : undefined,
+        adhoc: ctx.adhocCredentials
+      });
+      return { ok: true, ...r };
+    } catch (e: any) {
+      return { error: `meta_ads_create_ad_creative: ${e?.message ?? e}` };
+    }
+  },
+  async meta_ads_create_ad(input, ctx) {
+    try {
+      const { metaAdsCreateAd } = await import("@/lib/integrations/meta-ads");
+      const r = await metaAdsCreateAd({
+        workspaceId: ctx.workspaceId,
+        adsetId: String(input?.adsetId ?? ""),
+        name: String(input?.name ?? ""),
+        creativeId: String(input?.creativeId ?? ""),
+        status: input?.status === "ACTIVE" ? "ACTIVE" : "PAUSED",
+        adhoc: ctx.adhocCredentials
+      });
+      return { ok: true, ...r };
+    } catch (e: any) {
+      return { error: `meta_ads_create_ad: ${e?.message ?? e}` };
+    }
+  },
+  async meta_ads_update_campaign(input, ctx) {
+    try {
+      const { metaAdsUpdateCampaign } = await import("@/lib/integrations/meta-ads");
+      const r = await metaAdsUpdateCampaign({
+        workspaceId: ctx.workspaceId,
+        campaignId: String(input?.campaignId ?? ""),
+        name: input?.name ? String(input.name) : undefined,
+        status: input?.status as any,
+        dailyBudgetEur: typeof input?.dailyBudgetEur === "number" ? input.dailyBudgetEur : undefined,
+        lifetimeBudgetEur: typeof input?.lifetimeBudgetEur === "number" ? input.lifetimeBudgetEur : undefined,
+        adhoc: ctx.adhocCredentials
+      });
+      return r;
+    } catch (e: any) {
+      return { error: `meta_ads_update_campaign: ${e?.message ?? e}` };
+    }
+  },
+  async meta_ads_update_adset(input, ctx) {
+    try {
+      const { metaAdsUpdateAdset } = await import("@/lib/integrations/meta-ads");
+      const r = await metaAdsUpdateAdset({
+        workspaceId: ctx.workspaceId,
+        adsetId: String(input?.adsetId ?? ""),
+        name: input?.name ? String(input.name) : undefined,
+        status: input?.status as any,
+        dailyBudgetEur: typeof input?.dailyBudgetEur === "number" ? input.dailyBudgetEur : undefined,
+        targeting: typeof input?.targeting === "object" && input.targeting !== null ? input.targeting : undefined,
+        adhoc: ctx.adhocCredentials
+      });
+      return r;
+    } catch (e: any) {
+      return { error: `meta_ads_update_adset: ${e?.message ?? e}` };
+    }
+  },
+  async meta_ads_update_ad(input, ctx) {
+    try {
+      const { metaAdsUpdateAd } = await import("@/lib/integrations/meta-ads");
+      const r = await metaAdsUpdateAd({
+        workspaceId: ctx.workspaceId,
+        adId: String(input?.adId ?? ""),
+        name: input?.name ? String(input.name) : undefined,
+        status: input?.status as any,
+        adhoc: ctx.adhocCredentials
+      });
+      return r;
+    } catch (e: any) {
+      return { error: `meta_ads_update_ad: ${e?.message ?? e}` };
+    }
+  },
+  async meta_ads_get_ad_preview(input, ctx) {
+    try {
+      const { metaAdsGetAdPreview } = await import("@/lib/integrations/meta-ads");
+      const r = await metaAdsGetAdPreview({
+        workspaceId: ctx.workspaceId,
+        adId: String(input?.adId ?? ""),
+        format: input?.format ? String(input.format) : undefined,
+        adhoc: ctx.adhocCredentials
+      });
+      return r;
+    } catch (e: any) {
+      return { error: `meta_ads_get_ad_preview: ${e?.message ?? e}` };
     }
   },
   async http_request(input, ctx) {
