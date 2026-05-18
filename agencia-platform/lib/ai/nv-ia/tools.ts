@@ -57,6 +57,15 @@ import {
 import { ga4GetReport } from "@/lib/integrations/ga4";
 import { searchConsoleQuery } from "@/lib/integrations/search-console";
 import { generateMonthlyClientReport } from "@/lib/reports/monthly-client-report";
+import {
+  gmbListAccounts,
+  gmbListLocations,
+  gmbListReviews,
+  gmbReplyReview,
+  gmbDeleteReviewReply,
+  gmbCreatePost,
+  gmbGetInsights
+} from "@/lib/integrations/gmb";
 import { signedDownloadUrl } from "@/lib/storage/r2";
 import { completeVision } from "@/lib/ai/anthropic";
 import { listDriveFiles } from "@/lib/integrations/google-drive";
@@ -1361,6 +1370,141 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
           items: { type: "string", enum: ["ga4", "searchConsole", "metaAds", "googleAds"] }
         },
         primaryColor: { type: "string", description: "Hex color para el header del XLSX." }
+      },
+      additionalProperties: false
+    }
+  },
+  {
+    name: "gmb_list_accounts",
+    description:
+      "Lista las cuentas de Google Business Profile (Google My Business) accesibles. Cada agencia/admin suele tener UNA cuenta con varias ubicaciones dentro. Devuelve accountId, name, type, role. Necesario el primer uso para descubrir el accountId — luego lo guardas en Client.settings.gmb.",
+    input_schema: {
+      type: "object",
+      properties: {},
+      additionalProperties: false
+    }
+  },
+  {
+    name: "gmb_list_locations",
+    description:
+      "Lista las ubicaciones (fichas de negocio) dentro de una cuenta GMB. Devuelve locationId, title, dirección, teléfono, web, categoría primaria. Usa esto para mapear cada Client del Hub a su locationId de GMB.",
+    input_schema: {
+      type: "object",
+      properties: {
+        accountId: { type: "string", description: "Devuelto por gmb_list_accounts." }
+      },
+      required: ["accountId"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "gmb_list_reviews",
+    description:
+      "Lista reseñas de una ubicación GMB. Pasa clientId para auto-resolver accountId/locationId desde Client.settings.gmb, o pásalos explícitos. Devuelve: reviewName, reviewer, rating (1-5), comment, createTime, reply existente. orderBy: 'updateTime desc' (más recientes) por defecto. Limit pageSize.",
+    input_schema: {
+      type: "object",
+      properties: {
+        clientId: { type: "string" },
+        accountId: { type: "string" },
+        locationId: { type: "string" },
+        pageSize: { type: "number", description: "Default 25, max 50." },
+        orderBy: { type: "string", description: "'updateTime desc' | 'starRating' | 'starRating desc'" }
+      },
+      additionalProperties: false
+    }
+  },
+  {
+    name: "gmb_reply_to_review",
+    description:
+      "Responde (o actualiza la respuesta) a una reseña de GMB. CRÍTICO para gestión de reputación. Tono recomendado: agradecer reseñas positivas con empatía + invitar a volver; en negativas, NUNCA atacar al cliente — reconocer, ofrecer solución, mover offline. Max ~4000 chars. Si pasas reviewName completo lo usa; si no, construye desde accountId+locationId+reviewId. NO publiques nada sin haber consultado el brandBrief y tono del cliente — pídelo en read_client_memory si dudas.",
+    input_schema: {
+      type: "object",
+      properties: {
+        reviewName: {
+          type: "string",
+          description: "Formato completo 'accounts/X/locations/Y/reviews/Z'. Recomendado pasarlo directo de gmb_list_reviews."
+        },
+        accountId: { type: "string" },
+        locationId: { type: "string" },
+        clientId: { type: "string" },
+        reviewId: { type: "string" },
+        comment: { type: "string", description: "La respuesta. Max ~4000 chars. Texto plano, sin markdown." }
+      },
+      required: ["comment"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "gmb_delete_review_reply",
+    description:
+      "Borra la respuesta a una reseña de GMB. Útil si publicaste algo equivocado y quieres rehacerlo (después puedes volver a llamar gmb_reply_to_review).",
+    input_schema: {
+      type: "object",
+      properties: {
+        reviewName: { type: "string" },
+        accountId: { type: "string" },
+        locationId: { type: "string" },
+        clientId: { type: "string" },
+        reviewId: { type: "string" }
+      },
+      additionalProperties: false
+    }
+  },
+  {
+    name: "gmb_create_post",
+    description:
+      "Publica un post en Google Business Profile. Tipos: STANDARD (post normal), EVENT (con fechas), OFFER (con cupón). CTAs típicas: BOOK, ORDER, SHOP, LEARN_MORE, SIGN_UP, CALL. summary visible ~300 chars (corta visualmente más allá). mediaUrl debe ser una URL pública accesible por Google (imagen del Drive/R2 firmada vale). Resultado: post visible en la ficha del negocio + en Maps. NO requiere aprobación del usuario al ser una publicación — pídela TÚ si el cliente es nuevo o si dudas del copy.",
+    input_schema: {
+      type: "object",
+      properties: {
+        clientId: { type: "string" },
+        accountId: { type: "string" },
+        locationId: { type: "string" },
+        summary: { type: "string", description: "Cuerpo del post." },
+        topicType: { type: "string", enum: ["STANDARD", "EVENT", "OFFER"] },
+        callToAction: {
+          type: "object",
+          properties: {
+            actionType: {
+              type: "string",
+              enum: ["BOOK", "ORDER", "SHOP", "LEARN_MORE", "SIGN_UP", "CALL"]
+            },
+            url: { type: "string" }
+          },
+          required: ["actionType"],
+          additionalProperties: false
+        },
+        mediaUrl: { type: "string", description: "URL pública de la imagen." },
+        eventTitle: { type: "string" },
+        eventStartIso: { type: "string" },
+        eventEndIso: { type: "string" },
+        offerCouponCode: { type: "string" },
+        offerRedeemUrl: { type: "string" },
+        offerTerms: { type: "string" },
+        languageCode: { type: "string", description: "'es' default." }
+      },
+      required: ["summary"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "gmb_get_insights",
+    description:
+      "Métricas de rendimiento de una ficha GMB: impresiones en mapas/búsqueda (desktop y móvil), peticiones de direcciones, clics a llamar, clics a la web. Devuelve totales por métrica + serie diaria. Útil para informes mensuales locales (Reva, Champiso, etc.). Rango default últimos 30 días.",
+    input_schema: {
+      type: "object",
+      properties: {
+        clientId: { type: "string" },
+        accountId: { type: "string" },
+        locationId: { type: "string" },
+        since: { type: "string", description: "YYYY-MM-DD" },
+        until: { type: "string", description: "YYYY-MM-DD" },
+        metrics: {
+          type: "array",
+          items: { type: "string" },
+          description:
+            "Subset opcional de métricas. Default: impresiones mapas+búsqueda (desktop+mobile), direction_requests, call_clicks, website_clicks."
+        }
       },
       additionalProperties: false
     }
@@ -4306,6 +4450,125 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
       };
     } catch (e: any) {
       return { error: `generate_monthly_client_report: ${e?.message ?? e}` };
+    }
+  },
+
+  async gmb_list_accounts(_input, ctx) {
+    try {
+      const accounts = await gmbListAccounts(ctx.workspaceId);
+      return { count: accounts.length, accounts };
+    } catch (e: any) {
+      return { error: `gmb_list_accounts: ${e?.message ?? e}` };
+    }
+  },
+  async gmb_list_locations(input, ctx) {
+    try {
+      const accountId = String(input?.accountId ?? "").trim();
+      if (!accountId) return { error: "accountId requerido" };
+      const locations = await gmbListLocations({ workspaceId: ctx.workspaceId, accountId });
+      return { count: locations.length, locations };
+    } catch (e: any) {
+      return { error: `gmb_list_locations: ${e?.message ?? e}` };
+    }
+  },
+  async gmb_list_reviews(input, ctx) {
+    try {
+      const reviews = await gmbListReviews({
+        workspaceId: ctx.workspaceId,
+        clientId: input?.clientId ? String(input.clientId) : undefined,
+        accountId: input?.accountId ? String(input.accountId) : undefined,
+        locationId: input?.locationId ? String(input.locationId) : undefined,
+        pageSize: input?.pageSize ? Number(input.pageSize) : undefined,
+        orderBy: input?.orderBy ? String(input.orderBy) : undefined
+      });
+      const negativos = reviews.filter((r) => r.rating > 0 && r.rating <= 3).length;
+      const sinResponder = reviews.filter((r) => !r.reply).length;
+      return {
+        count: reviews.length,
+        negativeOrNeutralCount: negativos,
+        unansweredCount: sinResponder,
+        reviews
+      };
+    } catch (e: any) {
+      return { error: `gmb_list_reviews: ${e?.message ?? e}` };
+    }
+  },
+  async gmb_reply_to_review(input, ctx) {
+    try {
+      const comment = String(input?.comment ?? "").trim();
+      if (!comment) return { error: "comment vacío" };
+      const res = await gmbReplyReview({
+        workspaceId: ctx.workspaceId,
+        reviewName: input?.reviewName ? String(input.reviewName) : undefined,
+        accountId: input?.accountId ? String(input.accountId) : undefined,
+        locationId: input?.locationId ? String(input.locationId) : undefined,
+        clientId: input?.clientId ? String(input.clientId) : undefined,
+        reviewId: input?.reviewId ? String(input.reviewId) : undefined,
+        comment
+      });
+      return { ok: true, ...res };
+    } catch (e: any) {
+      return { error: `gmb_reply_to_review: ${e?.message ?? e}` };
+    }
+  },
+  async gmb_delete_review_reply(input, ctx) {
+    try {
+      const res = await gmbDeleteReviewReply({
+        workspaceId: ctx.workspaceId,
+        reviewName: input?.reviewName ? String(input.reviewName) : undefined,
+        accountId: input?.accountId ? String(input.accountId) : undefined,
+        locationId: input?.locationId ? String(input.locationId) : undefined,
+        reviewId: input?.reviewId ? String(input.reviewId) : undefined,
+        clientId: input?.clientId ? String(input.clientId) : undefined
+      });
+      return res;
+    } catch (e: any) {
+      return { error: `gmb_delete_review_reply: ${e?.message ?? e}` };
+    }
+  },
+  async gmb_create_post(input, ctx) {
+    try {
+      const summary = String(input?.summary ?? "").trim();
+      if (!summary) return { error: "summary vacío" };
+      const cta = input?.callToAction;
+      const res = await gmbCreatePost({
+        workspaceId: ctx.workspaceId,
+        clientId: input?.clientId ? String(input.clientId) : undefined,
+        accountId: input?.accountId ? String(input.accountId) : undefined,
+        locationId: input?.locationId ? String(input.locationId) : undefined,
+        summary,
+        topicType: input?.topicType ?? "STANDARD",
+        callToAction: cta
+          ? { actionType: String(cta.actionType), url: cta.url ? String(cta.url) : undefined }
+          : undefined,
+        mediaUrl: input?.mediaUrl ? String(input.mediaUrl) : undefined,
+        eventTitle: input?.eventTitle ? String(input.eventTitle) : undefined,
+        eventStartIso: input?.eventStartIso ? String(input.eventStartIso) : undefined,
+        eventEndIso: input?.eventEndIso ? String(input.eventEndIso) : undefined,
+        offerCouponCode: input?.offerCouponCode ? String(input.offerCouponCode) : undefined,
+        offerRedeemUrl: input?.offerRedeemUrl ? String(input.offerRedeemUrl) : undefined,
+        offerTerms: input?.offerTerms ? String(input.offerTerms) : undefined,
+        languageCode: input?.languageCode ? String(input.languageCode) : undefined
+      });
+      return { ok: true, ...res };
+    } catch (e: any) {
+      return { error: `gmb_create_post: ${e?.message ?? e}` };
+    }
+  },
+  async gmb_get_insights(input, ctx) {
+    try {
+      const res = await gmbGetInsights({
+        workspaceId: ctx.workspaceId,
+        clientId: input?.clientId ? String(input.clientId) : undefined,
+        accountId: input?.accountId ? String(input.accountId) : undefined,
+        locationId: input?.locationId ? String(input.locationId) : undefined,
+        since: input?.since ? String(input.since) : undefined,
+        until: input?.until ? String(input.until) : undefined,
+        metrics: Array.isArray(input?.metrics) ? input.metrics.map(String) : undefined
+      });
+      return res;
+    } catch (e: any) {
+      return { error: `gmb_get_insights: ${e?.message ?? e}` };
     }
   },
 

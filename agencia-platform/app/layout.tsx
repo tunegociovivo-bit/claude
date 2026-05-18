@@ -77,7 +77,7 @@ const earlyInstallCapture = `
  */
 const swSelfHeal = `
   (function () {
-    var EXPECTED = "v29-2026-05-18-elevenlabs-ui-config";
+    var EXPECTED = "v30-2026-05-18-gmb-real";
     if (!('serviceWorker' in navigator)) return;
     var key = "hub_sw_v_seen";
     var seen = null;
