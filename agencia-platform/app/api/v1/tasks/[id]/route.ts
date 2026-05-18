@@ -9,6 +9,7 @@ import { auditFromReq } from "@/lib/audit/log";
 import { dispatchWebhook } from "@/lib/webhooks/dispatch";
 import { indexEntity, deleteEntityIndex } from "@/lib/search/embeddings";
 import { textForTask } from "@/lib/search/indexers";
+import { processRunInBackground } from "@/lib/ai/nv-ia/process-run";
 
 export const GET = withApi({ scope: "tasks:read" }, async (_req, { params, api }) => {
   const task = await prisma.task.findFirst({
@@ -170,7 +171,7 @@ export const PATCH = withApi({ scope: "tasks:write" }, async (req, { params, api
         // ¿Estaba ya en la lista anterior? Si sí, no es "nueva entrada".
         const wasAlreadyLinked = prevExtraProjectIds?.includes(inboxId);
         if (!wasAlreadyLinked) {
-          await prisma.aiAgentRun.create({
+          const newRun = await prisma.aiAgentRun.create({
             data: {
               workspaceId: api.workspaceId,
               taskId: params.id,
@@ -178,6 +179,10 @@ export const PATCH = withApi({ scope: "tasks:write" }, async (req, { params, api
               status: "PENDING"
             }
           });
+          // Dispara el procesado YA en background — sin esto el run
+          // se quedaba en PENDING hasta que algo lo despertara. Como
+          // Railway no tiene cron configurado, podía ser horas/nunca.
+          processRunInBackground(newRun.id);
         }
       }
     } catch (e) {

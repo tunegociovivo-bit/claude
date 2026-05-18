@@ -196,6 +196,18 @@ async function runImport(jobId: string, opts: ImportOptions) {
       const sectionsList: { gid: string; name: string }[] = [];
       for await (const s of client.projectSections(p.gid)) sectionsList.push({ gid: s.gid, name: s.name });
 
+      // Si Asana no devuelve secciones (proyecto list-view sin
+      // estructura, o respuesta vacía por algún motivo), AÑADIMOS
+      // una columna default "TAREAS" para que el tablero del proyecto
+      // tenga al menos una columna usable. Sin esto, kanbanColumns
+      // quedaba [], el UI caía a las columnas default del workspace
+      // (TODO/IN_PROGRESS/REVIEW/DONE), y todas las tareas — sin
+      // sección en Asana — caían al genérico TODO. Resultado: todas
+      // las tareas amontonadas en "Por hacer".
+      if (sectionsList.length === 0) {
+        sectionsList.push({ gid: `__synthetic_${p.gid}`, name: "Tareas" });
+      }
+
       // Construir las kanbanColumns: id derivado del slug del nombre.
       const usedIds = new Set<string>();
       const palette = COLUMN_PALETTE;
@@ -645,7 +657,49 @@ async function runImport(jobId: string, opts: ImportOptions) {
         // warning y seguimos. La tarea fallida se podrá re-importar
         // sin duplicar por idempotencia con asanaId.
         try {
-          const sectionGid = t.memberships?.find((m) => m.project.gid === projectGid)?.section?.gid ?? null;
+          const membership = t.memberships?.find((m) => m.project.gid === projectGid);
+          const sectionGid = membership?.section?.gid ?? null;
+          const sectionName = membership?.section?.name ?? null;
+
+          // Si la sección de la task NO está en el map del proyecto
+          // (porque se añadió en Asana DESPUÉS de la lectura inicial
+          // de secciones, o porque el API devolvió la lista incompleta
+          // por alguna razón), la añadimos AHORA al proyecto. Sin esto,
+          // tasks con sección desconocida caían al genérico TODO —
+          // amontonadas en "primera columna" en vez de su sección real.
+          if (sectionGid && sectionName && !info.sections.has(sectionGid)) {
+            const existingIds = new Set(Array.from(info.sections.values()).map((s) => s.columnId));
+            let colId = slugifyColumnId(sectionName);
+            if (!colId) colId = `COL_EXTRA_${existingIds.size + 1}`;
+            let base = colId;
+            let n = 2;
+            while (existingIds.has(colId)) {
+              colId = `${base}_${n}`;
+              n++;
+            }
+            info.sections.set(sectionGid, { name: sectionName, columnId: colId });
+
+            // Persistir la nueva columna en el proyecto. Leemos las
+            // actuales y añadimos al final.
+            const proj = await prisma.project.findUnique({
+              where: { id: info.localId },
+              select: { kanbanColumns: true }
+            });
+            const currentCols = Array.isArray(proj?.kanbanColumns) ? (proj!.kanbanColumns as any[]) : [];
+            const isDone = /(hecho|done|complete|publicad|finalizad)/i.test(sectionName);
+            const newCol: any = {
+              id: colId,
+              label: sectionName,
+              color: COLUMN_PALETTE[currentCols.length % COLUMN_PALETTE.length],
+              order: currentCols.length
+            };
+            if (isDone) newCol.isDone = true;
+            await prisma.project.update({
+              where: { id: info.localId },
+              data: { kanbanColumns: [...currentCols, newCol] as any }
+            });
+          }
+
           const sectionInfo = sectionGid ? info.sections.get(sectionGid) : null;
           const colKey = sectionInfo?.columnId ?? "__nocol__";
           const nextOrder = orderPerColumn.get(colKey) ?? 0;

@@ -17,7 +17,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
-import { executeAgentRun, loadAgentConfig } from "@/lib/ai/nv-ia/runner";
+import { processOneRun } from "@/lib/ai/nv-ia/process-run";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 600; // 10 min — agent loops pueden tardar
@@ -30,75 +30,6 @@ function authed(req: NextRequest): boolean {
   const url = new URL(req.url);
   if (url.searchParams.get("secret") === secret) return true;
   return false;
-}
-
-async function processOne(runId: string) {
-  // Marcar RUNNING (con startedAt). Lock optimista: solo si sigue PENDING.
-  const claimed = await prisma.aiAgentRun.updateMany({
-    where: { id: runId, status: "PENDING" },
-    data: { status: "RUNNING", startedAt: new Date() }
-  });
-  if (claimed.count === 0) return { skipped: true, runId };
-
-  const run = await prisma.aiAgentRun.findUnique({ where: { id: runId } });
-  if (!run) return { skipped: true, runId };
-
-  try {
-    const config = await loadAgentConfig(run.workspaceId);
-    const result = await executeAgentRun({
-      workspaceId: run.workspaceId,
-      taskId: run.taskId,
-      config,
-      runId: run.id,
-      trigger: run.trigger,
-      triggerContext: run.triggerContext
-    });
-
-    await prisma.aiAgentRun.update({
-      where: { id: runId },
-      data: {
-        status: result.status as any,
-        summary: result.summary,
-        error: result.error,
-        log: result.log as any,
-        stepsCount: result.stepsCount,
-        inputTokens: result.inputTokens,
-        outputTokens: result.outputTokens,
-        finishedAt: new Date()
-      }
-    });
-
-    // Notificar al requester (si hay) — un mensaje breve con link a la tarea.
-    if (run.requesterId) {
-      const link = `/tasks/${run.taskId}`;
-      const body =
-        result.status === "SUCCEEDED"
-          ? `✅ Sonia terminó: ${result.summary?.slice(0, 140) ?? ""}`
-          : result.status === "REQUIRES_HUMAN"
-          ? `⚠️ Sonia necesita tu ayuda con una tarea — revisa los comentarios.`
-          : `❌ Sonia falló al procesar una tarea: ${result.error?.slice(0, 140) ?? "error desconocido"}`;
-      await prisma.notification.create({
-        data: {
-          userId: run.requesterId,
-          type: "ai_agent_run",
-          body,
-          link
-        }
-      }).catch(() => {});
-    }
-
-    return { runId, status: result.status, steps: result.stepsCount };
-  } catch (e: any) {
-    await prisma.aiAgentRun.update({
-      where: { id: runId },
-      data: {
-        status: "FAILED",
-        error: String(e?.message ?? e),
-        finishedAt: new Date()
-      }
-    }).catch(() => {});
-    return { runId, status: "FAILED", error: String(e?.message ?? e) };
-  }
 }
 
 export async function GET(req: NextRequest) {
@@ -122,7 +53,7 @@ export async function GET(req: NextRequest) {
 
   const results = [];
   for (const p of pending) {
-    results.push(await processOne(p.id));
+    results.push(await processOneRun(p.id));
   }
   return NextResponse.json({ ok: true, processed: results.length, results });
 }

@@ -8,6 +8,7 @@ import { sendPushToUser } from "@/lib/push/web-push";
 import { toTipTapDoc, serializeForString } from "@/lib/comments/body";
 import { indexEntity } from "@/lib/search/embeddings";
 import { extractText } from "@/lib/comments/body";
+import { processRunInBackground } from "@/lib/ai/nv-ia/process-run";
 
 const commentCreateSchema = z.object({
   body: z.string().min(1).max(8000)
@@ -111,14 +112,16 @@ export const POST = withApi({ scope: "tasks:write" }, async (req, { params, api 
       /@sonia\b/i.test(plainBody) ||
       /@nv[\s-]?ia\b/i.test(plainBody);
     if (aiUserId && mentionsAi && api.userId !== aiUserId) {
-      await prisma.aiAgentRun.create({
+      const newRun = await prisma.aiAgentRun.create({
         data: {
           workspaceId: api.workspaceId,
           taskId: params.id,
           requesterId: api.userId,
-          status: "PENDING"
+          status: "PENDING",
+          trigger: "MENTION"
         }
       });
+      processRunInBackground(newRun.id);
     }
   } catch (e) {
     console.warn("[nv-ia] mention hook failed:", (e as Error).message);

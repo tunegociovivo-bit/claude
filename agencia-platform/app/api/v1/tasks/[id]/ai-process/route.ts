@@ -22,6 +22,7 @@ import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { executeAgentRun, loadAgentConfig } from "@/lib/ai/nv-ia/runner";
+import { processRunInBackground } from "@/lib/ai/nv-ia/process-run";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 600;
@@ -83,11 +84,14 @@ export const POST = withApi({ scope: "tasks:write" }, async (req, { params, api 
   });
 
   if (!inline) {
+    // Background trigger en el propio proceso. No depende del cron
+    // externo, que en Railway ahora mismo no está configurado.
+    processRunInBackground(run.id);
     return NextResponse.json({
       ok: true,
       runId: run.id,
       status: "PENDING",
-      message: "Run encolado. El cron lo procesará en 1-2 min."
+      message: "Run encolado. Sonia arranca ya en background."
     });
   }
 
