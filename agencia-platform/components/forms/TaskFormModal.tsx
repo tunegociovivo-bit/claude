@@ -410,7 +410,7 @@ export default function TaskFormModal({
         return;
       }
       if (data.deduped) {
-        setError(`Sonia ya está trabajando en esta tarea (run ${data.runId}, ${data.status}). Si lleva colgado mucho rato, usa "Forzar reintento" abajo.`);
+        setError(`Sonia ya está trabajando en esta tarea (run ${data.runId}, ${data.status}). Si está perdida o llevando demasiado, pulsa "🛠 Claude" para mandármela.`);
       } else {
         setError(`✓ Enviada a Sonia. Se procesará en breve (run ${data.runId}).`);
       }
@@ -422,29 +422,38 @@ export default function TaskFormModal({
   }
 
   // Force-retry: mata cualquier run PENDING/RUNNING y arranca otro.
-  // Útil cuando Sonia se queda colgada y no puedes esperar al
-  // watchdog automático.
-  async function forceRetrySonia() {
+  // Escalación manual a Claude Code: cuando el user ve que Sonia
+  // no lo está haciendo bien, lo entrega pobre, está perdida o
+  // tarda demasiado, puede mandarme la tarea a mí (Claude) para
+  // que la analice. Yo decido si arreglar el código del runner,
+  // añadir tool nueva, o darle a Sonia instrucciones más claras.
+  async function askClaude() {
     if (!currentTask) return;
-    if (!confirm("¿Forzar reintento? Si Sonia está procesando algo ahora mismo, se abortará y arrancará de cero.")) return;
+    const reason = prompt(
+      `¿Por qué le pides ayuda a Claude? (opcional pero útil)\n\nEj: "Sonia me ha entregado un Excel feo sin formato" / "Lleva 10 min y no responde" / "No ha hecho lo que pedí".`,
+      ""
+    );
+    if (reason === null) return; // canceló
     setSendingToSonia(true);
     setError(null);
     try {
-      const r = await fetch(`/api/v1/tasks/${currentTask.id}/ai-force-retry`, {
-        method: "POST"
+      const r = await fetch(`/api/v1/tasks/${currentTask.id}/ai-escalate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason: reason.trim() })
       });
       const data = await r.json().catch(() => null);
       if (!r.ok || !data?.ok) {
-        setError(data?.error || data?.message || `Force-retry: HTTP ${r.status}`);
+        setError(data?.error || data?.message || `Escalación: HTTP ${r.status}`);
         return;
       }
       setError(
-        data.aborted > 0
-          ? `✓ Abortados ${data.aborted} run(s) colgado(s). Nuevo run arrancando (${data.runId}).`
-          : `✓ Nuevo run arrancando (${data.runId}).`
+        `🛠 Claude está investigando esta tarea${
+          data.aborted > 0 ? ` (abortado ${data.aborted} run de Sonia en curso)` : ""
+        }. Recibirás notificación cuando aplique la mejora.`
       );
     } catch (e: any) {
-      setError(`Force-retry: ${e?.message ?? e}`);
+      setError(`Escalación: ${e?.message ?? e}`);
     } finally {
       setSendingToSonia(false);
     }
@@ -589,13 +598,12 @@ export default function TaskFormModal({
           {isEdit && (
             <button
               type="button"
-              onClick={forceRetrySonia}
+              onClick={askClaude}
               disabled={sendingToSonia || saving}
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 font-medium disabled:opacity-50"
-              title="Mata cualquier run de Sonia colgado en esta tarea y arranca uno nuevo. Úsalo si Sonia lleva mucho rato 'trabajando' sin avanzar."
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm border border-sky-300 bg-sky-50 hover:bg-sky-100 text-sky-800 font-semibold disabled:opacity-50"
+              title="Manda esta tarea a Claude Code (el desarrollador de Sonia). Úsalo cuando Sonia esté perdida, entregue algo pobre o lleve demasiado rato. Claude analiza la tarea entera, aplica una mejora al sistema o da instrucciones a Sonia, y re-procesa la tarea automáticamente."
             >
-              <RefreshCw className="h-4 w-4" />
-              Forzar reintento
+              🛠 Claude
             </button>
           )}
           <button

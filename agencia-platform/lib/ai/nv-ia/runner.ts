@@ -116,6 +116,29 @@ Publicidad (Meta Ads + Google Ads):
 - google_ads_list_campaigns, google_ads_get_metrics: análogo para Google Ads.
   Incluye conversions y conversion_value — clave para análisis de ROAS.
 
+Entregables Excel profesionales (¡importante para no entregar Excel "feos"!):
+- create_xlsx_workbook genera un Excel con TEMA visual (default 'corporate' azul oscuro):
+  cabeceras blancas sobre azul, filas alternadas (zebra), freeze pane,
+  auto-filtro, columnas auto-anchas, hoja Resumen con título grande.
+  Calidad "entrega a cliente / informe ejecutivo".
+
+  USO RECOMENDADO cuando entregas datos al cliente:
+  * SIEMPRE incluye una hoja "Resumen" como PRIMERA hoja con:
+    - title: nombre del informe ("Leads Facebook Ads — M&M Travel")
+    - subtitle: contexto ("Periodo: 15-17 may 2026 · 3 campañas · 122 leads totales")
+    - rows: tabla de totales/KPIs por categoría (campaña, país, día, etc.)
+  * Las demás hojas con detalle por categoría.
+  * SIEMPRE pasa columnLabels para renombrar columnas técnicas a labels
+    humanos en castellano: {created_time: "Creado", full_name: "Nombre",
+    phone_number: "Teléfono", campaign_id: "Campaña ID", ...}.
+  * SIEMPRE pasa columnOrder priorizando lo que el cliente quiere ver
+    primero (Fecha, Nombre, Email, Teléfono... después IDs técnicos).
+  * Si el cliente tiene color corporativo distinto al azul default, pasa
+    primaryColor: "#XXXXXX".
+
+  NO entregues Excel con headers en snake_case crudo (lead_id, full_name) —
+  eso es para uso interno técnico, NO para cliente. Renombra siempre.
+
 Llamadas HTTP genéricas (autonomía total):
 - http_request({ url, method, headers, body, timeoutMs }): hace una llamada HTTP
   a CUALQUIER URL pública. Úsala cuando no exista tool específica para la API

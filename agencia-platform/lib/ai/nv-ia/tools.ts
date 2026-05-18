@@ -786,38 +786,76 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
   {
     name: "create_xlsx_workbook",
     description:
-      "Genera un Excel CONSOLIDADO Y BONITO con múltiples hojas y lo adjunta a la task. Útil para entregar al cliente un único archivo con resumen + datos detallados.\n\nDos modos combinables:\n  - `fromAttachments`: combina .xlsx/.csv YA adjuntos a la task en hojas del nuevo libro (una hoja por archivo). Sin necesidad de pasar los datos enteros otra vez en el prompt.\n  - `sheets`: define hojas inline con headers + rows (típicamente para una hoja de 'Resumen' con totales/KPIs).\n\nUSO TÍPICO tras meta_ads_download_leads con attachAs='xlsx':\n  1. Llamas download_leads 3 veces (1 por campaña) — quedan 3 .xlsx adjuntos.\n  2. Llamas create_xlsx_workbook({\n       filename: 'leads-consolidado-15-17may2026',\n       fromAttachments: ['leads-peru…', 'leads-colombia…', 'leads-ecuador…'],\n       sheets: [{ name: 'Resumen', headers: ['Campaña','Total','%'], rows: [...] }],\n       summarySheetFirst: true\n     })\n  3. Se adjunta UN excel con 4 hojas: Resumen + 3 detalles.\n\nLos headers de la hoja Resumen quedan en negrita azul + freeze pane.",
+      "Genera un EXCEL PROFESIONAL para entregar a cliente: cabeceras blancas sobre azul corporativo, filas alternadas (zebra), freeze pane, auto-filtros, anchuras automáticas, hoja Resumen con título grande. Trabajo digno de consultoría.\n\nCombina datos de dos fuentes (puedes usar ambas o solo una):\n  - fromAttachments: archivos .xlsx/.csv YA adjuntos a la task → cada uno se importa como hoja.\n  - sheets: hojas inline con rows como array de objetos (más natural que arrays de arrays). Auto-detecta columnas de los keys.\n\nPara cada hoja inline puedes pasar:\n  - title: título grande (font 16, color marca) que aparece encima de la tabla.\n  - subtitle: línea pequeña debajo del título.\n  - columnLabels: { 'snake_case_key': 'Label Bonito' } — renombra columnas en la cabecera. Si no se da, snake_case se convierte a 'Title Case' automáticamente y las siglas conocidas (ID, URL, GMB, IA, SEO, ROAS, CTR, CPC) quedan en mayúsculas.\n  - columnOrder: orden explícito de columnas.\n  - columnWidths: { key: number } anchura en chars (override del auto).\n\nUSO TÍPICO tras meta_ads_download_leads:\n  1. Download_leads 3 veces (por país) con attachAs='xlsx' o 'json' (en json los datos vuelven en el response y los puedes pasar a 'sheets' aquí).\n  2. create_xlsx_workbook({\n       filename: 'leads-MM-Travel-finde-15-17may',\n       theme: 'corporate',\n       sheets: [{\n         name: 'Resumen',\n         title: 'Leads Facebook Ads — M&M Travel',\n         subtitle: 'Periodo: viernes 15 – domingo 17 may 2026',\n         rows: [\n           { Campana: 'Colombia', Pais: '🇨🇴 Colombia', 'Total leads': 64, 'CPL est.': '0,57€' },\n           { Campana: 'Perú', Pais: '🇵🇪 Perú', 'Total leads': 28, 'CPL est.': '1,30€' },\n         ]\n       }],\n       fromAttachments: ['leads-colombia', 'leads-peru', 'leads-ecuador']\n     })\n  3. Se adjunta UN excel con 4 hojas (Resumen primero por defecto).\n\nThemes disponibles: 'corporate' (azul oscuro #1F4E79, default), 'minimal' (gris claro), 'dark' (slate). Puedes overridear el color principal con primaryColor: '#FF5722' por ejemplo.",
     input_schema: {
       type: "object",
       properties: {
         filename: { type: "string", description: "Nombre del archivo SIN extensión. Se añade .xlsx automáticamente." },
+        theme: {
+          type: "string",
+          enum: ["corporate", "minimal", "dark"],
+          description: "Tema visual. Default 'corporate' (azul oscuro)."
+        },
+        primaryColor: {
+          type: "string",
+          description: "Override del color principal del tema. Hex tipo '#1F4E79' o '#FF5722'. Cambia color de header bg y título."
+        },
         fromAttachments: {
           type: "array",
           items: { type: "string" },
-          description: "Nombres exactos (o prefijos únicos) de archivos ya adjuntos a la task que quieres incluir como hojas. Acepta .xlsx, .csv. Si pasas un prefijo y matchea varios, se incluyen todos."
+          description: "Nombres exactos (o prefijos únicos) de archivos ya adjuntos a la task que quieres incluir como hojas. Acepta .xlsx, .csv. Cada archivo → una hoja."
         },
         sheets: {
           type: "array",
-          description: "Hojas con datos inline. Cada una: { name, headers, rows }.",
+          description: "Hojas con datos inline. Cada una se renderiza con estilos del theme.",
           items: {
             type: "object",
             properties: {
               name: { type: "string", description: "Nombre de la hoja (≤31 chars, sin /:*?[])." },
-              headers: { type: "array", items: { type: "string" } },
-              rows: { type: "array", items: { type: "array", items: {} } },
-              freezeHeader: { type: "boolean", description: "Default true. Fija la fila de headers al hacer scroll." }
+              title: { type: "string", description: "Título grande que aparece encima de la tabla (opcional)." },
+              subtitle: { type: "string", description: "Subtítulo pequeño debajo del título (opcional)." },
+              rows: {
+                type: "array",
+                description: "Filas como objetos. Los KEYs son nombres internos de columna; los labels visibles vienen de columnLabels o se pretty-formatean.",
+                items: { type: "object", additionalProperties: true }
+              },
+              columnOrder: {
+                type: "array",
+                items: { type: "string" },
+                description: "Orden explícito de las columnas. Si no, se infiere del primer row."
+              },
+              columnLabels: {
+                type: "object",
+                description: "Mapping snake_case → 'Label Bonito'. Override del pretty-format automático.",
+                additionalProperties: { type: "string" }
+              },
+              columnWidths: {
+                type: "object",
+                description: "Mapping key → anchura en chars. Override del auto-width.",
+                additionalProperties: { type: "number" }
+              }
             },
-            required: ["name", "headers", "rows"],
+            required: ["name", "rows"],
             additionalProperties: false
           }
         },
         summarySheetFirst: {
           type: "boolean",
-          description: "Si es true (default), las `sheets` inline van ANTES de las `fromAttachments`. Útil para que la hoja Resumen sea la primera al abrir."
+          description: "Si es true (default), las sheets inline van ANTES de fromAttachments. Útil para que el Resumen sea la primera hoja al abrir."
         },
         description: {
           type: "string",
-          description: "Texto opcional para el comentario que Sonia añade al adjuntar."
+          description: "Texto opcional para el comentario que Sonia añade al adjuntar el archivo."
+        },
+        meta: {
+          type: "object",
+          description: "Propiedades del archivo (visible en File > Properties).",
+          properties: {
+            title: { type: "string" },
+            subject: { type: "string" },
+            company: { type: "string" }
+          },
+          additionalProperties: false
         }
       },
       required: ["filename"],
@@ -2597,24 +2635,48 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
       }
 
       if (attachAs === "xlsx") {
-        const XLSX = await import("xlsx");
-        const ws = XLSX.utils.json_to_sheet(result.leads);
-        // Auto-width básico: max(longitud header, longitud max valor)
-        const range = XLSX.utils.decode_range(ws["!ref"] ?? "A1");
-        const colWidths: any[] = [];
-        for (let c = range.s.c; c <= range.e.c; c++) {
-          let max = 10;
-          for (let r = range.s.r; r <= range.e.r; r++) {
-            const addr = XLSX.utils.encode_cell({ r, c });
-            const cell = (ws as any)[addr];
-            if (cell?.v) max = Math.max(max, String(cell.v).length);
-          }
-          colWidths.push({ wch: Math.min(50, max + 2) });
-        }
-        (ws as any)["!cols"] = colWidths;
-        const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, ws, "Leads");
-        const buf: Buffer = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
+        // Usamos el builder estilizado en vez de xlsx community. Headers
+        // azul corporativo blanco, zebra striping, columnas renombradas,
+        // freeze pane + auto-filter. Calidad "entrega a cliente".
+        const { buildStyledXlsx } = await import("@/lib/files/xlsx-builder");
+        // Renombrar columnas técnicas a labels humanos.
+        const PRETTY: Record<string, string> = {
+          lead_id: "Lead ID",
+          created_time: "Creado",
+          ad_id: "Ad ID",
+          form_id: "Form ID",
+          campaign_id: "Campaign ID",
+          adset_id: "Adset ID",
+          full_name: "Nombre",
+          phone_number: "Teléfono",
+          email: "Email"
+        };
+        // Orden de columnas — prioriza datos de contacto.
+        const PREFERRED_ORDER = [
+          "created_time",
+          "full_name",
+          "email",
+          "phone_number",
+          "lead_id",
+          "campaign_id",
+          "adset_id",
+          "ad_id",
+          "form_id"
+        ];
+        const buf = await buildStyledXlsx({
+          theme: "corporate",
+          sheets: [
+            {
+              name: "Leads",
+              title: `Leads — ${result.count}`,
+              subtitle: `Source: ${result.source}`,
+              rows: result.leads,
+              columnLabels: PRETTY,
+              columnOrder: PREFERRED_ORDER
+            }
+          ],
+          meta: { title: baseName, creator: "Sonia (Hub)" }
+        });
         const { uploadAttachmentForTask } = await import("@/lib/files/sonia-upload");
         const file = await uploadAttachmentForTask({
           workspaceId: ctx.workspaceId,
@@ -2753,57 +2815,19 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
       }
       const summaryFirst = input?.summarySheetFirst !== false;
       const description = typeof input?.description === "string" ? input.description : "";
+      const theme = (typeof input?.theme === "string" && ["corporate", "minimal", "dark"].includes(input.theme))
+        ? input.theme
+        : "corporate";
+      const primaryColor = typeof input?.primaryColor === "string" ? input.primaryColor : undefined;
 
-      const XLSX = await import("xlsx");
       const { downloadBuffer } = await import("@/lib/storage/r2");
-      const wb = XLSX.utils.book_new();
+      const { buildStyledXlsx } = await import("@/lib/files/xlsx-builder");
+      const XLSX_legacy = await import("xlsx"); // solo para PARSEAR adjuntos viejos
 
-      // Helper: añade una hoja al libro con auto-width + freeze header.
-      function addSheet(name: string, headers: string[], rows: any[][], freezeHeader = true) {
-        const cleanName = name.replace(/[/\\?*\[\]]/g, "_").slice(0, 31);
-        const data = [headers, ...rows];
-        const ws = XLSX.utils.aoa_to_sheet(data);
-        // Auto width
-        const widths: any[] = headers.map((h, c) => {
-          let max = String(h).length;
-          for (const row of rows) {
-            const v = row[c];
-            if (v != null) max = Math.max(max, String(v).length);
-          }
-          return { wch: Math.min(50, max + 2) };
-        });
-        (ws as any)["!cols"] = widths;
-        if (freezeHeader) {
-          (ws as any)["!freeze"] = { xSplit: 0, ySplit: 1 };
-        }
-        // Bold header (xlsx no aplica estilos sin xlsx-style; suficiente
-        // con freeze. Para estilo full, el cliente podría pasar custom.)
-        XLSX.utils.book_append_sheet(wb, ws, cleanName);
-      }
-
-      const sheetsAdded: string[] = [];
-      const sheetsFailed: string[] = [];
-
-      // 1) Hojas inline (van primero si summaryFirst).
-      function addInlineSheets() {
-        for (const s of inlineSheets) {
-          try {
-            const name = String(s?.name ?? "Hoja").trim();
-            const headers = (Array.isArray(s?.headers) ? s.headers : []).map((h: any) => String(h));
-            const rows = (Array.isArray(s?.rows) ? s.rows : []).map((r: any) =>
-              Array.isArray(r) ? r : Object.values(r ?? {})
-            );
-            addSheet(name, headers, rows, s?.freezeHeader !== false);
-            sheetsAdded.push(name);
-          } catch (e: any) {
-            sheetsFailed.push(`inline:${s?.name}: ${e?.message ?? e}`);
-          }
-        }
-      }
-
-      // 2) Hojas desde adjuntos (descargamos de R2 y parseamos).
-      async function addFromAttachmentsSheets() {
-        // Buscar todos los Files de la task que matcheen.
+      // Cargar contenido de adjuntos a sheets nuevos.
+      const attachmentSheets: any[] = [];
+      const failed: string[] = [];
+      if (fromAttachments.length > 0) {
         const files = await prisma.file.findMany({
           where: {
             workspaceId: ctx.workspaceId,
@@ -2820,20 +2844,18 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
               f.name.includes(pattern)
           );
           if (matched.length === 0) {
-            sheetsFailed.push(`attachment:${pattern}: no match en ${files.length} archivos`);
+            failed.push(`attachment:${pattern}: no match en ${files.length} archivos`);
             continue;
           }
           for (const f of matched) {
             try {
               const buf = await downloadBuffer(f.s3Key);
               const ext = (f.name.split(".").pop() || "").toLowerCase();
-              let rows: any[][] = [];
-              let headers: string[] = [];
+              let rows: Array<Record<string, unknown>> = [];
               if (ext === "csv") {
                 const text = buf.toString("utf-8").replace(/^﻿/, "");
                 const lines = text.split(/\r?\n/).filter((l) => l.length > 0);
                 if (lines.length === 0) continue;
-                // Parser CSV mínimo RFC4180.
                 const parseLine = (line: string): string[] => {
                   const out: string[] = [];
                   let cur = "";
@@ -2854,49 +2876,75 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
                   out.push(cur);
                   return out;
                 };
-                headers = parseLine(lines[0]);
-                rows = lines.slice(1).map(parseLine);
+                const headers = parseLine(lines[0]);
+                rows = lines.slice(1).map((line) => {
+                  const vals = parseLine(line);
+                  const obj: Record<string, unknown> = {};
+                  headers.forEach((h, i) => (obj[h] = vals[i]));
+                  return obj;
+                });
               } else if (ext === "xlsx" || ext === "xls") {
-                const srcWb = XLSX.read(buf, { type: "buffer" });
+                const srcWb = XLSX_legacy.read(buf, { type: "buffer" });
                 const firstSheet = srcWb.SheetNames[0];
-                const data: any[][] = XLSX.utils.sheet_to_json(srcWb.Sheets[firstSheet], {
-                  header: 1,
-                  raw: false
-                }) as any;
-                if (data.length === 0) continue;
-                headers = (data[0] ?? []).map((x: any) => String(x ?? ""));
-                rows = data.slice(1);
+                rows = XLSX_legacy.utils.sheet_to_json(srcWb.Sheets[firstSheet], { raw: false }) as any;
               } else {
-                sheetsFailed.push(`attachment:${f.name}: ext ${ext} no soportada`);
+                failed.push(`attachment:${f.name}: ext ${ext} no soportada`);
                 continue;
               }
-              // Nombre de la hoja: del filename sin extensión.
               const sheetName = f.name.replace(/\.[^.]+$/, "");
-              addSheet(sheetName, headers, rows);
-              sheetsAdded.push(sheetName);
+              attachmentSheets.push({ name: sheetName, rows });
             } catch (e: any) {
-              sheetsFailed.push(`attachment:${f.name}: ${e?.message ?? e}`);
+              failed.push(`attachment:${f.name}: ${e?.message ?? e}`);
             }
           }
         }
       }
 
-      if (summaryFirst) {
-        addInlineSheets();
-        await addFromAttachmentsSheets();
-      } else {
-        await addFromAttachmentsSheets();
-        addInlineSheets();
+      // Normalizar las sheets inline al shape esperado por buildStyledXlsx.
+      const normalizedInline = inlineSheets.map((s) => ({
+        name: String(s?.name ?? "Hoja"),
+        title: s?.title ? String(s.title) : undefined,
+        subtitle: s?.subtitle ? String(s.subtitle) : undefined,
+        rows: Array.isArray(s?.rows)
+          ? s.rows.map((r: any) => (typeof r === "object" && r != null ? r : {}))
+          : [],
+        columnOrder: Array.isArray(s?.columnOrder) ? s.columnOrder.map(String) : undefined,
+        columnLabels: typeof s?.columnLabels === "object" && s.columnLabels != null
+          ? Object.fromEntries(
+              Object.entries(s.columnLabels)
+                .filter(([, v]) => typeof v === "string")
+                .map(([k, v]) => [k, String(v)])
+            )
+          : undefined,
+        columnWidths: typeof s?.columnWidths === "object" && s.columnWidths != null
+          ? Object.fromEntries(
+              Object.entries(s.columnWidths)
+                .filter(([, v]) => typeof v === "number")
+                .map(([k, v]) => [k, Number(v)])
+            )
+          : undefined
+      }));
+
+      const allSheets = summaryFirst
+        ? [...normalizedInline, ...attachmentSheets]
+        : [...attachmentSheets, ...normalizedInline];
+
+      if (allSheets.length === 0) {
+        return { error: "No se pudo añadir ninguna hoja al libro", failed };
       }
 
-      if (wb.SheetNames.length === 0) {
-        return {
-          error: "No se pudo añadir ninguna hoja al libro",
-          failed: sheetsFailed
-        };
-      }
+      const buf = await buildStyledXlsx({
+        theme: theme as any,
+        primaryColor,
+        sheets: allSheets,
+        meta: {
+          title: input?.meta?.title,
+          subject: input?.meta?.subject,
+          company: input?.meta?.company,
+          creator: "Sonia (Hub)"
+        }
+      });
 
-      const buf: Buffer = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
       const { uploadAttachmentForTask } = await import("@/lib/files/sonia-upload");
       const safeName = /\.xlsx$/i.test(filename) ? filename : `${filename}.xlsx`;
       const file = await uploadAttachmentForTask({
@@ -2907,10 +2955,10 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
         mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         uploadedByUserId: ctx.config.userId
       });
-      const sheetsList = sheetsAdded.map((s) => `\`${s}\``).join(", ");
+      const sheetsList = allSheets.map((s) => `\`${s.name}\``).join(", ");
       const note = description
         ? description
-        : `📎 He adjuntado **${safeName}** con ${sheetsAdded.length} hojas: ${sheetsList}.`;
+        : `📎 He adjuntado **${safeName}** con ${allSheets.length} hojas: ${sheetsList}.`;
       await prisma.comment.create({
         data: {
           workspaceId: ctx.workspaceId,
@@ -2924,8 +2972,8 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
         ok: true,
         fileId: file.fileId,
         filename: file.filename,
-        sheetsAdded,
-        sheetsFailed,
+        sheetsAdded: allSheets.map((s) => s.name),
+        sheetsFailed: failed,
         sizeBytes: file.sizeBytes
       };
     } catch (e: any) {

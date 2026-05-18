@@ -26,7 +26,7 @@
 // reintroducir cache PERO con purga agresiva por VERSION en
 // activate.
 
-const VERSION = "v17-2026-05-18-ask-claude-first";
+const VERSION = "v19-2026-05-18-claude-button";
 
 self.addEventListener("install", (event) => {
   // Activación inmediata: no esperar a que el SW viejo libere.
