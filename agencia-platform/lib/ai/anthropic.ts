@@ -82,13 +82,19 @@ export async function complete(opts: {
 }
 
 /**
- * Helper "vision": acepta una lista de URLs de imágenes (Claude las
- * descarga internamente) además del texto del usuario. Útil para
- * analizar refs visuales, screenshots de webs, etc.
+ * Helper "vision": acepta una lista de URLs de imágenes y las manda
+ * a Claude junto con un texto. Útil para analizar refs visuales,
+ * screenshots, etc.
  *
- * Las imágenes se mandan como bloques `{type: "image", source: {type:
- * "url", url}}`. Si una URL no es accesible Claude responde igual con un
- * warning interno.
+ * Implementación: en vez de pasarle a Claude `{source: type:"url"}` —
+ * que hace que Claude fetchee la URL desde sus servidores Y respete
+ * el robots.txt del dominio (fallo común con buckets R2/S3 sin
+ * robots.txt explícitamente permisivo) — descargamos las imágenes
+ * SERVER-SIDE aquí y las pasamos como `{source: type:"base64"}`.
+ * Anthropic no toca robots.txt para datos inline.
+ *
+ * Si una URL falla al descargar, se omite en el batch y se loguea
+ * — el resto siguen.
  */
 export async function completeVision(opts: {
   workspaceId: string;
@@ -102,11 +108,12 @@ export async function completeVision(opts: {
 }): Promise<string> {
   const client = await getAnthropicForWorkspace(opts.workspaceId);
   const model = opts.model ?? DEFAULT_MODEL;
+  const imageBlocks = await Promise.all(
+    opts.imageUrls.slice(0, 20).map((url) => fetchImageAsBase64Block(url))
+  );
+  const validImages = imageBlocks.filter((b): b is NonNullable<typeof b> => b !== null);
   const content: any[] = [
-    ...opts.imageUrls.slice(0, 20).map((url) => ({
-      type: "image",
-      source: { type: "url", url }
-    })),
+    ...validImages,
     { type: "text", text: opts.userText }
   ];
   const resp = await client.messages.create({
@@ -209,13 +216,13 @@ export async function completeJson<T = any>(opts: {
   // bloques al inicio + texto al final.
   let userContent: any;
   if (opts.imageUrls && opts.imageUrls.length > 0) {
-    userContent = [
-      ...opts.imageUrls.slice(0, 20).map((url) => ({
-        type: "image",
-        source: { type: "url", url }
-      })),
-      { type: "text", text: opts.user }
-    ];
+    // Igual que en completeVision: descargamos server-side y mandamos
+    // base64 para evitar el bloqueo por robots.txt.
+    const blocks = await Promise.all(
+      opts.imageUrls.slice(0, 20).map((url) => fetchImageAsBase64Block(url))
+    );
+    const valid = blocks.filter((b): b is NonNullable<typeof b> => b !== null);
+    userContent = [...valid, { type: "text", text: opts.user }];
   } else {
     userContent = opts.user;
   }
@@ -233,4 +240,74 @@ export async function completeJson<T = any>(opts: {
   const text = resp.content.find((b) => b.type === "text") as any;
   if (!text) throw new Error("Sin respuesta de texto del modelo");
   return JSON.parse(text.text) as T;
+}
+
+/**
+ * Descarga una URL de imagen server-side y la convierte al bloque
+ * vision de Anthropic en formato base64. Devuelve null si la
+ * descarga falla (URL caída, content-type no soportado, demasiado
+ * grande) — el caller filtra los nulls y sigue con las que sí.
+ *
+ * Por qué base64 en vez de URL:
+ *   - Anthropic con source:type=url hace fetch desde sus servidores
+ *     y RESPETA el robots.txt del dominio. Buckets R2/S3 públicos
+ *     sin robots.txt explícitamente permisivo devuelven el error
+ *     "This URL is disallowed by the website's robots.txt file"
+ *     y la generación falla.
+ *   - source:type=base64 lleva los bytes inline en el mensaje —
+ *     no hay fetch externo, no aplica robots.txt.
+ *
+ * Mime types soportados por la API: image/jpeg, image/png,
+ * image/gif, image/webp. Otros se rechazan.
+ *
+ * Límite suave: 5MB por imagen (la API admite hasta 20MB pero
+ * cada request acumula y el modelo se rinde con contexto enorme).
+ */
+async function fetchImageAsBase64Block(url: string): Promise<
+  { type: "image"; source: { type: "base64"; media_type: string; data: string } } | null
+> {
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 15_000);
+    const resp = await fetch(url, { signal: ctrl.signal, redirect: "follow" });
+    clearTimeout(timer);
+    if (!resp.ok) {
+      console.warn(`[vision] HTTP ${resp.status} al descargar ${url.slice(0, 80)}`);
+      return null;
+    }
+    let mediaType = (resp.headers.get("content-type") ?? "").split(";")[0].trim().toLowerCase();
+    // Algunos buckets devuelven octet-stream para imágenes — inferimos
+    // por extensión cuando es ambiguo.
+    if (!mediaType.startsWith("image/")) {
+      const ext = url.split("?")[0].split(".").pop()?.toLowerCase() ?? "";
+      const guess: Record<string, string> = {
+        jpg: "image/jpeg",
+        jpeg: "image/jpeg",
+        png: "image/png",
+        gif: "image/gif",
+        webp: "image/webp"
+      };
+      mediaType = guess[ext] ?? "";
+    }
+    if (!["image/jpeg", "image/png", "image/gif", "image/webp"].includes(mediaType)) {
+      console.warn(`[vision] mime no soportado (${mediaType}) en ${url.slice(0, 80)}`);
+      return null;
+    }
+    const buf = Buffer.from(await resp.arrayBuffer());
+    if (buf.length > 5 * 1024 * 1024) {
+      console.warn(`[vision] imagen > 5MB (${(buf.length / 1024 / 1024).toFixed(1)}MB), saltando ${url.slice(0, 80)}`);
+      return null;
+    }
+    return {
+      type: "image",
+      source: {
+        type: "base64",
+        media_type: mediaType,
+        data: buf.toString("base64")
+      }
+    };
+  } catch (e: any) {
+    console.warn(`[vision] fetch fail ${url.slice(0, 80)}: ${e?.message ?? e}`);
+    return null;
+  }
 }

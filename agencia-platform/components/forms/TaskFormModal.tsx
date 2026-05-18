@@ -67,9 +67,19 @@ export default function TaskFormModal({
 }) {
   const router = useRouter();
 
-  // Pila de navegación tarea → subtarea. La cima es la tarea actualmente visible.
-  const [taskStack, setTaskStack] = useState<CurrentTask[]>([]);
-  const currentTask = taskStack[taskStack.length - 1] ?? null;
+  // Pila de navegación SUBTAREAS. La pila se rellena solo cuando el
+  // user navega DENTRO del modal a una subtarea con goToSubtask().
+  // Si está vacía, la tarea visible es directamente la prop `task`.
+  //
+  // Esto evita el bug que había antes (taskStack inicializado por
+  // useEffect con la prop, creando un render intermedio donde
+  // currentTask apuntaba a la tarea anterior, fuga de description
+  // al editor rico, etc).
+  const [subtaskStack, setSubtaskStack] = useState<CurrentTask[]>([]);
+  const currentTask: CurrentTask | null =
+    subtaskStack.length > 0
+      ? subtaskStack[subtaskStack.length - 1]
+      : (task as CurrentTask | null) ?? null;
   const isEdit = !!currentTask;
 
   // Form fields
@@ -154,8 +164,9 @@ export default function TaskFormModal({
         return setError(j.message || `Error ${r.status}`);
       }
       const created = await r.json();
-      // Pasamos el modal a modo edición de la tarea recién creada.
-      setTaskStack([{ id: created.id, ...created } as CurrentTask]);
+      // Pasamos el modal a modo edición de la tarea recién creada
+      // pushing al stack de subtareas.
+      setSubtaskStack([{ id: created.id, ...created } as CurrentTask]);
       router.refresh();
       setMeetingOpen(true);
     } finally {
@@ -167,21 +178,19 @@ export default function TaskFormModal({
   const [newSubtask, setNewSubtask] = useState("");
   const [addingSubtask, setAddingSubtask] = useState(false);
 
-  // Sincroniza la pila con el task que llega por prop al abrir el
-  // modal. Cuando se abre en modo "Nueva tarea" (task=null), hacemos
-  // RESET EAGER aquí mismo — antes había un render intermedio con
-  // currentTask aún apuntando a la tarea anterior (porque taskStack
-  // se actualizaba en este efecto pero el effect de recargar datos
-  // miraba al closure VIEJO de currentTask). Resultado: la descripción
-  // de la tarea anterior se quedaba pintada en "Nueva tarea".
+  // Reset del subtaskStack al abrir / cerrar modal. Solo se usa
+  // cuando el user navega a subtareas DENTRO del modal abierto.
+  // Si el modal abre con task=null (nueva tarea) o task=X (editar X),
+  // currentTask se deriva DIRECTAMENTE de la prop — sin pasar por
+  // este state.
   useEffect(() => {
     if (!open) return;
-    if (task) {
-      setTaskStack([task as CurrentTask]);
-    } else {
-      // Reset agresivo de TODO el state del modal. Sin esto el editor
-      // mantenía buffer de la tarea anterior.
-      setTaskStack([]);
+    setSubtaskStack([]);
+    setError(null);
+    // Reset del editor cuando se abre el modal en modo "Nueva tarea"
+    // (no hay task). Sin esto el RichTextEditor mantiene el buffer
+    // interno de la tarea anterior.
+    if (!task) {
       setTitle("");
       setDescription(null);
       setEditorKey((k) => k + 1);
@@ -363,7 +372,7 @@ export default function TaskFormModal({
     }
     router.refresh();
     // Si era la última tarea de la pila, cerramos; si era una subtarea, volvemos a la padre
-    if (taskStack.length <= 1) {
+    if (subtaskStack.length === 0) {
       onClose();
     } else {
       goBack();
@@ -377,7 +386,7 @@ export default function TaskFormModal({
     setDeleting(false);
     if (!r.ok) return setError("No se pudo eliminar");
     router.refresh();
-    if (taskStack.length <= 1) onClose();
+    if (subtaskStack.length === 0) onClose();
     else goBack();
   }
 
@@ -520,14 +529,23 @@ export default function TaskFormModal({
       tags: (data.tags ?? []).map((t: any) => t.tag?.name ?? "").filter(Boolean),
       _parentId: data.parentId ?? null
     };
-    setTaskStack((s) => [...s, sub]);
+    setSubtaskStack((s) => [...s, sub]);
   }
 
   function goBack() {
-    setTaskStack((s) => s.slice(0, -1));
+    setSubtaskStack((s) => s.slice(0, -1));
   }
 
-  const parentInStack = taskStack.length > 1 ? taskStack[taskStack.length - 2] : null;
+  // parentInStack — la "tarea padre" cuando estamos navegando una
+  // subtarea dentro del modal. Si subtaskStack.length === 1, el
+  // padre es la prop `task`. Si hay más niveles, el padre es el
+  // elemento previo de la pila.
+  const parentInStack: CurrentTask | null =
+    subtaskStack.length === 1
+      ? ((task as CurrentTask | null) ?? null)
+      : subtaskStack.length > 1
+        ? subtaskStack[subtaskStack.length - 2]
+        : null;
   const dynamicColumns = columns && columns.length > 0
     ? columns
     : [
