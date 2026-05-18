@@ -107,7 +107,7 @@
   /* Highlight stats */
   .stats-row {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(3, 1fr);
     gap: 16px;
     margin-bottom: 40px;
   }
@@ -256,15 +256,75 @@
   .conclusion-block ul { padding-left: 22px; margin-top: 8px; }
   .conclusion-block li { margin-bottom: 8px; font-size: 14px; }
 
-  .next-steps {
-    background: linear-gradient(135deg, #0a4ea8 0%, #1877f2 100%);
+  /* Alert banner */
+  .alert-banner {
+    background: linear-gradient(135deg, #d9501a 0%, #f57c00 100%);
     color: white;
-    padding: 36px;
-    border-radius: 12px;
+    padding: 48px 56px;
+    border-radius: 16px;
+    margin: 0 0 40px 0;
+    position: relative;
+    overflow: hidden;
+    box-shadow: 0 8px 32px rgba(217,80,26,.25);
   }
-  .next-steps h3 { font-size: 20px; margin-bottom: 20px; }
-  .next-steps ol { padding-left: 24px; }
-  .next-steps li { margin-bottom: 12px; font-size: 15px; line-height: 1.5; }
+  .alert-banner::before {
+    content: '⚠';
+    position: absolute;
+    top: -40px; right: -20px;
+    font-size: 280px;
+    opacity: .08;
+    line-height: 1;
+  }
+  .alert-banner .alert-label {
+    display: inline-block;
+    background: rgba(255,255,255,.25);
+    padding: 6px 16px;
+    border-radius: 16px;
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    margin-bottom: 20px;
+  }
+  .alert-banner h3 {
+    font-size: 32px;
+    line-height: 1.2;
+    font-weight: 700;
+    margin-bottom: 20px;
+    position: relative;
+    z-index: 1;
+  }
+  .alert-banner p {
+    font-size: 17px;
+    line-height: 1.6;
+    margin-bottom: 16px;
+    position: relative;
+    z-index: 1;
+    max-width: 850px;
+  }
+  .alert-banner p.callout {
+    background: rgba(255,255,255,.18);
+    padding: 20px 24px;
+    border-radius: 10px;
+    font-size: 18px;
+    font-weight: 600;
+    border-left: 5px solid white;
+    margin-top: 24px;
+  }
+  .alert-banner ul {
+    background: rgba(255,255,255,.12);
+    padding: 20px 24px 20px 44px;
+    border-radius: 10px;
+    margin-top: 20px;
+    position: relative;
+    z-index: 1;
+  }
+  .alert-banner ul li {
+    font-size: 16px;
+    line-height: 1.6;
+    margin-bottom: 10px;
+  }
+  .alert-banner ul li:last-child { margin-bottom: 0; }
 
   /* Footer */
   footer {
@@ -313,7 +373,7 @@
 <section>
   <div class="section-label">Resumen ejecutivo</div>
   <h2>Visión global del periodo</h2>
-  <p class="section-intro">Durante el periodo analizado, las tres campañas activas han alcanzado a <strong>más de 144.000 personas</strong> únicas en la provincia de Málaga, generando un total de <strong>454 leads cualificados</strong> con un coste por adquisición muy competitivo para el sector de servicios jurídicos de extranjería.</p>
+  <p class="section-intro">Durante el periodo analizado, las tres campañas activas han alcanzado a <strong>más de 144.000 personas</strong> únicas en la provincia de Málaga, generando un volumen muy alto de impresiones, interacciones y tráfico cualificado hacia los canales de contacto.</p>
 
   <div class="stats-row">
     <div class="stat highlight">
@@ -329,10 +389,6 @@
       <div class="l">Personas alcanzadas</div>
     </div>
     <div class="stat highlight">
-      <div class="v">454</div>
-      <div class="l">Leads obtenidos</div>
-    </div>
-    <div class="stat">
       <div class="v">8.786</div>
       <div class="l">Clicks en enlaces</div>
     </div>
@@ -344,24 +400,20 @@
       <div class="v">108.093</div>
       <div class="l">Interacciones con publicaciones</div>
     </div>
-    <div class="stat highlight">
-      <div class="v">1,36 €</div>
-      <div class="l">Coste por lead medio</div>
-    </div>
   </div>
 </section>
 
 <section>
   <div class="section-label">Detalle por campaña</div>
   <h2>Rendimiento individualizado</h2>
-  <p class="section-intro">A continuación se muestra el detalle de cada campaña ordenadas por rendimiento global: leads generados, eficiencia de coste y volumen de tráfico cualificado.</p>
+  <p class="section-intro">A continuación se muestra el detalle de cada campaña con sus métricas publicitarias clave: inversión, alcance, eficiencia de coste y volumen de tráfico generado hacia los canales de contacto.</p>
 
   <div class="campaign-cards">
 
     <div class="ccard winner">
       <div class="head">
         <div>
-          <div class="badge">🥇 Mejor rendimiento</div>
+          <div class="badge">Mayor volumen</div>
           <h3>NOVAEXTRANJERÍA Clientes Potenciales Regularización</h3>
         </div>
       </div>
@@ -377,8 +429,8 @@
         <div class="row"><span class="l">CPM</span><span class="v">2,70 €</span></div>
         <div class="row"><span class="l">Interacciones publicación</span><span class="v">48.000</span></div>
         <div class="kpi">
-          <div class="l">Leads · CPL</div>
-          <div class="v">454 · 1,36 €</div>
+          <div class="l">Clicks en enlace</div>
+          <div class="v">2.342</div>
         </div>
       </div>
     </div>
@@ -386,7 +438,7 @@
     <div class="ccard runner">
       <div class="head">
         <div>
-          <div class="badge">🥈 Alto tráfico</div>
+          <div class="badge">Mejor CPC y CTR</div>
           <h3>NOVAEXTRANJERÍA WhatsApp Regularización</h3>
         </div>
       </div>
@@ -411,7 +463,7 @@
     <div class="ccard loser">
       <div class="head">
         <div>
-          <div class="badge">🥉 Menor rendimiento</div>
+          <div class="badge">Campaña más reciente</div>
           <h3>NOVAEXTRANJERIA Campaña de Tráfico Málaga</h3>
         </div>
       </div>
@@ -427,8 +479,8 @@
         <div class="row"><span class="l">CPM</span><span class="v good">2,16 €</span></div>
         <div class="row"><span class="l">Interacciones publicación</span><span class="v">12.305</span></div>
         <div class="kpi">
-          <div class="l">Leads · Clicks web</div>
-          <div class="v">0 · 336</div>
+          <div class="l">Clicks a la web</div>
+          <div class="v">336</div>
         </div>
       </div>
     </div>
@@ -448,11 +500,11 @@
         <th>Objetivo</th>
         <th class="num">Días</th>
         <th class="num">Inversión</th>
+        <th class="num">Impresiones</th>
         <th class="num">Alcance</th>
         <th class="num">CTR</th>
         <th class="num">CPC enlace</th>
-        <th class="num">Conversiones</th>
-        <th class="num">CPL</th>
+        <th class="num">Clicks enlace</th>
       </tr>
     </thead>
     <tbody>
@@ -461,155 +513,97 @@
         <td><span class="pill green">Leads</span></td>
         <td class="num">52</td>
         <td class="num">618,24 €</td>
+        <td class="num">229.063</td>
         <td class="num">53.847</td>
         <td class="num">2,90 %</td>
         <td class="num">0,26 €</td>
-        <td class="num"><strong>454 leads</strong></td>
-        <td class="num"><strong>1,36 €</strong></td>
+        <td class="num">2.342</td>
       </tr>
       <tr>
         <td><strong>WhatsApp Regularización</strong></td>
         <td><span class="pill blue">Tráfico (WA)</span></td>
         <td class="num">59</td>
         <td class="num">701,64 €</td>
+        <td class="num">235.354</td>
         <td class="num">65.825</td>
         <td class="num">2,81 %</td>
         <td class="num">0,11 €</td>
-        <td class="num">6.108 clicks</td>
-        <td class="num">—*</td>
+        <td class="num">6.108</td>
       </tr>
       <tr>
         <td><strong>Tráfico Málaga</strong></td>
         <td><span class="pill gray">Tráfico web</span></td>
         <td class="num">10</td>
         <td class="num">99,76 €</td>
+        <td class="num">46.162</td>
         <td class="num">24.881</td>
         <td class="num">2,76 %</td>
         <td class="num">0,30 €</td>
-        <td class="num">336 clicks</td>
-        <td class="num">—</td>
+        <td class="num">336</td>
       </tr>
       <tr class="total">
         <td>TOTAL</td>
         <td>—</td>
         <td class="num">—</td>
         <td class="num">1.419,64 €</td>
+        <td class="num">510.579</td>
         <td class="num">144.553</td>
         <td class="num">2,85 %</td>
         <td class="num">0,16 €</td>
-        <td class="num">454 leads + 6.444 clicks</td>
-        <td class="num">—</td>
+        <td class="num">8.786</td>
       </tr>
     </tbody>
   </table>
-  <p style="font-size:12px; color:#5a6c7d; margin-top:14px;">* La campaña de WhatsApp dirige a una conversación externa fuera de Meta, por lo que las conversiones que ocurren dentro de WhatsApp no son medibles automáticamente desde Ads Manager.</p>
 </section>
 
 <section>
-  <div class="section-label">Análisis comparativo</div>
-  <h2>¿Qué campaña rinde mejor?</h2>
-  <p class="section-intro">Hemos clasificado las campañas según los dos indicadores más relevantes para el negocio: la captación efectiva de clientes y la eficiencia del coste por interacción.</p>
+  <div class="alert-banner">
+    <div class="alert-label">⚠ Aviso importante — Limitación de medición</div>
+    <h3>No es posible medir las conversiones reales de las campañas de WhatsApp y Tráfico desde Meta.</h3>
+    <p>Las campañas de <strong>WhatsApp</strong> y <strong>Tráfico Málaga</strong> dirigen al usuario fuera del entorno de Meta (a una conversación de WhatsApp y a la web, respectivamente). Esto significa que <strong>Meta Ads Manager no puede saber</strong> cuántas de esas personas terminan convirtiéndose en clientes potenciales reales.</p>
 
-  <div class="ranking">
+    <p class="callout">📋 Para poder hacer una comparativa real del rendimiento entre las tres campañas, necesitamos que nos facilites los datos de leads que has recibido de cada una de ellas (conversaciones reales de WhatsApp, llamadas, formularios web, consultas presenciales, etc.).</p>
 
-    <div class="rank-box">
-      <h4>🎯 Captación de clientes (leads reales)</h4>
-      <div class="rank-item">
-        <div class="rank-pos gold">1</div>
-        <div>
-          <div class="rank-name">Clientes Potenciales Regularización</div>
-          <div class="rank-value">454 leads · 1,36 € por lead</div>
-        </div>
-      </div>
-      <div class="rank-item">
-        <div class="rank-pos silver">2</div>
-        <div>
-          <div class="rank-name">WhatsApp Regularización</div>
-          <div class="rank-value">6.108 conversaciones iniciadas (sin medición de conversión final)</div>
-        </div>
-      </div>
-      <div class="rank-item">
-        <div class="rank-pos bronze">3</div>
-        <div>
-          <div class="rank-name">Tráfico Málaga</div>
-          <div class="rank-value">0 leads atribuidos · 336 visitas web</div>
-        </div>
-      </div>
-    </div>
+    <ul>
+      <li><strong>Campaña de WhatsApp:</strong> ¿cuántas conversaciones reales habéis recibido a través del número de las campañas? ¿Cuántas se han convertido en cliente?</li>
+      <li><strong>Campaña de Tráfico Málaga:</strong> ¿cuántas consultas, llamadas o formularios habéis recibido procedentes de la web durante estos días?</li>
+      <li><strong>Campaña de Clientes Potenciales:</strong> los formularios capturados aparecen en el panel de Meta, pero necesitamos confirmar con vosotros cuántos son leads <em>realmente cualificados</em> (no duplicados, no spam, contactables, etc.).</li>
+    </ul>
 
-    <div class="rank-box">
-      <h4>💰 Eficiencia de coste (por click en enlace)</h4>
-      <div class="rank-item">
-        <div class="rank-pos gold">1</div>
-        <div>
-          <div class="rank-name">WhatsApp Regularización</div>
-          <div class="rank-value">0,11 € · CTR 2,81 %</div>
-        </div>
-      </div>
-      <div class="rank-item">
-        <div class="rank-pos silver">2</div>
-        <div>
-          <div class="rank-name">Clientes Potenciales Regularización</div>
-          <div class="rank-value">0,26 € · CTR 2,90 %</div>
-        </div>
-      </div>
-      <div class="rank-item">
-        <div class="rank-pos bronze">3</div>
-        <div>
-          <div class="rank-name">Tráfico Málaga</div>
-          <div class="rank-value">0,30 € · CTR 2,76 %</div>
-        </div>
-      </div>
-    </div>
-
+    <p style="margin-top:24px;">Con esos datos podremos calcular el <strong>coste real por cliente</strong> de cada campaña y tomar decisiones fundamentadas sobre dónde escalar la inversión.</p>
   </div>
 </section>
 
 <section>
-  <div class="section-label">Conclusiones</div>
-  <h2>Hallazgos principales</h2>
+  <div class="section-label">Lectura de los datos disponibles</div>
+  <h2>Lo que sí podemos confirmar a día de hoy</h2>
+  <p class="section-intro">Sin los datos de conversión por parte del cliente, podemos analizar el rendimiento desde el punto de vista del <strong>volumen y la eficiencia publicitaria</strong> (impresiones, alcance, clicks, CTR y coste por click). Estos son indicadores válidos para juzgar la salud técnica de las campañas, pero no para decidir cuál genera más negocio real.</p>
 
   <div class="conclusion-block win">
-    <h3>🏆 La campaña ganadora es: <em>Clientes Potenciales Regularización Masiva</em></h3>
+    <h3>📱 WhatsApp: la campaña con mejor eficiencia publicitaria</h3>
     <ul>
-      <li>Es la <strong>única con ROI demostrable</strong>: ha generado <strong>454 leads cualificados</strong> en 52 días con una inversión de 618 €, lo que supone un coste por lead de <strong>1,36 €</strong> — una cifra excelente para el sector de servicios jurídicos de extranjería, donde el CPL habitual oscila entre 5-15 €.</li>
-      <li>Si la tasa de conversión de lead a cliente es del 5 %, esta campaña habría generado en torno a <strong>22-23 clientes nuevos</strong> en los últimos 52 días, con un coste de adquisición por cliente de ~28 €.</li>
-      <li>Es además la que más interacciones acumula con las publicaciones (48.000), reforzando la marca a la vez que capta clientes.</li>
+      <li>Es la que tiene el <strong>CTR más alto (2,81 %)</strong> y el <strong>coste por click más bajo (0,11 €)</strong>.</li>
+      <li>6.108 personas han pulsado el botón de iniciar conversación de WhatsApp. <strong>El cliente debe confirmar cuántas de esas conversaciones se han recibido realmente</strong> para saber si esta campaña convierte.</li>
+      <li>La frecuencia (3,58) es saludable, aunque conviene rotar creatividades en las próximas semanas.</li>
     </ul>
   </div>
 
   <div class="conclusion-block improve">
-    <h3>📱 La campaña de WhatsApp tiene un gran potencial sin medir</h3>
+    <h3>🎯 Clientes Potenciales: mayor volumen de interacción y formularios registrados en Meta</h3>
     <ul>
-      <li>Es la campaña con <strong>mejor CTR (2,81 %)</strong> y el <strong>coste por click más bajo (0,11 €)</strong>: 6.108 personas han pulsado el botón para iniciar una conversación.</li>
-      <li>El reto es que Meta no puede ver qué ocurre dentro de WhatsApp. Recomendamos <strong>conectar la API de Conversiones de WhatsApp Business</strong> o registrar manualmente en CRM las conversaciones que se convierten en cliente, para poder calcular el ROI real y compararlo con la campaña de Clientes Potenciales.</li>
-      <li>La frecuencia (3,58) es saludable, pero conviene rotar creatividades en las próximas semanas para mantener el rendimiento.</li>
+      <li>Acumula más impresiones (229.063) e interacciones con publicaciones (48.000) — una campaña con buena resonancia.</li>
+      <li>Meta registra formularios enviados directamente en el panel del cliente, pero <strong>necesitamos validar con vosotros cuántos son leads cualificados reales</strong> antes de calcular el coste por cliente.</li>
+      <li>La frecuencia ha llegado a 4,25, por lo que se recomienda refrescar creatividades pronto.</li>
     </ul>
   </div>
 
   <div class="conclusion-block action">
-    <h3>⚠️ La campaña de Tráfico Málaga no está aportando retorno</h3>
+    <h3>🌐 Tráfico Málaga: campaña reciente, sin datos suficientes</h3>
     <ul>
-      <li>En los 10 días que lleva activa ha invertido casi 100 € sin generar ningún lead atribuido, solo 336 visitas web.</li>
-      <li>Sus métricas de coste son buenas (CPM bajo, frecuencia controlada), pero el problema está en la <strong>monetización del tráfico</strong>: las visitas no se convierten en formularios.</li>
-      <li>Recomendamos <strong>pausar esta campaña en 7 días</strong> si no mejora, o bien revisar la landing y el formulario de la web antes de seguir invirtiendo.</li>
+      <li>Lleva activa solo 10 días con una inversión de 99,76 € — todavía es pronto para sacar conclusiones.</li>
+      <li>Ha generado 336 visitas a la web, pero <strong>no sabemos cuántas se han convertido en consulta, llamada o formulario</strong>: ese dato lo tiene el cliente.</li>
+      <li>Las métricas técnicas son correctas (CPM bajo, frecuencia controlada). Pendiente de saber qué retorno está generando.</li>
     </ul>
-  </div>
-</section>
-
-<section>
-  <div class="section-label">Plan de acción</div>
-  <h2>Próximos pasos recomendados</h2>
-
-  <div class="next-steps">
-    <h3>Hoja de ruta para las próximas 4 semanas</h3>
-    <ol>
-      <li><strong>Escalar la campaña ganadora.</strong> Aumentar gradualmente el presupuesto de <em>Clientes Potenciales</em> de 12 € a 18-20 €/día, monitorizando que el coste por lead se mantenga por debajo de 3 €.</li>
-      <li><strong>Refrescar creatividades.</strong> La frecuencia ha alcanzado 4,25 — diseñar 2-3 nuevos creativos (vídeo y carrusel) en los próximos 7-10 días para evitar fatiga publicitaria.</li>
-      <li><strong>Implementar tracking de WhatsApp.</strong> Configurar Conversions API de WhatsApp Business o un sistema UTM+CRM para medir cuántas conversaciones se convierten en cliente. Sin esto, no es posible justificar la inversión en esta campaña con datos.</li>
-      <li><strong>Evaluar pausa de la campaña de Tráfico Málaga.</strong> Si en 7 días no genera al menos algún lead o no se mejora la landing, redirigir su presupuesto (10 €/día) a la campaña de Clientes Potenciales.</li>
-      <li><strong>Test A/B de nuevos públicos.</strong> En la campaña ganadora, probar segmentaciones por intereses adicionales y looklikes de la base de leads ya captados, para escalar manteniendo el CPL.</li>
-    </ol>
   </div>
 </section>
 
