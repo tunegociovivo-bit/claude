@@ -59,13 +59,48 @@ export async function POST(req: NextRequest, ctx: { params: { id: string } }) {
     });
   }
 
+  // ─── Cierre del run escalado anterior ──────────────────────────
+  // Buscamos el último run REQUIRES_HUMAN de esta task (el que se
+  // escaló a Claude). Si existe, lo marcamos humanReviewedAt=now —
+  // así el badge azul "Claude mejorando" se apaga inmediatamente
+  // en la UI, ANTES incluso de que el nuevo run arranque. Y le
+  // notificamos al requester original que Claude terminó.
+  const escalated = await prisma.aiAgentRun.findFirst({
+    where: {
+      workspaceId: task.workspaceId,
+      taskId,
+      status: "REQUIRES_HUMAN",
+      humanReviewedAt: null
+    },
+    orderBy: { createdAt: "desc" },
+    select: { id: true, requesterId: true }
+  });
+  if (escalated) {
+    await prisma.aiAgentRun.update({
+      where: { id: escalated.id },
+      data: { humanReviewedAt: new Date() }
+    });
+    if (escalated.requesterId) {
+      await prisma.notification
+        .create({
+          data: {
+            userId: escalated.requesterId,
+            type: "ai_agent_escalation_resolved",
+            body: `🛠 Claude terminó el fix del sistema. Sonia se está re-intentando con tu tarea${task.title ? ` "${task.title.slice(0, 80)}"` : ""} — espera la siguiente notificación.`,
+            link: `/tareas?task=${taskId}`
+          }
+        })
+        .catch(() => {});
+    }
+  }
+
   // Crea un run fresco con trigger=SELF_HEALING (que ya existe en el
   // enum). Marca semántica: "Claude reprocesó tras un fix de código".
   const run = await prisma.aiAgentRun.create({
     data: {
       workspaceId: task.workspaceId,
       taskId,
-      requesterId: null,
+      requesterId: escalated?.requesterId ?? null,
       status: "PENDING",
       trigger: "SELF_HEALING" as any,
       triggerContext:

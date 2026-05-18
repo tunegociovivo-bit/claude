@@ -49,7 +49,6 @@ import { completeVision } from "@/lib/ai/anthropic";
 import { listDriveFiles } from "@/lib/integrations/google-drive";
 import { uploadAttachmentForTask } from "@/lib/files/sonia-upload";
 import { markdownToHtmlBody, wrapAsReportHtml } from "@/lib/files/markdown-html";
-import { escalateRunToGitHub } from "./escalate";
 import type { AiAgentConfig } from "./types";
 
 export type ToolContext = {
@@ -3334,10 +3333,11 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
       }
     });
 
-    // 3) Disparar escalación fire-and-forget.
-    void escalateRunToGitHub(ctx.runId).catch((e) =>
-      console.warn("[sonia] escalate_to_claude → escalateRunToGitHub:", e?.message ?? e)
-    );
+    // 3) NO disparamos escalateRunToGitHub aquí — eso lo hace
+    //    process-run.ts cuando ve status=REQUIRES_HUMAN tras el
+    //    cierre del run. Disparar desde dos sitios causaba carrera
+    //    al actualizar el log (último escritor gana, perdíamos la
+    //    entrada de escalation).
 
     return {
       ok: true,

@@ -45,7 +45,25 @@ type KanbanColumn = { id: string; label: string; color: string; order: number; i
  * /api/v1/tasks/ai-status. Se propaga a TaskCard para pintar borde
  * de color + badge informativo. */
 type AiStatusInfo = {
-  aiStatus: "working" | "done_unreviewed" | "needs_help" | null;
+  /**
+   * Estado visual para la card:
+   *   working          → morado, Sonia trabajando
+   *   ai_replied       → CYAN BRILLANTE PARPADEANTE, Sonia te ha
+   *                      contestado y no lo has visto aún (gana
+   *                      sobre todo lo demás cuando aplica)
+   *   done_unreviewed  → verde, Sonia terminó, espera revisión humana
+   *   needs_help       → naranja, Sonia paró y necesita HUMANO
+   *   claude_working   → azul, Sonia escaló y Claude (otro agente)
+   *                      está mejorando el sistema; el user no
+   *                      tiene que hacer nada
+   */
+  aiStatus:
+    | "working"
+    | "ai_replied"
+    | "done_unreviewed"
+    | "needs_help"
+    | "claude_working"
+    | null;
   runId?: string;
   runStatus?: string;
   startedAt?: string;
@@ -54,6 +72,17 @@ type AiStatusInfo = {
   error?: string | null;
   stepsCount?: number;
   reviewed?: boolean;
+  /** Si hay escalación a Claude, URL del issue en GitHub. */
+  escalationIssueUrl?: string | null;
+  escalationIssueNumber?: number | null;
+  /** Texto humano de qué está haciendo Sonia AHORA mismo. */
+  lastStepText?: string | null;
+  /** Nombre técnico de la última tool ejecutada. */
+  lastToolName?: string | null;
+  /** Cuándo Sonia añadió su último comentario en la task. */
+  lastAiCommentAt?: string | null;
+  /** Primeros 140 chars del último comentario de Sonia. */
+  lastAiCommentPreview?: string | null;
 };
 
 const COLUMN_ORDER_KEY = "kanban-column-order-v2";
@@ -168,7 +197,13 @@ export default function TareasClient({
               summary: it.summary,
               error: it.error,
               stepsCount: it.stepsCount,
-              reviewed: it.reviewed
+              reviewed: it.reviewed,
+              escalationIssueUrl: it.escalationIssueUrl,
+              escalationIssueNumber: it.escalationIssueNumber,
+              lastStepText: it.lastStepText,
+              lastToolName: it.lastToolName,
+              lastAiCommentAt: it.lastAiCommentAt,
+              lastAiCommentPreview: it.lastAiCommentPreview
             };
           }
         }
@@ -1436,15 +1471,27 @@ function TaskCard({
   let soniaStyle: React.CSSProperties = {};
   if (aiStatus && alarmLevel !== "urgent") {
     const colors = {
-      working:        { ring: "#7c3aed", glow: "rgba(124,58,237,0.45)", bg: "#f5f3ff" },
-      done_unreviewed:{ ring: "#10b981", glow: "rgba(16,185,129,0.45)", bg: "#ecfdf5" },
-      needs_help:     { ring: "#f59e0b", glow: "rgba(245,158,11,0.55)", bg: "#fffbeb" }
+      working:         { ring: "#7c3aed", glow: "rgba(124,58,237,0.45)", bg: "#f5f3ff" },
+      done_unreviewed: { ring: "#10b981", glow: "rgba(16,185,129,0.45)", bg: "#ecfdf5" },
+      needs_help:      { ring: "#f59e0b", glow: "rgba(245,158,11,0.55)", bg: "#fffbeb" },
+      claude_working:  { ring: "#0ea5e9", glow: "rgba(14,165,233,0.45)", bg: "#f0f9ff" },
+      // ai_replied: CYAN BRILLANTE PARPADEANTE — "Sonia te ha
+      // contestado, no te lo pierdas". Es el más llamativo de todos:
+      // ring grueso + glow intenso + animación más rápida.
+      ai_replied:      { ring: "#06b6d4", glow: "rgba(6,182,212,0.75)", bg: "#ecfeff" }
     } as const;
     const c = colors[aiStatus];
+    // El estado ai_replied parpadea más rápido y con halo mayor que
+    // los demás — es el que más necesita captar la atención.
+    const isUrgentAttention = aiStatus === "ai_replied";
     soniaStyle = {
-      boxShadow: `0 0 0 3px ${c.ring}, 0 0 18px 4px ${c.glow}`,
+      boxShadow: isUrgentAttention
+        ? `0 0 0 4px ${c.ring}, 0 0 28px 8px ${c.glow}`
+        : `0 0 0 3px ${c.ring}, 0 0 18px 4px ${c.glow}`,
       backgroundColor: c.bg,
-      animation: "sonia-pulse 1.6s ease-in-out infinite"
+      animation: isUrgentAttention
+        ? "sonia-pulse 0.9s ease-in-out infinite"
+        : "sonia-pulse 1.6s ease-in-out infinite"
     };
   }
 
@@ -1469,15 +1516,18 @@ function TaskCard({
       )}
     >
       {aiStatus && (
-        <AiStatusBadge
-          info={aiInfo!}
-          now={now}
-          onMarkReviewed={
-            aiStatus === "done_unreviewed" && onMarkAiReviewed
-              ? () => onMarkAiReviewed(task.id)
-              : undefined
-          }
-        />
+        <>
+          <AiStatusBadge
+            info={aiInfo!}
+            now={now}
+            onMarkReviewed={
+              aiStatus === "done_unreviewed" && onMarkAiReviewed
+                ? () => onMarkAiReviewed(task.id)
+                : undefined
+            }
+          />
+          <AiStatusBanner info={aiInfo!} now={now} />
+        </>
       )}
       {selectionMode && (
         <input
@@ -1755,22 +1805,80 @@ function AiStatusBadge({
   const sinceFinishedMs = endMs ? Math.max(0, now - endMs) : 0;
 
   let label: string;
-  let color: string;
+  // Estilos inline en lugar de clases Tailwind para evitar purge.
+  let bg = "";
+  let border = "";
   let tooltip = "";
+  let href: string | null = null;
   if (info.aiStatus === "working") {
     label = `🤖 Trabajando ${formatDuration(elapsedMs)}`;
-    color = "bg-violet-600 text-white border-violet-700";
+    bg = "#7c3aed";
+    border = "#6d28d9";
     tooltip = `Sonia trabajando — ${info.stepsCount ?? 0} pasos. ${info.runStatus === "PENDING" ? "Aún en cola." : "Ejecutando tools."}`;
   } else if (info.aiStatus === "done_unreviewed") {
     label = `✓ Lista${sinceFinishedMs > 0 ? ` · hace ${formatDuration(sinceFinishedMs)}` : ""}`;
-    color = "bg-emerald-600 text-white border-emerald-700 cursor-pointer";
+    bg = "#10b981";
+    border = "#059669";
     tooltip = info.summary ?? "Sonia terminó. Click para marcar revisado.";
   } else if (info.aiStatus === "needs_help") {
     label = `⚠️ Pide ayuda`;
-    color = "bg-amber-500 text-white border-amber-600";
+    bg = "#f59e0b";
+    border = "#d97706";
     tooltip = info.summary ?? info.error ?? "Sonia necesita tu intervención.";
+  } else if (info.aiStatus === "claude_working") {
+    label = info.escalationIssueNumber
+      ? `🛠 Claude mejorando · #${info.escalationIssueNumber}`
+      : `🛠 Claude mejorando`;
+    bg = "#0ea5e9";
+    border = "#0284c7";
+    tooltip =
+      (info.summary ? info.summary + " — " : "") +
+      "Claude está mejorando el sistema para resolver esto. Click para abrir el issue en GitHub.";
+    href = info.escalationIssueUrl ?? null;
+  } else if (info.aiStatus === "ai_replied") {
+    label = `💬 Sonia ha contestado`;
+    bg = "#06b6d4";
+    border = "#0891b2";
+    tooltip = info.lastAiCommentPreview
+      ? `«${info.lastAiCommentPreview}» — Click para marcar revisado.`
+      : "Sonia añadió un comentario nuevo. Click para abrir.";
   } else {
     return null;
+  }
+
+  const baseStyle: React.CSSProperties = {
+    position: "absolute",
+    top: -8,
+    left: -8,
+    zIndex: 10,
+    padding: "2px 8px",
+    borderRadius: 999,
+    fontSize: 11,
+    fontWeight: 600,
+    color: "#ffffff",
+    backgroundColor: bg,
+    border: `1px solid ${border}`,
+    boxShadow: "0 1px 3px rgba(0,0,0,0.15)",
+    cursor: onMarkReviewed || href ? "pointer" : "default",
+    textDecoration: "none",
+    whiteSpace: "nowrap"
+  };
+
+  // Link a GitHub issue si claude_working. Nuevo tab.
+  if (href) {
+    return (
+      <a
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        onClick={(e) => e.stopPropagation()}
+        onPointerDown={(e) => e.stopPropagation()}
+        title={tooltip}
+        style={baseStyle}
+      >
+        {label}
+      </a>
+    );
   }
 
   return (
@@ -1785,10 +1893,97 @@ function AiStatusBadge({
       }}
       onPointerDown={(e) => e.stopPropagation()}
       title={tooltip}
-      className={`absolute -top-2 -left-2 z-10 px-2 py-0.5 rounded-full border text-[11px] font-semibold shadow-sm ${color} ${onMarkReviewed ? "hover:scale-105 transition" : ""}`}
+      style={baseStyle}
     >
       {label}
     </button>
+  );
+}
+
+/**
+ * Banda informativa dentro de la card (encima del título). A diferencia
+ * del AiStatusBadge (chip pequeño en la esquina), esto es una barra
+ * ANCHA y descriptiva pensada para que cualquier persona viendo el
+ * tablero entienda QUÉ está pasando con Sonia/Claude sin abrir la
+ * tarea:
+ *
+ *   - working          → "🤖 Sonia trabajando · leyendo métricas Meta · 2m 14s"
+ *   - ai_replied       → "💬 SONIA TE HA CONTESTADO · «aquí tienes el…»"
+ *   - done_unreviewed  → "✓ Sonia terminó · «recomendación: escalar B…»"
+ *   - needs_help       → "⚠️ Sonia pide ayuda · «no tengo token Meta…»"
+ *   - claude_working   → "🛠 Claude mejorando el sistema · #42 · ver issue"
+ */
+function AiStatusBanner({ info, now }: { info: AiStatusInfo; now: number }) {
+  const refMs = info.startedAt ? new Date(info.startedAt).getTime() : null;
+  const elapsedMs =
+    info.aiStatus === "working" && refMs ? Math.max(0, now - refMs) : 0;
+  let line1: string;
+  let line2: string | null = null;
+  let bg = "";
+  let textColor = "#ffffff";
+  if (info.aiStatus === "working") {
+    line1 = `🤖 Sonia está trabajando en esta tarea`;
+    const dur = elapsedMs > 0 ? ` · ${formatDuration(elapsedMs)}` : "";
+    const step = info.lastStepText ? ` · ${info.lastStepText}` : "";
+    line2 = `paso ${info.stepsCount ?? 0}${dur}${step}`;
+    bg = "#7c3aed";
+  } else if (info.aiStatus === "ai_replied") {
+    line1 = `💬 SONIA TE HA CONTESTADO`;
+    line2 = info.lastAiCommentPreview
+      ? `«${info.lastAiCommentPreview}»`
+      : "Click para leer su respuesta";
+    bg = "#06b6d4";
+  } else if (info.aiStatus === "done_unreviewed") {
+    line1 = `✓ Sonia terminó · revisar`;
+    line2 = info.summary ? `«${info.summary}»` : null;
+    bg = "#10b981";
+  } else if (info.aiStatus === "needs_help") {
+    line1 = `⚠️ Sonia necesita tu ayuda`;
+    line2 = info.summary || info.error || null;
+    bg = "#f59e0b";
+  } else if (info.aiStatus === "claude_working") {
+    line1 = `🛠 Claude está mejorando el sistema${info.escalationIssueNumber ? ` · issue #${info.escalationIssueNumber}` : ""}`;
+    line2 = info.summary
+      ? `Por: ${info.summary.slice(0, 80)}`
+      : "El user no tiene que hacer nada — Claude lo resuelve y re-procesa.";
+    bg = "#0ea5e9";
+  } else {
+    return null;
+  }
+
+  return (
+    <div
+      style={{
+        backgroundColor: bg,
+        color: textColor,
+        padding: "5px 8px",
+        marginBottom: 8,
+        marginLeft: -4,
+        marginRight: -4,
+        marginTop: -4,
+        borderTopLeftRadius: 6,
+        borderTopRightRadius: 6,
+        fontSize: 11,
+        lineHeight: 1.35,
+        boxShadow: "inset 0 -1px 0 rgba(0,0,0,0.08)"
+      }}
+    >
+      <div style={{ fontWeight: 700 }}>{line1}</div>
+      {line2 && (
+        <div
+          style={{
+            opacity: 0.92,
+            fontWeight: 400,
+            marginTop: 1,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap"
+          }}
+        >
+          {line2}
+        </div>
+      )}
+    </div>
   );
 }
 

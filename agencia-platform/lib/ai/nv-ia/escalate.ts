@@ -318,5 +318,87 @@ export async function escalateRunToGitHub(runId: string): Promise<EscalationResu
     return { ok: false, error: `GitHub ${r.status}: ${t.slice(0, 300)}` };
   }
   const issue = await r.json();
+  await persistEscalation(runId, issue.html_url, issue.number, run.requesterId, task?.title);
   return { ok: true, issueUrl: issue.html_url, issueNumber: issue.number };
+}
+
+/**
+ * Persiste el issueUrl en el log del run (para que la UI lo lea
+ * sin migración de schema) y crea una notificación in-app al
+ * requester. Sin esto el user no sabe que Claude está trabajando
+ * en arreglar la limitación — solo veía el badge naranja
+ * "REQUIRES_HUMAN" y no entendía si tenía que actuar.
+ */
+async function persistEscalation(
+  runId: string,
+  issueUrl: string,
+  issueNumber: number,
+  requesterId: string | null,
+  taskTitle: string | null | undefined
+): Promise<void> {
+  try {
+    const existing = await prisma.aiAgentRun.findUnique({
+      where: { id: runId },
+      select: { log: true, taskId: true }
+    });
+    const log = Array.isArray(existing?.log) ? (existing!.log as any[]) : [];
+    // Idempotencia: si ya hay una entrada con el mismo issueUrl, no
+    // dupliques. Pasa cuando dos rutas distintas (tool +
+    // process-run) intentan persistir la misma escalación.
+    const alreadyLogged = log.some(
+      (s: any) => s?.type === "escalation" && s?.issueUrl === issueUrl
+    );
+    if (!alreadyLogged) {
+      log.push({
+        type: "escalation",
+        ts: new Date().toISOString(),
+        issueUrl,
+        issueNumber
+      });
+      await prisma.aiAgentRun.update({
+        where: { id: runId },
+        data: { log: log as any }
+      });
+    }
+  } catch (e) {
+    console.warn("[sonia] persistEscalation log:", (e as Error).message);
+  }
+
+  // Notificación al user para que vea el link al issue.
+  if (requesterId) {
+    try {
+      await prisma.notification.create({
+        data: {
+          userId: requesterId,
+          type: "ai_agent_escalation",
+          body: `🛠 Sonia escaló una limitación a Claude para que mejore el sistema${taskTitle ? `: "${taskTitle.slice(0, 80)}"` : ""}. Sigue el progreso en GitHub.`,
+          link: issueUrl
+        }
+      });
+    } catch (e) {
+      console.warn("[sonia] notification escalation:", (e as Error).message);
+    }
+  }
+}
+
+/**
+ * Lee el log del run y extrae la última escalación si la hay.
+ * Lo usa el endpoint ai-status para devolver al cliente el
+ * issueUrl y poder pintar el badge azul de "Claude mejorando".
+ */
+export function extractEscalationFromLog(log: unknown):
+  | { issueUrl: string; issueNumber: number; ts: string }
+  | null {
+  if (!Array.isArray(log)) return null;
+  for (let i = log.length - 1; i >= 0; i--) {
+    const step = log[i] as any;
+    if (step?.type === "escalation" && typeof step.issueUrl === "string") {
+      return {
+        issueUrl: step.issueUrl,
+        issueNumber: step.issueNumber ?? 0,
+        ts: step.ts
+      };
+    }
+  }
+  return null;
 }
