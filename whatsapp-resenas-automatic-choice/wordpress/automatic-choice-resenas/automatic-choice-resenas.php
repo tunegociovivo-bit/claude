@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Automatic Choice — Solicitud de Reseñas
  * Description: Landing con 5 estrellas que redirige según puntuación: 4-5★ → reviewthis.biz/automaticchoice, 1-3★ → página de contacto interna. Inserta el shortcode [ac_resenas] en cualquier página.
- * Version:     1.1.0
+ * Version:     1.1.1
  * Author:      Automatic Choice
  * License:     GPLv2 or later
  * Text Domain: ac-resenas
@@ -90,7 +90,7 @@ function ac_resenas_shortcode() {
     $url_pos = get_option('ac_resenas_url_positivas', AC_RESENAS_URL_POSITIVAS_DEFAULT);
     $url_neg = get_option('ac_resenas_url_negativas', AC_RESENAS_URL_NEGATIVAS_DEFAULT);
 
-    $stars   = isset($_GET['s']) ? max(0, min(5, (int) $_GET['s'])) : 0;
+    $stars   = isset($_GET['ac_s']) ? max(0, min(5, (int) $_GET['ac_s'])) : 0;
 
     // Redirección por JS porque el shortcode se ejecuta dentro de una página ya renderizada
     if ($stars >= 4 && $stars <= 5) {
@@ -129,7 +129,7 @@ function ac_resenas_shortcode() {
       <p>Gracias por confiar en nosotros. ¿Cómo valorarías tu experiencia?</p>
       <div class="ac-stars" role="radiogroup" aria-label="Valoración">
         <?php for ($i = 5; $i >= 1; $i--): ?>
-          <a class="ac-star" href="<?= esc_url(add_query_arg('s', $i, get_permalink())) ?>"
+          <a class="ac-star" href="<?= esc_url(add_query_arg('ac_s', $i, get_permalink())) ?>"
              role="radio" aria-label="<?= $i ?> estrellas" title="<?= $i ?> estrellas">★</a>
         <?php endfor; ?>
       </div>
