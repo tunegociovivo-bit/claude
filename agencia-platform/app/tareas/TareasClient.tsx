@@ -178,9 +178,58 @@ export default function TareasClient({
   // cada vez que cambia. Sin esto, cambiar deps del useEffect mata y
   // reabre el interval — perdíamos el ritmo.
   const aiStatusRef = useRef<Record<string, AiStatusInfo>>({});
+
+  // Notificaciones sonoras de cambios de estado de Sonia.
+  // Detecta TRANSICIONES (no estados estáticos) y reproduce un tono
+  // distinto por evento:
+  //   - working          → "ding" suave (Sonia arrancó)
+  //   - ai_replied       → "ding-ding" alegre (te ha contestado)
+  //   - done_unreviewed  → "ding-dong" doble nota (terminó OK, revisa)
+  //   - needs_help       → "alarm" 3 pulsos descendentes (necesita ti)
+  //   - failed           → "buzzer" grave (algo se rompió)
+  //   - claude_working   → "blip" subtle (Claude está al cargo)
+  //
+  // Toggle persistente en localStorage para silenciarlo si molesta.
+  const [soundEnabled, setSoundEnabled] = useState(true);
   useEffect(() => {
+    try {
+      const stored = localStorage.getItem("sonia_sound_enabled");
+      if (stored === "0") setSoundEnabled(false);
+    } catch {}
+  }, []);
+  const lastSeenStatusRef = useRef<Record<string, AiStatusInfo["aiStatus"]>>({});
+  const isInitialPollRef = useRef(true);
+  useEffect(() => {
+    const prev = lastSeenStatusRef.current;
+    const next: Record<string, AiStatusInfo["aiStatus"]> = {};
+    const transitions: Array<{ taskId: string; from: AiStatusInfo["aiStatus"]; to: AiStatusInfo["aiStatus"] }> = [];
+    for (const [taskId, info] of Object.entries(aiStatusByTask)) {
+      next[taskId] = info.aiStatus;
+      const prevStatus = prev[taskId] ?? null;
+      if (prevStatus !== info.aiStatus) {
+        transitions.push({ taskId, from: prevStatus, to: info.aiStatus });
+      }
+    }
+    // Tasks que ya no aparecen en aiStatusByTask = transición a null.
+    for (const taskId of Object.keys(prev)) {
+      if (!(taskId in next) && prev[taskId] !== null) {
+        transitions.push({ taskId, from: prev[taskId], to: null });
+      }
+    }
+    lastSeenStatusRef.current = next;
+    // El primer poll NO suena — son estados pre-existentes, no eventos.
+    if (isInitialPollRef.current) {
+      isInitialPollRef.current = false;
+      aiStatusRef.current = aiStatusByTask;
+      return;
+    }
+    if (soundEnabled) {
+      for (const tr of transitions) {
+        playSoniaSound(tr.to);
+      }
+    }
     aiStatusRef.current = aiStatusByTask;
-  }, [aiStatusByTask]);
+  }, [aiStatusByTask, soundEnabled]);
 
   useEffect(() => {
     let cancelled = false;
@@ -700,6 +749,15 @@ export default function TareasClient({
         activeMap={aiStatusByTask}
         tasks={tasks}
         onOpenTask={openEditTask}
+        soundEnabled={soundEnabled}
+        onToggleSound={() => {
+          setSoundEnabled((v) => {
+            const next = !v;
+            try { localStorage.setItem("sonia_sound_enabled", next ? "1" : "0"); } catch {}
+            if (next) playSoniaSound("done_unreviewed");
+            return next;
+          });
+        }}
       />
 
       <div className="hidden md:block">
@@ -2073,7 +2131,9 @@ function AiSoniaDebugPanel({
   debug,
   activeMap,
   tasks,
-  onOpenTask
+  onOpenTask,
+  soundEnabled,
+  onToggleSound
 }: {
   debug: {
     lastPollAt: number | null;
@@ -2085,6 +2145,8 @@ function AiSoniaDebugPanel({
   activeMap: Record<string, AiStatusInfo>;
   tasks: UiTask[];
   onOpenTask: (t: UiTask) => void;
+  soundEnabled: boolean;
+  onToggleSound: () => void;
 }) {
   const [now, setNow] = useState(() => Date.now());
   const [expanded, setExpanded] = useState(false);
@@ -2142,8 +2204,36 @@ function AiSoniaDebugPanel({
                 .map(([k, n]) => `${n}×${k}`)
                 .join(", ")}
         </span>
+        <span
+          role="button"
+          tabIndex={0}
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggleSound();
+          }}
+          onKeyDown={(e) => {
+            if (e.key === " " || e.key === "Enter") {
+              e.preventDefault();
+              e.stopPropagation();
+              onToggleSound();
+            }
+          }}
+          className={
+            "ml-auto inline-flex items-center gap-1 px-2 py-0.5 rounded-md cursor-pointer select-none " +
+            (soundEnabled
+              ? "bg-emerald-100 text-emerald-800 hover:bg-emerald-200"
+              : "bg-slate-200 text-slate-600 hover:bg-slate-300")
+          }
+          title={
+            soundEnabled
+              ? "Sonidos ACTIVADOS — Sonia te avisará por audio cuando arranque, conteste, termine o se bloquee. Click para silenciar."
+              : "Sonidos SILENCIADOS. Click para activarlos."
+          }
+        >
+          {soundEnabled ? "🔔 sonido" : "🔕 silencio"}
+        </span>
         {debug.activeCount > 0 && (
-          <span className="ml-auto text-violet-700 font-semibold">
+          <span className="text-violet-700 font-semibold">
             {expanded ? "▾ Ocultar detalle" : "▸ Ver detalle"}
           </span>
         )}
@@ -2232,4 +2322,84 @@ function AiSoniaDebugPanel({
       )}
     </div>
   );
+}
+
+/**
+ * Reproduce un tono distinto según el estado al que ha transitado
+ * una task de Sonia. Sintetizado con Web Audio API — sin archivos
+ * externos (cero latencia, cero ancho de banda).
+ *
+ * Tonos pensados para ser identificables a ciegas:
+ *   - working          → 1 ding suave (Sonia arrancó, neutro)
+ *   - ai_replied       → 2 dings ascendentes (alegre, requiere atención)
+ *   - done_unreviewed  → ding-dong doble nota (cierre exitoso)
+ *   - needs_help       → 3 pulsos descendentes (atención humana ahora)
+ *   - failed           → buzzer grave (algo se rompió)
+ *   - claude_working   → blip sutil (Claude lo gestiona)
+ *   - null (limpia)    → silencio
+ */
+function playSoniaSound(status: AiStatusInfo["aiStatus"]): void {
+  if (!status) return;
+  if (typeof window === "undefined") return;
+  try {
+    const AudioCtor =
+      (window as any).AudioContext ?? (window as any).webkitAudioContext;
+    if (!AudioCtor) return;
+    const ctx: AudioContext = new AudioCtor();
+
+    // beep(freq, duration, delay, volume, type)
+    const beep = (
+      freq: number,
+      ms: number,
+      delayMs: number,
+      vol = 0.15,
+      type: OscillatorType = "sine"
+    ) => {
+      const startAt = ctx.currentTime + delayMs / 1000;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = type;
+      osc.frequency.setValueAtTime(freq, startAt);
+      // Envelope ASR para evitar click
+      gain.gain.setValueAtTime(0, startAt);
+      gain.gain.linearRampToValueAtTime(vol, startAt + 0.005);
+      gain.gain.linearRampToValueAtTime(vol, startAt + ms / 1000 - 0.02);
+      gain.gain.linearRampToValueAtTime(0, startAt + ms / 1000);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(startAt);
+      osc.stop(startAt + ms / 1000 + 0.02);
+    };
+
+    switch (status) {
+      case "working":
+        beep(523.25, 110, 0); // C5
+        break;
+      case "ai_replied":
+        beep(659.25, 110, 0); // E5
+        beep(880.0, 130, 120); // A5
+        break;
+      case "done_unreviewed":
+        beep(659.25, 140, 0); // E5
+        beep(523.25, 200, 150); // C5
+        break;
+      case "needs_help":
+        beep(880.0, 90, 0, 0.18, "triangle"); // A5
+        beep(698.46, 90, 130, 0.18, "triangle"); // F5
+        beep(587.33, 180, 260, 0.18, "triangle"); // D5
+        break;
+      case "failed":
+        beep(196.0, 220, 0, 0.22, "sawtooth"); // G3
+        beep(155.56, 280, 230, 0.22, "sawtooth"); // D#3 — grave
+        break;
+      case "claude_working":
+        beep(440.0, 70, 0, 0.1); // A4 — discreto
+        break;
+    }
+    // Limpieza tras ~1s
+    setTimeout(() => ctx.close().catch(() => {}), 1200);
+  } catch {
+    // Web Audio bloqueado (autoplay policy). El primer click del user
+    // en la página debería "desbloquearlo" para los siguientes sounds.
+  }
 }

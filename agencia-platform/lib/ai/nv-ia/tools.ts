@@ -784,6 +784,47 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
     }
   },
   {
+    name: "create_xlsx_workbook",
+    description:
+      "Genera un Excel CONSOLIDADO Y BONITO con múltiples hojas y lo adjunta a la task. Útil para entregar al cliente un único archivo con resumen + datos detallados.\n\nDos modos combinables:\n  - `fromAttachments`: combina .xlsx/.csv YA adjuntos a la task en hojas del nuevo libro (una hoja por archivo). Sin necesidad de pasar los datos enteros otra vez en el prompt.\n  - `sheets`: define hojas inline con headers + rows (típicamente para una hoja de 'Resumen' con totales/KPIs).\n\nUSO TÍPICO tras meta_ads_download_leads con attachAs='xlsx':\n  1. Llamas download_leads 3 veces (1 por campaña) — quedan 3 .xlsx adjuntos.\n  2. Llamas create_xlsx_workbook({\n       filename: 'leads-consolidado-15-17may2026',\n       fromAttachments: ['leads-peru…', 'leads-colombia…', 'leads-ecuador…'],\n       sheets: [{ name: 'Resumen', headers: ['Campaña','Total','%'], rows: [...] }],\n       summarySheetFirst: true\n     })\n  3. Se adjunta UN excel con 4 hojas: Resumen + 3 detalles.\n\nLos headers de la hoja Resumen quedan en negrita azul + freeze pane.",
+    input_schema: {
+      type: "object",
+      properties: {
+        filename: { type: "string", description: "Nombre del archivo SIN extensión. Se añade .xlsx automáticamente." },
+        fromAttachments: {
+          type: "array",
+          items: { type: "string" },
+          description: "Nombres exactos (o prefijos únicos) de archivos ya adjuntos a la task que quieres incluir como hojas. Acepta .xlsx, .csv. Si pasas un prefijo y matchea varios, se incluyen todos."
+        },
+        sheets: {
+          type: "array",
+          description: "Hojas con datos inline. Cada una: { name, headers, rows }.",
+          items: {
+            type: "object",
+            properties: {
+              name: { type: "string", description: "Nombre de la hoja (≤31 chars, sin /:*?[])." },
+              headers: { type: "array", items: { type: "string" } },
+              rows: { type: "array", items: { type: "array", items: {} } },
+              freezeHeader: { type: "boolean", description: "Default true. Fija la fila de headers al hacer scroll." }
+            },
+            required: ["name", "headers", "rows"],
+            additionalProperties: false
+          }
+        },
+        summarySheetFirst: {
+          type: "boolean",
+          description: "Si es true (default), las `sheets` inline van ANTES de las `fromAttachments`. Útil para que la hoja Resumen sea la primera al abrir."
+        },
+        description: {
+          type: "string",
+          description: "Texto opcional para el comentario que Sonia añade al adjuntar."
+        }
+      },
+      required: ["filename"],
+      additionalProperties: false
+    }
+  },
+  {
     name: "google_ads_list_campaigns",
     description:
       "Campañas Google Ads del customerId configurado. Filtra por status (ENABLED, PAUSED, REMOVED). Devuelve id, name, type, budget en EUR, fechas.",
@@ -2697,6 +2738,198 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
       clearTimeout(timer);
       const msg = e?.name === "AbortError" ? `timeout tras ${timeoutMs}ms` : String(e?.message ?? e);
       return { error: `http_request: ${msg}` };
+    }
+  },
+  async create_xlsx_workbook(input, ctx) {
+    try {
+      const filename = String(input?.filename ?? "").trim();
+      if (!filename) return { error: "filename vacío" };
+      const fromAttachments: string[] = Array.isArray(input?.fromAttachments)
+        ? input.fromAttachments.filter((s: unknown) => typeof s === "string")
+        : [];
+      const inlineSheets: any[] = Array.isArray(input?.sheets) ? input.sheets : [];
+      if (fromAttachments.length === 0 && inlineSheets.length === 0) {
+        return { error: "Pasa fromAttachments y/o sheets — el libro estaría vacío." };
+      }
+      const summaryFirst = input?.summarySheetFirst !== false;
+      const description = typeof input?.description === "string" ? input.description : "";
+
+      const XLSX = await import("xlsx");
+      const { downloadBuffer } = await import("@/lib/storage/r2");
+      const wb = XLSX.utils.book_new();
+
+      // Helper: añade una hoja al libro con auto-width + freeze header.
+      function addSheet(name: string, headers: string[], rows: any[][], freezeHeader = true) {
+        const cleanName = name.replace(/[/\\?*\[\]]/g, "_").slice(0, 31);
+        const data = [headers, ...rows];
+        const ws = XLSX.utils.aoa_to_sheet(data);
+        // Auto width
+        const widths: any[] = headers.map((h, c) => {
+          let max = String(h).length;
+          for (const row of rows) {
+            const v = row[c];
+            if (v != null) max = Math.max(max, String(v).length);
+          }
+          return { wch: Math.min(50, max + 2) };
+        });
+        (ws as any)["!cols"] = widths;
+        if (freezeHeader) {
+          (ws as any)["!freeze"] = { xSplit: 0, ySplit: 1 };
+        }
+        // Bold header (xlsx no aplica estilos sin xlsx-style; suficiente
+        // con freeze. Para estilo full, el cliente podría pasar custom.)
+        XLSX.utils.book_append_sheet(wb, ws, cleanName);
+      }
+
+      const sheetsAdded: string[] = [];
+      const sheetsFailed: string[] = [];
+
+      // 1) Hojas inline (van primero si summaryFirst).
+      function addInlineSheets() {
+        for (const s of inlineSheets) {
+          try {
+            const name = String(s?.name ?? "Hoja").trim();
+            const headers = (Array.isArray(s?.headers) ? s.headers : []).map((h: any) => String(h));
+            const rows = (Array.isArray(s?.rows) ? s.rows : []).map((r: any) =>
+              Array.isArray(r) ? r : Object.values(r ?? {})
+            );
+            addSheet(name, headers, rows, s?.freezeHeader !== false);
+            sheetsAdded.push(name);
+          } catch (e: any) {
+            sheetsFailed.push(`inline:${s?.name}: ${e?.message ?? e}`);
+          }
+        }
+      }
+
+      // 2) Hojas desde adjuntos (descargamos de R2 y parseamos).
+      async function addFromAttachmentsSheets() {
+        // Buscar todos los Files de la task que matcheen.
+        const files = await prisma.file.findMany({
+          where: {
+            workspaceId: ctx.workspaceId,
+            targetType: "TASK",
+            targetId: ctx.taskId
+          },
+          orderBy: { createdAt: "asc" }
+        });
+        for (const pattern of fromAttachments) {
+          const matched = files.filter(
+            (f) =>
+              f.name === pattern ||
+              f.name.startsWith(pattern) ||
+              f.name.includes(pattern)
+          );
+          if (matched.length === 0) {
+            sheetsFailed.push(`attachment:${pattern}: no match en ${files.length} archivos`);
+            continue;
+          }
+          for (const f of matched) {
+            try {
+              const buf = await downloadBuffer(f.s3Key);
+              const ext = (f.name.split(".").pop() || "").toLowerCase();
+              let rows: any[][] = [];
+              let headers: string[] = [];
+              if (ext === "csv") {
+                const text = buf.toString("utf-8").replace(/^﻿/, "");
+                const lines = text.split(/\r?\n/).filter((l) => l.length > 0);
+                if (lines.length === 0) continue;
+                // Parser CSV mínimo RFC4180.
+                const parseLine = (line: string): string[] => {
+                  const out: string[] = [];
+                  let cur = "";
+                  let inQ = false;
+                  for (let i = 0; i < line.length; i++) {
+                    const c = line[i];
+                    if (inQ) {
+                      if (c === '"') {
+                        if (line[i + 1] === '"') { cur += '"'; i++; }
+                        else inQ = false;
+                      } else cur += c;
+                    } else {
+                      if (c === ",") { out.push(cur); cur = ""; }
+                      else if (c === '"') inQ = true;
+                      else cur += c;
+                    }
+                  }
+                  out.push(cur);
+                  return out;
+                };
+                headers = parseLine(lines[0]);
+                rows = lines.slice(1).map(parseLine);
+              } else if (ext === "xlsx" || ext === "xls") {
+                const srcWb = XLSX.read(buf, { type: "buffer" });
+                const firstSheet = srcWb.SheetNames[0];
+                const data: any[][] = XLSX.utils.sheet_to_json(srcWb.Sheets[firstSheet], {
+                  header: 1,
+                  raw: false
+                }) as any;
+                if (data.length === 0) continue;
+                headers = (data[0] ?? []).map((x: any) => String(x ?? ""));
+                rows = data.slice(1);
+              } else {
+                sheetsFailed.push(`attachment:${f.name}: ext ${ext} no soportada`);
+                continue;
+              }
+              // Nombre de la hoja: del filename sin extensión.
+              const sheetName = f.name.replace(/\.[^.]+$/, "");
+              addSheet(sheetName, headers, rows);
+              sheetsAdded.push(sheetName);
+            } catch (e: any) {
+              sheetsFailed.push(`attachment:${f.name}: ${e?.message ?? e}`);
+            }
+          }
+        }
+      }
+
+      if (summaryFirst) {
+        addInlineSheets();
+        await addFromAttachmentsSheets();
+      } else {
+        await addFromAttachmentsSheets();
+        addInlineSheets();
+      }
+
+      if (wb.SheetNames.length === 0) {
+        return {
+          error: "No se pudo añadir ninguna hoja al libro",
+          failed: sheetsFailed
+        };
+      }
+
+      const buf: Buffer = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
+      const { uploadAttachmentForTask } = await import("@/lib/files/sonia-upload");
+      const safeName = /\.xlsx$/i.test(filename) ? filename : `${filename}.xlsx`;
+      const file = await uploadAttachmentForTask({
+        workspaceId: ctx.workspaceId,
+        taskId: ctx.taskId,
+        filename: safeName,
+        body: buf,
+        mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        uploadedByUserId: ctx.config.userId
+      });
+      const sheetsList = sheetsAdded.map((s) => `\`${s}\``).join(", ");
+      const note = description
+        ? description
+        : `📎 He adjuntado **${safeName}** con ${sheetsAdded.length} hojas: ${sheetsList}.`;
+      await prisma.comment.create({
+        data: {
+          workspaceId: ctx.workspaceId,
+          authorId: ctx.config.userId,
+          targetType: "TASK",
+          targetId: ctx.taskId,
+          body: note
+        }
+      });
+      return {
+        ok: true,
+        fileId: file.fileId,
+        filename: file.filename,
+        sheetsAdded,
+        sheetsFailed,
+        sizeBytes: file.sizeBytes
+      };
+    } catch (e: any) {
+      return { error: `create_xlsx_workbook: ${e?.message ?? e}` };
     }
   },
   async google_ads_list_campaigns(input, ctx) {
