@@ -23,7 +23,8 @@ export const GET = withApi({ scope: "admin" }, async (_req, { api }) => {
   return NextResponse.json({
     hasKey: !!cfg.apiKey,
     voiceId: cfg.voiceId ?? null,
-    modelId: cfg.modelId ?? null
+    modelId: cfg.modelId ?? null,
+    languageCode: cfg.languageCode ?? null
   });
 });
 
@@ -34,13 +35,34 @@ export const PUT = withApi({ scope: "admin" }, async (req, { api }) => {
   const modelId =
     typeof body?.modelId === "string" && body.modelId.trim()
       ? body.modelId.trim()
-      : "eleven_multilingual_v2";
-  if (!apiKey) return NextResponse.json({ error: "apiKey vacío" }, { status: 400 });
+      : "eleven_turbo_v2_5";
+  const languageCode =
+    typeof body?.languageCode === "string" && body.languageCode.trim()
+      ? body.languageCode.trim()
+      : "es";
   if (!voiceId) return NextResponse.json({ error: "voiceId vacío" }, { status: 400 });
 
-  // Validar contra ElevenLabs antes de persistir
+  // apiKey opcional en update — si llega vacío, mantenemos la existente.
+  const ws0 = await prisma.workspace.findUnique({
+    where: { id: api.workspaceId },
+    select: { settings: true }
+  });
+  const existingCfg = (ws0?.settings as any)?.integrations?.elevenlabs;
+  const existingEncrypted = existingCfg?.apiKey as string | undefined;
+  if (!apiKey && !existingEncrypted) {
+    return NextResponse.json({ error: "apiKey requerido la primera vez" }, { status: 400 });
+  }
+  const effectiveEncryptedKey = apiKey ? encryptSecret(apiKey) : existingEncrypted!;
+
+  // Validar voiceId contra ElevenLabs antes de persistir
+  // (usa la apiKey en plano si llegó, o desciframos la actual).
+  let plainKey = apiKey;
+  if (!plainKey && existingEncrypted) {
+    const { decryptSecret } = await import("@/lib/ai/crypto");
+    plainKey = decryptSecret(existingEncrypted) ?? "";
+  }
   const validateResp = await fetch(`https://api.elevenlabs.io/v1/voices/${voiceId}`, {
-    headers: { "xi-api-key": apiKey }
+    headers: { "xi-api-key": plainKey }
   });
   if (!validateResp.ok) {
     const t = await validateResp.text();
@@ -58,16 +80,13 @@ export const PUT = withApi({ scope: "admin" }, async (req, { api }) => {
   }
   const voiceInfo: any = await validateResp.json().catch(() => ({}));
 
-  const ws = await prisma.workspace.findUnique({
-    where: { id: api.workspaceId },
-    select: { settings: true }
-  });
-  const settings: any = ws?.settings ?? {};
+  const settings: any = ws0?.settings ?? {};
   if (!settings.integrations) settings.integrations = {};
   settings.integrations.elevenlabs = {
-    apiKey: encryptSecret(apiKey),
+    apiKey: effectiveEncryptedKey,
     voiceId,
-    modelId
+    modelId,
+    languageCode
   };
   await prisma.workspace.update({
     where: { id: api.workspaceId },
@@ -77,7 +96,8 @@ export const PUT = withApi({ scope: "admin" }, async (req, { api }) => {
     ok: true,
     voiceName: voiceInfo.name ?? null,
     voiceId,
-    modelId
+    modelId,
+    languageCode
   });
 });
 

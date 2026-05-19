@@ -12,7 +12,12 @@ const PRESET_TEXTS = [
   "He terminado de programar el calendario editorial de mayo para Guardamuebles Reva. Treinta posts repartidos entre Instagram, Facebook y Google Business."
 ];
 
-type ElevenStatus = { hasKey: boolean; voiceId: string | null; modelId: string | null };
+type ElevenStatus = {
+  hasKey: boolean;
+  voiceId: string | null;
+  modelId: string | null;
+  languageCode: string | null;
+};
 
 export default function SoniaVoiceTestPage() {
   const [text, setText] = useState(PRESET_TEXTS[0]);
@@ -27,7 +32,8 @@ export default function SoniaVoiceTestPage() {
   const [showConfig, setShowConfig] = useState(false);
   const [configApiKey, setConfigApiKey] = useState("");
   const [configVoiceId, setConfigVoiceId] = useState("");
-  const [configModelId, setConfigModelId] = useState("eleven_multilingual_v2");
+  const [configModelId, setConfigModelId] = useState("eleven_turbo_v2_5");
+  const [configLanguageCode, setConfigLanguageCode] = useState("es");
   const [savingConfig, setSavingConfig] = useState(false);
   const [configMsg, setConfigMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
 
@@ -39,6 +45,7 @@ export default function SoniaVoiceTestPage() {
         setStatus(s);
         if (s.voiceId) setConfigVoiceId(s.voiceId);
         if (s.modelId) setConfigModelId(s.modelId);
+        if (s.languageCode) setConfigLanguageCode(s.languageCode);
         // Abre panel automáticamente si no hay key
         if (!s.hasKey) setShowConfig(true);
       }
@@ -58,7 +65,8 @@ export default function SoniaVoiceTestPage() {
         body: JSON.stringify({
           apiKey: configApiKey,
           voiceId: configVoiceId,
-          modelId: configModelId
+          modelId: configModelId,
+          languageCode: configLanguageCode
         })
       });
       const data = await r.json();
@@ -217,15 +225,55 @@ export default function SoniaVoiceTestPage() {
                   placeholder="21m00Tcm4TlvDq8ikWAM"
                   className="w-full rounded-lg border border-slate-300 p-2 text-sm font-mono"
                 />
+                <p className="text-[10px] text-slate-500 mt-1">
+                  Importante: si la voz original está entrenada en INGLÉS,
+                  pronunciará los nombres y acentos del español con sonido
+                  inglés ("Deivi" en lugar de "David"). Para español
+                  natural, busca una voz multilingüe o nativa española en
+                  Voice Library.
+                </p>
               </div>
-              <div>
-                <label className="text-xs text-slate-600 block mb-1">modelId</label>
-                <input
-                  type="text"
-                  value={configModelId}
-                  onChange={(e) => setConfigModelId(e.target.value)}
-                  className="w-full rounded-lg border border-slate-300 p-2 text-sm font-mono"
-                />
+              <div className="space-y-3">
+                <div>
+                  <label className="text-xs text-slate-600 block mb-1">modelId</label>
+                  <select
+                    value={configModelId}
+                    onChange={(e) => setConfigModelId(e.target.value)}
+                    className="w-full rounded-lg border border-slate-300 p-2 text-sm font-mono"
+                  >
+                    <option value="eleven_turbo_v2_5">
+                      eleven_turbo_v2_5 (rápido + language_code)
+                    </option>
+                    <option value="eleven_flash_v2_5">
+                      eleven_flash_v2_5 (más rápido + language_code)
+                    </option>
+                    <option value="eleven_multilingual_v2">
+                      eleven_multilingual_v2 (auto-detecta idioma)
+                    </option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs text-slate-600 block mb-1">
+                    Idioma forzado
+                  </label>
+                  <select
+                    value={configLanguageCode}
+                    onChange={(e) => setConfigLanguageCode(e.target.value)}
+                    className="w-full rounded-lg border border-slate-300 p-2 text-sm"
+                  >
+                    <option value="es">Español (es)</option>
+                    <option value="en">Inglés (en)</option>
+                    <option value="pt">Portugués (pt)</option>
+                    <option value="fr">Francés (fr)</option>
+                    <option value="it">Italiano (it)</option>
+                    <option value="de">Alemán (de)</option>
+                  </select>
+                  <p className="text-[10px] text-slate-500 mt-1">
+                    Solo aplica a turbo_v2_5 y flash_v2_5. Fuerza la
+                    pronunciación al idioma seleccionado aunque la voz sea
+                    nativa de otro.
+                  </p>
+                </div>
               </div>
             </div>
           </div>
