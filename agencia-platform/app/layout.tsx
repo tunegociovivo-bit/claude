@@ -4,7 +4,6 @@ import AppChrome from "@/components/AppChrome";
 import PwaRegister from "@/components/PwaRegister";
 import ErrorReporter from "@/components/ErrorReporter";
 import Providers from "@/components/Providers";
-import SoniaChat from "@/components/SoniaChat";
 
 // Favicon + icono PWA dinámicos: /api/brand-icon devuelve el logo
 // del workspace en vivo, así cuando el admin cambia el logo en
@@ -86,7 +85,7 @@ const earlyInstallCapture = `
  */
 const swSelfHeal = `
   (function () {
-    var EXPECTED = "v93-2026-05-19-meta-ab-testing";
+    var EXPECTED = "v94-2026-05-19-merge-sonia-chats";
     if (!('serviceWorker' in navigator)) return;
     var key = "hub_sw_v_seen";
     var seen = null;
@@ -168,7 +167,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         </Providers>
         <ErrorReporter />
         <PwaRegister />
-        <SoniaChat />
       </body>
     </html>
   );

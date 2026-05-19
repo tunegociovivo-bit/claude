@@ -1,7 +1,25 @@
 "use client";
 
+/**
+ * Chat con Sonia (era "Hub"). Botón flotante esquina inferior derecha
+ * disponible en toda la app. Combina:
+ *
+ *  - Loop agéntico vía /api/v1/ai/chat (Opus + tools de chat-tools.ts):
+ *    puede listar tasks, crear recursos, resumir documentos, etc.
+ *
+ *  - Entrada por VOZ (micrófono): MediaRecorder API → Whisper vía
+ *    /api/v1/sonia-chat/voice → el texto transcrito se pega al input
+ *    para que David lo revise antes de enviar.
+ *
+ *  - Sugerencias rápidas al abrir un chat vacío.
+ *
+ * Persistencia: NO — el chat se vacía al recargar. Si se necesita
+ * historial persistente, añadir localStorage con clave 'sonia-chat-v1'.
+ */
+
 import { useEffect, useRef, useState } from "react";
-import { Sparkles, X, Send, Loader2 } from "lucide-react";
+import { usePathname } from "next/navigation";
+import { Sparkles, X, Send, Loader2, Mic, MicOff } from "lucide-react";
 import clsx from "clsx";
 
 type Message = { role: "user" | "assistant"; content: string };
@@ -14,12 +32,25 @@ const SUGGESTIONS = [
 ];
 
 export default function AIAssistant() {
+  const pathname = usePathname();
+  const hidden =
+    !pathname ||
+    pathname.startsWith("/login") ||
+    pathname.startsWith("/r/") ||
+    pathname.startsWith("/v/") ||
+    pathname.startsWith("/p/");
+
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [recording, setRecording] = useState(false);
+  const [transcribing, setTranscribing] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const recordedChunksRef = useRef<Blob[]>([]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
@@ -52,13 +83,79 @@ export default function AIAssistant() {
     }
   }
 
+  async function startRecording() {
+    setError(null);
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setError("Tu navegador no soporta grabación de audio");
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      recordedChunksRef.current = [];
+      const mime = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+        ? "audio/webm;codecs=opus"
+        : "audio/webm";
+      const rec = new MediaRecorder(stream, { mimeType: mime });
+      rec.ondataavailable = (e) => {
+        if (e.data.size > 0) recordedChunksRef.current.push(e.data);
+      };
+      rec.onstop = async () => {
+        stream.getTracks().forEach((t) => t.stop());
+        await uploadAndTranscribe();
+      };
+      mediaRecorderRef.current = rec;
+      rec.start();
+      setRecording(true);
+    } catch (e: any) {
+      setError(e?.message ?? "No se pudo acceder al micro");
+    }
+  }
+
+  function stopRecording() {
+    const rec = mediaRecorderRef.current;
+    if (rec && rec.state !== "inactive") {
+      rec.stop();
+    }
+    setRecording(false);
+  }
+
+  async function uploadAndTranscribe() {
+    if (recordedChunksRef.current.length === 0) return;
+    setTranscribing(true);
+    try {
+      const blob = new Blob(recordedChunksRef.current, { type: "audio/webm" });
+      const form = new FormData();
+      form.append("audio", blob, "voice.webm");
+      const r = await fetch("/api/v1/sonia-chat/voice", {
+        method: "POST",
+        body: form
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data?.error?.message ?? `HTTP ${r.status}`);
+      const text = String(data?.text ?? "").trim();
+      if (!text) {
+        setError("No se transcribió nada. Habla más cerca del micro.");
+      } else {
+        setInput((curr) => (curr ? `${curr} ${text}` : text));
+        setTimeout(() => inputRef.current?.focus(), 100);
+      }
+    } catch (e: any) {
+      setError(e?.message ?? "Transcripción falló");
+    } finally {
+      setTranscribing(false);
+    }
+  }
+
+  if (hidden) return null;
+
   return (
     <>
       {!open && (
         <button
           onClick={() => setOpen(true)}
           className="fixed bottom-6 right-6 h-14 w-14 rounded-full bg-gradient-to-br from-brand-500 to-brand-700 text-white shadow-lg hover:shadow-xl grid place-items-center transition-all hover:scale-105 z-40"
-          title="Asistente IA"
+          title="Chat con Sonia"
+          aria-label="Chat con Sonia"
         >
           <Sparkles className="h-6 w-6" />
         </button>
@@ -72,13 +169,14 @@ export default function AIAssistant() {
                 <Sparkles className="h-4 w-4" />
               </div>
               <div>
-                <div className="font-semibold text-sm">Hub</div>
+                <div className="font-semibold text-sm">Sonia</div>
                 <div className="text-[11px] text-slate-500">Tu asistente de agencia</div>
               </div>
             </div>
             <button
               onClick={() => setOpen(false)}
               className="text-slate-400 hover:text-slate-900"
+              aria-label="Cerrar"
             >
               <X className="h-4 w-4" />
             </button>
@@ -89,7 +187,8 @@ export default function AIAssistant() {
               <div className="space-y-3">
                 <p className="text-xs text-slate-500">
                   Pregúntame lo que necesites del workspace: tareas, clientes, proyectos, documentos.
-                  También puedo crear tareas, sugerir copy o resumir documentos.
+                  También puedo crear tareas, sugerir copy o resumir documentos. Usa el micro
+                  para hablarme en vez de escribir.
                 </p>
                 <div className="space-y-1.5">
                   {SUGGESTIONS.map((s) => (
@@ -141,8 +240,41 @@ export default function AIAssistant() {
           </div>
 
           <div className="p-3 border-t">
-            <div className="flex gap-2">
+            <div className="flex gap-2 items-center">
+              <button
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  if (!recording && !transcribing && !loading) startRecording();
+                }}
+                onMouseUp={() => recording && stopRecording()}
+                onMouseLeave={() => recording && stopRecording()}
+                onTouchStart={(e) => {
+                  e.preventDefault();
+                  if (!recording && !transcribing && !loading) startRecording();
+                }}
+                onTouchEnd={() => recording && stopRecording()}
+                disabled={transcribing || loading}
+                className={clsx(
+                  "h-9 w-9 rounded-lg flex items-center justify-center transition shrink-0",
+                  recording
+                    ? "bg-rose-500 text-white animate-pulse"
+                    : transcribing
+                      ? "bg-slate-200 text-slate-500"
+                      : "bg-slate-100 hover:bg-slate-200 text-slate-700"
+                )}
+                title={recording ? "Soltar para enviar al texto" : "Mantén pulsado para grabar"}
+                aria-label="Grabar voz"
+              >
+                {transcribing ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : recording ? (
+                  <MicOff className="h-4 w-4" />
+                ) : (
+                  <Mic className="h-4 w-4" />
+                )}
+              </button>
               <input
+                ref={inputRef}
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => {
@@ -151,14 +283,21 @@ export default function AIAssistant() {
                     send();
                   }
                 }}
-                placeholder="Pregunta o instrucción…"
+                placeholder={
+                  recording
+                    ? "Grabando…"
+                    : transcribing
+                      ? "Transcribiendo…"
+                      : "Pregunta o instrucción…"
+                }
                 className="flex-1 px-3 py-2 rounded-lg border text-sm focus:outline-none focus:ring-2 focus:ring-brand-200"
-                disabled={loading}
+                disabled={loading || recording || transcribing}
               />
               <button
                 onClick={() => send()}
-                disabled={loading || !input.trim()}
+                disabled={loading || !input.trim() || recording || transcribing}
                 className="h-9 w-9 rounded-lg bg-brand-600 hover:bg-brand-700 text-white grid place-items-center disabled:opacity-50"
+                aria-label="Enviar"
               >
                 <Send className="h-4 w-4" />
               </button>
