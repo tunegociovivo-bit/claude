@@ -50,7 +50,7 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
   }
   if (!asanaGid) throw new ApiError(400, "missing", "Pasa taskGid o localTaskId");
 
-  const conn = await prisma.asanaConnection.findFirst({ where: { userId: api.userId } });
+  const conn = await prisma.asanaConnection.findFirst({ where: { userId: api.userId }, orderBy: { createdAt: "desc" } });
   if (!conn) throw new ApiError(404, "no_token", "Conecta Asana primero");
   const token = readAsanaToken(conn);
   if (!token) throw new ApiError(500, "decrypt_failed", "Token corrupto");

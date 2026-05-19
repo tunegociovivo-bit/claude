@@ -26,7 +26,7 @@
 // reintroducir cache PERO con purga agresiva por VERSION en
 // activate.
 
-const VERSION = "v94-2026-05-19-merge-sonia-chats";
+const VERSION = "v95-2026-05-19-asana-token-determinism";
 
 self.addEventListener("install", (event) => {
   // Activación inmediata: no esperar a que el SW viejo libere.

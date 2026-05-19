@@ -20,6 +20,7 @@ export const GET = withApi({ scope: "admin" }, async (_req, { api }) => {
   if (!api.userId) throw new ApiError(401, "no_user", "Se requiere sesión humana");
   const conn = await prisma.asanaConnection.findFirst({
     where: { userId: api.userId },
+    orderBy: { createdAt: "desc" },
     select: { id: true, asanaUserId: true, createdAt: true }
   });
   return NextResponse.json({

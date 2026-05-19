@@ -85,7 +85,7 @@ const earlyInstallCapture = `
  */
 const swSelfHeal = `
   (function () {
-    var EXPECTED = "v94-2026-05-19-merge-sonia-chats";
+    var EXPECTED = "v95-2026-05-19-asana-token-determinism";
     if (!('serviceWorker' in navigator)) return;
     var key = "hub_sw_v_seen";
     var seen = null;

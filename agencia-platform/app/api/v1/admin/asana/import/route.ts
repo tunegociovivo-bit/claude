@@ -24,7 +24,7 @@ export const POST = withApi({ scope: "admin" }, async (req, { api }) => {
   // se persistía con basura y al usarlo después Asana devolvía 401.
   let token = parsed.data.token ? parsed.data.token.trim() : null;
   if (!token && api.userId) {
-    const conn = await prisma.asanaConnection.findFirst({ where: { userId: api.userId } });
+    const conn = await prisma.asanaConnection.findFirst({ where: { userId: api.userId }, orderBy: { createdAt: "desc" } });
     token = conn ? readAsanaToken(conn) : null;
   }
   if (!token) throw new ApiError(400, "no_token", "Falta token de Asana");

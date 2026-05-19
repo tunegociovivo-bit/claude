@@ -27,7 +27,7 @@ export const dynamic = "force-dynamic";
 
 async function getToken(api: any): Promise<string> {
   if (!api.userId) throw new ApiError(400, "no_user", "Sesión requerida");
-  const conn = await prisma.asanaConnection.findFirst({ where: { userId: api.userId } });
+  const conn = await prisma.asanaConnection.findFirst({ where: { userId: api.userId }, orderBy: { createdAt: "desc" } });
   const token = conn ? readAsanaToken(conn) : null;
   if (!token) throw new ApiError(400, "no_token", "Conecta Asana primero en /admin/asana");
   return token;

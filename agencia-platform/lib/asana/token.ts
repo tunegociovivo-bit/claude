@@ -53,6 +53,53 @@ export function readAsanaToken(conn: AsanaConnection): string | null {
   return null;
 }
 
+/**
+ * Devuelve la conexión ACTIVA del user — la más reciente.
+ *
+ * AsanaConnection no tiene UNIQUE en userId, así que históricamente
+ * pudieron acumularse varias filas por el mismo usuario (saveAsanaToken
+ * solo hace deleteMany+create desde mid-2026; antes era findFirst+
+ * update y dejaba filas huérfanas).
+ *
+ * Sin orderBy explícito, findFirst es no-determinístico: una llamada
+ * elige la fila A (token válido), otra elige la fila B (token caducado)
+ * y el usuario ve "modo automático" funcionando para listar workspaces
+ * pero fallando al listar projects con 401.
+ *
+ * Este helper:
+ *   1. Ordena DESC por createdAt → siempre la más reciente
+ *   2. BORRA todas las anteriores en background (idempotente)
+ *   3. Devuelve la fila ganadora
+ */
+export async function getActiveAsanaConnection(
+  userId: string
+): Promise<AsanaConnection | null> {
+  const conns = await prisma.asanaConnection.findMany({
+    where: { userId },
+    orderBy: { createdAt: "desc" }
+  });
+  if (conns.length === 0) return null;
+  const active = conns[0];
+  // Cleanup en background: borrar los duplicados viejos.
+  if (conns.length > 1) {
+    const oldIds = conns.slice(1).map((c) => c.id);
+    void prisma.asanaConnection
+      .deleteMany({ where: { id: { in: oldIds } } })
+      .catch(() => {});
+  }
+  return active;
+}
+
+/**
+ * Helper combinado: getActiveAsanaConnection + readAsanaToken.
+ * Devuelve el token plano listo para usar, o null si no hay conexión.
+ */
+export async function getActiveAsanaToken(userId: string): Promise<string | null> {
+  const conn = await getActiveAsanaConnection(userId);
+  if (!conn) return null;
+  return readAsanaToken(conn);
+}
+
 export async function saveAsanaToken(opts: {
   userId: string;
   token: string;

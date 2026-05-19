@@ -27,7 +27,7 @@ export const POST = withApi({ scope: "admin" }, async (req, { api }) => {
 
   if (fromSaved) {
     if (!api.userId) throw new ApiError(401, "no_user", "Sesión requerida");
-    const conn = await prisma.asanaConnection.findFirst({ where: { userId: api.userId } });
+    const conn = await prisma.asanaConnection.findFirst({ where: { userId: api.userId }, orderBy: { createdAt: "desc" } });
     if (!conn) throw new ApiError(404, "no_saved_token", "No hay token guardado");
     token = readAsanaToken(conn);
     if (!token) {

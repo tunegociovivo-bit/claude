@@ -1955,6 +1955,14 @@ model PushSubscription {
 
 model AsanaConnection {
   id             String    @id @default(cuid())
+  // Históricamente se acumulaban duplicados porque saveAsanaToken hacía
+  // findFirst+update y dejaba huérfanos; sin orderBy, findFirst después
+  // elegía no-determinísticamente una u otra (síntoma: "modo automático"
+  // funcionaba para workspaces pero fallaba con 401 al listar projects
+  // porque cada llamada cogía una fila distinta). saveAsanaToken hace
+  // deleteMany+create desde mid-2026, y getActiveAsanaConnection() limpia
+  // duplicados al leer. Pendiente: añadir @@unique([userId]) cuando se
+  // confirme que no hay duplicados legacy en producción.
   userId         String
   // `accessToken` quedó como texto plano por una iteración temprana.
   // Lo mantenemos para no romper conexiones existentes, pero los
