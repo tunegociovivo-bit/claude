@@ -655,28 +655,67 @@ function FieldEditor({
           </div>
 
           {needsOptions && (
-            <div>
-              <label className="text-[11px] text-slate-600 block mb-0.5">
-                Opciones (una por línea)
-              </label>
-              <textarea
-                value={(field.options ?? []).join("\n")}
-                onChange={(e) =>
-                  onPatch({
-                    options: e.target.value
-                      .split("\n")
-                      .map((s) => s.trim())
-                      .filter(Boolean)
-                  })
-                }
-                rows={3}
-                className="w-full rounded-lg border border-slate-300 p-1.5 text-xs font-mono"
-                placeholder="Reva&#10;Champiso&#10;Esaem"
-              />
-            </div>
+            <OptionsTextarea
+              options={field.options ?? []}
+              onChange={(opts) => onPatch({ options: opts })}
+            />
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Textarea para editar opciones (una por línea). Mantiene state LOCAL
+ * con el raw string para que el user pueda pulsar Enter y dejar líneas
+ * vacías mientras teclea la siguiente opción. Sincroniza con el padre
+ * solo al perder foco (onBlur), aplicando trim + filter en ese momento.
+ *
+ * Antes el filter(Boolean) se aplicaba en onChange, lo que eliminaba
+ * la línea vacía justo al pulsar Enter — el textarea perdía la línea
+ * recién creada y el cursor saltaba arriba, haciendo imposible añadir
+ * nuevas filas.
+ */
+function OptionsTextarea({
+  options,
+  onChange
+}: {
+  options: string[];
+  onChange: (opts: string[]) => void;
+}) {
+  const [raw, setRaw] = useState(options.join("\n"));
+  // Si el padre cambia las opciones (ej. al cargar otra plantilla),
+  // resetear el raw. Compara por contenido para no romper la edición
+  // en curso (el usuario está tecleando, el padre tiene el último
+  // commit; comparar igualados evita el "blink").
+  useEffect(() => {
+    const fromParent = options.join("\n");
+    setRaw((curr) => (curr.trim() === fromParent.trim() ? curr : fromParent));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [options.join("")]);
+
+  return (
+    <div>
+      <label className="text-[11px] text-slate-600 block mb-0.5">
+        Opciones (una por línea)
+      </label>
+      <textarea
+        value={raw}
+        onChange={(e) => setRaw(e.target.value)}
+        onBlur={() => {
+          const cleaned = raw
+            .split("\n")
+            .map((s) => s.trim())
+            .filter(Boolean);
+          onChange(cleaned);
+          // Normalizar el textarea (sin líneas vacías al final) tras el blur
+          setRaw(cleaned.join("\n"));
+        }}
+        rows={3}
+        className="w-full rounded-lg border border-slate-300 p-1.5 text-xs font-mono"
+        placeholder="Reva&#10;Champiso&#10;Esaem"
+      />
     </div>
   );
 }

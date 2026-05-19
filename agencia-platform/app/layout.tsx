@@ -85,7 +85,7 @@ const earlyInstallCapture = `
  */
 const swSelfHeal = `
   (function () {
-    var EXPECTED = "v86-2026-05-19-no-manual-fallback";
+    var EXPECTED = "v87-2026-05-19-options-textarea-fix";
     if (!('serviceWorker' in navigator)) return;
     var key = "hub_sw_v_seen";
     var seen = null;
