@@ -86,7 +86,7 @@ const earlyInstallCapture = `
  */
 const swSelfHeal = `
   (function () {
-    var EXPECTED = "v92-2026-05-19-sonia-chat-voice";
+    var EXPECTED = "v93-2026-05-19-meta-ab-testing";
     if (!('serviceWorker' in navigator)) return;
     var key = "hub_sw_v_seen";
     var seen = null;

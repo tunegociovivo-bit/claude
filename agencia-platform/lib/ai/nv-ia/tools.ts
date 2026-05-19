@@ -1103,6 +1103,53 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
     }
   },
   {
+    name: "meta_ads_launch_ab_test",
+    description:
+      "Lanza un experimento A/B con 2-5 creatividades distintas en la MISMA campaña. Crea un adset por variante (cada uno con su creative+ad) y los pone ACTIVE simultáneamente. A las 48h (configurable) un cron evalúa cuál tuvo mejor performance.\n\n" +
+      "Caso de uso típico: David crea Lead Ads y pide 'prueba 3 hooks distintos'. En lugar de comprometerse con UNA creatividad, lanzas 3 con diferentes headlines/imágenes y dejas que el mercado decida.\n\n" +
+      "FLOW antes de llamar esta tool:\n" +
+      "  1. meta_ads_create_campaign (CBO recomendado para que el budget se reparta solo entre variantes ganadoras)\n" +
+      "  2. Para cada variante: generate_meta_ad_creative + meta_ads_upload_image\n" +
+      "  3. meta_ads_launch_ab_test con todas las variantes (cada una con su imageHash)\n\n" +
+      "Devuelve { campaignId, variants: [{label, adsetId, creativeId, adId}], evalAt }.",
+    input_schema: {
+      type: "object",
+      properties: {
+        campaignId: { type: "string" },
+        targeting: { type: "object", additionalProperties: true },
+        pageId: { type: "string" },
+        leadFormId: { type: "string" },
+        optimizationGoal: { type: "string", description: "Default LEAD_GENERATION" },
+        dailyBudgetEurPerVariant: {
+          type: "number",
+          description: "Solo si la campaña NO es CBO. Si la campaña tiene CBO, déjalo vacío y se reparte automáticamente."
+        },
+        variants: {
+          type: "array",
+          minItems: 2,
+          maxItems: 5,
+          items: {
+            type: "object",
+            properties: {
+              label: { type: "string" },
+              imageHash: { type: "string" },
+              primaryText: { type: "string" },
+              headline: { type: "string" },
+              description: { type: "string" },
+              callToAction: { type: "string" }
+            },
+            required: ["label", "imageHash", "primaryText"],
+            additionalProperties: false
+          }
+        },
+        evaluationHours: { type: "number", description: "Default 48." },
+        evaluationStrategy: { type: "string", enum: ["cpl", "ctr", "cpc"], description: "Default cpl." }
+      },
+      required: ["campaignId", "targeting", "pageId", "leadFormId", "variants"],
+      additionalProperties: false
+    }
+  },
+  {
     name: "meta_ads_bulk_update_campaigns",
     description:
       "BATCH update de N campañas en paralelo (1 step en vez de N). Útil para:\n" +
@@ -4491,6 +4538,45 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
       return r;
     } catch (e: any) {
       return { error: `meta_ads_update_campaign: ${e?.message ?? e}` };
+    }
+  },
+  async meta_ads_launch_ab_test(input, ctx) {
+    try {
+      const variants = Array.isArray(input?.variants) ? input.variants : [];
+      if (variants.length < 2) return { error: "Necesitas al menos 2 variantes" };
+      const { metaAdsLaunchAbTest } = await import("@/lib/meta/ab-testing");
+      const result = await metaAdsLaunchAbTest({
+        workspaceId: ctx.workspaceId,
+        taskId: ctx.taskId,
+        campaignId: String(input?.campaignId ?? ""),
+        baseAdsetSettings: {
+          targeting: input?.targeting,
+          pageId: String(input?.pageId ?? ""),
+          leadFormId: String(input?.leadFormId ?? ""),
+          optimizationGoal: input?.optimizationGoal
+            ? String(input.optimizationGoal)
+            : undefined,
+          dailyBudgetEurPerVariant:
+            typeof input?.dailyBudgetEurPerVariant === "number"
+              ? input.dailyBudgetEurPerVariant
+              : undefined
+        },
+        variants: variants.map((v: any) => ({
+          label: String(v.label),
+          imageHash: String(v.imageHash),
+          primaryText: String(v.primaryText),
+          headline: v.headline ? String(v.headline) : undefined,
+          description: v.description ? String(v.description) : undefined,
+          callToAction: v.callToAction ? String(v.callToAction) : undefined
+        })),
+        evaluationHours:
+          typeof input?.evaluationHours === "number" ? input.evaluationHours : undefined,
+        evaluationStrategy: (input?.evaluationStrategy as any) ?? undefined,
+        adhoc: ctx.adhocCredentials
+      });
+      return { ok: true, ...result };
+    } catch (e: any) {
+      return { error: `meta_ads_launch_ab_test: ${e?.message ?? e}` };
     }
   },
   async meta_ads_bulk_update_campaigns(input, ctx) {
