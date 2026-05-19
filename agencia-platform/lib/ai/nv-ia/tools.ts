@@ -1081,6 +1081,54 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
     }
   },
   {
+    name: "web_scrape_dynamic",
+    description:
+      "Scraping de sites con JavaScript pesado (SPAs, Instagram, Shopify, Notion públicas, etc) que http_request NO puede resolver. Renderiza la página en Chrome headless gestionado (Browserless.io) y devuelve el HTML final + opcionalmente screenshot PNG subido a R2.\n\nUsa cuando http_request te devuelve HTML casi vacío (signo claro de SPA). El coste es ~$0.005 por llamada — no abuses.\n\nCap: timeout max 60s, response HTML max 5MB (se trunca con marcador <!-- TRUNCATED -->).",
+    input_schema: {
+      type: "object",
+      properties: {
+        url: { type: "string", description: "URL pública con https://" },
+        waitForSelector: {
+          type: "string",
+          description:
+            "CSS selector que esperar antes de capturar HTML. Más fiable que esperar 'load' para SPAs. Ej: 'main article', '.product-card', '#feed'."
+        },
+        waitMs: {
+          type: "number",
+          description: "Tiempo extra después de load (0-10000ms). Default 1500."
+        },
+        screenshot: {
+          type: "boolean",
+          description: "Si true, captura PNG y sube a R2. Devuelve screenshotUrl firmada."
+        },
+        timeoutMs: { type: "number", description: "Timeout total (5000-60000). Default 30000." }
+      },
+      required: ["url"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "analyze_image_deep",
+    description:
+      "Análisis profundo de UNA imagen con vision IA + schema estructurado. Devuelve JSON con: paleta hex exacta (3-8 colores), color dominante, objetos identificados con confianza, materiales visibles, dimensiones estimadas si hay referencias de escala, vibe/mood, sugerencias accionables y nota de encaje con el brandBrief del cliente.\n\nÚSALO para:\n- Fichas de producto (Reva muebles → dimensiones + materiales; Champiso setas → tipo + cocción).\n- Validar que una imagen encaja con la marca antes de publicar.\n- Extraer paleta exacta del catálogo del cliente para alimentar generate_brand_image.\n\nCoste ~\\$0.02 por análisis (vision Sonnet). Para análisis superficial usa view_attachment o get_task_context que ya leen imágenes adjuntas.",
+    input_schema: {
+      type: "object",
+      properties: {
+        imageUrl: {
+          type: "string",
+          description:
+            "URL pública de la imagen. Firmada de R2 vale, o cualquier URL HTTPS accesible."
+        },
+        clientId: {
+          type: "string",
+          description: "Cliente. Si se pasa, enriquece análisis con brandBrief + industry."
+        }
+      },
+      required: ["imageUrl"],
+      additionalProperties: false
+    }
+  },
+  {
     name: "create_xlsx_workbook",
     description:
       "Genera un EXCEL PROFESIONAL para entregar a cliente: cabeceras blancas sobre azul corporativo, filas alternadas (zebra), freeze pane, auto-filtros, anchuras automáticas, hoja Resumen con título grande. Trabajo digno de consultoría.\n\nCombina datos de dos fuentes (puedes usar ambas o solo una):\n  - fromAttachments: archivos .xlsx/.csv YA adjuntos a la task → cada uno se importa como hoja.\n  - sheets: hojas inline con rows como array de objetos (más natural que arrays de arrays). Auto-detecta columnas de los keys.\n\nPara cada hoja inline puedes pasar:\n  - title: título grande (font 16, color marca) que aparece encima de la tabla.\n  - subtitle: línea pequeña debajo del título.\n  - columnLabels: { 'snake_case_key': 'Label Bonito' } — renombra columnas en la cabecera. Si no se da, snake_case se convierte a 'Title Case' automáticamente y las siglas conocidas (ID, URL, GMB, IA, SEO, ROAS, CTR, CPC) quedan en mayúsculas.\n  - columnOrder: orden explícito de columnas.\n  - columnWidths: { key: number } anchura en chars (override del auto).\n\nUSO TÍPICO tras meta_ads_download_leads:\n  1. Download_leads 3 veces (por país) con attachAs='xlsx' o 'json' (en json los datos vuelven en el response y los puedes pasar a 'sheets' aquí).\n  2. create_xlsx_workbook({\n       filename: 'leads-MM-Travel-finde-15-17may',\n       theme: 'corporate',\n       sheets: [{\n         name: 'Resumen',\n         title: 'Leads Facebook Ads — M&M Travel',\n         subtitle: 'Periodo: viernes 15 – domingo 17 may 2026',\n         rows: [\n           { Campana: 'Colombia', Pais: '🇨🇴 Colombia', 'Total leads': 64, 'CPL est.': '0,57€' },\n           { Campana: 'Perú', Pais: '🇵🇪 Perú', 'Total leads': 28, 'CPL est.': '1,30€' },\n         ]\n       }],\n       fromAttachments: ['leads-colombia', 'leads-peru', 'leads-ecuador']\n     })\n  3. Se adjunta UN excel con 4 hojas (Resumen primero por defecto).\n\nThemes disponibles: 'corporate' (azul oscuro #1F4E79, default), 'minimal' (gris claro), 'dark' (slate). Puedes overridear el color principal con primaryColor: '#FF5722' por ejemplo.",
@@ -4170,6 +4218,53 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
       return { error: `http_request: ${msg}` };
     }
   },
+
+  async web_scrape_dynamic(input, ctx) {
+    try {
+      const url = String(input?.url ?? "").trim();
+      if (!url) return { error: "url requerida" };
+      const { scrapeDynamic } = await import("@/lib/scrape/dynamic");
+      const res = await scrapeDynamic({
+        workspaceId: ctx.workspaceId,
+        url,
+        waitForSelector: input?.waitForSelector ? String(input.waitForSelector) : undefined,
+        waitMs: input?.waitMs ? Number(input.waitMs) : undefined,
+        screenshot: !!input?.screenshot,
+        timeoutMs: input?.timeoutMs ? Number(input.timeoutMs) : undefined
+      });
+      return res;
+    } catch (e: any) {
+      return { error: `web_scrape_dynamic: ${e?.message ?? e}` };
+    }
+  },
+
+  async analyze_image_deep(input, ctx) {
+    try {
+      const imageUrl = String(input?.imageUrl ?? "").trim();
+      if (!imageUrl) return { error: "imageUrl requerida" };
+      let brandBrief: string | null = null;
+      let clientIndustry: string | null = null;
+      if (input?.clientId) {
+        const c = await prisma.client.findFirst({
+          where: { id: String(input.clientId), workspaceId: ctx.workspaceId },
+          select: { brandBrief: true, industry: true }
+        });
+        brandBrief = c?.brandBrief ?? null;
+        clientIndustry = c?.industry ?? null;
+      }
+      const { deepAnalyzeImage } = await import("@/lib/vision/deep-analyze");
+      const analysis = await deepAnalyzeImage({
+        workspaceId: ctx.workspaceId,
+        imageUrl,
+        brandBrief,
+        clientIndustry
+      });
+      return analysis;
+    } catch (e: any) {
+      return { error: `analyze_image_deep: ${e?.message ?? e}` };
+    }
+  },
+
   async create_xlsx_workbook(input, ctx) {
     try {
       const filename = String(input?.filename ?? "").trim();
