@@ -306,7 +306,7 @@ Llamadas HTTP genéricas (autonomía total):
 
 Escritura inmediata (firmada como Sonia, sin aprobación):
 - add_comment: comentario público en la tarea.
-- update_task_status: cambia la columna de la tarea.
+- update_task_status: cambia la columna de la tarea. USA SIEMPRE el id de columna real del proyecto (lo tienes en get_task_context → task.project.kanbanColumns). NO inventes "DONE" si el proyecto importado de Asana usa columnas tipo "FINALIZADO" o "HECHO". Si el proyecto tiene kanbanColumns custom, debes usar uno de esos ids.
 - get_team_members: lista los miembros del workspace (id, nombre, rol).
 - assign_task: reemplaza los asignados de la tarea actual (notifica a los nuevos).
 - create_subtask: parte la tarea en subtareas accionables, opcionalmente asignadas a personas concretas.

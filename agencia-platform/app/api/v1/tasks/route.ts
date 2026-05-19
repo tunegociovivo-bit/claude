@@ -15,7 +15,18 @@ export const GET = withApi({ scope: "tasks:read" }, async (req, { api }) => {
   const assignee = url.searchParams.get("assigneeId") ?? undefined;
 
   const where: any = { workspaceId: api.workspaceId, deletedAt: null };
-  if (projectId) where.projectId = projectId;
+  if (projectId) {
+    // Una tarea puede estar en un proyecto como PRINCIPAL (Task.projectId)
+    // o como EXTRA (linkada via TaskProject — feature multi-proyecto).
+    // Antes solo filtrábamos por principal, así las tareas compartidas a
+    // este proyecto desde otro NUNCA aparecían en su kanban. Bug clásico
+    // reportado: "comparto task de 'prueba' a 'NEGOCIO VIVO GENERAL' y
+    // no la veo en NEGOCIO".
+    where.OR = [
+      { projectId },
+      { extraProjects: { some: { projectId } } }
+    ];
+  }
   if (status) where.status = status;
   if (assignee) where.assignees = { some: { userId: assignee } };
 

@@ -5560,12 +5560,56 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
         }
       }
     });
-    // 2. Status → DONE
+    // 2. Resolver el status "completado" para el proyecto de esta tarea.
+    // Los proyectos importados de Asana tienen kanbanColumns con IDs
+    // slugificados de las secciones de Asana ("TAREAS_URGENTES",
+    // "EN_REVISION", etc.), no el genérico "DONE" del workspace. Si
+    // forzamos status="DONE" en una task de uno de esos proyectos, el
+    // kanban no encuentra columna que matchee y la pinta en la primera
+    // (típicamente "TAREAS URGENTES"). Buscamos:
+    //   1. Columna isDone=true del proyecto (preferida)
+    //   2. Columna cuyo label/id contenga "done/hecho/finalizad/complet"
+    //   3. Última columna del proyecto (asumimos orden = workflow)
+    //   4. Fallback "DONE" (proyectos sin kanbanColumns custom)
+    let doneStatus = "DONE";
+    try {
+      const task = await prisma.task.findUnique({
+        where: { id: ctx.taskId },
+        select: { projectId: true }
+      });
+      if (task?.projectId) {
+        const project = await prisma.project.findUnique({
+          where: { id: task.projectId },
+          select: { kanbanColumns: true }
+        });
+        const cols = Array.isArray((project as any)?.kanbanColumns)
+          ? ((project as any).kanbanColumns as Array<any>)
+          : [];
+        if (cols.length > 0) {
+          const explicitDone = cols.find((c) => c?.isDone === true);
+          const byName = explicitDone
+            ? null
+            : cols.find((c) =>
+                /(hecho|done|complete|completad|publicad|finalizad|terminad)/i.test(
+                  `${c?.label ?? ""} ${c?.id ?? ""}`
+                )
+              );
+          const last = cols
+            .slice()
+            .sort((a, b) => (a?.order ?? 0) - (b?.order ?? 0))
+            .at(-1);
+          doneStatus = explicitDone?.id ?? byName?.id ?? last?.id ?? "DONE";
+        }
+      }
+    } catch {
+      // Si algo falla, usamos "DONE" por defecto.
+    }
+
     await prisma.task.update({
       where: { id: ctx.taskId },
-      data: { status: "DONE", completedAt: new Date() }
+      data: { status: doneStatus, completedAt: new Date() }
     });
-    return { ok: true, commentId: comment.id, completed: true };
+    return { ok: true, commentId: comment.id, completed: true, status: doneStatus };
   },
   async attach_file_to_task(input, ctx) {
     const filename = String(input?.filename ?? "").trim();
