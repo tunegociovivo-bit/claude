@@ -85,7 +85,7 @@ const earlyInstallCapture = `
  */
 const swSelfHeal = `
   (function () {
-    var EXPECTED = "v90-2026-05-19-credential-watch";
+    var EXPECTED = "v91-2026-05-19-template-workflows";
     if (!('serviceWorker' in navigator)) return;
     var key = "hub_sw_v_seen";
     var seen = null;

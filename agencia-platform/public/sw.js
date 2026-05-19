@@ -26,7 +26,7 @@
 // reintroducir cache PERO con purga agresiva por VERSION en
 // activate.
 
-const VERSION = "v90-2026-05-19-credential-watch";
+const VERSION = "v91-2026-05-19-template-workflows";
 
 self.addEventListener("install", (event) => {
   // Activación inmediata: no esperar a que el SW viejo libere.

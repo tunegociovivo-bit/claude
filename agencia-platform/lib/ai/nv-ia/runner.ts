@@ -892,6 +892,53 @@ export async function executeAgentRun(opts: {
     console.warn("[sonia] resource-registry:", (e as Error).message);
   }
 
+  // WORKFLOW PRECONFIGURADO: si la task viene de una plantilla con
+  // aiWorkflow, inyectarlo como secuencia EXACTA a ejecutar.
+  try {
+    const task = await prisma.task.findUnique({
+      where: { id: taskId },
+      select: { templateId: true } as any
+    });
+    const templateId = (task as any)?.templateId;
+    if (templateId) {
+      const tpl = await prisma.taskTemplate.findUnique({
+        where: { id: templateId },
+        select: { name: true, aiWorkflow: true } as any
+      });
+      const workflow = (tpl as any)?.aiWorkflow;
+      if (workflow && Array.isArray(workflow.steps) && workflow.steps.length > 0) {
+        const lines = [
+          "",
+          "## WORKFLOW PRECONFIGURADO (síguelo paso a paso)",
+          `Plantilla: **${(tpl as any).name}**`,
+          workflow.description ? `Objetivo: ${workflow.description}` : null,
+          "",
+          "Ejecuta estos pasos EN ORDEN, sin improvisar. Cada step llama una tool concreta.",
+          "Si un step falla por un motivo claro, corrige y reintenta. Si no puedes recuperarte, escala.",
+          ""
+        ].filter(Boolean) as string[];
+        workflow.steps.forEach((s: any, i: number) => {
+          const w = s.why ? ` — _${s.why}_` : "";
+          const inp = s.input ? `\n   input: \`${JSON.stringify(s.input)}\`` : "";
+          lines.push(`${i + 1}. **${s.tool}**${w}${inp}`);
+        });
+        if (workflow.successCriteria) {
+          lines.push("");
+          lines.push(`**Criterio de éxito**: ${workflow.successCriteria}`);
+        }
+        lines.push("");
+        initialContent += lines.join("\n");
+        log.push({
+          type: "info",
+          ts: nowIso(),
+          text: `Workflow preconfigurado inyectado: ${workflow.steps.length} pasos`
+        });
+      }
+    }
+  } catch (e) {
+    console.warn("[sonia] workflow injection:", (e as Error).message);
+  }
+
   const messages: Anthropic.MessageParam[] = [
     { role: "user", content: initialContent }
   ];

@@ -48,7 +48,20 @@ type TaskTemplate = {
   defaultDueOffsetDays: number | null;
   bodyMarkdown: string | null;
   customFields: CustomField[] | null;
+  aiWorkflow: AiWorkflow | null;
   createdAt: string;
+};
+
+type AiWorkflowStep = {
+  tool: string;
+  input?: Record<string, unknown>;
+  why?: string;
+};
+
+type AiWorkflow = {
+  description?: string;
+  steps: AiWorkflowStep[];
+  successCriteria?: string;
 };
 
 type Project = { id: string; name: string };
@@ -245,6 +258,11 @@ function TemplateEditor({
   );
   const [bodyMarkdown, setBodyMarkdown] = useState(tpl?.bodyMarkdown ?? "");
   const [customFields, setCustomFields] = useState<CustomField[]>(tpl?.customFields ?? []);
+  // Workflow IA opcional. Texto JSON editable manualmente (avanzado).
+  // Si vacío, Sonia improvisa como hasta ahora.
+  const [aiWorkflowRaw, setAiWorkflowRaw] = useState<string>(
+    tpl?.aiWorkflow ? JSON.stringify(tpl.aiWorkflow, null, 2) : ""
+  );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -287,6 +305,25 @@ function TemplateEditor({
       if (new Set(ids).size !== ids.length) {
         throw new Error("Hay IDs de campos duplicados");
       }
+      // Parsear y validar el workflow IA si está presente
+      let aiWorkflow: AiWorkflow | null = null;
+      if (aiWorkflowRaw.trim()) {
+        try {
+          const parsed = JSON.parse(aiWorkflowRaw);
+          if (!parsed || !Array.isArray(parsed.steps)) {
+            throw new Error("El workflow debe tener un campo 'steps' (array)");
+          }
+          for (const [i, step] of (parsed.steps as any[]).entries()) {
+            if (!step.tool || typeof step.tool !== "string") {
+              throw new Error(`Step ${i + 1}: falta 'tool' (string con nombre de herramienta)`);
+            }
+          }
+          aiWorkflow = parsed;
+        } catch (e: any) {
+          throw new Error(`Workflow IA JSON inválido: ${e?.message ?? e}`);
+        }
+      }
+
       const payload: any = {
         name: name.trim(),
         description: description.trim() || null,
@@ -300,7 +337,8 @@ function TemplateEditor({
             ? null
             : Number.parseInt(defaultDueOffsetDays, 10),
         bodyMarkdown: bodyMarkdown.trim() || null,
-        customFields: customFields.length > 0 ? customFields : null
+        customFields: customFields.length > 0 ? customFields : null,
+        aiWorkflow
       };
       const url = tpl ? `/api/v1/task-templates/${tpl.id}` : "/api/v1/task-templates";
       const method = tpl ? "PUT" : "POST";
@@ -488,6 +526,46 @@ function TemplateEditor({
               className="w-full rounded-lg border border-slate-300 p-2 text-sm font-mono text-xs"
               placeholder="Texto que aparecerá ya escrito en la descripción al crear la tarea. Acepta saltos de línea."
             />
+          </div>
+
+          <hr className="border-slate-200" />
+
+          {/* Workflow IA — avanzado */}
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <label className="text-xs text-slate-600">
+                Workflow IA preconfigurado <span className="text-slate-400">(opcional, avanzado)</span>
+              </label>
+              <span className="text-[10px] text-slate-400 italic">
+                Si presente, Sonia ejecuta estos pasos linealmente sin improvisar
+              </span>
+            </div>
+            <textarea
+              value={aiWorkflowRaw}
+              onChange={(e) => setAiWorkflowRaw(e.target.value)}
+              rows={8}
+              className="w-full rounded-lg border border-slate-300 p-2 text-xs font-mono"
+              placeholder={`{
+  "description": "Crear campaña Lead Ads Meta",
+  "steps": [
+    { "tool": "validate_credentials", "input": { "integrations": ["meta_ads"] } },
+    { "tool": "meta_ads_list_pages", "why": "encontrar la page del cliente" },
+    { "tool": "meta_ads_create_lead_form", "why": "form con las 3 preguntas custom" },
+    { "tool": "meta_ads_create_campaign", "why": "CBO con 15€/día" },
+    { "tool": "meta_ads_create_adset", "why": "targeting profesional" },
+    { "tool": "generate_meta_ad_creative", "why": "imagen + textos" },
+    { "tool": "meta_ads_create_ad_creative" },
+    { "tool": "meta_ads_create_ad" },
+    { "tool": "meta_ads_list_ads", "why": "self-verify estado final" }
+  ],
+  "successCriteria": "Campaña en PAUSED + ad con creative correcto + form con 3 preguntas"
+}`}
+            />
+            <p className="mt-1 text-[11px] text-slate-500">
+              JSON con array <code>steps</code>. Cada step necesita al menos <code>tool</code>.
+              Opcionales: <code>input</code> (parámetros fijos), <code>why</code> (contexto).
+              Si dejas el campo vacío, Sonia improvisa como hoy.
+            </p>
           </div>
 
           <hr className="border-slate-200" />

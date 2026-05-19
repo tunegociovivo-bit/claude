@@ -2610,6 +2610,22 @@ model TaskTemplate {
   // Schema de custom fields (ver doc arriba).
   customFields Json?
 
+  // Workflow IA preconfigurado para Sonia. Si presente y la task se
+  // procesa con AI agent, este workflow se inyecta al SYSTEM_PROMPT
+  // como "secuencia EXACTA a seguir" — Sonia no decide los pasos,
+  // los ejecuta linealmente. Estructura:
+  // {
+  //   description: "Resumen del workflow para Sonia",
+  //   steps: [
+  //     { tool: "validate_credentials", input: {...}, why: "..." },
+  //     { tool: "meta_ads_list_campaigns", input: {...}, why: "..." },
+  //     ...
+  //   ],
+  //   successCriteria: "Qué debe verificar al final"
+  // }
+  // Si null, Sonia improvisa como hoy.
+  aiWorkflow   Json?
+
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   createdById String?

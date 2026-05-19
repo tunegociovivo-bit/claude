@@ -21,6 +21,20 @@ const customFieldSchema = z.object({
   defaultValue: z.any().optional()
 });
 
+const aiWorkflowStepSchema = z.object({
+  tool: z.string().min(1).max(80),
+  input: z.record(z.string(), z.unknown()).optional(),
+  why: z.string().max(500).optional()
+});
+
+const aiWorkflowSchema = z
+  .object({
+    description: z.string().max(2000).optional(),
+    steps: z.array(aiWorkflowStepSchema).min(1).max(50),
+    successCriteria: z.string().max(2000).optional()
+  })
+  .nullable();
+
 const updateSchema = z.object({
   name: z.string().min(1).max(120).optional(),
   description: z.string().max(2000).optional().nullable(),
@@ -32,7 +46,8 @@ const updateSchema = z.object({
   defaultTags: z.array(z.string()).max(20).optional().nullable(),
   defaultDueOffsetDays: z.number().int().min(0).max(365).optional().nullable(),
   bodyMarkdown: z.string().max(20000).optional().nullable(),
-  customFields: z.array(customFieldSchema).max(30).optional().nullable()
+  customFields: z.array(customFieldSchema).max(30).optional().nullable(),
+  aiWorkflow: aiWorkflowSchema.optional()
 });
 
 export const GET = withApi({ scope: "tasks:read" }, async (_req, { params, api }) => {
