@@ -2524,7 +2524,7 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
   // ──────────────────────────────────────────────────────────────
   {
     name: "generate_brand_image",
-    description: "Genera una imagen con IA (OpenAI gpt-image-1) aplicando el BRAND del cliente: brandBrief + colores + styleGuideCached. La imagen se sube a R2 y se adjunta a la task automáticamente.\n\nUSO TÍPICO: 'genera un anuncio cuadrado para Instagram sobre la oferta de septiembre del cliente X'. Pasas clientId + prompt corto, y la tool enriquece con todo el contexto del cliente.\n\nFormatos: 'square' (1024×1024, IG feed), 'story' (1024×1792, IG/FB story), 'landscape' (1792×1024, FB feed/web banner), 'portrait' (1024×1536, Pinterest).\n\nQuality: 'low' (~$0.01/img, draft), 'medium' (~$0.04, default), 'high' (~$0.12, entrega final).\n\nNUNCA pongas texto en el prompt — la IA escribe mal letras. El texto se compone separado después.",
+    description: "Genera una imagen con IA (OpenAI gpt-image-1) aplicando el BRAND del cliente: brandBrief + colores + styleGuideCached. La imagen se sube a R2 y se adjunta a la task automáticamente.\n\nUSO: para PUBLICACIONES de redes sociales (post Instagram, carousel, story orgánico). El texto se compone aparte vía overlay editorial.\n\nNO LA USES para anuncios pagados Meta Ads — para eso usa `generate_meta_ad_creative` que genera el anuncio TERMINADO con copy + value props + CTA renderizados.\n\nFormatos: 'square' (1024×1024, IG feed), 'story' (1024×1792, IG/FB story), 'landscape' (1792×1024, FB feed/web banner), 'portrait' (1024×1536, Pinterest).\n\nQuality: 'low' (~$0.01/img, draft), 'medium' (~$0.04, default), 'high' (~$0.12, entrega final).\n\nNUNCA pongas texto en el prompt — la IA escribe mal letras. El texto se compone separado después.",
     input_schema: {
       type: "object",
       properties: {
@@ -2532,6 +2532,39 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
         prompt: { type: "string", description: "Descripción visual de la imagen (sin pedir texto). 1-3 frases descriptivas." },
         format: { type: "string", enum: ["square", "story", "landscape", "portrait"], description: "Default 'square'." },
         quality: { type: "string", enum: ["low", "medium", "high"], description: "Default 'medium'." }
+      },
+      required: ["prompt"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "generate_meta_ad_creative",
+    description:
+      "Genera una CREATIVIDAD PUBLICITARIA TERMINADA para Meta Ads (Lead Ads, Tráfico, Conversiones). A diferencia de generate_brand_image, este endpoint le pide directamente a gpt-image-1 que pinte el anuncio COMPLETO con:\n- Imagen hero potente (40-60% del frame)\n- Headline grande renderizado encima (en español, con tipografía tipo Inter/Montserrat)\n- Subheadline / value props con iconos en fila\n- CTA en píldora contrastada al pie\n- Paleta de marca consistente\n\nEs el mismo motor que la sección 'Campañas Redes IA' del Hub — calidad profesional tipo Freepik/Canva, NO foto stock plana.\n\nIMPORTANTE: para que el modelo renderice los textos correctos, pásalos explícitos en `copy`:\n- headline: el gancho grande, 4-7 palabras\n- primaryText: subtítulo / contexto, 1 frase\n- callToAction: texto del botón (ej. 'Reclama tu indemnización', 'Consulta gratis', 'Empieza ahora')\n- valueProps: 3 ítems cortos (ej. ['Estudio gratuito', 'Sin compromisos', 'Pago al ganar'])\n- brandName: nombre del cliente para el pie\n\nFormatos: 'square' (FB/IG feed 1:1), 'portrait' (Stories/Reels 4:5), 'landscape' (right column 16:9).\n\nEjemplo para anuncio de despachos legales tipo el RS Advocats que tienes como referencia:\n  prompt: 'Despacho de abogados laborales premium, escena fotográfica realista de persona con caja de despido o documento, oficina moderna iluminación cinematográfica'\n  copy: {\n    headline: '¿Te han despedido?',\n    primaryText: 'Reclamamos lo que te corresponde',\n    valueProps: ['Estudio gratuito', 'Abogados especialistas', 'Sin compromisos'],\n    callToAction: 'Consulta GRATIS',\n    brandName: 'RS Advocats'\n  }\n  styleHint: 'Lujoso, profesional, paleta dorado + negro, tipografía elegante serif/sans mezclada'\n\nCoste: ~$0.04 medium / ~$0.12 high. Tarda 30-90s.",
+    input_schema: {
+      type: "object",
+      properties: {
+        clientId: { type: "string", description: "Cliente. Si se pasa, el brand brief + colores + style guide del cliente enriquecen el prompt automáticamente." },
+        prompt: { type: "string", description: "Descripción de la ESCENA fotográfica que debe pintar — SIN incluir los textos (los textos van en copy). 1-3 frases describiendo: sujeto, ambiente, mood, paleta deseada." },
+        copy: {
+          type: "object",
+          description: "Textos que la IA renderizará EN el anuncio. Pásalos en español, con tildes correctas. La IA renderiza tal cual.",
+          properties: {
+            headline: { type: "string", description: "Titular grande, 3-7 palabras. Captador de atención." },
+            primaryText: { type: "string", description: "Subtítulo, 1 frase 8-15 palabras." },
+            callToAction: { type: "string", description: "Texto del botón CTA. Ej: 'Reclama ahora', 'Consulta gratis', 'Apúntate'." },
+            valueProps: {
+              type: "array",
+              items: { type: "string" },
+              description: "3 value props cortos (3-5 palabras c/u) que aparecerán en fila con iconos."
+            },
+            brandName: { type: "string", description: "Nombre del cliente, para pie pequeño." }
+          },
+          additionalProperties: false
+        },
+        format: { type: "string", enum: ["square", "portrait", "landscape"], description: "square=feed 1:1 (default), portrait=Reels/Stories 4:5, landscape=right column 16:9." },
+        quality: { type: "string", enum: ["low", "medium", "high"], description: "Default medium. High para entregas finales (~3x más caro)." },
+        styleHint: { type: "string", description: "Override del style del cliente. Ej: 'Lujoso premium dorado y negro', 'Minimalista pastel', 'Urbano vibrante años 90'. Si no se pasa, se infiere del brandBrief del cliente." }
       },
       required: ["prompt"],
       additionalProperties: false
@@ -6570,6 +6603,112 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
       return { error: `generate_brand_image: ${e?.message ?? e}` };
     }
   },
+
+  async generate_meta_ad_creative(input, ctx) {
+    try {
+      // Inferir clientId del task si no se pasa
+      let clientId = input?.clientId ? String(input.clientId) : null;
+      let client: any = null;
+      if (!clientId) {
+        const task = await prisma.task.findUnique({
+          where: { id: ctx.taskId },
+          select: { clientId: true }
+        });
+        clientId = task?.clientId ?? null;
+      }
+      if (clientId) {
+        client = await prisma.client.findFirst({
+          where: { id: clientId, workspaceId: ctx.workspaceId } as any
+        });
+      }
+
+      // Enriquecer prompt con brand
+      let promptEnriched = String(input?.prompt ?? "").trim();
+      if (client) {
+        const parts: string[] = [];
+        if (client.brandBrief?.trim()) {
+          parts.push(`About the brand: ${client.brandBrief.slice(0, 400)}`);
+        }
+        parts.push(
+          `Brand colors: primary ${client.brandColorPrimary}, accent ${client.brandColorAccent}.`
+        );
+        if (client.styleGuideCached?.trim()) {
+          parts.push(`Brand style guide: ${client.styleGuideCached.slice(0, 1200)}`);
+        }
+        promptEnriched = parts.join("\n") + "\n\n" + promptEnriched;
+      }
+
+      const format = (input?.format as string) ?? "square";
+      const size =
+        format === "portrait"
+          ? "1024x1536"
+          : format === "landscape"
+            ? "1536x1024"
+            : "1024x1024";
+
+      const { generateAdImage } = await import("@/lib/meta/generate-content");
+      const url = await generateAdImage({
+        workspaceId: ctx.workspaceId,
+        prompt: promptEnriched,
+        size: size as any,
+        quality: (input?.quality as any) ?? "medium",
+        // No tenemos campaignId/adId reales — usamos el taskId como
+        // surrogate para que la imagen quede archivada con la task.
+        campaignId: `task-${ctx.taskId}`,
+        adId: `creative-${Date.now()}`,
+        copy: input?.copy
+          ? {
+              headline: input.copy.headline,
+              primaryText: input.copy.primaryText,
+              callToAction: input.copy.callToAction,
+              brandName: input.copy.brandName ?? client?.name,
+              valueProps: Array.isArray(input.copy.valueProps)
+                ? input.copy.valueProps.map(String)
+                : undefined
+            }
+          : undefined,
+        settings: {
+          styleHint: input?.styleHint ? String(input.styleHint) : undefined
+        }
+      });
+
+      // Descargar la imagen subida a R2 y adjuntarla al task como File
+      // (generateAdImage la sube pero a otro targetType, así que la
+      // re-asociamos al task aquí para que el user la vea en la card).
+      const r = await fetch(url);
+      const buf = Buffer.from(await r.arrayBuffer());
+      const filename = `meta-ad-${Date.now()}.png`;
+      const file = await uploadAttachmentForTask({
+        workspaceId: ctx.workspaceId,
+        taskId: ctx.taskId,
+        filename,
+        body: buf,
+        mimeType: "image/png",
+        uploadedByUserId: ctx.config.userId
+      });
+
+      await prisma.comment.create({
+        data: {
+          workspaceId: ctx.workspaceId,
+          authorId: ctx.config.userId,
+          targetType: "TASK",
+          targetId: ctx.taskId,
+          body: `🎨 Creatividad Meta Ads generada (${(buf.length / 1024).toFixed(0)} KB${client ? `, brand del cliente aplicado` : ""}). Anuncio completo con headline + value props + CTA renderizados — listo para subir a Meta Ads Manager o pasar a meta_ads_upload_image + meta_ads_create_ad_creative.`
+        }
+      });
+
+      return {
+        ok: true,
+        fileId: file.fileId,
+        filename: file.filename,
+        sizeBytes: buf.length,
+        url: url
+      };
+    } catch (e: any) {
+      return { error: `generate_meta_ad_creative: ${e?.message ?? e}` };
+    }
+  },
+
   async record_lesson(input, ctx) {
     try {
       const { recordLesson } = await import("@/lib/ai/nv-ia/lessons");
