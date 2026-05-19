@@ -85,7 +85,7 @@ const earlyInstallCapture = `
  */
 const swSelfHeal = `
   (function () {
-    var EXPECTED = "v66-2026-05-19-meta-cbo-promoted";
+    var EXPECTED = "v67-2026-05-19-restore-prompt";
     if (!('serviceWorker' in navigator)) return;
     var key = "hub_sw_v_seen";
     var seen = null;
