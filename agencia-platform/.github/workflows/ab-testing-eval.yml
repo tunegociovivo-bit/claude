@@ -1,0 +1,18 @@
+name: Evaluación A/B tests Meta Ads
+# Cada 6 horas revisa los A/B tests Meta Ads cuyo evalAt ya pasó.
+# Lee insights, marca el test como evaluated y postea el ganador en
+# la task asociada como comentario de Sonia.
+on:
+  schedule:
+    - cron: "30 */6 * * *"
+  workflow_dispatch:
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping endpoint ab-testing-eval
+        run: |
+          curl -fsSL -X GET \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            https://hub.negociovivo.app/api/cron/ab-testing-eval
