@@ -564,15 +564,22 @@ export async function metaAdsCreateAdset(opts: {
     | "LOWEST_COST_WITH_MIN_ROAS";
   /** Bid cap en centavos. Requerido si bidStrategy !== LOWEST_COST_WITHOUT_CAP. */
   bidAmountCents?: number;
+  /** REQUERIDO para Lead Ads con destinationType=ON_AD: Meta exige
+   *  promoted_object = { page_id } para que sepa qué Page recibe los
+   *  leads. Sin esto la API devuelve 400 (Sonia identificó este bug
+   *  el 19 may). Para otros casos (app installs, conversion events)
+   *  puede llevar applicationId/customEventType. */
+  promotedObject?: {
+    pageId?: string;
+    applicationId?: string;
+    customEventType?: string;
+    customEventStr?: string;
+    productSetId?: string;
+    pixelId?: string;
+  };
   adhoc?: Record<string, string>;
 }): Promise<{ id: string; name: string }> {
   const cfg = await getMetaAdsConfig(opts.workspaceId, opts.adhoc);
-  // Bid strategy default: LOWEST_COST_WITHOUT_CAP. Es el modo "deja
-  // que Meta optimice sin techo de puja" — no requiere bid_amount y
-  // funciona bien para LEAD_GENERATION en mayoría de cuentas. ANTES
-  // no lo enviábamos y Meta heredaba el bid_strategy de la cuenta/
-  // campaña que en muchos casos era COST_CAP → exigía bid_amount →
-  // 400 error_subcode 2490487 silencioso a mitad del flow.
   const bidStrategy = opts.bidStrategy ?? "LOWEST_COST_WITHOUT_CAP";
   const payload: Record<string, unknown> = {
     name: opts.name,
@@ -587,15 +594,25 @@ export async function metaAdsCreateAdset(opts: {
   };
   if (opts.dailyBudgetEur) payload.daily_budget = eurosToCentavos(opts.dailyBudgetEur);
   if (opts.endTime) payload.end_time = opts.endTime;
-  // Si la estrategia REQUIERE bid_amount y nos lo pasaron, lo enviamos.
-  // Si la estrategia REQUIERE bid_amount y NO nos lo pasaron, no
-  // podemos arreglarlo aquí — pero el default LOWEST_COST_WITHOUT_CAP
-  // ya cubre 99% de casos sin bid.
   if (
     opts.bidAmountCents &&
     bidStrategy !== "LOWEST_COST_WITHOUT_CAP"
   ) {
     payload.bid_amount = opts.bidAmountCents;
+  }
+  // promoted_object: Meta exige page_id para Lead Ads on-ad.
+  // El field es top-level del payload, NO anidado en targeting.
+  if (opts.promotedObject) {
+    const po: Record<string, string> = {};
+    if (opts.promotedObject.pageId) po.page_id = opts.promotedObject.pageId;
+    if (opts.promotedObject.applicationId) po.application_id = opts.promotedObject.applicationId;
+    if (opts.promotedObject.customEventType) po.custom_event_type = opts.promotedObject.customEventType;
+    if (opts.promotedObject.customEventStr) po.custom_event_str = opts.promotedObject.customEventStr;
+    if (opts.promotedObject.productSetId) po.product_set_id = opts.promotedObject.productSetId;
+    if (opts.promotedObject.pixelId) po.pixel_id = opts.promotedObject.pixelId;
+    if (Object.keys(po).length > 0) {
+      payload.promoted_object = po;
+    }
   }
   const data = await metaPost<{ id: string }>(
     `${adAccountPath(cfg.adAccountId)}/adsets`,
@@ -931,21 +948,34 @@ export async function metaAdsCreateLeadCampaign(opts: {
 
   const out: any = { ok: false };
   try {
-    // 1. Campaign
+    // 1. Campaign con CBO (budget en campaña, no en adset).
+    // Sonia identificó (19 may) que la cuenta act_290451863303865
+    // fuerza CBO — si pones budget en adset Meta devuelve subcode
+    // 1885737 "Campaña sin presupuesto". El modo correcto en cuentas
+    // modernas es CBO (Campaign Budget Optimization): budget en
+    // campaign + adsets sin budget. Meta lo respeta.
     out.step = "campaign";
     const campaign = await metaAdsCreateCampaign({
       workspaceId: opts.workspaceId,
       name: opts.campaignName,
       objective: "OUTCOME_LEADS",
       status: "PAUSED",
+      dailyBudgetEur: opts.dailyBudgetEur,
       adhoc: opts.adhoc
     });
     out.campaignId = campaign.id;
 
-    // 2. Adset
+    // 2. Adset SIN budget (CBO lo hereda de campaign), CON
+    // promoted_object obligatorio para Lead Ads on-ad (Meta exige
+    // page_id — sin esto la API responde 400).
     out.step = "adset";
     const targeting: Record<string, unknown> = {
-      geo_locations: { countries: opts.countries }
+      geo_locations: { countries: opts.countries },
+      // Placements: solo FB + IG, sin audience_network (calidad de
+      // lead inferior).
+      publisher_platforms: ["facebook", "instagram"],
+      facebook_positions: ["feed", "marketplace", "video_feeds", "story", "instream_video"],
+      instagram_positions: ["stream", "story", "reels", "explore"]
     };
     if (opts.ageMin) targeting.age_min = opts.ageMin;
     if (opts.ageMax) targeting.age_max = opts.ageMax;
@@ -953,9 +983,10 @@ export async function metaAdsCreateLeadCampaign(opts: {
       workspaceId: opts.workspaceId,
       campaignId: campaign.id,
       name: `${opts.campaignName} — adset`,
-      dailyBudgetEur: opts.dailyBudgetEur,
+      // SIN dailyBudgetEur — el budget vive en la campaign (CBO).
       targeting,
       status: "PAUSED",
+      promotedObject: { pageId: opts.pageId },
       adhoc: opts.adhoc
     });
     out.adsetId = adset.id;

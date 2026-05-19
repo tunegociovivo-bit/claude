@@ -897,20 +897,62 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
   },
   {
     name: "meta_ads_create_adset",
-    description: "Crea un adset dentro de una campaign existente. Targeting mínimo: { geo_locations: { countries: ['ES'] } }. Para Lead Ads, optimizationGoal='LEAD_GENERATION' + destinationType='ON_AD'.",
+    description:
+      "Crea un adset dentro de una campaign existente. Targeting mínimo: { geo_locations: { countries: ['ES'] } }. Para Lead Ads, optimizationGoal='LEAD_GENERATION' + destinationType='ON_AD'.\n\n" +
+      "CRÍTICO para Lead Ads: SIEMPRE pasar promotedObject={pageId:'<id de la page>'} — Meta lo exige y sin él la API devuelve 400. La page es la que recibe los leads.\n\n" +
+      "Si la campaña está en CBO (budget en campaign), NO pases dailyBudgetEur aquí — el adset hereda el budget. Si pasas budget en adset cuando campaign también lo tiene, Meta devuelve subcode 1885737.",
     input_schema: {
       type: "object",
       properties: {
         campaignId: { type: "string" },
         name: { type: "string" },
-        dailyBudgetEur: { type: "number" },
-        targeting: { type: "object", additionalProperties: true, description: "Objeto targeting de Meta. Mínimo: { geo_locations: { countries: ['ES'] } }. Opcional: age_min, age_max, interests: [{id,name}], etc." },
-        optimizationGoal: { type: "string" },
-        billingEvent: { type: "string" },
-        destinationType: { type: "string" },
+        dailyBudgetEur: { type: "number", description: "OMITIR si la campaña usa CBO." },
+        targeting: {
+          type: "object",
+          additionalProperties: true,
+          description:
+            "Objeto targeting de Meta. Mínimo: { geo_locations: { countries: ['ES'] } }. Para targeting profesional pasa también: age_min, age_max, interests: [{id, name}], behaviors: [{id, name}], publisher_platforms: ['facebook','instagram'], facebook_positions: ['feed','story','reels','marketplace'], instagram_positions: ['stream','story','reels','explore']. NUNCA incluyas 'audience_network' (calidad de lead inferior)."
+        },
+        optimizationGoal: {
+          type: "string",
+          description: "Default LEAD_GENERATION para Lead Ads. Otros: LINK_CLICKS, CONVERSIONS, REACH."
+        },
+        billingEvent: { type: "string", description: "Default IMPRESSIONS." },
+        destinationType: {
+          type: "string",
+          description: "Para Lead Ads on-ad: 'ON_AD' (default). Otros: 'WEBSITE', 'APP'."
+        },
         startTime: { type: "string", description: "ISO 8601." },
         endTime: { type: "string", description: "ISO 8601 opcional." },
-        status: { type: "string", enum: ["PAUSED", "ACTIVE"] }
+        status: { type: "string", enum: ["PAUSED", "ACTIVE"] },
+        promotedObject: {
+          type: "object",
+          description:
+            "REQUERIDO para Lead Ads on-ad: { pageId } indica la Page que recibe leads. Para conversión web: { pixelId, customEventType }. Para app install: { applicationId }.",
+          properties: {
+            pageId: { type: "string" },
+            applicationId: { type: "string" },
+            customEventType: { type: "string" },
+            customEventStr: { type: "string" },
+            productSetId: { type: "string" },
+            pixelId: { type: "string" }
+          },
+          additionalProperties: false
+        },
+        bidStrategy: {
+          type: "string",
+          enum: [
+            "LOWEST_COST_WITHOUT_CAP",
+            "LOWEST_COST_WITH_BID_CAP",
+            "COST_CAP",
+            "LOWEST_COST_WITH_MIN_ROAS"
+          ],
+          description: "Default LOWEST_COST_WITHOUT_CAP (no requiere bid_amount)."
+        },
+        bidAmountCents: {
+          type: "number",
+          description: "Solo si bidStrategy != LOWEST_COST_WITHOUT_CAP."
+        }
       },
       required: ["campaignId", "name", "targeting"],
       additionalProperties: false
@@ -4097,6 +4139,28 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
         startTime: input?.startTime ? String(input.startTime) : undefined,
         endTime: input?.endTime ? String(input.endTime) : undefined,
         status: input?.status === "ACTIVE" ? "ACTIVE" : "PAUSED",
+        promotedObject:
+          input?.promotedObject && typeof input.promotedObject === "object"
+            ? {
+                pageId: input.promotedObject.pageId ? String(input.promotedObject.pageId) : undefined,
+                applicationId: input.promotedObject.applicationId
+                  ? String(input.promotedObject.applicationId)
+                  : undefined,
+                customEventType: input.promotedObject.customEventType
+                  ? String(input.promotedObject.customEventType)
+                  : undefined,
+                customEventStr: input.promotedObject.customEventStr
+                  ? String(input.promotedObject.customEventStr)
+                  : undefined,
+                productSetId: input.promotedObject.productSetId
+                  ? String(input.promotedObject.productSetId)
+                  : undefined,
+                pixelId: input.promotedObject.pixelId ? String(input.promotedObject.pixelId) : undefined
+              }
+            : undefined,
+        bidStrategy: input?.bidStrategy as any,
+        bidAmountCents:
+          typeof input?.bidAmountCents === "number" ? input.bidAmountCents : undefined,
         adhoc: ctx.adhocCredentials
       });
       return { ok: true, ...r };
