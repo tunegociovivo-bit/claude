@@ -436,6 +436,8 @@ type ArchivedProject = {
   id: string;
   name: string;
   asanaId: string | null;
+  archived: boolean;
+  deletedAt: string | null;
   createdAt: string;
   _count: { tasks: number };
 };
@@ -445,6 +447,9 @@ function ArchivedProjectsPanel({ onRestored }: { onRestored: () => void }) {
   const [loaded, setLoaded] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [restoring, setRestoring] = useState<string | null>(null);
+  const [searchQ, setSearchQ] = useState("");
+  const [searchResults, setSearchResults] = useState<ArchivedProject[] | null>(null);
+  const [searching, setSearching] = useState(false);
 
   async function load() {
     try {
@@ -460,16 +465,39 @@ function ArchivedProjectsPanel({ onRestored }: { onRestored: () => void }) {
     load();
   }, []);
 
-  async function restore(id: string) {
+  async function doSearch() {
+    const q = searchQ.trim();
+    if (!q) {
+      setSearchResults(null);
+      return;
+    }
+    setSearching(true);
+    try {
+      const r = await fetch(`/api/v1/admin/archived-projects?q=${encodeURIComponent(q)}`);
+      if (r.ok) {
+        const d = await r.json();
+        setSearchResults(d.items ?? []);
+      }
+    } finally {
+      setSearching(false);
+    }
+  }
+
+  async function restore(id: string, restoreFromTrash: boolean) {
     setRestoring(id);
     try {
       const r = await fetch("/api/v1/admin/archived-projects", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ projectId: id, archived: false })
+        body: JSON.stringify(
+          restoreFromTrash
+            ? { projectId: id, restore: true }
+            : { projectId: id, archived: false }
+        )
       });
       if (r.ok) {
         setItems((arr) => arr.filter((p) => p.id !== id));
+        setSearchResults((arr) => arr?.filter((p) => p.id !== id) ?? null);
         onRestored();
       }
     } finally {
@@ -477,7 +505,9 @@ function ArchivedProjectsPanel({ onRestored }: { onRestored: () => void }) {
     }
   }
 
-  if (!loaded || items.length === 0) return null;
+  // El panel siempre aparece ahora con el buscador. Si hay archivados,
+  // se abre automáticamente para destacarlos.
+  if (!loaded) return null;
 
   return (
     <div className="bg-amber-50 border border-amber-200 rounded-xl mb-4">
@@ -486,41 +516,151 @@ function ArchivedProjectsPanel({ onRestored }: { onRestored: () => void }) {
         className="w-full p-3 flex items-center justify-between text-left text-sm"
       >
         <span className="font-semibold text-amber-900">
-          📦 {items.length} proyecto{items.length > 1 ? "s" : ""} archivado
-          {items.length > 1 ? "s" : ""}
+          📦 Proyectos no visibles
+          {items.length > 0 && (
+            <span className="ml-2 px-1.5 py-0.5 rounded bg-amber-200 text-amber-900 text-[10px]">
+              {items.length} archivado{items.length > 1 ? "s" : ""}
+            </span>
+          )}
         </span>
         <span className="text-xs text-amber-700">
-          {expanded ? "▾ Ocultar" : "▸ Ver / restaurar"}
+          {expanded ? "▾ Ocultar" : "▸ Buscar / restaurar"}
         </span>
       </button>
       {expanded && (
-        <div className="border-t border-amber-200 p-3 space-y-2">
-          <p className="text-xs text-amber-800">
-            Estos proyectos están archivados y NO aparecen en /proyectos. Si
-            quieres verlos en el tablón, restaura aquí.
-          </p>
-          {items.map((p) => (
-            <div
-              key={p.id}
-              className="flex items-center justify-between bg-white border border-amber-200 rounded-lg p-2"
-            >
-              <div className="min-w-0">
-                <div className="font-medium text-sm truncate">{p.name}</div>
-                <div className="text-[11px] text-slate-500 flex gap-2">
-                  <span>{p._count.tasks} tareas</span>
-                  {p.asanaId && <span>· importado de Asana</span>}
-                </div>
-              </div>
+        <div className="border-t border-amber-200 p-3 space-y-3">
+          {/* Buscador: cualquier proyecto del workspace (archivado o borrado) */}
+          <div className="bg-white border border-amber-200 rounded-lg p-3">
+            <div className="flex items-center gap-2 mb-2">
+              <span className="text-xs text-amber-800 font-medium">
+                ¿No ves un proyecto que importaste? Búscalo por nombre:
+              </span>
+            </div>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={searchQ}
+                onChange={(e) => setSearchQ(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && doSearch()}
+                placeholder="ej. NEGOCIO VIVO GENERAL"
+                className="flex-1 rounded-lg border border-slate-300 p-2 text-sm"
+              />
               <button
-                onClick={() => restore(p.id)}
-                disabled={restoring === p.id}
-                className="text-xs bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white px-3 py-1 rounded-lg"
+                onClick={doSearch}
+                disabled={searching || !searchQ.trim()}
+                className="text-xs bg-amber-600 hover:bg-amber-700 disabled:bg-slate-300 text-white px-3 py-1.5 rounded-lg"
               >
-                {restoring === p.id ? "..." : "Restaurar"}
+                {searching ? "..." : "Buscar"}
               </button>
             </div>
-          ))}
+            {searchResults !== null && (
+              <div className="mt-3 space-y-1.5">
+                {searchResults.length === 0 ? (
+                  <p className="text-xs text-rose-700">
+                    No existe ningún proyecto con ese nombre en tu workspace.
+                    Posible: el import falló silenciosamente o el proyecto se
+                    creó en otro workspace. Re-importa desde /admin/asana.
+                  </p>
+                ) : (
+                  searchResults.map((p) => (
+                    <ProjectRowItem
+                      key={p.id}
+                      p={p}
+                      restoring={restoring === p.id}
+                      onRestore={restore}
+                    />
+                  ))
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Archivados (siempre visibles al expandir) */}
+          {items.length > 0 && (
+            <div>
+              <p className="text-xs text-amber-800 mb-2">
+                Estos proyectos están archivados y NO aparecen en el tablón.
+                Restaura si quieres verlos:
+              </p>
+              <div className="space-y-1.5">
+                {items.map((p) => (
+                  <ProjectRowItem
+                    key={p.id}
+                    p={p}
+                    restoring={restoring === p.id}
+                    onRestore={restore}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {items.length === 0 && searchResults === null && (
+            <p className="text-xs text-slate-500 italic">
+              No hay proyectos archivados. Usa el buscador si crees que algo
+              se importó pero no lo encuentras.
+            </p>
+          )}
         </div>
+      )}
+    </div>
+  );
+}
+
+function ProjectRowItem({
+  p,
+  restoring,
+  onRestore
+}: {
+  p: ArchivedProject;
+  restoring: boolean;
+  onRestore: (id: string, restoreFromTrash: boolean) => void;
+}) {
+  const inTrash = !!p.deletedAt;
+  const isArchived = p.archived;
+  const isActive = !inTrash && !isArchived;
+  return (
+    <div className="flex items-center justify-between bg-white border border-amber-200 rounded-lg p-2">
+      <div className="min-w-0">
+        <div className="font-medium text-sm truncate flex items-center gap-2">
+          {p.name}
+          {isActive && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700">
+              activo
+            </span>
+          )}
+          {isArchived && !inTrash && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-800">
+              archivado
+            </span>
+          )}
+          {inTrash && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-rose-100 text-rose-700">
+              en papelera
+            </span>
+          )}
+        </div>
+        <div className="text-[11px] text-slate-500 flex gap-2">
+          <span>{p._count.tasks} tareas</span>
+          {p.asanaId && <span>· importado de Asana</span>}
+          <span>· {new Date(p.createdAt).toLocaleDateString("es-ES")}</span>
+        </div>
+      </div>
+      {isActive ? (
+        <a
+          href={`/tareas?project=${p.id}`}
+          className="text-xs text-brand-600 hover:underline px-2 py-1"
+        >
+          Ver →
+        </a>
+      ) : (
+        <button
+          onClick={() => onRestore(p.id, inTrash)}
+          disabled={restoring}
+          className="text-xs bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white px-3 py-1 rounded-lg"
+        >
+          {restoring ? "..." : "Restaurar"}
+        </button>
       )}
     </div>
   );
