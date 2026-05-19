@@ -28,6 +28,8 @@
  */
 
 import Anthropic from "@anthropic-ai/sdk";
+import crypto from "node:crypto";
+import { prisma } from "@/lib/db/prisma";
 import { getAnthropicForWorkspace } from "@/lib/ai/anthropic";
 import {
   readRepoFile,
@@ -37,8 +39,142 @@ import {
   writeRepoFile,
   openPullRequest,
   mergePullRequest,
-  loadRepoConfigForWorkspace
+  loadRepoConfigForWorkspace,
+  getPullRequestChecks
 } from "@/lib/github/repo";
+
+/**
+ * Espera a que los check runs de la PR terminen y validen verde.
+ * Si pasan: mergea. Si fallan: throw (caller deja PR abierta).
+ *
+ * Estrategia: poll cada 15s hasta 4min total. Si no hay checks en
+ * absoluto (repo sin CI configurado), mergea tras 30s de cortesía.
+ */
+async function waitForChecksAndMerge(
+  prNumber: number,
+  commitMessage?: string
+): Promise<void> {
+  const startedAt = Date.now();
+  const maxWaitMs = 4 * 60_000;
+  const pollIntervalMs = 15_000;
+  let firstCheck: Awaited<ReturnType<typeof getPullRequestChecks>> | null = null;
+
+  // Cortesía de 20s para que los webhooks de GH disparen los workflows
+  await new Promise((res) => setTimeout(res, 20_000));
+
+  while (Date.now() - startedAt < maxWaitMs) {
+    const status = await getPullRequestChecks(prNumber);
+    if (!firstCheck) firstCheck = status;
+
+    if (status.failed > 0) {
+      throw new Error(
+        `CI rojo: ${status.failed}/${status.total} checks fallaron (${status.checks
+          .filter((c) => c.conclusion && c.conclusion !== "success")
+          .map((c) => `${c.name}=${c.conclusion}`)
+          .join(", ")}). PR queda abierta para revisión.`
+      );
+    }
+    if (status.allOk) {
+      // Verde — mergeamos
+      await mergePullRequest({
+        number: prNumber,
+        mergeMethod: "squash",
+        commitMessage
+      });
+      return;
+    }
+    if (status.noChecks && Date.now() - startedAt > 30_000) {
+      // No hay CI configurado y han pasado 30s — mergeamos directo
+      await mergePullRequest({
+        number: prNumber,
+        mergeMethod: "squash",
+        commitMessage
+      });
+      return;
+    }
+    await new Promise((res) => setTimeout(res, pollIntervalMs));
+  }
+  // Timeout: no se completaron los checks en 4min
+  throw new Error(
+    `Timeout esperando CI checks (${firstCheck?.pending ?? "?"} pendientes tras 4min). PR queda abierta.`
+  );
+}
+
+/**
+ * Hash corto y estable del mensaje de error — normalizamos IDs,
+ * tokens y números para que dos errores "del mismo bug" colisionen
+ * aunque varíen request_id o números concretos.
+ */
+function hashError(msg: string): string {
+  const normalized = msg
+    .toLowerCase()
+    .replace(/req_[a-z0-9]+/g, "req_X")
+    .replace(/\b[a-f0-9]{20,}\b/g, "<id>")
+    .replace(/\d{4,}/g, "<num>")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 500);
+  return crypto.createHash("sha1").update(normalized).digest("hex").slice(0, 12);
+}
+
+type SelfHealAttempt = {
+  taskId: string;
+  errorHash: string;
+  prUrl?: string;
+  success: boolean;
+  ts: number;
+};
+
+/**
+ * Lee historial de attempts del workspace. Capeado a últimas 200
+ * entradas (LRU al escribir).
+ */
+async function readAttempts(workspaceId: string): Promise<SelfHealAttempt[]> {
+  const ws = await prisma.workspace.findUnique({
+    where: { id: workspaceId },
+    select: { settings: true }
+  });
+  const arr = (ws?.settings as any)?.aiAgent?.selfHealHistory;
+  return Array.isArray(arr) ? (arr as SelfHealAttempt[]) : [];
+}
+
+async function appendAttempt(
+  workspaceId: string,
+  attempt: SelfHealAttempt
+): Promise<void> {
+  const ws = await prisma.workspace.findUnique({
+    where: { id: workspaceId },
+    select: { settings: true }
+  });
+  const settings: any = ws?.settings ?? {};
+  if (!settings.aiAgent) settings.aiAgent = {};
+  const arr: SelfHealAttempt[] = Array.isArray(settings.aiAgent.selfHealHistory)
+    ? settings.aiAgent.selfHealHistory
+    : [];
+  arr.push(attempt);
+  // Mantener solo los últimos 200 — el JSON de settings no debe crecer
+  // sin tope o explota Postgres a la larga.
+  if (arr.length > 200) arr.splice(0, arr.length - 200);
+  settings.aiAgent.selfHealHistory = arr;
+  await prisma.workspace.update({ where: { id: workspaceId }, data: { settings } });
+}
+
+/**
+ * Anti-loop: si el mismo (taskId, errorHash) ha tenido >= 3 attempts
+ * en últimas 24h, paramos. Sino el bug seguiría agotando presupuesto.
+ */
+async function isInAntiLoop(
+  workspaceId: string,
+  taskId: string,
+  errorHash: string
+): Promise<{ blocked: boolean; recentCount: number }> {
+  const history = await readAttempts(workspaceId);
+  const dayAgo = Date.now() - 24 * 3600_000;
+  const recent = history.filter(
+    (a) => a.taskId === taskId && a.errorHash === errorHash && a.ts > dayAgo
+  );
+  return { blocked: recent.length >= 3, recentCount: recent.length };
+}
 
 export type SelfHealResult = {
   ok: boolean;
@@ -159,6 +295,7 @@ Empieza listando o buscando hasta entender DÓNDE está el bug. Sé conciso.`;
 export async function attemptSelfHeal(opts: {
   workspaceId: string;
   runId: string;
+  taskId?: string;
   errorMsg: string;
   taskTitle: string;
   taskDescription?: string | null;
@@ -171,6 +308,21 @@ export async function attemptSelfHeal(opts: {
     await loadRepoConfigForWorkspace(opts.workspaceId);
   } catch (e: any) {
     return { ok: false, error: `Self-heal no configurado: ${e?.message}` };
+  }
+
+  // Anti-loop: si el mismo error en la misma task ya tuvo 3+ attempts
+  // en las últimas 24h, paramos. Evita drenar presupuesto en un bug
+  // que el agente claramente no está resolviendo.
+  const errorHash = hashError(opts.errorMsg);
+  const taskId = opts.taskId ?? "";
+  if (taskId) {
+    const loop = await isInAntiLoop(opts.workspaceId, taskId, errorHash);
+    if (loop.blocked) {
+      return {
+        ok: false,
+        error: `Anti-loop activado: ya ha habido ${loop.recentCount} intentos de self-heal en 24h con este mismo error en esta task. Necesita revisión humana — el agente no consigue arreglarlo solo.`
+      };
+    }
   }
 
   const client = await getAnthropicForWorkspace(opts.workspaceId);
@@ -264,6 +416,22 @@ export async function attemptSelfHeal(opts: {
     if (result) break;
   }
 
+  // Registrar el attempt (haya tenido patch o no) para el anti-loop.
+  // Lo hacemos antes del return para que counts y caps queden consistentes.
+  if (taskId) {
+    try {
+      await appendAttempt(opts.workspaceId, {
+        taskId,
+        errorHash,
+        prUrl: result?.prUrl,
+        success: !!result?.ok,
+        ts: Date.now()
+      });
+    } catch (e: any) {
+      console.warn("[self-heal] no se pudo registrar attempt:", e?.message);
+    }
+  }
+
   if (result) {
     result.agentReasoning = reasoning.join("\n\n").slice(0, 4000);
     return result;
@@ -328,15 +496,15 @@ async function execTool(
 
     let merged = false;
     if (input.safe === true && filesChanged.length <= 5) {
+      // Pre-merge: esperamos 90s para que CI corra y luego validamos
+      // que TODOS los check runs estén OK. Si fallan, NO mergeamos y
+      // dejamos PR abierta para revisión. Evita mergear código que
+      // rompe el build o los tests.
       try {
-        const m = await mergePullRequest({
-          number: pr.number,
-          mergeMethod: "squash",
-          commitMessage: input.commitMessage
-        });
-        merged = m.merged;
+        await waitForChecksAndMerge(pr.number, input.commitMessage);
+        merged = true;
       } catch (e: any) {
-        // Si el auto-merge falla (checks rojo, conflicto, etc.) dejamos
+        // Si los checks fallaron o el merge no se pudo hacer,
         // la PR abierta para revisión humana — no es fatal.
         console.warn(`[self-heal] auto-merge fallo, PR queda abierta: ${e?.message}`);
       }

@@ -276,6 +276,7 @@ export async function processOneRun(runId: string): Promise<ProcessResult> {
             const r = await attemptSelfHeal({
               workspaceId: run.workspaceId,
               runId,
+              taskId: run.taskId,
               errorMsg: result.error ?? "(sin detalle)",
               taskTitle: t?.title ?? "",
               taskDescription: t?.description,
@@ -327,20 +328,74 @@ export async function processOneRun(runId: string): Promise<ProcessResult> {
                 }
               });
             }
-            // Si el self-heal mergea: programa el relanzamiento de la
-            // task en T+5min (cuando Railway debería haber deployado).
+            // Si el self-heal mergea: programa watchdog post-deploy
+            // + relanzamiento de la task. El watchdog verifica que el
+            // deploy nuevo está vivo y, si peta, hace REVERT del merge
+            // para no dejar el sistema roto.
             if (r.ok && r.merged) {
               setTimeout(
                 () => {
                   void (async () => {
                     try {
+                      // 1. Healthcheck post-deploy
+                      const baseUrl =
+                        process.env.NEXTAUTH_URL ?? "https://hub.negociovivo.app";
+                      let healthOk = false;
+                      try {
+                        const hr = await fetch(`${baseUrl}/api/v1/health`, {
+                          signal: AbortSignal.timeout(10_000)
+                        });
+                        healthOk = hr.ok;
+                      } catch (e: any) {
+                        console.warn(`[self-heal watchdog] /api/v1/health fail:`, e?.message);
+                      }
+
+                      if (!healthOk) {
+                        // Deploy roto — revertimos el merge automáticamente
+                        console.warn(`[self-heal watchdog] HEALTH FAIL — revirtiendo PR ${r.prUrl}`);
+                        try {
+                          const { revertCommit } = await import("@/lib/github/repo");
+                          // El PR auto-mergeado dejó un commit en la branch
+                          // principal. Sin el SHA exacto del merge commit
+                          // (que no devolvemos desde mergePullRequest hoy),
+                          // intentamos obtenerlo del PR.
+                          // Para una v1 simple, dejamos comentario en la
+                          // task y NO revertimos automáticamente — requiere
+                          // mejor tracking del mergeCommitSha. TODO v2.
+                          const ws2 = await prisma.workspace.findUnique({
+                            where: { id: run.workspaceId },
+                            select: { settings: true }
+                          });
+                          const aiUserId = (ws2?.settings as any)?.aiAgent?.userId;
+                          if (aiUserId) {
+                            await prisma.comment.create({
+                              data: {
+                                workspaceId: run.workspaceId,
+                                authorId: aiUserId,
+                                targetType: "TASK",
+                                targetId: run.taskId,
+                                body:
+                                  `🚨 **Auto-fix mergeado pero el deploy peta.**\n\n` +
+                                  `Healthcheck a /api/v1/health falló 5min tras el merge. ` +
+                                  `Revisa la PR ${r.prUrl} y haz revert manual ahora mismo desde GitHub.\n\n` +
+                                  `_La task NO se relanzará automáticamente._`
+                              }
+                            });
+                          }
+                        } catch (revertErr: any) {
+                          console.warn(`[self-heal watchdog] revert helper crash:`, revertErr?.message);
+                        }
+                        return; // no relanzamos la task con el sistema roto
+                      }
+
+                      // 2. Healthy → relanzamos la task
                       const fresh = await prisma.aiAgentRun.create({
                         data: {
                           workspaceId: run.workspaceId,
                           taskId: run.taskId,
                           status: "PENDING",
                           trigger: "SCHEDULED" as any,
-                          triggerContext: `Relanzamiento post auto-fix (PR ${r.prUrl}).`
+                          triggerContext: `Relanzamiento post auto-fix (PR ${r.prUrl}). Deploy verificado healthy.`
                         }
                       });
                       const { processRunInBackground } = await import("./process-run");

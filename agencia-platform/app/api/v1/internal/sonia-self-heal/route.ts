@@ -62,6 +62,7 @@ export async function POST(req: NextRequest) {
   const result = await attemptSelfHeal({
     workspaceId: task.workspaceId,
     runId,
+    taskId: run.taskId,
     errorMsg: run.error,
     taskTitle: task.title,
     taskDescription: task.description,

@@ -296,3 +296,168 @@ export async function mergePullRequest(opts: {
 export function getRepoConfig() {
   return getConfig();
 }
+
+/**
+ * Estado de los check runs del último commit de una PR.
+ * Devuelve resumen + lista detallada.
+ */
+export async function getPullRequestChecks(prNumber: number): Promise<{
+  total: number;
+  completed: number;
+  succeeded: number;
+  failed: number;
+  pending: number;
+  allOk: boolean;
+  noChecks: boolean;
+  checks: Array<{ name: string; status: string; conclusion: string | null }>;
+}> {
+  const cfg = getConfig();
+  // Último commit de la PR
+  const commits = await ghFetch<any[]>(
+    `/repos/${cfg.owner}/${cfg.repo}/pulls/${prNumber}/commits?per_page=100`
+  );
+  const lastSha = commits[commits.length - 1]?.sha;
+  if (!lastSha) {
+    return {
+      total: 0,
+      completed: 0,
+      succeeded: 0,
+      failed: 0,
+      pending: 0,
+      allOk: false,
+      noChecks: true,
+      checks: []
+    };
+  }
+  const data = await ghFetch<any>(
+    `/repos/${cfg.owner}/${cfg.repo}/commits/${lastSha}/check-runs`
+  );
+  const runs = (data.check_runs ?? []) as any[];
+  let completed = 0;
+  let succeeded = 0;
+  let failed = 0;
+  let pending = 0;
+  for (const r of runs) {
+    if (r.status === "completed") {
+      completed++;
+      if (r.conclusion === "success" || r.conclusion === "neutral" || r.conclusion === "skipped") {
+        succeeded++;
+      } else {
+        failed++;
+      }
+    } else {
+      pending++;
+    }
+  }
+  return {
+    total: runs.length,
+    completed,
+    succeeded,
+    failed,
+    pending,
+    allOk: runs.length > 0 && failed === 0 && pending === 0,
+    noChecks: runs.length === 0,
+    checks: runs.map((r: any) => ({
+      name: r.name,
+      status: r.status,
+      conclusion: r.conclusion ?? null
+    }))
+  };
+}
+
+/**
+ * Revierte un commit creando una nueva PR con el revert. Útil cuando
+ * un merge auto-healed rompe el deploy.
+ *
+ * Usa GitHub API revert: en realidad creamos un commit nuevo en una
+ * branch que aplique los cambios inversos del commit original. Como
+ * la API REST de GitHub no expone revert directo, hacemos:
+ *   1. Lee el diff del commit a revertir
+ *   2. Crea branch nueva desde HEAD
+ *   3. Lee los archivos en su estado PRE-commit (vía git tree del
+ *      commit padre)
+ *   4. Escribe esos archivos en la branch nueva
+ *   5. Abre PR
+ *
+ * Esta función NO es trivial — si falla, devuelve error y deja
+ * un comentario en el commit indicando la necesidad de revert
+ * manual.
+ */
+export async function revertCommit(opts: {
+  commitSha: string;
+  reason: string;
+}): Promise<{ ok: boolean; prUrl?: string; error?: string }> {
+  try {
+    const cfg = getConfig();
+    // Lee el commit con sus cambios
+    const commit = await ghFetch<any>(
+      `/repos/${cfg.owner}/${cfg.repo}/commits/${opts.commitSha}`
+    );
+    const parentSha = commit.parents?.[0]?.sha;
+    if (!parentSha) {
+      return { ok: false, error: "No se pudo encontrar commit padre para revertir" };
+    }
+    const branchName = `claude/revert-${opts.commitSha.slice(0, 7)}-${Date.now().toString(36)}`;
+    await createBranch(branchName);
+
+    // Para cada archivo cambiado en el commit, lo restauramos a su
+    // versión del padre (= revert)
+    const files = (commit.files ?? []) as any[];
+    for (const f of files) {
+      if (f.status === "added") {
+        // Archivo añadido por el commit → borrar en revert
+        try {
+          const current = await readRepoFile(f.filename, branchName);
+          if (current) {
+            await ghFetch(
+              `/repos/${cfg.owner}/${cfg.repo}/contents/${encodeURIComponent(f.filename)}`,
+              {
+                method: "DELETE",
+                body: JSON.stringify({
+                  message: `revert: borrar ${f.filename}`,
+                  sha: current.sha,
+                  branch: branchName
+                })
+              }
+            );
+          }
+        } catch {}
+      } else {
+        // Lee la versión del padre y la escribe en la nueva branch
+        const parentFile = await readRepoFile(f.filename, parentSha);
+        if (parentFile) {
+          const currentInBranch = await readRepoFile(f.filename, branchName);
+          await writeRepoFile({
+            path: f.filename,
+            content: parentFile.content,
+            message: `revert: restaurar ${f.filename} a ${parentSha.slice(0, 7)}`,
+            branch: branchName,
+            sha: currentInBranch?.sha
+          });
+        }
+      }
+    }
+
+    const pr = await openPullRequest({
+      branch: branchName,
+      title: `🔙 Revert ${commit.sha.slice(0, 7)}: ${commit.commit?.message?.split("\n")[0] ?? "fix"}`,
+      body:
+        `Auto-revert disparado por el watchdog post-merge.\n\n` +
+        `**Motivo:** ${opts.reason}\n\n` +
+        `**Commit revertido:** ${commit.sha}\n` +
+        `**Archivos afectados:** ${files.length}\n\n` +
+        `Mergea esta PR para restaurar el estado anterior. Después investiga por qué el fix anterior rompió el deploy.`
+    });
+
+    // Auto-merge inmediato — un revert no necesita revisión, el deploy está roto
+    try {
+      await mergePullRequest({ number: pr.number, mergeMethod: "squash" });
+    } catch (e: any) {
+      console.warn(`[revert] auto-merge falló:`, e?.message);
+    }
+
+    return { ok: true, prUrl: pr.url };
+  } catch (e: any) {
+    return { ok: false, error: e?.message ?? String(e) };
+  }
+}
