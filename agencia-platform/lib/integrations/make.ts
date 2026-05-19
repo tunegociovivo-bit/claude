@@ -306,3 +306,63 @@ export async function makeTest(workspaceId: string): Promise<{ teams: number }> 
   const teams = await makeListTeams(workspaceId);
   return { teams: teams.length };
 }
+
+/**
+ * RAW API ACCESS — pasa cualquier petición HTTP a Make API v2 sin
+ * envolver en una función específica. Necesario para casos donde no
+ * tenemos un wrapper de alto nivel (hooks, connections, devices,
+ * data stores avanzados, etc.).
+ *
+ * Sonia debe usar esto cuando le falte una capability concreta —
+ * ej. crear un webhook Facebook Lead Ads bindeado a un form nuevo
+ * para que el escenario clonado no necesite intervención manual.
+ *
+ * Devuelve `{ status, ok, data, headers }` — no lanza si la API
+ * responde no-2xx, así Sonia puede inspeccionar el error.
+ */
+export async function makeRawCall(opts: {
+  workspaceId: string;
+  method: "GET" | "POST" | "PATCH" | "PUT" | "DELETE";
+  path: string;
+  body?: any;
+  query?: Record<string, string | number | boolean>;
+}): Promise<{
+  status: number;
+  ok: boolean;
+  data: any;
+  responseText: string;
+}> {
+  const cfg = await getConfig(opts.workspaceId);
+  let url = opts.path.startsWith("http")
+    ? opts.path
+    : `${baseUrl(cfg.zone)}${opts.path.startsWith("/") ? opts.path : `/${opts.path}`}`;
+  if (opts.query && Object.keys(opts.query).length > 0) {
+    const sp = new URLSearchParams();
+    for (const [k, v] of Object.entries(opts.query)) sp.set(k, String(v));
+    url += (url.includes("?") ? "&" : "?") + sp.toString();
+  }
+  const init: RequestInit = {
+    method: opts.method,
+    headers: {
+      Authorization: `Token ${cfg.apiToken}`,
+      "Content-Type": "application/json"
+    }
+  };
+  if (opts.body !== undefined && opts.method !== "GET") {
+    init.body = JSON.stringify(opts.body);
+  }
+  const r = await fetch(url, init);
+  const text = await r.text();
+  let data: any = null;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    data = text;
+  }
+  return {
+    status: r.status,
+    ok: r.ok,
+    data,
+    responseText: text.slice(0, 4000)
+  };
+}

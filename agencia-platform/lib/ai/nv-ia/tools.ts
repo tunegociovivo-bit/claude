@@ -1812,6 +1812,50 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
     }
   },
   {
+    name: "make_raw_api",
+    description:
+      "ACCESO RAW a Make API v2 — usa esto cuando ninguna tool específica de Make te valga.\n\n" +
+      "Casos típicos:\n" +
+      "- **Crear webhook Facebook Lead Ads bindeado al form nuevo** (necesario para que un escenario clonado funcione end-to-end sin que el humano abra Make):\n" +
+      "  1. GET /hooks?teamId=X → lista hooks existentes, encuentra uno con typeName='facebook-lead-ads' (te da el shape de connection/page/form)\n" +
+      "  2. POST /hooks?teamId=X body: { name, typeName: 'facebook-lead-ads', __IMTCONN__: <connectionIdDelHookOriginal>, page: <pageId>, form: <formId> }\n" +
+      "  3. GET /scenarios/<scenarioId>/blueprint → busca en el blueprint el __IMTHOOK__ del módulo Lead Ads\n" +
+      "  4. Actualiza el blueprint sustituyendo el hook viejo por el nuevo, y haz POST /scenarios body: { teamId, blueprint, scheduling }\n" +
+      "- Listar connections: GET /connections?teamId=X\n" +
+      "- Obtener templates: GET /templates?teamId=X\n" +
+      "- Cualquier endpoint nuevo que aparezca en la doc de Make.\n\n" +
+      "El path es relativo a `/api/v2`. Devuelve { status, ok, data, responseText }. Si status>=400, lee `responseText` para entender el error. NO lanza excepción — siempre devuelve el response.\n\n" +
+      "REGLAS:\n" +
+      "1. Antes de POST/PATCH/DELETE: haz GET primero para entender el shape actual.\n" +
+      "2. NO uses esta tool si existe una específica (make_list_scenarios, etc.) — usa la específica.\n" +
+      "3. Para body, pasa un objeto JSON, NO un string.",
+    input_schema: {
+      type: "object",
+      properties: {
+        method: {
+          type: "string",
+          enum: ["GET", "POST", "PATCH", "PUT", "DELETE"]
+        },
+        path: {
+          type: "string",
+          description: "Path relativo a /api/v2 (ej '/hooks', '/scenarios/123/blueprint', '/connections')."
+        },
+        body: {
+          type: "object",
+          description: "OPCIONAL. Body JSON para POST/PATCH/PUT. Ignorado en GET/DELETE.",
+          additionalProperties: true
+        },
+        query: {
+          type: "object",
+          description: "OPCIONAL. Query string params. Ej: { teamId: 123, typeName: 'facebook-lead-ads' }",
+          additionalProperties: true
+        }
+      },
+      required: ["method", "path"],
+      additionalProperties: false
+    }
+  },
+  {
     name: "holded_list_invoices",
     description:
       "Lista facturas del workspace en Holded. Filtros opcionales: status (0=pendiente, 1=pagada, 2=vencida, 3=cancelada, 4=borrador), limit. Útil para cashflow, recordatorios de pago, análisis de morosidad.",
@@ -5313,6 +5357,30 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
       return { ok: true };
     } catch (e: any) {
       return { error: `make_deactivate_scenario: ${e?.message ?? e}` };
+    }
+  },
+
+  async make_raw_api(input, ctx) {
+    try {
+      const { makeRawCall } = await import("@/lib/integrations/make");
+      const method = String(input?.method ?? "GET").toUpperCase() as
+        | "GET"
+        | "POST"
+        | "PATCH"
+        | "PUT"
+        | "DELETE";
+      const path = String(input?.path ?? "").trim();
+      if (!path) return { error: "path requerido" };
+      const result = await makeRawCall({
+        workspaceId: ctx.workspaceId,
+        method,
+        path,
+        body: input?.body,
+        query: input?.query
+      });
+      return result;
+    } catch (e: any) {
+      return { error: `make_raw_api: ${e?.message ?? e}` };
     }
   },
 
