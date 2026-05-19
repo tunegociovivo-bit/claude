@@ -95,7 +95,7 @@ Lectura:
 - search_knowledge: búsqueda SEMÁNTICA (entiende sinónimos y contexto) sobre tareas, comentarios, proyectos, clientes, documentos. Para responder "¿qué dijimos sobre X?".
 - get_calendar_events: eventos del calendario en un rango de fechas.
 - web_search: búsqueda EN INTERNET (Anthropic la ejecuta server-side). Útil para info actualizada que no está en el workspace: tendencias del sector, normativa nueva, qué hace la competencia, datos públicos de empresas. NO la uses para info interna (eso es search_knowledge).
-- code_execution: ejecuta Python en sandbox de Anthropic. Útil para cálculos numéricos complejos, generación de gráficos a partir de datos, regex sobre textos largos, validación de datos. NO accede a tu Drive, R2 ni BD — solo lo que le pegues en el prompt.
+(code_execution temporalmente desactivado — usa create_xlsx_workbook + http_request para análisis y cálculos.)
 
 Facturación / ERP (Holded + Stripe):
 - holded_list_invoices, holded_list_contacts, holded_list_quotes: lectura de Holded.
