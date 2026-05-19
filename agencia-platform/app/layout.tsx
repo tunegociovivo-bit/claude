@@ -85,7 +85,7 @@ const earlyInstallCapture = `
  */
 const swSelfHeal = `
   (function () {
-    var EXPECTED = "v87-2026-05-19-options-textarea-fix";
+    var EXPECTED = "v88-2026-05-19-sidebar-emoji-manager";
     if (!('serviceWorker' in navigator)) return;
     var key = "hub_sw_v_seen";
     var seen = null;

@@ -53,7 +53,14 @@ const nav = [
   { href: "/calendario", label: "Calendario", icon: CalendarDays, feature: "calendario" as const }
 ];
 
-type SidebarProject = { id: string; name: string; color: string };
+type SidebarProject = {
+  id: string;
+  name: string;
+  color: string;
+  emoji: string | null;
+  managerImage: string | null;
+  managerName: string | null;
+};
 
 export default function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
   const pathname = usePathname();
@@ -139,7 +146,10 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}
             (data.items ?? []).map((p: any) => ({
               id: p.id,
               name: p.name,
-              color: p.color ?? "bg-brand-500"
+              color: p.color ?? "bg-brand-500",
+              emoji: p.emoji ?? null,
+              managerImage: p.manager?.image ?? null,
+              managerName: p.manager?.name ?? null
             }))
           );
         }
@@ -255,7 +265,24 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}
                         : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
                     )}
                   >
-                    <span className={`h-2 w-2 rounded-full ${p.color} shrink-0`} />
+                    {/* Prioridad visual: foto del manager > emoji > puntito color.
+                        Si el proyecto tiene un gestor con foto, esa es la señal
+                        más fuerte de identidad — supera al emoji/color. */}
+                    {p.managerImage ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={p.managerImage}
+                        alt={p.managerName ?? ""}
+                        title={p.managerName ? `Gestor: ${p.managerName}` : undefined}
+                        className="h-5 w-5 rounded-full object-cover shrink-0 border border-white"
+                      />
+                    ) : p.emoji ? (
+                      <span className="text-base leading-none shrink-0 w-5 text-center">
+                        {p.emoji}
+                      </span>
+                    ) : (
+                      <span className={`h-2 w-2 rounded-full ${p.color} shrink-0`} />
+                    )}
                     <span className="truncate flex-1">{p.name}</span>
                     <UsageBar micros={cost} max={usage.maxMicros} />
                   </Link>

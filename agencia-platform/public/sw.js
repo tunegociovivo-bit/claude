@@ -26,7 +26,7 @@
 // reintroducir cache PERO con purga agresiva por VERSION en
 // activate.
 
-const VERSION = "v87-2026-05-19-options-textarea-fix";
+const VERSION = "v88-2026-05-19-sidebar-emoji-manager";
 
 self.addEventListener("install", (event) => {
   // Activación inmediata: no esperar a que el SW viejo libere.
