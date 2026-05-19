@@ -1005,12 +1005,20 @@ export default function TareasClient({
           className="px-3 py-1.5 rounded-lg bg-white border text-xs focus:outline-none w-32 sm:w-40 shrink-0"
         />
         <a
-          href="/admin/columnas"
+          href={
+            filters.project !== "all"
+              ? `/admin/columnas?project=${encodeURIComponent(filters.project)}`
+              : "/admin/columnas"
+          }
           className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border text-xs text-slate-600 hover:text-slate-900 ml-auto"
-          title="Configurar columnas del kanban"
+          title={
+            filters.project !== "all"
+              ? "Configurar columnas de ESTE proyecto"
+              : "Configurar columnas globales del workspace"
+          }
         >
           <Settings2 className="h-3.5 w-3.5" />
-          Columnas
+          {filters.project !== "all" ? "Columnas del proyecto" : "Columnas"}
         </a>
       </div>
       <div className="mb-5">

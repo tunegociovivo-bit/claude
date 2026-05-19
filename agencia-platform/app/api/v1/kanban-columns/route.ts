@@ -1,6 +1,9 @@
 /**
- * Configuración de columnas del Kanban por workspace.
+ * Configuración de columnas del Kanban — WORKSPACE level (default global).
+ *
  * Vive en workspace.settings.kanban.columns como array ordenado.
+ *
+ * Para columnas POR PROYECTO usa /api/v1/projects/[id]/kanban-columns.
  */
 
 import { NextResponse } from "next/server";

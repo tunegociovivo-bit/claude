@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import Link from "next/link";
 import PageHeader from "@/components/PageHeader";
-import { Plus, Loader2, Trash2, GripVertical, ArrowDown, ArrowUp, AlertTriangle } from "lucide-react";
+import { Plus, Loader2, Trash2, GripVertical, ArrowDown, ArrowUp, AlertTriangle, ArrowLeft } from "lucide-react";
 
 type Column = {
   id: string;
@@ -33,25 +35,51 @@ function slugifyId(s: string): string {
 }
 
 export default function ColumnasClient() {
+  const searchParams = useSearchParams();
+  const projectId = searchParams?.get("project") ?? null;
   const [columns, setColumns] = useState<Column[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [projectName, setProjectName] = useState<string | null>(null);
+  const [scope, setScope] = useState<"workspace" | "project" | "workspace_fallback">("workspace");
 
   async function load() {
     setLoading(true);
-    const r = await fetch("/api/v1/kanban-columns");
-    if (r.ok) {
-      const d = await r.json();
-      setColumns((d.items ?? []).map((c: any, i: number) => ({ ...c, order: c.order ?? i })));
+    if (projectId) {
+      // Carga las columnas del proyecto (per-project endpoint) y el
+      // nombre del proyecto en paralelo (para el header).
+      const [colsR, projR] = await Promise.all([
+        fetch(`/api/v1/projects/${encodeURIComponent(projectId)}/kanban-columns`),
+        fetch(`/api/v1/projects/${encodeURIComponent(projectId)}`)
+      ]);
+      if (colsR.ok) {
+        const d = await colsR.json();
+        setColumns((d.items ?? []).map((c: any, i: number) => ({ ...c, order: c.order ?? i })));
+        // source viene del endpoint per-project: "project" o "workspace_fallback"
+        setScope(d.source === "project" ? "project" : "workspace_fallback");
+      }
+      if (projR.ok) {
+        const proj = await projR.json();
+        setProjectName(proj?.name ?? null);
+      }
+    } else {
+      const r = await fetch("/api/v1/kanban-columns");
+      if (r.ok) {
+        const d = await r.json();
+        setColumns((d.items ?? []).map((c: any, i: number) => ({ ...c, order: c.order ?? i })));
+        setScope("workspace");
+        setProjectName(null);
+      }
     }
     setLoading(false);
   }
 
   useEffect(() => {
     load();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId]);
 
   function addColumn() {
     const idx = columns.length;
@@ -101,7 +129,10 @@ export default function ColumnasClient() {
       setSaving(false);
       return;
     }
-    const r = await fetch("/api/v1/kanban-columns", {
+    const putUrl = projectId
+      ? `/api/v1/projects/${encodeURIComponent(projectId)}/kanban-columns`
+      : "/api/v1/kanban-columns";
+    const r = await fetch(putUrl, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ columns: columns.map((c, i) => ({ ...c, order: i })) })
@@ -116,11 +147,30 @@ export default function ColumnasClient() {
     load();
   }
 
+  const titleDesc =
+    scope === "project"
+      ? `Editando columnas del proyecto «${projectName ?? "?"}». Solo afecta a este proyecto.`
+      : scope === "workspace_fallback"
+        ? `El proyecto «${projectName ?? "?"}» no tiene columnas propias. Estás viendo las del workspace. Si guardas aquí, creas columnas propias del proyecto a partir de las globales.`
+        : "Personaliza las columnas que aparecen en /tareas. Aplica a todo el workspace (default para proyectos sin columnas propias).";
+
   return (
     <div className="max-w-4xl mx-auto">
+      {projectId && (
+        <Link
+          href={`/tareas?project=${projectId}`}
+          className="text-xs text-slate-500 hover:text-slate-800 inline-flex items-center gap-1 mb-2"
+        >
+          <ArrowLeft className="h-3 w-3" /> Volver al tablero del proyecto
+        </Link>
+      )}
       <PageHeader
-        title="Columnas del Kanban"
-        description="Personaliza las columnas que aparecen en /tareas. Aplica a todo el workspace."
+        title={
+          scope === "project" || scope === "workspace_fallback"
+            ? `Columnas — ${projectName ?? "proyecto"}`
+            : "Columnas del Kanban"
+        }
+        description={titleDesc}
         actions={
           <>
             <button
