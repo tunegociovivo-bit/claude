@@ -39,17 +39,24 @@ import { getOpenAiKeyForWorkspace } from "@/lib/ai/openai";
 import { buildS3Key, isStorageEnabled, signedDownloadUrl, uploadBuffer } from "@/lib/storage/r2";
 import { logAiUsage } from "@/lib/ai/usage";
 
-// Modelo de imagen de OpenAI. ORDEN INVERTIDO en v05/2026:
-// gpt-image-1 es el modelo confirmado y disponible en la API
-// /v1/images/generations. gpt-image-2 no parece estar disponible
-// todavía → si lo probábamos primero, cada llamada fallaba con 400
-// model_not_found, hacíamos retry con gpt-image-1, y el tiempo total
-// por imagen se duplicaba (genrations en HIGH quality ya tardan
-// 60-90s; con la doble llamada llegaban a 2-3 min).
-// Si en el futuro OpenAI publica gpt-image-2 con mejor calidad,
-// swappeamos las constantes.
-const IMAGE_MODEL_PRIMARY = "gpt-image-1";
-const IMAGE_MODEL_FALLBACK = "gpt-image-1"; // mismo modelo — sin fallback útil hoy
+// Modelo de imagen de OpenAI.
+//
+// Estrategia con FALLBACK INTELIGENTE + CACHÉ:
+//   - PRIMARY = gpt-image-2 (más nuevo, render de texto bastante mejor
+//     en español). User reportó que gpt-image-1 alucina texto con
+//     frecuencia inaceptable para anuncios de despachos legales.
+//   - FALLBACK = gpt-image-1 (modelo previo, siempre disponible).
+//
+// El primer intento por proceso/instancia prueba PRIMARY. Si OpenAI
+// responde model_not_found, marcamos en memoria que la cuenta no
+// tiene acceso y todos los siguientes intentos del proceso van
+// directos a FALLBACK (evita perder 2-3s por imagen).
+//
+// Cuando OpenAI active el nuevo modelo para la cuenta, basta con un
+// restart del runtime (Railway redeploy) para que vuelva a probar.
+const IMAGE_MODEL_PRIMARY = "gpt-image-2";
+const IMAGE_MODEL_FALLBACK = "gpt-image-1";
+let primaryUnavailable = false; // caché en memoria por proceso
 const CAROUSEL_CARDS = 3;          // tarjetas por carrusel
 const PARALLEL_IMAGE_GENS = 2;     // concurrencia para no saturar OpenAI
 
@@ -490,12 +497,22 @@ export async function generateAdImage(opts: {
     return r;
   }
 
-  let resp = await call(IMAGE_MODEL_PRIMARY);
-  let modelUsed = IMAGE_MODEL_PRIMARY;
+  // Si ya sabemos que PRIMARY no está disponible para esta cuenta,
+  // vamos directos a FALLBACK sin perder un round-trip.
+  const startModel = primaryUnavailable ? IMAGE_MODEL_FALLBACK : IMAGE_MODEL_PRIMARY;
+  let resp = await call(startModel);
+  let modelUsed = startModel;
   if (!resp.ok) {
     const txt = await resp.text();
     // Fallback solo si el problema es model not found o invalid model.
-    if (/model[_ ]not[_ ]found|invalid_model|does not have access|unknown.*model/i.test(txt)) {
+    if (
+      startModel === IMAGE_MODEL_PRIMARY &&
+      /model[_ ]not[_ ]found|invalid_model|does not have access|unknown.*model/i.test(txt)
+    ) {
+      console.warn(
+        `[meta-ads] ${IMAGE_MODEL_PRIMARY} no disponible en esta cuenta, cayendo a ${IMAGE_MODEL_FALLBACK}. Cacheado para futuras llamadas en este proceso.`
+      );
+      primaryUnavailable = true;
       resp = await call(IMAGE_MODEL_FALLBACK);
       modelUsed = IMAGE_MODEL_FALLBACK;
       if (!resp.ok) {
