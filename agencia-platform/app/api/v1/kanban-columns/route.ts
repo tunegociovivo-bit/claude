@@ -16,19 +16,18 @@ import { readKanbanColumns } from "@/lib/kanban";
 const updateSchema = z.object({
   columns: z
     .array(
-      z.object({
-        // Relajado de la regex MAYÚSCULAS_CON_GUIONES_BAJOS — mismo
-        // motivo que en /api/v1/projects/[id]/kanban-columns: hay IDs
-        // ya en BD que no la cumplen y bloqueaban cambios cosméticos.
-        id: z.string().min(1).max(60),
-        label: z.string().min(1).max(60),
-        color: z.string().max(200).optional(),
-        order: z.coerce.number().int().min(0).max(99),
-        isDone: z.boolean().optional()
-      })
+      z
+        .object({
+          id: z.string().min(1).max(80),
+          label: z.string().min(1).max(80),
+          color: z.string().max(400).optional().nullable(),
+          order: z.coerce.number().int().min(0).max(999),
+          isDone: z.boolean().optional()
+        })
+        .passthrough()
     )
     .min(1)
-    .max(20)
+    .max(50)
 });
 
 export const GET = withApi({ scope: "*" }, async (_req, { api }) => {

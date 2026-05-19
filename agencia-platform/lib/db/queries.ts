@@ -88,8 +88,11 @@ export type UiMember = (typeof mockTeam)[number];
 export async function getClientsForUi(): Promise<UiClient[]> {
   return tryPrisma(async () => {
     const { prisma } = await import("./prisma");
+    const { getSessionWorkspaceId } = await import("@/lib/auth");
+    const workspaceId = await getSessionWorkspaceId();
+    if (!workspaceId) return [];
     const rows = await prisma.client.findMany({
-      where: { deletedAt: null },
+      where: { workspaceId, deletedAt: null } as any,
       orderBy: { createdAt: "asc" }
     });
     return rows.map<UiClient>((r) => ({
@@ -113,8 +116,11 @@ export async function getClientsForUi(): Promise<UiClient[]> {
 export async function getProjectsForUi(): Promise<UiProject[]> {
   return tryPrisma(async () => {
     const { prisma } = await import("./prisma");
+    const { getSessionWorkspaceId } = await import("@/lib/auth");
+    const workspaceId = await getSessionWorkspaceId();
+    if (!workspaceId) return [];
     const rows = await prisma.project.findMany({
-      where: { archived: false, deletedAt: null } as any,
+      where: { workspaceId, archived: false, deletedAt: null } as any,
       orderBy: { createdAt: "asc" }
     });
     return rows.map<UiProject>(
@@ -138,15 +144,24 @@ export async function getProjectsForUi(): Promise<UiProject[]> {
 export async function getTasksForUi(): Promise<UiTask[]> {
   return tryPrisma(async () => {
     const { prisma } = await import("./prisma");
+    const { getSessionWorkspaceId } = await import("@/lib/auth");
+    const workspaceId = await getSessionWorkspaceId();
+    if (!workspaceId) return [];
     const rows = await prisma.task.findMany({
       // Solo top-level: las subtareas viven dentro del modal de la tarea padre,
       // no como tarjetas independientes en el Kanban.
       // deletedAt: null → no incluir las que están en papelera.
-      where: { parentId: null, deletedAt: null } as any,
+      // workspaceId — sin esto traíamos las tareas de TODOS los
+      // workspaces de la BD (perf disaster + tenant leak).
+      where: { workspaceId, parentId: null, deletedAt: null } as any,
       include: { assignees: true, tags: { include: { tag: true } }, extraProjects: true },
       // order ASC = más arriba en la columna. Tareas recientes (con order = 0
       // por defecto) flotan arriba, y los reorders manuales (drag&drop) ganan.
-      orderBy: [{ order: "asc" }, { createdAt: "desc" }]
+      orderBy: [{ order: "asc" }, { createdAt: "desc" }],
+      // Cap defensivo: con 2000+ tasks importadas de Asana, sin take
+      // el SSR de /tareas tardaba 5-10s. 1000 cubre con margen el
+      // tamaño típico de tablón visible.
+      take: 1000
     });
     return rows.map<UiTask>((r) => {
       const explicitAllDay = (r as any).dueAllDay;
