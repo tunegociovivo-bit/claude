@@ -774,9 +774,26 @@ export async function metaAdsCreateAdCreative(opts: {
   description?: string;
   /** Call to action: LEARN_MORE, CONTACT_US, SIGN_UP, GET_QUOTE, etc. */
   callToAction?: string;
+  /**
+   * URL del enlace del creativo. Para Lead Ads on-ad NO se navega
+   * (el form se abre en la propia red), pero Meta exige una URL
+   * válida HTTPS aquí o el creativo se rechaza con subcode 2446433.
+   * Pasa la URL de privacidad del cliente o la home del cliente.
+   */
+  link?: string;
   adhoc?: Record<string, string>;
 }): Promise<{ id: string }> {
   const cfg = await getMetaAdsConfig(opts.workspaceId, opts.adhoc);
+  // Bug histórico: usar "https://fb.me/leadgen" como link fantasma
+  // dispara error 2446433 "Tipo de contenido compartido no válido para
+  // el enlace de llamada a la acción" en cuentas con validación
+  // estricta. Meta exige (a) link top-level válido HTTPS y (b) link
+  // duplicado dentro de call_to_action.value.link junto a lead_gen_form_id.
+  // Si el caller no pasa link, usamos la página oficial de Facebook
+  // del cliente (https://facebook.com/<pageId>) que siempre es válida.
+  const safeLink = opts.link && /^https:\/\//i.test(opts.link)
+    ? opts.link
+    : `https://www.facebook.com/${opts.pageId}`;
   const objectStorySpec = {
     page_id: opts.pageId,
     link_data: {
@@ -784,11 +801,13 @@ export async function metaAdsCreateAdCreative(opts: {
       message: opts.primaryText,
       name: opts.headline ?? undefined,
       description: opts.description ?? undefined,
-      // Link "fantasma" que se sobreescribe por el lead form.
-      link: "https://fb.me/leadgen",
+      link: safeLink,
       call_to_action: {
         type: opts.callToAction ?? "SIGN_UP",
-        value: { lead_gen_form_id: opts.leadFormId }
+        value: {
+          lead_gen_form_id: opts.leadFormId,
+          link: safeLink
+        }
       }
     }
   };

@@ -1014,7 +1014,7 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
   },
   {
     name: "meta_ads_create_ad_creative",
-    description: "Crea un ad creative (la creatividad del anuncio) para Lead Ads: page + lead form + imagen + textos.",
+    description: "Crea un ad creative (la creatividad del anuncio) para Lead Ads: page + lead form + imagen + textos. Si no pasas `link`, se usa la URL de la página oficial del cliente como link válido (evita el error 2446433).",
     input_schema: {
       type: "object",
       properties: {
@@ -1025,7 +1025,8 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
         primaryText: { type: "string" },
         headline: { type: "string" },
         description: { type: "string" },
-        callToAction: { type: "string", enum: ["LEARN_MORE", "SIGN_UP", "GET_QUOTE", "CONTACT_US", "GET_OFFER", "BOOK_NOW", "DOWNLOAD", "APPLY_NOW"] }
+        callToAction: { type: "string", enum: ["LEARN_MORE", "SIGN_UP", "GET_QUOTE", "CONTACT_US", "GET_OFFER", "BOOK_NOW", "DOWNLOAD", "APPLY_NOW"] },
+        link: { type: "string", description: "URL HTTPS (privacidad, home del cliente, etc.) que Meta exige aunque sea Lead Ads on-ad. Opcional — si no se pasa, se usa la URL de la página." }
       },
       required: ["name", "pageId", "leadFormId", "imageHash", "primaryText"],
       additionalProperties: false
@@ -4213,6 +4214,7 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
         headline: input?.headline ? String(input.headline) : undefined,
         description: input?.description ? String(input.description) : undefined,
         callToAction: input?.callToAction ? String(input.callToAction) : undefined,
+        link: input?.link ? String(input.link) : undefined,
         adhoc: ctx.adhocCredentials
       });
       return { ok: true, ...r };
