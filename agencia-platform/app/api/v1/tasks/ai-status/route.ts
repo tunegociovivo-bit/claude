@@ -57,7 +57,10 @@ async function getAiUserId(workspaceId: string): Promise<string | null> {
  */
 async function handler(api: any, ids: string[]) {
   ids = ids.slice(0, 1000);
-  if (ids.length === 0) return NextResponse.json({ items: [] });
+  if (ids.length === 0) {
+    const aiUserId = await getAiUserId(api.workspaceId);
+    return NextResponse.json({ items: [], aiUserId: aiUserId ?? null });
+  }
 
   // Primera pasada: metadata SIN el campo log. El log es Json que
   // crece a cientos de KB por run (todos los tool_use + tool_result
@@ -273,7 +276,10 @@ async function handler(api: any, ids: string[]) {
     };
   }));
 
-  return NextResponse.json({ items });
+  // aiUserId también va en la respuesta — el cliente lo usa para
+  // marcar visualmente las tareas asignadas a Sonia (icono robot)
+  // sin tener que pedirlo en otra ruta separada.
+  return NextResponse.json({ items, aiUserId: aiUserId ?? null });
 }
 
 // GET /api/v1/tasks/ai-status?taskIds=id1,id2,id3

@@ -34,7 +34,7 @@ import VoiceTaskRecorder from "@/components/forms/VoiceTaskRecorder";
 import MeetingRecorder from "@/components/forms/MeetingRecorder";
 import { statusLabelOf, statusColorOf, priorityColors, priorityLabels } from "@/lib/mock-data";
 import type { UiTask, UiProject, UiClient, UiMember } from "@/lib/db/queries";
-import { LayoutGrid, List, Plus, Filter, CalendarDays, FolderPlus, GripVertical, CheckSquare, Square, Settings2, Loader2, Link2, Check } from "lucide-react";
+import { LayoutGrid, List, Plus, Filter, CalendarDays, FolderPlus, GripVertical, CheckSquare, Square, Settings2, Loader2, Link2, Check, Bot } from "lucide-react";
 import clsx from "clsx";
 import SavedFiltersBar, { DEFAULT_FILTERS, type TaskFilters } from "@/components/tareas/SavedFiltersBar";
 import { useSession } from "next-auth/react";
@@ -177,6 +177,10 @@ export default function TareasClient({
   // morado aparece casi al instante cuando arrancas un run, y el
   // gasto de polling baja cuando no hay nada activo.
   const [aiStatusByTask, setAiStatusByTask] = useState<Record<string, AiStatusInfo>>({});
+  // userId del bot Sonia en el workspace. Llega en el response de
+  // ai-status. Usado para mostrar icono robot en tasks asignadas a
+  // Sonia desde el kanban sin tener que abrir cada card.
+  const [aiUserId, setAiUserId] = useState<string | null>(null);
   // Diagnóstico visible — para que el user vea si el polling está
   // vivo y qué responde el endpoint. Sin esto el bug "no veo el
   // morado" es invisible: la card no parpadea y no sé si es porque
@@ -405,6 +409,7 @@ export default function TareasClient({
           console.log(`[ai-status] ${activeCount} task(s) con estado activo:`, next);
         }
         setAiStatusByTask(next);
+        if (data.aiUserId && data.aiUserId !== aiUserId) setAiUserId(data.aiUserId);
         setAiDebug((d) => ({
           lastPollAt: Date.now(),
           lastPollOk: true,
@@ -882,9 +887,25 @@ export default function TareasClient({
       />
 
       <div className="hidden md:block">
+      {/* El título refleja el contexto: si hay proyecto filtrado, su
+          nombre; si no, el genérico. Igual con la descripción — vacía
+          cuando estás dentro de un proyecto, el contexto ya se ve. */}
       <PageHeader
-        title="Tareas y proyectos"
-        description={selectionMode ? `${selected.size} tareas seleccionadas` : "Gestiona el flujo de trabajo de toda la agencia."}
+        title={(() => {
+          if (selectionMode) return `${selected.size} tareas seleccionadas`;
+          if (filters.project !== "all") {
+            const p = projects.find((x) => x.id === filters.project);
+            if (p?.name) return p.name;
+          }
+          return "Tareas y proyectos";
+        })()}
+        description={
+          selectionMode
+            ? "Aplica acciones masivas a las tareas marcadas."
+            : filters.project !== "all"
+              ? ""
+              : "Selecciona un proyecto en el menú lateral para enfocarte."
+        }
         actions={
           <>
             <div className="flex items-center bg-white border rounded-lg p-0.5">
@@ -922,13 +943,6 @@ export default function TareasClient({
               {selectionMode ? "Cancelar selección" : "Seleccionar"}
             </button>
             <button
-              onClick={() => setNewProjectOpen(true)}
-              className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-white border text-slate-700 hover:bg-slate-50 text-sm font-medium"
-            >
-              <FolderPlus className="h-4 w-4" />
-              Nuevo proyecto
-            </button>
-            <button
               onClick={() => openNewTask()}
               className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium"
             >
@@ -939,21 +953,26 @@ export default function TareasClient({
         }
       />
 
-      {/* Filtros: en móvil overflow-x scrollable; en >=sm wrap normal. */}
+      {/* Filtros: en móvil overflow-x scrollable; en >=sm wrap normal.
+          Cuando hay proyecto filtrado, el dropdown de proyectos se
+          oculta (la sidebar ya muestra cuál estás viendo y permite
+          cambiar). Si no, se muestra para poder enfocar uno. */}
       <div className="flex items-center gap-2 mb-3 flex-nowrap sm:flex-wrap overflow-x-auto sm:overflow-visible -mx-4 px-4 sm:mx-0 sm:px-0 scrollbar-thin">
-        <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white border text-xs shrink-0">
-          <Filter className="h-3.5 w-3.5 text-slate-400" />
-          <select
-            value={filters.project}
-            onChange={(e) => setFilters((f) => ({ ...f, project: e.target.value }))}
-            className="bg-transparent font-medium focus:outline-none"
-          >
-            <option value="all">Todos los proyectos</option>
-            {projects.map((p) => (
-              <option key={p.id} value={p.id}>{p.name}</option>
-            ))}
-          </select>
-        </div>
+        {filters.project === "all" && (
+          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white border text-xs shrink-0">
+            <Filter className="h-3.5 w-3.5 text-slate-400" />
+            <select
+              value={filters.project}
+              onChange={(e) => setFilters((f) => ({ ...f, project: e.target.value }))}
+              className="bg-transparent font-medium focus:outline-none"
+            >
+              <option value="all">Todos los proyectos</option>
+              {projects.map((p) => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </select>
+          </div>
+        )}
         <select
           value={filters.client}
           onChange={(e) => setFilters((f) => ({ ...f, client: e.target.value }))}
@@ -997,13 +1016,6 @@ export default function TareasClient({
           <option value="week">Esta semana</option>
           <option value="no-date">Sin fecha</option>
         </select>
-        <input
-          type="text"
-          value={filters.q}
-          onChange={(e) => setFilters((f) => ({ ...f, q: e.target.value }))}
-          placeholder="Buscar título…"
-          className="px-3 py-1.5 rounded-lg bg-white border text-xs focus:outline-none w-32 sm:w-40 shrink-0"
-        />
         <a
           href={
             filters.project !== "all"
@@ -1059,6 +1071,7 @@ export default function TareasClient({
                   aiStatusByTask={aiStatusByTask}
                   onMarkAiReviewed={markAiReviewed}
                   columnsEndpoint={columnsEndpoint}
+                  aiUserId={aiUserId}
                 />
               ))}
               <AddColumnButton
@@ -1093,6 +1106,7 @@ export default function TareasClient({
                 team={team}
                 isOverlay
                 columns={columns}
+                aiUserId={aiUserId}
               />
             )}
           </DragOverlay>
@@ -1499,7 +1513,8 @@ function KanbanColumnView({
   columns,
   aiStatusByTask,
   onMarkAiReviewed,
-  columnsEndpoint
+  columnsEndpoint,
+  aiUserId
 }: {
   column: KanbanColumn;
   tasks: UiTask[];
@@ -1516,6 +1531,7 @@ function KanbanColumnView({
   onMarkAiReviewed?: (taskId: string) => void;
   /** Endpoint donde se PUTean cambios de columnas (workspace o proyecto). */
   columnsEndpoint: string;
+  aiUserId?: string | null;
 }) {
   const { setNodeRef, attributes, listeners, transform, transition, isDragging } = useSortable({
     id: column.id,
@@ -1572,6 +1588,7 @@ function KanbanColumnView({
               columns={columns}
               aiInfo={aiStatusByTask[t.id]}
               onMarkAiReviewed={onMarkAiReviewed}
+              aiUserId={aiUserId}
             />
           ))}
           {tasks.length === 0 && (
@@ -1596,7 +1613,8 @@ function SortableTask({
   onToggleSelected,
   columns,
   aiInfo,
-  onMarkAiReviewed
+  onMarkAiReviewed,
+  aiUserId
 }: {
   task: UiTask;
   project?: UiProject;
@@ -1609,6 +1627,7 @@ function SortableTask({
   columns: KanbanColumn[];
   aiInfo?: AiStatusInfo;
   onMarkAiReviewed?: (taskId: string) => void;
+  aiUserId?: string | null;
 }) {
   const { setNodeRef, attributes, listeners, transform, transition, isDragging } = useSortable({
     id: task.id,
@@ -1640,6 +1659,7 @@ function SortableTask({
         columns={columns}
         aiInfo={aiInfo}
         onMarkAiReviewed={onMarkAiReviewed}
+        aiUserId={aiUserId}
       />
     </div>
   );
@@ -1656,7 +1676,8 @@ function TaskCard({
   onToggleSelected,
   columns,
   aiInfo,
-  onMarkAiReviewed
+  onMarkAiReviewed,
+  aiUserId
 }: {
   task: UiTask;
   project?: UiProject;
@@ -1669,6 +1690,7 @@ function TaskCard({
   columns?: KanbanColumn[];
   aiInfo?: AiStatusInfo;
   onMarkAiReviewed?: (taskId: string) => void;
+  aiUserId?: string | null;
 }) {
   const aiStatus = aiInfo?.aiStatus ?? null;
   const [copied, setCopied] = useState(false);
@@ -1816,7 +1838,17 @@ function TaskCard({
         </div>
       )}
       <div className="flex items-center justify-between">
-        <AvatarStack ids={task.assigneeIds} size={6} members={team} />
+        <div className="flex items-center gap-1.5">
+          <AvatarStack ids={task.assigneeIds} size={6} members={team} />
+          {aiUserId && Array.isArray(task.assigneeIds) && task.assigneeIds.includes(aiUserId) && (
+            <span
+              className="inline-flex items-center justify-center h-5 w-5 rounded-full bg-violet-100 text-violet-700 ring-1 ring-violet-200"
+              title="Asignada a Sonia"
+            >
+              <Bot className="h-3 w-3" />
+            </span>
+          )}
+        </div>
         <div className="flex items-center gap-1 text-xs text-slate-500">
           <CalendarDays className="h-3 w-3" />
           {task.dueDate ? new Date(task.dueDate).toLocaleDateString("es-ES", { day: "2-digit", month: "short" }) : "—"}
