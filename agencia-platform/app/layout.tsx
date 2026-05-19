@@ -85,7 +85,7 @@ const earlyInstallCapture = `
  */
 const swSelfHeal = `
   (function () {
-    var EXPECTED = "v88-2026-05-19-sidebar-emoji-manager";
+    var EXPECTED = "v89-2026-05-19-sonia-autonomy-pack";
     if (!('serviceWorker' in navigator)) return;
     var key = "hub_sw_v_seen";
     var seen = null;

@@ -1103,6 +1103,30 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
     }
   },
   {
+    name: "meta_ads_bulk_update_campaigns",
+    description:
+      "BATCH update de N campañas en paralelo (1 step en vez de N). Útil para:\n" +
+      "- Limpiar 5 campañas duplicadas: { campaignIds: ['id1','id2','id3','id4','id5'], status: 'DELETED' }\n" +
+      "- Pausar todas las de un cliente al final del mes\n" +
+      "- Subir el presupuesto a varias a la vez tras buenos resultados\n\n" +
+      "Devuelve [{campaignId, ok, error?}]. NO aborta si una falla — las demás se procesan. Mucho más eficiente que llamar meta_ads_update_campaign en serie.",
+    input_schema: {
+      type: "object",
+      properties: {
+        campaignIds: {
+          type: "array",
+          items: { type: "string" },
+          minItems: 1,
+          maxItems: 50
+        },
+        status: { type: "string", enum: ["ACTIVE", "PAUSED", "DELETED", "ARCHIVED"] },
+        dailyBudgetEur: { type: "number" }
+      },
+      required: ["campaignIds"],
+      additionalProperties: false
+    }
+  },
+  {
     name: "meta_ads_update_adset",
     description: "Modifica un adset: status, nombre, presupuesto diario, targeting.",
     input_schema: {
@@ -2317,6 +2341,24 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
   // ────────────────────────────────────────────────────────────────
   // Escalación a Claude Code (self-improvement)
   // ────────────────────────────────────────────────────────────────
+  {
+    name: "validate_credentials",
+    description:
+      "PRE-FLIGHT check de tokens/credenciales. Úsala AL INICIO del run si la task requiere integraciones externas (Meta Ads, Make, Holded, Stripe, GMB, etc.). Cada integración se valida con una llamada barata a su endpoint /me-equivalente. Devuelve { valid: [...], invalid: [...] } con detalle del fallo.\n\n" +
+      "Si alguna sale invalid, ABORT EARLY: comenta al user qué token falta/caducó ANTES de empezar a hacer trabajo. Evita el escenario típico de hoy: gastas 14 pasos creando recursos, paso 15 falla por token expirado, todo el trabajo previo queda colgando.",
+    input_schema: {
+      type: "object",
+      properties: {
+        integrations: {
+          type: "array",
+          items: { type: "string" },
+          description:
+            "Lista de integraciones a validar. Opciones: 'meta_ads', 'make', 'openai', 'anthropic', 'holded', 'stripe', 'elevenlabs', 'gmb'. Si pasas array vacío, valida solo las que tienen credenciales configuradas en el workspace."
+        }
+      },
+      additionalProperties: false
+    }
+  },
   {
     name: "escalate_to_claude",
     description:
@@ -4235,6 +4277,25 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
   },
   async meta_ads_create_campaign(input, ctx) {
     try {
+      // IDEMPOTENCIA: si esta task ya creó una campaña, devolverla en
+      // lugar de crear duplicado. Sonia puede forzar el bypass pasando
+      // forceCreate:true (ej. quiere crear A/B con la misma task).
+      const { readResources, recordResources } = await import(
+        "@/lib/ai/nv-ia/resource-registry"
+      );
+      if (!input?.forceCreate) {
+        const state = await readResources(ctx.taskId);
+        if (state.meta_ads?.campaignId) {
+          return {
+            ok: true,
+            id: state.meta_ads.campaignId,
+            name: state.meta_ads.campaignName,
+            deduped: true,
+            message:
+              "REUSING existing campaign from this task. Pass forceCreate:true if you really want a new one."
+          };
+        }
+      }
       const { metaAdsCreateCampaign } = await import("@/lib/integrations/meta-ads");
       const r = await metaAdsCreateCampaign({
         workspaceId: ctx.workspaceId,
@@ -4245,6 +4306,9 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
         status: input?.status === "ACTIVE" ? "ACTIVE" : "PAUSED",
         adhoc: ctx.adhocCredentials
       });
+      await recordResources(ctx.taskId, {
+        meta_ads: { campaignId: r.id, campaignName: r.name }
+      });
       return { ok: true, ...r };
     } catch (e: any) {
       return { error: `meta_ads_create_campaign: ${e?.message ?? e}` };
@@ -4252,6 +4316,20 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
   },
   async meta_ads_create_adset(input, ctx) {
     try {
+      const { readResources, recordResources } = await import(
+        "@/lib/ai/nv-ia/resource-registry"
+      );
+      if (!input?.forceCreate) {
+        const state = await readResources(ctx.taskId);
+        if (state.meta_ads?.adsetId) {
+          return {
+            ok: true,
+            id: state.meta_ads.adsetId,
+            deduped: true,
+            message: "REUSING existing adset from this task. Pass forceCreate:true to override."
+          };
+        }
+      }
       const { metaAdsCreateAdset } = await import("@/lib/integrations/meta-ads");
       const r = await metaAdsCreateAdset({
         workspaceId: ctx.workspaceId,
@@ -4289,6 +4367,7 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
           typeof input?.bidAmountCents === "number" ? input.bidAmountCents : undefined,
         adhoc: ctx.adhocCredentials
       });
+      await recordResources(ctx.taskId, { meta_ads: { adsetId: r.id } });
       return { ok: true, ...r };
     } catch (e: any) {
       return { error: `meta_ads_create_adset: ${e?.message ?? e}` };
@@ -4296,6 +4375,20 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
   },
   async meta_ads_create_lead_form(input, ctx) {
     try {
+      const { readResources, recordResources } = await import(
+        "@/lib/ai/nv-ia/resource-registry"
+      );
+      if (!input?.forceCreate) {
+        const state = await readResources(ctx.taskId);
+        if (state.meta_ads?.formId) {
+          return {
+            ok: true,
+            id: state.meta_ads.formId,
+            deduped: true,
+            message: "REUSING existing lead form from this task. Pass forceCreate:true to override."
+          };
+        }
+      }
       const { metaAdsCreateLeadForm } = await import("@/lib/integrations/meta-ads");
       const r = await metaAdsCreateLeadForm({
         workspaceId: ctx.workspaceId,
@@ -4308,6 +4401,7 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
         locale: input?.locale ? String(input.locale) : undefined,
         adhoc: ctx.adhocCredentials
       });
+      await recordResources(ctx.taskId, { meta_ads: { formId: r.id } });
       return { ok: true, ...r };
     } catch (e: any) {
       return { error: `meta_ads_create_lead_form: ${e?.message ?? e}` };
@@ -4321,6 +4415,8 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
         fileId: String(input?.fileId ?? ""),
         adhoc: ctx.adhocCredentials
       });
+      const { recordResources } = await import("@/lib/ai/nv-ia/resource-registry");
+      await recordResources(ctx.taskId, { meta_ads: { imageHash: r.hash } });
       return { ok: true, ...r };
     } catch (e: any) {
       return { error: `meta_ads_upload_image: ${e?.message ?? e}` };
@@ -4342,6 +4438,8 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
         link: input?.link ? String(input.link) : undefined,
         adhoc: ctx.adhocCredentials
       });
+      const { recordResources } = await import("@/lib/ai/nv-ia/resource-registry");
+      await recordResources(ctx.taskId, { meta_ads: { creativeId: r.id } });
       return { ok: true, ...r };
     } catch (e: any) {
       return { error: `meta_ads_create_ad_creative: ${e?.message ?? e}` };
@@ -4349,6 +4447,20 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
   },
   async meta_ads_create_ad(input, ctx) {
     try {
+      const { readResources, recordResources } = await import(
+        "@/lib/ai/nv-ia/resource-registry"
+      );
+      if (!input?.forceCreate) {
+        const state = await readResources(ctx.taskId);
+        if (state.meta_ads?.adId) {
+          return {
+            ok: true,
+            id: state.meta_ads.adId,
+            deduped: true,
+            message: "REUSING existing ad. Si quieres regenerar el creative, usa meta_ads_update_ad con creativeId nuevo."
+          };
+        }
+      }
       const { metaAdsCreateAd } = await import("@/lib/integrations/meta-ads");
       const r = await metaAdsCreateAd({
         workspaceId: ctx.workspaceId,
@@ -4358,6 +4470,7 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
         status: input?.status === "ACTIVE" ? "ACTIVE" : "PAUSED",
         adhoc: ctx.adhocCredentials
       });
+      await recordResources(ctx.taskId, { meta_ads: { adId: r.id } });
       return { ok: true, ...r };
     } catch (e: any) {
       return { error: `meta_ads_create_ad: ${e?.message ?? e}` };
@@ -4378,6 +4491,32 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
       return r;
     } catch (e: any) {
       return { error: `meta_ads_update_campaign: ${e?.message ?? e}` };
+    }
+  },
+  async meta_ads_bulk_update_campaigns(input, ctx) {
+    try {
+      const ids = Array.isArray(input?.campaignIds)
+        ? input.campaignIds.map(String).filter(Boolean)
+        : [];
+      if (ids.length === 0) return { error: "campaignIds vacío" };
+      const { metaAdsBulkUpdateCampaigns } = await import("@/lib/integrations/meta-ads");
+      const results = await metaAdsBulkUpdateCampaigns({
+        workspaceId: ctx.workspaceId,
+        campaignIds: ids,
+        status: input?.status as any,
+        dailyBudgetEur:
+          typeof input?.dailyBudgetEur === "number" ? input.dailyBudgetEur : undefined,
+        adhoc: ctx.adhocCredentials
+      });
+      const ok = results.filter((r) => r.ok).length;
+      const failed = results.filter((r) => !r.ok);
+      return {
+        ok: failed.length === 0,
+        summary: `${ok}/${results.length} OK${failed.length > 0 ? ` · ${failed.length} fallaron` : ""}`,
+        results
+      };
+    } catch (e: any) {
+      return { error: `meta_ads_bulk_update_campaigns: ${e?.message ?? e}` };
     }
   },
   async meta_ads_update_adset(input, ctx) {
@@ -5398,6 +5537,21 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
   },
   async make_create_scenario(input, ctx) {
     try {
+      const { readResources, recordResources } = await import(
+        "@/lib/ai/nv-ia/resource-registry"
+      );
+      if (!input?.forceCreate) {
+        const state = await readResources(ctx.taskId);
+        if (state.make?.scenarioId) {
+          return {
+            ok: true,
+            id: state.make.scenarioId,
+            deduped: true,
+            message:
+              "REUSING existing Make scenario from this task. Si necesitas el blueprint actual, llama make_get_blueprint. Pass forceCreate:true para crear otro."
+          };
+        }
+      }
       const { makeCreateScenario } = await import("@/lib/integrations/make");
       const res = await makeCreateScenario({
         workspaceId: ctx.workspaceId,
@@ -5407,6 +5561,7 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
         folderId: input?.folderId ? Number(input.folderId) : undefined,
         scheduling: input?.scheduling
       });
+      await recordResources(ctx.taskId, { make: { scenarioId: res.id } });
       return { ok: true, ...res };
     } catch (e: any) {
       return { error: `make_create_scenario: ${e?.message ?? e}` };
@@ -6224,6 +6379,95 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
     } catch (e: any) {
       return { error: `attach_report falló: ${e?.message ?? e}` };
     }
+  },
+  async validate_credentials(input, ctx) {
+    const requested = Array.isArray(input?.integrations)
+      ? input.integrations.map((s: any) => String(s))
+      : [];
+    const valid: Array<{ integration: string; detail?: string }> = [];
+    const invalid: Array<{ integration: string; reason: string }> = [];
+
+    const allChecks: Record<string, () => Promise<{ ok: true; detail?: string } | { ok: false; reason: string }>> = {
+      meta_ads: async () => {
+        try {
+          const { metaAdsListAdAccounts } = await import("@/lib/integrations/meta-ads");
+          const accs = await metaAdsListAdAccounts(ctx.workspaceId, ctx.adhocCredentials);
+          return { ok: true, detail: `${accs.length} ad accounts accesibles` };
+        } catch (e: any) {
+          return { ok: false, reason: String(e?.message ?? e).slice(0, 200) };
+        }
+      },
+      make: async () => {
+        try {
+          const { makeListOrganizations } = await import("@/lib/integrations/make");
+          const orgs = await makeListOrganizations(ctx.workspaceId);
+          return { ok: true, detail: `${orgs.length} orgs accesibles` };
+        } catch (e: any) {
+          return { ok: false, reason: String(e?.message ?? e).slice(0, 200) };
+        }
+      },
+      openai: async () => {
+        try {
+          const { getOpenAiKeyForWorkspace } = await import("@/lib/ai/openai");
+          const k = await getOpenAiKeyForWorkspace(ctx.workspaceId);
+          const r = await fetch("https://api.openai.com/v1/models", {
+            headers: { Authorization: `Bearer ${k}` }
+          });
+          if (!r.ok) return { ok: false, reason: `OpenAI ${r.status}` };
+          return { ok: true };
+        } catch (e: any) {
+          return { ok: false, reason: String(e?.message ?? e).slice(0, 200) };
+        }
+      },
+      anthropic: async () => {
+        try {
+          const { getAnthropicForWorkspace } = await import("@/lib/ai/anthropic");
+          await getAnthropicForWorkspace(ctx.workspaceId);
+          return { ok: true };
+        } catch (e: any) {
+          return { ok: false, reason: String(e?.message ?? e).slice(0, 200) };
+        }
+      },
+      elevenlabs: async () => {
+        try {
+          const { elevenlabsTest } = await import("@/lib/integrations/elevenlabs");
+          const r = await elevenlabsTest(ctx.workspaceId);
+          return { ok: true, detail: `${r.voiceCount} voces` };
+        } catch (e: any) {
+          return { ok: false, reason: String(e?.message ?? e).slice(0, 200) };
+        }
+      },
+      holded: async () => {
+        try {
+          const { holdedListInvoices } = await import("@/lib/integrations/holded");
+          await holdedListInvoices({ workspaceId: ctx.workspaceId, limit: 1 });
+          return { ok: true };
+        } catch (e: any) {
+          return { ok: false, reason: String(e?.message ?? e).slice(0, 200) };
+        }
+      }
+    };
+
+    const toCheck = requested.length > 0 ? requested : Object.keys(allChecks);
+    for (const name of toCheck) {
+      const check = allChecks[name];
+      if (!check) {
+        invalid.push({ integration: name, reason: "integración desconocida" });
+        continue;
+      }
+      const r = await check();
+      if (r.ok) valid.push({ integration: name, detail: (r as any).detail });
+      else invalid.push({ integration: name, reason: r.reason });
+    }
+    return {
+      ok: invalid.length === 0,
+      valid,
+      invalid,
+      summary:
+        invalid.length === 0
+          ? `Las ${valid.length} integraciones funcionan.`
+          : `${invalid.length} integración(es) con problemas: ${invalid.map((i) => i.integration).join(", ")}.`
+    };
   },
   async escalate_to_claude(input, ctx) {
     const reason = String(input?.reason ?? "").trim();

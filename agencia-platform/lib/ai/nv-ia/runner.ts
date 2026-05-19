@@ -580,6 +580,53 @@ en Make / Meta / Holded", verifica si EXISTE una tool que lo haga:
        DEVUELVE error explícito que confirma imposibilidad, ENTONCES
        lo declaras como manual y citas el error literal.
 
+PRE-FLIGHT CHECK DE CREDENCIALES (al inicio de tasks complejas):
+Si la task requiere ≥2 integraciones externas (Meta + Make, GMB + WP,
+Holded + Email, etc.), llama validate_credentials({integrations:[...]})
+en tu PRIMER step. Si alguna sale invalid, COMENTA AL USER ahora —
+ANTES de hacer trabajo. Ahorra el escenario "creas 14 recursos, paso
+15 falla por token expirado, queda todo colgando".
+
+PLAN-BEFORE-ACT (tasks complejas con >5 acciones):
+Si una task tiene varios pasos de creación/modificación encadenados,
+ANTES de empezar postea un comentario corto con tu plan:
+  "Plan: 1. [acción], 2. [acción], 3. [acción]. Tools: X, Y, Z."
+Luego ejecuta secuencialmente. Si descubres algo nuevo que cambie el
+plan, actualízalo en otro comentario. NO improvises sin avisar.
+
+TOOL CALLS EN PARALELO:
+Cuando tengas N tool calls INDEPENDIENTES (no dependen del output el
+uno del otro), emítelos TODOS en el mismo turn (Anthropic SDK lo
+soporta). Ejemplos típicos:
+- 6 meta_ads_targeting_search con términos distintos → 1 turn, no 6
+- 3 read_file de archivos distintos → 1 turn
+- Validar 4 credenciales → 1 turn
+Solo serializa cuando el output de A es input de B. Esto reduce N steps
+serial a 1 paralelo — clave para terminar tasks complejas dentro del cap.
+
+SELF-VERIFICATION ANTES DE MARK_COMPLETE:
+Antes de cerrar con mark_complete diciendo "campaña creada, listo",
+DEBES leer de la API el estado final y comparar contra los criterios
+del user. Ejemplo Meta Lead Ads: tras crear todo, llama
+meta_ads_list_ads({campaignId:X}) y verifica que el ad existe, está
+en PAUSED, y su creative apunta al imageHash correcto.
+
+❌ MAL: "He creado todo, ya está listo" (sin verificar con tool de lectura)
+✅ BIEN: Lees con meta_ads_list_ads / make_get_scenario / etc., pegas
+       el resultado al user como prueba, y CITAS los ids reales.
+
+Si la lectura no coincide con lo pedido (faltan recursos, status mal,
+parámetros distintos), NO mark_complete — corrige y vuelve a verificar.
+
+REUTILIZA RECURSOS DE RUNS PREVIOS:
+Si el system prompt te entrega "Recursos ya creados en runs anteriores
+de esta task" (sección IDEMPOTENCIA), USA esos ids en lugar de crear
+nuevos. Las tools de creación (meta_ads_create_*, make_create_*) ya
+deduplican automáticamente — si ya hay un campaignId registrado y
+llamas create_campaign, te devolveré el mismo id con deduped:true.
+NO crees variantes salvo que el user lo pida explícitamente; entonces
+pasa forceCreate:true.
+
 LÍMITES:
 - Tienes un budget de ${DEFAULT_AGENT_CONFIG.maxStepsPerRun} pasos máximo por tarea. Sé eficiente.
 - Solo trabajas en el workspace del que recibes la tarea. Nunca lo cruzas.
@@ -823,6 +870,26 @@ export async function executeAgentRun(opts: {
     }
   } catch (e) {
     console.warn("[sonia] episodes:", (e as Error).message);
+  }
+
+  // IDEMPOTENCIA: inyectar recursos ya creados por esta task en runs
+  // anteriores. Sonia los REUTILIZA en lugar de crear duplicados.
+  try {
+    const { readResources, formatResourcesForPrompt } = await import(
+      "@/lib/ai/nv-ia/resource-registry"
+    );
+    const state = await readResources(taskId);
+    const formatted = formatResourcesForPrompt(state);
+    if (formatted) {
+      initialContent += formatted;
+      log.push({
+        type: "info",
+        ts: nowIso(),
+        text: `Cargados recursos previos de aiState (idempotencia)`
+      });
+    }
+  } catch (e) {
+    console.warn("[sonia] resource-registry:", (e as Error).message);
   }
 
   const messages: Anthropic.MessageParam[] = [

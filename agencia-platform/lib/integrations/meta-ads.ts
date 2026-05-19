@@ -68,16 +68,53 @@ async function getMetaAdsConfig(
   return { accessToken, adAccountId };
 }
 
+/**
+ * Decide si un error de Meta Ads es transient y vale reintentar.
+ * Reintentamos: 5xx, 429 (rate-limit), errores de red.
+ * NO reintentamos: 4xx (incluyendo 400 validation, 401 auth) — son
+ * fallos lógicos, no se arreglan reintentando.
+ */
+function isTransientMeta(status: number, body: string): boolean {
+  if (status >= 500) return true;
+  if (status === 429) return true;
+  // Subcodes específicos de Meta para rate-limit que vienen en 400 oficial
+  if (body.includes('"code":4') || body.includes('"code":17') || body.includes('"code":613')) return true;
+  if (/rate.?limit|too.?many|throttle/i.test(body)) return true;
+  return false;
+}
+
+const RETRY_DELAYS_MS = [1000, 3000, 8000]; // 3 reintentos, ~12s total max
+
 async function metaFetch<T = any>(url: string, accessToken: string): Promise<T> {
   const u = url.includes("?")
     ? `${url}&access_token=${encodeURIComponent(accessToken)}`
     : `${url}?access_token=${encodeURIComponent(accessToken)}`;
-  const r = await fetch(u, { cache: "no-store" });
-  if (!r.ok) {
-    const t = await r.text();
-    throw new Error(`Meta Ads ${r.status}: ${t.slice(0, 200)}`);
+  let lastErr = "";
+  for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
+    try {
+      const r = await fetch(u, { cache: "no-store" });
+      if (!r.ok) {
+        const t = await r.text();
+        lastErr = `Meta Ads ${r.status}: ${t.slice(0, 200)}`;
+        if (attempt < RETRY_DELAYS_MS.length && isTransientMeta(r.status, t)) {
+          await new Promise((res) => setTimeout(res, RETRY_DELAYS_MS[attempt]));
+          continue;
+        }
+        throw new Error(lastErr);
+      }
+      return r.json();
+    } catch (e: any) {
+      const msg = String(e?.message ?? e);
+      // Errores de red (fetch failed, ECONNRESET, etc.) son transient
+      if (attempt < RETRY_DELAYS_MS.length && /fetch failed|ECONNRESET|ETIMEDOUT|socket hang/i.test(msg)) {
+        lastErr = msg;
+        await new Promise((res) => setTimeout(res, RETRY_DELAYS_MS[attempt]));
+        continue;
+      }
+      throw e;
+    }
   }
-  return r.json();
+  throw new Error(lastErr || "metaFetch: agotados los reintentos");
 }
 
 export async function metaAdsListAdAccounts(workspaceId: string, adhoc?: Record<string, string>) {
@@ -398,33 +435,90 @@ export function leadsToCsv(rows: Array<Record<string, string>>): string {
 // Conversión de presupuesto: Meta API quiere cantidades en la SUBUNIDAD
 // de la moneda (céntimos para EUR). 15€/día → daily_budget=1500.
 
-/** Helper POST contra Graph API. Acepta payload JSON, devuelve JSON. */
+/** Helper POST contra Graph API. Acepta payload JSON, devuelve JSON.
+ *  Auto-retry en errores transient (5xx / 429 / network) con backoff
+ *  exponencial. No reintenta 4xx (validation/auth) — son fallos lógicos. */
 async function metaPost<T = any>(
   path: string,
   accessToken: string,
   payload: Record<string, unknown>
 ): Promise<T> {
-  // Meta acepta access_token también en el body — más limpio que en URL.
   const body = new URLSearchParams();
   for (const [k, v] of Object.entries(payload)) {
     if (v === undefined || v === null) continue;
     body.set(k, typeof v === "object" ? JSON.stringify(v) : String(v));
   }
   body.set("access_token", accessToken);
-  const r = await fetch(`${GRAPH}${path}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body
-  });
-  if (!r.ok) {
-    const t = await r.text();
-    throw new Error(`Meta Ads POST ${path} ${r.status}: ${t.slice(0, 400)}`);
+  let lastErr = "";
+  for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
+    try {
+      const r = await fetch(`${GRAPH}${path}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body
+      });
+      if (!r.ok) {
+        const t = await r.text();
+        lastErr = `Meta Ads POST ${path} ${r.status}: ${t.slice(0, 400)}`;
+        if (attempt < RETRY_DELAYS_MS.length && isTransientMeta(r.status, t)) {
+          await new Promise((res) => setTimeout(res, RETRY_DELAYS_MS[attempt]));
+          continue;
+        }
+        throw new Error(lastErr);
+      }
+      return r.json();
+    } catch (e: any) {
+      const msg = String(e?.message ?? e);
+      if (attempt < RETRY_DELAYS_MS.length && /fetch failed|ECONNRESET|ETIMEDOUT|socket hang/i.test(msg)) {
+        lastErr = msg;
+        await new Promise((res) => setTimeout(res, RETRY_DELAYS_MS[attempt]));
+        continue;
+      }
+      throw e;
+    }
   }
-  return r.json();
+  throw new Error(lastErr || "metaPost: agotados los reintentos");
 }
 
 function eurosToCentavos(eur: number): number {
   return Math.round(eur * 100);
+}
+
+/**
+ * Update masivo: aplica el mismo cambio (status, etc.) a N campañas
+ * en paralelo. Caso de uso típico: limpiar 5 campañas duplicadas en
+ * un solo step en lugar de llamar update 5 veces.
+ *
+ * Devuelve un array con el resultado por campaignId (ok / error).
+ * NO aborta si una falla — las demás se siguen procesando.
+ */
+export async function metaAdsBulkUpdateCampaigns(opts: {
+  workspaceId: string;
+  campaignIds: string[];
+  status?: "ACTIVE" | "PAUSED" | "DELETED" | "ARCHIVED";
+  dailyBudgetEur?: number;
+  adhoc?: Record<string, string>;
+}): Promise<Array<{ campaignId: string; ok: boolean; error?: string }>> {
+  const cfg = await getMetaAdsConfig(opts.workspaceId, opts.adhoc);
+  const results = await Promise.allSettled(
+    opts.campaignIds.map(async (id) => {
+      const payload: Record<string, unknown> = {};
+      if (opts.status) payload.status = opts.status;
+      if (typeof opts.dailyBudgetEur === "number") {
+        payload.daily_budget = eurosToCentavos(opts.dailyBudgetEur);
+      }
+      if (Object.keys(payload).length === 0) {
+        throw new Error("Pasa al menos un campo (status / dailyBudgetEur)");
+      }
+      await metaPost(`/${id}`, cfg.accessToken, payload);
+      return id;
+    })
+  );
+  return opts.campaignIds.map((id, i) => {
+    const r = results[i];
+    if (r.status === "fulfilled") return { campaignId: id, ok: true };
+    return { campaignId: id, ok: false, error: String((r.reason as Error)?.message ?? r.reason).slice(0, 200) };
+  });
 }
 
 function adAccountPath(adAccountId: string): string {
@@ -915,6 +1009,34 @@ export async function metaAdsGetAdPreview(opts: {
  *
  * type: 'adinterest' | 'adgeolocation' | 'adlocale' | etc.
  */
+/**
+ * Cache in-memory de targeting search por proceso. Sonia tiende a
+ * buscar el mismo término varias veces durante un run (e.g. en V1 del
+ * RS Advocats: 6 búsquedas "Empleo" sucesivas). Sin cache son 6
+ * round-trips a Graph API = 6-18s + 6 steps consumidos. Con cache:
+ * 1 round-trip + 5 hits instantáneos.
+ *
+ * Key: `<workspaceId>:<type>:<q.toLowerCase().trim()>`
+ * TTL: 1h — los intereses Meta no cambian dentro de una sesión.
+ * Capacity: 500 entradas (LRU básico por timestamp).
+ */
+const TARGETING_CACHE_MS = 60 * 60 * 1000;
+const TARGETING_CACHE_MAX = 500;
+const targetingCache = new Map<
+  string,
+  { ts: number; data: Array<{ id: string; name: string; type: string; audience_size?: number }> }
+>();
+
+function pruneTargetingCache() {
+  if (targetingCache.size <= TARGETING_CACHE_MAX) return;
+  // Borra el 20% más viejo
+  const entries = Array.from(targetingCache.entries()).sort((a, b) => a[1].ts - b[1].ts);
+  const toDrop = Math.floor(TARGETING_CACHE_MAX * 0.2);
+  for (let i = 0; i < toDrop && i < entries.length; i++) {
+    targetingCache.delete(entries[i][0]);
+  }
+}
+
 export async function metaAdsTargetingSearch(opts: {
   workspaceId: string;
   q: string;
@@ -922,22 +1044,31 @@ export async function metaAdsTargetingSearch(opts: {
   limit?: number;
   adhoc?: Record<string, string>;
 }): Promise<Array<{ id: string; name: string; type: string; audience_size?: number }>> {
+  const type = opts.type ?? "adinterest";
+  const key = `${opts.workspaceId}:${type}:${opts.q.toLowerCase().trim()}`;
+  const cached = targetingCache.get(key);
+  if (cached && Date.now() - cached.ts < TARGETING_CACHE_MS) {
+    return cached.data;
+  }
   const cfg = await getMetaAdsConfig(opts.workspaceId, opts.adhoc);
   const params = new URLSearchParams({
     q: opts.q,
-    type: opts.type ?? "adinterest",
+    type,
     limit: String(opts.limit ?? 25)
   });
   const data = await metaFetch<any>(
     `${GRAPH}/search?${params.toString()}`,
     cfg.accessToken
   );
-  return (data.data ?? []).map((d: any) => ({
+  const out = (data.data ?? []).map((d: any) => ({
     id: d.id,
     name: d.name,
-    type: d.type ?? opts.type ?? "adinterest",
+    type: d.type ?? type,
     audience_size: d.audience_size
   }));
+  targetingCache.set(key, { ts: Date.now(), data: out });
+  pruneTargetingCache();
+  return out;
 }
 
 // ─── Macro tool — caso típico que pide Sonia ─────────────────────
