@@ -30,6 +30,81 @@ const ONE_HOUR_MS = 60 * 60 * 1000;
 // de generar y la URL todavía vale.
 const FRESHNESS_MARGIN_MS = 10 * 60 * 1000;
 
+/**
+ * Detecta si una URL es de R2/S3-compatible y extrae la key.
+ * Soporta:
+ *   - path-style:         https://<account>.r2.cloudflarestorage.com/<bucket>/<key>
+ *   - virtual-host-style: https://<bucket>.<account>.r2.cloudflarestorage.com/<key>
+ *   - S3 estándar:        https://<bucket>.s3.<region>.amazonaws.com/<key>
+ *                         https://s3.<region>.amazonaws.com/<bucket>/<key>
+ *   - Endpoint configurado en env (cualquier prefijo)
+ * Devuelve null si no es URL S3-compatible o no se puede extraer key.
+ */
+function extractS3Key(url: string): string | null {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return null;
+  }
+  const host = parsed.host.toLowerCase();
+  const path = parsed.pathname.replace(/^\/+/, "");
+  if (!path) return null;
+
+  const endpoint = (process.env.STORAGE_ENDPOINT ?? "").replace(/\/+$/, "");
+  const bucket = process.env.STORAGE_BUCKET ?? "";
+
+  // Heurística 1: URL pertenece al endpoint configurado.
+  if (endpoint && url.startsWith(endpoint)) {
+    let key = path;
+    if (bucket && key.startsWith(bucket + "/")) key = key.slice(bucket.length + 1);
+    return key ? decodeURIComponent(key) : null;
+  }
+
+  // Heurística 2: host R2 virtual-host-style (<bucket>.<account>.r2...)
+  if (host.endsWith(".r2.cloudflarestorage.com")) {
+    const sub = host.slice(0, host.length - ".r2.cloudflarestorage.com".length);
+    // Path-style: <account>.r2.cloudflarestorage.com/<bucket>/<key>
+    //  (sub no contiene `.`, es solo el account id)
+    if (!sub.includes(".")) {
+      // Aquí el primer segmento del path ES el bucket. Si coincide con
+      // el bucket configurado lo quitamos, si no, mantenemos el path
+      // entero (puede ser un bucket distinto pero misma cuenta R2).
+      if (bucket) {
+        if (path.startsWith(bucket + "/")) {
+          return decodeURIComponent(path.slice(bucket.length + 1));
+        }
+        // Bucket distinto — probablemente no recuperaremos pero intentamos
+        const firstSlash = path.indexOf("/");
+        if (firstSlash > 0) return decodeURIComponent(path.slice(firstSlash + 1));
+      }
+      return decodeURIComponent(path);
+    }
+    // Virtual-host-style: <bucket>.<account>.r2.cloudflarestorage.com/<key>
+    // El path entero es la key.
+    return decodeURIComponent(path);
+  }
+
+  // Heurística 3: S3 estándar amazonaws.com
+  if (host.endsWith(".amazonaws.com")) {
+    // Virtual-host: <bucket>.s3.<region>.amazonaws.com/<key>
+    if (host.includes(".s3.") || host.startsWith("s3.")) {
+      // Path-style: s3.<region>.amazonaws.com/<bucket>/<key>
+      if (host.startsWith("s3.")) {
+        if (bucket && path.startsWith(bucket + "/")) {
+          return decodeURIComponent(path.slice(bucket.length + 1));
+        }
+        const firstSlash = path.indexOf("/");
+        if (firstSlash > 0) return decodeURIComponent(path.slice(firstSlash + 1));
+      }
+      // Virtual-host: bucket.s3.region.amazonaws.com/<key>
+      return decodeURIComponent(path);
+    }
+  }
+
+  return null;
+}
+
 export async function resignUrlIfNeeded(url: string | null | undefined): Promise<string | null> {
   if (!url) return null;
   if (!isStorageEnabled()) return url; // sin storage configurado no hay nada que firmar
@@ -39,14 +114,7 @@ export async function resignUrlIfNeeded(url: string | null | undefined): Promise
   const publicBase = (process.env.STORAGE_PUBLIC_URL ?? "").replace(/\/+$/, "");
   if (publicBase && url.startsWith(publicBase + "/")) return url;
 
-  // Si no es del propio endpoint, no la tocamos.
-  const endpoint = (process.env.STORAGE_ENDPOINT ?? "").replace(/\/+$/, "");
-  const bucket = process.env.STORAGE_BUCKET ?? "";
-  if (!endpoint || !bucket || !url.startsWith(endpoint)) return url;
-
-  // Si la URL todavía es fresca, no refrescamos (lectura del header
-  // X-Amz-Date en la query). Esto evita una llamada a R2 por cada
-  // imagen al cargar la lista del calendario editorial.
+  // Si la URL todavía es fresca (signed < 50 min), no refrescamos.
   try {
     const u = new URL(url);
     const amzDate = u.searchParams.get("X-Amz-Date"); // formato YYYYMMDDTHHMMSSZ
@@ -61,16 +129,11 @@ export async function resignUrlIfNeeded(url: string | null | undefined): Promise
     // URL malformada, sigue al re-firmado.
   }
 
-  // Extraer el s3Key del path: <endpoint>/<bucket>/<key>?...
-  let s3Key: string;
-  try {
-    const u = new URL(url);
-    let path = u.pathname.replace(/^\/+/, "");
-    if (path.startsWith(bucket + "/")) path = path.slice(bucket.length + 1);
-    s3Key = decodeURIComponent(path);
-  } catch {
-    return url;
-  }
+  // Extraer el s3Key — soporta path-style + virtual-host-style + S3 estándar.
+  // Antes solo detectaba URLs que empezasen con STORAGE_ENDPOINT exacto,
+  // así que las virtual-host (bucket.<accountid>.r2.cloudflarestorage.com)
+  // caían fuera y NUNCA se re-firmaban → caducaban → 403 al renderizar.
+  const s3Key = extractS3Key(url);
   if (!s3Key) return url;
 
   try {
