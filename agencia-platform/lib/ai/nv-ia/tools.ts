@@ -1689,6 +1689,81 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
     }
   },
   {
+    name: "make_list_teams",
+    description:
+      "Lista los equipos (teams) de tu organización Make. Necesario la primera vez para descubrir el teamId — luego se guarda como default y no hace falta volver a llamar. Devuelve [{id, name, organizationId}].",
+    input_schema: { type: "object", properties: {}, additionalProperties: false }
+  },
+  {
+    name: "make_list_scenarios",
+    description:
+      "Lista los escenarios de Make en un team. Filtra por query (substring del nombre) para encontrar el origen a duplicar — ej. 'RS Advocats' encuentra todos los que tengan eso en el nombre. Devuelve [{id, name, isActive, folderId, description}].",
+    input_schema: {
+      type: "object",
+      properties: {
+        teamId: { type: "number", description: "Opcional si hay default configurado." },
+        query: { type: "string", description: "Substring del nombre para filtrar." },
+        pageSize: { type: "number", description: "Default 50, max 100." }
+      },
+      additionalProperties: false
+    }
+  },
+  {
+    name: "make_get_blueprint",
+    description:
+      "Devuelve el BLUEPRINT JSON completo de un escenario (todos sus módulos y configuración). Lo necesitas antes de duplicar/modificar: lees el blueprint del origen, lo modificas (cambias formId del módulo Facebook Lead Ads, destinos del módulo Email, etc), y lo usas para crear el nuevo escenario con make_create_scenario. El blueprint puede ser grande (10-50KB) — sé eficiente leyendo.",
+    input_schema: {
+      type: "object",
+      properties: {
+        scenarioId: { type: "number" }
+      },
+      required: ["scenarioId"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "make_create_scenario",
+    description:
+      "Crea un escenario Make nuevo a partir de un blueprint. Workflow típico de duplicación:\n1. make_list_scenarios({query: 'RS Advocats'}) → encuentras el origen\n2. make_get_blueprint({scenarioId: <origen>}) → recuperas el JSON completo\n3. Modificas el JSON cambiando los parámetros relevantes (formId del trigger Facebook Lead Ads, recipients de los módulos email, etc.) — el blueprint es JSON estructurado, los módulos vienen en blueprint.flow[]\n4. make_create_scenario({blueprint: <modificado>, name: '<cliente> - Lead Ads <fecha>'})\n5. make_activate_scenario({scenarioId: <nuevo>}) para que arranque\n\nIMPORTANTE: el escenario nuevo USA LAS MISMAS CONEXIONES (Facebook, Gmail, etc.) que el origen — heredadas vía blueprint. Si una conexión del origen no es válida, el nuevo también fallará. Sonia NO necesita re-autorizar conexiones.",
+    input_schema: {
+      type: "object",
+      properties: {
+        blueprint: { type: "object", description: "JSON completo del blueprint (modificado o no)." },
+        name: { type: "string", description: "Nombre visible del nuevo escenario." },
+        teamId: { type: "number", description: "Opcional si hay default." },
+        folderId: { type: "number", description: "Carpeta destino opcional." },
+        scheduling: {
+          type: "object",
+          description: "Default { type: 'immediately' } (corre al haber datos en el trigger)."
+        }
+      },
+      required: ["blueprint"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "make_activate_scenario",
+    description:
+      "Activa un escenario (lo pone en estado ACTIVO para que ejecute cuando haya datos). Inverso: make_deactivate_scenario.",
+    input_schema: {
+      type: "object",
+      properties: { scenarioId: { type: "number" } },
+      required: ["scenarioId"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "make_deactivate_scenario",
+    description:
+      "Pausa un escenario. Útil si quieres detener un automatismo sin borrarlo.",
+    input_schema: {
+      type: "object",
+      properties: { scenarioId: { type: "number" } },
+      required: ["scenarioId"],
+      additionalProperties: false
+    }
+  },
+  {
     name: "holded_list_invoices",
     description:
       "Lista facturas del workspace en Holded. Filtros opcionales: status (0=pendiente, 1=pagada, 2=vencida, 3=cancelada, 4=borrador), limit. Útil para cashflow, recordatorios de pago, análisis de morosidad.",
@@ -5058,6 +5133,82 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
       return { ok: true, stats };
     } catch (e: any) {
       return { error: `Metricool no disponible: ${e?.message ?? e}` };
+    }
+  },
+
+  async make_list_teams(_input, ctx) {
+    try {
+      const { makeListTeams } = await import("@/lib/integrations/make");
+      const teams = await makeListTeams(ctx.workspaceId);
+      return { count: teams.length, teams };
+    } catch (e: any) {
+      return { error: `make_list_teams: ${e?.message ?? e}` };
+    }
+  },
+  async make_list_scenarios(input, ctx) {
+    try {
+      const { makeListScenarios } = await import("@/lib/integrations/make");
+      const scenarios = await makeListScenarios({
+        workspaceId: ctx.workspaceId,
+        teamId: input?.teamId ? Number(input.teamId) : undefined,
+        query: input?.query ? String(input.query) : undefined,
+        pageSize: input?.pageSize ? Number(input.pageSize) : undefined
+      });
+      return { count: scenarios.length, scenarios };
+    } catch (e: any) {
+      return { error: `make_list_scenarios: ${e?.message ?? e}` };
+    }
+  },
+  async make_get_blueprint(input, ctx) {
+    try {
+      const { makeGetBlueprint } = await import("@/lib/integrations/make");
+      const blueprint = await makeGetBlueprint({
+        workspaceId: ctx.workspaceId,
+        scenarioId: Number(input?.scenarioId)
+      });
+      return { blueprint };
+    } catch (e: any) {
+      return { error: `make_get_blueprint: ${e?.message ?? e}` };
+    }
+  },
+  async make_create_scenario(input, ctx) {
+    try {
+      const { makeCreateScenario } = await import("@/lib/integrations/make");
+      const res = await makeCreateScenario({
+        workspaceId: ctx.workspaceId,
+        blueprint: input?.blueprint,
+        name: input?.name ? String(input.name) : undefined,
+        teamId: input?.teamId ? Number(input.teamId) : undefined,
+        folderId: input?.folderId ? Number(input.folderId) : undefined,
+        scheduling: input?.scheduling
+      });
+      return { ok: true, ...res };
+    } catch (e: any) {
+      return { error: `make_create_scenario: ${e?.message ?? e}` };
+    }
+  },
+  async make_activate_scenario(input, ctx) {
+    try {
+      const { makeActivateScenario } = await import("@/lib/integrations/make");
+      await makeActivateScenario({
+        workspaceId: ctx.workspaceId,
+        scenarioId: Number(input?.scenarioId)
+      });
+      return { ok: true };
+    } catch (e: any) {
+      return { error: `make_activate_scenario: ${e?.message ?? e}` };
+    }
+  },
+  async make_deactivate_scenario(input, ctx) {
+    try {
+      const { makeDeactivateScenario } = await import("@/lib/integrations/make");
+      await makeDeactivateScenario({
+        workspaceId: ctx.workspaceId,
+        scenarioId: Number(input?.scenarioId)
+      });
+      return { ok: true };
+    } catch (e: any) {
+      return { error: `make_deactivate_scenario: ${e?.message ?? e}` };
     }
   },
 

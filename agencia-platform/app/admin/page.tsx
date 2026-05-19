@@ -105,6 +105,13 @@ const SECTIONS: AdminSection[] = [
         highlight: true
       },
       {
+        href: "/admin/make-settings",
+        title: "Make.com (automatizaciones)",
+        description:
+          "Sonia puede listar, duplicar y activar escenarios Make. Tras crear una campaña Meta Lead Ads, clona el escenario plantilla apuntando al nuevo formulario.",
+        icon: Webhook
+      },
+      {
         href: "/admin/sonia-lessons",
         title: "Lecciones aprendidas",
         description:

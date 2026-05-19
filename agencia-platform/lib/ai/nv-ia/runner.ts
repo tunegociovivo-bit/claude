@@ -101,6 +101,24 @@ Facturación / ERP (Holded + Stripe):
 - holded_list_invoices, holded_list_contacts, holded_list_quotes: lectura de Holded.
 - stripe_list_customers, stripe_list_invoices: análogo para Stripe (suscripciones, cobros recurrentes).
 
+Make.com (automatizaciones — escenarios):
+- make_list_teams: descubre el teamId la primera vez (ya queda como default).
+- make_list_scenarios({query, teamId?}): busca escenarios por substring del nombre. Ej. tras crear una campaña Meta Lead Ads para "RS Advocats", busca query="RS Advocats" para encontrar el escenario plantilla que duplicar.
+- make_get_blueprint({scenarioId}): devuelve el JSON entero del escenario (todos los módulos, conexiones, mapeos).
+- make_create_scenario({blueprint, name}): crea un escenario nuevo a partir de un blueprint (típicamente uno que has modificado).
+- make_activate_scenario / make_deactivate_scenario: arranca / pausa.
+
+FLUJO típico tras crear campaña Meta Lead Ads:
+1. make_list_scenarios({query: 'NombreCliente'}) — encuentra el escenario plantilla con módulo Facebook Lead Ads + envío email
+2. make_get_blueprint({scenarioId: <plantilla>}) — lee el JSON
+3. Modifica el JSON: busca el módulo Facebook Lead Ads (type "facebook-leadads") y reemplaza su parameters.form (id del formulario). Busca módulos email (gmail/sendgrid/etc.) y reemplaza los destinatarios.to[]. Mantén el resto idéntico (conexiones, mapeos a campos del lead).
+4. make_create_scenario({blueprint: <modificado>, name: '<Cliente> - Lead Ads <fecha>'}) — crea
+5. make_activate_scenario({scenarioId: <nuevo>}) — pone a correr
+
+NO necesitas re-autorizar conexiones (Facebook, Gmail): el blueprint las hereda del origen. Si una conexión del origen no es válida, el clon falla igual. En ese caso, el user debe re-conectar en Make.
+
+Si el user NO tiene un escenario plantilla todavía, NO inventes un blueprint vacío — pide ayuda con add_comment explicando qué módulos tendría que tener (Facebook Lead Ads trigger → router por campos del lead → Gmail destinatarios). El user lo monta una vez y tú duplicas a partir de ahí.
+
 Negociación autónoma (Φ3):
 - get_pricing_rules: ANTES de cualquier negociación lee los servicios + rangos permitidos. NO inventes precios fuera de min/max — si el cliente pide menos del min, ESCALA con close_deal(outcome='escalated').
 - create_deal: abre Deal cuando detectas intención de compra clara.
