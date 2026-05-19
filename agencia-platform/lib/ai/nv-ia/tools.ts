@@ -6381,92 +6381,23 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
     }
   },
   async validate_credentials(input, ctx) {
+    const { validateWorkspaceCredentials } = await import("@/lib/credentials/validate");
     const requested = Array.isArray(input?.integrations)
-      ? input.integrations.map((s: any) => String(s))
+      ? (input.integrations.map((s: any) => String(s)) as any[])
       : [];
-    const valid: Array<{ integration: string; detail?: string }> = [];
-    const invalid: Array<{ integration: string; reason: string }> = [];
-
-    const allChecks: Record<string, () => Promise<{ ok: true; detail?: string } | { ok: false; reason: string }>> = {
-      meta_ads: async () => {
-        try {
-          const { metaAdsListAdAccounts } = await import("@/lib/integrations/meta-ads");
-          const accs = await metaAdsListAdAccounts(ctx.workspaceId, ctx.adhocCredentials);
-          return { ok: true, detail: `${accs.length} ad accounts accesibles` };
-        } catch (e: any) {
-          return { ok: false, reason: String(e?.message ?? e).slice(0, 200) };
-        }
-      },
-      make: async () => {
-        try {
-          const { makeListOrganizations } = await import("@/lib/integrations/make");
-          const orgs = await makeListOrganizations(ctx.workspaceId);
-          return { ok: true, detail: `${orgs.length} orgs accesibles` };
-        } catch (e: any) {
-          return { ok: false, reason: String(e?.message ?? e).slice(0, 200) };
-        }
-      },
-      openai: async () => {
-        try {
-          const { getOpenAiKeyForWorkspace } = await import("@/lib/ai/openai");
-          const k = await getOpenAiKeyForWorkspace(ctx.workspaceId);
-          const r = await fetch("https://api.openai.com/v1/models", {
-            headers: { Authorization: `Bearer ${k}` }
-          });
-          if (!r.ok) return { ok: false, reason: `OpenAI ${r.status}` };
-          return { ok: true };
-        } catch (e: any) {
-          return { ok: false, reason: String(e?.message ?? e).slice(0, 200) };
-        }
-      },
-      anthropic: async () => {
-        try {
-          const { getAnthropicForWorkspace } = await import("@/lib/ai/anthropic");
-          await getAnthropicForWorkspace(ctx.workspaceId);
-          return { ok: true };
-        } catch (e: any) {
-          return { ok: false, reason: String(e?.message ?? e).slice(0, 200) };
-        }
-      },
-      elevenlabs: async () => {
-        try {
-          const { elevenlabsTest } = await import("@/lib/integrations/elevenlabs");
-          const r = await elevenlabsTest(ctx.workspaceId);
-          return { ok: true, detail: `${r.voiceCount} voces` };
-        } catch (e: any) {
-          return { ok: false, reason: String(e?.message ?? e).slice(0, 200) };
-        }
-      },
-      holded: async () => {
-        try {
-          const { holdedListInvoices } = await import("@/lib/integrations/holded");
-          await holdedListInvoices({ workspaceId: ctx.workspaceId, limit: 1 });
-          return { ok: true };
-        } catch (e: any) {
-          return { ok: false, reason: String(e?.message ?? e).slice(0, 200) };
-        }
-      }
-    };
-
-    const toCheck = requested.length > 0 ? requested : Object.keys(allChecks);
-    for (const name of toCheck) {
-      const check = allChecks[name];
-      if (!check) {
-        invalid.push({ integration: name, reason: "integración desconocida" });
-        continue;
-      }
-      const r = await check();
-      if (r.ok) valid.push({ integration: name, detail: (r as any).detail });
-      else invalid.push({ integration: name, reason: r.reason });
-    }
+    const r = await validateWorkspaceCredentials({
+      workspaceId: ctx.workspaceId,
+      integrations: requested.length > 0 ? requested : undefined
+    });
     return {
-      ok: invalid.length === 0,
-      valid,
-      invalid,
+      ok: r.invalid.length === 0,
+      checked: r.checked,
+      valid: r.valid,
+      invalid: r.invalid,
       summary:
-        invalid.length === 0
-          ? `Las ${valid.length} integraciones funcionan.`
-          : `${invalid.length} integración(es) con problemas: ${invalid.map((i) => i.integration).join(", ")}.`
+        r.invalid.length === 0
+          ? `Las ${r.valid.length} integraciones funcionan.`
+          : `${r.invalid.length} integración(es) con problemas: ${r.invalid.map((i) => i.integration).join(", ")}.`
     };
   },
   async escalate_to_claude(input, ctx) {
