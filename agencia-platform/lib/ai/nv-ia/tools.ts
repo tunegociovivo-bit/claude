@@ -1049,7 +1049,12 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
   },
   {
     name: "meta_ads_update_campaign",
-    description: "Modifica una campaign existente: pausar/reanudar, cambiar nombre, cambiar presupuesto. Estados: ACTIVE, PAUSED, DELETED, ARCHIVED.",
+    description:
+      "Modifica una campaign existente. Casos de uso:\n" +
+      "- pausar / reanudar (status: PAUSED | ACTIVE)\n" +
+      "- cambiar nombre o presupuesto\n" +
+      "- **LIMPIAR DUPLICADAS**: si tras varios intentos fallidos quedan N campañas duplicadas en la cuenta del cliente, NO digas 'no tengo tool de delete' — usa esta tool con status: 'DELETED' para cada duplicada. Meta no las borra físicamente (quedan archivadas en su histórico) pero desaparecen del Ads Manager. Es seguro y reversible.\n\n" +
+      "Estados disponibles: ACTIVE | PAUSED | DELETED (soft-delete, recomendado para duplicadas) | ARCHIVED (mover al histórico sin borrar).",
     input_schema: {
       type: "object",
       properties: {
@@ -6713,45 +6718,79 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
             : "1024x1024";
 
       const { generateAdImage } = await import("@/lib/meta/generate-content");
-      const url = await generateAdImage({
-        workspaceId: ctx.workspaceId,
-        prompt: promptEnriched,
-        size: size as any,
-        quality: (input?.quality as any) ?? "medium",
-        // No tenemos campaignId/adId reales — usamos el taskId como
-        // surrogate para que la imagen quede archivada con la task.
-        campaignId: `task-${ctx.taskId}`,
-        adId: `creative-${Date.now()}`,
-        copy: input?.copy
-          ? {
-              headline: input.copy.headline,
-              primaryText: input.copy.primaryText,
-              callToAction: input.copy.callToAction,
-              brandName: input.copy.brandName ?? client?.name,
-              valueProps: Array.isArray(input.copy.valueProps)
-                ? input.copy.valueProps.map(String)
-                : undefined
-            }
-          : undefined,
-        settings: {
-          styleHint: input?.styleHint ? String(input.styleHint) : undefined
-        }
-      });
+      const copyForGeneration = input?.copy
+        ? {
+            headline: input.copy.headline,
+            primaryText: input.copy.primaryText,
+            callToAction: input.copy.callToAction,
+            brandName: input.copy.brandName ?? client?.name,
+            valueProps: Array.isArray(input.copy.valueProps)
+              ? input.copy.valueProps.map(String)
+              : undefined
+          }
+        : undefined;
 
-      // Descargar la imagen subida a R2 y adjuntarla al task como File
-      // (generateAdImage la sube pero a otro targetType, así que la
-      // re-asociamos al task aquí para que el user la vea en la card).
-      const r = await fetch(url);
-      const buf = Buffer.from(await r.arrayBuffer());
+      // QC LOOP: gpt-image-1 alucina texto en español ~10% de las veces
+      // ("Esfudio gratumo" vs "Estudio gratuito"). Generamos hasta 3
+      // intentos pasando OCR vs textos esperados; si pasa la QC,
+      // adjuntamos y terminamos. Si no pasa tras 3, adjuntamos la
+      // mejor con un warning para que Sonia decida.
+      const MAX_ATTEMPTS = 3;
+      let lastUrl: string | null = null;
+      let lastBuf: Buffer | null = null;
+      let lastQc: any = null;
+      const { qcAdImage } = await import("@/lib/meta/ad-image-qc");
+
+      for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+        const url = await generateAdImage({
+          workspaceId: ctx.workspaceId,
+          prompt: promptEnriched,
+          size: size as any,
+          quality: (input?.quality as any) ?? "medium",
+          campaignId: `task-${ctx.taskId}`,
+          adId: `creative-${Date.now()}-${attempt}`,
+          copy: copyForGeneration,
+          settings: {
+            styleHint: input?.styleHint ? String(input.styleHint) : undefined
+          }
+        });
+        const r = await fetch(url);
+        const buf = Buffer.from(await r.arrayBuffer());
+        lastUrl = url;
+        lastBuf = buf;
+
+        // Si no hay copy, no hay nada que QC. Damos por buena la 1ª.
+        if (!copyForGeneration) {
+          lastQc = { passed: true, mismatches: [], matched: [], ocrText: "" };
+          break;
+        }
+        const qc = await qcAdImage({
+          workspaceId: ctx.workspaceId,
+          imageBuffer: buf,
+          mimeType: "image/png",
+          expected: copyForGeneration
+        });
+        lastQc = qc;
+        if (qc.passed) break;
+        // Si no pasa y aún quedan intentos, re-generamos
+        console.warn(
+          `[qc] ad image attempt ${attempt}/${MAX_ATTEMPTS} FAILED: ${qc.mismatches.map((m: any) => m.expected).join(" · ")}`
+        );
+      }
+
       const filename = `meta-ad-${Date.now()}.png`;
       const file = await uploadAttachmentForTask({
         workspaceId: ctx.workspaceId,
         taskId: ctx.taskId,
         filename,
-        body: buf,
+        body: lastBuf!,
         mimeType: "image/png",
         uploadedByUserId: ctx.config.userId
       });
+
+      const qcStatus = lastQc?.passed
+        ? "✅ QC pasado — todos los textos legibles"
+        : `⚠️ QC con avisos tras ${MAX_ATTEMPTS} intentos: ${lastQc?.mismatches?.length ?? 0} texto(s) con erratas o no legibles`;
 
       await prisma.comment.create({
         data: {
@@ -6759,7 +6798,7 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
           authorId: ctx.config.userId,
           targetType: "TASK",
           targetId: ctx.taskId,
-          body: `🎨 Creatividad Meta Ads generada (${(buf.length / 1024).toFixed(0)} KB${client ? `, brand del cliente aplicado` : ""}). Anuncio completo con headline + value props + CTA renderizados — listo para subir a Meta Ads Manager o pasar a meta_ads_upload_image + meta_ads_create_ad_creative.`
+          body: `🎨 Creatividad Meta Ads generada (${(lastBuf!.length / 1024).toFixed(0)} KB${client ? `, brand del cliente aplicado` : ""}).\n\n${qcStatus}.${lastQc && !lastQc.passed ? `\n\nTextos con problema: ${lastQc.mismatches.map((m: any) => m.expected).join(", ")}` : ""}`
         }
       });
 
@@ -6767,8 +6806,14 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
         ok: true,
         fileId: file.fileId,
         filename: file.filename,
-        sizeBytes: buf.length,
-        url: url
+        sizeBytes: lastBuf!.length,
+        url: lastUrl,
+        qc: {
+          passed: lastQc?.passed ?? false,
+          mismatches: lastQc?.mismatches ?? [],
+          matched: lastQc?.matched ?? [],
+          attemptsUsed: lastQc?.passed ? "ok" : `${MAX_ATTEMPTS} (no logrado)`
+        }
       };
     } catch (e: any) {
       return { error: `generate_meta_ad_creative: ${e?.message ?? e}` };
