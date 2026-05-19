@@ -198,9 +198,10 @@ export async function processOneRun(runId: string): Promise<ProcessResult> {
     if (result.status === "FAILED" && errorClass === "technical") {
       finalStatus = "REQUIRES_HUMAN" as any;
       const explainer =
-        `❓ Me he topado con un problema técnico al procesar esta tarea y se lo he pedido a Claude Code para que lo arregle:\n\n` +
+        `❓ Me he topado con un problema técnico y he abierto un issue en GitHub con el contexto entero para que Claude Code lo arregle.\n\n` +
         `**Error:** ${(result.error ?? "(sin detalle)").slice(0, 400)}\n\n` +
-        `Mientras tanto no necesitas hacer nada — cuando Claude aplique la mejora, la tarea se re-procesa automáticamente y recibirás aviso.`;
+        `**Qué hago yo ahora:** nada — la tarea queda parada. Claude Code revisa el issue cuando alguien con acceso al repo le da paso. Cuando el fix esté desplegado, **vuelve a pulsar "Pedir a Sonia"** en esta tarea para relanzarla con el código nuevo. Antes decía "re-procesa automáticamente" pero no es cierto y solo generaba confusión.\n\n` +
+        `Si llevas un rato esperando y la situación es bloqueante, pega el texto del error en un mensaje a David y él decide.`;
       try {
         await prisma.aiAgentRun.update({
           where: { id: runId },

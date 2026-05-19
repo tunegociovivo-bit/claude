@@ -493,7 +493,11 @@ export async function metaAdsCreateCampaign(opts: {
     name: opts.name,
     objective: opts.objective,
     status: opts.status ?? "PAUSED",
-    special_ad_categories: "[]" // requerido por la API aunque sea vacío
+    special_ad_categories: "[]", // requerido por la API aunque sea vacío
+    // Forzamos bid_strategy a nivel campaña para evitar herencia de la
+    // cuenta. LOWEST_COST_WITHOUT_CAP es el modo "auto" sin techo de
+    // puja — no requiere bid_amount en el adset.
+    bid_strategy: "LOWEST_COST_WITHOUT_CAP"
   };
   if (opts.dailyBudgetEur) payload.daily_budget = eurosToCentavos(opts.dailyBudgetEur);
   if (opts.lifetimeBudgetEur) payload.lifetime_budget = eurosToCentavos(opts.lifetimeBudgetEur);
@@ -549,9 +553,27 @@ export async function metaAdsCreateAdset(opts: {
   startTime?: string;
   endTime?: string;
   status?: "PAUSED" | "ACTIVE";
+  /** Bid strategy. Default LOWEST_COST_WITHOUT_CAP (no requiere
+   *  bid_amount). Si pones COST_CAP o LOWEST_COST_WITH_BID_CAP,
+   *  DEBES pasar bidAmountCents o Meta devuelve 400 error_subcode
+   *  2490487 ("Se requiere un importe de puja"). */
+  bidStrategy?:
+    | "LOWEST_COST_WITHOUT_CAP"
+    | "LOWEST_COST_WITH_BID_CAP"
+    | "COST_CAP"
+    | "LOWEST_COST_WITH_MIN_ROAS";
+  /** Bid cap en centavos. Requerido si bidStrategy !== LOWEST_COST_WITHOUT_CAP. */
+  bidAmountCents?: number;
   adhoc?: Record<string, string>;
 }): Promise<{ id: string; name: string }> {
   const cfg = await getMetaAdsConfig(opts.workspaceId, opts.adhoc);
+  // Bid strategy default: LOWEST_COST_WITHOUT_CAP. Es el modo "deja
+  // que Meta optimice sin techo de puja" — no requiere bid_amount y
+  // funciona bien para LEAD_GENERATION en mayoría de cuentas. ANTES
+  // no lo enviábamos y Meta heredaba el bid_strategy de la cuenta/
+  // campaña que en muchos casos era COST_CAP → exigía bid_amount →
+  // 400 error_subcode 2490487 silencioso a mitad del flow.
+  const bidStrategy = opts.bidStrategy ?? "LOWEST_COST_WITHOUT_CAP";
   const payload: Record<string, unknown> = {
     name: opts.name,
     campaign_id: opts.campaignId,
@@ -560,10 +582,21 @@ export async function metaAdsCreateAdset(opts: {
     destination_type: opts.destinationType ?? "ON_AD",
     targeting: opts.targeting,
     status: opts.status ?? "PAUSED",
-    start_time: opts.startTime ?? new Date(Date.now() + 60_000).toISOString()
+    start_time: opts.startTime ?? new Date(Date.now() + 60_000).toISOString(),
+    bid_strategy: bidStrategy
   };
   if (opts.dailyBudgetEur) payload.daily_budget = eurosToCentavos(opts.dailyBudgetEur);
   if (opts.endTime) payload.end_time = opts.endTime;
+  // Si la estrategia REQUIERE bid_amount y nos lo pasaron, lo enviamos.
+  // Si la estrategia REQUIERE bid_amount y NO nos lo pasaron, no
+  // podemos arreglarlo aquí — pero el default LOWEST_COST_WITHOUT_CAP
+  // ya cubre 99% de casos sin bid.
+  if (
+    opts.bidAmountCents &&
+    bidStrategy !== "LOWEST_COST_WITHOUT_CAP"
+  ) {
+    payload.bid_amount = opts.bidAmountCents;
+  }
   const data = await metaPost<{ id: string }>(
     `${adAccountPath(cfg.adAccountId)}/adsets`,
     cfg.accessToken,
