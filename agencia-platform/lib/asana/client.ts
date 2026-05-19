@@ -200,6 +200,28 @@ export class AsanaClient {
     return this.paginate<AsanaSection>(`/projects/${projectGid}/sections`, { opt_fields: "gid,name" });
   }
 
+  /**
+   * Tareas de UNA sección/columna concreta. Útil para re-imports
+   * acotados (ej. limpiar la columna "TAREAS URGENTES" sin reimportar
+   * todo el proyecto).
+   */
+  sectionTasks(sectionGid: string) {
+    return this.paginate<AsanaTask>(`/sections/${sectionGid}/tasks`, {
+      opt_fields:
+        "gid,name,notes,html_notes,completed,completed_at,due_on,due_at," +
+        "assignee.gid,assignee.name,assignee.email," +
+        "followers.gid,followers.name,followers.email," +
+        "parent.gid," +
+        "memberships.project.gid,memberships.section.gid,memberships.section.name," +
+        "tags.gid,tags.name,permalink_url,created_at,modified_at," +
+        "custom_fields.gid,custom_fields.name,custom_fields.type," +
+        "custom_fields.enum_value.gid,custom_fields.enum_value.name,custom_fields.enum_value.color," +
+        "custom_fields.multi_enum_values.gid,custom_fields.multi_enum_values.name," +
+        "custom_fields.text_value,custom_fields.number_value," +
+        "custom_fields.date_value.date,custom_fields.date_value.date_time"
+    });
+  }
+
   projectTasks(projectGid: string) {
     return this.paginate<AsanaTask>(`/projects/${projectGid}/tasks`, {
       opt_fields:

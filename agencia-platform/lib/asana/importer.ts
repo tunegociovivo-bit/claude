@@ -852,3 +852,297 @@ async function heartbeat(jobId: string, stage?: string) {
     }
   }).catch(() => {});
 }
+
+// ============================================================
+// RE-IMPORT DE UNA COLUMNA CONCRETA
+// ============================================================
+//
+// Re-importa todas las tasks de UNA sección de Asana, mapeándolas
+// dentro de un proyecto YA importado en el Hub. Útil para limpiar
+// columnas arrastradas con bugs de imports antiguos sin volver a
+// pasar por TODO el proyecto.
+//
+// Idempotente (usa nuestros fixes P2002): tasks/comments/files que ya
+// existen se actualizan + re-enlazan; los que no, se crean.
+
+export type ReimportSectionResult = {
+  ok: boolean;
+  projectName: string;
+  sectionName: string;
+  tasksProcessed: number;
+  tasksCreated: number;
+  tasksUpdated: number;
+  commentsImported: number;
+  commentsUpdated: number;
+  attachmentsImported: number;
+  attachmentsSkipped: number;
+  warnings: string[];
+};
+
+/**
+ * Helper standalone para crear/recuperar un user a partir de un gid
+ * Asana — versión simplificada de la usada en startAsanaImport.
+ */
+async function ensureUserStandalone(opts: {
+  workspaceId: string;
+  cache: Map<string, string>;
+  gid: string;
+  name?: string | null;
+  email?: string | null;
+}): Promise<string | null> {
+  const cached = opts.cache.get(opts.gid);
+  if (cached) return cached;
+  const effectiveEmail = opts.email ?? `asana-${opts.gid}@imported.local`;
+  const effectiveName =
+    opts.name ?? (opts.email ?? `Usuario Asana ${opts.gid.slice(-6)}`);
+  const existing = await prisma.user.findUnique({ where: { email: effectiveEmail } });
+  if (existing) {
+    opts.cache.set(opts.gid, existing.id);
+    return existing.id;
+  }
+  const created = await prisma.user.create({
+    data: {
+      email: effectiveEmail,
+      name: effectiveName,
+      memberships: { create: { workspaceId: opts.workspaceId, role: "GUEST" } }
+    }
+  });
+  opts.cache.set(opts.gid, created.id);
+  return created.id;
+}
+
+export async function reimportAsanaSection(opts: {
+  workspaceId: string;
+  /** Proyecto LOCAL del Hub (no el gid de Asana). */
+  projectId: string;
+  /** Gid de la sección de Asana a importar. */
+  sectionGid: string;
+  /** Token Asana ya leído. */
+  token: string;
+  /** Columna del Hub a la que mapear las tasks. Si no se pasa,
+   *  intentamos derivarla del nombre de la sección con slugify. */
+  targetColumnId?: string;
+}): Promise<ReimportSectionResult> {
+  const project = await prisma.project.findFirst({
+    where: { id: opts.projectId, workspaceId: opts.workspaceId }
+  });
+  if (!project) throw new Error(`Project ${opts.projectId} no existe en el workspace`);
+  if (!(project as any).asanaId) {
+    throw new Error("Este proyecto no fue importado de Asana — no tiene asanaId");
+  }
+
+  const client = new AsanaClient(opts.token);
+
+  // Determinar nombre de la sección y target column
+  const sectionList: Array<{ gid: string; name: string }> = [];
+  for await (const s of client.projectSections((project as any).asanaId)) {
+    sectionList.push({ gid: s.gid, name: s.name });
+  }
+  const section = sectionList.find((s) => s.gid === opts.sectionGid);
+  if (!section) {
+    throw new Error(
+      `La sección ${opts.sectionGid} no existe en el proyecto Asana ${(project as any).asanaId}. Ya no está, o se renombró.`
+    );
+  }
+  const kanbanColumns =
+    Array.isArray((project as any).kanbanColumns) ? (project as any).kanbanColumns : [];
+  let columnId = opts.targetColumnId;
+  if (!columnId) {
+    const slug = slugifyColumnId(section.name);
+    const matched = kanbanColumns.find(
+      (c: any) =>
+        c.id === slug ||
+        c.label?.toLowerCase().trim() === section.name.toLowerCase().trim()
+    );
+    columnId = matched?.id ?? slug;
+  }
+
+  const result: ReimportSectionResult = {
+    ok: true,
+    projectName: project.name,
+    sectionName: section.name,
+    tasksProcessed: 0,
+    tasksCreated: 0,
+    tasksUpdated: 0,
+    commentsImported: 0,
+    commentsUpdated: 0,
+    attachmentsImported: 0,
+    attachmentsSkipped: 0,
+    warnings: []
+  };
+
+  const userCache = new Map<string, string>();
+
+  for await (const t of client.sectionTasks(opts.sectionGid)) {
+    result.tasksProcessed++;
+    try {
+      const due = t.due_at || t.due_on ? new Date(t.due_at ?? t.due_on!) : null;
+      const priority = detectPriorityFromCustomFields(t.custom_fields);
+      const status = columnId ?? "TODO";
+
+      let local = await prisma.task.findUnique({ where: { asanaId: t.gid } });
+      if (local) {
+        await prisma.task.update({
+          where: { id: local.id },
+          data: {
+            title: t.name,
+            description: t.notes ?? "",
+            status: status as any,
+            priority,
+            dueDate: due,
+            completedAt: t.completed_at ? new Date(t.completed_at) : null,
+            projectId: opts.projectId,
+            asanaPermalink: t.permalink_url ?? null,
+            asanaCustomFields: (t.custom_fields ?? null) as any
+          } as any
+        });
+        result.tasksUpdated++;
+      } else {
+        try {
+          local = await prisma.task.create({
+            data: {
+              workspaceId: opts.workspaceId,
+              projectId: opts.projectId,
+              title: t.name,
+              description: t.notes ?? "",
+              status: status as any,
+              priority,
+              dueDate: due,
+              completedAt: t.completed_at ? new Date(t.completed_at) : null,
+              asanaId: t.gid,
+              asanaPermalink: t.permalink_url ?? null,
+              asanaCustomFields: (t.custom_fields ?? null) as any
+            } as any
+          });
+          result.tasksCreated++;
+        } catch (e: any) {
+          if (e?.code !== "P2002") throw e;
+          // Race: alguien lo creó entre find y create. Re-buscar+update.
+          const ex = await prisma.task.findUnique({ where: { asanaId: t.gid } });
+          if (!ex) throw e;
+          await prisma.task.update({
+            where: { id: ex.id },
+            data: {
+              title: t.name,
+              description: t.notes ?? "",
+              status: status as any,
+              priority,
+              dueDate: due,
+              projectId: opts.projectId,
+              completedAt: t.completed_at ? new Date(t.completed_at) : null,
+              asanaPermalink: t.permalink_url ?? null,
+              asanaCustomFields: (t.custom_fields ?? null) as any
+            } as any
+          });
+          local = ex;
+          result.tasksUpdated++;
+        }
+      }
+
+      // Comentarios
+      try {
+        for await (const story of client.taskStories(t.gid)) {
+          if (story.resource_subtype !== "comment_added") continue;
+          if (!story.text && !story.html_text) continue;
+
+          const authorGid =
+            story.created_by?.gid ?? `synthetic-${(story.created_by?.name ?? "anon").replace(/\s/g, "_")}`;
+          const authorId = await ensureUserStandalone({
+            workspaceId: opts.workspaceId,
+            cache: userCache,
+            gid: authorGid,
+            name: story.created_by?.name,
+            email: story.created_by?.email ?? null
+          });
+          if (!authorId) continue;
+
+          const parsed = await parseAsanaCommentToTipTap({
+            client,
+            workspaceId: opts.workspaceId,
+            taskLocalId: local.id,
+            story: { gid: story.gid, text: story.text, html_text: story.html_text },
+            extraAttachmentGids: []
+          });
+
+          const exists = await prisma.comment.findUnique({ where: { asanaId: story.gid } });
+          if (exists) {
+            await prisma.comment.update({
+              where: { id: exists.id },
+              data: {
+                body: story.text ?? "",
+                bodyJson: parsed.doc as any,
+                targetId: local.id,
+                targetType: "TASK",
+                workspaceId: opts.workspaceId,
+                authorId
+              }
+            });
+            result.commentsUpdated++;
+          } else {
+            try {
+              await prisma.comment.create({
+                data: {
+                  workspaceId: opts.workspaceId,
+                  authorId,
+                  targetType: "TASK",
+                  targetId: local.id,
+                  body: story.text ?? "",
+                  bodyJson: parsed.doc as any,
+                  asanaId: story.gid,
+                  createdAt: new Date(story.created_at)
+                }
+              });
+              result.commentsImported++;
+            } catch (e: any) {
+              if (e?.code === "P2002") {
+                await prisma.comment.updateMany({
+                  where: { asanaId: story.gid },
+                  data: {
+                    body: story.text ?? "",
+                    bodyJson: parsed.doc as any,
+                    targetId: local.id,
+                    targetType: "TASK",
+                    workspaceId: opts.workspaceId,
+                    authorId
+                  }
+                });
+                result.commentsUpdated++;
+              } else throw e;
+            }
+          }
+        }
+      } catch (e: any) {
+        result.warnings.push(
+          `Comentarios de "${t.name}" fallaron: ${String(e?.message ?? e).slice(0, 200)}`
+        );
+      }
+
+      // Adjuntos (la función ya tiene P2002-safe + relink)
+      try {
+        const r = await importAttachmentsForTask({
+          client,
+          workspaceId: opts.workspaceId,
+          taskLocalId: local.id,
+          taskAsanaGid: t.gid
+        });
+        result.attachmentsImported += r.imported + r.externalLinked;
+        result.attachmentsSkipped += r.skipped;
+        if (r.failed > 0) {
+          result.warnings.push(
+            `Adjuntos en "${t.name}": ${r.failed} fallidos (${r.errors.slice(0, 2).join(", ")})`
+          );
+        }
+      } catch (e: any) {
+        result.warnings.push(
+          `Adjuntos de "${t.name}" fallaron: ${String(e?.message ?? e).slice(0, 200)}`
+        );
+      }
+    } catch (e: any) {
+      result.warnings.push(
+        `Task "${t.name}" (${t.gid}) falló: ${String(e?.message ?? e).slice(0, 200)}`
+      );
+    }
+  }
+
+  return result;
+}
