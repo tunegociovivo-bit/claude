@@ -776,35 +776,52 @@ export default function TaskFormModal({
       )}
       <form id="task-form" onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-[1fr_240px] gap-6">
         <div className="space-y-4 min-w-0">
-          {/* Selector de plantilla — solo en modo "Nueva tarea" y si
-              hay plantillas configuradas. Al elegir una, prerellena
-              proyecto, prioridad, assignees, due, descripción + carga
-              los custom fields. */}
-          {!isEdit && templates.length > 0 && (
-            <div className="bg-violet-50 border border-violet-200 rounded-lg p-2 flex items-center gap-2 text-xs">
+          {/* Selector de plantilla — solo en modo "Nueva tarea".
+              SIEMPRE visible (con plantillas o sin ellas) para que el
+              user descubra dónde gestionarlas. Cuando no hay plantillas
+              creadas todavía, en lugar del selector mostramos un CTA
+              para crear la primera. */}
+          {!isEdit && (
+            <div className="bg-violet-50 border border-violet-200 rounded-lg p-2 flex items-center gap-2 text-xs flex-wrap">
               <span className="text-violet-700 font-medium shrink-0">✨ Plantilla:</span>
-              <select
-                value={selectedTemplateId ?? ""}
-                onChange={(e) => {
-                  const id = e.target.value;
-                  if (!id) {
-                    setSelectedTemplateId(null);
-                    setCustomData({});
-                    return;
-                  }
-                  const tpl = templates.find((t) => t.id === id);
-                  if (tpl) applyTemplate(tpl);
-                }}
-                className="flex-1 bg-white rounded-md border border-violet-200 px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-violet-400"
+              {templates.length > 0 ? (
+                <select
+                  value={selectedTemplateId ?? ""}
+                  onChange={(e) => {
+                    const id = e.target.value;
+                    if (!id) {
+                      setSelectedTemplateId(null);
+                      setCustomData({});
+                      return;
+                    }
+                    const tpl = templates.find((t) => t.id === id);
+                    if (tpl) applyTemplate(tpl);
+                  }}
+                  className="flex-1 bg-white rounded-md border border-violet-200 px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-violet-400"
+                >
+                  <option value="">— sin plantilla (en blanco) —</option>
+                  {templates.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.icon ? `${t.icon} ` : ""}
+                      {t.name}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <span className="flex-1 text-violet-700 text-[11px]">
+                  Aún no hay plantillas. Crea la primera para prerellenar
+                  campos automáticamente.
+                </span>
+              )}
+              <a
+                href="/admin/task-templates"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 text-[11px] text-violet-700 hover:text-violet-900 hover:bg-white px-2 py-1 rounded shrink-0"
+                title="Abrir el gestor de plantillas en otra pestaña"
               >
-                <option value="">— sin plantilla (en blanco) —</option>
-                {templates.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.icon ? `${t.icon} ` : ""}
-                    {t.name}
-                  </option>
-                ))}
-              </select>
+                ⚙ Gestionar plantillas →
+              </a>
             </div>
           )}
 
