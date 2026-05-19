@@ -26,7 +26,7 @@
 // reintroducir cache PERO con purga agresiva por VERSION en
 // activate.
 
-const VERSION = "v84-2026-05-19-resign-r2-virtualhost";
+const VERSION = "v85-2026-05-19-watchdog-10min";
 
 self.addEventListener("install", (event) => {
   // Activación inmediata: no esperar a que el SW viejo libere.

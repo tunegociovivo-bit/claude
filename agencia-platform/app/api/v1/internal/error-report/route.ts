@@ -105,7 +105,7 @@ async function openGithubIssueAsync(report: { id: string; message: string; stack
   const repo = process.env.GITHUB_REPO_FOR_ERRORS; // formato "owner/repo"
   if (!token || !repo) return;
 
-  const session = process.env.CLAUDE_CODE_SESSION_URL ?? "https://claude.ai/code/session_01CA9ihZJxnRBKpd64rc1mg9";
+  const session = process.env.CLAUDE_CODE_SESSION_URL ?? "https://claude.ai/code/session_01G1DKhjb6esoaVNydSvcQ38";
   const title = `[auto] ${report.source}: ${report.message.slice(0, 80)}`;
   const body = [
     `**ErrorReport ID:** \`${report.id}\``,

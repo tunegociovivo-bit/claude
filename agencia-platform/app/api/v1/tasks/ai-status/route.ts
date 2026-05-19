@@ -120,7 +120,12 @@ async function handler(api: any, ids: string[]) {
   //    SIN esto el run se queda RUNNING para siempre y la card
   //    no avanza, el user no recibe nada.
   const PENDING_STALE_MS = 45_000;
-  const RUNNING_DEAD_MS = 3 * 60_000;
+  // Subido de 3min → 10min: hay tools que tardan 3-5 min en UN solo
+  // step (generate_meta_ad_creative con auto-QC + 3 retries, descargar
+  // 500 leads, exportar XLSX grande). 3 min mataba runs vivos. 10 min
+  // sigue cazando procesos REALMENTE muertos (deploy / OOM / crash)
+  // pero da margen a tools largas legítimas.
+  const RUNNING_DEAD_MS = 10 * 60_000;
   const now = Date.now();
   for (const r of latestByTask.values()) {
     if (
@@ -353,7 +358,7 @@ function humanizeTool(name: string): string {
  *      bug del runner que vale la pena investigar.
  */
 async function killStuckRun(runId: string, workspaceId: string, lastBeatMs: number): Promise<void> {
-  const errorMsg = `Run colgado en RUNNING sin tick durante >3min. Probable: proceso muerto (deploy / OOM / timeout API sin retry). Matado por watchdog del polling.`;
+  const errorMsg = `Run colgado en RUNNING sin tick durante >10min. Probable: proceso muerto (deploy / OOM / timeout API sin retry). Matado por watchdog del polling.`;
 
   // Update condicionado: si lastIterationAt cambió mientras tanto,
   // el run revivió → NO matamos.

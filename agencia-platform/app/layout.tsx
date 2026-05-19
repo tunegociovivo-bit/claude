@@ -85,7 +85,7 @@ const earlyInstallCapture = `
  */
 const swSelfHeal = `
   (function () {
-    var EXPECTED = "v84-2026-05-19-resign-r2-virtualhost";
+    var EXPECTED = "v85-2026-05-19-watchdog-10min";
     if (!('serviceWorker' in navigator)) return;
     var key = "hub_sw_v_seen";
     var seen = null;

@@ -369,7 +369,7 @@ const SECTIONS: AdminSection[] = [
     accent: "rose",
     cards: [
       {
-        href: "https://claude.ai/code/session_01CA9ihZJxnRBKpd64rc1mg9",
+        href: "https://claude.ai/code/session_01G1DKhjb6esoaVNydSvcQ38",
         title: "Sesión de Claude (mantenimiento)",
         description:
           "Atajo a la conversación de Claude donde se está desarrollando esta plataforma. Para pedir cambios o consultar el estado del proyecto.",
