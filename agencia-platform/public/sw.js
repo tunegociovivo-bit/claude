@@ -26,7 +26,7 @@
 // reintroducir cache PERO con purga agresiva por VERSION en
 // activate.
 
-const VERSION = "v71-2026-05-19-make-orgs-endpoint";
+const VERSION = "v72-2026-05-19-episodic-memory-ocr";
 
 self.addEventListener("install", (event) => {
   // Activación inmediata: no esperar a que el SW viejo libere.

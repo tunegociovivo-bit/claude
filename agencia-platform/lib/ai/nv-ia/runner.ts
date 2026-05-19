@@ -744,6 +744,44 @@ export async function executeAgentRun(opts: {
     console.warn("[sonia] loadLessons:", (e as Error).message);
   }
 
+  // MEMORIA EPISÓDICA: busca runs pasados similares por similitud
+  // semántica del título+descripción. Inyecta los top-5 si los hay,
+  // con su status y un resumen — para que Sonia aprenda del histórico.
+  try {
+    const task = await prisma.task.findUnique({
+      where: { id: taskId },
+      select: { title: true, description: true, client: { select: { name: true } } }
+    });
+    if (task) {
+      const { findSimilarEpisodes, formatEpisodesForPrompt } = await import(
+        "@/lib/ai/nv-ia/episodes"
+      );
+      const queryText = [
+        task.title,
+        task.client?.name ? `Cliente: ${task.client.name}` : null,
+        task.description?.slice(0, 1500)
+      ]
+        .filter(Boolean)
+        .join("\n");
+      const episodes = await findSimilarEpisodes({
+        workspaceId,
+        queryText,
+        topK: 5,
+        minScore: 0.45
+      });
+      if (episodes.length > 0) {
+        initialContent += formatEpisodesForPrompt(episodes);
+        log.push({
+          type: "info",
+          ts: nowIso(),
+          text: `Cargados ${episodes.length} episodios similares de memoria episódica`
+        });
+      }
+    }
+  } catch (e) {
+    console.warn("[sonia] episodes:", (e as Error).message);
+  }
+
   const messages: Anthropic.MessageParam[] = [
     { role: "user", content: initialContent }
   ];

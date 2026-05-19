@@ -77,7 +77,7 @@ export async function extractTextFromFile(opts: {
     if (mime.startsWith("image/")) {
       return {
         ok: false,
-        error: `Es una imagen (${mime}). Aún no tienes tool de visión — pide al humano que la describa en un add_comment, o pasa con la tarea.`
+        error: `Es una imagen (${mime}). Usa la tool \`analyze_image_deep({ fileId })\` para extraer descripción, colores hex, textos visibles (OCR), mood, composición y sugerencias.`
       };
     }
     return {

@@ -40,6 +40,13 @@ export type DeepImageAnalysis = {
   suggestions: string[];
   /** Cómo encaja con la marca del cliente (si se pasó brandBrief). */
   brandFitNotes: string | null;
+  /** Todos los textos visibles transcritos literalmente (OCR-style).
+   *  Crítico para analizar anuncios publicitarios que el cliente usa
+   *  como referencia: claim, CTA, value props, etc. */
+  textsFound: string[];
+  /** Composición / layout: 'regla de tercios', 'centrado simétrico',
+   *  'full-bleed', 'asimétrico jerárquico', etc. */
+  composition: string;
 };
 
 async function fetchAsBase64(url: string): Promise<{ data: string; mediaType: string }> {
@@ -78,7 +85,9 @@ export async function deepAnalyzeImage(opts: {
     `  "estimatedDimensions": "ej. 200x80x70cm aprox" | null,\n` +
     `  "vibe": "minimalista|rústico|lujoso|...",\n` +
     `  "suggestions": ["...", "..."] // 2-4 acciones,\n` +
-    `  "brandFitNotes": "..." | null\n` +
+    `  "brandFitNotes": "..." | null,\n` +
+    `  "textsFound": ["...", "..."] // TODOS los textos visibles transcritos literalmente (claim, CTA, USPs, branding). Lista vacía si no hay textos.,\n` +
+    `  "composition": "regla de tercios|centrado simétrico|full-bleed|asimétrico jerárquico|..."\n` +
     `}\n\n` +
     (opts.brandBrief
       ? `Brand brief del cliente:\n${opts.brandBrief.slice(0, 1200)}\n\n`
@@ -122,6 +131,8 @@ export async function deepAnalyzeImage(opts: {
     if (!Array.isArray(parsed.objects)) parsed.objects = [];
     if (!Array.isArray(parsed.materials)) parsed.materials = [];
     if (!Array.isArray(parsed.suggestions)) parsed.suggestions = [];
+    if (!Array.isArray(parsed.textsFound)) parsed.textsFound = [];
+    if (typeof parsed.composition !== "string") parsed.composition = "";
     return parsed;
   } catch (e: any) {
     throw new Error(`JSON inválido del modelo: ${e?.message}`);

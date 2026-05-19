@@ -152,6 +152,30 @@ export async function processOneRun(runId: string): Promise<ProcessResult> {
       }
     });
 
+    // MEMORIA EPISÓDICA: graba este run como episodio buscable
+    // semánticamente desde futuros runs. Falla silencioso si OpenAI
+    // no está configurada — la app sigue funcionando sin recall.
+    try {
+      const { recordEpisode } = await import("@/lib/ai/nv-ia/episodes");
+      const task = await prisma.task.findUnique({
+        where: { id: run.taskId },
+        select: { title: true, client: { select: { name: true } } }
+      });
+      if (task) {
+        await recordEpisode({
+          workspaceId: run.workspaceId,
+          runId,
+          taskTitle: task.title,
+          status: result.status,
+          summary: result.summary,
+          error: result.error,
+          clientName: task.client?.name
+        });
+      }
+    } catch (e: any) {
+      console.warn(`[sonia] recordEpisode skip: ${e?.message ?? e}`);
+    }
+
     if (run.requesterId) {
       const link = `/tasks/${run.taskId}`;
       const body =
