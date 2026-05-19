@@ -1012,10 +1012,20 @@ export async function executeAgentRun(opts: {
           // escalate_to_claude ya escribió status=REQUIRES_HUMAN
           // en BD. Devolvemos consistente para que process-run
           // no sobreescriba con SUCCEEDED.
+          //
+          // IMPORTANTE: propagamos `summary` como `error` también.
+          // Antes dejábamos `error: null`, y en process-run.ts
+          // `classifyError("") → "technical"` disparaba self-heal
+          // ADICIONALMENTE (sobre el escalate ya hecho), pasando
+          // `errorMsg = "(sin detalle)"` al agente self-heal — que
+          // perdía contexto y proponía fixes a ciegas o fallaba.
+          // Con el reason de Sonia en `error`, self-heal ve la
+          // razón real Y el user ve un mensaje útil en la UI en
+          // lugar de "Error: (sin detalle)".
           return {
             status: "REQUIRES_HUMAN",
             summary,
-            error: null,
+            error: summary,
             log,
             stepsCount,
             inputTokens,
