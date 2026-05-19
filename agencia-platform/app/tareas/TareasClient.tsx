@@ -728,6 +728,14 @@ export default function TareasClient({
       map[c.id] = [];
       shared[c.id] = [];
     }
+    // Columna virtual para huérfanas — tasks cuyo status NO matchea
+    // ninguna columna del proyecto (típicamente porque se borró la
+    // columna sin migrar las tasks). Antes caían silenciosamente en
+    // la PRIMERA columna del proyecto, contaminándola sin avisar.
+    // Ahora van a "__orphans__" para que el user las vea + mueva.
+    const ORPHANS_ID = "__orphans__";
+    map[ORPHANS_ID] = [];
+    shared[ORPHANS_ID] = [];
     for (const t of filtered) {
       let status: string;
       const isPrimary = t.projectId === filters.project || filters.project === "all";
@@ -740,14 +748,15 @@ export default function TareasClient({
       const targetMap = isPrimary ? map : shared;
       if (targetMap[status]) targetMap[status].push(t);
       else {
-        const first = orderedColumns[0]?.id;
-        if (first) (isPrimary ? map : shared)[first].push({ ...t, status: first });
+        // Huérfana: status no encontrado. Va a la columna virtual.
+        targetMap[ORPHANS_ID].push(t);
       }
     }
     // Concatenamos: primero las compartidas (entran arriba), luego
     // las propias del proyecto.
     const merged: Record<string, UiTask[]> = {};
     for (const c of orderedColumns) merged[c.id] = [...shared[c.id], ...map[c.id]];
+    merged[ORPHANS_ID] = [...shared[ORPHANS_ID], ...map[ORPHANS_ID]];
     return merged;
   }, [filtered, orderedColumns, filters.project]);
 
@@ -1050,7 +1059,11 @@ export default function TareasClient({
                 Tablet/desktop: grid uniforme. +1 columna placeholder al final
                 con un botón "+" para añadir columna en línea. */}
             <KanbanGrid
-              columnCount={orderedColumns.length + 1}
+              columnCount={
+                orderedColumns.length +
+                1 +
+                ((tasksByColumn["__orphans__"]?.length ?? 0) > 0 ? 1 : 0)
+              }
               isMobile={isMobile}
               isDragging={!!activeDragId}
             >
@@ -1074,6 +1087,30 @@ export default function TareasClient({
                   aiUserId={aiUserId}
                 />
               ))}
+              {(tasksByColumn["__orphans__"]?.length ?? 0) > 0 && (
+                <KanbanColumnView
+                  column={{
+                    id: "__orphans__",
+                    label: "⚠️ Sin columna",
+                    color: "#fef3c7",
+                    order: 9999
+                  }}
+                  tasks={tasksByColumn["__orphans__"] ?? []}
+                  onAddTask={() => {}}
+                  onOpenTask={openEditTask}
+                  selectionMode={selectionMode}
+                  selectedIds={selected}
+                  onToggleSelected={toggleSelected}
+                  getProject={getProject}
+                  getClient={getClient}
+                  team={team}
+                  columns={columns}
+                  aiStatusByTask={aiStatusByTask}
+                  onMarkAiReviewed={markAiReviewed}
+                  columnsEndpoint={columnsEndpoint}
+                  aiUserId={aiUserId}
+                />
+              )}
               <AddColumnButton
                 existingColumns={columns}
                 endpoint={columnsEndpoint}

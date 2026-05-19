@@ -26,7 +26,7 @@
 // reintroducir cache PERO con purga agresiva por VERSION en
 // activate.
 
-const VERSION = "v80-2026-05-19-ad-creative-swap";
+const VERSION = "v81-2026-05-19-orphan-tasks-column";
 
 self.addEventListener("install", (event) => {
   // Activación inmediata: no esperar a que el SW viejo libere.

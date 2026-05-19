@@ -85,7 +85,7 @@ const earlyInstallCapture = `
  */
 const swSelfHeal = `
   (function () {
-    var EXPECTED = "v80-2026-05-19-ad-creative-swap";
+    var EXPECTED = "v81-2026-05-19-orphan-tasks-column";
     if (!('serviceWorker' in navigator)) return;
     var key = "hub_sw_v_seen";
     var seen = null;
