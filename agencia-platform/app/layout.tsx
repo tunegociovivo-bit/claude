@@ -85,7 +85,7 @@ const earlyInstallCapture = `
  */
 const swSelfHeal = `
   (function () {
-    var EXPECTED = "v69-2026-05-19-lead-creative-fix";
+    var EXPECTED = "v70-2026-05-19-make-orgid-fix";
     if (!('serviceWorker' in navigator)) return;
     var key = "hub_sw_v_seen";
     var seen = null;

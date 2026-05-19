@@ -61,32 +61,73 @@ export const PUT = withApi({ scope: "admin" }, async (req, { api }) => {
     plainToken = decryptSecret(existing.apiTokenEnc) ?? "";
   }
 
-  // Validar contra Make: GET /teams
-  const r = await fetch(`https://${zone}.make.com/api/v2/teams`, {
+  // Validar contra Make. Make API v2 requiere organizationId en /teams,
+  // así que primero pedimos /users/me (no requiere params) para conseguir
+  // las organizations del usuario, luego iteramos para listar teams.
+  const meRes = await fetch(`https://${zone}.make.com/api/v2/users/me`, {
     headers: {
       Authorization: `Token ${plainToken}`,
       "Content-Type": "application/json"
     }
   });
-  if (!r.ok) {
-    const t = await r.text();
+  if (!meRes.ok) {
+    const t = await meRes.text();
     return NextResponse.json(
       {
         error:
-          r.status === 401
+          meRes.status === 401
             ? "Token inválido (Make respondió 401). Verifica que tiene scopes scenarios:read+write, teams:read, connections:read."
-            : r.status === 403
+            : meRes.status === 403
               ? "Token sin permisos suficientes. Recrea con scopes scenarios:read+write, teams:read."
-              : `Make ${r.status}: ${t.slice(0, 200)}`
+              : `Make ${meRes.status} /users/me: ${t.slice(0, 200)}`
       },
       { status: 400 }
     );
   }
-  const teamData = await r.json();
-  const teams = (teamData.teams ?? []).map((t: any) => ({
-    id: t.id,
-    name: t.name
-  }));
+  const meData = await meRes.json();
+  // Estructura: { authUser: { userOrganizationRoles: [{ organizationId, ... }] } }
+  // o { user: { ... } } en versiones recientes
+  const meUser = meData.authUser ?? meData.user ?? meData;
+  const orgRoles: any[] = meUser?.userOrganizationRoles ?? meUser?.organizations ?? [];
+  const orgIds = Array.from(
+    new Set(orgRoles.map((r: any) => r.organizationId ?? r.id).filter(Boolean))
+  );
+  if (orgIds.length === 0) {
+    return NextResponse.json(
+      {
+        error:
+          "El token funciona pero no se encontraron organizaciones asociadas. Revisa que el token pertenece a un usuario con acceso a al menos una organization en Make."
+      },
+      { status: 400 }
+    );
+  }
+
+  // Listar teams de TODAS las organizations del usuario
+  const teams: Array<{ id: number; name: string; organizationId: number }> = [];
+  for (const orgId of orgIds) {
+    const tRes = await fetch(
+      `https://${zone}.make.com/api/v2/teams?organizationId=${orgId}`,
+      {
+        headers: {
+          Authorization: `Token ${plainToken}`,
+          "Content-Type": "application/json"
+        }
+      }
+    );
+    if (!tRes.ok) {
+      const t = await tRes.text();
+      return NextResponse.json(
+        {
+          error: `Make ${tRes.status} /teams (org ${orgId}): ${t.slice(0, 200)}`
+        },
+        { status: 400 }
+      );
+    }
+    const tData = await tRes.json();
+    for (const t of tData.teams ?? []) {
+      teams.push({ id: t.id, name: t.name, organizationId: orgId as number });
+    }
+  }
   // Si el user no eligió teamId pero hay solo 1, lo seteamos automático
   const effectiveTeamId =
     teamId ?? (teams.length === 1 ? teams[0].id : null);

@@ -82,17 +82,50 @@ async function makeFetch<T = any>(
 // TEAMS / FOLDERS
 // ────────────────────────────────────────────────────────────────────
 
+/** Lista las organizations del usuario dueño del token. */
+export async function makeListOrganizations(
+  workspaceId: string
+): Promise<Array<{ id: number; name: string }>> {
+  // /users/me devuelve userOrganizationRoles con organizationId.
+  // No requiere parámetros, lo que lo hace ideal como bootstrap.
+  const me = await makeFetch<any>(workspaceId, `/users/me`);
+  const user = me.authUser ?? me.user ?? me;
+  const roles: any[] = user?.userOrganizationRoles ?? user?.organizations ?? [];
+  const ids = Array.from(
+    new Set(roles.map((r: any) => r.organizationId ?? r.id).filter(Boolean))
+  );
+  // Para enriquecer con name, llamamos /organizations (también requiere
+  // estar logado, devuelve solo las del usuario).
+  try {
+    const data = await makeFetch<any>(workspaceId, `/organizations`);
+    return (data.organizations ?? []).map((o: any) => ({
+      id: o.id,
+      name: o.name
+    }));
+  } catch {
+    return ids.map((id) => ({ id: id as number, name: `org ${id}` }));
+  }
+}
+
 export async function makeListTeams(workspaceId: string): Promise<Array<{
   id: number;
   name: string;
   organizationId: number;
 }>> {
-  const data = await makeFetch<any>(workspaceId, `/teams`);
-  return (data.teams ?? data ?? []).map((t: any) => ({
-    id: t.id,
-    name: t.name,
-    organizationId: t.organizationId
-  }));
+  // Make API v2 requiere organizationId en /teams. Iteramos sobre TODAS
+  // las orgs del usuario y acumulamos teams.
+  const orgs = await makeListOrganizations(workspaceId);
+  const out: Array<{ id: number; name: string; organizationId: number }> = [];
+  for (const org of orgs) {
+    const data = await makeFetch<any>(
+      workspaceId,
+      `/teams?organizationId=${org.id}`
+    );
+    for (const t of data.teams ?? []) {
+      out.push({ id: t.id, name: t.name, organizationId: org.id });
+    }
+  }
+  return out;
 }
 
 // ────────────────────────────────────────────────────────────────────
