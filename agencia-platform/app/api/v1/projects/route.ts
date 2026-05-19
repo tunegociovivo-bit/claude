@@ -35,6 +35,7 @@ export const GET = withApi({ scope: "projects:read" }, async (req, { api }) => {
     where,
     include: {
       client: { select: { id: true, name: true } },
+      manager: { select: { id: true, name: true, image: true } },
       _count: { select: { tasks: true, members: true } }
     },
     orderBy: { createdAt: "desc" }

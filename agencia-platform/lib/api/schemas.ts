@@ -140,9 +140,11 @@ export const clientEditorialMetaSchema = z.object({
 
 export const projectCreateSchema = z.object({
   name: z.string().min(1),
-  clientId: z.string().optional(),
+  clientId: z.string().optional().nullable(),
   description: z.string().optional(),
-  color: z.string().default("bg-brand-500")
+  color: z.string().default("bg-brand-500"),
+  emoji: z.string().max(8).optional().nullable(),
+  managerUserId: z.string().optional().nullable()
 });
 
 export const taskCreateSchema = z.object({

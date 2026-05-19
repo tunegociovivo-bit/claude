@@ -6,13 +6,17 @@ import PageHeader from "@/components/PageHeader";
 import Modal from "@/components/ui/Modal";
 import ProjectFormModal from "@/components/forms/ProjectFormModal";
 import type { UiClient } from "@/lib/db/queries";
-import { Plus, Loader2, Users, UserPlus, X, ExternalLink, Globe2, Trash2, AlertTriangle } from "lucide-react";
+import { Plus, Loader2, Users, UserPlus, X, ExternalLink, Globe2, Trash2, AlertTriangle, Pencil, User as UserIcon } from "lucide-react";
 
 type ProjectRow = {
   id: string;
   name: string;
   color: string;
   description: string | null;
+  emoji: string | null;
+  managerUserId: string | null;
+  manager?: { id: string; name: string | null; image: string | null } | null;
+  clientId?: string | null;
   client?: { id: string; name: string } | null;
   _count: { tasks: number; members: number };
 };
@@ -36,6 +40,7 @@ export default function ProyectosClient() {
   const [users, setUsers] = useState<WorkspaceUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [createOpen, setCreateOpen] = useState(false);
+  const [editingProject, setEditingProject] = useState<ProjectRow | null>(null);
   const [managingProject, setManagingProject] = useState<ProjectRow | null>(null);
   const [deletingProject, setDeletingProject] = useState<ProjectRow | null>(null);
 
@@ -109,11 +114,30 @@ export default function ProyectosClient() {
                     <div className="flex items-center gap-3">
                       <span className={`h-3 w-3 rounded-full ${p.color}`} />
                       <div>
-                        <div className="font-medium">{p.name}</div>
+                        <div className="font-medium flex items-center gap-1.5">
+                          {p.emoji && <span className="text-base leading-none">{p.emoji}</span>}
+                          <span>{p.name}</span>
+                        </div>
                         {p.description && (
                           <div className="text-xs text-slate-500 line-clamp-1 max-w-md">{p.description}</div>
                         )}
                       </div>
+                      {p.manager && (
+                        <div title={`Gestor: ${p.manager.name ?? ""}`} className="ml-auto shrink-0">
+                          {p.manager.image ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              src={p.manager.image}
+                              alt={p.manager.name ?? ""}
+                              className="h-7 w-7 rounded-full object-cover border"
+                            />
+                          ) : (
+                            <span className="h-7 w-7 rounded-full bg-slate-200 flex items-center justify-center">
+                              <UserIcon className="h-3.5 w-3.5 text-slate-500" />
+                            </span>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </td>
                   <td className="px-3 py-3 text-slate-600">{p.client?.name ?? "—"}</td>
@@ -133,8 +157,15 @@ export default function ProyectosClient() {
                   </td>
                   <td className="px-5 py-3 text-right">
                     <button
-                      onClick={() => setManagingProject(p)}
+                      onClick={() => setEditingProject(p)}
                       className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs text-slate-700 hover:bg-slate-100"
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                      Editar
+                    </button>
+                    <button
+                      onClick={() => setManagingProject(p)}
+                      className="ml-1 inline-flex items-center gap-1 px-2 py-1 rounded text-xs text-slate-700 hover:bg-slate-100"
                     >
                       <UserPlus className="h-3.5 w-3.5" />
                       Acceso
@@ -168,6 +199,25 @@ export default function ProyectosClient() {
       </p>
 
       <ProjectFormModal open={createOpen} onClose={() => setCreateOpen(false)} clients={clients} />
+      {editingProject && (
+        <ProjectFormModal
+          open={!!editingProject}
+          onClose={() => {
+            setEditingProject(null);
+            load();
+          }}
+          clients={clients}
+          project={{
+            id: editingProject.id,
+            name: editingProject.name,
+            description: editingProject.description,
+            clientId: editingProject.clientId ?? editingProject.client?.id ?? null,
+            color: editingProject.color,
+            emoji: editingProject.emoji,
+            managerUserId: editingProject.managerUserId
+          }}
+        />
+      )}
       {managingProject && (
         <ProjectMembersModal
           project={managingProject}

@@ -59,6 +59,7 @@ model User {
   userSessions              UserSession[]
   MetaConnection            MetaConnection[]
   aiMemoryEntries           AiUserMemory[]
+  managedProjects           Project[]                  @relation("ProjectManager")
 }
 
 // Registro de intentos de login para throttling/lockout. Se guardan
@@ -380,6 +381,14 @@ model Project {
   name          String
   description   String?   @db.Text
   color         String    @default("bg-brand-500")
+  // Emoji corto (1-4 chars) que precede al nombre del proyecto en
+  // UI: tablones, sidebar, breadcrumbs. Mejora reconocimiento visual.
+  // Si null, no se renderiza nada extra.
+  emoji         String?
+  // Usuario que GESTIONA este proyecto (manager / responsable). Se
+  // muestra su avatar en la card del proyecto. Es independiente de
+  // ProjectMember (que son los participantes): el manager es uno solo.
+  managerUserId String?
   progress      Int       @default(0)
   archived      Boolean   @default(false)
   asanaId       String?   @unique
@@ -396,12 +405,14 @@ model Project {
 
   workspace Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   client    Client?         @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  manager   User?           @relation("ProjectManager", fields: [managerUserId], references: [id], onDelete: SetNull)
   tasks     Task[]
   taskLinks TaskProject[]
   members   ProjectMember[]
 
   @@index([workspaceId])
   @@index([clientId])
+  @@index([managerUserId])
 }
 
 // Membresía explícita por proyecto. Si una fila NO existe para (projectId, userId),
