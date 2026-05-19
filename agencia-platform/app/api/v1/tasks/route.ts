@@ -13,6 +13,10 @@ export const GET = withApi({ scope: "tasks:read" }, async (req, { api }) => {
   const projectId = url.searchParams.get("projectId") ?? undefined;
   const status = url.searchParams.get("status") ?? undefined;
   const assignee = url.searchParams.get("assigneeId") ?? undefined;
+  // Paginación: default 500 (kanban necesita visión amplia pero NO
+  // todo). Antes devolvía SIN limit → con 2000+ tasks post-Asana la
+  // página de /tareas tardaba 5-10s en cargar y el JSON pesaba MBs.
+  const limit = Math.min(Math.max(Number(url.searchParams.get("limit") ?? 500), 1), 2000);
 
   const where: any = { workspaceId: api.workspaceId, deletedAt: null };
   if (projectId) {
@@ -53,9 +57,10 @@ export const GET = withApi({ scope: "tasks:read" }, async (req, { api }) => {
       assignees: { include: { user: { select: { id: true, name: true, email: true, image: true } } } },
       tags: { include: { tag: true } }
     },
-    orderBy: [{ status: "asc" }, { dueDate: "asc" }]
+    orderBy: [{ status: "asc" }, { dueDate: "asc" }],
+    take: limit
   });
-  return NextResponse.json({ items });
+  return NextResponse.json({ items, limit });
 });
 
 export const POST = withApi({ scope: "tasks:write" }, async (req, { api }) => {

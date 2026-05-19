@@ -25,6 +25,27 @@ import { processRunInBackground } from "@/lib/ai/nv-ia/process-run";
 export const dynamic = "force-dynamic";
 
 /**
+ * Cache en memoria del aiUserId por workspaceId. Antes leíamos
+ * Workspace.settings entero en CADA poll (cada 4s) solo para sacar
+ * este string. settings ha crecido con speakCache, integrations,
+ * etc — son decenas de KB de JSON parseado por nada.
+ * TTL 5min — si el admin cambia aiUserId, la UI se sincroniza en
+ * <5min, suficiente.
+ */
+const aiUserIdCache = new Map<string, { value: string | null; expiresAt: number }>();
+async function getAiUserId(workspaceId: string): Promise<string | null> {
+  const hit = aiUserIdCache.get(workspaceId);
+  if (hit && hit.expiresAt > Date.now()) return hit.value;
+  const ws = await prisma.workspace.findUnique({
+    where: { id: workspaceId },
+    select: { settings: true }
+  });
+  const value = ((ws?.settings as any)?.aiAgent?.userId as string) ?? null;
+  aiUserIdCache.set(workspaceId, { value, expiresAt: Date.now() + 5 * 60_000 });
+  return value;
+}
+
+/**
  * Lógica compartida entre GET y POST. Acepta lista de taskIds y
  * devuelve estados de Sonia por task. Extraída en función propia
  * para poder reutilizarla en ambos métodos.
@@ -38,7 +59,13 @@ async function handler(api: any, ids: string[]) {
   ids = ids.slice(0, 1000);
   if (ids.length === 0) return NextResponse.json({ items: [] });
 
-  const runs = await prisma.aiAgentRun.findMany({
+  // Primera pasada: metadata SIN el campo log. El log es Json que
+  // crece a cientos de KB por run (todos los tool_use + tool_result
+  // serializados). Antes lo traíamos en cada poll cada 4s para 50+
+  // runs = MB de payload por petición. Lo fetcheamos solo cuando
+  // realmente lo necesitamos (REQUIRES_HUMAN para escalation, RUNNING
+  // para último tool_use).
+  const runsBase = await prisma.aiAgentRun.findMany({
     where: { workspaceId: api.workspaceId, taskId: { in: ids } },
     orderBy: { createdAt: "desc" },
     select: {
@@ -53,10 +80,23 @@ async function handler(api: any, ids: string[]) {
       finishedAt: true,
       createdAt: true,
       updatedAt: true,
-      lastIterationAt: true,
-      log: true
+      lastIterationAt: true
     }
   });
+  // Segunda pasada: solo los runs que necesitan log (escalation /
+  // tool_use vivo).
+  const runIdsNeedingLog = runsBase
+    .filter((r) => r.status === "REQUIRES_HUMAN" || r.status === "RUNNING")
+    .map((r) => r.id);
+  const logsById = new Map<string, any>();
+  if (runIdsNeedingLog.length > 0) {
+    const logRows = await prisma.aiAgentRun.findMany({
+      where: { id: { in: runIdsNeedingLog } },
+      select: { id: true, log: true }
+    });
+    for (const lr of logRows) logsById.set(lr.id, lr.log);
+  }
+  const runs = runsBase.map((r) => ({ ...r, log: logsById.get(r.id) ?? [] }));
 
   const latestByTask = new Map<string, typeof runs[number]>();
   for (const r of runs) {
@@ -104,22 +144,28 @@ async function handler(api: any, ids: string[]) {
   // por task junto con quién lo escribió. Si el último es de Sonia
   // (= aiUserId del workspace) y posterior al humanReviewedAt del
   // run, hay respuesta sin ver.
-  const ws = await prisma.workspace.findUnique({
-    where: { id: api.workspaceId },
-    select: { settings: true }
-  });
-  const aiUserId = (ws?.settings as any)?.aiAgent?.userId as string | undefined;
+  const aiUserId = (await getAiUserId(api.workspaceId)) ?? undefined;
 
-  const recentComments = aiUserId
-    ? await prisma.comment.findMany({
-        where: {
-          workspaceId: api.workspaceId,
-          targetType: "TASK",
-          targetId: { in: ids }
-        },
-        orderBy: { createdAt: "desc" },
-        select: { targetId: true, authorId: true, body: true, createdAt: true }
-      })
+  // OJO: antes esto traía TODOS los comments de TODAS las tasks
+  // visibles cada poll — para tasks con 50+ comentarios eso son
+  // miles de filas por petición (cada 4s). Solo necesitamos el
+  // ÚLTIMO por task. DISTINCT ON via raw query nos da exactamente
+  // 1 fila por taskId: la más reciente. O(N) en lugar de O(N×M).
+  const recentComments: Array<{
+    targetId: string;
+    authorId: string | null;
+    body: string;
+    createdAt: Date;
+  }> = aiUserId
+    ? await prisma.$queryRaw`
+        SELECT DISTINCT ON ("targetId")
+          "targetId", "authorId", body, "createdAt"
+        FROM "Comment"
+        WHERE "workspaceId" = ${api.workspaceId}
+          AND "targetType" = 'TASK'
+          AND "targetId" = ANY(${ids}::text[])
+        ORDER BY "targetId", "createdAt" DESC
+      `
     : [];
   const lastCommentByTask = new Map<
     string,
