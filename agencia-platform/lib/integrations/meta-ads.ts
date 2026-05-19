@@ -215,6 +215,29 @@ export async function metaAdsListAds(opts: {
 }
 
 /**
+ * Lista los adsets de una campaña. Necesario para descender en el
+ * arbol campaign → adsets → ads cuando no conoces los ids previos.
+ */
+export async function metaAdsListAdsets(opts: {
+  workspaceId: string;
+  campaignId: string;
+  adhoc?: Record<string, string>;
+  limit?: number;
+}) {
+  const cfg = await getMetaAdsConfig(opts.workspaceId, opts.adhoc);
+  const params = new URLSearchParams({
+    fields:
+      "id,name,status,campaign_id,daily_budget,optimization_goal,destination_type,promoted_object,targeting",
+    limit: String(opts.limit ?? 50)
+  });
+  const data = await metaFetch<any>(
+    `${GRAPH}/${opts.campaignId}/adsets?${params.toString()}`,
+    cfg.accessToken
+  );
+  return data.data ?? [];
+}
+
+/**
  * Descarga los leads (personas que rellenaron un formulario de
  * Lead Ads) de una campaña, adset, ad o form concreto. Devuelve
  * un array plano con created_time + cada campo del formulario

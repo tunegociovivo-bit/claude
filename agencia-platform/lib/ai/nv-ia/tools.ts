@@ -813,6 +813,40 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
     }
   },
   {
+    name: "meta_ads_list_adsets",
+    description:
+      "Lista los adsets de una campaña. Necesario para descender campaign → adsets → ads cuando solo conoces el campaignId. Devuelve [{id, name, status, daily_budget, optimization_goal, destination_type, promoted_object, targeting}].",
+    input_schema: {
+      type: "object",
+      properties: {
+        campaignId: { type: "string", description: "ID de la campaña." },
+        limit: { type: "number", description: "Default 50, max 200." }
+      },
+      required: ["campaignId"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "meta_ads_list_ads",
+    description:
+      "Lista los ads (anuncios) dentro de una campaign o un adset. Imprescindible para hacer SWAP del creative de un ad existente: necesitas el adId.\n\n" +
+      "Workflow típico 'regenerar imagen del anuncio sin re-crear nada':\n" +
+      "1. meta_ads_list_ads({ campaignId }) → encuentra el adId del ad activo\n" +
+      "2. generate_meta_ad_creative + meta_ads_upload_image → tienes image_hash nuevo\n" +
+      "3. meta_ads_create_ad_creative con ese image_hash → tienes creativeId nuevo\n" +
+      "4. meta_ads_update_ad({ adId, creativeId }) → swap, listo\n\n" +
+      "Devuelve [{id, name, status, adset_id, campaign_id, creative}].",
+    input_schema: {
+      type: "object",
+      properties: {
+        campaignId: { type: "string", description: "ID de la campaña. Pasa este O adsetId." },
+        adsetId: { type: "string", description: "ID del adset. Pasa este O campaignId." },
+        limit: { type: "number", description: "Default 200." }
+      },
+      additionalProperties: false
+    }
+  },
+  {
     name: "meta_ads_targeting_search",
     description: "Busca intereses, ubicaciones, etc. para construir el targeting de un adset. Type 'adinterest' (default) busca intereses; 'adgeolocation' busca regiones/ciudades; 'adlocale' idiomas. Devuelve [{id, name, type, audience_size}].",
     input_schema: {
@@ -4090,6 +4124,35 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
       return { count: forms.length, forms };
     } catch (e: any) {
       return { error: `meta_ads_list_lead_forms: ${e?.message ?? e}` };
+    }
+  },
+  async meta_ads_list_adsets(input, ctx) {
+    try {
+      const { metaAdsListAdsets } = await import("@/lib/integrations/meta-ads");
+      const adsets = await metaAdsListAdsets({
+        workspaceId: ctx.workspaceId,
+        campaignId: String(input?.campaignId ?? ""),
+        limit: typeof input?.limit === "number" ? input.limit : undefined,
+        adhoc: ctx.adhocCredentials
+      });
+      return { count: adsets.length, adsets };
+    } catch (e: any) {
+      return { error: `meta_ads_list_adsets: ${e?.message ?? e}` };
+    }
+  },
+  async meta_ads_list_ads(input, ctx) {
+    try {
+      const { metaAdsListAds } = await import("@/lib/integrations/meta-ads");
+      const ads = await metaAdsListAds({
+        workspaceId: ctx.workspaceId,
+        campaignId: input?.campaignId ? String(input.campaignId) : undefined,
+        adsetId: input?.adsetId ? String(input.adsetId) : undefined,
+        limit: typeof input?.limit === "number" ? input.limit : undefined,
+        adhoc: ctx.adhocCredentials
+      });
+      return { count: ads.length, ads };
+    } catch (e: any) {
+      return { error: `meta_ads_list_ads: ${e?.message ?? e}` };
     }
   },
   async meta_ads_targeting_search(input, ctx) {

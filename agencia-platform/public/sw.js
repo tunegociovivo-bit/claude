@@ -26,7 +26,7 @@
 // reintroducir cache PERO con purga agresiva por VERSION en
 // activate.
 
-const VERSION = "v81-2026-05-19-orphan-tasks-column";
+const VERSION = "v82-2026-05-19-meta-list-ads";
 
 self.addEventListener("install", (event) => {
   // Activación inmediata: no esperar a que el SW viejo libere.
