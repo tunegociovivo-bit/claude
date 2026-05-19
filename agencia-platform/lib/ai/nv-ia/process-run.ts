@@ -238,17 +238,138 @@ export async function processOneRun(runId: string): Promise<ProcessResult> {
       (finalStatus === "FAILED" || finalStatus === "REQUIRES_HUMAN") &&
       errorClass === "technical"
     ) {
-      void escalateRunToGitHub(runId)
-        .then((esc) => {
-          if (esc.ok) {
-            console.log(`[sonia] escalado run ${runId} → ${esc.issueUrl}`);
-          } else if (esc.skipped) {
-            console.log(`[sonia] escalación skip: ${esc.reason}`);
-          } else {
-            console.warn(`[sonia] escalación fallida: ${esc.error}`);
+      // PRIMERO intentamos auto-fix via agente Claude programático.
+      // Si las env GITHUB_SELF_HEAL_* están seteadas, lanzamos la
+      // función que lee el código del repo, propone un patch, abre PR
+      // y opcionalmente la mergea automáticamente. Sin intervención
+      // humana de ningún tipo.
+      // Si self-heal no está configurado o falla, caemos al modo
+      // anterior (issue manual en GitHub con @claude mention).
+      const hasSelfHeal =
+        !!process.env.GITHUB_SELF_HEAL_TOKEN && !!process.env.GITHUB_SELF_HEAL_REPO;
+      if (hasSelfHeal) {
+        void (async () => {
+          try {
+            const { attemptSelfHeal } = await import("@/lib/ai/self-heal/agent");
+            const log = Array.isArray(run.log) ? (run.log as any[]) : [];
+            const logTail = log
+              .slice(-12)
+              .map((s: any) => {
+                if (s.type === "tool_use")
+                  return `→ tool: ${s.tool}(${JSON.stringify(s.input).slice(0, 200)})`;
+                if (s.type === "tool_result")
+                  return `  result: ${JSON.stringify(s.output).slice(0, 200)}`;
+                if (s.type === "text") return `Sonia: ${String(s.text).slice(0, 300)}`;
+                if (s.type === "error") return `ERROR: ${s.message}`;
+                return `${s.type}`;
+              })
+              .join("\n");
+            const t = await prisma.task.findUnique({
+              where: { id: run.taskId },
+              select: { title: true, description: true }
+            });
+            const r = await attemptSelfHeal({
+              workspaceId: run.workspaceId,
+              runId,
+              errorMsg: result.error ?? "(sin detalle)",
+              taskTitle: t?.title ?? "",
+              taskDescription: t?.description,
+              runLogTail: logTail
+            });
+            if (r.ok) {
+              console.log(
+                `[self-heal] OK runId=${runId} PR=${r.prUrl} merged=${r.merged} files=${r.filesChanged?.join(",")}`
+              );
+            } else {
+              console.warn(`[self-heal] sin patch runId=${runId}: ${r.error}`);
+            }
+            // Comentario en la task explicando qué hizo el agente
+            const ws = await prisma.workspace.findUnique({
+              where: { id: run.workspaceId },
+              select: { settings: true }
+            });
+            const aiUserId = (ws?.settings as any)?.aiAgent?.userId;
+            if (aiUserId) {
+              let body: string;
+              if (r.ok && r.merged) {
+                body =
+                  `🤖 **Auto-fix aplicado y mergeado a la branch principal.**\n\n` +
+                  `PR: ${r.prUrl}\n` +
+                  `Archivos cambiados: ${(r.filesChanged ?? []).map((f) => `\`${f}\``).join(", ")}\n\n` +
+                  `Cuando Railway termine de deployar (~3-5 min), la tarea se relanzará automáticamente.`;
+              } else if (r.ok && !r.merged) {
+                body =
+                  `🤖 **Auto-fix propuesto, PR abierta (sin auto-merge).**\n\n` +
+                  `PR: ${r.prUrl}\n` +
+                  `El agente consideró el cambio no trivial y dejó la PR para revisión.\n` +
+                  `Tras mergear manual, vuelve a pulsar "Pedir a Sonia".`;
+              } else {
+                body =
+                  `🤖 **Auto-fix intentado pero sin éxito.**\n\n` +
+                  `Motivo: ${r.error ?? "(sin detalle)"}\n\n` +
+                  (r.agentReasoning
+                    ? `**Diagnóstico:**\n>${r.agentReasoning.slice(0, 1200).replace(/\n/g, "\n>")}\n\n`
+                    : "") +
+                  `Voy a crear el issue de respaldo en GitHub por si quieres mirarlo.`;
+              }
+              await prisma.comment.create({
+                data: {
+                  workspaceId: run.workspaceId,
+                  authorId: aiUserId,
+                  targetType: "TASK",
+                  targetId: run.taskId,
+                  body
+                }
+              });
+            }
+            // Si el self-heal mergea: programa el relanzamiento de la
+            // task en T+5min (cuando Railway debería haber deployado).
+            if (r.ok && r.merged) {
+              setTimeout(
+                () => {
+                  void (async () => {
+                    try {
+                      const fresh = await prisma.aiAgentRun.create({
+                        data: {
+                          workspaceId: run.workspaceId,
+                          taskId: run.taskId,
+                          status: "PENDING",
+                          trigger: "SCHEDULED" as any,
+                          triggerContext: `Relanzamiento post auto-fix (PR ${r.prUrl}).`
+                        }
+                      });
+                      const { processRunInBackground } = await import("./process-run");
+                      processRunInBackground(fresh.id);
+                    } catch (e: any) {
+                      console.warn(`[self-heal] relanzamiento fallo:`, e?.message);
+                    }
+                  })();
+                },
+                5 * 60_000
+              ).unref?.();
+            }
+          } catch (e: any) {
+            console.warn(`[self-heal] crash runId=${runId}:`, e?.message);
           }
-        })
-        .catch((e) => console.warn("[sonia] escalateRunToGitHub crash:", e?.message ?? e));
+          // Tras self-heal (haya OK o no), seguimos con el escalate a
+          // GitHub issue COMO RESPALDO — así queda registro humano
+          // independientemente del éxito automático.
+          void escalateRunToGitHub(runId).catch(() => {});
+        })();
+      } else {
+        // Self-heal no configurado → solo escalate manual a GitHub.
+        void escalateRunToGitHub(runId)
+          .then((esc) => {
+            if (esc.ok) {
+              console.log(`[sonia] escalado run ${runId} → ${esc.issueUrl}`);
+            } else if (esc.skipped) {
+              console.log(`[sonia] escalación skip: ${esc.reason}`);
+            } else {
+              console.warn(`[sonia] escalación fallida: ${esc.error}`);
+            }
+          })
+          .catch((e) => console.warn("[sonia] escalateRunToGitHub crash:", e?.message ?? e));
+      }
     }
 
     // Comentario explicativo si es transient: avisamos al user que es

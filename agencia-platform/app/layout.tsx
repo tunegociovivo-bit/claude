@@ -85,7 +85,7 @@ const earlyInstallCapture = `
  */
 const swSelfHeal = `
   (function () {
-    var EXPECTED = "v59-2026-05-19-meta-bid-strategy";
+    var EXPECTED = "v60-2026-05-19-self-heal-agent";
     if (!('serviceWorker' in navigator)) return;
     var key = "hub_sw_v_seen";
     var seen = null;
