@@ -26,7 +26,7 @@
 // reintroducir cache PERO con purga agresiva por VERSION en
 // activate.
 
-const VERSION = "v73-2026-05-19-auto-requeue-overload";
+const VERSION = "v74-2026-05-19-make-scenarios-pagination";
 
 self.addEventListener("install", (event) => {
   // Activación inmediata: no esperar a que el SW viejo libere.

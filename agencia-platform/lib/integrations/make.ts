@@ -139,22 +139,66 @@ export async function makeListScenarios(opts: {
       "teamId requerido. Llama primero make_list_teams o configura un team default."
     );
   }
-  const params = new URLSearchParams({ teamId: String(teamId) });
-  if (opts.pageSize) params.set("pg[limit]", String(opts.pageSize));
-  if (opts.query) params.set("filter[name]", opts.query);
-  const data = await makeFetch<any>(
-    opts.workspaceId,
-    `/scenarios?${params.toString()}`
-  );
-  return (data.scenarios ?? []).map((s: any) => ({
+  // Make API v2 /scenarios no soporta filter[name] como param de la API
+  // (el field 'name' no es indexable). La forma fiable: paginar todo
+  // con pg[offset]/pg[limit] y filtrar por substring en memoria. Para
+  // workspaces grandes (166 scenarios reales en NV) sin paginación
+  // solo se ven los primeros N alfabéticos y el query nunca matchea.
+  const ALL_PAGE_SIZE = 100;
+  const MAX_PAGES = 20; // tope: 2000 escenarios — suficiente
+  const collected: any[] = [];
+  for (let page = 0; page < MAX_PAGES; page++) {
+    const params = new URLSearchParams({
+      teamId: String(teamId),
+      "pg[limit]": String(ALL_PAGE_SIZE),
+      "pg[offset]": String(page * ALL_PAGE_SIZE),
+      "pg[sortBy]": "name"
+    });
+    const data = await makeFetch<any>(
+      opts.workspaceId,
+      `/scenarios?${params.toString()}`
+    );
+    const batch = data.scenarios ?? [];
+    collected.push(...batch);
+    if (batch.length < ALL_PAGE_SIZE) break; // última página
+  }
+
+  let rows = collected.map((s: any) => ({
     id: s.id,
-    name: s.name,
+    name: s.name as string,
     isActive: !!s.isActive,
     folderId: s.folderId ?? null,
     teamId: s.teamId,
     description: s.description ?? null,
     scheduling: s.scheduling
   }));
+
+  // Filtro por substring case-insensitive sobre name + description.
+  // Acepta múltiples términos separados por espacios (todos deben
+  // matchear — AND). Acentos normalizados para que "advocat" matchee
+  // "Advocát" / "advócát" / etc.
+  if (opts.query) {
+    const terms = normalize(opts.query)
+      .split(/\s+/)
+      .filter(Boolean);
+    rows = rows.filter((r) => {
+      const hay = normalize(`${r.name} ${r.description ?? ""}`);
+      return terms.every((t) => hay.includes(t));
+    });
+  }
+
+  // pageSize aplica como límite final (compatibilidad con caller)
+  if (opts.pageSize && rows.length > opts.pageSize) {
+    rows = rows.slice(0, opts.pageSize);
+  }
+  return rows;
+}
+
+function normalize(s: string): string {
+  return s
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "");
 }
 
 export async function makeGetScenario(opts: {

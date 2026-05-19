@@ -1740,13 +1740,13 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
   {
     name: "make_list_scenarios",
     description:
-      "Lista los escenarios de Make en un team. Filtra por query (substring del nombre) para encontrar el origen a duplicar — ej. 'RS Advocats' encuentra todos los que tengan eso en el nombre. Devuelve [{id, name, isActive, folderId, description}].",
+      "Lista los escenarios de Make en un team. Pagina TODOS los escenarios (hasta 2000) y aplica filtro por substring case-insensitive sobre name+description. Múltiples términos separados por espacios funcionan como AND (todos deben matchear). Acentos normalizados.\n\nEjemplos:\n- query: 'RS Advocats' → matchea nombres con 'RS' y 'Advocats'\n- query: 'rsadvocat renta' → matchea cualquier escenario que mencione ambos\n- query: 'advocat' → matchea 'rsadvocat', 'rs advocat', 'Advocát'…\n\nDevuelve [{id, name, isActive, folderId, description, teamId, scheduling}].",
     input_schema: {
       type: "object",
       properties: {
         teamId: { type: "number", description: "Opcional si hay default configurado." },
-        query: { type: "string", description: "Substring del nombre para filtrar." },
-        pageSize: { type: "number", description: "Default 50, max 100." }
+        query: { type: "string", description: "Substring(s) a filtrar. Múltiples palabras = AND. Acentos ignorados." },
+        pageSize: { type: "number", description: "Límite del resultado tras filtrar. Default sin tope." }
       },
       additionalProperties: false
     }
