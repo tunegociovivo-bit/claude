@@ -24,6 +24,26 @@ import { getAnthropicForWorkspace } from "@/lib/ai/anthropic";
 export const dynamic = "force-dynamic";
 
 /**
+ * Extrae el primer nombre de un User.name. "David Rios NV" → "David".
+ * Si no hay name, intenta del email: "david@x.com" → "David". Fallback
+ * a null para que el caller decida no usar nombre.
+ */
+function firstNameOf(name: string | null, email: string | null): string | null {
+  if (name && name.trim()) {
+    const first = name.trim().split(/\s+/)[0];
+    if (first.length >= 2) return capitalize(first);
+  }
+  if (email) {
+    const local = email.split("@")[0]?.split(/[.\-_]/)?.[0];
+    if (local && local.length >= 2) return capitalize(local);
+  }
+  return null;
+}
+function capitalize(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
+}
+
+/**
  * Quita markdown común para que no se lea "asterisco asterisco":
  * **bold**, _ital_, `code`, [text](url), emojis, headings, listas.
  */
@@ -55,14 +75,16 @@ async function haikuSummarize(opts: {
   taskTitle: string;
   rawSummary: string;
   intent: "completed" | "needs_help" | "replied" | "failed";
+  userFirstName: string | null;
 }): Promise<string | null> {
   try {
     const client = await getAnthropicForWorkspace(opts.workspaceId);
+    const greet = opts.userFirstName ? `${opts.userFirstName}, ` : "";
     const intentHint = {
-      completed: "He terminado",
-      needs_help: "Necesito tu ayuda con",
-      replied: "Te he contestado en",
-      failed: "Algo se ha roto en"
+      completed: `${greet}he terminado`,
+      needs_help: `${greet}necesito tu ayuda con`,
+      replied: `${greet}te he contestado en`,
+      failed: `${greet}algo se ha roto en`
     }[opts.intent];
     const resp = await client.messages.create({
       model: "claude-haiku-4-5",
@@ -73,7 +95,10 @@ async function haikuSummarize(opts: {
           text:
             "Eres Sonia hablando con tu jefe por voz. Vas a recibir un comentario interno con markdown, código, IDs técnicos. Tu trabajo: parafrasearlo en UNA frase coloquial natural en español de España, MAX 25 palabras, lista para TTS. Cero markdown, cero emojis, cero IDs (act=..., cuentas, hashes), cero código. Empieza siempre con: \"" +
             intentHint +
-            ' <título>". Después una coma y la idea más importante en lenguaje claro y breve.'
+            ' <título>". Después una coma y la idea más importante en lenguaje claro y breve.' +
+            (opts.userFirstName
+              ? ` El nombre del jefe es ${opts.userFirstName} — usa SOLO ese nombre, sin apellido.`
+              : "")
         }
       ],
       messages: [
@@ -135,6 +160,18 @@ export const GET = withApi({ scope: "tasks:read" }, async (req, { api, params })
   });
   if (!task) return NextResponse.json({ error: "task no encontrada" }, { status: 404 });
 
+  // Nombre del usuario que está escuchando (quien tiene la pestaña
+  // abierta y disparó el poll). Se inyecta como "David, he terminado…"
+  // para que Sonia se dirija por nombre, no genérico.
+  let userFirstName: string | null = null;
+  if (api.userId) {
+    const u = await prisma.user.findUnique({
+      where: { id: api.userId },
+      select: { name: true, email: true }
+    });
+    userFirstName = firstNameOf(u?.name ?? null, u?.email ?? null);
+  }
+
   const run = await prisma.aiAgentRun.findFirst({
     where: { taskId: task.id, workspaceId: api.workspaceId },
     orderBy: { createdAt: "desc" },
@@ -170,8 +207,11 @@ export const GET = withApi({ scope: "tasks:read" }, async (req, { api, params })
   let rawSummary = "";
   let text = "";
 
+  const greetWord = userFirstName ? `${userFirstName}, ` : "";
+  const capFirst = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
   if (!run) {
-    text = `Sin novedad en ${title}.`;
+    text = capFirst(`${greetWord}sin novedad en ${title}.`);
   } else if (isAiComment && run.status !== "REQUIRES_HUMAN" && lastComment) {
     intent = "replied";
     rawSummary = lastComment.body ?? "";
@@ -190,36 +230,41 @@ export const GET = withApi({ scope: "tasks:read" }, async (req, { api, params })
         rawSummary = run.error ?? "";
         break;
       default:
-        text = `Estoy trabajando en ${title}.`;
+        text = capFirst(`${greetWord}estoy trabajando en ${title}.`);
     }
   }
 
   // Construir el texto a hablar
   if (!text && run) {
-    const cacheKey = `${run.id}:${run.status}`;
+    // Incluimos el nombre del listener en la cache key para que un user
+    // distinto reciba SU saludo en lugar del cacheado de otro.
+    const cacheKey = `${run.id}:${run.status}:${userFirstName ?? "anon"}`;
     const cached = await readSpeakCache(api.workspaceId, cacheKey);
     if (cached) {
       text = cached;
     } else {
+      const greet = userFirstName ? `${userFirstName}, ` : "";
       const cleanRaw = stripMarkdownForSpeech(rawSummary);
       // Si es muy corto, no merece la pena Haiku — frase directa.
       if (cleanRaw.length < 120) {
         const verb = {
-          completed: "He terminado",
-          needs_help: "Necesito tu ayuda con",
-          replied: "Te he contestado en",
-          failed: "Algo se ha roto procesando"
+          completed: `${greet}he terminado`,
+          needs_help: `${greet}necesito tu ayuda con`,
+          replied: `${greet}te he contestado en`,
+          failed: `${greet}algo se ha roto procesando`
         }[intent];
+        const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
         text = cleanRaw
-          ? `${verb} ${title}. ${cleanRaw.slice(0, 180)}`
-          : `${verb} ${title}.`;
+          ? `${cap(verb)} ${title}. ${cleanRaw.slice(0, 180)}`
+          : `${cap(verb)} ${title}.`;
       } else {
         // Largo o complejo → Haiku resume en 1 frase coloquial.
         const summarized = await haikuSummarize({
           workspaceId: api.workspaceId,
           taskTitle: title,
           rawSummary: cleanRaw,
-          intent
+          intent,
+          userFirstName
         });
         if (summarized) {
           text = summarized;
@@ -227,15 +272,16 @@ export const GET = withApi({ scope: "tasks:read" }, async (req, { api, params })
           // Fallback: primera frase del raw + título
           const firstSentence = cleanRaw.split(/(?<=[.!?])\s/)[0] ?? cleanRaw;
           const verb = {
-            completed: "He terminado",
-            needs_help: "Necesito tu ayuda con",
-            replied: "Te he contestado en",
-            failed: "Algo se ha roto procesando"
+            completed: `${greet}he terminado`,
+            needs_help: `${greet}necesito tu ayuda con`,
+            replied: `${greet}te he contestado en`,
+            failed: `${greet}algo se ha roto procesando`
           }[intent];
-          text = `${verb} ${title}. ${firstSentence.slice(0, 180)}`;
+          const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+          text = `${cap(verb)} ${title}. ${firstSentence.slice(0, 180)}`;
         }
       }
-      // Cache para siguientes polls del mismo run+status
+      // Cache para siguientes polls del mismo run+status+listener
       await writeSpeakCache(api.workspaceId, cacheKey, text).catch(() => {});
     }
   }

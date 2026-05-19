@@ -596,6 +596,40 @@ export async function executeAgentRun(opts: {
       `Quedan guardadas cifradas hasta que se sustituyan por otras nuevas con el mismo KEY.`;
   }
 
+  // Nombre del humano al que Sonia se dirige en los comentarios. Por
+  // defecto cogemos el del requesterId del run; si no hay, el primer
+  // admin del workspace. Sirve para que diga "David, he visto que..."
+  // en lugar de "He visto que...".
+  try {
+    const run = await prisma.aiAgentRun.findUnique({
+      where: { id: runId },
+      select: { requesterId: true }
+    });
+    let user: { name: string | null; email: string | null } | null = null;
+    if (run?.requesterId) {
+      user = await prisma.user.findUnique({
+        where: { id: run.requesterId },
+        select: { name: true, email: true }
+      });
+    }
+    if (!user) {
+      // Fallback: primer admin del workspace
+      const admin = await prisma.membership.findFirst({
+        where: { workspaceId, role: "ADMIN" },
+        include: { user: { select: { name: true, email: true } } }
+      });
+      if (admin?.user) user = { name: admin.user.name, email: admin.user.email };
+    }
+    if (user) {
+      const firstName = extractFirstName(user.name, user.email);
+      if (firstName) {
+        initialContent += `\n\nNOMBRE DEL USUARIO: ${firstName}. Cuando te dirijas a él/ella directamente en comentarios o resúmenes, llámale por su nombre ("${firstName}, ..."). NO uses el nombre completo, NO uses "estimado/a", NO uses "tú" genérico cuando hay margen para personalizar. Si la respuesta es muy técnica o un listado, NO es obligatorio repetir el nombre — úsalo cuando aporte (apertura del comentario, despedida, preguntas).`;
+      }
+    }
+  } catch {
+    // Sin nombre, sin saludo personalizado. No bloqueamos el run.
+  }
+
   // MEMORIA PERSISTENTE: cargamos las lecciones aprendidas de runs
   // anteriores que aplican a este contexto y las inyectamos al
   // initial message. Así Sonia "recuerda" entre tasks sin necesidad
@@ -1106,4 +1140,29 @@ ${ctx.summary.slice(0, 2000)}
     // (no bloqueamos por bug del reviewer).
   }
   return { ok: true };
+}
+
+/**
+ * Extrae el primer nombre de un User.name. "David Rios NV" → "David".
+ * Si name está vacío, intenta de la parte local del email
+ * ("david.rios@x.com" → "David"). Devuelve null si no encuentra nada
+ * útil (≥ 2 chars).
+ */
+function extractFirstName(
+  name: string | null | undefined,
+  email: string | null | undefined
+): string | null {
+  if (name && name.trim()) {
+    const first = name.trim().split(/\s+/)[0];
+    if (first.length >= 2) {
+      return first.charAt(0).toUpperCase() + first.slice(1).toLowerCase();
+    }
+  }
+  if (email) {
+    const local = email.split("@")[0]?.split(/[.\-_]/)?.[0];
+    if (local && local.length >= 2) {
+      return local.charAt(0).toUpperCase() + local.slice(1).toLowerCase();
+    }
+  }
+  return null;
 }
