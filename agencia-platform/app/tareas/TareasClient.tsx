@@ -223,19 +223,50 @@ export default function TareasClient({
     } catch {}
   }, []);
   const lastSeenStatusRef = useRef<Record<string, AiStatusInfo["aiStatus"]>>({});
-  const isInitialPollRef = useRef(true);
+  // Set persistente de combinaciones (runId|status) que ya han sido
+  // anunciadas por voz. Sin esto, refrescar la página o cambiar de
+  // filtro re-disparaba el "He terminado X" cada vez. El runId NUNCA
+  // se reusa (es un cuid), así que basta con guardar el conjunto en
+  // localStorage. Lo capamos a 500 entradas para no llenar el storage.
+  const voicedRunsRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("sonia_voiced_runs");
+      if (raw) {
+        const arr = JSON.parse(raw) as string[];
+        voicedRunsRef.current = new Set(arr.slice(-500));
+      }
+    } catch {}
+  }, []);
+  const markVoiced = useCallback((key: string) => {
+    voicedRunsRef.current.add(key);
+    try {
+      const arr = Array.from(voicedRunsRef.current).slice(-500);
+      localStorage.setItem("sonia_voiced_runs", JSON.stringify(arr));
+    } catch {}
+  }, []);
   // Cache de Audio elements que ya están reproduciéndose por taskId —
-  // evita repetir el mismo TTS si el estado se repinta en otro poll.
+  // evita pisar uno con otro si dos transiciones se solapan.
   const playingVoiceRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     const prev = lastSeenStatusRef.current;
     const next: Record<string, AiStatusInfo["aiStatus"]> = {};
-    const transitions: Array<{ taskId: string; from: AiStatusInfo["aiStatus"]; to: AiStatusInfo["aiStatus"] }> = [];
+    const transitions: Array<{
+      taskId: string;
+      from: AiStatusInfo["aiStatus"];
+      to: AiStatusInfo["aiStatus"];
+      runId?: string;
+    }> = [];
     for (const [taskId, info] of Object.entries(aiStatusByTask)) {
       next[taskId] = info.aiStatus;
       const prevStatus = prev[taskId] ?? null;
       if (prevStatus !== info.aiStatus) {
-        transitions.push({ taskId, from: prevStatus, to: info.aiStatus });
+        transitions.push({
+          taskId,
+          from: prevStatus,
+          to: info.aiStatus,
+          runId: info.runId
+        });
       }
     }
     // Tasks que ya no aparecen en aiStatusByTask = transición a null.
@@ -245,12 +276,6 @@ export default function TareasClient({
       }
     }
     lastSeenStatusRef.current = next;
-    // El primer poll NO suena — son estados pre-existentes, no eventos.
-    if (isInitialPollRef.current) {
-      isInitialPollRef.current = false;
-      aiStatusRef.current = aiStatusByTask;
-      return;
-    }
     if (notifyMode !== "off") {
       for (const tr of transitions) {
         // SOLO transiciones "destacables" generan voz (para no quemar
@@ -263,11 +288,24 @@ export default function TareasClient({
           tr.to === "needs_help" ||
           tr.to === "ai_replied" ||
           tr.to === "failed";
+
+        // Dedup por runId — si ya anunciamos este run para este status
+        // (en una sesión anterior o pestaña paralela), saltamos. Esto
+        // mata el "Sonia me lo dice cada vez que entro al proyecto".
+        const dedupKey = tr.runId ? `${tr.runId}:${tr.to}` : "";
+
         if (notifyMode === "voice" && isDestacable) {
-          playSoniaVoice(tr.taskId).catch(() => {
-            // Si voz falla, fallback a beep
-            playSoniaSound(tr.to);
-          });
+          if (dedupKey && voicedRunsRef.current.has(dedupKey)) continue;
+          playSoniaVoice(tr.taskId)
+            .then(() => {
+              if (dedupKey) markVoiced(dedupKey);
+            })
+            .catch(() => {
+              // Si voz falla, fallback a beep — pero NO marcamos como
+              // voiced para que en el próximo intento se vuelva a
+              // probar la voz.
+              playSoniaSound(tr.to);
+            });
         } else if (notifyMode === "voice" && (tr.to === "working" || tr.to === "claude_working")) {
           // Beep discreto en modo voz para arranques (sin gastar TTS).
           playSoniaSound(tr.to);
@@ -277,7 +315,7 @@ export default function TareasClient({
       }
     }
     aiStatusRef.current = aiStatusByTask;
-  }, [aiStatusByTask, notifyMode]);
+  }, [aiStatusByTask, notifyMode, markVoiced]);
 
   // Helper para reproducir voz — fetch el audio del endpoint y play.
   // Definido como useCallback para que sea referenciable en handlers.

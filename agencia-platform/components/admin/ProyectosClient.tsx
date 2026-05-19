@@ -76,6 +76,8 @@ export default function ProyectosClient() {
         }
       />
 
+      <ArchivedProjectsPanel onRestored={load} />
+
       {loading ? (
         <div className="bg-white rounded-xl border p-8 text-sm text-slate-500 flex items-center gap-2">
           <Loader2 className="h-4 w-4 animate-spin" /> Cargando…
@@ -427,5 +429,99 @@ function ProjectMembersModal({
         </div>
       </div>
     </Modal>
+  );
+}
+
+type ArchivedProject = {
+  id: string;
+  name: string;
+  asanaId: string | null;
+  createdAt: string;
+  _count: { tasks: number };
+};
+
+function ArchivedProjectsPanel({ onRestored }: { onRestored: () => void }) {
+  const [items, setItems] = useState<ArchivedProject[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const [restoring, setRestoring] = useState<string | null>(null);
+
+  async function load() {
+    try {
+      const r = await fetch("/api/v1/admin/archived-projects");
+      if (r.ok) {
+        const d = await r.json();
+        setItems(d.items ?? []);
+      }
+    } catch {}
+    setLoaded(true);
+  }
+  useEffect(() => {
+    load();
+  }, []);
+
+  async function restore(id: string) {
+    setRestoring(id);
+    try {
+      const r = await fetch("/api/v1/admin/archived-projects", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectId: id, archived: false })
+      });
+      if (r.ok) {
+        setItems((arr) => arr.filter((p) => p.id !== id));
+        onRestored();
+      }
+    } finally {
+      setRestoring(null);
+    }
+  }
+
+  if (!loaded || items.length === 0) return null;
+
+  return (
+    <div className="bg-amber-50 border border-amber-200 rounded-xl mb-4">
+      <button
+        onClick={() => setExpanded((v) => !v)}
+        className="w-full p-3 flex items-center justify-between text-left text-sm"
+      >
+        <span className="font-semibold text-amber-900">
+          📦 {items.length} proyecto{items.length > 1 ? "s" : ""} archivado
+          {items.length > 1 ? "s" : ""}
+        </span>
+        <span className="text-xs text-amber-700">
+          {expanded ? "▾ Ocultar" : "▸ Ver / restaurar"}
+        </span>
+      </button>
+      {expanded && (
+        <div className="border-t border-amber-200 p-3 space-y-2">
+          <p className="text-xs text-amber-800">
+            Estos proyectos están archivados y NO aparecen en /proyectos. Si
+            quieres verlos en el tablón, restaura aquí.
+          </p>
+          {items.map((p) => (
+            <div
+              key={p.id}
+              className="flex items-center justify-between bg-white border border-amber-200 rounded-lg p-2"
+            >
+              <div className="min-w-0">
+                <div className="font-medium text-sm truncate">{p.name}</div>
+                <div className="text-[11px] text-slate-500 flex gap-2">
+                  <span>{p._count.tasks} tareas</span>
+                  {p.asanaId && <span>· importado de Asana</span>}
+                </div>
+              </div>
+              <button
+                onClick={() => restore(p.id)}
+                disabled={restoring === p.id}
+                className="text-xs bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white px-3 py-1 rounded-lg"
+              >
+                {restoring === p.id ? "..." : "Restaurar"}
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
