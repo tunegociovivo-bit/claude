@@ -228,12 +228,18 @@ async function runImport(jobId: string, opts: ImportOptions) {
       });
 
       if (!local) {
+        // NOTA: nuevos proyectos importados quedan archived=false
+        // SIEMPRE, aunque en Asana estén archivados. El user los está
+        // tirando explícitamente al Hub porque quiere verlos — si
+        // Asana los tenía archivados era organización suya allí, no
+        // un "borrado". El user puede archivar en el Hub más tarde
+        // si quiere, y futuros re-imports respetarán esa decisión.
         local = await prisma.project.create({
           data: {
             workspaceId: opts.workspaceId,
             name: p.name,
             description: p.notes ?? "",
-            archived: !!p.archived,
+            archived: false,
             color: "bg-brand-500",
             asanaId: p.gid,
             kanbanColumns: kanbanColumns as any
@@ -241,12 +247,15 @@ async function runImport(jobId: string, opts: ImportOptions) {
         });
         stats.projects++;
       } else {
+        // Para proyectos ya importados, NO sobreescribimos `archived`:
+        // respetamos el valor que el user puso en el Hub. Si Asana lo
+        // archivó pero en el Hub lo tenemos vivo, sigue vivo. Y al
+        // revés: si en el Hub lo archivaron, no lo re-activamos.
         await prisma.project.update({
           where: { id: local.id },
           data: {
             name: p.name,
             description: p.notes ?? "",
-            archived: !!p.archived,
             // Reemplazamos las columnas en cada import — son la fuente
             // de verdad de Asana. Si el user editó nombres en el Hub
             // se pierden, pero a cambio queda alineado con Asana
@@ -375,23 +384,53 @@ async function runImport(jobId: string, opts: ImportOptions) {
           } as any
         });
       } else {
-        local = await prisma.task.create({
-          data: {
-            workspaceId: opts.workspaceId,
-            projectId: projectLocalId,
-            parentId: parentLocal ?? null,
-            title: t.name,
-            description: t.notes ?? "",
-            status,
-            priority,
-            dueDate: due,
-            completedAt: t.completed_at ? new Date(t.completed_at) : null,
-            asanaId: t.gid,
-            asanaPermalink: t.permalink_url ?? null,
-            asanaCustomFields: (t.custom_fields ?? null) as any,
-            order: orderInColumn ?? 0
-          } as any
-        });
+        // Race-safe: si entre el findUnique y este create alguien más
+        // (otra subtarea importando en paralelo, retry del job, etc.)
+        // ha creado la task con el mismo asanaId, capturamos P2002 y
+        // hacemos update igual que la rama "exists" — así el import
+        // no aborta a mitad y los siguientes adjuntos/comentarios
+        // siguen colgando del task correcto.
+        try {
+          local = await prisma.task.create({
+            data: {
+              workspaceId: opts.workspaceId,
+              projectId: projectLocalId,
+              parentId: parentLocal ?? null,
+              title: t.name,
+              description: t.notes ?? "",
+              status,
+              priority,
+              dueDate: due,
+              completedAt: t.completed_at ? new Date(t.completed_at) : null,
+              asanaId: t.gid,
+              asanaPermalink: t.permalink_url ?? null,
+              asanaCustomFields: (t.custom_fields ?? null) as any,
+              order: orderInColumn ?? 0
+            } as any
+          });
+        } catch (e: any) {
+          if (e?.code !== "P2002") throw e;
+          // Carrera: la task ya existe — buscamos y update.
+          const existing = await prisma.task.findUnique({
+            where: { asanaId: t.gid }
+          });
+          if (!existing) throw e; // No debería pasar pero por si acaso
+          local = await prisma.task.update({
+            where: { id: existing.id },
+            data: {
+              title: t.name,
+              description: t.notes ?? "",
+              status,
+              priority,
+              dueDate: due,
+              completedAt: t.completed_at ? new Date(t.completed_at) : null,
+              parentId: parentLocal ?? null,
+              asanaPermalink: t.permalink_url ?? null,
+              asanaCustomFields: (t.custom_fields ?? null) as any,
+              ...(typeof orderInColumn === "number" ? { order: orderInColumn } : {})
+            } as any
+          });
+        }
       }
       taskByGid.set(t.gid, local.id);
 
@@ -579,27 +618,54 @@ async function runImport(jobId: string, opts: ImportOptions) {
           }
           stats.commentsSkipped++; // ya existía, solo refrescado
         } else {
-          await prisma.comment.create({
-            data: {
-              workspaceId: opts.workspaceId,
-              authorId,
-              targetType: "TASK",
-              targetId: local.id,
-              // `body` para la lectura legacy (búsqueda LIKE), bodyJson
-              // para la UI rich con imágenes inline.
-              body: story.text ?? "",
-              bodyJson: parsed.doc as any,
-              asanaId: story.gid,
-              createdAt: new Date(story.created_at)
+          // Race-safe: si entre el findUnique y este create hay
+          // carrera (otro batch del mismo import importando en
+          // paralelo, retry de un job, etc.), capturamos P2002 y
+          // hacemos update igual que en la rama "exists".
+          try {
+            await prisma.comment.create({
+              data: {
+                workspaceId: opts.workspaceId,
+                authorId,
+                targetType: "TASK",
+                targetId: local.id,
+                // `body` para la lectura legacy (búsqueda LIKE),
+                // bodyJson para la UI rich con imágenes inline.
+                body: story.text ?? "",
+                bodyJson: parsed.doc as any,
+                asanaId: story.gid,
+                createdAt: new Date(story.created_at)
+              }
+            });
+            stats.comments++;
+          } catch (e: any) {
+            if (e?.code === "P2002") {
+              // Carrera: ya existe — refresh + relink.
+              await prisma.comment.updateMany({
+                where: { asanaId: story.gid },
+                data: {
+                  body: story.text ?? "",
+                  bodyJson: parsed.doc as any,
+                  targetId: local.id,
+                  targetType: "TASK",
+                  workspaceId: opts.workspaceId,
+                  authorId
+                }
+              });
+              stats.commentsSkipped++;
+            } else {
+              // Un comentario problemático no debe abortar el resto.
+              stats.warnings.push(
+                `Comentario ${story.gid} de "${t.name}" falló: ${String(e?.message ?? e).slice(0, 200)}`
+              );
             }
-          });
-          stats.comments++;
+          }
         }
         } catch (e: any) {
-          // Un comentario problemático no debe abortar el resto.
-          // Trackeamos para que el admin investigue.
+          // Per-story catch (envolvía toda la iteración antes).
+          // Mantiene que un comentario problemático no aborte el bucle.
           stats.warnings.push(
-            `Comentario ${story.gid} de "${t.name}" falló: ${String(e?.message ?? e).slice(0, 200)}`
+            `Comentario ${story?.gid ?? "?"} de "${t.name}" falló: ${String(e?.message ?? e).slice(0, 200)}`
           );
         }
       }

@@ -73,21 +73,40 @@ export async function importAttachmentsForTask(opts: {
       // nombre — la UI deja claro que es un link externo.
       const isAsanaHosted = a.resource_subtype === "asana" || !a.resource_subtype;
       if (!storageOk || !isAsanaHosted) {
-        await prisma.file.create({
-          data: {
-            workspaceId: opts.workspaceId,
-            name: a.name || `${a.host ?? "external"}-${a.gid}`,
-            mimeType: "application/octet-stream",
-            sizeBytes: a.size ?? 0,
-            // Sin binario: s3Key vacío. Como la columna no acepta null,
-            // metemos un marcador identificable.
-            s3Key: `__external__:${a.view_url ?? a.permanent_url ?? ""}`,
-            targetType: "TASK",
-            targetId: opts.taskLocalId,
-            asanaId: a.gid
+        try {
+          await prisma.file.create({
+            data: {
+              workspaceId: opts.workspaceId,
+              name: a.name || `${a.host ?? "external"}-${a.gid}`,
+              mimeType: "application/octet-stream",
+              sizeBytes: a.size ?? 0,
+              // Sin binario: s3Key vacío. Como la columna no acepta null,
+              // metemos un marcador identificable.
+              s3Key: `__external__:${a.view_url ?? a.permanent_url ?? ""}`,
+              targetType: "TASK",
+              targetId: opts.taskLocalId,
+              asanaId: a.gid
+            }
+          });
+          result.externalLinked++;
+        } catch (e: any) {
+          if (e?.code === "P2002") {
+            // Carrera: el findUnique de arriba devolvió null y entre tanto
+            // otro proceso/batch lo creó. Re-enlazar al task actual igual
+            // que en la rama "exists" del findUnique.
+            await prisma.file.updateMany({
+              where: { asanaId: a.gid },
+              data: {
+                targetId: opts.taskLocalId,
+                targetType: "TASK",
+                workspaceId: opts.workspaceId
+              }
+            });
+            result.skipped++;
+          } else {
+            throw e;
           }
-        });
-        result.externalLinked++;
+        }
         continue;
       }
 
@@ -119,19 +138,43 @@ export async function importAttachmentsForTask(opts: {
       });
       await uploadBuffer({ s3Key, body: buf, contentType });
 
-      await prisma.file.create({
-        data: {
-          workspaceId: opts.workspaceId,
-          name: a.name || `asana-${a.gid}`,
-          mimeType: contentType,
-          sizeBytes: buf.length,
-          s3Key,
-          targetType: "TASK",
-          targetId: opts.taskLocalId,
-          asanaId: a.gid
+      try {
+        await prisma.file.create({
+          data: {
+            workspaceId: opts.workspaceId,
+            name: a.name || `asana-${a.gid}`,
+            mimeType: contentType,
+            sizeBytes: buf.length,
+            s3Key,
+            targetType: "TASK",
+            targetId: opts.taskLocalId,
+            asanaId: a.gid
+          }
+        });
+        result.imported++;
+      } catch (e: any) {
+        if (e?.code === "P2002") {
+          // Carrera: el binario ya está subido pero el row no se pudo
+          // crear porque otro batch lo metió antes. Re-enlazamos al
+          // task actual (s3Key se sobreescribe con el nuevo bucket
+          // path, que es válido — el viejo queda huérfano en R2 pero
+          // poco coste). Contamos como skipped.
+          await prisma.file.updateMany({
+            where: { asanaId: a.gid },
+            data: {
+              targetId: opts.taskLocalId,
+              targetType: "TASK",
+              workspaceId: opts.workspaceId,
+              s3Key,
+              mimeType: contentType,
+              sizeBytes: buf.length
+            }
+          });
+          result.skipped++;
+        } else {
+          throw e;
         }
-      });
-      result.imported++;
+      }
     } catch (e: any) {
       result.failed++;
       result.errors.push(String(e?.message ?? e).slice(0, 200));

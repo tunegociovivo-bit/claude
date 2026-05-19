@@ -26,7 +26,7 @@
 // reintroducir cache PERO con purga agresiva por VERSION en
 // activate.
 
-const VERSION = "v40-2026-05-18-auto-learning";
+const VERSION = "v41-2026-05-18-asana-import-fixes";
 
 self.addEventListener("install", (event) => {
   // Activación inmediata: no esperar a que el SW viejo libere.
