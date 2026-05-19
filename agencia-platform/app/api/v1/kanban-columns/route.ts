@@ -17,10 +17,13 @@ const updateSchema = z.object({
   columns: z
     .array(
       z.object({
-        id: z.string().min(1).max(40).regex(/^[A-Z0-9_]+$/, "ID debe ser MAYÚSCULAS_CON_GUIONES_BAJOS"),
-        label: z.string().min(1).max(40),
-        color: z.string().max(120).optional(),
-        order: z.number().int().min(0).max(99),
+        // Relajado de la regex MAYÚSCULAS_CON_GUIONES_BAJOS — mismo
+        // motivo que en /api/v1/projects/[id]/kanban-columns: hay IDs
+        // ya en BD que no la cumplen y bloqueaban cambios cosméticos.
+        id: z.string().min(1).max(60),
+        label: z.string().min(1).max(60),
+        color: z.string().max(200).optional(),
+        order: z.coerce.number().int().min(0).max(99),
         isDone: z.boolean().optional()
       })
     )

@@ -20,11 +20,21 @@ import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { readKanbanColumns } from "@/lib/kanban";
 
+// IDs de columna: permitimos cualquier string razonable (1-60 chars)
+// para no rechazar IDs ya existentes de imports antiguos que no
+// matchean la convención MAYÚSCULAS_CON_GUIONES_BAJOS. La UI sigue
+// generando IDs limpios via slugify, pero la API NO debe rechazar
+// lo que ya está en BD — eso bloqueaba cambios cosméticos (color,
+// label) en proyectos importados de Asana donde algún ID tenía
+// chars fuera del set estricto.
 const columnSchema = z.object({
-  id: z.string().min(1).max(40).regex(/^[A-Z0-9_]+$/, "ID MAYÚSCULAS_CON_GUIONES_BAJOS"),
-  label: z.string().min(1).max(40),
-  color: z.string().max(120).optional(),
-  order: z.number().int().min(0).max(99),
+  id: z.string().min(1).max(60),
+  label: z.string().min(1).max(60),
+  color: z.string().max(200).optional(),
+  // order tolerante: acepta number o string numérico y normalizamos
+  // a number en el bucle. Algunos imports antiguos guardaron order
+  // como string.
+  order: z.coerce.number().int().min(0).max(99),
   isDone: z.boolean().optional()
 });
 

@@ -1927,7 +1927,23 @@ function ColumnHeader({
   }, [editing, column.label]);
 
   async function persist(next: KanbanColumn) {
-    const all = allColumns.map((c) => (c.id === next.id ? next : c));
+    // Normaliza TODAS las columnas al shape que valida el endpoint
+    // (id, label, color, order, isDone). Antes el array incluía
+    // campos extra que algunas columnas heredan (tasksCount, etc) y
+    // — más relevante — el `order` podía venir como string desde una
+    // importación antigua de Asana o ausente, fallando z.number().
+    // Resultado: la PUT devolvía 400 silencioso y el color no se
+    // cambiaba sin feedback al user.
+    const all = allColumns.map((c, idx) => {
+      const base = c.id === next.id ? next : c;
+      return {
+        id: String(base.id),
+        label: String(base.label ?? base.id),
+        color: typeof base.color === "string" ? base.color : "",
+        order: Number.isFinite(Number(base.order)) ? Number(base.order) : idx,
+        ...(typeof base.isDone === "boolean" ? { isDone: base.isDone } : {})
+      };
+    });
     setSaving(true);
     try {
       const r = await fetch(endpoint, {
@@ -1936,9 +1952,27 @@ function ColumnHeader({
         body: JSON.stringify({ columns: all })
       });
       if (r.ok) {
-        // Refresca la página para que las columnas y filtros vean
-        // el cambio sin tener que recargar manualmente.
         if (typeof window !== "undefined") window.location.reload();
+        return;
+      }
+      // No-OK: surface el error al user con detalle del body.
+      let errText = `HTTP ${r.status}`;
+      try {
+        const j = await r.json();
+        errText = j?.error?.message ?? j?.error ?? errText;
+      } catch {
+        try {
+          errText = await r.text();
+        } catch {}
+      }
+      console.warn("[column persist] fail:", errText);
+      if (typeof window !== "undefined") {
+        alert(`No pude guardar el cambio:\n${errText}`);
+      }
+    } catch (e: any) {
+      console.warn("[column persist] error:", e);
+      if (typeof window !== "undefined") {
+        alert(`Error de red al guardar: ${e?.message ?? e}`);
       }
     } finally {
       setSaving(false);
