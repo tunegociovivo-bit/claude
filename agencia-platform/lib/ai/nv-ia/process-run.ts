@@ -138,6 +138,71 @@ export async function processOneRun(runId: string): Promise<ProcessResult> {
     });
     console.log(`[sonia] run ${runId} → ${result.status} (${result.stepsCount} steps)`);
 
+    // AUTO-REQUEUE en saturación transitoria de Anthropic.
+    // Si el run falló por 529/503/overloaded y NO hemos llegado al cap
+    // de reintentos (10), no marcamos FAILED — re-PENDING para que el
+    // cron lo recoja en su próxima pasada (1-2 min). El user no tiene
+    // que hacer nada: Sonia espera a que Anthropic respire sola.
+    // El contador se trackea en el log (pasos type=transient_requeue).
+    const MAX_TRANSIENT_REQUEUES = 10;
+    const transientRequeues = Array.isArray(result.log)
+      ? result.log.filter((s: any) => s?.type === "transient_requeue").length
+      : 0;
+    const isTransientOverload =
+      result.status === "FAILED" &&
+      classifyError(result.error ?? "") === "transient";
+
+    if (isTransientOverload && transientRequeues < MAX_TRANSIENT_REQUEUES) {
+      const newLog = [
+        ...(result.log as any[]),
+        {
+          type: "transient_requeue",
+          ts: new Date().toISOString(),
+          message: `Anthropic saturado (intento ${transientRequeues + 1}/${MAX_TRANSIENT_REQUEUES}) — re-encolando para reintento automático vía cron.`,
+          error: (result.error ?? "").slice(0, 200)
+        }
+      ];
+      await prisma.aiAgentRun.update({
+        where: { id: runId },
+        data: {
+          status: "PENDING" as any,
+          // Reseteamos lastIterationAt para que el watchdog no lo declare zombie
+          lastIterationAt: new Date(),
+          log: newLog as any,
+          stepsCount: result.stepsCount,
+          inputTokens: result.inputTokens,
+          outputTokens: result.outputTokens
+        }
+      });
+      console.log(
+        `[sonia] run ${runId} → transient overload, re-queued (${transientRequeues + 1}/${MAX_TRANSIENT_REQUEUES})`
+      );
+      // Comentario amable SOLO en el primer requeue, para que el user
+      // sepa que no le hemos abandonado. Siguientes requeues son silenciosos.
+      if (transientRequeues === 0) {
+        try {
+          const ws = await prisma.workspace.findUnique({
+            where: { id: run.workspaceId },
+            select: { settings: true }
+          }).catch(() => null);
+          const aiUserId = (ws?.settings as any)?.aiAgent?.userId;
+          if (aiUserId) {
+            await prisma.comment.create({
+              data: {
+                workspaceId: run.workspaceId,
+                authorId: aiUserId,
+                targetType: "TASK",
+                targetId: run.taskId,
+                body:
+                  "⏳ Anthropic está saturada justo ahora. Re-encolo automáticamente la task y la retomo en cuanto su infra respire (cron cada 1-2 min, hasta 10 reintentos). No tienes que hacer nada — te aviso cuando termine."
+              }
+            });
+          }
+        } catch {}
+      }
+      return { runId, status: "PENDING" as any, steps: result.stepsCount };
+    }
+
     await prisma.aiAgentRun.update({
       where: { id: runId },
       data: {
@@ -456,9 +521,11 @@ export async function processOneRun(runId: string): Promise<ProcessResult> {
       }
     }
 
-    // Comentario explicativo si es transient: avisamos al user que es
-    // saturación temporal de Anthropic, NO un bug, y que puede
-    // reintentar en unos minutos.
+    // Comentario explicativo si es transient AGOTADO (>10 requeues).
+    // En el flujo normal el re-queue es automático y silencioso — este
+    // bloque solo se ejecuta cuando llevamos 10 reintentos sin éxito,
+    // lo que significa que Anthropic lleva >20 min saturado. Ahí sí
+    // pedimos al user que reintente manualmente más tarde.
     if (finalStatus === "FAILED" && errorClass === "transient") {
       try {
         const ws = await prisma.workspace.findUnique({
@@ -474,9 +541,8 @@ export async function processOneRun(runId: string): Promise<ProcessResult> {
               targetType: "TASK",
               targetId: run.taskId,
               body:
-                "⏳ La IA de Anthropic está temporalmente saturada (error transitorio). " +
-                "NO es un bug del sistema — su infra está sobrecargada. " +
-                "Vuelve a pulsar **Pedir a Sonia** en unos 2-5 minutos y debería funcionar.\n\n" +
+                "⛔ He reintentado 10 veces automáticamente pero Anthropic sigue saturada — lleva más de 20 min sin respirar. " +
+                "Vuelve a pulsar **Pedir a Sonia** dentro de un rato (cuando veas que otros runs vuelven a funcionar).\n\n" +
                 "Detalle técnico: " +
                 (result.error ?? "").slice(0, 200)
             }

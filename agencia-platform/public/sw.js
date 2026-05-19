@@ -26,7 +26,7 @@
 // reintroducir cache PERO con purga agresiva por VERSION en
 // activate.
 
-const VERSION = "v72-2026-05-19-episodic-memory-ocr";
+const VERSION = "v73-2026-05-19-auto-requeue-overload";
 
 self.addEventListener("install", (event) => {
   // Activación inmediata: no esperar a que el SW viejo libere.
