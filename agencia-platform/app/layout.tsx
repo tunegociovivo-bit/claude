@@ -16,7 +16,9 @@ export const metadata: Metadata = {
   manifest: "/manifest.webmanifest",
   appleWebApp: {
     capable: true,
-    title: "Hub",
+    // Título debajo del icono al instalar en iOS. Android usa el
+    // short_name del manifest.webmanifest (también puesto a "HUB NV").
+    title: "HUB NV",
     statusBarStyle: "default"
   },
   icons: {
@@ -83,7 +85,7 @@ const earlyInstallCapture = `
  */
 const swSelfHeal = `
   (function () {
-    var EXPECTED = "v57-2026-05-19-brand-icon";
+    var EXPECTED = "v58-2026-05-19-pwa-name";
     if (!('serviceWorker' in navigator)) return;
     var key = "hub_sw_v_seen";
     var seen = null;

@@ -1,6 +1,6 @@
 {
-  "name": "Agencia Hub",
-  "short_name": "Hub",
+  "name": "HUB NV",
+  "short_name": "HUB NV",
   "description": "Plataforma de gestión de tu agencia: tareas, clientes, calendario editorial.",
   "start_url": "/mi-dia",
   "display": "standalone",
