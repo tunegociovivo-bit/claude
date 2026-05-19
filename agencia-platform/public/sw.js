@@ -26,7 +26,7 @@
 // reintroducir cache PERO con purga agresiva por VERSION en
 // activate.
 
-const VERSION = "v74-2026-05-19-make-scenarios-pagination";
+const VERSION = "v75-2026-05-19-replay-multichannel";
 
 self.addEventListener("install", (event) => {
   // Activación inmediata: no esperar a que el SW viejo libere.

@@ -85,7 +85,7 @@ const earlyInstallCapture = `
  */
 const swSelfHeal = `
   (function () {
-    var EXPECTED = "v74-2026-05-19-make-scenarios-pagination";
+    var EXPECTED = "v75-2026-05-19-replay-multichannel";
     if (!('serviceWorker' in navigator)) return;
     var key = "hub_sw_v_seen";
     var seen = null;

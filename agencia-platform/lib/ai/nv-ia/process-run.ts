@@ -551,6 +551,54 @@ export async function processOneRun(runId: string): Promise<ProcessResult> {
       } catch {}
     }
 
+    // MULTI-CANAL: empuja la notif fuera del Hub (WhatsApp/Telegram)
+    // según preferencias del requester. La función `notifyHumanOutsideHub`
+    // ya filtra por minLevel + horario laboral + canales configurados;
+    // si el user no tiene config, hace skip silencioso.
+    if (run.requesterId) {
+      try {
+        const { notifyHumanOutsideHub } = await import(
+          "@/lib/notifications/multi-channel"
+        );
+        const task = await prisma.task.findUnique({
+          where: { id: run.taskId },
+          select: { title: true }
+        });
+        const taskTitle = task?.title?.slice(0, 80) ?? "tarea";
+        let level: "info" | "warning" | "critical" = "info";
+        let title = "Sonia";
+        let body = "";
+        if (finalStatus === "SUCCEEDED") {
+          level = "info";
+          title = `Sonia terminó: ${taskTitle}`;
+          body = result.summary?.slice(0, 400) ?? "Tarea completada.";
+        } else if (finalStatus === "REQUIRES_HUMAN") {
+          level = "critical";
+          title = `Sonia te necesita: ${taskTitle}`;
+          body =
+            "Tu intervención es necesaria. Revisa los comentarios de la task en el Hub.";
+        } else if (finalStatus === "FAILED") {
+          level = "critical";
+          title = `Sonia falló: ${taskTitle}`;
+          body = (result.error ?? "Error desconocido").slice(0, 400);
+        }
+        if (body) {
+          notifyHumanOutsideHub({
+            workspaceId: run.workspaceId,
+            userId: run.requesterId,
+            level,
+            title,
+            body,
+            linkPath: `/tasks/${run.taskId}`
+          }).catch((e) =>
+            console.warn(`[sonia] notify multi-channel: ${e?.message ?? e}`)
+          );
+        }
+      } catch (e: any) {
+        console.warn(`[sonia] notify multi-channel skip: ${e?.message ?? e}`);
+      }
+    }
+
     return { runId, status: finalStatus, steps: result.stepsCount };
   } catch (e: any) {
     const msg = String(e?.message ?? e);
