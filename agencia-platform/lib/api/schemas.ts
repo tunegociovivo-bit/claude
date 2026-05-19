@@ -165,7 +165,12 @@ export const taskCreateSchema = z.object({
   // Reglas de notificación por dueDate. null = defaults (las 3 activas).
   notifyDueRules: z.array(z.enum(["day_7am", "1h_before", "10min_before"])).nullable().optional(),
   assigneeIds: z.array(z.string()).default([]),
-  parentId: z.string().optional()
+  parentId: z.string().optional(),
+  // Plantilla utilizada para crear esta task (si aplica).
+  templateId: z.string().optional().nullable(),
+  // Valores de custom fields definidos por la plantilla. Objeto plano
+  // { fieldId: value } donde value es string | number | boolean | string[].
+  customData: z.record(z.string(), z.any()).optional().nullable()
 });
 
 export const documentCreateSchema = z.object({

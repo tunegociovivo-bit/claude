@@ -228,6 +228,7 @@ model Workspace {
   aiDrafts                  AiDraft[]
   aiClientMemories          AiClientMemory[]
   aiAgentLessons            AiAgentLesson[]
+  taskTemplates             TaskTemplate[]
   aiWorkspaceMemory         AiWorkspaceMemory?
   aiUserMemories            AiUserMemory[]
   aiProposedTools           AiProposedTool[]
@@ -992,6 +993,13 @@ model Task {
   // (todas activas). [] = ninguna. Sólo se programa el envío si la
   // tarea tiene dueDate.
   notifyDueRules Json?
+
+  // Plantillas de tarea — si la task se creó desde un TaskTemplate,
+  // referenciamos el id aquí. customData contiene los valores
+  // rellenados para los custom fields definidos en la plantilla
+  // (objeto plano { fieldId: value }). null = task sin plantilla.
+  templateId String?
+  customData Json?
 
   @@index([workspaceId])
   @@index([projectId])
@@ -2521,4 +2529,70 @@ model AiAgentLesson {
 
   @@index([workspaceId, scope, isActive])
   @@index([workspaceId, useCount])
+}
+
+// ====================================================================
+// PLANTILLAS DE TAREAS
+// ====================================================================
+//
+// El usuario crea plantillas con nombre + descripción + campos
+// preconfigurados (proyecto default, prioridad, assignees, tags, due
+// offset en días) + campos personalizados (custom fields) tipo
+// text/textarea/number/date/select/multiselect/checkbox.
+//
+// Al crear una task desde una plantilla:
+//   - Los campos estándar se prerellenan en el TaskFormModal.
+//   - Los custom fields se renderizan dinámicamente y al guardar
+//     los valores van a Task.customData (JSON keyed por field id).
+//
+// customFields shape (Json):
+//   [
+//     {
+//       id: "cliente_destino",
+//       label: "Cliente destino",
+//       type: "select",
+//       required: true,
+//       options: ["Reva", "Champiso", "Esaem"],
+//       placeholder: "Elige cliente"
+//     },
+//     ...
+//   ]
+//
+// types soportados:
+//   text | textarea | number | date | select | multiselect | checkbox
+//
+// Al editar la task más tarde, el modal recupera customData del Task
+// y los pinta otra vez con el schema del TaskTemplate referenciado.
+model TaskTemplate {
+  id          String   @id @default(cuid())
+  workspaceId String
+  name        String
+  description String?  @db.Text
+  // Emoji o nombre de icono lucide para mostrar en el selector.
+  icon        String?
+
+  // Pre-fills (todos opcionales). Si null, el formulario coge el
+  // default que tendría una task nueva sin plantilla.
+  defaultProjectId      String?
+  defaultStatus         String? // id de columna kanban
+  defaultPriority       String? // LOW / MEDIUM / HIGH / URGENT
+  defaultAssigneeIds    Json? // string[] de userIds
+  defaultTags           Json? // string[] de tag names
+  // Offset desde la creación de la task. Si 3, dueDate = now + 3d.
+  defaultDueOffsetDays  Int?
+  // Cuerpo de descripción preconfigurado (markdown / texto plano).
+  // El TaskFormModal lo carga al rich text editor.
+  bodyMarkdown          String? @db.Text
+
+  // Schema de custom fields (ver doc arriba).
+  customFields Json?
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  createdById String?
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, name])
+  @@index([workspaceId])
 }

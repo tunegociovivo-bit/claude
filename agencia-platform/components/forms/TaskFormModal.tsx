@@ -33,6 +33,30 @@ const priorityToApi: Record<Priority, string> = {
   urgencia: "URGENT"
 };
 
+type CustomFieldDef = {
+  id: string;
+  label: string;
+  type: "text" | "textarea" | "number" | "date" | "select" | "multiselect" | "checkbox";
+  required?: boolean;
+  options?: string[];
+  placeholder?: string;
+  defaultValue?: any;
+};
+type TaskTemplate = {
+  id: string;
+  name: string;
+  icon: string | null;
+  description: string | null;
+  defaultProjectId: string | null;
+  defaultStatus: string | null;
+  defaultPriority: "LOW" | "MEDIUM" | "HIGH" | "URGENT" | null;
+  defaultAssigneeIds: string[] | null;
+  defaultTags: string[] | null;
+  defaultDueOffsetDays: number | null;
+  bodyMarkdown: string | null;
+  customFields: CustomFieldDef[] | null;
+};
+
 type CommentItem = {
   id: string;
   body: string;
@@ -109,6 +133,13 @@ export default function TaskFormModal({
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Plantillas de task. Cargamos lista en mount. Si la task existente
+  // tiene templateId, también cargamos esa plantilla concreta para
+  // poder renderizar sus custom fields al editar.
+  const [templates, setTemplates] = useState<TaskTemplate[]>([]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
+  const [customData, setCustomData] = useState<Record<string, any>>({});
 
   const [comments, setComments] = useState<CommentItem[]>([]);
   const [postingComment, setPostingComment] = useState(false);
@@ -205,8 +236,87 @@ export default function TaskFormModal({
       setComments([]);
       setSubtasks([]);
       setError(null);
+      setSelectedTemplateId(null);
+      setCustomData({});
     }
   }, [open, task, defaultStatus, defaultProjectId, projects, columns]);
+
+  // Carga las plantillas del workspace al abrir el modal — son pocas
+  // y la respuesta es ligera. Una vez cacheadas, el selector las
+  // ofrece sin esperar.
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    fetch("/api/v1/task-templates")
+      .then((r) => (r.ok ? r.json() : { items: [] }))
+      .then((d) => {
+        if (!cancelled) setTemplates(d.items ?? []);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
+
+  // Si estoy editando una task que tiene templateId + customData, los
+  // cargo para poder pintar los campos personalizados en la UI.
+  useEffect(() => {
+    if (!currentTask) {
+      setSelectedTemplateId(null);
+      setCustomData({});
+      return;
+    }
+    const tplId = (currentTask as any).templateId ?? null;
+    const cd = (currentTask as any).customData ?? null;
+    setSelectedTemplateId(typeof tplId === "string" ? tplId : null);
+    setCustomData(cd && typeof cd === "object" ? cd : {});
+  }, [currentTask]);
+
+  /** Aplica una plantilla al formulario actual. Solo en modo "nueva". */
+  function applyTemplate(tpl: TaskTemplate | null) {
+    if (!tpl) {
+      setSelectedTemplateId(null);
+      return;
+    }
+    setSelectedTemplateId(tpl.id);
+    if (tpl.defaultProjectId) {
+      setProjectIds([tpl.defaultProjectId]);
+    }
+    if (tpl.defaultStatus) setStatus(tpl.defaultStatus);
+    if (tpl.defaultPriority) {
+      const map: Record<string, Priority> = {
+        LOW: "",
+        MEDIUM: "",
+        HIGH: "alta",
+        URGENT: "urgencia"
+      };
+      setPriority(map[tpl.defaultPriority] ?? "");
+    }
+    if (Array.isArray(tpl.defaultAssigneeIds) && tpl.defaultAssigneeIds.length > 0) {
+      setAssigneeIds(tpl.defaultAssigneeIds);
+    }
+    if (typeof tpl.defaultDueOffsetDays === "number") {
+      const d = new Date(Date.now() + tpl.defaultDueOffsetDays * 86400_000);
+      setDueDate(d.toISOString().slice(0, 10));
+    }
+    if (tpl.bodyMarkdown) {
+      // Cargamos como texto plano en el editor — el RichTextEditor
+      // lo acepta como string y lo convierte a doc TipTap.
+      setDescription(tpl.bodyMarkdown);
+      setEditorKey((k) => k + 1);
+    }
+    // Inicializar customData con defaults de los campos
+    const initial: Record<string, any> = {};
+    for (const f of tpl.customFields ?? []) {
+      if (f.defaultValue !== undefined) initial[f.id] = f.defaultValue;
+    }
+    setCustomData(initial);
+  }
+
+  /** Plantilla actualmente activa (para renderizar custom fields). */
+  const activeTemplate: TaskTemplate | null = selectedTemplateId
+    ? templates.find((t) => t.id === selectedTemplateId) ?? null
+    : null;
 
   // Cuando cambia la tarea activa (apertura o navegación a subtarea), recarga datos.
   useEffect(() => {
@@ -262,7 +372,7 @@ export default function TaskFormModal({
       setDueDate(currentTask.dueDate ?? "");
       setDueTime(currentTask.dueAllDay === false && currentTask.dueTime ? currentTask.dueTime : "");
       setNotifyDueRules(Array.isArray(currentTask.notifyDueRules) ? currentTask.notifyDueRules : null);
-      // Fetch detalle: descripción + subtareas + comentarios
+      // Fetch detalle: descripción + subtareas + comentarios + plantilla
       fetch(`/api/v1/tasks/${currentTask.id}`)
         .then((r) => (r.ok ? r.json() : null))
         .then((data) => {
@@ -279,6 +389,16 @@ export default function TaskFormModal({
               status: s.status
             }))
           );
+          // Plantilla + valores custom — vienen del Task.templateId
+          // y Task.customData persistidos. Si la plantilla todavía
+          // existe en /api/v1/task-templates (lista cargada por
+          // separado), el render dinámico la encuentra y pinta los
+          // campos. Si fue borrada, se respeta customData en BD pero
+          // no se renderiza el bloque.
+          if (data.templateId) setSelectedTemplateId(data.templateId);
+          if (data.customData && typeof data.customData === "object") {
+            setCustomData(data.customData);
+          }
         });
       fetch(`/api/v1/tasks/${currentTask.id}/comments`)
         .then((r) => (r.ok ? r.json() : { items: [] }))
@@ -341,7 +461,13 @@ export default function TaskFormModal({
       priority: priorityToApi[priority],
       assigneeIds,
       description: descSerialized,
-      notifyDueRules
+      notifyDueRules,
+      // Plantilla + valores de campos personalizados. null si el
+      // usuario no eligió plantilla, o si la quitó (volver a "en
+      // blanco") tras seleccionarla.
+      templateId: selectedTemplateId || null,
+      customData:
+        selectedTemplateId && Object.keys(customData).length > 0 ? customData : null
     };
     if (dueDate) {
       // Construimos el ISO directamente, SIN pasar por new Date(string).
@@ -650,6 +776,38 @@ export default function TaskFormModal({
       )}
       <form id="task-form" onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-[1fr_240px] gap-6">
         <div className="space-y-4 min-w-0">
+          {/* Selector de plantilla — solo en modo "Nueva tarea" y si
+              hay plantillas configuradas. Al elegir una, prerellena
+              proyecto, prioridad, assignees, due, descripción + carga
+              los custom fields. */}
+          {!isEdit && templates.length > 0 && (
+            <div className="bg-violet-50 border border-violet-200 rounded-lg p-2 flex items-center gap-2 text-xs">
+              <span className="text-violet-700 font-medium shrink-0">✨ Plantilla:</span>
+              <select
+                value={selectedTemplateId ?? ""}
+                onChange={(e) => {
+                  const id = e.target.value;
+                  if (!id) {
+                    setSelectedTemplateId(null);
+                    setCustomData({});
+                    return;
+                  }
+                  const tpl = templates.find((t) => t.id === id);
+                  if (tpl) applyTemplate(tpl);
+                }}
+                className="flex-1 bg-white rounded-md border border-violet-200 px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-violet-400"
+              >
+                <option value="">— sin plantilla (en blanco) —</option>
+                {templates.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.icon ? `${t.icon} ` : ""}
+                    {t.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
           <input
             value={title}
             onChange={(e) => setTitle(e.target.value)}
@@ -685,6 +843,28 @@ export default function TaskFormModal({
               />
             </div>
           </div>
+
+          {/* Campos personalizados de la plantilla. Render dinámico
+              según el schema definido al crear la plantilla. */}
+          {activeTemplate && Array.isArray(activeTemplate.customFields) && activeTemplate.customFields.length > 0 && (
+            <div className="border rounded-lg p-3 bg-violet-50/40 border-violet-200">
+              <div className="text-xs font-medium text-violet-900 mb-3 flex items-center gap-1.5">
+                ✨ Campos de la plantilla "{activeTemplate.name}"
+              </div>
+              <div className="space-y-3">
+                {activeTemplate.customFields.map((f) => (
+                  <CustomFieldInput
+                    key={f.id}
+                    field={f}
+                    value={customData[f.id]}
+                    onChange={(v) =>
+                      setCustomData((prev) => ({ ...prev, [f.id]: v }))
+                    }
+                  />
+                ))}
+              </div>
+            </div>
+          )}
 
           {isEdit && (
             <div className="pt-2">
@@ -1160,4 +1340,145 @@ function ReimportCommentsButton({ taskId, onDone }: { taskId: string; onDone: ()
       </button>
     </div>
   );
+}
+
+/**
+ * Render dinámico de un custom field según su type.
+ */
+function CustomFieldInput({
+  field,
+  value,
+  onChange
+}: {
+  field: CustomFieldDef;
+  value: any;
+  onChange: (v: any) => void;
+}) {
+  const label = (
+    <label className="text-xs font-medium text-slate-700 block mb-1">
+      {field.label}
+      {field.required && <span className="text-rose-500 ml-0.5">*</span>}
+    </label>
+  );
+  const base =
+    "w-full rounded-lg border border-slate-300 p-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500";
+  switch (field.type) {
+    case "text":
+      return (
+        <div>
+          {label}
+          <input
+            type="text"
+            value={value ?? ""}
+            onChange={(e) => onChange(e.target.value)}
+            placeholder={field.placeholder}
+            className={base}
+          />
+        </div>
+      );
+    case "textarea":
+      return (
+        <div>
+          {label}
+          <textarea
+            value={value ?? ""}
+            onChange={(e) => onChange(e.target.value)}
+            placeholder={field.placeholder}
+            rows={3}
+            className={base}
+          />
+        </div>
+      );
+    case "number":
+      return (
+        <div>
+          {label}
+          <input
+            type="number"
+            value={value ?? ""}
+            onChange={(e) =>
+              onChange(e.target.value === "" ? null : Number(e.target.value))
+            }
+            placeholder={field.placeholder}
+            className={base}
+          />
+        </div>
+      );
+    case "date":
+      return (
+        <div>
+          {label}
+          <input
+            type="date"
+            value={value ?? ""}
+            onChange={(e) => onChange(e.target.value)}
+            className={base}
+          />
+        </div>
+      );
+    case "select":
+      return (
+        <div>
+          {label}
+          <select
+            value={value ?? ""}
+            onChange={(e) => onChange(e.target.value)}
+            className={base}
+          >
+            <option value="">— elige —</option>
+            {(field.options ?? []).map((opt) => (
+              <option key={opt} value={opt}>
+                {opt}
+              </option>
+            ))}
+          </select>
+        </div>
+      );
+    case "multiselect": {
+      const arr: string[] = Array.isArray(value) ? value : [];
+      return (
+        <div>
+          {label}
+          <div className="flex flex-wrap gap-1.5">
+            {(field.options ?? []).map((opt) => {
+              const sel = arr.includes(opt);
+              return (
+                <button
+                  key={opt}
+                  type="button"
+                  onClick={() =>
+                    onChange(sel ? arr.filter((x) => x !== opt) : [...arr, opt])
+                  }
+                  className={
+                    "px-2 py-0.5 rounded-md text-xs " +
+                    (sel
+                      ? "bg-brand-100 text-brand-700"
+                      : "bg-slate-100 text-slate-600 hover:bg-slate-200")
+                  }
+                >
+                  {opt}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      );
+    }
+    case "checkbox":
+      return (
+        <div>
+          <label className="text-sm inline-flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={!!value}
+              onChange={(e) => onChange(e.target.checked)}
+            />
+            <span className="text-slate-700">
+              {field.label}
+              {field.required && <span className="text-rose-500 ml-0.5">*</span>}
+            </span>
+          </label>
+        </div>
+      );
+  }
 }

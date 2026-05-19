@@ -201,6 +201,13 @@ const SECTIONS: AdminSection[] = [
         icon: Columns3
       },
       {
+        href: "/admin/task-templates",
+        title: "Plantillas de tareas",
+        description:
+          "Crea plantillas con campos predefinidos + desplegables personalizables. Al crear una tarea eliges la plantilla y se prerellena.",
+        icon: ListChecks
+      },
+      {
         href: "/admin/workspace",
         title: "Identidad del workspace",
         description: "Cambia el nombre y el logo que ven todos los miembros.",
