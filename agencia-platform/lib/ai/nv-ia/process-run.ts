@@ -189,7 +189,13 @@ export async function processOneRun(runId: string): Promise<ProcessResult> {
     // (token caducado, permiso denegado, integración no configurada),
     // mantenemos FAILED — Claude no puede arreglar eso, el user sí.
     let finalStatus = result.status;
-    if (result.status === "FAILED" && classifyError(result.error ?? "") === "technical") {
+    const errorClass = classifyError(result.error ?? "");
+    // Transient (529/503/etc): NO escalamos a Claude. La task queda
+    // FAILED y el user puede reintentar manualmente con "Pedir a Sonia"
+    // dentro de unos minutos cuando Anthropic respire. Antes
+    // escalábamos cualquier "technical" → bucle de issues vacíos en
+    // GitHub por cada saturación de Anthropic.
+    if (result.status === "FAILED" && errorClass === "technical") {
       finalStatus = "REQUIRES_HUMAN" as any;
       const explainer =
         `❓ Me he topado con un problema técnico al procesar esta tarea y se lo he pedido a Claude Code para que lo arregle:\n\n` +
@@ -223,14 +229,14 @@ export async function processOneRun(runId: string): Promise<ProcessResult> {
     }
 
     // AUTO-ESCALACIÓN a Claude Code via GitHub Issue.
-    // Cuando Sonia falla o pide ayuda, abrimos un issue con @claude
-    // mention y el contexto entero. Si el repo tiene la GitHub App
-    // de Claude Code instalada, Claude lo analiza solo, hace PR
-    // con el fix, y re-dispara la task — TOTALMENTE automático
-    // sin que el user tenga que hacer nada.
-    // Si las env vars no están configuradas, esto es no-op
-    // silencioso (no rompe el run ni la notificación al user).
-    if (finalStatus === "FAILED" || finalStatus === "REQUIRES_HUMAN") {
+    // SOLO para errores técnicos (bugs reales del runner/tools). Los
+    // transient (Anthropic 529/503 etc.) NO escalan — solo deja
+    // FAILED y comentario explicativo al user. Los credential
+    // tampoco — los arregla el user, no Claude.
+    if (
+      (finalStatus === "FAILED" || finalStatus === "REQUIRES_HUMAN") &&
+      errorClass === "technical"
+    ) {
       void escalateRunToGitHub(runId)
         .then((esc) => {
           if (esc.ok) {
@@ -242,6 +248,35 @@ export async function processOneRun(runId: string): Promise<ProcessResult> {
           }
         })
         .catch((e) => console.warn("[sonia] escalateRunToGitHub crash:", e?.message ?? e));
+    }
+
+    // Comentario explicativo si es transient: avisamos al user que es
+    // saturación temporal de Anthropic, NO un bug, y que puede
+    // reintentar en unos minutos.
+    if (finalStatus === "FAILED" && errorClass === "transient") {
+      try {
+        const ws = await prisma.workspace.findUnique({
+          where: { id: run.workspaceId },
+          select: { settings: true }
+        }).catch(() => null);
+        const aiUserId = (ws?.settings as any)?.aiAgent?.userId;
+        if (aiUserId) {
+          await prisma.comment.create({
+            data: {
+              workspaceId: run.workspaceId,
+              authorId: aiUserId,
+              targetType: "TASK",
+              targetId: run.taskId,
+              body:
+                "⏳ La IA de Anthropic está temporalmente saturada (error transitorio). " +
+                "NO es un bug del sistema — su infra está sobrecargada. " +
+                "Vuelve a pulsar **Pedir a Sonia** en unos 2-5 minutos y debería funcionar.\n\n" +
+                "Detalle técnico: " +
+                (result.error ?? "").slice(0, 200)
+            }
+          });
+        }
+      } catch {}
     }
 
     return { runId, status: finalStatus, steps: result.stepsCount };
@@ -306,8 +341,32 @@ export function processRunInBackground(runId: string): void {
  *     formado, timeout interno, etc. Lo arreglo yo (Claude) con
  *     código. Promovemos a REQUIRES_HUMAN y escalamos.
  */
-function classifyError(errorMsg: string): "credential" | "technical" {
+function classifyError(errorMsg: string): "credential" | "transient" | "technical" {
   const m = errorMsg.toLowerCase();
+  // Errores TRANSIENTES de infra de Anthropic / red. No son bugs nuestros
+  // ni del workspace — son momentáneos. Si llegan aquí significa que el
+  // retry interno ya falló N veces; el run queda FAILED pero NO escalamos
+  // a Claude Code (no hay nada que arreglar). El user puede reintentar
+  // manualmente en unos minutos.
+  const transientPatterns = [
+    "overloaded",
+    "529",
+    "502",
+    "503",
+    "504",
+    "gateway timeout",
+    "service unavailable",
+    "etimedout",
+    "econnreset",
+    "econnrefused",
+    "socket hang up",
+    "fetch failed",
+    "network error",
+    "anthropic api timeout"
+  ];
+  for (const p of transientPatterns) {
+    if (m.includes(p)) return "transient";
+  }
   const credentialPatterns = [
     "session has expired",
     "session is invalid",

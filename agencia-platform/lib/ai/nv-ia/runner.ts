@@ -687,7 +687,7 @@ export async function executeAgentRun(opts: {
         // no bloqueamos por un fallo del tick
       }
 
-      const resp = await client.messages.create({
+      const createParams: any = {
         model: config.model,
         // 8192 (Opus 4) cubre con holgura tool_use+text en un turn.
         // Antes era 4096 y causaba stop_reason="max_tokens" a mitad
@@ -712,7 +712,15 @@ export async function executeAgentRun(opts: {
         ],
         tools: TOOL_DEFINITIONS,
         messages
-      });
+      };
+
+      // Retry con backoff exponencial para errores transitorios de
+      // Anthropic (529 overloaded, 503, 504, 502, network errors).
+      // Antes una saturación momentánea de Anthropic mataba el run +
+      // disparaba escalación a Claude Code en GitHub — bucle de issues
+      // vacíos. Ahora reintentamos hasta 4 veces (1s, 3s, 8s, 20s) y
+      // solo si todos fallan propagamos el error.
+      const resp = await callAnthropicWithRetry(client, createParams);
       inputTokens += resp.usage.input_tokens ?? 0;
       outputTokens += resp.usage.output_tokens ?? 0;
 
@@ -1165,4 +1173,50 @@ function extractFirstName(
     }
   }
   return null;
+}
+
+/**
+ * Wrapper sobre client.messages.create con retry exponencial para
+ * errores transitorios. Solo reintenta 529 / 503 / 504 / 502 / red.
+ * Errores 4xx (incluyendo 400 validation, 401 auth, 429 ratelimit)
+ * NO se reintentan — son culpa nuestra/del prompt, no de su infra.
+ */
+async function callAnthropicWithRetry(
+  client: Anthropic,
+  params: Anthropic.MessageCreateParamsNonStreaming,
+  maxAttempts: number = 4
+): Promise<Anthropic.Message> {
+  // Delays en ms: 1s, 3s, 8s, 20s (total ~32s de espera máx).
+  const delays = [1000, 3000, 8000, 20000];
+  let lastErr: any = null;
+  for (let i = 0; i < maxAttempts; i++) {
+    try {
+      return await client.messages.create(params);
+    } catch (e: any) {
+      lastErr = e;
+      const status = Number(e?.status ?? e?.statusCode ?? 0);
+      const msg = String(e?.message ?? e ?? "").toLowerCase();
+      const isTransient =
+        status === 529 ||
+        status === 503 ||
+        status === 504 ||
+        status === 502 ||
+        status === 500 ||
+        msg.includes("overloaded") ||
+        msg.includes("etimedout") ||
+        msg.includes("econnreset") ||
+        msg.includes("econnrefused") ||
+        msg.includes("fetch failed") ||
+        msg.includes("socket hang up") ||
+        msg.includes("network error");
+      if (!isTransient) throw e; // 4xx, validation, auth → fail rápido
+      if (i === maxAttempts - 1) break; // no esperamos después del último intento
+      const wait = delays[i] ?? delays[delays.length - 1];
+      console.warn(
+        `[anthropic retry] intento ${i + 1}/${maxAttempts} fallo transitorio (${status}, ${msg.slice(0, 80)}). Reintentando en ${wait}ms…`
+      );
+      await new Promise((res) => setTimeout(res, wait));
+    }
+  }
+  throw lastErr;
 }
