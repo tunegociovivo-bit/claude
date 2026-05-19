@@ -17,8 +17,15 @@ export type AiAgentConfig = {
 
 export const DEFAULT_AGENT_CONFIG: Omit<AiAgentConfig, "userId" | "inboxProjectId"> = {
   model: "claude-opus-4-7",
-  maxStepsPerRun: 25,
-  maxTokensPerRun: 200_000
+  // 25 era el cap antiguo, suficiente para tareas simples (responder
+  // comentario, marcar completo, generar 1 borrador). Pero tareas
+  // reales tipo "clonar campaña Meta + crear lead form + ad creative
+  // con QC + cleanup duplicadas + duplicar escenario Make" implican
+  // 30-50 tool calls. Subido a 60 — a Anthropic le cobramos por
+  // tokens, no por pasos, así que tener margen no aumenta coste si
+  // la task se completa rápido.
+  maxStepsPerRun: 60,
+  maxTokensPerRun: 400_000
 };
 
 export type AgentLogStep =
