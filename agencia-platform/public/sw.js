@@ -26,7 +26,7 @@
 // reintroducir cache PERO con purga agresiva por VERSION en
 // activate.
 
-const VERSION = "v56-2026-05-19-anthropic-retry";
+const VERSION = "v57-2026-05-19-brand-icon";
 
 self.addEventListener("install", (event) => {
   // Activación inmediata: no esperar a que el SW viejo libere.
@@ -175,8 +175,8 @@ self.addEventListener("push", (event) => {
   } catch {}
   const options = {
     body: data.body,
-    icon: "/icon-192.png",
-    badge: "/icon-192.png",
+    icon: "/api/brand-icon?size=192",
+    badge: "/api/brand-icon?size=192",
     data: { link: data.link ?? "/" },
     tag: data.tag ?? undefined
   };

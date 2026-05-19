@@ -5,23 +5,29 @@ import PwaRegister from "@/components/PwaRegister";
 import ErrorReporter from "@/components/ErrorReporter";
 import Providers from "@/components/Providers";
 
+// Favicon + icono PWA dinámicos: /api/brand-icon devuelve el logo
+// del workspace en vivo, así cuando el admin cambia el logo en
+// /admin/workspace, el icono del browser y de la app instalada se
+// actualizan solos (TTL 5min server + cache del browser). Fallback
+// a /public/icon-192.png si el workspace no tiene logo.
 export const metadata: Metadata = {
   title: "Hub — Plataforma interna",
-    description: "Plataforma interna multifunción",
-      manifest: "/manifest.webmanifest",
-        appleWebApp: {
-            capable: true,
-                title: "Hub",
-                    statusBarStyle: "default"
-                      },
-                        icons: {
-                            icon: [
-                                  { url: "/icon-192.png", sizes: "192x192", type: "image/png" },
-                                        { url: "/icon-512.png", sizes: "512x512", type: "image/png" }
-                                            ],
-                                                apple: [{ url: "/icon-192.png", sizes: "192x192", type: "image/png" }]
-                                                  }
-                                                  };
+  description: "Plataforma interna multifunción",
+  manifest: "/manifest.webmanifest",
+  appleWebApp: {
+    capable: true,
+    title: "Hub",
+    statusBarStyle: "default"
+  },
+  icons: {
+    icon: [
+      { url: "/api/brand-icon?size=192", sizes: "192x192", type: "image/png" },
+      { url: "/api/brand-icon?size=512", sizes: "512x512", type: "image/png" }
+    ],
+    apple: [{ url: "/api/brand-icon?size=192", sizes: "192x192", type: "image/png" }],
+    shortcut: [{ url: "/api/brand-icon", type: "image/png" }]
+  }
+};
 
                                                   export const viewport: Viewport = {
                                                     width: "device-width",
@@ -77,7 +83,7 @@ const earlyInstallCapture = `
  */
 const swSelfHeal = `
   (function () {
-    var EXPECTED = "v56-2026-05-19-anthropic-retry";
+    var EXPECTED = "v57-2026-05-19-brand-icon";
     if (!('serviceWorker' in navigator)) return;
     var key = "hub_sw_v_seen";
     var seen = null;
