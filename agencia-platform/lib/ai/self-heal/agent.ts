@@ -37,7 +37,7 @@ import {
   writeRepoFile,
   openPullRequest,
   mergePullRequest,
-  getRepoConfig
+  loadRepoConfigForWorkspace
 } from "@/lib/github/repo";
 
 export type SelfHealResult = {
@@ -164,10 +164,11 @@ export async function attemptSelfHeal(opts: {
   taskDescription?: string | null;
   runLogTail?: string;
 }): Promise<SelfHealResult> {
-  // Pre-flight: verifica que el repo está accesible. Si no hay token,
-  // devolvemos error claro y el caller cae al issue manual.
+  // Pre-flight: verifica config (DB workspace primero, env fallback).
+  // Cachea la config para que las llamadas a readRepoFile/etc dentro
+  // del agente usen la misma sin re-resolver.
   try {
-    getRepoConfig();
+    await loadRepoConfigForWorkspace(opts.workspaceId);
   } catch (e: any) {
     return { ok: false, error: `Self-heal no configurado: ${e?.message}` };
   }

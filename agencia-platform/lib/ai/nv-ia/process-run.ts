@@ -245,8 +245,13 @@ export async function processOneRun(runId: string): Promise<ProcessResult> {
       // humana de ningún tipo.
       // Si self-heal no está configurado o falla, caemos al modo
       // anterior (issue manual en GitHub con @claude mention).
-      const hasSelfHeal =
-        !!process.env.GITHUB_SELF_HEAL_TOKEN && !!process.env.GITHUB_SELF_HEAL_REPO;
+      // Self-heal activo si el workspace tiene PAT cifrado en BD
+      // (/admin/sonia-self-heal) o si están las env vars de respaldo.
+      let hasSelfHeal = false;
+      try {
+        const { isSelfHealConfigured } = await import("@/lib/github/repo");
+        hasSelfHeal = await isSelfHealConfigured(run.workspaceId);
+      } catch {}
       if (hasSelfHeal) {
         void (async () => {
           try {

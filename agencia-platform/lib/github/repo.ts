@@ -14,15 +14,101 @@
 
 const BASE = "https://api.github.com";
 
-function getConfig(): { token: string; owner: string; repo: string; defaultBranch: string } {
-  const token = process.env.GITHUB_SELF_HEAL_TOKEN;
-  const fullRepo = process.env.GITHUB_SELF_HEAL_REPO;
-  if (!token) throw new Error("GITHUB_SELF_HEAL_TOKEN no configurado en env");
-  if (!fullRepo) throw new Error("GITHUB_SELF_HEAL_REPO no configurado en env (formato owner/repo)");
+// Defaults sensatos para esta instancia. Apuntan al repo donde vive
+// el código. El usuario puede sobreescribir en
+// Workspace.settings.integrations.selfHeal.{ repo, branch } si quiere
+// que el agente parchee otro repo.
+const DEFAULT_REPO = "tunegociovivo-bit/claude";
+const DEFAULT_BRANCH = "claude/internal-project-platform-ZezvX";
+
+type SelfHealConfig = {
+  token: string;
+  owner: string;
+  repo: string;
+  defaultBranch: string;
+};
+
+/**
+ * Lee config del workspace primero (cifrada en BD), env como fallback.
+ * Sin workspaceId, solo env. Si falta token en ambos, error claro.
+ */
+async function getConfigAsync(workspaceId?: string | null): Promise<SelfHealConfig> {
+  let token: string | undefined;
+  let fullRepo: string | undefined;
+  let branch: string | undefined;
+
+  if (workspaceId) {
+    try {
+      const { prisma } = await import("@/lib/db/prisma");
+      const { decryptSecret } = await import("@/lib/ai/crypto");
+      const ws = await prisma.workspace.findUnique({
+        where: { id: workspaceId },
+        select: { settings: true }
+      });
+      const cfg = (ws?.settings as any)?.integrations?.selfHeal;
+      if (cfg?.tokenEnc) {
+        const decoded = decryptSecret(cfg.tokenEnc);
+        if (decoded) token = decoded;
+      }
+      if (typeof cfg?.repo === "string") fullRepo = cfg.repo;
+      if (typeof cfg?.branch === "string") branch = cfg.branch;
+    } catch {
+      // si el lookup falla, caemos a env
+    }
+  }
+
+  token = token ?? process.env.GITHUB_SELF_HEAL_TOKEN;
+  fullRepo = fullRepo ?? process.env.GITHUB_SELF_HEAL_REPO ?? DEFAULT_REPO;
+  branch = branch ?? process.env.GITHUB_SELF_HEAL_BRANCH ?? DEFAULT_BRANCH;
+
+  if (!token) {
+    throw new Error(
+      "Self-heal sin configurar. Pega el PAT de GitHub en /admin/sonia-self-heal o setea GITHUB_SELF_HEAL_TOKEN en env."
+    );
+  }
   const [owner, repo] = fullRepo.split("/");
-  if (!owner || !repo) throw new Error("GITHUB_SELF_HEAL_REPO formato inválido");
-  const defaultBranch = process.env.GITHUB_SELF_HEAL_BRANCH || "claude/internal-project-platform-ZezvX";
-  return { token, owner, repo, defaultBranch };
+  if (!owner || !repo) {
+    throw new Error(`Repo inválido: ${fullRepo}. Formato esperado owner/repo.`);
+  }
+  return { token, owner, repo, defaultBranch: branch };
+}
+
+// Cache module-level de la config última usada — útil cuando un
+// caller llama múltiples veces seguidas sin pasar workspaceId.
+let lastUsedConfig: SelfHealConfig | null = null;
+function getConfig(): SelfHealConfig {
+  if (lastUsedConfig) return lastUsedConfig;
+  // Fallback puro a env (sin workspaceId)
+  const token = process.env.GITHUB_SELF_HEAL_TOKEN;
+  if (!token) {
+    throw new Error(
+      "Self-heal sin configurar y sin contexto de workspace. Configura en /admin/sonia-self-heal."
+    );
+  }
+  const fullRepo = process.env.GITHUB_SELF_HEAL_REPO ?? DEFAULT_REPO;
+  const branch = process.env.GITHUB_SELF_HEAL_BRANCH ?? DEFAULT_BRANCH;
+  const [owner, repo] = fullRepo.split("/");
+  lastUsedConfig = { token, owner, repo, defaultBranch: branch };
+  return lastUsedConfig;
+}
+
+/** Caller con workspaceId — versión preferida. */
+export async function loadRepoConfigForWorkspace(
+  workspaceId: string
+): Promise<SelfHealConfig> {
+  const cfg = await getConfigAsync(workspaceId);
+  lastUsedConfig = cfg; // las llamadas subsecuentes sync usan ésta
+  return cfg;
+}
+
+/** Devuelve si self-heal está configurado para este workspace (DB o env). */
+export async function isSelfHealConfigured(workspaceId?: string | null): Promise<boolean> {
+  try {
+    await getConfigAsync(workspaceId);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 async function ghFetch<T = any>(

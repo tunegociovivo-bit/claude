@@ -97,6 +97,14 @@ const SECTIONS: AdminSection[] = [
         icon: Volume2
       },
       {
+        href: "/admin/sonia-self-heal",
+        title: "Auto-fix de Sonia",
+        description:
+          "Cuando Sonia se topa con un bug del código, un agente Claude programático abre PR con el fix y lo mergea solo. Sin esperar a nadie. Configura el PAT de GitHub una vez aquí.",
+        icon: ShieldCheck,
+        highlight: true
+      },
+      {
         href: "/admin/sonia-lessons",
         title: "Lecciones aprendidas",
         description:
