@@ -1086,13 +1086,26 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
   },
   {
     name: "meta_ads_update_ad",
-    description: "Modifica un ad: status, nombre.",
+    description:
+      "Modifica un ad existente. Casos:\n" +
+      "- status (PAUSED, ACTIVE, DELETED, ARCHIVED)\n" +
+      "- name\n" +
+      "- **creativeId**: SWAP de la creatividad del ad. Workflow para 'regenerar la imagen del anuncio' SIN re-crear toda la campaña:\n" +
+      "  1. generate_meta_ad_creative (con QC automático) → tienes nueva imagen como adjunto del task\n" +
+      "  2. meta_ads_upload_image con esa imagen → te da image_hash\n" +
+      "  3. meta_ads_create_ad_creative con el image_hash + leadFormId + pageId + link → te da creative_id\n" +
+      "  4. meta_ads_update_ad({ adId, creativeId }) ← SWAP — el ad ahora usa la imagen nueva, todo lo demás (form, targeting, budget) se mantiene\n" +
+      "  5. (opcional) meta_ads_get_ad_preview para confirmar visualmente",
     input_schema: {
       type: "object",
       properties: {
         adId: { type: "string" },
         name: { type: "string" },
-        status: { type: "string", enum: ["ACTIVE", "PAUSED", "DELETED", "ARCHIVED"] }
+        status: { type: "string", enum: ["ACTIVE", "PAUSED", "DELETED", "ARCHIVED"] },
+        creativeId: {
+          type: "string",
+          description: "id del nuevo creative (de meta_ads_create_ad_creative). Sustituye al actual."
+        }
       },
       required: ["adId"],
       additionalProperties: false
@@ -4329,6 +4342,7 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
         adId: String(input?.adId ?? ""),
         name: input?.name ? String(input.name) : undefined,
         status: input?.status as any,
+        creativeId: input?.creativeId ? String(input.creativeId) : undefined,
         adhoc: ctx.adhocCredentials
       });
       return r;

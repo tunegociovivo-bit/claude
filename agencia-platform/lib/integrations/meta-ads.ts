@@ -851,12 +851,17 @@ export async function metaAdsUpdateAd(opts: {
   adId: string;
   name?: string;
   status?: "ACTIVE" | "PAUSED" | "DELETED" | "ARCHIVED";
+  /** Sustituye el creative del ad. Útil para "regenerar imagen": creas
+   *  un creative nuevo con la imagen actualizada y haces swap aquí
+   *  sin tener que re-crear campaign/adset/form. */
+  creativeId?: string;
   adhoc?: Record<string, string>;
 }): Promise<{ success: boolean }> {
   const cfg = await getMetaAdsConfig(opts.workspaceId, opts.adhoc);
   const payload: Record<string, unknown> = {};
   if (opts.name) payload.name = opts.name;
   if (opts.status) payload.status = opts.status;
+  if (opts.creativeId) payload.creative = { creative_id: opts.creativeId };
   if (Object.keys(payload).length === 0) throw new Error("Pasa al menos un campo");
   await metaPost(`/${opts.adId}`, cfg.accessToken, payload);
   return { success: true };

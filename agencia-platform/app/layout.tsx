@@ -85,7 +85,7 @@ const earlyInstallCapture = `
  */
 const swSelfHeal = `
   (function () {
-    var EXPECTED = "v79-2026-05-19-make-raw-obedience";
+    var EXPECTED = "v80-2026-05-19-ad-creative-swap";
     if (!('serviceWorker' in navigator)) return;
     var key = "hub_sw_v_seen";
     var seen = null;
