@@ -26,7 +26,7 @@
 // reintroducir cache PERO con purga agresiva por VERSION en
 // activate.
 
-const VERSION = "v70-2026-05-19-make-orgid-fix";
+const VERSION = "v71-2026-05-19-make-orgs-endpoint";
 
 self.addEventListener("install", (event) => {
   // Activación inmediata: no esperar a que el SW viejo libere.

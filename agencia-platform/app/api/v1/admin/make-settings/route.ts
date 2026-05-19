@@ -62,41 +62,37 @@ export const PUT = withApi({ scope: "admin" }, async (req, { api }) => {
   }
 
   // Validar contra Make. Make API v2 requiere organizationId en /teams,
-  // así que primero pedimos /users/me (no requiere params) para conseguir
-  // las organizations del usuario, luego iteramos para listar teams.
-  const meRes = await fetch(`https://${zone}.make.com/api/v2/users/me`, {
+  // así que primero pedimos /organizations (devuelve las del usuario)
+  // y luego iteramos para listar teams de cada una.
+  const orgRes = await fetch(`https://${zone}.make.com/api/v2/organizations`, {
     headers: {
       Authorization: `Token ${plainToken}`,
       "Content-Type": "application/json"
     }
   });
-  if (!meRes.ok) {
-    const t = await meRes.text();
+  if (!orgRes.ok) {
+    const t = await orgRes.text();
     return NextResponse.json(
       {
         error:
-          meRes.status === 401
-            ? "Token inválido (Make respondió 401). Verifica que tiene scopes scenarios:read+write, teams:read, connections:read."
-            : meRes.status === 403
-              ? "Token sin permisos suficientes. Recrea con scopes scenarios:read+write, teams:read."
-              : `Make ${meRes.status} /users/me: ${t.slice(0, 200)}`
+          orgRes.status === 401
+            ? "Token inválido (Make respondió 401). Verifica que tiene scopes scenarios:read+write, teams:read, organizations:read, connections:read."
+            : orgRes.status === 403
+              ? "Token sin permisos suficientes. Recrea con scopes scenarios:read+write, teams:read, organizations:read."
+              : `Make ${orgRes.status} /organizations: ${t.slice(0, 200)}`
       },
       { status: 400 }
     );
   }
-  const meData = await meRes.json();
-  // Estructura: { authUser: { userOrganizationRoles: [{ organizationId, ... }] } }
-  // o { user: { ... } } en versiones recientes
-  const meUser = meData.authUser ?? meData.user ?? meData;
-  const orgRoles: any[] = meUser?.userOrganizationRoles ?? meUser?.organizations ?? [];
-  const orgIds = Array.from(
-    new Set(orgRoles.map((r: any) => r.organizationId ?? r.id).filter(Boolean))
+  const orgData = await orgRes.json();
+  const orgs: Array<{ id: number; name: string }> = (orgData.organizations ?? []).map(
+    (o: any) => ({ id: o.id, name: o.name })
   );
-  if (orgIds.length === 0) {
+  if (orgs.length === 0) {
     return NextResponse.json(
       {
         error:
-          "El token funciona pero no se encontraron organizaciones asociadas. Revisa que el token pertenece a un usuario con acceso a al menos una organization en Make."
+          "El token funciona pero /organizations devolvió lista vacía. El token debe pertenecer a un usuario miembro de al menos una organization. Recrea el token desde el avatar del usuario propietario."
       },
       { status: 400 }
     );
@@ -104,9 +100,9 @@ export const PUT = withApi({ scope: "admin" }, async (req, { api }) => {
 
   // Listar teams de TODAS las organizations del usuario
   const teams: Array<{ id: number; name: string; organizationId: number }> = [];
-  for (const orgId of orgIds) {
+  for (const org of orgs) {
     const tRes = await fetch(
-      `https://${zone}.make.com/api/v2/teams?organizationId=${orgId}`,
+      `https://${zone}.make.com/api/v2/teams?organizationId=${org.id}`,
       {
         headers: {
           Authorization: `Token ${plainToken}`,
@@ -118,14 +114,14 @@ export const PUT = withApi({ scope: "admin" }, async (req, { api }) => {
       const t = await tRes.text();
       return NextResponse.json(
         {
-          error: `Make ${tRes.status} /teams (org ${orgId}): ${t.slice(0, 200)}`
+          error: `Make ${tRes.status} /teams (org ${org.id} "${org.name}"): ${t.slice(0, 200)}`
         },
         { status: 400 }
       );
     }
     const tData = await tRes.json();
     for (const t of tData.teams ?? []) {
-      teams.push({ id: t.id, name: t.name, organizationId: orgId as number });
+      teams.push({ id: t.id, name: t.name, organizationId: org.id });
     }
   }
   // Si el user no eligió teamId pero hay solo 1, lo seteamos automático

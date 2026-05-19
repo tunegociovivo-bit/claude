@@ -86,25 +86,11 @@ async function makeFetch<T = any>(
 export async function makeListOrganizations(
   workspaceId: string
 ): Promise<Array<{ id: number; name: string }>> {
-  // /users/me devuelve userOrganizationRoles con organizationId.
-  // No requiere parámetros, lo que lo hace ideal como bootstrap.
-  const me = await makeFetch<any>(workspaceId, `/users/me`);
-  const user = me.authUser ?? me.user ?? me;
-  const roles: any[] = user?.userOrganizationRoles ?? user?.organizations ?? [];
-  const ids = Array.from(
-    new Set(roles.map((r: any) => r.organizationId ?? r.id).filter(Boolean))
-  );
-  // Para enriquecer con name, llamamos /organizations (también requiere
-  // estar logado, devuelve solo las del usuario).
-  try {
-    const data = await makeFetch<any>(workspaceId, `/organizations`);
-    return (data.organizations ?? []).map((o: any) => ({
-      id: o.id,
-      name: o.name
-    }));
-  } catch {
-    return ids.map((id) => ({ id: id as number, name: `org ${id}` }));
-  }
+  const data = await makeFetch<any>(workspaceId, `/organizations`);
+  return (data.organizations ?? []).map((o: any) => ({
+    id: o.id,
+    name: o.name
+  }));
 }
 
 export async function makeListTeams(workspaceId: string): Promise<Array<{
