@@ -28,8 +28,8 @@ export async function getVoiceConfig(workspaceId: string): Promise<VoiceConfig> 
   const apiKey = v.apiKeyEnc ? decryptSecret(v.apiKeyEnc) : process.env.VAPI_API_KEY ?? null;
   return {
     apiKey: apiKey || null,
-    phoneNumberId: v.phoneNumberId ?? null,
-    assistantId: v.assistantId ?? null,
+    phoneNumberId: v.phoneNumberId ?? process.env.VAPI_PHONE_NUMBER_ID ?? null,
+    assistantId: v.assistantId ?? process.env.VAPI_ASSISTANT_ID ?? null,
     webhookToken: v.webhookTokenEnc ? decryptSecret(v.webhookTokenEnc) : v.webhookToken ?? null
   };
 }

@@ -26,9 +26,12 @@ export async function getGmbConfig(workspaceId: string): Promise<GmbConfig> {
     ? decryptSecret(g.webhookTokenEnc)
     : typeof g.webhookToken === "string" && g.webhookToken
       ? g.webhookToken
-      : null;
+      : process.env.GMB_WEBHOOK_TOKEN ?? null;
   return {
-    replyWebhookUrl: typeof g.replyWebhookUrl === "string" && g.replyWebhookUrl ? g.replyWebhookUrl : null,
+    replyWebhookUrl:
+      typeof g.replyWebhookUrl === "string" && g.replyWebhookUrl
+        ? g.replyWebhookUrl
+        : process.env.GMB_REPLY_WEBHOOK_URL ?? null,
     ingestToken: ingestToken || null
   };
 }
