@@ -56,7 +56,7 @@ export default function AppChrome({ children }: { children: ReactNode }) {
           " md:translate-x-0"
         }
       >
-        <Suspense fallback={<aside className="w-72 md:w-64 shrink-0 border-r bg-white h-screen" />}>
+        <Suspense fallback={<aside className="w-72 md:w-64 shrink-0 border-r border-slate-800 bg-slate-900 h-screen" />}>
           <Sidebar onNavigate={() => setMobileOpen(false)} />
         </Suspense>
       </div>

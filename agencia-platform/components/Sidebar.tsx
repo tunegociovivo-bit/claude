@@ -183,8 +183,8 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}
   }, [newProjectOpen]); // refetch tras cerrar modal
 
   return (
-    <aside className="w-72 md:w-64 shrink-0 border-r bg-white flex flex-col h-screen overflow-y-auto">
-      <Link onClick={onNavigate} href="/" className="h-16 flex items-center gap-2 px-5 border-b hover:bg-slate-50">
+    <aside className="w-72 md:w-64 shrink-0 border-r border-slate-800 bg-slate-900 text-slate-300 flex flex-col h-screen overflow-y-auto">
+      <Link onClick={onNavigate} href="/" className="h-16 flex items-center gap-2 px-5 border-b border-slate-800 hover:bg-slate-800">
         {workspace?.logo ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
@@ -198,8 +198,8 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}
           </div>
         )}
         <div className="leading-tight min-w-0">
-          <div className="text-sm font-semibold truncate">{workspace?.name ?? "Hub"}</div>
-          <div className="text-xs text-slate-500">Plataforma interna</div>
+          <div className="text-sm font-semibold truncate text-white">{workspace?.name ?? "Hub"}</div>
+          <div className="text-xs text-slate-400">Plataforma interna</div>
         </div>
       </Link>
 
@@ -222,8 +222,8 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}
               className={clsx(
                 "flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors",
                 active && !activeProjectId
-                  ? "bg-brand-50 text-brand-700 font-medium"
-                  : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
+                  ? "bg-brand-600/25 text-white font-medium"
+                  : "text-slate-300 hover:bg-slate-800 hover:text-white"
               )}
             >
               <Icon className="h-4 w-4" />
@@ -232,15 +232,15 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}
           );
         })}
 
-        <div className="pt-4 mt-2 border-t border-slate-100">
+        <div className="pt-4 mt-2 border-t border-slate-800">
           <div className="flex items-center justify-between px-3 mb-1">
-            <span className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold flex items-center gap-1.5">
+            <span className="text-[10px] uppercase tracking-wide text-slate-400 font-semibold flex items-center gap-1.5">
               <FolderKanban className="h-3 w-3" />
               Proyectos
             </span>
             <button
               onClick={() => setNewProjectOpen(true)}
-              className="h-5 w-5 grid place-items-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+              className="h-5 w-5 grid place-items-center rounded text-slate-400 hover:bg-slate-800 hover:text-white"
               aria-label="Nuevo proyecto"
               title="Nuevo proyecto"
             >
@@ -261,8 +261,8 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}
                     className={clsx(
                       "flex-1 flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition-colors min-w-0",
                       active
-                        ? "bg-brand-50 text-brand-700 font-medium"
-                        : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
+                        ? "bg-brand-600/25 text-white font-medium"
+                        : "text-slate-300 hover:bg-slate-800 hover:text-white"
                     )}
                   >
                     {/* Prioridad visual: foto del manager > emoji > puntito color.
@@ -274,7 +274,7 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}
                         src={p.managerImage}
                         alt={p.managerName ?? ""}
                         title={p.managerName ? `Gestor: ${p.managerName}` : undefined}
-                        className="h-5 w-5 rounded-full object-cover shrink-0 border border-white"
+                        className="h-5 w-5 rounded-full object-cover shrink-0 border border-slate-700"
                       />
                     ) : p.emoji ? (
                       <span className="text-base leading-none shrink-0 w-5 text-center">
@@ -291,7 +291,7 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}
                       type="button"
                       onClick={(e) => { e.preventDefault(); moveProject(p.id, -1); }}
                       disabled={idx === 0}
-                      className="h-3 w-4 grid place-items-center rounded text-slate-400 hover:text-slate-700 disabled:opacity-30"
+                      className="h-3 w-4 grid place-items-center rounded text-slate-500 hover:text-white disabled:opacity-30"
                       title="Subir"
                     >
                       <ArrowUp className="h-2.5 w-2.5" />
@@ -300,7 +300,7 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}
                       type="button"
                       onClick={(e) => { e.preventDefault(); moveProject(p.id, 1); }}
                       disabled={idx === arr.length - 1}
-                      className="h-3 w-4 grid place-items-center rounded text-slate-400 hover:text-slate-700 disabled:opacity-30"
+                      className="h-3 w-4 grid place-items-center rounded text-slate-500 hover:text-white disabled:opacity-30"
                       title="Bajar"
                     >
                       <ArrowDown className="h-2.5 w-2.5" />
@@ -313,7 +313,7 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}
                         e.preventDefault();
                         setProjectToDelete({ id: p.id, name: p.name });
                       }}
-                      className="hidden group-hover:grid h-5 w-5 place-items-center rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50 shrink-0"
+                      className="hidden group-hover:grid h-5 w-5 place-items-center rounded text-slate-400 hover:text-rose-400 hover:bg-rose-950 shrink-0"
                       title="Eliminar proyecto"
                     >
                       <Trash2 className="h-3 w-3" />
@@ -325,7 +325,7 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}
             {projects.length === 0 && (
               <button
                 onClick={() => setNewProjectOpen(true)}
-                className="w-full text-left px-3 py-1.5 text-xs text-slate-500 hover:text-slate-900 hover:bg-slate-50 rounded"
+                className="w-full text-left px-3 py-1.5 text-xs text-slate-400 hover:text-white hover:bg-slate-800 rounded"
               >
                 + Crea tu primer proyecto
               </button>
@@ -334,16 +334,16 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}
         </div>
 
         {(platforms.length > 0 || me?.role === "ADMIN") && (
-          <div className="pt-4 mt-2 border-t border-slate-100">
+          <div className="pt-4 mt-2 border-t border-slate-800">
             <div className="flex items-center justify-between px-3 mb-1">
-              <span className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold flex items-center gap-1.5">
+              <span className="text-[10px] uppercase tracking-wide text-slate-400 font-semibold flex items-center gap-1.5">
                 <AppWindow className="h-3 w-3" />
                 Plataformas
               </span>
               {me?.role === "ADMIN" && (
                 <Link onClick={onNavigate}
                   href="/admin/plataformas"
-                  className="h-5 w-5 grid place-items-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                  className="h-5 w-5 grid place-items-center rounded text-slate-400 hover:bg-slate-800 hover:text-white"
                   title="Configurar plataformas"
                 >
                   <Settings className="h-3 w-3" />
@@ -365,8 +365,8 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}
                       className={clsx(
                         "flex-1 flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition-colors min-w-0",
                         active
-                          ? "bg-brand-50 text-brand-700 font-medium"
-                          : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
+                          ? "bg-brand-600/25 text-white font-medium"
+                          : "text-slate-300 hover:bg-slate-800 hover:text-white"
                       )}
                     >
                       <Icon className="h-3.5 w-3.5 shrink-0" />
@@ -378,7 +378,7 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}
                         type="button"
                         onClick={(e) => { e.preventDefault(); movePlatform(p.key, -1); }}
                         disabled={idx === 0}
-                        className="h-3 w-4 grid place-items-center rounded text-slate-400 hover:text-slate-700 disabled:opacity-30"
+                        className="h-3 w-4 grid place-items-center rounded text-slate-500 hover:text-white disabled:opacity-30"
                         title="Subir"
                       >
                         <ArrowUp className="h-2.5 w-2.5" />
@@ -387,7 +387,7 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}
                         type="button"
                         onClick={(e) => { e.preventDefault(); movePlatform(p.key, 1); }}
                         disabled={idx === arr.length - 1}
-                        className="h-3 w-4 grid place-items-center rounded text-slate-400 hover:text-slate-700 disabled:opacity-30"
+                        className="h-3 w-4 grid place-items-center rounded text-slate-500 hover:text-white disabled:opacity-30"
                         title="Bajar"
                       >
                         <ArrowDown className="h-2.5 w-2.5" />
@@ -399,7 +399,7 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}
               {platforms.length === 0 && me?.role === "ADMIN" && (
                 <Link onClick={onNavigate}
                   href="/admin/plataformas"
-                  className="block px-3 py-1.5 text-xs text-slate-500 hover:text-slate-900 hover:bg-slate-50 rounded"
+                  className="block px-3 py-1.5 text-xs text-slate-400 hover:text-white hover:bg-slate-800 rounded"
                 >
                   Activa una plataforma →
                 </Link>
@@ -409,17 +409,17 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}
         )}
       </nav>
 
-      <div className="border-t p-3">
+      <div className="border-t border-slate-800 p-3">
         <Link onClick={onNavigate}
           href="/admin"
-          className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-slate-600 hover:bg-slate-50"
+          className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-slate-300 hover:bg-slate-800 hover:text-white"
         >
           <Settings className="h-4 w-4" />
           Administración
         </Link>
         <Link onClick={onNavigate}
           href="/perfil"
-          className="mt-3 flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-50"
+          className="mt-3 flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-800"
         >
           {me?.image ? (
             // eslint-disable-next-line @next/next/no-img-element
@@ -430,8 +430,8 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}
             </div>
           )}
           <div className="leading-tight min-w-0">
-            <div className="text-sm font-medium truncate">{me?.name ?? me?.email ?? "Cargando…"}</div>
-            <div className="text-xs text-slate-500">
+            <div className="text-sm font-medium truncate text-white">{me?.name ?? me?.email ?? "Cargando…"}</div>
+            <div className="text-xs text-slate-400">
               {me?.role === "ADMIN" ? "Administrador" : me?.role === "MEMBER" ? "Miembro" : me?.role === "GUEST" ? "Invitado" : ""}
             </div>
           </div>
@@ -563,7 +563,7 @@ function VersionBadge() {
   }, []);
 
   return (
-    <div className="px-3 py-2 border-t bg-slate-50 text-[10px] text-slate-500 shrink-0">
+    <div className="px-3 py-2 border-t border-slate-800 bg-slate-950 text-[10px] text-slate-400 shrink-0">
       <button
         type="button"
         onClick={load}
@@ -575,7 +575,7 @@ function VersionBadge() {
               }\nClick para refrescar`
             : "Cargando versión…"
         }
-        className="font-mono hover:text-slate-800 truncate w-full text-left disabled:opacity-50 leading-tight"
+        className="font-mono hover:text-white truncate w-full text-left disabled:opacity-50 leading-tight"
       >
         <div>
           v {info?.commitShort ?? "?"}

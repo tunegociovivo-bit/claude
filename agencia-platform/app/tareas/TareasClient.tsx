@@ -2099,22 +2099,24 @@ function ColumnHeader({
  * sin saturar.
  */
 function softBgFromColor(color: string): string {
+  // Fondos de columna — subidos un nivel de intensidad (David quería
+  // que se notaran más). Antes eran -50/-100/60 casi imperceptibles;
+  // ahora -100/-200 con borde para definir bien cada columna.
   const m: Record<string, string> = {
-    "bg-slate-100 text-slate-700 border-slate-200": "bg-slate-100/60",
-    "bg-sky-100 text-sky-800 border-sky-300": "bg-sky-50",
-    "bg-indigo-50 text-indigo-700 border-indigo-200": "bg-indigo-50/60",
-    "bg-amber-100 text-amber-800 border-amber-300": "bg-amber-50",
-    "bg-emerald-100 text-emerald-800 border-emerald-300": "bg-emerald-50",
-    "bg-rose-100 text-rose-800 border-rose-300": "bg-rose-50",
-    "bg-violet-100 text-violet-800 border-violet-300": "bg-violet-50",
-    // Tonos intensos: usamos un tone-100 más vibrante en el wrapper
-    // para que se note que es una columna "fuerte" pero no sature.
-    "bg-rose-600 text-white border-rose-700": "bg-rose-100",
-    "bg-orange-500 text-white border-orange-700": "bg-orange-100",
-    "bg-emerald-600 text-white border-emerald-700": "bg-emerald-100",
-    "bg-slate-900 text-white border-slate-900": "bg-slate-200"
+    "bg-slate-100 text-slate-700 border-slate-200": "bg-slate-200/70 border border-slate-300",
+    "bg-sky-100 text-sky-800 border-sky-300": "bg-sky-100 border border-sky-200",
+    "bg-indigo-50 text-indigo-700 border-indigo-200": "bg-indigo-100 border border-indigo-200",
+    "bg-amber-100 text-amber-800 border-amber-300": "bg-amber-100 border border-amber-200",
+    "bg-emerald-100 text-emerald-800 border-emerald-300": "bg-emerald-100 border border-emerald-200",
+    "bg-rose-100 text-rose-800 border-rose-300": "bg-rose-100 border border-rose-200",
+    "bg-violet-100 text-violet-800 border-violet-300": "bg-violet-100 border border-violet-200",
+    // Tonos intensos
+    "bg-rose-600 text-white border-rose-700": "bg-rose-200 border border-rose-300",
+    "bg-orange-500 text-white border-orange-700": "bg-orange-200 border border-orange-300",
+    "bg-emerald-600 text-white border-emerald-700": "bg-emerald-200 border border-emerald-300",
+    "bg-slate-900 text-white border-slate-900": "bg-slate-300 border border-slate-400"
   };
-  return m[color] ?? "bg-slate-100/60";
+  return m[color] ?? "bg-slate-200/70 border border-slate-300";
 }
 
 /**

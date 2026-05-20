@@ -85,7 +85,7 @@ const earlyInstallCapture = `
  */
 const swSelfHeal = `
   (function () {
-    var EXPECTED = "v97-2026-05-19-install-btn-mobile-10s";
+    var EXPECTED = "v98-2026-05-19-dark-sidebar-intense-cols";
     if (!('serviceWorker' in navigator)) return;
     var key = "hub_sw_v_seen";
     var seen = null;

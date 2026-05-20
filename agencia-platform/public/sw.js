@@ -26,7 +26,7 @@
 // reintroducir cache PERO con purga agresiva por VERSION en
 // activate.
 
-const VERSION = "v97-2026-05-19-install-btn-mobile-10s";
+const VERSION = "v98-2026-05-19-dark-sidebar-intense-cols";
 
 self.addEventListener("install", (event) => {
   // Activación inmediata: no esperar a que el SW viejo libere.
