@@ -62,10 +62,15 @@ export const chatTools: ChatTool[] = [
   },
   {
     name: "search_tasks",
-    description: "Lista tareas filtrando por proyecto, estado, prioridad o cliente.",
+    description:
+      "Busca/lista tareas. Para buscar por TEXTO (un nombre, palabra o frase que aparezca en el título o la descripción de la tarea) usa `query` — ej. query:'clínica march' encuentra todas las tareas que mencionen eso, estén o no vinculadas a un cliente. También puedes filtrar por proyecto, estado, prioridad o cliente.\n\nIMPORTANTE: si el usuario pide 'tareas donde se nombre/mencione X', usa SIEMPRE `query:'X'` — NO asumas que X es un cliente. El texto puede estar solo en el título.",
     input_schema: {
       type: "object",
       properties: {
+        query: {
+          type: "string",
+          description: "Texto a buscar en título Y descripción de las tareas (case-insensitive, acentos incluidos)."
+        },
         projectId: { type: "string" },
         clientId: { type: "string" },
         status: { type: "string", enum: ["TODO", "IN_PROGRESS", "REVIEW", "DONE"] },
@@ -73,14 +78,23 @@ export const chatTools: ChatTool[] = [
       }
     },
     run: async (args, ctx) => {
+      const where: any = {
+        workspaceId: ctx.workspaceId,
+        deletedAt: null
+      };
+      if (args?.projectId) where.projectId = args.projectId;
+      if (args?.clientId) where.clientId = args.clientId;
+      if (args?.status) where.status = args.status;
+      if (args?.priority) where.priority = args.priority;
+      const q = typeof args?.query === "string" ? args.query.trim() : "";
+      if (q) {
+        where.OR = [
+          { title: { contains: q, mode: "insensitive" } },
+          { description: { contains: q, mode: "insensitive" } }
+        ];
+      }
       const items = await prisma.task.findMany({
-        where: {
-          workspaceId: ctx.workspaceId,
-          projectId: args?.projectId,
-          clientId: args?.clientId,
-          status: args?.status,
-          priority: args?.priority
-        },
+        where,
         take: 50,
         include: {
           project: { select: { name: true } },
@@ -88,8 +102,10 @@ export const chatTools: ChatTool[] = [
         },
         orderBy: [{ status: "asc" }, { dueDate: "asc" }]
       });
-      return JSON.stringify(
-        items.map((t) => ({
+      return JSON.stringify({
+        count: items.length,
+        query: q || null,
+        tasks: items.map((t) => ({
           id: t.id,
           title: t.title,
           status: t.status,
@@ -98,7 +114,7 @@ export const chatTools: ChatTool[] = [
           project: t.project?.name,
           client: t.client?.name
         }))
-      );
+      });
     }
   },
   {
