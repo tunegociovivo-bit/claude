@@ -283,6 +283,132 @@ export const chatTools: ChatTool[] = [
   }
 ];
 
+// ── BÚSQUEDA UNIVERSAL ───────────────────────────────────────────
+// Una tool que rastrea TODO el workspace: tasks, comentarios,
+// adjuntos, proyectos, clientes, documentos y eventos de calendario.
+// Para responder "¿dónde se menciona X?" sobre cualquier cosa.
+chatTools.push({
+  name: "search_everything",
+  description:
+    "BÚSQUEDA UNIVERSAL en todo el workspace por una palabra/nombre/frase. Rastrea simultáneamente:\n" +
+    "- Tareas (título + descripción)\n" +
+    "- COMENTARIOS de tareas/proyectos/clientes/documentos (texto del comentario)\n" +
+    "- Adjuntos / archivos (nombre del fichero)\n" +
+    "- Proyectos (nombre + descripción)\n" +
+    "- Clientes (nombre + brief de marca)\n" +
+    "- Documentos (título)\n" +
+    "- Eventos de calendario (título + descripción)\n\n" +
+    "Úsala SIEMPRE que el usuario pregunte '¿dónde aparece/se menciona/se nombra X?' o quiera un rastreo completo. Devuelve resultados AGRUPADOS por tipo, con el contexto de cada coincidencia (ej. 'comentario de Ana en la tarea Y'). Si una coincidencia está en un comentario, resuelve a qué tarea/proyecto pertenece.",
+  input_schema: {
+    type: "object",
+    properties: {
+      query: { type: "string", description: "Texto a buscar (case-insensitive)." }
+    },
+    required: ["query"]
+  },
+  run: async (args, ctx) => {
+    const q = String(args?.query ?? "").trim();
+    if (q.length < 2) return JSON.stringify({ error: "query demasiado corta" });
+    const ci = { contains: q, mode: "insensitive" as const };
+    const ws = ctx.workspaceId;
+
+    const [tasks, comments, files, projects, clients, documents, events] = await Promise.all([
+      prisma.task.findMany({
+        where: { workspaceId: ws, deletedAt: null, OR: [{ title: ci }, { description: ci }] },
+        take: 30,
+        select: { id: true, title: true, status: true, project: { select: { name: true } }, client: { select: { name: true } } }
+      }),
+      prisma.comment.findMany({
+        where: { workspaceId: ws, body: ci },
+        take: 30,
+        orderBy: { createdAt: "desc" },
+        select: { id: true, body: true, targetType: true, targetId: true, createdAt: true, author: { select: { name: true } } }
+      }),
+      prisma.file.findMany({
+        where: { workspaceId: ws, name: ci },
+        take: 20,
+        select: { id: true, name: true, mimeType: true, targetType: true, targetId: true }
+      }),
+      prisma.project.findMany({
+        where: { workspaceId: ws, deletedAt: null, OR: [{ name: ci }, { description: ci }] },
+        take: 15,
+        select: { id: true, name: true, description: true }
+      }),
+      prisma.client.findMany({
+        where: { workspaceId: ws, OR: [{ name: ci }, { brandBrief: ci }] } as any,
+        take: 15,
+        select: { id: true, name: true }
+      }),
+      prisma.document.findMany({
+        where: { workspaceId: ws, deletedAt: null, title: ci },
+        take: 15,
+        select: { id: true, title: true }
+      }),
+      prisma.calendarEvent.findMany({
+        where: { workspaceId: ws, OR: [{ title: ci }, { description: ci }] },
+        take: 15,
+        orderBy: { startAt: "desc" },
+        select: { id: true, title: true, startAt: true, client: { select: { name: true } } }
+      })
+    ]);
+
+    // Resolver los targets de los comentarios (a qué task/proyecto/etc apuntan)
+    const taskIds = comments.filter((c) => c.targetType === "TASK").map((c) => c.targetId);
+    const taskTitles = taskIds.length
+      ? await prisma.task.findMany({ where: { id: { in: taskIds } }, select: { id: true, title: true } })
+      : [];
+    const taskTitleMap = new Map(taskTitles.map((t) => [t.id, t.title]));
+
+    function snippet(text: string): string {
+      const idx = text.toLowerCase().indexOf(q.toLowerCase());
+      if (idx === -1) return text.slice(0, 120);
+      const start = Math.max(0, idx - 40);
+      return (start > 0 ? "…" : "") + text.slice(start, idx + q.length + 60) + "…";
+    }
+
+    const result = {
+      query: q,
+      totalMatches:
+        tasks.length + comments.length + files.length + projects.length + clients.length + documents.length + events.length,
+      tasks: tasks.map((t) => ({
+        id: t.id,
+        title: t.title,
+        status: t.status,
+        project: t.project?.name,
+        client: t.client?.name
+      })),
+      comments: comments.map((c) => ({
+        id: c.id,
+        author: c.author?.name,
+        on:
+          c.targetType === "TASK"
+            ? `tarea: ${taskTitleMap.get(c.targetId) ?? c.targetId}`
+            : `${c.targetType.toLowerCase()}: ${c.targetId}`,
+        targetType: c.targetType,
+        targetId: c.targetId,
+        snippet: snippet(c.body),
+        date: c.createdAt.toISOString().slice(0, 10)
+      })),
+      files: files.map((f) => ({
+        id: f.id,
+        name: f.name,
+        type: f.mimeType,
+        attachedTo: f.targetType ? `${f.targetType}: ${f.targetId}` : null
+      })),
+      projects: projects.map((p) => ({ id: p.id, name: p.name })),
+      clients: clients.map((c) => ({ id: c.id, name: c.name })),
+      documents: documents.map((d) => ({ id: d.id, title: d.title })),
+      calendarEvents: events.map((e) => ({
+        id: e.id,
+        title: e.title,
+        when: e.startAt.toISOString().slice(0, 10),
+        client: e.client?.name
+      }))
+    };
+    return JSON.stringify(result);
+  }
+});
+
 export const toolDefs = chatTools.map((t) => ({
   name: t.name,
   description: t.description,
