@@ -602,7 +602,7 @@ function FichaDetail({ id, onClose, onChanged }: { id: string; onClose: () => vo
   const [loading, setLoading] = useState(true);
   const [onlyUnreplied, setOnlyUnreplied] = useState(false);
   const [tab, setTab] = useState<
-    "reviews" | "posts" | "fotos" | "qa" | "plantillas" | "seo" | "competitors" | "ranking"
+    "reviews" | "posts" | "fotos" | "qa" | "plantillas" | "seo" | "competitors" | "ranking" | "editar"
   >("reviews");
 
   async function load() {
@@ -647,7 +647,8 @@ function FichaDetail({ id, onClose, onChanged }: { id: string; onClose: () => vo
             ["plantillas", "Plantillas", FileText],
             ["seo", "SEO", Gauge],
             ["competitors", "Competencia", Users],
-            ["ranking", "Ranking", MapPin]
+            ["ranking", "Ranking", MapPin],
+            ["editar", "Editar", Settings]
           ] as const).map(([k, label, Icon]) => (
             <button
               key={k}
@@ -670,6 +671,7 @@ function FichaDetail({ id, onClose, onChanged }: { id: string; onClose: () => vo
         {tab === "seo" && <SeoPanel id={id} />}
         {tab === "competitors" && <CompetitorsPanel id={id} />}
         {tab === "ranking" && <RankingPanel id={id} />}
+        {tab === "editar" && <EditFichaPanel id={id} onSaved={() => { load(); onChanged(); }} />}
 
         {tab === "reviews" && (
         <div className="p-4 space-y-3">
@@ -1916,6 +1918,123 @@ function CreateScenarioButton({ id }: { id: string }) {
         {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Settings className="h-3.5 w-3.5" />}
         Make
       </button>
+    </div>
+  );
+}
+
+function EditFichaPanel({ id, onSaved }: { id: string; onSaved: () => void }) {
+  const [form, setForm] = useState<any>(null);
+  const [saving, setSaving] = useState(false);
+  const [genBusy, setGenBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [origin, setOrigin] = useState("");
+
+  useEffect(() => {
+    setOrigin(window.location.origin);
+    fetch(`/api/v1/gmb/clients/${id}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (d?.client) setForm(d.client); });
+  }, [id]);
+
+  function set(k: string, v: any) { setForm((f: any) => ({ ...f, [k]: v })); }
+
+  async function genDescription() {
+    setGenBusy(true); setMsg(null);
+    try {
+      const r = await fetch(`/api/v1/gmb/clients/${id}/generate-description`, { method: "POST" });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d?.error?.message ?? "Error");
+      set("description", d.description ?? "");
+    } catch (e: any) { setMsg(e?.message ?? "Error"); } finally { setGenBusy(false); }
+  }
+
+  async function save() {
+    setSaving(true); setMsg(null);
+    try {
+      const payload: any = {};
+      for (const k of ["name", "category", "mainKeyword", "description", "phone", "website", "address", "placeId", "accountId", "locationId", "emails", "tone", "status", "autoReply"]) {
+        if (form[k] !== undefined && form[k] !== null) payload[k] = form[k];
+      }
+      if (form.frequency) payload.frequency = Number(form.frequency);
+      const r = await fetch(`/api/v1/gmb/clients/${id}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload)
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d?.error?.message ?? "Error");
+      setMsg("Guardado.");
+      setTimeout(() => setMsg(null), 2500);
+      onSaved();
+    } catch (e: any) { setMsg(e?.message ?? "Error"); } finally { setSaving(false); }
+  }
+
+  if (!form) return <div className="p-4 text-sm text-slate-500 flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" /> Cargando…</div>;
+
+  const embed = `<iframe src="${origin}/gmb-widget/${id}" style="width:100%;max-width:480px;height:520px;border:0" loading="lazy"></iframe>`;
+  const fld = (k: string, label: string, ph?: string) => (
+    <div>
+      <label className="block text-xs font-medium text-slate-700 mb-1">{label}</label>
+      <input value={form[k] ?? ""} onChange={(e) => set(k, e.target.value)} placeholder={ph}
+        className="w-full px-2.5 py-1.5 rounded-lg border text-sm" />
+    </div>
+  );
+
+  return (
+    <div className="p-4 space-y-3">
+      <div className="grid grid-cols-2 gap-2">
+        {fld("name", "Nombre")}
+        {fld("category", "Categoría")}
+        {fld("mainKeyword", "Keyword principal", "ej. abogado extranjería Madrid")}
+        {fld("phone", "Teléfono")}
+        {fld("website", "Sitio web")}
+        <div>
+          <label className="block text-xs font-medium text-slate-700 mb-1">Estado</label>
+          <select value={form.status ?? "active"} onChange={(e) => set("status", e.target.value)} className="w-full px-2.5 py-1.5 rounded-lg border text-sm">
+            <option value="active">Activa</option>
+            <option value="paused">Pausada</option>
+          </select>
+        </div>
+      </div>
+      <div>
+        <label className="block text-xs font-medium text-slate-700 mb-1">Dirección</label>
+        <input value={form.address ?? ""} onChange={(e) => set("address", e.target.value)} className="w-full px-2.5 py-1.5 rounded-lg border text-sm" />
+      </div>
+      <div>
+        <div className="flex items-center justify-between mb-1">
+          <label className="text-xs font-medium text-slate-700">Descripción (SEO)</label>
+          <button onClick={genDescription} disabled={genBusy}
+            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-brand-50 border border-brand-200 text-brand-700 text-[11px] disabled:opacity-50">
+            {genBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />} Generar IA
+          </button>
+        </div>
+        <textarea value={form.description ?? ""} onChange={(e) => set("description", e.target.value)} rows={4}
+          className="w-full px-2.5 py-1.5 rounded-lg border text-sm" />
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        {fld("placeId", "Place ID", "ChIJ…")}
+        {fld("emails", "Emails de aviso")}
+        {fld("accountId", "GMB Account ID")}
+        {fld("locationId", "GMB Location ID")}
+      </div>
+
+      <div className="flex items-center gap-2">
+        <button onClick={save} disabled={saving}
+          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium disabled:opacity-50">
+          {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} Guardar cambios
+        </button>
+        {msg && <span className="text-xs text-slate-600">{msg}</span>}
+      </div>
+
+      <div className="pt-3 border-t">
+        <div className="text-xs font-semibold text-slate-700 mb-1">Widget público de reseñas (pégalo en la web del cliente)</div>
+        <div className="flex items-start gap-2">
+          <textarea readOnly value={embed} rows={2} className="flex-1 px-2 py-1.5 rounded-lg border text-[11px] font-mono bg-slate-50" />
+          <button onClick={() => { navigator.clipboard?.writeText(embed); setCopied(true); setTimeout(() => setCopied(false), 1500); }}
+            className="h-8 w-8 grid place-items-center rounded-lg border hover:bg-slate-50 shrink-0">
+            {copied ? <Check className="h-4 w-4 text-emerald-600" /> : <Copy className="h-4 w-4" />}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
