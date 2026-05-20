@@ -26,6 +26,8 @@ export const GET = withApi({ scope: "admin" }, async (req, { api }) => {
     replyWebhookUrl: g.replyWebhookUrl ?? null,
     hasMapsKey: !!(g.mapsKeyEnc || process.env.GOOGLE_MAPS_API_KEY),
     hasScraperKey: !!g.scraperApiKeyEnc,
+    notifyEmail: g.notifyEmail ?? null,
+    hasTelegram: !!g.telegramEnc,
     // URL que el usuario configura en Make para empujar reseñas
     incomingWebhookUrl: `${baseUrl.replace(/\/+$/, "")}/api/v1/gmb/reviews/webhook`,
     workspaceId: api.workspaceId
@@ -54,6 +56,12 @@ export const PUT = withApi({ scope: "admin" }, async (req, { api }) => {
   }
   if (typeof body.scraperApiKey === "string" && body.scraperApiKey.trim()) {
     g.scraperApiKeyEnc = encryptSecret(body.scraperApiKey.trim());
+  }
+  if (typeof body.notifyEmail === "string") {
+    g.notifyEmail = body.notifyEmail.trim() || undefined;
+  }
+  if (typeof body.telegram === "string" && body.telegram.trim()) {
+    g.telegramEnc = encryptSecret(body.telegram.trim());
   }
   settings.integrations.gmb = g;
   await prisma.workspace.update({ where: { id: api.workspaceId }, data: { settings } });

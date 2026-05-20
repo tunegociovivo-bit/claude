@@ -11,7 +11,7 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { rateLimitPublic } from "@/lib/api/handler";
-import { upsertIncomingReview, recomputeClientStats, getGmbConfig } from "@/lib/integrations/gmb-hub";
+import { upsertIncomingReview, recomputeClientStats, getGmbConfig, handleNegativeReview } from "@/lib/integrations/gmb-hub";
 
 export const dynamic = "force-dynamic";
 
@@ -58,6 +58,19 @@ export async function POST(req: NextRequest) {
     if (res.ok) {
       ok++;
       if (res.clientId) touchedClients.add(res.clientId);
+      // Aviso de reseña negativa: solo en reseñas NUEVAS con rating <= 3.
+      if (res.created && (res.rating ?? 5) <= 3 && res.clientId) {
+        await handleNegativeReview({
+          workspaceId,
+          clientId: res.clientId,
+          clientName: res.clientName ?? "",
+          clientEmails: res.clientEmails ?? null,
+          rating: res.rating ?? 1,
+          authorName: res.authorName ?? "",
+          comment: res.comment ?? "",
+          tone: res.tone ?? "empático y profesional"
+        }).catch(() => {});
+      }
     } else {
       failed++;
     }

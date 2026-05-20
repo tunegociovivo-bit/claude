@@ -2927,3 +2927,35 @@ model GmbPost {
   @@index([clientId])
   @@index([status])
 }
+
+// === GMB Hub — Bloque Alertas y notificaciones ===
+
+// Notificaciones in-app del GMB Hub (reseñas negativas, cambios de posición,
+// cambios en la ficha…). Se marcan como leídas y alimentan el contador.
+model GmbNotification {
+  id          String   @id @default(cuid())
+  workspaceId String
+  clientId    String?
+  type        String   // negative_review|position_drop|profile_change|claimable|info
+  title       String
+  body        String?  @db.Text
+  data        Json?
+  isRead      Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  @@index([workspaceId, isRead])
+  @@index([clientId])
+}
+
+// Snapshots de la ficha para detectar cambios (rating, nº reseñas, teléfono…).
+model GmbSnapshot {
+  id          String   @id @default(cuid())
+  workspaceId String
+  clientId    String
+  data        Json
+  changes     Json?
+  createdAt   DateTime @default(now())
+
+  @@index([workspaceId])
+  @@index([clientId])
+}

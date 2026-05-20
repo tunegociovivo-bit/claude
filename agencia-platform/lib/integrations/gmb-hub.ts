@@ -14,6 +14,8 @@ import { decryptSecret } from "@/lib/ai/crypto";
 export type GmbConfig = {
   replyWebhookUrl: string | null; // webhook de Make que publica la respuesta en Google
   ingestToken: string | null; // token compartido para validar webhooks entrantes
+  notifyEmail: string | null; // email para avisos (reseñas negativas, etc.)
+  telegram: string | null; // "botToken:chatId" para avisos por Telegram
 };
 
 export async function getGmbConfig(workspaceId: string): Promise<GmbConfig> {
@@ -32,8 +34,115 @@ export async function getGmbConfig(workspaceId: string): Promise<GmbConfig> {
       typeof g.replyWebhookUrl === "string" && g.replyWebhookUrl
         ? g.replyWebhookUrl
         : process.env.GMB_REPLY_WEBHOOK_URL ?? null,
-    ingestToken: ingestToken || null
+    ingestToken: ingestToken || null,
+    notifyEmail: typeof g.notifyEmail === "string" && g.notifyEmail ? g.notifyEmail : process.env.GMB_NOTIFY_EMAIL ?? null,
+    telegram: g.telegramEnc ? decryptSecret(g.telegramEnc) : typeof g.telegram === "string" && g.telegram ? g.telegram : null
   };
+}
+
+/** Crea una notificación in-app del GMB Hub. */
+export async function createGmbNotification(opts: {
+  workspaceId: string;
+  clientId?: string | null;
+  type: string;
+  title: string;
+  body?: string | null;
+  data?: any;
+}): Promise<void> {
+  await prisma.gmbNotification.create({
+    data: {
+      workspaceId: opts.workspaceId,
+      clientId: opts.clientId ?? null,
+      type: opts.type,
+      title: opts.title.slice(0, 200),
+      body: opts.body?.slice(0, 2000) ?? null,
+      data: opts.data ?? undefined
+    }
+  });
+}
+
+/** Envía un mensaje por Telegram si hay config "botToken:chatId". */
+export async function sendTelegram(telegram: string | null, text: string): Promise<void> {
+  if (!telegram || !telegram.includes(":")) return;
+  const idx = telegram.indexOf(":");
+  // formato esperado: "<botToken>:<chatId>" donde botToken ya contiene ':' → usamos el último ':' como separador del chatId
+  const lastColon = telegram.lastIndexOf(":");
+  const botToken = telegram.slice(0, lastColon);
+  const chatId = telegram.slice(lastColon + 1);
+  if (!botToken || !chatId) return;
+  try {
+    await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      signal: AbortSignal.timeout(10000),
+      body: JSON.stringify({ chat_id: chatId, text })
+    });
+  } catch {}
+  void idx;
+}
+
+/**
+ * Procesa una reseña negativa recién llegada: genera borrador IA, crea
+ * notificación in-app y avisa por email + Telegram. No lanza si algo falla.
+ */
+export async function handleNegativeReview(opts: {
+  workspaceId: string;
+  clientId: string;
+  clientName: string;
+  clientEmails?: string | null;
+  rating: number;
+  authorName: string;
+  comment: string;
+  tone: string;
+}): Promise<void> {
+  const cfg = await getGmbConfig(opts.workspaceId);
+  let aiDraft = "";
+  try {
+    aiDraft = await generateReviewReply({
+      workspaceId: opts.workspaceId,
+      businessName: opts.clientName,
+      tone: opts.tone || "empático y profesional",
+      rating: opts.rating,
+      comment: opts.comment
+    });
+  } catch {}
+
+  await createGmbNotification({
+    workspaceId: opts.workspaceId,
+    clientId: opts.clientId,
+    type: "negative_review",
+    title: `Reseña ${opts.rating}★ en ${opts.clientName}`,
+    body: `${opts.authorName}: ${opts.comment}`.slice(0, 500),
+    data: { rating: opts.rating, aiDraft }
+  });
+
+  const stars = "★".repeat(opts.rating) + "☆".repeat(5 - opts.rating);
+  const tgText = `⚠️ Reseña negativa (${stars}) en ${opts.clientName}\n${opts.authorName}: ${opts.comment}${aiDraft ? `\n\nBorrador IA:\n${aiDraft}` : ""}`;
+  await sendTelegram(cfg.telegram, tgText);
+
+  const recipients = (opts.clientEmails || cfg.notifyEmail || "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (recipients.length > 0) {
+    try {
+      const { sendEmail, isEmailEnabled } = await import("./email");
+      if (isEmailEnabled()) {
+        await sendEmail({
+          to: recipients,
+          subject: `[GMB Hub] Reseña negativa (${opts.rating}★) — ${opts.clientName}`,
+          html: `<div style="font-family:Arial,sans-serif"><h2>Reseña negativa en ${escapeHtml(opts.clientName)}</h2>
+<p><strong>${escapeHtml(opts.authorName)}</strong> · ${stars}</p>
+<p style="background:#f8f8f8;padding:12px;border-left:3px solid #e74c3c">${escapeHtml(opts.comment)}</p>
+${aiDraft ? `<h3>Borrador de respuesta (IA)</h3><p style="background:#eef6ff;padding:12px;border-radius:8px">${escapeHtml(aiDraft)}</p>` : ""}</div>`
+        });
+      }
+    } catch {}
+  }
+}
+
+function escapeHtml(s: string): string {
+  return s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c] ?? c));
 }
 
 /** Resuelve la Google Maps API key del workspace (settings cifrada → env). */
@@ -178,25 +287,37 @@ export async function upsertIncomingReview(opts: {
     createTime?: string;
     updateTime?: string;
   };
-}): Promise<{ ok: boolean; clientId?: string; reason?: string }> {
+}): Promise<{
+  ok: boolean;
+  clientId?: string;
+  reason?: string;
+  created?: boolean;
+  rating?: number;
+  authorName?: string;
+  comment?: string;
+  clientName?: string;
+  clientEmails?: string;
+  tone?: string;
+}> {
   // Resolver cliente
-  let client = null as null | { id: string };
+  const sel = { id: true, name: true, emails: true, tone: true, customTone: true } as const;
+  let client = null as null | { id: string; name: string; emails: string; tone: string; customTone: string | null };
   if (opts.clientId) {
     client = await prisma.gmbClient.findFirst({
       where: { id: opts.clientId, workspaceId: opts.workspaceId },
-      select: { id: true }
+      select: sel
     });
   }
   if (!client && opts.locationId) {
     client = await prisma.gmbClient.findFirst({
       where: { workspaceId: opts.workspaceId, locationId: { contains: opts.locationId.replace("locations/", "") } },
-      select: { id: true }
+      select: sel
     });
   }
   if (!client && opts.accountId) {
     client = await prisma.gmbClient.findFirst({
       where: { workspaceId: opts.workspaceId, accountId: { contains: opts.accountId } },
-      select: { id: true }
+      select: sel
     });
   }
   if (!client) return { ok: false, reason: "cliente no encontrado" };
@@ -205,6 +326,11 @@ export async function upsertIncomingReview(opts: {
   const reviewId = r.reviewId && String(r.reviewId).trim() ? String(r.reviewId).trim() : null;
   if (!reviewId) return { ok: false, reason: "review sin reviewId" };
   const rating = starWordToRating(r.rating);
+
+  const existing = await prisma.gmbReview.findUnique({
+    where: { clientId_reviewId: { clientId: client.id, reviewId } },
+    select: { id: true }
+  });
 
   await prisma.gmbReview.upsert({
     where: { clientId_reviewId: { clientId: client.id, reviewId } },
@@ -229,7 +355,17 @@ export async function upsertIncomingReview(opts: {
       updateTime: parseDate(r.updateTime)
     }
   });
-  return { ok: true, clientId: client.id };
+  return {
+    ok: true,
+    clientId: client.id,
+    created: !existing,
+    rating,
+    authorName: r.authorName ?? "",
+    comment: r.comment ?? "",
+    clientName: client.name,
+    clientEmails: client.emails,
+    tone: client.tone === "custom" && client.customTone ? client.customTone : client.tone
+  };
 }
 
 export type SeoAudit = {

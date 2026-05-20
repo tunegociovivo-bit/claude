@@ -11,6 +11,7 @@ import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { gridRank, resolveCoords, MapsKeyMissingError } from "@/lib/integrations/google-maps";
+import { createGmbNotification } from "@/lib/integrations/gmb-hub";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -63,6 +64,12 @@ export const POST = withApi({ scope: "*" }, async (req, { params, api }) => {
       radiusKm: parsed.data.radiusKm
     });
 
+    // Comparar con el escaneo anterior del mismo keyword para avisar de caídas.
+    const prev = await prisma.gmbPosition.findFirst({
+      where: { clientId: c.id, keyword: parsed.data.keyword },
+      orderBy: { checkedAt: "desc" }
+    });
+
     await prisma.gmbPosition.create({
       data: {
         workspaceId: api.workspaceId,
@@ -75,6 +82,18 @@ export const POST = withApi({ scope: "*" }, async (req, { params, api }) => {
         gridData: result.cells as any
       }
     });
+
+    // Posición media: número más bajo = mejor. Aviso si empeora > 1.5 posiciones.
+    if (prev && prev.avgPosition > 0 && result.avgPosition > prev.avgPosition + 1.5) {
+      await createGmbNotification({
+        workspaceId: api.workspaceId,
+        clientId: c.id,
+        type: "position_drop",
+        title: `Caída de ranking en ${c.name}`,
+        body: `"${parsed.data.keyword}": posición media ${prev.avgPosition.toFixed(1)} → ${result.avgPosition.toFixed(1)}`,
+        data: { keyword: parsed.data.keyword, prev: prev.avgPosition, now: result.avgPosition }
+      }).catch(() => {});
+    }
 
     return NextResponse.json({
       keyword: parsed.data.keyword,
