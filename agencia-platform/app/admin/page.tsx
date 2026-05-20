@@ -245,6 +245,13 @@ const SECTIONS: AdminSection[] = [
     accent: "emerald",
     cards: [
       {
+        href: "/gmb-hub",
+        title: "GMB Hub",
+        description:
+          "Gestión de fichas de Google My Business: reseñas, respuestas (manual/IA), tono por ficha. Las reseñas entran vía Make.",
+        icon: Star
+      },
+      {
         href: "/admin/leads",
         title: "Leads (NV Leads Pro)",
         description:

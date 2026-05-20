@@ -783,6 +783,179 @@ chatTools.push({
   }
 });
 
+// ---- GMB Hub (fichas de Google My Business) ----
+// Las reseñas entran vía Make; Sonia las lee/responde sobre los datos del hub.
+// Responder publica en Google a través del webhook de Make (si está configurado).
+
+async function gmbResolveClient(workspaceId: string, ref: string): Promise<{ id: string; name: string } | null> {
+  const r = ref.trim();
+  if (!r) return null;
+  // por id exacto
+  const byId = await prisma.gmbClient.findFirst({
+    where: { id: r, workspaceId },
+    select: { id: true, name: true }
+  });
+  if (byId) return byId;
+  // por nombre (contiene)
+  return prisma.gmbClient.findFirst({
+    where: { workspaceId, name: { contains: r, mode: "insensitive" } },
+    select: { id: true, name: true }
+  });
+}
+
+chatTools.push({
+  name: "gmb_list_clients",
+  description:
+    "Lista las fichas de Google My Business del workspace (GMB Hub) con su rating medio, nº de reseñas y cuántas están sin responder. Úsalo para '¿qué fichas de GMB tengo?' o '¿qué reseñas tengo sin responder?'.",
+  input_schema: { type: "object", properties: {} },
+  run: async (_args, ctx) => {
+    const clients = await prisma.gmbClient.findMany({
+      where: { workspaceId: ctx.workspaceId },
+      orderBy: { name: "asc" },
+      select: { id: true, name: true, category: true, rating: true, reviewCount: true, status: true }
+    });
+    const ids = clients.map((c) => c.id);
+    const unreplied = ids.length
+      ? await prisma.gmbReview.groupBy({
+          by: ["clientId"],
+          where: { clientId: { in: ids }, OR: [{ reviewReply: null }, { reviewReply: "" }] },
+          _count: { _all: true }
+        })
+      : [];
+    const um = new Map(unreplied.map((u) => [u.clientId, u._count._all]));
+    return JSON.stringify({
+      count: clients.length,
+      clients: clients.map((c) => ({ ...c, unreplied: um.get(c.id) ?? 0 }))
+    });
+  }
+});
+
+chatTools.push({
+  name: "gmb_list_reviews",
+  description:
+    "Lista reseñas de una ficha de GMB (por nombre o id). Opcional: solo las que están sin responder. Devuelve autor, estrellas, comentario, fecha y la respuesta si la tiene.",
+  input_schema: {
+    type: "object",
+    properties: {
+      client: { type: "string", description: "Nombre o id de la ficha." },
+      unrepliedOnly: { type: "boolean", description: "Solo reseñas sin responder." },
+      limit: { type: "integer", description: "Máx (default 20)." }
+    },
+    required: ["client"]
+  },
+  run: async (args, ctx) => {
+    const client = await gmbResolveClient(ctx.workspaceId, String(args?.client ?? ""));
+    if (!client) return JSON.stringify({ error: "Ficha de GMB no encontrada" });
+    const reviews = await prisma.gmbReview.findMany({
+      where: {
+        clientId: client.id,
+        ...(args?.unrepliedOnly ? { OR: [{ reviewReply: null }, { reviewReply: "" }] } : {})
+      },
+      orderBy: { reviewTime: "desc" },
+      take: Math.min(Number(args?.limit) || 20, 50),
+      select: { reviewId: true, authorName: true, rating: true, comment: true, reviewReply: true, reviewTime: true }
+    });
+    return JSON.stringify({ client, count: reviews.length, reviews });
+  }
+});
+
+chatTools.push({
+  name: "gmb_suggest_reply",
+  description:
+    "Genera (sin publicar) una respuesta con IA para una reseña concreta de GMB, con el tono de la ficha. Devuelve el texto propuesto para que lo revises antes de publicarlo con gmb_reply_review.",
+  input_schema: {
+    type: "object",
+    properties: {
+      client: { type: "string", description: "Nombre o id de la ficha." },
+      reviewId: { type: "string", description: "reviewId de la reseña (de gmb_list_reviews)." }
+    },
+    required: ["client", "reviewId"]
+  },
+  run: async (args, ctx) => {
+    try {
+      const client = await gmbResolveClient(ctx.workspaceId, String(args?.client ?? ""));
+      if (!client) return JSON.stringify({ error: "Ficha de GMB no encontrada" });
+      const full = await prisma.gmbClient.findUnique({
+        where: { id: client.id },
+        select: { name: true, tone: true, customTone: true }
+      });
+      const review = await prisma.gmbReview.findFirst({
+        where: { clientId: client.id, reviewId: String(args?.reviewId ?? "") },
+        select: { rating: true, comment: true }
+      });
+      if (!review) return JSON.stringify({ error: "Reseña no encontrada" });
+      const { generateReviewReply } = await import("@/lib/integrations/gmb-hub");
+      const tone = full?.tone === "custom" && full.customTone ? full.customTone : full?.tone ?? "profesional";
+      const reply = await generateReviewReply({
+        workspaceId: ctx.workspaceId,
+        businessName: full?.name ?? client.name,
+        tone,
+        rating: review.rating || 5,
+        comment: review.comment ?? ""
+      });
+      return JSON.stringify({ reply });
+    } catch (e: any) {
+      return JSON.stringify({ error: String(e?.message ?? e) });
+    }
+  }
+});
+
+chatTools.push({
+  name: "gmb_reply_review",
+  description:
+    "PUBLICA una respuesta a una reseña de GMB: la guarda y la envía a Google vía el webhook de Make. Úsalo SOLO cuando el usuario lo pida explícitamente y tras CONFIRMAR el texto. Para reseñas negativas, redacta con tacto.",
+  input_schema: {
+    type: "object",
+    properties: {
+      client: { type: "string", description: "Nombre o id de la ficha." },
+      reviewId: { type: "string", description: "reviewId de la reseña." },
+      reply: { type: "string", description: "Texto de la respuesta a publicar." }
+    },
+    required: ["client", "reviewId", "reply"]
+  },
+  run: async (args, ctx) => {
+    try {
+      const client = await gmbResolveClient(ctx.workspaceId, String(args?.client ?? ""));
+      if (!client) return JSON.stringify({ error: "Ficha de GMB no encontrada" });
+      const full = await prisma.gmbClient.findUnique({
+        where: { id: client.id },
+        select: { accountId: true, locationId: true }
+      });
+      const review = await prisma.gmbReview.findFirst({
+        where: { clientId: client.id, reviewId: String(args?.reviewId ?? "") },
+        select: { id: true }
+      });
+      if (!review) return JSON.stringify({ error: "Reseña no encontrada" });
+      const reply = String(args?.reply ?? "").trim();
+      if (!reply) return JSON.stringify({ error: "Falta el texto de la respuesta" });
+      await prisma.gmbReview.update({ where: { id: review.id }, data: { reviewReply: reply, updateTime: new Date() } });
+      const { publishReplyViaMake, logGmbActivity } = await import("@/lib/integrations/gmb-hub");
+      const pub = await publishReplyViaMake({
+        workspaceId: ctx.workspaceId,
+        accountId: full?.accountId ?? "",
+        locationId: full?.locationId ?? "",
+        reviewId: String(args?.reviewId ?? ""),
+        reply
+      });
+      await logGmbActivity({
+        workspaceId: ctx.workspaceId,
+        clientId: client.id,
+        actionType: "review_replied",
+        description: `Respuesta publicada por Sonia${pub.sentToGoogle ? " (en Google)" : " (guardada; webhook de Make no configurado)"}`
+      });
+      return JSON.stringify({
+        ok: true,
+        sentToGoogle: pub.sentToGoogle,
+        note: pub.sentToGoogle
+          ? "Respuesta publicada en Google."
+          : "Guardada. Para publicarla en Google configura el webhook de Make en ajustes de GMB."
+      });
+    } catch (e: any) {
+      return JSON.stringify({ error: String(e?.message ?? e) });
+    }
+  }
+});
+
 export const toolDefs = chatTools.map((t) => ({
   name: t.name,
   description: t.description,

@@ -2688,3 +2688,123 @@ model TaskTemplate {
   @@unique([workspaceId, name])
   @@index([workspaceId])
 }
+
+// ============================================================================
+// GMB HUB — gestión de fichas de Google My Business (port del plugin WP).
+// La conexión con Google se hace VÍA MAKE.COM (igual que el plugin original):
+// Make trae las reseñas por webhook y publica las respuestas por webhook.
+// Maps Places + ScraperAPI + OpenAI sí se llaman directo (fases 2/3).
+// ============================================================================
+
+model GmbClient {
+  id          String   @id @default(cuid())
+  workspaceId String
+  name        String
+  category    String   @default("")
+  description String?  @db.Text
+  tone        String   @default("profesional") // profesional|cercano|formal|entusiasta|custom
+  customTone  String?  @db.Text
+  accountId   String   @default("") // GMB "accounts/XXX"
+  locationId  String   @default("") // GMB "accounts/XXX/locations/YYY"
+  emails      String   @default("") // emails de notificación, separados por coma
+  mainKeyword String   @default("")
+  autoReply   String   @default("manual") // manual|auto
+  connectionId String  @default("") // override de connection de Make
+  frequency   Int      @default(15) // minutos
+  scenarioId  String   @default("") // id del escenario de Make
+  status      String   @default("active") // active|paused
+  // Campos geo/SEO (el plugin los usa pero no estaban en el CREATE original)
+  placeId     String   @default("")
+  latitude    Float?
+  longitude   Float?
+  rating      Float    @default(0)
+  reviewCount Int      @default(0)
+  phone       String   @default("")
+  website     String   @default("")
+  address     String   @default("")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  reviews    GmbReview[]
+  activities GmbActivity[]
+  clientTags GmbClientTag[]
+  ratingHistory GmbRatingHistory[]
+
+  @@index([workspaceId])
+  @@index([workspaceId, status])
+}
+
+model GmbReview {
+  id          String    @id @default(cuid())
+  workspaceId String
+  clientId    String
+  reviewId    String // id de Google (o generado rev_+hash)
+  authorName  String   @default("")
+  authorPhoto String   @default("")
+  rating      Int      @default(0) // 1-5
+  comment     String?  @db.Text
+  reviewReply String?  @db.Text
+  reviewTime  DateTime?
+  updateTime  DateTime?
+  createdAt   DateTime @default(now())
+
+  client GmbClient @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@unique([clientId, reviewId])
+  @@index([workspaceId])
+  @@index([clientId])
+}
+
+model GmbActivity {
+  id          String   @id @default(cuid())
+  workspaceId String
+  clientId    String
+  actionType  String
+  description String?  @db.Text
+  createdAt   DateTime @default(now())
+
+  client GmbClient @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+  @@index([clientId])
+}
+
+model GmbTag {
+  id          String   @id @default(cuid())
+  workspaceId String
+  name        String
+  color       String   @default("#F4600C")
+  createdAt   DateTime @default(now())
+
+  clientTags GmbClientTag[]
+
+  @@index([workspaceId])
+}
+
+model GmbClientTag {
+  id       String @id @default(cuid())
+  clientId String
+  tagId    String
+
+  client GmbClient @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  tag    GmbTag    @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@unique([clientId, tagId])
+  @@index([clientId])
+  @@index([tagId])
+}
+
+model GmbRatingHistory {
+  id          String   @id @default(cuid())
+  workspaceId String
+  clientId    String
+  monthYear   String // YYYY-MM
+  avgRating   Float    @default(0)
+  reviewCount Int      @default(0)
+  recordedAt  DateTime @default(now())
+
+  client GmbClient @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@unique([clientId, monthYear])
+  @@index([workspaceId])
+}
