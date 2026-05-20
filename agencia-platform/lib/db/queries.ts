@@ -80,6 +80,10 @@ export type UiTask = (typeof mockTasks)[number] & {
   // sigue siendo `status`.
   extraProjectStatuses?: Record<string, string | null>;
   notifyDueRules?: string[] | null;
+  // Posición dentro de su columna kanban (order ASC = más arriba).
+  // Necesario para que el drag&drop dentro de una columna persista
+  // visualmente al reordenar.
+  order?: number;
 };
 export type UiProject = (typeof mockProjects)[number];
 export type UiEvent = (typeof mockEvents)[number];
@@ -219,7 +223,8 @@ export async function getTasksForUi(): Promise<UiTask[]> {
         dueAllDay: allDay,
         priority: priorityToUi[r.priority] ?? "media",
         tags: r.tags.map((t) => t.tag.name),
-        notifyDueRules: (r as any).notifyDueRules ?? null
+        notifyDueRules: (r as any).notifyDueRules ?? null,
+        order: (r as any).order ?? 0
       };
     });
   }, mockTasks);

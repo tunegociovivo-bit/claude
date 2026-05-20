@@ -85,7 +85,7 @@ const earlyInstallCapture = `
  */
 const swSelfHeal = `
   (function () {
-    var EXPECTED = "v106-2026-05-19-fal-key-settings";
+    var EXPECTED = "v107-2026-05-19-fix-drag-reorder";
     if (!('serviceWorker' in navigator)) return;
     var key = "hub_sw_v_seen";
     var seen = null;

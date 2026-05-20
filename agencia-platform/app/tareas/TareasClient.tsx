@@ -752,10 +752,16 @@ export default function TareasClient({
         targetMap[ORPHANS_ID].push(t);
       }
     }
+    // Ordena cada bucket por `order` ASC para que el drag&drop dentro
+    // de una columna persista la posición elegida. Sin esto las cards
+    // se renderizaban en orden de aparición y "volvían" a su sitio.
+    const byOrder = (a: UiTask, b: UiTask) => (a.order ?? 0) - (b.order ?? 0);
     // Concatenamos: primero las compartidas (entran arriba), luego
     // las propias del proyecto.
     const merged: Record<string, UiTask[]> = {};
-    for (const c of orderedColumns) merged[c.id] = [...shared[c.id], ...map[c.id]];
+    for (const c of orderedColumns) {
+      merged[c.id] = [...shared[c.id].sort(byOrder), ...map[c.id].sort(byOrder)];
+    }
     merged[ORPHANS_ID] = [...shared[ORPHANS_ID], ...map[ORPHANS_ID]];
     return merged;
   }, [filtered, orderedColumns, filters.project]);
@@ -816,38 +822,64 @@ export default function TareasClient({
       const sourceColumn = String(activeTask.status);
 
       setTasks((prev) => {
-        const next = prev.slice();
-        const taskIdx = next.findIndex((t) => t.id === activeTaskId);
-        next[taskIdx] = { ...next[taskIdx], status: destColumn };
+        // Trabajamos sobre una copia con el status del task arrastrado
+        // ya actualizado a la columna destino.
+        const next = prev.map((t) =>
+          t.id === activeTaskId ? { ...t, status: destColumn } : { ...t }
+        );
+        const movedTask = next.find((t) => t.id === activeTaskId)!;
 
-        const destAfter = next.filter((t) => String(t.status) === destColumn);
+        // Lista actual de la columna destino, ordenada por `order` para
+        // calcular la posición de inserción correcta.
+        const destTasks = next
+          .filter((t) => String(t.status) === destColumn)
+          .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+
         let newIndex: number;
         if (overType === "task") {
-          newIndex = destAfter.findIndex((t) => t.id === String(over.id));
-          if (newIndex === -1) newIndex = destAfter.length;
+          newIndex = destTasks.findIndex((t) => t.id === String(over.id));
+          if (newIndex === -1) newIndex = destTasks.length;
         } else {
-          newIndex = destAfter.length;
+          newIndex = destTasks.length;
         }
-        const reordered = sourceColumn === destColumn
-          ? arrayMove(destAfter, destAfter.findIndex((t) => t.id === activeTaskId), newIndex)
-          : (() => {
-              const others = destAfter.filter((t) => t.id !== activeTaskId);
-              others.splice(newIndex, 0, next[taskIdx]);
-              return others;
-            })();
 
+        const reordered =
+          sourceColumn === destColumn
+            ? arrayMove(
+                destTasks,
+                destTasks.findIndex((t) => t.id === activeTaskId),
+                newIndex
+              )
+            : (() => {
+                const others = destTasks.filter((t) => t.id !== activeTaskId);
+                others.splice(newIndex, 0, movedTask);
+                return others;
+              })();
+
+        // Reasignar `order` secuencial a la columna destino.
         const updates: { id: string; order: number; status?: string }[] = [];
         reordered.forEach((t, idx) => {
+          const ref = next.find((x) => x.id === t.id);
+          if (ref) ref.order = idx;
           updates.push({
             id: t.id,
             order: idx,
             ...(t.id === activeTaskId ? { status: destColumn } : {})
           });
         });
+
+        // Si cambió de columna, recompactar el `order` de la columna origen.
         if (sourceColumn !== destColumn) {
-          const sourceAfter = next.filter((t) => String(t.status) === sourceColumn && t.id !== activeTaskId);
-          sourceAfter.forEach((t, idx) => updates.push({ id: t.id, order: idx }));
+          const sourceAfter = next
+            .filter((t) => String(t.status) === sourceColumn && t.id !== activeTaskId)
+            .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+          sourceAfter.forEach((t, idx) => {
+            const ref = next.find((x) => x.id === t.id);
+            if (ref) ref.order = idx;
+            updates.push({ id: t.id, order: idx });
+          });
         }
+
         persistTaskReorder(updates);
         return next;
       });
