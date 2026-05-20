@@ -15,7 +15,13 @@ import {
   Copy,
   Check,
   Gauge,
-  Users
+  Users,
+  Megaphone,
+  Image as ImageIcon,
+  HelpCircle,
+  FileText,
+  Trash2,
+  Calendar
 } from "lucide-react";
 
 type Ficha = {
@@ -489,7 +495,9 @@ function FichaDetail({ id, onClose, onChanged }: { id: string; onClose: () => vo
   );
   const [loading, setLoading] = useState(true);
   const [onlyUnreplied, setOnlyUnreplied] = useState(false);
-  const [tab, setTab] = useState<"reviews" | "seo" | "competitors" | "ranking">("reviews");
+  const [tab, setTab] = useState<
+    "reviews" | "posts" | "fotos" | "qa" | "plantillas" | "seo" | "competitors" | "ranking"
+  >("reviews");
 
   async function load() {
     setLoading(true);
@@ -511,9 +519,13 @@ function FichaDetail({ id, onClose, onChanged }: { id: string; onClose: () => vo
             <X className="h-4 w-4" />
           </button>
         </div>
-        <div className="flex gap-1 px-4 pt-3">
+        <div className="flex gap-1 px-4 pt-3 flex-wrap">
           {([
             ["reviews", "Reseñas", MessageSquare],
+            ["posts", "Publicaciones", Megaphone],
+            ["fotos", "Fotos", ImageIcon],
+            ["qa", "Q&A", HelpCircle],
+            ["plantillas", "Plantillas", FileText],
             ["seo", "SEO", Gauge],
             ["competitors", "Competencia", Users],
             ["ranking", "Ranking", MapPin]
@@ -532,6 +544,10 @@ function FichaDetail({ id, onClose, onChanged }: { id: string; onClose: () => vo
           ))}
         </div>
 
+        {tab === "posts" && <PostsPanel id={id} />}
+        {tab === "fotos" && <PhotosPanel id={id} />}
+        {tab === "qa" && <QaPanel id={id} />}
+        {tab === "plantillas" && <TemplatesPanel id={id} />}
         {tab === "seo" && <SeoPanel id={id} />}
         {tab === "competitors" && <CompetitorsPanel id={id} />}
         {tab === "ranking" && <RankingPanel id={id} />}
@@ -1184,6 +1200,407 @@ function NuevaFicha({ onClose, onCreated }: { onClose: () => void; onCreated: ()
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+/* ============== Bloque Contenido + IA ============== */
+
+function PostsPanel({ id }: { id: string }) {
+  const [posts, setPosts] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [title, setTitle] = useState("");
+  const [content, setContent] = useState("");
+  const [cta, setCta] = useState("");
+  const [imageUrl, setImageUrl] = useState("");
+  const [scheduledAt, setScheduledAt] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [genBusy, setGenBusy] = useState(false);
+  const [imgBusy, setImgBusy] = useState(false);
+  const [suggestions, setSuggestions] = useState<any[]>([]);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  async function load() {
+    setLoading(true);
+    const r = await fetch(`/api/v1/gmb/clients/${id}/posts`);
+    if (r.ok) setPosts((await r.json()).posts ?? []);
+    setLoading(false);
+  }
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [id]);
+
+  async function generate() {
+    setGenBusy(true); setMsg(null);
+    try {
+      const r = await fetch(`/api/v1/gmb/clients/${id}/generate-posts`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ count: 3 })
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d?.error?.message ?? "Error");
+      setSuggestions(d.posts ?? []);
+      if (!d.posts?.length) setMsg("La IA no devolvió publicaciones, prueba otra vez.");
+    } catch (e: any) { setMsg(e?.message ?? "Error"); } finally { setGenBusy(false); }
+  }
+
+  async function generateImage() {
+    const prompt = (content || title).trim();
+    if (!prompt) { setMsg("Escribe contenido para generar la imagen."); return; }
+    setImgBusy(true); setMsg(null);
+    try {
+      const r = await fetch(`/api/v1/gmb/generate-image`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: `Foto profesional para publicación de negocio local: ${prompt}` })
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d?.error?.message ?? "Error");
+      setImageUrl(d.url ?? "");
+    } catch (e: any) { setMsg(e?.message ?? "Error"); } finally { setImgBusy(false); }
+  }
+
+  async function save() {
+    if (!content.trim()) { setMsg("El contenido es obligatorio."); return; }
+    setSaving(true); setMsg(null);
+    try {
+      const r = await fetch(`/api/v1/gmb/clients/${id}/posts`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: title || undefined, content, cta: cta || undefined,
+          imageUrl: imageUrl || undefined,
+          scheduledAt: scheduledAt ? new Date(scheduledAt).toISOString() : undefined
+        })
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d?.error?.message ?? "Error");
+      setTitle(""); setContent(""); setCta(""); setImageUrl(""); setScheduledAt("");
+      load();
+    } catch (e: any) { setMsg(e?.message ?? "Error"); } finally { setSaving(false); }
+  }
+
+  async function del(postId: string) {
+    await fetch(`/api/v1/gmb/clients/${id}/posts?postId=${postId}`, { method: "DELETE" });
+    load();
+  }
+
+  return (
+    <div className="p-4 space-y-4">
+      <div className="bg-white rounded-xl border p-3 space-y-2">
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-semibold text-slate-700">Nueva publicación</span>
+          <button onClick={generate} disabled={genBusy}
+            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-brand-50 border border-brand-200 text-brand-700 text-xs font-medium disabled:opacity-50">
+            {genBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+            Sugerencias IA
+          </button>
+        </div>
+        {suggestions.length > 0 && (
+          <div className="space-y-1.5">
+            {suggestions.map((s, i) => (
+              <button key={i} onClick={() => { setTitle(s.title ?? ""); setContent(s.content ?? ""); setCta(s.cta ?? ""); setSuggestions([]); }}
+                className="block w-full text-left p-2 rounded-lg border border-slate-200 hover:border-brand-300 hover:bg-brand-50/40 text-xs">
+                <div className="font-medium text-slate-800">{s.title}</div>
+                <div className="text-slate-600 line-clamp-2">{s.content}</div>
+                {s.cta && <div className="text-brand-600 mt-0.5">{s.cta}</div>}
+              </button>
+            ))}
+          </div>
+        )}
+        <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Título (opcional)"
+          className="w-full px-2.5 py-1.5 rounded-lg border text-sm" />
+        <textarea value={content} onChange={(e) => setContent(e.target.value)} placeholder="Contenido de la publicación" rows={3}
+          className="w-full px-2.5 py-1.5 rounded-lg border text-sm" />
+        <input value={cta} onChange={(e) => setCta(e.target.value)} placeholder="CTA (ej. Reserva ahora)"
+          className="w-full px-2.5 py-1.5 rounded-lg border text-sm" />
+        <div className="flex items-center gap-2">
+          <button onClick={generateImage} disabled={imgBusy}
+            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs disabled:opacity-50">
+            {imgBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ImageIcon className="h-3.5 w-3.5" />}
+            Imagen IA
+          </button>
+          <label className="inline-flex items-center gap-1.5 text-xs text-slate-500">
+            <Calendar className="h-3.5 w-3.5" />
+            <input type="datetime-local" value={scheduledAt} onChange={(e) => setScheduledAt(e.target.value)}
+              className="px-2 py-1 rounded-lg border text-xs" />
+          </label>
+        </div>
+        {imageUrl && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={imageUrl} alt="" className="h-28 rounded-lg object-cover border" />
+        )}
+        {msg && <p className="text-xs text-slate-500">{msg}</p>}
+        <button onClick={save} disabled={saving}
+          className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium disabled:opacity-50">
+          {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+          {scheduledAt ? "Programar" : "Guardar borrador"}
+        </button>
+      </div>
+
+      {loading ? (
+        <div className="text-sm text-slate-500 flex items-center gap-2 p-4"><Loader2 className="h-4 w-4 animate-spin" /> Cargando…</div>
+      ) : posts.length === 0 ? (
+        <div className="text-sm text-slate-500 text-center p-6 bg-white rounded-xl border">Sin publicaciones todavía.</div>
+      ) : (
+        posts.map((p) => (
+          <div key={p.id} className="bg-white rounded-xl border p-3 flex gap-3">
+            {p.imageUrl && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={p.imageUrl} alt="" className="h-16 w-16 rounded-lg object-cover border shrink-0" />
+            )}
+            <div className="min-w-0 flex-1">
+              {p.title && <div className="text-sm font-medium text-slate-800">{p.title}</div>}
+              <div className="text-xs text-slate-600 line-clamp-3">{p.content}</div>
+              <div className="text-[11px] text-slate-400 mt-1 flex items-center gap-2">
+                <span className="px-1.5 py-0.5 rounded bg-slate-100">{p.status}</span>
+                {p.scheduledAt && <span>{new Date(p.scheduledAt).toLocaleString("es-ES")}</span>}
+              </div>
+            </div>
+            <button onClick={() => del(p.id)} className="h-7 w-7 grid place-items-center rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-50 shrink-0">
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        ))
+      )}
+    </div>
+  );
+}
+
+function PhotosPanel({ id }: { id: string }) {
+  const [photos, setPhotos] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [url, setUrl] = useState("");
+  const [caption, setCaption] = useState("");
+  const [type, setType] = useState("general");
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  async function load() {
+    setLoading(true);
+    const r = await fetch(`/api/v1/gmb/clients/${id}/photos`);
+    if (r.ok) setPhotos((await r.json()).photos ?? []);
+    setLoading(false);
+  }
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [id]);
+
+  async function add() {
+    if (!url.trim()) { setMsg("Pega la URL de la imagen."); return; }
+    setSaving(true); setMsg(null);
+    try {
+      const r = await fetch(`/api/v1/gmb/clients/${id}/photos`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url, caption: caption || undefined, type })
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d?.error?.message ?? "Error");
+      setUrl(""); setCaption(""); load();
+    } catch (e: any) { setMsg(e?.message ?? "Error"); } finally { setSaving(false); }
+  }
+
+  async function del(photoId: string) {
+    await fetch(`/api/v1/gmb/clients/${id}/photos?photoId=${photoId}`, { method: "DELETE" });
+    load();
+  }
+
+  return (
+    <div className="p-4 space-y-4">
+      <div className="bg-white rounded-xl border p-3 space-y-2">
+        <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="URL de la imagen (https://…)"
+          className="w-full px-2.5 py-1.5 rounded-lg border text-sm" />
+        <div className="flex gap-2">
+          <input value={caption} onChange={(e) => setCaption(e.target.value)} placeholder="Descripción (opcional)"
+            className="flex-1 px-2.5 py-1.5 rounded-lg border text-sm" />
+          <select value={type} onChange={(e) => setType(e.target.value)} className="px-2 py-1.5 rounded-lg border text-sm">
+            <option value="general">General</option>
+            <option value="logo">Logo</option>
+            <option value="cover">Portada</option>
+            <option value="interior">Interior</option>
+            <option value="exterior">Exterior</option>
+            <option value="producto">Producto</option>
+          </select>
+        </div>
+        {msg && <p className="text-xs text-slate-500">{msg}</p>}
+        <button onClick={add} disabled={saving}
+          className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium disabled:opacity-50">
+          {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Añadir foto
+        </button>
+      </div>
+      {loading ? (
+        <div className="text-sm text-slate-500 flex items-center gap-2 p-4"><Loader2 className="h-4 w-4 animate-spin" /> Cargando…</div>
+      ) : photos.length === 0 ? (
+        <div className="text-sm text-slate-500 text-center p-6 bg-white rounded-xl border">Sin fotos todavía.</div>
+      ) : (
+        <div className="grid grid-cols-3 gap-2">
+          {photos.map((p) => (
+            <div key={p.id} className="relative group rounded-lg overflow-hidden border bg-white">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={p.url} alt={p.caption} className="h-24 w-full object-cover" />
+              <button onClick={() => del(p.id)}
+                className="absolute top-1 right-1 h-6 w-6 grid place-items-center rounded bg-white/90 text-slate-500 hover:text-rose-500 opacity-0 group-hover:opacity-100">
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+              <div className="px-1.5 py-1 text-[10px] text-slate-500 truncate">{p.type}{p.caption ? ` · ${p.caption}` : ""}</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function QaPanel({ id }: { id: string }) {
+  const [items, setItems] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [question, setQuestion] = useState("");
+  const [answer, setAnswer] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  async function load() {
+    setLoading(true);
+    const r = await fetch(`/api/v1/gmb/clients/${id}/qa`);
+    if (r.ok) setItems((await r.json()).items ?? []);
+    setLoading(false);
+  }
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [id]);
+
+  async function add() {
+    if (!question.trim() || !answer.trim()) { setMsg("Pregunta y respuesta son obligatorias."); return; }
+    setSaving(true); setMsg(null);
+    try {
+      const r = await fetch(`/api/v1/gmb/clients/${id}/qa`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ question, answer })
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d?.error?.message ?? "Error");
+      setQuestion(""); setAnswer(""); load();
+    } catch (e: any) { setMsg(e?.message ?? "Error"); } finally { setSaving(false); }
+  }
+
+  async function del(qaId: string) {
+    await fetch(`/api/v1/gmb/clients/${id}/qa?qaId=${qaId}`, { method: "DELETE" });
+    load();
+  }
+
+  return (
+    <div className="p-4 space-y-4">
+      <div className="bg-white rounded-xl border p-3 space-y-2">
+        <input value={question} onChange={(e) => setQuestion(e.target.value)} placeholder="Pregunta frecuente"
+          className="w-full px-2.5 py-1.5 rounded-lg border text-sm" />
+        <textarea value={answer} onChange={(e) => setAnswer(e.target.value)} placeholder="Respuesta" rows={2}
+          className="w-full px-2.5 py-1.5 rounded-lg border text-sm" />
+        {msg && <p className="text-xs text-slate-500">{msg}</p>}
+        <button onClick={add} disabled={saving}
+          className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium disabled:opacity-50">
+          {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Añadir
+        </button>
+      </div>
+      {loading ? (
+        <div className="text-sm text-slate-500 flex items-center gap-2 p-4"><Loader2 className="h-4 w-4 animate-spin" /> Cargando…</div>
+      ) : items.length === 0 ? (
+        <div className="text-sm text-slate-500 text-center p-6 bg-white rounded-xl border">Sin preguntas todavía.</div>
+      ) : (
+        items.map((q) => (
+          <div key={q.id} className="bg-white rounded-xl border p-3 flex gap-3">
+            <div className="min-w-0 flex-1">
+              <div className="text-sm font-medium text-slate-800 flex items-center gap-1.5"><HelpCircle className="h-3.5 w-3.5 text-brand-500" />{q.question}</div>
+              <div className="text-xs text-slate-600 mt-1">{q.answer}</div>
+            </div>
+            <button onClick={() => del(q.id)} className="h-7 w-7 grid place-items-center rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-50 shrink-0">
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        ))
+      )}
+    </div>
+  );
+}
+
+function TemplatesPanel({ id }: { id: string }) {
+  const [items, setItems] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [name, setName] = useState("");
+  const [content, setContent] = useState("");
+  const [type, setType] = useState("positive");
+  const [glob, setGlob] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [copied, setCopied] = useState<string | null>(null);
+
+  async function load() {
+    setLoading(true);
+    const r = await fetch(`/api/v1/gmb/clients/${id}/reply-templates`);
+    if (r.ok) setItems((await r.json()).items ?? []);
+    setLoading(false);
+  }
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [id]);
+
+  async function add() {
+    if (!name.trim() || !content.trim()) { setMsg("Nombre y contenido son obligatorios."); return; }
+    setSaving(true); setMsg(null);
+    try {
+      const r = await fetch(`/api/v1/gmb/clients/${id}/reply-templates`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, content, type, global: glob })
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d?.error?.message ?? "Error");
+      setName(""); setContent(""); load();
+    } catch (e: any) { setMsg(e?.message ?? "Error"); } finally { setSaving(false); }
+  }
+
+  async function del(templateId: string) {
+    await fetch(`/api/v1/gmb/clients/${id}/reply-templates?templateId=${templateId}`, { method: "DELETE" });
+    load();
+  }
+
+  return (
+    <div className="p-4 space-y-4">
+      <div className="bg-white rounded-xl border p-3 space-y-2">
+        <div className="flex gap-2">
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Nombre de la plantilla"
+            className="flex-1 px-2.5 py-1.5 rounded-lg border text-sm" />
+          <select value={type} onChange={(e) => setType(e.target.value)} className="px-2 py-1.5 rounded-lg border text-sm">
+            <option value="positive">Positiva</option>
+            <option value="neutral">Neutra</option>
+            <option value="negative">Negativa</option>
+          </select>
+        </div>
+        <textarea value={content} onChange={(e) => setContent(e.target.value)} placeholder="Texto de la respuesta" rows={3}
+          className="w-full px-2.5 py-1.5 rounded-lg border text-sm" />
+        <label className="flex items-center gap-1.5 text-xs text-slate-600">
+          <input type="checkbox" checked={glob} onChange={(e) => setGlob(e.target.checked)} />
+          Plantilla global (para todas las fichas)
+        </label>
+        {msg && <p className="text-xs text-slate-500">{msg}</p>}
+        <button onClick={add} disabled={saving}
+          className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium disabled:opacity-50">
+          {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Guardar plantilla
+        </button>
+      </div>
+      {loading ? (
+        <div className="text-sm text-slate-500 flex items-center gap-2 p-4"><Loader2 className="h-4 w-4 animate-spin" /> Cargando…</div>
+      ) : items.length === 0 ? (
+        <div className="text-sm text-slate-500 text-center p-6 bg-white rounded-xl border">Sin plantillas todavía.</div>
+      ) : (
+        items.map((t) => (
+          <div key={t.id} className="bg-white rounded-xl border p-3 flex gap-3">
+            <div className="min-w-0 flex-1">
+              <div className="text-sm font-medium text-slate-800 flex items-center gap-1.5">
+                {t.name}
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-500">{t.type}</span>
+                {!t.clientId && <span className="text-[10px] px-1.5 py-0.5 rounded bg-brand-50 text-brand-600">global</span>}
+              </div>
+              <div className="text-xs text-slate-600 mt-1">{t.content}</div>
+            </div>
+            <div className="flex flex-col gap-1 shrink-0">
+              <button onClick={() => { navigator.clipboard?.writeText(t.content); setCopied(t.id); setTimeout(() => setCopied(null), 1500); }}
+                className="h-7 w-7 grid place-items-center rounded-lg text-slate-400 hover:text-brand-600 hover:bg-brand-50">
+                {copied === t.id ? <Check className="h-3.5 w-3.5 text-emerald-600" /> : <Copy className="h-3.5 w-3.5" />}
+              </button>
+              <button onClick={() => del(t.id)} className="h-7 w-7 grid place-items-center rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-50">
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          </div>
+        ))
+      )}
     </div>
   );
 }

@@ -26,7 +26,7 @@
 // reintroducir cache PERO con purga agresiva por VERSION en
 // activate.
 
-const VERSION = "v131-2026-05-20-gmb-in-platforms";
+const VERSION = "v132-2026-05-20-gmb-contenido-ia";
 
 self.addEventListener("install", (event) => {
   // Activación inmediata: no esperar a que el SW viejo libere.

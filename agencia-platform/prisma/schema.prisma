@@ -2863,3 +2863,67 @@ model VoiceCall {
   @@index([workspaceId])
   @@index([providerCallId])
 }
+
+// === GMB Hub — Bloque Contenido + IA ===
+
+// Fotos de la ficha (galería por cliente)
+model GmbPhoto {
+  id          String   @id @default(cuid())
+  workspaceId String
+  clientId    String
+  url         String   @db.Text
+  type        String   @default("general") // general|logo|cover|interior|exterior|producto
+  caption     String   @default("")
+  createdAt   DateTime @default(now())
+
+  @@index([workspaceId])
+  @@index([clientId])
+}
+
+// Preguntas y respuestas de la ficha
+model GmbQa {
+  id          String   @id @default(cuid())
+  workspaceId String
+  clientId    String
+  question    String   @db.Text
+  answer      String   @db.Text
+  createdAt   DateTime @default(now())
+
+  @@index([workspaceId])
+  @@index([clientId])
+}
+
+// Plantillas de respuesta a reseñas
+model GmbReplyTemplate {
+  id          String   @id @default(cuid())
+  workspaceId String
+  clientId    String?  // null = plantilla global del workspace
+  name        String
+  content     String   @db.Text
+  type        String   @default("positive") // positive|neutral|negative
+  createdAt   DateTime @default(now())
+
+  @@index([workspaceId])
+  @@index([clientId])
+}
+
+// Publicaciones de Google Business Profile (programadas / borradores)
+model GmbPost {
+  id           String    @id @default(cuid())
+  workspaceId  String
+  clientId     String
+  title        String    @default("")
+  content      String    @db.Text
+  cta          String    @default("")
+  imageUrl     String?   @db.Text
+  scheduledAt  DateTime?
+  status       String    @default("draft") // draft|scheduled|published|failed
+  publishedAt  DateTime?
+  createdById  String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([workspaceId])
+  @@index([clientId])
+  @@index([status])
+}
