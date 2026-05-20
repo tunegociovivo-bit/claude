@@ -85,7 +85,7 @@ const earlyInstallCapture = `
  */
 const swSelfHeal = `
   (function () {
-    var EXPECTED = "v119-2026-05-20-resend-inplatform-meta-multiaccount";
+    var EXPECTED = "v120-2026-05-20-sonia-result-cards";
     if (!('serviceWorker' in navigator)) return;
     var key = "hub_sw_v_seen";
     var seen = null;

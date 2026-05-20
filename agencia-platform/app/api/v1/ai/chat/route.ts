@@ -4,7 +4,7 @@ import type Anthropic from "@anthropic-ai/sdk";
 import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { getAnthropicForWorkspace, AIDisabledError, DEFAULT_MODEL } from "@/lib/ai/anthropic";
-import { toolDefs, runTool } from "@/lib/ai/chat-tools";
+import { toolDefs, runTool, extractCardsFromTool, type HubCard } from "@/lib/ai/chat-tools";
 
 const schema = z.object({
   messages: z
@@ -26,19 +26,12 @@ Si la respuesta es operativa (listar tareas, contar clientes, etc.) y no requier
 
 BÚSQUEDA: cuando el usuario pregunte "¿dónde aparece/se menciona/se nombra X?", "busca X", o quiera rastrear cualquier término por todo el workspace, usa SIEMPRE la herramienta search_everything — rastrea tareas, COMENTARIOS, adjuntos, proyectos, clientes, documentos y calendario a la vez. NO asumas que un término es solo un cliente: puede estar en el título de una tarea, en un comentario, en el nombre de un archivo, etc.
 
-FORMATO DE RESULTADOS DE BÚSQUEDA (importante, cuídalo):
-- Cada resultado trae un campo "url". SIEMPRE renderiza cada elemento como un ENLACE markdown clicable: \`[TÍTULO](url)\`. NUNCA muestres IDs crudos.
-- AGRUPA por PROYECTO (no por tipo). Pon el nombre del proyecto como encabezado en negrita con un emoji, y debajo sus tareas.
-- Por cada TAREA muestra: el enlace al título + la COLUMNA donde está + estado. Formato exacto por línea:
-  \`- [Título de la tarea](url) · 🗂 Columna · ✅/⬜ · (cliente si lo hay)\`
-  Usa ✅ si done=true, ⬜ si no. Añade 📅 fecha si dueDate no es null. Añade 🔴 si priority es urgencia/alta.
-- Para COMENTARIOS/archivos/eventos, una sección aparte al final, también con enlaces y un snippet entre comillas si lo hay.
-- Lista TODOS los resultados que devuelva la herramienta (hasta el límite que el usuario pida); no recortes por tu cuenta salvo que sean cientos.
-- Termina con un resumen corto: "Total: N tareas en M proyectos" y ofrece filtrar.
-Ejemplo de bloque:
-**🎨 GABRIEL (RRSS)**
-- [ANUNCIO CLÍNICA MARCH](/tareas?project=p1&task=t1) · 🗂 En curso · ⬜
-- [CARTELES CLÍNICA MARCH](/tareas?project=p1&task=t2) · 🗂 Revisión · ⬜ · 📅 2026-06-01
+FORMATO DE RESULTADOS DE BÚSQUEDA (importante):
+- Los resultados de las tools de búsqueda (search_everything, search_tasks, search_clients, list_projects, search_documents, upcoming_events) se muestran AUTOMÁTICAMENTE como TARJETAS interactivas clicables debajo de tu mensaje. NO tienes que repetir cada elemento como lista.
+- Tu texto debe ser un RESUMEN BREVE y útil: di cuántos encontraste y agrúpalos/coméntalos por encima (ej. "Encontré 4 tareas de Eroski, 3 en NEGOCIO VIVO GENERAL y una en RRSS:"). Las tarjetas ya muestran título, proyecto, estado, fecha y el enlace para abrir.
+- Puedes destacar 1-2 elementos clave en el texto si aportan (ej. "la factura del 1 de junio es ALTA prioridad"), pero NO vuelques la lista entera ni pegues los enlaces markdown uno a uno: sería redundante con las tarjetas.
+- Si NO hay resultados, dilo claro y sugiere afinar la búsqueda.
+- Para resultados que NO generan tarjeta (correos, campañas Meta, comentarios sueltos), sí resúmelos en texto con enlaces markdown donde aplique.
 
 CORREO: cada usuario conecta SU PROPIO correo (IMAP/SMTP) en su perfil. Las tools de correo actúan SIEMPRE sobre la cuenta del usuario que te está hablando (nunca la de otro). Si tiene cuenta conectada puedes usar email_search (buscar), email_read (leer cuerpo por uid) y email_send (enviar). Úsalas solo cuando te lo pida. Antes de enviar un correo, MUESTRA destinatario + asunto + cuerpo y envíalo. Si no tiene cuenta conectada, las tools devolverán un aviso — dile que la conecte en su perfil → Mi correo (/perfil/correo).
 
@@ -69,6 +62,21 @@ export const POST = withApi({ scope: "ai", rate: "ai" }, async (req, { api }) =>
     content: m.content
   }));
 
+  // Tarjetas interactivas acumuladas de los resultados de las tools de
+  // búsqueda durante el turno. Se devuelven junto a la respuesta de texto.
+  const allCards: HubCard[] = [];
+  function dedupedCards(): HubCard[] {
+    const seen = new Set<string>();
+    const out: HubCard[] = [];
+    for (const c of allCards) {
+      if (!c.url || seen.has(c.url)) continue;
+      seen.add(c.url);
+      out.push(c);
+      if (out.length >= 15) break;
+    }
+    return out;
+  }
+
   // Loop agéntico: ejecutar tools hasta que el modelo termine
   for (let i = 0; i < 10; i++) {
     const resp = await client.messages.create({
@@ -85,7 +93,7 @@ export const POST = withApi({ scope: "ai", rate: "ai" }, async (req, { api }) =>
         .map((b: any) => b.text)
         .join("\n")
         .trim();
-      return NextResponse.json({ reply: text || "(sin respuesta)" });
+      return NextResponse.json({ reply: text || "(sin respuesta)", cards: dedupedCards() });
     }
 
     // Ejecutar tool_use blocks
@@ -97,6 +105,7 @@ export const POST = withApi({ scope: "ai", rate: "ai" }, async (req, { api }) =>
           workspaceId: api.workspaceId,
           userId: api.userId
         });
+        allCards.push(...extractCardsFromTool(block.name, result));
         toolResults.push({
           type: "tool_result",
           tool_use_id: block.id,
@@ -108,6 +117,7 @@ export const POST = withApi({ scope: "ai", rate: "ai" }, async (req, { api }) =>
   }
 
   return NextResponse.json({
-    reply: "El asistente sigue trabajando — intenta acotar la pregunta o repítela."
+    reply: "El asistente sigue trabajando — intenta acotar la pregunta o repítela.",
+    cards: dedupedCards()
   });
 });

@@ -20,10 +20,31 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
-import { Sparkles, X, Send, Loader2, Mic, MicOff } from "lucide-react";
+import {
+  Sparkles,
+  X,
+  Send,
+  Loader2,
+  Mic,
+  MicOff,
+  CheckSquare,
+  User,
+  FolderKanban,
+  FileText,
+  Calendar,
+  ArrowUpRight
+} from "lucide-react";
 import clsx from "clsx";
 
-type Message = { role: "user" | "assistant"; content: string };
+type HubCard = {
+  type: "task" | "client" | "project" | "document" | "event";
+  title: string;
+  url: string;
+  subtitle?: string;
+  badges?: { label: string; tone?: "default" | "red" | "amber" | "green" | "indigo" }[];
+};
+
+type Message = { role: "user" | "assistant"; content: string; cards?: HubCard[] };
 
 const SUGGESTIONS = [
   "¿Qué tareas tiene Nordic Coffee abiertas?",
@@ -76,7 +97,10 @@ export default function AIAssistant() {
         throw new Error(e?.error?.message ?? "Error del asistente");
       }
       const data = await r.json();
-      setMessages((m) => [...m, { role: "assistant", content: data.reply }]);
+      setMessages((m) => [
+        ...m,
+        { role: "assistant", content: data.reply, cards: Array.isArray(data.cards) ? data.cards : undefined }
+      ]);
     } catch (e: any) {
       setError(e?.message ?? "Error");
     } finally {
@@ -208,8 +232,8 @@ export default function AIAssistant() {
                 <div
                   key={i}
                   className={clsx(
-                    "flex",
-                    m.role === "user" ? "justify-end" : "justify-start"
+                    "flex flex-col",
+                    m.role === "user" ? "items-end" : "items-start"
                   )}
                 >
                   <div
@@ -222,6 +246,13 @@ export default function AIAssistant() {
                   >
                     {m.role === "assistant" ? renderRichText(m.content) : m.content}
                   </div>
+                  {m.role === "assistant" && m.cards && m.cards.length > 0 && (
+                    <div className="mt-1.5 w-[92%] space-y-1.5">
+                      {m.cards.map((c, k) => (
+                        <HubCardItem key={`${i}-${k}-${c.url}`} card={c} onNavigate={() => setOpen(false)} />
+                      ))}
+                    </div>
+                  )}
                 </div>
               ))
             )}
@@ -307,6 +338,56 @@ export default function AIAssistant() {
         </div>
       )}
     </>
+  );
+}
+
+const CARD_ICON: Record<HubCard["type"], typeof CheckSquare> = {
+  task: CheckSquare,
+  client: User,
+  project: FolderKanban,
+  document: FileText,
+  event: Calendar
+};
+
+const BADGE_TONE: Record<NonNullable<NonNullable<HubCard["badges"]>[number]["tone"]>, string> = {
+  default: "bg-slate-200 text-slate-600",
+  red: "bg-rose-100 text-rose-700",
+  amber: "bg-amber-100 text-amber-800",
+  green: "bg-emerald-100 text-emerald-700",
+  indigo: "bg-indigo-100 text-indigo-700"
+};
+
+/** Tarjeta interactiva de un resultado del Hub dentro del chat de Sonia. */
+function HubCardItem({ card, onNavigate }: { card: HubCard; onNavigate: () => void }) {
+  const Icon = CARD_ICON[card.type] ?? FileText;
+  return (
+    <Link
+      href={card.url}
+      onClick={onNavigate}
+      className="group flex items-start gap-2 rounded-lg border border-slate-200 bg-white px-2.5 py-2 hover:border-brand-300 hover:bg-brand-50/40 transition-colors"
+    >
+      <Icon className="h-4 w-4 text-slate-400 mt-0.5 shrink-0 group-hover:text-brand-600" />
+      <div className="min-w-0 flex-1">
+        <div className="text-[13px] font-medium text-slate-900 truncate">{card.title}</div>
+        {card.subtitle && <div className="text-[11px] text-slate-500 truncate">{card.subtitle}</div>}
+        {card.badges && card.badges.length > 0 && (
+          <div className="mt-1 flex flex-wrap gap-1">
+            {card.badges.map((b, i) => (
+              <span
+                key={i}
+                className={clsx(
+                  "text-[10px] px-1.5 py-0.5 rounded-full font-medium",
+                  BADGE_TONE[b.tone ?? "default"]
+                )}
+              >
+                {b.label}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+      <ArrowUpRight className="h-3.5 w-3.5 text-slate-300 shrink-0 group-hover:text-brand-600" />
+    </Link>
   );
 }
 

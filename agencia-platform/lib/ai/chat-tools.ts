@@ -12,6 +12,20 @@ export type ChatTool = {
   run: (args: any, ctx: { workspaceId: string; userId?: string }) => Promise<string>;
 };
 
+/**
+ * Tarjeta interactiva que el chat renderiza bajo la respuesta de Sonia.
+ * Se construye en el servidor a partir de los resultados REALES de las
+ * tools de búsqueda (no del texto del modelo), así los enlaces son
+ * fiables y abren el elemento directamente.
+ */
+export type HubCard = {
+  type: "task" | "client" | "project" | "document" | "event";
+  title: string;
+  url: string;
+  subtitle?: string;
+  badges?: { label: string; tone?: "default" | "red" | "amber" | "green" | "indigo" }[];
+};
+
 export const chatTools: ChatTool[] = [
   {
     name: "search_clients",
@@ -787,4 +801,89 @@ export async function runTool(
   } catch (e: any) {
     return JSON.stringify({ error: e?.message ?? "Error ejecutando tool" });
   }
+}
+
+/**
+ * Normaliza el resultado JSON de una tool de búsqueda en tarjetas
+ * interactivas (HubCard[]). Devuelve [] si la tool no es "listable" o el
+ * resultado no parsea. Se acumula a lo largo del loop agéntico y se
+ * devuelve junto a la respuesta de texto.
+ */
+export function extractCardsFromTool(name: string, raw: string): HubCard[] {
+  let data: any;
+  try {
+    data = JSON.parse(raw);
+  } catch {
+    return [];
+  }
+  if (!data || data.error) return [];
+
+  const prioBadge = (p?: string): HubCard["badges"] => {
+    if (p === "URGENT") return [{ label: "Urgente", tone: "red" }];
+    if (p === "HIGH") return [{ label: "Alta", tone: "amber" }];
+    return [];
+  };
+  const taskCard = (t: any): HubCard => {
+    const isDone = t.done ?? t.status === "DONE";
+    const badges: NonNullable<HubCard["badges"]> = [];
+    if (isDone) badges.push({ label: "Hecha", tone: "green" });
+    badges.push(...(prioBadge(t.priority) ?? []));
+    if (t.dueDate) badges.push({ label: String(t.dueDate), tone: "default" });
+    const subParts = [t.project, t.column].filter(Boolean);
+    if (t.client && t.client !== t.project) subParts.push(t.client);
+    return {
+      type: "task",
+      title: String(t.title ?? "(sin título)"),
+      url: t.url ?? (t.projectId ? `/tareas?project=${t.projectId}&task=${t.id}` : `/tareas?task=${t.id}`),
+      subtitle: subParts.join(" · ") || undefined,
+      badges: badges.length ? badges : undefined
+    };
+  };
+  const clientCard = (c: any): HubCard => ({
+    type: "client",
+    title: String(c.name ?? "(cliente)"),
+    url: c.url ?? `/clientes?cliente=${c.id}`,
+    subtitle: c.industry || undefined,
+    badges: c.status
+      ? [{ label: String(c.status).toLowerCase(), tone: c.status === "ACTIVE" ? "green" : "default" }]
+      : undefined
+  });
+  const projectCard = (p: any): HubCard => ({
+    type: "project",
+    title: String(p.name ?? "(proyecto)"),
+    url: p.url ?? `/tareas?project=${p.id}`,
+    subtitle: p.client?.name || undefined
+  });
+  const docCard = (d: any): HubCard => ({
+    type: "document",
+    title: String(d.title ?? "(documento)"),
+    url: d.url ?? `/documentos/${d.id}`,
+    subtitle: d.category || undefined
+  });
+  const eventCard = (e: any): HubCard => ({
+    type: "event",
+    title: String(e.title ?? "(evento)"),
+    url: e.url ?? "/calendario",
+    subtitle: [typeof e.when === "string" ? e.when.slice(0, 10) : null, e.client].filter(Boolean).join(" · ") || undefined
+  });
+
+  const out: HubCard[] = [];
+  if (name === "search_everything") {
+    (data.tasks ?? []).slice(0, 6).forEach((t: any) => out.push(taskCard(t)));
+    (data.clients ?? []).slice(0, 4).forEach((c: any) => out.push(clientCard(c)));
+    (data.projects ?? []).slice(0, 4).forEach((p: any) => out.push(projectCard(p)));
+    (data.documents ?? []).slice(0, 4).forEach((d: any) => out.push(docCard(d)));
+    (data.calendarEvents ?? []).slice(0, 3).forEach((e: any) => out.push(eventCard(e)));
+  } else if (name === "search_tasks") {
+    (data.tasks ?? []).slice(0, 10).forEach((t: any) => out.push(taskCard(t)));
+  } else if (name === "search_clients") {
+    (Array.isArray(data) ? data : []).slice(0, 10).forEach((c: any) => out.push(clientCard(c)));
+  } else if (name === "list_projects") {
+    (Array.isArray(data) ? data : []).slice(0, 12).forEach((p: any) => out.push(projectCard(p)));
+  } else if (name === "search_documents") {
+    (Array.isArray(data) ? data : []).slice(0, 10).forEach((d: any) => out.push(docCard(d)));
+  } else if (name === "upcoming_events") {
+    (Array.isArray(data) ? data : []).slice(0, 8).forEach((e: any) => out.push(eventCard(e)));
+  }
+  return out;
 }
