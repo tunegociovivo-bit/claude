@@ -415,7 +415,9 @@ export function statusColorOf(status: string, columns?: ColumnLike[]): string {
 export const priorityColors: Record<Task["priority"], string> = {
   // URGENCIA: rojo intenso pulsante para destacar al máximo.
   urgencia: "bg-rose-600 text-white border border-rose-700 animate-pulse font-bold",
-  alta: "bg-rose-100 text-rose-700",
+  // ALTA: naranja intenso + blanco + bold. Antes era bg-rose-100 (rosa
+  // claro casi invisible). Ahora canta sin confundirse con URGENCIA.
+  alta: "bg-orange-500 text-white border border-orange-600 font-bold shadow-sm",
   // Legacy: aún puede haber datos antiguos. Los downgradeamos al cargar
   // (priorityToUi), pero el record necesita las keys para tipar.
   baja: "bg-slate-100 text-slate-600",

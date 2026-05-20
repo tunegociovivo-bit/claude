@@ -1213,7 +1213,7 @@ export default function TareasClient({
                           URGENCIA; las demás (media/baja "normales")
                           se dejan vacías para no añadir ruido. */}
                       {(t.priority === "alta" || t.priority === "urgencia") && (
-                        <span className={`text-xs px-2 py-1 rounded ${priorityColors[t.priority]}`}>
+                        <span className={`text-xs uppercase tracking-wide px-2.5 py-1 rounded-md ${priorityColors[t.priority]}`}>
                           {priorityLabels[t.priority]}
                         </span>
                       )}
@@ -1856,7 +1856,7 @@ function TaskCard({
       <div className="flex items-start justify-between gap-2 mb-2 pr-8">
         <p className="text-sm font-medium leading-snug">{task.title}</p>
         {(task.priority === "alta" || task.priority === "urgencia") && (
-          <span className={`shrink-0 text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded ${priorityColors[task.priority]}`}>
+          <span className={`shrink-0 text-xs uppercase tracking-wide px-2.5 py-1 rounded-md ${priorityColors[task.priority]}`}>
             {priorityLabels[task.priority]}
           </span>
         )}

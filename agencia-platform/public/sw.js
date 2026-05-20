@@ -26,7 +26,7 @@
 // reintroducir cache PERO con purga agresiva por VERSION en
 // activate.
 
-const VERSION = "v95-2026-05-19-asana-token-determinism";
+const VERSION = "v96-2026-05-19-reimport-revive-alta-badge";
 
 self.addEventListener("install", (event) => {
   // Activación inmediata: no esperar a que el SW viejo libere.

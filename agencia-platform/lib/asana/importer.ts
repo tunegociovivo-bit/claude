@@ -993,7 +993,13 @@ export async function reimportAsanaSection(opts: {
             completedAt: t.completed_at ? new Date(t.completed_at) : null,
             projectId: opts.projectId,
             asanaPermalink: t.permalink_url ?? null,
-            asanaCustomFields: (t.custom_fields ?? null) as any
+            asanaCustomFields: (t.custom_fields ?? null) as any,
+            // REVIVE tasks soft-deleted: si el user borró la columna y
+            // las tasks quedaron en papelera (deletedAt poblado), el
+            // re-import las trae de vuelta. Sin esto, el update cambiaba
+            // el status pero la task seguía oculta -> "solo importó lo nuevo".
+            deletedAt: null,
+            deletedById: null
           } as any
         });
         result.tasksUpdated++;
@@ -1031,7 +1037,9 @@ export async function reimportAsanaSection(opts: {
               projectId: opts.projectId,
               completedAt: t.completed_at ? new Date(t.completed_at) : null,
               asanaPermalink: t.permalink_url ?? null,
-              asanaCustomFields: (t.custom_fields ?? null) as any
+              asanaCustomFields: (t.custom_fields ?? null) as any,
+              deletedAt: null,
+              deletedById: null
             } as any
           });
           local = ex;

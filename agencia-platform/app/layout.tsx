@@ -85,7 +85,7 @@ const earlyInstallCapture = `
  */
 const swSelfHeal = `
   (function () {
-    var EXPECTED = "v95-2026-05-19-asana-token-determinism";
+    var EXPECTED = "v96-2026-05-19-reimport-revive-alta-badge";
     if (!('serviceWorker' in navigator)) return;
     var key = "hub_sw_v_seen";
     var seen = null;
