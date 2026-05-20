@@ -126,6 +126,9 @@ export async function testEmailAccount(opts: {
   smtpSecure: boolean;
   loginUser: string;
   password: string;
+  /** ¿Hay relay HTTP (Resend) disponible para este workspace? Lo calcula
+   *  la ruta (que tiene workspaceId) y lo pasa para el mensaje. */
+  relayAvailable?: boolean;
 }): Promise<{ imap: boolean; smtp: boolean; relay?: boolean; error?: string; smtpPort?: number; smtpSecure?: boolean }> {
   const result = {
     imap: false,
@@ -177,8 +180,7 @@ export async function testEmailAccount(opts: {
   } catch (e: any) {
     // SMTP bloqueado: ¿hay relay HTTP (Resend) disponible? Si sí, el envío
     // de Sonia funcionará igualmente por ahí — no es un fallo fatal.
-    const { isEmailEnabled } = await import("@/lib/integrations/email");
-    if (isSmtpConnIssue(e) && isEmailEnabled()) {
+    if (isSmtpConnIssue(e) && opts.relayAvailable) {
       result.relay = true;
     }
     const parts = [String(e?.message ?? e)];
@@ -187,7 +189,7 @@ export async function testEmailAccount(opts: {
       parts.push(
         result.relay
           ? "(SMTP bloqueado, pero el envío funcionará por relay HTTP — Resend)"
-          : "(ningún puerto SMTP conecta — 465/587/25 bloqueados desde el servidor. Configura RESEND_API_KEY para enviar por relay, o desbloquea SMTP en Railway)"
+          : "(ningún puerto SMTP conecta — 465/587/25 bloqueados desde el servidor. Configura el relay pegando la clave de Resend abajo, o desbloquea SMTP en Railway)"
       );
     }
     result.error = (result.error ? result.error + " · " : "") + `SMTP: ${parts.join(" ").slice(0, 240)}`;
@@ -373,9 +375,11 @@ export async function sendEmailFromAccount(opts: {
     // enviamos por ahí como info@negociovivo.com. Si el dominio no está
     // verificado en Resend, reintentamos con el remitente por defecto +
     // reply-to a la cuenta del usuario para no perder el correo.
-    const { isEmailEnabled, sendViaResend } = await import("@/lib/integrations/email");
-    if (!isSmtpConnIssue(e) || !isEmailEnabled()) throw e;
+    const { getResendConfig, sendViaResend } = await import("@/lib/integrations/email");
+    const rcfg = await getResendConfig(opts.workspaceId);
+    if (!isSmtpConnIssue(e) || !rcfg.apiKey) throw e;
     const common = {
+      apiKey: rcfg.apiKey,
       to: opts.to,
       cc: opts.cc,
       subject: opts.subject,
@@ -386,7 +390,7 @@ export async function sendEmailFromAccount(opts: {
       return { messageId: r.id, via: "relay" };
     } catch (re: any) {
       if (re?.domainNotVerified) {
-        const r2 = await sendViaResend({ replyTo: acc.email, ...common });
+        const r2 = await sendViaResend({ from: rcfg.from, replyTo: acc.email, ...common });
         return { messageId: r2.id, via: "relay" };
       }
       throw re;

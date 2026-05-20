@@ -298,6 +298,109 @@ export default function EmailAccountClient() {
           )}
         </div>
       )}
+
+      <ResendRelayInline />
+    </div>
+  );
+}
+
+/**
+ * Configuración del relay de envío (Resend). Solo se muestra a admins
+ * (el endpoint está protegido con scope admin → si responde 403, no
+ * renderizamos nada). Resuelve el problema de que Railway bloquea el SMTP
+ * saliente: pegando aquí la clave de Resend, Sonia envía por HTTP.
+ */
+function ResendRelayInline() {
+  const [allowed, setAllowed] = useState(false);
+  const [hasKey, setHasKey] = useState(false);
+  const [from, setFrom] = useState("");
+  const [key, setKey] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch("/api/v1/admin/resend-settings")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (!d) return;
+        setAllowed(true);
+        setHasKey(!!d.hasKey);
+        if (d.from) setFrom(d.from);
+      })
+      .catch(() => {});
+  }, []);
+
+  if (!allowed) return null;
+
+  async function save() {
+    setSaving(true);
+    setMsg(null);
+    try {
+      const r = await fetch("/api/v1/admin/resend-settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ apiKey: key.trim() || undefined, from: from.trim() || undefined })
+      });
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}));
+        throw new Error(d?.error?.message ?? `Error ${r.status}`);
+      }
+      setKey("");
+      setHasKey(true);
+      setMsg("Guardado. El envío por relay ya está activo.");
+    } catch (e: any) {
+      setMsg(e?.message ?? String(e));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="bg-white rounded-xl border p-5 mt-6 space-y-3">
+      <div className="flex items-center gap-2">
+        <Plug className="h-4 w-4 text-brand-600" />
+        <span className="font-semibold text-sm">Relay de envío (Resend)</span>
+        <span
+          className={
+            "ml-auto text-[10px] px-2 py-0.5 rounded-full font-medium " +
+            (hasKey ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700")
+          }
+        >
+          {hasKey ? "Configurado" : "Sin configurar"}
+        </span>
+      </div>
+      <p className="text-[11px] text-slate-500 leading-snug">
+        El SMTP de salida está bloqueado por la red (Railway). Para poder ENVIAR correos, pega aquí la API key de{" "}
+        <a href="https://resend.com/api-keys" target="_blank" rel="noreferrer" className="text-brand-600 underline">
+          Resend
+        </a>{" "}
+        (gratis hasta 100/día, empieza por <code>re_</code>). Para que el remitente sea exactamente tu correo, verifica
+        tu dominio en Resend.
+      </p>
+      <input
+        type="password"
+        value={key}
+        onChange={(e) => setKey(e.target.value)}
+        placeholder={hasKey ? "•••• guardada (pega una nueva para reemplazar)" : "re_xxxxxxxx"}
+        className="w-full px-3 py-2 rounded-lg border text-sm font-mono"
+      />
+      <input
+        value={from}
+        onChange={(e) => setFrom(e.target.value)}
+        placeholder='Remitente (opcional), ej: "Negocio Vivo <info@negociovivo.com>"'
+        className="w-full px-3 py-2 rounded-lg border text-sm"
+      />
+      <div className="flex items-center gap-2">
+        <button
+          onClick={save}
+          disabled={saving}
+          className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium disabled:opacity-50"
+        >
+          {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+          Guardar relay
+        </button>
+        {msg && <span className="text-[11px] text-slate-600">{msg}</span>}
+      </div>
     </div>
   );
 }

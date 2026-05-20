@@ -42,7 +42,12 @@ Ejemplo de bloque:
 
 CORREO: cada usuario conecta SU PROPIO correo (IMAP/SMTP) en su perfil. Las tools de correo actúan SIEMPRE sobre la cuenta del usuario que te está hablando (nunca la de otro). Si tiene cuenta conectada puedes usar email_search (buscar), email_read (leer cuerpo por uid) y email_send (enviar). Úsalas solo cuando te lo pida. Antes de enviar un correo, MUESTRA destinatario + asunto + cuerpo y envíalo. Si no tiene cuenta conectada, las tools devolverán un aviso — dile que la conecte en su perfil → Mi correo (/perfil/correo).
 
-CAMPAÑAS META (Facebook/Instagram Ads): usas el token de Meta conectado en el workspace. La cuenta publicitaria (Ad Account) se detecta automáticamente del token — basta con conectar el token en /campanas-meta, NO hace falta configurar el Ad Account ID a mano. NUNCA afirmes que "no hay cuenta conectada" sin comprobarlo: para saber a qué cuentas tienes acceso o verificar la conexión, llama SIEMPRE a meta_list_ad_accounts. Puedes consultar campañas (meta_list_campaigns), sus métricas (meta_campaign_insights), las mejores por métrica (meta_top_performers) y descargar leads (meta_download_leads). Para MODIFICAR una campaña (pausar/activar o cambiar presupuesto) usa meta_update_campaign SOLO cuando el usuario te lo pida explícitamente, y CONFIRMA antes qué campaña y qué cambio harás — gasta dinero real del cliente. Solo si meta_list_ad_accounts devuelve connected:false dile que conecte el token en /campanas-meta.
+CAMPAÑAS META (Facebook/Instagram Ads): usas el token de Meta del workspace, que puede tener VARIAS cuentas publicitarias (Ad Accounts). NUNCA digas "no hay cuenta conectada" sin comprobarlo con meta_list_ad_accounts (lista las cuentas accesibles). Reglas:
+- "dime todas las campañas" / "todas" → usa meta_list_all_campaigns (recorre TODAS las cuentas y las agrupa). Por defecto trae solo ACTIVAS.
+- Campañas de una cuenta concreta → meta_list_campaigns con adAccount = nombre o act_id (p.ej. "NEGOCIO VIVO").
+- meta_top_performers (mejores por gasto/CTR/…) también acepta adAccount.
+- meta_campaign_insights (métricas), meta_download_leads (leads) y meta_update_campaign funcionan por id de campaña/anuncio y no necesitan cuenta.
+Si el usuario pide algo de "una cuenta" y no concreta cuál entre varias, ofrécele la lista (meta_list_ad_accounts) y deja que elija, salvo que diga "todas" (entonces meta_list_all_campaigns). Para MODIFICAR una campaña (pausar/activar/presupuesto) usa meta_update_campaign SOLO si te lo pide explícitamente y CONFIRMA antes — gasta dinero real. Solo si meta_list_ad_accounts devuelve connected:false dile que conecte el token en /campanas-meta.
 
 No expongas IDs internos al usuario salvo que los pida.`;
 
@@ -65,7 +70,7 @@ export const POST = withApi({ scope: "ai", rate: "ai" }, async (req, { api }) =>
   }));
 
   // Loop agéntico: ejecutar tools hasta que el modelo termine
-  for (let i = 0; i < 6; i++) {
+  for (let i = 0; i < 10; i++) {
     const resp = await client.messages.create({
       model: DEFAULT_MODEL,
       max_tokens: 4096,

@@ -41,6 +41,9 @@ export const POST = withApi({ scope: "*" }, async (req, { api }) => {
   const password = d.password || (saved ? decryptSecret(saved.passwordEnc) ?? "" : "");
   if (!password) throw new ApiError(400, "no_password", "Falta la contraseña para probar.");
 
+  const { getResendConfig } = await import("@/lib/integrations/email");
+  const relayAvailable = !!(await getResendConfig(api.workspaceId)).apiKey;
+
   const result = await testEmailAccount({
     imapHost: d.imapHost ?? saved?.imapHost ?? "",
     imapPort: d.imapPort ?? saved?.imapPort ?? 993,
@@ -49,7 +52,8 @@ export const POST = withApi({ scope: "*" }, async (req, { api }) => {
     smtpPort: d.smtpPort ?? saved?.smtpPort ?? 465,
     smtpSecure: d.smtpSecure ?? saved?.smtpSecure ?? true,
     loginUser: d.loginUser ?? saved?.loginUser ?? d.email ?? "",
-    password
+    password,
+    relayAvailable
   });
   // Self-heal: si SMTP funcionó por un puerto distinto al guardado, lo
   // persistimos para que el próximo envío vaya directo.

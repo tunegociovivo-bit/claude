@@ -26,7 +26,7 @@
 // reintroducir cache PERO con purga agresiva por VERSION en
 // activate.
 
-const VERSION = "v118-2026-05-20-email-relay-resend";
+const VERSION = "v119-2026-05-20-resend-inplatform-meta-multiaccount";
 
 self.addEventListener("install", (event) => {
   // Activación inmediata: no esperar a que el SW viejo libere.

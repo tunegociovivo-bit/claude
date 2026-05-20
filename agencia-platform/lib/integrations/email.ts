@@ -11,6 +11,38 @@ export function isEmailEnabled(): boolean {
   return Boolean(process.env.RESEND_API_KEY);
 }
 
+/**
+ * Resuelve la clave de Resend + remitente. La clave guardada en la
+ * plataforma (Workspace.settings.integrations.resend, cifrada) tiene
+ * prioridad sobre la env var RESEND_API_KEY — así se puede configurar el
+ * relay sin tocar Railway.
+ */
+export async function getResendConfig(
+  workspaceId?: string
+): Promise<{ apiKey: string | null; from: string }> {
+  let apiKey: string | null = process.env.RESEND_API_KEY ?? null;
+  let from = process.env.EMAIL_FROM ?? "Hub <onboarding@resend.dev>";
+  if (workspaceId) {
+    try {
+      const { prisma } = await import("@/lib/db/prisma");
+      const { decryptSecret } = await import("@/lib/ai/crypto");
+      const ws = await prisma.workspace.findUnique({
+        where: { id: workspaceId },
+        select: { settings: true }
+      });
+      const r = (ws?.settings as any)?.integrations?.resend;
+      if (r?.apiKeyEnc) {
+        const k = decryptSecret(r.apiKeyEnc);
+        if (k) apiKey = k;
+      }
+      if (typeof r?.from === "string" && r.from.trim()) from = r.from.trim();
+    } catch {
+      /* settings inaccesible — usamos env */
+    }
+  }
+  return { apiKey, from };
+}
+
 export function getFromAddress(): string {
   return (
     process.env.EMAIL_FROM ??
@@ -60,6 +92,7 @@ export async function sendEmail(opts: {
  * defecto) de otros errores.
  */
 export async function sendViaResend(opts: {
+  apiKey?: string;
   from?: string;
   replyTo?: string;
   to: string | string[];
@@ -68,8 +101,9 @@ export async function sendViaResend(opts: {
   text?: string;
   html?: string;
 }): Promise<{ id: string }> {
-  if (!isEmailEnabled()) {
-    throw new Error("Email no configurado. Define RESEND_API_KEY.");
+  const apiKey = opts.apiKey ?? process.env.RESEND_API_KEY;
+  if (!apiKey) {
+    throw new Error("Relay de envío no configurado. Define RESEND_API_KEY o pega la clave de Resend en la plataforma.");
   }
   const payload: Record<string, unknown> = {
     from: opts.from ?? getFromAddress(),
@@ -83,7 +117,7 @@ export async function sendViaResend(opts: {
   const resp = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+      Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json"
     },
     body: JSON.stringify(payload)

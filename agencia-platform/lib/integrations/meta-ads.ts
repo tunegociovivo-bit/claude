@@ -91,6 +91,72 @@ async function getMetaAdsConfig(
 }
 
 /**
+ * Resuelve SOLO el token de Meta (sin exigir cuenta publicitaria). Para
+ * operaciones que actúan sobre un nodo concreto por id (insights de una
+ * campaña, ads/adsets de una campaña, leads, update de campaña): no
+ * necesitan el Ad Account, así que no deben fallar aunque el token tenga
+ * varias cuentas.
+ */
+async function resolveMetaToken(workspaceId: string, adhoc?: Record<string, string>): Promise<string> {
+  if (adhoc?.META_ADS_TOKEN) return adhoc.META_ADS_TOKEN;
+  const conn = await prisma.metaConnection.findFirst({
+    where: { workspaceId },
+    orderBy: { createdAt: "desc" }
+  });
+  if (!conn) throw new Error("MetaConnection no configurada en el workspace");
+  if (conn.expiresAt && conn.expiresAt < new Date()) throw new Error("MetaConnection caducada — reconecta Meta");
+  const t = decryptSecret(conn.accessTokenEnc);
+  if (!t) throw new Error("MetaConnection token inválido");
+  return t;
+}
+
+/**
+ * Resuelve una cuenta publicitaria por nombre (fuzzy) o por id (act_xxx /
+ * xxx). Devuelve el id en formato "act_xxx" o null si no encuentra una.
+ */
+export async function metaAdsResolveAccount(
+  workspaceId: string,
+  query: string
+): Promise<{ id: string; name: string } | null> {
+  const accounts = await metaAdsListAdAccounts(workspaceId);
+  const q = query.trim().toLowerCase();
+  const norm = (s: string) => s.toLowerCase().replace(/^act_/, "");
+  let hit =
+    accounts.find((a: any) => norm(a.id) === norm(q)) ??
+    accounts.find((a: any) => (a.name ?? "").toLowerCase() === q) ??
+    accounts.find((a: any) => (a.name ?? "").toLowerCase().includes(q));
+  return hit ? { id: hit.id, name: hit.name } : null;
+}
+
+/**
+ * Lista las campañas de TODAS las cuentas publicitarias del token,
+ * agrupadas por cuenta. Para "dime todas las campañas". Cada cuenta es
+ * una llamada; los errores por cuenta se devuelven sin abortar el resto.
+ */
+export async function metaAdsListAllCampaigns(opts: {
+  workspaceId: string;
+  status?: "ACTIVE" | "PAUSED" | "ARCHIVED";
+  perAccountLimit?: number;
+}): Promise<Array<{ account: { id: string; name: string }; campaigns?: any[]; error?: string }>> {
+  const accounts = await metaAdsListAdAccounts(opts.workspaceId);
+  const out: Array<{ account: { id: string; name: string }; campaigns?: any[]; error?: string }> = [];
+  for (const acc of accounts) {
+    try {
+      const campaigns = await metaAdsListCampaigns({
+        workspaceId: opts.workspaceId,
+        status: opts.status,
+        limit: opts.perAccountLimit ?? 50,
+        adhoc: { META_ADS_AD_ACCOUNT_ID: acc.id }
+      });
+      out.push({ account: { id: acc.id, name: acc.name }, campaigns });
+    } catch (e: any) {
+      out.push({ account: { id: acc.id, name: acc.name }, error: String(e?.message ?? e) });
+    }
+  }
+  return out;
+}
+
+/**
  * Decide si un error de Meta Ads es transient y vale reintentar.
  * Reintentamos: 5xx, 429 (rate-limit), errores de red.
  * NO reintentamos: 4xx (incluyendo 400 validation, 401 auth) — son
@@ -191,7 +257,7 @@ export async function metaAdsGetCampaignInsights(opts: {
   until?: string;
   adhoc?: Record<string, string>;
 }) {
-  const cfg = await getMetaAdsConfig(opts.workspaceId, opts.adhoc);
+  const accessToken = await resolveMetaToken(opts.workspaceId, opts.adhoc);
   const fields =
     "impressions,clicks,spend,ctr,cpc,cpm,reach,frequency,actions,action_values,date_start,date_stop";
   const params = new URLSearchParams({ fields });
@@ -202,7 +268,7 @@ export async function metaAdsGetCampaignInsights(opts: {
   }
   const data = await metaFetch<any>(
     `${GRAPH}/${opts.campaignId}/insights?${params.toString()}`,
-    cfg.accessToken
+    accessToken
   );
   // Devolvemos solo el primer "rollup" del rango — Meta puede partir
   // por dimensiones que no estamos pidiendo aquí.
@@ -257,7 +323,7 @@ export async function metaAdsListAds(opts: {
   adhoc?: Record<string, string>;
   limit?: number;
 }) {
-  const cfg = await getMetaAdsConfig(opts.workspaceId, opts.adhoc);
+  const accessToken = await resolveMetaToken(opts.workspaceId, opts.adhoc);
   let parent: string;
   if (opts.adsetId) parent = opts.adsetId;
   else if (opts.campaignId) parent = opts.campaignId;
@@ -268,7 +334,7 @@ export async function metaAdsListAds(opts: {
   });
   const data = await metaFetch<any>(
     `${GRAPH}/${parent}/ads?${params.toString()}`,
-    cfg.accessToken
+    accessToken
   );
   return data.data ?? [];
 }
@@ -283,7 +349,7 @@ export async function metaAdsListAdsets(opts: {
   adhoc?: Record<string, string>;
   limit?: number;
 }) {
-  const cfg = await getMetaAdsConfig(opts.workspaceId, opts.adhoc);
+  const accessToken = await resolveMetaToken(opts.workspaceId, opts.adhoc);
   const params = new URLSearchParams({
     fields:
       "id,name,status,campaign_id,daily_budget,optimization_goal,destination_type,promoted_object,targeting",
@@ -291,7 +357,7 @@ export async function metaAdsListAdsets(opts: {
   });
   const data = await metaFetch<any>(
     `${GRAPH}/${opts.campaignId}/adsets?${params.toString()}`,
-    cfg.accessToken
+    accessToken
   );
   return data.data ?? [];
 }
@@ -327,7 +393,7 @@ export async function metaAdsDownloadLeads(opts: {
   leads: Array<Record<string, string>>;
   source: string;
 }> {
-  const cfg = await getMetaAdsConfig(opts.workspaceId, opts.adhoc);
+  const accessToken = await resolveMetaToken(opts.workspaceId, opts.adhoc);
 
   // 1) Resolver las "fuentes" de leads. Si es campaignId o adsetId,
   //    listamos los ads hijos. Si es adId o formId, directo.
@@ -378,7 +444,7 @@ export async function metaAdsDownloadLeads(opts: {
     }
     let url = `${GRAPH}${path}?${params.toString()}`;
     while (url && allLeads.length < HARD_LIMIT) {
-      const resp: any = await metaFetch(url, cfg.accessToken);
+      const resp: any = await metaFetch(url, accessToken);
       const items = resp.data ?? [];
       for (const lead of items) {
         if (untilTs && lead.created_time) {
@@ -657,7 +723,7 @@ export async function metaAdsUpdateCampaign(opts: {
   lifetimeBudgetEur?: number;
   adhoc?: Record<string, string>;
 }): Promise<{ success: boolean }> {
-  const cfg = await getMetaAdsConfig(opts.workspaceId, opts.adhoc);
+  const accessToken = await resolveMetaToken(opts.workspaceId, opts.adhoc);
   const payload: Record<string, unknown> = {};
   if (opts.name) payload.name = opts.name;
   if (opts.status) payload.status = opts.status;
@@ -666,7 +732,7 @@ export async function metaAdsUpdateCampaign(opts: {
   if (Object.keys(payload).length === 0) {
     throw new Error("Pasa al menos un campo a actualizar (name, status, daily/lifetimeBudgetEur)");
   }
-  await metaPost(`/${opts.campaignId}`, cfg.accessToken, payload);
+  await metaPost(`/${opts.campaignId}`, accessToken, payload);
   return { success: true };
 }
 

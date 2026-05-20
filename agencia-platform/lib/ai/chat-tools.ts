@@ -574,26 +574,72 @@ chatTools.push({
   }
 });
 
+// Resuelve el parámetro adAccount (nombre o act_id) a un adhoc para las
+// funciones de meta-ads. Lanza si no encuentra la cuenta.
+async function metaAdhocFor(workspaceId: string, adAccount?: string): Promise<Record<string, string> | undefined> {
+  if (!adAccount || !adAccount.trim()) return undefined;
+  const { metaAdsResolveAccount } = await import("@/lib/integrations/meta-ads");
+  const acc = await metaAdsResolveAccount(workspaceId, adAccount.trim());
+  if (!acc) throw new Error(`No encontré ninguna cuenta publicitaria de Meta que coincida con "${adAccount}".`);
+  return { META_ADS_AD_ACCOUNT_ID: acc.id };
+}
+
 chatTools.push({
   name: "meta_list_campaigns",
   description:
-    "Lista las campañas de Meta Ads (Facebook/Instagram) del workspace con su estado, objetivo y presupuesto. Úsalo cuando pregunten por las campañas activas, pausadas, su presupuesto, etc.",
+    "Lista las campañas de Meta Ads de UNA cuenta publicitaria. El token tiene varias cuentas, así que indica `adAccount` (nombre o act_id, p.ej. 'NEGOCIO VIVO'). Si quieres TODAS las cuentas a la vez usa meta_list_all_campaigns.",
   input_schema: {
     type: "object",
     properties: {
+      adAccount: { type: "string", description: "Cuenta publicitaria por nombre o act_id." },
       status: { type: "string", enum: ["ACTIVE", "PAUSED", "ALL"], description: "Filtrar por estado (default ALL)." },
-      limit: { type: "integer", description: "Máx. campañas (default 25)." }
+      limit: { type: "integer", description: "Máx. campañas (default 50)." }
     }
   },
   run: async (args, ctx) => {
     try {
       const { metaAdsListCampaigns } = await import("@/lib/integrations/meta-ads");
+      const adhoc = await metaAdhocFor(ctx.workspaceId, args?.adAccount);
       const items = await metaAdsListCampaigns({
         workspaceId: ctx.workspaceId,
         status: args?.status && args.status !== "ALL" ? args.status : undefined,
-        limit: Math.min(Number(args?.limit) || 25, 100)
+        limit: Math.min(Number(args?.limit) || 50, 100),
+        adhoc
       });
       return JSON.stringify(items);
+    } catch (e: any) {
+      return JSON.stringify({ error: String(e?.message ?? e) });
+    }
+  }
+});
+
+chatTools.push({
+  name: "meta_list_all_campaigns",
+  description:
+    "Lista las campañas de Meta Ads de TODAS las cuentas publicitarias del token, agrupadas por cuenta. Úsalo cuando pidan 'todas las campañas'. Por defecto solo ACTIVAS para no saturar; pasa status para cambiarlo. Puede tardar (una llamada por cuenta).",
+  input_schema: {
+    type: "object",
+    properties: {
+      status: {
+        type: "string",
+        enum: ["ACTIVE", "PAUSED", "ALL"],
+        description: "Estado a listar (default ACTIVE)."
+      }
+    }
+  },
+  run: async (args, ctx) => {
+    try {
+      const { metaAdsListAllCampaigns } = await import("@/lib/integrations/meta-ads");
+      const status = args?.status === "ALL" ? undefined : args?.status ?? "ACTIVE";
+      const grouped = await metaAdsListAllCampaigns({ workspaceId: ctx.workspaceId, status });
+      // Resumen compacto: solo cuentas con campañas + conteo, para no
+      // devolver un JSON gigante al modelo.
+      const withCampaigns = grouped.filter((g) => (g.campaigns?.length ?? 0) > 0);
+      return JSON.stringify({
+        totalAccounts: grouped.length,
+        accountsWithCampaigns: withCampaigns.length,
+        results: grouped
+      });
     } catch (e: any) {
       return JSON.stringify({ error: String(e?.message ?? e) });
     }
@@ -634,10 +680,11 @@ chatTools.push({
 chatTools.push({
   name: "meta_top_performers",
   description:
-    "Devuelve las mejores campañas de Meta Ads por una métrica (gasto, impresiones, CTR, alcance) en un rango. Útil para '¿qué campaña va mejor?'.",
+    "Devuelve las mejores campañas de Meta Ads de UNA cuenta por una métrica (gasto, impresiones, CTR, alcance) en un rango. Indica `adAccount` (nombre o act_id). Útil para '¿qué campaña va mejor en [cuenta]?'.",
   input_schema: {
     type: "object",
     properties: {
+      adAccount: { type: "string", description: "Cuenta publicitaria por nombre o act_id." },
       metric: { type: "string", enum: ["spend", "impressions", "ctr", "reach"], description: "Default spend." },
       datePreset: { type: "string", enum: ["last_7d", "last_14d", "last_30d", "this_month", "last_month", "maximum"] },
       limit: { type: "integer", description: "Top N (default 5)." }
@@ -646,11 +693,13 @@ chatTools.push({
   run: async (args, ctx) => {
     try {
       const { metaAdsTopPerformers } = await import("@/lib/integrations/meta-ads");
+      const adhoc = await metaAdhocFor(ctx.workspaceId, args?.adAccount);
       const items = await metaAdsTopPerformers({
         workspaceId: ctx.workspaceId,
         metric: args?.metric ?? "spend",
         datePreset: args?.datePreset ?? "last_30d",
-        limit: Math.min(Number(args?.limit) || 5, 25)
+        limit: Math.min(Number(args?.limit) || 5, 25),
+        adhoc
       });
       return JSON.stringify(items);
     } catch (e: any) {
