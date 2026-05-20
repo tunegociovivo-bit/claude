@@ -10,9 +10,8 @@
  * workspace indicado. Sin token válido → 401.
  */
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/db/prisma";
 import { rateLimitPublic } from "@/lib/api/handler";
-import { upsertIncomingReview, recomputeClientStats } from "@/lib/integrations/gmb-hub";
+import { upsertIncomingReview, recomputeClientStats, getGmbConfig } from "@/lib/integrations/gmb-hub";
 
 export const dynamic = "force-dynamic";
 
@@ -29,10 +28,9 @@ export async function POST(req: NextRequest) {
   if (!token || !workspaceId) {
     return NextResponse.json({ error: "missing_token_or_workspace" }, { status: 401 });
   }
-  // Validar token contra la config del workspace
-  const ws = await prisma.workspace.findUnique({ where: { id: workspaceId }, select: { settings: true } });
-  const expected = (ws?.settings as any)?.integrations?.gmb?.webhookToken;
-  if (!expected || token !== expected) {
+  // Validar token contra la config del workspace (token cifrado en settings)
+  const cfg = await getGmbConfig(workspaceId);
+  if (!cfg.ingestToken || token !== cfg.ingestToken) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 

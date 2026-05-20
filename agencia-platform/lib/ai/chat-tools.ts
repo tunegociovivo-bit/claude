@@ -956,6 +956,25 @@ chatTools.push({
   }
 });
 
+chatTools.push({
+  name: "gmb_seo_audit",
+  description:
+    "Auditoría SEO local de una ficha de GMB (por nombre o id): puntuación 0-100 + qué falta + recomendaciones. Útil para '¿cómo está el SEO de [ficha]?' o priorizar mejoras.",
+  input_schema: {
+    type: "object",
+    properties: { client: { type: "string", description: "Nombre o id de la ficha." } },
+    required: ["client"]
+  },
+  run: async (args, ctx) => {
+    const client = await gmbResolveClient(ctx.workspaceId, String(args?.client ?? ""));
+    if (!client) return JSON.stringify({ error: "Ficha de GMB no encontrada" });
+    const full = await prisma.gmbClient.findUnique({ where: { id: client.id } });
+    if (!full) return JSON.stringify({ error: "Ficha no encontrada" });
+    const { computeSeoAudit } = await import("@/lib/integrations/gmb-hub");
+    return JSON.stringify({ client: client.name, audit: computeSeoAudit(full) });
+  }
+});
+
 export const toolDefs = chatTools.map((t) => ({
   name: t.name,
   description: t.description,
