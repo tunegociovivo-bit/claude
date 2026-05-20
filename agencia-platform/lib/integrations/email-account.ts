@@ -386,7 +386,12 @@ export async function sendEmailFromAccount(opts: {
       ...(opts.html ? { html: opts.body } : { text: opts.body })
     };
     try {
-      const r = await sendViaResend({ from: acc.email, replyTo: acc.email, ...common });
+      // Remitente principal: si el "from" configurado incluye la dirección
+      // de la cuenta (p.ej. "Negocio Vivo <info@negociovivo.com>"), lo
+      // usamos para respetar el nombre visible; si no, la dirección a secas.
+      const fromPrimary =
+        rcfg.from && rcfg.from.toLowerCase().includes(acc.email.toLowerCase()) ? rcfg.from : acc.email;
+      const r = await sendViaResend({ from: fromPrimary, replyTo: acc.email, ...common });
       return { messageId: r.id, via: "relay" };
     } catch (re: any) {
       if (re?.domainNotVerified) {
