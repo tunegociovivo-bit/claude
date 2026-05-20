@@ -84,6 +84,10 @@ export type UiTask = (typeof mockTasks)[number] & {
   // Necesario para que el drag&drop dentro de una columna persista
   // visualmente al reordenar.
   order?: number;
+  // URL (firmada) de la última imagen adjunta a la tarea, para mostrarla
+  // como portada en la tarjeta del Kanban (estilo Asana). undefined si no
+  // tiene imágenes adjuntas.
+  coverImage?: string;
 };
 export type UiProject = (typeof mockProjects)[number];
 export type UiEvent = (typeof mockEvents)[number];
@@ -167,6 +171,44 @@ export async function getTasksForUi(): Promise<UiTask[]> {
       // tamaño típico de tablón visible.
       take: 1000
     });
+
+    // Portada: última imagen adjunta a cada tarea (estilo Asana). Una sola
+    // query para todas las tareas visibles; nos quedamos con la más
+    // reciente por tarea y firmamos su URL (R2). La firma es local (no
+    // hace red), así que firmar las que tengan imagen es barato.
+    const coverByTask = new Map<string, string>();
+    try {
+      const taskIds = rows.map((r) => r.id);
+      if (taskIds.length > 0) {
+        const imgs = await prisma.file.findMany({
+          where: {
+            workspaceId,
+            targetType: "TASK",
+            targetId: { in: taskIds },
+            mimeType: { startsWith: "image/" }
+          } as any,
+          orderBy: { createdAt: "desc" },
+          select: { targetId: true, s3Key: true }
+        });
+        const { signedDownloadUrl, isStorageEnabled } = await import("@/lib/storage/r2");
+        if (isStorageEnabled()) {
+          const latest: { targetId: string; s3Key: string }[] = [];
+          const seen = new Set<string>();
+          for (const f of imgs) {
+            if (!f.targetId || seen.has(f.targetId)) continue; // imgs ya viene DESC → la primera es la última
+            seen.add(f.targetId);
+            latest.push({ targetId: f.targetId, s3Key: f.s3Key });
+          }
+          const signed = await Promise.all(
+            latest.map(async (f) => ({ id: f.targetId, url: await signedDownloadUrl(f.s3Key).catch(() => null) }))
+          );
+          for (const s of signed) if (s.url) coverByTask.set(s.id, s.url);
+        }
+      }
+    } catch {
+      // Si falla la portada, las tarjetas se muestran sin imagen.
+    }
+
     return rows.map<UiTask>((r) => {
       const explicitAllDay = (r as any).dueAllDay;
       // Heurística: si la hora UTC almacenada NO es 00:00, hay hora
@@ -224,7 +266,8 @@ export async function getTasksForUi(): Promise<UiTask[]> {
         priority: priorityToUi[r.priority] ?? "media",
         tags: r.tags.map((t) => t.tag.name),
         notifyDueRules: (r as any).notifyDueRules ?? null,
-        order: (r as any).order ?? 0
+        order: (r as any).order ?? 0,
+        coverImage: coverByTask.get(r.id)
       };
     });
   }, mockTasks);

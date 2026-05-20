@@ -1937,6 +1937,19 @@ function TaskCard({
           </span>
         )}
       </div>
+      {/* Portada: última imagen adjunta (estilo Asana). */}
+      {task.coverImage && (
+        <div className="mb-2 rounded-lg overflow-hidden border border-slate-200 bg-slate-50">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={task.coverImage}
+            alt=""
+            loading="lazy"
+            className="w-full h-28 object-cover"
+            onPointerDown={(e) => e.stopPropagation()}
+          />
+        </div>
+      )}
       <div className="flex items-center gap-2 text-xs text-slate-500 mb-3">
         <span className={`inline-block h-2 w-2 rounded-full ${project?.color ?? "bg-slate-300"}`} />
         <span className="truncate">{client?.name ?? project?.name}</span>
