@@ -26,7 +26,7 @@
 // reintroducir cache PERO con purga agresiva por VERSION en
 // activate.
 
-const VERSION = "v96-2026-05-19-reimport-revive-alta-badge";
+const VERSION = "v97-2026-05-19-install-btn-mobile-10s";
 
 self.addEventListener("install", (event) => {
   // Activación inmediata: no esperar a que el SW viejo libere.

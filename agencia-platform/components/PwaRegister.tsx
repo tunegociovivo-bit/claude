@@ -54,6 +54,16 @@ export default function PwaRegister() {
   const [platform, setPlatform] = useState<Platform>("other");
   const [showManualGuide, setShowManualGuide] = useState(false);
   const [dismissedManual, setDismissedManual] = useState(false);
+  // Ventana temporal: el CTA de instalar solo se muestra los primeros
+  // 10s tras cargar la web. Pasado ese tiempo desaparece para no
+  // estorbar (el user que quiera instalar lo hace al entrar; el resto
+  // no quiere el botón ahí permanentemente).
+  const [withinInstallWindow, setWithinInstallWindow] = useState(true);
+
+  useEffect(() => {
+    const t = setTimeout(() => setWithinInstallWindow(false), 10_000);
+    return () => clearTimeout(t);
+  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -162,10 +172,17 @@ export default function PwaRegister() {
   }
 
   // ¿Mostramos algún CTA de instalación?
-  // - Botón nativo si capturamos beforeinstallprompt.
-  // - Botón manual si móvil, no instalada y no cerrado.
-  const showNative = !!installPrompt && !installed;
-  const showManual = !installPrompt && !installed && !dismissedManual && (platform === "android" || platform === "ios");
+  // SOLO en móvil (android/ios) y SOLO durante los primeros 10s tras
+  // cargar — en escritorio no tiene sentido (instalar PWA en desktop
+  // no aporta para este uso) y permanentemente molesta.
+  const isMobile = platform === "android" || platform === "ios";
+  const showNative = !!installPrompt && !installed && isMobile && withinInstallWindow;
+  const showManual =
+    !installPrompt &&
+    !installed &&
+    !dismissedManual &&
+    isMobile &&
+    withinInstallWindow;
 
   return (
     <>
