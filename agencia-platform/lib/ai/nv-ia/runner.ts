@@ -669,12 +669,27 @@ export async function loadAgentConfig(workspaceId: string): Promise<AiAgentConfi
       "Sonia no está configurada en este workspace. Llama a POST /api/v1/admin/ai-agent/init primero."
     );
   }
+  // Los caps `maxStepsPerRun` y `maxTokensPerRun` se guardaron en
+  // BD cuando se inicializó Sonia en este workspace (valores antiguos:
+  // 25 pasos / 200k tokens). Al subir los defaults del código (60 /
+  // 400k) los workspaces ya inicializados seguían atascados con los
+  // valores viejos por culpa del `??`, y tareas medianas (crear campaña
+  // Meta Lead Ads completa: ~30-40 tool calls) reventaban con
+  // "Alcanzado tope de 25 pasos sin terminar". Tomamos el max entre lo
+  // persistido y el default actual — así un admin puede SUBIR el cap
+  // tocando settings, pero NUNCA queda por debajo del default vigente.
   return {
     userId: cfg.userId,
     inboxProjectId: cfg.inboxProjectId,
     model: cfg.model ?? DEFAULT_AGENT_CONFIG.model,
-    maxStepsPerRun: cfg.maxStepsPerRun ?? DEFAULT_AGENT_CONFIG.maxStepsPerRun,
-    maxTokensPerRun: cfg.maxTokensPerRun ?? DEFAULT_AGENT_CONFIG.maxTokensPerRun
+    maxStepsPerRun: Math.max(
+      Number(cfg.maxStepsPerRun) || 0,
+      DEFAULT_AGENT_CONFIG.maxStepsPerRun
+    ),
+    maxTokensPerRun: Math.max(
+      Number(cfg.maxTokensPerRun) || 0,
+      DEFAULT_AGENT_CONFIG.maxTokensPerRun
+    )
   };
 }
 
