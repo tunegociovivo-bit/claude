@@ -89,7 +89,13 @@ export async function testEmailAccount(opts: {
     await client.logout().catch(() => {});
     result.imap = true;
   } catch (e: any) {
-    result.error = `IMAP: ${String(e?.message ?? e).slice(0, 180)}`;
+    // imapflow trae detalle útil que no está en .message: si la auth
+    // fue rechazada, el texto de respuesta del servidor, y el código.
+    const parts = [String(e?.message ?? e)];
+    if (e?.authenticationFailed) parts.push("(autenticación rechazada — revisa usuario/contraseña o usa una contraseña de aplicación)");
+    if (e?.responseText && !parts[0].includes(e.responseText)) parts.push(`resp: ${e.responseText}`);
+    if (e?.serverResponseCode) parts.push(`code: ${e.serverResponseCode}`);
+    result.error = `IMAP: ${parts.join(" ").slice(0, 240)}`;
   }
   // SMTP
   try {
@@ -104,7 +110,14 @@ export async function testEmailAccount(opts: {
     await withTimeout(transport.verify(), 15000, "SMTP");
     result.smtp = true;
   } catch (e: any) {
-    result.error = (result.error ? result.error + " · " : "") + `SMTP: ${String(e?.message ?? e).slice(0, 180)}`;
+    const parts = [String(e?.message ?? e)];
+    if (e?.code) parts.push(`code: ${e.code}`);
+    // ETIMEDOUT/ESOCKET/ECONNREFUSED en SMTP casi siempre = puerto de
+    // salida bloqueado por el hosting (Railway suele bloquear 465/587/25).
+    if (e?.code === "ETIMEDOUT" || e?.code === "ESOCKET" || e?.code === "ECONNREFUSED") {
+      parts.push("(puerto de salida bloqueado — prueba SMTP 587 sin SSL, o pide a Railway desbloquear SMTP)");
+    }
+    result.error = (result.error ? result.error + " · " : "") + `SMTP: ${parts.join(" ").slice(0, 240)}`;
   }
   return result;
 }
