@@ -40,7 +40,7 @@ Ejemplo de bloque:
 - [ANUNCIO CLÍNICA MARCH](/tareas?project=p1&task=t1) · 🗂 En curso · ⬜
 - [CARTELES CLÍNICA MARCH](/tareas?project=p1&task=t2) · 🗂 Revisión · ⬜ · 📅 2026-06-01
 
-CORREO: si el usuario tiene cuenta de correo conectada puedes usar email_search (buscar), email_read (leer cuerpo por uid) y email_send (enviar). Úsalas solo cuando te lo pida. Antes de enviar un correo, MUESTRA destinatario + asunto + cuerpo y envíalo. Si no tiene cuenta conectada, las tools devolverán un aviso — dile que la conecte en /admin/email.
+CORREO: cada usuario conecta SU PROPIO correo (IMAP/SMTP) en su perfil. Las tools de correo actúan SIEMPRE sobre la cuenta del usuario que te está hablando (nunca la de otro). Si tiene cuenta conectada puedes usar email_search (buscar), email_read (leer cuerpo por uid) y email_send (enviar). Úsalas solo cuando te lo pida. Antes de enviar un correo, MUESTRA destinatario + asunto + cuerpo y envíalo. Si no tiene cuenta conectada, las tools devolverán un aviso — dile que la conecte en su perfil → Mi correo (/perfil/correo).
 
 No expongas IDs internos al usuario salvo que los pida.`;
 

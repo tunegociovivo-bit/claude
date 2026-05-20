@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { signOut } from "next-auth/react";
 import PageHeader from "@/components/PageHeader";
 import ImageUpload from "@/components/ui/ImageUpload";
 import ExternalCalendarsSection from "@/components/ExternalCalendarsSection";
 import GoogleCalendarSection from "@/components/GoogleCalendarSection";
-import { Loader2, Save, LogOut } from "lucide-react";
+import { Loader2, Save, LogOut, Mail, ChevronRight } from "lucide-react";
 
 type Me = {
   id: string;
@@ -163,6 +164,24 @@ export default function PerfilClient() {
           </div>
         </form>
       )}
+
+      {/* Mi correo (IMAP/SMTP personal — cada trabajador conecta el suyo) */}
+      <Link
+        href="/perfil/correo"
+        className="bg-white rounded-xl border p-5 mt-6 flex items-center justify-between hover:bg-slate-50 transition-colors"
+      >
+        <div className="flex items-start gap-3">
+          <Mail className="h-5 w-5 text-brand-600 mt-0.5 shrink-0" />
+          <div>
+            <h3 className="text-sm font-semibold text-slate-900">Mi correo</h3>
+            <p className="text-[11px] text-slate-500 mt-0.5">
+              Conecta tu cuenta (IMAP/SMTP) para que Sonia pueda consultar y enviar tus emails cuando se lo
+              pidas. Privado: solo tú lo usas desde tu sesión.
+            </p>
+          </div>
+        </div>
+        <ChevronRight className="h-4 w-4 text-slate-400 shrink-0" />
+      </Link>
 
       {/* Google Calendar (OAuth bidireccional) */}
       <GoogleCalendarSection />

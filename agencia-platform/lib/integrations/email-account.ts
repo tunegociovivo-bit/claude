@@ -30,7 +30,7 @@ async function loadAccount(userId: string, workspaceId: string) {
   const acc = await prisma.emailAccount.findUnique({
     where: { userId_workspaceId: { userId, workspaceId } }
   });
-  if (!acc) throw new Error("No tienes una cuenta de correo conectada. Configúrala en /admin/email o tu perfil.");
+  if (!acc) throw new Error("No tienes una cuenta de correo conectada. Configúrala en tu perfil → Mi correo (/perfil/correo).");
   const password = decryptSecret(acc.passwordEnc);
   if (!password) throw new Error("Contraseña de correo corrupta — reconfigúrala.");
   return { acc, password };

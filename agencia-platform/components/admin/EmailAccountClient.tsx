@@ -126,8 +126,8 @@ export default function EmailAccountClient() {
   return (
     <div className="max-w-2xl mx-auto">
       <PageHeader
-        title="Mi correo (Sonia)"
-        description="Conecta tu cuenta de correo (IMAP/SMTP) para que Sonia pueda buscar/leer tus emails y enviarlos cuando se lo pidas. Solo TÚ puedes usar tu correo desde tu sesión."
+        title="Mi correo"
+        description="Conecta TU cuenta de correo (IMAP/SMTP) para que Sonia pueda buscar/leer tus emails y enviarlos cuando se lo pidas. Es tu correo personal: cada trabajador conecta el suyo y solo TÚ puedes usarlo desde tu sesión."
       />
 
       <div className="rounded-lg border border-sky-200 bg-sky-50 p-3 mb-5 text-xs text-sky-900 flex items-start gap-2">

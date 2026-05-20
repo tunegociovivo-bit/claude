@@ -358,10 +358,10 @@ const SECTIONS: AdminSection[] = [
         icon: KeyRound
       },
       {
-        href: "/admin/email",
-        title: "Mi correo (Sonia)",
+        href: "/perfil/correo",
+        title: "Mi correo",
         description:
-          "Conecta tu cuenta de correo (IMAP/SMTP, ej. info@negociovivo.com) para que Sonia pueda buscar/leer tus emails y enviarlos cuando se lo pidas. Privado: solo tú usas tu correo.",
+          "Tu cuenta de correo personal (IMAP/SMTP) para que Sonia consulte y envíe tus emails. Cada trabajador conecta el suyo en su perfil; aquí tienes el acceso directo al tuyo.",
         icon: Mail
       },
       {
