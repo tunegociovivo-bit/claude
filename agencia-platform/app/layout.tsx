@@ -85,7 +85,7 @@ const earlyInstallCapture = `
  */
 const swSelfHeal = `
   (function () {
-    var EXPECTED = "v122-2026-05-20-kanban-cover-image";
+    var EXPECTED = "v123-2026-05-20-due-manana-hoy";
     if (!('serviceWorker' in navigator)) return;
     var key = "hub_sw_v_seen";
     var seen = null;

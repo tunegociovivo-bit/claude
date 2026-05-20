@@ -1975,13 +1975,56 @@ function TaskCard({
             </span>
           )}
         </div>
-        <div className="flex items-center gap-1 text-xs text-slate-500">
-          <CalendarDays className="h-3 w-3" />
-          {task.dueDate ? new Date(task.dueDate).toLocaleDateString("es-ES", { day: "2-digit", month: "short" }) : "—"}
-        </div>
+        {(() => {
+          if (!task.dueDate)
+            return (
+              <div className="flex items-center gap-1 text-xs text-slate-500">
+                <CalendarDays className="h-3 w-3" />—
+              </div>
+            );
+          const due = relativeDueLabel(task.dueDate, now);
+          if (due.kind === "today")
+            return (
+              <span className="inline-flex items-center gap-1 text-xs font-extrabold uppercase tracking-wide px-2.5 py-1 rounded-md bg-rose-500 text-white shadow-sm animate-pulse">
+                <CalendarDays className="h-3.5 w-3.5" />
+                HOY
+              </span>
+            );
+          if (due.kind === "tomorrow")
+            return (
+              <span className="inline-flex items-center gap-1 text-xs font-extrabold uppercase tracking-wide px-2.5 py-1 rounded-md bg-amber-400 text-amber-950 shadow-sm animate-pulse ring-1 ring-amber-500">
+                <CalendarDays className="h-3.5 w-3.5" />
+                MAÑANA
+              </span>
+            );
+          return (
+            <div className="flex items-center gap-1 text-xs text-slate-500">
+              <CalendarDays className="h-3 w-3" />
+              {due.label}
+            </div>
+          );
+        })()}
       </div>
     </div>
   );
+}
+
+// Etiqueta relativa de vencimiento: "HOY" si vence hoy, "MAÑANA" si vence
+// mañana, o la fecha corta en cualquier otro caso. Compara por fecha local
+// (YYYY-MM-DD) para no desplazarse por zona horaria.
+function relativeDueLabel(dueDate: string, nowMs: number): { kind: "today" | "tomorrow" | "date"; label: string } {
+  const datePart = String(dueDate).slice(0, 10);
+  const fmt = (d: Date) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const today = new Date(nowMs);
+  const tomorrow = new Date(nowMs);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  if (datePart === fmt(today)) return { kind: "today", label: "HOY" };
+  if (datePart === fmt(tomorrow)) return { kind: "tomorrow", label: "MAÑANA" };
+  return {
+    kind: "date",
+    label: new Date(`${datePart}T12:00:00`).toLocaleDateString("es-ES", { day: "2-digit", month: "short" })
+  };
 }
 
 // Calcula el nivel de alarma visual de una tarea en función del tiempo
