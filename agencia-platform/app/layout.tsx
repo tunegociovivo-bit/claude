@@ -85,7 +85,7 @@ const earlyInstallCapture = `
  */
 const swSelfHeal = `
   (function () {
-    var EXPECTED = "v108-2026-05-19-fal-key-inline-infra";
+    var EXPECTED = "v109-2026-05-19-secrets-vault";
     if (!('serviceWorker' in navigator)) return;
     var key = "hub_sw_v_seen";
     var seen = null;

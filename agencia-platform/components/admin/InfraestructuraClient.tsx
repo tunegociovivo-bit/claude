@@ -154,10 +154,11 @@ export default function InfraestructuraClient() {
                     {p.recovery && (
                       <p className="text-[11px] text-slate-500 mt-1 italic">↻ {p.recovery}</p>
                     )}
-                    {/* fal.ai: campo inline para pegar la API key sin
-                        tener que abrir un post del calendario. */}
-                    {p.key === "fal" && !p.configured && (
-                      <FalKeyInline onSaved={reload} />
+                    {/* fal.ai: campo inline para pegar/reemplazar la API
+                        key sin tener que abrir un post del calendario.
+                        Se muestra siempre (configurado o no). */}
+                    {p.key === "fal" && (
+                      <FalKeyInline onSaved={reload} configured={p.configured} />
                     )}
                   </div>
                   <div className="shrink-0">
@@ -220,10 +221,11 @@ export default function InfraestructuraClient() {
   );
 }
 
-function FalKeyInline({ onSaved }: { onSaved: () => void }) {
+function FalKeyInline({ onSaved, configured }: { onSaved: () => void; configured?: boolean }) {
   const [val, setVal] = useState("");
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [ok, setOk] = useState(false);
 
   async function save() {
     if (!val.trim()) return;
@@ -241,6 +243,8 @@ function FalKeyInline({ onSaved }: { onSaved: () => void }) {
         return;
       }
       setVal("");
+      setOk(true);
+      setTimeout(() => setOk(false), 2500);
       onSaved();
     } finally {
       setSaving(false);
@@ -248,23 +252,26 @@ function FalKeyInline({ onSaved }: { onSaved: () => void }) {
   }
 
   return (
-    <div className="mt-2 flex gap-1.5 max-w-md">
-      <input
-        type="password"
-        value={val}
-        onChange={(e) => setVal(e.target.value)}
-        placeholder="Pega la FAL_KEY (id:secret)"
-        className="flex-1 px-2 py-1.5 rounded-md border border-slate-300 text-[11px] font-mono"
-      />
-      <button
-        type="button"
-        onClick={save}
-        disabled={saving || !val.trim()}
-        className="px-2.5 py-1.5 rounded-md bg-violet-600 hover:bg-violet-700 text-white text-[11px] font-medium disabled:opacity-50"
-      >
-        {saving ? "…" : "Guardar"}
-      </button>
-      {err && <span className="text-[11px] text-rose-600 self-center">{err}</span>}
+    <div className="mt-2 space-y-1">
+      <div className="flex gap-1.5 max-w-md">
+        <input
+          type="password"
+          value={val}
+          onChange={(e) => setVal(e.target.value)}
+          placeholder={configured ? "Pega una FAL_KEY nueva para reemplazar…" : "Pega la FAL_KEY (id:secret)"}
+          className="flex-1 px-2 py-1.5 rounded-md border border-slate-300 text-[11px] font-mono"
+        />
+        <button
+          type="button"
+          onClick={save}
+          disabled={saving || !val.trim()}
+          className="px-2.5 py-1.5 rounded-md bg-violet-600 hover:bg-violet-700 text-white text-[11px] font-medium disabled:opacity-50"
+        >
+          {saving ? "…" : "Guardar"}
+        </button>
+      </div>
+      {err && <span className="text-[11px] text-rose-600">{err}</span>}
+      {ok && <span className="text-[11px] text-emerald-600">✓ Key guardada cifrada.</span>}
     </div>
   );
 }

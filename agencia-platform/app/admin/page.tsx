@@ -350,6 +350,13 @@ const SECTIONS: AdminSection[] = [
         highlight: true
       },
       {
+        href: "/admin/secretos",
+        title: "Bóveda de credenciales",
+        description:
+          "Todas las APIs y tokens del workspace, cifrados. Revélalos con tu contraseña para copiarlos y usarlos en otro sitio. Cada revelación queda auditada.",
+        icon: KeyRound
+      },
+      {
         href: "/admin/auditoria",
         title: "Auditoría",
         description:
