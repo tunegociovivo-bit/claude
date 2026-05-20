@@ -544,6 +544,157 @@ chatTools.push({
   }
 });
 
+// ---- Meta Ads (Facebook/Instagram) ----
+// Usan el token guardado en la conexión Meta del workspace (el que no
+// caduca de /campanas-meta). Sonia las usa para consultar y operar sobre
+// las campañas. Las de escritura SOLO cuando el usuario lo pide explícito.
+
+chatTools.push({
+  name: "meta_list_campaigns",
+  description:
+    "Lista las campañas de Meta Ads (Facebook/Instagram) del workspace con su estado, objetivo y presupuesto. Úsalo cuando pregunten por las campañas activas, pausadas, su presupuesto, etc.",
+  input_schema: {
+    type: "object",
+    properties: {
+      status: { type: "string", enum: ["ACTIVE", "PAUSED", "ALL"], description: "Filtrar por estado (default ALL)." },
+      limit: { type: "integer", description: "Máx. campañas (default 25)." }
+    }
+  },
+  run: async (args, ctx) => {
+    try {
+      const { metaAdsListCampaigns } = await import("@/lib/integrations/meta-ads");
+      const items = await metaAdsListCampaigns({
+        workspaceId: ctx.workspaceId,
+        status: args?.status && args.status !== "ALL" ? args.status : undefined,
+        limit: Math.min(Number(args?.limit) || 25, 100)
+      });
+      return JSON.stringify(items);
+    } catch (e: any) {
+      return JSON.stringify({ error: String(e?.message ?? e) });
+    }
+  }
+});
+
+chatTools.push({
+  name: "meta_campaign_insights",
+  description:
+    "Métricas de rendimiento de una campaña de Meta Ads (impresiones, clics, gasto, CTR, CPC, alcance, conversiones) en un rango. Necesita el campaignId (de meta_list_campaigns).",
+  input_schema: {
+    type: "object",
+    properties: {
+      campaignId: { type: "string" },
+      datePreset: {
+        type: "string",
+        description: "Rango: today, yesterday, last_7d, last_14d, last_30d, this_month, last_month, maximum.",
+        enum: ["today", "yesterday", "last_7d", "last_14d", "last_30d", "this_month", "last_month", "maximum"]
+      }
+    },
+    required: ["campaignId"]
+  },
+  run: async (args, ctx) => {
+    try {
+      const { metaAdsGetCampaignInsights } = await import("@/lib/integrations/meta-ads");
+      const data = await metaAdsGetCampaignInsights({
+        workspaceId: ctx.workspaceId,
+        campaignId: String(args?.campaignId ?? ""),
+        datePreset: args?.datePreset ?? "last_30d"
+      });
+      return JSON.stringify(data);
+    } catch (e: any) {
+      return JSON.stringify({ error: String(e?.message ?? e) });
+    }
+  }
+});
+
+chatTools.push({
+  name: "meta_top_performers",
+  description:
+    "Devuelve las mejores campañas de Meta Ads por una métrica (gasto, impresiones, CTR, alcance) en un rango. Útil para '¿qué campaña va mejor?'.",
+  input_schema: {
+    type: "object",
+    properties: {
+      metric: { type: "string", enum: ["spend", "impressions", "ctr", "reach"], description: "Default spend." },
+      datePreset: { type: "string", enum: ["last_7d", "last_14d", "last_30d", "this_month", "last_month", "maximum"] },
+      limit: { type: "integer", description: "Top N (default 5)." }
+    }
+  },
+  run: async (args, ctx) => {
+    try {
+      const { metaAdsTopPerformers } = await import("@/lib/integrations/meta-ads");
+      const items = await metaAdsTopPerformers({
+        workspaceId: ctx.workspaceId,
+        metric: args?.metric ?? "spend",
+        datePreset: args?.datePreset ?? "last_30d",
+        limit: Math.min(Number(args?.limit) || 5, 25)
+      });
+      return JSON.stringify(items);
+    } catch (e: any) {
+      return JSON.stringify({ error: String(e?.message ?? e) });
+    }
+  }
+});
+
+chatTools.push({
+  name: "meta_download_leads",
+  description:
+    "Descarga los leads (formularios Lead Ads) de una campaña/anuncio de Meta. Devuelve count + array de leads. Útil para '¿cuántos leads ha traído X?' o exportarlos.",
+  input_schema: {
+    type: "object",
+    properties: {
+      campaignId: { type: "string", description: "Campaña (opcional si das adId/formId)." },
+      adId: { type: "string" },
+      formId: { type: "string" },
+      since: { type: "string", description: "YYYY-MM-DD (opcional)." },
+      until: { type: "string", description: "YYYY-MM-DD (opcional)." }
+    }
+  },
+  run: async (args, ctx) => {
+    try {
+      const { metaAdsDownloadLeads } = await import("@/lib/integrations/meta-ads");
+      const data = await metaAdsDownloadLeads({
+        workspaceId: ctx.workspaceId,
+        campaignId: args?.campaignId ? String(args.campaignId) : undefined,
+        adId: args?.adId ? String(args.adId) : undefined,
+        formId: args?.formId ? String(args.formId) : undefined,
+        since: args?.since ? String(args.since) : undefined,
+        until: args?.until ? String(args.until) : undefined
+      });
+      return JSON.stringify(data);
+    } catch (e: any) {
+      return JSON.stringify({ error: String(e?.message ?? e) });
+    }
+  }
+});
+
+chatTools.push({
+  name: "meta_update_campaign",
+  description:
+    "MODIFICA una campaña de Meta Ads: pausar/activar (status) o cambiar el presupuesto diario. Úsalo SOLO cuando el usuario lo pida explícitamente. CONFIRMA en tu respuesta qué campaña y qué cambio harás (gasta dinero real del cliente). Cambiar presupuesto en euros/día.",
+  input_schema: {
+    type: "object",
+    properties: {
+      campaignId: { type: "string" },
+      status: { type: "string", enum: ["ACTIVE", "PAUSED"], description: "Pausar o activar la campaña." },
+      dailyBudgetEur: { type: "number", description: "Nuevo presupuesto diario en euros." }
+    },
+    required: ["campaignId"]
+  },
+  run: async (args, ctx) => {
+    try {
+      const { metaAdsUpdateCampaign } = await import("@/lib/integrations/meta-ads");
+      const r = await metaAdsUpdateCampaign({
+        workspaceId: ctx.workspaceId,
+        campaignId: String(args?.campaignId ?? ""),
+        status: args?.status,
+        dailyBudgetEur: typeof args?.dailyBudgetEur === "number" ? args.dailyBudgetEur : undefined
+      });
+      return JSON.stringify({ ok: r.success, message: "Campaña actualizada en Meta." });
+    } catch (e: any) {
+      return JSON.stringify({ error: String(e?.message ?? e) });
+    }
+  }
+});
+
 export const toolDefs = chatTools.map((t) => ({
   name: t.name,
   description: t.description,

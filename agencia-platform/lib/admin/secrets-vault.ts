@@ -108,6 +108,25 @@ async function collectSecrets(
     }
   }
 
+  // Tokens de Meta Ads (por usuario, desde MetaConnection). El token que
+  // no caduca guardado en /campanas-meta aparece aquí también.
+  const metaConns = await prisma.metaConnection
+    .findMany({
+      where: { workspaceId },
+      select: { id: true, accessTokenEnc: true, metaUserId: true, userId: true }
+    })
+    .catch(() => []);
+  for (const c of metaConns) {
+    const v = c.accessTokenEnc ? decryptSecret(c.accessTokenEnc) : null;
+    if (v) {
+      out[`meta:${c.id}`] = {
+        label: `Meta Ads token (${c.metaUserId ?? c.userId.slice(-6)})`,
+        category: "Meta Ads",
+        value: v
+      };
+    }
+  }
+
   return out;
 }
 
