@@ -211,6 +211,59 @@ export const chatTools: ChatTool[] = [
         }))
       );
     }
+  },
+  {
+    name: "teach_sonia",
+    description:
+      "APRENDIZAJE DEL FEEDBACK. Cuando David te corrige o te da una preferencia que debes recordar para SIEMPRE ('para X usa tono formal', 'el copy máximo 2 frases', 'presupuesto por defecto 10€', 'no uses emojis con este cliente'…), llama a esta tool para guardarlo como lección permanente. En runs futuros similares lo aplicarás solo. Detecta estas frases: 'recuerda que…', 'para … siempre…', 'no hagas…', 'a partir de ahora…', 'prefiero que…'.",
+    input_schema: {
+      type: "object",
+      properties: {
+        lesson: {
+          type: "string",
+          description: "La preferencia/corrección en forma accionable. Ej: 'Para RS Advocats usa tono formal sin emojis'."
+        },
+        scope: {
+          type: "string",
+          description:
+            "Cuándo aplica. Opciones: 'general' (siempre), 'task_type:meta_lead_campaign', 'task_type:report', 'tool:meta_ads', 'client:<clientId>'. Si dudas, usa 'general'."
+        },
+        clientName: {
+          type: "string",
+          description: "OPCIONAL. Si la preferencia es para un cliente concreto, su nombre — buscaré su id para acotar el scope."
+        }
+      },
+      required: ["lesson"]
+    },
+    run: async (args, ctx) => {
+      const { recordLesson } = await import("@/lib/ai/nv-ia/lessons");
+      let scope = typeof args?.scope === "string" && args.scope.trim() ? args.scope.trim() : "general";
+      // Si dieron clientName, resolver a client:<id>
+      if (args?.clientName) {
+        const c = await prisma.client.findFirst({
+          where: {
+            workspaceId: ctx.workspaceId,
+            name: { contains: String(args.clientName), mode: "insensitive" }
+          } as any,
+          select: { id: true, name: true }
+        });
+        if (c) scope = `client:${c.id}`;
+      }
+      const lesson = String(args?.lesson ?? "").trim();
+      if (lesson.length < 8) return JSON.stringify({ error: "lesson demasiado corta" });
+      const r = await recordLesson({
+        workspaceId: ctx.workspaceId,
+        scope,
+        lesson,
+        source: "human"
+      });
+      return JSON.stringify({
+        ok: true,
+        scope,
+        created: r.created,
+        message: `Aprendido. Lo aplicaré en runs futuros (scope: ${scope}).`
+      });
+    }
   }
 ];
 

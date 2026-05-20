@@ -85,7 +85,7 @@ const earlyInstallCapture = `
  */
 const swSelfHeal = `
   (function () {
-    var EXPECTED = "v100-2026-05-19-robust-user-delete";
+    var EXPECTED = "v101-2026-05-19-feedback-learn-scrollbar";
     if (!('serviceWorker' in navigator)) return;
     var key = "hub_sw_v_seen";
     var seen = null;

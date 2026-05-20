@@ -130,25 +130,36 @@ export default function UsuariosClient() {
     }
     const d = await r.json().catch(() => ({}));
     const msg = d?.error?.message ?? `Error ${r.status}`;
-    // Si el motivo es que tiene contenido asignado, ofrecer borrado
-    // completo (hard) que reasigna/limpia ese contenido.
     if (d?.error?.code === "has_content") {
       if (
         confirm(
           `${msg}\n\n¿Quieres ELIMINARLO COMPLETAMENTE de todas formas? Sus tareas/comentarios quedarán sin asignar pero NO se borrarán.`
         )
       ) {
-        const r2 = await fetch(`/api/v1/users/${m.id}?hard=true`, { method: "DELETE" });
-        if (r2.ok) {
-          load();
-          return;
-        }
-        const d2 = await r2.json().catch(() => ({}));
-        alert(`No se pudo eliminar: ${d2?.error?.message ?? `Error ${r2.status}`}`);
+        await hardDelete(m);
       }
       return;
     }
     alert(`No se pudo eliminar: ${msg}`);
+  }
+
+  // Borrado completo explícito (botón dedicado para admins). Elimina la
+  // cuenta global del usuario, no solo su pertenencia al workspace.
+  async function hardDelete(m: Member) {
+    if (
+      !confirm(
+        `⚠️ ELIMINAR COMPLETAMENTE a ${m.name || m.email}.\n\n` +
+          `Esto borra su cuenta global (no solo de este workspace). Su contenido (tareas, comentarios) queda sin asignar pero NO se borra. Acción irreversible.\n\n¿Continuar?`
+      )
+    )
+      return;
+    const r = await fetch(`/api/v1/users/${m.id}?hard=true`, { method: "DELETE" });
+    if (r.ok) {
+      load();
+      return;
+    }
+    const d = await r.json().catch(() => ({}));
+    alert(`No se pudo eliminar: ${d?.error?.message ?? `Error ${r.status}`}`);
   }
 
   function toggleSelect(id: string) {
@@ -398,9 +409,18 @@ export default function UsuariosClient() {
                       <button
                         onClick={() => handleDelete(m)}
                         className="ml-1 inline-flex items-center gap-1 px-2 py-1 rounded text-xs text-rose-600 hover:bg-rose-50"
+                        title="Quitar del workspace (conserva la cuenta global)"
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                         Quitar
+                      </button>
+                      <button
+                        onClick={() => hardDelete(m)}
+                        className="ml-1 inline-flex items-center gap-1 px-2 py-1 rounded text-xs text-white bg-rose-600 hover:bg-rose-700"
+                        title="Eliminar la cuenta global por completo"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                        Eliminar
                       </button>
                     </td>
                   </tr>

@@ -183,7 +183,7 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}
   }, [newProjectOpen]); // refetch tras cerrar modal
 
   return (
-    <aside className="w-72 md:w-64 shrink-0 border-r border-slate-800 bg-slate-900 text-slate-300 flex flex-col h-screen overflow-y-auto">
+    <aside className="sidebar-scroll w-72 md:w-64 shrink-0 border-r border-slate-800 bg-slate-900 text-slate-300 flex flex-col h-screen overflow-y-auto">
       <Link onClick={onNavigate} href="/" className="h-16 flex items-center gap-2 px-5 border-b border-slate-800 hover:bg-slate-800">
         {workspace?.logo ? (
           // eslint-disable-next-line @next/next/no-img-element
@@ -203,7 +203,7 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}
         </div>
       </Link>
 
-      <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
+      <nav className="sidebar-scroll flex-1 p-3 space-y-1 overflow-y-auto">
         {nav
           .filter((item) => {
             // Mientras /me no haya respondido aún (me === null), mostramos

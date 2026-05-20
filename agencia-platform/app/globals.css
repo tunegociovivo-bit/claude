@@ -34,6 +34,39 @@ body {
   background: transparent;
 }
 
+/* Scrollbar del menú lateral oscuro, estilo Asana:
+   - Track oscuro (mismo tono que el sidebar slate-900)
+   - Thumb gris, redondeado
+   - Solo VISIBLE cuando el ratón está sobre el menú (hover)
+   Por defecto el thumb es transparente; al hacer hover sobre el aside
+   aparece en gris. Firefox usa scrollbar-color. */
+.sidebar-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+  transition: scrollbar-color 0.2s ease;
+}
+.sidebar-scroll:hover {
+  scrollbar-color: rgb(100 116 139) transparent; /* slate-500 */
+}
+.sidebar-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+.sidebar-scroll::-webkit-scrollbar-track {
+  background: rgb(15 23 42); /* slate-900 — track oscuro */
+}
+.sidebar-scroll::-webkit-scrollbar-thumb {
+  background-color: transparent; /* oculto por defecto */
+  border-radius: 9999px;
+  border: 2px solid rgb(15 23 42);
+  transition: background-color 0.2s ease;
+}
+.sidebar-scroll:hover::-webkit-scrollbar-thumb {
+  background-color: rgb(100 116 139); /* slate-500 gris al hover */
+}
+.sidebar-scroll:hover::-webkit-scrollbar-thumb:hover {
+  background-color: rgb(148 163 184); /* slate-400 al pasar por el thumb */
+}
+
 /* Animación del indicador de estado de Sonia en TaskCard.
    Definida aquí en lugar de via animate-pulse de Tailwind por dos
    razones:
