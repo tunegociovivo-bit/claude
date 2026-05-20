@@ -39,6 +39,29 @@ export async function saveMetaToken(opts: {
       expiresAt: opts.expiresAt ?? null
     }
   });
+
+  // Limpieza: borra OTRAS conexiones Meta del workspace que estén CADUCADAS.
+  // Sin esto, una OAuth vieja vencida podía "ganar" la selección y el runner
+  // operaba con un token muerto aunque acabaras de guardar uno bueno.
+  try {
+    await prisma.metaConnection.deleteMany({
+      where: { workspaceId: opts.workspaceId, id: { not: r.id }, expiresAt: { lt: new Date() } }
+    });
+  } catch {
+    /* best-effort */
+  }
+
+  // El runner autónomo (Sonia) PREFIERE las credenciales ad-hoc del
+  // workspace sobre la conexión. Guardamos aquí el token bueno como ad-hoc
+  // (cifrado) para que TODAS las tareas de Meta usen este token y nunca un
+  // token provisional viejo que quedó en settings.adhocCredentials.
+  try {
+    const { persistAdhocCredentials } = await import("@/lib/ai/nv-ia/adhoc-credentials");
+    await persistAdhocCredentials(opts.workspaceId, { META_ADS_TOKEN: opts.accessToken.trim() });
+  } catch {
+    /* best-effort */
+  }
+
   return { id: r.id };
 }
 
