@@ -11,7 +11,8 @@ import {
   ExternalLink,
   Github,
   Database,
-  ShieldCheck
+  ShieldCheck,
+  RefreshCw
 } from "lucide-react";
 
 type Platform = {
@@ -52,6 +53,8 @@ export default function InfraestructuraClient() {
         title="Infraestructura y backups"
         description="Todas las plataformas externas que usa el proyecto, su estado, y cómo recuperar todo si algo se rompe."
       />
+
+      <CredentialsHealthPanel />
 
       {loading ? (
         <div className="bg-white rounded-xl border p-8 text-sm text-slate-500 flex items-center gap-2">
@@ -215,6 +218,114 @@ export default function InfraestructuraClient() {
               </li>
             </ol>
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+type HealthCheck = { integration: string; ok: boolean; detail?: string | null; reason?: string };
+
+/** Panel de salud de credenciales: valida en vivo las integraciones y avisa
+ *  si un token está caducado o a punto de caducar (sobre todo el de Meta). */
+function CredentialsHealthPanel() {
+  const [loading, setLoading] = useState(false);
+  const [checks, setChecks] = useState<HealthCheck[] | null>(null);
+  const [meta, setMeta] = useState<{ expiresAt: string | null; metaUserId: string | null } | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function run() {
+    setLoading(true);
+    setErr(null);
+    try {
+      const r = await fetch("/api/v1/admin/credentials-health");
+      if (!r.ok) throw new Error(`Error ${r.status}`);
+      const d = await r.json();
+      setChecks(d.checks ?? []);
+      setMeta(d.meta ?? null);
+    } catch (e: any) {
+      setErr(e?.message ?? "Error");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const LABELS: Record<string, string> = {
+    meta_ads: "Meta Ads",
+    make: "Make.com",
+    holded: "Holded",
+    openai: "OpenAI",
+    anthropic: "Anthropic",
+    elevenlabs: "ElevenLabs",
+    google_calendar: "Google Calendar"
+  };
+
+  // Aviso de caducidad del token de Meta.
+  let metaWarn: { tone: "ok" | "warn" | "bad"; text: string } | null = null;
+  if (meta) {
+    if (!meta.expiresAt) metaWarn = { tone: "ok", text: "Token de Meta sin caducidad ✓" };
+    else {
+      const days = Math.round((new Date(meta.expiresAt).getTime() - Date.now()) / 86_400_000);
+      if (days < 0) metaWarn = { tone: "bad", text: `Token de Meta CADUCADO hace ${-days} día(s) — renuévalo` };
+      else if (days <= 7) metaWarn = { tone: "warn", text: `Token de Meta caduca en ${days} día(s) — renuévalo pronto` };
+      else metaWarn = { tone: "ok", text: `Token de Meta válido (caduca en ${days} días)` };
+    }
+  }
+
+  return (
+    <div className="rounded-xl border bg-white p-4 mb-6">
+      <div className="flex items-center gap-2 mb-1">
+        <ShieldCheck className="h-5 w-5 text-brand-600" />
+        <h2 className="font-semibold text-sm">Salud de credenciales</h2>
+        <button
+          onClick={run}
+          disabled={loading}
+          className="ml-auto inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs hover:bg-slate-50 disabled:opacity-50"
+        >
+          {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+          Comprobar ahora
+        </button>
+      </div>
+      <p className="text-[11px] text-slate-500 mb-3">
+        Valida en vivo los tokens de las integraciones. Sonia también lo comprueba sola al arrancar tareas que las usan.
+      </p>
+      {err && <p className="text-xs text-rose-600">{err}</p>}
+      {!checks && !loading && !err && (
+        <p className="text-xs text-slate-400">Pulsa «Comprobar ahora» para validar las credenciales.</p>
+      )}
+      {checks && (
+        <div className="space-y-1.5">
+          {metaWarn && (
+            <div
+              className={
+                "text-xs px-2.5 py-1.5 rounded-lg border " +
+                (metaWarn.tone === "bad"
+                  ? "bg-rose-50 border-rose-200 text-rose-800"
+                  : metaWarn.tone === "warn"
+                    ? "bg-amber-50 border-amber-200 text-amber-800"
+                    : "bg-emerald-50 border-emerald-200 text-emerald-800")
+              }
+            >
+              {metaWarn.text}
+            </div>
+          )}
+          {checks.length === 0 ? (
+            <p className="text-xs text-slate-400">No hay integraciones con credenciales configuradas.</p>
+          ) : (
+            checks.map((c) => (
+              <div key={c.integration} className="flex items-center gap-2 text-sm">
+                {c.ok ? (
+                  <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+                ) : (
+                  <AlertTriangle className="h-4 w-4 text-rose-600 shrink-0" />
+                )}
+                <span className="font-medium">{LABELS[c.integration] ?? c.integration}</span>
+                <span className={"text-xs " + (c.ok ? "text-slate-500" : "text-rose-600")}>
+                  {c.ok ? c.detail ?? "OK" : c.reason ?? "fallo"}
+                </span>
+              </div>
+            ))
+          )}
         </div>
       )}
     </div>
