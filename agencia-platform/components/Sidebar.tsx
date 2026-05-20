@@ -50,8 +50,7 @@ const nav = [
   { href: "/equipo", label: "Equipo", icon: UsersRound, feature: "equipo" as const },
   { href: "/documentos", label: "Documentos", icon: BookOpen, feature: "documentos" as const },
   { href: "/databases", label: "Bases de datos", icon: Database, feature: "databases" as const },
-  { href: "/calendario", label: "Calendario", icon: CalendarDays, feature: "calendario" as const },
-  { href: "/gmb-hub", label: "GMB Hub", icon: Star, feature: "gmb" as const }
+  { href: "/calendario", label: "Calendario", icon: CalendarDays, feature: "calendario" as const }
 ];
 
 type SidebarProject = {
@@ -334,7 +333,10 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}
           </div>
         </div>
 
-        {(platforms.length > 0 || me?.role === "ADMIN") && (
+        {(() => {
+          const showGmb = !me || me.features.includes("gmb");
+          const gmbActive = pathname.startsWith("/gmb-hub");
+          return (platforms.length > 0 || showGmb || me?.role === "ADMIN") && (
           <div className="pt-4 mt-2 border-t border-slate-800">
             <div className="flex items-center justify-between px-3 mb-1">
               <span className="text-[10px] uppercase tracking-wide text-slate-400 font-semibold flex items-center gap-1.5">
@@ -352,6 +354,21 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}
               )}
             </div>
             <div className="space-y-0.5">
+              {showGmb && (
+                <Link
+                  onClick={onNavigate}
+                  href="/gmb-hub"
+                  className={clsx(
+                    "flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition-colors min-w-0",
+                    gmbActive
+                      ? "bg-brand-600/25 text-white font-medium"
+                      : "text-slate-300 hover:bg-slate-800 hover:text-white"
+                  )}
+                >
+                  <Star className="h-3.5 w-3.5 shrink-0" />
+                  <span className="truncate flex-1">GMB Hub</span>
+                </Link>
+              )}
               {orderItems(platforms.map((p) => p.key), platformOrder).map((key, idx, arr) => {
                 const p = platforms.find((x) => x.key === key);
                 if (!p) return null;
@@ -397,7 +414,7 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}
                   </div>
                 );
               })}
-              {platforms.length === 0 && me?.role === "ADMIN" && (
+              {platforms.length === 0 && !showGmb && me?.role === "ADMIN" && (
                 <Link onClick={onNavigate}
                   href="/admin/plataformas"
                   className="block px-3 py-1.5 text-xs text-slate-400 hover:text-white hover:bg-slate-800 rounded"
@@ -407,7 +424,8 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}
               )}
             </div>
           </div>
-        )}
+          );
+        })()}
       </nav>
 
       <div className="border-t border-slate-800 p-3">
