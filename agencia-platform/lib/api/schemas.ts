@@ -100,6 +100,17 @@ export const clientEditorialMetaSchema = z.object({
       })
     )
     .optional(),
+  // Plantillas visuales subidas (imágenes de ejemplo/layout)
+  patternTemplates: z
+    .array(
+      z.object({
+        id: z.string().min(1),
+        url: z.string().url(),
+        name: z.string().min(1).max(120),
+        notes: z.string().max(500).optional()
+      })
+    )
+    .optional(),
   // Fuentes
   fonts: z
     .array(

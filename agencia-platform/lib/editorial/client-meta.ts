@@ -193,6 +193,17 @@ export type FontEntry = {
   weight: "regular" | "bold";
 };
 
+/**
+ * Plantilla visual subida por el cliente: una imagen de ejemplo/layout que
+ * el usuario puede elegir por publicación como guía de estilo para la IA.
+ */
+export type PatternTemplate = {
+  id: string;
+  url: string;
+  name: string;
+  notes?: string;
+};
+
 export type DriveSubfolder = {
   name: string;
   id: string;

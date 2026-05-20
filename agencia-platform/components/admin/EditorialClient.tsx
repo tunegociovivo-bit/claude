@@ -53,6 +53,7 @@ type EditorialPost = {
   firstComment?: string | null;
   visualPattern?: string | null;
   patternStrength?: number | null;
+  patternTemplateId?: string | null;
   copyByNetwork?: Record<string, string> | null;
   metaJson?: any;
   revisions?: Array<{
@@ -2802,8 +2803,10 @@ function PostFormModal({
         {isEdit && post && (
           <GenerateImageBar
             postId={post.id}
+            clientId={form.clientId || ((post as any)?.clientId ?? "")}
             initialPattern={(post as any).visualPattern ?? null}
             initialStrength={(post as any).patternStrength ?? null}
+            initialTemplateId={(post as any).patternTemplateId ?? null}
             onGenerated={() => onSaved()}
           />
         )}
@@ -3555,28 +3558,61 @@ function ReapplyOverlayBar({
   );
 }
 
+type PatternTemplateUi = { id: string; url: string; name: string; notes?: string };
+
 function GenerateImageBar({
   postId,
+  clientId,
   initialPattern,
   initialStrength,
+  initialTemplateId,
   onGenerated
 }: {
   postId: string;
+  clientId?: string;
   initialPattern?: string | null;
   initialStrength?: number | null;
+  initialTemplateId?: string | null;
   onGenerated: () => void;
 }) {
   const [quality, setQuality] = useState<"low" | "medium" | "high">("medium");
-  // "" = usar el patrón por defecto del cliente.
-  const [pattern, setPattern] = useState<string>(initialPattern ?? "");
+  // Selección unificada: "" = por defecto del cliente, "preset:<key>" =
+  // patrón predefinido, "tpl:<id>" = plantilla subida del cliente.
+  const [selection, setSelection] = useState<string>(
+    initialTemplateId ? `tpl:${initialTemplateId}` : initialPattern ? `preset:${initialPattern}` : ""
+  );
   const [strength, setStrength] = useState<number>(
     typeof initialStrength === "number" ? initialStrength : 50
   );
+  const [templates, setTemplates] = useState<PatternTemplateUi[]>([]);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastUrl, setLastUrl] = useState<string | null>(null);
 
-  const selectedPattern = VISUAL_PATTERNS.find((p) => p.key === pattern);
+  // Cargar las plantillas visuales del cliente para el selector.
+  useEffect(() => {
+    if (!clientId) {
+      setTemplates([]);
+      return;
+    }
+    let alive = true;
+    fetch(`/api/v1/clients/${clientId}/editorial-meta`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (!alive) return;
+        const list = Array.isArray(d?.patternTemplates) ? (d.patternTemplates as PatternTemplateUi[]) : [];
+        setTemplates(list);
+      })
+      .catch(() => alive && setTemplates([]));
+    return () => {
+      alive = false;
+    };
+  }, [clientId]);
+
+  const presetKey = selection.startsWith("preset:") ? selection.slice(7) : "";
+  const templateId = selection.startsWith("tpl:") ? selection.slice(4) : "";
+  const selectedPattern = VISUAL_PATTERNS.find((p) => p.key === presetKey);
+  const selectedTemplate = templates.find((t) => t.id === templateId);
 
   async function run() {
     setRunning(true);
@@ -3586,8 +3622,9 @@ function GenerateImageBar({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         quality,
-        // Sólo mandamos el patrón si el usuario eligió uno explícito.
-        visualPattern: pattern || undefined,
+        // Mandamos override explícito de patrón/plantilla. null limpia.
+        visualPattern: presetKey || null,
+        patternTemplateId: templateId || null,
         patternStrength: strength
       })
     });
@@ -3612,21 +3649,46 @@ function GenerateImageBar({
         configurado en la ficha del cliente.
       </p>
 
-      {/* Patrón visual + intensidad */}
+      {/* Patrón / plantilla visual + intensidad */}
       <div className="space-y-1.5">
-        <label className="block text-[11px] font-medium text-slate-700">Patrón visual</label>
+        <label className="block text-[11px] font-medium text-slate-700">Patrón / plantilla visual</label>
         <select
-          value={pattern}
-          onChange={(e) => setPattern(e.target.value)}
+          value={selection}
+          onChange={(e) => setSelection(e.target.value)}
           className="w-full px-2 py-1.5 rounded-md border border-slate-200 bg-white text-[12px] focus:outline-none focus:ring-2 focus:ring-sky-400"
         >
           <option value="">Por defecto del cliente</option>
-          {VISUAL_PATTERNS.map((p) => (
-            <option key={p.key} value={p.key}>
-              {p.label}
-            </option>
-          ))}
+          {templates.length > 0 && (
+            <optgroup label="Plantillas del cliente">
+              {templates.map((t) => (
+                <option key={t.id} value={`tpl:${t.id}`}>
+                  🎨 {t.name}
+                </option>
+              ))}
+            </optgroup>
+          )}
+          <optgroup label="Estilos predefinidos">
+            {VISUAL_PATTERNS.map((p) => (
+              <option key={p.key} value={`preset:${p.key}`}>
+                {p.label}
+              </option>
+            ))}
+          </optgroup>
         </select>
+        {selectedTemplate && (
+          <div className="flex items-center gap-2">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={selectedTemplate.url}
+              alt={selectedTemplate.name}
+              className="h-12 w-12 rounded object-cover border bg-white"
+            />
+            <p className="text-[10.5px] text-slate-500 leading-snug">
+              La IA usará esta plantilla como guía de estilo/layout.
+              {selectedTemplate.notes ? ` ${selectedTemplate.notes}` : ""}
+            </p>
+          </div>
+        )}
         {selectedPattern && (
           <p className="text-[10.5px] text-slate-500 leading-snug">{selectedPattern.description}</p>
         )}

@@ -27,6 +27,7 @@ const updateSchema = z.object({
   // aplica al generar la imagen.
   visualPattern: z.string().nullable().optional(),
   patternStrength: z.number().int().min(0).max(100).nullable().optional(),
+  patternTemplateId: z.string().nullable().optional(),
   changeSummary: z.string().optional() // si se incluye, se crea revisión
 });
 
@@ -74,6 +75,7 @@ export const PATCH = withApi({ scope: "*" }, async (req, { params, api }) => {
   if (parsed.data.firstComment !== undefined) data.firstComment = parsed.data.firstComment;
   if (parsed.data.visualPattern !== undefined) data.visualPattern = parsed.data.visualPattern;
   if (parsed.data.patternStrength !== undefined) data.patternStrength = parsed.data.patternStrength;
+  if (parsed.data.patternTemplateId !== undefined) data.patternTemplateId = parsed.data.patternTemplateId;
 
   const result = await prisma.$transaction(async (tx) => {
     const upd = await tx.editorialPost.update({ where: { id: params.id }, data });

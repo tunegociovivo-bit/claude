@@ -7,7 +7,7 @@ import { prisma } from "@/lib/db/prisma";
 import { getSessionWorkspaceId } from "@/lib/auth";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { defaultDimensionsByFormat, type DimensionsByFormat, type ReferenceImage, type FontEntry, type DriveSubfolder } from "@/lib/editorial/client-meta";
+import { defaultDimensionsByFormat, type DimensionsByFormat, type ReferenceImage, type FontEntry, type PatternTemplate, type DriveSubfolder } from "@/lib/editorial/client-meta";
 
 export const dynamic = "force-dynamic";
 
@@ -37,6 +37,7 @@ export default async function ClienteEditorialPage({ params }: { params: { id: s
       competitors: true,
       dimensionsByFormat: true,
       referenceImages: true,
+      patternTemplates: true,
       fonts: true,
       styleGuideCached: true,
       styleGuideHash: true,
@@ -79,6 +80,7 @@ export default async function ClienteEditorialPage({ params }: { params: { id: s
           competitors: client.competitors,
           dimensionsByFormat: (client.dimensionsByFormat as DimensionsByFormat | null) ?? defaultDimensionsByFormat(),
           referenceImages: (client.referenceImages as ReferenceImage[] | null) ?? [],
+          patternTemplates: (client.patternTemplates as PatternTemplate[] | null) ?? [],
           fonts: (client.fonts as FontEntry[] | null) ?? [],
           styleGuideCached: client.styleGuideCached,
           styleGuideHash: client.styleGuideHash,

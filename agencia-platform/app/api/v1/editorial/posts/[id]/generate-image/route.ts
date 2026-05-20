@@ -22,7 +22,8 @@ const schema = z.object({
   // Patrón visual + intensidad elegidos para esta generación. Se persisten
   // en el post para que generateImageForPost los lea de la BD.
   visualPattern: z.string().nullable().optional(),
-  patternStrength: z.number().int().min(0).max(100).nullable().optional()
+  patternStrength: z.number().int().min(0).max(100).nullable().optional(),
+  patternTemplateId: z.string().nullable().optional()
 });
 
 export const POST = withApi({ scope: "*" }, async (req, { params, api }) => {
@@ -30,11 +31,12 @@ export const POST = withApi({ scope: "*" }, async (req, { params, api }) => {
   const parsed = schema.safeParse(body ?? {});
   if (!parsed.success) throw new ApiError(400, "validation_error", parsed.error.message);
 
-  const { visualPattern, patternStrength, ...genOpts } = parsed.data;
-  if (visualPattern !== undefined || patternStrength !== undefined) {
+  const { visualPattern, patternStrength, patternTemplateId, ...genOpts } = parsed.data;
+  if (visualPattern !== undefined || patternStrength !== undefined || patternTemplateId !== undefined) {
     const patch: any = {};
     if (visualPattern !== undefined) patch.visualPattern = visualPattern;
     if (patternStrength !== undefined) patch.patternStrength = patternStrength;
+    if (patternTemplateId !== undefined) patch.patternTemplateId = patternTemplateId;
     await prisma.editorialPost.updateMany({
       where: { id: params.id, workspaceId: api.workspaceId },
       data: patch

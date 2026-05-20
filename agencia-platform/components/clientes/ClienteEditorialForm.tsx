@@ -16,6 +16,7 @@ import {
   type DimensionsByFormat,
   type ReferenceImage,
   type FontEntry,
+  type PatternTemplate,
   type DriveSubfolder,
   type SubfolderType,
   type ReferenceImageType
@@ -36,6 +37,7 @@ type Meta = {
   competitors: string | null;
   dimensionsByFormat: DimensionsByFormat | null;
   referenceImages: ReferenceImage[] | null;
+  patternTemplates: PatternTemplate[] | null;
   fonts: FontEntry[] | null;
   styleGuideCached: string | null;
   styleGuideHash: string | null;
@@ -50,6 +52,7 @@ export default function ClienteEditorialForm({ initial }: { initial: Meta }) {
     ...initial,
     dimensionsByFormat: initial.dimensionsByFormat ?? defaultDimensionsByFormat(),
     referenceImages: initial.referenceImages ?? [],
+    patternTemplates: initial.patternTemplates ?? [],
     fonts: initial.fonts ?? [],
     driveSubfolders: initial.driveSubfolders ?? []
   });
@@ -266,6 +269,18 @@ export default function ClienteEditorialForm({ initial }: { initial: Meta }) {
         <RefsEditor
           value={form.referenceImages ?? []}
           onChange={(v) => patch("referenceImages", v)}
+          clientId={form.id}
+        />
+      </Section>
+
+      <Section
+        emoji="🎨"
+        title="Plantillas visuales"
+        description="Sube imágenes de ejemplo o layouts que te gusten (publicaciones de referencia, mockups, plantillas). Luego, al crear cada publicación, podrás elegir una de estas plantillas y el % con que la IA la tendrá en cuenta para componer la imagen."
+      >
+        <TemplatesEditor
+          value={form.patternTemplates ?? []}
+          onChange={(v) => patch("patternTemplates", v)}
           clientId={form.id}
         />
       </Section>
@@ -584,6 +599,115 @@ function RefsEditor({
             ))}
           </div>
         </>
+      )}
+    </div>
+  );
+}
+
+function TemplatesEditor({
+  value,
+  onChange,
+  clientId
+}: {
+  value: PatternTemplate[];
+  onChange: (v: PatternTemplate[]) => void;
+  clientId: string;
+}) {
+  const [newUrl, setNewUrl] = useState("");
+
+  function newId() {
+    try {
+      return crypto.randomUUID();
+    } catch {
+      return `tpl_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    }
+  }
+  function addFromUrl() {
+    const url = newUrl.trim();
+    if (!url) return;
+    try {
+      new URL(url);
+    } catch {
+      return;
+    }
+    onChange([...value, { id: newId(), url, name: `Plantilla ${value.length + 1}` }]);
+    setNewUrl("");
+  }
+  function remove(i: number) {
+    onChange(value.filter((_, idx) => idx !== i));
+  }
+  function patch(i: number, p: Partial<PatternTemplate>) {
+    onChange(value.map((t, idx) => (idx === i ? { ...t, ...p } : t)));
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex gap-2">
+        <input
+          type="url"
+          value={newUrl}
+          onChange={(e) => setNewUrl(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              addFromUrl();
+            }
+          }}
+          placeholder="URL pública de la plantilla (https://…)"
+          className="flex-1 px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+        />
+        <button
+          type="button"
+          onClick={addFromUrl}
+          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border bg-brand-50 hover:bg-brand-100 border-brand-200 text-brand-700 text-sm"
+        >
+          <Plus className="h-4 w-4" />
+          Añadir
+        </button>
+        <UploadImageButton
+          clientId={clientId}
+          accept="image/*"
+          onUploaded={(url) => onChange([...value, { id: newId(), url, name: `Plantilla ${value.length + 1}` }])}
+          label="Subir plantilla"
+        />
+      </div>
+      {value.length === 0 ? (
+        <div className="rounded-lg border border-dashed bg-slate-50 p-4 text-xs text-slate-500 text-center">
+          Sin plantillas. Sube imágenes de ejemplo/layout que quieras que la IA tome como guía de estilo.
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+          {value.map((tpl, i) => (
+            <div key={tpl.id} className="relative rounded-lg border bg-white overflow-hidden">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={tpl.url} alt={tpl.name} className="w-full h-32 object-cover bg-slate-50" />
+              <button
+                type="button"
+                onClick={() => remove(i)}
+                className="absolute top-1.5 right-1.5 inline-flex items-center justify-center h-6 w-6 rounded-full bg-rose-500 text-white shadow hover:bg-rose-600"
+                title="Quitar"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+              <div className="p-2 space-y-1.5">
+                <input
+                  type="text"
+                  value={tpl.name}
+                  onChange={(e) => patch(i, { name: e.target.value })}
+                  placeholder="Nombre de la plantilla"
+                  className="w-full px-1.5 py-1 rounded border bg-white text-[11px] font-medium focus:outline-none focus:ring-2 focus:ring-brand-500"
+                />
+                <input
+                  type="text"
+                  value={tpl.notes ?? ""}
+                  onChange={(e) => patch(i, { notes: e.target.value })}
+                  placeholder="Notas para la IA (opcional)"
+                  className="w-full px-1.5 py-1 rounded border bg-white text-[11px] focus:outline-none focus:ring-2 focus:ring-brand-500"
+                />
+              </div>
+            </div>
+          ))}
+        </div>
       )}
     </div>
   );

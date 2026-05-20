@@ -318,6 +318,10 @@ model Client {
   dimensionsByFormat Json?
   // Referencias visuales — JSON [{ url, type, personName }]
   referenceImages    Json?
+  // Plantillas visuales subidas por el cliente — JSON
+  // [{ id, url, name, notes? }]. Imágenes de ejemplo/layout que el
+  // usuario puede elegir por publicación como guía de estilo para la IA.
+  patternTemplates   Json?
   // Fuentes corporativas — JSON [{ url, name, weight }]
   fonts              Json?
   // Guía de estilo cacheada (generada por IA a partir de las refs visuales)
@@ -541,6 +545,10 @@ model EditorialPost {
   // % (0-100) de cuánto debe la IA aplicar el estilo del patrón al
   // generar la imagen. 0 = ignóralo, 100 = aplícalo al máximo.
   patternStrength Int?
+  // id de una plantilla visual del cliente (patternTemplates) elegida
+  // para esta publicación. Si está, la IA la usa como guía de estilo
+  // (imagen de referencia) con intensidad patternStrength.
+  patternTemplateId String?
   metaJson       Json? // resto de ACF / metadatos
   legacyWpId     Int?      @unique
   metricoolJobId String? // reservado para integración API directa (futura)

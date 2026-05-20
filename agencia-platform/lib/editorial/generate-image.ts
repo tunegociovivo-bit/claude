@@ -193,15 +193,39 @@ export async function generateImageForPost(opts: GenerateImageOptions): Promise<
   const rawStrength = (post as any).patternStrength as number | null;
   const patternStrength =
     typeof rawStrength === "number" ? Math.max(0, Math.min(100, Math.round(rawStrength))) : 50;
-  if (patternStrength > 0) {
+
+  // Plantilla visual elegida para esta publicación (si la hay). Es una
+  // imagen subida por el cliente que se usa como guía de estilo/layout.
+  const templateId = (post as any).patternTemplateId as string | null;
+  const clientTemplates: any[] = Array.isArray((client as any)?.patternTemplates)
+    ? ((client as any).patternTemplates as any[])
+    : [];
+  const selectedTemplate =
+    templateId && typeof templateId === "string"
+      ? clientTemplates.find((t) => t?.id === templateId) ?? null
+      : null;
+  const templateUrl: string | null =
+    selectedTemplate && typeof selectedTemplate.url === "string" ? selectedTemplate.url : null;
+
+  const intensityWord = (label: string) =>
+    patternStrength >= 75
+      ? `Strongly and boldly apply ${label} (high fidelity, ${patternStrength}% intensity)`
+      : patternStrength < 40
+      ? `Subtle hint of ${label} (light touch, ${patternStrength}% intensity)`
+      : `Apply ${label} (${patternStrength}% intensity)`;
+
+  if (templateUrl && patternStrength > 0) {
+    // Si hay plantilla, ESA es la guía principal de estilo. La imagen se
+    // añade más abajo a referenceUrls; aquí inyectamos la instrucción.
+    const notes =
+      selectedTemplate?.notes && typeof selectedTemplate.notes === "string" ? ` Notes: ${selectedTemplate.notes}.` : "";
+    prompt = `${prompt}\nVISUAL TEMPLATE: ${intensityWord(
+      "the visual style, layout, composition and color treatment of the provided TEMPLATE reference image"
+    )}. Use the template only as a STYLE/LAYOUT guide — do NOT copy its specific subject or any text in it.${notes}`;
+  } else if (patternStrength > 0) {
+    // Sin plantilla: usamos el patrón predefinido (promptHint de texto).
     const hint = visualPatternHint(effectivePattern);
-    const intensityWord =
-      patternStrength >= 75
-        ? `Strongly and boldly apply this visual style (high fidelity, ${patternStrength}% intensity)`
-        : patternStrength < 40
-        ? `Subtle hint of this visual style (light touch, ${patternStrength}% intensity)`
-        : `Apply this visual style (${patternStrength}% intensity)`;
-    prompt = `${prompt}\nVISUAL STYLE: ${intensityWord}: ${hint}.`;
+    prompt = `${prompt}\nVISUAL STYLE: ${intensityWord("this visual style")}: ${hint}.`;
   }
 
   const quality = opts.quality ?? "medium";
@@ -277,6 +301,9 @@ export async function generateImageForPost(opts: GenerateImageOptions): Promise<
   const TOTAL_CAP = 5;
   const perPerson = names.length >= 4 ? 1 : 2;
   const referenceUrls: string[] = [];
+  // La plantilla visual (si la hay y su intensidad > 0) ocupa el primer
+  // slot: es la guía de estilo y queremos asegurar que la IA la reciba.
+  if (templateUrl && patternStrength > 0) referenceUrls.push(templateUrl);
   for (const name of names) {
     const info = peopleByName.get(name);
     if (!info) continue;

@@ -25,6 +25,7 @@ const META_SELECT = {
   competitors: true,
   dimensionsByFormat: true,
   referenceImages: true,
+  patternTemplates: true,
   fonts: true,
   styleGuideCached: true,
   styleGuideHash: true,
