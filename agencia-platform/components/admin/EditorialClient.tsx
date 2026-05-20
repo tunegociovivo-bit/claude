@@ -3622,6 +3622,38 @@ function GenerateVideoBar({ postId, onGenerated }: { postId: string; onGenerated
   const [error, setError] = useState<string | null>(null);
   const [extra, setExtra] = useState("");
   const [done, setDone] = useState(false);
+  const [hasKey, setHasKey] = useState<boolean | null>(null);
+  const [keyInput, setKeyInput] = useState("");
+  const [savingKey, setSavingKey] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/v1/admin/fal-settings")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => setHasKey(!!d?.hasKey))
+      .catch(() => setHasKey(false));
+  }, []);
+
+  async function saveKey() {
+    if (!keyInput.trim()) return;
+    setSavingKey(true);
+    setError(null);
+    try {
+      const r = await fetch("/api/v1/admin/fal-settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ apiKey: keyInput.trim() })
+      });
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}));
+        setError(d?.error?.message ?? `Error ${r.status}`);
+        return;
+      }
+      setHasKey(true);
+      setKeyInput("");
+    } finally {
+      setSavingKey(false);
+    }
+  }
 
   async function run() {
     setRunning(true);
@@ -3653,8 +3685,36 @@ function GenerateVideoBar({ postId, onGenerated }: { postId: string; onGenerated
       </div>
       <p className="text-[11px] text-slate-600">
         Reutiliza el brief, colores y guía de estilo del cliente — el mismo look que las imágenes.
-        Aspecto 9:16 para reel/story, 16:9 para vídeo. Tarda 1-5 min. Requiere FAL_KEY en el servidor.
+        Aspecto 9:16 para reel/story, 16:9 para vídeo. Tarda 1-5 min.
       </p>
+      {hasKey === false && (
+        <div className="rounded-md border border-amber-300 bg-amber-50 p-2 space-y-1.5">
+          <p className="text-[11px] text-amber-900">
+            Falta la API key de fal.ai. Pégala aquí (se guarda cifrada). Consíguela en{" "}
+            <a href="https://fal.ai/dashboard/keys" target="_blank" rel="noreferrer" className="underline">
+              fal.ai/dashboard/keys
+            </a>
+            .
+          </p>
+          <div className="flex gap-1.5">
+            <input
+              type="password"
+              value={keyInput}
+              onChange={(e) => setKeyInput(e.target.value)}
+              placeholder="id:secret"
+              className="flex-1 px-2 py-1.5 rounded-md border border-amber-300 text-[11px] font-mono"
+            />
+            <button
+              type="button"
+              onClick={saveKey}
+              disabled={savingKey || !keyInput.trim()}
+              className="px-2.5 py-1.5 rounded-md bg-amber-600 hover:bg-amber-700 text-white text-[11px] font-medium disabled:opacity-50"
+            >
+              {savingKey ? "…" : "Guardar key"}
+            </button>
+          </div>
+        </div>
+      )}
       <input
         value={extra}
         onChange={(e) => setExtra(e.target.value)}
@@ -3664,7 +3724,7 @@ function GenerateVideoBar({ postId, onGenerated }: { postId: string; onGenerated
       <button
         type="button"
         onClick={run}
-        disabled={running}
+        disabled={running || hasKey === false}
         className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-violet-600 hover:bg-violet-700 text-white text-xs font-medium disabled:opacity-50"
       >
         {running && <Loader2 className="h-3.5 w-3.5 animate-spin" />}

@@ -30,11 +30,27 @@ const DEFAULT_MODEL = "fal-ai/kling-video/v2/master/text-to-video";
 const POLL_INTERVAL_MS = 6000;
 const POLL_TIMEOUT_MS = 6 * 60 * 1000; // 6 min
 
-function getFalKey(): string {
+async function getFalKey(workspaceId: string): Promise<string> {
+  // Prioridad: workspace settings (cifrado) → env var. Así el user
+  // puede configurarlo desde la plataforma sin tocar Railway.
+  try {
+    const ws = await prisma.workspace.findUnique({
+      where: { id: workspaceId },
+      select: { settings: true }
+    });
+    const enc = (ws?.settings as any)?.integrations?.fal?.apiKeyEnc;
+    if (enc) {
+      const { decryptSecret } = await import("@/lib/ai/crypto");
+      const plain = decryptSecret(enc);
+      if (plain) return plain;
+    }
+  } catch {
+    // sigue al fallback de env
+  }
   const key = process.env.FAL_KEY ?? process.env.FAL_API_KEY ?? "";
   if (!key) {
     throw new Error(
-      "FAL_KEY no configurada. Añádela en Railway env (consíguela en https://fal.ai/dashboard/keys) para generar vídeos."
+      "FAL_KEY no configurada. Pégala en /admin/editorial (sección Vídeo IA) o en Railway env. Consíguela en https://fal.ai/dashboard/keys."
     );
   }
   return key;
@@ -158,7 +174,7 @@ export async function generatePostVideo(opts: {
   if (!isStorageEnabled()) {
     throw new Error("STORAGE_* no configurado — no se pueden guardar vídeos generados");
   }
-  const key = getFalKey();
+  const key = await getFalKey(opts.workspaceId);
   const model = opts.model ?? process.env.FAL_VIDEO_MODEL ?? DEFAULT_MODEL;
 
   const post = await prisma.editorialPost.findFirst({
