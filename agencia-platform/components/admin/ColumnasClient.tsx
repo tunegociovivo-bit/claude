@@ -38,12 +38,19 @@ export default function ColumnasClient() {
   const searchParams = useSearchParams();
   const projectId = searchParams?.get("project") ?? null;
   const [columns, setColumns] = useState<Column[]>([]);
+  // Columnas tal como estaban al cargar — para mostrar el nombre de las
+  // que se borran cuando hay que migrar sus tareas.
+  const [origCols, setOrigCols] = useState<Column[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [projectName, setProjectName] = useState<string | null>(null);
   const [scope, setScope] = useState<"workspace" | "project" | "workspace_fallback">("workspace");
+  // Cuando el backend devuelve 409 tasks_orphans: mapa colId→nº de tareas
+  // a migrar, y el destino elegido por el usuario para cada una.
+  const [orphans, setOrphans] = useState<Record<string, number> | null>(null);
+  const [migrateMap, setMigrateMap] = useState<Record<string, string>>({});
 
   async function load() {
     setLoading(true);
@@ -56,7 +63,9 @@ export default function ColumnasClient() {
       ]);
       if (colsR.ok) {
         const d = await colsR.json();
-        setColumns((d.items ?? []).map((c: any, i: number) => ({ ...c, order: c.order ?? i })));
+        const items = (d.items ?? []).map((c: any, i: number) => ({ ...c, order: c.order ?? i }));
+        setColumns(items);
+        setOrigCols(items);
         // source viene del endpoint per-project: "project" o "workspace_fallback"
         setScope(d.source === "project" ? "project" : "workspace_fallback");
       }
@@ -68,7 +77,9 @@ export default function ColumnasClient() {
       const r = await fetch("/api/v1/kanban-columns");
       if (r.ok) {
         const d = await r.json();
-        setColumns((d.items ?? []).map((c: any, i: number) => ({ ...c, order: c.order ?? i })));
+        const items = (d.items ?? []).map((c: any, i: number) => ({ ...c, order: c.order ?? i }));
+        setColumns(items);
+        setOrigCols(items);
         setScope("workspace");
         setProjectName(null);
       }
@@ -101,7 +112,7 @@ export default function ColumnasClient() {
     const col = columns[idx];
     if (
       !confirm(
-        `¿Eliminar la columna "${col.label}"?\n\nLas tareas que estuvieran en ella permanecerán pero quedarán huérfanas hasta que las muevas manualmente.`
+        `¿Eliminar la columna "${col.label}"?\n\nSi tiene tareas, al Guardar te preguntaré a qué columna moverlas.`
       )
     )
       return;
@@ -119,7 +130,7 @@ export default function ColumnasClient() {
     setDirty(true);
   }
 
-  async function save() {
+  async function save(migrate?: Record<string, string>) {
     setSaving(true);
     setError(null);
     // Validar IDs
@@ -135,16 +146,36 @@ export default function ColumnasClient() {
     const r = await fetch(putUrl, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ columns: columns.map((c, i) => ({ ...c, order: i })) })
+      body: JSON.stringify({
+        columns: columns.map((c, i) => ({ ...c, order: i })),
+        ...(migrate && Object.keys(migrate).length > 0 ? { migrate } : {})
+      })
     });
     setSaving(false);
     if (!r.ok) {
       const j = await r.json().catch(() => ({}));
+      const orphanMap = j?.error?.details?.orphans as Record<string, number> | undefined;
+      if (r.status === 409 && orphanMap && Object.keys(orphanMap).length > 0) {
+        // Pedir destino para cada columna borrada con tareas.
+        setOrphans(orphanMap);
+        const firstDest = columns[0]?.id;
+        setMigrateMap(
+          Object.fromEntries(Object.keys(orphanMap).map((colId) => [colId, migrateMap[colId] ?? firstDest ?? ""]))
+        );
+        setError(null);
+        return;
+      }
       setError(j?.error?.message ?? `Error ${r.status}`);
       return;
     }
     setDirty(false);
+    setOrphans(null);
+    setMigrateMap({});
     load();
+  }
+
+  function labelForId(id: string): string {
+    return origCols.find((c) => c.id === id)?.label ?? id;
   }
 
   const titleDesc =
@@ -181,7 +212,7 @@ export default function ColumnasClient() {
               Añadir columna
             </button>
             <button
-              onClick={save}
+              onClick={() => save()}
               disabled={!dirty || saving || columns.length === 0}
               className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium disabled:opacity-50"
             >
@@ -196,6 +227,61 @@ export default function ColumnasClient() {
         <div className="mb-3 px-3 py-2 rounded-lg bg-rose-50 border border-rose-200 text-sm text-rose-800 flex items-center gap-2">
           <AlertTriangle className="h-4 w-4" />
           {error}
+        </div>
+      )}
+
+      {orphans && Object.keys(orphans).length > 0 && (
+        <div className="mb-3 rounded-xl border border-amber-300 bg-amber-50 p-4 space-y-3">
+          <div className="flex items-start gap-2 text-sm text-amber-900">
+            <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+            <div>
+              <p className="font-semibold">Mover tareas antes de borrar</p>
+              <p className="text-[13px]">
+                Las columnas que vas a eliminar tienen tareas. Elige a qué columna mover cada grupo y pulsa «Mover y
+                guardar».
+              </p>
+            </div>
+          </div>
+          <div className="space-y-2">
+            {Object.entries(orphans).map(([colId, count]) => (
+              <div key={colId} className="flex flex-wrap items-center gap-2 text-sm">
+                <span className="text-slate-700">
+                  Mover <strong>{count}</strong> {count === 1 ? "tarea" : "tareas"} de{" "}
+                  <strong>«{labelForId(colId)}»</strong> a:
+                </span>
+                <select
+                  value={migrateMap[colId] ?? ""}
+                  onChange={(e) => setMigrateMap((m) => ({ ...m, [colId]: e.target.value }))}
+                  className="px-2 py-1.5 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+                >
+                  {columns.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ))}
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => save(migrateMap)}
+              disabled={saving || Object.values(migrateMap).some((v) => !v)}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-sm font-medium disabled:opacity-50"
+            >
+              {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+              Mover y guardar
+            </button>
+            <button
+              onClick={() => {
+                setOrphans(null);
+                setMigrateMap({});
+              }}
+              className="px-3 py-2 rounded-lg border bg-white text-sm hover:bg-slate-50"
+            >
+              Cancelar
+            </button>
+          </div>
         </div>
       )}
 

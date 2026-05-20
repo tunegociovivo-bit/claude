@@ -18,7 +18,7 @@ export type ApiContext = {
 };
 
 export class ApiError extends Error {
-  constructor(public status: number, public code: string, message: string) {
+  constructor(public status: number, public code: string, message: string, public details?: unknown) {
     super(message);
   }
 }
@@ -133,7 +133,10 @@ export function requireScope(ctx: ApiContext, scope: string) {
 
 export function errorResponse(err: unknown) {
   if (err instanceof ApiError) {
-    return NextResponse.json({ error: { code: err.code, message: err.message } }, { status: err.status });
+    return NextResponse.json(
+      { error: { code: err.code, message: err.message, ...(err.details ? { details: err.details } : {}) } },
+      { status: err.status }
+    );
   }
   console.error("API error", err);
   return NextResponse.json(

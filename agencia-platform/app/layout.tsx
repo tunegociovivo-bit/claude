@@ -85,7 +85,7 @@ const earlyInstallCapture = `
  */
 const swSelfHeal = `
   (function () {
-    var EXPECTED = "v120-2026-05-20-sonia-result-cards";
+    var EXPECTED = "v121-2026-05-20-column-delete-migrate";
     if (!('serviceWorker' in navigator)) return;
     var key = "hub_sw_v_seen";
     var seen = null;

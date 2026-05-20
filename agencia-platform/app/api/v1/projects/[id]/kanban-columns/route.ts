@@ -120,7 +120,8 @@ export const PUT = withApi({ scope: "*" }, async (req, { params, api }) => {
         throw new ApiError(
           409,
           "tasks_orphans",
-          `Hay tasks asignadas a columnas que vas a borrar. Indica adónde moverlas vía 'migrate': ${JSON.stringify(unmigrated)}. Ejemplo body: { columns: [...], migrate: { "${Object.keys(unmigrated)[0]}": "<id_columna_destino>" } }`
+          `Hay tasks asignadas a columnas que vas a borrar. Indica adónde moverlas vía 'migrate': ${JSON.stringify(unmigrated)}. Ejemplo body: { columns: [...], migrate: { "${Object.keys(unmigrated)[0]}": "<id_columna_destino>" } }`,
+          { orphans: unmigrated }
         );
       }
       // Migración OK: actualizar status de tasks en transacción.
