@@ -85,7 +85,7 @@ const earlyInstallCapture = `
  */
 const swSelfHeal = `
   (function () {
-    var EXPECTED = "v98-2026-05-19-dark-sidebar-intense-cols";
+    var EXPECTED = "v99-2026-05-19-compact-tareas-header";
     if (!('serviceWorker' in navigator)) return;
     var key = "hub_sw_v_seen";
     var seen = null;

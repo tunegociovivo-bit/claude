@@ -34,9 +34,9 @@ import VoiceTaskRecorder from "@/components/forms/VoiceTaskRecorder";
 import MeetingRecorder from "@/components/forms/MeetingRecorder";
 import { statusLabelOf, statusColorOf, priorityColors, priorityLabels } from "@/lib/mock-data";
 import type { UiTask, UiProject, UiClient, UiMember } from "@/lib/db/queries";
-import { LayoutGrid, List, Plus, Filter, CalendarDays, FolderPlus, GripVertical, CheckSquare, Square, Settings2, Loader2, Link2, Check, Bot } from "lucide-react";
+import { LayoutGrid, List, Plus, Filter, CalendarDays, FolderPlus, GripVertical, CheckSquare, Square, Settings2, Loader2, Link2, Check, Bot, X } from "lucide-react";
 import clsx from "clsx";
-import SavedFiltersBar, { DEFAULT_FILTERS, type TaskFilters } from "@/components/tareas/SavedFiltersBar";
+import { DEFAULT_FILTERS, type TaskFilters } from "@/components/tareas/SavedFiltersBar";
 import { useSession } from "next-auth/react";
 
 type KanbanColumn = { id: string; label: string; color: string; order: number; isDone?: boolean };
@@ -900,6 +900,7 @@ export default function TareasClient({
           nombre; si no, el genérico. Igual con la descripción — vacía
           cuando estás dentro de un proyecto, el contexto ya se ve. */}
       <PageHeader
+        dense
         title={(() => {
           if (selectionMode) return `${selected.size} tareas seleccionadas`;
           if (filters.project !== "all") {
@@ -966,7 +967,7 @@ export default function TareasClient({
           Cuando hay proyecto filtrado, el dropdown de proyectos se
           oculta (la sidebar ya muestra cuál estás viendo y permite
           cambiar). Si no, se muestra para poder enfocar uno. */}
-      <div className="flex items-center gap-2 mb-3 flex-nowrap sm:flex-wrap overflow-x-auto sm:overflow-visible -mx-4 px-4 sm:mx-0 sm:px-0 scrollbar-thin">
+      <div className="flex items-center gap-2 mb-2 flex-nowrap sm:flex-wrap overflow-x-auto sm:overflow-visible -mx-4 px-4 sm:mx-0 sm:px-0 scrollbar-thin">
         {filters.project === "all" && (
           <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white border text-xs shrink-0">
             <Filter className="h-3.5 w-3.5 text-slate-400" />
@@ -1025,13 +1026,35 @@ export default function TareasClient({
           <option value="week">Esta semana</option>
           <option value="no-date">Sin fecha</option>
         </select>
+        {/* "limpiar" inline: solo aparece si hay algún filtro activo.
+            Sustituye a la antigua barra SavedFiltersBar que ocupaba
+            una fila entera. */}
+        {(filters.client !== "all" ||
+          filters.assignee !== "all" ||
+          filters.priority !== "all" ||
+          filters.due !== "all" ||
+          filters.q.trim() !== "") && (
+          <button
+            onClick={() =>
+              setFilters((f) => ({
+                ...DEFAULT_FILTERS,
+                project: f.project // mantenemos el proyecto en foco
+              }))
+            }
+            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs text-slate-500 hover:text-rose-600 hover:bg-rose-50 shrink-0"
+            title="Quitar todos los filtros"
+          >
+            <X className="h-3.5 w-3.5" />
+            Limpiar
+          </button>
+        )}
         <a
           href={
             filters.project !== "all"
               ? `/admin/columnas?project=${encodeURIComponent(filters.project)}`
               : "/admin/columnas"
           }
-          className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border text-xs text-slate-600 hover:text-slate-900 ml-auto"
+          className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border text-xs text-slate-600 hover:text-slate-900 ml-auto shrink-0"
           title={
             filters.project !== "all"
               ? "Configurar columnas de ESTE proyecto"
@@ -1041,9 +1064,6 @@ export default function TareasClient({
           <Settings2 className="h-3.5 w-3.5" />
           {filters.project !== "all" ? "Columnas del proyecto" : "Columnas"}
         </a>
-      </div>
-      <div className="mb-5">
-        <SavedFiltersBar filters={filters} onApply={setFilters} />
       </div>
       </div>
 
