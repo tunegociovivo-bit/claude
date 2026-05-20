@@ -46,6 +46,7 @@ const FEATURE_TO_PATH: Record<Feature, string> = {
   databases: "/databases",
   calendario: "/calendario",
   editorial: "/admin/editorial",
+  gmb: "/gmb-hub",
   ia: "/"
 };
 

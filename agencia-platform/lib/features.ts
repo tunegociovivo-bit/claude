@@ -12,6 +12,7 @@ export const FEATURES = [
   "databases",
   "calendario",
   "editorial",
+  "gmb",
   "ia"
 ] as const;
 
@@ -26,6 +27,7 @@ export const FEATURE_LABEL: Record<Feature, string> = {
   databases: "Bases de datos",
   calendario: "Calendario",
   editorial: "Calendario editorial",
+  gmb: "GMB Hub (reseñas Google)",
   ia: "Asistente IA (Hub)"
 };
 
@@ -38,6 +40,7 @@ export const FEATURE_DESCRIPTION: Record<Feature, string> = {
   databases: "Bases de datos personalizadas con vistas tabla/board/calendario.",
   calendario: "Calendario de equipo y eventos.",
   editorial: "Calendario editorial, publicaciones planificadas, exportar a Metricool.",
+  gmb: "Gestión de fichas de Google My Business: reseñas, respuestas, ranking local y buscador.",
   ia: "Chatear con Hub, redactor de copy, generación de contenido editorial."
 };
 

@@ -50,7 +50,8 @@ const nav = [
   { href: "/equipo", label: "Equipo", icon: UsersRound, feature: "equipo" as const },
   { href: "/documentos", label: "Documentos", icon: BookOpen, feature: "documentos" as const },
   { href: "/databases", label: "Bases de datos", icon: Database, feature: "databases" as const },
-  { href: "/calendario", label: "Calendario", icon: CalendarDays, feature: "calendario" as const }
+  { href: "/calendario", label: "Calendario", icon: CalendarDays, feature: "calendario" as const },
+  { href: "/gmb-hub", label: "GMB Hub", icon: Star, feature: "gmb" as const }
 ];
 
 type SidebarProject = {
