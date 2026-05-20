@@ -124,8 +124,31 @@ export default function UsuariosClient() {
   async function handleDelete(m: Member) {
     if (!confirm(`¿Eliminar a ${m.name || m.email} del workspace?`)) return;
     const r = await fetch(`/api/v1/users/${m.id}`, { method: "DELETE" });
-    if (r.ok) load();
-    else alert("No se pudo eliminar");
+    if (r.ok) {
+      load();
+      return;
+    }
+    const d = await r.json().catch(() => ({}));
+    const msg = d?.error?.message ?? `Error ${r.status}`;
+    // Si el motivo es que tiene contenido asignado, ofrecer borrado
+    // completo (hard) que reasigna/limpia ese contenido.
+    if (d?.error?.code === "has_content") {
+      if (
+        confirm(
+          `${msg}\n\n¿Quieres ELIMINARLO COMPLETAMENTE de todas formas? Sus tareas/comentarios quedarán sin asignar pero NO se borrarán.`
+        )
+      ) {
+        const r2 = await fetch(`/api/v1/users/${m.id}?hard=true`, { method: "DELETE" });
+        if (r2.ok) {
+          load();
+          return;
+        }
+        const d2 = await r2.json().catch(() => ({}));
+        alert(`No se pudo eliminar: ${d2?.error?.message ?? `Error ${r2.status}`}`);
+      }
+      return;
+    }
+    alert(`No se pudo eliminar: ${msg}`);
   }
 
   function toggleSelect(id: string) {
