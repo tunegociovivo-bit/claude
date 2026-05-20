@@ -17,6 +17,28 @@ import { decryptSecret } from "@/lib/ai/crypto";
 const GRAPH = "https://graph.facebook.com/v19.0";
 
 /**
+ * Elige la MEJOR MetaConnection del workspace: la más reciente que NO esté
+ * caducada (expiresAt null o futura). Si todas están caducadas, devuelve
+ * la más reciente igualmente (para que el llamante dé un error claro).
+ *
+ * Por qué: puede haber varias conexiones (p.ej. una OAuth caducada + el
+ * token System User que no caduca que el usuario pegó después). Antes
+ * cogíamos "la más reciente" a secas y, si esa era la OAuth caducada,
+ * fallaba aunque hubiera otra válida. Ahora todas las rutas (config,
+ * token-only, list_ad_accounts) usan este mismo criterio → consistente.
+ */
+async function pickMetaConnection(workspaceId: string) {
+  const conns = await prisma.metaConnection.findMany({
+    where: { workspaceId },
+    orderBy: { createdAt: "desc" }
+  });
+  if (conns.length === 0) return null;
+  const now = new Date();
+  const valid = conns.find((c) => !c.expiresAt || c.expiresAt > now);
+  return valid ?? conns[0];
+}
+
+/**
  * Resuelve token + adAccountId para Meta Ads. Si `adhoc` viene con
  * META_ADS_TOKEN y/o META_ADS_AD_ACCOUNT_ID, GANAN sobre la
  * configuración cifrada del workspace. Útil cuando la integración
@@ -42,11 +64,9 @@ async function getMetaAdsConfig(
   if (adhocToken) {
     accessToken = adhocToken;
   } else {
-    // Cogemos cualquier MetaConnection viva del workspace (la primera).
-    const conn = await prisma.metaConnection.findFirst({
-      where: { workspaceId },
-      orderBy: { createdAt: "desc" }
-    });
+    // La mejor conexión NO caducada del workspace (prefiere el token que
+    // no caduca sobre una OAuth vencida aunque ésta sea más reciente).
+    const conn = await pickMetaConnection(workspaceId);
     if (!conn) throw new Error("MetaConnection no configurada en el workspace (y no hay META_ADS_TOKEN ad-hoc en la tarea)");
     if (conn.expiresAt && conn.expiresAt < new Date()) {
       throw new Error("MetaConnection caducada — reconecta Meta o pega un META_ADS_TOKEN temporal en la tarea");
@@ -99,10 +119,7 @@ async function getMetaAdsConfig(
  */
 async function resolveMetaToken(workspaceId: string, adhoc?: Record<string, string>): Promise<string> {
   if (adhoc?.META_ADS_TOKEN) return adhoc.META_ADS_TOKEN;
-  const conn = await prisma.metaConnection.findFirst({
-    where: { workspaceId },
-    orderBy: { createdAt: "desc" }
-  });
+  const conn = await pickMetaConnection(workspaceId);
   if (!conn) throw new Error("MetaConnection no configurada en el workspace");
   if (conn.expiresAt && conn.expiresAt < new Date()) throw new Error("MetaConnection caducada — reconecta Meta");
   const t = decryptSecret(conn.accessTokenEnc);
@@ -208,7 +225,7 @@ async function metaFetch<T = any>(url: string, accessToken: string): Promise<T> 
 export async function metaAdsListAdAccounts(workspaceId: string, adhoc?: Record<string, string>) {
   let token: string | null = adhoc?.META_ADS_TOKEN ?? null;
   if (!token) {
-    const conn = await prisma.metaConnection.findFirst({ where: { workspaceId } });
+    const conn = await pickMetaConnection(workspaceId);
     if (!conn) throw new Error("MetaConnection no configurada");
     token = decryptSecret(conn.accessTokenEnc);
     if (!token) throw new Error("token inválido");
