@@ -191,7 +191,7 @@ function FichaDetail({ id, onClose, onChanged }: { id: string; onClose: () => vo
   );
   const [loading, setLoading] = useState(true);
   const [onlyUnreplied, setOnlyUnreplied] = useState(false);
-  const [tab, setTab] = useState<"reviews" | "seo" | "competitors">("reviews");
+  const [tab, setTab] = useState<"reviews" | "seo" | "competitors" | "ranking">("reviews");
 
   async function load() {
     setLoading(true);
@@ -217,7 +217,8 @@ function FichaDetail({ id, onClose, onChanged }: { id: string; onClose: () => vo
           {([
             ["reviews", "Reseñas", MessageSquare],
             ["seo", "SEO", Gauge],
-            ["competitors", "Competencia", Users]
+            ["competitors", "Competencia", Users],
+            ["ranking", "Ranking", MapPin]
           ] as const).map(([k, label, Icon]) => (
             <button
               key={k}
@@ -235,6 +236,7 @@ function FichaDetail({ id, onClose, onChanged }: { id: string; onClose: () => vo
 
         {tab === "seo" && <SeoPanel id={id} />}
         {tab === "competitors" && <CompetitorsPanel id={id} />}
+        {tab === "ranking" && <RankingPanel id={id} />}
 
         {tab === "reviews" && (
         <div className="p-4 space-y-3">
@@ -420,6 +422,153 @@ function SeoPanel({ id }: { id: string }) {
               <li key={i}>{r}</li>
             ))}
           </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RankingPanel({ id }: { id: string }) {
+  const [keyword, setKeyword] = useState("");
+  const [size, setSize] = useState(5);
+  const [running, setRunning] = useState(false);
+  const [res, setRes] = useState<any>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [keywords, setKeywords] = useState<any[]>([]);
+
+  async function loadKeywords() {
+    const r = await fetch(`/api/v1/gmb/clients/${id}/keywords`);
+    if (r.ok) setKeywords((await r.json()).keywords ?? []);
+  }
+  useEffect(() => {
+    loadKeywords();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
+
+  async function scan(kw?: string) {
+    const k = (kw ?? keyword).trim();
+    if (!k) return;
+    setRunning(true);
+    setErr(null);
+    setRes(null);
+    try {
+      // guardar keyword (no bloqueante)
+      fetch(`/api/v1/gmb/clients/${id}/keywords`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ keyword: k })
+      }).then(loadKeywords);
+      const r = await fetch(`/api/v1/gmb/clients/${id}/grid-rank`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ keyword: k, size })
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d?.error?.message ?? "Error");
+      setRes(d);
+      loadKeywords();
+    } catch (e: any) {
+      setErr(e?.message ?? "Error");
+    } finally {
+      setRunning(false);
+    }
+  }
+
+  function cellColor(pos: number | null): string {
+    if (pos === null) return "bg-slate-200 text-slate-400";
+    if (pos <= 3) return "bg-emerald-500 text-white";
+    if (pos <= 10) return "bg-amber-400 text-amber-950";
+    return "bg-rose-400 text-white";
+  }
+
+  return (
+    <div className="p-4 space-y-3">
+      <div className="flex items-center gap-2">
+        <input
+          value={keyword}
+          onChange={(e) => setKeyword(e.target.value)}
+          placeholder="Búsqueda, ej: cerrajero Torremolinos"
+          className="flex-1 px-3 py-2 rounded-lg border text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+        />
+        <select value={size} onChange={(e) => setSize(Number(e.target.value))} className="px-2 py-2 rounded-lg border text-sm">
+          {[3, 5, 7].map((s) => (
+            <option key={s} value={s}>
+              {s}×{s}
+            </option>
+          ))}
+        </select>
+        <button
+          onClick={() => scan()}
+          disabled={running || !keyword.trim()}
+          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium disabled:opacity-50"
+        >
+          {running ? <Loader2 className="h-4 w-4 animate-spin" /> : <MapPin className="h-4 w-4" />}
+          Escanear
+        </button>
+      </div>
+
+      {keywords.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {keywords.map((k) => (
+            <button
+              key={k.id}
+              onClick={() => {
+                setKeyword(k.keyword);
+                scan(k.keyword);
+              }}
+              className="text-[11px] px-2 py-1 rounded-full border bg-white hover:bg-slate-50"
+              title={k.avgPosition ? `Posición media: ${k.avgPosition}` : "Sin medir"}
+            >
+              {k.keyword}
+              {k.avgPosition ? ` · #${k.avgPosition}` : ""}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {err && <div className="text-sm text-rose-600 bg-rose-50 border border-rose-200 rounded-lg p-3">{err.includes("Maps") || err.includes("key") ? "Falta la Google Maps API key (configúrala en Ajustes)." : err}</div>}
+      {running && (
+        <div className="text-xs text-slate-500 flex items-center gap-2">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" /> Escaneando el mapa por zonas… (puede tardar)
+        </div>
+      )}
+
+      {res && (
+        <div className="space-y-3">
+          <div className="grid grid-cols-3 gap-2 text-center">
+            <div className="bg-white rounded-lg border p-2">
+              <div className="text-[10px] text-slate-500">Posición media</div>
+              <div className="text-sm font-semibold">{res.avgPosition || "—"}</div>
+            </div>
+            <div className="bg-white rounded-lg border p-2">
+              <div className="text-[10px] text-slate-500">Zonas en top 3</div>
+              <div className="text-sm font-semibold">{res.top3Count}/{res.cellCount}</div>
+            </div>
+            <div className="bg-white rounded-lg border p-2">
+              <div className="text-[10px] text-slate-500">Aparece en</div>
+              <div className="text-sm font-semibold">{res.foundCount}/{res.cellCount}</div>
+            </div>
+          </div>
+          <div
+            className="grid gap-1 mx-auto w-fit"
+            style={{ gridTemplateColumns: `repeat(${Math.sqrt(res.cells.length)}, minmax(0, 1fr))` }}
+          >
+            {res.cells.map((c: any, i: number) => (
+              <div
+                key={i}
+                className={"h-9 w-9 rounded grid place-items-center text-[11px] font-bold " + cellColor(c.position)}
+                title={c.position ? `Posición ${c.position}` : "No aparece"}
+              >
+                {c.position ?? "–"}
+              </div>
+            ))}
+          </div>
+          <div className="flex items-center justify-center gap-3 text-[10px] text-slate-500">
+            <span className="inline-flex items-center gap-1"><span className="h-3 w-3 rounded bg-emerald-500" /> Top 3</span>
+            <span className="inline-flex items-center gap-1"><span className="h-3 w-3 rounded bg-amber-400" /> 4-10</span>
+            <span className="inline-flex items-center gap-1"><span className="h-3 w-3 rounded bg-rose-400" /> +10</span>
+            <span className="inline-flex items-center gap-1"><span className="h-3 w-3 rounded bg-slate-200" /> No aparece</span>
+          </div>
         </div>
       )}
     </div>

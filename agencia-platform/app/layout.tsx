@@ -85,7 +85,7 @@ const earlyInstallCapture = `
  */
 const swSelfHeal = `
   (function () {
-    var EXPECTED = "v126-2026-05-20-gmb-config-seo-competitors";
+    var EXPECTED = "v127-2026-05-20-gmb-grid-rank-keywords";
     if (!('serviceWorker' in navigator)) return;
     var key = "hub_sw_v_seen";
     var seen = null;

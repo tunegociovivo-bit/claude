@@ -2808,3 +2808,32 @@ model GmbRatingHistory {
   @@unique([clientId, monthYear])
   @@index([workspaceId])
 }
+
+model GmbKeyword {
+  id          String   @id @default(cuid())
+  workspaceId String
+  clientId    String
+  keyword     String
+  isPrimary   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  @@unique([clientId, keyword])
+  @@index([workspaceId])
+  @@index([clientId])
+}
+
+model GmbPosition {
+  id          String   @id @default(cuid())
+  workspaceId String
+  clientId    String
+  keyword     String
+  avgPosition Float    @default(0) // media de posición en las celdas encontradas (0 = no aparece)
+  top3Count   Int      @default(0)
+  foundCount  Int      @default(0)
+  cellCount   Int      @default(0)
+  gridData    Json? // matriz de celdas [{lat,lng,position}]
+  checkedAt   DateTime @default(now())
+
+  @@index([workspaceId])
+  @@index([clientId, keyword])
+}

@@ -975,6 +975,79 @@ chatTools.push({
   }
 });
 
+chatTools.push({
+  name: "gmb_grid_rank",
+  description:
+    "Mide el ranking local de una ficha de GMB para un keyword por zonas (rejilla en el mapa): devuelve la posición media, cuántas zonas están en top 3 y en cuántas aparece. Útil para '¿cómo rankea [ficha] para [keyword]?'. Operación algo lenta (consulta el mapa por zonas).",
+  input_schema: {
+    type: "object",
+    properties: {
+      client: { type: "string", description: "Nombre o id de la ficha." },
+      keyword: { type: "string", description: "Búsqueda a medir, ej. 'cerrajero Málaga'." },
+      size: { type: "integer", description: "Celdas por lado 3-7 (default 5)." }
+    },
+    required: ["client", "keyword"]
+  },
+  run: async (args, ctx) => {
+    try {
+      const client = await gmbResolveClient(ctx.workspaceId, String(args?.client ?? ""));
+      if (!client) return JSON.stringify({ error: "Ficha de GMB no encontrada" });
+      const c = await prisma.gmbClient.findUnique({ where: { id: client.id } });
+      if (!c) return JSON.stringify({ error: "Ficha no encontrada" });
+      const { gridRank, resolveCoords } = await import("@/lib/integrations/google-maps");
+      let lat = c.latitude;
+      let lng = c.longitude;
+      let placeId = c.placeId || undefined;
+      if (lat == null || lng == null) {
+        const coords = await resolveCoords({
+          workspaceId: ctx.workspaceId,
+          placeId,
+          query: [c.name, c.address].filter(Boolean).join(" ")
+        });
+        if (!coords) return JSON.stringify({ error: "No pude localizar el negocio en el mapa." });
+        lat = coords.lat;
+        lng = coords.lng;
+        placeId = coords.placeId ?? placeId;
+        await prisma.gmbClient.update({
+          where: { id: c.id },
+          data: { latitude: lat, longitude: lng, placeId: placeId ?? c.placeId }
+        });
+      }
+      const res = await gridRank({
+        workspaceId: ctx.workspaceId,
+        lat: lat!,
+        lng: lng!,
+        keyword: String(args.keyword),
+        businessName: c.name,
+        placeId,
+        size: Number(args?.size) || 5
+      });
+      await prisma.gmbPosition.create({
+        data: {
+          workspaceId: ctx.workspaceId,
+          clientId: c.id,
+          keyword: String(args.keyword),
+          avgPosition: res.avgPosition,
+          top3Count: res.top3Count,
+          foundCount: res.foundCount,
+          cellCount: res.cellCount,
+          gridData: res.cells as any
+        }
+      });
+      return JSON.stringify({
+        client: client.name,
+        keyword: args.keyword,
+        avgPosition: res.avgPosition,
+        top3Count: res.top3Count,
+        foundCount: res.foundCount,
+        cellCount: res.cellCount
+      });
+    } catch (e: any) {
+      return JSON.stringify({ error: String(e?.message ?? e) });
+    }
+  }
+});
+
 export const toolDefs = chatTools.map((t) => ({
   name: t.name,
   description: t.description,
