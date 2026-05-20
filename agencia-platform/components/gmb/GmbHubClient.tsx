@@ -300,6 +300,63 @@ function BuscadorView() {
   const [results, setResults] = useState<any[]>([]);
   const [err, setErr] = useState<string | null>(null);
   const [verifying, setVerifying] = useState(false);
+  const [saved, setSaved] = useState<any[]>([]);
+  const [savingSearch, setSavingSearch] = useState(false);
+  const [runningId, setRunningId] = useState<string | null>(null);
+
+  async function loadSaved() {
+    const r = await fetch("/api/v1/gmb/buscador/searches");
+    if (r.ok) setSaved((await r.json()).searches ?? []);
+  }
+  useEffect(() => { loadSaved(); }, []);
+
+  async function saveSearch() {
+    const locs = locations.split("\n").map((l) => l.trim()).filter(Boolean);
+    if (locs.length === 0) { setErr("Indica al menos una localización para guardar."); return; }
+    const name = window.prompt("Nombre de la búsqueda:", keyword || locs[0]);
+    if (!name) return;
+    setSavingSearch(true);
+    try {
+      await fetch("/api/v1/gmb/buscador/searches", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, locations: locs.join("\n"), keyword: keyword.trim() || undefined, radiusKm })
+      });
+      loadSaved();
+    } finally { setSavingSearch(false); }
+  }
+
+  async function runSaved(id: string) {
+    setRunningId(id); setErr(null);
+    try {
+      const r = await fetch(`/api/v1/gmb/buscador/searches/${id}/run`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ verify: true })
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d?.error?.message ?? "Error");
+      await loadSaved();
+      await loadSavedResults(id);
+    } catch (e: any) { setErr(e?.message ?? "Error"); } finally { setRunningId(null); }
+  }
+
+  async function loadSavedResults(id: string) {
+    const r = await fetch(`/api/v1/gmb/buscador/searches/${id}/results`);
+    if (r.ok) {
+      const d = await r.json();
+      setResults((d.results ?? []).map((x: any) => ({ ...x, isClaimable: x.checked ? x.isClaimable : undefined })));
+    }
+  }
+
+  async function setSchedule(id: string, schedule: string) {
+    await fetch(`/api/v1/gmb/buscador/searches/${id}`, {
+      method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ schedule })
+    });
+    loadSaved();
+  }
+
+  async function delSaved(id: string) {
+    await fetch(`/api/v1/gmb/buscador/searches/${id}`, { method: "DELETE" });
+    loadSaved();
+  }
 
   async function run() {
     const locs = locations
@@ -444,9 +501,56 @@ function BuscadorView() {
               </button>
             </>
           )}
+          <button
+            onClick={saveSearch}
+            disabled={savingSearch}
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border text-sm hover:bg-slate-50 disabled:opacity-50"
+          >
+            {savingSearch ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+            Guardar búsqueda
+          </button>
         </div>
         {err && <div className="text-sm text-rose-600 bg-rose-50 border border-rose-200 rounded-lg p-2">{err.includes("Maps") || err.includes("key") ? "Falta la Google Maps API key (Ajustes)." : err}</div>}
       </div>
+
+      {saved.length > 0 && (
+        <div className="bg-white rounded-xl border overflow-hidden">
+          <div className="px-4 py-2 border-b text-xs font-semibold text-slate-600">Búsquedas guardadas</div>
+          <div className="divide-y">
+            {saved.map((s) => (
+              <div key={s.id} className="px-4 py-2.5 flex items-center gap-2 text-sm">
+                <div className="min-w-0 flex-1">
+                  <div className="font-medium truncate">{s.name}</div>
+                  <div className="text-[11px] text-slate-500 truncate">
+                    {s.totalFound} fichas · <span className="text-emerald-700">{s.totalClaimable} reclamables</span>
+                    {s.lastRun && ` · ${new Date(s.lastRun).toLocaleDateString("es-ES")}`}
+                  </div>
+                </div>
+                <select
+                  value={s.schedule}
+                  onChange={(e) => setSchedule(s.id, e.target.value)}
+                  className="px-2 py-1 rounded-lg border text-xs"
+                  title="Programación"
+                >
+                  <option value="none">Manual</option>
+                  <option value="daily">Diario</option>
+                  <option value="weekly">Semanal</option>
+                  <option value="monthly">Mensual</option>
+                </select>
+                <button onClick={() => loadSavedResults(s.id)} className="px-2 py-1 rounded-lg border text-xs hover:bg-slate-50">Ver</button>
+                <button onClick={() => runSaved(s.id)} disabled={runningId === s.id}
+                  className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-brand-600 text-white text-xs hover:bg-brand-700 disabled:opacity-50">
+                  {runningId === s.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <MapPin className="h-3.5 w-3.5" />}
+                  Ejecutar
+                </button>
+                <button onClick={() => delSaved(s.id)} className="h-7 w-7 grid place-items-center rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-50">
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {results.length > 0 && (
         <div className="bg-white rounded-xl border overflow-hidden">

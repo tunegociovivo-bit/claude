@@ -2959,3 +2959,51 @@ model GmbSnapshot {
   @@index([workspaceId])
   @@index([clientId])
 }
+
+// === GMB Hub — Bloque Buscador/captación avanzado ===
+
+// Búsquedas guardadas del buscador GMB (captación de fichas reclamables).
+model GmbSearch {
+  id             String   @id @default(cuid())
+  workspaceId    String
+  name           String
+  locations      String   @db.Text // una localización por línea
+  keyword        String   @default("")
+  type           String   @default("")
+  radiusKm       Float    @default(3)
+  schedule       String   @default("none") // none|daily|weekly|monthly
+  lastRun        DateTime?
+  totalFound     Int      @default(0)
+  totalClaimable Int      @default(0)
+  createdById    String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  results GmbSearchResult[]
+
+  @@index([workspaceId])
+  @@index([schedule])
+}
+
+model GmbSearchResult {
+  id          String   @id @default(cuid())
+  workspaceId String
+  searchId    String
+  placeId     String
+  name        String   @default("")
+  address     String   @default("")
+  rating      Float    @default(0)
+  reviewCount Int      @default(0)
+  lat         Float    @default(0)
+  lng         Float    @default(0)
+  isClaimable Boolean  @default(false)
+  checked     Boolean  @default(false)
+  checkedAt   DateTime?
+  createdAt   DateTime @default(now())
+
+  search GmbSearch @relation(fields: [searchId], references: [id], onDelete: Cascade)
+
+  @@unique([searchId, placeId])
+  @@index([workspaceId])
+  @@index([searchId])
+}
