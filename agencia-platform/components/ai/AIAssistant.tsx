@@ -17,8 +17,9 @@
  * historial persistente, añadir localStorage con clave 'sonia-chat-v1'.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
+import Link from "next/link";
 import { Sparkles, X, Send, Loader2, Mic, MicOff } from "lucide-react";
 import clsx from "clsx";
 
@@ -219,7 +220,7 @@ export default function AIAssistant() {
                         : "bg-slate-100 text-slate-900"
                     )}
                   >
-                    {m.content}
+                    {m.role === "assistant" ? renderRichText(m.content) : m.content}
                   </div>
                 </div>
               ))
@@ -307,4 +308,60 @@ export default function AIAssistant() {
       )}
     </>
   );
+}
+
+/**
+ * Render ligero de markdown — solo enlaces [texto](url) y negrita **x**.
+ * Sin librería externa. Los enlaces internos (que empiezan por /) usan
+ * next/link para navegar sin recargar; los externos abren en pestaña
+ * nueva. El resto del texto se respeta tal cual (whitespace-pre-wrap
+ * lo maneja el contenedor).
+ */
+function renderRichText(text: string): React.ReactNode {
+  // Partimos por enlaces markdown y negritas, preservando el orden.
+  const tokenRe = /\[([^\]]+)\]\(([^)]+)\)|\*\*([^*]+)\*\*/g;
+  const out: React.ReactNode[] = [];
+  let last = 0;
+  let m: RegExpExecArray | null;
+  let key = 0;
+  while ((m = tokenRe.exec(text)) !== null) {
+    if (m.index > last) out.push(text.slice(last, m.index));
+    if (m[1] && m[2] !== undefined) {
+      // Enlace
+      const label = m[1];
+      const href = m[2];
+      if (href.startsWith("/")) {
+        out.push(
+          <Link
+            key={key++}
+            href={href}
+            className="text-brand-700 underline underline-offset-2 hover:text-brand-900 font-medium"
+          >
+            {label}
+          </Link>
+        );
+      } else {
+        out.push(
+          <a
+            key={key++}
+            href={href}
+            target="_blank"
+            rel="noreferrer"
+            className="text-brand-700 underline underline-offset-2 hover:text-brand-900 font-medium"
+          >
+            {label}
+          </a>
+        );
+      }
+    } else if (m[3] !== undefined) {
+      out.push(
+        <strong key={key++} className="font-semibold">
+          {m[3]}
+        </strong>
+      );
+    }
+    last = tokenRe.lastIndex;
+  }
+  if (last < text.length) out.push(text.slice(last));
+  return out;
 }

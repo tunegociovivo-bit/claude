@@ -315,38 +315,38 @@ chatTools.push({
     const [tasks, comments, files, projects, clients, documents, events] = await Promise.all([
       prisma.task.findMany({
         where: { workspaceId: ws, deletedAt: null, OR: [{ title: ci }, { description: ci }] },
-        take: 30,
+        take: 500,
         select: { id: true, title: true, status: true, project: { select: { name: true } }, client: { select: { name: true } } }
       }),
       prisma.comment.findMany({
         where: { workspaceId: ws, body: ci },
-        take: 30,
+        take: 200,
         orderBy: { createdAt: "desc" },
         select: { id: true, body: true, targetType: true, targetId: true, createdAt: true, author: { select: { name: true } } }
       }),
       prisma.file.findMany({
         where: { workspaceId: ws, name: ci },
-        take: 20,
+        take: 100,
         select: { id: true, name: true, mimeType: true, targetType: true, targetId: true }
       }),
       prisma.project.findMany({
         where: { workspaceId: ws, deletedAt: null, OR: [{ name: ci }, { description: ci }] },
-        take: 15,
+        take: 100,
         select: { id: true, name: true, description: true }
       }),
       prisma.client.findMany({
         where: { workspaceId: ws, OR: [{ name: ci }, { brandBrief: ci }] } as any,
-        take: 15,
+        take: 100,
         select: { id: true, name: true }
       }),
       prisma.document.findMany({
         where: { workspaceId: ws, deletedAt: null, title: ci },
-        take: 15,
+        take: 100,
         select: { id: true, title: true }
       }),
       prisma.calendarEvent.findMany({
         where: { workspaceId: ws, OR: [{ title: ci }, { description: ci }] },
-        take: 15,
+        take: 100,
         orderBy: { startAt: "desc" },
         select: { id: true, title: true, startAt: true, client: { select: { name: true } } }
       })
@@ -375,7 +375,8 @@ chatTools.push({
         title: t.title,
         status: t.status,
         project: t.project?.name,
-        client: t.client?.name
+        client: t.client?.name,
+        url: `/tareas?task=${t.id}`
       })),
       comments: comments.map((c) => ({
         id: c.id,
@@ -387,22 +388,25 @@ chatTools.push({
         targetType: c.targetType,
         targetId: c.targetId,
         snippet: snippet(c.body),
-        date: c.createdAt.toISOString().slice(0, 10)
+        date: c.createdAt.toISOString().slice(0, 10),
+        url: c.targetType === "TASK" ? `/tareas?task=${c.targetId}` : null
       })),
       files: files.map((f) => ({
         id: f.id,
         name: f.name,
         type: f.mimeType,
-        attachedTo: f.targetType ? `${f.targetType}: ${f.targetId}` : null
+        attachedTo: f.targetType ? `${f.targetType}: ${f.targetId}` : null,
+        url: f.targetType === "TASK" && f.targetId ? `/tareas?task=${f.targetId}` : null
       })),
-      projects: projects.map((p) => ({ id: p.id, name: p.name })),
-      clients: clients.map((c) => ({ id: c.id, name: c.name })),
-      documents: documents.map((d) => ({ id: d.id, title: d.title })),
+      projects: projects.map((p) => ({ id: p.id, name: p.name, url: `/tareas?project=${p.id}` })),
+      clients: clients.map((c) => ({ id: c.id, name: c.name, url: `/clientes?cliente=${c.id}` })),
+      documents: documents.map((d) => ({ id: d.id, title: d.title, url: `/documentos/${d.id}` })),
       calendarEvents: events.map((e) => ({
         id: e.id,
         title: e.title,
         when: e.startAt.toISOString().slice(0, 10),
-        client: e.client?.name
+        client: e.client?.name,
+        url: `/calendario`
       }))
     };
     return JSON.stringify(result);

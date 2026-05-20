@@ -910,11 +910,7 @@ export default function TareasClient({
           return "Tareas y proyectos";
         })()}
         description={
-          selectionMode
-            ? "Aplica acciones masivas a las tareas marcadas."
-            : filters.project !== "all"
-              ? ""
-              : "Selecciona un proyecto en el menú lateral para enfocarte."
+          selectionMode ? "Aplica acciones masivas a las tareas marcadas." : undefined
         }
         actions={
           <>
