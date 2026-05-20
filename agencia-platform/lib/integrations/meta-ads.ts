@@ -61,10 +61,32 @@ async function getMetaAdsConfig(
     const ws = await prisma.workspace.findUnique({ where: { id: workspaceId } });
     adAccountId = (ws?.settings as any)?.integrations?.metaAds?.adAccountId ?? null;
     if (!adAccountId) {
-      throw new Error("Falta adAccountId — añade META_ADS_AD_ACCOUNT_ID en la tarea o configura settings.integrations.metaAds");
+      // Auto-resolución: no hay UI para configurar el Ad Account ID, así que
+      // si el token tiene UNA sola cuenta publicitaria la usamos y la
+      // persistimos. Si tiene varias, pedimos elegir; si ninguna, avisamos.
+      const accounts = await metaAdsListAdAccounts(workspaceId, { META_ADS_TOKEN: accessToken });
+      if (accounts.length === 1) {
+        adAccountId = accounts[0].id; // formato "act_xxx"
+        try {
+          const settings = ((ws?.settings as any) ?? {}) as any;
+          settings.integrations = settings.integrations ?? {};
+          settings.integrations.metaAds = { ...(settings.integrations.metaAds ?? {}), adAccountId };
+          await prisma.workspace.update({ where: { id: workspaceId }, data: { settings } });
+        } catch {
+          /* persistencia best-effort */
+        }
+      } else if (accounts.length === 0) {
+        throw new Error("El token de Meta no tiene acceso a ninguna cuenta publicitaria (Ad Account).");
+      } else {
+        const list = accounts.map((a: any) => `${a.name} (${a.id})`).join(", ");
+        throw new Error(
+          `El token tiene varias cuentas publicitarias: ${list}. Indica cuál usar (Ad Account ID) al pedir la acción.`
+        );
+      }
     }
   }
 
+  if (!adAccountId) throw new Error("No se pudo resolver la cuenta publicitaria de Meta.");
   return { accessToken, adAccountId };
 }
 

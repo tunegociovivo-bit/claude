@@ -550,6 +550,31 @@ chatTools.push({
 // las campañas. Las de escritura SOLO cuando el usuario lo pide explícito.
 
 chatTools.push({
+  name: "meta_list_ad_accounts",
+  description:
+    "Lista las CUENTAS PUBLICITARIAS de Meta (Ad Accounts) a las que tiene acceso el token conectado del workspace. Úsalo cuando pregunten '¿a qué cuentas de Meta puedes acceder?' o para verificar que la conexión funciona. Solo necesita el token (no el Ad Account ID).",
+  input_schema: { type: "object", properties: {} },
+  run: async (_args, ctx) => {
+    try {
+      const { metaAdsListAdAccounts } = await import("@/lib/integrations/meta-ads");
+      const accounts = await metaAdsListAdAccounts(ctx.workspaceId);
+      if (!accounts || accounts.length === 0) {
+        return JSON.stringify({ connected: true, accounts: [], note: "El token no tiene cuentas publicitarias." });
+      }
+      return JSON.stringify({ connected: true, accounts });
+    } catch (e: any) {
+      const msg = String(e?.message ?? e);
+      const notConnected = /MetaConnection no configurada|token inválido/i.test(msg);
+      return JSON.stringify({
+        connected: false,
+        error: msg,
+        hint: notConnected ? "No hay token de Meta conectado. Conéctalo en /campanas-meta." : undefined
+      });
+    }
+  }
+});
+
+chatTools.push({
   name: "meta_list_campaigns",
   description:
     "Lista las campañas de Meta Ads (Facebook/Instagram) del workspace con su estado, objetivo y presupuesto. Úsalo cuando pregunten por las campañas activas, pausadas, su presupuesto, etc.",
