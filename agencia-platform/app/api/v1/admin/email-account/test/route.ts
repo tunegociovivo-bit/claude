@@ -51,5 +51,20 @@ export const POST = withApi({ scope: "*" }, async (req, { api }) => {
     loginUser: d.loginUser ?? saved?.loginUser ?? d.email ?? "",
     password
   });
+  // Self-heal: si SMTP funcionó por un puerto distinto al guardado, lo
+  // persistimos para que el próximo envío vaya directo.
+  if (
+    saved &&
+    result.smtp &&
+    result.smtpPort &&
+    (saved.smtpPort !== result.smtpPort || saved.smtpSecure !== result.smtpSecure)
+  ) {
+    await prisma.emailAccount
+      .update({
+        where: { id: saved.id },
+        data: { smtpPort: result.smtpPort, smtpSecure: !!result.smtpSecure }
+      })
+      .catch(() => {});
+  }
   return NextResponse.json(result);
 });

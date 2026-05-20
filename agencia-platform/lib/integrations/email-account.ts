@@ -22,8 +22,8 @@ const IMAP_TIMEOUTS = {
   socketTimeout: 30000 // ms de inactividad
 };
 const SMTP_TIMEOUTS = {
-  connectionTimeout: 12000,
-  greetingTimeout: 12000,
+  connectionTimeout: 9000,
+  greetingTimeout: 9000,
   socketTimeout: 30000
 };
 
@@ -35,6 +35,60 @@ function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
       setTimeout(() => reject(new Error(`${label}: tiempo de espera agotado (${ms / 1000}s) — el servidor no responde (puerto bloqueado o host inaccesible).`)), ms)
     )
   ]);
+}
+
+/** ¿El error es de conexión (puerto bloqueado) y no de auth/lógica? */
+function isSmtpConnIssue(e: any): boolean {
+  const code = e?.code ?? "";
+  if (["ETIMEDOUT", "ESOCKET", "ECONNREFUSED", "ECONNRESET", "EHOSTUNREACH", "ENETUNREACH"].includes(code)) return true;
+  return /timeout|ECONN|socket|network/i.test(String(e?.message ?? ""));
+}
+
+type SmtpCandidate = { port: number; secure: boolean };
+
+/** Puertos SMTP a probar: el configurado primero, luego alternativas
+ *  comunes por si el principal está bloqueado por el hosting/egress. */
+function smtpCandidates(port: number, secure: boolean): SmtpCandidate[] {
+  const cands: SmtpCandidate[] = [{ port, secure }];
+  for (const c of [
+    { port: 587, secure: false }, // STARTTLS
+    { port: 465, secure: true }, // SSL implícito
+    { port: 25, secure: false } // sin cifrar (último recurso)
+  ]) {
+    if (!cands.some((x) => x.port === c.port)) cands.push(c);
+  }
+  return cands;
+}
+
+/**
+ * Ejecuta una operación SMTP (verify / sendMail) probando varios puertos.
+ * Si el puerto configurado falla por CONEXIÓN (timeout/refused) prueba el
+ * siguiente; si falla por auth, aborta (cambiar de puerto no ayuda).
+ * Devuelve el resultado + el puerto/secure que funcionó.
+ */
+async function runSmtpWithFallback<T>(
+  opts: { host: string; loginUser: string; password: string; port: number; secure: boolean; perTryMs: number },
+  fn: (transport: any) => Promise<T>
+): Promise<{ value: T; port: number; secure: boolean }> {
+  const nodemailer = (await import("nodemailer")).default;
+  let lastErr: any = new Error("SMTP: sin candidatos");
+  for (const cand of smtpCandidates(opts.port, opts.secure)) {
+    try {
+      const transport = nodemailer.createTransport({
+        host: opts.host,
+        port: cand.port,
+        secure: cand.secure,
+        auth: { user: opts.loginUser, pass: opts.password },
+        ...SMTP_TIMEOUTS
+      });
+      const value = await withTimeout(fn(transport), opts.perTryMs, "SMTP");
+      return { value, port: cand.port, secure: cand.secure };
+    } catch (e: any) {
+      lastErr = e;
+      if (!isSmtpConnIssue(e)) throw e; // auth u otro error lógico: no reintentar
+    }
+  }
+  throw lastErr;
 }
 
 export type EmailSummary = {
@@ -72,8 +126,14 @@ export async function testEmailAccount(opts: {
   smtpSecure: boolean;
   loginUser: string;
   password: string;
-}): Promise<{ imap: boolean; smtp: boolean; error?: string }> {
-  const result = { imap: false, smtp: false, error: undefined as string | undefined };
+}): Promise<{ imap: boolean; smtp: boolean; error?: string; smtpPort?: number; smtpSecure?: boolean }> {
+  const result = {
+    imap: false,
+    smtp: false,
+    error: undefined as string | undefined,
+    smtpPort: undefined as number | undefined,
+    smtpSecure: undefined as boolean | undefined
+  };
   // IMAP
   try {
     const { ImapFlow } = await import("imapflow");
@@ -97,25 +157,29 @@ export async function testEmailAccount(opts: {
     if (e?.serverResponseCode) parts.push(`code: ${e.serverResponseCode}`);
     result.error = `IMAP: ${parts.join(" ").slice(0, 240)}`;
   }
-  // SMTP
+  // SMTP — con fallback de puerto (465 SSL → 587 STARTTLS → 25).
   try {
-    const nodemailer = (await import("nodemailer")).default;
-    const transport = nodemailer.createTransport({
-      host: opts.smtpHost,
-      port: opts.smtpPort,
-      secure: opts.smtpSecure,
-      auth: { user: opts.loginUser, pass: opts.password },
-      ...SMTP_TIMEOUTS
-    });
-    await withTimeout(transport.verify(), 15000, "SMTP");
+    const { port, secure } = await runSmtpWithFallback(
+      {
+        host: opts.smtpHost,
+        loginUser: opts.loginUser,
+        password: opts.password,
+        port: opts.smtpPort,
+        secure: opts.smtpSecure,
+        perTryMs: 11000
+      },
+      (t) => t.verify()
+    );
     result.smtp = true;
+    result.smtpPort = port;
+    result.smtpSecure = secure;
   } catch (e: any) {
     const parts = [String(e?.message ?? e)];
     if (e?.code) parts.push(`code: ${e.code}`);
-    // ETIMEDOUT/ESOCKET/ECONNREFUSED en SMTP casi siempre = puerto de
-    // salida bloqueado por el hosting (Railway suele bloquear 465/587/25).
-    if (e?.code === "ETIMEDOUT" || e?.code === "ESOCKET" || e?.code === "ECONNREFUSED") {
-      parts.push("(puerto de salida bloqueado — prueba SMTP 587 sin SSL, o pide a Railway desbloquear SMTP)");
+    if (isSmtpConnIssue(e)) {
+      parts.push(
+        "(ningún puerto SMTP conecta — 465/587/25 bloqueados desde el servidor. Hay que desbloquear SMTP saliente en Railway o usar un relay)"
+      );
     }
     result.error = (result.error ? result.error + " · " : "") + `SMTP: ${parts.join(" ").slice(0, 240)}`;
   }
@@ -268,21 +332,31 @@ export async function sendEmailFromAccount(opts: {
   html?: boolean;
 }): Promise<{ messageId: string }> {
   const { acc, password } = await loadAccount(opts.userId, opts.workspaceId);
-  const nodemailer = (await import("nodemailer")).default;
-  const transport = nodemailer.createTransport({
-    host: acc.smtpHost,
-    port: acc.smtpPort,
-    secure: acc.smtpSecure,
-    auth: { user: acc.loginUser, pass: password },
-    ...SMTP_TIMEOUTS
-  });
-  const info = await withTimeout(transport.sendMail({
-    from: acc.email,
-    to: opts.to,
-    cc: opts.cc,
-    subject: opts.subject,
-    ...(opts.html ? { html: opts.body } : { text: opts.body })
-  }), 30000, "SMTP");
+  const { value: info, port, secure } = await runSmtpWithFallback<any>(
+    {
+      host: acc.smtpHost,
+      loginUser: acc.loginUser,
+      password,
+      port: acc.smtpPort,
+      secure: acc.smtpSecure,
+      perTryMs: 20000
+    },
+    (t) =>
+      t.sendMail({
+        from: acc.email,
+        to: opts.to,
+        cc: opts.cc,
+        subject: opts.subject,
+        ...(opts.html ? { html: opts.body } : { text: opts.body })
+      })
+  );
+  // Self-heal: si funcionó un puerto distinto al guardado, lo persistimos
+  // para que el próximo envío vaya directo y la UI lo refleje.
+  if (port !== acc.smtpPort || secure !== acc.smtpSecure) {
+    await prisma.emailAccount
+      .update({ where: { id: acc.id }, data: { smtpPort: port, smtpSecure: secure } })
+      .catch(() => {});
+  }
   return { messageId: info.messageId };
 }
 
