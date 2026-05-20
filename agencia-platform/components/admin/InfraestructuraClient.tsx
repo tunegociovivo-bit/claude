@@ -36,11 +36,14 @@ export default function InfraestructuraClient() {
   const [data, setData] = useState<Data | null>(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
+  function reload() {
     fetch("/api/v1/admin/infrastructure")
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => setData(d))
       .finally(() => setLoading(false));
+  }
+  useEffect(() => {
+    reload();
   }, []);
 
   return (
@@ -151,6 +154,11 @@ export default function InfraestructuraClient() {
                     {p.recovery && (
                       <p className="text-[11px] text-slate-500 mt-1 italic">↻ {p.recovery}</p>
                     )}
+                    {/* fal.ai: campo inline para pegar la API key sin
+                        tener que abrir un post del calendario. */}
+                    {p.key === "fal" && !p.configured && (
+                      <FalKeyInline onSaved={reload} />
+                    )}
                   </div>
                   <div className="shrink-0">
                     {p.internal ? (
@@ -208,6 +216,55 @@ export default function InfraestructuraClient() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function FalKeyInline({ onSaved }: { onSaved: () => void }) {
+  const [val, setVal] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function save() {
+    if (!val.trim()) return;
+    setSaving(true);
+    setErr(null);
+    try {
+      const r = await fetch("/api/v1/admin/fal-settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ apiKey: val.trim() })
+      });
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}));
+        setErr(d?.error?.message ?? `Error ${r.status}`);
+        return;
+      }
+      setVal("");
+      onSaved();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="mt-2 flex gap-1.5 max-w-md">
+      <input
+        type="password"
+        value={val}
+        onChange={(e) => setVal(e.target.value)}
+        placeholder="Pega la FAL_KEY (id:secret)"
+        className="flex-1 px-2 py-1.5 rounded-md border border-slate-300 text-[11px] font-mono"
+      />
+      <button
+        type="button"
+        onClick={save}
+        disabled={saving || !val.trim()}
+        className="px-2.5 py-1.5 rounded-md bg-violet-600 hover:bg-violet-700 text-white text-[11px] font-medium disabled:opacity-50"
+      >
+        {saving ? "…" : "Guardar"}
+      </button>
+      {err && <span className="text-[11px] text-rose-600 self-center">{err}</span>}
     </div>
   );
 }

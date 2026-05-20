@@ -26,7 +26,7 @@
 // reintroducir cache PERO con purga agresiva por VERSION en
 // activate.
 
-const VERSION = "v107-2026-05-19-fix-drag-reorder";
+const VERSION = "v108-2026-05-19-fal-key-inline-infra";
 
 self.addEventListener("install", (event) => {
   // Activación inmediata: no esperar a que el SW viejo libere.
