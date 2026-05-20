@@ -892,6 +892,56 @@ export async function executeAgentRun(opts: {
     console.warn("[sonia] resource-registry:", (e as Error).message);
   }
 
+  // PRE-FLIGHT DE CREDENCIALES (automático): si la tarea toca integraciones
+  // externas, validamos sus credenciales ANTES de empezar e inyectamos el
+  // estado. Así, si un token está caducado/inválido, Sonia lo sabe desde el
+  // paso 0 y escala en vez de gastar pasos creando recursos que fallarán al
+  // final (justo lo que pasó con el token de Meta caducado). Se limita a
+  // tareas que mencionan integraciones para no añadir latencia a las triviales.
+  try {
+    const task = await prisma.task.findUnique({
+      where: { id: taskId },
+      select: { title: true, description: true }
+    });
+    const haystack = `${task?.title ?? ""}\n${task?.description ?? ""}\n${triggerContext ?? ""}`.toLowerCase();
+    // Detectamos qué integraciones (de las validables) toca la tarea y
+    // validamos SOLO ésas — más certero que la autodetección por settings,
+    // que no ve el token de Meta guardado en MetaConnection.
+    const needed: ("meta_ads" | "make" | "holded")[] = [];
+    if (/\bmeta\b|facebook|instagram|\bads\b|campañ|campan|an[uú]ncio|\blead/.test(haystack)) needed.push("meta_ads");
+    if (/make\.com|\bmake\b|escenario|webhook/.test(haystack)) needed.push("make");
+    if (/factura|holded/.test(haystack)) needed.push("holded");
+    if (needed.length > 0) {
+      const { validateWorkspaceCredentials } = await import("@/lib/credentials/validate");
+      const health = await validateWorkspaceCredentials({ workspaceId, integrations: needed });
+      const total = health.valid.length + health.invalid.length;
+      if (total > 0) {
+        const lines: string[] = ["", "## ESTADO DE CREDENCIALES (pre-flight automático)"];
+        if (health.valid.length > 0) {
+          lines.push(`✅ OK: ${health.valid.map((c) => c.integration).join(", ")}`);
+        }
+        if (health.invalid.length > 0) {
+          lines.push(
+            `❌ CON PROBLEMA: ${health.invalid
+              .map((c) => `${c.integration} (${(c as any).reason ?? "fallo"})`)
+              .join("; ")}`
+          );
+          lines.push(
+            "⚠️ Si tu tarea NECESITA una integración marcada con ❌, NO gastes pasos creando recursos: avisa al user con add_comment y escala con escalate_to_claude explicando qué credencial está caducada/inválida. Si NO la necesitas para esta tarea, ignóralo y continúa normal."
+          );
+        }
+        initialContent += lines.join("\n") + "\n";
+        log.push({
+          type: "info",
+          ts: nowIso(),
+          text: `Pre-flight credenciales: ${health.valid.length} OK, ${health.invalid.length} con problema`
+        });
+      }
+    }
+  } catch (e) {
+    console.warn("[sonia] credential preflight:", (e as Error).message);
+  }
+
   // WORKFLOW PRECONFIGURADO: si la task viene de una plantilla con
   // aiWorkflow, inyectarlo como secuencia EXACTA a ejecutar.
   try {
