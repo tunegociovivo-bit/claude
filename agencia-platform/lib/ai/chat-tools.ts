@@ -454,6 +454,96 @@ chatTools.push({
   }
 });
 
+// ── CORREO (IMAP/SMTP) ───────────────────────────────────────────
+// Solo funcionan para el USUARIO dueño de la cuenta (ctx.userId). Si
+// el usuario no tiene cuenta conectada, devuelven un aviso — así otro
+// usuario del workspace no puede usar el correo ajeno.
+chatTools.push({
+  name: "email_search",
+  description:
+    "Busca correos en la bandeja del USUARIO (su cuenta conectada, ej. info@negociovivo.com). Úsalo cuando te pregunte por sus emails. `query` admite: texto libre (busca en asunto+cuerpo), 'from:alguien@x.com', 'unseen' (no leídos), 'since:YYYY-MM-DD'. Devuelve los más recientes con uid, remitente, asunto, fecha. Para leer el cuerpo completo usa email_read con el uid.",
+  input_schema: {
+    type: "object",
+    properties: {
+      query: { type: "string", description: "Criterio de búsqueda. Vacío = últimos de la bandeja." },
+      max: { type: "integer", description: "Máx resultados (default 10, tope 25)." }
+    }
+  },
+  run: async (args, ctx) => {
+    if (!ctx.userId) return JSON.stringify({ error: "Necesitas sesión de usuario para acceder al correo." });
+    try {
+      const { searchEmails } = await import("@/lib/integrations/email-account");
+      const emails = await searchEmails({
+        userId: ctx.userId,
+        workspaceId: ctx.workspaceId,
+        query: args?.query ? String(args.query) : undefined,
+        max: typeof args?.max === "number" ? args.max : undefined
+      });
+      return JSON.stringify({ count: emails.length, emails });
+    } catch (e: any) {
+      return JSON.stringify({ error: String(e?.message ?? e) });
+    }
+  }
+});
+
+chatTools.push({
+  name: "email_read",
+  description:
+    "Lee el cuerpo completo de un correo del USUARIO por su uid (obtenido de email_search). Devuelve remitente, asunto, fecha y el texto del correo.",
+  input_schema: {
+    type: "object",
+    properties: { uid: { type: "integer", description: "uid del correo (de email_search)." } },
+    required: ["uid"]
+  },
+  run: async (args, ctx) => {
+    if (!ctx.userId) return JSON.stringify({ error: "Necesitas sesión de usuario." });
+    try {
+      const { readEmail } = await import("@/lib/integrations/email-account");
+      const email = await readEmail({
+        userId: ctx.userId,
+        workspaceId: ctx.workspaceId,
+        uid: Number(args?.uid)
+      });
+      return JSON.stringify(email);
+    } catch (e: any) {
+      return JSON.stringify({ error: String(e?.message ?? e) });
+    }
+  }
+});
+
+chatTools.push({
+  name: "email_send",
+  description:
+    "ENVÍA un correo desde la cuenta del USUARIO (ej. info@negociovivo.com). Úsalo SOLO cuando el usuario te pida explícitamente enviar/responder un email. CONFIRMA siempre el destinatario + asunto + cuerpo en tu respuesta antes de dar por enviado. No inventes destinatarios.",
+  input_schema: {
+    type: "object",
+    properties: {
+      to: { type: "string", description: "Destinatario(s), separados por coma." },
+      subject: { type: "string" },
+      body: { type: "string", description: "Cuerpo del correo en texto plano." },
+      cc: { type: "string", description: "Copia (opcional)." }
+    },
+    required: ["to", "subject", "body"]
+  },
+  run: async (args, ctx) => {
+    if (!ctx.userId) return JSON.stringify({ error: "Necesitas sesión de usuario para enviar correo." });
+    try {
+      const { sendEmailFromAccount } = await import("@/lib/integrations/email-account");
+      const r = await sendEmailFromAccount({
+        userId: ctx.userId,
+        workspaceId: ctx.workspaceId,
+        to: String(args?.to ?? ""),
+        subject: String(args?.subject ?? ""),
+        body: String(args?.body ?? ""),
+        cc: args?.cc ? String(args.cc) : undefined
+      });
+      return JSON.stringify({ ok: true, messageId: r.messageId, message: "Correo enviado." });
+    } catch (e: any) {
+      return JSON.stringify({ error: String(e?.message ?? e) });
+    }
+  }
+});
+
 export const toolDefs = chatTools.map((t) => ({
   name: t.name,
   description: t.description,

@@ -60,6 +60,7 @@ model User {
   MetaConnection            MetaConnection[]
   aiMemoryEntries           AiUserMemory[]
   managedProjects           Project[]                  @relation("ProjectManager")
+  emailAccounts             EmailAccount[]             @relation("UserEmailAccounts")
 }
 
 // Registro de intentos de login para throttling/lockout. Se guardan
@@ -222,6 +223,7 @@ model Workspace {
   vacationDays              VacationDay[]
   teamMessages              TeamMessage[]
   googleCalendarConnections GoogleCalendarConnection[]
+  emailAccounts             EmailAccount[]
   searchEmbeddings          SearchEmbedding[]
   metaConnections           MetaConnection[]
   metaCampaigns             MetaCampaign[]
@@ -2150,10 +2152,38 @@ model GoogleCalendarConnection {
   @@index([workspaceId])
 }
 
-// ====================================================================
-// SEMANTIC SEARCH — embeddings por entidad para búsqueda por significado
-// ====================================================================
-//
+// Cuenta de correo IMAP/SMTP por usuario (ej. info@negociovivo.com en
+// hosting propio cPanel). Sonia puede leer/buscar/enviar correos SOLO
+// en nombre del usuario dueño de esta cuenta, y SOLO cuando ese mismo
+// usuario se lo pide desde su sesión (gating en chat-tools por
+// api.userId). La contraseña (idealmente una "app password") se guarda
+// cifrada con lib/ai/crypto.ts.
+model EmailAccount {
+  id           String   @id @default(cuid())
+  userId       String
+  workspaceId  String
+  email        String // info@negociovivo.com
+  // IMAP (lectura)
+  imapHost     String
+  imapPort     Int      @default(993)
+  imapSecure   Boolean  @default(true)
+  // SMTP (envío)
+  smtpHost     String
+  smtpPort     Int      @default(465)
+  smtpSecure   Boolean  @default(true)
+  // Usuario de login (suele ser el email completo) + password cifrada
+  loginUser    String
+  passwordEnc  String   @db.Text
+  lastError    String?  @db.Text
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user      User      @relation("UserEmailAccounts", fields: [userId], references: [id], onDelete: Cascade)
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, workspaceId])
+  @@index([workspaceId])
+}
 // Cada fila representa el vector de embedding de una entidad (tarea,
 // cliente, proyecto, documento, comentario). Lo almacenamos como Json
 // en lugar de usar pgvector para no obligar a habilitar la extensión

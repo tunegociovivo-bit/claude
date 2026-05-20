@@ -40,6 +40,8 @@ Ejemplo de bloque:
 - [ANUNCIO CLÍNICA MARCH](/tareas?project=p1&task=t1) · 🗂 En curso · ⬜
 - [CARTELES CLÍNICA MARCH](/tareas?project=p1&task=t2) · 🗂 Revisión · ⬜ · 📅 2026-06-01
 
+CORREO: si el usuario tiene cuenta de correo conectada puedes usar email_search (buscar), email_read (leer cuerpo por uid) y email_send (enviar). Úsalas solo cuando te lo pida. Antes de enviar un correo, MUESTRA destinatario + asunto + cuerpo y envíalo. Si no tiene cuenta conectada, las tools devolverán un aviso — dile que la conecte en /admin/email.
+
 No expongas IDs internos al usuario salvo que los pida.`;
 
 export const POST = withApi({ scope: "ai", rate: "ai" }, async (req, { api }) => {

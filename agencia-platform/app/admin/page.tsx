@@ -22,6 +22,7 @@ import {
   Columns3,
   Shield,
   ServerCog,
+  Mail,
   TrendingUp,
   FileText,
   MessageSquare,
@@ -355,6 +356,13 @@ const SECTIONS: AdminSection[] = [
         description:
           "Todas las APIs y tokens del workspace, cifrados. Revélalos con tu contraseña para copiarlos y usarlos en otro sitio. Cada revelación queda auditada.",
         icon: KeyRound
+      },
+      {
+        href: "/admin/email",
+        title: "Mi correo (Sonia)",
+        description:
+          "Conecta tu cuenta de correo (IMAP/SMTP, ej. info@negociovivo.com) para que Sonia pueda buscar/leer tus emails y enviarlos cuando se lo pidas. Privado: solo tú usas tu correo.",
+        icon: Mail
       },
       {
         href: "/admin/auditoria",
