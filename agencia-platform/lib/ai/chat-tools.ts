@@ -316,7 +316,18 @@ chatTools.push({
       prisma.task.findMany({
         where: { workspaceId: ws, deletedAt: null, OR: [{ title: ci }, { description: ci }] },
         take: 500,
-        select: { id: true, title: true, status: true, project: { select: { name: true } }, client: { select: { name: true } } }
+        orderBy: { createdAt: "desc" },
+        select: {
+          id: true,
+          title: true,
+          status: true,
+          completedAt: true,
+          dueDate: true,
+          priority: true,
+          projectId: true,
+          project: { select: { id: true, name: true, kanbanColumns: true } },
+          client: { select: { name: true } }
+        }
       }),
       prisma.comment.findMany({
         where: { workspaceId: ws, body: ci },
@@ -355,15 +366,36 @@ chatTools.push({
     // Resolver los targets de los comentarios (a qué task/proyecto/etc apuntan)
     const taskIds = comments.filter((c) => c.targetType === "TASK").map((c) => c.targetId);
     const taskTitles = taskIds.length
-      ? await prisma.task.findMany({ where: { id: { in: taskIds } }, select: { id: true, title: true } })
+      ? await prisma.task.findMany({
+          where: { id: { in: taskIds } },
+          select: { id: true, title: true, projectId: true }
+        })
       : [];
     const taskTitleMap = new Map(taskTitles.map((t) => [t.id, t.title]));
+    const taskProjectMap = new Map(taskTitles.map((t) => [t.id, t.projectId]));
 
     function snippet(text: string): string {
       const idx = text.toLowerCase().indexOf(q.toLowerCase());
       if (idx === -1) return text.slice(0, 120);
       const start = Math.max(0, idx - 40);
       return (start > 0 ? "…" : "") + text.slice(start, idx + q.length + 60) + "…";
+    }
+
+    // Resolver el LABEL de la columna de cada task a partir de las
+    // kanbanColumns de su proyecto (o defaults del workspace).
+    const DEFAULT_COLS: Record<string, string> = {
+      TODO: "Por hacer",
+      IN_PROGRESS: "En curso",
+      REVIEW: "Revisión",
+      DONE: "Hecha"
+    };
+    function columnLabel(t: (typeof tasks)[number]): string {
+      const cols = (t.project as any)?.kanbanColumns;
+      if (Array.isArray(cols)) {
+        const match = cols.find((c: any) => c.id === t.status);
+        if (match?.label) return match.label;
+      }
+      return DEFAULT_COLS[t.status] ?? t.status;
     }
 
     const result = {
@@ -373,10 +405,16 @@ chatTools.push({
       tasks: tasks.map((t) => ({
         id: t.id,
         title: t.title,
-        status: t.status,
-        project: t.project?.name,
-        client: t.client?.name,
-        url: `/tareas?task=${t.id}`
+        project: t.project?.name ?? "—",
+        projectId: t.projectId,
+        column: columnLabel(t),
+        done: !!t.completedAt,
+        priority: t.priority,
+        dueDate: t.dueDate ? t.dueDate.toISOString().slice(0, 10) : null,
+        client: t.client?.name ?? null,
+        // Deep-link que abre la tarea EN su proyecto (para que el filtro
+        // la incluya y el modal la encuentre siempre).
+        url: `/tareas?project=${t.projectId}&task=${t.id}`
       })),
       comments: comments.map((c) => ({
         id: c.id,
@@ -389,7 +427,10 @@ chatTools.push({
         targetId: c.targetId,
         snippet: snippet(c.body),
         date: c.createdAt.toISOString().slice(0, 10),
-        url: c.targetType === "TASK" ? `/tareas?task=${c.targetId}` : null
+        url:
+          c.targetType === "TASK"
+            ? `/tareas?project=${taskProjectMap.get(c.targetId) ?? "all"}&task=${c.targetId}`
+            : null
       })),
       files: files.map((f) => ({
         id: f.id,

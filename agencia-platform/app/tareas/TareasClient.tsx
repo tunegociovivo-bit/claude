@@ -531,7 +531,9 @@ export default function TareasClient({
 
   // Deep-link: si la URL trae ?task=ID, abrimos automáticamente esa
   // tarea al cargar. Permite que copies/pegues la URL desde el botón
-  // de Link2 y al abrirla salte directo a la tarea.
+  // de Link2 (o desde el chat de Sonia) y al abrirla salte directo a
+  // la tarea. Si la tarea no está en la lista cargada (p.ej. es una
+  // subtarea, o está en un proyecto no cargado), la pedimos por ID.
   useEffect(() => {
     const taskId = searchParams.get("task");
     if (!taskId) return;
@@ -539,9 +541,35 @@ export default function TareasClient({
     if (t) {
       setEditingTask(t);
       setNewTaskOpen(true);
+      return;
     }
-    // Si no la encontramos (todavía no han cargado), no insistimos —
-    // el efecto se reejecuta cuando `tasks` se actualiza.
+    // Fallback: cargar la tarea por ID y abrirla aunque no esté en la
+    // lista actual (subtareas, otro proyecto, etc.).
+    let aborted = false;
+    fetch(`/api/v1/tasks/${encodeURIComponent(taskId)}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (aborted || !d) return;
+        const mapped = {
+          id: d.id,
+          title: d.title,
+          status: d.status,
+          projectId: d.projectId,
+          projectIds: [d.projectId],
+          clientId: d.clientId ?? undefined,
+          assigneeIds: (d.assignees ?? []).map((a: any) => a.userId ?? a.user?.id).filter(Boolean),
+          dueDate: d.dueDate ? String(d.dueDate).slice(0, 10) : undefined,
+          priority: (d.priority ?? "media") as any,
+          tags: (d.tags ?? []).map((tg: any) => tg.tag?.name).filter(Boolean),
+          order: d.order ?? 0
+        } as unknown as UiTask;
+        setEditingTask(mapped);
+        setNewTaskOpen(true);
+      })
+      .catch(() => {});
+    return () => {
+      aborted = true;
+    };
   }, [searchParams, tasks]);
   const [newProjectOpen, setNewProjectOpen] = useState(false);
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
