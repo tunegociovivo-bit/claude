@@ -11,6 +11,32 @@
 import { prisma } from "@/lib/db/prisma";
 import { decryptSecret } from "@/lib/ai/crypto";
 
+// Timeouts: sin esto, si el servidor de correo no responde (puerto
+// bloqueado, host caído, firewall que descarta paquetes) la conexión se
+// queda colgada indefinidamente, el endpoint nunca responde y el navegador
+// corta con "Failed to fetch". Con timeouts cortos fallamos rápido con un
+// mensaje útil (ETIMEDOUT) en vez de colgarnos.
+const IMAP_TIMEOUTS = {
+  connectionTimeout: 12000, // ms para abrir el socket
+  greetingTimeout: 12000, // ms esperando el saludo del servidor
+  socketTimeout: 30000 // ms de inactividad
+};
+const SMTP_TIMEOUTS = {
+  connectionTimeout: 12000,
+  greetingTimeout: 12000,
+  socketTimeout: 30000
+};
+
+/** Rechaza si la promesa no resuelve en `ms` (red de seguridad). */
+function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([
+    p,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error(`${label}: tiempo de espera agotado (${ms / 1000}s) — el servidor no responde (puerto bloqueado o host inaccesible).`)), ms)
+    )
+  ]);
+}
+
 export type EmailSummary = {
   uid: number;
   from: string;
@@ -56,13 +82,14 @@ export async function testEmailAccount(opts: {
       port: opts.imapPort,
       secure: opts.imapSecure,
       auth: { user: opts.loginUser, pass: opts.password },
-      logger: false
+      logger: false,
+      ...IMAP_TIMEOUTS
     });
-    await client.connect();
-    await client.logout();
+    await withTimeout(client.connect(), 15000, "IMAP");
+    await client.logout().catch(() => {});
     result.imap = true;
   } catch (e: any) {
-    result.error = `IMAP: ${String(e?.message ?? e).slice(0, 150)}`;
+    result.error = `IMAP: ${String(e?.message ?? e).slice(0, 180)}`;
   }
   // SMTP
   try {
@@ -71,12 +98,13 @@ export async function testEmailAccount(opts: {
       host: opts.smtpHost,
       port: opts.smtpPort,
       secure: opts.smtpSecure,
-      auth: { user: opts.loginUser, pass: opts.password }
+      auth: { user: opts.loginUser, pass: opts.password },
+      ...SMTP_TIMEOUTS
     });
-    await transport.verify();
+    await withTimeout(transport.verify(), 15000, "SMTP");
     result.smtp = true;
   } catch (e: any) {
-    result.error = (result.error ? result.error + " · " : "") + `SMTP: ${String(e?.message ?? e).slice(0, 150)}`;
+    result.error = (result.error ? result.error + " · " : "") + `SMTP: ${String(e?.message ?? e).slice(0, 180)}`;
   }
   return result;
 }
@@ -103,11 +131,12 @@ export async function searchEmails(opts: {
     port: acc.imapPort,
     secure: acc.imapSecure,
     auth: { user: acc.loginUser, pass: password },
-    logger: false
+    logger: false,
+    ...IMAP_TIMEOUTS
   });
   const max = Math.min(opts.max ?? 10, 25);
   const out: EmailSummary[] = [];
-  await client.connect();
+  await withTimeout(client.connect(), 15000, "IMAP");
   try {
     const lock = await client.getMailboxLock(opts.mailbox ?? "INBOX");
     try {
@@ -176,9 +205,10 @@ export async function readEmail(opts: {
     port: acc.imapPort,
     secure: acc.imapSecure,
     auth: { user: acc.loginUser, pass: password },
-    logger: false
+    logger: false,
+    ...IMAP_TIMEOUTS
   });
-  await client.connect();
+  await withTimeout(client.connect(), 15000, "IMAP");
   try {
     const lock = await client.getMailboxLock(opts.mailbox ?? "INBOX");
     try {
@@ -230,15 +260,16 @@ export async function sendEmailFromAccount(opts: {
     host: acc.smtpHost,
     port: acc.smtpPort,
     secure: acc.smtpSecure,
-    auth: { user: acc.loginUser, pass: password }
+    auth: { user: acc.loginUser, pass: password },
+    ...SMTP_TIMEOUTS
   });
-  const info = await transport.sendMail({
+  const info = await withTimeout(transport.sendMail({
     from: acc.email,
     to: opts.to,
     cc: opts.cc,
     subject: opts.subject,
     ...(opts.html ? { html: opts.body } : { text: opts.body })
-  });
+  }), 30000, "SMTP");
   return { messageId: info.messageId };
 }
 
