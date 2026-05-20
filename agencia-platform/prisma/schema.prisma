@@ -534,6 +534,13 @@ model EditorialPost {
   imagePrompt    String?   @db.Text
   // textPlacement: top|center|bottom (lado opuesto a donde va la persona)
   textPlacement  String?
+  // Patrón visual ELEGIDO para esta publicación (override del cliente).
+  // key de VISUAL_PATTERNS (clean/frame/bold_blocks/...). Si null, usa
+  // el del cliente.
+  visualPattern  String?
+  // % (0-100) de cuánto debe la IA aplicar el estilo del patrón al
+  // generar la imagen. 0 = ignóralo, 100 = aplícalo al máximo.
+  patternStrength Int?
   metaJson       Json? // resto de ACF / metadatos
   legacyWpId     Int?      @unique
   metricoolJobId String? // reservado para integración API directa (futura)

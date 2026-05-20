@@ -40,7 +40,11 @@ export type OverlayOpts = {
   primary?: string;
   accent?: string;
   text?: string;
-  pattern?: "clean" | "frame";
+  // El patrón controla el overlay compositado. Sólo "frame" dibuja una
+  // franja diagonal especial; cualquier otro valor (clean, duotone,
+  // gradient, etc.) renderiza texto limpio sobre la foto — el estilo de
+  // fondo lo aporta la IA en el prompt, no el overlay.
+  pattern?: string;
 };
 
 export type HeadlineLine = {
@@ -65,7 +69,11 @@ export type StructuredOverlayOpts = {
   primary?: string;
   accent?: string;
   text?: string;
-  pattern?: "clean" | "frame";
+  // El patrón controla el overlay compositado. Sólo "frame" dibuja una
+  // franja diagonal especial; cualquier otro valor (clean, duotone,
+  // gradient, etc.) renderiza texto limpio sobre la foto — el estilo de
+  // fondo lo aporta la IA en el prompt, no el overlay.
+  pattern?: string;
   clientFonts?: ClientFont[];
 };
 

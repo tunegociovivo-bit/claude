@@ -16,6 +16,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
+import { VISUAL_PATTERNS } from "@/lib/editorial/client-meta";
 
 async function requireAdmin(workspaceId: string, userId: string | undefined) {
   if (!userId) throw new ApiError(401, "no_user", "Sesión requerida");
@@ -79,7 +80,7 @@ function mapClienteMetaToFields(cm: any): Record<string, any> {
 
   // Patrón visual + fidelidad
   const pattern = str(meta.nv_visual_pattern);
-  if (pattern && ["clean", "frame"].includes(pattern)) out.visualPattern = pattern;
+  if (pattern && VISUAL_PATTERNS.some((p) => p.key === pattern)) out.visualPattern = pattern;
   const fidelity = Number(meta.nv_refs_fidelity);
   if (Number.isFinite(fidelity) && fidelity >= 0 && fidelity <= 100) {
     out.refsFidelity = Math.round(fidelity);

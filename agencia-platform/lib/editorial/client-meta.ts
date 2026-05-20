@@ -89,14 +89,80 @@ export const VISUAL_PATTERNS = [
   {
     key: "clean",
     label: "Limpio",
-    description: "Texto plano (blanco o color brand) directamente sobre la foto. Aspecto editorial sutil."
+    description: "Texto plano (blanco o color brand) directamente sobre la foto. Aspecto editorial sutil.",
+    promptHint:
+      "clean editorial look, plain text over photo, generous negative space, no decorative frames"
   },
   {
     key: "frame",
     label: "Frame",
-    description: "Franja diagonal de color brand + cápsulas para el texto (estilo Guardamuebles Reva)."
+    description: "Franja diagonal de color brand + cápsulas para el texto (estilo Guardamuebles Reva).",
+    promptHint:
+      "bold diagonal color band in the brand color across a corner, geometric framing, capsule/pill shapes behind text, dynamic composition"
+  },
+  {
+    key: "bold_blocks",
+    label: "Bloques",
+    description: "Bloques de color sólidos estilo Swiss/Bauhaus. Composición geométrica fuerte.",
+    promptHint:
+      "Swiss/Bauhaus design, solid color blocks in brand palette, strong grid, geometric shapes, high-contrast modern layout"
+  },
+  {
+    key: "magazine",
+    label: "Revista",
+    description: "Estilo revista premium: mucho espacio negativo, tipografía grande, foto protagonista.",
+    promptHint:
+      "high-end magazine editorial style, large hero photo, lots of white/negative space, refined premium aesthetic, fashion-magazine composition"
+  },
+  {
+    key: "gradient",
+    label: "Degradado",
+    description: "Degradado suave de color de marca sobre la foto. Moderno y limpio.",
+    promptHint:
+      "smooth brand-color gradient overlay fading over the photo, modern app-like aesthetic, vibrant but clean"
+  },
+  {
+    key: "duotone",
+    label: "Duotono",
+    description: "Foto en duotono con los colores de marca. Muy reconocible y coherente.",
+    promptHint:
+      "duotone treatment of the photo using the two brand colors, Spotify-like bold duotone, striking and brand-consistent"
+  },
+  {
+    key: "minimal_center",
+    label: "Minimal centrado",
+    description: "Minimalista: sujeto centrado, fondo limpio uniforme, foco absoluto en el producto.",
+    promptHint:
+      "ultra minimal, centered subject/product, clean uniform solid background, soft studio lighting, lots of breathing room"
+  },
+  {
+    key: "collage",
+    label: "Collage",
+    description: "Estilo collage/recortes con elementos superpuestos. Juvenil y dinámico.",
+    promptHint:
+      "cut-out collage style, layered overlapping elements, scrapbook/zine aesthetic, playful youthful energy, mixed textures"
+  },
+  {
+    key: "badge",
+    label: "Sello / Oferta",
+    description: "Sello o insignia circular para destacar oferta/claim. Ideal promociones.",
+    promptHint:
+      "promotional layout with a circular badge/seal/sticker highlighting an offer, sale-tag energy, eye-catching CTA area"
+  },
+  {
+    key: "luxury_dark",
+    label: "Lujo oscuro",
+    description: "Fondo oscuro elegante, dorados/acentos, sensación premium y exclusiva.",
+    promptHint:
+      "luxury dark aesthetic, deep dark background, gold/metallic accents, elegant premium exclusive mood, dramatic lighting"
   }
 ] as const;
+
+/** Devuelve el promptHint de un patrón por su key (o el de clean). */
+export function visualPatternHint(key: string | null | undefined): string {
+  const p = VISUAL_PATTERNS.find((v) => v.key === key);
+  return p?.promptHint ?? VISUAL_PATTERNS[0].promptHint;
+}
 
 export const FIDELITY_BANDS = [
   { from: 0, to: 30, label: "Libertad total — IA ignora refs y compone desde cero" },

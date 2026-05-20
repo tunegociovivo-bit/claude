@@ -61,7 +61,7 @@ export const POST = withApi({ scope: "*" }, async (req, { params, api }) => {
       primary: post.client?.brandColorPrimary,
       accent: post.client?.brandColorAccent,
       text: post.client?.brandColorText,
-      pattern: (post.client?.visualPattern as any) ?? "clean"
+      pattern: ((post as any).visualPattern as any) ?? (post.client?.visualPattern as any) ?? "clean"
     });
 
     const s3Key = buildS3Key({

@@ -1,4 +1,7 @@
 import { z } from "zod";
+import { VISUAL_PATTERNS } from "@/lib/editorial/client-meta";
+
+const VISUAL_PATTERN_KEYS = VISUAL_PATTERNS.map((p) => p.key) as [string, ...string[]];
 
 export const SERVICIO_KEYS = [
   "diseno_web",
@@ -64,7 +67,7 @@ export const clientEditorialMetaSchema = z.object({
   logoUrl: z.string().url().or(z.literal("")).nullable().optional(),
   logoPosition: z.enum(["br", "bl", "tr", "tl"]).optional(),
   // Patrón visual
-  visualPattern: z.enum(["clean", "frame"]).optional(),
+  visualPattern: z.enum(VISUAL_PATTERN_KEYS).optional(),
   refsFidelity: z.number().int().min(0).max(100).optional(),
   // Competidores
   competitors: z.string().nullable().optional(),

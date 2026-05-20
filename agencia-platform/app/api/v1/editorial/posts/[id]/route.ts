@@ -23,6 +23,10 @@ const updateSchema = z.object({
   copyByNetwork: z.record(z.string(), z.string()).nullable().optional(),
   hashtags: z.string().nullable().optional(),
   firstComment: z.string().nullable().optional(),
+  // Patrón visual por publicación + intensidad (0-100) con que la IA lo
+  // aplica al generar la imagen.
+  visualPattern: z.string().nullable().optional(),
+  patternStrength: z.number().int().min(0).max(100).nullable().optional(),
   changeSummary: z.string().optional() // si se incluye, se crea revisión
 });
 
@@ -68,6 +72,8 @@ export const PATCH = withApi({ scope: "*" }, async (req, { params, api }) => {
   if (parsed.data.copyByNetwork !== undefined) data.copyByNetwork = parsed.data.copyByNetwork;
   if (parsed.data.hashtags !== undefined) data.hashtags = parsed.data.hashtags;
   if (parsed.data.firstComment !== undefined) data.firstComment = parsed.data.firstComment;
+  if (parsed.data.visualPattern !== undefined) data.visualPattern = parsed.data.visualPattern;
+  if (parsed.data.patternStrength !== undefined) data.patternStrength = parsed.data.patternStrength;
 
   const result = await prisma.$transaction(async (tx) => {
     const upd = await tx.editorialPost.update({ where: { id: params.id }, data });

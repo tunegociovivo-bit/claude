@@ -35,6 +35,7 @@ import {
   ChevronDown
 } from "lucide-react";
 import type { UiClient } from "@/lib/db/queries";
+import { VISUAL_PATTERNS } from "@/lib/editorial/client-meta";
 
 type EditorialPost = {
   id: string;
@@ -50,6 +51,8 @@ type EditorialPost = {
   mediaUrls: string;
   hashtags?: string | null;
   firstComment?: string | null;
+  visualPattern?: string | null;
+  patternStrength?: number | null;
   copyByNetwork?: Record<string, string> | null;
   metaJson?: any;
   revisions?: Array<{
@@ -2797,7 +2800,12 @@ function PostFormModal({
 
         {/* Generar imagen con IA */}
         {isEdit && post && (
-          <GenerateImageBar postId={post.id} onGenerated={() => onSaved()} />
+          <GenerateImageBar
+            postId={post.id}
+            initialPattern={(post as any).visualPattern ?? null}
+            initialStrength={(post as any).patternStrength ?? null}
+            onGenerated={() => onSaved()}
+          />
         )}
 
         {/* Generar vídeo con IA (reel/story/video) */}
@@ -3547,11 +3555,28 @@ function ReapplyOverlayBar({
   );
 }
 
-function GenerateImageBar({ postId, onGenerated }: { postId: string; onGenerated: () => void }) {
+function GenerateImageBar({
+  postId,
+  initialPattern,
+  initialStrength,
+  onGenerated
+}: {
+  postId: string;
+  initialPattern?: string | null;
+  initialStrength?: number | null;
+  onGenerated: () => void;
+}) {
   const [quality, setQuality] = useState<"low" | "medium" | "high">("medium");
+  // "" = usar el patrón por defecto del cliente.
+  const [pattern, setPattern] = useState<string>(initialPattern ?? "");
+  const [strength, setStrength] = useState<number>(
+    typeof initialStrength === "number" ? initialStrength : 50
+  );
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastUrl, setLastUrl] = useState<string | null>(null);
+
+  const selectedPattern = VISUAL_PATTERNS.find((p) => p.key === pattern);
 
   async function run() {
     setRunning(true);
@@ -3559,7 +3584,12 @@ function GenerateImageBar({ postId, onGenerated }: { postId: string; onGenerated
     const r = await fetch(`/api/v1/editorial/posts/${postId}/generate-image`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ quality })
+      body: JSON.stringify({
+        quality,
+        // Sólo mandamos el patrón si el usuario eligió uno explícito.
+        visualPattern: pattern || undefined,
+        patternStrength: strength
+      })
     });
     setRunning(false);
     const j = await r.json();
@@ -3581,6 +3611,43 @@ function GenerateImageBar({ postId, onGenerated }: { postId: string; onGenerated
         Usa el brief, los colores y la guía de estilo del cliente. El formato y aspect ratio se decide por el tipo
         configurado en la ficha del cliente.
       </p>
+
+      {/* Patrón visual + intensidad */}
+      <div className="space-y-1.5">
+        <label className="block text-[11px] font-medium text-slate-700">Patrón visual</label>
+        <select
+          value={pattern}
+          onChange={(e) => setPattern(e.target.value)}
+          className="w-full px-2 py-1.5 rounded-md border border-slate-200 bg-white text-[12px] focus:outline-none focus:ring-2 focus:ring-sky-400"
+        >
+          <option value="">Por defecto del cliente</option>
+          {VISUAL_PATTERNS.map((p) => (
+            <option key={p.key} value={p.key}>
+              {p.label}
+            </option>
+          ))}
+        </select>
+        {selectedPattern && (
+          <p className="text-[10.5px] text-slate-500 leading-snug">{selectedPattern.description}</p>
+        )}
+        <div className="flex items-center gap-2 pt-0.5">
+          <span className="text-[11px] text-slate-600 whitespace-nowrap">Intensidad</span>
+          <input
+            type="range"
+            min={0}
+            max={100}
+            step={5}
+            value={strength}
+            onChange={(e) => setStrength(Number(e.target.value))}
+            className="flex-1 accent-sky-600"
+          />
+          <span className="text-[11px] font-semibold text-sky-800 tabular-nums w-9 text-right">{strength}%</span>
+        </div>
+        <p className="text-[10px] text-slate-400 leading-snug">
+          0% = foto editorial neutra · 50% = aplica el estilo · 100% = lo replica con fuerza.
+        </p>
+      </div>
+
       <div className="flex items-center gap-2 flex-wrap">
         <div className="flex gap-1">
           {(["low", "medium", "high"] as const).map((q) => (

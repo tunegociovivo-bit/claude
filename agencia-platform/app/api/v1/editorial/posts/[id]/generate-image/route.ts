@@ -8,6 +8,7 @@
 
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { generateImageForPost } from "@/lib/editorial/generate-image";
@@ -17,7 +18,11 @@ import { humanizeAiError } from "@/lib/ai/errors";
 const schema = z.object({
   quality: z.enum(["low", "medium", "high"]).default("medium"),
   promptOverride: z.string().optional(),
-  format: z.enum(["imagen", "reel", "carrusel", "story", "video"]).optional()
+  format: z.enum(["imagen", "reel", "carrusel", "story", "video"]).optional(),
+  // Patrón visual + intensidad elegidos para esta generación. Se persisten
+  // en el post para que generateImageForPost los lea de la BD.
+  visualPattern: z.string().nullable().optional(),
+  patternStrength: z.number().int().min(0).max(100).nullable().optional()
 });
 
 export const POST = withApi({ scope: "*" }, async (req, { params, api }) => {
@@ -25,12 +30,23 @@ export const POST = withApi({ scope: "*" }, async (req, { params, api }) => {
   const parsed = schema.safeParse(body ?? {});
   if (!parsed.success) throw new ApiError(400, "validation_error", parsed.error.message);
 
+  const { visualPattern, patternStrength, ...genOpts } = parsed.data;
+  if (visualPattern !== undefined || patternStrength !== undefined) {
+    const patch: any = {};
+    if (visualPattern !== undefined) patch.visualPattern = visualPattern;
+    if (patternStrength !== undefined) patch.patternStrength = patternStrength;
+    await prisma.editorialPost.updateMany({
+      where: { id: params.id, workspaceId: api.workspaceId },
+      data: patch
+    });
+  }
+
   try {
     const out = await generateImageForPost({
       workspaceId: api.workspaceId,
       userId: api.userId,
       postId: params.id,
-      ...parsed.data
+      ...genOpts
     });
     return NextResponse.json(out);
   } catch (e: any) {

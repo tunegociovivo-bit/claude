@@ -17,7 +17,7 @@ import { generateFreepikImage, pickFreepikSize } from "@/lib/ai/freepik";
 import { isStorageEnabled, uploadBuffer, signedDownloadUrl, buildS3Key } from "@/lib/storage/r2";
 import { logAiUsage } from "@/lib/ai/usage";
 import type { DimensionsByFormat, EditorialFormat } from "@/lib/editorial/client-meta";
-import { defaultDimensionsByFormat } from "@/lib/editorial/client-meta";
+import { defaultDimensionsByFormat, visualPatternHint } from "@/lib/editorial/client-meta";
 
 type Size = "1024x1024" | "1024x1536" | "1536x1024";
 
@@ -181,6 +181,29 @@ export async function generateImageForPost(opts: GenerateImageOptions): Promise<
       .join("\n");
   }
 
+  // Patrón visual + intensidad (%). El post puede sobreescribir el patrón
+  // por defecto del cliente para esta publicación concreta. La intensidad
+  // (0-100) modula cuánto pesa el estilo en el prompt de la IA:
+  //   0      → no inyectamos nada (foto editorial neutra).
+  //   1-39   → "subtle hint of" el estilo.
+  //   40-74  → aplica el estilo con normalidad.
+  //   75-100 → "strongly / boldly" el estilo (replicación marcada).
+  const effectivePattern =
+    ((post as any).visualPattern as string | null) ?? (client?.visualPattern as string | null) ?? "clean";
+  const rawStrength = (post as any).patternStrength as number | null;
+  const patternStrength =
+    typeof rawStrength === "number" ? Math.max(0, Math.min(100, Math.round(rawStrength))) : 50;
+  if (patternStrength > 0) {
+    const hint = visualPatternHint(effectivePattern);
+    const intensityWord =
+      patternStrength >= 75
+        ? `Strongly and boldly apply this visual style (high fidelity, ${patternStrength}% intensity)`
+        : patternStrength < 40
+        ? `Subtle hint of this visual style (light touch, ${patternStrength}% intensity)`
+        : `Apply this visual style (${patternStrength}% intensity)`;
+    prompt = `${prompt}\nVISUAL STYLE: ${intensityWord}: ${hint}.`;
+  }
+
   const quality = opts.quality ?? "medium";
 
   // Resolución del proveedor: cliente → workspace → openai
@@ -342,7 +365,7 @@ export async function generateImageForPost(opts: GenerateImageOptions): Promise<
         primary: client?.brandColorPrimary,
         accent: client?.brandColorAccent,
         text: client?.brandColorText,
-        pattern: (client?.visualPattern as any) ?? "clean",
+        pattern: effectivePattern as any,
         clientFonts: clientFonts.length > 0 ? (clientFonts as any) : undefined
       });
     }
