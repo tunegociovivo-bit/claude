@@ -85,7 +85,7 @@ const earlyInstallCapture = `
  */
 const swSelfHeal = `
   (function () {
-    var EXPECTED = "v116-2026-05-20-email-error-detail";
+    var EXPECTED = "v117-2026-05-20-calendar-full-meta-images";
     if (!('serviceWorker' in navigator)) return;
     var key = "hub_sw_v_seen";
     var seen = null;

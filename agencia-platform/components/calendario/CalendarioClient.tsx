@@ -226,7 +226,7 @@ export default function CalendarioClient({
   }
 
   return (
-    <div className="max-w-7xl mx-auto">
+    <div className="w-full">
       <PageHeader
         title="Calendario"
         description="Planifica publicaciones, reuniones y entregas."
@@ -319,7 +319,7 @@ export default function CalendarioClient({
           ))}
         </div>
 
-        <div className="grid grid-cols-7 auto-rows-[110px]">
+        <div className="grid grid-cols-7 auto-rows-[minmax(120px,16vh)]">
           {cells.map((cell, idx) => {
             if (!cell) return <div key={idx} className="border-r border-b last:border-r-0 bg-slate-50/30" />;
             const iso = cell.date.toISOString().slice(0, 10);
@@ -375,7 +375,7 @@ export default function CalendarioClient({
                   </span>
                 </div>
                 <div className="space-y-1">
-                  {dayEvents.slice(0, 2).map((e) => {
+                  {dayEvents.slice(0, 4).map((e) => {
                     const isTask = (e as TaskChip).kind === "task";
                     if (isTask) {
                       const t = e as TaskChip;
@@ -446,8 +446,8 @@ export default function CalendarioClient({
                       </div>
                     );
                   })}
-                  {dayEvents.length > 2 && (
-                    <div className="text-[11px] text-slate-500 pl-1.5">+{dayEvents.length - 2} más</div>
+                  {dayEvents.length > 4 && (
+                    <div className="text-[11px] text-slate-500 pl-1.5">+{dayEvents.length - 4} más</div>
                   )}
                 </div>
               </div>
