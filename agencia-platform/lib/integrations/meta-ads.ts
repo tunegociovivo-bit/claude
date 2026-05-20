@@ -292,6 +292,39 @@ export async function metaAdsGetCampaignInsights(opts: {
   return (data.data ?? [])[0] ?? null;
 }
 
+/**
+ * Insights DIARIOS de una campaña (time_increment=1) en los últimos N días.
+ * Devuelve un array con { date, spend, leads } por día — para detectar
+ * pacing/entrega parada y caídas de leads sin hacer dos llamadas por
+ * periodo. `leads` suma cualquier action_type que contenga "lead".
+ */
+export async function metaAdsGetCampaignDailyInsights(opts: {
+  workspaceId: string;
+  campaignId: string;
+  days?: number;
+  adhoc?: Record<string, string>;
+}): Promise<Array<{ date: string; spend: number; leads: number }>> {
+  const accessToken = await resolveMetaToken(opts.workspaceId, opts.adhoc);
+  const days = Math.min(Math.max(opts.days ?? 14, 2), 90);
+  const params = new URLSearchParams({
+    fields: "spend,actions,date_start",
+    time_increment: "1",
+    date_preset: days <= 7 ? "last_7d" : days <= 14 ? "last_14d" : days <= 30 ? "last_30d" : "last_90d"
+  });
+  const data = await metaFetch<any>(
+    `${GRAPH}/${opts.campaignId}/insights?${params.toString()}`,
+    accessToken
+  );
+  return (data.data ?? []).map((row: any) => {
+    const leads = Array.isArray(row.actions)
+      ? row.actions
+          .filter((a: any) => /lead/i.test(String(a.action_type ?? "")))
+          .reduce((s: number, a: any) => s + Number(a.value ?? 0), 0)
+      : 0;
+    return { date: String(row.date_start ?? ""), spend: Number(row.spend ?? 0), leads };
+  });
+}
+
 export async function metaAdsTopPerformers(opts: {
   workspaceId: string;
   datePreset?: string; // default last_30d

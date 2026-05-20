@@ -22,15 +22,17 @@
 import { prisma } from "@/lib/db/prisma";
 import { gmbListReviews } from "@/lib/integrations/gmb";
 import { ga4GetReport } from "@/lib/integrations/ga4";
-import { metaAdsListCampaigns } from "@/lib/integrations/meta-ads";
 
 export type ProactiveSignal = {
-  clientId: string;
+  // clientId/clientName opcionales: las señales de Meta son a nivel de
+  // campaña/cuenta y pueden no mapear a un cliente concreto.
+  clientId?: string | null;
   clientName: string;
   signalType:
     | "negative_gmb_review"
     | "ga4_traffic_drop"
     | "meta_leads_drop"
+    | "meta_delivery_stalled"
     | "no_posts_14d"
     | "high_severity_alert";
   severity: "info" | "warning" | "critical";
@@ -125,20 +127,6 @@ export async function detectProactiveSignals(opts: {
       }
     }
 
-    // 3) Meta Ads sin campañas activas / sin actividad reciente
-    try {
-      const activeCampaigns = await metaAdsListCampaigns({
-        workspaceId: opts.workspaceId,
-        status: "ACTIVE",
-        limit: 10
-      });
-      if (activeCampaigns.length === 0) {
-        // No alertamos — el cliente puede no tener servicio de ads
-      }
-    } catch {
-      // Sin Meta → skip
-    }
-
     // 4) Sin posts publicados en 14 días (servicio gestion_redes)
     const servicios = (c as any).servicios as string[] | null;
     if (Array.isArray(servicios) && servicios.includes("gestion_redes")) {
@@ -164,7 +152,108 @@ export async function detectProactiveSignals(opts: {
     }
   }
 
+  // Señales de Meta Ads a nivel de cuenta/campaña (una sola vez por
+  // workspace, no por cliente). Solo si onlyClientId no está fijado.
+  if (!opts.onlyClientId) {
+    try {
+      const metaSignals = await detectMetaSignals(opts.workspaceId);
+      signals.push(...metaSignals);
+    } catch (e) {
+      console.warn("[sonia] detectMetaSignals:", (e as Error).message);
+    }
+  }
+
   return signals;
+}
+
+/**
+ * Señales de Meta Ads: campañas ACTIVAS que han DEJADO de entregar (gasto
+ * ~0 los últimos 3 días pese a haber gastado antes) y caídas fuertes de
+ * leads (última semana < 50% de la previa). Recorre las cuentas del token
+ * con un tope total de campañas para no saturar la API en el cron.
+ */
+async function detectMetaSignals(workspaceId: string): Promise<ProactiveSignal[]> {
+  const out: ProactiveSignal[] = [];
+  const { metaAdsListAdAccounts, metaAdsListCampaigns, metaAdsGetCampaignDailyInsights } = await import(
+    "@/lib/integrations/meta-ads"
+  );
+
+  let accounts: any[] = [];
+  try {
+    accounts = await metaAdsListAdAccounts(workspaceId);
+  } catch {
+    return out; // sin conexión Meta → nada
+  }
+
+  const MAX_CAMPAIGNS = 40;
+  let scanned = 0;
+  for (const acc of accounts) {
+    if (scanned >= MAX_CAMPAIGNS) break;
+    let campaigns: any[] = [];
+    try {
+      campaigns = await metaAdsListCampaigns({
+        workspaceId,
+        status: "ACTIVE",
+        limit: 25,
+        adhoc: { META_ADS_AD_ACCOUNT_ID: acc.id }
+      });
+    } catch {
+      continue;
+    }
+    for (const camp of campaigns) {
+      if (scanned >= MAX_CAMPAIGNS) break;
+      scanned++;
+      let daily: Array<{ date: string; spend: number; leads: number }> = [];
+      try {
+        daily = await metaAdsGetCampaignDailyInsights({
+          workspaceId,
+          campaignId: camp.id,
+          days: 14,
+          adhoc: { META_ADS_AD_ACCOUNT_ID: acc.id }
+        });
+      } catch {
+        continue;
+      }
+      if (daily.length < 7) continue; // poco histórico → no concluimos
+      const sorted = daily.slice().sort((a, b) => a.date.localeCompare(b.date));
+      const last3 = sorted.slice(-3);
+      const earlier = sorted.slice(0, -3);
+      const spendLast3 = last3.reduce((s, d) => s + d.spend, 0);
+      const spendEarlier = earlier.reduce((s, d) => s + d.spend, 0);
+      const last7 = sorted.slice(-7);
+      const prev7 = sorted.slice(-14, -7);
+      const leadsLast7 = last7.reduce((s, d) => s + d.leads, 0);
+      const leadsPrev7 = prev7.reduce((s, d) => s + d.leads, 0);
+
+      const acct = `${camp.name} · ${acc.name}`;
+
+      // Entrega parada: gastaba antes pero ~0 en los últimos 3 días.
+      if (spendEarlier > 5 && spendLast3 < 0.5) {
+        out.push({
+          clientId: null,
+          clientName: acct,
+          signalType: "meta_delivery_stalled",
+          severity: "critical",
+          summary: `Campaña Meta ACTIVA sin entregar: «${camp.name}» (${acc.name}) lleva ~3 días sin gastar`,
+          detail: `Estaba activa y gastando (${spendEarlier.toFixed(0)}€ en los días previos) pero el gasto cayó a ~0 los últimos 3 días. Posibles causas: anuncio rechazado, presupuesto agotado, públic o saturado, o problema de facturación. Revisa el estado del anuncio y del método de pago.`
+        });
+      }
+
+      // Caída fuerte de leads (solo si la semana previa tenía volumen).
+      if (leadsPrev7 >= 5 && leadsLast7 < leadsPrev7 * 0.5) {
+        const dropPct = Math.round((1 - leadsLast7 / leadsPrev7) * 100);
+        out.push({
+          clientId: null,
+          clientName: acct,
+          signalType: "meta_leads_drop",
+          severity: dropPct >= 70 ? "critical" : "warning",
+          summary: `Leads Meta cayendo ${dropPct}% en «${camp.name}» (${acc.name}): ${leadsLast7} esta semana vs ${leadsPrev7} la previa`,
+          detail: `La campaña sigue gastando pero trae menos leads. Revisa: fatiga del creativo (CTR bajando), cambio de público, competencia, o que el formulario/landing falle. Considera refrescar creativo o público.`
+        });
+      }
+    }
+  }
+  return out;
 }
 
 /**
@@ -228,6 +317,8 @@ function signalLabel(t: ProactiveSignal["signalType"]): string {
       return "tráfico GA4 cayendo";
     case "meta_leads_drop":
       return "leads Meta cayendo";
+    case "meta_delivery_stalled":
+      return "campaña Meta sin entregar";
     case "no_posts_14d":
       return "sin publicar 14d";
     case "high_severity_alert":
