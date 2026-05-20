@@ -81,6 +81,58 @@ export async function processOneRun(runId: string): Promise<ProcessResult> {
       console.warn(`[sonia budget] check fallo, sigo sin guard:`, budgetErr?.message);
     }
 
+    // CORTACIRCUITOS POR TAREA: evita que una tarea que falla en bucle queme
+    // dinero (cada run de una campaña Meta cuesta varios $). Si ya ha habido
+    // >=5 runs de esta task en 24h y NINGUNO terminó con éxito, paramos y
+    // pedimos intervención humana en vez de reintentar y seguir gastando.
+    try {
+      const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      const recent = await prisma.aiAgentRun.findMany({
+        where: { taskId: run.taskId, id: { not: runId }, createdAt: { gte: since } } as any,
+        select: { status: true }
+      });
+      const anySuccess = recent.some((r) => r.status === "SUCCEEDED");
+      if (recent.length >= 5 && !anySuccess) {
+        await prisma.aiAgentRun.update({
+          where: { id: runId },
+          data: {
+            status: "REQUIRES_HUMAN",
+            error: "circuit_breaker",
+            summary: `Pausado por seguridad: ${recent.length} intentos en 24h sin completarse. Revisa la causa raíz (p.ej. credencial caducada o deploy pendiente) antes de reintentar — no sigo gastando.`,
+            finishedAt: new Date()
+          }
+        });
+        try {
+          const ws3 = await prisma.workspace.findUnique({
+            where: { id: run.workspaceId },
+            select: { settings: true }
+          });
+          const aiUserId = (ws3?.settings as any)?.aiAgent?.userId;
+          if (aiUserId) {
+            await prisma.comment.create({
+              data: {
+                workspaceId: run.workspaceId,
+                authorId: aiUserId,
+                targetType: "TASK",
+                targetId: run.taskId,
+                body:
+                  `🛑 **He pausado los reintentos de esta tarea.**\n\n` +
+                  `Lleva ${recent.length} intentos en 24h sin completarse y cada intento cuesta dinero, así que paro para no quemar presupuesto en bucle. ` +
+                  `Suele ser una causa raíz que se repite (credencial caducada, deploy pendiente, etc.). ` +
+                  `Cuando esté resuelta, vuelve a lanzar la tarea manualmente y la retomo.`
+              }
+            });
+          }
+        } catch {
+          /* comentario best-effort */
+        }
+        console.warn(`[sonia] circuit-breaker: task ${run.taskId} pausada tras ${recent.length} intentos sin éxito`);
+        return { skipped: false, runId, status: "REQUIRES_HUMAN" } as any;
+      }
+    } catch (cbErr: any) {
+      console.warn(`[sonia] circuit-breaker check fallo, sigo:`, cbErr?.message);
+    }
+
     const config = await loadAgentConfig(run.workspaceId);
 
     // Multi-LLM routing opcional. Si Workspace.settings.aiAgent.modelRouting
@@ -426,31 +478,36 @@ export async function processOneRun(runId: string): Promise<ProcessResult> {
                 () => {
                   void (async () => {
                     try {
-                      // 1. Healthcheck post-deploy
+                      // 1. Healthcheck post-deploy TOLERANTE. Durante
+                      // incidentes/lentitud de Railway el deploy tarda mucho;
+                      // un único check a los 5 min daba falsos "deploy peta".
+                      // Sondeamos /api/v1/health cada 45s hasta ~20 min y solo
+                      // declaramos fallo si NUNCA respondió 200.
                       const baseUrl =
                         process.env.NEXTAUTH_URL ?? "https://hub.negociovivo.app";
                       let healthOk = false;
-                      try {
-                        const hr = await fetch(`${baseUrl}/api/v1/health`, {
-                          signal: AbortSignal.timeout(10_000)
-                        });
-                        healthOk = hr.ok;
-                      } catch (e: any) {
-                        console.warn(`[self-heal watchdog] /api/v1/health fail:`, e?.message);
+                      const deadline = Date.now() + 20 * 60_000;
+                      while (Date.now() < deadline) {
+                        try {
+                          const hr = await fetch(`${baseUrl}/api/v1/health`, {
+                            signal: AbortSignal.timeout(10_000)
+                          });
+                          if (hr.ok) {
+                            healthOk = true;
+                            break;
+                          }
+                        } catch (e: any) {
+                          // sigue reintentando — puede ser deploy en curso
+                        }
+                        await new Promise((res) => setTimeout(res, 45_000));
                       }
 
                       if (!healthOk) {
-                        // Deploy roto — revertimos el merge automáticamente
-                        console.warn(`[self-heal watchdog] HEALTH FAIL — revirtiendo PR ${r.prUrl}`);
+                        // No respondió en 20 min. Casi siempre es lentitud o
+                        // incidente de Railway, NO el fix. Avisamos SUAVE (sin
+                        // exigir revert inmediato) y no relanzamos aún.
+                        console.warn(`[self-heal watchdog] health sin 200 tras 20min — aviso suave, PR ${r.prUrl}`);
                         try {
-                          const { revertCommit } = await import("@/lib/github/repo");
-                          // El PR auto-mergeado dejó un commit en la branch
-                          // principal. Sin el SHA exacto del merge commit
-                          // (que no devolvemos desde mergePullRequest hoy),
-                          // intentamos obtenerlo del PR.
-                          // Para una v1 simple, dejamos comentario en la
-                          // task y NO revertimos automáticamente — requiere
-                          // mejor tracking del mergeCommitSha. TODO v2.
                           const ws2 = await prisma.workspace.findUnique({
                             where: { id: run.workspaceId },
                             select: { settings: true }
@@ -464,17 +521,17 @@ export async function processOneRun(runId: string): Promise<ProcessResult> {
                                 targetType: "TASK",
                                 targetId: run.taskId,
                                 body:
-                                  `🚨 **Auto-fix mergeado pero el deploy peta.**\n\n` +
-                                  `Healthcheck a /api/v1/health falló 5min tras el merge. ` +
-                                  `Revisa la PR ${r.prUrl} y haz revert manual ahora mismo desde GitHub.\n\n` +
-                                  `_La task NO se relanzará automáticamente._`
+                                  `⏳ **El auto-fix se mergeó pero el deploy aún no responde** (PR ${r.prUrl}).\n\n` +
+                                  `He sondeado /api/v1/health durante 20 min sin un 200. Lo más probable es lentitud o un incidente de Railway con la cola de builds, NO que el fix esté mal. ` +
+                                  `Comprueba el estado del deploy en Railway antes de revertir nada. Cuando el deploy entre, vuelve a lanzar la tarea.\n\n` +
+                                  `_No relanzo automáticamente hasta que el healthcheck pase._`
                               }
                             });
                           }
-                        } catch (revertErr: any) {
-                          console.warn(`[self-heal watchdog] revert helper crash:`, revertErr?.message);
+                        } catch (notifyErr: any) {
+                          console.warn(`[self-heal watchdog] aviso crash:`, notifyErr?.message);
                         }
-                        return; // no relanzamos la task con el sistema roto
+                        return; // no relanzamos hasta que esté sano
                       }
 
                       // 2. Healthy → relanzamos la task
@@ -494,7 +551,7 @@ export async function processOneRun(runId: string): Promise<ProcessResult> {
                     }
                   })();
                 },
-                5 * 60_000
+                90_000
               ).unref?.();
             }
           } catch (e: any) {
