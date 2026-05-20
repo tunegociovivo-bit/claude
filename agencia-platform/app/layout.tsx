@@ -85,7 +85,7 @@ const earlyInstallCapture = `
  */
 const swSelfHeal = `
   (function () {
-    var EXPECTED = "v129-2026-05-20-gmb-feature-access";
+    var EXPECTED = "v130-2026-05-20-sonia-voice-calls";
     if (!('serviceWorker' in navigator)) return;
     var key = "hub_sw_v_seen";
     var seen = null;

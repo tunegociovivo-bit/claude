@@ -1091,6 +1091,37 @@ chatTools.push({
   }
 });
 
+chatTools.push({
+  name: "place_phone_call",
+  description:
+    "Hace una LLAMADA TELEFÓNICA real (agente de voz Sonia vía Vapi) al número indicado, con un objetivo/guion. Cuesta dinero por minuto y habla con una persona real, así que úsala SOLO cuando el usuario te lo pida explícitamente y CONFIRMA antes el número + el objetivo. Devuelve el id de llamada; el resultado (transcripción/resumen) llega después por webhook.",
+  input_schema: {
+    type: "object",
+    properties: {
+      toNumber: { type: "string", description: "Teléfono a llamar (con prefijo, ej. +34...)." },
+      goal: { type: "string", description: "Objetivo/guion de la llamada para Sonia, en español." }
+    },
+    required: ["toNumber", "goal"]
+  },
+  run: async (args, ctx) => {
+    try {
+      const { startVoiceCall, VoiceNotConfiguredError } = await import("@/lib/integrations/voice-calls");
+      const r = await startVoiceCall({
+        workspaceId: ctx.workspaceId,
+        toNumber: String(args?.toNumber ?? ""),
+        goal: String(args?.goal ?? "")
+      });
+      return JSON.stringify({ ok: true, callId: r.id, message: "Llamada iniciada. El resultado llegará al colgar." });
+    } catch (e: any) {
+      const msg = String(e?.message ?? e);
+      if (e?.constructor?.name === "VoiceNotConfiguredError" || /no configurad/i.test(msg)) {
+        return JSON.stringify({ error: "Las llamadas no están configuradas. Configúralo en /admin/voz (Vapi)." });
+      }
+      return JSON.stringify({ error: msg });
+    }
+  }
+});
+
 export const toolDefs = chatTools.map((t) => ({
   name: t.name,
   description: t.description,

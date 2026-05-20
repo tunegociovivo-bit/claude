@@ -252,6 +252,13 @@ const SECTIONS: AdminSection[] = [
         icon: Star
       },
       {
+        href: "/admin/voz",
+        title: "Llamadas de voz (Sonia)",
+        description:
+          "Configura Vapi para que Sonia haga llamadas conversacionales reales (cualificar leads, recordatorios). Transcripción y resumen automáticos.",
+        icon: MessageSquare
+      },
+      {
         href: "/admin/leads",
         title: "Leads (NV Leads Pro)",
         description:

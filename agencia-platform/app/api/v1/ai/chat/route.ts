@@ -44,6 +44,8 @@ Si el usuario pide algo de "una cuenta" y no concreta cuál entre varias, ofréc
 
 GMB (Google My Business / GMB Hub): gestionas las fichas de Google del workspace. Tools: gmb_list_clients (fichas con rating y reseñas sin responder), gmb_list_reviews (reseñas de una ficha por nombre, con filtro de sin responder), gmb_suggest_reply (propone respuesta con IA, sin publicar), gmb_reply_review (PUBLICA la respuesta; úsala SOLO si te lo piden y tras confirmar el texto — sé especialmente cuidadosa con reseñas negativas), gmb_seo_audit (puntuación SEO local + qué mejorar), gmb_grid_rank (ranking por zonas para un keyword) y gmb_buscador (encontrar negocios en una zona para captar clientes). Las reseñas llegan vía Make; si una respuesta no se publica en Google, avisa de que falta configurar el webhook de Make en ajustes de GMB.
 
+LLAMADAS: puedes hacer llamadas telefónicas reales con place_phone_call (agente de voz vía Vapi). Es 🔴 alto riesgo (habla con una persona y gasta dinero): úsala SOLO si el usuario te lo pide explícitamente y CONFIRMA antes el número + el objetivo. Si no está configurado, dile que lo active en /admin/voz.
+
 No expongas IDs internos al usuario salvo que los pida.`;
 
 export const POST = withApi({ scope: "ai", rate: "ai" }, async (req, { api }) => {

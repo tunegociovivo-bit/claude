@@ -2837,3 +2837,29 @@ model GmbPosition {
   @@index([workspaceId])
   @@index([clientId, keyword])
 }
+
+// Llamadas de voz de Sonia (agente conversacional vía Vapi). El número +
+// asistente se configuran en Vapi; aquí guardamos cada llamada y su
+// resultado (transcripción, resumen, datos extraídos) que llega por webhook.
+model VoiceCall {
+  id           String   @id @default(cuid())
+  workspaceId  String
+  provider     String   @default("vapi")
+  providerCallId String? // id de la llamada en Vapi
+  toNumber     String
+  goal         String?  @db.Text // objetivo/guion de la llamada
+  status       String   @default("queued") // queued|ringing|in-progress|ended|failed
+  endedReason  String?
+  durationSec  Int?
+  transcript   String?  @db.Text
+  summary      String?  @db.Text
+  structured   Json? // datos extraídos (variables/análisis)
+  recordingUrl String?
+  clientId     String?
+  createdById  String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([workspaceId])
+  @@index([providerCallId])
+}

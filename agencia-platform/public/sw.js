@@ -26,7 +26,7 @@
 // reintroducir cache PERO con purga agresiva por VERSION en
 // activate.
 
-const VERSION = "v129-2026-05-20-gmb-feature-access";
+const VERSION = "v130-2026-05-20-sonia-voice-calls";
 
 self.addEventListener("install", (event) => {
   // Activación inmediata: no esperar a que el SW viejo libere.
