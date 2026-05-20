@@ -53,6 +53,53 @@ export async function placesTextSearch(opts: {
   return (data.results ?? []).slice(0, opts.limit ?? 20).map(mapResult);
 }
 
+/**
+ * Nearby search alrededor de unas coordenadas, con paginación (hasta 3
+ * páginas = ~60 resultados). Para el Buscador GMB.
+ */
+export async function placesNearby(opts: {
+  workspaceId: string;
+  lat: number;
+  lng: number;
+  radius: number; // metros
+  keyword?: string;
+  type?: string;
+  maxPages?: number;
+}): Promise<MapsPlace[]> {
+  const key = await getGmbMapsKey(opts.workspaceId);
+  if (!key) throw new MapsKeyMissingError();
+  const out: MapsPlace[] = [];
+  let pageToken: string | null = null;
+  const maxPages = Math.min(opts.maxPages ?? 3, 3);
+  for (let page = 0; page < maxPages; page++) {
+    const params = new URLSearchParams({
+      location: `${opts.lat},${opts.lng}`,
+      radius: String(Math.round(opts.radius)),
+      language: "es",
+      key
+    });
+    if (opts.keyword) params.set("keyword", opts.keyword);
+    if (opts.type) params.set("type", opts.type);
+    if (pageToken) params.set("pagetoken", pageToken);
+    const r = await fetch(`${BASE}/nearbysearch/json?${params.toString()}`, {
+      cache: "no-store",
+      signal: AbortSignal.timeout(15000)
+    });
+    if (!r.ok) break;
+    const data = await r.json();
+    if (data.status && data.status !== "OK" && data.status !== "ZERO_RESULTS") {
+      if (page === 0) throw new Error(`Maps: ${data.status}${data.error_message ? ` — ${data.error_message}` : ""}`);
+      break;
+    }
+    for (const res of data.results ?? []) out.push(mapResult(res));
+    pageToken = data.next_page_token ?? null;
+    if (!pageToken) break;
+    await new Promise((res) => setTimeout(res, 2000)); // Google exige espera antes de usar next_page_token
+  }
+  return out;
+}
+
+
 /** Detalles de un place_id (geometría, web, teléfono, dirección). */
 export async function placeDetails(opts: {
   workspaceId: string;

@@ -1048,6 +1048,49 @@ chatTools.push({
   }
 });
 
+chatTools.push({
+  name: "gmb_buscador",
+  description:
+    "Busca negocios en Google Maps por zona(s) + keyword (Buscador GMB), para captar clientes. Devuelve la lista de negocios encontrados (nombre, dirección, rating, reseñas). La detección de 'reclamable' (sin dueño) es lenta y se hace desde la UI, no aquí.",
+  input_schema: {
+    type: "object",
+    properties: {
+      locations: { type: "array", items: { type: "string" }, description: "Localizaciones, ej. ['Torremolinos','Mijas']." },
+      keyword: { type: "string", description: "Tipo de negocio, ej. 'clínica dental'." },
+      radiusKm: { type: "number", description: "Radio en km (default 3)." }
+    },
+    required: ["locations"]
+  },
+  run: async (args, ctx) => {
+    try {
+      const locs = (Array.isArray(args?.locations) ? args.locations : []).map((s: any) => String(s)).filter(Boolean);
+      if (locs.length === 0) return JSON.stringify({ error: "Indica al menos una localización." });
+      const { placesNearby, resolveCoords } = await import("@/lib/integrations/google-maps");
+      const byPlace = new Map<string, any>();
+      for (const loc of locs.slice(0, 10)) {
+        const coords = await resolveCoords({ workspaceId: ctx.workspaceId, query: loc });
+        if (!coords) continue;
+        const places = await placesNearby({
+          workspaceId: ctx.workspaceId,
+          lat: coords.lat,
+          lng: coords.lng,
+          radius: (Number(args?.radiusKm) || 3) * 1000,
+          keyword: args?.keyword ? String(args.keyword) : undefined,
+          maxPages: 1
+        });
+        for (const p of places) if (p.placeId && !byPlace.has(p.placeId)) byPlace.set(p.placeId, p);
+      }
+      const results = Array.from(byPlace.values());
+      return JSON.stringify({
+        count: results.length,
+        results: results.slice(0, 30).map((r) => ({ name: r.name, address: r.address, rating: r.rating, reviewCount: r.reviewCount }))
+      });
+    } catch (e: any) {
+      return JSON.stringify({ error: String(e?.message ?? e) });
+    }
+  }
+});
+
 export const toolDefs = chatTools.map((t) => ({
   name: t.name,
   description: t.description,

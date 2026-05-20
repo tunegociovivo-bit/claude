@@ -62,6 +62,8 @@ export default function GmbHubClient() {
   const [openId, setOpenId] = useState<string | null>(null);
   const [showNew, setShowNew] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showImport, setShowImport] = useState(false);
+  const [view, setView] = useState<"fichas" | "buscador">("fichas");
 
   async function load() {
     setLoading(true);
@@ -86,6 +88,13 @@ export default function GmbHubClient() {
         actions={
           <>
             <button
+              onClick={() => setShowImport(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border bg-white text-sm hover:bg-slate-50"
+            >
+              <Plus className="h-4 w-4" />
+              Importar
+            </button>
+            <button
               onClick={() => setShowSettings(true)}
               className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border bg-white text-sm hover:bg-slate-50"
             >
@@ -103,6 +112,28 @@ export default function GmbHubClient() {
         }
       />
 
+      <div className="flex gap-1 mb-4 bg-slate-100 rounded-lg p-1 w-fit">
+        {([
+          ["fichas", "Fichas"],
+          ["buscador", "Buscador GMB"]
+        ] as const).map(([k, label]) => (
+          <button
+            key={k}
+            onClick={() => setView(k)}
+            className={
+              "px-3 py-1.5 rounded-md text-sm font-medium " +
+              (view === k ? "bg-white shadow-sm text-slate-900" : "text-slate-500 hover:text-slate-800")
+            }
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {view === "buscador" && <BuscadorView />}
+
+      {view === "fichas" && (
+      <>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
         <Kpi label="Fichas" value={fichas.length} />
         <Kpi label="Activas" value={fichas.filter((f) => f.status === "active").length} />
@@ -160,6 +191,8 @@ export default function GmbHubClient() {
           ))}
         </div>
       )}
+      </>
+      )}
 
       {openId && <FichaDetail id={openId} onClose={() => setOpenId(null)} onChanged={load} />}
       {showNew && (
@@ -172,6 +205,271 @@ export default function GmbHubClient() {
         />
       )}
       {showSettings && <GmbSettings onClose={() => setShowSettings(false)} />}
+      {showImport && (
+        <ImportFichas
+          onClose={() => setShowImport(false)}
+          onDone={() => {
+            setShowImport(false);
+            load();
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function ImportFichas({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  async function run() {
+    setBusy(true);
+    setMsg(null);
+    try {
+      let clients: any;
+      const parsed = JSON.parse(text);
+      clients = Array.isArray(parsed) ? parsed : parsed.clients;
+      if (!Array.isArray(clients)) throw new Error("El JSON debe ser un array de fichas o { clients: [...] }");
+      const r = await fetch("/api/v1/gmb/clients/import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ clients })
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d?.error?.message ?? "Error");
+      setMsg(`Importadas: ${d.created} nuevas, ${d.updated} actualizadas.`);
+      setTimeout(onDone, 900);
+    } catch (e: any) {
+      setMsg(e?.message ?? "JSON inválido");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl border w-full max-w-lg shadow-xl">
+        <div className="flex items-center justify-between p-4 border-b">
+          <div className="font-semibold text-sm">Importar fichas</div>
+          <button onClick={onClose} className="h-8 w-8 grid place-items-center rounded-lg hover:bg-slate-100">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="p-4 space-y-3">
+          <p className="text-[12px] text-slate-600">
+            Pega el JSON de tus fichas (export del GMB Hub de WordPress, o un array con{" "}
+            <code>name, category, accountId, locationId, emails, tone, mainKeyword</code>). Se importan por nombre
+            (actualiza si ya existe).
+          </p>
+          <textarea
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            rows={10}
+            placeholder='[ { "name": "Clínica Aitziber", "category": "Clínica dental", "locationId": "accounts/123/locations/456" } ]'
+            className="w-full px-3 py-2 rounded-lg border text-[12px] font-mono focus:outline-none focus:ring-2 focus:ring-brand-500"
+          />
+          {msg && <p className="text-xs text-slate-600">{msg}</p>}
+          <button
+            onClick={run}
+            disabled={busy || !text.trim()}
+            className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium disabled:opacity-50"
+          >
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+            Importar
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function BuscadorView() {
+  const [locations, setLocations] = useState("");
+  const [keyword, setKeyword] = useState("");
+  const [radiusKm, setRadiusKm] = useState(3);
+  const [running, setRunning] = useState(false);
+  const [results, setResults] = useState<any[]>([]);
+  const [err, setErr] = useState<string | null>(null);
+  const [verifying, setVerifying] = useState(false);
+
+  async function run() {
+    const locs = locations
+      .split("\n")
+      .map((l) => l.trim())
+      .filter(Boolean);
+    if (locs.length === 0) {
+      setErr("Indica al menos una localización (una por línea).");
+      return;
+    }
+    setRunning(true);
+    setErr(null);
+    setResults([]);
+    try {
+      const r = await fetch("/api/v1/gmb/buscador/run", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ locations: locs, keyword: keyword.trim() || undefined, radiusKm })
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d?.error?.message ?? "Error");
+      setResults((d.results ?? []).map((x: any) => ({ ...x, isClaimable: undefined })));
+    } catch (e: any) {
+      setErr(e?.message ?? "Error");
+    } finally {
+      setRunning(false);
+    }
+  }
+
+  async function verifyAll() {
+    setVerifying(true);
+    const queue = results.slice();
+    const CONCURRENCY = 4;
+    let idx = 0;
+    async function worker() {
+      while (idx < queue.length) {
+        const i = idx++;
+        const place = queue[i];
+        try {
+          const r = await fetch("/api/v1/gmb/buscador/verify", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ placeId: place.placeId, name: place.name })
+          });
+          const d = await r.json();
+          setResults((prev) =>
+            prev.map((p) => (p.placeId === place.placeId ? { ...p, isClaimable: r.ok ? d.isClaimable : null } : p))
+          );
+        } catch {
+          setResults((prev) => prev.map((p) => (p.placeId === place.placeId ? { ...p, isClaimable: null } : p)));
+        }
+      }
+    }
+    await Promise.all(Array.from({ length: CONCURRENCY }, worker));
+    setVerifying(false);
+  }
+
+  function exportCsv() {
+    const rows = [["Nombre", "Dirección", "Rating", "Reseñas", "Reclamable", "PlaceId"]];
+    for (const r of results) {
+      rows.push([
+        r.name ?? "",
+        r.address ?? "",
+        String(r.rating ?? ""),
+        String(r.reviewCount ?? ""),
+        r.isClaimable === true ? "SÍ" : r.isClaimable === false ? "no" : "?",
+        r.placeId ?? ""
+      ]);
+    }
+    const csv = rows.map((row) => row.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "buscador-gmb.csv";
+    a.click();
+  }
+
+  const claimable = results.filter((r) => r.isClaimable === true).length;
+
+  return (
+    <div className="space-y-3">
+      <div className="bg-white rounded-xl border p-4 space-y-3">
+        <p className="text-[12px] text-slate-600">
+          Encuentra negocios en Google Maps por zona y detecta cuáles están <strong>sin reclamar</strong> (oportunidades
+          de venta). Necesita la Maps API key, y para detectar reclamables, la key de ScraperAPI (en Ajustes).
+        </p>
+        <div className="grid sm:grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs font-medium text-slate-700 mb-1">Localizaciones (una por línea)</label>
+            <textarea
+              value={locations}
+              onChange={(e) => setLocations(e.target.value)}
+              rows={3}
+              placeholder={"Torremolinos\nBenalmádena\nFuengirola\nMijas"}
+              className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+            />
+          </div>
+          <div className="space-y-2">
+            <div>
+              <label className="block text-xs font-medium text-slate-700 mb-1">Tipo de negocio / keyword</label>
+              <input
+                value={keyword}
+                onChange={(e) => setKeyword(e.target.value)}
+                placeholder="Ej: clínica dental"
+                className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-700 mb-1">Radio: {radiusKm} km</label>
+              <input
+                type="range"
+                min={1}
+                max={20}
+                value={radiusKm}
+                onChange={(e) => setRadiusKm(Number(e.target.value))}
+                className="w-full accent-brand-600"
+              />
+            </div>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={run}
+            disabled={running}
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium disabled:opacity-50"
+          >
+            {running ? <Loader2 className="h-4 w-4 animate-spin" /> : <MapPin className="h-4 w-4" />}
+            Buscar
+          </button>
+          {results.length > 0 && (
+            <>
+              <button
+                onClick={verifyAll}
+                disabled={verifying}
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border text-sm hover:bg-slate-50 disabled:opacity-50"
+              >
+                {verifying ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+                Detectar reclamables
+              </button>
+              <button onClick={exportCsv} className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border text-sm hover:bg-slate-50">
+                Exportar CSV
+              </button>
+            </>
+          )}
+        </div>
+        {err && <div className="text-sm text-rose-600 bg-rose-50 border border-rose-200 rounded-lg p-2">{err.includes("Maps") || err.includes("key") ? "Falta la Google Maps API key (Ajustes)." : err}</div>}
+      </div>
+
+      {results.length > 0 && (
+        <div className="bg-white rounded-xl border overflow-hidden">
+          <div className="px-4 py-2 border-b text-xs text-slate-500 flex items-center justify-between">
+            <span>{results.length} negocios</span>
+            {claimable > 0 && <span className="text-emerald-700 font-medium">{claimable} reclamables</span>}
+          </div>
+          <div className="divide-y max-h-[60vh] overflow-y-auto">
+            {results.map((r) => (
+              <div key={r.placeId} className="px-4 py-2.5 flex items-center justify-between gap-2 text-sm">
+                <div className="min-w-0">
+                  <div className="font-medium truncate">{r.name}</div>
+                  <div className="text-[11px] text-slate-500 truncate">{r.address}</div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className="text-xs text-slate-500 whitespace-nowrap">
+                    {r.rating ? `${r.rating}★ · ${r.reviewCount}` : "sin reseñas"}
+                  </span>
+                  {r.isClaimable === true && (
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 font-medium">Reclamable</span>
+                  )}
+                  {r.isClaimable === false && (
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">Con dueño</span>
+                  )}
+                  {r.isClaimable === null && <span className="text-[10px] text-slate-400">?</span>}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
