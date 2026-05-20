@@ -85,7 +85,7 @@ const earlyInstallCapture = `
  */
 const swSelfHeal = `
   (function () {
-    var EXPECTED = "v134-2026-05-20-gmb-buscador-avanzado";
+    var EXPECTED = "v135-2026-05-20-gmb-informes-make";
     if (!('serviceWorker' in navigator)) return;
     var key = "hub_sw_v_seen";
     var seen = null;

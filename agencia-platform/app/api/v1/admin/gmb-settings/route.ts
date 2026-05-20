@@ -28,6 +28,13 @@ export const GET = withApi({ scope: "admin" }, async (req, { api }) => {
     hasScraperKey: !!g.scraperApiKeyEnc,
     notifyEmail: g.notifyEmail ?? null,
     hasTelegram: !!g.telegramEnc,
+    make: {
+      templateId: g.makeTemplateId ?? null,
+      gmbConn: g.makeGmbConn ?? null,
+      openaiConn: g.makeOpenaiConn ?? null,
+      gmailAcct: g.makeGmailAcct ?? null,
+      sheetsConn: g.makeSheetsConn ?? null
+    },
     // URL que el usuario configura en Make para empujar reseñas
     incomingWebhookUrl: `${baseUrl.replace(/\/+$/, "")}/api/v1/gmb/reviews/webhook`,
     workspaceId: api.workspaceId
@@ -62,6 +69,16 @@ export const PUT = withApi({ scope: "admin" }, async (req, { api }) => {
   }
   if (typeof body.telegram === "string" && body.telegram.trim()) {
     g.telegramEnc = encryptSecret(body.telegram.trim());
+  }
+  // IDs de la plantilla de Make para auto-crear escenarios por ficha (no secretos)
+  for (const [key, field] of [
+    ["makeTemplateId", "makeTemplateId"],
+    ["makeGmbConn", "makeGmbConn"],
+    ["makeOpenaiConn", "makeOpenaiConn"],
+    ["makeGmailAcct", "makeGmailAcct"],
+    ["makeSheetsConn", "makeSheetsConn"]
+  ] as const) {
+    if (typeof body[key] === "string") g[field] = body[key].trim() || undefined;
   }
   settings.integrations.gmb = g;
   await prisma.workspace.update({ where: { id: api.workspaceId }, data: { settings } });
