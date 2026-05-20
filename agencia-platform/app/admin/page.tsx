@@ -21,6 +21,7 @@ import {
   Palette,
   Columns3,
   Shield,
+  ServerCog,
   TrendingUp,
   FileText,
   MessageSquare,
@@ -339,6 +340,14 @@ const SECTIONS: AdminSection[] = [
         description:
           "Backups manuales y automáticos diarios. Histórico y descarga.",
         icon: Shield
+      },
+      {
+        href: "/admin/infraestructura",
+        title: "Infraestructura y backups",
+        description:
+          "Inventario de TODAS las plataformas externas (GitHub, Railway, fal, Make, Meta, R2…), su estado en vivo y el runbook para recuperar el proyecto completo si algo se rompe.",
+        icon: ServerCog,
+        highlight: true
       },
       {
         href: "/admin/auditoria",
