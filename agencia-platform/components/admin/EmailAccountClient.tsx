@@ -102,6 +102,11 @@ export default function EmailAccountClient() {
       if (!r.ok) throw new Error(d?.error?.message ?? `Error ${r.status}`);
       if (d.imap && d.smtp) {
         setMsg({ type: "ok", text: "✓ IMAP y SMTP conectan correctamente." });
+      } else if (d.imap && d.relay) {
+        setMsg({
+          type: "ok",
+          text: "✓ IMAP OK. El SMTP de tu hosting está bloqueado por la red, pero el envío funcionará automáticamente por relay HTTP (Resend) — Sonia podrá enviar sin problema."
+        });
       } else {
         setMsg({
           type: "err",

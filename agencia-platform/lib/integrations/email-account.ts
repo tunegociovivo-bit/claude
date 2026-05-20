@@ -126,10 +126,11 @@ export async function testEmailAccount(opts: {
   smtpSecure: boolean;
   loginUser: string;
   password: string;
-}): Promise<{ imap: boolean; smtp: boolean; error?: string; smtpPort?: number; smtpSecure?: boolean }> {
+}): Promise<{ imap: boolean; smtp: boolean; relay?: boolean; error?: string; smtpPort?: number; smtpSecure?: boolean }> {
   const result = {
     imap: false,
     smtp: false,
+    relay: false,
     error: undefined as string | undefined,
     smtpPort: undefined as number | undefined,
     smtpSecure: undefined as boolean | undefined
@@ -174,11 +175,19 @@ export async function testEmailAccount(opts: {
     result.smtpPort = port;
     result.smtpSecure = secure;
   } catch (e: any) {
+    // SMTP bloqueado: ¿hay relay HTTP (Resend) disponible? Si sí, el envío
+    // de Sonia funcionará igualmente por ahí — no es un fallo fatal.
+    const { isEmailEnabled } = await import("@/lib/integrations/email");
+    if (isSmtpConnIssue(e) && isEmailEnabled()) {
+      result.relay = true;
+    }
     const parts = [String(e?.message ?? e)];
     if (e?.code) parts.push(`code: ${e.code}`);
     if (isSmtpConnIssue(e)) {
       parts.push(
-        "(ningún puerto SMTP conecta — 465/587/25 bloqueados desde el servidor. Hay que desbloquear SMTP saliente en Railway o usar un relay)"
+        result.relay
+          ? "(SMTP bloqueado, pero el envío funcionará por relay HTTP — Resend)"
+          : "(ningún puerto SMTP conecta — 465/587/25 bloqueados desde el servidor. Configura RESEND_API_KEY para enviar por relay, o desbloquea SMTP en Railway)"
       );
     }
     result.error = (result.error ? result.error + " · " : "") + `SMTP: ${parts.join(" ").slice(0, 240)}`;
@@ -330,34 +339,59 @@ export async function sendEmailFromAccount(opts: {
   body: string;
   cc?: string;
   html?: boolean;
-}): Promise<{ messageId: string }> {
+}): Promise<{ messageId: string; via?: "smtp" | "relay" }> {
   const { acc, password } = await loadAccount(opts.userId, opts.workspaceId);
-  const { value: info, port, secure } = await runSmtpWithFallback<any>(
-    {
-      host: acc.smtpHost,
-      loginUser: acc.loginUser,
-      password,
-      port: acc.smtpPort,
-      secure: acc.smtpSecure,
-      perTryMs: 20000
-    },
-    (t) =>
-      t.sendMail({
-        from: acc.email,
-        to: opts.to,
-        cc: opts.cc,
-        subject: opts.subject,
-        ...(opts.html ? { html: opts.body } : { text: opts.body })
-      })
-  );
-  // Self-heal: si funcionó un puerto distinto al guardado, lo persistimos
-  // para que el próximo envío vaya directo y la UI lo refleje.
-  if (port !== acc.smtpPort || secure !== acc.smtpSecure) {
-    await prisma.emailAccount
-      .update({ where: { id: acc.id }, data: { smtpPort: port, smtpSecure: secure } })
-      .catch(() => {});
+  try {
+    const { value: info, port, secure } = await runSmtpWithFallback<any>(
+      {
+        host: acc.smtpHost,
+        loginUser: acc.loginUser,
+        password,
+        port: acc.smtpPort,
+        secure: acc.smtpSecure,
+        perTryMs: 20000
+      },
+      (t) =>
+        t.sendMail({
+          from: acc.email,
+          to: opts.to,
+          cc: opts.cc,
+          subject: opts.subject,
+          ...(opts.html ? { html: opts.body } : { text: opts.body })
+        })
+    );
+    // Self-heal: si funcionó un puerto distinto al guardado, lo persistimos
+    // para que el próximo envío vaya directo y la UI lo refleje.
+    if (port !== acc.smtpPort || secure !== acc.smtpSecure) {
+      await prisma.emailAccount
+        .update({ where: { id: acc.id }, data: { smtpPort: port, smtpSecure: secure } })
+        .catch(() => {});
+    }
+    return { messageId: info.messageId, via: "smtp" };
+  } catch (e: any) {
+    // SMTP bloqueado (Railway corta 465/587/25). Si hay relay HTTP (Resend),
+    // enviamos por ahí como info@negociovivo.com. Si el dominio no está
+    // verificado en Resend, reintentamos con el remitente por defecto +
+    // reply-to a la cuenta del usuario para no perder el correo.
+    const { isEmailEnabled, sendViaResend } = await import("@/lib/integrations/email");
+    if (!isSmtpConnIssue(e) || !isEmailEnabled()) throw e;
+    const common = {
+      to: opts.to,
+      cc: opts.cc,
+      subject: opts.subject,
+      ...(opts.html ? { html: opts.body } : { text: opts.body })
+    };
+    try {
+      const r = await sendViaResend({ from: acc.email, replyTo: acc.email, ...common });
+      return { messageId: r.id, via: "relay" };
+    } catch (re: any) {
+      if (re?.domainNotVerified) {
+        const r2 = await sendViaResend({ replyTo: acc.email, ...common });
+        return { messageId: r2.id, via: "relay" };
+      }
+      throw re;
+    }
   }
-  return { messageId: info.messageId };
 }
 
 export async function getEmailAccountStatus(userId: string, workspaceId: string) {

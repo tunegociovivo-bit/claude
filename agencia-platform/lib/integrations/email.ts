@@ -49,6 +49,57 @@ export async function sendEmail(opts: {
   return resp.json();
 }
 
+/**
+ * Envío flexible por Resend (HTTP, puerto 443 — no bloqueado por Railway).
+ * Permite remitente y reply-to personalizados. Lo usa el envío de correo
+ * de Sonia cuando el SMTP del usuario está bloqueado: intenta enviar como
+ * info@negociovivo.com (requiere el dominio verificado en Resend).
+ *
+ * `error.resendCode` (cuando aplica) permite al llamante distinguir un
+ * fallo de dominio no verificado (para reintentar con remitente por
+ * defecto) de otros errores.
+ */
+export async function sendViaResend(opts: {
+  from?: string;
+  replyTo?: string;
+  to: string | string[];
+  cc?: string | string[];
+  subject: string;
+  text?: string;
+  html?: string;
+}): Promise<{ id: string }> {
+  if (!isEmailEnabled()) {
+    throw new Error("Email no configurado. Define RESEND_API_KEY.");
+  }
+  const payload: Record<string, unknown> = {
+    from: opts.from ?? getFromAddress(),
+    to: Array.isArray(opts.to) ? opts.to : [opts.to],
+    subject: opts.subject
+  };
+  if (opts.cc) payload.cc = Array.isArray(opts.cc) ? opts.cc : [opts.cc];
+  if (opts.replyTo) payload.reply_to = opts.replyTo;
+  if (opts.html) payload.html = opts.html;
+  if (opts.text || !opts.html) payload.text = opts.text ?? "";
+  const resp = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(payload)
+  });
+  if (!resp.ok) {
+    const body = await resp.text().catch(() => "");
+    const err: any = new Error(`Resend ${resp.status}: ${body.slice(0, 220)}`);
+    err.resendStatus = resp.status;
+    // Resend devuelve 403/422 cuando el dominio del "from" no está verificado.
+    err.domainNotVerified =
+      resp.status === 403 || /domain is not verified|not verified|validation_error/i.test(body);
+    throw err;
+  }
+  return resp.json();
+}
+
 export async function sendEmailWithAttachment(opts: {
   to: string;
   subject: string;
