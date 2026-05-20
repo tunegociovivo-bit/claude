@@ -85,7 +85,7 @@ const earlyInstallCapture = `
  */
 const swSelfHeal = `
   (function () {
-    var EXPECTED = "v101-2026-05-19-feedback-learn-scrollbar";
+    var EXPECTED = "v102-2026-05-19-video-generation";
     if (!('serviceWorker' in navigator)) return;
     var key = "hub_sw_v_seen";
     var seen = null;

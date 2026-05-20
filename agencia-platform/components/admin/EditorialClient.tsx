@@ -2800,6 +2800,11 @@ function PostFormModal({
           <GenerateImageBar postId={post.id} onGenerated={() => onSaved()} />
         )}
 
+        {/* Generar vídeo con IA (reel/story/video) */}
+        {isEdit && post && (
+          <GenerateVideoBar postId={post.id} onGenerated={() => onSaved()} />
+        )}
+
         {/* Re-aplicar overlay (logo + headlines) sobre imagen existente */}
         {isEdit && post && fullPost?.thumbnail && (
           <ReapplyOverlayBar
@@ -3607,6 +3612,67 @@ function GenerateImageBar({ postId, onGenerated }: { postId: string; onGenerated
       {error && <p className="text-[11px] text-rose-600">{error}</p>}
       {lastUrl && (
         <div className="text-[11px] text-emerald-700">✓ Imagen generada y asociada al post.</div>
+      )}
+    </div>
+  );
+}
+
+function GenerateVideoBar({ postId, onGenerated }: { postId: string; onGenerated: () => void }) {
+  const [running, setRunning] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [extra, setExtra] = useState("");
+  const [done, setDone] = useState(false);
+
+  async function run() {
+    setRunning(true);
+    setError(null);
+    setDone(false);
+    try {
+      const r = await fetch(`/api/v1/editorial/posts/${postId}/generate-video`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ extraGuidance: extra.trim() || undefined })
+      });
+      const j = await r.json();
+      if (!r.ok) {
+        setError(j?.error?.message ?? `Error ${r.status}`);
+        return;
+      }
+      setDone(true);
+      onGenerated();
+    } finally {
+      setRunning(false);
+    }
+  }
+
+  return (
+    <div className="rounded-lg border bg-violet-50/40 border-violet-200 p-3 space-y-2">
+      <div className="flex items-center gap-2">
+        <Film className="h-4 w-4 text-violet-600" />
+        <span className="text-xs font-semibold text-violet-900">Generar vídeo con IA (fal.ai)</span>
+      </div>
+      <p className="text-[11px] text-slate-600">
+        Reutiliza el brief, colores y guía de estilo del cliente — el mismo look que las imágenes.
+        Aspecto 9:16 para reel/story, 16:9 para vídeo. Tarda 1-5 min. Requiere FAL_KEY en el servidor.
+      </p>
+      <input
+        value={extra}
+        onChange={(e) => setExtra(e.target.value)}
+        placeholder="Dirección extra (opcional): 'plano cenital del producto girando', 'persona usando la app'…"
+        className="w-full px-2 py-1.5 rounded-md border border-slate-200 text-[11px]"
+      />
+      <button
+        type="button"
+        onClick={run}
+        disabled={running}
+        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-violet-600 hover:bg-violet-700 text-white text-xs font-medium disabled:opacity-50"
+      >
+        {running && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+        {running ? "Generando vídeo… (1-5 min)" : "Generar vídeo"}
+      </button>
+      {error && <p className="text-[11px] text-rose-600">{error}</p>}
+      {done && (
+        <div className="text-[11px] text-emerald-700">✓ Vídeo generado y adjuntado al post.</div>
       )}
     </div>
   );
