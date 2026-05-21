@@ -121,5 +121,171 @@ export async function handleVapiWebhook(payload: any): Promise<{ ok: boolean }> 
   }
   if (Object.keys(data).length === 0) return { ok: true };
   await prisma.voiceCall.update({ where: { id: existing.id }, data });
+
+  // Al colgar: crear una tarea en la columna "Reuniones y llamadas" con la
+  // transcripción + resumen + audio adjunto. Solo una vez (taskId guard).
+  const isEndReport = type === "end-of-call-report" || !!msg?.endedReason;
+  if (isEndReport && !existing.taskId) {
+    try {
+      const fresh = await prisma.voiceCall.findUnique({ where: { id: existing.id } });
+      if (fresh && !fresh.taskId) {
+        await createCallTask(fresh);
+      }
+    } catch (e) {
+      console.error("[voice] crear tarea de llamada falló:", (e as Error).message);
+    }
+  }
   return { ok: true };
+}
+
+/** Normaliza para comparar etiquetas de columna (minúsculas, sin acentos). */
+function norm(s: string): string {
+  return s
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .trim();
+}
+
+/** Busca el proyecto + columna "Reuniones y llamadas" del workspace. */
+async function findReunionesColumn(
+  workspaceId: string
+): Promise<{ projectId: string; columnId: string } | null> {
+  const projects = await prisma.project.findMany({
+    where: { workspaceId, archived: false } as any,
+    select: { id: true, kanbanColumns: true }
+  });
+  let partial: { projectId: string; columnId: string } | null = null;
+  for (const p of projects) {
+    const cols = Array.isArray((p as any).kanbanColumns) ? ((p as any).kanbanColumns as any[]) : [];
+    for (const c of cols) {
+      const label = norm(String(c?.label ?? ""));
+      if (!label) continue;
+      if (label.includes("reunion") && label.includes("llamad")) {
+        return { projectId: p.id, columnId: String(c.id) };
+      }
+      if (!partial && (label.includes("reunion") || label.includes("llamad"))) {
+        partial = { projectId: p.id, columnId: String(c.id) };
+      }
+    }
+  }
+  return partial;
+}
+
+/**
+ * Crea la tarea de la llamada (resumen + transcripción como TipTap) en la
+ * columna "Reuniones y llamadas", adjunta el audio (si hay storage) y enlaza
+ * la VoiceCall.taskId.
+ */
+async function createCallTask(call: {
+  id: string;
+  workspaceId: string;
+  toNumber: string;
+  goal: string | null;
+  summary: string | null;
+  transcript: string | null;
+  recordingUrl: string | null;
+  clientId: string | null;
+  createdById: string | null;
+  durationSec: number | null;
+}): Promise<void> {
+  const target = await findReunionesColumn(call.workspaceId);
+  if (!target) {
+    console.warn("[voice] no encontré columna 'Reuniones y llamadas' en ningún proyecto; no creo tarea.");
+    return;
+  }
+
+  const fecha = new Date().toLocaleString("es-ES", { dateStyle: "short", timeString: undefined as any } as any);
+  const dur = call.durationSec ? ` · ${Math.floor(call.durationSec / 60)}m${call.durationSec % 60}s` : "";
+  const title = `📞 Llamada ${call.toNumber} — ${fecha}${dur}`;
+
+  // Descripción como documento TipTap (resumen + transcripción).
+  const content: any[] = [];
+  if (call.goal) {
+    content.push({ type: "heading", attrs: { level: 3 }, content: [{ type: "text", text: "Objetivo" }] });
+    content.push({ type: "paragraph", content: [{ type: "text", text: call.goal }] });
+  }
+  content.push({ type: "heading", attrs: { level: 3 }, content: [{ type: "text", text: "Resumen / puntos clave" }] });
+  content.push({
+    type: "paragraph",
+    content: [{ type: "text", text: call.summary?.trim() || "Sin resumen disponible." }]
+  });
+  if (call.recordingUrl) {
+    content.push({ type: "heading", attrs: { level: 3 }, content: [{ type: "text", text: "Audio" }] });
+    content.push({
+      type: "paragraph",
+      content: [
+        {
+          type: "text",
+          text: "Escuchar grabación",
+          marks: [{ type: "link", attrs: { href: call.recordingUrl } }]
+        }
+      ]
+    });
+  }
+  content.push({ type: "heading", attrs: { level: 3 }, content: [{ type: "text", text: "Transcripción" }] });
+  const lines = (call.transcript ?? "").split("\n").map((l) => l.trim()).filter(Boolean);
+  if (lines.length === 0) {
+    content.push({ type: "paragraph", content: [{ type: "text", text: "(sin transcripción)" }] });
+  } else {
+    for (const line of lines) {
+      content.push({ type: "paragraph", content: [{ type: "text", text: line }] });
+    }
+  }
+  const description = JSON.stringify({ type: "doc", content });
+
+  const project = await prisma.project.findUnique({
+    where: { id: target.projectId },
+    select: { clientId: true }
+  });
+
+  const task = await prisma.task.create({
+    data: {
+      workspaceId: call.workspaceId,
+      projectId: target.projectId,
+      clientId: call.clientId ?? project?.clientId ?? null,
+      title: title.slice(0, 250),
+      description,
+      status: target.columnId,
+      priority: "MEDIUM"
+    } as any
+  });
+
+  await prisma.voiceCall.update({ where: { id: call.id }, data: { taskId: task.id } });
+
+  // Adjuntar el audio como File (descarga del recording → R2).
+  if (call.recordingUrl) {
+    try {
+      const { isStorageEnabled, uploadBuffer, buildS3Key } = await import("@/lib/storage/r2");
+      if (isStorageEnabled()) {
+        const r = await fetch(call.recordingUrl, { signal: AbortSignal.timeout(30000) });
+        if (r.ok) {
+          const buf = Buffer.from(await r.arrayBuffer());
+          const ext = call.recordingUrl.includes(".mp3") ? "mp3" : "wav";
+          const mime = ext === "mp3" ? "audio/mpeg" : "audio/wav";
+          const s3Key = buildS3Key({
+            workspaceId: call.workspaceId,
+            targetType: "task",
+            targetId: task.id,
+            filename: `llamada-${Date.now()}.${ext}`
+          });
+          await uploadBuffer({ s3Key, body: buf, contentType: mime });
+          await prisma.file.create({
+            data: {
+              workspaceId: call.workspaceId,
+              name: `Llamada ${call.toNumber}.${ext}`,
+              mimeType: mime,
+              sizeBytes: buf.length,
+              s3Key,
+              targetType: "TASK",
+              targetId: task.id,
+              uploadedBy: call.createdById ?? undefined
+            }
+          });
+        }
+      }
+    } catch (e) {
+      console.warn("[voice] adjuntar audio falló (queda el enlace en la descripción):", (e as Error).message);
+    }
+  }
 }
