@@ -336,6 +336,13 @@ async function stopRecording() {
   }
   chrome.runtime.sendMessage({ target: "offscreen", type: "stop-recording" }).catch(() => {});
   await setState({ state: "uploading" });
+  // Watchdog: si en 6 min no ha llegado upload-result (fetch colgado, SW
+  // reciclado, offscreen muerto…), sacamos el estado de "uploading" para que
+  // el popup no se quede bloqueado para siempre. chrome.alarms sobrevive al
+  // reciclado del service worker (setTimeout no).
+  try {
+    chrome.alarms.create("upload-watchdog", { delayInMinutes: 6 });
+  } catch {}
   // Φ5 — finalizar LiveMeetingSession si hubo modo live activo.
   // El upload final del audio entero (existing flow) sigue intacto.
   if (recordingCtx?.liveSessionId) {
@@ -586,6 +593,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     }
     if (msg?.from === "offscreen" && msg?.type === "upload-result") {
       recordingCtx = null;
+      try { chrome.alarms.clear("upload-watchdog"); } catch {}
       chrome.notifications.clear("meeting-ended-prompt");
       if (msg.ok) {
         await setState({ state: "done", lastTaskUrl: msg.taskUrl, lastError: null });
@@ -706,6 +714,25 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
     await pollNotifications();
   } else if (alarm.name === "poll-session") {
     await syncSession();
+  } else if (alarm.name === "upload-watchdog") {
+    // Si seguimos en "uploading" 6 min después de parar, la subida se colgó.
+    // Sacamos el estado de bloqueo para que el popup vuelva a ser usable.
+    const s = await getState();
+    if (s.state === "uploading") {
+      recordingCtx = null;
+      await setState({
+        state: "error",
+        lastError:
+          "La subida tardó demasiado y se canceló. La reunión puede ser muy larga (>25MB) o el Hub está saturado. Vuelve a intentarlo con una grabación más corta."
+      });
+      chrome.notifications.create({
+        type: "basic",
+        iconUrl: chrome.runtime.getURL("icons/icon-128.png"),
+        title: "Subida de reunión cancelada",
+        message: "Tardó demasiado. Inténtalo de nuevo (graba tramos más cortos si la reunión es larga).",
+        priority: 2
+      });
+    }
   }
 });
 

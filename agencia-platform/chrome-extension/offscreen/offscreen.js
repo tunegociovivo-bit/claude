@@ -224,7 +224,10 @@ async function onStop() {
       method: "POST",
       credentials: "include",
       headers,
-      body: form
+      body: form,
+      // Timeout duro: si el Hub se cuelga (Whisper/Claude lentos, red), no
+      // dejamos la subida colgada para siempre — el SW también tiene watchdog.
+      signal: AbortSignal.timeout(280000)
     });
     if (!resp.ok) {
       const txt = await resp.text().catch(() => "");
