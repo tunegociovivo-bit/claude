@@ -20,6 +20,7 @@ import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { buildMetricoolCsv } from "@/lib/integrations/metricool-csv";
+import { resignPostMediaLong } from "@/lib/storage/resign";
 import { isEmailEnabled, sendEmailWithAttachment } from "@/lib/integrations/email";
 
 const inputSchema = z.object({
@@ -65,7 +66,13 @@ export const POST = withApi({ scope: "*" }, async (req, { api }) => {
     );
   }
 
-  const { csv, rowCount, postIds } = buildMetricoolCsv(posts as any);
+  // Re-firmamos las imágenes con validez de 7 días: las URLs guardadas en
+  // BD están firmadas a 1h y ya habían caducado al importar en Metricool
+  // (por eso le faltaban TODAS las imágenes). Metricool descarga el fichero
+  // al importar, que puede ser horas/días después de exportar.
+  const postsFresh = await Promise.all(posts.map((p) => resignPostMediaLong(p)));
+
+  const { csv, rowCount, postIds } = buildMetricoolCsv(postsFresh as any);
 
   const monthLabel = month ?? "todos";
   const filename = `metricool-${monthLabel}-${new Date().toISOString().slice(0, 10)}.csv`;

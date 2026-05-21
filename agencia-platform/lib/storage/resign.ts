@@ -168,3 +168,47 @@ export async function resignPostMedia<T extends { thumbnail?: string | null; med
   }
   return fresh;
 }
+
+// Validez larga para exportaciones a terceros (Metricool descarga la
+// imagen al importar, que puede ser días después). 7 días = máximo SigV4.
+const SEVEN_DAYS_SEC = 7 * 24 * 60 * 60;
+
+/**
+ * Re-firma SIEMPRE una URL con validez larga (7 días), saltándose el
+ * atajo de "todavía fresca". Para exportar imágenes a Metricool y
+ * similares: el CSV se sube más tarde y las firmas de 1h ya no valen
+ * (por eso a Metricool le faltaban las imágenes).
+ */
+export async function resignUrlLong(url: string | null | undefined): Promise<string | null> {
+  if (!url) return null;
+  if (!isStorageEnabled()) return url;
+  const publicBase = (process.env.STORAGE_PUBLIC_URL ?? "").replace(/\/+$/, "");
+  if (publicBase && url.startsWith(publicBase + "/")) return url; // pública, no caduca
+  const s3Key = extractS3Key(url);
+  if (!s3Key) return url; // URL ajena → tal cual
+  try {
+    return await signedDownloadUrl(s3Key, SEVEN_DAYS_SEC);
+  } catch {
+    return url;
+  }
+}
+
+/** Como resignPostMedia pero con validez de 7 días (para exportar). */
+export async function resignPostMediaLong<T extends { thumbnail?: string | null; mediaUrls?: string }>(
+  post: T
+): Promise<T> {
+  const fresh: any = { ...post };
+  if (post.thumbnail) fresh.thumbnail = await resignUrlLong(post.thumbnail);
+  if (post.mediaUrls) {
+    try {
+      const arr = JSON.parse(post.mediaUrls);
+      if (Array.isArray(arr)) {
+        const fresh2 = await Promise.all(arr.map((u) => (typeof u === "string" ? resignUrlLong(u) : u)));
+        fresh.mediaUrls = JSON.stringify(fresh2.filter(Boolean));
+      }
+    } catch {
+      // mediaUrls no parsea, lo dejamos como está
+    }
+  }
+  return fresh;
+}

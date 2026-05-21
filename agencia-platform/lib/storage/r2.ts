@@ -64,10 +64,13 @@ export async function signedUploadUrl(s3Key: string, contentType: string): Promi
 }
 
 /**
- * URL firmada de descarga (GET). Expira en 1 hora.
+ * URL firmada de descarga (GET). Expira en 1 hora por defecto.
+ * `expiresIn` (segundos) permite pedir una validez mayor — p.ej. al
+ * exportar imágenes a terceros como Metricool, que las descargan más
+ * tarde (máximo SigV4 = 7 días = 604800s).
  * Si STORAGE_PUBLIC_URL está definido, devolvemos URL pública directa.
  */
-export async function signedDownloadUrl(s3Key: string): Promise<string> {
+export async function signedDownloadUrl(s3Key: string, expiresIn = 3600): Promise<string> {
   if (process.env.STORAGE_PUBLIC_URL) {
     const base = process.env.STORAGE_PUBLIC_URL.replace(/\/+$/, "");
     return `${base}/${s3Key}`;
@@ -76,7 +79,7 @@ export async function signedDownloadUrl(s3Key: string): Promise<string> {
     Bucket: bucket(),
     Key: s3Key
   });
-  return getSignedUrl(client(), cmd, { expiresIn: 3600 });
+  return getSignedUrl(client(), cmd, { expiresIn });
 }
 
 export async function deleteObject(s3Key: string): Promise<void> {
