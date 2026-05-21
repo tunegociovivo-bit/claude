@@ -1182,6 +1182,39 @@ chatTools.push({
   }
 });
 
+chatTools.push({
+  name: "search_sonia_knowledge",
+  description:
+    "Busca en la BASE DE CONOCIMIENTO de Sonia: textos de aprendizaje y documentos de clientes que el equipo ha subido en Administración. Úsala SIEMPRE que te pregunten sobre cómo se gestiona algo, datos/condiciones de un cliente, procesos internos, o cualquier información que pueda estar en esos documentos. Devuelve los fragmentos más relevantes para que respondas con ellos.",
+  input_schema: {
+    type: "object",
+    properties: { query: { type: "string", description: "Qué buscar, en lenguaje natural." } },
+    required: ["query"]
+  },
+  run: async (args, ctx) => {
+    const query = String(args?.query ?? "").trim();
+    if (!query) return JSON.stringify({ error: "query vacía" });
+    try {
+      const { semanticSearch } = await import("@/lib/search/embeddings");
+      const hits = await semanticSearch({
+        workspaceId: ctx.workspaceId,
+        query,
+        entityTypes: ["SONIA_KNOWLEDGE"],
+        topK: 6,
+        minScore: 0.2
+      });
+      if (hits.length === 0) {
+        return JSON.stringify({ results: [], note: "No hay nada en la base de conocimiento sobre eso." });
+      }
+      return JSON.stringify({
+        results: hits.map((h) => ({ score: Number(h.score.toFixed(3)), text: h.text.slice(0, 3000) }))
+      });
+    } catch (e: any) {
+      return JSON.stringify({ error: String(e?.message ?? e) });
+    }
+  }
+});
+
 export const toolDefs = chatTools.map((t) => ({
   name: t.name,
   description: t.description,

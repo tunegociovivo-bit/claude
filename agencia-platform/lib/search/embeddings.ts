@@ -19,7 +19,7 @@ import { getOpenAiKeyForWorkspace } from "@/lib/ai/openai";
 export const EMBEDDING_MODEL = "text-embedding-3-small";
 export const EMBEDDING_DIMS = 1536;
 
-export type EntityType = "TASK" | "CLIENT" | "PROJECT" | "DOCUMENT" | "COMMENT";
+export type EntityType = "TASK" | "CLIENT" | "PROJECT" | "DOCUMENT" | "COMMENT" | "SONIA_KNOWLEDGE";
 
 const MAX_INPUT_CHARS = 8000;
 

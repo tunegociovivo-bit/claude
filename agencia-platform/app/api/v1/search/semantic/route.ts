@@ -64,7 +64,8 @@ export const GET = withApi({ scope: "tasks:read" }, async (req, { api }) => {
     CLIENT: [],
     PROJECT: [],
     DOCUMENT: [],
-    COMMENT: []
+    COMMENT: [],
+    SONIA_KNOWLEDGE: []
   };
   for (const h of hits) byType[h.entityType].push(h.entityId);
 

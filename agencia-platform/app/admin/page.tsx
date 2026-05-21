@@ -13,6 +13,7 @@ import {
   Users,
   Sparkles,
   PencilLine,
+  BookOpen,
   FolderKanban,
   Star,
   Mic,
@@ -90,6 +91,13 @@ const SECTIONS: AdminSection[] = [
         description:
           "Init de Sonia en el workspace: crear el user IA, proyecto buzón, modelo Claude, max steps por run.",
         icon: Bot
+      },
+      {
+        href: "/admin/sonia-knowledge",
+        title: "Conocimiento de Sonia",
+        description:
+          "Escribe textos de aprendizaje y sube documentos de clientes. Sonia los indexa y los usa para responder tus preguntas en el chat.",
+        icon: BookOpen
       },
       {
         href: "/admin/sonia-voice-test",

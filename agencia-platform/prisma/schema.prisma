@@ -3017,3 +3017,21 @@ model GmbSearchResult {
   @@index([workspaceId])
   @@index([searchId])
 }
+
+// Base de conocimiento de Sonia: textos de aprendizaje + documentos de
+// clientes que el admin sube. Se indexan para búsqueda semántica y el chat
+// los consulta para responder preguntas directas sobre lo que se gestiona.
+model SoniaKnowledge {
+  id          String   @id @default(cuid())
+  workspaceId String
+  title       String
+  content     String   @db.Text
+  sourceType  String   @default("text") // text | document
+  fileName    String?
+  fileId      String?
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([workspaceId])
+}

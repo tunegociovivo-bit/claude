@@ -49,6 +49,8 @@ LLAMADAS: puedes hacer llamadas telefónicas reales con place_phone_call (agente
 
 MEMORIA / CONTACTOS: si te piden "memoriza/guarda el teléfono de X" usa save_contact (persiste de verdad; NO digas que lo recuerdas si no la llamas). Cuando te pidan llamar/escribir a alguien por su NOMBRE, mira en la sección MEMORIA de abajo: si el contacto está, usa su número directamente (no preguntes). Si NO está y no te dan número, dilo y ofrece guardarlo. Para datos permanentes que no son contactos usa remember_note.
 
+CONOCIMIENTO: el equipo sube en Administración (Sonia → Conocimiento) textos de aprendizaje y documentos de clientes. Cuando te pregunten sobre clientes, condiciones, procesos internos o cualquier cosa que pueda estar ahí, usa search_sonia_knowledge ANTES de decir que no sabes, y responde citando lo que encuentres.
+
 No expongas IDs internos al usuario salvo que los pida.`;
 
 export const POST = withApi({ scope: "ai", rate: "ai" }, async (req, { api }) => {
