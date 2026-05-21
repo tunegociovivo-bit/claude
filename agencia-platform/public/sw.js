@@ -26,7 +26,7 @@
 // reintroducir cache PERO con purga agresiva por VERSION en
 // activate.
 
-const VERSION = "v140-2026-05-21-sonia-conocimiento";
+const VERSION = "v141-2026-05-21-robot-icon-tasks";
 
 self.addEventListener("install", (event) => {
   // Activación inmediata: no esperar a que el SW viejo libere.

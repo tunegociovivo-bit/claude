@@ -201,11 +201,12 @@ async function handler(api: any, ids: string[]) {
         return {
           taskId: id,
           aiStatus: "ai_replied" as const,
+          workedByAi: true,
           lastAiCommentAt: lastComment!.createdAt.toISOString(),
           lastAiCommentPreview: lastComment!.body.slice(0, 140)
         };
       }
-      return { taskId: id, aiStatus: null };
+      return { taskId: id, aiStatus: null, workedByAi: false };
     }
     const escalation = extractEscalationFromLog(r.log);
     let visual:
@@ -258,6 +259,10 @@ async function handler(api: any, ids: string[]) {
     return {
       taskId: id,
       aiStatus: visual,
+      // Persistente: la tarea tiene historial de Sonia (algún run), aunque
+      // el estado visual ya esté null (revisada/cerrada). Lo usa la UI para
+      // marcar con un icono de robot las tareas que gestiona Sonia.
+      workedByAi: true,
       runId: r.id,
       runStatus: r.status,
       startedAt: (r.startedAt ?? r.createdAt).toISOString(),

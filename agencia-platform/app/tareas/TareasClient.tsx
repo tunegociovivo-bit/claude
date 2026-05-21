@@ -69,6 +69,10 @@ type AiStatusInfo = {
     | "claude_working"
     | "failed"
     | null;
+  /** La tarea tiene historial de Sonia (algún run o comentario suyo),
+   *  aunque el estado visual ya sea null. Marca persistente para el
+   *  icono de robot en la card. */
+  workedByAi?: boolean;
   runId?: string;
   runStatus?: string;
   startedAt?: string;
@@ -402,9 +406,13 @@ export default function TareasClient({
         if (cancelled) return;
         const next: Record<string, AiStatusInfo> = {};
         for (const it of data.items ?? []) {
-          if (it.aiStatus) {
+          // Incluimos la task si tiene estado visual activo O si Sonia ya la
+          // ha trabajado (workedByAi) — esto último para pintar el robot
+          // persistente aunque el estado visual ya sea null.
+          if (it.aiStatus || it.workedByAi) {
             next[it.taskId] = {
-              aiStatus: it.aiStatus,
+              aiStatus: it.aiStatus ?? null,
+              workedByAi: !!it.workedByAi,
               runId: it.runId,
               runStatus: it.runStatus,
               startedAt: it.startedAt,
@@ -1962,7 +1970,17 @@ function TaskCard({
         </button>
       )}
       <div className="flex items-start justify-between gap-2 mb-2 pr-8">
-        <p className="text-sm font-medium leading-snug">{task.title}</p>
+        <div className="flex items-start gap-1.5 min-w-0">
+          {aiInfo?.workedByAi && (
+            <span
+              className="shrink-0 mt-0.5 inline-flex items-center justify-center h-4 w-4 rounded bg-violet-100 text-violet-700 ring-1 ring-violet-200"
+              title="Tarea gestionada por Sonia"
+            >
+              <Bot className="h-3 w-3" />
+            </span>
+          )}
+          <p className="text-sm font-medium leading-snug">{task.title}</p>
+        </div>
         {(task.priority === "alta" || task.priority === "urgencia") && (
           <span className={`shrink-0 text-xs uppercase tracking-wide px-2.5 py-1 rounded-md ${priorityColors[task.priority]}`}>
             {priorityLabels[task.priority]}
@@ -1982,10 +2000,12 @@ function TaskCard({
           />
         </div>
       )}
-      <div className="flex items-center gap-2 text-xs text-slate-500 mb-3">
-        <span className={`inline-block h-2 w-2 rounded-full ${project?.color ?? "bg-slate-300"}`} />
-        <span className="truncate">{client?.name ?? project?.name}</span>
-      </div>
+      {client?.name && (
+        <div className="flex items-center gap-2 text-xs text-slate-500 mb-3">
+          <span className={`inline-block h-2 w-2 rounded-full ${project?.color ?? "bg-slate-300"}`} />
+          <span className="truncate">{client.name}</span>
+        </div>
+      )}
       {task.tags?.length > 0 && (
         <div className="flex flex-wrap gap-1 mb-3">
           {task.tags.map((tag) => (
