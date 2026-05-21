@@ -554,11 +554,14 @@ async function loadProjectSelectors() {
     }
     _projectsCache = resp.projects;
   }
-  // Mantenemos selección si ya había una válida
+  // Mantenemos selección si ya había una válida; si no, por defecto
+  // "NEGOCIO VIVO GENERAL".
   const prevProj = projSel.value;
   projSel.innerHTML = _projectsCache
     .map((p) => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join("");
+  const defaultProj = _projectsCache.find((p) => normLabel(p.name).includes("NEGOCIO VIVO GENERAL"));
   if (prevProj && _projectsCache.some((p) => p.id === prevProj)) projSel.value = prevProj;
+  else if (defaultProj) projSel.value = defaultProj.id;
 
   function syncCols() {
     const p = _projectsCache.find((x) => x.id === projSel.value);
@@ -571,9 +574,18 @@ async function loadProjectSelectors() {
           { id: "DONE", label: "Hecho" }
         ];
     colSel.innerHTML = cols.map((c) => `<option value="${escapeHtml(c.id)}">${escapeHtml(c.label)}</option>`).join("");
+    // Columna por defecto: "TAREAS URGENTES".
+    const defCol = cols.find((c) => normLabel(c.label).includes("TAREAS URGENTES"))
+      ?? cols.find((c) => normLabel(c.label).includes("URGENTE"));
+    if (defCol) colSel.value = defCol.id;
   }
   projSel.onchange = syncCols;
   syncCols();
+}
+
+// Normaliza etiquetas para comparar (mayúsculas, sin acentos).
+function normLabel(s) {
+  return String(s ?? "").toUpperCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim();
 }
 
 function escapeHtml(s) {

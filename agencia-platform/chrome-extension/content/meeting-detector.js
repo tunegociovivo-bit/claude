@@ -65,7 +65,87 @@
     if (msg?.from === "sw" && msg?.type === "live-suggestions") {
       showLiveSuggestions(msg.suggestions ?? []);
     }
+    if (msg?.from === "sw" && msg?.type === "show-recording-widget") {
+      mountRecordingWidget(msg.startedAt);
+    }
+    if (msg?.from === "sw" && msg?.type === "hide-recording-widget") {
+      unmountRecordingWidget();
+    }
   });
+
+  // ─────────────────────────────────────────────────────────────────
+  // Widget "grabando en curso" — cronómetro + botón Detener, siempre
+  // visible arriba en el centro mientras la extensión graba esta
+  // pestaña. Resuelve que el user no veía que seguía grabando tras
+  // acabar la reunión (se colaba charla de oficina en el resumen).
+  // ─────────────────────────────────────────────────────────────────
+  const REC_ID = "__nv-hub-recording-widget__";
+  let recTimer = null;
+  let recStartedAt = 0;
+
+  function mountRecordingWidget(startedAt) {
+    recStartedAt = Number(startedAt) || Date.now();
+    let host = document.getElementById(REC_ID);
+    if (!host) {
+      host = document.createElement("div");
+      host.id = REC_ID;
+      host.style.cssText =
+        "position:fixed;top:14px;left:50%;transform:translateX(-50%);z-index:2147483647;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;";
+      const shadow = host.attachShadow({ mode: "open" });
+      shadow.innerHTML = `
+        <style>
+          .bar { display:flex; align-items:center; gap:12px; background:#0f172a; color:#fff; border-radius:999px; padding:8px 10px 8px 16px; box-shadow:0 12px 30px -6px rgba(0,0,0,.45); font-size:13px; animation:in .25s ease-out; }
+          @keyframes in { from { transform:translateY(-12px); opacity:0 } to { transform:translateY(0); opacity:1 } }
+          .dot { width:10px; height:10px; border-radius:50%; background:#ef4444; animation:pulse 1.2s infinite; }
+          @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.35;transform:scale(.75)} }
+          .label { font-weight:600; white-space:nowrap; }
+          .time { font-variant-numeric:tabular-nums; opacity:.85; min-width:44px; text-align:center; }
+          button { background:#ef4444; color:#fff; border:0; border-radius:999px; padding:7px 14px; font-weight:700; font-size:12px; cursor:pointer; font-family:inherit; display:flex; align-items:center; gap:5px; transition:background .15s; white-space:nowrap; }
+          button:hover { background:#dc2626; }
+          button:disabled { background:#64748b; cursor:default; }
+        </style>
+        <div class="bar">
+          <span class="dot"></span>
+          <span class="label">Grabando reunión</span>
+          <span class="time" id="rw-time">00:00</span>
+          <button id="rw-stop">■ Detener y subir</button>
+        </div>
+      `;
+      document.documentElement.appendChild(host);
+      shadow.getElementById("rw-stop").onclick = () => {
+        const btn = shadow.getElementById("rw-stop");
+        btn.disabled = true;
+        btn.textContent = "Subiendo…";
+        try {
+          chrome.runtime.sendMessage({ from: "content", type: "stop-from-widget" });
+        } catch {}
+      };
+    }
+    if (recTimer) clearInterval(recTimer);
+    const tick = () => {
+      const h = document.getElementById(REC_ID);
+      if (!h || !h.shadowRoot) {
+        if (recTimer) clearInterval(recTimer);
+        return;
+      }
+      const sec = Math.max(0, Math.floor((Date.now() - recStartedAt) / 1000));
+      const m = String(Math.floor(sec / 60)).padStart(2, "0");
+      const s = String(sec % 60).padStart(2, "0");
+      const el = h.shadowRoot.getElementById("rw-time");
+      if (el) el.textContent = `${m}:${s}`;
+    };
+    tick();
+    recTimer = setInterval(tick, 1000);
+  }
+
+  function unmountRecordingWidget() {
+    if (recTimer) {
+      clearInterval(recTimer);
+      recTimer = null;
+    }
+    const host = document.getElementById(REC_ID);
+    if (host) host.remove();
+  }
 
   function tryMountBanner() {
     if (bannerOpen) return;
@@ -201,6 +281,10 @@
       const cancelBtn = shadow.getElementById("cancel-btn");
       const errEl = shadow.getElementById("err");
 
+      // Proyecto por defecto: "NEGOCIO VIVO GENERAL".
+      const defProj = projects.find((p) => normLabel(p.name).includes("NEGOCIO VIVO GENERAL"));
+      if (defProj) projSel.value = defProj.id;
+
       function syncColumns() {
         const proj = projects.find((p) => p.id === projSel.value);
         const cols = Array.isArray(proj?.kanbanColumns) && proj.kanbanColumns.length > 0
@@ -212,6 +296,10 @@
               { id: "DONE", label: "Hecho" }
             ];
         colSel.innerHTML = cols.map((c) => `<option value="${escapeAttr(c.id)}">${escapeText(c.label)}</option>`).join("");
+        // Columna por defecto: "TAREAS URGENTES".
+        const defCol = cols.find((c) => normLabel(c.label).includes("TAREAS URGENTES"))
+          ?? cols.find((c) => normLabel(c.label).includes("URGENTE"));
+        if (defCol) colSel.value = defCol.id;
       }
       projSel.onchange = syncColumns;
       syncColumns();
@@ -306,4 +394,7 @@
     return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   }
   function escapeText(s) { return escapeAttr(s); }
+  function normLabel(s) {
+    return String(s ?? "").toUpperCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim();
+  }
 })();

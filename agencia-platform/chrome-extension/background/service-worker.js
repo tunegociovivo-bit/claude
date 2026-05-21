@@ -202,6 +202,42 @@ const SILENCE_LEVEL = 8;
 const SILENCE_MIN = 3;
 const ASK_COOLDOWN_MS = 60_000 * 5;
 
+// Widget flotante "grabando" en la pestaña de la reunión (cronómetro +
+// botón Detener). Lo pinta el content-script; aquí solo mandamos
+// show/hide. Sin esto el user no sabía que seguía grabando tras acabar
+// la reunión y se colaba charla de oficina en el resumen.
+function showRecordingWidget(tabId, startedAt) {
+  if (tabId == null) return;
+  try {
+    chrome.tabs
+      .sendMessage(tabId, { from: "sw", type: "show-recording-widget", startedAt })
+      .catch(() => {});
+  } catch {}
+}
+function hideRecordingWidget(tabId) {
+  if (tabId == null) return;
+  try {
+    chrome.tabs.sendMessage(tabId, { from: "sw", type: "hide-recording-widget" }).catch(() => {});
+  } catch {}
+}
+// Badge "REC" rojo en el icono mientras se graba; al parar, restauramos
+// el contador de notificaciones sin leer.
+async function setRecordingBadge(on, tabId) {
+  try {
+    if (on) {
+      await chrome.action.setBadgeBackgroundColor({ color: "#ef4444" });
+      if (tabId != null) await chrome.action.setBadgeText({ text: "REC", tabId });
+      await chrome.action.setBadgeText({ text: "REC" });
+    } else {
+      if (tabId != null) await chrome.action.setBadgeText({ text: "", tabId });
+      const { notifications } = await getState();
+      const unread = notifications.filter((n) => !n.read).length;
+      await chrome.action.setBadgeBackgroundColor({ color: "#dc2626" });
+      await chrome.action.setBadgeText({ text: unread > 0 ? String(unread) : "" });
+    }
+  } catch {}
+}
+
 function detectMeetingPlatform(url) {
   const u = (url ?? "").toLowerCase();
   if (u.includes("meet.google.com")) return "meet";
@@ -262,6 +298,11 @@ async function startRecording(opts = {}) {
   // pinta el timer + botón Detener instantáneamente. Antes ocurría
   // después de leer cookie + live-start, lo que daba 1-3s de "limbo".
   await setState({ state: "recording", lastError: null });
+
+  // Indicador visible permanente: widget flotante en la pestaña + badge
+  // "REC". Así el user ve el cronómetro y puede parar sin abrir el popup.
+  showRecordingWidget(recordingCtx.tabId, recordingCtx.startedAt);
+  await setRecordingBadge(true, recordingCtx.tabId);
 
   // Leemos la cookie de sesión del Hub UNA vez y se la pasamos al
   // offscreen para que la mande como Authorization Bearer en la
@@ -325,6 +366,10 @@ async function stopRecording() {
     await setState({ state: "idle", lastError: null });
     return;
   }
+  // Quitamos el widget flotante y el badge "REC" en cuanto se para.
+  const widgetTabId = recordingCtx?.tabId ?? null;
+  hideRecordingWidget(widgetTabId);
+  await setRecordingBadge(false, widgetTabId);
   chrome.runtime.sendMessage({ target: "offscreen", type: "stop-recording" }).catch(() => {});
   await setState({ state: "uploading" });
   // Watchdog: si en 6 min no ha llegado upload-result (fetch colgado, SW
@@ -561,6 +606,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       catch (e) { sendResponse({ ok: false, error: String(e?.message ?? e) }); }
       return;
     }
+    if (msg?.from === "content" && msg?.type === "stop-from-widget") {
+      // Botón "Detener" del widget flotante en la pestaña de la reunión.
+      try { await stopRecording(); sendResponse({ ok: true }); }
+      catch (e) { sendResponse({ ok: false, error: String(e?.message ?? e) }); }
+      return;
+    }
     if (msg?.from === "popup" && msg?.type === "mark-notifications-read") {
       await markAllRead();
       sendResponse({ ok: true });
@@ -596,6 +647,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       return;
     }
     if (msg?.from === "offscreen" && msg?.type === "upload-result") {
+      hideRecordingWidget(recordingCtx?.tabId ?? null);
+      await setRecordingBadge(false, recordingCtx?.tabId ?? null);
       recordingCtx = null;
       try { chrome.alarms.clear("upload-watchdog"); } catch {}
       chrome.notifications.clear("meeting-ended-prompt");
@@ -755,6 +808,8 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
     // Sacamos el estado de bloqueo para que el popup vuelva a ser usable.
     const s = await getState();
     if (s.state === "uploading") {
+      hideRecordingWidget(recordingCtx?.tabId ?? null);
+      await setRecordingBadge(false, recordingCtx?.tabId ?? null);
       recordingCtx = null;
       await setState({
         state: "error",
