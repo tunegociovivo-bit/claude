@@ -17,6 +17,7 @@ import { prisma } from "@/lib/db/prisma";
 import {
   deleteMetaConnection,
   pingMetaToken,
+  readWorkspaceMetaToken,
   saveMetaToken
 } from "@/lib/meta/connection";
 import { auditFromReq } from "@/lib/audit/log";
@@ -28,13 +29,24 @@ export const GET = withApi({}, async (_req, { api }) => {
   const conn = await prisma.metaConnection.findUnique({
     where: { userId_workspaceId: { userId: api.userId, workspaceId: api.workspaceId } }
   });
-  if (!conn) return NextResponse.json({ connected: false });
-  return NextResponse.json({
-    connected: true,
-    metaUserId: conn.metaUserId,
-    expiresAt: conn.expiresAt,
-    createdAt: conn.createdAt
-  });
+  // Conexión propia del usuario y vigente.
+  if (conn && !(conn.expiresAt && conn.expiresAt < new Date())) {
+    return NextResponse.json({
+      connected: true,
+      metaUserId: conn.metaUserId,
+      expiresAt: conn.expiresAt,
+      createdAt: conn.createdAt
+    });
+  }
+  // Sin conexión propia (o caducada): si el workspace ya tiene un token
+  // permanente guardado (System User que no caduca, o ad-hoc), seguimos
+  // "conectados" — se crearán las campañas con ese token sin tener que
+  // volver a pegarlo.
+  const wsToken = await readWorkspaceMetaToken(api.workspaceId);
+  if (wsToken) {
+    return NextResponse.json({ connected: true, shared: true });
+  }
+  return NextResponse.json({ connected: false });
 });
 
 const postSchema = z.object({

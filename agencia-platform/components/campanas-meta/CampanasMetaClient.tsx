@@ -33,7 +33,7 @@ const STATUS_LABEL: Record<string, { label: string; color: string }> = {
 
 export default function CampanasMetaClient() {
   const [items, setItems] = useState<CampaignRow[] | null>(null);
-  const [connected, setConnected] = useState<{ connected: boolean; metaUserId?: string } | null>(null);
+  const [connected, setConnected] = useState<{ connected: boolean; metaUserId?: string; shared?: boolean } | null>(null);
   const [wizardOpen, setWizardOpen] = useState(false);
   const [tokenOpen, setTokenOpen] = useState(false);
 
@@ -94,9 +94,15 @@ export default function CampanasMetaClient() {
           )}
           <div className="flex-1">
             {connected.connected ? (
-              <>
-                Conexión con Meta activa (id: {connected.metaUserId ?? "—"}). Ya puedes crear campañas.
-              </>
+              connected.shared ? (
+                <>
+                  Conexión con Meta activa usando el <strong>token permanente guardado</strong> del workspace. Ya puedes crear campañas (o pega tu propio token en "Conexión Meta" si prefieres).
+                </>
+              ) : (
+                <>
+                  Conexión con Meta activa (id: {connected.metaUserId ?? "—"}). Ya puedes crear campañas.
+                </>
+              )
             ) : (
               <>
                 <strong>Sin conexión con Meta.</strong> Antes de crear campañas tienes que pegar

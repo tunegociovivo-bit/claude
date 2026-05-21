@@ -85,7 +85,7 @@ const earlyInstallCapture = `
  */
 const swSelfHeal = `
   (function () {
-    var EXPECTED = "v141-2026-05-21-robot-icon-tasks";
+    var EXPECTED = "v142-2026-05-21-meta-token-fallback";
     if (!('serviceWorker' in navigator)) return;
     var key = "hub_sw_v_seen";
     var seen = null;

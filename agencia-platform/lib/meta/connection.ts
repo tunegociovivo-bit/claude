@@ -77,6 +77,42 @@ export async function readMetaToken(
   return decryptSecret(conn.accessTokenEnc);
 }
 
+/**
+ * Token Meta a nivel de WORKSPACE (no por usuario): "el token que no
+ * caduca que ya tienes guardado". Lo resuelve de dos sitios, en orden:
+ *   1. Cualquier MetaConnection vigente del workspace (la System User
+ *      que pegó alguien — vale para todos).
+ *   2. La credencial ad-hoc META_ADS_TOKEN guardada en el workspace.
+ *
+ * Sirve para que, si el usuario actual NO añade su propio token en el
+ * modal de "Conexión Meta", se pueda crear/lanzar la campaña con el
+ * token permanente ya guardado.
+ */
+export async function readWorkspaceMetaToken(workspaceId: string): Promise<string | null> {
+  const conns = await prisma.metaConnection.findMany({
+    where: { workspaceId },
+    orderBy: { createdAt: "desc" }
+  });
+  const now = new Date();
+  const valid = conns.find((c) => !c.expiresAt || c.expiresAt > now);
+  if (valid) {
+    try {
+      const t = decryptSecret(valid.accessTokenEnc);
+      if (t) return t;
+    } catch {
+      /* sigue al fallback ad-hoc */
+    }
+  }
+  try {
+    const { loadStoredAdhocCredentials } = await import("@/lib/ai/nv-ia/adhoc-credentials");
+    const adhoc = await loadStoredAdhocCredentials(workspaceId);
+    if (adhoc.META_ADS_TOKEN) return adhoc.META_ADS_TOKEN;
+  } catch {
+    /* best-effort */
+  }
+  return null;
+}
+
 export async function deleteMetaConnection(userId: string, workspaceId: string): Promise<void> {
   await prisma.metaConnection.deleteMany({ where: { userId, workspaceId } });
 }

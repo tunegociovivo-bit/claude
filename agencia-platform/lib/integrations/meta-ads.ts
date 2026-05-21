@@ -13,6 +13,7 @@
 
 import { prisma } from "@/lib/db/prisma";
 import { decryptSecret } from "@/lib/ai/crypto";
+import { loadStoredAdhocCredentials } from "@/lib/ai/nv-ia/adhoc-credentials";
 
 const GRAPH = "https://graph.facebook.com/v19.0";
 
@@ -67,12 +68,23 @@ async function getMetaAdsConfig(
     // La mejor conexión NO caducada del workspace (prefiere el token que
     // no caduca sobre una OAuth vencida aunque ésta sea más reciente).
     const conn = await pickMetaConnection(workspaceId);
-    if (!conn) throw new Error("MetaConnection no configurada en el workspace (y no hay META_ADS_TOKEN ad-hoc en la tarea)");
-    if (conn.expiresAt && conn.expiresAt < new Date()) {
-      throw new Error("MetaConnection caducada — reconecta Meta o pega un META_ADS_TOKEN temporal en la tarea");
+    if (conn && !(conn.expiresAt && conn.expiresAt < new Date())) {
+      accessToken = decryptSecret(conn.accessTokenEnc);
     }
-    accessToken = decryptSecret(conn.accessTokenEnc);
-    if (!accessToken) throw new Error("MetaConnection token inválido");
+    // Fallback: el token permanente guardado como ad-hoc a nivel
+    // workspace (System User que no caduca). Así, si el usuario no añade
+    // su propio token, se usa el que ya hay guardado.
+    if (!accessToken) {
+      const stored = await loadStoredAdhocCredentials(workspaceId);
+      if (stored.META_ADS_TOKEN) accessToken = stored.META_ADS_TOKEN;
+    }
+    if (!accessToken) {
+      throw new Error(
+        conn && conn.expiresAt && conn.expiresAt < new Date()
+          ? "MetaConnection caducada — reconecta Meta o pega un token permanente en /campanas-meta"
+          : "No hay token de Meta configurado — pega tu Access Token en /campanas-meta (Conexión Meta)"
+      );
+    }
   }
 
   if (adhocAccount) {
@@ -120,11 +132,14 @@ async function getMetaAdsConfig(
 async function resolveMetaToken(workspaceId: string, adhoc?: Record<string, string>): Promise<string> {
   if (adhoc?.META_ADS_TOKEN) return adhoc.META_ADS_TOKEN;
   const conn = await pickMetaConnection(workspaceId);
-  if (!conn) throw new Error("MetaConnection no configurada en el workspace");
-  if (conn.expiresAt && conn.expiresAt < new Date()) throw new Error("MetaConnection caducada — reconecta Meta");
-  const t = decryptSecret(conn.accessTokenEnc);
-  if (!t) throw new Error("MetaConnection token inválido");
-  return t;
+  if (conn && !(conn.expiresAt && conn.expiresAt < new Date())) {
+    const t = decryptSecret(conn.accessTokenEnc);
+    if (t) return t;
+  }
+  // Fallback: token permanente guardado como ad-hoc (System User).
+  const stored = await loadStoredAdhocCredentials(workspaceId);
+  if (stored.META_ADS_TOKEN) return stored.META_ADS_TOKEN;
+  throw new Error("No hay token de Meta configurado — pega tu Access Token en /campanas-meta (Conexión Meta)");
 }
 
 /**
