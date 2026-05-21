@@ -273,6 +273,13 @@ type StoredCredsMap = Record<string, StoredCredEntry>;
  * Si el descifrado falla para alguna entrada (key cambió, datos
  * corruptos), esa entrada se omite silenciosamente — no rompe.
  */
+// Claves que NO deben persistir/heredarse entre tareas: son específicas de
+// la cuenta/contexto de UNA tarea, no credenciales reutilizables. Si se
+// guardan a nivel workspace, una tarea de la cuenta A "contamina" otra de la
+// cuenta B (ej: el ad account de Rentas colándose en la tarea de M&M Travel).
+// El TOKEN sí es reutilizable y sí persiste; el ID de cuenta no.
+const NON_PERSISTENT_KEYS = new Set(["META_ADS_AD_ACCOUNT_ID"]);
+
 export async function loadStoredAdhocCredentials(
   workspaceId: string
 ): Promise<Record<string, string>> {
@@ -284,6 +291,9 @@ export async function loadStoredAdhocCredentials(
   if (!stored || typeof stored !== "object") return {};
   const out: Record<string, string> = {};
   for (const [key, entry] of Object.entries(stored)) {
+    // No heredamos claves específicas de cuenta entre tareas (aunque
+    // quedaran guardadas de versiones anteriores) — evita interferencias.
+    if (NON_PERSISTENT_KEYS.has(key)) continue;
     try {
       const v = decryptSecret(entry.enc);
       if (v) out[key] = v;
@@ -317,6 +327,8 @@ export async function persistAdhocCredentials(
   const nowIso = new Date().toISOString();
   for (const [key, value] of Object.entries(creds)) {
     if (!value || value.length < 8) continue;
+    // No persistimos claves específicas de cuenta/contexto de una tarea.
+    if (NON_PERSISTENT_KEYS.has(key)) continue;
     stored[key] = {
       enc: encryptSecret(value),
       updatedAt: nowIso,
