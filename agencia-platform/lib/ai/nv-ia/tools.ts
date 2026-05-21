@@ -923,7 +923,8 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
         objective: { type: "string", description: "Objetivo de la campaign." },
         dailyBudgetEur: { type: "number" },
         lifetimeBudgetEur: { type: "number", description: "Alternativo a dailyBudgetEur." },
-        status: { type: "string", enum: ["PAUSED", "ACTIVE"] }
+        status: { type: "string", enum: ["PAUSED", "ACTIVE"] },
+        forceCreate: { type: "boolean", description: "Crea una campaña nueva aunque esta task ya tenga una registrada (salta el dedupe). Útil si la anterior se borró o quieres un A/B." }
       },
       required: ["name", "objective"],
       additionalProperties: false
@@ -4333,14 +4334,26 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
       if (!input?.forceCreate) {
         const state = await readResources(ctx.taskId);
         if (state.meta_ads?.campaignId) {
-          return {
-            ok: true,
-            id: state.meta_ads.campaignId,
-            name: state.meta_ads.campaignName,
-            deduped: true,
-            message:
-              "REUSING existing campaign from this task. Pass forceCreate:true if you really want a new one."
-          };
+          // Solo reutilizamos si la campaña SIGUE viva en Meta. Si está
+          // borrada/archivada (Meta no deja añadir adsets), la ignoramos y
+          // creamos una nueva — sin esto la task se quedaba en bucle.
+          const { metaAdsCampaignUsable } = await import("@/lib/integrations/meta-ads");
+          const usable = await metaAdsCampaignUsable({
+            workspaceId: ctx.workspaceId,
+            campaignId: state.meta_ads.campaignId,
+            adhoc: ctx.adhocCredentials
+          });
+          if (usable) {
+            return {
+              ok: true,
+              id: state.meta_ads.campaignId,
+              name: state.meta_ads.campaignName,
+              deduped: true,
+              message:
+                "REUSING existing campaign from this task. Pass forceCreate:true if you really want a new one."
+            };
+          }
+          // No usable → seguimos y creamos una nueva (se sobrescribe el registro).
         }
       }
       const { metaAdsCreateCampaign } = await import("@/lib/integrations/meta-ads");
@@ -4353,8 +4366,11 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
         status: input?.status === "ACTIVE" ? "ACTIVE" : "PAUSED",
         adhoc: ctx.adhocCredentials
       });
+      // Campaña nueva → limpiamos adset/ad viejos del registro (pertenecían a
+      // la campaña anterior; si los dejáramos, el dedupe de adset/ad los
+      // devolvería y fallarían por estar bajo una campaña distinta/borrada).
       await recordResources(ctx.taskId, {
-        meta_ads: { campaignId: r.id, campaignName: r.name }
+        meta_ads: { campaignId: r.id, campaignName: r.name, adsetId: undefined, adId: undefined }
       });
       return { ok: true, ...r };
     } catch (e: any) {

@@ -764,6 +764,29 @@ export async function metaAdsCreateCampaign(opts: {
   return { id: data.id, name: opts.name };
 }
 
+/**
+ * Devuelve false si la campaña está borrada/archivada o no es accesible.
+ * Lo usa el dedupe por task_id para no devolver una campaña DELETED (Meta no
+ * deja añadir adsets a campañas borradas → la task se quedaba atascada).
+ */
+export async function metaAdsCampaignUsable(opts: {
+  workspaceId: string;
+  campaignId: string;
+  adhoc?: Record<string, string>;
+}): Promise<boolean> {
+  try {
+    const token = await resolveMetaToken(opts.workspaceId, opts.adhoc);
+    const data = await metaFetch<any>(
+      `${GRAPH}/${opts.campaignId}?fields=configured_status,effective_status`,
+      token
+    );
+    const st = String(data?.configured_status ?? data?.effective_status ?? "");
+    return st !== "DELETED" && st !== "ARCHIVED";
+  } catch {
+    return false;
+  }
+}
+
 export async function metaAdsUpdateCampaign(opts: {
   workspaceId: string;
   campaignId: string;
