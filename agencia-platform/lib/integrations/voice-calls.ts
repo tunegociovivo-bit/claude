@@ -65,10 +65,11 @@ export async function startVoiceCall(opts: {
   const assistantOverrides: any = { variableValues };
   if (name) {
     variableValues.customerName = name;
-    // Sobrescribimos la primera frase para saludar por su nombre en vez
-    // de "¿hablo con la persona indicada?". El resto del guion/persona
-    // (voz, tono) sigue viniendo del asistente configurado en Vapi.
-    assistantOverrides.firstMessage = `Hola, ¿hablo con ${name}?`;
+    // Solo el nombre de pila para el saludo ("Hola, ¿hablo con David?") —
+    // suena más natural y cercano que el nombre completo. El resto del
+    // guion/persona (voz, tono) sigue viniendo del asistente de Vapi.
+    const firstName = name.split(/\s+/)[0];
+    assistantOverrides.firstMessage = `Hola, ¿hablo con ${firstName}?`;
   }
 
   const resp = await fetch("https://api.vapi.ai/call", {
