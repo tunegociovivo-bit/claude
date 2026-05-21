@@ -1122,6 +1122,66 @@ chatTools.push({
   }
 });
 
+chatTools.push({
+  name: "save_contact",
+  description:
+    "Guarda (memoriza) un contacto con su teléfono para futuras llamadas/mensajes. Úsala cuando el usuario diga 'memoriza/guarda el teléfono de X', 'apunta el contacto de Y', etc. Persiste de forma permanente en el workspace, así que en chats futuros podrás llamar a esa persona por su nombre sin que te repitan el número.",
+  input_schema: {
+    type: "object",
+    properties: {
+      name: { type: "string", description: "Nombre del contacto, p.ej. 'David Rios'." },
+      phone: { type: "string", description: "Teléfono con prefijo, p.ej. '+34680167881'." },
+      note: { type: "string", description: "Nota opcional (cargo, empresa, etc.)." }
+    },
+    required: ["name", "phone"]
+  },
+  run: async (args, ctx) => {
+    const name = String(args?.name ?? "").trim();
+    const phone = String(args?.phone ?? "").trim();
+    if (!name || !phone) return JSON.stringify({ error: "Falta nombre o teléfono." });
+    try {
+      const ws = await prisma.workspace.findUnique({ where: { id: ctx.workspaceId }, select: { settings: true } });
+      const settings: any = ws?.settings ?? {};
+      const contacts: any[] = Array.isArray(settings.contacts) ? settings.contacts : [];
+      const idx = contacts.findIndex((c) => (c?.name ?? "").toLowerCase().trim() === name.toLowerCase());
+      const entry = { name, phone, note: String(args?.note ?? "").trim() || undefined };
+      if (idx >= 0) contacts[idx] = entry;
+      else contacts.push(entry);
+      settings.contacts = contacts;
+      await prisma.workspace.update({ where: { id: ctx.workspaceId }, data: { settings } });
+      return JSON.stringify({ ok: true, message: `Contacto memorizado: ${name} → ${phone}. Ya puedo llamarle por su nombre en cualquier chat.` });
+    } catch (e: any) {
+      return JSON.stringify({ error: String(e?.message ?? e) });
+    }
+  }
+});
+
+chatTools.push({
+  name: "remember_note",
+  description:
+    "Memoriza un dato/preferencia permanente que el usuario te pide recordar y que no es un contacto (ej. 'recuerda que el presupuesto por defecto es 10€', 'mi NIF es...'). Persiste en el workspace y lo verás en chats futuros.",
+  input_schema: {
+    type: "object",
+    properties: { note: { type: "string", description: "El dato a recordar, en una frase." } },
+    required: ["note"]
+  },
+  run: async (args, ctx) => {
+    const note = String(args?.note ?? "").trim();
+    if (!note) return JSON.stringify({ error: "Nota vacía." });
+    try {
+      const ws = await prisma.workspace.findUnique({ where: { id: ctx.workspaceId }, select: { settings: true } });
+      const settings: any = ws?.settings ?? {};
+      const notes: string[] = Array.isArray(settings.soniaNotes) ? settings.soniaNotes : [];
+      if (!notes.includes(note)) notes.push(note);
+      settings.soniaNotes = notes.slice(-100);
+      await prisma.workspace.update({ where: { id: ctx.workspaceId }, data: { settings } });
+      return JSON.stringify({ ok: true, message: "Memorizado." });
+    } catch (e: any) {
+      return JSON.stringify({ error: String(e?.message ?? e) });
+    }
+  }
+});
+
 export const toolDefs = chatTools.map((t) => ({
   name: t.name,
   description: t.description,

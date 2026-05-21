@@ -5,6 +5,7 @@ import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { getAnthropicForWorkspace, AIDisabledError, DEFAULT_MODEL } from "@/lib/ai/anthropic";
 import { toolDefs, runTool, extractCardsFromTool, type HubCard } from "@/lib/ai/chat-tools";
+import { prisma } from "@/lib/db/prisma";
 
 const schema = z.object({
   messages: z
@@ -46,6 +47,8 @@ GMB (Google My Business / GMB Hub): gestionas las fichas de Google del workspace
 
 LLAMADAS: puedes hacer llamadas telefónicas reales con place_phone_call (agente de voz vía Vapi). Es 🔴 alto riesgo (habla con una persona y gasta dinero): úsala SOLO si el usuario te lo pide explícitamente y CONFIRMA antes el número + el objetivo. Si no está configurado, dile que lo active en /admin/voz.
 
+MEMORIA / CONTACTOS: si te piden "memoriza/guarda el teléfono de X" usa save_contact (persiste de verdad; NO digas que lo recuerdas si no la llamas). Cuando te pidan llamar/escribir a alguien por su NOMBRE, mira en la sección MEMORIA de abajo: si el contacto está, usa su número directamente (no preguntes). Si NO está y no te dan número, dilo y ofrece guardarlo. Para datos permanentes que no son contactos usa remember_note.
+
 No expongas IDs internos al usuario salvo que los pida.`;
 
 export const POST = withApi({ scope: "ai", rate: "ai" }, async (req, { api }) => {
@@ -60,6 +63,35 @@ export const POST = withApi({ scope: "ai", rate: "ai" }, async (req, { api }) =>
     if (e instanceof AIDisabledError) throw new ApiError(503, "ai_disabled", e.message);
     throw e;
   }
+
+  // Memoria persistente (contactos + notas) → al system, para que Sonia
+  // recuerde entre chats (al refrescar). Sin esto "memorizaba" de boquilla.
+  let memoryBlock = "";
+  try {
+    const ws = await prisma.workspace.findUnique({
+      where: { id: api.workspaceId },
+      select: { settings: true }
+    });
+    const s = (ws?.settings as any) ?? {};
+    const contacts = Array.isArray(s.contacts) ? s.contacts : [];
+    const notes = Array.isArray(s.soniaNotes) ? s.soniaNotes : [];
+    const parts: string[] = [];
+    if (contacts.length > 0) {
+      parts.push(
+        "CONTACTOS MEMORIZADOS (cuando te pidan llamar/escribir a alguien por su nombre, usa SU número de aquí sin volver a preguntarlo):\n" +
+          contacts
+            .map((c: any) => `- ${c.name}: ${c.phone}${c.note ? ` (${c.note})` : ""}`)
+            .join("\n")
+      );
+    }
+    if (notes.length > 0) {
+      parts.push("NOTAS MEMORIZADAS:\n" + notes.map((n: string) => `- ${n}`).join("\n"));
+    }
+    if (parts.length > 0) memoryBlock = "\n\n## MEMORIA\n" + parts.join("\n\n");
+  } catch {
+    /* sin memoria si falla */
+  }
+  const systemText = SYSTEM + memoryBlock;
 
   const messages: Anthropic.MessageParam[] = parsed.data.messages.map((m) => ({
     role: m.role,
@@ -86,7 +118,7 @@ export const POST = withApi({ scope: "ai", rate: "ai" }, async (req, { api }) =>
     const resp = await client.messages.create({
       model: DEFAULT_MODEL,
       max_tokens: 4096,
-      system: [{ type: "text", text: SYSTEM, cache_control: { type: "ephemeral" } }],
+      system: [{ type: "text", text: systemText, cache_control: { type: "ephemeral" } }],
       tools: toolDefs as any,
       messages
     });
