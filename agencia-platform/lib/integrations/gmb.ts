@@ -122,7 +122,7 @@ export async function gmbListAccounts(workspaceId: string) {
 export async function gmbListLocations(opts: { workspaceId: string; accountId: string }) {
   const token = await getAccessToken(opts.workspaceId);
   // readMask es OBLIGATORIO en businessinformation v1
-  const readMask = "name,title,storeCode,websiteUri,phoneNumbers,categories,storefrontAddress";
+  const readMask = "name,title,storeCode,websiteUri,phoneNumbers,categories,storefrontAddress,metadata";
   const data = await gFetch(
     token,
     `${INFO_BASE}/accounts/${opts.accountId}/locations?pageSize=100&readMask=${encodeURIComponent(readMask)}`
@@ -134,6 +134,11 @@ export async function gmbListLocations(opts: { workspaceId: string; accountId: s
     websiteUri: l.websiteUri,
     phone: l.phoneNumbers?.primaryPhone,
     primaryCategory: l.categories?.primaryCategory?.displayName,
+    // metadata.mapsUri trae el CID (?cid=…) y placeId — sirve para
+    // emparejar una ficha por su URL de Google (fid/cid) cuando la URL
+    // no lleva el nombre del negocio.
+    placeId: l.metadata?.placeId ?? null,
+    mapsUri: l.metadata?.mapsUri ?? null,
     address: l.storefrontAddress
       ? [
           ...(l.storefrontAddress.addressLines ?? []),

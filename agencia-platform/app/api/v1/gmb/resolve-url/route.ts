@@ -27,27 +27,34 @@ function norm(s: string): string {
     .trim();
 }
 
-/** Saca el nombre del negocio de una URL de Google (search o Maps). */
-function extractName(raw: string): string | null {
+/** Saca identificadores de una URL de Google (search, Maps o Business Profile). */
+function parseGoogleUrl(raw: string): { name: string | null; fid: string | null } {
   let u: URL;
   try {
     u = new URL(raw.trim());
   } catch {
-    return null;
+    return { name: null, fid: null };
   }
+  // business.google.com/n/<acc>/profile?fid=<CID> → la ficha viene por fid
+  // (= CID del negocio), sin nombre. También Maps a veces lleva ?cid=.
+  const fid = u.searchParams.get("fid") || u.searchParams.get("cid") || null;
+
   // Búsqueda de Google: ?q=Nombre+Del+Negocio
+  let name: string | null = null;
   const q = u.searchParams.get("q");
-  if (q && q.trim()) return q.trim();
-  // Google Maps: /maps/place/Nombre+Del+Negocio/@lat,lng,...
-  const m = u.pathname.match(/\/maps\/place\/([^/@]+)/);
-  if (m) {
-    try {
-      return decodeURIComponent(m[1].replace(/\+/g, " ")).trim();
-    } catch {
-      return m[1].replace(/\+/g, " ").trim();
+  if (q && q.trim()) name = q.trim();
+  if (!name) {
+    // Google Maps: /maps/place/Nombre+Del+Negocio/@lat,lng,...
+    const m = u.pathname.match(/\/maps\/place\/([^/@]+)/);
+    if (m) {
+      try {
+        name = decodeURIComponent(m[1].replace(/\+/g, " ")).trim();
+      } catch {
+        name = m[1].replace(/\+/g, " ").trim();
+      }
     }
   }
-  return null;
+  return { name, fid };
 }
 
 export const POST = withApi({ scope: "*" }, async (req, { api }) => {
@@ -55,18 +62,18 @@ export const POST = withApi({ scope: "*" }, async (req, { api }) => {
   const parsed = schema.safeParse(body);
   if (!parsed.success) throw new ApiError(400, "validation_error", parsed.error.message);
 
-  const rawName = extractName(parsed.data.url);
-  if (!rawName) {
+  const { name: rawName, fid } = parseGoogleUrl(parsed.data.url);
+  if (!rawName && !fid) {
     return NextResponse.json({
       ok: false,
       error:
-        "No pude leer el nombre del negocio de esa URL. Pega el enlace de la ficha de Google (búsqueda o Google Maps)."
+        "No pude leer datos de esa URL. Pega el enlace de la ficha de Google (búsqueda, Google Maps o Perfil de Empresa)."
     });
   }
 
   const out = {
     ok: true,
-    name: rawName,
+    name: rawName ?? "",
     category: "",
     accountId: "",
     locationId: "",
@@ -76,10 +83,12 @@ export const POST = withApi({ scope: "*" }, async (req, { api }) => {
 
   // Emparejar con las ubicaciones GMB gestionadas del workspace para sacar
   // categoría + Account/Location ID (que no se pueden deducir de la URL).
+  // - Por fid/CID: lo más fiable (la URL de Perfil de Empresa lo lleva).
+  // - Por nombre: si la URL trae el nombre del negocio.
   try {
     const { gmbListAccounts, gmbListLocations } = await import("@/lib/integrations/gmb");
     const accounts = await gmbListAccounts(api.workspaceId);
-    const target = norm(rawName);
+    const target = rawName ? norm(rawName) : "";
     let best: { score: number; accountId: string; loc: any } | null = null;
 
     for (const acc of accounts) {
@@ -90,22 +99,31 @@ export const POST = withApi({ scope: "*" }, async (req, { api }) => {
         continue;
       }
       for (const loc of locs) {
-        const t = norm(loc.title ?? "");
-        if (!t) continue;
         let score = 0;
-        if (t === target) score = 3;
-        else if (t.includes(target) || target.includes(t)) score = 2;
-        else {
-          // Coincidencia parcial por palabras (al menos 2 en común).
-          const tw = new Set(t.split(" "));
-          const common = target.split(" ").filter((w) => w.length > 2 && tw.has(w)).length;
-          if (common >= 2) score = 1;
+        // Coincidencia exacta por fid/CID (en mapsUri ?cid=… o placeId).
+        if (fid) {
+          const maps = String(loc.mapsUri ?? "");
+          if (maps.includes(fid) || String(loc.placeId ?? "") === fid || String(loc.locationId ?? "") === fid) {
+            score = 5;
+          }
+        }
+        if (score === 0 && target) {
+          const t = norm(loc.title ?? "");
+          if (t) {
+            if (t === target) score = 3;
+            else if (t.includes(target) || target.includes(t)) score = 2;
+            else {
+              const tw = new Set(t.split(" "));
+              const common = target.split(" ").filter((w) => w.length > 2 && tw.has(w)).length;
+              if (common >= 2) score = 1;
+            }
+          }
         }
         if (score > 0 && (!best || score > best.score)) {
           best = { score, accountId: acc.accountId, loc };
         }
       }
-      if (best?.score === 3) break;
+      if (best?.score === 5) break;
     }
 
     if (best) {
@@ -115,13 +133,14 @@ export const POST = withApi({ scope: "*" }, async (req, { api }) => {
       out.accountId = `accounts/${best.accountId}`;
       out.locationId = `accounts/${best.accountId}/locations/${best.loc.locationId}`;
     } else {
-      out.note =
-        "He rellenado el nombre, pero no encontré una ubicación que coincida en tu cuenta de Google Business Profile. Revisa el nombre o completa Account/Location ID a mano.";
+      out.note = rawName
+        ? "He rellenado el nombre, pero no encontré una ubicación que coincida en tu Google Business Profile. Revisa el nombre o completa Account/Location ID a mano."
+        : "No encontré esa ficha entre las ubicaciones de tu Google Business Profile. Comprueba que la cuenta conectada gestiona ese negocio.";
     }
   } catch (e: any) {
-    // GBP API no conectada o sin permisos: al menos devolvemos el nombre.
     out.note =
-      "He rellenado el nombre. Para autocompletar categoría y los GMB IDs, conecta Google Business Profile en los ajustes de GMB Hub.";
+      "Para autocompletar categoría y los GMB IDs necesito Google Business Profile conectado en los ajustes de GMB Hub." +
+      (rawName ? " De momento he rellenado el nombre." : "");
   }
 
   return NextResponse.json(out);
