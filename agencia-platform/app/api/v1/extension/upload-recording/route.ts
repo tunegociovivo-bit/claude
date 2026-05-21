@@ -239,6 +239,20 @@ export const POST = withApi({ scope: "tasks:write" }, async (req, { api }) => {
     );
   }
 
+  // Whisper, ante audio mudo o casi mudo, "alucina" textos típicos de relleno
+  // (créditos de subtítulos de Amara.org, "gracias por ver el vídeo", etc.) o
+  // repite una sola frase. Detectamos esos casos para NO crear una tarea
+  // inútil — avisamos al user de que no se captó audio real.
+  if (isSilentHallucination(transcript)) {
+    throw new ApiError(
+      422,
+      "silent_recording",
+      "La grabación salió muda: no se captó audio real (solo el relleno que Whisper inventa con silencio). " +
+        "La extensión graba el audio que SUENA en la pestaña (los demás participantes). " +
+        "Asegúrate de que había alguien hablando y de que el audio de la reunión sale por la pestaña, y vuelve a grabar."
+    );
+  }
+
   // ── 2) Claude resume ───────────────────────────────────────────
   let summary: MeetingSummary;
   try {
@@ -350,3 +364,38 @@ export const POST = withApi({ scope: "tasks:write" }, async (req, { api }) => {
     summaryPreview: summary.summary.slice(0, 200)
   });
 });
+
+/**
+ * Detecta transcripciones "vacías de contenido" típicas de Whisper cuando el
+ * audio está mudo o casi mudo: créditos de subtítulos (Amara.org), muletillas
+ * de relleno, o una sola frase repetida muchas veces.
+ */
+function isSilentHallucination(transcript: string): boolean {
+  const t = transcript.toLowerCase().trim();
+  if (t.length < 25) return true;
+  const JUNK = [
+    "amara.org",
+    "subtítulos realizados por la comunidad",
+    "subtitulado por la comunidad",
+    "subtítulos por la comunidad",
+    "gracias por ver el video",
+    "gracias por ver el vídeo",
+    "¡gracias por ver",
+    "subscríbete al canal",
+    "thanks for watching"
+  ];
+  let junkHits = 0;
+  for (const j of JUNK) if (t.includes(j)) junkHits++;
+  // Si el texto está dominado por créditos de subtítulos → mudo.
+  if (junkHits > 0) {
+    const stripped = JUNK.reduce((acc, j) => acc.split(j).join(""), t).trim();
+    if (stripped.length < Math.max(40, t.length * 0.25)) return true;
+  }
+  // Una sola frase repetida (sin variedad léxica real) → ruido/mudo.
+  const words = t.split(/\s+/).filter(Boolean);
+  if (words.length >= 12) {
+    const unique = new Set(words);
+    if (unique.size / words.length < 0.18) return true;
+  }
+  return false;
+}
