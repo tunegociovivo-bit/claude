@@ -150,15 +150,15 @@ export async function handleVapiWebhook(payload: any): Promise<{ ok: boolean }> 
   if (Object.keys(data).length === 0) return { ok: true };
   await prisma.voiceCall.update({ where: { id: existing.id }, data });
 
-  // Al colgar: crear una tarea en la columna "Reuniones y llamadas" con la
-  // transcripción + resumen + audio adjunto. Solo una vez (taskId guard).
-  const isEndReport = type === "end-of-call-report" || !!msg?.endedReason;
-  if (isEndReport && !existing.taskId) {
+  // Crear la tarea en "Reuniones y llamadas" SOLO cuando ya tenemos contenido
+  // (transcripción o resumen). Vapi manda primero un "ended" sin transcripción
+  // y luego el end-of-call-report con todo; si creábamos la tarea en el primer
+  // evento, salía vacía y el segundo ya no la rellenaba (taskId puesto).
+  const fresh = await prisma.voiceCall.findUnique({ where: { id: existing.id } });
+  const hasContent = !!(fresh?.transcript?.trim() || fresh?.summary?.trim());
+  if (fresh && hasContent && !fresh.taskId) {
     try {
-      const fresh = await prisma.voiceCall.findUnique({ where: { id: existing.id } });
-      if (fresh && !fresh.taskId) {
-        await createCallTask(fresh);
-      }
+      await createCallTask(fresh);
     } catch (e) {
       console.error("[voice] crear tarea de llamada falló:", (e as Error).message);
     }
