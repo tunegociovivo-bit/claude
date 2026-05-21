@@ -1225,6 +1225,73 @@ chatTools.push({
 });
 
 chatTools.push({
+  name: "create_event",
+  description:
+    "Crea un evento en el CALENDARIO del Hub (reservas, citas, reuniones, recordatorios). Úsala cuando confirmes una reserva o cita con fecha y hora concretas (p.ej. tras reservar mesa en un restaurante por teléfono) o cuando el usuario te pida apuntar algo en el calendario. Hora local de España (Europe/Madrid) salvo que el usuario indique otra.",
+  input_schema: {
+    type: "object",
+    properties: {
+      title: {
+        type: "string",
+        description: "Título del evento, p.ej. 'Reserva El Pollo del Tío Paco (3 personas)'."
+      },
+      startAt: {
+        type: "string",
+        description:
+          "Inicio en ISO 8601 con offset, p.ej. '2026-05-22T14:00:00+02:00' (España en verano es +02:00, en invierno +01:00)."
+      },
+      endAt: { type: "string", description: "Fin en ISO 8601 (opcional)." },
+      description: {
+        type: "string",
+        description: "Detalles: nº de personas, a nombre de quién, teléfono del sitio, notas."
+      },
+      type: {
+        type: "string",
+        enum: ["MEETING", "DEADLINE", "CAMPAIGN", "PUBLICATION", "OTHER"],
+        description: "Tipo de evento. Para reservas/citas usa MEETING."
+      },
+      allDay: { type: "boolean", description: "true si es de todo el día." }
+    },
+    required: ["title", "startAt"]
+  },
+  run: async (args, ctx) => {
+    try {
+      const startAt = new Date(String(args?.startAt ?? ""));
+      if (isNaN(startAt.getTime())) {
+        return JSON.stringify({
+          error: "startAt no es una fecha válida. Usa ISO 8601, p.ej. 2026-05-22T14:00:00+02:00."
+        });
+      }
+      let endAt: Date | null = null;
+      if (args?.endAt) {
+        const d = new Date(String(args.endAt));
+        if (!isNaN(d.getTime())) endAt = d;
+      }
+      const allowed = ["MEETING", "DEADLINE", "CAMPAIGN", "PUBLICATION", "OTHER"];
+      const type = allowed.includes(String(args?.type)) ? String(args.type) : "MEETING";
+      const ev = await prisma.calendarEvent.create({
+        data: {
+          workspaceId: ctx.workspaceId,
+          title: String(args?.title ?? "Evento").slice(0, 200),
+          description: args?.description ? String(args.description).slice(0, 2000) : null,
+          startAt,
+          endAt,
+          allDay: !!args?.allDay,
+          type: type as any
+        }
+      });
+      return JSON.stringify({
+        ok: true,
+        event: { id: ev.id, title: ev.title, when: ev.startAt.toISOString(), url: "/calendario" },
+        message: `Evento creado en el calendario: ${ev.title}`
+      });
+    } catch (e: any) {
+      return JSON.stringify({ error: String(e?.message ?? e) });
+    }
+  }
+});
+
+chatTools.push({
   name: "save_contact",
   description:
     "Guarda (memoriza) un contacto con su teléfono para futuras llamadas/mensajes. Úsala cuando el usuario diga 'memoriza/guarda el teléfono de X', 'apunta el contacto de Y', etc. Persiste de forma permanente en el workspace, así que en chats futuros podrás llamar a esa persona por su nombre sin que te repitan el número.",
@@ -1418,6 +1485,8 @@ export function extractCardsFromTool(name: string, raw: string): HubCard[] {
     (Array.isArray(data) ? data : []).slice(0, 10).forEach((d: any) => out.push(docCard(d)));
   } else if (name === "upcoming_events") {
     (Array.isArray(data) ? data : []).slice(0, 8).forEach((e: any) => out.push(eventCard(e)));
+  } else if (name === "create_event") {
+    if (data.event) out.push(eventCard(data.event));
   }
   return out;
 }
