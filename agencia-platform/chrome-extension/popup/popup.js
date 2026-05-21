@@ -364,27 +364,110 @@ $("btn-recheck").addEventListener("click", async () => {
   render();
 });
 
+// getMediaStreamId DEBE llamarse desde el popup, no desde el service
+// worker. El popup es el contexto que recibió la invocación del usuario
+// (click en el icono → activeTab concedido sobre la pestaña activa) y
+// tiene el gesto "fresco". Pedir el streamId desde el SW tras un
+// round-trip de mensajes pierde esa garantía y Chrome rechaza la
+// captura con "Extension has not been invoked for the current page".
+function getStreamId(tabId) {
+  return new Promise((resolve, reject) => {
+    try {
+      chrome.tabCapture.getMediaStreamId({ targetTabId: tabId }, (id) => {
+        if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
+        else if (!id) reject(new Error("getMediaStreamId devolvió vacío"));
+        else resolve(id);
+      });
+    } catch (e) {
+      reject(e);
+    }
+  });
+}
+
+function captureErrMessage(msg) {
+  if (/not been invoked|invoked for/i.test(msg))
+    return "Chrome no dejó capturar esta pestaña. Pulsa el ICONO de la extensión (no un banner) estando EN la pestaña de la reunión, y luego dale a Grabar.";
+  if (/active stream/i.test(msg))
+    return "La pestaña ya tenía una captura pegada. Recarga la pestaña de la reunión (F5) y vuelve a darle a Grabar.";
+  if (/extension manifest|tabCapture/i.test(msg))
+    return `La extensión no tiene permiso de captura (${msg}). Reinstala la extensión desde /admin.`;
+  return `No se pudo capturar la pestaña (${msg}). Asegúrate de estar en la pestaña de la reunión al pulsar Grabar.`;
+}
+
+function failStart(message) {
+  stopElapsedTimer();
+  $("error-msg").textContent = message;
+  showState("error");
+  $("btn-start").disabled = false;
+  // Persistimos para que el panel Diagnóstico muestre "Último error".
+  try { chrome.storage.local.set({ state: "error", lastError: message }); } catch {}
+}
+
 $("btn-start").addEventListener("click", async () => {
   $("btn-start").disabled = true;
   const projectId = $("proj-select")?.value || null;
   const status = $("col-select")?.value || null;
-  // Optimistic UI — pintamos "recording" YA, sin esperar a que el SW
-  // termine getMediaStreamId + offscreen. Si el SW falla, revertimos
-  // a error. Esto resuelve el "no aparece timer ni botón Detener"
-  // mientras el SW está negociando la captura (puede tardar 1-2s).
+  // Optimistic UI — pintamos "recording" YA. Si algo falla, revertimos a error.
   showState("recording");
   startElapsedTimer();
   $("btn-stop").disabled = false;
-  const r = await chrome.runtime.sendMessage({ from: "popup", type: "start", projectId, status });
-  if (!r?.ok) {
-    stopElapsedTimer();
-    $("error-msg").textContent = r?.error ?? "No se pudo arrancar";
-    showState("error");
-    $("btn-start").disabled = false;
+
+  // 1) Pestaña activa (la reunión). El popup vive en la misma ventana,
+  //    currentWindow nos devuelve la pestaña de fondo, no el popup.
+  let tab;
+  try {
+    [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  } catch {}
+  if (!tab?.id) {
+    failStart("No se ha podido detectar la pestaña activa. Abre la reunión y reintenta.");
     return;
   }
-  // No re-renderizamos: el SW ya marcó state="recording" en storage y
-  // la UI ya está en ese estado.
+
+  // 2) streamId desde el popup (gesto fresco + activeTab garantizado).
+  let streamId;
+  try {
+    streamId = await getStreamId(tab.id);
+  } catch (e) {
+    const msg = String(e?.message ?? e);
+    if (/active stream/i.test(msg)) {
+      // Captura huérfana de un intento anterior pegada a la pestaña.
+      // Pedimos al SW que cierre el offscreen para liberarla y reintentamos.
+      try {
+        await chrome.runtime.sendMessage({ from: "popup", type: "free-capture" });
+        await new Promise((r) => setTimeout(r, 350));
+        streamId = await getStreamId(tab.id);
+      } catch (e2) {
+        failStart(captureErrMessage(String(e2?.message ?? e2)));
+        return;
+      }
+    } else {
+      failStart(captureErrMessage(msg));
+      return;
+    }
+  }
+
+  // 3) El SW crea el offscreen y arranca MediaRecorder con el streamId.
+  let r;
+  try {
+    r = await chrome.runtime.sendMessage({
+      from: "popup",
+      type: "start",
+      streamId,
+      tabId: tab.id,
+      tabUrl: tab.url ?? "",
+      tabTitle: tab.title ?? "",
+      projectId,
+      status
+    });
+  } catch (e) {
+    failStart(`No se pudo arrancar la grabación (${String(e?.message ?? e)}).`);
+    return;
+  }
+  if (!r?.ok) {
+    failStart(r?.error ?? "No se pudo arrancar la grabación.");
+    return;
+  }
+  // OK: el SW marcó state="recording" en storage y la UI ya está ahí.
 });
 
 $("btn-stop").addEventListener("click", async () => {

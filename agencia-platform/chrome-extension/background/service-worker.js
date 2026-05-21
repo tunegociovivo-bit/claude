@@ -218,69 +218,33 @@ async function startRecording(opts = {}) {
   const { hubUrl, user } = await getState();
   if (!user) throw new Error("Sin sesión activa en el Hub. Abre hub.negociovivo.app y entra.");
 
-  // Si el caller pasó tabId (banner in-page), úsalo. Si no, tab activa.
-  let tab;
-  if (opts.tabId) {
-    try { tab = await chrome.tabs.get(opts.tabId); } catch {}
-  }
-  if (!tab) {
-    const [active] = await chrome.tabs.query({ active: true, currentWindow: true });
-    tab = active;
-  }
-  if (!tab) throw new Error("No se ha podido detectar la pestaña activa.");
+  // El streamId lo obtiene el POPUP con chrome.tabCapture.getMediaStreamId
+  // (contexto con el gesto de usuario fresco + activeTab concedido). El SW
+  // solo lo recibe ya listo y lo entrega al offscreen. Pedirlo aquí, tras el
+  // round-trip de mensajes, hacía que Chrome rechazara la captura con
+  // "Extension has not been invoked for the current page".
+  const streamId = opts.streamId;
+  if (!streamId) throw new Error("Falta el streamId de captura (reabre el popup y reintenta).");
 
-  // LIMPIEZA de captura huérfana: si un intento anterior dejó un offscreen
-  // vivo, mantiene un stream activo en la pestaña y getMediaStreamId falla con
-  // "Cannot capture a tab with an active stream". Cerrar el offscreen destruye
-  // su contexto y libera el stream. Lo hacemos SIEMPRE antes de capturar.
+  // Metadatos de la pestaña que el popup ya resolvió. Fallback a query
+  // por si llegara por un flujo antiguo sin estos campos.
+  let tab = {
+    id: opts.tabId ?? null,
+    url: opts.tabUrl ?? "",
+    title: opts.tabTitle ?? ""
+  };
+  if (tab.id == null) {
+    try {
+      const [active] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (active) tab = active;
+    } catch {}
+  }
+
+  // Aseguramos que no quede un offscreen huérfano de un intento anterior
+  // antes de crear el nuevo (el popup ya liberó la captura si hizo falta).
   try { await closeOffscreen(); } catch {}
   recordingCtx = null;
-
-  // CRÍTICO: getMediaStreamId debe llamarse con el gesto de usuario
-  // todavía "fresco" (<5s desde el click). Cualquier await previo
-  // consume tiempo del gesto. ensureOffscreen suele ser <50ms pero
-  // mejor ponerlo en paralelo. La cookie y la sesión live se leen
-  // DESPUÉS — no las necesitamos para arrancar la captura.
-  const offscreenP = ensureOffscreen();
-
-  let streamId;
-  try {
-    streamId = await new Promise((resolve, reject) => {
-      chrome.tabCapture.getMediaStreamId({ targetTabId: tab.id }, (id) => {
-        if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
-        else if (!id) reject(new Error("getMediaStreamId devolvió vacío"));
-        else resolve(id);
-      });
-    });
-  } catch (e) {
-    const msg = String(e.message ?? e);
-    // "active stream" = quedó una captura previa pegada a la pestaña.
-    if (/active stream/i.test(msg)) {
-      // Segundo intento tras forzar cierre del offscreen otra vez.
-      try { await closeOffscreen(); } catch {}
-      await new Promise((r) => setTimeout(r, 300));
-      try {
-        streamId = await new Promise((resolve, reject) => {
-          chrome.tabCapture.getMediaStreamId({ targetTabId: tab.id }, (id) => {
-            if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
-            else if (!id) reject(new Error("vacío"));
-            else resolve(id);
-          });
-        });
-      } catch (e2) {
-        throw new Error(
-          `La pestaña ya tenía una grabación pegada y no se pudo liberar (${String(e2.message ?? e2)}). ` +
-          `Recarga la pestaña de la reunión (F5) y vuelve a darle a Grabar.`
-        );
-      }
-    } else {
-      throw new Error(
-        `No se pudo capturar la pestaña (${msg}). ` +
-        `Asegúrate de pulsar "Grabar" estando en la pestaña de la reunión.`
-      );
-    }
-  }
-  await offscreenP;
+  await ensureOffscreen();
 
   recordingCtx = {
     tabId: tab.id,
@@ -569,6 +533,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg?.from === "popup" && msg?.type === "start") {
       try {
         await startRecording({
+          streamId: msg.streamId ?? null,
+          tabId: msg.tabId ?? null,
+          tabUrl: msg.tabUrl ?? "",
+          tabTitle: msg.tabTitle ?? "",
           projectId: msg.projectId ?? null,
           status: msg.status ?? null
         });
@@ -577,6 +545,15 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         await setState({ state: "error", lastError: String(e?.message ?? e) });
         sendResponse({ ok: false, error: String(e?.message ?? e) });
       }
+      return;
+    }
+    if (msg?.from === "popup" && msg?.type === "free-capture") {
+      // El popup detectó "active stream" (captura huérfana pegada a la
+      // pestaña). Cerramos el offscreen para liberarla y que el popup
+      // pueda reintentar getMediaStreamId.
+      try { await closeOffscreen(); } catch {}
+      recordingCtx = null;
+      sendResponse({ ok: true });
       return;
     }
     if (msg?.from === "popup" && msg?.type === "stop") {
