@@ -1285,6 +1285,18 @@ chatTools.push({
       }
       const allowed = ["MEETING", "DEADLINE", "CAMPAIGN", "PUBLICATION", "OTHER"];
       const type = allowed.includes(String(args?.type)) ? String(args.type) : "MEETING";
+      // Detección de solapes: eventos que se cruzan con [startAt, fin].
+      const windowEnd = endAt ?? new Date(startAt.getTime() + 60 * 60 * 1000);
+      const overlapping = await prisma.calendarEvent.findMany({
+        where: {
+          workspaceId: ctx.workspaceId,
+          startAt: { lt: windowEnd },
+          OR: [{ endAt: { gt: startAt } }, { endAt: null, startAt: { gte: startAt, lt: windowEnd } }]
+        },
+        select: { id: true, title: true, startAt: true },
+        take: 5
+      });
+      const conflicts = overlapping.map((e) => ({ title: e.title, when: e.startAt.toISOString() }));
       const ev = await prisma.calendarEvent.create({
         data: {
           workspaceId: ctx.workspaceId,
@@ -1308,7 +1320,11 @@ chatTools.push({
       return JSON.stringify({
         ok: true,
         event: { id: ev.id, title: ev.title, when: ev.startAt.toISOString(), url: "/calendario" },
-        message: `Evento creado en el calendario: ${ev.title}`
+        conflicts,
+        message:
+          conflicts.length > 0
+            ? `Evento creado, PERO se solapa con: ${conflicts.map((c) => c.title).join(", ")}. Avisa al usuario.`
+            : `Evento creado en el calendario: ${ev.title}`
       });
     } catch (e: any) {
       return JSON.stringify({ error: String(e?.message ?? e) });
@@ -1386,6 +1402,41 @@ chatTools.push({
       return JSON.stringify({ ok: true, message: `Evento cancelado: ${ev.title}` });
     } catch (e: any) {
       return JSON.stringify({ error: String(e?.message ?? e) });
+    }
+  }
+});
+
+chatTools.push({
+  name: "send_whatsapp",
+  description:
+    "Envía un WhatsApp (vía WAHA) al número indicado. Úsalo cuando el usuario te pida mandar un WhatsApp, o como PLAN B cuando un negocio no contesta al teléfono y prefieres escribirle. SIEMPRE muestra antes el destinatario + el texto y envíalo solo tras confirmar. Si no está configurado WAHA, devuelve aviso.",
+  input_schema: {
+    type: "object",
+    properties: {
+      phone: { type: "string", description: "Teléfono con prefijo internacional, p.ej. +34600111222." },
+      text: { type: "string", description: "Mensaje a enviar." }
+    },
+    required: ["phone", "text"]
+  },
+  run: async (args, ctx) => {
+    try {
+      const raw = String(args?.phone ?? "").replace(/[^\d+]/g, "");
+      let phone = raw.replace(/^\+/, "");
+      if (phone.length === 9) phone = `34${phone}`; // español sin prefijo
+      const text = String(args?.text ?? "").trim();
+      if (!phone || !text) return JSON.stringify({ error: "Falta teléfono o texto." });
+      const { sendText } = await import("@/lib/leads/waha");
+      const r = await sendText({ workspaceId: ctx.workspaceId, phoneNormalized: phone, text });
+      return JSON.stringify({ ok: true, messageId: r.messageId, message: `WhatsApp enviado a +${phone}.` });
+    } catch (e: any) {
+      const msg = String(e?.message ?? e);
+      if (/waha|not configured|no configurad|baseUrl|apiKey/i.test(msg)) {
+        return JSON.stringify({
+          ok: false,
+          error: "WhatsApp (WAHA) no está configurado. Añade WAHA_URL y WAHA_API_KEY en ajustes para poder enviar."
+        });
+      }
+      return JSON.stringify({ ok: false, error: `No se pudo enviar el WhatsApp: ${msg}` });
     }
   }
 });

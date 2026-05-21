@@ -78,9 +78,54 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // ── Recordatorios de eventos del calendario (citas/reservas) ──
+  // Eventos que empiezan en los próximos 30 min, no de todo el día y sin
+  // recordatorio enviado aún. Avisamos al equipo del workspace una vez.
+  const soon = new Date(now.getTime() + 30 * 60 * 1000);
+  const events = await prisma.calendarEvent.findMany({
+    where: {
+      startAt: { gte: now, lte: soon },
+      allDay: false,
+      reminderSentAt: null
+    },
+    select: { id: true, title: true, startAt: true, workspaceId: true }
+  });
+  let eventReminders = 0;
+  const membersByWs = new Map<string, string[]>();
+  for (const ev of events) {
+    let members = membersByWs.get(ev.workspaceId);
+    if (!members) {
+      const ms = await prisma.membership.findMany({
+        where: { workspaceId: ev.workspaceId },
+        select: { userId: true }
+      });
+      members = ms.map((m) => m.userId);
+      membersByWs.set(ev.workspaceId, members);
+    }
+    const hhmm = ev.startAt.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" });
+    const body = `Próximo evento a las ${hhmm}: ${ev.title}`;
+    for (const userId of members) {
+      await prisma.notification
+        .create({ data: { userId, type: "event_reminder", body, link: "/calendario" } })
+        .catch(() => {});
+      sendPushToUser(userId, {
+        title: "Recordatorio de evento",
+        body,
+        link: "/calendario",
+        tag: `event-${ev.id}`
+      }).catch((e) => console.warn("[push] event reminder:", e?.message ?? e));
+      eventReminders++;
+    }
+    await prisma.calendarEvent
+      .update({ where: { id: ev.id }, data: { reminderSentAt: new Date() } })
+      .catch(() => {});
+  }
+
   return NextResponse.json({
     ok: true,
     tasksChecked: tasksDue.length,
-    notificationsCreated: created
+    notificationsCreated: created,
+    eventsChecked: events.length,
+    eventReminders
   });
 }

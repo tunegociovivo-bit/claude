@@ -11,7 +11,16 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { rateLimitPublic } from "@/lib/api/handler";
-import { upsertIncomingReview, recomputeClientStats, getGmbConfig, handleNegativeReview } from "@/lib/integrations/gmb-hub";
+import { prisma } from "@/lib/db/prisma";
+import {
+  upsertIncomingReview,
+  recomputeClientStats,
+  getGmbConfig,
+  handleNegativeReview,
+  generateReviewReply,
+  publishReplyViaMake,
+  logGmbActivity
+} from "@/lib/integrations/gmb-hub";
 
 export const dynamic = "force-dynamic";
 
@@ -70,6 +79,45 @@ export async function POST(req: NextRequest) {
           comment: res.comment ?? "",
           tone: res.tone ?? "empático y profesional"
         }).catch(() => {});
+      }
+      // Auto-respuesta de reseñas NUEVAS si el cliente lo tiene activado.
+      // Por seguridad solo auto-publicamos POSITIVAS (>=4★); las negativas
+      // se dejan para revisión manual (ya se avisa con handleNegativeReview).
+      if (res.created && res.clientId) {
+        try {
+          const client = await prisma.gmbClient.findUnique({ where: { id: res.clientId } });
+          const rating = res.rating ?? 5;
+          if (client && client.autoReply === "auto" && rating >= 4 && (res.comment ?? "").trim()) {
+            const tone = client.tone === "custom" && client.customTone ? client.customTone : client.tone;
+            const reply = await generateReviewReply({
+              workspaceId,
+              businessName: client.name,
+              tone,
+              rating,
+              comment: res.comment ?? ""
+            });
+            const reviewId = String(r.reviewId ?? r.review_id ?? r.id ?? "");
+            if (reply && reviewId && client.accountId && client.locationId) {
+              const pub = await publishReplyViaMake({
+                workspaceId,
+                accountId: client.accountId,
+                locationId: client.locationId,
+                reviewId,
+                reply
+              });
+              await logGmbActivity({
+                workspaceId,
+                clientId: client.id,
+                actionType: "auto_reply",
+                description: pub.sentToGoogle
+                  ? `Auto-respuesta publicada a reseña ${rating}★ de ${res.authorName ?? "anónimo"}.`
+                  : `Auto-respuesta generada (no publicada: ${pub.error ?? "webhook de Make no configurado"}).`
+              });
+            }
+          }
+        } catch (e) {
+          console.warn("[gmb] auto-reply falló:", (e as Error).message);
+        }
       }
     } else {
       failed++;
