@@ -260,7 +260,9 @@ async function render() {
   // para que el user pueda elegir destino antes de grabar. Cacheamos
   // en window para no repegarlo en cada render.
   if (state !== "recording" && state !== "uploading" && s.user) {
-    loadProjectSelectors().catch((e) => console.warn("projects load:", e?.message ?? e));
+    loadProjectSelectors()
+      .then(() => applyPendingRecord())
+      .catch((e) => console.warn("projects load:", e?.message ?? e));
   }
 
   if (state === "done" && s.lastTaskUrl) $("task-link").href = s.lastTaskUrl;
@@ -492,4 +494,29 @@ async function loadProjectSelectors() {
 
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+// Aplica el destino que el user eligió en el banner in-page (guardado por el
+// SW como "pendingRecord"). Preselecciona proyecto/columna y resalta Grabar
+// para que solo tenga que pulsarlo. Se consume una vez.
+async function applyPendingRecord() {
+  try {
+    const { pendingRecord } = await chrome.storage.local.get(["pendingRecord"]);
+    if (!pendingRecord || Date.now() - (pendingRecord.at || 0) > 5 * 60 * 1000) return;
+    const projSel = $("proj-select");
+    const colSel = $("col-select");
+    if (pendingRecord.projectId && projSel) {
+      projSel.value = pendingRecord.projectId;
+      projSel.dispatchEvent(new Event("change")); // reconstruye columnas
+    }
+    if (pendingRecord.status && colSel) colSel.value = pendingRecord.status;
+    const live = $("live-mode");
+    if (live) live.checked = !!pendingRecord.live;
+    const btn = $("btn-start");
+    if (btn) {
+      btn.style.boxShadow = "0 0 0 3px rgba(124,58,237,.55)";
+      try { btn.focus(); } catch {}
+    }
+    await chrome.storage.local.remove("pendingRecord");
+  } catch {}
 }

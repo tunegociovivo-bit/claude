@@ -88,11 +88,15 @@
     });
   }
 
-  function startRecording(projectId, status, live) {
+  // tabCapture NO puede arrancar desde el banner: Chrome exige que la
+  // extensión se "invoque" pulsando su ICONO (permiso activeTab). Por eso
+  // guardamos el destino elegido y abrimos el popup, donde la grabación sí
+  // funciona y ya queda preseleccionado el proyecto/columna.
+  function prepareRecord(projectId, status, live) {
     return new Promise((resolve) => {
       try {
         chrome.runtime.sendMessage(
-          { from: "content", type: "start-recording-from-banner", projectId, status, live: !!live },
+          { from: "content", type: "prepare-record-from-banner", projectId, status, live: !!live },
           (resp) => resolve(resp ?? { ok: false, error: "sin respuesta" })
         );
       } catch (e) {
@@ -216,24 +220,26 @@
 
       recBtn.onclick = async () => {
         recBtn.disabled = true;
-        recBtn.textContent = "Iniciando…";
+        recBtn.textContent = "Abriendo…";
         errEl.style.display = "none";
         const liveMode = !!shadow.getElementById("live-mode").checked;
-        const r = await startRecording(projSel.value, colSel.value, liveMode);
-        if (r.ok) {
-          content.innerHTML = `
-            <style>@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}} .rec-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#ef4444;animation:pulse 1.5s infinite;margin-right:6px;}</style>
-            <div style="text-align:center;padding:10px 0;">
-              <div style="font-size:14px;color:#ef4444;font-weight:600;margin-bottom:8px;"><span class="rec-dot"></span>Grabando</div>
-              <div style="font-size:11px;color:#64748b;">Abre la extensión cuando quieras detener.</div>
+        // Guardamos destino + abrimos el popup (la captura solo arranca
+        // desde el icono de la extensión por exigencia de Chrome).
+        const r = await prepareRecord(projSel.value, colSel.value, liveMode);
+        content.innerHTML = `
+          <div style="text-align:center;padding:8px 2px;">
+            <div style="font-size:13px;color:#0f172a;font-weight:700;margin-bottom:6px;">
+              Pulsa el icono de Hub Reuniones <span style="font-size:15px">🧩⬆️</span> y dale a <span style="color:#ef4444">⏺ Grabar</span>
             </div>
-          `;
-        } else {
-          recBtn.disabled = false;
-          recBtn.textContent = "⏺ Grabar";
-          errEl.textContent = "Error al iniciar: " + (r.error ?? "desconocido");
-          errEl.style.display = "block";
-        }
+            <div style="font-size:11px;color:#64748b;line-height:1.4;">
+              Ya he guardado el <b>proyecto</b> y la <b>columna</b> que elegiste — el popup los traerá puestos.
+              ${r.opened ? "<br>(He intentado abrirte el popup automáticamente.)" : ""}
+            </div>
+            <div style="font-size:10px;color:#94a3b8;margin-top:8px;">
+              Chrome solo deja grabar desde el icono de la extensión, no desde esta ventana.
+            </div>
+          </div>
+        `;
       };
     });
   }

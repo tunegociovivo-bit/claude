@@ -661,17 +661,49 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
       return;
     }
+    // Banner → guarda el destino elegido y abre el popup. La captura
+    // (tabCapture) NO puede arrancar desde el banner: Chrome exige invocar
+    // la extensión por su icono (activeTab). El popup lee este "pendingRecord"
+    // y preselecciona proyecto/columna para que el user solo pulse Grabar.
+    if (msg?.from === "content" && msg?.type === "prepare-record-from-banner") {
+      try {
+        await chrome.storage.local.set({
+          pendingRecord: {
+            projectId: msg.projectId ?? null,
+            status: msg.status ?? null,
+            live: !!msg.live,
+            tabId: sender.tab?.id ?? null,
+            at: Date.now()
+          }
+        });
+        let opened = false;
+        try {
+          await chrome.action.openPopup();
+          opened = true;
+        } catch {
+          // openPopup no disponible / sin gesto válido — el user lo abre a mano.
+        }
+        sendResponse({ ok: true, opened });
+      } catch (e) {
+        sendResponse({ ok: false, error: String(e?.message ?? e) });
+      }
+      return;
+    }
+    // Compat: por si alguna versión vieja del banner aún manda esto.
     if (msg?.from === "content" && msg?.type === "start-recording-from-banner") {
       try {
-        await startRecording({
-          tabId: sender.tab?.id,
-          projectId: msg.projectId ?? null,
-          status: msg.status ?? null,
-          live: !!msg.live
+        await chrome.storage.local.set({
+          pendingRecord: {
+            projectId: msg.projectId ?? null,
+            status: msg.status ?? null,
+            live: !!msg.live,
+            tabId: sender.tab?.id ?? null,
+            at: Date.now()
+          }
         });
-        sendResponse({ ok: true });
+        try { await chrome.action.openPopup(); } catch {}
+        sendResponse({ ok: false, error: "Pulsa el icono de la extensión y dale a Grabar." });
       } catch (e) {
-        await setState({ state: "error", lastError: String(e?.message ?? e) });
         sendResponse({ ok: false, error: String(e?.message ?? e) });
       }
       return;
