@@ -229,6 +229,13 @@ async function startRecording(opts = {}) {
   }
   if (!tab) throw new Error("No se ha podido detectar la pestaña activa.");
 
+  // LIMPIEZA de captura huérfana: si un intento anterior dejó un offscreen
+  // vivo, mantiene un stream activo en la pestaña y getMediaStreamId falla con
+  // "Cannot capture a tab with an active stream". Cerrar el offscreen destruye
+  // su contexto y libera el stream. Lo hacemos SIEMPRE antes de capturar.
+  try { await closeOffscreen(); } catch {}
+  recordingCtx = null;
+
   // CRÍTICO: getMediaStreamId debe llamarse con el gesto de usuario
   // todavía "fresco" (<5s desde el click). Cualquier await previo
   // consume tiempo del gesto. ensureOffscreen suele ser <50ms pero
@@ -246,12 +253,32 @@ async function startRecording(opts = {}) {
       });
     });
   } catch (e) {
-    // Mensaje más útil: tabCapture falla típicamente por (a) la tab no
-    // está activa o (b) el gesto de usuario expiró. Lo reportamos claro.
-    throw new Error(
-      `No se pudo capturar la pestaña (${e.message}). ` +
-      `Asegúrate de pulsar "Grabar" estando en la pestaña de la reunión.`
-    );
+    const msg = String(e.message ?? e);
+    // "active stream" = quedó una captura previa pegada a la pestaña.
+    if (/active stream/i.test(msg)) {
+      // Segundo intento tras forzar cierre del offscreen otra vez.
+      try { await closeOffscreen(); } catch {}
+      await new Promise((r) => setTimeout(r, 300));
+      try {
+        streamId = await new Promise((resolve, reject) => {
+          chrome.tabCapture.getMediaStreamId({ targetTabId: tab.id }, (id) => {
+            if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
+            else if (!id) reject(new Error("vacío"));
+            else resolve(id);
+          });
+        });
+      } catch (e2) {
+        throw new Error(
+          `La pestaña ya tenía una grabación pegada y no se pudo liberar (${String(e2.message ?? e2)}). ` +
+          `Recarga la pestaña de la reunión (F5) y vuelve a darle a Grabar.`
+        );
+      }
+    } else {
+      throw new Error(
+        `No se pudo capturar la pestaña (${msg}). ` +
+        `Asegúrate de pulsar "Grabar" estando en la pestaña de la reunión.`
+      );
+    }
   }
   await offscreenP;
 
