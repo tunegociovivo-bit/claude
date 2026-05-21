@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { taskCreateSchema } from "@/lib/api/schemas";
+import { computeRecurrenceNext } from "@/lib/tasks/recurrence";
 import { notifyAssignment } from "@/lib/notifications/assignment";
 import { notifyNewMentions } from "@/lib/notifications/mentions-in-doc";
 import { auditFromReq } from "@/lib/audit/log";
@@ -90,6 +91,14 @@ export const PATCH = withApi({ scope: "tasks:write" }, async (req, { params, api
         dueDate: dueDate ? new Date(dueDate) : undefined,
         ...(typeof dueAllDay === "boolean" ? { dueAllDay } : {}),
         ...(notifyDueRules !== undefined ? { notifyDueRules: notifyDueRules as any } : {}),
+        ...(data.recurrence !== undefined
+          ? {
+              recurrenceNextAt:
+                data.recurrence === "none"
+                  ? null
+                  : computeRecurrenceNext(data.recurrence as any, dueDate ? new Date(dueDate) : null)
+            }
+          : {}),
         completedAt: data.status === "DONE" ? new Date() : data.status ? null : undefined
       } as any
     });

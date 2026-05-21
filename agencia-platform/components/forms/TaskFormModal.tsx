@@ -10,6 +10,7 @@ import CommentRenderer from "@/components/forms/CommentRenderer";
 import MeetingRecorder from "@/components/forms/MeetingRecorder";
 import type { MentionCandidate } from "@/components/forms/mentionSuggestion";
 import type { UiProject, UiMember, UiTask } from "@/lib/db/queries";
+import { RECURRENCE_OPTIONS } from "@/lib/tasks/recurrence";
 import { Loader2, Trash2, MessageSquare, X, CheckSquare, Check, ArrowLeft, ExternalLink, Mic, RefreshCw, Bot } from "lucide-react";
 
 // Tres estados de prioridad: vacío (normal, default), Alta y URGENCIA.
@@ -123,6 +124,7 @@ export default function TaskFormModal({
   const [assigneeIds, setAssigneeIds] = useState<string[]>([]);
   const [dueDate, setDueDate] = useState<string>("");
   const [dueTime, setDueTime] = useState<string>("");
+  const [recurrence, setRecurrence] = useState<string>("none");
   // Reglas de notificación. null = "usar defaults del backend".
   // Array (incluido []) = preferencia explícita del usuario.
   const [notifyDueRules, setNotifyDueRules] = useState<string[] | null>(null);
@@ -372,6 +374,7 @@ export default function TaskFormModal({
       setDueDate(currentTask.dueDate ?? "");
       setDueTime(currentTask.dueAllDay === false && currentTask.dueTime ? currentTask.dueTime : "");
       setNotifyDueRules(Array.isArray(currentTask.notifyDueRules) ? currentTask.notifyDueRules : null);
+      setRecurrence((currentTask as any).recurrence ?? "none");
       // Fetch detalle: descripción + subtareas + comentarios + plantilla
       fetch(`/api/v1/tasks/${currentTask.id}`)
         .then((r) => (r.ok ? r.json() : null))
@@ -399,6 +402,7 @@ export default function TaskFormModal({
           if (data.customData && typeof data.customData === "object") {
             setCustomData(data.customData);
           }
+          if (typeof data.recurrence === "string") setRecurrence(data.recurrence);
         });
       fetch(`/api/v1/tasks/${currentTask.id}/comments`)
         .then((r) => (r.ok ? r.json() : { items: [] }))
@@ -414,6 +418,7 @@ export default function TaskFormModal({
       setDueDate("");
       setDueTime("");
       setNotifyDueRules(null);
+      setRecurrence("none");
       setComments([]);
       setSubtasks([]);
     }
@@ -467,7 +472,8 @@ export default function TaskFormModal({
       // blanco") tras seleccionarla.
       templateId: selectedTemplateId || null,
       customData:
-        selectedTemplateId && Object.keys(customData).length > 0 ? customData : null
+        selectedTemplateId && Object.keys(customData).length > 0 ? customData : null,
+      recurrence
     };
     if (dueDate) {
       // Construimos el ISO directamente, SIN pasar por new Date(string).
@@ -1207,6 +1213,25 @@ export default function TaskFormModal({
                 Si añades hora y te asignas, aparecerá en tu calendario a esa hora exacta.
               </p>
             </div>
+          </SidebarField>
+
+          <SidebarField label="Repetir">
+            <select
+              value={recurrence}
+              onChange={(e) => setRecurrence(e.target.value)}
+              className="w-full px-2 py-1.5 rounded-md border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+            >
+              {RECURRENCE_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+            {recurrence !== "none" && (
+              <p className="mt-1 text-[10px] text-slate-500">
+                Si la tarea es de Sonia, se relanzará sola con esta frecuencia (a partir de la fecha/hora de entrega, o desde ahora si no hay fecha). No tendrás que volver a lanzarla.
+              </p>
+            )}
           </SidebarField>
 
           {dueDate && (

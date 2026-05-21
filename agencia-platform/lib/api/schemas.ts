@@ -186,7 +186,9 @@ export const taskCreateSchema = z.object({
   templateId: z.string().optional().nullable(),
   // Valores de custom fields definidos por la plantilla. Objeto plano
   // { fieldId: value } donde value es string | number | boolean | string[].
-  customData: z.record(z.string(), z.any()).optional().nullable()
+  customData: z.record(z.string(), z.any()).optional().nullable(),
+  // Recurrencia: relanza la tarea (Sonia) cada periodo. Ver lib/tasks/recurrence.
+  recurrence: z.enum(["none", "daily", "every_2_days", "weekly", "biweekly", "monthly"]).optional()
 });
 
 export const documentCreateSchema = z.object({

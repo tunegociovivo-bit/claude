@@ -26,7 +26,7 @@
 // reintroducir cache PERO con purga agresiva por VERSION en
 // activate.
 
-const VERSION = "v137-2026-05-20-gmb-sidebar-reorder";
+const VERSION = "v138-2026-05-21-tareas-recurrentes";
 
 self.addEventListener("install", (event) => {
   // Activación inmediata: no esperar a que el SW viejo libere.

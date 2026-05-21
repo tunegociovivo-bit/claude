@@ -85,7 +85,7 @@ const earlyInstallCapture = `
  */
 const swSelfHeal = `
   (function () {
-    var EXPECTED = "v137-2026-05-20-gmb-sidebar-reorder";
+    var EXPECTED = "v138-2026-05-21-tareas-recurrentes";
     if (!('serviceWorker' in navigator)) return;
     var key = "hub_sw_v_seen";
     var seen = null;

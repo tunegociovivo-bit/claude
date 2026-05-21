@@ -1041,9 +1041,18 @@ model Task {
   templateId String?
   customData Json?
 
+  // Recurrencia: si la tarea debe relanzarse sola cada cierto tiempo
+  // (sobre todo tareas de Sonia, para no relanzarlas a mano cada día).
+  //   none | daily | every_2_days | weekly | biweekly | monthly
+  recurrence       String    @default("none")
+  // Próxima ejecución programada. El cron de recurrencia dispara un run
+  // de Sonia cuando recurrenceNextAt <= now y avanza al siguiente slot.
+  recurrenceNextAt DateTime?
+
   @@index([workspaceId])
   @@index([projectId])
   @@index([status])
+  @@index([recurrenceNextAt])
 }
 
 // Proyectos adicionales en los que aparece una tarea (multi-proyecto).
