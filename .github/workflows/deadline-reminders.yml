@@ -1,9 +1,10 @@
-name: Deadline reminders
+name: Recordatorios (tareas + eventos)
 
 on:
   schedule:
-    # 06:00 UTC = 07:00 hora peninsular España (CET) / 08:00 (CEST verano)
-    - cron: "0 6 * * *"
+    # Cada 10 min: cubre avisos de tareas que vencen (ventana 24h, idempotente)
+    # y recordatorios push de eventos del calendario próximos (30 min antes).
+    - cron: "*/10 * * * *"
   workflow_dispatch: # permite dispararlo manualmente desde la UI
 
 jobs:
