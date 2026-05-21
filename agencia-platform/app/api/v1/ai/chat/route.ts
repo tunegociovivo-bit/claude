@@ -51,6 +51,16 @@ MEMORIA / CONTACTOS: si te piden "memoriza/guarda el teléfono de X" usa save_co
 
 CONOCIMIENTO: el equipo sube en Administración (Sonia → Conocimiento) textos de aprendizaje y documentos de clientes. Cuando te pregunten sobre clientes, condiciones, procesos internos o cualquier cosa que pueda estar ahí, usa search_sonia_knowledge ANTES de decir que no sabes, y responde citando lo que encuentres.
 
+INTERNET Y ACCIONES EN EL MUNDO REAL: estás conectada a internet.
+- web_search: para información general actualizada (noticias, datos, cómo es algo, comparativas…). Cítalo brevemente.
+- find_business: para localizar un negocio real (restaurante, clínica, tienda, hotel…) y obtener sus datos REALES: teléfono, dirección, web, valoración y HORARIO. Úsala SIEMPRE antes de llamar a un negocio que no esté en MEMORIA.
+Flujo cuando el usuario te pide "busca X y llama / reserva / gestiona algo" (vale para CUALQUIER caso, no solo restaurantes):
+  1) Localiza el negocio con find_business. Si hay varios candidatos parecidos, pregunta cuál es antes de seguir.
+  2) Comprueba con su HORARIO si estará ABIERTO el día y la hora que pide el usuario. Si está cerrado a esa hora (o ese día), AVISA y NO llames; propón otra hora/día.
+  3) Antes de llamar, pide los datos que falten para la gestión (p.ej. en una reserva: "¿La pongo a tu nombre?", nº de personas, hora, alguna preferencia). NO inventes esos datos.
+  4) CONFIRMA con el usuario el número + el objetivo de la llamada, y entonces usa place_phone_call (pasa customerName con el nombre de la persona/negocio y un goal claro con todos los detalles de la gestión). Reporta SIEMPRE el resultado real.
+Sé proactiva y "lista": anticipa lo que hace falta y pregúntalo de golpe, en vez de llamar a ciegas.
+
 No expongas IDs internos al usuario salvo que los pida.`;
 
 export const POST = withApi({ scope: "ai", rate: "ai" }, async (req, { api }) => {
@@ -115,15 +125,49 @@ export const POST = withApi({ scope: "ai", rate: "ai" }, async (req, { api }) =>
     return out;
   }
 
+  // Búsqueda web nativa de Anthropic (server tool): la API la ejecuta
+  // sola y devuelve los resultados. Si la cuenta no la tiene habilitada,
+  // hacemos fallback sin ella para no romper el chat.
+  const WEB_SEARCH_TOOL = { type: "web_search_20250305", name: "web_search", max_uses: 5 };
+  let webSearchEnabled = true;
+
+  async function createMessage() {
+    const tools = webSearchEnabled ? [...(toolDefs as any[]), WEB_SEARCH_TOOL] : (toolDefs as any[]);
+    try {
+      return await client.messages.create({
+        model: DEFAULT_MODEL,
+        max_tokens: 4096,
+        system: [{ type: "text", text: systemText, cache_control: { type: "ephemeral" } }],
+        tools: tools as any,
+        messages
+      });
+    } catch (e: any) {
+      const msg = String(e?.message ?? e);
+      if (webSearchEnabled && /web.?search|web_search_2025/i.test(msg)) {
+        // La cuenta/modelo no admite el server tool de búsqueda web.
+        webSearchEnabled = false;
+        return await client.messages.create({
+          model: DEFAULT_MODEL,
+          max_tokens: 4096,
+          system: [{ type: "text", text: systemText, cache_control: { type: "ephemeral" } }],
+          tools: toolDefs as any,
+          messages
+        });
+      }
+      throw e;
+    }
+  }
+
   // Loop agéntico: ejecutar tools hasta que el modelo termine
   for (let i = 0; i < 10; i++) {
-    const resp = await client.messages.create({
-      model: DEFAULT_MODEL,
-      max_tokens: 4096,
-      system: [{ type: "text", text: systemText, cache_control: { type: "ephemeral" } }],
-      tools: toolDefs as any,
-      messages
-    });
+    const resp = await createMessage();
+
+    // pause_turn: la API pausó un turno largo (típico con la búsqueda web
+    // del server tool). Reanudamos pasando el contenido tal cual.
+    if (resp.stop_reason === "pause_turn") {
+      messages.push({ role: "assistant", content: resp.content as any });
+      continue;
+    }
 
     if (resp.stop_reason !== "tool_use") {
       const text = resp.content

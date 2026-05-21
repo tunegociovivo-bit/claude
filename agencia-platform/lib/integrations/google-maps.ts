@@ -104,17 +104,32 @@ export async function placesNearby(opts: {
 export async function placeDetails(opts: {
   workspaceId: string;
   placeId: string;
-}): Promise<(MapsPlace & { website: string; phone: string }) | null> {
+}): Promise<
+  | (MapsPlace & {
+      website: string;
+      phone: string;
+      openNow: boolean | null;
+      hoursText: string[];
+    })
+  | null
+> {
   const key = await getGmbMapsKey(opts.workspaceId);
   if (!key) throw new MapsKeyMissingError();
-  const fields = "place_id,name,geometry,formatted_address,formatted_phone_number,website,rating,user_ratings_total";
+  const fields =
+    "place_id,name,geometry,formatted_address,formatted_phone_number,international_phone_number,website,rating,user_ratings_total,opening_hours";
   const url = `${BASE}/details/json?place_id=${encodeURIComponent(opts.placeId)}&fields=${fields}&language=es&key=${key}`;
   const r = await fetch(url, { cache: "no-store", signal: AbortSignal.timeout(15000) });
   if (!r.ok) throw new Error(`Maps ${r.status}`);
   const data = await r.json();
   if (!data.result) return null;
   const p = mapResult(data.result);
-  return { ...p, website: data.result.website ?? "", phone: data.result.formatted_phone_number ?? "" };
+  return {
+    ...p,
+    website: data.result.website ?? "",
+    phone: data.result.international_phone_number ?? data.result.formatted_phone_number ?? "",
+    openNow: data.result.opening_hours?.open_now ?? null,
+    hoursText: data.result.opening_hours?.weekday_text ?? []
+  };
 }
 
 export type GridCell = { lat: number; lng: number; position: number | null };

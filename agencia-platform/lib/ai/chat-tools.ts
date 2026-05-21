@@ -1152,6 +1152,79 @@ chatTools.push({
 });
 
 chatTools.push({
+  name: "find_business",
+  description:
+    "Busca un negocio/local real en Google Maps por nombre (y opcionalmente ciudad/zona) y devuelve datos REALES: dirección, TELÉFONO, web, valoración y HORARIO de apertura (y si está abierto ahora). Úsala cuando el usuario te pida buscar un sitio, su teléfono, si está abierto, o ANTES de llamar a un negocio (restaurante, clínica, tienda, hotel...). Si hay varios candidatos, los devuelve para que confirmes cuál es.",
+  input_schema: {
+    type: "object",
+    properties: {
+      query: {
+        type: "string",
+        description:
+          "Nombre del negocio, p.ej. 'El Pollo del Tío Paco'. Añade la ciudad si la conoces para acotar."
+      },
+      city: { type: "string", description: "Ciudad o zona para acotar la búsqueda (opcional)." }
+    },
+    required: ["query"]
+  },
+  run: async (args, ctx) => {
+    try {
+      const { placesTextSearch, placeDetails } = await import("@/lib/integrations/google-maps");
+      const q = [String(args?.query ?? ""), String(args?.city ?? "")].filter(Boolean).join(" ").trim();
+      if (!q) return JSON.stringify({ error: "Falta el nombre del negocio." });
+      let results;
+      try {
+        results = await placesTextSearch({ workspaceId: ctx.workspaceId, query: q, limit: 5 });
+      } catch (e: any) {
+        if (e?.constructor?.name === "MapsKeyMissingError" || /maps api key/i.test(String(e?.message ?? e))) {
+          return JSON.stringify({
+            ok: false,
+            error:
+              "Falta la Google Maps API key para buscar negocios. Configúrala en GMB Hub → ajustes."
+          });
+        }
+        throw e;
+      }
+      if (!results || results.length === 0) {
+        return JSON.stringify({
+          ok: true,
+          results: [],
+          message: "No encontré ningún negocio con ese nombre. Prueba a añadir la ciudad o afinar el nombre."
+        });
+      }
+      const top = results[0];
+      let detail: any = null;
+      try {
+        detail = await placeDetails({ workspaceId: ctx.workspaceId, placeId: top.placeId });
+      } catch {
+        /* sin detalle: devolvemos al menos lo básico */
+      }
+      return JSON.stringify({
+        ok: true,
+        best: {
+          name: detail?.name ?? top.name,
+          address: detail?.address ?? top.address,
+          phone: detail?.phone ?? null,
+          website: detail?.website ?? null,
+          rating: top.rating,
+          reviewCount: top.reviewCount,
+          openNow: detail?.openNow ?? null,
+          hours: detail?.hoursText ?? [],
+          placeId: top.placeId
+        },
+        otherCandidates: results.slice(1, 5).map((r) => ({
+          name: r.name,
+          address: r.address,
+          placeId: r.placeId
+        }))
+      });
+    } catch (e: any) {
+      return JSON.stringify({ error: String(e?.message ?? e) });
+    }
+  }
+});
+
+chatTools.push({
   name: "save_contact",
   description:
     "Guarda (memoriza) un contacto con su teléfono para futuras llamadas/mensajes. Úsala cuando el usuario diga 'memoriza/guarda el teléfono de X', 'apunta el contacto de Y', etc. Persiste de forma permanente en el workspace, así que en chats futuros podrás llamar a esa persona por su nombre sin que te repitan el número.",
