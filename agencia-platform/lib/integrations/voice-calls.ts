@@ -91,6 +91,34 @@ export async function startVoiceCall(opts: {
 }
 
 /**
+ * Consulta el estado de una llamada en Vapi por su id de proveedor. Útil para
+ * verificar que la llamada arrancó de verdad y detectar fallos inmediatos
+ * (números no internacionales, sin saldo, transporte, etc.).
+ */
+export async function getVapiCallStatus(
+  workspaceId: string,
+  providerCallId: string
+): Promise<{ status: string | null; endedReason: string | null; endedMessage: string | null } | null> {
+  const cfg = await getVoiceConfig(workspaceId);
+  if (!cfg.apiKey) return null;
+  try {
+    const r = await fetch(`https://api.vapi.ai/call/${providerCallId}`, {
+      headers: { Authorization: `Bearer ${cfg.apiKey}` },
+      signal: AbortSignal.timeout(15000)
+    });
+    if (!r.ok) return null;
+    const d = await r.json();
+    return {
+      status: d?.status ?? null,
+      endedReason: d?.endedReason ?? null,
+      endedMessage: d?.endedMessage ?? null
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Procesa el webhook de Vapi (end-of-call-report u otros status). Actualiza
  * la VoiceCall con transcripción, resumen y datos. Devuelve si se aplicó.
  */

@@ -1105,19 +1105,42 @@ chatTools.push({
   },
   run: async (args, ctx) => {
     try {
-      const { startVoiceCall, VoiceNotConfiguredError } = await import("@/lib/integrations/voice-calls");
+      const { startVoiceCall, getVapiCallStatus } = await import("@/lib/integrations/voice-calls");
       const r = await startVoiceCall({
         workspaceId: ctx.workspaceId,
         toNumber: String(args?.toNumber ?? ""),
         goal: String(args?.goal ?? "")
       });
-      return JSON.stringify({ ok: true, callId: r.id, message: "Llamada iniciada. El resultado llegará al colgar." });
+      // Verificación: esperamos unos segundos y comprobamos en Vapi que la
+      // llamada no falló al arrancar (nº no internacional, sin saldo, etc.).
+      // Sin esto el chat decía "lanzada" aunque Vapi la rechazara.
+      if (r.providerCallId) {
+        await new Promise((res) => setTimeout(res, 9000));
+        const st = await getVapiCallStatus(ctx.workspaceId, r.providerCallId);
+        const reason = st?.endedReason ?? "";
+        if (st && st.status === "ended" && /error|fail|forbidden|invalid|international|no-?answer|busy|declined/i.test(reason)) {
+          return JSON.stringify({
+            ok: false,
+            failed: true,
+            endedReason: reason,
+            endedMessage: st.endedMessage ?? null,
+            message: `La llamada NO se pudo completar (motivo de Vapi: ${reason}${st.endedMessage ? " — " + st.endedMessage : ""}). Informa de esto al usuario, NO digas que la llamada se lanzó con éxito.`
+          });
+        }
+        return JSON.stringify({
+          ok: true,
+          callId: r.id,
+          status: st?.status ?? "in-progress",
+          message: "Llamada en curso. El resumen y la transcripción llegarán al colgar (se crea una tarea en 'Reuniones y llamadas')."
+        });
+      }
+      return JSON.stringify({ ok: true, callId: r.id, message: "Llamada iniciada." });
     } catch (e: any) {
       const msg = String(e?.message ?? e);
       if (e?.constructor?.name === "VoiceNotConfiguredError" || /no configurad/i.test(msg)) {
-        return JSON.stringify({ error: "Las llamadas no están configuradas. Configúralo en /admin/voz (Vapi)." });
+        return JSON.stringify({ ok: false, error: "Las llamadas no están configuradas. Configúralo en /admin/voz (Vapi)." });
       }
-      return JSON.stringify({ error: msg });
+      return JSON.stringify({ ok: false, error: `No se pudo lanzar la llamada: ${msg}. Informa del error al usuario, NO digas que se lanzó.` });
     }
   }
 });
