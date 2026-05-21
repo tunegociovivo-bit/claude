@@ -416,6 +416,37 @@ export async function composeOverlayStructured(opts: StructuredOverlayOpts): Pro
   return await sharp(opts.baseBuffer).composite([{ input: overlayPng, top: 0, left: 0 }]).png().toBuffer();
 }
 
+/**
+ * Compone SOLO el logo sobre la imagen base (sin texto). Para el modo
+ * todo-en-uno (gpt-image-2 ya escribe el texto dentro de la imagen) pero
+ * queremos el logo nítido y exacto, no "dibujado" por la IA.
+ */
+export async function composeLogoOnly(opts: {
+  baseBuffer: Buffer;
+  logoUrl: string;
+  logoPosition?: "tl" | "tr" | "bl" | "br" | string | null;
+}): Promise<Buffer> {
+  try {
+    const meta = await sharp(opts.baseBuffer).metadata();
+    const width = meta.width ?? 1080;
+    const height = meta.height ?? 1080;
+    const logoBuf = await fetchBuffer(opts.logoUrl);
+    const targetW = Math.round(width * 0.16);
+    const resized = await sharp(logoBuf).resize({ width: targetW, withoutEnlargement: false }).png().toBuffer();
+    const lmeta = await sharp(resized).metadata();
+    const lw = lmeta.width ?? targetW;
+    const lh = lmeta.height ?? targetW;
+    const margin = Math.round(width * 0.04);
+    const pos = opts.logoPosition ?? "br";
+    const top = pos.startsWith("t") ? margin : height - lh - margin;
+    const left = pos.endsWith("r") ? width - lw - margin : margin;
+    return await sharp(opts.baseBuffer).composite([{ input: resized, top, left }]).png().toBuffer();
+  } catch (e) {
+    console.warn("[overlay] logo-only failed:", (e as Error).message);
+    return opts.baseBuffer;
+  }
+}
+
 // ============================================================================
 // VERSIÓN LEGACY (re-apply overlay endpoint)
 // ============================================================================

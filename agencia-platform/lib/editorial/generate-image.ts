@@ -1,11 +1,15 @@
 /**
- * Generación de imagen para una publicación con gpt-image-1 (OpenAI).
- * Migra "generar-imagen-publicacion" del plugin (versión simplificada sin
- * overlay todavía).
+ * Generación de imagen para una publicación con gpt-image-2 (OpenAI).
+ *
+ * MODO TODO-EN-UNO (por defecto con OpenAI): gpt-image-2 genera la imagen Y
+ * escribe el texto del titular DENTRO de ella en una sola pasada, respetando
+ * colores de marca, el patrón visual y la plantilla elegida. No se superpone
+ * texto con sharp; solo se añade el logo nítido encima (la IA distorsiona
+ * logos). Con freepik (que no escribe texto fiable) se mantiene el overlay.
  *
  * Decisiones:
- * - Modelo: gpt-image-1 (sucesor de DALL-E 3, soporta tamaños 1024x1024,
- *   1024x1536, 1536x1024).
+ * - Modelo: gpt-image-2 (soporta tamaños 1024x1024, 1024x1536, 1536x1024 y
+ *   renderiza texto legible, incluido español).
  * - El cliente puede tener dimensionesByFormat custom; mapeamos al tamaño
  *   soportado por OpenAI más cercano.
  * - La imagen se sube a R2 y se persiste como thumbnail + mediaUrls.
@@ -107,6 +111,67 @@ export function pickOpenAiSize(width: number, height: number): Size {
   if (r > 1.5) return "1536x1024"; // landscape (16:9, 1.91:1)
   if (r < 0.7) return "1024x1536"; // portrait (9:16 reels/stories)
   return "1024x1024"; // square por defecto (incl. 4:5 Feed)
+}
+
+/**
+ * Quita del prompt cualquier instrucción de "no texto" (se usaba cuando el
+ * texto se componía aparte con overlay). En el modo todo-en-uno queremos lo
+ * contrario: que el modelo escriba el texto.
+ */
+function stripNoTextClause(p: string): string {
+  return p
+    .split(/\n+/)
+    .filter(
+      (line) =>
+        !/no readable text|no letters|no numbers|no watermark|text is composed|composed separately|sin texto|no text\b|empty negative space at the bottom for text overlay/i.test(
+          line
+        )
+    )
+    .join("\n")
+    .trim();
+}
+
+/**
+ * Instrucción para que gpt-image-2 RENDERICE el titular dentro de la imagen
+ * (en español, sin alterar letras), con la jerarquía/colores de marca y en
+ * la zona de colocación elegida.
+ */
+function buildTextRenderInstruction(o: {
+  lines: any[];
+  placement: string;
+  primary?: string | null;
+  accent?: string | null;
+  textColor?: string | null;
+}): string {
+  const lines = o.lines
+    .map((h) => {
+      const t = (h?.text ?? "").toString().trim();
+      if (!t) return null;
+      const emphasis = h?.weight === "bold" ? "bold" : "regular weight";
+      const sizeWord =
+        h?.size === "xl" ? "very large" : h?.size === "lg" ? "large" : h?.size === "sm" ? "small" : "medium";
+      const colorWord =
+        h?.color === "accent" ? "accent brand color" : h?.color === "primary" ? "primary brand color" : "white";
+      return `  • "${t}"  (${sizeWord}, ${emphasis}, ${colorWord})`;
+    })
+    .filter(Boolean)
+    .join("\n");
+  const place = o.placement === "top" ? "upper area" : o.placement === "center" ? "center" : "lower area";
+  return [
+    "",
+    "TEXT TO RENDER INSIDE THE IMAGE (critical — it is part of the design, never omit it):",
+    lines,
+    "Typography: clean modern bold sans-serif, perfectly legible, spelled EXACTLY as written above, in Spanish — do NOT translate, do NOT alter, drop or invent any letter or word, no duplicated text, no lorem ipsum, no random characters, no watermark.",
+    `Lay out the headline as a real social-media graphic: place the text block in the ${place}, inside the safe margins (never cropped at the edges), over a subtle gradient scrim or a solid brand-color block so it stays readable on top of the photo.`,
+    o.primary
+      ? `Brand colors — primary ${o.primary}${o.accent ? `, accent ${o.accent}` : ""}${
+          o.textColor ? `, text ${o.textColor}` : ""
+        }. Use them for the text and the color block behind it.`
+      : "",
+    "Keep the main photographic subject on the opposite side from the text so nothing important is covered."
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
 export type GenerateImageOptions = {
@@ -238,6 +303,29 @@ export async function generateImageForPost(opts: GenerateImageOptions): Promise<
       ? "freepik"
       : "openai";
 
+  // === Modo todo-en-uno (texto + imagen con gpt-image-2) ===
+  // Si hay titulares y el proveedor es OpenAI, pedimos al modelo que ESCRIBA
+  // el texto dentro de la imagen (gpt-image-2 lo hace bien) respetando marca,
+  // patrón y plantilla — en vez de superponerlo después con sharp. Freepik no
+  // sabe escribir texto fiable, así que para freepik se mantiene el overlay.
+  const headlineLinesArr = (post as any).headlineLines as any[] | null;
+  const headlineTexts = Array.isArray(headlineLinesArr)
+    ? headlineLinesArr.map((h) => (h?.text ?? "").toString().trim()).filter(Boolean)
+    : [];
+  const bakeText = provider === "openai" && headlineTexts.length > 0;
+  if (bakeText) {
+    prompt = stripNoTextClause(prompt);
+    prompt +=
+      "\n" +
+      buildTextRenderInstruction({
+        lines: headlineLinesArr!,
+        placement: ((post as any).textPlacement as string | null) ?? "bottom",
+        primary: client?.brandColorPrimary,
+        accent: client?.brandColorAccent,
+        textColor: client?.brandColorText
+      });
+  }
+
   // Detectar personas del roster que deben aparecer en la imagen.
   // Reglas (en orden de prioridad):
   //   1) Si el usuario fuerza una lista explícita (forceRosterPersons,
@@ -354,7 +442,7 @@ export async function generateImageForPost(opts: GenerateImageOptions): Promise<
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
-        model: "gpt-image-1",
+        model: "gpt-image-2",
         prompt,
         n: 1,
         size,
@@ -370,17 +458,28 @@ export async function generateImageForPost(opts: GenerateImageOptions): Promise<
     const b64 = data?.data?.[0]?.b64_json;
     if (!b64) throw new Error("OpenAI no devolvió imagen en b64_json");
     buf = Buffer.from(b64, "base64");
-    modelLabel = `gpt-image-1-${quality}`;
+    modelLabel = `gpt-image-2-${quality}${bakeText ? "-text" : ""}`;
   }
 
-  // Auto-aplicar overlay con headlineLines + logo + frame. gpt-image-1 NO
-  // sabe escribir texto en español sin alucinar — siempre componemos
-  // nosotros encima con sharp+SVG.
+  // Overlay con sharp+SVG SOLO cuando NO horneamos el texto en la imagen
+  // (es decir, freepik, o sin titulares). En el modo todo-en-uno con
+  // gpt-image-2 el texto ya viene dentro de la imagen, así que no superponemos.
   let finalBuf: Buffer = buf;
   try {
     const headlines = (post as any).headlineLines as any[] | null;
     const placement = ((post as any).textPlacement as string | null) ?? "bottom";
-    if (Array.isArray(headlines) && headlines.length > 0) {
+    if (bakeText) {
+      // Texto ya horneado por gpt-image-2. Solo añadimos el logo nítido
+      // (la IA distorsiona logos, así que ese sí lo componemos exacto).
+      if (client?.logoUrl) {
+        const { composeLogoOnly } = await import("./overlay");
+        finalBuf = await composeLogoOnly({
+          baseBuffer: buf,
+          logoUrl: client.logoUrl,
+          logoPosition: (client?.logoPosition as any) ?? "br"
+        });
+      }
+    } else if (Array.isArray(headlines) && headlines.length > 0) {
       const { composeOverlayStructured } = await import("./overlay");
       const clientFonts = Array.isArray(client?.fonts) ? (client?.fonts as any[]) : [];
       finalBuf = await composeOverlayStructured({
