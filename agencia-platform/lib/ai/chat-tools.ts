@@ -1099,7 +1099,12 @@ chatTools.push({
     type: "object",
     properties: {
       toNumber: { type: "string", description: "Teléfono a llamar (con prefijo, ej. +34...)." },
-      goal: { type: "string", description: "Objetivo/guion de la llamada para Sonia, en español." }
+      goal: { type: "string", description: "Objetivo/guion de la llamada para Sonia, en español." },
+      customerName: {
+        type: "string",
+        description:
+          "Nombre de la persona a la que se llama (si lo sabes, p.ej. del contacto memorizado o del cliente). Se usa para saludarla por su nombre en la primera frase y dar confianza. Pásalo SIEMPRE que lo conozcas."
+      }
     },
     required: ["toNumber", "goal"]
   },
@@ -1109,7 +1114,8 @@ chatTools.push({
       const r = await startVoiceCall({
         workspaceId: ctx.workspaceId,
         toNumber: String(args?.toNumber ?? ""),
-        goal: String(args?.goal ?? "")
+        goal: String(args?.goal ?? ""),
+        customerName: args?.customerName ? String(args.customerName) : undefined
       });
       // Verificación: esperamos unos segundos y comprobamos en Vapi que la
       // llamada no falló al arrancar (nº no internacional, sin saldo, etc.).

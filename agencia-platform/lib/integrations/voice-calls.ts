@@ -45,17 +45,31 @@ export function normalizePhone(raw: string): string {
 
 /**
  * Inicia una llamada saliente. `goal` se pasa como variable al asistente
- * de Vapi (usa {{goal}} en su prompt) para guiar la conversación.
+ * de Vapi (usa {{goal}} en su prompt) para guiar la conversación. Si se
+ * indica `customerName`, se saluda a la persona por su nombre en la
+ * primera frase (genera confianza) y queda disponible como {{customerName}}.
  */
 export async function startVoiceCall(opts: {
   workspaceId: string;
   toNumber: string;
   goal: string;
+  customerName?: string;
   variables?: Record<string, string>;
 }): Promise<{ id: string; providerCallId: string | null }> {
   const cfg = await getVoiceConfig(opts.workspaceId);
   if (!cfg.apiKey || !cfg.phoneNumberId || !cfg.assistantId) throw new VoiceNotConfiguredError();
   const to = normalizePhone(opts.toNumber);
+
+  const name = opts.customerName?.trim();
+  const variableValues: Record<string, string> = { goal: opts.goal, ...(opts.variables ?? {}) };
+  const assistantOverrides: any = { variableValues };
+  if (name) {
+    variableValues.customerName = name;
+    // Sobrescribimos la primera frase para saludar por su nombre en vez
+    // de "¿hablo con la persona indicada?". El resto del guion/persona
+    // (voz, tono) sigue viniendo del asistente configurado en Vapi.
+    assistantOverrides.firstMessage = `Hola, ¿hablo con ${name}?`;
+  }
 
   const resp = await fetch("https://api.vapi.ai/call", {
     method: "POST",
@@ -64,10 +78,8 @@ export async function startVoiceCall(opts: {
     body: JSON.stringify({
       phoneNumberId: cfg.phoneNumberId,
       assistantId: cfg.assistantId,
-      customer: { number: to },
-      assistantOverrides: {
-        variableValues: { goal: opts.goal, ...(opts.variables ?? {}) }
-      }
+      customer: { number: to, ...(name ? { name } : {}) },
+      assistantOverrides
     })
   });
   if (!resp.ok) {
