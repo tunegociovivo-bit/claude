@@ -1171,7 +1171,7 @@ function MetricoolExportModal({
     >
       <div className="space-y-3">
         <p className="text-xs text-slate-500">
-          Genera un CSV con las publicaciones del calendario en el formato que el importador de Metricool acepta. Una fila por (publicación × red social). Puedes <strong>descargarlo y subirlo manualmente</strong>, o <strong>mandártelo por email</strong> si Resend está configurado.
+          Genera un CSV con las publicaciones del calendario en el formato que el importador de Metricool acepta (una fila por publicación; las redes van marcadas con TRUE/FALSE). Puedes <strong>descargarlo y subirlo manualmente</strong>, o <strong>mandártelo por email</strong> si Resend está configurado. Al importar en Metricool, elige el formato de fecha <strong>YYYY-MM-DD</strong> y de hora <strong>HH:MM:SS</strong>.
         </p>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

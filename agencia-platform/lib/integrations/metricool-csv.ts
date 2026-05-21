@@ -1,43 +1,74 @@
 /**
  * Genera el CSV con publicaciones del calendario editorial en el formato
- * que el importador masivo de Metricool acepta.
+ * que el importador masivo de Metricool acepta de verdad.
  *
- * Formato (una fila por (publicación, red social)):
- *   Fecha, Hora, Red, Texto, Imagen URL, Marca/Cliente, Formato
+ * Estructura (cabeceras EXACTAS de la plantilla de Metricool):
+ *   Text, Date, Time, Draft,
+ *   Facebook, Twitter/X, LinkedIn, GBP, Instagram, Pinterest, TikTok,
+ *   YouTube, Threads, Bluesky,            ← TRUE/FALSE por red
+ *   Instagram Post Type, Facebook Post Type,  ← POST/REEL/STORY
+ *   Picture Url 1 … Picture Url 10        ← una URL pública por columna
  *
- * Separador: coma. Textos con coma/comillas/saltos se entrecomillan
- * con comillas dobles escapando las internas como "".
+ * UNA fila por publicación (no por red): las redes se marcan con TRUE/FALSE
+ * en sus columnas. Fecha en YYYY-MM-DD y hora en HH:MM:SS (hay que elegir
+ * ese mismo formato al importar en Metricool).
+ *
+ * Antes exportábamos cabeceras en español y una sola columna "Red social"
+ * con el nombre de la red por fila — Metricool lo rechazaba.
  */
 
-type ExportRow = {
-  fecha: string;       // YYYY-MM-DD
-  hora: string;        // HH:MM
-  red: string;
-  texto: string;
-  imagen: string;
-  cliente: string;
-  formato: string;
-};
+const PICTURE_COLS = 10;
 
-const HEADERS: (keyof ExportRow)[] = [
-  "fecha",
-  "hora",
-  "red",
-  "texto",
-  "imagen",
-  "cliente",
-  "formato"
-];
+const NETWORK_COLUMNS = [
+  "Facebook",
+  "Twitter/X",
+  "LinkedIn",
+  "GBP",
+  "Instagram",
+  "Pinterest",
+  "TikTok",
+  "YouTube",
+  "Threads",
+  "Bluesky"
+] as const;
+type NetworkColumn = (typeof NETWORK_COLUMNS)[number];
 
-const HEADER_LABELS: Record<keyof ExportRow, string> = {
-  fecha: "Fecha",
-  hora: "Hora",
-  red: "Red social",
-  texto: "Texto",
-  imagen: "Imagen URL",
-  cliente: "Cliente",
-  formato: "Formato"
-};
+function buildHeaders(): string[] {
+  const pics = Array.from({ length: PICTURE_COLS }, (_, i) => `Picture Url ${i + 1}`);
+  return [
+    "Text",
+    "Date",
+    "Time",
+    "Draft",
+    ...NETWORK_COLUMNS,
+    "Instagram Post Type",
+    "Facebook Post Type",
+    ...pics
+  ];
+}
+
+function mapNetwork(raw: string): NetworkColumn | null {
+  const n = String(raw).toLowerCase().trim();
+  if (/insta/.test(n)) return "Instagram";
+  if (/face|\bfb\b/.test(n)) return "Facebook";
+  if (/twitter|tweet|^x$/.test(n)) return "Twitter/X";
+  if (/linkedin/.test(n)) return "LinkedIn";
+  if (/google|gbp|gmb|business|mi negocio|my business/.test(n)) return "GBP";
+  if (/pinterest/.test(n)) return "Pinterest";
+  if (/tik\s?tok/.test(n)) return "TikTok";
+  if (/youtube|^yt$/.test(n)) return "YouTube";
+  if (/threads/.test(n)) return "Threads";
+  if (/bluesky|bsky/.test(n)) return "Bluesky";
+  return null;
+}
+
+/** Mapea nuestro `format` a los valores de tipo de Metricool. */
+function mapPostType(format: string | null | undefined): "POST" | "REEL" | "STORY" {
+  const f = String(format ?? "").toLowerCase();
+  if (/reel|video|vídeo/.test(f)) return "REEL";
+  if (/stor/.test(f)) return "STORY";
+  return "POST"; // post, carrusel, imagen, etc.
+}
 
 function csvEscape(v: string): string {
   if (v == null) return "";
@@ -62,45 +93,53 @@ type Post = {
 };
 
 export function buildMetricoolCsv(posts: Post[]): { csv: string; rowCount: number; postIds: string[] } {
-  const rows: string[] = [HEADERS.map((h) => HEADER_LABELS[h]).join(",")];
+  const headers = buildHeaders();
+  const rows: string[] = [headers.join(",")];
   const includedIds = new Set<string>();
 
   for (const p of posts) {
     if (!p.scheduledFor) continue;
     const date = p.scheduledFor;
     const fecha = `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}-${String(date.getUTCDate()).padStart(2, "0")}`;
-    const hora = `${String(date.getUTCHours()).padStart(2, "0")}:${String(date.getUTCMinutes()).padStart(2, "0")}`;
+    const hora = `${String(date.getUTCHours()).padStart(2, "0")}:${String(date.getUTCMinutes()).padStart(2, "0")}:${String(date.getUTCSeconds()).padStart(2, "0")}`;
 
-    let networks: string[] = [];
+    // Redes activas de la publicación.
+    let rawNetworks: string[] = [];
     try {
       const parsed = JSON.parse(p.networks);
-      if (Array.isArray(parsed)) networks = parsed.map(String);
+      if (Array.isArray(parsed)) rawNetworks = parsed.map(String);
     } catch {}
-    if (networks.length === 0) networks = ["instagram"]; // fallback
+    const active = new Set<NetworkColumn>();
+    for (const r of rawNetworks) {
+      const col = mapNetwork(r);
+      if (col) active.add(col);
+    }
+    if (active.size === 0) active.add("Instagram"); // fallback razonable
 
+    // Imágenes / vídeos → Picture Url 1..N.
     let mediaUrls: string[] = [];
     try {
       const parsed = JSON.parse(p.mediaUrls);
-      if (Array.isArray(parsed)) mediaUrls = parsed.map(String);
+      if (Array.isArray(parsed)) mediaUrls = parsed.map(String).filter(Boolean);
     } catch {}
-    const imagen = (p.thumbnail || mediaUrls[0] || "").toString();
+    if (mediaUrls.length === 0 && p.thumbnail) mediaUrls = [p.thumbnail];
+    const pics = mediaUrls.slice(0, PICTURE_COLS);
 
-    // Texto: usar excerpt si content vacío, fallback a title
-    const texto = (p.content?.trim() || p.excerpt?.trim() || p.title).slice(0, 2000);
+    const texto = (p.content?.trim() || p.excerpt?.trim() || p.title || "").slice(0, 2000);
+    const postType = mapPostType(p.format);
 
-    // Una fila por red
-    for (const red of networks) {
-      const row: ExportRow = {
-        fecha,
-        hora,
-        red: capitalize(red),
-        texto,
-        imagen,
-        cliente: p.client?.name ?? "",
-        formato: p.format ?? "post"
-      };
-      rows.push(HEADERS.map((h) => csvEscape(row[h])).join(","));
-    }
+    const record: Record<string, string> = {
+      Text: texto,
+      Date: fecha,
+      Time: hora,
+      Draft: "FALSE",
+      "Instagram Post Type": active.has("Instagram") ? postType : "",
+      "Facebook Post Type": active.has("Facebook") ? postType : ""
+    };
+    for (const col of NETWORK_COLUMNS) record[col] = active.has(col) ? "TRUE" : "FALSE";
+    for (let i = 0; i < PICTURE_COLS; i++) record[`Picture Url ${i + 1}`] = pics[i] ?? "";
+
+    rows.push(headers.map((h) => csvEscape(record[h] ?? "")).join(","));
     includedIds.add(p.id);
   }
 
@@ -109,8 +148,4 @@ export function buildMetricoolCsv(posts: Post[]): { csv: string; rowCount: numbe
     rowCount: rows.length - 1,
     postIds: Array.from(includedIds)
   };
-}
-
-function capitalize(s: string): string {
-  return s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
 }

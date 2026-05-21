@@ -153,8 +153,9 @@ function renderEmailHtml(opts: {
     <div style="background:#f1f5f9;border-radius:10px;padding:14px;font-size:13px;color:#475569;margin-bottom:18px">
       <strong>Cómo importarlo:</strong>
       <ol style="margin:6px 0 0 18px;padding:0">
-        <li>Abre Metricool → Programador → "Importar publicaciones desde CSV".</li>
+        <li>Abre Metricool → Calendario → "Importar CSV".</li>
         <li>Sube el archivo adjunto <code style="background:#e2e8f0;padding:2px 4px;border-radius:4px">${opts.filename}</code>.</li>
+        <li>Cuando te pregunte el formato, elige fecha <strong>YYYY-MM-DD</strong> y hora <strong>HH:MM:SS</strong>.</li>
         <li>Revisa la previsualización y confirma.</li>
       </ol>
     </div>
