@@ -78,6 +78,14 @@ async function startRecording(opts) {
   let recordStream = stream; // fallback: solo pestaña
   try {
     audioCtx = new AudioContext();
+    // CRÍTICO: en un documento offscreen NO hay gesto de usuario, así que
+    // el AudioContext arranca "suspended" y el grafo no procesa audio →
+    // la mezcla saldría MUDA (Whisper recibía silencio y la subida se
+    // rechazaba como "grabación muda"). Forzamos resume().
+    try {
+      if (audioCtx.state === "suspended") await audioCtx.resume();
+    } catch {}
+
     const dest = audioCtx.createMediaStreamDestination();
     const tabSource = audioCtx.createMediaStreamSource(stream);
     tabSource.connect(dest); // pestaña → grabación
@@ -87,6 +95,13 @@ async function startRecording(opts) {
       micSource.connect(dest); // micro → grabación (NO a altavoces, evita eco)
     }
     recordStream = dest.stream;
+
+    // Si aun así el contexto no llegó a "running", la mezcla saldría muda.
+    // Grabamos entonces la pestaña en crudo (al menos capturamos a los
+    // demás participantes); se pierde el micro pero no la reunión.
+    if (audioCtx.state !== "running") {
+      recordStream = stream;
+    }
 
     const analyser = audioCtx.createAnalyser();
     analyser.fftSize = 2048;
