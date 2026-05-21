@@ -85,7 +85,7 @@ const earlyInstallCapture = `
  */
 const swSelfHeal = `
   (function () {
-    var EXPECTED = "v138-2026-05-21-tareas-recurrentes";
+    var EXPECTED = "v139-2026-05-21-sonia-morado-optimista";
     if (!('serviceWorker' in navigator)) return;
     var key = "hub_sw_v_seen";
     var seen = null;

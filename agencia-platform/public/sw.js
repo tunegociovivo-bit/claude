@@ -26,7 +26,7 @@
 // reintroducir cache PERO con purga agresiva por VERSION en
 // activate.
 
-const VERSION = "v138-2026-05-21-tareas-recurrentes";
+const VERSION = "v139-2026-05-21-sonia-morado-optimista";
 
 self.addEventListener("install", (event) => {
   // Activación inmediata: no esperar a que el SW viejo libere.

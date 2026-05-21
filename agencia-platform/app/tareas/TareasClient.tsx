@@ -198,6 +198,25 @@ export default function TareasClient({
   // reabre el interval — perdíamos el ritmo.
   const aiStatusRef = useRef<Record<string, AiStatusInfo>>({});
 
+  // Morado "trabajando" OPTIMISTA: al pulsar "Pedir a Sonia" pintamos la
+  // tarjeta de morado YA, sin esperar al poll (que puede tardar y perder la
+  // ventana si el run es corto). Guardamos taskId → expira (ms). El poll lo
+  // mantiene mientras el servidor aún no devuelva un estado real para esa task.
+  const optimisticWorkingRef = useRef<Map<string, number>>(new Map());
+  useEffect(() => {
+    function onTriggered(e: Event) {
+      const taskId = (e as CustomEvent)?.detail?.taskId;
+      if (!taskId || typeof taskId !== "string") return;
+      optimisticWorkingRef.current.set(taskId, Date.now() + 180_000);
+      setAiStatusByTask((prev) => ({
+        ...prev,
+        [taskId]: { aiStatus: "working", startedAt: new Date().toISOString() } as AiStatusInfo
+      }));
+    }
+    window.addEventListener("sonia-triggered", onTriggered);
+    return () => window.removeEventListener("sonia-triggered", onTriggered);
+  }, []);
+
   // Notificaciones sonoras de cambios de estado de Sonia.
   // Detecta TRANSICIONES (no estados estáticos) y reproduce un tono
   // distinto por evento:
@@ -404,6 +423,17 @@ export default function TareasClient({
             };
           }
         }
+        // Mezcla del morado optimista: si lanzamos a Sonia hace poco y el
+        // servidor aún no devuelve estado real para esa task, mantenemos
+        // "working". Si el servidor ya tiene un estado real, mandamos él.
+        const opt = optimisticWorkingRef.current;
+        for (const [tid, exp] of Array.from(opt.entries())) {
+          if (Date.now() > exp || next[tid]) {
+            opt.delete(tid);
+            continue;
+          }
+          next[tid] = { aiStatus: "working", startedAt: new Date().toISOString() } as AiStatusInfo;
+        }
         const activeCount = Object.keys(next).length;
         if (activeCount > 0) {
           console.log(`[ai-status] ${activeCount} task(s) con estado activo:`, next);
@@ -431,7 +461,9 @@ export default function TareasClient({
       const hasActive = Object.values(aiStatusRef.current).some(
         (s) => s && s.aiStatus !== null
       );
-      const delay = hasActive ? 4000 : 20000;
+      // Si hay algo optimista pendiente de confirmar, también vamos rápido.
+      const hasOptimistic = optimisticWorkingRef.current.size > 0;
+      const delay = hasActive || hasOptimistic ? 4000 : 8000;
       timer = setTimeout(async () => {
         await pollOnce();
         scheduleNext();

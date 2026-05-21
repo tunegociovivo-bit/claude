@@ -546,6 +546,14 @@ export default function TaskFormModal({
       } else {
         setError(`✓ Enviada a Sonia. Se procesará en breve (run ${data.runId}).`);
       }
+      // Pinta el morado "trabajando" YA en el tablero (optimista), sin
+      // esperar al siguiente poll — el tablero escucha este evento y
+      // acelera el polling para confirmar/actualizar el estado real.
+      try {
+        window.dispatchEvent(
+          new CustomEvent("sonia-triggered", { detail: { taskId: currentTask.id } })
+        );
+      } catch {}
     } catch (e: any) {
       setError(`Sonia: ${e?.message ?? e}`);
     } finally {
