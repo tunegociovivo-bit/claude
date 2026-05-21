@@ -263,6 +263,7 @@ async function render() {
     loadProjectSelectors()
       .then(() => applyPendingRecord())
       .catch((e) => console.warn("projects load:", e?.message ?? e));
+    refreshMicStatus();
   }
 
   if (state === "done" && s.lastTaskUrl) $("task-link").href = s.lastTaskUrl;
@@ -495,6 +496,42 @@ async function loadProjectSelectors() {
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
+
+// Micrófono: la grabación mezcla el audio de la pestaña (los demás) con tu
+// micro (tu voz). El micro necesita permiso una vez; lo concedemos desde el
+// popup (contexto visible) y el offscreen lo reutiliza. Si no se concede, se
+// graba solo la pestaña.
+async function refreshMicStatus() {
+  const btn = $("btn-mic-perm");
+  const st = $("mic-status");
+  if (!btn || !st) return;
+  let state = "prompt";
+  try {
+    const p = await navigator.permissions.query({ name: "microphone" });
+    state = p.state;
+  } catch {}
+  if (state === "granted") {
+    btn.classList.add("hidden");
+    st.textContent = "🎤 Micrófono activado — se grabará también tu voz.";
+  } else if (state === "denied") {
+    btn.classList.remove("hidden");
+    st.textContent = "Micrófono bloqueado: actívalo en el candado de la barra para grabar tu voz.";
+  } else {
+    btn.classList.remove("hidden");
+    st.textContent = "Sin micro solo se grabará a los demás participantes (no tu voz).";
+  }
+}
+document.getElementById("btn-mic-perm")?.addEventListener("click", async () => {
+  const st = $("mic-status");
+  try {
+    const ms = await navigator.mediaDevices.getUserMedia({ audio: true });
+    ms.getTracks().forEach((t) => t.stop());
+    if (st) st.textContent = "🎤 Micrófono activado — se grabará también tu voz.";
+    $("btn-mic-perm")?.classList.add("hidden");
+  } catch {
+    if (st) st.textContent = "No se concedió el micrófono. Se grabará solo a los demás.";
+  }
+});
 
 // Aplica el destino que el user eligió en el banner in-page (guardado por el
 // SW como "pendingRecord"). Preselecciona proyecto/columna y resalta Grabar

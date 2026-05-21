@@ -16,6 +16,8 @@
 let mediaRecorder = null;
 let chunks = [];
 let stream = null;
+let micStream = null;
+let audioCtx = null;
 let ctx = null; // {meetingUrl, meetingTitle, hubUrl}
 
 chrome.runtime.onMessage.addListener((msg) => {
@@ -57,21 +59,38 @@ async function startRecording(opts) {
     return reportError(`No se pudo capturar el audio de la pestaña: ${e.message}`);
   }
 
-  // ¡OJO! Al capturar audio de la tab Chrome MUTEA la salida por
-  // defecto — la reunión deja de oírse en los altavoces. Conectamos
-  // el stream a un nuevo AudioContext para reproducirlo localmente
-  // mientras también lo grabamos. Y de paso colgamos un AnalyserNode
-  // que detecta silencio prolongado: si la reunión "termina" porque
-  // se desconectaron todos, llevamos N minutos sin audio → el
-  // background pregunta al user si quiere parar y subir.
+  // Micrófono (mejor esfuerzo): para que el acta capture TAMBIÉN tu voz,
+  // no solo la de los demás (la pestaña solo trae a los otros participantes).
+  // Si no hay permiso de micro, seguimos solo con la pestaña.
+  micStream = null;
   try {
-    const audioCtx = new AudioContext();
-    const source = audioCtx.createMediaStreamSource(stream);
-    source.connect(audioCtx.destination);
+    micStream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      video: false
+    });
+  } catch (e) {
+    micStream = null; // sin permiso de micro → solo audio de la pestaña
+  }
+
+  // Mezclamos pestaña + micro en UN stream y grabamos esa mezcla. Además
+  // reproducimos la pestaña por los altavoces (Chrome la mutea al capturar)
+  // y colgamos un AnalyserNode para detectar silencio prolongado.
+  let recordStream = stream; // fallback: solo pestaña
+  try {
+    audioCtx = new AudioContext();
+    const dest = audioCtx.createMediaStreamDestination();
+    const tabSource = audioCtx.createMediaStreamSource(stream);
+    tabSource.connect(dest); // pestaña → grabación
+    tabSource.connect(audioCtx.destination); // pestaña → altavoces (oír la reunión)
+    if (micStream) {
+      const micSource = audioCtx.createMediaStreamSource(micStream);
+      micSource.connect(dest); // micro → grabación (NO a altavoces, evita eco)
+    }
+    recordStream = dest.stream;
 
     const analyser = audioCtx.createAnalyser();
     analyser.fftSize = 2048;
-    source.connect(analyser);
+    tabSource.connect(analyser);
     const buf = new Uint8Array(analyser.fftSize);
 
     // Muestreo cada 5s. Notificamos al SW del nivel de audio (0-255)
@@ -107,7 +126,7 @@ async function startRecording(opts) {
     ? "audio/webm;codecs=opus"
     : "audio/webm";
   try {
-    mediaRecorder = new MediaRecorder(stream, { mimeType: mime, audioBitsPerSecond: 64000 });
+    mediaRecorder = new MediaRecorder(recordStream, { mimeType: mime, audioBitsPerSecond: 64000 });
   } catch (e) {
     return reportError(`MediaRecorder no se pudo crear: ${e.message}`);
   }
@@ -187,10 +206,16 @@ function stopRecording() {
 }
 
 async function onStop() {
-  // Apagar tracks para que Chrome libere el indicador rojo de
-  // "grabando" en la pestaña.
+  // Apagar tracks (pestaña + micro) para liberar el indicador rojo de
+  // "grabando" y el micrófono, y cerrar el AudioContext de mezcla.
   try {
     stream?.getTracks().forEach((t) => t.stop());
+  } catch {}
+  try {
+    micStream?.getTracks().forEach((t) => t.stop());
+  } catch {}
+  try {
+    if (audioCtx && audioCtx.state !== "closed") audioCtx.close();
   } catch {}
 
   if (chunks.length === 0) {
