@@ -1304,6 +1304,46 @@ function NuevaFicha({ onClose, onCreated }: { onClose: () => void; onCreated: ()
   });
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [url, setUrl] = useState("");
+  const [autofilling, setAutofilling] = useState(false);
+  const [autoMsg, setAutoMsg] = useState<string | null>(null);
+
+  async function autofill() {
+    if (!url.trim()) {
+      setAutoMsg("Pega primero la URL de la ficha de Google.");
+      return;
+    }
+    setAutofilling(true);
+    setAutoMsg(null);
+    try {
+      const r = await fetch("/api/v1/gmb/resolve-url", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url })
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!d?.ok) {
+        setAutoMsg(d?.error ?? "No pude leer esa URL.");
+        return;
+      }
+      setForm((f) => ({
+        ...f,
+        name: d.name || f.name,
+        category: d.category || f.category,
+        accountId: d.accountId || f.accountId,
+        locationId: d.locationId || f.locationId
+      }));
+      setAutoMsg(
+        d.matched
+          ? "✓ Rellenado desde Google Business Profile (nombre, categoría e IDs)."
+          : d.note ?? "Nombre rellenado."
+      );
+    } catch {
+      setAutoMsg("Error al autocompletar. Inténtalo de nuevo.");
+    } finally {
+      setAutofilling(false);
+    }
+  }
 
   async function save() {
     if (!form.name.trim()) {
@@ -1352,6 +1392,29 @@ function NuevaFicha({ onClose, onCreated }: { onClose: () => void; onCreated: ()
           </button>
         </div>
         <div className="p-4 space-y-3">
+          <div className="rounded-lg border border-brand-200 bg-brand-50/60 p-3 space-y-2">
+            <label className="block text-xs font-medium text-slate-700">
+              Autorrellenar desde una URL de Google
+            </label>
+            <div className="flex gap-2">
+              <input
+                value={url}
+                onChange={(e) => setUrl(e.target.value)}
+                placeholder="Pega la URL de la ficha (búsqueda de Google o Maps)"
+                className="flex-1 min-w-0 px-3 py-2 rounded-lg border text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+              />
+              <button
+                type="button"
+                onClick={autofill}
+                disabled={autofilling}
+                className="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium disabled:opacity-50"
+              >
+                {autofilling ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                Autorrellenar
+              </button>
+            </div>
+            {autoMsg && <p className="text-[11px] text-slate-600">{autoMsg}</p>}
+          </div>
           {field("name", "Nombre del negocio *", "Ej: Clínica Aitziber")}
           {field("category", "Categoría", "Ej: Clínica dental")}
           <div>

@@ -85,7 +85,7 @@ const earlyInstallCapture = `
  */
 const swSelfHeal = `
   (function () {
-    var EXPECTED = "v142-2026-05-21-meta-token-fallback";
+    var EXPECTED = "v143-2026-05-21-gmb-autofill-url";
     if (!('serviceWorker' in navigator)) return;
     var key = "hub_sw_v_seen";
     var seen = null;
