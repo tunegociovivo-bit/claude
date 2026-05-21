@@ -941,7 +941,7 @@ export async function executeAgentRun(opts: {
     if (/factura|holded/.test(haystack)) needed.push("holded");
     if (needed.length > 0) {
       const { validateWorkspaceCredentials } = await import("@/lib/credentials/validate");
-      const health = await validateWorkspaceCredentials({ workspaceId, integrations: needed });
+      const health = await validateWorkspaceCredentials({ workspaceId, integrations: needed, adhoc: adhocCredentials });
       const total = health.valid.length + health.invalid.length;
       if (total > 0) {
         const lines: string[] = ["", "## ESTADO DE CREDENCIALES (pre-flight automático)"];

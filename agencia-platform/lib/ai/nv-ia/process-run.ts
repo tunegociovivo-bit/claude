@@ -87,8 +87,31 @@ export async function processOneRun(runId: string): Promise<ProcessResult> {
     // pedimos intervención humana en vez de reintentar y seguir gastando.
     try {
       const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      // Si el usuario ha INTERVENIDO (comentario humano) después de los fallos
+      // —típicamente pegando un token nuevo o pidiendo reintentar— le damos una
+      // ventana limpia: los runs anteriores a su intervención NO cuentan. Sin
+      // esto, una tarea con N fallos quedaba pausada en bucle aunque el usuario
+      // arreglara la causa raíz, porque cada relanzamiento volvía a ver los N
+      // fallos viejos y se auto-pausaba sin intentarlo.
+      const wsCb = await prisma.workspace.findUnique({
+        where: { id: run.workspaceId },
+        select: { settings: true }
+      });
+      const cbAiUserId = (wsCb?.settings as any)?.aiAgent?.userId;
+      const lastHumanComment = await prisma.comment.findFirst({
+        where: {
+          workspaceId: run.workspaceId,
+          targetType: "TASK",
+          targetId: run.taskId,
+          ...(cbAiUserId ? { authorId: { not: cbAiUserId } } : {})
+        } as any,
+        orderBy: { createdAt: "desc" },
+        select: { createdAt: true }
+      });
+      const floor =
+        lastHumanComment && lastHumanComment.createdAt > since ? lastHumanComment.createdAt : since;
       const recent = await prisma.aiAgentRun.findMany({
-        where: { taskId: run.taskId, id: { not: runId }, createdAt: { gte: since } } as any,
+        where: { taskId: run.taskId, id: { not: runId }, createdAt: { gte: floor } } as any,
         select: { status: true }
       });
       const anySuccess = recent.some((r) => r.status === "SUCCEEDED");

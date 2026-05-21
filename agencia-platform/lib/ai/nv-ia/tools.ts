@@ -6473,7 +6473,8 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
       : [];
     const r = await validateWorkspaceCredentials({
       workspaceId: ctx.workspaceId,
-      integrations: requested.length > 0 ? requested : undefined
+      integrations: requested.length > 0 ? requested : undefined,
+      adhoc: ctx.adhocCredentials
     });
     return {
       ok: r.invalid.length === 0,

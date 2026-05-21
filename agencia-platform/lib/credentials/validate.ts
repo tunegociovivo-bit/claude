@@ -35,12 +35,19 @@ export type ValidationResult = {
 
 const ALL_CHECKS: Record<
   IntegrationName,
-  (workspaceId: string) => Promise<{ ok: true; detail?: string } | { ok: false; reason: string }>
+  (
+    workspaceId: string,
+    adhoc?: Record<string, string>
+  ) => Promise<{ ok: true; detail?: string } | { ok: false; reason: string }>
 > = {
-  meta_ads: async (workspaceId) => {
+  meta_ads: async (workspaceId, adhoc) => {
     try {
       const { metaAdsListAdAccounts } = await import("@/lib/integrations/meta-ads");
-      const accs = await metaAdsListAdAccounts(workspaceId);
+      // CRÍTICO: validar con el token ad-hoc de la tarea si existe (un token
+      // System User permanente pegado por el user) en vez del OAuth del
+      // workspace, que puede estar caducado. Sin esto, el pre-flight marcaba
+      // Meta como ❌ y Sonia escalaba aunque hubiera un token válido pegado.
+      const accs = await metaAdsListAdAccounts(workspaceId, adhoc);
       return { ok: true, detail: `${accs.length} ad accounts` };
     } catch (e: any) {
       return { ok: false, reason: String(e?.message ?? e).slice(0, 200) };
@@ -117,17 +124,23 @@ const ALL_CHECKS: Record<
 export async function validateWorkspaceCredentials(opts: {
   workspaceId: string;
   integrations?: IntegrationName[];
+  /** Credenciales ad-hoc de la tarea (p.ej. META_ADS_TOKEN pegado por el
+   *  user). Si no se pasan, se leen de settings.adhocCredentials. */
+  adhoc?: Record<string, string>;
 }): Promise<ValidationResult> {
+  // Cargamos settings una vez: para autodetección y para el fallback de adhoc.
+  const ws = await prisma.workspace.findUnique({
+    where: { id: opts.workspaceId },
+    select: { settings: true }
+  });
+  const s = (ws?.settings as any) ?? {};
+  const adhoc = opts.adhoc ?? (s.adhocCredentials as Record<string, string> | undefined) ?? undefined;
+
   let toCheck: IntegrationName[];
   if (opts.integrations && opts.integrations.length > 0) {
     toCheck = opts.integrations;
   } else {
     // Autodetectar las que tienen credenciales en settings
-    const ws = await prisma.workspace.findUnique({
-      where: { id: opts.workspaceId },
-      select: { settings: true }
-    });
-    const s = (ws?.settings as any) ?? {};
     toCheck = [];
     if (s.adhocCredentials?.META_ADS_TOKEN || s.integrations?.meta?.token) toCheck.push("meta_ads");
     if (s.integrations?.make?.apiTokenEnc) toCheck.push("make");
@@ -140,7 +153,7 @@ export async function validateWorkspaceCredentials(opts: {
   // Llamadas en paralelo
   const results = await Promise.all(
     toCheck.map(async (name): Promise<CredentialCheck> => {
-      const r = await ALL_CHECKS[name](opts.workspaceId);
+      const r = await ALL_CHECKS[name](opts.workspaceId, adhoc);
       if (r.ok) return { integration: name, ok: true, detail: r.detail };
       return { integration: name, ok: false, reason: r.reason };
     })
