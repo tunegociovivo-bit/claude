@@ -106,7 +106,11 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}
   }
 
   function movePlatform(key: string, dir: -1 | 1) {
-    const keys = orderItems(platforms.map((p) => p.key), platformOrder);
+    const baseKeys = [
+      ...(!me || me.features.includes("gmb") ? ["gmb_hub"] : []),
+      ...platforms.map((p) => p.key)
+    ];
+    const keys = orderItems(baseKeys, platformOrder);
     const idx = keys.indexOf(key);
     if (idx === -1) return;
     const newIdx = idx + dir;
@@ -354,66 +358,62 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}
               )}
             </div>
             <div className="space-y-0.5">
-              {showGmb && (
-                <Link
-                  onClick={onNavigate}
-                  href="/gmb-hub"
-                  className={clsx(
-                    "flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition-colors min-w-0",
-                    gmbActive
-                      ? "bg-brand-600/25 text-white font-medium"
-                      : "text-slate-300 hover:bg-slate-800 hover:text-white"
-                  )}
-                >
-                  <Star className="h-3.5 w-3.5 shrink-0" />
-                  <span className="truncate flex-1">GMB Hub</span>
-                </Link>
-              )}
-              {orderItems(platforms.map((p) => p.key), platformOrder).map((key, idx, arr) => {
-                const p = platforms.find((x) => x.key === key);
-                if (!p) return null;
-                const Icon = PLATFORM_ICONS[p.key] ?? Sparkles;
-                const active = pathname.startsWith(p.href);
-                const cost = usage.platforms[p.key] ?? 0;
-                return (
-                  <div key={p.key} className="group flex items-center gap-1">
-                    <Link
-                      onClick={onNavigate}
-                      href={p.href}
-                      className={clsx(
-                        "flex-1 flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition-colors min-w-0",
-                        active
-                          ? "bg-brand-600/25 text-white font-medium"
-                          : "text-slate-300 hover:bg-slate-800 hover:text-white"
-                      )}
-                    >
-                      <Icon className="h-3.5 w-3.5 shrink-0" />
-                      <span className="truncate flex-1">{p.label}</span>
-                      <UsageBar micros={cost} max={usage.maxMicros} />
-                    </Link>
-                    <div className="hidden group-hover:flex flex-col -mx-0.5">
-                      <button
-                        type="button"
-                        onClick={(e) => { e.preventDefault(); movePlatform(p.key, -1); }}
-                        disabled={idx === 0}
-                        className="h-3 w-4 grid place-items-center rounded text-slate-500 hover:text-white disabled:opacity-30"
-                        title="Subir"
+              {(() => {
+                const allItems = [
+                  ...(showGmb ? [{ key: "gmb_hub", label: "GMB Hub", href: "/gmb-hub", icon: Star }] : []),
+                  ...platforms.map((p) => ({
+                    key: p.key,
+                    label: p.label,
+                    href: p.href,
+                    icon: PLATFORM_ICONS[p.key] ?? Sparkles
+                  }))
+                ];
+                return orderItems(allItems.map((i) => i.key), platformOrder).map((key, idx, arr) => {
+                  const p = allItems.find((x) => x.key === key);
+                  if (!p) return null;
+                  const Icon = p.icon;
+                  const active = key === "gmb_hub" ? gmbActive : pathname.startsWith(p.href);
+                  const cost = usage.platforms[p.key] ?? 0;
+                  return (
+                    <div key={p.key} className="group flex items-center gap-1">
+                      <Link
+                        onClick={onNavigate}
+                        href={p.href}
+                        className={clsx(
+                          "flex-1 flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition-colors min-w-0",
+                          active
+                            ? "bg-brand-600/25 text-white font-medium"
+                            : "text-slate-300 hover:bg-slate-800 hover:text-white"
+                        )}
                       >
-                        <ArrowUp className="h-2.5 w-2.5" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={(e) => { e.preventDefault(); movePlatform(p.key, 1); }}
-                        disabled={idx === arr.length - 1}
-                        className="h-3 w-4 grid place-items-center rounded text-slate-500 hover:text-white disabled:opacity-30"
-                        title="Bajar"
-                      >
-                        <ArrowDown className="h-2.5 w-2.5" />
-                      </button>
+                        <Icon className="h-3.5 w-3.5 shrink-0" />
+                        <span className="truncate flex-1">{p.label}</span>
+                        {key !== "gmb_hub" && <UsageBar micros={cost} max={usage.maxMicros} />}
+                      </Link>
+                      <div className="hidden group-hover:flex flex-col -mx-0.5">
+                        <button
+                          type="button"
+                          onClick={(e) => { e.preventDefault(); movePlatform(p.key, -1); }}
+                          disabled={idx === 0}
+                          className="h-3 w-4 grid place-items-center rounded text-slate-500 hover:text-white disabled:opacity-30"
+                          title="Subir"
+                        >
+                          <ArrowUp className="h-2.5 w-2.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => { e.preventDefault(); movePlatform(p.key, 1); }}
+                          disabled={idx === arr.length - 1}
+                          className="h-3 w-4 grid place-items-center rounded text-slate-500 hover:text-white disabled:opacity-30"
+                          title="Bajar"
+                        >
+                          <ArrowDown className="h-2.5 w-2.5" />
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                });
+              })()}
               {platforms.length === 0 && !showGmb && me?.role === "ADMIN" && (
                 <Link onClick={onNavigate}
                   href="/admin/plataformas"
