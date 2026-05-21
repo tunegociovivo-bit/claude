@@ -1115,7 +1115,8 @@ chatTools.push({
         workspaceId: ctx.workspaceId,
         toNumber: String(args?.toNumber ?? ""),
         goal: String(args?.goal ?? ""),
-        customerName: args?.customerName ? String(args.customerName) : undefined
+        customerName: args?.customerName ? String(args.customerName) : undefined,
+        userId: ctx.userId
       });
       // Verificación: esperamos unos segundos y comprobamos en Vapi que la
       // llamada no falló al arrancar (nº no internacional, sin saldo, etc.).
@@ -1163,13 +1164,18 @@ chatTools.push({
         description:
           "Nombre del negocio, p.ej. 'El Pollo del Tío Paco'. Añade la ciudad si la conoces para acotar."
       },
-      city: { type: "string", description: "Ciudad o zona para acotar la búsqueda (opcional)." }
+      city: { type: "string", description: "Ciudad o zona para acotar la búsqueda (opcional)." },
+      when: {
+        type: "string",
+        description:
+          "Fecha y hora a comprobar si estará ABIERTO, en ISO 8601 con offset (p.ej. '2026-05-22T14:00:00+02:00'). Pásalo cuando vayas a llamar para una reserva/cita a una hora concreta."
+      }
     },
     required: ["query"]
   },
   run: async (args, ctx) => {
     try {
-      const { placesTextSearch, placeDetails } = await import("@/lib/integrations/google-maps");
+      const { placesTextSearch, placeDetails, isOpenAt } = await import("@/lib/integrations/google-maps");
       const q = [String(args?.query ?? ""), String(args?.city ?? "")].filter(Boolean).join(" ").trim();
       if (!q) return JSON.stringify({ error: "Falta el nombre del negocio." });
       let results;
@@ -1199,6 +1205,10 @@ chatTools.push({
       } catch {
         /* sin detalle: devolvemos al menos lo básico */
       }
+      let openAtRequested: boolean | null = null;
+      if (args?.when && detail) {
+        openAtRequested = isOpenAt(detail.periods ?? [], detail.utcOffsetMinutes ?? null, String(args.when));
+      }
       return JSON.stringify({
         ok: true,
         best: {
@@ -1210,6 +1220,7 @@ chatTools.push({
           reviewCount: top.reviewCount,
           openNow: detail?.openNow ?? null,
           hours: detail?.hoursText ?? [],
+          openAtRequested,
           placeId: top.placeId
         },
         otherCandidates: results.slice(1, 5).map((r) => ({
@@ -1250,7 +1261,12 @@ chatTools.push({
         enum: ["MEETING", "DEADLINE", "CAMPAIGN", "PUBLICATION", "OTHER"],
         description: "Tipo de evento. Para reservas/citas usa MEETING."
       },
-      allDay: { type: "boolean", description: "true si es de todo el día." }
+      allDay: { type: "boolean", description: "true si es de todo el día." },
+      voiceCallId: {
+        type: "string",
+        description:
+          "Si este evento es por una reserva/cita que acabas de gestionar con place_phone_call, pon aquí el callId que devolvió esa tool. Así, al colgar, el evento se confirma/actualiza solo con el resultado de la llamada."
+      }
     },
     required: ["title", "startAt"]
   },
@@ -1277,14 +1293,97 @@ chatTools.push({
           startAt,
           endAt,
           allDay: !!args?.allDay,
-          type: type as any
-        }
+          type: type as any,
+          voiceCallId: args?.voiceCallId ? String(args.voiceCallId) : null
+        } as any
       });
+      // Empuja a Google Calendar si el workspace tiene conexión (Google se
+      // encarga del recordatorio). Best-effort: no bloquea.
+      try {
+        const { pushEventIfConnected } = await import("@/lib/integrations/google-calendar/sync");
+        await pushEventIfConnected(ev.id);
+      } catch {
+        /* sin Google Calendar conectado o fallo de sync: el evento ya está en el Hub */
+      }
       return JSON.stringify({
         ok: true,
         event: { id: ev.id, title: ev.title, when: ev.startAt.toISOString(), url: "/calendario" },
         message: `Evento creado en el calendario: ${ev.title}`
       });
+    } catch (e: any) {
+      return JSON.stringify({ error: String(e?.message ?? e) });
+    }
+  }
+});
+
+chatTools.push({
+  name: "update_event",
+  description:
+    "Reprograma o edita un evento del calendario (cambiar fecha/hora, título o descripción). Primero localiza el evento con upcoming_events para tener su id. Útil para 'cambia/mueve la reserva de mañana a las 21:00'. Sincroniza el cambio con Google Calendar si está conectado.",
+  input_schema: {
+    type: "object",
+    properties: {
+      id: { type: "string", description: "id del evento (de upcoming_events)." },
+      startAt: { type: "string", description: "Nuevo inicio en ISO 8601 con offset (opcional)." },
+      endAt: { type: "string", description: "Nuevo fin en ISO 8601 (opcional)." },
+      title: { type: "string", description: "Nuevo título (opcional)." },
+      description: { type: "string", description: "Nueva descripción (opcional)." }
+    },
+    required: ["id"]
+  },
+  run: async (args, ctx) => {
+    try {
+      const id = String(args?.id ?? "");
+      const ev = await prisma.calendarEvent.findFirst({ where: { id, workspaceId: ctx.workspaceId } });
+      if (!ev) return JSON.stringify({ error: "No encontré ese evento en el calendario." });
+      const data: any = {};
+      if (args?.startAt) {
+        const d = new Date(String(args.startAt));
+        if (!isNaN(d.getTime())) data.startAt = d;
+      }
+      if (args?.endAt) {
+        const d = new Date(String(args.endAt));
+        if (!isNaN(d.getTime())) data.endAt = d;
+      }
+      if (args?.title) data.title = String(args.title).slice(0, 200);
+      if (args?.description) data.description = String(args.description).slice(0, 2000);
+      if (Object.keys(data).length === 0) return JSON.stringify({ error: "No indicaste ningún cambio." });
+      const upd = await prisma.calendarEvent.update({ where: { id: ev.id }, data });
+      try {
+        const { pushEventIfConnected } = await import("@/lib/integrations/google-calendar/sync");
+        await pushEventIfConnected(upd.id);
+      } catch {}
+      return JSON.stringify({
+        ok: true,
+        event: { id: upd.id, title: upd.title, when: upd.startAt.toISOString(), url: "/calendario" },
+        message: `Evento actualizado: ${upd.title}`
+      });
+    } catch (e: any) {
+      return JSON.stringify({ error: String(e?.message ?? e) });
+    }
+  }
+});
+
+chatTools.push({
+  name: "cancel_event",
+  description:
+    "Cancela (borra) un evento del calendario. Localiza el evento con upcoming_events para tener su id. Si la reserva era por teléfono y hay que avisar al negocio, recuerda ofrecer también LLAMAR para cancelarla. Borra también en Google Calendar si estaba sincronizado.",
+  input_schema: {
+    type: "object",
+    properties: { id: { type: "string", description: "id del evento a cancelar." } },
+    required: ["id"]
+  },
+  run: async (args, ctx) => {
+    try {
+      const id = String(args?.id ?? "");
+      const ev = await prisma.calendarEvent.findFirst({ where: { id, workspaceId: ctx.workspaceId } });
+      if (!ev) return JSON.stringify({ error: "No encontré ese evento en el calendario." });
+      try {
+        const { deleteEventIfConnected } = await import("@/lib/integrations/google-calendar/sync");
+        await deleteEventIfConnected(ev);
+      } catch {}
+      await prisma.calendarEvent.delete({ where: { id: ev.id } });
+      return JSON.stringify({ ok: true, message: `Evento cancelado: ${ev.title}` });
     } catch (e: any) {
       return JSON.stringify({ error: String(e?.message ?? e) });
     }

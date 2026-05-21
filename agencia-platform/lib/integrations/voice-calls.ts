@@ -54,6 +54,7 @@ export async function startVoiceCall(opts: {
   toNumber: string;
   goal: string;
   customerName?: string;
+  userId?: string;
   variables?: Record<string, string>;
 }): Promise<{ id: string; providerCallId: string | null }> {
   const cfg = await getVoiceConfig(opts.workspaceId);
@@ -97,7 +98,8 @@ export async function startVoiceCall(opts: {
       providerCallId,
       toNumber: to,
       goal: opts.goal,
-      status: data?.status ?? "queued"
+      status: data?.status ?? "queued",
+      createdById: opts.userId ?? null
     }
   });
   return { id: call.id, providerCallId };
@@ -176,7 +178,80 @@ export async function handleVapiWebhook(payload: any): Promise<{ ok: boolean }> 
       console.error("[voice] crear tarea de llamada falló:", (e as Error).message);
     }
   }
+
+  // Confirmar/actualizar el evento de calendario ligado a esta llamada
+  // (reserva/cita que gestionó Sonia). Solo cuando la llamada ya terminó.
+  const ended = fresh?.status === "ended" || isFailedCall(fresh?.status, fresh?.endedReason) || hasContent;
+  if (fresh && ended) {
+    try {
+      await reconcileLinkedEvent(fresh);
+    } catch (e) {
+      console.error("[voice] reconciliar evento de llamada falló:", (e as Error).message);
+    }
+  }
   return { ok: true };
+}
+
+/** ¿La llamada acabó en fallo (no contestan, ocupado, error, buzón)? */
+function isFailedCall(status?: string | null, reason?: string | null): boolean {
+  const r = (reason ?? "").toLowerCase();
+  if (status === "failed") return true;
+  return /error|fail|forbidden|invalid|no-?answer|did-not-answer|busy|declined|voicemail|rejected|unallocated/.test(r);
+}
+
+/**
+ * Vincula el resultado real de la llamada con el evento de calendario que
+ * Sonia creó para la reserva/cita: añade una nota de resultado a la
+ * descripción y avisa al usuario que pidió la gestión. Idempotente (no
+ * duplica si ya se anotó).
+ */
+async function reconcileLinkedEvent(call: {
+  id: string;
+  workspaceId: string;
+  status: string;
+  endedReason: string | null;
+  summary: string | null;
+  createdById: string | null;
+}): Promise<void> {
+  const event = await prisma.calendarEvent.findFirst({ where: { voiceCallId: call.id } as any });
+  if (!event) return;
+  // Idempotencia: si ya anotamos el resultado, no repetir.
+  if (event.description && /(✅ Llamada|⚠️ Llamada)/.test(event.description)) return;
+
+  const failed = isFailedCall(call.status, call.endedReason);
+  const summary = call.summary?.trim();
+  const stamp = new Date().toLocaleString("es-ES", { dateStyle: "short", timeStyle: "short" } as any);
+  const note = failed
+    ? `⚠️ Llamada NO completada (${call.endedReason ?? call.status}). Reserva SIN confirmar — revísala.`
+    : `✅ Llamada realizada${summary ? `. Resultado: ${summary}` : "."}`;
+  const newDesc = [event.description?.trim(), `— ${note} (${stamp})`]
+    .filter(Boolean)
+    .join("\n\n")
+    .slice(0, 2000);
+  await prisma.calendarEvent.update({ where: { id: event.id }, data: { description: newDesc } });
+
+  // Reflejar el cambio en Google Calendar si está sincronizado.
+  try {
+    const { pushEventIfConnected } = await import("@/lib/integrations/google-calendar/sync");
+    await pushEventIfConnected(event.id);
+  } catch {
+    /* best-effort */
+  }
+
+  if (call.createdById) {
+    await prisma.notification
+      .create({
+        data: {
+          userId: call.createdById,
+          type: failed ? "ai_call_failed" : "ai_call_done",
+          body: failed
+            ? `⚠️ La llamada para "${event.title}" no se completó (${call.endedReason ?? "sin contestar"}). La reserva NO está confirmada.`
+            : `✅ Llamada hecha para "${event.title}".${summary ? ` ${summary.slice(0, 140)}` : ""}`,
+          link: "/calendario"
+        }
+      })
+      .catch(() => {});
+  }
 }
 
 /** Normaliza para comparar etiquetas de columna (minúsculas, sin acentos). */

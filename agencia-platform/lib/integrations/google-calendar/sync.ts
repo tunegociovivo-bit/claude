@@ -250,3 +250,26 @@ export async function pushEventIfConnected(eventId: string): Promise<void> {
   if (!conn) return;
   await pushEventToGoogle(event, conn);
 }
+
+/** Borra en Google (si está sincronizado) el evento indicado. No-op si no
+ *  hay conexión activa o el evento no estaba en Google. */
+export async function deleteEventIfConnected(event: {
+  id: string;
+  workspaceId: string;
+  googleEventId: string | null;
+  googleCalendarId: string | null;
+  googleOwnerUserId: string | null;
+}): Promise<void> {
+  if (!event.googleEventId) return;
+  const conn = event.googleOwnerUserId
+    ? await prisma.googleCalendarConnection.findUnique({
+        where: {
+          userId_workspaceId: { userId: event.googleOwnerUserId, workspaceId: event.workspaceId }
+        }
+      })
+    : await prisma.googleCalendarConnection.findFirst({
+        where: { workspaceId: event.workspaceId, pushEnabled: true }
+      });
+  if (!conn) return;
+  await deleteEventInGoogle(event, conn);
+}

@@ -1381,6 +1381,10 @@ model CalendarEvent {
   googleCalendarId  String?
   googleOwnerUserId String?
   lastSyncedAt      DateTime?
+  // Si el evento nació de una gestión por teléfono de Sonia (reserva/cita),
+  // queda ligado a la VoiceCall para confirmarlo/actualizarlo cuando llega
+  // la transcripción de la llamada por webhook.
+  voiceCallId       String?
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 

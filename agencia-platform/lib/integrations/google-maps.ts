@@ -101,6 +101,11 @@ export async function placesNearby(opts: {
 
 
 /** Detalles de un place_id (geometría, web, teléfono, dirección). */
+type OpeningPeriod = {
+  open: { day: number; time: string };
+  close?: { day: number; time: string };
+};
+
 export async function placeDetails(opts: {
   workspaceId: string;
   placeId: string;
@@ -110,13 +115,15 @@ export async function placeDetails(opts: {
       phone: string;
       openNow: boolean | null;
       hoursText: string[];
+      periods: OpeningPeriod[];
+      utcOffsetMinutes: number | null;
     })
   | null
 > {
   const key = await getGmbMapsKey(opts.workspaceId);
   if (!key) throw new MapsKeyMissingError();
   const fields =
-    "place_id,name,geometry,formatted_address,formatted_phone_number,international_phone_number,website,rating,user_ratings_total,opening_hours";
+    "place_id,name,geometry,formatted_address,formatted_phone_number,international_phone_number,website,rating,user_ratings_total,opening_hours,utc_offset";
   const url = `${BASE}/details/json?place_id=${encodeURIComponent(opts.placeId)}&fields=${fields}&language=es&key=${key}`;
   const r = await fetch(url, { cache: "no-store", signal: AbortSignal.timeout(15000) });
   if (!r.ok) throw new Error(`Maps ${r.status}`);
@@ -128,8 +135,57 @@ export async function placeDetails(opts: {
     website: data.result.website ?? "",
     phone: data.result.international_phone_number ?? data.result.formatted_phone_number ?? "",
     openNow: data.result.opening_hours?.open_now ?? null,
-    hoursText: data.result.opening_hours?.weekday_text ?? []
+    hoursText: data.result.opening_hours?.weekday_text ?? [],
+    periods: data.result.opening_hours?.periods ?? [],
+    utcOffsetMinutes:
+      typeof data.result.utc_offset_minutes === "number"
+        ? data.result.utc_offset_minutes
+        : typeof data.result.utc_offset === "number"
+          ? data.result.utc_offset
+          : null
   };
+}
+
+/**
+ * ¿Está abierto el negocio en el instante `whenISO`? Calcula con los
+ * `periods` de Google (en hora LOCAL del negocio) usando su utc_offset.
+ * Devuelve true/false, o null si no hay datos suficientes para decidirlo.
+ */
+export function isOpenAt(
+  periods: OpeningPeriod[],
+  utcOffsetMinutes: number | null,
+  whenISO: string
+): boolean | null {
+  if (!Array.isArray(periods) || periods.length === 0) return null;
+  const when = new Date(whenISO);
+  if (isNaN(when.getTime())) return null;
+  // Caso "abierto 24h": un único period con open day 0 time 0000 y sin close.
+  if (periods.length === 1 && periods[0].open?.time === "0000" && !periods[0].close) return true;
+  const off = utcOffsetMinutes ?? -when.getTimezoneOffset();
+  // Momento del negocio en su hora local (minutos desde el epoch ajustados).
+  const local = new Date(when.getTime() + off * 60_000);
+  const day = local.getUTCDay(); // 0=domingo … 6=sábado (en hora local del negocio)
+  const mins = local.getUTCHours() * 60 + local.getUTCMinutes();
+  const toMin = (t: string) => parseInt(t.slice(0, 2), 10) * 60 + parseInt(t.slice(2, 4), 10);
+  for (const per of periods) {
+    if (!per.open) continue;
+    const openDay = per.open.day;
+    const openMin = toMin(per.open.time);
+    if (!per.close) {
+      if (openDay === day && mins >= openMin) return true;
+      continue;
+    }
+    const closeDay = per.close.day;
+    const closeMin = toMin(per.close.time);
+    if (openDay === closeDay) {
+      if (day === openDay && mins >= openMin && mins < closeMin) return true;
+    } else {
+      // Tramo que cruza medianoche (p.ej. abre sáb 20:00, cierra dom 02:00).
+      if (day === openDay && mins >= openMin) return true;
+      if (day === closeDay && mins < closeMin) return true;
+    }
+  }
+  return false;
 }
 
 export type GridCell = { lat: number; lng: number; position: number | null };
