@@ -522,14 +522,14 @@ async function refreshMicStatus() {
   }
 }
 document.getElementById("btn-mic-perm")?.addEventListener("click", async () => {
-  const st = $("mic-status");
+  // Abrimos una pestaña dedicada para conceder el micrófono. NO pedimos el
+  // permiso desde el popup: el aviso de Chrome quita el foco al popup y este
+  // se cierra antes de poder aceptar. Una pestaña no se cierra.
   try {
-    const ms = await navigator.mediaDevices.getUserMedia({ audio: true });
-    ms.getTracks().forEach((t) => t.stop());
-    if (st) st.textContent = "🎤 Micrófono activado — se grabará también tu voz.";
-    $("btn-mic-perm")?.classList.add("hidden");
+    chrome.tabs.create({ url: chrome.runtime.getURL("permission/mic.html") });
   } catch {
-    if (st) st.textContent = "No se concedió el micrófono. Se grabará solo a los demás.";
+    const st = $("mic-status");
+    if (st) st.textContent = "Abre la extensión en una pestaña para activar el micrófono.";
   }
 });
 
