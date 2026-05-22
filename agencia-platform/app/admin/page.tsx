@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import PageHeader from "@/components/PageHeader";
+import MetaGuardBadge from "@/components/admin/MetaGuardBadge";
 import { prisma } from "@/lib/db/prisma";
 import { getSessionWorkspaceId } from "@/lib/auth";
 import type { LucideIcon } from "lucide-react";
@@ -490,6 +491,8 @@ export default async function AdminPage() {
         title="Administración"
         description="Configuración de la plataforma e integraciones. Solo visible para administradores."
       />
+
+      <MetaGuardBadge />
 
       {/* Mini-índice de secciones para saltar rápido */}
       <nav className="bg-white border rounded-xl p-3 mb-4 flex flex-wrap gap-2 text-xs">

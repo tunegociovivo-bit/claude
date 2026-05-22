@@ -1,10 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Building2, Users, X, Loader2, Search, Check, FileText, Wallet } from "lucide-react";
+import { Building2, Users, X, Loader2, Search, Check, FileText, Wallet, Upload } from "lucide-react";
 import { formatMoney } from "@/lib/invoicing/core";
 import FacturasClient from "@/components/admin/FacturasClient";
 import GastosClient from "@/components/GastosClient";
+import ImporterClient from "@/components/admin/ImporterClient";
 
 const MONTH_LABEL = new Intl.DateTimeFormat("es-ES", { month: "long", year: "numeric" });
 type MonthSummary = {
@@ -49,7 +50,7 @@ export default function FacturacionClient({
   const [assignedIds, setAssignedIds] = useState<string[]>([]);
   const [assignOpen, setAssignOpen] = useState(false);
   const [seeding, setSeeding] = useState(false);
-  const [tab, setTab] = useState<"facturas" | "gastos">("facturas");
+  const [tab, setTab] = useState<"facturas" | "gastos" | "importar">("facturas");
 
   const missingDefaults = DEFAULT_NAMES.filter(
     (n) => !issuers.some((i) => i.name.toLowerCase().trim() === n.toLowerCase().trim())
@@ -264,12 +265,23 @@ export default function FacturacionClient({
           <TabButton active={tab === "gastos"} onClick={() => setTab("gastos")} icon={<Wallet className="h-4 w-4" />}>
             Gastos
           </TabButton>
+          <TabButton active={tab === "importar"} onClick={() => setTab("importar")} icon={<Upload className="h-4 w-4" />}>
+            Importar facturas
+          </TabButton>
         </div>
       )}
 
       {/* Contenido de la pestaña activa, limitado a la empresa elegida */}
       {tab === "gastos" && selected ? (
         <GastosClient key={`g-${selected.id}`} issuerId={selected.id} onExpensesChanged={bump} />
+      ) : tab === "importar" && selected ? (
+        <div className="space-y-3">
+          <p className="text-sm text-slate-600">
+            Sube un listado de facturas en PDF, CSV o Excel. La IA lo interpreta y las facturas creadas se asignan a{" "}
+            <span className="font-medium text-slate-800">{selected.name}</span>. Las duplicadas (mismo número) se omiten.
+          </p>
+          <ImporterClient initialEntity="invoices" lockEntity issuerId={selected.id} />
+        </div>
       ) : (
         <FacturasClient
           key={selected?.id ?? "none"}

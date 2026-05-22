@@ -19,6 +19,9 @@
  * minutos/horas y un reinicio no provoca por sí mismo un bloqueo.
  */
 
+import { prisma } from "@/lib/db/prisma";
+
+const GUARD_ID = "global";
 const MIN_WRITE_GAP_MS = 1500; // separación mínima entre escrituras
 const HIGH_USAGE_PCT = 75; // a partir de aquí, backoff extra
 const HIGH_USAGE_BACKOFF_MS = 3000;
@@ -29,8 +32,40 @@ let cooldownReason = "";
 let lastUsagePct = 0;
 let lastWriteStart = 0;
 let writeChain: Promise<void> = Promise.resolve();
+let loadedFromDb = false;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** Carga (una vez por proceso) el enfriamiento persistido en BD, para que
+ *  un reinicio no salte un cooldown activo de Meta. */
+async function ensureLoaded() {
+  if (loadedFromDb) return;
+  loadedFromDb = true;
+  try {
+    const row = await prisma.metaGuardState.findUnique({ where: { id: GUARD_ID } });
+    if (row?.cooldownUntil) {
+      const until = new Date(row.cooldownUntil).getTime();
+      if (until > cooldownUntil) {
+        cooldownUntil = until;
+        cooldownReason = row.reason ?? "persistido";
+      }
+    }
+    if (row?.lastUsagePct) lastUsagePct = Math.max(lastUsagePct, row.lastUsagePct);
+  } catch {
+    // sin BD disponible: seguimos solo con estado en memoria
+  }
+}
+
+function persist() {
+  const data = {
+    cooldownUntil: cooldownUntil ? new Date(cooldownUntil) : null,
+    reason: cooldownReason || null,
+    lastUsagePct
+  };
+  prisma.metaGuardState
+    .upsert({ where: { id: GUARD_ID }, create: { id: GUARD_ID, ...data }, update: data })
+    .catch(() => {});
+}
 
 export class MetaCooldownError extends Error {
   constructor(public msUntil: number, reason: string) {
@@ -63,7 +98,14 @@ export function startCooldown(ms?: number, reason = "rate-limit") {
   if (until > cooldownUntil) {
     cooldownUntil = until;
     cooldownReason = reason;
+    persist();
   }
+}
+
+/** Estado del guardián (en memoria + persistido), para mostrarlo en el panel. */
+export async function getMetaGuardState() {
+  await ensureLoaded();
+  return metaGuardStatus();
 }
 
 /**
@@ -124,6 +166,7 @@ export function noteMetaErrorBody(status: number, body: string) {
  */
 export async function metaWriteGate(): Promise<void> {
   const run = writeChain.then(async () => {
+    await ensureLoaded();
     if (isMetaInCooldown()) {
       throw new MetaCooldownError(cooldownUntil - Date.now(), cooldownReason);
     }

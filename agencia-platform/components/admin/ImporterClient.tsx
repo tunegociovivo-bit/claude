@@ -46,8 +46,18 @@ const FIELD_LABELS: Record<string, string> = {
   notes: "notas"
 };
 
-export default function ImporterClient() {
-  const [entity, setEntity] = useState<Entity>("clients");
+export default function ImporterClient({
+  initialEntity = "clients",
+  lockEntity = false,
+  issuerId
+}: {
+  initialEntity?: Entity;
+  /** Oculta el selector de entidad (p.ej. dentro de Facturación, solo facturas). */
+  lockEntity?: boolean;
+  /** Si se importa dentro de una empresa, las facturas se le asignan. */
+  issuerId?: string;
+} = {}) {
+  const [entity, setEntity] = useState<Entity>(initialEntity);
   const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
   const [applying, setApplying] = useState(false);
@@ -104,7 +114,7 @@ export default function ImporterClient() {
       const r = await fetch("/api/v1/admin/import/apply", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ entity: preview.entity, inputs })
+        body: JSON.stringify({ entity: preview.entity, inputs, issuerId })
       });
       const data = await r.json();
       if (!r.ok) {
@@ -147,38 +157,40 @@ export default function ImporterClient() {
   return (
     <div className="space-y-5">
       {/* Selector de entidad */}
-      <div className="grid grid-cols-2 gap-3">
-        <button
-          onClick={() => {
-            setEntity("clients");
-            reset();
-          }}
-          className={`flex items-center gap-3 p-4 rounded-xl border text-left ${
-            entity === "clients" ? "border-brand-500 bg-brand-50" : "bg-white hover:bg-slate-50"
-          }`}
-        >
-          <Users className="h-5 w-5 text-brand-600" />
-          <div>
-            <div className="font-medium text-sm">Clientes</div>
-            <div className="text-xs text-slate-500">Rellena datos que falten; no sobrescribe.</div>
-          </div>
-        </button>
-        <button
-          onClick={() => {
-            setEntity("invoices");
-            reset();
-          }}
-          className={`flex items-center gap-3 p-4 rounded-xl border text-left ${
-            entity === "invoices" ? "border-brand-500 bg-brand-50" : "bg-white hover:bg-slate-50"
-          }`}
-        >
-          <Receipt className="h-5 w-5 text-brand-600" />
-          <div>
-            <div className="font-medium text-sm">Facturas</div>
-            <div className="text-xs text-slate-500">Crea facturas; omite duplicadas por número.</div>
-          </div>
-        </button>
-      </div>
+      {!lockEntity && (
+        <div className="grid grid-cols-2 gap-3">
+          <button
+            onClick={() => {
+              setEntity("clients");
+              reset();
+            }}
+            className={`flex items-center gap-3 p-4 rounded-xl border text-left ${
+              entity === "clients" ? "border-brand-500 bg-brand-50" : "bg-white hover:bg-slate-50"
+            }`}
+          >
+            <Users className="h-5 w-5 text-brand-600" />
+            <div>
+              <div className="font-medium text-sm">Clientes</div>
+              <div className="text-xs text-slate-500">Rellena datos que falten; no sobrescribe.</div>
+            </div>
+          </button>
+          <button
+            onClick={() => {
+              setEntity("invoices");
+              reset();
+            }}
+            className={`flex items-center gap-3 p-4 rounded-xl border text-left ${
+              entity === "invoices" ? "border-brand-500 bg-brand-50" : "bg-white hover:bg-slate-50"
+            }`}
+          >
+            <Receipt className="h-5 w-5 text-brand-600" />
+            <div>
+              <div className="font-medium text-sm">Facturas</div>
+              <div className="text-xs text-slate-500">Crea facturas; omite duplicadas por número.</div>
+            </div>
+          </button>
+        </div>
+      )}
 
       {/* Subida */}
       <div className="bg-white border rounded-xl p-4">

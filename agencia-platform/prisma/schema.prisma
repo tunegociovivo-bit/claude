@@ -286,6 +286,18 @@ model InvoiceIssuer {
   @@index([workspaceId])
 }
 
+// Estado del guardián anti-bloqueo de Meta. Fila única ("global") para
+// que el enfriamiento (cooldown) sobreviva a reinicios del servidor: si
+// Meta nos está limitando y el proceso reinicia, no volvemos a escribir
+// hasta que pase el enfriamiento.
+model MetaGuardState {
+  id            String    @id @default("global")
+  cooldownUntil DateTime?
+  reason        String?
+  lastUsagePct  Float     @default(0)
+  updatedAt     DateTime  @updatedAt
+}
+
 // Gastos de una empresa emisora (compras, suministros, cuotas, etc.).
 // A diferencia de las facturas emitidas, aquí registramos los gastos que
 // la empresa asume, para tener una visión de resultado por empresa.

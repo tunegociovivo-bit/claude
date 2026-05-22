@@ -232,13 +232,18 @@ export async function buildInvoicePlan(workspaceId: string, inputs: InvoiceInput
 
 export async function applyInvoiceImport(
   workspaceId: string,
-  inputs: InvoiceInput[]
+  inputs: InvoiceInput[],
+  issuerId?: string
 ): Promise<{ created: number; skipped: number }> {
   const plan = await buildInvoicePlan(workspaceId, inputs);
-  const defaultIssuer = await prisma.invoiceIssuer.findFirst({
-    where: { workspaceId, deletedAt: null },
-    orderBy: [{ isDefault: "desc" }, { createdAt: "asc" }]
-  });
+  // Si se importa dentro de una empresa concreta, usamos esa; si no, la
+  // emisora por defecto del workspace.
+  const defaultIssuer = issuerId
+    ? await prisma.invoiceIssuer.findFirst({ where: { id: issuerId, workspaceId, deletedAt: null } })
+    : await prisma.invoiceIssuer.findFirst({
+        where: { workspaceId, deletedAt: null },
+        orderBy: [{ isDefault: "desc" }, { createdAt: "asc" }]
+      });
   const issuerSnap = snapshotIssuer(defaultIssuer);
 
   let created = 0;

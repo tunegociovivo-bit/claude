@@ -99,7 +99,7 @@ const earlyInstallCapture = `
  */
 const swSelfHeal = `
   (function () {
-    var EXPECTED = "v158-2026-05-22-meta-anti-bloqueo";
+    var EXPECTED = "v159-2026-05-22-import-facturas-guard";
     if (!('serviceWorker' in navigator)) return;
     var key = "hub_sw_v_seen";
     var seen = null;
