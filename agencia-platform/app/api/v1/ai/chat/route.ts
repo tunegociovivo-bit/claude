@@ -17,7 +17,9 @@ const schema = z.object({
       })
     )
     .min(1)
-    .max(40)
+    .max(40),
+  /** IDs de archivos adjuntos al último mensaje (subidos a /files/upload). */
+  attachmentFileIds: z.array(z.string()).max(5).optional()
 });
 
 const SYSTEM = `Eres "Sonia", la asistente IA de Negocio Vivo — una plataforma interna de una agencia de marketing. Tu nombre es Sonia (nunca te llames "Hub" ni otro nombre).
@@ -68,6 +70,8 @@ Flujo cuando el usuario te pide "busca X y llama / reserva / gestiona algo" (val
 Si te piden enviar un WhatsApp a alguien, usa send_whatsapp (busca el número en MEMORIA si te dan un nombre).
 Las reservas/citas se sincronizan con Google Calendar si está conectado (recordatorio incluido). Sé proactiva y "lista": anticipa lo que hace falta y pregúntalo de golpe, en vez de llamar a ciegas.
 
+ARCHIVOS ADJUNTOS: el usuario puede adjuntar archivos (PDF, CSV, Excel, imágenes, docs). Su contenido te llega dentro del mensaje como "[Archivo adjunto "nombre" fileId: XXX] ...". Puedes leerlo para responder preguntas. Si te adjunta una lista de CLIENTES y te pide añadirlos/darlos de alta/importarlos, usa la tool import_clients_from_file con ese fileId: PRIMERO con apply=false para previsualizar (cuántos nuevos, cuáles ya existen —incluye coincidencias APROXIMADAS por nombre/email/NIF— y qué rellenaría), RESUME el plan y avisa de las coincidencias aproximadas, y solo tras la confirmación del usuario llama con apply=true. Nunca sobrescribes datos: a los existentes solo se les rellenan campos vacíos.
+
 No expongas IDs internos al usuario salvo que los pida.`;
 
 export const POST = withApi({ scope: "ai", rate: "ai" }, async (req, { api }) => {
@@ -116,6 +120,47 @@ export const POST = withApi({ scope: "ai", rate: "ai" }, async (req, { api }) =>
     role: m.role,
     content: m.content
   }));
+
+  // Archivos adjuntos: extraemos su texto y lo inyectamos en el último
+  // mensaje del usuario, junto al fileId (para que Sonia pueda usar la tool
+  // import_clients_from_file). Sonia puede así leer el archivo y/o importarlo.
+  const attachmentIds = parsed.data.attachmentFileIds ?? [];
+  if (attachmentIds.length > 0) {
+    const { extractTextFromFile } = await import("@/lib/ai/nv-ia/file-reader");
+    const blocks: string[] = [];
+    for (const fid of attachmentIds) {
+      const file = await prisma.file.findFirst({
+        where: { id: fid, workspaceId: api.workspaceId },
+        select: { id: true, name: true, mimeType: true, sizeBytes: true, s3Key: true }
+      });
+      if (!file) continue;
+      let body = "";
+      try {
+        const res = await extractTextFromFile({
+          s3Key: file.s3Key,
+          mimeType: file.mimeType ?? "",
+          filename: file.name,
+          sizeBytes: file.sizeBytes
+        });
+        body = res.ok ? res.text.slice(0, 8000) : `(no se pudo leer: ${res.error})`;
+      } catch (e: any) {
+        body = `(error leyendo el archivo: ${String(e?.message ?? e).slice(0, 120)})`;
+      }
+      blocks.push(`[Archivo adjunto "${file.name}" fileId: ${file.id}]\n${body}`);
+    }
+    if (blocks.length > 0) {
+      // Buscar el último mensaje del usuario y anexar el contenido.
+      for (let i = messages.length - 1; i >= 0; i--) {
+        if (messages[i].role === "user") {
+          messages[i] = {
+            role: "user",
+            content: `${messages[i].content as string}\n\n${blocks.join("\n\n")}`
+          };
+          break;
+        }
+      }
+    }
+  }
 
   // Tarjetas interactivas acumuladas de los resultados de las tools de
   // búsqueda durante el turno. Se devuelven junto a la respuesta de texto.

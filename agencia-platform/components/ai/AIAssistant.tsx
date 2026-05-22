@@ -32,7 +32,8 @@ import {
   FolderKanban,
   FileText,
   Calendar,
-  ArrowUpRight
+  ArrowUpRight,
+  Paperclip
 } from "lucide-react";
 import clsx from "clsx";
 
@@ -69,8 +70,10 @@ export default function AIAssistant() {
   const [error, setError] = useState<string | null>(null);
   const [recording, setRecording] = useState(false);
   const [transcribing, setTranscribing] = useState(false);
+  const [attached, setAttached] = useState<File | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const attachInputRef = useRef<HTMLInputElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordedChunksRef = useRef<Blob[]>([]);
 
@@ -79,18 +82,37 @@ export default function AIAssistant() {
   }, [messages, loading]);
 
   async function send(content?: string) {
-    const text = (content ?? input).trim();
-    if (!text || loading) return;
+    let text = (content ?? input).trim();
+    const fileToSend = attached;
+    if ((!text && !fileToSend) || loading) return;
+    if (!text && fileToSend) text = `Te adjunto el archivo "${fileToSend.name}".`;
     setInput("");
     setError(null);
-    const nextMessages = [...messages, { role: "user" as const, content: text }];
+    const shownText = fileToSend ? `${text}\n📎 ${fileToSend.name}` : text;
+    const nextMessages = [...messages, { role: "user" as const, content: shownText }];
     setMessages(nextMessages);
+    setAttached(null);
     setLoading(true);
     try {
+      // Si hay adjunto, lo subimos primero y pasamos su id al chat.
+      let attachmentFileIds: string[] | undefined;
+      if (fileToSend) {
+        const fd = new FormData();
+        fd.append("file", fileToSend);
+        const ur = await fetch("/api/v1/files/upload", { method: "POST", body: fd });
+        if (!ur.ok) {
+          const e = await ur.json().catch(() => ({}));
+          throw new Error(e?.error?.message ?? "No se pudo subir el archivo");
+        }
+        const f = await ur.json();
+        attachmentFileIds = [f.id];
+      }
+      // El backend recibe el texto SIN el marcador 📎 visual.
+      const apiMessages = [...messages, { role: "user" as const, content: text }];
       const r = await fetch("/api/v1/ai/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: nextMessages })
+        body: JSON.stringify({ messages: apiMessages, attachmentFileIds })
       });
       if (!r.ok) {
         const e = await r.json().catch(() => ({}));
@@ -272,6 +294,19 @@ export default function AIAssistant() {
           </div>
 
           <div className="p-3 border-t">
+            {attached && (
+              <div className="mb-2 flex items-center gap-2 text-xs bg-slate-100 rounded-lg px-2.5 py-1.5">
+                <Paperclip className="h-3.5 w-3.5 text-slate-500 shrink-0" />
+                <span className="truncate flex-1">{attached.name}</span>
+                <button
+                  onClick={() => setAttached(null)}
+                  className="text-slate-400 hover:text-rose-500 shrink-0"
+                  aria-label="Quitar adjunto"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            )}
             <div className="flex gap-2 items-center">
               <button
                 onMouseDown={(e) => {
@@ -306,6 +341,25 @@ export default function AIAssistant() {
                 )}
               </button>
               <input
+                ref={attachInputRef}
+                type="file"
+                accept=".csv,.xlsx,.xls,.pdf,.docx,.txt,image/*,text/csv,application/pdf"
+                className="hidden"
+                onChange={(e) => {
+                  setAttached(e.target.files?.[0] ?? null);
+                  if (attachInputRef.current) attachInputRef.current.value = "";
+                }}
+              />
+              <button
+                onClick={() => attachInputRef.current?.click()}
+                disabled={loading || recording || transcribing}
+                className="h-9 w-9 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 grid place-items-center disabled:opacity-50 shrink-0"
+                title="Adjuntar archivo (PDF, CSV, Excel…)"
+                aria-label="Adjuntar archivo"
+              >
+                <Paperclip className="h-4 w-4" />
+              </button>
+              <input
                 ref={inputRef}
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
@@ -327,7 +381,7 @@ export default function AIAssistant() {
               />
               <button
                 onClick={() => send()}
-                disabled={loading || !input.trim() || recording || transcribing}
+                disabled={loading || (!input.trim() && !attached) || recording || transcribing}
                 className="h-9 w-9 rounded-lg bg-brand-600 hover:bg-brand-700 text-white grid place-items-center disabled:opacity-50"
                 aria-label="Enviar"
               >

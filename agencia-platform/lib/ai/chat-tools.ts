@@ -28,6 +28,64 @@ export type HubCard = {
 
 export const chatTools: ChatTool[] = [
   {
+    name: "import_clients_from_file",
+    description:
+      "Importa clientes a 'Clientes' desde un ARCHIVO ADJUNTO (PDF, CSV o Excel). Úsalo cuando el usuario adjunte un archivo y te pida añadir/dar de alta/importar clientes. Pasa el fileId que aparece en el mensaje como [Archivo adjunto ... fileId: XXX]. FLUJO OBLIGATORIO: 1) primero llama con apply=false para PREVISUALIZAR (te dice cuántos son nuevos, cuáles ya existen —incluye coincidencias APROXIMADAS por nombre/email/NIF— y qué campos rellenaría); 2) RESUME ese plan al usuario, avisando de las coincidencias aproximadas para que las revise; 3) solo tras su confirmación, llama de nuevo con apply=true. Nunca sobrescribe datos: a los clientes existentes solo les rellena campos vacíos.",
+    input_schema: {
+      type: "object",
+      properties: {
+        fileId: { type: "string", description: "ID del archivo adjunto (del marcador [Archivo adjunto ... fileId: XXX])." },
+        apply: { type: "boolean", description: "false = solo previsualizar (default). true = ejecutar la importación." }
+      },
+      required: ["fileId"]
+    },
+    run: async (args, ctx) => {
+      try {
+        const fileId = String(args?.fileId ?? "");
+        if (!fileId) return JSON.stringify({ error: "Falta fileId del archivo adjunto." });
+        const file = await prisma.file.findFirst({
+          where: { id: fileId, workspaceId: ctx.workspaceId },
+          select: { id: true, name: true, mimeType: true, sizeBytes: true, s3Key: true }
+        });
+        if (!file) return JSON.stringify({ error: "No encuentro ese archivo adjunto." });
+
+        const { downloadBuffer } = await import("@/lib/storage/r2");
+        const { parseFile } = await import("@/lib/import/parse");
+        const { extractClientInputs, buildClientPlan, applyClientImport } = await import("@/lib/import/clients");
+
+        const buf = await downloadBuffer(file.s3Key);
+        const parsed = await parseFile(buf as Buffer, file.name, file.mimeType ?? "");
+        const inputs = await extractClientInputs(ctx.workspaceId, parsed);
+        if (inputs.length === 0) return JSON.stringify({ error: "No he encontrado clientes en el archivo." });
+
+        if (args?.apply === true) {
+          const res = await applyClientImport(ctx.workspaceId, inputs);
+          return JSON.stringify({ applied: true, ...res, total: inputs.length });
+        }
+
+        const plan = await buildClientPlan(ctx.workspaceId, inputs);
+        const summary = { create: 0, merge: 0, noop: 0, skip: 0 };
+        for (const p of plan) summary[p.action as keyof typeof summary]++;
+        const fuzzy = plan
+          .filter((p) => p.matchVia === "fuzzy")
+          .map((p) => ({ archivo: p.input.name, existente: p.matchName }));
+        const toCreate = plan.filter((p) => p.action === "create").map((p) => p.input.name).slice(0, 50);
+        return JSON.stringify({
+          applied: false,
+          total: inputs.length,
+          nuevos: summary.create,
+          aCompletar: summary.merge,
+          yaExisten: summary.noop,
+          omitidos: summary.skip,
+          coincidenciasAproximadas: fuzzy,
+          ejemploNuevos: toCreate
+        });
+      } catch (e: any) {
+        return JSON.stringify({ error: String(e?.message ?? e) });
+      }
+    }
+  },
+  {
     name: "search_clients",
     description: "Busca clientes del workspace por nombre, industria o estado.",
     input_schema: {
