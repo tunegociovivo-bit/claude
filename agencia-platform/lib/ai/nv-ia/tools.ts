@@ -2373,7 +2373,7 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
       properties: {
         userId: { type: "string", description: "ID del user a notificar (de get_team_members)." },
         body: { type: "string", description: "Mensaje breve. Max 280 chars." },
-        link: { type: "string", description: "URL relativa opcional (ej: '/tasks/abc123')." }
+        link: { type: "string", description: "URL relativa opcional (ej: '/tareas?task=abc123')." }
       },
       required: ["userId", "body"],
       additionalProperties: false
@@ -3692,7 +3692,7 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
           userId: uid,
           type: "assignment",
           body: `Sonia te ha asignado una tarea`,
-          link: `/tasks/${ctx.taskId}`
+          link: `/tareas?task=${ctx.taskId}`
         }))
       }).catch(() => {});
     }
@@ -3755,7 +3755,7 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
           userId: uid,
           type: "assignment",
           body: `Sonia te ha asignado una subtarea: "${title.slice(0, 60)}"`,
-          link: `/tasks/${subtask.id}`
+          link: `/tareas?task=${subtask.id}`
         }))
       }).catch(() => {});
     }

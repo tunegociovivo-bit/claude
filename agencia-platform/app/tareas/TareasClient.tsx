@@ -277,9 +277,18 @@ export default function TareasClient({
       localStorage.setItem("sonia_voiced_runs", JSON.stringify(arr));
     } catch {}
   }, []);
-  // Cache de Audio elements que ya están reproduciéndose por taskId —
-  // evita pisar uno con otro si dos transiciones se solapan.
-  const playingVoiceRef = useRef<Set<string>>(new Set());
+  // Baseline: el PRIMER poll establece el estado conocido SIN anunciar.
+  // Sin esto, al abrir el proyecto (sobre todo en un móvil/dispositivo
+  // nuevo donde el dedup de localStorage está vacío) TODAS las tareas
+  // que ya estaban "terminada/necesita ayuda" se anunciaban a la vez →
+  // se oían 3 voces de Sonia solapadas. Solo anunciamos CAMBIOS que
+  // ocurran mientras miras la página.
+  const hasBaselineRef = useRef(false);
+  // Cola de voz: reproducimos los anuncios de UNO EN UNO (esperando a que
+  // termine cada audio antes del siguiente). Evita el solapamiento de
+  // varias voces cuando se detectan varias transiciones en el mismo poll.
+  const voiceQueueRef = useRef<Array<{ taskId: string; dedupKey: string }>>([]);
+  const voiceBusyRef = useRef(false);
   useEffect(() => {
     const prev = lastSeenStatusRef.current;
     const next: Record<string, AiStatusInfo["aiStatus"]> = {};
@@ -308,6 +317,20 @@ export default function TareasClient({
       }
     }
     lastSeenStatusRef.current = next;
+
+    // PRIMER poll = baseline silencioso. Marcamos como ya conocidos los
+    // estados existentes (también en el dedup persistente) y NO anunciamos
+    // nada — solo los cambios posteriores hablarán.
+    if (!hasBaselineRef.current) {
+      hasBaselineRef.current = true;
+      for (const tr of transitions) {
+        const dedupKey = tr.runId ? `${tr.runId}:${tr.to}` : "";
+        if (dedupKey) markVoiced(dedupKey);
+      }
+      aiStatusRef.current = aiStatusByTask;
+      return;
+    }
+
     if (notifyMode !== "off") {
       for (const tr of transitions) {
         // SOLO transiciones "destacables" generan voz (para no quemar
@@ -328,16 +351,8 @@ export default function TareasClient({
 
         if (notifyMode === "voice" && isDestacable) {
           if (dedupKey && voicedRunsRef.current.has(dedupKey)) continue;
-          playSoniaVoice(tr.taskId)
-            .then(() => {
-              if (dedupKey) markVoiced(dedupKey);
-            })
-            .catch(() => {
-              // Si voz falla, fallback a beep — pero NO marcamos como
-              // voiced para que en el próximo intento se vuelva a
-              // probar la voz.
-              playSoniaSound(tr.to);
-            });
+          // Encolar — la cola reproduce de una en una para no solapar voces.
+          enqueueVoice(tr.taskId, dedupKey);
         } else if (notifyMode === "voice" && (tr.to === "working" || tr.to === "claude_working")) {
           // Beep discreto en modo voz para arranques (sin gastar TTS).
           playSoniaSound(tr.to);
@@ -351,33 +366,63 @@ export default function TareasClient({
 
   // Helper para reproducir voz — fetch el audio del endpoint y play.
   // Definido como useCallback para que sea referenciable en handlers.
+  // Reproduce la voz y RESUELVE cuando el audio TERMINA (no cuando empieza)
+  // — imprescindible para que la cola encadene un anuncio tras otro sin
+  // solaparse.
   const playSoniaVoice = useCallback(async (taskId: string): Promise<void> => {
-    if (playingVoiceRef.current.has(taskId)) return;
-    playingVoiceRef.current.add(taskId);
-    try {
-      const r = await fetch(`/api/v1/tasks/${encodeURIComponent(taskId)}/sonia-speak`, {
-        method: "GET"
-      });
-      if (r.status === 204 || !r.ok) {
-        throw new Error(`speak ${r.status}`);
-      }
-      const blob = await r.blob();
-      const url = URL.createObjectURL(blob);
-      const audio = new Audio(url);
+    const r = await fetch(`/api/v1/tasks/${encodeURIComponent(taskId)}/sonia-speak`, {
+      method: "GET"
+    });
+    if (r.status === 204 || !r.ok) {
+      throw new Error(`speak ${r.status}`);
+    }
+    const blob = await r.blob();
+    const url = URL.createObjectURL(blob);
+    const audio = new Audio(url);
+    await new Promise<void>((resolve, reject) => {
       audio.onended = () => {
         URL.revokeObjectURL(url);
-        playingVoiceRef.current.delete(taskId);
+        resolve();
       };
       audio.onerror = () => {
         URL.revokeObjectURL(url);
-        playingVoiceRef.current.delete(taskId);
+        reject(new Error("audio error"));
       };
-      await audio.play();
-    } catch (e) {
-      playingVoiceRef.current.delete(taskId);
-      throw e;
-    }
+      audio.play().catch(reject);
+    });
   }, []);
+
+  // Procesa la cola de voz de UNA EN UNA. Garantiza que nunca suenen dos
+  // voces de Sonia a la vez aunque se detecten varias transiciones juntas.
+  const drainVoiceQueue = useCallback(async () => {
+    if (voiceBusyRef.current) return;
+    voiceBusyRef.current = true;
+    try {
+      while (voiceQueueRef.current.length > 0) {
+        const item = voiceQueueRef.current.shift()!;
+        if (item.dedupKey && voicedRunsRef.current.has(item.dedupKey)) continue;
+        try {
+          await playSoniaVoice(item.taskId);
+          if (item.dedupKey) markVoiced(item.dedupKey);
+        } catch {
+          // Si la voz falla, beep discreto y seguimos con el siguiente.
+          playSoniaSound("done_unreviewed");
+        }
+      }
+    } finally {
+      voiceBusyRef.current = false;
+    }
+  }, [playSoniaVoice, markVoiced]);
+
+  const enqueueVoice = useCallback(
+    (taskId: string, dedupKey: string) => {
+      // Evita encolar dos veces la misma tarea si ya está pendiente.
+      if (voiceQueueRef.current.some((q) => q.taskId === taskId)) return;
+      voiceQueueRef.current.push({ taskId, dedupKey });
+      void drainVoiceQueue();
+    },
+    [drainVoiceQueue]
+  );
 
   useEffect(() => {
     let cancelled = false;

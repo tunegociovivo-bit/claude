@@ -165,7 +165,7 @@ export default function NvIaInsightsPage() {
                     <li key={r.id} className="text-xs">
                       <div className="flex items-center gap-1.5">
                         <AlertCircle className="h-3 w-3 text-rose-600 shrink-0" />
-                        <a href={`/tasks/${r.taskId}`} className="font-mono text-brand-600 hover:underline truncate">
+                        <a href={`/tareas?task=${r.taskId}`} className="font-mono text-brand-600 hover:underline truncate">
                           task:{r.taskId.slice(0, 10)}
                         </a>
                         <span className="text-slate-400">{TRIGGER_LABEL[r.trigger] ?? r.trigger}</span>
@@ -185,7 +185,7 @@ export default function NvIaInsightsPage() {
                     <li key={r.id} className="text-xs">
                       <div className="flex items-center gap-1.5">
                         <span className="text-amber-700">⚠</span>
-                        <a href={`/tasks/${r.taskId}`} className="font-mono text-brand-600 hover:underline truncate">
+                        <a href={`/tareas?task=${r.taskId}`} className="font-mono text-brand-600 hover:underline truncate">
                           task:{r.taskId.slice(0, 10)}
                         </a>
                       </div>

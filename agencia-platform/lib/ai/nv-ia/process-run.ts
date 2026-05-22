@@ -320,7 +320,7 @@ export async function processOneRun(runId: string): Promise<ProcessResult> {
     }
 
     if (run.requesterId) {
-      const link = `/tasks/${run.taskId}`;
+      const link = `/tareas?task=${run.taskId}`;
       const body =
         result.status === "SUCCEEDED"
           ? `✅ Sonia terminó: ${result.summary?.slice(0, 140) ?? ""}`
@@ -672,7 +672,7 @@ export async function processOneRun(runId: string): Promise<ProcessResult> {
             level,
             title,
             body,
-            linkPath: `/tasks/${run.taskId}`
+            linkPath: `/tareas?task=${run.taskId}`
           }).catch((e) =>
             console.warn(`[sonia] notify multi-channel: ${e?.message ?? e}`)
           );
