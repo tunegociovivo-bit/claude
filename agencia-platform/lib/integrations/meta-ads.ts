@@ -110,10 +110,51 @@ async function getMetaAdsConfig(
       } else if (accounts.length === 0) {
         throw new Error("El token de Meta no tiene acceso a ninguna cuenta publicitaria (Ad Account).");
       } else {
-        const list = accounts.map((a: any) => `${a.name} (${a.id})`).join(", ");
-        throw new Error(
-          `El token tiene varias cuentas publicitarias: ${list}. Indica cuál usar (Ad Account ID) al pedir la acción.`
-        );
+        // Auto-match por nombre del workspace cuando el token tiene
+        // varias ad accounts (típico de System User tokens con acceso a
+        // toda la cartera de la agencia: 47 cuentas en Eurosistema). Sin
+        // este match, TODAS las tools meta_ads_* fallaban porque
+        // getMetaAdsConfig tiraba el error "varias cuentas" antes de
+        // siquiera intentar la operación. Bug detectado por Sonia
+        // procesando la task "Campaña Eurosistema".
+        const norm = (s: string) =>
+          (s ?? "")
+            .toLowerCase()
+            .normalize("NFD")
+            .replace(/[\u0300-\u036f]/g, "")
+            .replace(/[^a-z0-9]+/g, "");
+        const wsName = norm(ws?.name ?? "");
+        let matched: { id: string; name: string } | null = null;
+        if (wsName.length >= 3) {
+          const hit =
+            accounts.find((a: any) => norm(a.name) === wsName) ??
+            accounts.find((a: any) => norm(a.name).includes(wsName)) ??
+            accounts.find((a: any) => wsName.includes(norm(a.name)) && norm(a.name).length >= 3);
+          if (hit) matched = { id: hit.id, name: hit.name };
+        }
+        if (matched) {
+          adAccountId = matched.id;
+          try {
+            const settings = ((ws?.settings as any) ?? {}) as any;
+            settings.integrations = settings.integrations ?? {};
+            settings.integrations.metaAds = {
+              ...(settings.integrations.metaAds ?? {}),
+              adAccountId
+            };
+            await prisma.workspace.update({ where: { id: workspaceId }, data: { settings } });
+          } catch {
+            /* persistencia best-effort */
+          }
+        } else {
+          // Mostrar solo las primeras 10 para no llenar la respuesta
+          // cuando el token tiene 47 cuentas (Eurosistema). El modelo
+          // debe pasar META_ADS_AD_ACCOUNT_ID en adhoc o pedir al user.
+          const sample = accounts.slice(0, 10).map((a: any) => `${a.name} (${a.id})`).join(", ");
+          const more = accounts.length > 10 ? ` y ${accounts.length - 10} más` : "";
+          throw new Error(
+            `El token tiene ${accounts.length} cuentas publicitarias y ninguna coincide con el nombre del workspace ("${ws?.name ?? ""}"). Pásame el Ad Account ID (formato act_xxx) como META_ADS_AD_ACCOUNT_ID en adhoc. Ejemplos: ${sample}${more}.`
+          );
+        }
       }
     }
   }
