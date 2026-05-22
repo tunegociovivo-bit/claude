@@ -1252,7 +1252,23 @@ export async function executeAgentRun(opts: {
         // "user messages must have non-empty content". Si la tool
         // devuelve undefined / null / object→"undefined", forzamos
         // un placeholder mínimo que el modelo entiende.
+        //
+        // BUG HISTÓRICO: un simple .slice(0, 8000) puede partir un
+        // SURROGATE PAIR de UTF-16 a la mitad cuando el output contiene
+        // emojis o caracteres no-BMP (frecuente en leads de Meta Ads con
+        // nombres como "María 🎉"). El resultado: una unidad de código
+        // 0xD800–0xDBFF (high surrogate) queda sin su low surrogate y
+        // Anthropic rechaza el body completo del request con
+        // 400 "no low surrogate in string: line 1 column NNNNN". Para
+        // evitarlo, tras el corte verificamos si el último char es un
+        // high surrogate huérfano y lo eliminamos.
         let resultContent = JSON.stringify(output).slice(0, 8000);
+        if (resultContent.length > 0) {
+          const lastCode = resultContent.charCodeAt(resultContent.length - 1);
+          if (lastCode >= 0xd800 && lastCode <= 0xdbff) {
+            resultContent = resultContent.slice(0, -1);
+          }
+        }
         if (!resultContent || resultContent.trim() === "") {
           resultContent = isError
             ? '{"error":"tool devolvió respuesta vacía"}'
