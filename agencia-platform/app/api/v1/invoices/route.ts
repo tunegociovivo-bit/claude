@@ -12,12 +12,14 @@ export const GET = withApi({ scope: "*", rate: "admin" }, async (req, { api }) =
   const type = url.searchParams.get("type") ?? undefined;
   const status = url.searchParams.get("status") ?? undefined;
   const clientId = url.searchParams.get("clientId") ?? undefined;
+  const issuerId = url.searchParams.get("issuerId") ?? undefined;
   const q = url.searchParams.get("q")?.trim();
 
   const where: any = { workspaceId: api.workspaceId, deletedAt: null };
   if (type) where.type = type;
   if (status) where.status = status;
   if (clientId) where.clientId = clientId;
+  if (issuerId) where.issuerId = issuerId;
   if (q) {
     where.OR = [
       { number: { contains: q, mode: "insensitive" } },

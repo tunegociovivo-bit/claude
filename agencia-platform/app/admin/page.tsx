@@ -309,10 +309,10 @@ const SECTIONS: AdminSection[] = [
     accent: "emerald",
     cards: [
       {
-        href: "/admin/facturas",
-        title: "Gestor de facturas",
+        href: "/facturacion",
+        title: "Facturación",
         description:
-          "Emite facturas, presupuestos, rectificativas y proformas. Recurrentes, multi-divisa (€/$), método de pago por factura (Stripe, transferencia, remesa…), diseño profesional, duplicar, marcar como pagada y exportar a Factura-e.",
+          "Elige la empresa emisora y emite facturas, presupuestos, rectificativas y proformas. Recurrentes, multi-divisa (€/$), método de pago por factura (Stripe, transferencia, remesa…), diseño profesional, duplicar, marcar como pagada y exportar a Factura-e.",
         icon: FileText,
         highlight: true
       }

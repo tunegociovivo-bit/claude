@@ -85,10 +85,16 @@ function toDateInput(d?: string | Date | null): string {
 
 export default function FacturasClient({
   clients,
-  initialIssuers
+  initialIssuers,
+  lockedIssuerId,
+  onIssuersChanged
 }: {
   clients: ClientLite[];
   initialIssuers: Issuer[];
+  /** Si se pasa, la facturación se limita a esta empresa emisora:
+   *  la lista solo muestra sus facturas y el editor fija el emisor. */
+  lockedIssuerId?: string;
+  onIssuersChanged?: () => void;
 }) {
   const [invoices, setInvoices] = useState<InvoiceRow[]>([]);
   const [issuers, setIssuers] = useState<Issuer[]>(initialIssuers ?? []);
@@ -105,6 +111,7 @@ export default function FacturasClient({
       const params = new URLSearchParams();
       if (typeFilter) params.set("type", typeFilter);
       if (statusFilter) params.set("status", statusFilter);
+      if (lockedIssuerId) params.set("issuerId", lockedIssuerId);
       if (q.trim()) params.set("q", q.trim());
       const r = await fetch(`/api/v1/invoices?${params.toString()}`, { cache: "no-store" });
       if (r.ok) {
@@ -114,7 +121,7 @@ export default function FacturasClient({
     } finally {
       setLoading(false);
     }
-  }, [typeFilter, statusFilter, q]);
+  }, [typeFilter, statusFilter, q, lockedIssuerId]);
 
   useEffect(() => {
     loadInvoices();
@@ -123,7 +130,8 @@ export default function FacturasClient({
   const reloadIssuers = useCallback(async () => {
     const r = await fetch("/api/v1/invoice-issuers", { cache: "no-store" });
     if (r.ok) setIssuers((await r.json()).items ?? []);
-  }, []);
+    onIssuersChanged?.();
+  }, [onIssuersChanged]);
 
   async function action(path: string, method = "POST", body?: any) {
     const r = await fetch(path, {
@@ -330,6 +338,7 @@ export default function FacturasClient({
           clients={clients}
           issuers={issuers}
           invoices={invoices}
+          lockedIssuerId={lockedIssuerId}
           onClose={() => setEditing(null)}
           onSaved={() => {
             setEditing(null);
@@ -365,6 +374,7 @@ function InvoiceFormModal({
   clients,
   issuers,
   invoices,
+  lockedIssuerId,
   onClose,
   onSaved
 }: {
@@ -372,6 +382,7 @@ function InvoiceFormModal({
   clients: ClientLite[];
   issuers: Issuer[];
   invoices: InvoiceRow[];
+  lockedIssuerId?: string;
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -382,7 +393,7 @@ function InvoiceFormModal({
   const defaultIssuer = issuers.find((i) => i.isDefault) ?? issuers[0];
   const [type, setType] = useState<InvoiceType>("NORMAL");
   const [clientId, setClientId] = useState<string>("");
-  const [issuerId, setIssuerId] = useState<string>(defaultIssuer?.id ?? "");
+  const [issuerId, setIssuerId] = useState<string>(lockedIssuerId ?? defaultIssuer?.id ?? "");
   const [currency, setCurrency] = useState("EUR");
   const [paymentMethod, setPaymentMethod] = useState("STRIPE");
   const [issueDate, setIssueDate] = useState(toDateInput(new Date()));
@@ -547,7 +558,7 @@ function InvoiceFormModal({
               </div>
               <div className="col-span-2">
                 <label className="block text-xs text-slate-500 mb-1">Empresa emisora</label>
-                <select disabled={locked} value={issuerId} onChange={(e) => setIssuerId(e.target.value)} className={inputCls}>
+                <select disabled={locked || (!!lockedIssuerId && !isEdit)} value={issuerId} onChange={(e) => setIssuerId(e.target.value)} className={inputCls}>
                   <option value="">— Selecciona emisor —</option>
                   {issuers.map((i) => (
                     <option key={i.id} value={i.id}>

@@ -24,7 +24,8 @@ import {
   ArrowUp,
   ArrowDown,
   Trash2,
-  Sunrise
+  Sunrise,
+  Receipt
 } from "lucide-react";
 import clsx from "clsx";
 import ProjectFormModal from "@/components/forms/ProjectFormModal";
@@ -235,6 +236,27 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}
             </Link>
           );
         })}
+
+        {(!me || me.role === "ADMIN") && (
+          <div className="pt-4 mt-2 border-t border-slate-800">
+            <span className="block px-3 mb-1 text-[10px] uppercase tracking-wide text-slate-400 font-semibold">
+              Facturación
+            </span>
+            <Link
+              onClick={onNavigate}
+              href="/facturacion"
+              className={clsx(
+                "flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors",
+                pathname.startsWith("/facturacion")
+                  ? "bg-brand-600/25 text-white font-medium"
+                  : "text-slate-300 hover:bg-slate-800 hover:text-white"
+              )}
+            >
+              <Receipt className="h-4 w-4" />
+              Facturación
+            </Link>
+          </div>
+        )}
 
         <div className="pt-4 mt-2 border-t border-slate-800">
           <div className="flex items-center justify-between px-3 mb-1">
