@@ -59,7 +59,7 @@ async function collectSecrets(
   addEnc("make", "Make.com API token", "Integraciones", s.integrations?.make?.apiTokenEnc);
   addEnc("fal", "fal.ai API key", "Integraciones", s.integrations?.fal?.apiKeyEnc);
   addEnc("resend", "Resend API key (relay de correo)", "Integraciones", s.integrations?.resend?.apiKeyEnc);
-  addEnc("holded", "Holded API key", "Integraciones", s.integrations?.holded?.apiKeyEnc);
+  addEnc("holded", "Holded API key", "Integraciones", s.integrations?.holded?.apiKey);
   addEnc("github_pat", "GitHub PAT (self-heal)", "Integraciones", s.integrations?.selfHeal?.patEnc);
   add("telegram", "Telegram bot token", "Integraciones", s.integrations?.telegram?.botToken);
 

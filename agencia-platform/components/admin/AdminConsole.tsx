@@ -317,6 +317,13 @@ const SECTIONS: AdminSection[] = [
           "Elige la empresa emisora y emite facturas, presupuestos, rectificativas y proformas. Recurrentes, multi-divisa (€/$), método de pago por factura (Stripe, transferencia, remesa…), diseño profesional, duplicar, marcar como pagada y exportar a Factura-e.",
         icon: FileText,
         highlight: true
+      },
+      {
+        href: "/admin/integrations/holded",
+        title: "Holded (contabilidad)",
+        description:
+          "Conecta tu cuenta de Holded con su API key para descargar y gestionar facturas y contactos de Negocio Vivo S.C.A. Sonia podrá consultarlos y crear facturas/presupuestos.",
+        icon: Key
       }
     ]
   },
