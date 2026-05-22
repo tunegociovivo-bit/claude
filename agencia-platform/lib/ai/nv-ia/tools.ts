@@ -2968,7 +2968,12 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
         completedAt: task.completedAt,
         project: task.project,
         client: task.client,
-        assignees: task.assignees.map((a: any) => a.user)
+        assignees: task.assignees.map((a: any) => a.user),
+        // Valores de los campos de la plantilla rellenados al crear la tarea
+        // (URL de ad account, web, presupuesto, emails, imágenes adjuntas en
+        // campos "file" como [{name,url}], etc.). Sin esto Sonia no recibía
+        // los datos del formulario y los pedía aunque estuvieran rellenos.
+        customData: (task as any).customData ?? null
       },
       comments: comments.map((c) => ({
         id: c.id,

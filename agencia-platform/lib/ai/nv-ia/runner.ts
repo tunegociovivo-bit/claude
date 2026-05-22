@@ -971,19 +971,42 @@ export async function executeAgentRun(opts: {
     console.warn("[sonia] credential preflight:", (e as Error).message);
   }
 
-  // WORKFLOW PRECONFIGURADO: si la task viene de una plantilla con
-  // aiWorkflow, inyectarlo como secuencia EXACTA a ejecutar.
+  // DATOS DEL FORMULARIO + WORKFLOW PRECONFIGURADO de la plantilla.
   try {
     const task = await prisma.task.findUnique({
       where: { id: taskId },
-      select: { templateId: true } as any
+      select: { templateId: true, customData: true } as any
     });
     const templateId = (task as any)?.templateId;
+    const customData = (task as any)?.customData;
+    let tpl: any = null;
     if (templateId) {
-      const tpl = await prisma.taskTemplate.findUnique({
+      tpl = await prisma.taskTemplate.findUnique({
         where: { id: templateId },
-        select: { name: true, aiWorkflow: true } as any
+        select: { name: true, aiWorkflow: true, customFields: true } as any
       });
+    }
+    // Inyectar los valores rellenados del formulario (URL de ad account,
+    // web, presupuesto, emails, imágenes adjuntas como URL, etc.). Sin esto
+    // Sonia solo veía el prompt-plantilla y pedía los datos aunque
+    // estuvieran rellenos.
+    if (customData && typeof customData === "object" && Object.keys(customData).length > 0) {
+      const defs: any[] = Array.isArray(tpl?.customFields) ? tpl.customFields : [];
+      const labelOf = (id: string) => defs.find((d) => d.id === id)?.label ?? id;
+      const fmtVal = (v: any): string => {
+        if (v == null || v === "") return "(vacío)";
+        if (Array.isArray(v)) {
+          return v
+            .map((x) => (x && typeof x === "object" ? `${x.name ?? "archivo"} (${x.url ?? ""})` : String(x)))
+            .join(", ");
+        }
+        return String(v);
+      };
+      const rows = Object.entries(customData).map(([k, v]) => `- **${labelOf(k)}**: ${fmtVal(v)}`);
+      initialContent += ["", "## DATOS DEL FORMULARIO (rellenados al crear la tarea)", ...rows, ""].join("\n");
+      log.push({ type: "info", ts: nowIso(), text: `Datos de formulario inyectados: ${rows.length} campos` });
+    }
+    {
       const workflow = (tpl as any)?.aiWorkflow;
       if (workflow && Array.isArray(workflow.steps) && workflow.steps.length > 0) {
         const lines = [
