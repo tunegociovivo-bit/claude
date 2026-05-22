@@ -93,6 +93,14 @@ export function withApi(opts: WithApiOpts, handler: Handler) {
       res.headers.set("X-RateLimit-Limit", String(limit));
       res.headers.set("X-RateLimit-Remaining", String(rl.remaining));
       res.headers.set("X-RateLimit-Reset", String(Math.ceil(rl.resetAt / 1000)));
+      // Respuestas de API autenticada NUNCA deben cachearse en el navegador:
+      // si no, tras cambiar permisos/datos el usuario sigue viendo lo viejo
+      // (p.ej. /api/v1/me con features antiguas → menú con módulos de menos).
+      // Solo lo ponemos si el handler no fijó su propia política (p.ej.
+      // /api/brand-icon, que sí quiere cache larga).
+      if (!res.headers.has("Cache-Control")) {
+        res.headers.set("Cache-Control", "no-store, must-revalidate");
+      }
       return res;
     } catch (err) {
       return errorResponse(err);

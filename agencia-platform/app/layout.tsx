@@ -99,7 +99,7 @@ const earlyInstallCapture = `
  */
 const swSelfHeal = `
   (function () {
-    var EXPECTED = "v149-2026-05-22-voice-queue-task-links";
+    var EXPECTED = "v150-2026-05-22-api-no-store";
     if (!('serviceWorker' in navigator)) return;
     var key = "hub_sw_v_seen";
     var seen = null;

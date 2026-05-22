@@ -125,12 +125,12 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}
     (async () => {
       try {
         const [pr, cr, mr, plr, wr, ur] = await Promise.all([
-          fetch("/api/v1/projects"),
-          fetch("/api/v1/clients"),
-          fetch("/api/v1/me"),
-          fetch("/api/v1/platforms"),
-          fetch("/api/v1/workspace"),
-          fetch("/api/v1/sidebar-usage")
+          fetch("/api/v1/projects", { cache: "no-store" }),
+          fetch("/api/v1/clients", { cache: "no-store" }),
+          fetch("/api/v1/me", { cache: "no-store" }),
+          fetch("/api/v1/platforms", { cache: "no-store" }),
+          fetch("/api/v1/workspace", { cache: "no-store" }),
+          fetch("/api/v1/sidebar-usage", { cache: "no-store" })
         ]);
         if (!aborted && ur.ok) {
           const data = await ur.json();
