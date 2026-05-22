@@ -14,7 +14,7 @@ export const dynamic = "force-dynamic";
 const customFieldSchema = z.object({
   id: z.string().min(1).max(60),
   label: z.string().min(1).max(100),
-  type: z.enum(["text", "textarea", "number", "date", "select", "multiselect", "checkbox"]),
+  type: z.enum(["text", "textarea", "number", "date", "select", "multiselect", "checkbox", "file"]),
   required: z.boolean().optional(),
   options: z.array(z.string()).max(50).optional(),
   placeholder: z.string().max(200).optional(),
