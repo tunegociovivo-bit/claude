@@ -22,6 +22,9 @@ const nextConfig = {
     //   trying to parse skia.linux-x64-musl.node as JS
     experimental: {
         serverComponentsExternalPackages: NATIVE_PACKAGES,
+        // Activa instrumentation.ts → planificador interno de crons
+        // (recordatorios + briefing) sin cron externo.
+        instrumentationHook: true,
         // outputFileTracingIncludes vive en `experimental` en Next 14.x.
         // /public/fonts es necesario para el overlay del editorial.
         // /chrome-extension es la carpeta fuente de la extensión que
