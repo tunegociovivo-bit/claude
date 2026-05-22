@@ -2,7 +2,15 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Building2 } from "lucide-react";
+import { formatMoney } from "@/lib/invoicing/core";
 import FacturasClient from "@/components/admin/FacturasClient";
+
+const MONTH_LABEL = new Intl.DateTimeFormat("es-ES", { month: "long", year: "numeric" });
+type MonthSummary = { facturado: number; cobrado: number; pendiente: number; count: number };
+
+// Cuenta como "facturado" lo que no es presupuesto/proforma ni borrador/anulada.
+const REAL_TYPES_EXCLUDED = ["PRESUPUESTO", "PROFORMA"];
+const NON_BILLED_STATUS = ["DRAFT", "CANCELLED", "REJECTED"];
 
 type ClientLite = { id: string; name: string; taxId: string | null };
 type Issuer = {
@@ -25,6 +33,8 @@ export default function FacturacionClient({
 }) {
   const [issuers, setIssuers] = useState<Issuer[]>(initialIssuers ?? []);
   const [selectedId, setSelectedId] = useState<string>("");
+  const [summary, setSummary] = useState<MonthSummary | null>(null);
+  const [tick, setTick] = useState(0);
 
   // Selección inicial: localStorage → emisor por defecto → primero.
   useEffect(() => {
@@ -68,7 +78,42 @@ export default function FacturacionClient({
     });
   }, []);
 
+  // Resumen mensual de la empresa seleccionada (independiente de los
+  // filtros de la tabla). Se refresca cuando cambian las facturas.
+  useEffect(() => {
+    if (!selectedId) {
+      setSummary(null);
+      return;
+    }
+    let aborted = false;
+    (async () => {
+      const r = await fetch(`/api/v1/invoices?issuerId=${selectedId}`, { cache: "no-store" });
+      if (!r.ok || aborted) return;
+      const items: any[] = (await r.json()).items ?? [];
+      const now = new Date();
+      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+      const real = items.filter(
+        (i) =>
+          !REAL_TYPES_EXCLUDED.includes(i.type) &&
+          !NON_BILLED_STATUS.includes(i.status) &&
+          new Date(i.issueDate).getTime() >= monthStart
+      );
+      const facturado = real.reduce((s, i) => s + (i.totalCents ?? 0), 0);
+      const cobrado = real.filter((i) => i.status === "PAID").reduce((s, i) => s + (i.totalCents ?? 0), 0);
+      const pendiente = real
+        .filter((i) => i.status === "ISSUED")
+        .reduce((s, i) => s + ((i.totalCents ?? 0) - (i.paidCents ?? 0)), 0);
+      if (!aborted) setSummary({ facturado, cobrado, pendiente, count: real.length });
+    })();
+    return () => {
+      aborted = true;
+    };
+  }, [selectedId, tick]);
+
+  const onInvoicesChanged = useCallback(() => setTick((t) => t + 1), []);
+
   const selected = issuers.find((i) => i.id === selectedId) ?? null;
+  const monthName = MONTH_LABEL.format(new Date());
 
   return (
     <div className="space-y-4">
@@ -108,6 +153,20 @@ export default function FacturacionClient({
             )}
           </div>
         )}
+
+        {/* Resumen rápido del mes para la empresa elegida */}
+        {selected && summary && (
+          <div className="mt-3 grid grid-cols-3 gap-3 border-t pt-3">
+            <SummaryStat
+              label={`Facturado · ${monthName}`}
+              value={formatMoney(summary.facturado)}
+              hint={`${summary.count} ${summary.count === 1 ? "documento" : "documentos"}`}
+              color="text-slate-900"
+            />
+            <SummaryStat label="Cobrado" value={formatMoney(summary.cobrado)} color="text-emerald-700" />
+            <SummaryStat label="Pendiente de cobro" value={formatMoney(summary.pendiente)} color="text-blue-700" />
+          </div>
+        )}
       </div>
 
       {/* Gestor de facturas, limitado a la empresa elegida */}
@@ -117,7 +176,28 @@ export default function FacturacionClient({
         initialIssuers={issuers as any}
         lockedIssuerId={selected?.id}
         onIssuersChanged={refreshIssuers}
+        onInvoicesChanged={onInvoicesChanged}
       />
+    </div>
+  );
+}
+
+function SummaryStat({
+  label,
+  value,
+  hint,
+  color
+}: {
+  label: string;
+  value: string;
+  hint?: string;
+  color: string;
+}) {
+  return (
+    <div>
+      <div className="text-xs text-slate-500 truncate capitalize">{label}</div>
+      <div className={`text-lg font-bold ${color}`}>{value}</div>
+      {hint && <div className="text-[11px] text-slate-400">{hint}</div>}
     </div>
   );
 }

@@ -87,7 +87,8 @@ export default function FacturasClient({
   clients,
   initialIssuers,
   lockedIssuerId,
-  onIssuersChanged
+  onIssuersChanged,
+  onInvoicesChanged
 }: {
   clients: ClientLite[];
   initialIssuers: Issuer[];
@@ -95,6 +96,8 @@ export default function FacturasClient({
    *  la lista solo muestra sus facturas y el editor fija el emisor. */
   lockedIssuerId?: string;
   onIssuersChanged?: () => void;
+  /** Se llama tras (re)cargar la lista de facturas (crear/editar/borrar). */
+  onInvoicesChanged?: () => void;
 }) {
   const [invoices, setInvoices] = useState<InvoiceRow[]>([]);
   const [issuers, setIssuers] = useState<Issuer[]>(initialIssuers ?? []);
@@ -117,11 +120,12 @@ export default function FacturasClient({
       if (r.ok) {
         const data = await r.json();
         setInvoices(data.items ?? []);
+        onInvoicesChanged?.();
       }
     } finally {
       setLoading(false);
     }
-  }, [typeFilter, statusFilter, q, lockedIssuerId]);
+  }, [typeFilter, statusFilter, q, lockedIssuerId, onInvoicesChanged]);
 
   useEffect(() => {
     loadInvoices();
