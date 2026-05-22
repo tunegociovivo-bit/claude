@@ -203,8 +203,8 @@ export default function ImporterClient() {
           </button>
         </div>
         <p className="text-xs text-slate-500 mt-2 flex items-center gap-1">
-          <FileText className="h-3.5 w-3.5" /> Formatos: PDF, CSV, Excel (.xlsx/.xls). El PDF se interpreta con IA (requiere
-          tener la IA configurada).
+          <FileText className="h-3.5 w-3.5" /> Sube cualquier listado en PDF, CSV o Excel (.xlsx/.xls). La IA interpreta el
+          documento y extrae los datos automáticamente (requiere la IA configurada en /admin/ai).
         </p>
       </div>
 

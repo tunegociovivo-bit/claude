@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/db/prisma";
 import { completeJson } from "@/lib/ai/anthropic";
 import { detectColumns, norm, normTaxId } from "./shared";
-import { tabularToObjects, type ParsedFile, type Tabular } from "./parse";
+import { tabularToObjects, tabularToText, type ParsedFile, type Tabular } from "./parse";
 
 export type ClientInput = {
   name: string;
@@ -134,14 +134,28 @@ async function aiExtractClients(workspaceId: string, text: string): Promise<Clie
   return (res.clients ?? []).filter((c) => c.name && c.name.trim());
 }
 
-/** Convierte un archivo parseado en una lista de ClientInput. */
+/**
+ * Convierte un archivo parseado en una lista de ClientInput. La IA
+ * interpreta el documento (PDF o tabla) y extrae los datos. Para CSV/Excel,
+ * si la IA falla (p.ej. no configurada), cae a detección de columnas.
+ */
 export async function extractClientInputs(workspaceId: string, parsed: ParsedFile): Promise<ClientInput[]> {
   if (parsed.kind === "pdf") return aiExtractClients(workspaceId, parsed.text);
-  const t: Tabular = parsed.data;
+  try {
+    const rows = await aiExtractClients(workspaceId, tabularToText(parsed.data));
+    if (rows.length) return rows;
+  } catch {
+    // fallback abajo
+  }
+  return extractClientsByColumns(parsed.data);
+}
+
+/** Fallback determinista: mapea por cabeceras conocidas (sin IA). */
+function extractClientsByColumns(t: Tabular): ClientInput[] {
   const cols = detectColumns(t.headers, ALIASES);
   if (cols.name === undefined) {
     throw new Error(
-      "No se ha encontrado la columna de nombre. Asegúrate de que el archivo tiene una cabecera tipo 'Nombre' o 'Cliente'."
+      "La IA no está disponible y no se ha encontrado una columna de nombre. Configura la IA en /admin/ai o usa una cabecera tipo 'Nombre' o 'Cliente'."
     );
   }
   const objects = tabularToObjects(t);

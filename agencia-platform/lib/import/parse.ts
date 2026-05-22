@@ -70,6 +70,17 @@ async function extractPdfText(buf: Buffer): Promise<string> {
   return String(text).trim();
 }
 
+/** Renderiza una tabla como texto (cabeceras + filas) para pasársela a la IA. */
+export function tabularToText(t: Tabular): string {
+  const esc = (c: string) => (c.includes(",") || c.includes('"') ? `"${c.replace(/"/g, '""')}"` : c);
+  const head = t.headers.map(esc).join(",");
+  const body = t.rows
+    .slice(0, 2000)
+    .map((r) => r.map((c) => esc(c ?? "")).join(","))
+    .join("\n");
+  return [head, body].filter(Boolean).join("\n");
+}
+
 /** Convierte una tabla en objetos { header: value }. */
 export function tabularToObjects(t: Tabular): Record<string, string>[] {
   return t.rows.map((row) => {

@@ -3,7 +3,7 @@ import { completeJson } from "@/lib/ai/anthropic";
 import { computeTotals, type InvoiceLine } from "@/lib/invoicing/core";
 import { snapshotIssuer, snapshotClient } from "@/lib/invoicing/persist";
 import { detectColumns, norm, normTaxId, parseAmountToCents, parseDateFlexible, pickRate } from "./shared";
-import { tabularToObjects, type ParsedFile, type Tabular } from "./parse";
+import { tabularToObjects, tabularToText, type ParsedFile, type Tabular } from "./parse";
 
 export type InvoiceInput = {
   number?: string;
@@ -136,10 +136,22 @@ async function aiExtractInvoices(workspaceId: string, text: string): Promise<Inv
 
 export async function extractInvoiceInputs(workspaceId: string, parsed: ParsedFile): Promise<InvoiceInput[]> {
   if (parsed.kind === "pdf") return aiExtractInvoices(workspaceId, parsed.text);
-  const t: Tabular = parsed.data;
+  try {
+    const rows = await aiExtractInvoices(workspaceId, tabularToText(parsed.data));
+    if (rows.length) return rows;
+  } catch {
+    // fallback abajo
+  }
+  return extractInvoicesByColumns(parsed.data);
+}
+
+/** Fallback determinista: mapea por cabeceras conocidas (sin IA). */
+function extractInvoicesByColumns(t: Tabular): InvoiceInput[] {
   const cols = detectColumns(t.headers, ALIASES);
   if (cols.total === undefined && cols.base === undefined) {
-    throw new Error("No se ha encontrado columna de importe (Total o Base imponible).");
+    throw new Error(
+      "La IA no está disponible y no se ha encontrado columna de importe (Total o Base imponible). Configura la IA en /admin/ai."
+    );
   }
   const objects = tabularToObjects(t);
   return objects.map((o) => rowToInvoice(o, cols, t.headers));

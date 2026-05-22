@@ -99,7 +99,7 @@ const earlyInstallCapture = `
  */
 const swSelfHeal = `
   (function () {
-    var EXPECTED = "v152-2026-05-22-importer";
+    var EXPECTED = "v153-2026-05-22-importer-ai";
     if (!('serviceWorker' in navigator)) return;
     var key = "hub_sw_v_seen";
     var seen = null;
