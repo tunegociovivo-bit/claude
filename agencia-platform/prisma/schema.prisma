@@ -345,6 +345,18 @@ model Client {
   // user no rellena el cuadro de negativo en el modal.
   imageGlobalAvoid   String? @db.Text
 
+  // ----- Meta Ads: vinculación cuenta/página por cliente -----
+  // Cuando una tarea de campaña tiene clientId, Sonia resuelve estos
+  // valores automáticamente (sin tener que pegar la URL del Ads Manager).
+  // metaAdAccountId: id de la cuenta publicitaria (con o sin "act_").
+  metaAdAccountId    String?
+  // metaPageId: id de la página de Facebook que publicará los anuncios.
+  metaPageId         String?
+  // metaInstagramId: id de la cuenta de Instagram vinculada (opcional).
+  metaInstagramId    String?
+  // metaLeadEmails: emails (coma-separados) a los que avisar de leads.
+  metaLeadEmails     String?
+
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
   deletedAt   DateTime?

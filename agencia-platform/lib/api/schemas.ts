@@ -149,7 +149,14 @@ export const clientEditorialMetaSchema = z.object({
   // estricto: la UI persiste lo que necesite (count, networks, mix,
   // copyLength, perNetworkCopy, extraGuidance, status, generateImages,
   // imageQuality). null para resetear al default global.
-  editorialDefaults: z.record(z.string(), z.any()).nullable().optional()
+  editorialDefaults: z.record(z.string(), z.any()).nullable().optional(),
+  // Meta Ads: vinculación cuenta/página por cliente. Cuando una tarea de
+  // campaña tiene clientId, Sonia resuelve estos valores automáticamente
+  // (sin pegar la URL del Ads Manager).
+  metaAdAccountId: z.string().nullable().optional(),
+  metaPageId: z.string().nullable().optional(),
+  metaInstagramId: z.string().nullable().optional(),
+  metaLeadEmails: z.string().nullable().optional()
 });
 
 export const projectCreateSchema = z.object({

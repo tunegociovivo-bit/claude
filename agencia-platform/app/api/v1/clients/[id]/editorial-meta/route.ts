@@ -33,7 +33,11 @@ const META_SELECT = {
   driveRootId: true,
   driveSubfolders: true,
   imageModel: true,
-  editorialDefaults: true
+  editorialDefaults: true,
+  metaAdAccountId: true,
+  metaPageId: true,
+  metaInstagramId: true,
+  metaLeadEmails: true
 } as const;
 
 export const GET = withApi({ scope: "clients:read" }, async (_req, { params, api }) => {
@@ -52,8 +56,22 @@ export const PATCH = withApi({ scope: "clients:write" }, async (req, { params, a
 
   // Normalizar: "" → null para los campos string opcionales
   const data: any = { ...parsed.data };
-  for (const k of ["website", "logoUrl", "styleGuideCached", "driveRootId"] as const) {
+  for (const k of [
+    "website",
+    "logoUrl",
+    "styleGuideCached",
+    "driveRootId",
+    "metaAdAccountId",
+    "metaPageId",
+    "metaInstagramId",
+    "metaLeadEmails"
+  ] as const) {
     if (data[k] === "") data[k] = null;
+  }
+  // Normalizar la cuenta publicitaria: quitar prefijo "act_" y espacios
+  // para guardar solo el id numérico de forma consistente.
+  if (typeof data.metaAdAccountId === "string") {
+    data.metaAdAccountId = data.metaAdAccountId.trim().replace(/^act_/i, "") || null;
   }
 
   const updated = await prisma.client.updateMany({

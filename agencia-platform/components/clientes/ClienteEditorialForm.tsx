@@ -45,6 +45,10 @@ type Meta = {
   driveRootId: string | null;
   driveSubfolders: DriveSubfolder[] | null;
   imageModel: string | null;
+  metaAdAccountId: string | null;
+  metaPageId: string | null;
+  metaInstagramId: string | null;
+  metaLeadEmails: string | null;
 };
 
 export default function ClienteEditorialForm({ initial }: { initial: Meta }) {
@@ -302,6 +306,64 @@ export default function ClienteEditorialForm({ initial }: { initial: Meta }) {
         <p className="mt-1 text-[11px] text-slate-500">
           Freepik requiere su API key en /admin/editorial. Si no está configurada, cae a OpenAI.
         </p>
+      </Section>
+
+      <Section
+        emoji="📣"
+        title="Meta Ads (campañas)"
+        description="Vincula la cuenta publicitaria y la página de este cliente. Así Sonia crea campañas sin que tengas que pegar la URL del Ads Manager: basta con asignar la tarea a este cliente."
+      >
+        <div className="space-y-3">
+          <div>
+            <label className="block text-xs font-medium text-slate-600 mb-1">Cuenta publicitaria (Ad Account ID)</label>
+            <input
+              type="text"
+              value={form.metaAdAccountId ?? ""}
+              onChange={(e) => patch("metaAdAccountId", e.target.value || null)}
+              placeholder="Ej: act_951272100695739 o 951272100695739"
+              className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+            />
+            <p className="mt-1 text-[11px] text-slate-500">
+              Lo encuentras en el Administrador de anuncios de Meta (la URL contiene act=NNNN). Con o sin "act_".
+            </p>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-slate-600 mb-1">Página de Facebook (Page ID)</label>
+            <input
+              type="text"
+              value={form.metaPageId ?? ""}
+              onChange={(e) => patch("metaPageId", e.target.value || null)}
+              placeholder="Ej: 1098765432109876"
+              className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+            />
+            <p className="mt-1 text-[11px] text-slate-500">
+              Página que publica los anuncios y recibe los leads. ID numérico (no el nombre).
+            </p>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-slate-600 mb-1">Instagram vinculado (opcional)</label>
+            <input
+              type="text"
+              value={form.metaInstagramId ?? ""}
+              onChange={(e) => patch("metaInstagramId", e.target.value || null)}
+              placeholder="ig business id (opcional)"
+              className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-slate-600 mb-1">Emails para avisar de leads</label>
+            <input
+              type="text"
+              value={form.metaLeadEmails ?? ""}
+              onChange={(e) => patch("metaLeadEmails", e.target.value || null)}
+              placeholder="cliente@empresa.com, comercial@empresa.com"
+              className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+            />
+            <p className="mt-1 text-[11px] text-slate-500">
+              Separa varios emails por comas. Sonia los usará al montar el aviso de leads (Make).
+            </p>
+          </div>
+        </div>
       </Section>
 
       <Section

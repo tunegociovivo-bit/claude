@@ -44,7 +44,11 @@ export default async function ClienteEditorialPage({ params }: { params: { id: s
       driveMode: true,
       driveRootId: true,
       driveSubfolders: true,
-      imageModel: true
+      imageModel: true,
+      metaAdAccountId: true,
+      metaPageId: true,
+      metaInstagramId: true,
+      metaLeadEmails: true
     }
   });
   if (!client) notFound();
@@ -87,7 +91,11 @@ export default async function ClienteEditorialPage({ params }: { params: { id: s
           driveMode: client.driveMode,
           driveRootId: client.driveRootId,
           driveSubfolders: (client.driveSubfolders as DriveSubfolder[] | null) ?? [],
-          imageModel: client.imageModel
+          imageModel: client.imageModel,
+          metaAdAccountId: (client as any).metaAdAccountId ?? null,
+          metaPageId: (client as any).metaPageId ?? null,
+          metaInstagramId: (client as any).metaInstagramId ?? null,
+          metaLeadEmails: (client as any).metaLeadEmails ?? null
         }}
       />
     </div>

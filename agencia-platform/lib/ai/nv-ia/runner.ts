@@ -48,7 +48,7 @@ async function loadAdhocCredentialsForTask(
   // 1) Extraer de la task actual
   const task = await prisma.task.findFirst({
     where: { id: taskId, workspaceId },
-    select: { description: true, title: true, customData: true } as any
+    select: { description: true, title: true, customData: true, clientId: true } as any
   });
   const comments = await prisma.comment.findMany({
     where: { workspaceId, targetType: "TASK", targetId: taskId },
@@ -94,7 +94,33 @@ async function loadAdhocCredentialsForTask(
   // 3) Leer las almacenadas (ya incluyen las recién persistidas).
   //    Las del task ganan por si la persistencia falló por algún motivo.
   const stored = await loadStoredAdhocCredentials(workspaceId);
-  return { ...stored, ...fresh };
+
+  // 4) Vinculación por CLIENTE: si la tarea tiene clientId y el cliente
+  //    tiene una cuenta publicitaria configurada, la usamos como fallback
+  //    del Ad Account ID. Así Sonia no necesita que pegues la URL del Ads
+  //    Manager: basta con que la tarea esté asociada al cliente. La URL
+  //    explícita del formulario/comentarios (fresh) SIGUE teniendo
+  //    prioridad por si quieres usar otra cuenta puntualmente.
+  const clientCreds: Record<string, string> = {};
+  const clientId = (task as any)?.clientId as string | null | undefined;
+  if (clientId && !fresh.META_ADS_AD_ACCOUNT_ID) {
+    try {
+      const client = await prisma.client.findFirst({
+        where: { id: clientId, workspaceId, deletedAt: null },
+        select: { metaAdAccountId: true } as any
+      });
+      const acc = (client as any)?.metaAdAccountId as string | null | undefined;
+      if (acc && acc.trim()) {
+        const id = acc.trim().replace(/^act_/i, "");
+        clientCreds.META_ADS_AD_ACCOUNT_ID = `act_${id}`;
+      }
+    } catch (e) {
+      console.warn("[sonia] client meta ad account lookup:", (e as Error).message);
+    }
+  }
+
+  // Prioridad: stored < client < fresh (la URL explícita gana siempre).
+  return { ...stored, ...clientCreds, ...fresh };
 }
 
 const SYSTEM_PROMPT = `Eres "Sonia", la asistente autónoma de Negocio Vivo. Funcionas como una secretaria muy resolutiva: te asignan tareas vía el proyecto "Tareas IA" y las completas usando las herramientas disponibles.
@@ -1003,10 +1029,49 @@ export async function executeAgentRun(opts: {
   try {
     const task = await prisma.task.findUnique({
       where: { id: taskId },
-      select: { templateId: true, customData: true } as any
+      select: { templateId: true, customData: true, clientId: true } as any
     });
     const templateId = (task as any)?.templateId;
     const customData = (task as any)?.customData;
+    const taskClientId = (task as any)?.clientId as string | null | undefined;
+
+    // Vinculación Meta por cliente: inyectamos página, IG y emails de leads
+    // configurados en la ficha del cliente para que Sonia los use sin pedirlos.
+    if (taskClientId) {
+      try {
+        const client = await prisma.client.findFirst({
+          where: { id: taskClientId, workspaceId, deletedAt: null },
+          select: {
+            name: true,
+            website: true,
+            metaAdAccountId: true,
+            metaPageId: true,
+            metaInstagramId: true,
+            metaLeadEmails: true
+          } as any
+        });
+        const c = client as any;
+        const metaRows: string[] = [];
+        if (c?.metaAdAccountId) metaRows.push(`- **Cuenta publicitaria (ad account)**: act_${String(c.metaAdAccountId).replace(/^act_/i, "")}`);
+        if (c?.metaPageId) metaRows.push(`- **Página de Facebook (pageId)**: ${c.metaPageId}`);
+        if (c?.metaInstagramId) metaRows.push(`- **Instagram (ig business id)**: ${c.metaInstagramId}`);
+        if (c?.metaLeadEmails) metaRows.push(`- **Emails para avisar de leads**: ${c.metaLeadEmails}`);
+        if (c?.website) metaRows.push(`- **Web del cliente**: ${c.website}`);
+        if (metaRows.length > 0) {
+          initialContent += [
+            "",
+            `## CONFIGURACIÓN META DEL CLIENTE${c?.name ? ` (${c.name})` : ""}`,
+            "Datos ya vinculados a este cliente. ÚSALOS directamente — NO pidas la URL del Ads Manager ni la página:",
+            ...metaRows,
+            "Para crear el creative/lead form usa este pageId. La cuenta publicitaria ya está cargada automáticamente.",
+            ""
+          ].join("\n");
+          log.push({ type: "info", ts: nowIso(), text: `Config Meta del cliente inyectada: ${metaRows.length} campos` });
+        }
+      } catch (e) {
+        console.warn("[sonia] client meta config injection:", (e as Error).message);
+      }
+    }
     let tpl: any = null;
     if (templateId) {
       tpl = await prisma.taskTemplate.findUnique({
