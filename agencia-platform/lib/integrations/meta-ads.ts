@@ -14,6 +14,7 @@
 import { prisma } from "@/lib/db/prisma";
 import { decryptSecret } from "@/lib/ai/crypto";
 import { loadStoredAdhocCredentials } from "@/lib/ai/nv-ia/adhoc-credentials";
+import { metaWriteGate, noteMetaUsage, noteMetaErrorBody } from "@/lib/integrations/meta-rate-guard";
 
 const GRAPH = "https://graph.facebook.com/v19.0";
 
@@ -231,17 +232,12 @@ export async function metaAdsListAllCampaigns(opts: {
 
 /**
  * Decide si un error de Meta Ads es transient y vale reintentar.
- * Reintentamos: 5xx, 429 (rate-limit), errores de red.
- * NO reintentamos: 4xx (incluyendo 400 validation, 401 auth) — son
- * fallos lógicos, no se arreglan reintentando.
+ * Reintentamos SOLO: 5xx y errores de red.
+ * NO reintentamos rate-limits (429, code 4/17/613/80xxx): reintentar
+ * rápido AGRAVA el bloqueo. Esos los gestiona el guardián (cooldown).
  */
-function isTransientMeta(status: number, body: string): boolean {
-  if (status >= 500) return true;
-  if (status === 429) return true;
-  // Subcodes específicos de Meta para rate-limit que vienen en 400 oficial
-  if (body.includes('"code":4') || body.includes('"code":17') || body.includes('"code":613')) return true;
-  if (/rate.?limit|too.?many|throttle/i.test(body)) return true;
-  return false;
+function isTransientMeta(status: number, _body: string): boolean {
+  return status >= 500;
 }
 
 const RETRY_DELAYS_MS = [1000, 3000, 8000]; // 3 reintentos, ~12s total max
@@ -254,8 +250,10 @@ async function metaFetch<T = any>(url: string, accessToken: string): Promise<T> 
   for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
     try {
       const r = await fetch(u, { cache: "no-store" });
+      noteMetaUsage(r.headers);
       if (!r.ok) {
         const t = await r.text();
+        noteMetaErrorBody(r.status, t);
         lastErr = `Meta Ads ${r.status}: ${t.slice(0, 200)}`;
         if (attempt < RETRY_DELAYS_MS.length && isTransientMeta(r.status, t)) {
           await new Promise((res) => setTimeout(res, RETRY_DELAYS_MS[attempt]));
@@ -656,14 +654,19 @@ async function metaPost<T = any>(
   body.set("access_token", accessToken);
   let lastErr = "";
   for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
+    // Verja anti-bloqueo: serializa + espacia escrituras y corta si Meta
+    // está en enfriamiento (lanza MetaCooldownError, que no reintentamos).
+    await metaWriteGate();
     try {
       const r = await fetch(`${GRAPH}${path}`, {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body
       });
+      noteMetaUsage(r.headers);
       if (!r.ok) {
         const t = await r.text();
+        noteMetaErrorBody(r.status, t);
         lastErr = `Meta Ads POST ${path} ${r.status}: ${t.slice(0, 400)}`;
         if (attempt < RETRY_DELAYS_MS.length && isTransientMeta(r.status, t)) {
           await new Promise((res) => setTimeout(res, RETRY_DELAYS_MS[attempt]));
@@ -1100,12 +1103,15 @@ export async function metaAdsUploadImage(opts: {
   const blob = new Blob([buf as any], { type: mimeType });
   form.append("file", blob, fileName);
   form.append("access_token", cfg.accessToken);
+  await metaWriteGate();
   const r = await fetch(`${GRAPH}${adAccountPath(cfg.adAccountId)}/adimages`, {
     method: "POST",
     body: form as any
   });
+  noteMetaUsage(r.headers);
   if (!r.ok) {
     const t = await r.text();
+    noteMetaErrorBody(r.status, t);
     throw new Error(`Meta Ads upload image ${r.status}: ${t.slice(0, 400)}`);
   }
   const data: any = await r.json();
@@ -1226,11 +1232,17 @@ export async function metaAdsUploadVideo(opts: {
   const form = new FormData();
   form.append("source", new Blob([buf as any], { type: mimeType || "video/mp4" }), fileName || "video.mp4");
   form.append("access_token", cfg.accessToken);
+  await metaWriteGate();
   const r = await fetch(`${GRAPH}${adAccountPath(cfg.adAccountId)}/advideos`, {
     method: "POST",
     body: form as any
   });
-  if (!r.ok) throw new Error(`Meta Ads upload video ${r.status}: ${(await r.text()).slice(0, 400)}`);
+  noteMetaUsage(r.headers);
+  if (!r.ok) {
+    const t = await r.text();
+    noteMetaErrorBody(r.status, t);
+    throw new Error(`Meta Ads upload video ${r.status}: ${t.slice(0, 400)}`);
+  }
   const data: any = await r.json();
   const videoId = String(data.id ?? "");
   if (!videoId) throw new Error("Respuesta de advideos sin id");

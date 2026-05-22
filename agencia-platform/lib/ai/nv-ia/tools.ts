@@ -3049,6 +3049,13 @@ function stripReviewForBriefing(r: {
   };
 }
 
+// Política anti-bloqueo de Meta (elegida por el dueño): Sonia construye TODO
+// en PAUSA y el humano activa tras revisar. Se devuelve esto si intenta activar.
+const ACTIVATION_BLOCKED = {
+  error:
+    "ACTIVATION_BLOCKED: por seguridad anti-bloqueo de Meta, Sonia NO puede ACTIVAR campañas, adsets ni anuncios. Déjalo todo en PAUSA; el humano lo revisa y lo activa desde Ads Manager / el panel. (Pausar, archivar o borrar duplicadas sí está permitido.)"
+} as const;
+
 export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
   async get_task_context(_input, ctx) {
     const task = await prisma.task.findFirst({
@@ -4542,7 +4549,7 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
         objective: String(input?.objective ?? "OUTCOME_LEADS"),
         dailyBudgetEur: typeof input?.dailyBudgetEur === "number" ? input.dailyBudgetEur : undefined,
         lifetimeBudgetEur: typeof input?.lifetimeBudgetEur === "number" ? input.lifetimeBudgetEur : undefined,
-        status: input?.status === "ACTIVE" ? "ACTIVE" : "PAUSED",
+        status: "PAUSED", // Política anti-bloqueo: Sonia siempre crea en PAUSA; activa el humano.
         adhoc: ctx.adhocCredentials
       });
       // Campaña nueva → limpiamos adset/ad viejos del registro (pertenecían a
@@ -4584,7 +4591,7 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
         destinationType: input?.destinationType ? String(input.destinationType) : undefined,
         startTime: input?.startTime ? String(input.startTime) : undefined,
         endTime: input?.endTime ? String(input.endTime) : undefined,
-        status: input?.status === "ACTIVE" ? "ACTIVE" : "PAUSED",
+        status: "PAUSED", // Política anti-bloqueo: Sonia siempre crea en PAUSA; activa el humano.
         promotedObject:
           input?.promotedObject && typeof input.promotedObject === "object"
             ? {
@@ -4800,7 +4807,7 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
         adsetId,
         name: String(input?.name ?? ""),
         creativeId: String(input?.creativeId ?? ""),
-        status: input?.status === "ACTIVE" ? "ACTIVE" : "PAUSED",
+        status: "PAUSED", // Política anti-bloqueo: Sonia siempre crea en PAUSA; activa el humano.
         adhoc: ctx.adhocCredentials
       });
       await recordResources(ctx.taskId, {
@@ -4813,6 +4820,7 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
   },
   async meta_ads_update_campaign(input, ctx) {
     try {
+      if (String(input?.status ?? "").toUpperCase() === "ACTIVE") return ACTIVATION_BLOCKED;
       const { metaAdsUpdateCampaign } = await import("@/lib/integrations/meta-ads");
       const r = await metaAdsUpdateCampaign({
         workspaceId: ctx.workspaceId,
@@ -4828,44 +4836,14 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
       return { error: `meta_ads_update_campaign: ${e?.message ?? e}` };
     }
   },
-  async meta_ads_launch_ab_test(input, ctx) {
-    try {
-      const variants = Array.isArray(input?.variants) ? input.variants : [];
-      if (variants.length < 2) return { error: "Necesitas al menos 2 variantes" };
-      const { metaAdsLaunchAbTest } = await import("@/lib/meta/ab-testing");
-      const result = await metaAdsLaunchAbTest({
-        workspaceId: ctx.workspaceId,
-        taskId: ctx.taskId,
-        campaignId: String(input?.campaignId ?? ""),
-        baseAdsetSettings: {
-          targeting: input?.targeting,
-          pageId: String(input?.pageId ?? ""),
-          leadFormId: String(input?.leadFormId ?? ""),
-          optimizationGoal: input?.optimizationGoal
-            ? String(input.optimizationGoal)
-            : undefined,
-          dailyBudgetEurPerVariant:
-            typeof input?.dailyBudgetEurPerVariant === "number"
-              ? input.dailyBudgetEurPerVariant
-              : undefined
-        },
-        variants: variants.map((v: any) => ({
-          label: String(v.label),
-          imageHash: String(v.imageHash),
-          primaryText: String(v.primaryText),
-          headline: v.headline ? String(v.headline) : undefined,
-          description: v.description ? String(v.description) : undefined,
-          callToAction: v.callToAction ? String(v.callToAction) : undefined
-        })),
-        evaluationHours:
-          typeof input?.evaluationHours === "number" ? input.evaluationHours : undefined,
-        evaluationStrategy: (input?.evaluationStrategy as any) ?? undefined,
-        adhoc: ctx.adhocCredentials
-      });
-      return { ok: true, ...result };
-    } catch (e: any) {
-      return { error: `meta_ads_launch_ab_test: ${e?.message ?? e}` };
-    }
+  async meta_ads_launch_ab_test(_input, _ctx) {
+    // Política anti-bloqueo: un A/B test ARRANCA campañas activas. Bajo la
+    // política actual Sonia no activa nada — construye las variantes en PAUSA
+    // (create_adset/create_ad) y el humano las activa para iniciar el test.
+    return {
+      error:
+        "ACTIVATION_BLOCKED: el lanzamiento autónomo de A/B tests está desactivado por seguridad (arrancaría campañas activas). Crea las variantes en PAUSA con meta_ads_create_adset / meta_ads_create_ad y deja que el humano las active y arranque el test desde Ads Manager."
+    };
   },
   async meta_ads_bulk_update_campaigns(input, ctx) {
     try {
@@ -4873,6 +4851,7 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
         ? input.campaignIds.map(String).filter(Boolean)
         : [];
       if (ids.length === 0) return { error: "campaignIds vacío" };
+      if (String(input?.status ?? "").toUpperCase() === "ACTIVE") return ACTIVATION_BLOCKED;
       const { metaAdsBulkUpdateCampaigns } = await import("@/lib/integrations/meta-ads");
       const results = await metaAdsBulkUpdateCampaigns({
         workspaceId: ctx.workspaceId,
@@ -4895,6 +4874,7 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
   },
   async meta_ads_update_adset(input, ctx) {
     try {
+      if (String(input?.status ?? "").toUpperCase() === "ACTIVE") return ACTIVATION_BLOCKED;
       const { metaAdsUpdateAdset } = await import("@/lib/integrations/meta-ads");
       const r = await metaAdsUpdateAdset({
         workspaceId: ctx.workspaceId,
@@ -4912,6 +4892,7 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
   },
   async meta_ads_update_ad(input, ctx) {
     try {
+      if (String(input?.status ?? "").toUpperCase() === "ACTIVE") return ACTIVATION_BLOCKED;
       const { metaAdsUpdateAd } = await import("@/lib/integrations/meta-ads");
       const r = await metaAdsUpdateAd({
         workspaceId: ctx.workspaceId,
