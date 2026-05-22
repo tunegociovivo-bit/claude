@@ -861,6 +861,22 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
     }
   },
   {
+    name: "meta_ads_create_custom_audience",
+    description:
+      "Crea una Custom Audience de ENGAGEMENT para REMARKETING real (Meta deprecó targeting.connections, así que el remarketing necesita esto). Fuentes: 'page' (interacción con la Página FB, pasa pageId), 'instagram' (perfil IG, pasa el ig business id), 'lead_form' (quien abrió el formulario, pasa leadFormId), 'video' (reproducciones, pasa videoId). Devuelve audienceId → úsalo en el targeting del adset de remarketing: targeting.custom_audiences=[{id}]. Para un remarketing potente, crea page + instagram y úsalas juntas.",
+    input_schema: {
+      type: "object",
+      properties: {
+        name: { type: "string" },
+        source: { type: "string", enum: ["page", "instagram", "lead_form", "video"] },
+        sourceId: { type: "string", description: "pageId | ig business id | leadFormId | videoId según source." },
+        retentionDays: { type: "number", description: "Ventana de retención en días (1-365, default 365)." }
+      },
+      required: ["name", "source", "sourceId"],
+      additionalProperties: false
+    }
+  },
+  {
     name: "meta_ads_create_lead_campaign",
     description: "MACRO TOOL — orquesta el flujo entero de crear una Lead Ads campaign en UNA SOLA LLAMADA: campaign + adset + lead form + subida de imagen + creative + ad. Todo queda en PAUSED para que el humano revise en Ads Manager antes de activar. Es la tool que usarás más a menudo cuando el user pida 'crea una campaña de leads en Meta para...'. \n\nFlujo completo:\n  1. Crea campaign (OUTCOME_LEADS, PAUSED)\n  2. Crea adset (LEAD_GENERATION, daily budget, targeting por países + edad)\n  3. Crea lead form con las questions custom\n  4. Sube la imagen del adjunto local (imageFileId, lo obtienes de list_task_files)\n  5. Crea creative con la imagen + link al form\n  6. Crea ad linked al adset + creative\n\nDevuelve todos los IDs creados + adsManagerUrl para que el user revise. Si algún paso falla, los anteriores quedan creados en PAUSED y se devuelve { ok: false, step: 'paso_donde_falló', error: 'mensaje' }.",
     input_schema: {
@@ -4617,6 +4633,24 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
       return { ok: true, ...r };
     } catch (e: any) {
       return { error: `meta_ads_create_video_creative: ${e?.message ?? e}` };
+    }
+  },
+  async meta_ads_create_custom_audience(input, ctx) {
+    try {
+      const { metaAdsCreateCustomAudience } = await import("@/lib/integrations/meta-ads");
+      const r = await metaAdsCreateCustomAudience({
+        workspaceId: ctx.workspaceId,
+        name: String(input?.name ?? "Remarketing"),
+        source: String(input?.source ?? "page") as any,
+        sourceId: String(input?.sourceId ?? ""),
+        retentionDays: typeof input?.retentionDays === "number" ? input.retentionDays : undefined,
+        adhoc: ctx.adhocCredentials
+      });
+      const { recordResources } = await import("@/lib/ai/nv-ia/resource-registry");
+      await recordResources(ctx.taskId, { meta_ads: { customAudienceId: r.id } as any });
+      return { ok: true, ...r };
+    } catch (e: any) {
+      return { error: `meta_ads_create_custom_audience: ${e?.message ?? e}` };
     }
   },
   async meta_ads_create_ad_creative(input, ctx) {

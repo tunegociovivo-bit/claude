@@ -1347,6 +1347,80 @@ export async function metaAdsCreateVideoCreative(opts: {
   return { id: data.id };
 }
 
+// ─── Custom Audiences (remarketing) ──────────────────────────────
+
+/**
+ * Crea una Custom Audience de ENGAGEMENT para remarketing, a partir de
+ * interacciones con la Página de Facebook, el perfil de Instagram, un
+ * formulario de leads o reproducciones de vídeo. Devuelve el audienceId
+ * para usarlo en el targeting de un adset (custom_audiences:[{id}]).
+ *
+ * NOTA: el schema de `rule` de Meta para audiencias de engagement es
+ * intrincado; cubrimos los casos habituales de remarketing. Si Meta cambia
+ * el formato, ajustar el `rule` aquí.
+ */
+export async function metaAdsCreateCustomAudience(opts: {
+  workspaceId: string;
+  name: string;
+  source: "page" | "instagram" | "lead_form" | "video";
+  sourceId: string; // pageId | igBusinessId | leadFormId | videoId
+  retentionDays?: number; // default 365
+  adhoc?: Record<string, string>;
+}): Promise<{ id: string }> {
+  const cfg = await getMetaAdsConfig(opts.workspaceId, opts.adhoc);
+  const retention = Math.min(Math.max(opts.retentionDays ?? 365, 1), 365) * 24 * 3600;
+
+  let eventSource: any;
+  let filterValue: string;
+  switch (opts.source) {
+    case "page":
+      eventSource = { type: "page", id: opts.sourceId };
+      filterValue = "page_engaged";
+      break;
+    case "instagram":
+      eventSource = { type: "ig_business", id: opts.sourceId };
+      filterValue = "ig_business_profile_engaged";
+      break;
+    case "lead_form":
+      eventSource = { type: "lead_gen_form", id: opts.sourceId };
+      filterValue = "lead_generation_opened";
+      break;
+    case "video":
+      eventSource = { type: "video", id: opts.sourceId };
+      filterValue = "video_view";
+      break;
+    default:
+      throw new Error(`source no soportado: ${opts.source}`);
+  }
+
+  const rule = {
+    inclusions: {
+      operator: "or",
+      rules: [
+        {
+          event_sources: [eventSource],
+          retention_seconds: retention,
+          filter: {
+            operator: "and",
+            filters: [{ field: "event", operator: "=", value: filterValue }]
+          }
+        }
+      ]
+    }
+  };
+
+  const data = await metaPost<{ id: string }>(
+    `${adAccountPath(cfg.adAccountId)}/customaudiences`,
+    cfg.accessToken,
+    {
+      name: opts.name,
+      subtype: "ENGAGEMENT",
+      rule: JSON.stringify(rule)
+    }
+  );
+  return { id: data.id };
+}
+
 // ─── Ads ─────────────────────────────────────────────────────────
 
 export async function metaAdsCreateAd(opts: {
