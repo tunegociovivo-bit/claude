@@ -173,6 +173,56 @@ function extractClientsByColumns(t: Tabular): ClientInput[] | null {
   return dataRows.map((r) => rowToClient(r, picked.cols)).filter((c): c is ClientInput => !!c);
 }
 
+/** ¿Coinciden dos inputs (mismo cliente) por NIF, email o nombre aproximado? */
+function sameClient(
+  a: { tax: string; email: string; tokens: string[] },
+  b: { tax: string; email: string; tokens: string[] }
+): boolean {
+  if (a.tax && b.tax) return a.tax === b.tax;
+  if (a.email && b.email && a.email === b.email) return true;
+  if (a.tokens.length && b.tokens.length) {
+    const score = nameSimilarity(a.tokens, b.tokens);
+    const sharedLong = a.tokens.some((t) => t.length >= 4 && b.tokens.includes(t));
+    if (score >= 0.6 && sharedLong) return true;
+  }
+  return false;
+}
+
+/** Rellena en `base` los campos vacíos con los de `extra` (no sobrescribe). */
+function fillEmpty(base: ClientInput, extra: ClientInput): void {
+  for (const f of FILLABLE) {
+    if (isEmpty((base as any)[f]) && !isEmpty((extra as any)[f])) {
+      (base as any)[f] = (extra as any)[f];
+    }
+  }
+}
+
+/**
+ * Fusiona filas PARECIDAS dentro del mismo import (p. ej. "Mudanzas Reva" y
+ * "Mudanzas Reva S.L."): se combinan en un único cliente sumando los datos
+ * de unas y otras, para que la ficha quede lo más completa posible.
+ */
+export function consolidateClientInputs(inputs: ClientInput[]): ClientInput[] {
+  const groups: { rep: ClientInput; tax: string; email: string; tokens: string[] }[] = [];
+  for (const inp of inputs) {
+    if (!inp.name?.trim()) {
+      groups.push({ rep: { ...inp }, tax: "", email: "", tokens: [] });
+      continue;
+    }
+    const key = { tax: normTaxId(inp.taxId), email: normEmail(inp.email), tokens: nameTokens(inp.name) };
+    const g = groups.find((g) => g.tokens.length >= 0 && sameClient(g, key));
+    if (g) {
+      fillEmpty(g.rep, inp);
+      if (!g.tax && key.tax) g.tax = key.tax;
+      if (!g.email && key.email) g.email = key.email;
+      if (g.tokens.length === 0) g.tokens = key.tokens;
+    } else {
+      groups.push({ rep: { ...inp }, ...key });
+    }
+  }
+  return groups.map((g) => g.rep);
+}
+
 function isEmpty(v: any): boolean {
   return v === null || v === undefined || (typeof v === "string" && v.trim() === "");
 }
@@ -182,7 +232,9 @@ function isEmpty(v: any): boolean {
  * los existentes (por NIF y, si no, por nombre) y calcula qué campos
  * AÑADIR (solo los que el cliente existente no tenga). Nunca sobrescribe.
  */
-export async function buildClientPlan(workspaceId: string, inputs: ClientInput[]): Promise<ClientPlanItem[]> {
+export async function buildClientPlan(workspaceId: string, rawInputs: ClientInput[]): Promise<ClientPlanItem[]> {
+  // Fusiona filas parecidas del propio archivo antes de cotejar con la BD.
+  const inputs = consolidateClientInputs(rawInputs);
   const existing = await prisma.client.findMany({
     where: { workspaceId, deletedAt: null },
     select: {
