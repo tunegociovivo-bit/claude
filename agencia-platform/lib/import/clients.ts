@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/db/prisma";
 import { completeJson } from "@/lib/ai/anthropic";
-import { detectColumns, norm, normTaxId } from "./shared";
-import { tabularToObjects, tabularToText, type ParsedFile, type Tabular } from "./parse";
+import { pickHeaderRow, norm, normTaxId } from "./shared";
+import { tabularToText, type ParsedFile, type Tabular } from "./parse";
 
 export type ClientInput = {
   name: string;
@@ -60,11 +60,11 @@ export const FILLABLE: (keyof ClientInput)[] = [
   "notes"
 ];
 
-function rowToClient(obj: Record<string, string>, cols: Record<string, number>, headers: string[]): ClientInput | null {
+function rowToClient(row: string[], cols: Record<string, number>): ClientInput | null {
   const get = (field: string): string => {
     const idx = cols[field];
     if (idx === undefined) return "";
-    return (obj[headers[idx]] ?? "").trim();
+    return (row[idx] ?? "").trim();
   };
   const name = get("name");
   if (!name) return null;
@@ -135,31 +135,41 @@ async function aiExtractClients(workspaceId: string, text: string): Promise<Clie
 }
 
 /**
- * Convierte un archivo parseado en una lista de ClientInput. La IA
- * interpreta el documento (PDF o tabla) y extrae los datos. Para CSV/Excel,
- * si la IA falla (p.ej. no configurada), cae a detección de columnas.
+ * Convierte un archivo parseado en una lista de ClientInput. Para tablas
+ * (CSV/Excel) detecta las columnas (exacto, sin coste); si no las reconoce,
+ * lo interpreta la IA. Para PDF siempre IA.
  */
 export async function extractClientInputs(workspaceId: string, parsed: ParsedFile): Promise<ClientInput[]> {
   if (parsed.kind === "pdf") return aiExtractClients(workspaceId, parsed.text);
+
+  const viaCols = extractClientsByColumns(parsed.data);
+  if (viaCols && viaCols.length) return viaCols;
+
+  let aiErr = "";
   try {
     const rows = await aiExtractClients(workspaceId, tabularToText(parsed.data));
     if (rows.length) return rows;
-  } catch {
-    // fallback abajo
+  } catch (e: any) {
+    aiErr = String(e?.message ?? e);
   }
-  return extractClientsByColumns(parsed.data);
+
+  const found = parsed.data.matrix?.[0]?.filter(Boolean).join(", ") || "ninguna";
+  throw new Error(
+    `No he podido leer los clientes del archivo. No encuentro la columna de nombre. ` +
+      `Columnas detectadas: ${found}. ` +
+      (aiErr
+        ? `La IA tampoco pudo: ${aiErr}`
+        : `Renombra la columna del nombre a "Nombre" (o "Cliente"), o configura la IA en /admin/ai.`)
+  );
 }
 
-/** Fallback determinista: mapea por cabeceras conocidas (sin IA). */
-function extractClientsByColumns(t: Tabular): ClientInput[] {
-  const cols = detectColumns(t.headers, ALIASES);
-  if (cols.name === undefined) {
-    throw new Error(
-      "La IA no está disponible y no se ha encontrado una columna de nombre. Configura la IA en /admin/ai o usa una cabecera tipo 'Nombre' o 'Cliente'."
-    );
-  }
-  const objects = tabularToObjects(t);
-  return objects.map((o) => rowToClient(o, cols, t.headers)).filter((c): c is ClientInput => !!c);
+/** Detección por cabeceras (sin IA). null si no encuentra columna de nombre. */
+function extractClientsByColumns(t: Tabular): ClientInput[] | null {
+  if (!t.matrix?.length) return null;
+  const picked = pickHeaderRow(t.matrix, ALIASES, ["name"]);
+  if (!picked) return null;
+  const dataRows = t.matrix.slice(picked.headerIdx + 1).filter((r) => r.some((c) => c !== ""));
+  return dataRows.map((r) => rowToClient(r, picked.cols)).filter((c): c is ClientInput => !!c);
 }
 
 function isEmpty(v: any): boolean {

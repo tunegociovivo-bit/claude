@@ -5,7 +5,7 @@
  *     en el módulo de cada entidad.
  */
 
-export type Tabular = { headers: string[]; rows: string[][] };
+export type Tabular = { headers: string[]; rows: string[][]; matrix: string[][] };
 
 export type ParsedFile =
   | { kind: "tabular"; format: "csv" | "xlsx"; data: Tabular }
@@ -42,20 +42,20 @@ async function parseTabular(buf: Buffer): Promise<Tabular> {
   const XLSX = await import("xlsx");
   const wb = XLSX.read(buf, { type: "buffer", raw: false });
   const sheetName = wb.SheetNames[0];
-  if (!sheetName) return { headers: [], rows: [] };
+  if (!sheetName) return { headers: [], rows: [], matrix: [] };
   const ws = wb.Sheets[sheetName];
-  const matrix = XLSX.utils.sheet_to_json(ws, { header: 1, blankrows: false, defval: "" }) as any[][];
-  if (matrix.length === 0) return { headers: [], rows: [] };
+  const raw = XLSX.utils.sheet_to_json(ws, { header: 1, blankrows: false, defval: "" }) as any[][];
+  // Matriz completa (filas no vacías), strings trimmeados y rectangular.
+  const nonEmpty = raw.filter((r) => r.some((c) => String(c ?? "").trim() !== ""));
+  const width = nonEmpty.reduce((w, r) => Math.max(w, r.length), 0);
+  const matrix = nonEmpty.map((r) => Array.from({ length: width }, (_, i) => String(r[i] ?? "").trim()));
+  if (matrix.length === 0) return { headers: [], rows: [], matrix: [] };
 
-  // Primera fila no vacía = cabeceras.
-  let headerIdx = matrix.findIndex((r) => r.some((c) => String(c ?? "").trim() !== ""));
-  if (headerIdx < 0) headerIdx = 0;
-  const headers = (matrix[headerIdx] ?? []).map((c) => String(c ?? "").trim());
-  const rows = matrix
-    .slice(headerIdx + 1)
-    .map((r) => headers.map((_, i) => String(r[i] ?? "").trim()))
-    .filter((r) => r.some((c) => c !== ""));
-  return { headers, rows };
+  // Por defecto: primera fila = cabeceras (los extractores pueden re-detectar
+  // la fila de cabecera real con pickHeaderRow si hay un título arriba).
+  const headers = matrix[0];
+  const rows = matrix.slice(1).filter((r) => r.some((c) => c !== ""));
+  return { headers, rows, matrix };
 }
 
 async function extractPdfText(buf: Buffer): Promise<string> {

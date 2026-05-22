@@ -2,8 +2,8 @@ import { prisma } from "@/lib/db/prisma";
 import { completeJson } from "@/lib/ai/anthropic";
 import { computeTotals, type InvoiceLine } from "@/lib/invoicing/core";
 import { snapshotIssuer, snapshotClient } from "@/lib/invoicing/persist";
-import { detectColumns, norm, normTaxId, parseAmountToCents, parseDateFlexible, pickRate } from "./shared";
-import { tabularToObjects, tabularToText, type ParsedFile, type Tabular } from "./parse";
+import { pickHeaderRow, norm, normTaxId, parseAmountToCents, parseDateFlexible, pickRate } from "./shared";
+import { tabularToText, type ParsedFile, type Tabular } from "./parse";
 
 export type InvoiceInput = {
   number?: string;
@@ -29,16 +29,18 @@ export type InvoicePlanItem = {
   currency: string;
 };
 
+// Orden importante: `total` se evalúa antes que `base` para que una columna
+// "Importe total" se asigne a total y no a base.
 const ALIASES: Record<string, string[]> = {
-  number: ["numero", "n factura", "numero factura", "invoice number", "num", "nº", "n", "factura", "number", "serie numero"],
-  date: ["fecha", "fecha emision", "date", "issue date", "fecha factura", "f. emision"],
-  clientName: ["cliente", "client", "nombre cliente", "razon social", "destinatario", "nombre"],
-  clientTaxId: ["nif", "cif", "nif cliente", "nif/cif", "dni", "vat"],
-  concept: ["concepto", "descripcion", "description", "detalle", "conceptos"],
-  base: ["base", "base imponible", "subtotal", "neto", "importe", "base €"],
-  taxRate: ["iva", "iva %", "tipo iva", "vat", "% iva", "tipo"],
+  number: ["numero", "n factura", "numero factura", "invoice number", "num", "nº", "factura", "number", "serie numero", "ref", "referencia"],
+  date: ["fecha", "fecha emision", "date", "issue date", "fecha factura", "f. emision", "f emision"],
+  clientName: ["cliente", "client", "nombre cliente", "razon social", "destinatario", "nombre", "empresa"],
+  clientTaxId: ["nif", "cif", "nif cliente", "nif/cif", "dni", "vat", "cif/nif"],
+  concept: ["concepto", "descripcion", "description", "detalle", "conceptos", "servicio"],
+  total: ["total", "total factura", "importe total", "total €", "total con iva", "importe", "import", "amount", "monto", "precio", "valor", "total eur", "total euros", "cobrado"],
+  base: ["base", "base imponible", "subtotal", "neto", "base €", "b.i.", "bi", "base imponible €"],
+  taxRate: ["iva", "iva %", "tipo iva", "% iva", "tipo", "vat rate"],
   taxAmount: ["cuota iva", "importe iva", "iva €", "cuota"],
-  total: ["total", "total factura", "importe total", "total €", "total con iva"],
   currency: ["moneda", "divisa", "currency"],
   paymentMethod: ["forma de pago", "metodo de pago", "pago", "payment", "forma pago"]
 };
@@ -60,11 +62,11 @@ function normalizeCurrency(raw?: string): string {
   return "EUR";
 }
 
-function rowToInvoice(obj: Record<string, string>, cols: Record<string, number>, headers: string[]): InvoiceInput {
+function rowToInvoice(row: string[], cols: Record<string, number>): InvoiceInput {
   const get = (field: string): string => {
     const idx = cols[field];
     if (idx === undefined) return "";
-    return (obj[headers[idx]] ?? "").trim();
+    return (row[idx] ?? "").trim();
   };
   const baseCents = parseAmountToCents(get("base"));
   const totalCents = parseAmountToCents(get("total"));
@@ -136,25 +138,39 @@ async function aiExtractInvoices(workspaceId: string, text: string): Promise<Inv
 
 export async function extractInvoiceInputs(workspaceId: string, parsed: ParsedFile): Promise<InvoiceInput[]> {
   if (parsed.kind === "pdf") return aiExtractInvoices(workspaceId, parsed.text);
+
+  // 1) Detección por columnas (exacta, sin coste). Busca la fila de cabecera
+  //    real por si hay un título encima de la tabla.
+  const viaCols = extractInvoicesByColumns(parsed.data);
+  if (viaCols && viaCols.length) return viaCols;
+
+  // 2) Si no se reconocen las columnas, lo interpreta la IA.
+  let aiErr = "";
   try {
     const rows = await aiExtractInvoices(workspaceId, tabularToText(parsed.data));
     if (rows.length) return rows;
-  } catch {
-    // fallback abajo
+  } catch (e: any) {
+    aiErr = String(e?.message ?? e);
   }
-  return extractInvoicesByColumns(parsed.data);
+
+  const found = parsed.data.matrix?.[0]?.filter(Boolean).join(", ") || "ninguna";
+  throw new Error(
+    `No he podido leer las facturas del archivo. No encuentro la columna de importe ` +
+      `(Total o Base imponible). Columnas detectadas: ${found}. ` +
+      (aiErr
+        ? `La IA tampoco pudo: ${aiErr}`
+        : `Renombra la columna de importe a "Total" (o "Base imponible"), o configura la IA en /admin/ai para que lo interprete sola.`)
+  );
 }
 
-/** Fallback determinista: mapea por cabeceras conocidas (sin IA). */
-function extractInvoicesByColumns(t: Tabular): InvoiceInput[] {
-  const cols = detectColumns(t.headers, ALIASES);
-  if (cols.total === undefined && cols.base === undefined) {
-    throw new Error(
-      "La IA no está disponible y no se ha encontrado columna de importe (Total o Base imponible). Configura la IA en /admin/ai."
-    );
-  }
-  const objects = tabularToObjects(t);
-  return objects.map((o) => rowToInvoice(o, cols, t.headers));
+/** Detección por cabeceras conocidas (sin IA). Devuelve null si no encuentra
+ *  una fila de cabecera con columna de importe. */
+function extractInvoicesByColumns(t: Tabular): InvoiceInput[] | null {
+  if (!t.matrix?.length) return null;
+  const picked = pickHeaderRow(t.matrix, ALIASES, ["total", "base"]);
+  if (!picked) return null;
+  const dataRows = t.matrix.slice(picked.headerIdx + 1).filter((r) => r.some((c) => c !== ""));
+  return dataRows.map((r) => rowToInvoice(r, picked.cols));
 }
 
 function buildLine(input: InvoiceInput): InvoiceLine {

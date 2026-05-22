@@ -46,6 +46,29 @@ export function detectColumns(
 }
 
 /**
+ * Encuentra la fila de cabecera real dentro de las primeras filas (por si
+ * el archivo tiene un título/notas arriba antes de la tabla). Puntúa cada
+ * fila por nº de columnas que reconoce y exige que aparezca al menos uno de
+ * los campos `requiredAny`. Devuelve la fila ganadora y su mapeo, o null.
+ */
+export function pickHeaderRow(
+  matrix: string[][],
+  aliasMap: Record<string, string[]>,
+  requiredAny: string[]
+): { headerIdx: number; headers: string[]; cols: Record<string, number> } | null {
+  const maxScan = Math.min(matrix.length, 8);
+  let best: { idx: number; score: number; cols: Record<string, number> } = { idx: -1, score: 0, cols: {} };
+  for (let i = 0; i < maxScan; i++) {
+    const cols = detectColumns(matrix[i], aliasMap);
+    const score = Object.keys(cols).length;
+    if (score > best.score) best = { idx: i, score, cols };
+  }
+  if (best.idx < 0) return null;
+  if (!requiredAny.some((f) => f in best.cols)) return null;
+  return { headerIdx: best.idx, headers: matrix[best.idx], cols: best.cols };
+}
+
+/**
  * Convierte un importe en texto a céntimos enteros. Soporta formato
  * español ("1.234,56 €"), inglés ("1,234.56") y simples ("1234.5").
  */
