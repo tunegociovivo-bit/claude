@@ -47,7 +47,7 @@ const templateSchema = z.object({
   defaultAssigneeIds: z.array(z.string()).max(20).optional().nullable(),
   defaultTags: z.array(z.string()).max(20).optional().nullable(),
   defaultDueOffsetDays: z.number().int().min(0).max(365).optional().nullable(),
-  bodyMarkdown: z.string().max(20000).optional().nullable(),
+  bodyMarkdown: z.string().max(100000).optional().nullable(),
   customFields: z.array(customFieldSchema).max(30).optional().nullable(),
   aiWorkflow: aiWorkflowSchema.optional()
 });
