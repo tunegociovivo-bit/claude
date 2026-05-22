@@ -48,7 +48,15 @@ export const clientCreateSchema = z.object({
   accesos: z.string().nullable().optional(),
   servicios: z.array(z.enum(SERVICIO_KEYS)).optional(),
   kitDigital: z.boolean().optional(),
-  prioridad: z.enum(["ALTA", "NORMAL", "BAJA"]).optional()
+  prioridad: z.enum(["ALTA", "NORMAL", "BAJA"]).optional(),
+  // Datos fiscales (para el gestor de facturas).
+  legalName: z.string().nullable().optional(),
+  taxId: z.string().nullable().optional(),
+  fiscalAddress: z.string().nullable().optional(),
+  postalCode: z.string().nullable().optional(),
+  city: z.string().nullable().optional(),
+  province: z.string().nullable().optional(),
+  countryCode: z.string().nullable().optional()
 });
 
 // Schema de la ficha editorial del cliente (NV Dashboard). Todos opcionales:
@@ -213,3 +221,62 @@ export const eventCreateSchema = z.object({
   clientId: z.string().optional(),
   allDay: z.boolean().default(false)
 });
+
+// ──────────────────────────────────────────────────────────────────
+// Facturación (gestor de facturas)
+// ──────────────────────────────────────────────────────────────────
+const invoiceLineSchema = z.object({
+  description: z.string().min(1),
+  quantity: z.number(),
+  unitPriceCents: z.number().int(),
+  taxRate: z.number().min(0).max(100).default(21),
+  discountPct: z.number().min(0).max(100).optional()
+});
+
+const recurrenceConfigSchema = z.object({
+  intervalMonths: z.number().int().min(1).max(60).default(1),
+  dayOfMonth: z.number().int().min(1).max(28).optional(),
+  nextRunAt: z.string().optional().nullable(),
+  endsAt: z.string().optional().nullable()
+});
+
+export const invoiceCreateSchema = z.object({
+  type: z.enum(["NORMAL", "RECTIFICATIVA", "PROFORMA", "PRESUPUESTO"]).default("NORMAL"),
+  status: z.enum(["DRAFT", "ISSUED", "PAID", "CANCELLED", "SENT", "ACCEPTED", "REJECTED"]).default("DRAFT"),
+  clientId: z.string().nullable().optional(),
+  issuerId: z.string().nullable().optional(),
+  series: z.string().max(8).optional().nullable(),
+  issueDate: z.string().optional(),
+  dueDate: z.string().nullable().optional(),
+  currency: z.enum(["EUR", "USD"]).default("EUR"),
+  paymentMethod: z.enum(["STRIPE", "TRANSFER", "REMITTANCE", "CARD", "CASH", "OTHER"]).default("STRIPE"),
+  lines: z.array(invoiceLineSchema).min(1),
+  notes: z.string().nullable().optional(),
+  terms: z.string().nullable().optional(),
+  rectifiesInvoiceId: z.string().nullable().optional(),
+  rectifyReason: z.string().nullable().optional(),
+  recurring: z.boolean().optional(),
+  recurrenceConfig: recurrenceConfigSchema.nullable().optional()
+});
+
+export const invoiceUpdateSchema = invoiceCreateSchema.partial();
+
+export const invoiceIssuerSchema = z.object({
+  name: z.string().min(1),
+  legalName: z.string().nullable().optional(),
+  taxId: z.string().min(1),
+  address: z.string().nullable().optional(),
+  postalCode: z.string().nullable().optional(),
+  city: z.string().nullable().optional(),
+  province: z.string().nullable().optional(),
+  countryCode: z.string().default("ESP"),
+  email: z.string().nullable().optional(),
+  phone: z.string().nullable().optional(),
+  web: z.string().nullable().optional(),
+  iban: z.string().nullable().optional(),
+  logoUrl: z.string().nullable().optional(),
+  personType: z.enum(["F", "J"]).default("J"),
+  residenceType: z.enum(["R", "E", "U"]).default("R"),
+  isDefault: z.boolean().optional()
+});
+export const invoiceIssuerUpdateSchema = invoiceIssuerSchema.partial();

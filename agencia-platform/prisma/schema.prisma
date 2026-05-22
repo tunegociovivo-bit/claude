@@ -241,6 +241,141 @@ model Workspace {
   pricingServices           PricingService[]
   deals                     Deal[]
   liveMeetingSessions       LiveMeetingSession[]
+  invoices                  Invoice[]
+  invoiceIssuers            InvoiceIssuer[]
+  invoiceCounters           InvoiceCounter[]
+}
+
+// ====================================================================
+// FACTURACIÓN (gestor de facturas tipo Holded, admin-only)
+// ====================================================================
+
+// Empresa emisora. Soporta varios perfiles (multi-emisor). Cada factura
+// referencia un emisor; sus datos se "congelan" en la factura al emitir.
+model InvoiceIssuer {
+  id          String  @id @default(cuid())
+  workspaceId String
+  name        String // nombre comercial
+  legalName   String? // razón social (si difiere)
+  taxId       String // NIF/CIF
+  address     String?
+  postalCode  String?
+  city        String?
+  province    String?
+  countryCode String  @default("ESP") // ISO 3166-1 alpha-3 (Facturae)
+  email       String?
+  phone       String?
+  web         String?
+  iban        String? // para transferencia / remesa SEPA
+  logoUrl     String?
+  // Facturae: tipo de persona (F=física, J=jurídica) y residencia (R/E/U).
+  personType    String @default("J") // F | J
+  residenceType String @default("R") // R (residente) | E (extranjero) | U (UE)
+  isDefault   Boolean @default(false)
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  invoices  Invoice[]
+
+  @@index([workspaceId])
+}
+
+// Contador de numeración por (workspace, tipo/serie, año). Garantiza
+// numeración correlativa sin huecos por serie y año fiscal.
+model InvoiceCounter {
+  id          String @id @default(cuid())
+  workspaceId String
+  series      String // código de serie (p.ej. "FAC", "REC", "PRO", "PRE")
+  year        Int
+  next        Int    @default(1)
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, series, year])
+  @@index([workspaceId])
+}
+
+model Invoice {
+  id          String @id @default(cuid())
+  workspaceId String
+
+  // type: NORMAL | RECTIFICATIVA | PROFORMA | PRESUPUESTO
+  type   String @default("NORMAL")
+  // status NORMAL/RECT/PROF: DRAFT | ISSUED | PAID | CANCELLED
+  // status PRESUPUESTO:      DRAFT | SENT | ACCEPTED | REJECTED
+  status String @default("DRAFT")
+
+  // Número correlativo (p.ej. "FAC-2026-0001"). Se asigna al emitir.
+  // Los borradores pueden tener number null hasta que se emiten.
+  series String?
+  number String?
+
+  issuerId String?
+  clientId String?
+
+  // Snapshots de datos fiscales al emitir (no cambian si luego editas el
+  // emisor/cliente). JSON con name, legalName, taxId, address, etc.
+  issuerSnapshot Json?
+  clientSnapshot Json?
+
+  issueDate DateTime @default(now())
+  dueDate   DateTime?
+
+  currency String @default("EUR") // EUR | USD
+  // paymentMethod: STRIPE | TRANSFER | REMITTANCE | CARD | CASH | OTHER
+  paymentMethod String @default("STRIPE")
+
+  // Líneas: [{ description, quantity, unitPriceCents, taxRate, discountPct }]
+  lines Json
+
+  // Totales en céntimos de la divisa (enteros, sin floats).
+  subtotalCents Int @default(0)
+  discountCents Int @default(0)
+  taxCents      Int @default(0)
+  totalCents    Int @default(0)
+  paidCents     Int @default(0)
+
+  notes String? @db.Text
+  terms String? @db.Text // pie legal / condiciones
+
+  // Rectificativa: a qué factura rectifica y por qué.
+  rectifiesInvoiceId String?
+  rectifyReason      String?
+
+  // Recurrencia: si recurring=true esta factura es una PLANTILLA que el
+  // cron usa para generar facturas reales. recurrenceConfig:
+  // { intervalMonths, dayOfMonth, nextRunAt, endsAt }
+  recurring        Boolean @default(false)
+  recurrenceConfig Json?
+  // Si esta factura fue GENERADA por una plantilla recurrente, su id.
+  recurringSourceId String?
+
+  // Factura-e
+  facturaeXml      String? @db.Text // XML generado (sin firma en fase 1)
+  facturaeSignedAt DateTime?
+
+  // Cobro
+  stripePaymentLinkUrl String?
+  paidAt               DateTime?
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+  deletedById String?
+
+  workspace Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  issuer    InvoiceIssuer? @relation(fields: [issuerId], references: [id])
+  client    Client?        @relation(fields: [clientId], references: [id])
+
+  @@unique([workspaceId, number])
+  @@index([workspaceId])
+  @@index([clientId])
+  @@index([status])
+  @@index([type])
+  @@index([issueDate])
 }
 
 model Membership {
@@ -357,6 +492,18 @@ model Client {
   // metaLeadEmails: emails (coma-separados) a los que avisar de leads.
   metaLeadEmails     String?
 
+  // ----- Datos fiscales (para el gestor de facturas) -----
+  // Razón social (si difiere del nombre comercial). taxId = NIF/CIF/VAT.
+  legalName    String?
+  taxId        String?
+  fiscalAddress String?
+  postalCode   String?
+  city         String?
+  province     String?
+  countryCode  String? @default("ESP") // ISO 3166-1 alpha-3 (Facturae)
+  // Customer de Stripe (para cobros vía payment link / remesa).
+  stripeCustomerId String?
+
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
   deletedAt   DateTime?
@@ -371,6 +518,7 @@ model Client {
   aiMemory       AiClientMemory?
   aiOwnership    AiOwnership?
   aiWorkflows    AiClientWorkflow[]
+  invoices       Invoice[]
 
   @@index([workspaceId])
 }

@@ -51,6 +51,13 @@ type ClientPayload = {
   servicios?: ServicioKey[];
   kitDigital?: boolean;
   prioridad?: Prioridad;
+  // Datos fiscales (gestor de facturas)
+  legalName?: string | null;
+  taxId?: string | null;
+  fiscalAddress?: string | null;
+  postalCode?: string | null;
+  city?: string | null;
+  province?: string | null;
 };
 
 // Estilos por nivel de prioridad. Las clases se usan tanto en el modal
@@ -168,7 +175,13 @@ export default function ClientFormModal({
       accesos: form.accesos ?? null,
       servicios: Array.isArray(form.servicios) ? form.servicios : [],
       kitDigital: Boolean(form.kitDigital),
-      prioridad: (form.prioridad ?? "NORMAL") as Prioridad
+      prioridad: (form.prioridad ?? "NORMAL") as Prioridad,
+      legalName: form.legalName ?? null,
+      taxId: form.taxId ?? null,
+      fiscalAddress: form.fiscalAddress ?? null,
+      postalCode: form.postalCode ?? null,
+      city: form.city ?? null,
+      province: form.province ?? null
     };
     if (mode === "notes") {
       // sólo enviamos notes
@@ -338,6 +351,52 @@ export default function ClientFormModal({
                 />
               </div>
             </div>
+
+            {/* Datos fiscales — usados por el gestor de facturas */}
+            <details className="rounded-lg border bg-slate-50/50">
+              <summary className="px-3 py-2 text-xs font-medium text-slate-700 cursor-pointer select-none">
+                Datos fiscales (facturación)
+              </summary>
+              <div className="p-3 grid grid-cols-2 gap-2">
+                <input
+                  placeholder="Razón social"
+                  value={form.legalName ?? ""}
+                  onChange={(e) => update("legalName", e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+                />
+                <input
+                  placeholder="NIF / CIF"
+                  value={form.taxId ?? ""}
+                  onChange={(e) => update("taxId", e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+                />
+                <input
+                  placeholder="Dirección fiscal"
+                  value={form.fiscalAddress ?? ""}
+                  onChange={(e) => update("fiscalAddress", e.target.value)}
+                  className="col-span-2 w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+                />
+                <input
+                  placeholder="Código postal"
+                  value={form.postalCode ?? ""}
+                  onChange={(e) => update("postalCode", e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+                />
+                <input
+                  placeholder="Ciudad"
+                  value={form.city ?? ""}
+                  onChange={(e) => update("city", e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+                />
+                <input
+                  placeholder="Provincia"
+                  value={form.province ?? ""}
+                  onChange={(e) => update("province", e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+                />
+              </div>
+            </details>
+
             <div>
               <label className="block text-xs font-medium text-slate-700 mb-1">Notas</label>
               <textarea

@@ -37,6 +37,14 @@ export function startInAppScheduler(): void {
     } catch (e) {
       console.warn("[in-app-cron] meta token refresh:", (e as Error).message);
     }
+    try {
+      // Genera las facturas recurrentes que toque emitir.
+      const { runRecurringInvoices } = await import("@/lib/invoicing/recurring");
+      const res = await runRecurringInvoices();
+      if (res.generated > 0) console.log(`[in-app-cron] facturas recurrentes generadas: ${res.generated}`);
+    } catch (e) {
+      console.warn("[in-app-cron] recurring invoices:", (e as Error).message);
+    }
   }
 
   // Primer tick 60s tras el arranque (deja estabilizar la app y la BD).
