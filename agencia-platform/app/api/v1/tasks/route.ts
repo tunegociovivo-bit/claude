@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { taskCreateSchema } from "@/lib/api/schemas";
+import { taskVisibilityWhere } from "@/lib/api/task-access";
 import { computeRecurrenceNext } from "@/lib/tasks/recurrence";
 import { notifyAssignment } from "@/lib/notifications/assignment";
 import { dispatchWebhook } from "@/lib/webhooks/dispatch";
@@ -20,6 +21,7 @@ export const GET = withApi({ scope: "tasks:read" }, async (req, { api }) => {
   const limit = Math.min(Math.max(Number(url.searchParams.get("limit") ?? 500), 1), 2000);
 
   const where: any = { workspaceId: api.workspaceId, deletedAt: null };
+  const and: any[] = [];
   if (projectId) {
     // Una tarea puede estar en un proyecto como PRINCIPAL (Task.projectId)
     // o como EXTRA (linkada via TaskProject — feature multi-proyecto).
@@ -27,28 +29,17 @@ export const GET = withApi({ scope: "tasks:read" }, async (req, { api }) => {
     // este proyecto desde otro NUNCA aparecían en su kanban. Bug clásico
     // reportado: "comparto task de 'prueba' a 'NEGOCIO VIVO GENERAL' y
     // no la veo en NEGOCIO".
-    where.OR = [
-      { projectId },
-      { extraProjects: { some: { projectId } } }
-    ];
+    and.push({ OR: [{ projectId }, { extraProjects: { some: { projectId } } }] });
   }
   if (status) where.status = status;
   if (assignee) where.assignees = { some: { userId: assignee } };
 
-  // Filtrado de tareas por permisos del proyecto (mismo criterio que /projects):
-  if (api.userId) {
-    const membership = await prisma.membership.findFirst({
-      where: { workspaceId: api.workspaceId, userId: api.userId }
-    });
-    if (membership && membership.role !== "ADMIN") {
-      where.project = {
-        OR: [
-          { members: { some: { userId: api.userId } } },
-          { members: { none: {} } }
-        ]
-      };
-    }
-  }
+  // Visibilidad por usuario: un trabajador solo ve sus tareas (asignadas a
+  // él) o las de proyectos a los que tiene acceso. Los ADMIN ven todo.
+  const visibility = await taskVisibilityWhere(api.workspaceId, api.userId);
+  if (visibility) and.push(visibility);
+
+  if (and.length > 0) where.AND = and;
 
   const items = await prisma.task.findMany({
     where,

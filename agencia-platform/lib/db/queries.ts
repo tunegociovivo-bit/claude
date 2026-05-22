@@ -152,16 +152,21 @@ export async function getProjectsForUi(): Promise<UiProject[]> {
 export async function getTasksForUi(): Promise<UiTask[]> {
   return tryPrisma(async () => {
     const { prisma } = await import("./prisma");
-    const { getSessionWorkspaceId } = await import("@/lib/auth");
+    const { getSessionWorkspaceId, getSessionUserId } = await import("@/lib/auth");
+    const { taskVisibilityWhere } = await import("@/lib/api/task-access");
     const workspaceId = await getSessionWorkspaceId();
     if (!workspaceId) return [];
+    // Visibilidad por usuario: un trabajador (no-admin) solo ve sus tareas
+    // (asignadas a él) o las de proyectos a los que pertenece. ADMIN → todo.
+    const userId = await getSessionUserId();
+    const visibility = await taskVisibilityWhere(workspaceId, userId);
     const rows = await prisma.task.findMany({
       // Solo top-level: las subtareas viven dentro del modal de la tarea padre,
       // no como tarjetas independientes en el Kanban.
       // deletedAt: null → no incluir las que están en papelera.
       // workspaceId — sin esto traíamos las tareas de TODOS los
       // workspaces de la BD (perf disaster + tenant leak).
-      where: { workspaceId, parentId: null, deletedAt: null } as any,
+      where: { workspaceId, parentId: null, deletedAt: null, ...(visibility ?? {}) } as any,
       include: { assignees: true, tags: { include: { tag: true } }, extraProjects: true },
       // order ASC = más arriba en la columna. Tareas recientes (con order = 0
       // por defecto) flotan arriba, y los reorders manuales (drag&drop) ganan.

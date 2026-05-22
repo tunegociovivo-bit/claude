@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
+import { taskVisibilityWhere } from "@/lib/api/task-access";
 
 /**
  * Búsqueda global usada por el Cmd+K. Devuelve hasta ~20 hits
@@ -34,6 +35,10 @@ export const GET = withApi({ scope: "tasks:read" }, async (req, { api }) => {
     }
   }
 
+  // Visibilidad de TAREAS: estrictamente las del usuario (asignadas o de
+  // proyectos a los que pertenece). null = ADMIN ve todo.
+  const taskVisibility = await taskVisibilityWhere(api.workspaceId, api.userId);
+
   const where = { workspaceId: api.workspaceId };
   const text = { contains: q, mode: "insensitive" as const };
 
@@ -43,7 +48,7 @@ export const GET = withApi({ scope: "tasks:read" }, async (req, { api }) => {
         ...where,
         title: text,
         deletedAt: null,
-        ...(projectVisibility ? { project: projectVisibility } : {})
+        ...(taskVisibility ?? {})
       } as any,
       take: 6,
       orderBy: { updatedAt: "desc" },

@@ -140,3 +140,9 @@ export async function getSessionWorkspaceId(): Promise<string | null> {
   const s = await getServerSession(authOptions);
   return (s?.user as any)?.workspaceId ?? null;
 }
+
+export async function getSessionUserId(): Promise<string | null> {
+  const { getServerSession } = await import("next-auth");
+  const s = await getServerSession(authOptions);
+  return (s?.user as any)?.id ?? null;
+}
