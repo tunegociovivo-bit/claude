@@ -338,6 +338,14 @@ const SECTIONS: AdminSection[] = [
         icon: Upload
       },
       {
+        href: "/admin/import",
+        title: "Importar clientes y facturas (PDF/CSV/Excel)",
+        description:
+          "Sube un listado en PDF, CSV o Excel para crear clientes o facturas. Si el cliente ya existe, solo rellena los datos que le falten — nunca sobrescribe. Vista previa antes de confirmar.",
+        icon: Upload,
+        highlight: true
+      },
+      {
         href: "/admin/import-clients-list",
         title: "Importar listado de clientes",
         description:
