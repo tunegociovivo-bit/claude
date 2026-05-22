@@ -1025,7 +1025,15 @@ export async function executeAgentRun(opts: {
         return String(v);
       };
       const rows = Object.entries(customData).map(([k, v]) => `- **${labelOf(k)}**: ${fmtVal(v)}`);
-      initialContent += ["", "## DATOS DEL FORMULARIO (rellenados al crear la tarea)", ...rows, ""].join("\n");
+      initialContent += [
+        "",
+        "## DATOS DEL FORMULARIO (rellenados por el usuario al crear la tarea)",
+        "Estos son los datos REALES y tienen PRIORIDAD ABSOLUTA sobre cualquier suposición.",
+        "ÚSALOS TAL CUAL: el presupuesto, el público, la web, la cuenta, los emails y las imágenes de aquí son los buenos.",
+        "Solo infiere/propón un valor para los campos que pongan literalmente \"(vacío)\". NUNCA cambies ni inventes un valor que el usuario YA rellenó (p.ej. si pone presupuesto 15, usa 15, no 30).",
+        ...rows,
+        ""
+      ].join("\n");
       log.push({ type: "info", ts: nowIso(), text: `Datos de formulario inyectados: ${rows.length} campos` });
     }
     {
