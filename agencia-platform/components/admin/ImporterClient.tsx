@@ -10,6 +10,7 @@ type ClientPlanItem = {
   input: any;
   action: "create" | "merge" | "noop" | "skip";
   matchName?: string;
+  matchVia?: "taxId" | "email" | "name" | "fuzzy";
   fillFields: string[];
   reason?: string;
 };
@@ -378,14 +379,27 @@ function ClientRow({ item }: { item: ClientPlanItem }) {
           <>
             Añade: {item.fillFields.map((f) => FIELD_LABELS[f] ?? f).join(", ")}
             {item.matchName ? ` · en "${item.matchName}"` : ""}
+            {matchHint(item.matchVia)}
           </>
         )}
-        {item.action === "noop" && `Ya registrado${item.matchName ? `: "${item.matchName}"` : ""}`}
+        {item.action === "noop" && (
+          <>
+            Ya registrado{item.matchName ? `: "${item.matchName}"` : ""}
+            {matchHint(item.matchVia)}
+          </>
+        )}
         {item.action === "skip" && (item.reason ?? "")}
         {item.action === "create" && (item.input.taxId ? `NIF ${item.input.taxId}` : "")}
       </td>
     </>
   );
+}
+
+function matchHint(via?: ClientPlanItem["matchVia"]) {
+  if (via === "fuzzy") return <span className="ml-1 text-amber-600">(coincidencia aproximada — revísalo)</span>;
+  if (via === "email") return <span className="ml-1 text-slate-400">(por email)</span>;
+  if (via === "taxId") return <span className="ml-1 text-slate-400">(por NIF)</span>;
+  return null;
 }
 
 function InvoiceRow({ item }: { item: InvoicePlanItem }) {

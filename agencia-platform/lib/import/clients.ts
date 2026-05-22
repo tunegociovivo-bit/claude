@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/db/prisma";
 import { completeJson } from "@/lib/ai/anthropic";
-import { pickHeaderRow, norm, normTaxId } from "./shared";
+import { pickHeaderRow, norm, normTaxId, normEmail, nameTokens, nameSimilarity } from "./shared";
 import { tabularToText, type ParsedFile, type Tabular } from "./parse";
 
 export type ClientInput = {
@@ -24,6 +24,7 @@ export type ClientPlanItem = {
   action: "create" | "merge" | "noop" | "skip";
   matchId?: string;
   matchName?: string;
+  matchVia?: "taxId" | "email" | "name" | "fuzzy";
   fillFields: string[];
   reason?: string;
 };
@@ -201,11 +202,16 @@ export async function buildClientPlan(workspaceId: string, inputs: ClientInput[]
       notes: true
     }
   });
-  const byTax = new Map<string, (typeof existing)[number]>();
-  const byName = new Map<string, (typeof existing)[number]>();
+  type Row = (typeof existing)[number];
+  const byTax = new Map<string, Row>();
+  const byEmail = new Map<string, Row>();
+  const byName = new Map<string, Row>();
+  const tokenized = existing.map((c) => ({ row: c, tokens: nameTokens(c.name) }));
   for (const c of existing) {
     const t = normTaxId(c.taxId);
     if (t) byTax.set(t, c);
+    const e = normEmail(c.email);
+    if (e) byEmail.set(e, c);
     byName.set(norm(c.name), c);
   }
 
@@ -216,7 +222,35 @@ export async function buildClientPlan(workspaceId: string, inputs: ClientInput[]
       continue;
     }
     const tax = normTaxId(input.taxId);
-    const match = (tax && byTax.get(tax)) || byName.get(norm(input.name)) || null;
+    const email = normEmail(input.email);
+    let match: Row | null = (tax && byTax.get(tax)) || null;
+    let via: ClientPlanItem["matchVia"] = match ? "taxId" : undefined;
+    if (!match && email) {
+      match = byEmail.get(email) ?? null;
+      if (match) via = "email";
+    }
+    if (!match) {
+      match = byName.get(norm(input.name)) ?? null;
+      if (match) via = "name";
+    }
+    // Coincidencia aproximada por nombre (sin forma jurídica, tolerante).
+    if (!match) {
+      const inTokens = nameTokens(input.name);
+      let best: { row: Row; score: number } | null = null;
+      for (const cand of tokenized) {
+        const score = nameSimilarity(inTokens, cand.tokens);
+        // Exige solapamiento alto y al menos un token largo en común.
+        const sharedLong = inTokens.some((t) => t.length >= 4 && cand.tokens.includes(t));
+        if (score >= 0.6 && sharedLong && (!best || score > best.score)) {
+          best = { row: cand.row, score };
+        }
+      }
+      if (best) {
+        match = best.row;
+        via = "fuzzy";
+      }
+    }
+
     if (!match) {
       items.push({ input, action: "create", fillFields: [] });
       continue;
@@ -234,6 +268,7 @@ export async function buildClientPlan(workspaceId: string, inputs: ClientInput[]
       action: fillFields.length ? "merge" : "noop",
       matchId: match.id,
       matchName: match.name,
+      matchVia: via,
       fillFields
     });
   }

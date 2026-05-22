@@ -16,6 +16,36 @@ export function normTaxId(s?: string | null): string {
   return (s ?? "").toString().toUpperCase().replace(/[^A-Z0-9]/g, "");
 }
 
+// Formas jurídicas y palabras vacías que NO deben contar al comparar nombres.
+const NAME_STOP = new Set([
+  "sl", "sa", "sca", "slu", "sau", "scp", "scl", "cb", "srl", "slne", "sociedad",
+  "limitada", "anonima", "unipersonal", "cooperativa", "llc", "inc", "ltd", "co",
+  "corp", "gmbh", "the", "de", "del", "la", "el", "los", "las", "y", "and"
+]);
+
+/** Tokens significativos de un nombre (sin tildes, sin forma jurídica). */
+export function nameTokens(name: string): string[] {
+  return norm(name)
+    .split(" ")
+    .filter((t) => t.length >= 2 && !NAME_STOP.has(t));
+}
+
+/** Similitud 0..1 entre dos conjuntos de tokens (Jaccard). */
+export function nameSimilarity(a: string[], b: string[]): number {
+  if (!a.length || !b.length) return 0;
+  const A = new Set(a);
+  const B = new Set(b);
+  let inter = 0;
+  for (const t of A) if (B.has(t)) inter++;
+  const union = new Set([...a, ...b]).size;
+  return union === 0 ? 0 : inter / union;
+}
+
+/** Normaliza un email para comparar. */
+export function normEmail(s?: string | null): string {
+  return (s ?? "").toString().trim().toLowerCase();
+}
+
 /**
  * Empareja una cabecera de columna contra una lista de alias. Devuelve
  * true si la cabecera normalizada coincide o contiene algún alias.
