@@ -4,7 +4,7 @@ import type Anthropic from "@anthropic-ai/sdk";
 import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { getAnthropicForWorkspace, AIDisabledError, DEFAULT_MODEL } from "@/lib/ai/anthropic";
-import { toolDefs, runTool, extractCardsFromTool, type HubCard } from "@/lib/ai/chat-tools";
+import { runTool, extractCardsFromTool, chatTools, type HubCard } from "@/lib/ai/chat-tools";
 import { deepSanitizeStrings } from "@/lib/ai/sanitize";
 import { prisma } from "@/lib/db/prisma";
 
@@ -114,7 +114,26 @@ export const POST = withApi({ scope: "ai", rate: "ai" }, async (req, { api }) =>
   } catch {
     /* sin memoria si falla */
   }
-  const systemText = SYSTEM + memoryBlock;
+  // Solo los administradores pueden tratar temas de facturación.
+  let isAdmin = false;
+  if (api.userId) {
+    const me = await prisma.membership.findFirst({
+      where: { workspaceId: api.workspaceId, userId: api.userId },
+      select: { role: true }
+    });
+    isAdmin = me?.role === "ADMIN";
+  }
+  const invoiceNote = isAdmin
+    ? "\n\nFACTURACIÓN (eres admin): puedes usar list_invoices, invoices_summary e import_invoices_from_file para consultar y gestionar facturas. Para importar facturas de un archivo adjunto, igual que con clientes: primero apply=false (previsualizar), resume y, tras confirmación, apply=true."
+    : "\n\nFACTURACIÓN — RESTRINGIDO: el usuario NO es administrador. NO respondas a NADA sobre facturación, facturas, importes facturados, cobros, ingresos o resultados económicos, ni uses herramientas de facturas. Si te lo preguntan, di con amabilidad que la información de facturación está reservada a los administradores.";
+  const systemText = SYSTEM + memoryBlock + invoiceNote;
+
+  // Tools disponibles según rol (las de facturación solo para admins).
+  const availableToolDefs = (isAdmin ? chatTools : chatTools.filter((t) => !t.adminOnly)).map((t) => ({
+    name: t.name,
+    description: t.description,
+    input_schema: t.input_schema
+  }));
 
   const messages: Anthropic.MessageParam[] = parsed.data.messages.map((m) => ({
     role: m.role,
@@ -184,7 +203,7 @@ export const POST = withApi({ scope: "ai", rate: "ai" }, async (req, { api }) =>
   let webSearchEnabled = true;
 
   async function createMessage() {
-    const tools = webSearchEnabled ? [...(toolDefs as any[]), WEB_SEARCH_TOOL] : (toolDefs as any[]);
+    const tools = webSearchEnabled ? [...(availableToolDefs as any[]), WEB_SEARCH_TOOL] : (availableToolDefs as any[]);
     // Saneamos surrogates UTF-16 sueltos (datos de leads, etc.) que romperían
     // el JSON del body con un 400 "no low surrogate".
     const safeMessages = deepSanitizeStrings(messages);
@@ -205,7 +224,7 @@ export const POST = withApi({ scope: "ai", rate: "ai" }, async (req, { api }) =>
           model: DEFAULT_MODEL,
           max_tokens: 4096,
           system: [{ type: "text", text: systemText, cache_control: { type: "ephemeral" } }],
-          tools: toolDefs as any,
+          tools: availableToolDefs as any,
           messages: safeMessages
         });
       }
@@ -240,7 +259,8 @@ export const POST = withApi({ scope: "ai", rate: "ai" }, async (req, { api }) =>
       if (block.type === "tool_use") {
         const result = await runTool(block.name, block.input as any, {
           workspaceId: api.workspaceId,
-          userId: api.userId
+          userId: api.userId,
+          isAdmin
         });
         allCards.push(...extractCardsFromTool(block.name, result));
         toolResults.push({

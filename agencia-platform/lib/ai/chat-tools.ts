@@ -5,11 +5,15 @@
 
 import { prisma } from "@/lib/db/prisma";
 
+export type ChatToolCtx = { workspaceId: string; userId?: string; isAdmin?: boolean };
+
 export type ChatTool = {
   name: string;
   description: string;
   input_schema: any;
-  run: (args: any, ctx: { workspaceId: string; userId?: string }) => Promise<string>;
+  /** Solo disponible para administradores (p. ej. facturación). */
+  adminOnly?: boolean;
+  run: (args: any, ctx: ChatToolCtx) => Promise<string>;
 };
 
 /**
@@ -80,6 +84,136 @@ export const chatTools: ChatTool[] = [
           coincidenciasAproximadas: fuzzy,
           ejemploNuevos: toCreate
         });
+      } catch (e: any) {
+        return JSON.stringify({ error: String(e?.message ?? e) });
+      }
+    }
+  },
+  {
+    name: "list_invoices",
+    adminOnly: true,
+    description:
+      "Lista o busca FACTURAS del workspace (SOLO ADMINISTRADORES). Filtra por estado (DRAFT, ISSUED, PAID, CANCELLED), nombre de cliente o nombre de empresa emisora. Devuelve número, cliente, emisor, total (€), estado y fecha.",
+    input_schema: {
+      type: "object",
+      properties: {
+        status: { type: "string", description: "DRAFT | ISSUED | PAID | CANCELLED" },
+        clientName: { type: "string" },
+        issuerName: { type: "string", description: "Empresa emisora (p.ej. Negocio Vivo)" },
+        limit: { type: "number", description: "Máx. resultados (default 50)" }
+      }
+    },
+    run: async (args, ctx) => {
+      const where: any = { workspaceId: ctx.workspaceId, deletedAt: null };
+      if (args?.status) where.status = String(args.status).toUpperCase();
+      if (args?.clientName) where.client = { name: { contains: String(args.clientName), mode: "insensitive" } };
+      if (args?.issuerName) where.issuer = { name: { contains: String(args.issuerName), mode: "insensitive" } };
+      const items = await prisma.invoice.findMany({
+        where,
+        orderBy: [{ issueDate: "desc" }],
+        take: Math.min(Number(args?.limit) || 50, 200),
+        select: {
+          number: true, series: true, status: true, issueDate: true, currency: true,
+          totalCents: true, paidCents: true,
+          client: { select: { name: true } }, issuer: { select: { name: true } }
+        }
+      });
+      return JSON.stringify({
+        count: items.length,
+        invoices: items.map((i) => ({
+          numero: i.number ?? `(borrador ${i.series ?? ""})`,
+          cliente: i.client?.name ?? "—",
+          emisor: i.issuer?.name ?? "—",
+          total: (i.totalCents / 100).toFixed(2) + " " + i.currency,
+          estado: i.status,
+          fecha: i.issueDate?.toISOString().slice(0, 10)
+        }))
+      });
+    }
+  },
+  {
+    name: "invoices_summary",
+    adminOnly: true,
+    description:
+      "Resumen de FACTURACIÓN (SOLO ADMINISTRADORES): facturado y cobrado del mes en curso, pendiente de cobro y nº de facturas. Opcional: filtra por empresa emisora (issuerName).",
+    input_schema: {
+      type: "object",
+      properties: { issuerName: { type: "string", description: "Empresa emisora opcional" } }
+    },
+    run: async (args, ctx) => {
+      const where: any = { workspaceId: ctx.workspaceId, deletedAt: null };
+      if (args?.issuerName) where.issuer = { name: { contains: String(args.issuerName), mode: "insensitive" } };
+      const items = await prisma.invoice.findMany({
+        where,
+        select: { status: true, type: true, issueDate: true, totalCents: true, paidCents: true }
+      });
+      const now = new Date();
+      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+      const real = items.filter(
+        (i) => !["PRESUPUESTO", "PROFORMA"].includes(i.type) && !["DRAFT", "CANCELLED", "REJECTED"].includes(i.status)
+      );
+      const month = real.filter((i) => (i.issueDate?.getTime() ?? 0) >= monthStart);
+      const eur = (c: number) => (c / 100).toFixed(2) + " €";
+      const sum = (arr: typeof items) => arr.reduce((s, i) => s + i.totalCents, 0);
+      return JSON.stringify({
+        facturadoEsteMes: eur(sum(month)),
+        cobradoEsteMes: eur(sum(month.filter((i) => i.status === "PAID"))),
+        pendienteDeCobro: eur(sum(real.filter((i) => i.status === "ISSUED"))),
+        facturasEsteMes: month.length,
+        totalFacturas: real.length
+      });
+    }
+  },
+  {
+    name: "import_invoices_from_file",
+    adminOnly: true,
+    description:
+      "Importa FACTURAS a la facturación desde un ARCHIVO ADJUNTO (PDF/CSV/Excel) — SOLO ADMINISTRADORES. Pasa el fileId del marcador [Archivo adjunto ... fileId: XXX] y, opcionalmente, issuerName (empresa emisora a la que asignarlas; si se omite, la empresa por defecto). FLUJO: primero apply=false para PREVISUALIZAR (cuántas nuevas, cuáles duplicadas por número), resume al usuario y, tras su confirmación, apply=true. Las duplicadas por número se omiten.",
+    input_schema: {
+      type: "object",
+      properties: {
+        fileId: { type: "string" },
+        issuerName: { type: "string" },
+        apply: { type: "boolean" }
+      },
+      required: ["fileId"]
+    },
+    run: async (args, ctx) => {
+      try {
+        const fileId = String(args?.fileId ?? "");
+        if (!fileId) return JSON.stringify({ error: "Falta fileId del archivo adjunto." });
+        const file = await prisma.file.findFirst({
+          where: { id: fileId, workspaceId: ctx.workspaceId },
+          select: { id: true, name: true, mimeType: true, s3Key: true }
+        });
+        if (!file) return JSON.stringify({ error: "No encuentro ese archivo adjunto." });
+
+        let issuerId: string | undefined;
+        if (args?.issuerName) {
+          const iss = await prisma.invoiceIssuer.findFirst({
+            where: { workspaceId: ctx.workspaceId, deletedAt: null, name: { contains: String(args.issuerName), mode: "insensitive" } },
+            select: { id: true }
+          });
+          issuerId = iss?.id;
+        }
+
+        const { downloadBuffer } = await import("@/lib/storage/r2");
+        const { parseFile } = await import("@/lib/import/parse");
+        const { extractInvoiceInputs, buildInvoicePlan, applyInvoiceImport } = await import("@/lib/import/invoices");
+
+        const buf = await downloadBuffer(file.s3Key);
+        const parsed = await parseFile(buf as Buffer, file.name, file.mimeType ?? "");
+        const inputs = await extractInvoiceInputs(ctx.workspaceId, parsed);
+        if (inputs.length === 0) return JSON.stringify({ error: "No he encontrado facturas en el archivo." });
+
+        if (args?.apply === true) {
+          const res = await applyInvoiceImport(ctx.workspaceId, inputs, issuerId);
+          return JSON.stringify({ applied: true, ...res, total: inputs.length });
+        }
+        const plan = await buildInvoicePlan(ctx.workspaceId, inputs);
+        const nuevas = plan.filter((p) => p.action === "create").length;
+        const duplicadas = plan.filter((p) => p.action === "skip").length;
+        return JSON.stringify({ applied: false, total: inputs.length, nuevas, duplicadas });
       } catch (e: any) {
         return JSON.stringify({ error: String(e?.message ?? e) });
       }
@@ -1634,10 +1768,13 @@ export const toolDefs = chatTools.map((t) => ({
 export async function runTool(
   name: string,
   input: any,
-  ctx: { workspaceId: string; userId?: string }
+  ctx: ChatToolCtx
 ): Promise<string> {
   const tool = chatTools.find((t) => t.name === name);
   if (!tool) return JSON.stringify({ error: `Tool desconocido: ${name}` });
+  if (tool.adminOnly && !ctx.isAdmin) {
+    return JSON.stringify({ error: "Solo los administradores pueden consultar/gestionar facturación." });
+  }
   try {
     return await tool.run(input ?? {}, ctx);
   } catch (e: any) {
