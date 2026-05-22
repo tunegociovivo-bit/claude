@@ -26,7 +26,7 @@
 // reintroducir cache PERO con purga agresiva por VERSION en
 // activate.
 
-const VERSION = "v160-2026-05-22-meta-guard-everywhere";
+const VERSION = "v161-2026-05-22-voz-y-admin-notion";
 
 self.addEventListener("install", (event) => {
   // Activación inmediata: no esperar a que el SW viejo libere.

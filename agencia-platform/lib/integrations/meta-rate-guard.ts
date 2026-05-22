@@ -85,6 +85,7 @@ export function isMetaInCooldown(): boolean {
 export function metaGuardStatus() {
   return {
     inCooldown: isMetaInCooldown(),
+    cooldownUntil: isMetaInCooldown() ? cooldownUntil : 0,
     cooldownMsLeft: Math.max(0, cooldownUntil - Date.now()),
     cooldownReason,
     lastUsagePct

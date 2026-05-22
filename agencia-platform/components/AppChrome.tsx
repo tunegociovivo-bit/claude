@@ -6,6 +6,7 @@ import Sidebar from "@/components/Sidebar";
 import TopBar from "@/components/TopBar";
 import AIAssistant from "@/components/ai/AIAssistant";
 import CommandPalette from "@/components/CommandPalette";
+import MetaCooldownVoiceNotifier from "@/components/MetaCooldownVoiceNotifier";
 
 const NO_CHROME_PREFIXES = ["/login", "/r/", "/v/", "/p/"];
 
@@ -69,6 +70,7 @@ export default function AppChrome({ children }: { children: ReactNode }) {
       </div>
       <AIAssistant />
       <CommandPalette />
+      <MetaCooldownVoiceNotifier />
     </div>
   );
 }

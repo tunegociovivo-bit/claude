@@ -99,7 +99,7 @@ const earlyInstallCapture = `
  */
 const swSelfHeal = `
   (function () {
-    var EXPECTED = "v160-2026-05-22-meta-guard-everywhere";
+    var EXPECTED = "v161-2026-05-22-voz-y-admin-notion";
     if (!('serviceWorker' in navigator)) return;
     var key = "hub_sw_v_seen";
     var seen = null;
