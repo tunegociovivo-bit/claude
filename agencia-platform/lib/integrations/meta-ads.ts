@@ -1187,6 +1187,166 @@ export async function metaAdsCreateAdCreative(opts: {
   return { id: data.id };
 }
 
+/** Descarga bytes desde un File (R2) o una URL, en el servidor. */
+async function loadMediaBytes(opts: {
+  workspaceId: string;
+  fileId?: string;
+  url?: string;
+}): Promise<{ buf: Buffer; fileName: string; mimeType: string }> {
+  if (opts.fileId) {
+    const file = await prisma.file.findFirst({
+      where: { id: opts.fileId, workspaceId: opts.workspaceId }
+    });
+    if (!file) throw new Error(`File ${opts.fileId} no encontrado en el workspace`);
+    const { downloadBuffer } = await import("@/lib/storage/r2");
+    return { buf: await downloadBuffer(file.s3Key), fileName: file.name, mimeType: file.mimeType };
+  }
+  if (opts.url) {
+    const r0 = await fetch(opts.url, { signal: AbortSignal.timeout(60000) });
+    if (!r0.ok) throw new Error(`No se pudo descargar (${r0.status}) de ${opts.url.slice(0, 80)}`);
+    const mimeType = r0.headers.get("content-type") || "application/octet-stream";
+    const m = /\/([^/?#]+\.[a-z0-9]{2,5})(?:[?#]|$)/i.exec(opts.url);
+    return { buf: Buffer.from(await r0.arrayBuffer()), fileName: m ? m[1] : "media", mimeType };
+  }
+  throw new Error("Falta fileId o url");
+}
+
+/**
+ * Sube un VÍDEO a la ad account (/advideos) y espera a que Meta lo procese.
+ * Devuelve el videoId listo para usar en un creative de vídeo.
+ */
+export async function metaAdsUploadVideo(opts: {
+  workspaceId: string;
+  fileId?: string;
+  url?: string;
+  adhoc?: Record<string, string>;
+}): Promise<{ videoId: string }> {
+  const cfg = await getMetaAdsConfig(opts.workspaceId, opts.adhoc);
+  const { buf, fileName, mimeType } = await loadMediaBytes(opts);
+  const form = new FormData();
+  form.append("source", new Blob([buf as any], { type: mimeType || "video/mp4" }), fileName || "video.mp4");
+  form.append("access_token", cfg.accessToken);
+  const r = await fetch(`${GRAPH}${adAccountPath(cfg.adAccountId)}/advideos`, {
+    method: "POST",
+    body: form as any
+  });
+  if (!r.ok) throw new Error(`Meta Ads upload video ${r.status}: ${(await r.text()).slice(0, 400)}`);
+  const data: any = await r.json();
+  const videoId = String(data.id ?? "");
+  if (!videoId) throw new Error("Respuesta de advideos sin id");
+
+  // El vídeo se procesa en asíncrono — esperamos hasta ~90s a que esté listo.
+  for (let i = 0; i < 18; i++) {
+    await new Promise((res) => setTimeout(res, 5000));
+    try {
+      const st: any = await metaFetch(
+        `${GRAPH}/${videoId}?fields=status`,
+        cfg.accessToken
+      );
+      const phase = st?.status?.video_status;
+      if (phase === "ready") return { videoId };
+      if (phase === "error") throw new Error("Meta no pudo procesar el vídeo (status=error).");
+    } catch {
+      /* reintenta */
+    }
+  }
+  // Aunque no confirmemos "ready", devolvemos el id (Meta suele terminar
+  // poco después; el creative puede crearse y quedará pendiente).
+  return { videoId };
+}
+
+/**
+ * Crea un ad creative de CARRUSEL para Lead Ads (varias tarjetas).
+ * imageHashes: 2-10 hashes (de meta_ads_upload_image). cards opcional para
+ * personalizar título/descr por tarjeta.
+ */
+export async function metaAdsCreateCarouselCreative(opts: {
+  workspaceId: string;
+  name: string;
+  pageId: string;
+  leadFormId: string;
+  imageHashes: string[];
+  primaryText: string;
+  cards?: { name?: string; description?: string }[];
+  callToAction?: string;
+  link?: string;
+  adhoc?: Record<string, string>;
+}): Promise<{ id: string }> {
+  const cfg = await getMetaAdsConfig(opts.workspaceId, opts.adhoc);
+  const hashes = (opts.imageHashes ?? []).filter(Boolean).slice(0, 10);
+  if (hashes.length < 2) throw new Error("Un carrusel necesita al menos 2 imágenes (image_hash).");
+  const safeLink = opts.link && /^https:\/\//i.test(opts.link) ? opts.link : `https://www.facebook.com/${opts.pageId}`;
+  const cta = {
+    type: opts.callToAction ?? "SIGN_UP",
+    value: { lead_gen_form_id: opts.leadFormId, link: safeLink }
+  };
+  const child_attachments = hashes.map((h, i) => ({
+    image_hash: h,
+    link: safeLink,
+    name: opts.cards?.[i]?.name ?? undefined,
+    description: opts.cards?.[i]?.description ?? undefined,
+    call_to_action: cta
+  }));
+  const objectStorySpec = {
+    page_id: opts.pageId,
+    link_data: {
+      message: opts.primaryText,
+      link: safeLink,
+      child_attachments,
+      multi_share_optimized: true,
+      call_to_action: cta
+    }
+  };
+  const data = await metaPost<{ id: string }>(
+    `${adAccountPath(cfg.adAccountId)}/adcreatives`,
+    cfg.accessToken,
+    { name: opts.name, object_story_spec: objectStorySpec }
+  );
+  return { id: data.id };
+}
+
+/**
+ * Crea un ad creative de VÍDEO para Lead Ads. Requiere videoId (de
+ * metaAdsUploadVideo) y un imageHash de miniatura (de meta_ads_upload_image).
+ */
+export async function metaAdsCreateVideoCreative(opts: {
+  workspaceId: string;
+  name: string;
+  pageId: string;
+  leadFormId: string;
+  videoId: string;
+  thumbnailImageHash: string;
+  primaryText: string;
+  headline?: string;
+  description?: string;
+  callToAction?: string;
+  link?: string;
+  adhoc?: Record<string, string>;
+}): Promise<{ id: string }> {
+  const cfg = await getMetaAdsConfig(opts.workspaceId, opts.adhoc);
+  const safeLink = opts.link && /^https:\/\//i.test(opts.link) ? opts.link : `https://www.facebook.com/${opts.pageId}`;
+  const objectStorySpec = {
+    page_id: opts.pageId,
+    video_data: {
+      video_id: opts.videoId,
+      image_hash: opts.thumbnailImageHash,
+      message: opts.primaryText,
+      title: opts.headline ?? undefined,
+      link_description: opts.description ?? undefined,
+      call_to_action: {
+        type: opts.callToAction ?? "SIGN_UP",
+        value: { lead_gen_form_id: opts.leadFormId, link: safeLink }
+      }
+    }
+  };
+  const data = await metaPost<{ id: string }>(
+    `${adAccountPath(cfg.adAccountId)}/adcreatives`,
+    cfg.accessToken,
+    { name: opts.name, object_story_spec: objectStorySpec }
+  );
+  return { id: data.id };
+}
+
 // ─── Ads ─────────────────────────────────────────────────────────
 
 export async function metaAdsCreateAd(opts: {

@@ -1053,6 +1053,69 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
     }
   },
   {
+    name: "meta_ads_upload_video",
+    description:
+      "Sube un VÍDEO a la ad account y devuelve el videoId (espera a que Meta lo procese). Acepta fileId (del campo de archivos del formulario, formato 'nombre [fileId: XXX]') o url. Úsalo para los vídeos que subió el usuario. Luego crea el anuncio con meta_ads_create_video_creative (necesita además una miniatura: sube una imagen con meta_ads_upload_image y pasa su image_hash).",
+    input_schema: {
+      type: "object",
+      properties: {
+        fileId: { type: "string", description: "ID del File del vídeo." },
+        url: { type: "string", description: "Alternativa: URL del vídeo." }
+      },
+      additionalProperties: false
+    }
+  },
+  {
+    name: "meta_ads_create_carousel_creative",
+    description:
+      "Crea un creative de CARRUSEL para Lead Ads (2-10 tarjetas). Pasa los image_hashes (de meta_ads_upload_image, uno por imagen subida). Devuelve creativeId para meta_ads_create_ad. Úsalo cuando el usuario subió varias imágenes o un carrusel.",
+    input_schema: {
+      type: "object",
+      properties: {
+        name: { type: "string" },
+        pageId: { type: "string" },
+        leadFormId: { type: "string" },
+        imageHashes: { type: "array", items: { type: "string" }, description: "2-10 image_hash (de meta_ads_upload_image)." },
+        primaryText: { type: "string", description: "Texto principal del anuncio." },
+        cards: {
+          type: "array",
+          description: "Opcional: título/descr por tarjeta, en el mismo orden que imageHashes.",
+          items: {
+            type: "object",
+            properties: { name: { type: "string" }, description: { type: "string" } },
+            additionalProperties: false
+          }
+        },
+        callToAction: { type: "string", description: "Default SIGN_UP. Otros: LEARN_MORE, GET_QUOTE, CONTACT_US…" },
+        link: { type: "string", description: "URL https válida (privacidad/home del cliente)." }
+      },
+      required: ["name", "pageId", "leadFormId", "imageHashes", "primaryText"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "meta_ads_create_video_creative",
+    description:
+      "Crea un creative de VÍDEO para Lead Ads. Requiere videoId (de meta_ads_upload_video) y thumbnailImageHash (sube una miniatura con meta_ads_upload_image). Devuelve creativeId para meta_ads_create_ad.",
+    input_schema: {
+      type: "object",
+      properties: {
+        name: { type: "string" },
+        pageId: { type: "string" },
+        leadFormId: { type: "string" },
+        videoId: { type: "string", description: "De meta_ads_upload_video." },
+        thumbnailImageHash: { type: "string", description: "image_hash de la miniatura (de meta_ads_upload_image)." },
+        primaryText: { type: "string" },
+        headline: { type: "string" },
+        description: { type: "string" },
+        callToAction: { type: "string", description: "Default SIGN_UP." },
+        link: { type: "string", description: "URL https válida." }
+      },
+      required: ["name", "pageId", "leadFormId", "videoId", "thumbnailImageHash", "primaryText"],
+      additionalProperties: false
+    }
+  },
+  {
     name: "meta_ads_create_ad_creative",
     description: "Crea un ad creative (la creatividad del anuncio) para Lead Ads: page + lead form + imagen + textos. Si no pasas `link`, se usa la URL de la página oficial del cliente como link válido (evita el error 2446433).",
     input_schema: {
@@ -4494,6 +4557,66 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
       return { ok: true, ...r };
     } catch (e: any) {
       return { error: `meta_ads_upload_image: ${e?.message ?? e}` };
+    }
+  },
+  async meta_ads_upload_video(input, ctx) {
+    try {
+      const { metaAdsUploadVideo } = await import("@/lib/integrations/meta-ads");
+      const r = await metaAdsUploadVideo({
+        workspaceId: ctx.workspaceId,
+        fileId: input?.fileId ? String(input.fileId) : undefined,
+        url: input?.url ? String(input.url) : undefined,
+        adhoc: ctx.adhocCredentials
+      });
+      return { ok: true, ...r };
+    } catch (e: any) {
+      return { error: `meta_ads_upload_video: ${e?.message ?? e}` };
+    }
+  },
+  async meta_ads_create_carousel_creative(input, ctx) {
+    try {
+      const { metaAdsCreateCarouselCreative } = await import("@/lib/integrations/meta-ads");
+      const r = await metaAdsCreateCarouselCreative({
+        workspaceId: ctx.workspaceId,
+        name: String(input?.name ?? "Carrusel"),
+        pageId: String(input?.pageId ?? ""),
+        leadFormId: String(input?.leadFormId ?? ""),
+        imageHashes: Array.isArray(input?.imageHashes) ? input.imageHashes.map(String) : [],
+        primaryText: String(input?.primaryText ?? ""),
+        cards: Array.isArray(input?.cards) ? input.cards : undefined,
+        callToAction: input?.callToAction ? String(input.callToAction) : undefined,
+        link: input?.link ? String(input.link) : undefined,
+        adhoc: ctx.adhocCredentials
+      });
+      const { recordResources } = await import("@/lib/ai/nv-ia/resource-registry");
+      await recordResources(ctx.taskId, { meta_ads: { creativeId: r.id } });
+      return { ok: true, ...r };
+    } catch (e: any) {
+      return { error: `meta_ads_create_carousel_creative: ${e?.message ?? e}` };
+    }
+  },
+  async meta_ads_create_video_creative(input, ctx) {
+    try {
+      const { metaAdsCreateVideoCreative } = await import("@/lib/integrations/meta-ads");
+      const r = await metaAdsCreateVideoCreative({
+        workspaceId: ctx.workspaceId,
+        name: String(input?.name ?? "Vídeo"),
+        pageId: String(input?.pageId ?? ""),
+        leadFormId: String(input?.leadFormId ?? ""),
+        videoId: String(input?.videoId ?? ""),
+        thumbnailImageHash: String(input?.thumbnailImageHash ?? ""),
+        primaryText: String(input?.primaryText ?? ""),
+        headline: input?.headline ? String(input.headline) : undefined,
+        description: input?.description ? String(input.description) : undefined,
+        callToAction: input?.callToAction ? String(input.callToAction) : undefined,
+        link: input?.link ? String(input.link) : undefined,
+        adhoc: ctx.adhocCredentials
+      });
+      const { recordResources } = await import("@/lib/ai/nv-ia/resource-registry");
+      await recordResources(ctx.taskId, { meta_ads: { creativeId: r.id } });
+      return { ok: true, ...r };
+    } catch (e: any) {
+      return { error: `meta_ads_create_video_creative: ${e?.message ?? e}` };
     }
   },
   async meta_ads_create_ad_creative(input, ctx) {
