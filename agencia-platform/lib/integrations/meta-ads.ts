@@ -245,17 +245,28 @@ export async function metaAdsListAdAccounts(workspaceId: string, adhoc?: Record<
     token = decryptSecret(conn.accessTokenEnc);
     if (!token) throw new Error("token inválido");
   }
-  const data = await metaFetch<any>(
-    `${GRAPH}/me/adaccounts?fields=id,name,account_status,currency,timezone_name`,
-    token
-  );
-  return (data.data ?? []).map((a: any) => ({
-    id: a.id, // formato "act_xxx"
-    name: a.name,
-    status: a.account_status,
-    currency: a.currency,
-    timezone: a.timezone_name
-  }));
+  // Paginamos TODAS las cuentas (Graph devuelve 25 por página por defecto;
+  // sin paginar, cuentas como EUROSISTEMAS quedaban fuera y "no se veían").
+  const out: Array<{ id: string; name: string; status: any; currency: any; timezone: any }> = [];
+  let after = "";
+  for (let i = 0; i < 20; i++) {
+    const url =
+      `${GRAPH}/me/adaccounts?fields=id,name,account_status,currency,timezone_name&limit=200` +
+      (after ? `&after=${encodeURIComponent(after)}` : "");
+    const data = await metaFetch<any>(url, token);
+    for (const a of data.data ?? []) {
+      out.push({
+        id: a.id, // formato "act_xxx"
+        name: a.name,
+        status: a.account_status,
+        currency: a.currency,
+        timezone: a.timezone_name
+      });
+    }
+    after = data.paging?.cursors?.after ?? "";
+    if (!after || !(data.data?.length)) break;
+  }
+  return out;
 }
 
 export async function metaAdsListCampaigns(opts: {
