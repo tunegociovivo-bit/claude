@@ -16,7 +16,7 @@ import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { callerIsAdmin } from "@/lib/api/permissions";
 import { encryptSecret } from "@/lib/ai/crypto";
-import { isMetaMcpConfigured } from "@/lib/integrations/meta-mcp";
+import { isMetaMcpConfigured, runMetaViaMcp } from "@/lib/integrations/meta-mcp";
 
 export const dynamic = "force-dynamic";
 
@@ -43,6 +43,25 @@ export const PUT = withApi({ scope: "*", rate: "destructive" }, async (req, { ap
   };
   await prisma.workspace.update({ where: { id: api.workspaceId }, data: { settings } });
   return NextResponse.json({ ok: true, configured: true });
+});
+
+// POST → prueba el conector listando cuentas (solo lectura), para validar
+// que el token guardado funciona como bearer del MCP de Meta.
+export const POST = withApi({ scope: "*", rate: "ai" }, async (_req, { api }) => {
+  if (!(await callerIsAdmin(api))) throw new ApiError(403, "forbidden", "Solo admin");
+  try {
+    const r = await runMetaViaMcp({
+      workspaceId: api.workspaceId,
+      instruction:
+        "Lista las primeras 5 cuentas publicitarias a las que tienes acceso (nombre y act_id). Solo lectura, no cambies nada."
+    });
+    return NextResponse.json({ ok: r.ok, result: r.text });
+  } catch (e: any) {
+    if (e?.constructor?.name === "MetaMcpNotConfiguredError") {
+      throw new ApiError(400, "not_configured", "Guarda primero un token del MCP de Meta.");
+    }
+    return NextResponse.json({ ok: false, error: String(e?.message ?? e).slice(0, 500) }, { status: 502 });
+  }
 });
 
 export const DELETE = withApi({ scope: "*", rate: "destructive" }, async (_req, { api }) => {

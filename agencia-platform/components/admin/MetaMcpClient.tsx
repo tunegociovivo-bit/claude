@@ -1,0 +1,128 @@
+"use client";
+
+import { useEffect, useState } from "react";
+
+export default function MetaMcpClient() {
+  const [token, setToken] = useState("");
+  const [configured, setConfigured] = useState<boolean | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [testOut, setTestOut] = useState<string | null>(null);
+
+  async function load() {
+    try {
+      const r = await fetch("/api/v1/admin/integrations/meta-mcp");
+      const d = await r.json();
+      setConfigured(!!d.configured);
+    } catch {
+      setConfigured(false);
+    }
+  }
+  useEffect(() => {
+    load();
+  }, []);
+
+  async function save() {
+    setSaving(true);
+    setMsg(null);
+    try {
+      const r = await fetch("/api/v1/admin/integrations/meta-mcp", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: token.trim() })
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d?.error?.message ?? "Error al guardar");
+      setMsg("✓ Token guardado.");
+      setToken("");
+      setConfigured(true);
+    } catch (e: any) {
+      setMsg(`Error: ${e?.message ?? e}`);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function test() {
+    setTesting(true);
+    setTestOut(null);
+    setMsg(null);
+    try {
+      const r = await fetch("/api/v1/admin/integrations/meta-mcp", { method: "POST" });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || d.ok === false) {
+        setTestOut(`❌ No funcionó: ${d?.error ?? d?.error?.message ?? "error"}`);
+      } else {
+        setTestOut(`✅ Funciona. Respuesta del conector:\n\n${d.result ?? ""}`);
+      }
+    } catch (e: any) {
+      setTestOut(`❌ Error: ${e?.message ?? e}`);
+    } finally {
+      setTesting(false);
+    }
+  }
+
+  async function remove() {
+    if (!confirm("¿Borrar el token del MCP de Meta?")) return;
+    await fetch("/api/v1/admin/integrations/meta-mcp", { method: "DELETE" });
+    setConfigured(false);
+    setMsg("Token borrado.");
+  }
+
+  return (
+    <div className="max-w-2xl mx-auto p-6 space-y-4">
+      <h1 className="text-xl font-semibold">Conector Meta (MCP)</h1>
+      <p className="text-sm text-slate-600">
+        Acceso total a Meta Ads vía el MCP oficial de Meta (autenticado como el usuario). Sonia lo usa
+        automáticamente cuando el token permanente no tiene permisos sobre una cuenta.
+      </p>
+      <div className="text-sm">
+        Estado:{" "}
+        {configured === null ? (
+          "comprobando…"
+        ) : configured ? (
+          <span className="text-emerald-700 font-medium">conectado</span>
+        ) : (
+          <span className="text-amber-700 font-medium">sin conectar</span>
+        )}
+      </div>
+
+      <div className="space-y-2">
+        <label className="block text-xs font-medium text-slate-700">Token de autorización del MCP de Meta</label>
+        <textarea
+          value={token}
+          onChange={(e) => setToken(e.target.value)}
+          placeholder="Pega aquí el token (de larga duración) de Meta…"
+          rows={3}
+          className="w-full px-3 py-2 rounded-lg border text-sm font-mono"
+        />
+        <div className="flex gap-2">
+          <button
+            onClick={save}
+            disabled={saving || token.trim().length < 20}
+            className="px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium disabled:opacity-50"
+          >
+            {saving ? "Guardando…" : "Guardar token"}
+          </button>
+          <button
+            onClick={test}
+            disabled={testing || !configured}
+            className="px-3 py-2 rounded-lg border text-sm font-medium disabled:opacity-50"
+          >
+            {testing ? "Probando…" : "Probar conexión"}
+          </button>
+          {configured && (
+            <button onClick={remove} className="px-3 py-2 rounded-lg border text-sm text-rose-600">
+              Borrar
+            </button>
+          )}
+        </div>
+        {msg && <p className="text-xs text-slate-600">{msg}</p>}
+        {testOut && (
+          <pre className="text-xs bg-slate-50 border rounded-lg p-3 whitespace-pre-wrap">{testOut}</pre>
+        )}
+      </div>
+    </div>
+  );
+}
