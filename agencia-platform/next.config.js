@@ -13,6 +13,22 @@ const nextConfig = {
     env: {
         NEXT_PUBLIC_BUILD_TIMESTAMP: BUILD_TIMESTAMP
     },
+    // Plataforma interna privada: cabecera HTTP que impide indexación en
+    // TODAS las respuestas (incluye assets y rutas no-HTML, que la meta
+    // tag no cubre). Es la señal más fuerte para Google/Bing.
+    async headers() {
+        return [
+            {
+                source: '/:path*',
+                headers: [
+                    {
+                        key: 'X-Robots-Tag',
+                        value: 'noindex, nofollow, noarchive, nosnippet, noimageindex'
+                    }
+                ]
+            }
+        ];
+    },
     // serverComponentsExternalPackages cubre Server Components. La
     // config webpack.externals de abajo cubre además Route Handlers
     // (app/api/.../route.ts), que es donde realmente se usan estos

@@ -14,6 +14,20 @@ export const metadata: Metadata = {
   title: "Hub — Plataforma interna",
   description: "Plataforma interna multifunción",
   manifest: "/manifest.webmanifest",
+  // Plataforma interna privada: NUNCA debe indexarse en buscadores.
+  // Esto renderiza <meta name="robots" content="noindex, nofollow, ..."> en
+  // todas las páginas. Reforzado con app/robots.ts y la cabecera HTTP
+  // X-Robots-Tag en next.config.js.
+  robots: {
+    index: false,
+    follow: false,
+    nocache: true,
+    googleBot: {
+      index: false,
+      follow: false,
+      noimageindex: true
+    }
+  },
   appleWebApp: {
     capable: true,
     // Título debajo del icono al instalar en iOS. Android usa el
