@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { useRouter } from "next/navigation";
 import Modal from "@/components/ui/Modal";
 import RichTextEditor from "@/components/editor/RichTextEditor";
@@ -37,7 +37,7 @@ const priorityToApi: Record<Priority, string> = {
 type CustomFieldDef = {
   id: string;
   label: string;
-  type: "text" | "textarea" | "number" | "date" | "select" | "multiselect" | "checkbox";
+  type: "text" | "textarea" | "number" | "date" | "select" | "multiselect" | "checkbox" | "file";
   required?: boolean;
   options?: string[];
   placeholder?: string;
@@ -1530,5 +1530,70 @@ function CustomFieldInput({
           </label>
         </div>
       );
+    case "file":
+      return (
+        <div>
+          {label}
+          <FileFieldInput value={value} onChange={onChange} />
+        </div>
+      );
   }
+}
+
+/** Campo de adjuntar archivos: sube cada archivo a /api/v1/files/upload y
+ *  guarda en el valor una lista [{ id, name, url }]. */
+function FileFieldInput({ value, onChange }: { value: any; onChange: (v: any) => void }) {
+  const files: Array<{ id: string; name: string; url: string }> = Array.isArray(value) ? value : [];
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function onPick(e: ChangeEvent<HTMLInputElement>) {
+    const list = e.target.files;
+    if (!list || list.length === 0) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      const uploaded: Array<{ id: string; name: string; url: string }> = [];
+      for (const f of Array.from(list)) {
+        const fd = new FormData();
+        fd.append("file", f);
+        const r = await fetch("/api/v1/files/upload", { method: "POST", body: fd });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(d?.error?.message ?? `Error ${r.status}`);
+        uploaded.push({ id: d.id, name: d.name, url: d.url });
+      }
+      onChange([...files, ...uploaded]);
+    } catch (e: any) {
+      setErr(e?.message ?? "No se pudo subir el archivo");
+    } finally {
+      setBusy(false);
+      e.target.value = "";
+    }
+  }
+
+  return (
+    <div>
+      {files.length > 0 && (
+        <ul className="mb-2 space-y-1">
+          {files.map((f) => (
+            <li key={f.id} className="flex items-center justify-between gap-2 text-xs bg-slate-50 border rounded px-2 py-1">
+              <a href={f.url} target="_blank" rel="noreferrer" className="truncate text-brand-600 hover:underline">
+                {f.name}
+              </a>
+              <button
+                type="button"
+                onClick={() => onChange(files.filter((x) => x.id !== f.id))}
+                className="text-rose-500 shrink-0"
+              >
+                Quitar
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <input type="file" multiple onChange={onPick} disabled={busy} className="text-xs" />
+      {busy && <p className="text-[11px] text-slate-500 mt-1">Subiendo…</p>}
+      {err && <p className="text-[11px] text-rose-600 mt-1">{err}</p>}
+    </div>
+  );
 }

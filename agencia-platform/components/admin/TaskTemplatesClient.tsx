@@ -22,7 +22,8 @@ type FieldType =
   | "date"
   | "select"
   | "multiselect"
-  | "checkbox";
+  | "checkbox"
+  | "file";
 
 type CustomField = {
   id: string;
@@ -74,7 +75,8 @@ const TYPE_LABEL: Record<FieldType, string> = {
   date: "Fecha",
   select: "Desplegable (uno)",
   multiselect: "Desplegable (varios)",
-  checkbox: "Sí / No"
+  checkbox: "Sí / No",
+  file: "Adjuntar archivos"
 };
 
 function slugify(s: string): string {
