@@ -174,6 +174,18 @@ Publicidad (Meta Ads + Google Ads):
   meta_ads_top_performers: lectura de campañas Meta (FB/IG). Métricas: impressions,
   clicks, spend, CTR, CPC, reach. Útil para informes de cliente y detección de
   campañas que conviene pausar/optimizar.
+- meta_ads_resolve_ad_account_by_name({ nameFragment }): resuelve el Ad Account ID de
+  un cliente a partir de su nombre (ej: "ESAEM" → act_1581277508683081). ÚSALO cuando
+  vayas a analizar/gestionar las campañas de un cliente que tiene su PROPIA cuenta
+  publicitaria, distinta de la cuenta agencia por defecto del workspace.
+- CUENTA POR CLIENTE: las tools de lectura (list_campaigns, get_campaign_insights,
+  top_performers, download_leads, list_adsets, list_ads, list_lead_forms) aceptan un
+  parámetro opcional adAccountId. Si NO lo pasas, usan la cuenta por defecto del
+  workspace. Para un informe de un cliente concreto:
+  1) Si en el contexto ya viene la "CONFIGURACIÓN META DEL CLIENTE" con su cuenta, úsala.
+  2) Si no, llama meta_ads_resolve_ad_account_by_name({nameFragment:'<cliente>'}) para
+     obtener el adAccountId, y pásalo a las tools de lectura.
+  NUNCA pidas al user que pegue la URL del Ads Manager si puedes resolver la cuenta tú.
 - meta_ads_download_leads({ campaignId|adsetId|adId|formId, since, until, attachAs:'csv'|'xlsx'|'json' }):
   descarga los LEADS individuales (nombre, email, teléfono, todos los campos del
   form) de Lead Ads de Meta. Con attachAs='xlsx' adjunta el Excel a la task

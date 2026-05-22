@@ -102,6 +102,34 @@ export type ToolContext = {
 export type ToolExecutor = (input: any, ctx: ToolContext) => Promise<unknown>;
 
 /**
+ * Normaliza un Ad Account ID de Meta. Acepta "act_123", "123", o incluso
+ * una URL del Ads Manager con "?act=123". Devuelve "act_<digits>" o null.
+ */
+function normalizeAdAccountId(input?: unknown): string | null {
+  if (typeof input !== "string") return null;
+  const s = input.trim();
+  if (!s) return null;
+  const m = s.match(/act[=_](\d{6,20})/i) ?? s.match(/(\d{6,20})/);
+  return m ? `act_${m[1]}` : null;
+}
+
+/**
+ * Devuelve las credenciales adhoc del run con META_ADS_AD_ACCOUNT_ID
+ * sobrescrito por el adAccountId que pase la tool (si lo pasa). Permite
+ * a Sonia analizar la cuenta de CUALQUIER cliente (p.ej. ESAEM en su
+ * cuenta propia act_1581277508683081) sin depender del default del
+ * workspace ni de que el user pegue la URL en la descripción.
+ */
+function adhocWithAdAccount(
+  adhoc: Record<string, string> | undefined,
+  adAccountId?: unknown
+): Record<string, string> | undefined {
+  const norm = normalizeAdAccountId(adAccountId);
+  if (!norm) return adhoc;
+  return { ...(adhoc ?? {}), META_ADS_AD_ACCOUNT_ID: norm };
+}
+
+/**
  * Definiciones (schemas) que mandamos a Claude para que sepa qué tools
  * tiene. Cada tool tiene un executor correspondiente abajo.
  */
@@ -724,14 +752,28 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
     input_schema: { type: "object", properties: {}, additionalProperties: false }
   },
   {
+    name: "meta_ads_resolve_ad_account_by_name",
+    description:
+      "Resuelve el Ad Account ID de un cliente a partir de un fragmento de su NOMBRE (ej: 'ESAEM' → act_1581277508683081). Busca entre todas las cuentas accesibles con el token y devuelve la mejor coincidencia + alternativas. ÚSALO cuando tengas que analizar/gestionar las campañas de un cliente que tiene su PROPIA cuenta publicitaria (separada de la cuenta de la agencia), sin tener que pedirle al user la URL del Ads Manager. Luego pasa el adAccountId resuelto a meta_ads_list_campaigns / top_performers / etc.",
+    input_schema: {
+      type: "object",
+      properties: {
+        nameFragment: { type: "string", description: "Parte del nombre del cliente/cuenta a buscar (ej: 'ESAEM', 'Esaem Nueva')." }
+      },
+      required: ["nameFragment"],
+      additionalProperties: false
+    }
+  },
+  {
     name: "meta_ads_list_campaigns",
     description:
-      "Lista las campañas de Meta Ads del adAccount configurado. Filtra por status (ACTIVE, PAUSED, ARCHIVED). Devuelve id, name, objetivo, budget.",
+      "Lista las campañas de Meta Ads. Filtra por status (ACTIVE, PAUSED, ARCHIVED). Devuelve id, name, objetivo, budget. Por defecto usa la cuenta del workspace; pasa adAccountId para analizar la cuenta de OTRO cliente (la suya propia).",
     input_schema: {
       type: "object",
       properties: {
         status: { type: "string", enum: ["ACTIVE", "PAUSED", "ARCHIVED"] },
-        limit: { type: "number" }
+        limit: { type: "number" },
+        adAccountId: { type: "string", description: "Opcional. Ad Account a consultar (act_XXX, el id numérico, o una URL del Ads Manager con ?act=). Override del default del workspace." }
       },
       additionalProperties: false
     }
@@ -746,7 +788,8 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
         campaignId: { type: "string" },
         datePreset: { type: "string" },
         since: { type: "string" },
-        until: { type: "string" }
+        until: { type: "string" },
+        adAccountId: { type: "string", description: "Opcional. Override del Ad Account (act_XXX, id numérico o URL con ?act=)." }
       },
       required: ["campaignId"],
       additionalProperties: false
@@ -755,13 +798,14 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
   {
     name: "meta_ads_top_performers",
     description:
-      "Top campañas Meta por una métrica (spend, impressions, ctr, reach) en un rango. Útil para informes y análisis cross-campaña sin tener que pedir cada insights por separado.",
+      "Top campañas Meta por una métrica (spend, impressions, ctr, reach) en un rango. Útil para informes y análisis cross-campaña sin tener que pedir cada insights por separado. Pasa adAccountId para analizar la cuenta de otro cliente.",
     input_schema: {
       type: "object",
       properties: {
         metric: { type: "string", enum: ["spend", "impressions", "ctr", "reach"] },
         datePreset: { type: "string" },
-        limit: { type: "number" }
+        limit: { type: "number" },
+        adAccountId: { type: "string", description: "Opcional. Override del Ad Account (act_XXX, id numérico o URL con ?act=)." }
       },
       additionalProperties: false
     }
@@ -784,7 +828,8 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
           enum: ["csv", "xlsx", "json"],
           description: "csv → adjunta .csv a la task. xlsx → adjunta .xlsx con cabeceras estiladas. json → devuelve los datos en el response sin adjuntar."
         },
-        filename: { type: "string", description: "Nombre del archivo (sin extensión). Default: 'leads-meta-<source>-<fecha>'" }
+        filename: { type: "string", description: "Nombre del archivo (sin extensión). Default: 'leads-meta-<source>-<fecha>'" },
+        adAccountId: { type: "string", description: "Opcional. Override del Ad Account (act_XXX, id numérico o URL con ?act=) para clientes con cuenta propia." }
       },
       additionalProperties: false
     }
@@ -806,7 +851,8 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
     input_schema: {
       type: "object",
       properties: {
-        pageId: { type: "string", description: "ID numérico de la page (de meta_ads_list_pages)." }
+        pageId: { type: "string", description: "ID numérico de la page (de meta_ads_list_pages)." },
+        adAccountId: { type: "string", description: "Opcional. Override del Ad Account (act_XXX, id numérico o URL con ?act=)." }
       },
       required: ["pageId"],
       additionalProperties: false
@@ -820,7 +866,8 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
       type: "object",
       properties: {
         campaignId: { type: "string", description: "ID de la campaña." },
-        limit: { type: "number", description: "Default 50, max 200." }
+        limit: { type: "number", description: "Default 50, max 200." },
+        adAccountId: { type: "string", description: "Opcional. Override del Ad Account (act_XXX, id numérico o URL con ?act=)." }
       },
       required: ["campaignId"],
       additionalProperties: false
@@ -841,7 +888,8 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
       properties: {
         campaignId: { type: "string", description: "ID de la campaña. Pasa este O adsetId." },
         adsetId: { type: "string", description: "ID del adset. Pasa este O campaignId." },
-        limit: { type: "number", description: "Default 200." }
+        limit: { type: "number", description: "Default 200." },
+        adAccountId: { type: "string", description: "Opcional. Override del Ad Account (act_XXX, id numérico o URL con ?act=)." }
       },
       additionalProperties: false
     }
@@ -4114,13 +4162,54 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
       return { error: `Meta Ads no disponible: ${e?.message ?? e}` };
     }
   },
+  async meta_ads_resolve_ad_account_by_name(input, ctx) {
+    const frag = String(input?.nameFragment ?? "").trim();
+    if (!frag) return { error: "nameFragment vacío" };
+    try {
+      const accounts = await metaAdsListAdAccounts(ctx.workspaceId, ctx.adhocCredentials);
+      const norm = (s: string) =>
+        (s ?? "")
+          .toLowerCase()
+          .normalize("NFD")
+          .replace(/[\u0300-\u036f]/g, "")
+          .replace(/[^a-z0-9]+/g, "");
+      const q = norm(frag);
+      if (!q) return { error: "nameFragment inválido" };
+      const scored = accounts
+        .map((a: any) => {
+          const n = norm(a.name);
+          let score = 0;
+          if (n === q) score = 100;
+          else if (n.includes(q)) score = 70;
+          else if (q.includes(n) && n.length >= 3) score = 50;
+          return { id: a.id, name: a.name, score };
+        })
+        .filter((a) => a.score > 0)
+        .sort((a, b) => b.score - a.score);
+      if (scored.length === 0) {
+        const sample = accounts.slice(0, 15).map((a: any) => `${a.name} (${a.id})`).join(", ");
+        return {
+          ok: false,
+          match: null,
+          message: `Ninguna cuenta coincide con "${frag}". Cuentas disponibles (primeras 15): ${sample}${accounts.length > 15 ? ` y ${accounts.length - 15} más` : ""}.`
+        };
+      }
+      return {
+        ok: true,
+        match: { adAccountId: scored[0].id, name: scored[0].name },
+        alternatives: scored.slice(1, 6).map((a) => ({ adAccountId: a.id, name: a.name }))
+      };
+    } catch (e: any) {
+      return { error: `Meta Ads no disponible: ${e?.message ?? e}` };
+    }
+  },
   async meta_ads_list_campaigns(input, ctx) {
     try {
       const campaigns = await metaAdsListCampaigns({
         workspaceId: ctx.workspaceId,
         status: input?.status,
         limit: typeof input?.limit === "number" ? input.limit : 50,
-        adhoc: ctx.adhocCredentials
+        adhoc: adhocWithAdAccount(ctx.adhocCredentials, input?.adAccountId)
       });
       return { count: campaigns.length, campaigns };
     } catch (e: any) {
@@ -4137,7 +4226,7 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
         datePreset: input?.datePreset ? String(input.datePreset) : undefined,
         since: input?.since ? String(input.since) : undefined,
         until: input?.until ? String(input.until) : undefined,
-        adhoc: ctx.adhocCredentials
+        adhoc: adhocWithAdAccount(ctx.adhocCredentials, input?.adAccountId)
       });
       return { ok: true, insights };
     } catch (e: any) {
@@ -4151,7 +4240,7 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
         datePreset: input?.datePreset ? String(input.datePreset) : undefined,
         metric: input?.metric,
         limit: typeof input?.limit === "number" ? input.limit : 10,
-        adhoc: ctx.adhocCredentials
+        adhoc: adhocWithAdAccount(ctx.adhocCredentials, input?.adAccountId)
       });
       return { count: top.length, top };
     } catch (e: any) {
@@ -4169,7 +4258,7 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
         formId: input?.formId ? String(input.formId) : undefined,
         since: input?.since ? String(input.since) : undefined,
         until: input?.until ? String(input.until) : undefined,
-        adhoc: ctx.adhocCredentials
+        adhoc: adhocWithAdAccount(ctx.adhocCredentials, input?.adAccountId)
       });
 
       const attachAs = String(input?.attachAs ?? "json");
@@ -4298,7 +4387,7 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
       const forms = await metaAdsListLeadForms({
         workspaceId: ctx.workspaceId,
         pageId: String(input?.pageId ?? ""),
-        adhoc: ctx.adhocCredentials
+        adhoc: adhocWithAdAccount(ctx.adhocCredentials, input?.adAccountId)
       });
       return { count: forms.length, forms };
     } catch (e: any) {
@@ -4312,7 +4401,7 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
         workspaceId: ctx.workspaceId,
         campaignId: String(input?.campaignId ?? ""),
         limit: typeof input?.limit === "number" ? input.limit : undefined,
-        adhoc: ctx.adhocCredentials
+        adhoc: adhocWithAdAccount(ctx.adhocCredentials, input?.adAccountId)
       });
       return { count: adsets.length, adsets };
     } catch (e: any) {
@@ -4327,7 +4416,7 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
         campaignId: input?.campaignId ? String(input.campaignId) : undefined,
         adsetId: input?.adsetId ? String(input.adsetId) : undefined,
         limit: typeof input?.limit === "number" ? input.limit : undefined,
-        adhoc: ctx.adhocCredentials
+        adhoc: adhocWithAdAccount(ctx.adhocCredentials, input?.adAccountId)
       });
       return { count: ads.length, ads };
     } catch (e: any) {
