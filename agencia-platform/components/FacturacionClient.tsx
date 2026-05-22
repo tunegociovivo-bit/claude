@@ -1,12 +1,20 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Building2, Users, X, Loader2, Search, Check } from "lucide-react";
+import { Building2, Users, X, Loader2, Search, Check, FileText, Wallet } from "lucide-react";
 import { formatMoney } from "@/lib/invoicing/core";
 import FacturasClient from "@/components/admin/FacturasClient";
+import GastosClient from "@/components/GastosClient";
 
 const MONTH_LABEL = new Intl.DateTimeFormat("es-ES", { month: "long", year: "numeric" });
-type MonthSummary = { facturado: number; cobrado: number; pendiente: number; count: number };
+type MonthSummary = {
+  facturado: number;
+  cobrado: number;
+  pendiente: number;
+  count: number;
+  gastos: number;
+  resultado: number;
+};
 
 // Las 4 empresas iniciales (para detectar si falta crearlas).
 const DEFAULT_NAMES = ["Negocio Vivo S.C.A.", "Pronsia S.L.", "LemonRoi L.L.C.", "Rixus Solutions L.L.C."];
@@ -41,6 +49,7 @@ export default function FacturacionClient({
   const [assignedIds, setAssignedIds] = useState<string[]>([]);
   const [assignOpen, setAssignOpen] = useState(false);
   const [seeding, setSeeding] = useState(false);
+  const [tab, setTab] = useState<"facturas" | "gastos">("facturas");
 
   const missingDefaults = DEFAULT_NAMES.filter(
     (n) => !issuers.some((i) => i.name.toLowerCase().trim() === n.toLowerCase().trim())
@@ -107,9 +116,13 @@ export default function FacturacionClient({
     }
     let aborted = false;
     (async () => {
-      const r = await fetch(`/api/v1/invoices?issuerId=${selectedId}`, { cache: "no-store" });
-      if (!r.ok || aborted) return;
-      const items: any[] = (await r.json()).items ?? [];
+      const [ir, er] = await Promise.all([
+        fetch(`/api/v1/invoices?issuerId=${selectedId}`, { cache: "no-store" }),
+        fetch(`/api/v1/expenses?issuerId=${selectedId}`, { cache: "no-store" })
+      ]);
+      if (aborted) return;
+      const items: any[] = ir.ok ? (await ir.json()).items ?? [] : [];
+      const expItems: any[] = er.ok ? (await er.json()).items ?? [] : [];
       const now = new Date();
       const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
       const real = items.filter(
@@ -123,14 +136,17 @@ export default function FacturacionClient({
       const pendiente = real
         .filter((i) => i.status === "ISSUED")
         .reduce((s, i) => s + ((i.totalCents ?? 0) - (i.paidCents ?? 0)), 0);
-      if (!aborted) setSummary({ facturado, cobrado, pendiente, count: real.length });
+      const gastos = expItems
+        .filter((e) => new Date(e.date).getTime() >= monthStart)
+        .reduce((s, e) => s + (e.totalCents ?? 0), 0);
+      if (!aborted) setSummary({ facturado, cobrado, pendiente, count: real.length, gastos, resultado: facturado - gastos });
     })();
     return () => {
       aborted = true;
     };
   }, [selectedId, tick]);
 
-  const onInvoicesChanged = useCallback(() => setTick((t) => t + 1), []);
+  const bump = useCallback(() => setTick((t) => t + 1), []);
 
   // Clientes asignados a la empresa seleccionada.
   useEffect(() => {
@@ -220,7 +236,7 @@ export default function FacturacionClient({
 
         {/* Resumen rápido del mes para la empresa elegida */}
         {selected && summary && (
-          <div className="mt-3 grid grid-cols-3 gap-3 border-t pt-3">
+          <div className="mt-3 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 border-t pt-3">
             <SummaryStat
               label={`Facturado · ${monthName}`}
               value={formatMoney(summary.facturado)}
@@ -229,20 +245,42 @@ export default function FacturacionClient({
             />
             <SummaryStat label="Cobrado" value={formatMoney(summary.cobrado)} color="text-emerald-700" />
             <SummaryStat label="Pendiente de cobro" value={formatMoney(summary.pendiente)} color="text-blue-700" />
+            <SummaryStat label="Gastos del mes" value={formatMoney(summary.gastos)} color="text-rose-700" />
+            <SummaryStat
+              label="Resultado"
+              value={formatMoney(summary.resultado)}
+              color={summary.resultado >= 0 ? "text-emerald-700" : "text-rose-700"}
+            />
           </div>
         )}
       </div>
 
-      {/* Gestor de facturas, limitado a la empresa elegida */}
-      <FacturasClient
-        key={selected?.id ?? "none"}
-        clients={clients}
-        initialIssuers={issuers as any}
-        lockedIssuerId={selected?.id}
-        clientFilterIds={assignedIds}
-        onIssuersChanged={refreshIssuers}
-        onInvoicesChanged={onInvoicesChanged}
-      />
+      {/* Pestañas: Facturas / Gastos */}
+      {selected && (
+        <div className="flex items-center gap-1 border-b">
+          <TabButton active={tab === "facturas"} onClick={() => setTab("facturas")} icon={<FileText className="h-4 w-4" />}>
+            Facturas
+          </TabButton>
+          <TabButton active={tab === "gastos"} onClick={() => setTab("gastos")} icon={<Wallet className="h-4 w-4" />}>
+            Gastos
+          </TabButton>
+        </div>
+      )}
+
+      {/* Contenido de la pestaña activa, limitado a la empresa elegida */}
+      {tab === "gastos" && selected ? (
+        <GastosClient key={`g-${selected.id}`} issuerId={selected.id} onExpensesChanged={bump} />
+      ) : (
+        <FacturasClient
+          key={selected?.id ?? "none"}
+          clients={clients}
+          initialIssuers={issuers as any}
+          lockedIssuerId={selected?.id}
+          clientFilterIds={assignedIds}
+          onIssuersChanged={refreshIssuers}
+          onInvoicesChanged={bump}
+        />
+      )}
 
       {assignOpen && selected && (
         <AssignClientsModal
@@ -380,6 +418,32 @@ function AssignClientsModal({
         </div>
       </div>
     </div>
+  );
+}
+
+function TabButton({
+  active,
+  onClick,
+  icon,
+  children
+}: {
+  active: boolean;
+  onClick: () => void;
+  icon: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`inline-flex items-center gap-1.5 px-4 py-2 text-sm border-b-2 -mb-px transition-colors ${
+        active
+          ? "border-brand-600 text-brand-700 font-medium"
+          : "border-transparent text-slate-500 hover:text-slate-700"
+      }`}
+    >
+      {icon}
+      {children}
+    </button>
   );
 }
 

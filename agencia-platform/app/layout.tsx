@@ -99,7 +99,7 @@ const earlyInstallCapture = `
  */
 const swSelfHeal = `
   (function () {
-    var EXPECTED = "v156-2026-05-22-empresas-clientes";
+    var EXPECTED = "v157-2026-05-22-gastos";
     if (!('serviceWorker' in navigator)) return;
     var key = "hub_sw_v_seen";
     var seen = null;

@@ -244,6 +244,7 @@ model Workspace {
   invoices                  Invoice[]
   invoiceIssuers            InvoiceIssuer[]
   invoiceCounters           InvoiceCounter[]
+  expenses                  Expense[]
 }
 
 // ====================================================================
@@ -280,8 +281,55 @@ model InvoiceIssuer {
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   invoices  Invoice[]
   clients   Client[]  @relation("IssuerClients")
+  expenses  Expense[]
 
   @@index([workspaceId])
+}
+
+// Gastos de una empresa emisora (compras, suministros, cuotas, etc.).
+// A diferencia de las facturas emitidas, aquí registramos los gastos que
+// la empresa asume, para tener una visión de resultado por empresa.
+model Expense {
+  id          String  @id @default(cuid())
+  workspaceId String
+  issuerId    String? // empresa que asume el gasto
+
+  date     DateTime @default(now())
+  // category: CUOTA_AUTONOMO | SOFTWARE | PUBLICIDAD | PROVEEDORES |
+  //           SUMINISTROS | ALQUILER | MATERIAL | VIAJES | IMPUESTOS |
+  //           BANCO | OTROS
+  category String   @default("OTROS")
+
+  supplier      String? // proveedor
+  supplierTaxId String?
+  concept       String? @db.Text
+
+  currency String @default("EUR") // EUR | USD
+  // paymentMethod: STRIPE | TRANSFER | REMITTANCE | CARD | CASH | OTHER
+  paymentMethod String @default("TRANSFER")
+  // status: PENDING | PAID
+  status        String @default("PAID")
+
+  baseCents  Int   @default(0)
+  taxRate    Float @default(21)
+  taxCents   Int   @default(0)
+  totalCents Int   @default(0)
+  // Si el IVA es deducible (afecta a reporting fiscal).
+  deductible Boolean @default(true)
+
+  notes   String? @db.Text
+  fileUrl String? // justificante/adjunto opcional
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  workspace Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  issuer    InvoiceIssuer? @relation(fields: [issuerId], references: [id])
+
+  @@index([workspaceId])
+  @@index([issuerId])
+  @@index([date])
 }
 
 // Contador de numeración por (workspace, tipo/serie, año). Garantiza
