@@ -5,6 +5,7 @@ import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { getAnthropicForWorkspace, AIDisabledError, DEFAULT_MODEL } from "@/lib/ai/anthropic";
 import { toolDefs, runTool, extractCardsFromTool, type HubCard } from "@/lib/ai/chat-tools";
+import { deepSanitizeStrings } from "@/lib/ai/sanitize";
 import { prisma } from "@/lib/db/prisma";
 
 const schema = z.object({
@@ -139,13 +140,16 @@ export const POST = withApi({ scope: "ai", rate: "ai" }, async (req, { api }) =>
 
   async function createMessage() {
     const tools = webSearchEnabled ? [...(toolDefs as any[]), WEB_SEARCH_TOOL] : (toolDefs as any[]);
+    // Saneamos surrogates UTF-16 sueltos (datos de leads, etc.) que romperían
+    // el JSON del body con un 400 "no low surrogate".
+    const safeMessages = deepSanitizeStrings(messages);
     try {
       return await client.messages.create({
         model: DEFAULT_MODEL,
         max_tokens: 4096,
         system: [{ type: "text", text: systemText, cache_control: { type: "ephemeral" } }],
         tools: tools as any,
-        messages
+        messages: safeMessages
       });
     } catch (e: any) {
       const msg = String(e?.message ?? e);
@@ -157,7 +161,7 @@ export const POST = withApi({ scope: "ai", rate: "ai" }, async (req, { api }) =>
           max_tokens: 4096,
           system: [{ type: "text", text: systemText, cache_control: { type: "ephemeral" } }],
           tools: toolDefs as any,
-          messages
+          messages: safeMessages
         });
       }
       throw e;

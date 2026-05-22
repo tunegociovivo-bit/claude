@@ -11,6 +11,7 @@
 
 import type Anthropic from "@anthropic-ai/sdk";
 import { getAnthropicForWorkspace } from "@/lib/ai/anthropic";
+import { deepSanitizeStrings, stripLoneSurrogates } from "@/lib/ai/sanitize";
 import { prisma } from "@/lib/db/prisma";
 import { logAiUsage } from "@/lib/ai/usage";
 import { TOOL_DEFINITIONS, TOOL_EXECUTORS, type ToolContext } from "./tools";
@@ -1559,8 +1560,8 @@ ${ctx.summary.slice(0, 2000)}
   const resp = await client.messages.create({
     model: config.model,
     max_tokens: 400,
-    system: reviewerSystem,
-    messages: [{ role: "user", content: userMsg }]
+    system: stripLoneSurrogates(reviewerSystem),
+    messages: [{ role: "user", content: stripLoneSurrogates(userMsg) }]
   });
 
   const text = resp.content
@@ -1625,10 +1626,13 @@ async function callAnthropicWithRetry(
 ): Promise<Anthropic.Message> {
   // Delays en ms: 1s, 3s, 8s, 20s (total ~32s de espera máx).
   const delays = [1000, 3000, 8000, 20000];
+  // Saneamos surrogates UTF-16 sueltos en TODO el body (mensajes, system,
+  // tool results con datos de leads, etc.) — evita el 400 "no low surrogate".
+  const safeParams = deepSanitizeStrings(params);
   let lastErr: any = null;
   for (let i = 0; i < maxAttempts; i++) {
     try {
-      return await client.messages.create(params);
+      return await client.messages.create(safeParams);
     } catch (e: any) {
       lastErr = e;
       const status = Number(e?.status ?? e?.statusCode ?? 0);

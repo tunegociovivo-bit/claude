@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { prisma } from "@/lib/db/prisma";
 import { decryptSecret } from "./crypto";
+import { stripLoneSurrogates, deepSanitizeStrings } from "./sanitize";
 
 export const DEFAULT_MODEL = "claude-opus-4-7";
 
@@ -57,11 +58,11 @@ export async function complete(opts: {
     system: [
       {
         type: "text",
-        text: opts.system,
+        text: stripLoneSurrogates(opts.system),
         cache_control: { type: "ephemeral" }
       }
     ],
-    messages: [{ role: "user", content: opts.user }]
+    messages: [{ role: "user", content: stripLoneSurrogates(opts.user) }]
   });
   // Log de uso (no bloqueante)
   const { logAiUsage } = await import("./usage");
@@ -119,8 +120,8 @@ export async function completeVision(opts: {
   const resp = await client.messages.create({
     model,
     max_tokens: opts.maxTokens ?? 4096,
-    system: [{ type: "text", text: opts.system, cache_control: { type: "ephemeral" } }],
-    messages: [{ role: "user", content }]
+    system: [{ type: "text", text: stripLoneSurrogates(opts.system), cache_control: { type: "ephemeral" } }],
+    messages: [{ role: "user", content: deepSanitizeStrings(content) }]
   });
   const { logAiUsage } = await import("./usage");
   logAiUsage({
@@ -230,9 +231,9 @@ export async function completeJson<T = any>(opts: {
     model: opts.model ?? DEFAULT_MODEL,
     max_tokens: opts.maxTokens ?? 2048,
     system: [
-      { type: "text", text: opts.system, cache_control: { type: "ephemeral" } }
+      { type: "text", text: stripLoneSurrogates(opts.system), cache_control: { type: "ephemeral" } }
     ],
-    messages: [{ role: "user", content: userContent }],
+    messages: [{ role: "user", content: deepSanitizeStrings(userContent) }],
     output_config: {
       format: { type: "json_schema", schema: strictSchema }
     }
