@@ -167,10 +167,66 @@ export async function extractInvoiceInputs(workspaceId: string, parsed: ParsedFi
  *  una fila de cabecera con columna de importe. */
 function extractInvoicesByColumns(t: Tabular): InvoiceInput[] | null {
   if (!t.matrix?.length) return null;
+  // 1) Cabeceras reconocidas con columna de importe explícita.
   const picked = pickHeaderRow(t.matrix, ALIASES, ["total", "base"]);
-  if (!picked) return null;
-  const dataRows = t.matrix.slice(picked.headerIdx + 1).filter((r) => r.some((c) => c !== ""));
-  return dataRows.map((r) => rowToInvoice(r, picked.cols));
+  if (picked) {
+    const dataRows = t.matrix.slice(picked.headerIdx + 1).filter((r) => r.some((c) => c !== ""));
+    return dataRows.map((r) => rowToInvoice(r, picked.cols));
+  }
+  // 2) Heurística por CONTENIDO: identifica la columna de importe como la
+  //    columna con más celdas monetarias (y mayor suma). Resuelve Excels con
+  //    cabeceras raras o sin cabecera de importe reconocible.
+  return heuristicInvoices(t);
+}
+
+function heuristicInvoices(t: Tabular): InvoiceInput[] | null {
+  const best = pickHeaderRow(t.matrix, ALIASES, []); // mejor fila aunque no tenga importe
+  const headerIdx = best?.headerIdx ?? 0;
+  const cols: Record<string, number> = { ...(best?.cols ?? {}) };
+  const data = t.matrix.slice(headerIdx + 1).filter((r) => r.some((c) => c !== ""));
+  if (data.length === 0) return null;
+  const width = t.matrix[headerIdx]?.length ?? 0;
+
+  // Columna de importe = la más "monetaria" (>=50% celdas parseables) con mayor suma.
+  if (cols.total === undefined && cols.base === undefined) {
+    let bestCol = -1;
+    let bestSum = -1;
+    for (let c = 0; c < width; c++) {
+      if (c === cols.date || c === cols.number) continue;
+      let money = 0;
+      let sum = 0;
+      for (const r of data) {
+        const v = parseAmountToCents(r[c]);
+        if (v !== null) {
+          money++;
+          sum += Math.abs(v);
+        }
+      }
+      if (money >= Math.max(1, Math.floor(data.length * 0.5)) && sum > bestSum) {
+        bestSum = sum;
+        bestCol = c;
+      }
+    }
+    if (bestCol >= 0) cols.total = bestCol;
+  }
+  if (cols.total === undefined && cols.base === undefined) return null;
+
+  // Columna de cliente = primera columna mayormente de texto (no importe/fecha/nº).
+  if (cols.clientName === undefined) {
+    for (let c = 0; c < width; c++) {
+      if (c === cols.total || c === cols.base || c === cols.date || c === cols.number) continue;
+      let text = 0;
+      for (const r of data) {
+        const s = r[c];
+        if (s && parseAmountToCents(s) === null && !/^\d/.test(s)) text++;
+      }
+      if (text >= Math.floor(data.length * 0.5)) {
+        cols.clientName = c;
+        break;
+      }
+    }
+  }
+  return data.map((r) => rowToInvoice(r, cols));
 }
 
 function buildLine(input: InvoiceInput): InvoiceLine {

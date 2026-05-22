@@ -64,7 +64,7 @@ export function pickHeaderRow(
     if (score > best.score) best = { idx: i, score, cols };
   }
   if (best.idx < 0) return null;
-  if (!requiredAny.some((f) => f in best.cols)) return null;
+  if (requiredAny.length > 0 && !requiredAny.some((f) => f in best.cols)) return null;
   return { headerIdx: best.idx, headers: matrix[best.idx], cols: best.cols };
 }
 
