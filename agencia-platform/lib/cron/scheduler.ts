@@ -7,7 +7,19 @@
  * Todo es idempotente: se puede llamar de más sin efectos duplicados.
  */
 import { prisma } from "@/lib/db/prisma";
-import { sendPushToUser } from "@/lib/push/web-push";
+
+// web-push (y sus deps: agent-base/https-proxy-agent → http/https/net) son
+// solo de Node. Lo importamos DINÁMICO dentro de las funciones para que no
+// entre en el grafo estático que analiza Next (instrumentation/edge), que
+// rompía el build con "Can't resolve 'http'/'https'/'net'".
+type PushFn = (
+  userId: string,
+  payload: { title: string; body: string; link?: string; tag?: string }
+) => Promise<unknown>;
+async function getSendPush(): Promise<PushFn> {
+  const m = await import("@/lib/push/web-push");
+  return m.sendPushToUser as unknown as PushFn;
+}
 
 /**
  * Recordatorios: tareas que vencen en 24h + eventos del calendario que
@@ -19,6 +31,7 @@ export async function runReminders(): Promise<{
   eventsChecked: number;
   eventReminders: number;
 }> {
+  const sendPushToUser = await getSendPush();
   const now = new Date();
   const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
 
@@ -98,6 +111,7 @@ export async function runReminders(): Promise<{
  * Idempotente: una por usuario y día (type "sonia_briefing").
  */
 export async function runBriefing(): Promise<{ membershipsChecked: number; briefingsSent: number }> {
+  const sendPushToUser = await getSendPush();
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const tomorrow = new Date(today);
