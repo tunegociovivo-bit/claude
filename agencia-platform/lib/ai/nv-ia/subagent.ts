@@ -183,6 +183,10 @@ export async function runSubagent(opts: {
             isError = true;
           }
         }
+        if (tu.name.startsWith("meta_ads_") && output && typeof output === "object") {
+          const { metaGuardNote } = await import("@/lib/integrations/meta-rate-guard");
+          (output as any)._metaGuard = await metaGuardNote();
+        }
         log.push({
           type: "tool_result",
           ts: new Date().toISOString(),

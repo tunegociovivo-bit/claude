@@ -1381,6 +1381,13 @@ export async function executeAgentRun(opts: {
             isError = true;
           }
         }
+        // En CUALQUIER acción de Meta (campañas, publicaciones, descargas de
+        // datos/leads/facturas), adjuntamos el estado del guardián anti-bloqueo
+        // para que Sonia lo tenga en cuenta y lo comunique.
+        if (tu.name.startsWith("meta_ads_") && output && typeof output === "object") {
+          const { metaGuardNote } = await import("@/lib/integrations/meta-rate-guard");
+          (output as any)._metaGuard = await metaGuardNote();
+        }
         log.push({
           type: "tool_result",
           ts: nowIso(),

@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
 import { withApi } from "@/lib/api/handler";
-import { requireAdmin } from "@/lib/api/admin";
 import { getMetaGuardState } from "@/lib/integrations/meta-rate-guard";
 
 export const dynamic = "force-dynamic";
 
-export const GET = withApi({ scope: "*", rate: "admin" }, async (_req, { api }) => {
-  await requireAdmin(api);
+// Estado de solo lectura: lo puede ver cualquier usuario del workspace
+// (sale en todas las pantallas relacionadas con Meta), no solo admins.
+export const GET = withApi({ scope: "*" }, async () => {
   const state = await getMetaGuardState();
   return NextResponse.json(state);
 });

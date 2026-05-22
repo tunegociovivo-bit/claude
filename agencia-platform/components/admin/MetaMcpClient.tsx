@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import MetaGuardBadge from "@/components/admin/MetaGuardBadge";
 
 export default function MetaMcpClient() {
   const [token, setToken] = useState("");
@@ -81,6 +82,7 @@ export default function MetaMcpClient() {
         Acceso total a Meta Ads vía el MCP oficial de Meta (autenticado como el usuario). Sonia lo usa
         automáticamente cuando el token permanente no tiene permisos sobre una cuenta.
       </p>
+      <MetaGuardBadge />
       <div className="text-sm">
         Estado:{" "}
         {configured === null ? (

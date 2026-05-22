@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import MetaGuardBadge from "@/components/admin/MetaGuardBadge";
 import {
   ArrowLeft, ExternalLink, Loader2, Megaphone, Trash2, AlertCircle,
   Image as ImageIcon, Film, LayoutGrid, Sparkles, Mail, MapPin, Users, Calendar, Euro, Target, Zap, RefreshCw, CheckCircle2
@@ -182,6 +183,8 @@ export default function CampaignDetailClient({ campaignId }: { campaignId: strin
           </button>
         </div>
       </div>
+
+      <MetaGuardBadge />
 
       {/* Resumen */}
       <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-5">

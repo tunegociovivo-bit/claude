@@ -108,6 +108,22 @@ export async function getMetaGuardState() {
   return metaGuardStatus();
 }
 
+/** Nota corta legible para adjuntar a los resultados de las tools de Meta. */
+export async function metaGuardNote(): Promise<string> {
+  const g = await getMetaGuardState();
+  if (g.inCooldown) {
+    return (
+      `⛔ Guardián anti-bloqueo de Meta: EN ENFRIAMIENTO ~${Math.ceil(g.cooldownMsLeft / 60000)} min ` +
+      `(Meta está limitando la cuenta${g.cooldownReason ? `: ${g.cooldownReason}` : ""}). ` +
+      `NO publiques ni hagas escrituras en Meta; informa al usuario y espera a que pase.`
+    );
+  }
+  if (g.lastUsagePct >= 75) {
+    return `⚠️ Guardián Meta OK pero uso de cuota alto (${Math.round(g.lastUsagePct)}%): se están ralentizando las escrituras. Evita ráfagas.`;
+  }
+  return `✅ Guardián Meta OK · uso de cuota ${Math.round(g.lastUsagePct)}%.`;
+}
+
 /**
  * Procesa las cabeceras de uso de una respuesta de Meta. Si el % de cuota
  * está al límite, activa un enfriamiento preventivo corto.

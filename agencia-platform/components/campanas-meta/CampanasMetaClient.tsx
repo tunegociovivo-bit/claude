@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Megaphone, Plus, Settings2, Loader2, AlertCircle, CheckCircle2 } from "lucide-react";
 import PageHeader from "@/components/PageHeader";
+import MetaGuardBadge from "@/components/admin/MetaGuardBadge";
 import MetaConnectionModal from "./MetaConnectionModal";
 import CampaignWizard from "./CampaignWizard";
 
@@ -77,6 +78,8 @@ export default function CampanasMetaClient() {
           </>
         }
       />
+
+      <MetaGuardBadge />
 
       {/* Estado de conexión */}
       {connected && (
