@@ -1064,21 +1064,41 @@ export async function metaAdsListLeadForms(opts: {
  */
 export async function metaAdsUploadImage(opts: {
   workspaceId: string;
-  fileId: string;
+  fileId?: string;
+  /** Alternativa al fileId: URL pública/firmada (p.ej. de R2) — se descarga
+   *  en el servidor y se sube a Meta. Útil para imágenes de campos de
+   *  formulario que llegan como URL. */
+  url?: string;
   adhoc?: Record<string, string>;
 }): Promise<{ hash: string; url: string }> {
   const cfg = await getMetaAdsConfig(opts.workspaceId, opts.adhoc);
-  const file = await prisma.file.findFirst({
-    where: { id: opts.fileId, workspaceId: opts.workspaceId }
-  });
-  if (!file) throw new Error(`File ${opts.fileId} no encontrado en el workspace`);
-  const { downloadBuffer } = await import("@/lib/storage/r2");
-  const buf = await downloadBuffer(file.s3Key);
+  let buf: Buffer;
+  let fileName = "image.jpg";
+  let mimeType = "image/jpeg";
+  if (opts.fileId) {
+    const file = await prisma.file.findFirst({
+      where: { id: opts.fileId, workspaceId: opts.workspaceId }
+    });
+    if (!file) throw new Error(`File ${opts.fileId} no encontrado en el workspace`);
+    const { downloadBuffer } = await import("@/lib/storage/r2");
+    buf = await downloadBuffer(file.s3Key);
+    fileName = file.name;
+    mimeType = file.mimeType;
+  } else if (opts.url) {
+    const r0 = await fetch(opts.url, { signal: AbortSignal.timeout(30000) });
+    if (!r0.ok) throw new Error(`No se pudo descargar la imagen (${r0.status}) de ${opts.url.slice(0, 80)}`);
+    buf = Buffer.from(await r0.arrayBuffer());
+    mimeType = r0.headers.get("content-type") || "image/jpeg";
+    const m = /\/([^/?#]+\.(?:jpg|jpeg|png|webp|gif))/i.exec(opts.url);
+    if (m) fileName = m[1];
+  } else {
+    throw new Error("metaAdsUploadImage: falta fileId o url");
+  }
 
   // Multipart upload a /act_X/adimages.
   const form = new FormData();
-  const blob = new Blob([buf as any], { type: file.mimeType });
-  form.append("file", blob, file.name);
+  const blob = new Blob([buf as any], { type: mimeType });
+  form.append("file", blob, fileName);
   form.append("access_token", cfg.accessToken);
   const r = await fetch(`${GRAPH}${adAccountPath(cfg.adAccountId)}/adimages`, {
     method: "POST",

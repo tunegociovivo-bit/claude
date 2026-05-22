@@ -987,6 +987,11 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
         bidAmountCents: {
           type: "number",
           description: "Solo si bidStrategy != LOWEST_COST_WITHOUT_CAP."
+        },
+        forceCreate: {
+          type: "boolean",
+          description:
+            "Crea OTRO adset aunque esta task ya tenga uno registrado (salta el dedupe). ÚSALO cuando necesitas un SEGUNDO adset en la misma campaña (p.ej. el adset de REMARKETING además del de frío)."
         }
       },
       required: ["campaignId", "name", "targeting"],
@@ -1037,13 +1042,13 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
   },
   {
     name: "meta_ads_upload_image",
-    description: "Sube una imagen a la ad account (la creatividad de un anuncio). Recibe el fileId de un adjunto local de la task. Devuelve el image_hash que necesitas para crear el creative.",
+    description: "Sube una imagen a la ad account (la creatividad de un anuncio) y devuelve el image_hash para crear el creative. Acepta el fileId de un adjunto/archivo del formulario (el de los DATOS DEL FORMULARIO, formato 'nombre [fileId: XXX]') o una url directa. El servidor descarga la imagen de R2 por ti — NO necesitas internet ni descargarla tú. USA ESTO para las imágenes que el usuario subió, en vez de generar una nueva.",
     input_schema: {
       type: "object",
       properties: {
-        fileId: { type: "string", description: "ID del File local (de list_task_files)." }
+        fileId: { type: "string", description: "ID del File (de list_task_files o del campo de archivos del formulario)." },
+        url: { type: "string", description: "Alternativa: URL de la imagen (p.ej. la del formulario). El servidor la descarga y la sube a Meta." }
       },
-      required: ["fileId"],
       additionalProperties: false
     }
   },
@@ -4480,7 +4485,8 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
       const { metaAdsUploadImage } = await import("@/lib/integrations/meta-ads");
       const r = await metaAdsUploadImage({
         workspaceId: ctx.workspaceId,
-        fileId: String(input?.fileId ?? ""),
+        fileId: input?.fileId ? String(input.fileId) : undefined,
+        url: input?.url ? String(input.url) : undefined,
         adhoc: ctx.adhocCredentials
       });
       const { recordResources } = await import("@/lib/ai/nv-ia/resource-registry");

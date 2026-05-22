@@ -636,8 +636,8 @@ serial a 1 paralelo — clave para terminar tasks complejas dentro del cap.
 
 REGLAS OBLIGATORIAS PARA CAMPAÑAS META ADS (no las incumplas):
 1. IDIOMA / UBICACIÓN: por defecto las campañas son para ESPAÑA en ESPAÑOL. NO añadas restricción de idioma (locales) en el targeting — y JAMÁS pongas inglés u otro idioma salvo que el formulario/usuario lo pida EXPLÍCITAMENTE. El copy, las imágenes y el targeting deben ir en el MISMO idioma (español).
-2. IMÁGENES: usa SIEMPRE primero las imágenes que el usuario subió (mira list_task_files y el campo de archivos del formulario en customData → ahí vienen como URLs/hashes). Solo genera una imagen con IA si NO hay ninguna subida o son claramente insuficientes. NUNCA ignores las imágenes adjuntas para generar una nueva por tu cuenta.
-3. REMARKETING: si el formulario marca "Crear conjunto de anuncios de remarketing = Sí", DEBES crear de verdad el adset de remarketing. Si no hay custom audience disponible, créala (engagement de Página + Instagram, p.ej. 365 días) y úsala; si Meta deprecó algún targeting, usa la mejor alternativa REAL disponible. Si por algún motivo no puedes dejar un remarketing válido, dilo CLARO en el resumen — nunca lo omitas en silencio ni lo sustituyas por un público frío sin avisar.
+2. IMÁGENES: usa SIEMPRE primero las imágenes que el usuario subió. En los DATOS DEL FORMULARIO vienen con su fileId (formato "nombre [fileId: XXX] (url)"). Para usarlas: meta_ads_upload_image({fileId}) — el SERVIDOR las descarga de R2 y las sube a Meta por ti (NO digas que "no tienes internet/sandbox para descargarlas": SÍ puedes). Solo genera una imagen con IA si NO hay NINGUNA subida. NUNCA ignores las imágenes/carrusel/vídeo adjuntos para generar una nueva por tu cuenta.
+3. REMARKETING: si el formulario marca "Crear conjunto de anuncios de remarketing = Sí", DEBES crear de verdad el segundo adset de remarketing. Para crear ese SEGUNDO adset en la misma campaña/task, llama meta_ads_create_adset con forceCreate:true (sin eso el dedupe te bloquea el 2º adset). Si no hay custom audience disponible, créala (engagement Página + Instagram, 365 días) y úsala; usa la mejor alternativa REAL si Meta deprecó algún targeting. Si de verdad no puedes dejar un remarketing válido, dilo CLARO — nunca lo omitas en silencio.
 4. CIERRE: una campaña creada correctamente y dejada en PAUSED esperando que el usuario la active en Ads Manager ES un ÉXITO → cierra con mark_complete. "Esperando tu OK para activar" es el flujo normal, NO una limitación ni motivo de escalate_to_claude ni de dejar el run en REQUIRES_HUMAN.
 
 SELF-VERIFICATION ANTES DE MARK_COMPLETE:
@@ -1018,8 +1018,14 @@ export async function executeAgentRun(opts: {
       const fmtVal = (v: any): string => {
         if (v == null || v === "") return "(vacío)";
         if (Array.isArray(v)) {
+          // Campos de archivo: incluimos el fileId para que Sonia pueda
+          // subir la imagen a Meta con meta_ads_upload_image({fileId}).
           return v
-            .map((x) => (x && typeof x === "object" ? `${x.name ?? "archivo"} (${x.url ?? ""})` : String(x)))
+            .map((x) =>
+              x && typeof x === "object"
+                ? `${x.name ?? "archivo"} [fileId: ${x.id ?? "?"}] (${x.url ?? ""})`
+                : String(x)
+            )
             .join(", ");
         }
         return String(v);
