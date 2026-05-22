@@ -68,8 +68,15 @@ function b64url(buf: Buffer): string {
   return buf.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
-// ── Registro dinámico de cliente (una vez por workspace) ──
+// ── Cliente OAuth ──
+// Orden: (1) App de Facebook propia configurada por env (META_APP_ID/SECRET),
+// (2) cliente ya registrado por DCR, (3) intento de DCR (Meta lo tiene
+// DESACTIVADO para terceros → suele fallar con invalid_client_metadata).
 async function ensureClient(workspaceId: string): Promise<{ clientId: string; clientSecret: string }> {
+  const envId = process.env.META_APP_ID;
+  const envSecret = process.env.META_APP_SECRET;
+  if (envId && envSecret) return { clientId: envId, clientSecret: envSecret };
+
   const s = await loadStore(workspaceId);
   if (s.clientId && s.clientSecretEnc) {
     return { clientId: s.clientId, clientSecret: decryptSecret(s.clientSecretEnc) ?? "" };
@@ -87,16 +94,22 @@ async function ensureClient(workspaceId: string): Promise<{ clientId: string; cl
       scope: SCOPES
     })
   });
-  if (!resp.ok) throw new Error(`Registro de cliente MCP falló (${resp.status}): ${(await resp.text()).slice(0, 300)}`);
+  if (!resp.ok) {
+    const body = (await resp.text()).slice(0, 300);
+    if (/invalid_client_metadata|not available|registration/i.test(body)) {
+      throw new Error(
+        "Meta tiene desactivado el registro automático de apps para su MCP. Crea una App de Facebook y define META_APP_ID y META_APP_SECRET en Railway (con redirect URI " +
+          redirectUri +
+          "); luego vuelve a pulsar Conectar."
+      );
+    }
+    throw new Error(`Registro de cliente MCP falló (${resp.status}): ${body}`);
+  }
   const data = await resp.json();
   const clientId = String(data.client_id ?? "");
   const clientSecret = String(data.client_secret ?? "");
   if (!clientId) throw new Error("El registro de cliente MCP no devolvió client_id.");
-  await saveStore(workspaceId, {
-    clientId,
-    clientSecretEnc: encryptSecret(clientSecret),
-    redirectUri
-  });
+  await saveStore(workspaceId, { clientId, clientSecretEnc: encryptSecret(clientSecret), redirectUri });
   return { clientId, clientSecret };
 }
 
