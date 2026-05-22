@@ -167,7 +167,10 @@ export async function processOneRun(runId: string): Promise<ProcessResult> {
         where: { id: run.workspaceId },
         select: { settings: true }
       });
-      const routing = ((ws?.settings as any)?.aiAgent?.modelRouting ?? "always_opus") as
+      // Por defecto "auto": tareas simples → Sonnet/Haiku (barato), las
+      // complejas (campañas, estrategia, copy) siguen en Opus. El admin
+      // puede forzar "always_opus" o "cost_saver" en settings.aiAgent.modelRouting.
+      const routing = ((ws?.settings as any)?.aiAgent?.modelRouting ?? "auto") as
         | "always_opus"
         | "auto"
         | "cost_saver";
