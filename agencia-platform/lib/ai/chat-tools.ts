@@ -1442,6 +1442,39 @@ chatTools.push({
 });
 
 chatTools.push({
+  name: "meta_via_mcp",
+  description:
+    "Ejecuta una gestión de Meta Ads a través del CONECTOR OFICIAL de Meta (MCP), autenticado como el usuario con ACCESO TOTAL a todas sus cuentas. Úsalo como ALTERNATIVA automática cuando una tool meta_* normal falla por permisos (el token permanente no tiene acceso a esa cuenta), o para operar cuentas que ese token no alcanza. Describe la gestión en lenguaje natural y detallado: cuenta (nombre o act_id), acción y parámetros. Devuelve el resultado real de lo que hizo.",
+  input_schema: {
+    type: "object",
+    properties: {
+      instruction: {
+        type: "string",
+        description:
+          "Qué hacer en Meta, en detalle: cuenta (nombre o act_id), acción (listar campañas, sacar leads/insights, crear/pausar campaña, etc.) y todos los parámetros y fechas necesarios."
+      }
+    },
+    required: ["instruction"]
+  },
+  run: async (args, ctx) => {
+    try {
+      const { runMetaViaMcp } = await import("@/lib/integrations/meta-mcp");
+      const r = await runMetaViaMcp({ workspaceId: ctx.workspaceId, instruction: String(args?.instruction ?? "") });
+      return JSON.stringify(r);
+    } catch (e: any) {
+      if (e?.constructor?.name === "MetaMcpNotConfiguredError" || /mcp.*no est[aá] config/i.test(String(e?.message ?? e))) {
+        return JSON.stringify({
+          ok: false,
+          error:
+            "El conector de Meta (MCP) no está conectado en el Hub. Conéctalo en /admin (Integración Meta MCP) para tener acceso total a todas las cuentas."
+        });
+      }
+      return JSON.stringify({ ok: false, error: String(e?.message ?? e) });
+    }
+  }
+});
+
+chatTools.push({
   name: "save_contact",
   description:
     "Guarda (memoriza) un contacto con su teléfono para futuras llamadas/mensajes. Úsala cuando el usuario diga 'memoriza/guarda el teléfono de X', 'apunta el contacto de Y', etc. Persiste de forma permanente en el workspace, así que en chats futuros podrás llamar a esa persona por su nombre sin que te repitan el número.",
