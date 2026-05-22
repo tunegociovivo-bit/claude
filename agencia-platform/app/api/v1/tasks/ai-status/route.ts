@@ -83,9 +83,21 @@ async function handler(api: any, ids: string[]) {
       finishedAt: true,
       createdAt: true,
       updatedAt: true,
-      lastIterationAt: true
+      lastIterationAt: true,
+      inputTokens: true,
+      outputTokens: true
     }
   });
+  // Coste total por tarea = suma de tokens de TODOS sus runs × pricing.
+  const { estimateCostMicros } = await import("@/lib/ai/usage");
+  const { DEFAULT_MODEL } = await import("@/lib/ai/anthropic");
+  const tokensByTask = new Map<string, { input: number; output: number }>();
+  for (const r of runsBase) {
+    const t = tokensByTask.get(r.taskId) ?? { input: 0, output: 0 };
+    t.input += r.inputTokens ?? 0;
+    t.output += r.outputTokens ?? 0;
+    tokensByTask.set(r.taskId, t);
+  }
   // Segunda pasada: solo los runs que necesitan log (escalation /
   // tool_use vivo).
   const runIdsNeedingLog = runsBase
@@ -281,6 +293,14 @@ async function handler(api: any, ids: string[]) {
         : null,
       lastStepText,
       lastToolName,
+      // Tiempo del paso ACTUAL (desde el último tick) — para el banner,
+      // distinto del total (startedAt) que muestra el badge de arriba.
+      lastIterationAt: r.lastIterationAt ? r.lastIterationAt.toISOString() : null,
+      // Coste total acumulado de la tarea (todos sus runs), en micros USD.
+      costMicros: (() => {
+        const t = tokensByTask.get(id);
+        return t ? estimateCostMicros(DEFAULT_MODEL, t.input, t.output) : 0;
+      })(),
       lastAiCommentAt: lastCommentIsAi ? lastComment!.createdAt.toISOString() : null,
       lastAiCommentPreview: lastCommentIsAi ? lastComment!.body.slice(0, 140) : null
     };

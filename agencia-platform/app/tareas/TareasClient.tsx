@@ -73,6 +73,11 @@ type AiStatusInfo = {
    *  aunque el estado visual ya sea null. Marca persistente para el
    *  icono de robot en la card. */
   workedByAi?: boolean;
+  /** Inicio del paso ACTUAL (último tick) — para el cronómetro del banner,
+   *  distinto del total (startedAt) que muestra el badge de arriba. */
+  lastIterationAt?: string | null;
+  /** Coste total acumulado de la tarea (todos sus runs), en micros de USD. */
+  costMicros?: number;
   runId?: string;
   runStatus?: string;
   startedAt?: string;
@@ -413,6 +418,8 @@ export default function TareasClient({
             next[it.taskId] = {
               aiStatus: it.aiStatus ?? null,
               workedByAi: !!it.workedByAi,
+              lastIterationAt: it.lastIterationAt ?? null,
+              costMicros: typeof it.costMicros === "number" ? it.costMicros : 0,
               runId: it.runId,
               runStatus: it.runStatus,
               startedAt: it.startedAt,
@@ -2026,6 +2033,14 @@ function TaskCard({
               <Bot className="h-3 w-3" />
             </span>
           )}
+          {aiInfo?.costMicros != null && aiInfo.costMicros > 0 && (
+            <span
+              className="inline-flex items-center gap-0.5 px-1.5 h-5 rounded-md bg-slate-100 text-slate-600 text-[10px] font-medium ring-1 ring-slate-200"
+              title={`Coste IA acumulado de esta tarea: ${formatCost(aiInfo.costMicros)}`}
+            >
+              💸 {formatCost(aiInfo.costMicros)}
+            </span>
+          )}
         </div>
         {(() => {
           if (!task.dueDate)
@@ -2457,16 +2472,22 @@ function AiStatusBadge({
  *   - claude_working   → "🛠 Claude mejorando el sistema · #42 · ver issue"
  */
 function AiStatusBanner({ info, now }: { info: AiStatusInfo; now: number }) {
-  const refMs = info.startedAt ? new Date(info.startedAt).getTime() : null;
-  const elapsedMs =
-    info.aiStatus === "working" && refMs ? Math.max(0, now - refMs) : 0;
+  // El banner muestra el tiempo del PASO actual (desde el último tick),
+  // no el total — ese va arriba en el badge (AiStatusBadge → startedAt).
+  const stepRefMs = info.lastIterationAt
+    ? new Date(info.lastIterationAt).getTime()
+    : info.startedAt
+      ? new Date(info.startedAt).getTime()
+      : null;
+  const stepMs =
+    info.aiStatus === "working" && stepRefMs ? Math.max(0, now - stepRefMs) : 0;
   let line1: string;
   let line2: string | null = null;
   let bg = "";
   let textColor = "#ffffff";
   if (info.aiStatus === "working") {
     line1 = `🤖 Sonia está trabajando en esta tarea`;
-    const dur = elapsedMs > 0 ? ` · ${formatDuration(elapsedMs)}` : "";
+    const dur = stepMs > 0 ? ` · ${formatDuration(stepMs)}` : "";
     const step = info.lastStepText ? ` · ${info.lastStepText}` : "";
     line2 = `paso ${info.stepsCount ?? 0}${dur}${step}`;
     bg = "#7c3aed";
@@ -2561,6 +2582,14 @@ function formatDuration(ms: number): string {
   const h = Math.floor(m / 60);
   const rm = m % 60;
   return rm > 0 ? `${h}h ${rm}m` : `${h}h`;
+}
+
+/** Coste IA en micros de USD → texto compacto en dólares. */
+function formatCost(micros: number): string {
+  const usd = micros / 1_000_000;
+  if (usd >= 1) return `$${usd.toFixed(2)}`;
+  if (usd >= 0.01) return `$${usd.toFixed(2)}`;
+  return `$${usd.toFixed(3)}`;
 }
 
 /**
