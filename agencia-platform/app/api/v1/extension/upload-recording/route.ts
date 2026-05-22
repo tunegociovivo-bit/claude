@@ -87,7 +87,7 @@ function detectPlatform(url: string): string {
   return "Reunión web";
 }
 
-function buildCommentDoc(s: MeetingSummary, meetingUrl: string, platform: string): any {
+function buildCommentDoc(s: MeetingSummary, meetingUrl: string, platform: string, transcript?: string): any {
   const content: any[] = [];
   content.push({
     type: "heading",
@@ -160,6 +160,15 @@ function buildCommentDoc(s: MeetingSummary, meetingUrl: string, platform: string
         content: [{ type: "paragraph", content: [{ type: "text", text: c }] }]
       }))
     });
+  }
+
+  // Transcripción completa (para no perder nada y poder re-resumir).
+  if (transcript && transcript.trim()) {
+    content.push({ type: "heading", attrs: { level: 3 }, content: [{ type: "text", text: "📄 Transcripción" }] });
+    const lines = transcript.slice(0, 15000).split("\n").map((l) => l.trim()).filter(Boolean);
+    for (const line of lines) {
+      content.push({ type: "paragraph", content: [{ type: "text", text: line }] });
+    }
   }
 
   content.push({
@@ -253,26 +262,54 @@ export const POST = withApi({ scope: "tasks:write" }, async (req, { api }) => {
     );
   }
 
-  // ── 2) Claude resume ───────────────────────────────────────────
-  let summary: MeetingSummary;
-  try {
-    summary = await completeJson<MeetingSummary>({
-      workspaceId: api.workspaceId,
-      system:
-        "Eres un asistente de actas de reunión. Lees la transcripción y devuelves un " +
-        "resumen estructurado en castellano con título corto (3-8 palabras), resumen " +
-        "ejecutivo, participantes (si se identifican por nombre), temas tratados, " +
-        "decisiones, acciones pendientes con responsable y plazo cuando se mencione, " +
-        "y puntos críticos que el equipo debe revisar. Sé fiel a lo dicho — NO " +
-        "inventes nombres ni fechas. Si la transcripción es de mala calidad, " +
-        "menciónalo en summary y omite las secciones para las que no haya info.",
-      user: `Plataforma: ${platform}\nTítulo de la pestaña: ${meetingTitle}\n\nTranscripción:\n\n${transcript}`,
-      schema: SUMMARY_SCHEMA,
-      maxTokens: 3000,
-      feature: "extension_meeting_summary"
-    } as any);
-  } catch (e: any) {
-    throw new ApiError(502, "claude_failed", `Claude falló al resumir: ${e?.message ?? e}`);
+  // ── 2) Claude resume (con reintentos + degradación) ─────────────
+  // Si la API está saturada (529 overloaded) o hay un fallo transitorio,
+  // reintentamos con backoff. Si aun así falla, NO perdemos la reunión:
+  // creamos la tarea con la transcripción y un aviso de que el resumen IA
+  // no se generó (se puede pedir a Sonia luego).
+  let summary: MeetingSummary | null = null;
+  let summaryFailed = false;
+  const isTransient = (m: string) =>
+    /\b(429|500|502|503|504|529)\b|overloaded|rate.?limit|timeout|ETIMEDOUT|ECONNRESET|fetch failed/i.test(m);
+  const backoffs = [2000, 5000, 9000];
+  for (let i = 0; i < backoffs.length + 1; i++) {
+    try {
+      summary = await completeJson<MeetingSummary>({
+        workspaceId: api.workspaceId,
+        system:
+          "Eres un asistente de actas de reunión. Lees la transcripción y devuelves un " +
+          "resumen estructurado en castellano con título corto (3-8 palabras), resumen " +
+          "ejecutivo, participantes (si se identifican por nombre), temas tratados, " +
+          "decisiones, acciones pendientes con responsable y plazo cuando se mencione, " +
+          "y puntos críticos que el equipo debe revisar. Sé fiel a lo dicho — NO " +
+          "inventes nombres ni fechas. Si la transcripción es de mala calidad, " +
+          "menciónalo en summary y omite las secciones para las que no haya info.",
+        user: `Plataforma: ${platform}\nTítulo de la pestaña: ${meetingTitle}\n\nTranscripción:\n\n${transcript}`,
+        schema: SUMMARY_SCHEMA,
+        maxTokens: 3000,
+        feature: "extension_meeting_summary"
+      } as any);
+      break;
+    } catch (e: any) {
+      const m = String(e?.message ?? e);
+      if (i < backoffs.length && isTransient(m)) {
+        await new Promise((r) => setTimeout(r, backoffs[i]));
+        continue;
+      }
+      console.warn("[upload-recording] resumen Claude falló, guardo sin resumen IA:", m);
+      summaryFailed = true;
+      break;
+    }
+  }
+  if (!summary) {
+    summary = {
+      title: `Reunión ${new Date().toLocaleString("es-ES", { dateStyle: "short", timeStyle: "short" })}`,
+      summary:
+        "⚠️ No se pudo generar el resumen con IA ahora mismo (servicio de IA saturado). " +
+        "La transcripción completa está guardada abajo; pídele a Sonia que la resuma cuando quieras.",
+      topics: [],
+      action_items: []
+    } as MeetingSummary;
   }
 
   // ── 3) Resolver projectId destino ──────────────────────────────
@@ -313,7 +350,7 @@ export const POST = withApi({ scope: "tasks:write" }, async (req, { api }) => {
   }
 
   const taskTitle = summary.title?.trim() || `Reunión ${new Date().toLocaleString("es-ES", { dateStyle: "short", timeStyle: "short" })}`;
-  const commentDoc = buildCommentDoc(summary, meetingUrl, platform);
+  const commentDoc = buildCommentDoc(summary, meetingUrl, platform, transcript);
 
   const task = await prisma.task.create({
     data: {
@@ -361,6 +398,7 @@ export const POST = withApi({ scope: "tasks:write" }, async (req, { api }) => {
     taskId: task.id,
     taskTitle,
     taskUrl,
+    summaryFailed,
     summaryPreview: summary.summary.slice(0, 200)
   });
 });
