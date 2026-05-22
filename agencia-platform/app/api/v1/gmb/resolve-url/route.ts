@@ -138,9 +138,22 @@ export const POST = withApi({ scope: "*" }, async (req, { api }) => {
         : "No encontré esa ficha entre las ubicaciones de tu Google Business Profile. Comprueba que la cuenta conectada gestiona ese negocio.";
     }
   } catch (e: any) {
-    out.note =
-      "Para autocompletar categoría y los GMB IDs necesito Google Business Profile conectado en los ajustes de GMB Hub." +
-      (rawName ? " De momento he rellenado el nombre." : "");
+    const emsg = String(e?.message ?? e);
+    const noGbp = /falta conexi[oó]n google|googleadsconnection|GOOGLE_ADS_CLIENT|refresh token/i.test(emsg);
+    (out as any).needsGbp = noGbp;
+    if (noGbp && !rawName) {
+      // URL de Perfil de Empresa (solo fid/CID) y sin GBP conectado: no hay
+      // forma de sacar nombre ni IDs. Guiamos a una alternativa que sí funciona.
+      out.ok = false;
+      (out as any).error =
+        "Esta URL de Perfil de Empresa solo lleva un identificador interno (fid). Para autocompletar desde ella hay que conectar Google Business Profile en los ajustes de GMB Hub. Alternativa rápida: pega la URL de Google Maps o de la BÚSQUEDA del negocio (la que incluye el nombre) y sí autocompleto nombre y categoría.";
+    } else {
+      out.note =
+        (noGbp
+          ? "Para autocompletar categoría y los GMB IDs necesito Google Business Profile conectado en los ajustes de GMB Hub."
+          : `No se pudo consultar Google Business Profile (${emsg.slice(0, 120)}).`) +
+        (rawName ? " De momento he rellenado el nombre." : "");
+    }
   }
 
   return NextResponse.json(out);
