@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
-import { Upload, FileText, Users, Receipt, CheckCircle2, AlertTriangle, Loader2 } from "lucide-react";
+import { Upload, FileText, Users, Receipt, CheckCircle2, AlertTriangle, Loader2, Download } from "lucide-react";
 import { formatMoney } from "@/lib/invoicing/core";
 
 type Entity = "clients" | "invoices";
@@ -49,13 +49,16 @@ const FIELD_LABELS: Record<string, string> = {
 export default function ImporterClient({
   initialEntity = "clients",
   lockEntity = false,
-  issuerId
+  issuerId,
+  enableHolded = false
 }: {
   initialEntity?: Entity;
   /** Oculta el selector de entidad (p.ej. dentro de Facturación, solo facturas). */
   lockEntity?: boolean;
   /** Si se importa dentro de una empresa, las facturas se le asignan. */
   issuerId?: string;
+  /** Muestra botones para traer datos directamente de Holded. */
+  enableHolded?: boolean;
 } = {}) {
   const [entity, setEntity] = useState<Entity>(initialEntity);
   const [file, setFile] = useState<File | null>(null);
@@ -99,6 +102,33 @@ export default function ImporterClient({
       setSelected(sel);
     } catch (e: any) {
       setError(e?.message ?? "Error al analizar");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function analyzeHolded(ent: Entity) {
+    setEntity(ent);
+    setLoading(true);
+    setError(null);
+    setResult(null);
+    setPreview(null);
+    try {
+      const r = await fetch(`/api/v1/admin/import/holded/preview?entity=${ent}`, { cache: "no-store" });
+      const data = await r.json();
+      if (!r.ok) {
+        setError(data?.error?.message ?? data?.message ?? `Error ${r.status}`);
+        return;
+      }
+      const resp = data as PreviewResp;
+      setPreview(resp);
+      const sel = new Set<number>();
+      resp.plan.forEach((p, i) => {
+        if (p.action === "create" || p.action === "merge") sel.add(i);
+      });
+      setSelected(sel);
+    } catch (e: any) {
+      setError(e?.message ?? "Error al traer de Holded");
     } finally {
       setLoading(false);
     }
@@ -219,6 +249,37 @@ export default function ImporterClient({
           documento y extrae los datos automáticamente (requiere la IA configurada en /admin/ai).
         </p>
       </div>
+
+      {/* Importar desde Holded */}
+      {enableHolded && (
+        <div className="bg-white border rounded-xl p-4">
+          <div className="text-sm font-medium mb-1 flex items-center gap-1.5">
+            <Download className="h-4 w-4 text-brand-600" /> Importar desde Holded
+          </div>
+          <p className="text-xs text-slate-500 mb-3">
+            Trae directamente tus facturas y clientes de Holded (la API key se configura en Administración → Holded). Se
+            muestra una vista previa antes de confirmar; las facturas duplicadas y los clientes ya existentes se respetan.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={() => analyzeHolded("invoices")}
+              disabled={loading}
+              className="inline-flex items-center gap-1.5 bg-white border text-sm px-3 py-2 rounded-lg hover:bg-slate-50 disabled:opacity-50"
+            >
+              {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Receipt className="h-4 w-4" />}
+              Traer facturas de Holded
+            </button>
+            <button
+              onClick={() => analyzeHolded("clients")}
+              disabled={loading}
+              className="inline-flex items-center gap-1.5 bg-white border text-sm px-3 py-2 rounded-lg hover:bg-slate-50 disabled:opacity-50"
+            >
+              {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Users className="h-4 w-4" />}
+              Traer clientes de Holded
+            </button>
+          </div>
+        </div>
+      )}
 
       {error && (
         <div className="bg-rose-50 border border-rose-200 text-rose-700 text-sm rounded-lg p-3 flex items-start gap-2">

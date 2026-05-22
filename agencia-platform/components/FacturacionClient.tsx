@@ -277,10 +277,11 @@ export default function FacturacionClient({
       ) : tab === "importar" && selected ? (
         <div className="space-y-3">
           <p className="text-sm text-slate-600">
-            Sube un listado de facturas en PDF, CSV o Excel. La IA lo interpreta y las facturas creadas se asignan a{" "}
-            <span className="font-medium text-slate-800">{selected.name}</span>. Las duplicadas (mismo número) se omiten.
+            Sube un listado de facturas en PDF, CSV o Excel, o tráelas directamente de Holded. Lo importado se asigna a{" "}
+            <span className="font-medium text-slate-800">{selected.name}</span>. Las facturas duplicadas (mismo número) se
+            omiten y los clientes ya existentes solo se completan.
           </p>
-          <ImporterClient initialEntity="invoices" lockEntity issuerId={selected.id} />
+          <ImporterClient initialEntity="invoices" lockEntity issuerId={selected.id} enableHolded />
         </div>
       ) : (
         <FacturasClient

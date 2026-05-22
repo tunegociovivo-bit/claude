@@ -16,6 +16,8 @@ export type InvoiceInput = {
   totalCents?: number;
   currency?: string;
   paymentMethod?: string;
+  /** Estado opcional (p.ej. al importar de Holded): PAID | ISSUED | DRAFT. */
+  status?: string;
 };
 
 export type InvoicePlanItem = {
@@ -338,11 +340,13 @@ export async function applyInvoiceImport(
     }
 
     const series = input.number?.match(/^[A-Za-z]+/)?.[0]?.toUpperCase() || "IMP";
+    const status = input.status ?? (input.number ? "ISSUED" : "DRAFT");
+    const isPaid = status === "PAID";
     await prisma.invoice.create({
       data: {
         workspaceId,
         type: "NORMAL",
-        status: input.number ? "ISSUED" : "DRAFT",
+        status,
         series,
         number: input.number ?? null,
         issuerId: defaultIssuer?.id ?? null,
@@ -356,7 +360,9 @@ export async function applyInvoiceImport(
         subtotalCents: totals.subtotalCents,
         discountCents: totals.discountCents,
         taxCents: totals.taxCents,
-        totalCents: totals.totalCents
+        totalCents: totals.totalCents,
+        paidCents: isPaid ? totals.totalCents : 0,
+        ...(isPaid ? { paidAt: input.date ? new Date(input.date) : new Date() } : {})
       }
     });
     created++;
