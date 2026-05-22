@@ -279,6 +279,7 @@ model InvoiceIssuer {
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   invoices  Invoice[]
+  clients   Client[]  @relation("IssuerClients")
 
   @@index([workspaceId])
 }
@@ -519,6 +520,7 @@ model Client {
   aiOwnership    AiOwnership?
   aiWorkflows    AiClientWorkflow[]
   invoices       Invoice[]
+  issuers        InvoiceIssuer[]    @relation("IssuerClients")
 
   @@index([workspaceId])
 }

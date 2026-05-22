@@ -87,6 +87,7 @@ export default function FacturasClient({
   clients,
   initialIssuers,
   lockedIssuerId,
+  clientFilterIds,
   onIssuersChanged,
   onInvoicesChanged
 }: {
@@ -95,10 +96,17 @@ export default function FacturasClient({
   /** Si se pasa, la facturación se limita a esta empresa emisora:
    *  la lista solo muestra sus facturas y el editor fija el emisor. */
   lockedIssuerId?: string;
+  /** Si se pasa (no vacío), el desplegable de cliente en el editor
+   *  solo muestra estos clientes (los asignados a la empresa). */
+  clientFilterIds?: string[];
   onIssuersChanged?: () => void;
   /** Se llama tras (re)cargar la lista de facturas (crear/editar/borrar). */
   onInvoicesChanged?: () => void;
 }) {
+  const editorClients =
+    clientFilterIds && clientFilterIds.length > 0
+      ? clients.filter((c) => clientFilterIds.includes(c.id))
+      : clients;
   const [invoices, setInvoices] = useState<InvoiceRow[]>([]);
   const [issuers, setIssuers] = useState<Issuer[]>(initialIssuers ?? []);
   const [loading, setLoading] = useState(true);
@@ -339,7 +347,7 @@ export default function FacturasClient({
       {editing && (
         <InvoiceFormModal
           invoice={editing === "new" ? null : editing}
-          clients={clients}
+          clients={editorClients}
           issuers={issuers}
           invoices={invoices}
           lockedIssuerId={lockedIssuerId}

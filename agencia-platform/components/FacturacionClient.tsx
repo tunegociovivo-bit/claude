@@ -1,12 +1,15 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { Building2 } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Building2, Users, X, Loader2, Search, Check } from "lucide-react";
 import { formatMoney } from "@/lib/invoicing/core";
 import FacturasClient from "@/components/admin/FacturasClient";
 
 const MONTH_LABEL = new Intl.DateTimeFormat("es-ES", { month: "long", year: "numeric" });
 type MonthSummary = { facturado: number; cobrado: number; pendiente: number; count: number };
+
+// Las 4 empresas iniciales (para detectar si falta crearlas).
+const DEFAULT_NAMES = ["Negocio Vivo S.C.A.", "Pronsia S.L.", "LemonRoi L.L.C.", "Rixus Solutions L.L.C."];
 
 // Cuenta como "facturado" lo que no es presupuesto/proforma ni borrador/anulada.
 const REAL_TYPES_EXCLUDED = ["PRESUPUESTO", "PROFORMA"];
@@ -35,6 +38,23 @@ export default function FacturacionClient({
   const [selectedId, setSelectedId] = useState<string>("");
   const [summary, setSummary] = useState<MonthSummary | null>(null);
   const [tick, setTick] = useState(0);
+  const [assignedIds, setAssignedIds] = useState<string[]>([]);
+  const [assignOpen, setAssignOpen] = useState(false);
+  const [seeding, setSeeding] = useState(false);
+
+  const missingDefaults = DEFAULT_NAMES.filter(
+    (n) => !issuers.some((i) => i.name.toLowerCase().trim() === n.toLowerCase().trim())
+  );
+
+  async function seedDefaults() {
+    setSeeding(true);
+    try {
+      const r = await fetch("/api/v1/admin/invoice-issuers/seed-defaults", { method: "POST" });
+      if (r.ok) await refreshIssuers();
+    } finally {
+      setSeeding(false);
+    }
+  }
 
   // Selección inicial: localStorage → emisor por defecto → primero.
   useEffect(() => {
@@ -112,11 +132,47 @@ export default function FacturacionClient({
 
   const onInvoicesChanged = useCallback(() => setTick((t) => t + 1), []);
 
+  // Clientes asignados a la empresa seleccionada.
+  useEffect(() => {
+    if (!selectedId) {
+      setAssignedIds([]);
+      return;
+    }
+    let aborted = false;
+    (async () => {
+      const r = await fetch(`/api/v1/invoice-issuers/${selectedId}/clients`, { cache: "no-store" });
+      if (!r.ok || aborted) return;
+      const data = await r.json();
+      if (!aborted) setAssignedIds(data.clientIds ?? []);
+    })();
+    return () => {
+      aborted = true;
+    };
+  }, [selectedId]);
+
   const selected = issuers.find((i) => i.id === selectedId) ?? null;
   const monthName = MONTH_LABEL.format(new Date());
 
   return (
     <div className="space-y-4">
+      {/* Aviso para crear las 4 empresas iniciales si faltan */}
+      {missingDefaults.length > 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex flex-wrap items-center gap-3">
+          <div className="text-sm text-amber-800 flex-1 min-w-[200px]">
+            Faltan {missingDefaults.length} de las 4 empresas iniciales ({missingDefaults.join(", ")}). Puedes crearlas de
+            golpe y completar sus datos fiscales luego.
+          </div>
+          <button
+            onClick={seedDefaults}
+            disabled={seeding}
+            className="inline-flex items-center gap-1.5 bg-amber-600 text-white text-sm px-3 py-2 rounded-lg hover:bg-amber-700 disabled:opacity-50"
+          >
+            {seeding ? <Loader2 className="h-4 w-4 animate-spin" /> : <Building2 className="h-4 w-4" />}
+            Crear empresas iniciales
+          </button>
+        </div>
+      )}
+
       {/* Selector de empresa — lo primero de Facturación */}
       <div className="bg-white border rounded-xl p-4">
         <label className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
@@ -124,11 +180,12 @@ export default function FacturacionClient({
         </label>
         {issuers.length === 0 ? (
           <div className="text-sm text-slate-600">
-            Aún no tienes ninguna empresa emisora. Crea la primera con el botón{" "}
+            Aún no tienes ninguna empresa emisora. Usa el botón de arriba para crear las 4 empresas iniciales, o crea una
+            con el botón{" "}
             <span className="inline-flex items-center gap-1 font-medium">
               <Building2 className="h-3.5 w-3.5" /> Emisores
             </span>{" "}
-            de abajo para empezar a facturar.
+            de abajo.
           </div>
         ) : (
           <div className="flex flex-wrap items-center gap-3">
@@ -146,9 +203,16 @@ export default function FacturacionClient({
               ))}
             </select>
             {selected && (
+              <button
+                onClick={() => setAssignOpen(true)}
+                className="inline-flex items-center gap-1.5 bg-white border text-sm px-3 py-2 rounded-lg hover:bg-slate-50"
+              >
+                <Users className="h-4 w-4" /> Clientes de esta empresa ({assignedIds.length})
+              </button>
+            )}
+            {selected && (
               <span className="text-xs text-slate-500">
-                Toda la facturación que gestiones aquí se emitirá desde{" "}
-                <span className="font-medium text-slate-700">{selected.name}</span>.
+                Se emitirá desde <span className="font-medium text-slate-700">{selected.name}</span>.
               </span>
             )}
           </div>
@@ -175,9 +239,146 @@ export default function FacturacionClient({
         clients={clients}
         initialIssuers={issuers as any}
         lockedIssuerId={selected?.id}
+        clientFilterIds={assignedIds}
         onIssuersChanged={refreshIssuers}
         onInvoicesChanged={onInvoicesChanged}
       />
+
+      {assignOpen && selected && (
+        <AssignClientsModal
+          issuer={selected}
+          allClients={clients}
+          assignedIds={assignedIds}
+          onClose={() => setAssignOpen(false)}
+          onSaved={(ids) => {
+            setAssignedIds(ids);
+            setAssignOpen(false);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function AssignClientsModal({
+  issuer,
+  allClients,
+  assignedIds,
+  onClose,
+  onSaved
+}: {
+  issuer: Issuer;
+  allClients: ClientLite[];
+  assignedIds: string[];
+  onClose: () => void;
+  onSaved: (ids: string[]) => void;
+}) {
+  const [sel, setSel] = useState<Set<string>>(new Set(assignedIds));
+  const [q, setQ] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const filtered = useMemo(() => {
+    const needle = q.trim().toLowerCase();
+    if (!needle) return allClients;
+    return allClients.filter(
+      (c) => c.name.toLowerCase().includes(needle) || (c.taxId ?? "").toLowerCase().includes(needle)
+    );
+  }, [allClients, q]);
+
+  function toggle(id: string) {
+    setSel((s) => {
+      const n = new Set(s);
+      n.has(id) ? n.delete(id) : n.add(id);
+      return n;
+    });
+  }
+
+  async function save() {
+    setSaving(true);
+    try {
+      const r = await fetch(`/api/v1/invoice-issuers/${issuer.id}/clients`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ clientIds: [...sel] })
+      });
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        alert(j?.error?.message ?? `Error ${r.status}`);
+        return;
+      }
+      const data = await r.json();
+      onSaved(data.clientIds ?? [...sel]);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-start justify-center overflow-y-auto p-4">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg my-4">
+        <div className="flex items-center justify-between px-5 py-3 border-b sticky top-0 bg-white rounded-t-2xl">
+          <h2 className="font-semibold text-sm">
+            Clientes de {issuer.name}
+            <span className="ml-2 text-slate-400 font-normal">{sel.size} seleccionados</span>
+          </h2>
+          <button onClick={onClose} className="p-1.5 rounded-md hover:bg-slate-100">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="p-4 space-y-3">
+          <div className="relative">
+            <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Buscar cliente por nombre o NIF…"
+              className="w-full pl-9 pr-3 py-2 rounded-lg border text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+            />
+          </div>
+
+          <div className="max-h-[55vh] overflow-y-auto border rounded-lg divide-y">
+            {filtered.length === 0 ? (
+              <div className="p-4 text-sm text-slate-400 text-center">No hay clientes que coincidan.</div>
+            ) : (
+              filtered.map((c) => {
+                const on = sel.has(c.id);
+                return (
+                  <button
+                    key={c.id}
+                    onClick={() => toggle(c.id)}
+                    className="w-full flex items-center gap-3 px-3 py-2 text-left hover:bg-slate-50"
+                  >
+                    <span
+                      className={`h-4 w-4 rounded border grid place-items-center shrink-0 ${
+                        on ? "bg-brand-600 border-brand-600 text-white" : "border-slate-300"
+                      }`}
+                    >
+                      {on && <Check className="h-3 w-3" />}
+                    </span>
+                    <span className="text-sm truncate flex-1">{c.name}</span>
+                    {c.taxId && <span className="text-xs text-slate-400 shrink-0">{c.taxId}</span>}
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </div>
+
+        <div className="flex items-center justify-end gap-2 px-5 py-3 border-t">
+          <button onClick={onClose} className="text-sm px-3 py-2 rounded-lg hover:bg-slate-100">
+            Cancelar
+          </button>
+          <button
+            onClick={save}
+            disabled={saving}
+            className="inline-flex items-center gap-1.5 bg-brand-600 text-white text-sm px-3 py-2 rounded-lg hover:bg-brand-700 disabled:opacity-50"
+          >
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+            Guardar
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
