@@ -30,6 +30,13 @@ export function startInAppScheduler(): void {
     } catch (e) {
       console.warn("[in-app-cron] briefing:", (e as Error).message);
     }
+    try {
+      // Renueva tokens de usuario de Meta próximos a caducar (no-op si no aplica).
+      const { refreshMetaUserTokensIfNeeded } = await import("@/lib/integrations/meta-login");
+      await refreshMetaUserTokensIfNeeded();
+    } catch (e) {
+      console.warn("[in-app-cron] meta token refresh:", (e as Error).message);
+    }
   }
 
   // Primer tick 60s tras el arranque (deja estabilizar la app y la BD).

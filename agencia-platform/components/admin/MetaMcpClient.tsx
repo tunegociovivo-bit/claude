@@ -92,18 +92,38 @@ export default function MetaMcpClient() {
         )}
       </div>
 
-      <div className="rounded-lg border border-brand-200 bg-brand-50/60 p-4 space-y-2">
-        <div className="text-sm font-medium text-slate-800">Recomendado: conectar con un clic</div>
+      <div className="rounded-lg border border-emerald-300 bg-emerald-50/70 p-4 space-y-2">
+        <div className="text-sm font-medium text-slate-800">✅ Recomendado — Conectar con Facebook (acceso total)</div>
         <p className="text-xs text-slate-600">
-          Inicia sesión en Facebook una vez; el Hub registra el cliente y renueva el acceso solo (no caduca).
+          Inicia sesión en Facebook una vez. El Hub obtiene un token de usuario con acceso a TODAS tus
+          cuentas (las que ves tú), lo usa en todo (campañas, leads, Sonia) y lo renueva solo antes de
+          caducar. Requiere una App de Facebook (META_APP_ID / META_APP_SECRET en Railway).
         </p>
         <a
-          href="/api/v1/admin/integrations/meta-mcp/connect"
-          className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium"
+          href="/api/v1/admin/integrations/meta-login/connect"
+          className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium"
         >
-          {configured ? "Reconectar Meta" : "Conectar Meta"}
+          Conectar con Facebook (acceso total)
         </a>
       </div>
+
+      <details className="rounded-lg border p-3">
+        <summary className="text-sm text-slate-700 cursor-pointer">
+          Experimental: conector MCP de Meta (registro automático — Meta lo tiene desactivado)
+        </summary>
+        <div className="mt-3 space-y-2">
+          <p className="text-xs text-slate-600">
+            Conexión vía el MCP oficial de Meta. Meta no permite el registro automático de apps de
+            terceros, así que esto solo funciona si defines META_APP_ID/META_APP_SECRET.
+          </p>
+          <a
+            href="/api/v1/admin/integrations/meta-mcp/connect"
+            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border text-sm font-medium"
+          >
+            {configured ? "Reconectar (MCP)" : "Conectar (MCP)"}
+          </a>
+        </div>
+      </details>
 
       <div className="flex gap-2">
         <button
