@@ -21,6 +21,10 @@ export default function MetaMcpClient() {
   }
   useEffect(() => {
     load();
+    // Mensajes del callback OAuth.
+    const p = new URLSearchParams(window.location.search);
+    if (p.get("connected")) setMsg("✓ Conectado con Meta correctamente.");
+    if (p.get("error")) setMsg(`Error al conectar: ${p.get("error")}`);
   }, []);
 
   async function save() {
@@ -88,16 +92,49 @@ export default function MetaMcpClient() {
         )}
       </div>
 
-      <div className="space-y-2">
-        <label className="block text-xs font-medium text-slate-700">Token de autorización del MCP de Meta</label>
-        <textarea
-          value={token}
-          onChange={(e) => setToken(e.target.value)}
-          placeholder="Pega aquí el token (de larga duración) de Meta…"
-          rows={3}
-          className="w-full px-3 py-2 rounded-lg border text-sm font-mono"
-        />
-        <div className="flex gap-2">
+      <div className="rounded-lg border border-brand-200 bg-brand-50/60 p-4 space-y-2">
+        <div className="text-sm font-medium text-slate-800">Recomendado: conectar con un clic</div>
+        <p className="text-xs text-slate-600">
+          Inicia sesión en Facebook una vez; el Hub registra el cliente y renueva el acceso solo (no caduca).
+        </p>
+        <a
+          href="/api/v1/admin/integrations/meta-mcp/connect"
+          className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium"
+        >
+          {configured ? "Reconectar Meta" : "Conectar Meta"}
+        </a>
+      </div>
+
+      <div className="flex gap-2">
+        <button
+          onClick={test}
+          disabled={testing || !configured}
+          className="px-3 py-2 rounded-lg border text-sm font-medium disabled:opacity-50"
+        >
+          {testing ? "Probando…" : "Probar conexión"}
+        </button>
+        {configured && (
+          <button onClick={remove} className="px-3 py-2 rounded-lg border text-sm text-rose-600">
+            Desconectar
+          </button>
+        )}
+      </div>
+      {msg && <p className="text-xs text-slate-600">{msg}</p>}
+      {testOut && (
+        <pre className="text-xs bg-slate-50 border rounded-lg p-3 whitespace-pre-wrap">{testOut}</pre>
+      )}
+
+      <details className="rounded-lg border p-3">
+        <summary className="text-sm text-slate-700 cursor-pointer">Avanzado: pegar un token a mano</summary>
+        <div className="space-y-2 mt-3">
+          <label className="block text-xs font-medium text-slate-700">Token de autorización del MCP de Meta</label>
+          <textarea
+            value={token}
+            onChange={(e) => setToken(e.target.value)}
+            placeholder="Pega aquí el token (de larga duración) de Meta…"
+            rows={3}
+            className="w-full px-3 py-2 rounded-lg border text-sm font-mono"
+          />
           <button
             onClick={save}
             disabled={saving || token.trim().length < 20}
@@ -105,24 +142,8 @@ export default function MetaMcpClient() {
           >
             {saving ? "Guardando…" : "Guardar token"}
           </button>
-          <button
-            onClick={test}
-            disabled={testing || !configured}
-            className="px-3 py-2 rounded-lg border text-sm font-medium disabled:opacity-50"
-          >
-            {testing ? "Probando…" : "Probar conexión"}
-          </button>
-          {configured && (
-            <button onClick={remove} className="px-3 py-2 rounded-lg border text-sm text-rose-600">
-              Borrar
-            </button>
-          )}
         </div>
-        {msg && <p className="text-xs text-slate-600">{msg}</p>}
-        {testOut && (
-          <pre className="text-xs bg-slate-50 border rounded-lg p-3 whitespace-pre-wrap">{testOut}</pre>
-        )}
-      </div>
+      </details>
     </div>
   );
 }
