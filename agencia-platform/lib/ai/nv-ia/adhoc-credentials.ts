@@ -68,6 +68,7 @@ const KEY_ALIASES: Record<string, string> = {
   meta_ads_account: "META_ADS_AD_ACCOUNT_ID",
   meta_account_id: "META_ADS_AD_ACCOUNT_ID",
   meta_ad_account: "META_ADS_AD_ACCOUNT_ID",
+  meta_ad_account_id: "META_ADS_AD_ACCOUNT_ID",
   ad_account_id: "META_ADS_AD_ACCOUNT_ID",
   ad_account: "META_ADS_AD_ACCOUNT_ID",
   cuenta_publicitaria: "META_ADS_AD_ACCOUNT_ID",

@@ -48,16 +48,32 @@ async function loadAdhocCredentialsForTask(
   // 1) Extraer de la task actual
   const task = await prisma.task.findFirst({
     where: { id: taskId, workspaceId },
-    select: { description: true, title: true }
+    select: { description: true, title: true, customData: true } as any
   });
   const comments = await prisma.comment.findMany({
     where: { workspaceId, targetType: "TASK", targetId: taskId },
     select: { body: true },
     orderBy: { createdAt: "asc" }
   });
+  // Incluimos también los valores del FORMULARIO (customData): ahí está, p.ej.,
+  // la "URL del administrador de anuncios" con act=NNN → de donde sale el
+  // Ad Account ID cuando el token tiene varias cuentas.
+  const cdParts: string[] = [];
+  const cd = (task as any)?.customData;
+  if (cd && typeof cd === "object") {
+    for (const v of Object.values(cd)) {
+      if (typeof v === "string") cdParts.push(v);
+      else if (Array.isArray(v)) {
+        cdParts.push(
+          v.map((x) => (x && typeof x === "object" ? String((x as any).url ?? "") : String(x))).join(" ")
+        );
+      }
+    }
+  }
   const blob = [
     task?.title ?? "",
     task?.description ?? "",
+    ...cdParts,
     ...comments.map((c) => c.body ?? "")
   ].join("\n\n");
   const fresh = extractAdhocCredentials(blob);
