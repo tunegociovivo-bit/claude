@@ -1201,14 +1201,15 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
   },
   {
     name: "meta_ads_create_ad",
-    description: "Crea un ad concreto (el último paso): adset + creative ya existentes. Status PAUSED por defecto.",
+    description: "Crea un ad concreto (el último paso): adset + creative ya existentes. Status PAUSED por defecto. El dedupe es POR ADSET: puedes añadir varios ads a la misma campaña creando uno por cada adset (vídeo, carrusel, remarketing) sin que devuelva el primero. Para crear DOS ads en el MISMO adset (A/B de creatividad), pasa forceCreate:true en el segundo.",
     input_schema: {
       type: "object",
       properties: {
         adsetId: { type: "string" },
         name: { type: "string" },
         creativeId: { type: "string" },
-        status: { type: "string", enum: ["PAUSED", "ACTIVE"] }
+        status: { type: "string", enum: ["PAUSED", "ACTIVE"] },
+        forceCreate: { type: "boolean", description: "Crea OTRO ad aunque esta task ya tenga uno en ESTE adset (salta el dedupe). Útil para A/B de creatividad dentro del mismo adset." }
       },
       required: ["adsetId", "name", "creativeId"],
       additionalProperties: false
@@ -4770,27 +4771,41 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
       const { readResources, recordResources } = await import(
         "@/lib/ai/nv-ia/resource-registry"
       );
+      const adsetId = String(input?.adsetId ?? "");
+      const state = await readResources(ctx.taskId);
+      const byAdset = state.meta_ads?.adIdsByAdset ?? {};
       if (!input?.forceCreate) {
-        const state = await readResources(ctx.taskId);
-        if (state.meta_ads?.adId) {
+        // Dedupe POR ADSET: solo reutiliza si ya hay un ad para ESTE adset.
+        // Compat con tasks antiguas que guardaron solo adId+adsetId.
+        const existing =
+          (adsetId && byAdset[adsetId]) ||
+          (state.meta_ads?.adId &&
+          state.meta_ads?.adsetId &&
+          state.meta_ads.adsetId === adsetId
+            ? state.meta_ads.adId
+            : undefined);
+        if (existing) {
           return {
             ok: true,
-            id: state.meta_ads.adId,
+            id: existing,
             deduped: true,
-            message: "REUSING existing ad. Si quieres regenerar el creative, usa meta_ads_update_ad con creativeId nuevo."
+            message:
+              "REUSING existing ad for this adset. Para añadir una variante, créala en OTRO adset; para A/B en el MISMO adset pasa forceCreate:true."
           };
         }
       }
       const { metaAdsCreateAd } = await import("@/lib/integrations/meta-ads");
       const r = await metaAdsCreateAd({
         workspaceId: ctx.workspaceId,
-        adsetId: String(input?.adsetId ?? ""),
+        adsetId,
         name: String(input?.name ?? ""),
         creativeId: String(input?.creativeId ?? ""),
         status: input?.status === "ACTIVE" ? "ACTIVE" : "PAUSED",
         adhoc: ctx.adhocCredentials
       });
-      await recordResources(ctx.taskId, { meta_ads: { adId: r.id } });
+      await recordResources(ctx.taskId, {
+        meta_ads: { adId: r.id, adIdsByAdset: { ...byAdset, ...(adsetId ? { [adsetId]: r.id } : {}) } }
+      });
       return { ok: true, ...r };
     } catch (e: any) {
       return { error: `meta_ads_create_ad: ${e?.message ?? e}` };

@@ -1393,7 +1393,12 @@ export async function metaAdsCreateCustomAudience(opts: {
       throw new Error(`source no soportado: ${opts.source}`);
   }
 
-  const rule = {
+  // Regla con filtro de evento concreto (page_engaged, etc.). Es la forma
+  // documentada, pero algunas cuentas/versiones rechazan el value con
+  // (#2654) "Nombre de evento no válido". Por eso preparamos también un
+  // fallback SIN filtro = "cualquier interacción" con esa fuente, que es
+  // un superconjunto válido para remarketing.
+  const ruleWithFilter = {
     inclusions: {
       operator: "or",
       rules: [
@@ -1408,17 +1413,50 @@ export async function metaAdsCreateCustomAudience(opts: {
       ]
     }
   };
+  const ruleNoFilter = {
+    inclusions: {
+      operator: "or",
+      rules: [{ event_sources: [eventSource], retention_seconds: retention }]
+    }
+  };
 
-  const data = await metaPost<{ id: string }>(
-    `${adAccountPath(cfg.adAccountId)}/customaudiences`,
-    cfg.accessToken,
-    {
+  const tryCreate = (rule: object) =>
+    metaPost<{ id: string }>(`${adAccountPath(cfg.adAccountId)}/customaudiences`, cfg.accessToken, {
       name: opts.name,
       subtype: "ENGAGEMENT",
       rule: JSON.stringify(rule)
+    });
+
+  try {
+    const data = await tryCreate(ruleWithFilter);
+    return { id: data.id };
+  } catch (e: any) {
+    const msg = String(e?.message ?? e);
+    const isEventNameError = /2654|nombre de evento|invalid.*event|event.*invalid|engagement rule is invalid/i.test(msg);
+    const isPermission = /permission on event source|audience creation permission/i.test(msg);
+    if (isPermission) {
+      throw new Error(
+        `No hay permiso de creación de audiencias sobre la fuente (${opts.source} ${opts.sourceId}). ` +
+          `El usuario/token debe tener rol de administrador con permiso de audiencias en esa Página/cuenta IG, ` +
+          `o la cuenta es demasiado nueva (Meta lo habilita tras unas semanas). ` +
+          `Crea el remarketing manualmente en Ads Manager o deja la campaña con el adset de frío. Detalle Meta: ${msg}`
+      );
     }
-  );
-  return { id: data.id };
+    if (isEventNameError) {
+      // Reintento con la regla amplia (sin filtro de evento).
+      try {
+        const data = await tryCreate(ruleNoFilter);
+        return { id: data.id };
+      } catch (e2: any) {
+        throw new Error(
+          `Meta rechazó la regla de la audiencia de engagement (#2654) para ${opts.source} ${opts.sourceId}, ` +
+            `incluso con la regla amplia. Probable causa: la cuenta no tiene permiso de audiencias sobre esa fuente ` +
+            `o es muy nueva. Crea el remarketing manualmente en Ads Manager. Detalle Meta: ${String(e2?.message ?? e2)}`
+        );
+      }
+    }
+    throw e;
+  }
 }
 
 // ─── Ads ─────────────────────────────────────────────────────────

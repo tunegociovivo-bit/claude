@@ -32,6 +32,10 @@ type MetaAdsResources = {
   imageHash?: string;
   creativeId?: string;
   adId?: string;
+  /** Ads creados por adset en esta task: { adsetId: adId }. Permite
+   *  añadir variantes (vídeo, carrusel, remarketing) en adsets distintos
+   *  sin que el dedupe devuelva siempre el primer ad. */
+  adIdsByAdset?: Record<string, string>;
   /** ID del ad account donde se crearon (para sanity checks). */
   adAccountId?: string;
 };
