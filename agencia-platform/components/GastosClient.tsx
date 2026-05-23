@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Plus, Pencil, Trash2, X, Loader2 } from "lucide-react";
 import { formatMoney, PAYMENT_METHODS, PAYMENT_METHOD_LABEL, CURRENCIES } from "@/lib/invoicing/core";
 import {
@@ -58,6 +58,40 @@ export default function GastosClient({
   const [statusFilter, setStatusFilter] = useState("");
   const [q, setQ] = useState("");
   const [editing, setEditing] = useState<ExpenseRow | "new" | null>(null);
+  const [metaUploading, setMetaUploading] = useState(false);
+  const [metaMsg, setMetaMsg] = useState<string | null>(null);
+  const metaInputRef = useRef<HTMLInputElement>(null);
+
+  async function uploadMetaInvoices(files: FileList | null) {
+    if (!files || files.length === 0) return;
+    setMetaUploading(true);
+    setMetaMsg(null);
+    let created = 0;
+    let dup = 0;
+    let err = 0;
+    try {
+      for (const file of Array.from(files)) {
+        const fd = new FormData();
+        fd.append("file", file);
+        if (issuerId) fd.append("adAccount", "");
+        try {
+          const r = await fetch("/api/v1/admin/meta-invoices/ingest", { method: "POST", body: fd });
+          const d = await r.json().catch(() => ({}));
+          if (r.ok && d.action === "created") created++;
+          else if (r.ok && d.action === "duplicate") dup++;
+          else err++;
+        } catch {
+          err++;
+        }
+      }
+      setMetaMsg(`Facturas de Meta: ${created} archivadas, ${dup} ya existían, ${err} con error.`);
+      load();
+      onExpensesChanged?.();
+    } finally {
+      setMetaUploading(false);
+      if (metaInputRef.current) metaInputRef.current.value = "";
+    }
+  }
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -105,6 +139,23 @@ export default function GastosClient({
         >
           <Plus className="h-4 w-4" /> Nuevo gasto
         </button>
+        <input
+          ref={metaInputRef}
+          type="file"
+          accept="application/pdf,.pdf"
+          multiple
+          className="hidden"
+          onChange={(e) => uploadMetaInvoices(e.target.files)}
+        />
+        <button
+          onClick={() => metaInputRef.current?.click()}
+          disabled={metaUploading}
+          className="inline-flex items-center gap-1.5 bg-white border text-sm px-3 py-2 rounded-lg hover:bg-slate-50 disabled:opacity-50"
+          title="Sube PDFs de facturas de Meta; se archivan como gastos automáticamente"
+        >
+          {metaUploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+          Subir facturas de Meta
+        </button>
         <div className="flex-1" />
         <select
           value={categoryFilter}
@@ -137,6 +188,10 @@ export default function GastosClient({
           className="text-sm border rounded-lg px-3 py-2 bg-white w-48"
         />
       </div>
+
+      {metaMsg && (
+        <div className="mb-4 text-sm bg-blue-50 border border-blue-200 text-blue-800 rounded-lg p-3">{metaMsg}</div>
+      )}
 
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-4">
         <div className="bg-white border rounded-xl p-3">

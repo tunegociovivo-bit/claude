@@ -500,6 +500,27 @@ $("btn-mark-read").addEventListener("click", async () => {
   await chrome.runtime.sendMessage({ from: "popup", type: "mark-notifications-read" });
 });
 
+document.getElementById("btn-meta-invoices")?.addEventListener("click", async () => {
+  const status = $("meta-invoices-status");
+  const btn = $("btn-meta-invoices");
+  if (status) status.textContent = "Buscando facturas en esta página…";
+  if (btn) btn.disabled = true;
+  try {
+    const r = await chrome.runtime.sendMessage({ from: "popup", type: "harvest-meta-invoices" });
+    if (!r?.ok) {
+      if (status) status.textContent = `⚠️ ${r?.error ?? "No se pudo"}`;
+    } else if ((r.found ?? 0) === 0) {
+      if (status) status.textContent = r.note ?? "No encontré facturas en esta página.";
+    } else {
+      if (status) status.textContent = `✅ ${r.created} archivadas, ${r.duplicate} ya estaban, ${r.error} error.`;
+    }
+  } catch (e) {
+    if (status) status.textContent = `⚠️ ${String(e?.message ?? e)}`;
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+});
+
 chrome.runtime.onMessage.addListener((msg) => {
   if (msg?.type === "state-changed" || msg?.type === "notifications-updated") render();
 });

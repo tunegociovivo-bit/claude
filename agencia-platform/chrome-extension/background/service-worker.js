@@ -517,11 +517,66 @@ async function openHubLogin() {
 // Mensajería
 // ─────────────────────────────────────────────────────────────────────
 
+/**
+ * Recolector de facturas de Meta: pide al content script de la pestaña
+ * ACTIVA (que debe estar en la facturación de Meta) que descargue los PDFs
+ * con la sesión del usuario, y los sube al Hub uno a uno.
+ */
+async function harvestMetaInvoices() {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab?.id || !/facebook\.com/.test(tab.url || "")) {
+    return {
+      ok: false,
+      error:
+        "Abre la página de FACTURACIÓN de Meta (business.facebook.com → Facturación) y vuelve a pulsar el botón."
+    };
+  }
+  let res;
+  try {
+    res = await chrome.tabs.sendMessage(tab.id, { type: "harvest-meta-invoices" });
+  } catch {
+    // El content script aún no está → lo inyectamos y reintentamos.
+    await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["content/meta-billing.js"] });
+    res = await chrome.tabs.sendMessage(tab.id, { type: "harvest-meta-invoices" });
+  }
+  if (!res?.ok) return { ok: false, error: res?.error ?? "No se pudo leer la página de facturación." };
+  const files = res.files ?? [];
+  if (files.length === 0) {
+    return { ok: true, created: 0, duplicate: 0, error: 0, found: res.found ?? 0, note: "No encontré PDFs de factura en esta página." };
+  }
+  let created = 0;
+  let duplicate = 0;
+  let errored = 0;
+  for (const f of files) {
+    try {
+      const blob = await (await fetch(`data:application/pdf;base64,${f.base64}`)).blob();
+      const fd = new FormData();
+      fd.append("file", blob, f.name || "meta-factura.pdf");
+      const r = await authedFetch("/api/v1/admin/meta-invoices/ingest", { method: "POST", body: fd });
+      const d = await r.json().catch(() => ({}));
+      if (r.ok && d.action === "created") created++;
+      else if (r.ok && d.action === "duplicate") duplicate++;
+      else errored++;
+    } catch {
+      errored++;
+    }
+  }
+  return { ok: true, created, duplicate, error: errored, found: files.length };
+}
+
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   (async () => {
     if (msg?.from === "popup" && msg?.type === "check-session") {
       const ok = await syncSession();
       sendResponse({ ok });
+      return;
+    }
+    if (msg?.from === "popup" && msg?.type === "harvest-meta-invoices") {
+      try {
+        sendResponse(await harvestMetaInvoices());
+      } catch (e) {
+        sendResponse({ ok: false, error: String(e?.message ?? e) });
+      }
       return;
     }
     if (msg?.from === "popup" && msg?.type === "diag-probe") {
