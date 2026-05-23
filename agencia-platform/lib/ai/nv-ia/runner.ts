@@ -227,8 +227,10 @@ ESTRUCTURA DE LA CAMPAÑA — REGLA DE ORO (no la rompas nunca):
 - Con más de un conjunto, usa presupuesto a nivel CAMPAÑA (CBO/Advantage) para
   que Meta reparta al ganador. Con un solo conjunto, presupuesto a nivel conjunto.
 - Máximo 4-5 anuncios por conjunto (más diluye el aprendizaje).
-- Remarketing: conjunto APARTE y solo si hay volumen de audiencia; jamás con la
-  misma segmentación fría (ver sección de remarketing más abajo).
+- Remarketing: IMPRESCINDIBLE. Crea SIEMPRE un conjunto de remarketing APARTE
+  (salvo "No" explícito en el formulario), con audiencias personalizadas
+  (interacción FB/IG, visitantes web, vídeo, leads) y/o lookalikes; JAMÁS con la
+  misma segmentación fría (detalle en REGLAS OBLIGATORIAS, punto 3).
 
 Flow obligatorio antes de crear el adset (NO te saltes pasos):
 
@@ -705,10 +707,11 @@ serial a 1 paralelo — clave para terminar tasks complejas dentro del cap.
 REGLAS OBLIGATORIAS PARA CAMPAÑAS META ADS (no las incumplas):
 1. IDIOMA / UBICACIÓN: por defecto las campañas son para ESPAÑA en ESPAÑOL. NO añadas restricción de idioma (locales) en el targeting — y JAMÁS pongas inglés u otro idioma salvo que el formulario/usuario lo pida EXPLÍCITAMENTE. El copy, las imágenes y el targeting deben ir en el MISMO idioma (español).
 2. IMÁGENES: usa SIEMPRE primero las imágenes que el usuario subió. En los DATOS DEL FORMULARIO vienen con su fileId (formato "nombre [fileId: XXX] (url)"). Para usarlas: meta_ads_upload_image({fileId}) — el SERVIDOR las descarga de R2 y las sube a Meta por ti (NO digas que "no tienes internet/sandbox para descargarlas": SÍ puedes). Solo genera una imagen con IA si NO hay NINGUNA subida. NUNCA ignores las imágenes/carrusel/vídeo adjuntos para generar una nueva por tu cuenta.
-3. REMARKETING: si el formulario marca "Crear conjunto de anuncios de remarketing = Sí", DEBES crear de verdad el segundo adset de remarketing:
-   a) Crea las audiencias con meta_ads_create_custom_audience (source "page" con el pageId y source "instagram" con el ig business id; 365 días). Guarda los audienceId.
-   b) Crea el 2º adset con meta_ads_create_adset + forceCreate:true (sin forceCreate el dedupe bloquea el 2º adset) y en su targeting pon custom_audiences:[{id}] con esos audienceId (sin intereses fríos).
-   Si meta_ads_create_custom_audience falla con error #2654 / "permiso sobre la fuente" / "evento no válido", NO es un bug del sistema ni motivo de escalate_to_claude: significa que la cuenta no tiene permiso de audiencias sobre esa Página/IG o es demasiado nueva. En ese caso, DEJA el resto de la campaña completa (adsets de frío + creatividades) y añade un add_comment claro a David explicando que el adset de remarketing debe crearse manualmente en Ads Manager (o conceder permiso de audiencias). Cierra con mark_complete igualmente — la campaña base es un éxito.
+3. REMARKETING (IMPRESCINDIBLE — créalo SIEMPRE salvo "No" explícito): toda campaña de captación debe llevar su conjunto de remarketing. Créalo POR DEFECTO; solo lo OMITES si el formulario marca expresamente "Crear conjunto de anuncios de remarketing = No". Si el campo está vacío, dice "Sí", o no aparece → SÍ lo creas. Cómo:
+   a) Crea las audiencias con meta_ads_create_custom_audience (source "page" con el pageId y source "instagram" con el ig business id; 365 días). Si hay web/landing, añade también visitantes web si el píxel está disponible. Guarda los audienceId.
+   b) Crea el 2º adset con meta_ads_create_adset + forceCreate:true (sin forceCreate el dedupe bloquea el 2º adset) y en su targeting pon custom_audiences:[{id}] con esos audienceId (sin intereses fríos), y EXCLUYE leads/compradores si procede. Reutiliza las MISMAS creatividades del conjunto de frío (puedes adaptar el copy a tono de recordatorio/cierre).
+   c) NO dupliques la audiencia fría: el remarketing es audiencias personalizadas + lookalikes, nunca intereses fríos.
+   Si meta_ads_create_custom_audience falla con error #2654 / "permiso sobre la fuente" / "evento no válido", NO es un bug del sistema ni motivo de escalate_to_claude: significa que la cuenta no tiene permiso de audiencias sobre esa Página/IG o es demasiado nueva. En ese caso, DEJA el resto de la campaña completa (adsets de frío + creatividades) y añade un add_comment claro a David explicando que el adset de remarketing no se pudo crear (motivo) y que hay que crearlo manualmente o conceder permiso de audiencias. Cierra con mark_complete igualmente — la campaña base es un éxito, pero deja constancia de que faltó el remarketing.
 2b. VARIANTES DE CREATIVIDAD (vídeo, carrusel, imagen) en la MISMA campaña: meta_ads_create_ad deduplica POR ADSET. Para tener AD-vídeo + AD-carrusel + AD-imagen, crea cada uno en SU adset (puede ser el mismo adset de frío repetido con forceCreate, o adsets distintos). Si quieres dos ads en el MISMO adset, en el segundo pasa forceCreate:true. Sube el vídeo con meta_ads_upload_video y el carrusel con meta_ads_create_carousel_creative ANTES de crear cada ad.
 5. INTERESES: valida SIEMPRE los intereses con meta_ads_targeting_search antes de usarlos en el targeting (usa los ids reales que devuelve; no inventes ids).
 6. FORMULARIO DE LEADS: crea el lead form con meta_ads_create_lead_form usando las PREGUNTAS DE CUALIFICACIÓN del propio brief/formulario de la tarea. Solo reutiliza un form existente si el usuario lo pide o si es claramente el mismo.
