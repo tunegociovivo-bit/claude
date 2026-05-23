@@ -49,13 +49,15 @@ export const POST = withApi({ scope: "*", rate: "admin" }, async (req: NextReque
     let created = 0;
     let duplicate = 0;
     let errored = 0;
+    const errors: string[] = [];
     for (const entry of entries) {
+      const name = entry.name.split("/").pop() || "meta-factura.pdf";
       try {
         const pdfBuf = Buffer.from(await entry.async("nodebuffer"));
         const r = await ingestMetaInvoice({
           workspaceId: api.workspaceId,
           buf: pdfBuf,
-          filename: entry.name.split("/").pop() || "meta-factura.pdf",
+          filename: name,
           mimeType: "application/pdf",
           uploadedBy: api.userId,
           hintAdAccount,
@@ -63,12 +65,23 @@ export const POST = withApi({ scope: "*", rate: "admin" }, async (req: NextReque
         });
         if (r.action === "created") created++;
         else if (r.action === "duplicate") duplicate++;
-        else errored++;
-      } catch {
+        else {
+          errored++;
+          errors.push(`${name}: ${r.reason ?? "error"}`);
+        }
+      } catch (e: any) {
         errored++;
+        errors.push(`${name}: ${String(e?.message ?? e)}`);
       }
     }
-    return NextResponse.json({ action: "batch", total: entries.length, created, duplicate, error: errored });
+    return NextResponse.json({
+      action: "batch",
+      total: entries.length,
+      created,
+      duplicate,
+      error: errored,
+      errors: errors.slice(0, 10)
+    });
   }
 
   const result = await ingestMetaInvoice({

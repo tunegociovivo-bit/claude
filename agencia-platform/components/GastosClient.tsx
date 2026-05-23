@@ -70,6 +70,7 @@ export default function GastosClient({
     let created = 0;
     let dup = 0;
     let err = 0;
+    const details: string[] = [];
     try {
       for (const file of Array.from(files)) {
         const fd = new FormData();
@@ -81,14 +82,19 @@ export default function GastosClient({
             created += d.created ?? 0;
             dup += d.duplicate ?? 0;
             err += d.error ?? 0;
+            if (Array.isArray(d.errors)) details.push(...d.errors);
+            else if (d.action === "error" && d.reason) details.push(d.reason);
           } else {
             err++;
+            details.push(d?.error?.message ?? `Error ${r.status}`);
           }
-        } catch {
+        } catch (e: any) {
           err++;
+          details.push(String(e?.message ?? e));
         }
       }
-      setMetaMsg(`Facturas de Meta: ${created} archivadas, ${dup} ya existían, ${err} con error.`);
+      const base = `Facturas de Meta: ${created} archivadas, ${dup} ya existían, ${err} con error.`;
+      setMetaMsg(details.length ? `${base} Detalle: ${details.slice(0, 3).join(" · ")}` : base);
       load();
       onExpensesChanged?.();
     } finally {
