@@ -6,31 +6,54 @@
 import { holdedListContacts, holdedListInvoices } from "@/lib/integrations/holded";
 import type { ClientInput } from "./clients";
 import type { InvoiceInput } from "./invoices";
+import { holdedGetContact } from "@/lib/integrations/holded";
 
-/** Contactos de Holded → clientes. */
+/** Lee la dirección de facturación (billAddress) de un objeto Holded. */
+function applyBillAddress(input: ClientInput, c: any): void {
+  const a = c?.billAddress ?? c?.billaddress ?? null;
+  if (a && typeof a === "object") {
+    if (!input.fiscalAddress && a.address) input.fiscalAddress = String(a.address);
+    if (!input.postalCode && (a.postalCode || a.postalcode)) input.postalCode = String(a.postalCode ?? a.postalcode);
+    if (!input.city && a.city) input.city = String(a.city);
+    if (!input.province && a.province) input.province = String(a.province);
+  }
+  if (!input.taxId && (c?.code || c?.vatnumber)) input.taxId = String(c.code ?? c.vatnumber);
+  if (!input.email && c?.email) input.email = String(c.email);
+  if (!input.phone && (c?.phone || c?.mobile)) input.phone = String(c.phone ?? c.mobile);
+  const tn = c?.tradeName ?? c?.tradename;
+  if (!input.legalName && tn && String(tn).trim() && String(tn).trim() !== input.name) {
+    input.legalName = String(tn).trim();
+  }
+}
+
+/** Contactos de Holded → clientes. La LISTA de Holded a veces no trae la
+ *  dirección; en ese caso pedimos el DETALLE del contacto para completarla. */
 export async function holdedContactsAsClients(workspaceId: string): Promise<ClientInput[]> {
   const contacts = await holdedListContacts({ workspaceId, limit: 5000 });
-  return contacts
-    .filter((c) => c.name && c.name.trim())
-    .map((c) => {
-      const input: ClientInput = { name: c.name.trim() };
-      if (c.code) input.taxId = c.code;
-      if (c.email) input.email = c.email;
-      if (c.phone) input.phone = c.phone;
-      // Holded incluye la dirección de facturación en el contacto.
-      const a = (c as any).billAddress ?? (c as any).billaddress ?? null;
-      if (a && typeof a === "object") {
-        if (a.address) input.fiscalAddress = String(a.address);
-        if (a.postalCode || a.postalcode) input.postalCode = String(a.postalCode ?? a.postalcode);
-        if (a.city) input.city = String(a.city);
-        if (a.province) input.province = String(a.province);
+  const valid = contacts.filter((c) => c.name && c.name.trim());
+
+  const out: ClientInput[] = [];
+  let detailFetches = 0;
+  const MAX_DETAIL = 600; // tope de seguridad para no eternizar el import
+  for (const c of valid) {
+    const input: ClientInput = { name: c.name.trim() };
+    if (c.code) input.taxId = c.code;
+    if (c.email) input.email = c.email;
+    if (c.phone) input.phone = c.phone;
+    applyBillAddress(input, c);
+    // Si la lista no trajo dirección, pedimos el detalle del contacto.
+    if (!input.fiscalAddress && detailFetches < MAX_DETAIL) {
+      detailFetches++;
+      try {
+        const detail = await holdedGetContact(workspaceId, c.id);
+        applyBillAddress(input, detail);
+      } catch {
+        // si el detalle falla, dejamos lo que haya
       }
-      const tradeName = (c as any).tradeName ?? (c as any).tradename;
-      if (tradeName && String(tradeName).trim() && String(tradeName).trim() !== c.name.trim()) {
-        input.legalName = String(tradeName).trim();
-      }
-      return input;
-    });
+    }
+    out.push(input);
+  }
+  return out;
 }
 
 // Holded status: 0 pendiente, 1 pagada, 2 vencida, 3 cancelada, 4 borrador.

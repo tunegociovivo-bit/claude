@@ -125,6 +125,11 @@ export type HoldedContact = {
   isperson?: boolean;
 };
 
+/** Detalle completo de un contacto (incluye billAddress, vatnumber, etc.). */
+export async function holdedGetContact(workspaceId: string, id: string): Promise<any> {
+  return holdedFetch<any>(workspaceId, `/invoicing/v1/contacts/${id}`);
+}
+
 export async function holdedListContacts(opts: {
   workspaceId: string;
   query?: string;

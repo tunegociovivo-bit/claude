@@ -25,6 +25,7 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import PageHeader from "@/components/PageHeader";
+import AiSpendBadge from "@/components/AiSpendBadge";
 import AvatarStack from "@/components/AvatarStack";
 import TaskFormModal from "@/components/forms/TaskFormModal";
 import ProjectFormModal from "@/components/forms/ProjectFormModal";
@@ -1064,6 +1065,7 @@ export default function TareasClient({
         description={
           selectionMode ? "Aplica acciones masivas a las tareas marcadas." : undefined
         }
+        center={<AiSpendBadge />}
         actions={
           <>
             <div className="flex items-center bg-white border rounded-lg p-0.5">
