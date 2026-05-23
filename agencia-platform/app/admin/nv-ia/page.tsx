@@ -51,6 +51,7 @@ type ProactiveCfg = {
 type InboundCfg = {
   email: { enabled: boolean; webhookToken: string | null };
   whatsapp: { enabled: boolean };
+  call: { enabled: boolean; webhookToken: string | null };
 };
 
 export default function NvIaAdminPage() {
@@ -113,7 +114,7 @@ export default function NvIaAdminPage() {
     }
   }
 
-  async function saveInbound(next: Partial<{ email: { enabled: boolean; webhookToken?: string | null }; whatsapp: { enabled: boolean } }>) {
+  async function saveInbound(next: Partial<{ email: { enabled: boolean; webhookToken?: string | null }; whatsapp: { enabled: boolean }; call: { enabled: boolean } }>) {
     setSavingInbound(true);
     setError(null);
     try {
@@ -122,6 +123,7 @@ export default function NvIaAdminPage() {
       const body: any = {};
       if (next.email) body.email = { enabled: next.email.enabled };
       if (next.whatsapp) body.whatsapp = { enabled: next.whatsapp.enabled };
+      if (next.call) body.call = { enabled: next.call.enabled };
       const r = await fetch("/api/v1/admin/ai-agent/inbound", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -132,7 +134,12 @@ export default function NvIaAdminPage() {
         throw new Error(j.message || `Error ${r.status}`);
       }
       const j = await r.json();
-      setInbound(j.inbound ?? null);
+      const inb = j.inbound ?? {};
+      setInbound({
+        email: { enabled: inb.email?.enabled ?? false, webhookToken: inb.email?.webhookToken ?? null },
+        whatsapp: { enabled: inb.whatsapp?.enabled ?? false },
+        call: { enabled: inb.call?.enabled ?? false, webhookToken: inb.call?.webhookToken ?? null }
+      });
     } catch (e: any) {
       setError(String(e?.message ?? e));
     } finally {
@@ -378,6 +385,39 @@ export default function NvIaAdminPage() {
                       <p className="text-[10px] text-slate-500 mt-1">
                         Acepta JSON con campos: <code>from, to, subject, text/html, messageId</code>. Compatible con
                         Resend Inbound, ImprovMX, Postmark Inbound Parse y similares.
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                <div className="p-3 rounded-lg border bg-slate-50/50">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-medium">📞 Llamadas entrantes</div>
+                      <p className="text-[11px] text-slate-500 mt-0.5">
+                        Manda la transcripción de cada llamada (desde Make, Twilio, Aircall, etc.) a la URL de abajo.
+                        Sonia crea la tarea en el Hub, propone las acciones que puede hacer y te avisa por voz.
+                      </p>
+                    </div>
+                    <label className="inline-flex items-center gap-2 cursor-pointer shrink-0">
+                      <input
+                        type="checkbox"
+                        checked={inbound.call.enabled}
+                        disabled={savingInbound}
+                        onChange={(e) => saveInbound({ call: { enabled: e.target.checked } })}
+                        className="accent-violet-600 h-4 w-4"
+                      />
+                      <span className="text-xs font-medium">{inbound.call.enabled ? "Activo" : "Inactivo"}</span>
+                    </label>
+                  </div>
+                  {inbound.call.enabled && inbound.call.webhookToken && (
+                    <div className="mt-3">
+                      <label className="block text-[11px] text-slate-600 mb-1">URL del webhook (pégala en Make):</label>
+                      <code className="block text-[11px] bg-white border rounded px-2 py-1.5 break-all">
+                        {typeof window !== "undefined" ? window.location.origin : ""}/api/webhooks/inbound-call/{inbound.call.webhookToken}
+                      </code>
+                      <p className="text-[10px] text-slate-500 mt-1">
+                        Acepta JSON con campos: <code>from, transcript, durationSec, recordingUrl, callSid</code>.
                       </p>
                     </div>
                   )}
