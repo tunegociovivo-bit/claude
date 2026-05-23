@@ -2133,6 +2133,19 @@ function TaskCard({
               💸 {formatCost(aiInfo.costMicros)}
             </span>
           )}
+          {flash.length > 0 && (
+            <span
+              className={
+                "inline-flex items-center gap-0.5 px-1.5 h-5 rounded-md text-[10px] font-medium ring-1 " +
+                (flash.every((f) => f.done)
+                  ? "bg-emerald-50 text-emerald-700 ring-emerald-200"
+                  : "bg-amber-50 text-amber-700 ring-amber-200")
+              }
+              title="Tareas flash completadas"
+            >
+              ⚡ {flash.filter((f) => f.done).length}/{flash.length}
+            </span>
+          )}
         </div>
         {(() => {
           if (!task.dueDate)
