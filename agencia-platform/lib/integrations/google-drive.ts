@@ -137,7 +137,10 @@ export async function listDriveFiles(opts: {
       q,
       fields: "files(id, name, mimeType, size, createdTime, modifiedTime)",
       pageSize: "100",
-      orderBy: "createdTime desc"
+      orderBy: "createdTime desc",
+      // Necesario para que funcione con Unidades compartidas (Shared Drives).
+      supportsAllDrives: "true",
+      includeItemsFromAllDrives: "true"
     });
   const resp = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
   if (!resp.ok) {
@@ -171,7 +174,7 @@ export async function uploadDriveFile(opts: {
   if (exactMatch) {
     // PATCH /upload/drive/v3/files/{fileId}?uploadType=media
     const resp = await fetch(
-      `https://www.googleapis.com/upload/drive/v3/files/${exactMatch.id}?uploadType=media&fields=id,name,size,createdTime,modifiedTime`,
+      `https://www.googleapis.com/upload/drive/v3/files/${exactMatch.id}?uploadType=media&supportsAllDrives=true&fields=id,name,size,createdTime,modifiedTime`,
       {
         method: "PATCH",
         headers: {
@@ -200,7 +203,7 @@ export async function uploadDriveFile(opts: {
   const multipart = Buffer.concat([head, bodyBuf, tail]);
 
   const resp = await fetch(
-    "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,size,createdTime,modifiedTime",
+    "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&supportsAllDrives=true&fields=id,name,size,createdTime,modifiedTime",
     {
       method: "POST",
       headers: {
@@ -212,6 +215,12 @@ export async function uploadDriveFile(opts: {
   );
   if (!resp.ok) {
     const txt = await resp.text();
+    if (/storage quota|do not have storage/i.test(txt)) {
+      throw new Error(
+        "Drive 403: una cuenta de servicio no tiene cuota propia y no puede subir a 'Mi unidad'. " +
+          "Usa una UNIDAD COMPARTIDA (Shared Drive): crea/usa una unidad compartida, añade el email de la cuenta de servicio como miembro (Administrador de contenido) y pega aquí el ID de una carpeta DENTRO de esa unidad compartida."
+      );
+    }
     throw new Error(`Drive upload ${resp.status}: ${txt.slice(0, 300)}`);
   }
   return (await resp.json()) as DriveFile;
@@ -223,10 +232,13 @@ export async function deleteDriveFile(opts: {
 }): Promise<void> {
   const { serviceAccount } = await getDriveConfig(opts.workspaceId);
   const token = await getAccessToken(serviceAccount);
-  const resp = await fetch(`https://www.googleapis.com/drive/v3/files/${opts.fileId}`, {
-    method: "DELETE",
-    headers: { Authorization: `Bearer ${token}` }
-  });
+  const resp = await fetch(
+    `https://www.googleapis.com/drive/v3/files/${opts.fileId}?supportsAllDrives=true`,
+    {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` }
+    }
+  );
   if (!resp.ok && resp.status !== 404) {
     const txt = await resp.text();
     throw new Error(`Drive delete ${resp.status}: ${txt.slice(0, 300)}`);
@@ -299,7 +311,7 @@ export async function createDriveNativeFile(opts: {
   const multipart = Buffer.concat([head, bodyBuf, tail]);
 
   const resp = await fetch(
-    "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,webViewLink",
+    "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&supportsAllDrives=true&fields=id,name,webViewLink",
     {
       method: "POST",
       headers: {
@@ -331,7 +343,7 @@ export async function downloadDriveFile(opts: {
   // 1. Metadata + verificación de parents.
   const metaUrl =
     `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(opts.fileId)}?` +
-    new URLSearchParams({ fields: "id,name,mimeType,parents,size" });
+    new URLSearchParams({ fields: "id,name,mimeType,parents,size", supportsAllDrives: "true" });
   const metaResp = await fetch(metaUrl, { headers: { Authorization: `Bearer ${token}` } });
   if (!metaResp.ok) {
     const txt = await metaResp.text();
@@ -344,7 +356,7 @@ export async function downloadDriveFile(opts: {
 
   // 2. Descarga del media.
   const dlUrl =
-    `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(opts.fileId)}?alt=media`;
+    `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(opts.fileId)}?alt=media&supportsAllDrives=true`;
   const dlResp = await fetch(dlUrl, { headers: { Authorization: `Bearer ${token}` } });
   if (!dlResp.ok) {
     const txt = await dlResp.text();
@@ -376,7 +388,7 @@ export async function exportDriveFile(opts: {
 
   const metaUrl =
     `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(opts.fileId)}?` +
-    new URLSearchParams({ fields: "id,name,mimeType,parents" });
+    new URLSearchParams({ fields: "id,name,mimeType,parents", supportsAllDrives: "true" });
   const metaResp = await fetch(metaUrl, { headers: { Authorization: `Bearer ${token}` } });
   if (!metaResp.ok) {
     const txt = await metaResp.text();
@@ -389,7 +401,7 @@ export async function exportDriveFile(opts: {
 
   const exportUrl =
     `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(opts.fileId)}/export?` +
-    new URLSearchParams({ mimeType: opts.exportMimeType });
+    new URLSearchParams({ mimeType: opts.exportMimeType, supportsAllDrives: "true" });
   const expResp = await fetch(exportUrl, { headers: { Authorization: `Bearer ${token}` } });
   if (!expResp.ok) {
     const txt = await expResp.text();
