@@ -2092,7 +2092,12 @@ function TaskCard({
         </div>
       )}
       {flash.length > 0 && (
-        <div className="mb-3 space-y-1 rounded-lg bg-amber-50/60 border border-amber-100 p-1.5">
+        <div
+          className={
+            "mb-3 space-y-1 rounded-lg border p-1.5 " +
+            (flash.every((f) => f.done) ? "bg-emerald-50 border-emerald-200" : "bg-amber-50/60 border-amber-100")
+          }
+        >
           {flash.map((f) => (
             <button
               key={f.id}

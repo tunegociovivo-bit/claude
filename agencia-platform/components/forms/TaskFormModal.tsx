@@ -11,7 +11,7 @@ import MeetingRecorder from "@/components/forms/MeetingRecorder";
 import type { MentionCandidate } from "@/components/forms/mentionSuggestion";
 import type { UiProject, UiMember, UiTask } from "@/lib/db/queries";
 import { RECURRENCE_OPTIONS } from "@/lib/tasks/recurrence";
-import { Loader2, Trash2, MessageSquare, X, CheckSquare, Check, ArrowLeft, ExternalLink, Mic, RefreshCw, Bot, Square, Zap } from "lucide-react";
+import { Loader2, Trash2, MessageSquare, X, CheckSquare, Check, ArrowLeft, ExternalLink, Mic, RefreshCw, Bot, Square, Zap, ArrowUp, ArrowDown } from "lucide-react";
 
 // Tres estados de prioridad: vacío (normal, default), Alta y URGENCIA.
 // El campo `priority` puede ser undefined cuando el user no marca nada,
@@ -640,6 +640,17 @@ export default function TaskFormModal({
     setNewFlash("");
   }
 
+  function moveFlash(id: string, dir: -1 | 1) {
+    setFlashTasks((prev) => {
+      const i = prev.findIndex((x) => x.id === id);
+      const j = i + dir;
+      if (i < 0 || j < 0 || j >= prev.length) return prev;
+      const next = [...prev];
+      [next[i], next[j]] = [next[j], next[i]];
+      return next;
+    });
+  }
+
   async function addSubtask() {
     if (!currentTask || !newSubtask.trim()) return;
     setAddingSubtask(true);
@@ -924,7 +935,7 @@ export default function TaskFormModal({
               </span>
             </div>
             <div className="space-y-1.5">
-              {flashTasks.map((f) => (
+              {flashTasks.map((f, idx) => (
                 <div
                   key={f.id}
                   className="flex items-center gap-2 group bg-white border rounded-lg px-2.5 py-1.5 hover:border-amber-200"
@@ -944,6 +955,26 @@ export default function TaskFormModal({
                     )}
                   </button>
                   <span className={"flex-1 text-sm " + (f.done ? "line-through text-slate-400" : "")}>{f.text}</span>
+                  <div className="hidden group-hover:flex flex-col -my-1 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => moveFlash(f.id, -1)}
+                      disabled={idx === 0}
+                      className="h-3.5 w-4 grid place-items-center text-slate-400 hover:text-slate-700 disabled:opacity-30"
+                      aria-label="Subir"
+                    >
+                      <ArrowUp className="h-3 w-3" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => moveFlash(f.id, 1)}
+                      disabled={idx === flashTasks.length - 1}
+                      className="h-3.5 w-4 grid place-items-center text-slate-400 hover:text-slate-700 disabled:opacity-30"
+                      aria-label="Bajar"
+                    >
+                      <ArrowDown className="h-3 w-3" />
+                    </button>
+                  </div>
                   <button
                     type="button"
                     onClick={() => setFlashTasks((prev) => prev.filter((x) => x.id !== f.id))}
