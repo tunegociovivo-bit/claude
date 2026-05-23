@@ -1,0 +1,130 @@
+name: Backup completo (BD + adjuntos)
+
+# Copia de seguridad REALMENTE restaurable del Hub:
+#   1. Volcado completo de PostgreSQL con pg_dump (las 110 tablas, esquema + datos)
+#      -> restaurable con pg_restore. Con rotación diaria/semanal/mensual en B2.
+#   2. Réplica de TODOS los adjuntos del bucket R2 a un bucket independiente en
+#      Backblaze B2 (los binarios que el backup de la app NO copia).
+#
+# Es independiente de la app: habla directamente con la base de datos y con el
+# almacenamiento. Si el Hub se cae, esto sigue corriendo.
+#
+# IMPORTANTE: los disparos por `schedule` SOLO ocurren desde la rama por defecto
+# del repositorio. Para que el backup diario se ejecute solo, este workflow debe
+# estar fusionado en la rama por defecto. Mientras tanto se puede lanzar a mano
+# desde la pestaña Actions (workflow_dispatch).
+
+on:
+  schedule:
+    - cron: "0 3 * * *" # 03:00 UTC (~04:00/05:00 España) todos los días
+  workflow_dispatch:
+
+concurrency:
+  group: backup-completo
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - name: Instalar pg_dump 17 y rclone
+        run: |
+          set -euo pipefail
+          sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+          curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/pgdg.gpg
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client-17
+          curl -fsSL https://rclone.org/install.sh | sudo bash
+          pg_dump --version
+          rclone version
+
+      - name: Volcado de la base de datos (pg_dump)
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${DATABASE_URL:-}" ]; then echo "::error::Falta el secret DATABASE_URL"; exit 1; fi
+          STAMP=$(date -u +%Y-%m-%d_%H%M)
+          mkdir -p out
+          # --format=custom => restaurable selectivamente con pg_restore, ya comprimido.
+          pg_dump --format=custom --no-owner --no-privileges --compress=9 \
+            --file="out/agencia-db-${STAMP}.dump" "$DATABASE_URL"
+          ls -lh out
+          echo "STAMP=${STAMP}" >> "$GITHUB_ENV"
+
+      - name: Configurar rclone (R2 origen + B2 destino)
+        env:
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          B2_ENDPOINT: ${{ secrets.B2_ENDPOINT }}
+          B2_ACCESS_KEY_ID: ${{ secrets.B2_ACCESS_KEY_ID }}
+          B2_SECRET_ACCESS_KEY: ${{ secrets.B2_SECRET_ACCESS_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.config/rclone
+          umask 077
+          cat > ~/.config/rclone/rclone.conf <<EOF
+          [r2]
+          type = s3
+          provider = Cloudflare
+          access_key_id = ${R2_ACCESS_KEY_ID}
+          secret_access_key = ${R2_SECRET_ACCESS_KEY}
+          endpoint = ${R2_ENDPOINT}
+          acl = private
+
+          [b2]
+          type = s3
+          provider = Other
+          access_key_id = ${B2_ACCESS_KEY_ID}
+          secret_access_key = ${B2_SECRET_ACCESS_KEY}
+          endpoint = ${B2_ENDPOINT}
+          acl = private
+          EOF
+
+      - name: Subir volcado de BD a B2 (rotación diario/semanal/mensual)
+        env:
+          B2_BUCKET: ${{ secrets.B2_BUCKET }}
+        run: |
+          set -euo pipefail
+          DUMP="out/agencia-db-${STAMP}.dump"
+          rclone copyto "$DUMP" "b2:${B2_BUCKET}/db/daily/agencia-db-${STAMP}.dump"
+          if [ "$(date -u +%u)" = "1" ]; then
+            rclone copyto "$DUMP" "b2:${B2_BUCKET}/db/weekly/agencia-db-${STAMP}.dump"
+          fi
+          if [ "$(date -u +%d)" = "01" ]; then
+            rclone copyto "$DUMP" "b2:${B2_BUCKET}/db/monthly/agencia-db-${STAMP}.dump"
+          fi
+
+      - name: Retención de volcados (poda antiguos)
+        env:
+          B2_BUCKET: ${{ secrets.B2_BUCKET }}
+        run: |
+          set -euo pipefail
+          rclone delete --min-age 14d  "b2:${B2_BUCKET}/db/daily"   || true
+          rclone delete --min-age 70d  "b2:${B2_BUCKET}/db/weekly"  || true
+          rclone delete --min-age 400d "b2:${B2_BUCKET}/db/monthly" || true
+
+      - name: Replicar adjuntos R2 -> B2 (mirror + archivo de borrados)
+        env:
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          B2_BUCKET: ${{ secrets.B2_BUCKET }}
+        run: |
+          set -euo pipefail
+          # files/current = espejo vivo del bucket R2.
+          # Cualquier fichero borrado o sobrescrito en R2 se MUEVE a
+          # files/archive/<fecha> en vez de perderse -> protege de borrados.
+          rclone sync "r2:${R2_BUCKET}" "b2:${B2_BUCKET}/files/current" \
+            --backup-dir "b2:${B2_BUCKET}/files/archive/${STAMP}" \
+            --fast-list --transfers 16 --checkers 32 \
+            --stats 30s --stats-one-line
+
+      - name: Resumen
+        if: always()
+        env:
+          B2_BUCKET: ${{ secrets.B2_BUCKET }}
+        run: |
+          echo "Backup ${STAMP:-?} -> b2:${B2_BUCKET}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- BD: db/daily (+ weekly/monthly según toque)" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Adjuntos: files/current (+ files/archive de borrados)" >> "$GITHUB_STEP_SUMMARY"
