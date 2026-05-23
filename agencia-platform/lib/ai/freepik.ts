@@ -67,3 +67,64 @@ export async function generateFreepikImage(opts: {
   if (!b64) throw new Error("Freepik no devolvió imagen base64 esperada");
   return Buffer.from(b64, "base64");
 }
+
+const FREEPIK_BASE = "https://api.freepik.com/v1/ai";
+
+/**
+ * Genera un VÍDEO a partir de una IMAGEN con Freepik (modelo Kling 2.0,
+ * image-to-video). Async: envía la tarea, hace polling y devuelve la URL
+ * del .mp4 generado. El slug del modelo es configurable (default kling-v2);
+ * Freepik puede cambiarlo (kling-v2-1, kling-pro…), por eso es ajustable.
+ *
+ * Docs: https://docs.freepik.com → AI → Image to video.
+ */
+export async function generateFreepikKlingVideo(opts: {
+  workspaceId: string;
+  /** Imagen origen en base64 SIN prefijo data: */
+  imageBase64: string;
+  prompt: string;
+  durationSeconds?: 5 | 10;
+  modelSlug?: string;
+}): Promise<{ url: string; model: string }> {
+  const apiKey = await getFreepikKeyForWorkspace(opts.workspaceId);
+  const slug = opts.modelSlug ?? process.env.FREEPIK_VIDEO_MODEL ?? "kling-v2";
+  const submit = await fetch(`${FREEPIK_BASE}/image-to-video/${slug}`, {
+    method: "POST",
+    headers: { "x-freepik-api-key": apiKey, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      image: opts.imageBase64,
+      prompt: opts.prompt.slice(0, 2000),
+      duration: String(opts.durationSeconds ?? 5)
+    })
+  });
+  if (!submit.ok) {
+    const t = await submit.text();
+    throw new Error(`Freepik vídeo submit ${submit.status}: ${t.slice(0, 300)}`);
+  }
+  const sub = await submit.json();
+  const taskId = sub?.data?.task_id ?? sub?.data?.id ?? sub?.task_id;
+  if (!taskId) throw new Error("Freepik no devolvió task_id de vídeo");
+
+  const TIMEOUT_MS = 6 * 60 * 1000;
+  const start = Date.now();
+  while (Date.now() - start < TIMEOUT_MS) {
+    await new Promise((r) => setTimeout(r, 6000));
+    const sr = await fetch(`${FREEPIK_BASE}/image-to-video/${slug}/${taskId}`, {
+      headers: { "x-freepik-api-key": apiKey }
+    });
+    if (!sr.ok) continue;
+    const s = await sr.json();
+    const st = String(s?.data?.status ?? s?.status ?? "").toUpperCase();
+    if (st === "COMPLETED" || st === "DONE" || st === "SUCCESS") {
+      const gen = s?.data?.generated ?? s?.data?.result ?? s?.generated;
+      const url = Array.isArray(gen) ? gen[0] : typeof gen === "string" ? gen : gen?.url;
+      if (!url) throw new Error("Freepik vídeo COMPLETED pero sin URL de resultado");
+      return { url: String(url), model: slug };
+    }
+    if (st === "FAILED" || st === "ERROR") {
+      throw new Error(`Freepik vídeo falló: ${JSON.stringify(s?.data ?? s).slice(0, 200)}`);
+    }
+  }
+  throw new Error(`Freepik vídeo: timeout tras ${TIMEOUT_MS / 1000}s`);
+}
+

@@ -21,7 +21,8 @@ export const maxDuration = 600;
 const schema = z.object({
   promptOverride: z.string().optional(),
   extraGuidance: z.string().optional(),
-  model: z.string().optional()
+  model: z.string().optional(),
+  shots: z.number().int().min(1).max(4).optional()
 });
 
 export const POST = withApi({ scope: "*" }, async (req, { params, api }) => {
@@ -35,7 +36,8 @@ export const POST = withApi({ scope: "*" }, async (req, { params, api }) => {
       postId: params.id,
       promptOverride: parsed.data.promptOverride,
       extraGuidance: parsed.data.extraGuidance,
-      model: parsed.data.model
+      model: parsed.data.model,
+      shots: parsed.data.shots
     });
     return NextResponse.json(out);
   } catch (e: any) {
