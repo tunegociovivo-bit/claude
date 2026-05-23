@@ -27,6 +27,7 @@ const PUBLIC_PATHS = [
   "/api/v1/voice/transcribe",
   "/api/v1/voice/draft",
   "/api/v1/leads/webhook/",
+  "/api/webhooks/",
   "/api/v1/gmb/reviews/webhook",
   "/api/v1/gmb/widget/",
   "/api/v1/gmb/buscador/run-scheduled",
