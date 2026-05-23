@@ -37,6 +37,40 @@ export const POST = withApi({ scope: "*", rate: "admin" }, async (req: NextReque
   const hintAdAccount = typeof form.get("adAccount") === "string" ? String(form.get("adAccount")) : undefined;
   const copyToDrive = form.get("copyToDrive") !== "0";
 
+  // ¿Es un ZIP? (la descarga "todas las transacciones" de Meta es un ZIP).
+  // Detección por firma PK\x03\x04 — robusta frente al mime/extensión.
+  const isZip = buf.length > 4 && buf[0] === 0x50 && buf[1] === 0x4b && (buf[2] === 0x03 || buf[2] === 0x05);
+  if (isZip) {
+    const JSZip = (await import("jszip")).default;
+    const zip = await JSZip.loadAsync(buf);
+    const entries = Object.values(zip.files).filter(
+      (f: any) => !f.dir && /\.pdf$/i.test(f.name)
+    ) as any[];
+    let created = 0;
+    let duplicate = 0;
+    let errored = 0;
+    for (const entry of entries) {
+      try {
+        const pdfBuf = Buffer.from(await entry.async("nodebuffer"));
+        const r = await ingestMetaInvoice({
+          workspaceId: api.workspaceId,
+          buf: pdfBuf,
+          filename: entry.name.split("/").pop() || "meta-factura.pdf",
+          mimeType: "application/pdf",
+          uploadedBy: api.userId,
+          hintAdAccount,
+          copyToDrive
+        });
+        if (r.action === "created") created++;
+        else if (r.action === "duplicate") duplicate++;
+        else errored++;
+      } catch {
+        errored++;
+      }
+    }
+    return NextResponse.json({ action: "batch", total: entries.length, created, duplicate, error: errored });
+  }
+
   const result = await ingestMetaInvoice({
     workspaceId: api.workspaceId,
     buf,
@@ -46,5 +80,11 @@ export const POST = withApi({ scope: "*", rate: "admin" }, async (req: NextReque
     hintAdAccount,
     copyToDrive
   });
-  return NextResponse.json(result);
+  // Contadores uniformes para que el cliente sume igual que con ZIP.
+  return NextResponse.json({
+    ...result,
+    created: result.action === "created" ? 1 : 0,
+    duplicate: result.action === "duplicate" ? 1 : 0,
+    error: result.action === "error" ? 1 : 0
+  });
 });

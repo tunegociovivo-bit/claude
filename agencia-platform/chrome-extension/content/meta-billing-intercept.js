@@ -38,7 +38,7 @@
   }
 
   async function emitIfPdf(contentType, headers, url, blob) {
-    if (!/application\/pdf|octet-stream/i.test(contentType || "")) return;
+    if (!/application\/pdf|application\/zip|octet-stream/i.test(contentType || "")) return;
     if (!blob || blob.size < 500) return; // descarta respuestas vacías/errores
     const key = `${blob.size}:${url || ""}`;
     if (sent.has(key)) return;
@@ -56,7 +56,7 @@
       const resp = await origFetch.apply(this, args);
       try {
         const ct = resp.headers.get("content-type") || "";
-        if (/application\/pdf|octet-stream/i.test(ct)) {
+        if (/application\/pdf|application\/zip|octet-stream/i.test(ct)) {
           resp
             .clone()
             .blob()
@@ -79,7 +79,7 @@
     this.addEventListener("load", function () {
       try {
         const ct = this.getResponseHeader("content-type") || "";
-        if (!/application\/pdf|octet-stream/i.test(ct)) return;
+        if (!/application\/pdf|application\/zip|octet-stream/i.test(ct)) return;
         let blob = null;
         if (this.response instanceof Blob) blob = this.response;
         else if (this.response instanceof ArrayBuffer) blob = new Blob([this.response], { type: "application/pdf" });

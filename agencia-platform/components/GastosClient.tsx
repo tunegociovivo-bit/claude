@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Plus, Pencil, Trash2, X, Loader2 } from "lucide-react";
+import { Plus, Pencil, Trash2, X, Loader2, Download } from "lucide-react";
 import { formatMoney, PAYMENT_METHODS, PAYMENT_METHOD_LABEL, CURRENCIES } from "@/lib/invoicing/core";
 import {
   EXPENSE_CATEGORIES,
@@ -60,6 +60,7 @@ export default function GastosClient({
   const [editing, setEditing] = useState<ExpenseRow | "new" | null>(null);
   const [metaUploading, setMetaUploading] = useState(false);
   const [metaMsg, setMetaMsg] = useState<string | null>(null);
+  const [metaZipMonth, setMetaZipMonth] = useState(() => new Date().toISOString().slice(0, 7));
   const metaInputRef = useRef<HTMLInputElement>(null);
 
   async function uploadMetaInvoices(files: FileList | null) {
@@ -73,13 +74,16 @@ export default function GastosClient({
       for (const file of Array.from(files)) {
         const fd = new FormData();
         fd.append("file", file);
-        if (issuerId) fd.append("adAccount", "");
         try {
           const r = await fetch("/api/v1/admin/meta-invoices/ingest", { method: "POST", body: fd });
           const d = await r.json().catch(() => ({}));
-          if (r.ok && d.action === "created") created++;
-          else if (r.ok && d.action === "duplicate") dup++;
-          else err++;
+          if (r.ok) {
+            created += d.created ?? 0;
+            dup += d.duplicate ?? 0;
+            err += d.error ?? 0;
+          } else {
+            err++;
+          }
         } catch {
           err++;
         }
@@ -142,7 +146,7 @@ export default function GastosClient({
         <input
           ref={metaInputRef}
           type="file"
-          accept="application/pdf,.pdf"
+          accept="application/pdf,.pdf,.zip,application/zip"
           multiple
           className="hidden"
           onChange={(e) => uploadMetaInvoices(e.target.files)}
@@ -151,11 +155,30 @@ export default function GastosClient({
           onClick={() => metaInputRef.current?.click()}
           disabled={metaUploading}
           className="inline-flex items-center gap-1.5 bg-white border text-sm px-3 py-2 rounded-lg hover:bg-slate-50 disabled:opacity-50"
-          title="Sube PDFs de facturas de Meta; se archivan como gastos automáticamente"
+          title="Sube PDFs o el ZIP de 'descargar todas las transacciones' de Meta; se archivan como gastos automáticamente"
         >
           {metaUploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-          Subir facturas de Meta
+          Subir facturas de Meta (PDF o ZIP)
         </button>
+        <input
+          type="month"
+          value={metaZipMonth}
+          onChange={(e) => setMetaZipMonth(e.target.value)}
+          className="text-sm border rounded-lg px-2 py-2 bg-white"
+          title="Mes para descargar el ZIP de facturas de Meta ya archivadas"
+        />
+        <a
+          href={metaZipMonth ? `/api/v1/admin/meta-invoices/zip?month=${metaZipMonth}` : undefined}
+          onClick={(e) => {
+            if (!metaZipMonth) e.preventDefault();
+          }}
+          className={`inline-flex items-center gap-1.5 border text-sm px-3 py-2 rounded-lg ${
+            metaZipMonth ? "bg-white hover:bg-slate-50" : "bg-slate-100 text-slate-400 cursor-not-allowed"
+          }`}
+          title="Descarga un ZIP con las facturas de Meta archivadas ese mes"
+        >
+          <Download className="h-4 w-4" /> ZIP del mes
+        </a>
         <div className="flex-1" />
         <select
           value={categoryFilter}

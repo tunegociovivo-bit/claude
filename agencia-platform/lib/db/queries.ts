@@ -68,6 +68,14 @@ export type UiClient = (typeof mockClients)[number] & {
   prioridad?: "ALTA" | "NORMAL" | "BAJA";
   servicios?: string[];
   kitDigital?: boolean;
+  // Datos fiscales (para mostrarlos en la ficha y en facturación).
+  legalName?: string | null;
+  taxId?: string | null;
+  fiscalAddress?: string | null;
+  postalCode?: string | null;
+  city?: string | null;
+  province?: string | null;
+  countryCode?: string | null;
 };
 export type UiTask = (typeof mockTasks)[number] & {
   dueTime?: string; // "HH:MM" si la tarea tiene hora concreta
@@ -116,7 +124,14 @@ export async function getClientsForUi(): Promise<UiClient[]> {
       notes: r.notes ?? "",
       prioridad: ((r as any).prioridad as "ALTA" | "NORMAL" | "BAJA" | undefined) ?? "NORMAL",
       servicios: Array.isArray((r as any).servicios) ? ((r as any).servicios as string[]) : [],
-      kitDigital: Boolean((r as any).kitDigital)
+      kitDigital: Boolean((r as any).kitDigital),
+      legalName: (r as any).legalName ?? null,
+      taxId: (r as any).taxId ?? null,
+      fiscalAddress: (r as any).fiscalAddress ?? null,
+      postalCode: (r as any).postalCode ?? null,
+      city: (r as any).city ?? null,
+      province: (r as any).province ?? null,
+      countryCode: (r as any).countryCode ?? null
     }));
   }, mockClients);
 }

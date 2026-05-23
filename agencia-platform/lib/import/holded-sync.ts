@@ -17,6 +17,18 @@ export async function holdedContactsAsClients(workspaceId: string): Promise<Clie
       if (c.code) input.taxId = c.code;
       if (c.email) input.email = c.email;
       if (c.phone) input.phone = c.phone;
+      // Holded incluye la dirección de facturación en el contacto.
+      const a = (c as any).billAddress ?? (c as any).billaddress ?? null;
+      if (a && typeof a === "object") {
+        if (a.address) input.fiscalAddress = String(a.address);
+        if (a.postalCode || a.postalcode) input.postalCode = String(a.postalCode ?? a.postalcode);
+        if (a.city) input.city = String(a.city);
+        if (a.province) input.province = String(a.province);
+      }
+      const tradeName = (c as any).tradeName ?? (c as any).tradename;
+      if (tradeName && String(tradeName).trim() && String(tradeName).trim() !== c.name.trim()) {
+        input.legalName = String(tradeName).trim();
+      }
       return input;
     });
 }

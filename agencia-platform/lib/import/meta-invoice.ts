@@ -162,11 +162,12 @@ export async function ingestMetaInvoice(opts: {
 
   // 4) Guardar el PDF (R2 + opcionalmente Drive) → fileUrl.
   let fileUrl: string | null = null;
+  let fileId: string | null = null;
   if (isStorageEnabled()) {
     try {
       const s3Key = buildS3Key({ workspaceId: opts.workspaceId, targetType: "EXPENSE", filename: opts.filename });
       await uploadBuffer({ s3Key, body: opts.buf, contentType: opts.mimeType || "application/pdf" });
-      await prisma.file.create({
+      const fileRow = await prisma.file.create({
         data: {
           workspaceId: opts.workspaceId,
           name: opts.filename,
@@ -177,6 +178,7 @@ export async function ingestMetaInvoice(opts: {
           uploadedBy: opts.uploadedBy ?? null
         }
       });
+      fileId = fileRow.id;
       fileUrl = await signedDownloadUrl(s3Key, 7 * 24 * 3600);
     } catch {
       // sin storage no bloqueamos la creación del gasto
@@ -219,7 +221,7 @@ export async function ingestMetaInvoice(opts: {
       taxCents,
       totalCents: computedTotal,
       deductible: true,
-      notes: `${marker} Importado automático de factura Meta.`,
+      notes: `${marker}${fileId ? ` [metafile:${fileId}]` : ""} Importado automático de factura Meta.`,
       fileUrl
     }
   });

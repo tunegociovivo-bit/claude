@@ -151,6 +151,52 @@ export default async function ClienteDetailPage({ params }: { params: { id: stri
             </div>
           </div>
 
+          {(client.taxId ||
+            client.legalName ||
+            client.fiscalAddress ||
+            client.postalCode ||
+            client.city ||
+            client.province) && (
+            <div className="bg-white rounded-xl border p-6">
+              <h2 className="font-semibold mb-4 flex items-center gap-2">
+                <FileText className="h-4 w-4 text-slate-400" />
+                Datos fiscales
+              </h2>
+              <dl className="space-y-2 text-sm">
+                {client.legalName && (
+                  <div>
+                    <dt className="text-xs text-slate-500">Razón social</dt>
+                    <dd>{client.legalName}</dd>
+                  </div>
+                )}
+                {client.taxId && (
+                  <div>
+                    <dt className="text-xs text-slate-500">NIF / CIF</dt>
+                    <dd>{client.taxId}</dd>
+                  </div>
+                )}
+                {client.fiscalAddress && (
+                  <div>
+                    <dt className="text-xs text-slate-500">Dirección fiscal</dt>
+                    <dd>{client.fiscalAddress}</dd>
+                  </div>
+                )}
+                {(client.postalCode || client.city || client.province) && (
+                  <div>
+                    <dt className="text-xs text-slate-500">Localidad</dt>
+                    <dd>{[client.postalCode, client.city, client.province].filter(Boolean).join(" · ")}</dd>
+                  </div>
+                )}
+                {client.countryCode && (
+                  <div>
+                    <dt className="text-xs text-slate-500">País</dt>
+                    <dd>{client.countryCode}</dd>
+                  </div>
+                )}
+              </dl>
+            </div>
+          )}
+
           <div className="bg-white rounded-xl border p-6">
             <h2 className="font-semibold mb-4 flex items-center gap-2">
               <Calendar className="h-4 w-4 text-slate-400" />
