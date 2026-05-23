@@ -1214,6 +1214,9 @@ model Task {
   // Lo guardamos para que el equipo pueda consultarlo desde la UI
   // aunque todavía no haya UI dedicada para cada custom field.
   asanaCustomFields Json?
+  // Tareas flash: checklist de minitareas [{id, text, done}] que también se
+  // muestra en la tarjeta del kanban para marcarlas desde el panel general.
+  flashTasks        Json?
   // Estado persistente de Sonia para esta task. Mapa de recursos
   // creados por la IA durante runs anteriores, para idempotencia:
   // si la task se re-ejecuta, en lugar de crear duplicados, reutiliza

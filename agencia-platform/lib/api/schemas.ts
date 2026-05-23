@@ -202,6 +202,11 @@ export const taskCreateSchema = z.object({
   // Valores de custom fields definidos por la plantilla. Objeto plano
   // { fieldId: value } donde value es string | number | boolean | string[].
   customData: z.record(z.string(), z.any()).optional().nullable(),
+  // Tareas flash: checklist [{id, text, done}].
+  flashTasks: z
+    .array(z.object({ id: z.string(), text: z.string(), done: z.boolean() }))
+    .optional()
+    .nullable(),
   // Recurrencia: relanza la tarea (Sonia) cada periodo. Ver lib/tasks/recurrence.
   recurrence: z.enum(["none", "daily", "every_2_days", "weekly", "biweekly", "monthly"]).optional()
 });

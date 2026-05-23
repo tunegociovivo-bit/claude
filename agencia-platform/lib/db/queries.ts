@@ -96,6 +96,8 @@ export type UiTask = (typeof mockTasks)[number] & {
   // como portada en la tarjeta del Kanban (estilo Asana). undefined si no
   // tiene imágenes adjuntas.
   coverImage?: string;
+  /** Tareas flash (minitareas) que se muestran en la tarjeta del kanban. */
+  flashTasks?: { id: string; text: string; done: boolean }[];
 };
 export type UiProject = (typeof mockProjects)[number];
 export type UiEvent = (typeof mockEvents)[number];
@@ -287,7 +289,8 @@ export async function getTasksForUi(): Promise<UiTask[]> {
         tags: r.tags.map((t) => t.tag.name),
         notifyDueRules: (r as any).notifyDueRules ?? null,
         order: (r as any).order ?? 0,
-        coverImage: coverByTask.get(r.id)
+        coverImage: coverByTask.get(r.id),
+        flashTasks: Array.isArray((r as any).flashTasks) ? ((r as any).flashTasks as any[]) : []
       };
     });
   }, mockTasks);

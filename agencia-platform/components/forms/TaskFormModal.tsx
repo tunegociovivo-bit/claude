@@ -11,7 +11,7 @@ import MeetingRecorder from "@/components/forms/MeetingRecorder";
 import type { MentionCandidate } from "@/components/forms/mentionSuggestion";
 import type { UiProject, UiMember, UiTask } from "@/lib/db/queries";
 import { RECURRENCE_OPTIONS } from "@/lib/tasks/recurrence";
-import { Loader2, Trash2, MessageSquare, X, CheckSquare, Check, ArrowLeft, ExternalLink, Mic, RefreshCw, Bot } from "lucide-react";
+import { Loader2, Trash2, MessageSquare, X, CheckSquare, Check, ArrowLeft, ExternalLink, Mic, RefreshCw, Bot, Square, Zap } from "lucide-react";
 
 // Tres estados de prioridad: vacío (normal, default), Alta y URGENCIA.
 // El campo `priority` puede ser undefined cuando el user no marca nada,
@@ -210,6 +210,8 @@ export default function TaskFormModal({
   const [subtasks, setSubtasks] = useState<{ id: string; title: string; status: string }[]>([]);
   const [newSubtask, setNewSubtask] = useState("");
   const [addingSubtask, setAddingSubtask] = useState(false);
+  const [flashTasks, setFlashTasks] = useState<{ id: string; text: string; done: boolean }[]>([]);
+  const [newFlash, setNewFlash] = useState("");
 
   // Reset del subtaskStack al abrir / cerrar modal. Solo se usa
   // cuando el user navega a subtareas DENTRO del modal abierto.
@@ -237,6 +239,8 @@ export default function TaskFormModal({
       setNotifyDueRules(null);
       setComments([]);
       setSubtasks([]);
+      setFlashTasks([]);
+      setNewFlash("");
       setError(null);
       setSelectedTemplateId(null);
       setCustomData({});
@@ -392,6 +396,7 @@ export default function TaskFormModal({
               status: s.status
             }))
           );
+          setFlashTasks(Array.isArray(data.flashTasks) ? data.flashTasks : []);
           // Plantilla + valores custom — vienen del Task.templateId
           // y Task.customData persistidos. Si la plantilla todavía
           // existe en /api/v1/task-templates (lista cargada por
@@ -473,6 +478,7 @@ export default function TaskFormModal({
       templateId: selectedTemplateId || null,
       customData:
         selectedTemplateId && Object.keys(customData).length > 0 ? customData : null,
+      flashTasks,
       recurrence
     };
     if (dueDate) {
@@ -621,6 +627,17 @@ export default function TaskFormModal({
 
   function toggleAssignee(id: string) {
     setAssigneeIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  }
+
+  function addFlash() {
+    const t = newFlash.trim();
+    if (!t) return;
+    const id =
+      typeof crypto !== "undefined" && "randomUUID" in crypto
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    setFlashTasks((prev) => [...prev, { id, text: t, done: false }]);
+    setNewFlash("");
   }
 
   async function addSubtask() {
@@ -896,6 +913,73 @@ export default function TaskFormModal({
               </div>
             </div>
           )}
+
+          {/* Tareas flash: minichecklist que también se ve en la tarjeta del tablero */}
+          <div className="pt-2">
+            <div className="text-xs font-medium text-slate-700 mb-2 flex items-center gap-1.5">
+              <Zap className="h-3.5 w-3.5 text-amber-500" />
+              Tareas flash
+              <span className="text-slate-400">
+                ({flashTasks.filter((f) => f.done).length}/{flashTasks.length})
+              </span>
+            </div>
+            <div className="space-y-1.5">
+              {flashTasks.map((f) => (
+                <div
+                  key={f.id}
+                  className="flex items-center gap-2 group bg-white border rounded-lg px-2.5 py-1.5 hover:border-amber-200"
+                >
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setFlashTasks((prev) => prev.map((x) => (x.id === f.id ? { ...x, done: !x.done } : x)))
+                    }
+                    className="shrink-0"
+                    aria-label={f.done ? "Marcar como pendiente" : "Marcar como hecha"}
+                  >
+                    {f.done ? (
+                      <CheckSquare className="h-4 w-4 text-emerald-600" />
+                    ) : (
+                      <Square className="h-4 w-4 text-slate-400" />
+                    )}
+                  </button>
+                  <span className={"flex-1 text-sm " + (f.done ? "line-through text-slate-400" : "")}>{f.text}</span>
+                  <button
+                    type="button"
+                    onClick={() => setFlashTasks((prev) => prev.filter((x) => x.id !== f.id))}
+                    className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-rose-500 shrink-0"
+                    aria-label="Eliminar"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+            <div className="flex gap-2 mt-2">
+              <input
+                value={newFlash}
+                onChange={(e) => setNewFlash(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    addFlash();
+                  }
+                }}
+                placeholder="+ Añadir tarea flash…"
+                className="flex-1 px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-amber-300"
+              />
+              <button
+                type="button"
+                onClick={addFlash}
+                className="px-4 py-2 rounded-lg border text-sm hover:bg-slate-50"
+              >
+                Añadir
+              </button>
+            </div>
+            <p className="text-[11px] text-amber-700/80 mt-1.5">
+              ⚡ Las tareas flash se ven en la tarjeta del tablero para marcarlas sin abrir la tarea.
+            </p>
+          </div>
 
           {isEdit && (
             <div className="pt-2">

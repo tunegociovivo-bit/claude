@@ -1901,6 +1901,28 @@ function TaskCard({
 }) {
   const aiStatus = aiInfo?.aiStatus ?? null;
   const [copied, setCopied] = useState(false);
+  const [flash, setFlash] = useState<{ id: string; text: string; done: boolean }[]>(
+    () => (Array.isArray(task.flashTasks) ? task.flashTasks : [])
+  );
+  useEffect(() => {
+    setFlash(Array.isArray(task.flashTasks) ? task.flashTasks : []);
+  }, [task.flashTasks]);
+
+  async function toggleFlash(id: string, e: React.MouseEvent) {
+    e.stopPropagation();
+    e.preventDefault();
+    const next = flash.map((f) => (f.id === id ? { ...f, done: !f.done } : f));
+    setFlash(next);
+    try {
+      await fetch(`/api/v1/tasks/${task.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ flashTasks: next })
+      });
+    } catch {
+      // si falla, el siguiente refresh del tablero restaura el estado real
+    }
+  }
   // Tick para refrescar el estado de alarma visual + el "🤖
   // Trabajando 1m 14s" del badge de Sonia. Si Sonia está
   // trabajando ahora mismo, tick cada 1s (el contador del badge
@@ -2066,6 +2088,29 @@ function TaskCard({
             <span key={tag} className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-600">
               #{tag}
             </span>
+          ))}
+        </div>
+      )}
+      {flash.length > 0 && (
+        <div className="mb-3 space-y-1 rounded-lg bg-amber-50/60 border border-amber-100 p-1.5">
+          {flash.map((f) => (
+            <button
+              key={f.id}
+              type="button"
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => toggleFlash(f.id, e)}
+              className="w-full flex items-center gap-1.5 text-left text-xs"
+              title={f.done ? "Marcar como pendiente" : "Marcar como hecha"}
+            >
+              {f.done ? (
+                <CheckSquare className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
+              ) : (
+                <Square className="h-3.5 w-3.5 text-amber-500 shrink-0" />
+              )}
+              <span className={"truncate " + (f.done ? "line-through text-slate-400" : "text-slate-700")}>
+                {f.text}
+              </span>
+            </button>
           ))}
         </div>
       )}
