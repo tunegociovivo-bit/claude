@@ -1,5 +1,8 @@
 /** @type {import('next').NextConfig} */
-const NATIVE_PACKAGES = ['@napi-rs/canvas', 'sharp', '@resvg/resvg-js', 'archiver'];
+// Binarios nativos (.node) + pdf-parse/pdf.js: NO se empaquetan con webpack;
+// se cargan desde node_modules en runtime. pdf-parse, si se bundlea, falla con
+// "Cannot find module pdf.worker.mjs" (el worker de pdf.js).
+const NATIVE_PACKAGES = ['@napi-rs/canvas', 'sharp', '@resvg/resvg-js', 'archiver', 'pdf-parse'];
 
 // Timestamp del build (ms epoch). Se evalúa una vez al ejecutar
 // `next build` y se inyecta como env pública. La UI lo lee para
@@ -48,7 +51,14 @@ const nextConfig = {
         // sin incluirla en el trace, Railway no la bundlea en el
         // standalone build y el endpoint 404ea en producción.
         outputFileTracingIncludes: {
-            '/api/**/*': ['./public/fonts/**/*', './chrome-extension/**/*']
+            '/api/**/*': [
+                './public/fonts/**/*',
+                './chrome-extension/**/*',
+                // pdf.js worker: garantiza que el .mjs esté en el standalone
+                // (lo usa pdf-parse al leer PDFs de facturas de Meta).
+                './node_modules/pdfjs-dist/build/pdf.worker.mjs',
+                './node_modules/pdfjs-dist/build/pdf.worker.min.mjs'
+            ]
         }
     },
     webpack: (config, { isServer }) => {
