@@ -99,7 +99,7 @@ const earlyInstallCapture = `
  */
 const swSelfHeal = `
   (function () {
-    var EXPECTED = "v164-2026-05-22-holded-ui";
+    var EXPECTED = "v165-2026-05-23-reel-stitch";
     if (!('serviceWorker' in navigator)) return;
     var key = "hub_sw_v_seen";
     var seen = null;

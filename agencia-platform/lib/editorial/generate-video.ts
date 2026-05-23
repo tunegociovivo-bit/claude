@@ -21,12 +21,67 @@
  * reporta al user para que lo añada en Railway env.
  */
 
+import { execFile } from "node:child_process";
+import { mkdtemp, writeFile, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { promisify } from "node:util";
+
 import { prisma } from "@/lib/db/prisma";
 import { isStorageEnabled, uploadBuffer, signedDownloadUrl, buildS3Key } from "@/lib/storage/r2";
 import { logAiUsage } from "@/lib/ai/usage";
 import { getOpenAiKeyForWorkspace } from "@/lib/ai/openai";
 import { generateFreepikKlingVideo } from "@/lib/ai/freepik";
 import { completeJson } from "@/lib/ai/anthropic";
+
+const execFileAsync = promisify(execFile);
+
+/**
+ * Une N clips .mp4 (las tomas) en un solo reel con ffmpeg. Usa el demuxer
+ * `concat` (rápido, sin recodificar audio porque las tomas no llevan), pero
+ * recodifica vídeo a H.264 yuv420p para que el resultado sea reproducible en
+ * cualquier red social (Kling puede devolver perfiles raros). Si ffmpeg no
+ * está disponible o falla, el caller hace fallback a los clips sueltos.
+ */
+async function stitchClips(buffers: Buffer[]): Promise<Buffer> {
+  const ffmpegPath = ((await import("ffmpeg-static")) as any).default as string;
+  if (!ffmpegPath) throw new Error("ffmpeg-static no disponible");
+
+  const dir = await mkdtemp(join(tmpdir(), "reel-"));
+  try {
+    const files: string[] = [];
+    for (let i = 0; i < buffers.length; i++) {
+      const p = join(dir, `shot-${i}.mp4`);
+      await writeFile(p, buffers[i]);
+      files.push(p);
+    }
+    // Lista para el demuxer concat. Las rutas van entre comillas simples y
+    // -safe 0 permite rutas absolutas.
+    const listPath = join(dir, "list.txt");
+    await writeFile(listPath, files.map((f) => `file '${f}'`).join("\n"));
+    const outPath = join(dir, "reel.mp4");
+
+    await execFileAsync(
+      ffmpegPath,
+      [
+        "-y",
+        "-f", "concat",
+        "-safe", "0",
+        "-i", listPath,
+        "-an",
+        "-c:v", "libx264",
+        "-preset", "veryfast",
+        "-pix_fmt", "yuv420p",
+        "-movflags", "+faststart",
+        outPath
+      ],
+      { maxBuffer: 1024 * 1024 * 64 }
+    );
+    return await readFile(outPath);
+  } finally {
+    await rm(dir, { recursive: true, force: true }).catch(() => {});
+  }
+}
 
 /** Genera una imagen de toma con gpt-image-2 (mismo motor que las imágenes
  *  de las publicaciones). Devuelve el Buffer PNG. */
@@ -188,6 +243,7 @@ export async function generatePostVideo(opts: {
   // 2) Por cada toma: imagen con gpt-image-2 → vídeo con Freepik/Kling.
   const videoUrls: string[] = [];
   const imageUrls: string[] = [];
+  const clipBuffers: Buffer[] = [];
   for (let i = 0; i < shots.length; i++) {
     const shot = shots[i];
     const imgBuf = await generateShotImage(opts.workspaceId, shot.image_prompt, imageSize);
@@ -218,6 +274,7 @@ export async function generatePostVideo(opts: {
     const vresp = await fetch(clipUrl);
     if (!vresp.ok) throw new Error(`No pude descargar la toma ${i + 1}: ${vresp.status}`);
     const vbuf = Buffer.from(await vresp.arrayBuffer());
+    clipBuffers.push(vbuf);
     const vKey = buildS3Key({
       workspaceId: opts.workspaceId,
       targetType: "editorial",
@@ -236,7 +293,31 @@ export async function generatePostVideo(opts: {
     }).catch(() => {});
   }
 
-  // 3) Adjuntar al post: primero los clips, luego las imágenes de cada toma.
+  // 3) Si hay más de una toma, las montamos en UN solo reel con ffmpeg.
+  // El reel va primero en la galería del post; los clips sueltos quedan
+  // detrás como respaldo. Si el montaje falla (ffmpeg no disponible en el
+  // contenedor, codec raro…), seguimos con los clips individuales.
+  let reelUrl: string | null = null;
+  let stitchNote = "";
+  if (clipBuffers.length > 1) {
+    try {
+      const reelBuf = await stitchClips(clipBuffers);
+      const reelKey = buildS3Key({
+        workspaceId: opts.workspaceId,
+        targetType: "editorial",
+        targetId: post.id,
+        filename: `reel-${Date.now()}.mp4`
+      });
+      await uploadBuffer({ s3Key: reelKey, body: reelBuf, contentType: "video/mp4" });
+      reelUrl = await signedDownloadUrl(reelKey);
+      stitchNote = ` Montadas en 1 reel.`;
+    } catch (e: any) {
+      stitchNote = ` (No se pudo montar el reel: ${String(e?.message ?? e).slice(0, 120)}; quedan los clips sueltos.)`;
+    }
+  }
+
+  // 4) Adjuntar al post: reel montado (si hay) → clips de cada toma →
+  // imágenes de cada toma → lo que ya hubiera.
   let mediaUrls: string[] = [];
   try {
     mediaUrls = JSON.parse(post.mediaUrls);
@@ -244,15 +325,15 @@ export async function generatePostVideo(opts: {
   } catch {
     mediaUrls = [];
   }
-  mediaUrls = [...videoUrls, ...imageUrls, ...mediaUrls];
+  mediaUrls = [...(reelUrl ? [reelUrl] : []), ...videoUrls, ...imageUrls, ...mediaUrls];
   await prisma.editorialPost.update({
     where: { id: post.id },
     data: { mediaUrls: JSON.stringify(mediaUrls) }
   });
 
   return {
-    videoUrls,
+    videoUrls: reelUrl ? [reelUrl, ...videoUrls] : videoUrls,
     shots: shots.length,
-    note: `${shots.length} toma(s) ${aspectRatio}: imagen (gpt-image-2) → vídeo (Freepik/Kling). ${videoUrls.length} clip(s) adjuntado(s) al post.`
+    note: `${shots.length} toma(s) ${aspectRatio}: imagen (gpt-image-2) → vídeo (Freepik/Kling).${stitchNote} ${videoUrls.length} clip(s) adjuntado(s) al post.`
   };
 }

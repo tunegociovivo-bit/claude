@@ -2,7 +2,7 @@
 // Binarios nativos (.node) + pdf-parse/pdf.js: NO se empaquetan con webpack;
 // se cargan desde node_modules en runtime. pdf-parse, si se bundlea, falla con
 // "Cannot find module pdf.worker.mjs" (el worker de pdf.js).
-const NATIVE_PACKAGES = ['@napi-rs/canvas', 'sharp', '@resvg/resvg-js', 'archiver', 'pdf-parse'];
+const NATIVE_PACKAGES = ['@napi-rs/canvas', 'sharp', '@resvg/resvg-js', 'archiver', 'pdf-parse', 'ffmpeg-static'];
 
 // Timestamp del build (ms epoch). Se evalúa una vez al ejecutar
 // `next build` y se inyecta como env pública. La UI lo lee para
@@ -57,7 +57,9 @@ const nextConfig = {
                 // pdf.js worker: garantiza que el .mjs esté en el standalone
                 // (lo usa pdf-parse al leer PDFs de facturas de Meta).
                 './node_modules/pdfjs-dist/build/pdf.worker.mjs',
-                './node_modules/pdfjs-dist/build/pdf.worker.min.mjs'
+                './node_modules/pdfjs-dist/build/pdf.worker.min.mjs',
+                // binario de ffmpeg (montaje de tomas del vídeo editorial)
+                './node_modules/ffmpeg-static/ffmpeg'
             ]
         }
     },
