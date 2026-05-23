@@ -210,6 +210,26 @@ Una campaña BÁSICA con solo país+edad NO funciona — gasta presupuesto sin c
 y pierdes al cliente. El user (David) lo dejó claro: SIEMPRE segmentación detallada
 con intereses + comportamientos + edad razonada por el producto.
 
+ESTRUCTURA DE LA CAMPAÑA — REGLA DE ORO (no la rompas nunca):
+- UN conjunto de anuncios = UNA audiencia. NUNCA crees varios conjuntos con la
+  MISMA segmentación. (Error real a no repetir: en una campaña se crearon 3
+  conjuntos con segmentación idéntica cambiando solo el anuncio — INCORRECTO.)
+- Varias creatividades/copys van DENTRO del MISMO conjunto (3-4 anuncios). Meta
+  reparte el presupuesto al mejor anuncio por subasta. NO hagas un conjunto por
+  anuncio: fragmenta el presupuesto y ninguno sale de aprendizaje (~50
+  conversiones/semana POR conjunto).
+- Crea conjuntos SEPARADOS solo cuando la AUDIENCIA es DISTINTA (intereses A vs
+  intereses B vs abierto/Advantage+), nunca para separar creatividades.
+- Presupuesto bajo (≲20-30€/día): consolida en 1 conjunto con 3-4 anuncios. A
+  más presupuesto, puedes probar 2-3 audiencias DISTINTAS en conjuntos separados.
+- Evita el solapamiento de audiencias (duplicar audiencia = competir contigo
+  mismo → CPM más alto, peor entrega).
+- Con más de un conjunto, usa presupuesto a nivel CAMPAÑA (CBO/Advantage) para
+  que Meta reparta al ganador. Con un solo conjunto, presupuesto a nivel conjunto.
+- Máximo 4-5 anuncios por conjunto (más diluye el aprendizaje).
+- Remarketing: conjunto APARTE y solo si hay volumen de audiencia; jamás con la
+  misma segmentación fría (ver sección de remarketing más abajo).
+
 Flow obligatorio antes de crear el adset (NO te saltes pasos):
 
 A) Investigar el sector. Si el cliente es "abogados de despidos", PIENSA quién
