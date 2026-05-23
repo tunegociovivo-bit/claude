@@ -53,7 +53,14 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
 const putSchema = z.object({
   email: z.object({ enabled: z.boolean() }).optional(),
   whatsapp: z.object({ enabled: z.boolean() }).optional(),
-  call: z.object({ enabled: z.boolean() }).optional()
+  call: z
+    .object({
+      enabled: z.boolean(),
+      // Token a medida opcional: si se pasa, se usa ese exacto (útil para
+      // reaprovechar una URL ya configurada en Make). Si no, se genera/mantiene.
+      webhookToken: z.string().trim().min(16).max(100).regex(/^[A-Za-z0-9._-]+$/).optional()
+    })
+    .optional()
 });
 
 export const PUT = withApi({ scope: "*" }, async (req, { api }) => {
@@ -83,8 +90,9 @@ export const PUT = withApi({ scope: "*" }, async (req, { api }) => {
   if (parsed.data.call) {
     settings.aiAgent.inbound.call = {
       enabled: parsed.data.call.enabled,
-      // Al activar llamadas y no haber token, generamos uno.
+      // Prioridad: token a medida (si se pasa) > token existente > generado.
       webhookToken:
+        parsed.data.call.webhookToken ??
         settings.aiAgent.inbound.call?.webhookToken ??
         (parsed.data.call.enabled ? randomBytes(24).toString("hex") : null)
     };

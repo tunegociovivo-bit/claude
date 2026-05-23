@@ -61,6 +61,7 @@ export default function NvIaAdminPage() {
   const [savingProactive, setSavingProactive] = useState(false);
   const [inbound, setInbound] = useState<InboundCfg | null>(null);
   const [savingInbound, setSavingInbound] = useState(false);
+  const [callTokenInput, setCallTokenInput] = useState("");
   const [loading, setLoading] = useState(true);
   const [initing, setIniting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -80,7 +81,11 @@ export default function NvIaAdminPage() {
         setRuns(j.items ?? []);
       }
       if (pR.ok) setProactive(await pR.json());
-      if (iR.ok) setInbound(await iR.json());
+      if (iR.ok) {
+        const inb = await iR.json();
+        setInbound(inb);
+        if (inb?.call?.webhookToken) setCallTokenInput(inb.call.webhookToken);
+      }
     } catch (e: any) {
       setError(String(e?.message ?? e));
     } finally {
@@ -114,7 +119,7 @@ export default function NvIaAdminPage() {
     }
   }
 
-  async function saveInbound(next: Partial<{ email: { enabled: boolean; webhookToken?: string | null }; whatsapp: { enabled: boolean }; call: { enabled: boolean } }>) {
+  async function saveInbound(next: Partial<{ email: { enabled: boolean; webhookToken?: string | null }; whatsapp: { enabled: boolean }; call: { enabled: boolean; webhookToken?: string } }>) {
     setSavingInbound(true);
     setError(null);
     try {
@@ -123,7 +128,12 @@ export default function NvIaAdminPage() {
       const body: any = {};
       if (next.email) body.email = { enabled: next.email.enabled };
       if (next.whatsapp) body.whatsapp = { enabled: next.whatsapp.enabled };
-      if (next.call) body.call = { enabled: next.call.enabled };
+      if (next.call) {
+        body.call = { enabled: next.call.enabled };
+        // Token a medida (opcional): solo se manda si tiene formato válido.
+        const t = (next.call.webhookToken ?? "").trim();
+        if (t && /^[A-Za-z0-9._-]{16,100}$/.test(t)) body.call.webhookToken = t;
+      }
       const r = await fetch("/api/v1/admin/ai-agent/inbound", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -404,11 +414,35 @@ export default function NvIaAdminPage() {
                         type="checkbox"
                         checked={inbound.call.enabled}
                         disabled={savingInbound}
-                        onChange={(e) => saveInbound({ call: { enabled: e.target.checked } })}
+                        onChange={(e) =>
+                          saveInbound({ call: { enabled: e.target.checked, webhookToken: callTokenInput } })
+                        }
                         className="accent-violet-600 h-4 w-4"
                       />
                       <span className="text-xs font-medium">{inbound.call.enabled ? "Activo" : "Inactivo"}</span>
                     </label>
+                  </div>
+                  <div className="mt-3">
+                    <label className="block text-[11px] text-slate-600 mb-1">
+                      Token del webhook (déjalo vacío para generar uno):
+                    </label>
+                    <div className="flex gap-2">
+                      <input
+                        value={callTokenInput}
+                        disabled={savingInbound}
+                        onChange={(e) => setCallTokenInput(e.target.value)}
+                        placeholder="p. ej. 504a7be7-a5ca-44ab-b1e2-2933748c4857"
+                        className="flex-1 text-[11px] border rounded px-2 py-1.5 font-mono"
+                      />
+                      <button
+                        type="button"
+                        disabled={savingInbound}
+                        onClick={() => saveInbound({ call: { enabled: true, webhookToken: callTokenInput } })}
+                        className="text-[11px] px-3 py-1.5 rounded bg-violet-600 text-white disabled:opacity-50"
+                      >
+                        Guardar token
+                      </button>
+                    </div>
                   </div>
                   {inbound.call.enabled && inbound.call.webhookToken && (
                     <div className="mt-3">
