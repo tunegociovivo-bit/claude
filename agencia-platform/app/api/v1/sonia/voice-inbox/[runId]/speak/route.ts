@@ -7,7 +7,7 @@
  * 204 si ElevenLabs no está configurado → el cliente cae a la voz del
  * navegador con el texto que recibe de /voice-inbox.
  *
- * Solo admin.
+ * Solo admin.h
  */
 
 import { NextResponse } from "next/server";
@@ -39,7 +39,7 @@ function clean(s: string): string {
     .trim();
 }
 
-export function buildVoiceInboxSpeech(opts: {
+function buildVoiceInboxSpeech(opts: {
   userFirstName: string | null;
   taskTitle: string | null;
   draftTitles: string[];
