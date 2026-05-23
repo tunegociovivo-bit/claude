@@ -18,10 +18,22 @@ import { callerIsAdmin } from "@/lib/api/permissions";
 
 export const dynamic = "force-dynamic";
 
-export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
+function originOf(req: { url: string }): string {
+  const base = process.env.NEXT_PUBLIC_APP_URL ?? process.env.NEXTAUTH_URL;
+  if (base) return base.replace(/\/+$/, "");
+  try {
+    return new URL(req.url).origin;
+  } catch {
+    return "";
+  }
+}
+
+export const GET = withApi({ scope: "*" }, async (req, { api }) => {
   if (!(await callerIsAdmin(api))) throw new ApiError(403, "forbidden", "Solo admin");
   const ws = await prisma.workspace.findUnique({ where: { id: api.workspaceId } });
   const cfg = (ws?.settings as any)?.aiAgent?.inbound ?? {};
+  const origin = originOf(req);
+  const callToken = cfg.call?.webhookToken ?? null;
   return NextResponse.json({
     email: {
       enabled: cfg.email?.enabled === true,
@@ -29,13 +41,19 @@ export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
     },
     whatsapp: {
       enabled: cfg.whatsapp?.enabled === true
+    },
+    call: {
+      enabled: cfg.call?.enabled === true,
+      webhookToken: callToken,
+      webhookUrl: callToken ? `${origin}/api/webhooks/inbound-call/${callToken}` : null
     }
   });
 });
 
 const putSchema = z.object({
   email: z.object({ enabled: z.boolean() }).optional(),
-  whatsapp: z.object({ enabled: z.boolean() }).optional()
+  whatsapp: z.object({ enabled: z.boolean() }).optional(),
+  call: z.object({ enabled: z.boolean() }).optional()
 });
 
 export const PUT = withApi({ scope: "*" }, async (req, { api }) => {
@@ -61,6 +79,15 @@ export const PUT = withApi({ scope: "*" }, async (req, { api }) => {
   }
   if (parsed.data.whatsapp) {
     settings.aiAgent.inbound.whatsapp = { enabled: parsed.data.whatsapp.enabled };
+  }
+  if (parsed.data.call) {
+    settings.aiAgent.inbound.call = {
+      enabled: parsed.data.call.enabled,
+      // Al activar llamadas y no haber token, generamos uno.
+      webhookToken:
+        settings.aiAgent.inbound.call?.webhookToken ??
+        (parsed.data.call.enabled ? randomBytes(24).toString("hex") : null)
+    };
   }
   await prisma.workspace.update({
     where: { id: api.workspaceId },
