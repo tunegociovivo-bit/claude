@@ -43,7 +43,7 @@ export async function logAiUsage(opts: {
   userId?: string | null;
   projectId?: string | null;
   feature: string;
-  provider: "anthropic" | "openai" | "freepik";
+  provider: "anthropic" | "openai" | "freepik" | "elevenlabs";
   model: string;
   inputTokens?: number;
   outputTokens?: number;

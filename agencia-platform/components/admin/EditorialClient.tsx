@@ -3751,6 +3751,8 @@ function GenerateVideoBar({ postId, onGenerated }: { postId: string; onGenerated
   const [error, setError] = useState<string | null>(null);
   const [extra, setExtra] = useState("");
   const [shots, setShots] = useState(2);
+  const [voiceover, setVoiceover] = useState(true);
+  const [subtitles, setSubtitles] = useState(true);
   const [done, setDone] = useState<string | null>(null);
 
   async function run() {
@@ -3761,7 +3763,7 @@ function GenerateVideoBar({ postId, onGenerated }: { postId: string; onGenerated
       const r = await fetch(`/api/v1/editorial/posts/${postId}/generate-video`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ extraGuidance: extra.trim() || undefined, shots })
+        body: JSON.stringify({ extraGuidance: extra.trim() || undefined, shots, voiceover, subtitles })
       });
       const j = await r.json();
       if (!r.ok) {
@@ -3783,8 +3785,9 @@ function GenerateVideoBar({ postId, onGenerated }: { postId: string; onGenerated
       </div>
       <p className="text-[11px] text-slate-600">
         Genera una imagen por toma con gpt-image-2 (mismo look que las imágenes) y la anima con Freepik/Kling 2.0.
+        Monta las tomas en un solo reel y, si lo marcas, añade voz en off (ElevenLabs) y subtítulos sincronizados.
         9:16 para reel/story, 16:9 para vídeo. Tarda varios minutos por toma. Requiere la API key de Freepik
-        (Administración → Calendario editorial) y OpenAI.
+        (Administración → Calendario editorial), OpenAI y, para la voz, ElevenLabs.
       </p>
       <div className="flex items-center gap-2">
         <label className="text-[11px] text-slate-600">Tomas</label>
@@ -3800,6 +3803,16 @@ function GenerateVideoBar({ postId, onGenerated }: { postId: string; onGenerated
           ))}
         </select>
         <span className="text-[10px] text-slate-400">una imagen + clip por toma</span>
+      </div>
+      <div className="flex flex-wrap items-center gap-3">
+        <label className="inline-flex items-center gap-1.5 text-[11px] text-slate-700 cursor-pointer">
+          <input type="checkbox" checked={voiceover} onChange={(e) => setVoiceover(e.target.checked)} className="accent-violet-600" />
+          Voz en off (ElevenLabs)
+        </label>
+        <label className="inline-flex items-center gap-1.5 text-[11px] text-slate-700 cursor-pointer">
+          <input type="checkbox" checked={subtitles} onChange={(e) => setSubtitles(e.target.checked)} className="accent-violet-600" />
+          Subtítulos
+        </label>
       </div>
       <input
         value={extra}

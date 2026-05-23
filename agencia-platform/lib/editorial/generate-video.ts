@@ -32,9 +32,267 @@ import { isStorageEnabled, uploadBuffer, signedDownloadUrl, buildS3Key } from "@
 import { logAiUsage } from "@/lib/ai/usage";
 import { getOpenAiKeyForWorkspace } from "@/lib/ai/openai";
 import { generateFreepikKlingVideo } from "@/lib/ai/freepik";
+import { elevenlabsSynthesize } from "@/lib/integrations/elevenlabs";
 import { completeJson } from "@/lib/ai/anthropic";
 
 const execFileAsync = promisify(execFile);
+
+async function getFfmpegPath(): Promise<string> {
+  const p = ((await import("ffmpeg-static")) as any).default as string;
+  if (!p) throw new Error("ffmpeg-static no disponible");
+  return p;
+}
+
+/** Lee duración (s) y resolución de un fichero con ffmpeg (ffmpeg-static no
+ *  trae ffprobe, así que parseamos el stderr de `ffmpeg -i`). */
+async function probeMedia(ffmpegPath: string, file: string): Promise<{ dur: number; w: number; h: number }> {
+  let stderr = "";
+  try {
+    const r = await execFileAsync(ffmpegPath, ["-hide_banner", "-i", file], { maxBuffer: 4 << 20 });
+    stderr = r.stderr || "";
+  } catch (e: any) {
+    // `ffmpeg -i` sin salida termina con código 1; el stderr trae la info.
+    stderr = e?.stderr || "";
+  }
+  let dur = 0;
+  const dm = /Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)/.exec(stderr);
+  if (dm) dur = Number(dm[1]) * 3600 + Number(dm[2]) * 60 + parseFloat(dm[3]);
+  let w = 0;
+  let h = 0;
+  const rm = /,\s*(\d{2,5})x(\d{2,5})[\s,]/.exec(stderr);
+  if (rm) {
+    w = Number(rm[1]);
+    h = Number(rm[2]);
+  }
+  return { dur, w, h };
+}
+
+/** Genera el guion de la VOZ EN OFF (español) ajustado a la duración del
+ *  vídeo. Hereda el contexto de marca para mantener el tono del cliente. */
+async function generateNarration(opts: {
+  workspaceId: string;
+  postTitle: string;
+  postContent?: string | null;
+  brandBrief?: string | null;
+  styleGuide?: string | null;
+  extraGuidance?: string | null;
+  targetWords: number;
+}): Promise<string> {
+  const r = await completeJson<{ script: string }>({
+    workspaceId: opts.workspaceId,
+    system:
+      `Eres copywriter de vídeo para redes sociales. Escribe la VOZ EN OFF (locución) en ESPAÑOL ` +
+      `para un reel/vídeo de marca. Debe sonar natural al hablarse, ser persuasiva y caber en ~${opts.targetWords} ` +
+      `palabras (NI UNA más, mejor algo menos). Una sola voz, frases cortas, sin emojis, sin hashtags, ` +
+      `sin indicaciones de escena ni acotaciones — SOLO el texto que se locuta. Respeta el tono de la marca.`,
+    user: [
+      `Título: ${opts.postTitle}`,
+      opts.postContent?.trim() ? `Mensaje del post: ${opts.postContent.slice(0, 800)}` : "",
+      opts.brandBrief?.trim() ? `Marca: ${opts.brandBrief.slice(0, 500)}` : "",
+      opts.styleGuide?.trim() ? `Estilo: ${opts.styleGuide.slice(0, 500)}` : "",
+      opts.extraGuidance?.trim() ? `Dirección extra: ${opts.extraGuidance.slice(0, 300)}` : ""
+    ]
+      .filter(Boolean)
+      .join("\n")
+      .slice(0, 4000),
+    schema: {
+      type: "object",
+      properties: { script: { type: "string", description: "El texto exacto de la voz en off, en español" } },
+      required: ["script"]
+    },
+    maxTokens: 600,
+    feature: "editorial_video_narration"
+  } as any);
+  return (r?.script ?? "").trim();
+}
+
+/** Transcribe el audio con Whisper (verbose_json) para obtener segmentos con
+ *  timestamps — así los subtítulos quedan sincronizados con la locución real. */
+async function transcribeSegments(
+  workspaceId: string,
+  audio: Buffer
+): Promise<{ start: number; end: number; text: string }[]> {
+  const apiKey = await getOpenAiKeyForWorkspace(workspaceId);
+  const form = new FormData();
+  form.append("file", new Blob([new Uint8Array(audio)], { type: "audio/mpeg" }), "voice.mp3");
+  form.append("model", "whisper-1");
+  form.append("response_format", "verbose_json");
+  form.append("language", "es");
+  const resp = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}` },
+    body: form
+  });
+  if (!resp.ok) throw new Error(`Whisper ${resp.status}: ${(await resp.text()).slice(0, 200)}`);
+  const data = await resp.json();
+  const segs = Array.isArray(data?.segments) ? data.segments : [];
+  return segs
+    .map((s: any) => ({ start: Number(s.start) || 0, end: Number(s.end) || 0, text: String(s.text || "").trim() }))
+    .filter((s: any) => s.text);
+}
+
+function srtTime(sec: number): string {
+  const ms = Math.max(0, Math.round(sec * 1000));
+  const h = Math.floor(ms / 3600000);
+  const m = Math.floor((ms % 3600000) / 60000);
+  const s = Math.floor((ms % 60000) / 1000);
+  const mmm = ms % 1000;
+  const p = (n: number, l = 2) => String(n).padStart(l, "0");
+  return `${p(h)}:${p(m)}:${p(s)},${p(mmm, 3)}`;
+}
+
+function buildSrt(segments: { start: number; end: number; text: string }[]): string {
+  return segments
+    .map((s, i) => `${i + 1}\n${srtTime(s.start)} --> ${srtTime(s.end)}\n${s.text.replace(/\s+/g, " ").trim()}\n`)
+    .join("\n");
+}
+
+/** Subtítulos estimados cuando NO hay audio (voz fallida/desactivada): reparte
+ *  el guion en bloques cortos a lo largo de la duración del vídeo. */
+function estimateSrt(script: string, totalDur: number): string {
+  const words = script.split(/\s+/).filter(Boolean);
+  if (!words.length || totalDur <= 0) return "";
+  const perCue = 7;
+  const cues: string[][] = [];
+  for (let i = 0; i < words.length; i += perCue) cues.push(words.slice(i, i + perCue));
+  const each = totalDur / cues.length;
+  const segs = cues.map((w, i) => ({ start: i * each, end: Math.min(totalDur, (i + 1) * each - 0.05), text: w.join(" ") }));
+  return buildSrt(segs);
+}
+
+/**
+ * Aplica VOZ EN OFF (ElevenLabs) y SUBTÍTULOS quemados sobre el vídeo base.
+ * Whisper da los timestamps de los subtítulos para que casen con la voz real.
+ * Degrada con elegancia: si la voz falla (p.ej. ElevenLabs sin configurar),
+ * sigue con subtítulos de timing estimado. Devuelve changed=false si no pudo
+ * aplicar nada (para que el caller no suba un duplicado del clip original).
+ */
+async function addVoiceAndSubtitles(opts: {
+  workspaceId: string;
+  baseVideo: Buffer;
+  wantVoice: boolean;
+  wantSubs: boolean;
+  vertical: boolean;
+  postTitle: string;
+  postContent?: string | null;
+  brandBrief?: string | null;
+  styleGuide?: string | null;
+  extraGuidance?: string | null;
+  voiceId?: string;
+}): Promise<{ buf: Buffer; note: string; changed: boolean }> {
+  const ffmpegPath = await getFfmpegPath();
+  const dir = await mkdtemp(join(tmpdir(), "voice-"));
+  let note = "";
+  try {
+    const basePath = join(dir, "base.mp4");
+    await writeFile(basePath, opts.baseVideo);
+    const { dur: baseDur, h } = await probeMedia(ffmpegPath, basePath);
+    const vDur = baseDur > 0 ? baseDur : 5;
+
+    // El guion se dimensiona a ~2.2 palabras/seg (locución pausada) para que
+    // la voz no se pase de largo del vídeo.
+    const targetWords = Math.max(8, Math.round(vDur * 2.2));
+    const script = await generateNarration({
+      workspaceId: opts.workspaceId,
+      postTitle: opts.postTitle,
+      postContent: opts.postContent,
+      brandBrief: opts.brandBrief,
+      styleGuide: opts.styleGuide,
+      extraGuidance: opts.extraGuidance,
+      targetWords
+    });
+    if (!script) return { buf: opts.baseVideo, note: " (Sin guion para voz/subtítulos.)", changed: false };
+
+    // 1) Voz en off (ElevenLabs).
+    let audioBuf: Buffer | null = null;
+    if (opts.wantVoice) {
+      try {
+        audioBuf = await elevenlabsSynthesize({ workspaceId: opts.workspaceId, text: script, voiceId: opts.voiceId, languageCode: "es" });
+        logAiUsage({
+          workspaceId: opts.workspaceId,
+          feature: "editorial_video_voiceover",
+          provider: "elevenlabs",
+          model: "tts",
+          inputTokens: 0,
+          outputTokens: 0
+        }).catch(() => {});
+      } catch (e: any) {
+        note += ` (Voz en off omitida: ${String(e?.message ?? e).slice(0, 100)}.)`;
+        audioBuf = null;
+      }
+    }
+
+    // 2) Subtítulos: timestamps reales de la voz (Whisper) o estimados.
+    let srt = "";
+    if (opts.wantSubs) {
+      if (audioBuf) {
+        try {
+          const segs = await transcribeSegments(opts.workspaceId, audioBuf);
+          srt = segs.length ? buildSrt(segs) : estimateSrt(script, vDur);
+          logAiUsage({
+            workspaceId: opts.workspaceId,
+            feature: "editorial_video_subtitles",
+            provider: "openai",
+            model: "whisper-1",
+            inputTokens: 0,
+            outputTokens: 0
+          }).catch(() => {});
+        } catch {
+          srt = estimateSrt(script, vDur);
+        }
+      } else {
+        srt = estimateSrt(script, vDur);
+      }
+    }
+
+    if (!audioBuf && !srt) return { buf: opts.baseVideo, note, changed: false };
+
+    // 3) Montaje final con ffmpeg: muxea la voz y quema los subtítulos.
+    let audioDur = 0;
+    if (audioBuf) {
+      const audioPath = join(dir, "voice.mp3");
+      await writeFile(audioPath, audioBuf);
+      audioDur = (await probeMedia(ffmpegPath, audioPath)).dur;
+    }
+    let srtName = "";
+    if (srt) {
+      srtName = "subs.srt";
+      await writeFile(join(dir, srtName), srt);
+    }
+
+    const target = Math.max(vDur, audioDur) + (audioBuf ? 0.3 : 0);
+    const vfParts: string[] = [];
+    if (audioDur > vDur + 0.05) {
+      // Congela el último fotograma para que la voz se oiga entera.
+      vfParts.push(`tpad=stop_mode=clone:stop_duration=${(audioDur - vDur).toFixed(2)}`);
+    }
+    if (srtName) {
+      const fontSize = Math.max(18, Math.round((h > 0 ? h : opts.vertical ? 1280 : 720) * 0.05));
+      const marginV = Math.max(24, Math.round((h > 0 ? h : opts.vertical ? 1280 : 720) * 0.08));
+      const style = `Fontname=Arial,Fontsize=${fontSize},PrimaryColour=&H00FFFFFF&,OutlineColour=&H00000000&,BorderStyle=1,Outline=2,Shadow=1,Alignment=2,MarginV=${marginV}`;
+      vfParts.push(`subtitles=${srtName}:force_style='${style}'`);
+    }
+    const hasVf = vfParts.length > 0;
+    const outPath = join(dir, "final.mp4");
+    const args: string[] = ["-y", "-i", "base.mp4"];
+    if (audioBuf) args.push("-i", "voice.mp3");
+    if (hasVf) args.push("-vf", vfParts.join(","));
+    args.push("-map", "0:v");
+    if (audioBuf) args.push("-map", "1:a");
+    if (hasVf) args.push("-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p");
+    else args.push("-c:v", "copy");
+    if (audioBuf) args.push("-c:a", "aac", "-b:a", "128k");
+    else args.push("-an");
+    args.push("-movflags", "+faststart", "-t", target.toFixed(2), outPath);
+
+    await execFileAsync(ffmpegPath, args, { cwd: dir, maxBuffer: 64 << 20 });
+    const buf = await readFile(outPath);
+    const bits = [audioBuf ? "voz en off" : null, srt ? "subtítulos" : null].filter(Boolean).join(" + ");
+    return { buf, note: `${bits ? ` Con ${bits}.` : ""}${note}`, changed: true };
+  } finally {
+    await rm(dir, { recursive: true, force: true }).catch(() => {});
+  }
+}
 
 /**
  * Une N clips .mp4 (las tomas) en un solo reel con ffmpeg. Usa el demuxer
@@ -44,9 +302,7 @@ const execFileAsync = promisify(execFile);
  * está disponible o falla, el caller hace fallback a los clips sueltos.
  */
 async function stitchClips(buffers: Buffer[]): Promise<Buffer> {
-  const ffmpegPath = ((await import("ffmpeg-static")) as any).default as string;
-  if (!ffmpegPath) throw new Error("ffmpeg-static no disponible");
-
+  const ffmpegPath = await getFfmpegPath();
   const dir = await mkdtemp(join(tmpdir(), "reel-"));
   try {
     const files: string[] = [];
@@ -186,6 +442,12 @@ export async function generatePostVideo(opts: {
   model?: string;
   /** Nº de tomas (default 2, máx 4). */
   shots?: number;
+  /** Añadir voz en off (ElevenLabs). Default true. */
+  voiceover?: boolean;
+  /** Quemar subtítulos en el vídeo. Default true. */
+  subtitles?: boolean;
+  /** Voz de ElevenLabs a usar (default: la configurada en el workspace). */
+  voiceId?: string;
 }): Promise<{ videoUrls: string[]; shots: number; note: string }> {
   if (!isStorageEnabled()) {
     throw new Error("STORAGE_* no configurado — no se pueden guardar vídeos generados");
@@ -293,30 +555,63 @@ export async function generatePostVideo(opts: {
     }).catch(() => {});
   }
 
-  // 3) Si hay más de una toma, las montamos en UN solo reel con ffmpeg.
-  // El reel va primero en la galería del post; los clips sueltos quedan
-  // detrás como respaldo. Si el montaje falla (ffmpeg no disponible en el
-  // contenedor, codec raro…), seguimos con los clips individuales.
-  let reelUrl: string | null = null;
-  let stitchNote = "";
+  // 3) Componer el vídeo final: montar las tomas en 1 reel (si hay varias) y
+  // añadir voz en off + subtítulos. El resultado va primero en la galería del
+  // post; los clips sueltos y las imágenes quedan detrás como respaldo. Cada
+  // paso degrada con elegancia (si ffmpeg/voz fallan, seguimos con lo que haya).
+  let composite: Buffer | null = null;
+  let buildNote = "";
+
+  // 3a) Montaje de las tomas.
   if (clipBuffers.length > 1) {
     try {
-      const reelBuf = await stitchClips(clipBuffers);
-      const reelKey = buildS3Key({
-        workspaceId: opts.workspaceId,
-        targetType: "editorial",
-        targetId: post.id,
-        filename: `reel-${Date.now()}.mp4`
-      });
-      await uploadBuffer({ s3Key: reelKey, body: reelBuf, contentType: "video/mp4" });
-      reelUrl = await signedDownloadUrl(reelKey);
-      stitchNote = ` Montadas en 1 reel.`;
+      composite = await stitchClips(clipBuffers);
+      buildNote += " Montadas en 1 reel.";
     } catch (e: any) {
-      stitchNote = ` (No se pudo montar el reel: ${String(e?.message ?? e).slice(0, 120)}; quedan los clips sueltos.)`;
+      buildNote += ` (No se pudo montar el reel: ${String(e?.message ?? e).slice(0, 120)}; quedan los clips sueltos.)`;
     }
   }
 
-  // 4) Adjuntar al post: reel montado (si hay) → clips de cada toma →
+  // 3b) Voz en off + subtítulos sobre el vídeo base (reel montado o clip único).
+  const wantVoice = opts.voiceover !== false;
+  const wantSubs = opts.subtitles !== false;
+  if ((wantVoice || wantSubs) && (composite || clipBuffers.length === 1)) {
+    const base = composite ?? clipBuffers[0];
+    try {
+      const enhanced = await addVoiceAndSubtitles({
+        workspaceId: opts.workspaceId,
+        baseVideo: base,
+        wantVoice,
+        wantSubs,
+        vertical,
+        postTitle: post.title,
+        postContent: post.content,
+        brandBrief: client?.brandBrief,
+        styleGuide: client?.styleGuideCached,
+        extraGuidance: opts.extraGuidance,
+        voiceId: opts.voiceId
+      });
+      buildNote += enhanced.note;
+      if (enhanced.changed) composite = enhanced.buf;
+    } catch (e: any) {
+      buildNote += ` (Voz/subtítulos no aplicados: ${String(e?.message ?? e).slice(0, 120)}.)`;
+    }
+  }
+
+  // 3c) Subir el vídeo compuesto (si lo hay).
+  let finalUrl: string | null = null;
+  if (composite) {
+    const reelKey = buildS3Key({
+      workspaceId: opts.workspaceId,
+      targetType: "editorial",
+      targetId: post.id,
+      filename: `reel-${Date.now()}.mp4`
+    });
+    await uploadBuffer({ s3Key: reelKey, body: composite, contentType: "video/mp4" });
+    finalUrl = await signedDownloadUrl(reelKey);
+  }
+
+  // 4) Adjuntar al post: vídeo compuesto (si hay) → clips de cada toma →
   // imágenes de cada toma → lo que ya hubiera.
   let mediaUrls: string[] = [];
   try {
@@ -325,15 +620,15 @@ export async function generatePostVideo(opts: {
   } catch {
     mediaUrls = [];
   }
-  mediaUrls = [...(reelUrl ? [reelUrl] : []), ...videoUrls, ...imageUrls, ...mediaUrls];
+  mediaUrls = [...(finalUrl ? [finalUrl] : []), ...videoUrls, ...imageUrls, ...mediaUrls];
   await prisma.editorialPost.update({
     where: { id: post.id },
     data: { mediaUrls: JSON.stringify(mediaUrls) }
   });
 
   return {
-    videoUrls: reelUrl ? [reelUrl, ...videoUrls] : videoUrls,
+    videoUrls: finalUrl ? [finalUrl, ...videoUrls] : videoUrls,
     shots: shots.length,
-    note: `${shots.length} toma(s) ${aspectRatio}: imagen (gpt-image-2) → vídeo (Freepik/Kling).${stitchNote} ${videoUrls.length} clip(s) adjuntado(s) al post.`
+    note: `${shots.length} toma(s) ${aspectRatio}: imagen (gpt-image-2) → vídeo (Freepik/Kling).${buildNote} ${videoUrls.length} clip(s) adjuntado(s) al post.`
   };
 }

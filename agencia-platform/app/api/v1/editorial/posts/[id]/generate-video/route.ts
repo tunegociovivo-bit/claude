@@ -22,7 +22,9 @@ const schema = z.object({
   promptOverride: z.string().optional(),
   extraGuidance: z.string().optional(),
   model: z.string().optional(),
-  shots: z.number().int().min(1).max(4).optional()
+  shots: z.number().int().min(1).max(4).optional(),
+  voiceover: z.boolean().optional(),
+  subtitles: z.boolean().optional()
 });
 
 export const POST = withApi({ scope: "*" }, async (req, { params, api }) => {
@@ -37,7 +39,9 @@ export const POST = withApi({ scope: "*" }, async (req, { params, api }) => {
       promptOverride: parsed.data.promptOverride,
       extraGuidance: parsed.data.extraGuidance,
       model: parsed.data.model,
-      shots: parsed.data.shots
+      shots: parsed.data.shots,
+      voiceover: parsed.data.voiceover,
+      subtitles: parsed.data.subtitles
     });
     return NextResponse.json(out);
   } catch (e: any) {
