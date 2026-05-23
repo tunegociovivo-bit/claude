@@ -345,18 +345,20 @@ async function runImport(jobId: string, opts: ImportOptions) {
       orderInColumn?: number
     ) {
       // El status de la tarea es el ID de la columna del proyecto que
-      // se corresponde con la sección de Asana. Así la tarea cae en
-      // SU columna original (TAREAS, REUNIONES, SPLITS...) en lugar
-      // del genérico TODO. Si la tarea está completed, va a la primera
-      // columna marcada isDone (o "HECHO" en su nombre).
+      // se corresponde con la sección de Asana — ESPEJO EXACTO de Asana:
+      // una tarea completada en Asana SIGUE en su sección (no se mueve a
+      // "hecho"), así que la columna manda sobre el estado completado.
+      // Solo si la tarea NO tiene sección caemos a "hecho" (si está
+      // completada) o a TODO.
       const projectInfo = projectByGid.get(currentProjectGid);
       const sectionInfo = sectionGid ? projectInfo?.sections.get(sectionGid) : null;
       let status: string;
-      if (t.completed) {
-        const doneCol = findDoneColumnId(projectInfo);
-        status = doneCol ?? sectionInfo?.columnId ?? TaskStatus.DONE;
+      if (sectionInfo?.columnId) {
+        status = sectionInfo.columnId;
+      } else if (t.completed) {
+        status = findDoneColumnId(projectInfo) ?? TaskStatus.DONE;
       } else {
-        status = sectionInfo?.columnId ?? statusFromSectionName(sectionInfo?.name) ?? TaskStatus.TODO;
+        status = statusFromSectionName(sectionInfo?.name) ?? TaskStatus.TODO;
       }
       const due = t.due_at || t.due_on ? new Date(t.due_at ?? t.due_on!) : null;
       const priority = detectPriorityFromCustomFields(t.custom_fields);
