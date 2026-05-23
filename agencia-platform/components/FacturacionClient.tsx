@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Building2, Users, X, Loader2, Search, Check, FileText, Wallet, Upload } from "lucide-react";
+import { Building2, Users, X, Loader2, Search, Check, FileText, Wallet, Upload, Download } from "lucide-react";
 import { formatMoney } from "@/lib/invoicing/core";
 import FacturasClient from "@/components/admin/FacturasClient";
 import GastosClient from "@/components/GastosClient";
@@ -49,6 +49,26 @@ export default function FacturacionClient({
   const [tick, setTick] = useState(0);
   const [assignedIds, setAssignedIds] = useState<string[]>([]);
   const [assignOpen, setAssignOpen] = useState(false);
+  const [fiscalBusy, setFiscalBusy] = useState(false);
+  const [fiscalMsg, setFiscalMsg] = useState<string | null>(null);
+
+  async function refreshFiscalFromHolded() {
+    setFiscalBusy(true);
+    setFiscalMsg(null);
+    try {
+      const r = await fetch("/api/v1/admin/import/holded/fiscal-refresh", { method: "POST" });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        setFiscalMsg(`⚠️ ${d?.error?.message ?? d?.message ?? `Error ${r.status}`}`);
+      } else {
+        setFiscalMsg(`✅ Datos fiscales actualizados: ${d.merged} clientes completados (${d.skipped} sin cambios) de ${d.total} en Holded.`);
+      }
+    } catch (e: any) {
+      setFiscalMsg(`⚠️ ${String(e?.message ?? e)}`);
+    } finally {
+      setFiscalBusy(false);
+    }
+  }
   const [seeding, setSeeding] = useState(false);
   const [tab, setTab] = useState<"facturas" | "gastos" | "importar">("facturas");
 
@@ -227,6 +247,15 @@ export default function FacturacionClient({
                 <Users className="h-4 w-4" /> Clientes de esta empresa ({assignedIds.length})
               </button>
             )}
+            <button
+              onClick={refreshFiscalFromHolded}
+              disabled={fiscalBusy}
+              className="inline-flex items-center gap-1.5 bg-white border text-sm px-3 py-2 rounded-lg hover:bg-slate-50 disabled:opacity-50"
+              title="Trae de Holded y completa los datos fiscales (NIF, dirección…) de los clientes que YA existen. No crea clientes nuevos ni sobrescribe."
+            >
+              {fiscalBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+              Actualizar datos fiscales (Holded)
+            </button>
             {selected && (
               <span className="text-xs text-slate-500">
                 Se emitirá desde <span className="font-medium text-slate-700">{selected.name}</span>.
@@ -234,6 +263,8 @@ export default function FacturacionClient({
             )}
           </div>
         )}
+
+        {fiscalMsg && <div className="mt-3 text-sm text-slate-700 bg-slate-50 border rounded-lg p-2.5">{fiscalMsg}</div>}
 
         {/* Resumen rápido del mes para la empresa elegida */}
         {selected && summary && (

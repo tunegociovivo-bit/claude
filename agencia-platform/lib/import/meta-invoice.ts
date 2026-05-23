@@ -85,6 +85,57 @@ async function resolveClientName(workspaceId: string, adAccountName: string | un
   return best?.name ?? null;
 }
 
+const MES_ES = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
+
+/** Extrae los campos de una factura de Meta directamente del texto del PDF
+ *  (formato habitual: "Pagado 221,27 €", "Factura número FBADS-18", etc.). */
+function parseMetaText(
+  text: string,
+  filename: string
+): {
+  totalCents: number | null;
+  invoiceNumber?: string;
+  account?: string;
+  date?: Date;
+  periodLabel?: string;
+  currency?: string;
+} {
+  // Importe: la línea "Pagado <importe> €". Si no, el primer "X €" antes de
+  // "Se ha solicitado".
+  let totalCents: number | null = null;
+  const pagado = text.match(/Pagado\s+([\d.,]+)\s*€/i);
+  if (pagado) totalCents = parseAmountToCents(pagado[1]);
+  if (totalCents == null) {
+    const alt = text.match(/([\d.,]+)\s*€\s*\n\s*Se ha solicitado/i);
+    if (alt) totalCents = parseAmountToCents(alt[1]);
+  }
+
+  const inv = text.match(/Factura n[úu]mero\s+([^\s\n]+)/i);
+  const acc = text.match(/Identificador de cuenta:?\s*([0-9]+)/i);
+
+  // Fecha: del nombre del archivo (YYYY-MM-DD) o del texto.
+  const dm = (filename || "").match(/(\d{4})-(\d{2})-(\d{2})/) || text.match(/(\d{4})-(\d{2})-(\d{2})/);
+  let date: Date | undefined;
+  let periodLabel: string | undefined;
+  if (dm) {
+    const y = Number(dm[1]);
+    const mo = Number(dm[2]) - 1;
+    date = new Date(y, mo, Number(dm[3]));
+    if (mo >= 0 && mo < 12) periodLabel = `${MES_ES[mo]}. ${y}`;
+  }
+
+  const currency = /€|EUR/.test(text) ? "EUR" : /US\$|USD|\$/.test(text) ? "USD" : "EUR";
+
+  return {
+    totalCents,
+    invoiceNumber: inv ? inv[1].trim() : undefined,
+    account: acc ? acc[1] : undefined,
+    date,
+    periodLabel,
+    currency
+  };
+}
+
 export async function ingestMetaInvoice(opts: {
   workspaceId: string;
   buf: Buffer;
@@ -104,45 +155,64 @@ export async function ingestMetaInvoice(opts: {
   }
   if (!text.trim()) return { ok: false, action: "error", reason: "El PDF no tiene texto legible." };
 
-  // 2) IA extrae los datos.
-  let ex: Extracted;
-  try {
-    ex = await completeJson<Extracted>({
-      workspaceId: opts.workspaceId,
-      system:
-        "Eres un extractor de datos de facturas de Meta/Facebook Ads. Extrae los campos del texto; no inventes importes. " +
-        "Los importes pueden venir en formato español (1.234,56).",
-      user: text.slice(0, 60_000),
-      schema: AI_SCHEMA,
-      maxTokens: 1024,
-      feature: "meta-invoice-extract"
-    } as any);
-  } catch (e: any) {
-    return { ok: false, action: "error", reason: `La IA no pudo leer la factura: ${e?.message ?? e}` };
-  }
+  // 2) Extracción DETERMINISTA del formato de Meta (sin depender de la IA).
+  //    Las facturas de Meta a empresas de la UE son reverse charge: el
+  //    importe "Pagado" es el total SIN IVA español (IVA 0).
+  let adAccount: string;
+  let invoiceNumber: string;
+  let currency: string;
+  let baseCents: number | null;
+  let taxRate: number;
+  let date: Date;
+  let periodLabel: string | undefined;
 
-  if (ex.isMetaInvoice === false) {
-    return { ok: false, action: "error", reason: "El archivo no parece una factura de Meta." };
+  const det = parseMetaText(text, opts.filename);
+  if (det.totalCents != null) {
+    baseCents = det.totalCents; // reverse charge → base = total, IVA 0
+    taxRate = 0;
+    invoiceNumber = det.invoiceNumber ?? "";
+    adAccount = det.account ?? opts.hintAdAccount ?? "Cuenta Meta";
+    currency = det.currency ?? "EUR";
+    date = det.date ?? new Date();
+    periodLabel = det.periodLabel;
+  } else {
+    // Respaldo IA si el formato no es el esperado.
+    let ex: Extracted;
+    try {
+      ex = await completeJson<Extracted>({
+        workspaceId: opts.workspaceId,
+        system:
+          "Eres un extractor de datos de facturas de Meta/Facebook Ads. Extrae los campos del texto; no inventes importes. " +
+          "Los importes pueden venir en formato español (1.234,56).",
+        user: text.slice(0, 60_000),
+        schema: AI_SCHEMA,
+        maxTokens: 1024,
+        feature: "meta-invoice-extract"
+      } as any);
+    } catch (e: any) {
+      return { ok: false, action: "error", reason: `No pude leer la factura (ni por texto ni IA): ${e?.message ?? e}` };
+    }
+    if (ex.isMetaInvoice === false) {
+      return { ok: false, action: "error", reason: "El archivo no parece una factura de Meta." };
+    }
+    adAccount = ex.adAccountName || opts.hintAdAccount || "Cuenta Meta";
+    invoiceNumber = (ex.invoiceNumber || "").trim();
+    currency = (ex.currency || "EUR").toUpperCase().includes("USD") ? "USD" : "EUR";
+    const totalCents = parseAmountToCents(ex.total);
+    baseCents = parseAmountToCents(ex.base);
+    taxRate = ex.taxRate ? pickRate(ex.taxRate) : 21;
+    if (baseCents === null && totalCents !== null) baseCents = Math.round(totalCents / (1 + taxRate / 100));
+    if (baseCents === null) return { ok: false, action: "error", reason: "No pude leer el importe de la factura." };
+    date = parseDateFlexible(ex.date) ?? new Date();
+    periodLabel = ex.periodLabel;
   }
-
-  const adAccount = ex.adAccountName || opts.hintAdAccount || "Cuenta Meta";
-  const invoiceNumber = (ex.invoiceNumber || "").trim();
-  const currency = (ex.currency || "EUR").toUpperCase().includes("USD") ? "USD" : "EUR";
-  const totalCents = parseAmountToCents(ex.total);
-  let baseCents = parseAmountToCents(ex.base);
-  const taxRate = ex.taxRate ? pickRate(ex.taxRate) : 21;
-  if (baseCents === null && totalCents !== null) {
-    baseCents = Math.round(totalCents / (1 + taxRate / 100));
-  }
-  if (baseCents === null) return { ok: false, action: "error", reason: "No pude leer el importe de la factura." };
   const { taxCents, totalCents: computedTotal } = computeExpenseTotals(baseCents, taxRate);
-  const date = parseDateFlexible(ex.date) ?? new Date();
 
   const issuer = await resolveIssuer(opts.workspaceId, adAccount);
   const clientName = await resolveClientName(opts.workspaceId, adAccount);
 
   // 3) Dedupe por número de factura (marcado en notes).
-  const marker = invoiceNumber ? `[meta:${invoiceNumber}]` : `[meta:${adAccount}|${ex.periodLabel ?? ""}]`;
+  const marker = invoiceNumber ? `[meta:${invoiceNumber}]` : `[meta:${adAccount}|${periodLabel ?? ""}]`;
   const dup = await prisma.expense.findFirst({
     where: { workspaceId: opts.workspaceId, deletedAt: null, notes: { contains: marker } },
     select: { id: true }
@@ -187,7 +257,7 @@ export async function ingestMetaInvoice(opts: {
   if (opts.copyToDrive) {
     try {
       const { uploadDriveFile } = await import("@/lib/integrations/google-drive");
-      const driveName = `Meta ${ex.periodLabel ?? date.toISOString().slice(0, 7)} ${adAccount} ${invoiceNumber}`.trim();
+      const driveName = `Meta ${periodLabel ?? date.toISOString().slice(0, 7)} ${adAccount} ${invoiceNumber}`.trim();
       const df = await uploadDriveFile({
         workspaceId: opts.workspaceId,
         fileName: `${driveName}.pdf`.replace(/[\\/:*?"<>|]+/g, "-"),
@@ -204,7 +274,7 @@ export async function ingestMetaInvoice(opts: {
   const concept =
     `Publicidad Meta — ${adAccount}` +
     (clientName ? ` (${clientName})` : "") +
-    (ex.periodLabel ? ` · ${ex.periodLabel}` : "");
+    (periodLabel ? ` · ${periodLabel}` : "");
   const expense = await prisma.expense.create({
     data: {
       workspaceId: opts.workspaceId,

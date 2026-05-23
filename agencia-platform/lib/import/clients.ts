@@ -327,10 +327,13 @@ export async function buildClientPlan(workspaceId: string, rawInputs: ClientInpu
   return items;
 }
 
-/** Aplica el plan: crea nuevos y rellena campos faltantes en existentes. */
+/** Aplica el plan: crea nuevos y rellena campos faltantes en existentes.
+ *  Con onlyExisting=true NO crea clientes nuevos: solo completa los que ya
+ *  existen (útil para "actualizar datos fiscales desde Holded"). */
 export async function applyClientImport(
   workspaceId: string,
-  inputs: ClientInput[]
+  inputs: ClientInput[],
+  opts?: { onlyExisting?: boolean }
 ): Promise<{ created: number; merged: number; skipped: number }> {
   const plan = await buildClientPlan(workspaceId, inputs);
   let created = 0;
@@ -338,7 +341,9 @@ export async function applyClientImport(
   let skipped = 0;
 
   for (const item of plan) {
-    if (item.action === "create") {
+    if (item.action === "create" && opts?.onlyExisting) {
+      skipped++;
+    } else if (item.action === "create") {
       const { name, mrr, ...rest } = item.input;
       await prisma.client.create({
         data: {

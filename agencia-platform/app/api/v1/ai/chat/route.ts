@@ -124,7 +124,7 @@ export const POST = withApi({ scope: "ai", rate: "ai" }, async (req, { api }) =>
     isAdmin = me?.role === "ADMIN";
   }
   const invoiceNote = isAdmin
-    ? "\n\nFACTURACIÓN (eres admin): puedes usar list_invoices, invoices_summary e import_invoices_from_file para consultar y gestionar facturas. Para importar facturas de un archivo adjunto, igual que con clientes: primero apply=false (previsualizar), resume y, tras confirmación, apply=true."
+    ? "\n\nFACTURACIÓN (eres admin): puedes usar list_invoices, invoices_summary e import_invoices_from_file para consultar y gestionar facturas. Para importar facturas de un archivo adjunto, igual que con clientes: primero apply=false (previsualizar), resume y, tras confirmación, apply=true.\n\nHOLDED (eres admin): SÍ puedes traer/actualizar clientes desde Holded con la tool import_clients_from_holded (NO digas que no tienes conexión). Flujo: apply=false para previsualizar (nuevos / a completar / ya completos), resume al usuario y, tras su 'ok', apply=true. Si solo quiere completar datos fiscales de los existentes sin crear nuevos, usa onlyExisting:true."
     : "\n\nFACTURACIÓN — RESTRINGIDO: el usuario NO es administrador. NO respondas a NADA sobre facturación, facturas, importes facturados, cobros, ingresos o resultados económicos, ni uses herramientas de facturas. Si te lo preguntan, di con amabilidad que la información de facturación está reservada a los administradores.";
   const systemText = SYSTEM + memoryBlock + invoiceNote;
 

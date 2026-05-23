@@ -220,6 +220,46 @@ export const chatTools: ChatTool[] = [
     }
   },
   {
+    name: "import_clients_from_holded",
+    adminOnly: true,
+    description:
+      "Trae/actualiza clientes desde HOLDED (SOLO ADMIN). FLUJO: apply=false para PREVISUALIZAR (cuántos nuevos, cuántos ya existen y a cuántos rellenaría datos fiscales), resume al usuario y, tras su confirmación, apply=true. Trae NIF/CIF, dirección fiscal, email y teléfono (pide el detalle del contacto cuando hace falta). NUNCA sobrescribe: a los existentes solo rellena huecos. Si el usuario solo quiere COMPLETAR fiscales de los existentes sin crear clientes nuevos, pasa onlyExisting:true.",
+    input_schema: {
+      type: "object",
+      properties: {
+        apply: { type: "boolean", description: "false = previsualizar (default); true = ejecutar" },
+        onlyExisting: { type: "boolean", description: "true = solo completa existentes, no crea nuevos" }
+      }
+    },
+    run: async (_args, ctx) => {
+      try {
+        const args: any = _args ?? {};
+        const { holdedContactsAsClients } = await import("@/lib/import/holded-sync");
+        const { buildClientPlan, applyClientImport } = await import("@/lib/import/clients");
+        const inputs = await holdedContactsAsClients(ctx.workspaceId);
+        if (!inputs.length)
+          return JSON.stringify({ error: "Holded no devolvió contactos. ¿Está la API key configurada en Administración → Holded?" });
+        if (args.apply === true) {
+          const r = await applyClientImport(ctx.workspaceId, inputs, { onlyExisting: !!args.onlyExisting });
+          return JSON.stringify({ applied: true, ...r, total: inputs.length });
+        }
+        const plan = await buildClientPlan(ctx.workspaceId, inputs);
+        const s = { create: 0, merge: 0, noop: 0, skip: 0 };
+        for (const p of plan) s[p.action as keyof typeof s]++;
+        return JSON.stringify({
+          applied: false,
+          total: inputs.length,
+          nuevos: s.create,
+          aCompletar: s.merge,
+          yaCompletos: s.noop,
+          ejemplosACompletar: plan.filter((p) => p.action === "merge").slice(0, 8).map((p) => p.matchName)
+        });
+      } catch (e: any) {
+        return JSON.stringify({ error: String(e?.message ?? e) });
+      }
+    }
+  },
+  {
     name: "search_clients",
     description: "Busca clientes del workspace por nombre, industria o estado.",
     input_schema: {
