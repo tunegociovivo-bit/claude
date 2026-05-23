@@ -18,6 +18,18 @@
   if (window.__hubMetaBillingLoaded) return;
   window.__hubMetaBillingLoaded = true;
 
+  // Puente: el interceptor (world MAIN) publica los PDFs capturados por
+  // window.postMessage; los reenviamos al background para subirlos al Hub.
+  window.addEventListener("message", (e) => {
+    if (e.source !== window) return;
+    const d = e.data;
+    if (d && d.source === "hub-meta-pdf" && d.base64) {
+      try {
+        chrome.runtime.sendMessage({ from: "content", type: "meta-pdf-captured", name: d.name, base64: d.base64 });
+      } catch {}
+    }
+  });
+
   // Heurística: enlaces que parecen descarga de factura/recibo.
   function looksLikeInvoiceLink(href) {
     if (!href) return false;

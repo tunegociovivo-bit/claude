@@ -517,6 +517,12 @@ async function openHubLogin() {
 // Mensajería
 // ─────────────────────────────────────────────────────────────────────
 
+function notify(title, message) {
+  try {
+    chrome.notifications.create({ type: "basic", iconUrl: "icons/icon-128.png", title, message });
+  } catch {}
+}
+
 /**
  * Recolector de facturas de Meta: pide al content script de la pestaña
  * ACTIVA (que debe estar en la facturación de Meta) que descargue los PDFs
@@ -574,6 +580,24 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg?.from === "popup" && msg?.type === "harvest-meta-invoices") {
       try {
         sendResponse(await harvestMetaInvoices());
+      } catch (e) {
+        sendResponse({ ok: false, error: String(e?.message ?? e) });
+      }
+      return;
+    }
+    if (msg?.from === "content" && msg?.type === "meta-pdf-captured") {
+      try {
+        const blob = await (await fetch(`data:application/pdf;base64,${msg.base64}`)).blob();
+        const fd = new FormData();
+        fd.append("file", blob, msg.name || "meta-factura.pdf");
+        const r = await authedFetch("/api/v1/admin/meta-invoices/ingest", { method: "POST", body: fd });
+        const d = await r.json().catch(() => ({}));
+        if (r.ok && d.action === "created") {
+          notify("Factura de Meta archivada", `${d.adAccount ?? "Meta"} · ${((d.totalCents ?? 0) / 100).toFixed(2)} ${d.currency ?? "EUR"}`);
+        } else if (r.ok && d.action === "duplicate") {
+          notify("Factura de Meta", "Ya estaba archivada (no se duplica).");
+        }
+        sendResponse({ ok: r.ok, action: d.action });
       } catch (e) {
         sendResponse({ ok: false, error: String(e?.message ?? e) });
       }
