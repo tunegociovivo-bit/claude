@@ -18,12 +18,19 @@ export async function getWahaConfig(workspaceId: string): Promise<WahaConfig> {
   const ws = await prisma.workspace.findUnique({ where: { id: workspaceId } });
   const settings: any = ws?.settings ?? {};
   const leads = settings?.leads ?? {};
+  // Fallback a la config del plugin migrada por wp-import, que aterrizó en
+  // settings.integrations.evolution.{url, apiKeyEnc}. Así reutilizamos el
+  // MISMO servidor y API key con los que ya estaba vinculado el teléfono de
+  // Sonia, sin reconfigurar ni reescanear el QR.
+  const evo: any = settings?.integrations?.evolution ?? {};
 
-  const baseUrl: string | null = leads.wahaUrl ?? process.env.WAHA_URL ?? null;
-  const encrypted: string | undefined = leads.wahaApiKey;
-  const apiKey =
-    (encrypted ? decryptSecret(encrypted) : null) ?? process.env.WAHA_API_KEY ?? null;
-  const session: string = leads.wahaSession ?? "default";
+  const baseUrl: string | null = leads.wahaUrl ?? evo.url ?? process.env.WAHA_URL ?? null;
+  const leadsKey = leads.wahaApiKey ? decryptSecret(leads.wahaApiKey) : null;
+  const evoKey = evo.apiKeyEnc ? decryptSecret(evo.apiKeyEnc) : null;
+  const apiKey = leadsKey ?? evoKey ?? process.env.WAHA_API_KEY ?? null;
+  // El nombre de sesión es lo único que el plugin no exportó; WAHA usa
+  // "default" salvo que se indique otro (en Ajustes o por WAHA_SESSION).
+  const session: string = leads.wahaSession ?? process.env.WAHA_SESSION ?? "default";
   const countryCode: string = leads.whatsappCountryCode ?? "34";
 
   if (!baseUrl) throw new Error("WAHA URL no configurada");

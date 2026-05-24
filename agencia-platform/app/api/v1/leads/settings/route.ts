@@ -32,11 +32,14 @@ export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
     const settings = { ...(ws?.settings as any), leads: s };
     await prisma.workspace.update({ where: { id: api.workspaceId }, data: { settings } });
   }
+  // Fallback a la config del plugin migrada (settings.integrations.evolution),
+  // para que la UI muestre WhatsApp como configurado sin reintroducir nada.
+  const evo: any = (ws?.settings as any)?.integrations?.evolution ?? {};
   return NextResponse.json({
-    googleConfigured: !!s.googleApiKey,
-    wahaUrl: s.wahaUrl ?? null,
-    wahaConfigured: !!s.wahaApiKey,
-    wahaSession: s.wahaSession ?? "default",
+    googleConfigured: !!(s.googleApiKey || (ws?.settings as any)?.integrations?.googlePlaces?.apiKeyEnc),
+    wahaUrl: s.wahaUrl ?? evo.url ?? process.env.WAHA_URL ?? null,
+    wahaConfigured: !!(s.wahaApiKey || evo.apiKeyEnc || process.env.WAHA_API_KEY),
+    wahaSession: s.wahaSession ?? process.env.WAHA_SESSION ?? "default",
     whatsappCountryCode: s.whatsappCountryCode ?? "34",
     sendEnabled: s.sendEnabled ?? true,
     sendPaused: s.sendPaused ?? false,
