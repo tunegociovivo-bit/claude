@@ -61,7 +61,7 @@ export const POST = withApi({ scope: "*", rate: "destructive" }, async (req, { a
   if (!runId) throw new ApiError(400, "bad_request", "runId requerido");
 
   const run = await prisma.aiAgentRun.findFirst({
-    where: { id: runId, workspaceId: api.workspaceId, trigger: "CALL_INBOUND" },
+    where: { id: runId, workspaceId: api.workspaceId },
     select: { id: true, taskId: true }
   });
   if (!run) throw new ApiError(404, "not_found", "Llamada no encontrada");
