@@ -94,6 +94,12 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
   const filename = audioName;
   const meta = parseAcrFilename(filename);
 
+  // Ping / prueba de conexión de ACR: manda solo "source"/"secret" sin audio.
+  // Respondemos 200 para que el test salga en verde; no hay nada que procesar.
+  if (!audio) {
+    return NextResponse.json({ ok: true, ping: true, received: fieldNames });
+  }
+
   // Transcribir con Whisper.
   let transcript = "";
   let transcribeError = "";
