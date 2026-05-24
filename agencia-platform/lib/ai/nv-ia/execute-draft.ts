@@ -75,8 +75,29 @@ export async function executeDraft(draftId: string): Promise<{
     let result: { ok: boolean; externalId?: string; error?: string };
     switch (draft.kind) {
       case "EMAIL": {
+        // Preferimos enviar desde la CUENTA propia del negocio (SMTP, p.ej.
+        // info@negociovivo.com) si está configurada; con relay Resend de
+        // respaldo dentro de sendEmailFromAccount. Si no hay cuenta, Resend.
+        const acc = await prisma.emailAccount.findFirst({
+          where: { workspaceId: draft.workspaceId },
+          select: { userId: true }
+        });
+        if (acc) {
+          const { sendEmailFromAccount } = await import("@/lib/integrations/email-account");
+          const r = await sendEmailFromAccount({
+            userId: acc.userId,
+            workspaceId: draft.workspaceId,
+            to: payload.to,
+            subject: payload.subject,
+            body: payload.html ?? payload.text ?? "",
+            html: !!payload.html,
+            cc: payload.cc
+          });
+          result = { ok: true, externalId: r.messageId };
+          break;
+        }
         if (!isEmailEnabled()) {
-          result = { ok: false, error: "Resend no configurado (falta RESEND_API_KEY)" };
+          result = { ok: false, error: "Sin cuenta de correo conectada ni Resend (RESEND_API_KEY) configurado" };
           break;
         }
         const r = await sendEmail({

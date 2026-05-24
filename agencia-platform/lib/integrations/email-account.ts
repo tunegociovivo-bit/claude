@@ -107,10 +107,16 @@ function toIso(d: Date | string | null | undefined): string {
 }
 
 async function loadAccount(userId: string, workspaceId: string) {
-  const acc = await prisma.emailAccount.findUnique({
+  // Primero la cuenta del propio usuario; si no tiene (p.ej. Sonia autónoma
+  // corre como usuario-bot), cae a CUALQUIER cuenta configurada del workspace
+  // (la cuenta compartida del negocio, p.ej. info@negociovivo.com).
+  let acc = await prisma.emailAccount.findUnique({
     where: { userId_workspaceId: { userId, workspaceId } }
   });
-  if (!acc) throw new Error("No tienes una cuenta de correo conectada. Configúrala en tu perfil → Mi correo (/perfil/correo).");
+  if (!acc) {
+    acc = await prisma.emailAccount.findFirst({ where: { workspaceId } });
+  }
+  if (!acc) throw new Error("No hay cuenta de correo conectada en el workspace. Configúrala en perfil → Mi correo (/perfil/correo).");
   const password = decryptSecret(acc.passwordEnc);
   if (!password) throw new Error("Contraseña de correo corrupta — reconfigúrala.");
   return { acc, password };
