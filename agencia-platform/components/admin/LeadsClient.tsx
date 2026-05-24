@@ -225,7 +225,7 @@ export default function LeadsClient() {
               CSV
             </a>
           </div>
-          <LeadsTable loading={loading} items={leads} />
+          <LeadsTable loading={loading} items={leads} onChanged={load} />
         </>
       )}
 
@@ -261,52 +261,242 @@ function TabBtn({ icon, label, active, onClick }: { icon: React.ReactNode; label
 
 // ============ LEADS ============
 
-function LeadsTable({ loading, items }: { loading: boolean; items: Lead[] }) {
+function LeadsTable({ loading, items, onChanged }: { loading: boolean; items: Lead[]; onChanged: () => void }) {
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [enqueueOpen, setEnqueueOpen] = useState(false);
+
+  // Al refrescar/filtrar, descarta de la selección los leads que ya no salen.
+  useEffect(() => {
+    setSelected((prev) => {
+      const ids = new Set(items.map((l) => l.id));
+      const next = new Set<string>();
+      prev.forEach((id) => ids.has(id) && next.add(id));
+      return next;
+    });
+  }, [items]);
+
   if (loading) return <Loading />;
   if (items.length === 0) return <Empty msg="Sin leads. Crea una búsqueda para captar." />;
+
+  const canContact = (l: Lead) => !!l.phone && !["excluded", "discarded"].includes(l.contactStatus);
+  const contactable = items.filter(canContact);
+  const allSelected = contactable.length > 0 && contactable.every((l) => selected.has(l.id));
+
+  function toggle(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+  function toggleAll() {
+    setSelected(allSelected ? new Set() : new Set(contactable.map((l) => l.id)));
+  }
+
   return (
-    <div className="bg-white rounded-xl border overflow-x-auto">
-      <table className="w-full text-sm">
-        <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
-          <tr>
-            <th className="text-left px-3 py-2.5">Negocio</th>
-            <th className="text-left px-3 py-2.5">Provincia</th>
-            <th className="text-left px-3 py-2.5">Teléfono</th>
-            <th className="text-left px-3 py-2.5">Pos</th>
-            <th className="text-left px-3 py-2.5">Rating</th>
-            <th className="text-left px-3 py-2.5">Score</th>
-            <th className="text-left px-3 py-2.5">Urgencia</th>
-            <th className="text-left px-3 py-2.5">WA</th>
-            <th className="text-left px-3 py-2.5">Estado</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y">
-          {items.map((l) => {
-            const st = CONTACT_STATUSES.find((s) => s.value === l.contactStatus) ?? CONTACT_STATUSES[0];
-            const urg = l.urgency ? URGENCY_COLORS[l.urgency] : "";
-            return (
-              <tr key={l.id} className="hover:bg-slate-50">
-                <td className="px-3 py-2 max-w-xs truncate font-medium" title={l.name}>{l.name}</td>
-                <td className="px-3 py-2 text-slate-600">{l.province ?? "—"}</td>
-                <td className="px-3 py-2 font-mono text-xs">{l.phone ?? "—"}</td>
-                <td className="px-3 py-2 text-slate-700">{l.position ?? "—"}</td>
-                <td className="px-3 py-2">{l.rating != null ? `★ ${l.rating}` : "—"} <span className="text-[10px] text-slate-500">({l.reviewsCount})</span></td>
-                <td className="px-3 py-2 font-semibold">{l.score ?? "—"}</td>
-                <td className="px-3 py-2">
-                  {l.urgency && (
-                    <span className={`inline-block px-2 py-0.5 rounded text-[10px] border ${urg}`}>{l.urgency}</span>
-                  )}
-                </td>
-                <td className="px-3 py-2 text-center">{l.hasWhatsapp ? "✓" : "—"}</td>
-                <td className="px-3 py-2">
-                  <span className={`inline-block px-2 py-0.5 rounded text-[10px] border ${st.color}`}>{st.label}</span>
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+    <div className="space-y-2">
+      {selected.size > 0 && (
+        <div className="flex items-center justify-between gap-2 bg-brand-50 border border-brand-200 rounded-lg px-3 py-2">
+          <span className="text-sm text-brand-800 font-medium">{selected.size} lead(s) seleccionados</span>
+          <div className="flex items-center gap-3">
+            <button onClick={() => setSelected(new Set())} className="text-xs text-slate-600 hover:underline">
+              Quitar selección
+            </button>
+            <button
+              onClick={() => setEnqueueOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium"
+            >
+              <Send className="h-4 w-4" />
+              Encolar WhatsApp
+            </button>
+          </div>
+        </div>
+      )}
+      <div className="bg-white rounded-xl border overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+            <tr>
+              <th className="px-3 py-2.5 w-8">
+                <input type="checkbox" checked={allSelected} onChange={toggleAll} className="accent-brand-600" title="Seleccionar contactables" />
+              </th>
+              <th className="text-left px-3 py-2.5">Negocio</th>
+              <th className="text-left px-3 py-2.5">Provincia</th>
+              <th className="text-left px-3 py-2.5">Teléfono</th>
+              <th className="text-left px-3 py-2.5">Pos</th>
+              <th className="text-left px-3 py-2.5">Rating</th>
+              <th className="text-left px-3 py-2.5">Score</th>
+              <th className="text-left px-3 py-2.5">Urgencia</th>
+              <th className="text-left px-3 py-2.5">WA</th>
+              <th className="text-left px-3 py-2.5">Estado</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y">
+            {items.map((l) => {
+              const st = CONTACT_STATUSES.find((s) => s.value === l.contactStatus) ?? CONTACT_STATUSES[0];
+              const urg = l.urgency ? URGENCY_COLORS[l.urgency] : "";
+              const rowContactable = canContact(l);
+              return (
+                <tr key={l.id} className="hover:bg-slate-50">
+                  <td className="px-3 py-2">
+                    <input
+                      type="checkbox"
+                      disabled={!rowContactable}
+                      checked={selected.has(l.id)}
+                      onChange={() => toggle(l.id)}
+                      className="accent-brand-600 disabled:opacity-30"
+                      title={rowContactable ? "" : "Sin teléfono o excluido/descartado"}
+                    />
+                  </td>
+                  <td className="px-3 py-2 max-w-xs truncate font-medium" title={l.name}>{l.name}</td>
+                  <td className="px-3 py-2 text-slate-600">{l.province ?? "—"}</td>
+                  <td className="px-3 py-2 font-mono text-xs">{l.phone ?? "—"}</td>
+                  <td className="px-3 py-2 text-slate-700">{l.position ?? "—"}</td>
+                  <td className="px-3 py-2">{l.rating != null ? `★ ${l.rating}` : "—"} <span className="text-[10px] text-slate-500">({l.reviewsCount})</span></td>
+                  <td className="px-3 py-2 font-semibold">{l.score ?? "—"}</td>
+                  <td className="px-3 py-2">
+                    {l.urgency && (
+                      <span className={`inline-block px-2 py-0.5 rounded text-[10px] border ${urg}`}>{l.urgency}</span>
+                    )}
+                  </td>
+                  <td className="px-3 py-2 text-center">{l.hasWhatsapp ? "✓" : "—"}</td>
+                  <td className="px-3 py-2">
+                    <span className={`inline-block px-2 py-0.5 rounded text-[10px] border ${st.color}`}>{st.label}</span>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <EnqueueModal
+        open={enqueueOpen}
+        onClose={() => setEnqueueOpen(false)}
+        leadIds={Array.from(selected)}
+        onDone={() => {
+          setEnqueueOpen(false);
+          setSelected(new Set());
+          onChanged();
+        }}
+      />
     </div>
+  );
+}
+
+function EnqueueModal({
+  open,
+  onClose,
+  leadIds,
+  onDone
+}: {
+  open: boolean;
+  onClose: () => void;
+  leadIds: string[];
+  onDone: () => void;
+}) {
+  const [templates, setTemplates] = useState<Template[]>([]);
+  const [templateId, setTemplateId] = useState<string>("");
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<{ ok: number; skipped: { leadId: string; reason: string }[]; total: number } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    setResult(null);
+    setError(null);
+    fetch("/api/v1/leads/templates")
+      .then((r) => (r.ok ? r.json() : { items: [] }))
+      .then((d) => {
+        const items: Template[] = d.items ?? [];
+        setTemplates(items);
+        const def = items.find((t) => t.isDefault) ?? items[0];
+        setTemplateId(def?.id ?? "");
+      })
+      .catch(() => setTemplates([]));
+  }, [open]);
+
+  async function submit() {
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await fetch("/api/v1/leads/queue/enqueue-bulk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ leadIds, templateId: templateId || null })
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        setError(j?.error?.message ?? `Error ${r.status}`);
+        return;
+      }
+      setResult(j);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal open={open} onClose={onClose} title={`Encolar WhatsApp a ${leadIds.length} lead(s)`}>
+      {!result ? (
+        <div className="space-y-3">
+          <p className="text-sm text-slate-600">
+            Se encolarán con el <strong>espaciado anti-baneo</strong> de Ajustes (ventana horaria, delay aleatorio entre envíos y tope diario). Cada mensaje se personaliza y se le aplican micro-variaciones por lead.
+          </p>
+          <label className="block text-sm font-medium text-slate-700">Plantilla</label>
+          {templates.length === 0 ? (
+            <p className="text-sm text-amber-700">No hay plantillas todavía. Crea una en la pestaña <strong>Plantillas</strong>.</p>
+          ) : (
+            <select
+              value={templateId}
+              onChange={(e) => setTemplateId(e.target.value)}
+              className="w-full px-3 py-2 rounded-lg border bg-white text-sm"
+            >
+              {templates.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                  {t.isDefault ? " (por defecto)" : ""}
+                </option>
+              ))}
+            </select>
+          )}
+          {error && <p className="text-sm text-rose-600">{error}</p>}
+          <div className="flex justify-end gap-2 pt-1">
+            <button onClick={onClose} className="px-3 py-2 rounded-lg text-sm border bg-white hover:bg-slate-50">
+              Cancelar
+            </button>
+            <button
+              onClick={submit}
+              disabled={busy || templates.length === 0}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium disabled:opacity-50"
+            >
+              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+              Encolar {leadIds.length}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          <p className="text-sm">
+            <strong className="text-emerald-700">{result.ok}</strong> encolados de {result.total}.
+            {result.skipped.length > 0 && <span className="text-amber-700"> {result.skipped.length} omitidos.</span>}
+          </p>
+          {result.skipped.length > 0 && (
+            <div className="max-h-40 overflow-y-auto text-xs bg-slate-50 border rounded p-2 space-y-0.5">
+              {result.skipped.slice(0, 50).map((s) => (
+                <div key={s.leadId}>
+                  <code>{s.leadId.slice(0, 8)}</code>: {s.reason}
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="flex justify-end">
+            <button onClick={onDone} className="px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium">
+              Hecho
+            </button>
+          </div>
+        </div>
+      )}
+    </Modal>
   );
 }
 
