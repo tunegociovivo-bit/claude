@@ -2687,6 +2687,25 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
       additionalProperties: false
     }
   },
+  {
+    name: "place_phone_call",
+    description:
+      "Hace una LLAMADA TELEFÓNICA real (agente de voz Sonia vía Vapi) al número indicado, con un objetivo/guion en español. Úsala para ENCARGOS llegados por llamada/nota (reservar mesa o cita, contactar con un negocio/proveedor, pedir/confirmar información) cuando el objetivo esté claro. Cuesta dinero por minuto y habla con una persona real: confirma el número (búscalo con web_search si hace falta) y mete en 'goal' TODOS los datos (qué pedir, fecha, hora, nº de personas, a nombre de quién). El resultado (transcripción/resumen) llega después por webhook y se registra en 'Reuniones y llamadas'. Si el número o los datos no están claros, NO llames: pídelos o propón con add_comment.",
+    input_schema: {
+      type: "object",
+      properties: {
+        toNumber: { type: "string", description: "Teléfono a llamar (con prefijo internacional, ej. +34...)." },
+        goal: {
+          type: "string",
+          description:
+            "Objetivo/guion de la llamada para Sonia, en español, con TODOS los datos necesarios (qué pedir, fecha, hora, nº de personas, a nombre de quién, alternativas si no hay hueco)."
+        },
+        customerName: { type: "string", description: "Nombre del negocio/persona a quien se llama, si lo conoces (para saludar)." }
+      },
+      required: ["toNumber", "goal"],
+      additionalProperties: false
+    }
+  },
   // ──────────────────────────────────────────────────────────────
   // HOLDED: facturación / presupuestos / contactos (write)
   // ──────────────────────────────────────────────────────────────
@@ -7106,6 +7125,55 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
       return { ok: true, phone, result };
     } catch (e: any) {
       return { error: `send_whatsapp_message: ${e?.message ?? e}` };
+    }
+  },
+  async place_phone_call(input, ctx) {
+    try {
+      const { startVoiceCall, getVapiCallStatus } = await import("@/lib/integrations/voice-calls");
+      const toNumber = String(input?.toNumber ?? "").trim();
+      const goal = String(input?.goal ?? "").trim();
+      if (!toNumber) return { error: "toNumber vacío" };
+      if (!goal) return { error: "goal vacío" };
+      const r = await startVoiceCall({
+        workspaceId: ctx.workspaceId,
+        toNumber,
+        goal,
+        customerName: input?.customerName ? String(input.customerName) : undefined,
+        userId: ctx.config.userId
+      });
+      await prisma.comment.create({
+        data: {
+          workspaceId: ctx.workspaceId,
+          authorId: ctx.config.userId,
+          targetType: "TASK",
+          targetId: ctx.taskId,
+          body: `📞 Llamada lanzada a **${toNumber}**. Objetivo: "${goal.slice(0, 160)}${goal.length > 160 ? "…" : ""}". El resultado llegará al colgar.`
+        }
+      });
+      // Verificación: esperamos unos segundos y comprobamos en Vapi que no
+      // falló al arrancar (nº inválido, sin saldo, internacional bloqueado…).
+      if (r.providerCallId) {
+        await new Promise((res) => setTimeout(res, 9000));
+        const st = await getVapiCallStatus(ctx.workspaceId, r.providerCallId);
+        const reason = st?.endedReason ?? "";
+        if (st && st.status === "ended" && /error|fail|forbidden|invalid|international|no-?answer|busy|declined/i.test(reason)) {
+          return {
+            ok: false,
+            failed: true,
+            endedReason: reason,
+            message: `La llamada NO se pudo completar (Vapi: ${reason}). NO digas que se hizo con éxito; informa del problema.`
+          };
+        }
+        return {
+          ok: true,
+          callId: r.id,
+          status: st?.status ?? "in-progress",
+          message: "Llamada en curso. El resumen y la transcripción llegan al colgar (tarea en 'Reuniones y llamadas')."
+        };
+      }
+      return { ok: true, callId: r.id, status: "queued" };
+    } catch (e: any) {
+      return { error: `place_phone_call: ${e?.message ?? e}` };
     }
   },
   async holded_create_invoice(input, ctx) {
