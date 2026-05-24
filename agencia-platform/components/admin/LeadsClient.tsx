@@ -5,7 +5,7 @@ import PageHeader from "@/components/PageHeader";
 import Modal from "@/components/ui/Modal";
 import {
   Loader2, Plus, Search, Inbox, ListChecks, BarChart3, MessageCircle,
-  Settings as SettingsIcon, Ban, GitBranch, Send, RefreshCw, Download, Play, Pause, Trash2
+  Settings as SettingsIcon, Ban, GitBranch, Send, RefreshCw, Download, Play, Pause, Trash2, Pencil
 } from "lucide-react";
 
 type Lead = {
@@ -238,7 +238,7 @@ export default function LeadsClient() {
       {tab === "analytics" && <AnalyticsView data={analytics} loading={loading} />}
 
       <NewSearchModal open={newSearchOpen} onClose={() => setNewSearchOpen(false)} onSaved={load} />
-      <NewTemplateModal open={newTemplateOpen} onClose={() => setNewTemplateOpen(false)} onSaved={load} />
+      <TemplateModal open={newTemplateOpen} template={null} onClose={() => setNewTemplateOpen(false)} onSaved={load} />
       <LeadsSettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </div>
   );
@@ -782,23 +782,52 @@ function InboxList({ loading, items }: { loading: boolean; items: InboxRow[] }) 
 // ============ PLANTILLAS ============
 
 function TemplatesTable({ loading, items, onChanged }: { loading: boolean; items: Template[]; onChanged: () => void }) {
+  const [editing, setEditing] = useState<Template | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  async function remove(t: Template) {
+    if (!confirm(`¿Borrar la plantilla "${t.name}"?`)) return;
+    setDeletingId(t.id);
+    try {
+      const r = await fetch(`/api/v1/leads/templates/${t.id}`, { method: "DELETE" });
+      if (r.ok) onChanged();
+      else alert("No se pudo borrar la plantilla.");
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
   if (loading) return <Loading />;
-  if (items.length === 0) return <Empty msg="Sin plantillas. Crea la primera." />;
+  if (items.length === 0) return <Empty msg="Sin plantillas. Crea la primera con 'Nueva plantilla'." />;
   return (
-    <div className="grid md:grid-cols-2 gap-3">
-      {items.map((t) => (
-        <div key={t.id} className="bg-white rounded-lg border p-3">
-          <div className="flex items-center justify-between mb-1.5">
-            <h3 className="font-semibold text-sm">{t.name}</h3>
-            <div className="flex gap-1">
-              <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-600">{t.channel}</span>
-              {t.isDefault && <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">default</span>}
+    <>
+      <div className="grid md:grid-cols-2 gap-3">
+        {items.map((t) => (
+          <div key={t.id} className="bg-white rounded-lg border p-3">
+            <div className="flex items-center justify-between mb-1.5 gap-2">
+              <h3 className="font-semibold text-sm truncate" title={t.name}>{t.name}</h3>
+              <div className="flex items-center gap-1 shrink-0">
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-600">{t.channel}</span>
+                {t.isDefault && <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">default</span>}
+                <button onClick={() => setEditing(t)} className="p-1 text-slate-400 hover:text-brand-600" title="Editar">
+                  <Pencil className="h-3.5 w-3.5" />
+                </button>
+                <button onClick={() => remove(t)} disabled={deletingId === t.id} className="p-1 text-slate-400 hover:text-rose-600 disabled:opacity-40" title="Borrar">
+                  {deletingId === t.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                </button>
+              </div>
             </div>
+            <pre className="whitespace-pre-wrap font-sans text-xs text-slate-700">{t.body}</pre>
           </div>
-          <pre className="whitespace-pre-wrap font-sans text-xs text-slate-700">{t.body}</pre>
-        </div>
-      ))}
-    </div>
+        ))}
+      </div>
+      <TemplateModal
+        open={!!editing}
+        template={editing}
+        onClose={() => setEditing(null)}
+        onSaved={() => { setEditing(null); onChanged(); }}
+      />
+    </>
   );
 }
 
@@ -1252,7 +1281,8 @@ function NewSearchModal({ open, onClose, onSaved }: { open: boolean; onClose: ()
   );
 }
 
-function NewTemplateModal({ open, onClose, onSaved }: { open: boolean; onClose: () => void; onSaved: () => void }) {
+function TemplateModal({ open, onClose, onSaved, template }: { open: boolean; onClose: () => void; onSaved: () => void; template?: Template | null }) {
+  const isEdit = !!template;
   const [name, setName] = useState("");
   const [body, setBody] = useState("");
   const [isDefault, setIsDefault] = useState(false);
@@ -1260,16 +1290,22 @@ function NewTemplateModal({ open, onClose, onSaved }: { open: boolean; onClose: 
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     if (!open) return;
-    setName(""); setBody(""); setIsDefault(false); setError(null);
-  }, [open]);
+    setName(template?.name ?? "");
+    setBody(template?.body ?? "");
+    setIsDefault(template?.isDefault ?? false);
+    setError(null);
+  }, [open, template]);
   async function save() {
     if (!name.trim() || !body.trim()) { setError("Faltan nombre y cuerpo"); return; }
     setSaving(true);
-    const r = await fetch("/api/v1/leads/templates", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, body, channel: "whatsapp", isDefault })
-    });
+    const r = await fetch(
+      isEdit ? `/api/v1/leads/templates/${template!.id}` : "/api/v1/leads/templates",
+      {
+        method: isEdit ? "PATCH" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, body, channel: template?.channel ?? "whatsapp", isDefault })
+      }
+    );
     setSaving(false);
     if (!r.ok) {
       const j = await r.json().catch(() => ({}));
@@ -1280,7 +1316,7 @@ function NewTemplateModal({ open, onClose, onSaved }: { open: boolean; onClose: 
     onClose();
   }
   return (
-    <Modal open={open} onClose={onClose} title="Nueva plantilla" size="md" footer={
+    <Modal open={open} onClose={onClose} title={isEdit ? "Editar plantilla" : "Nueva plantilla"} size="md" footer={
       <>
         <button onClick={onClose} className="px-3 py-2 rounded-lg text-sm border bg-white hover:bg-slate-50">Cancelar</button>
         <button onClick={save} disabled={saving} className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium disabled:opacity-50">
