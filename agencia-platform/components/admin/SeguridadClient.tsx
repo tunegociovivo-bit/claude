@@ -77,14 +77,24 @@ export default function SeguridadClient() {
         title="Seguridad y copias de seguridad"
         description="Genera copias de seguridad bajo demanda o consulta el histórico de los backups automáticos diarios."
         actions={
-          <button
-            onClick={runBackup}
-            disabled={running}
-            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium disabled:opacity-50"
-          >
-            {running ? <Loader2 className="h-4 w-4 animate-spin" /> : <Shield className="h-4 w-4" />}
-            Hacer copia de seguridad ahora
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <a
+              href="/api/v1/admin/backups/full-archive"
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border bg-white hover:bg-slate-50 text-sm font-medium"
+              title="Descarga un ZIP con la base de datos (todas las tablas) + todos los archivos adjuntos"
+            >
+              <Download className="h-4 w-4" />
+              Descargar copia completa (BD + adjuntos)
+            </a>
+            <button
+              onClick={runBackup}
+              disabled={running}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium disabled:opacity-50"
+            >
+              {running ? <Loader2 className="h-4 w-4 animate-spin" /> : <Shield className="h-4 w-4" />}
+              Hacer copia de seguridad ahora
+            </button>
+          </div>
         }
       />
 
@@ -112,7 +122,7 @@ export default function SeguridadClient() {
           <li className="flex items-start gap-2">
             <HardDrive className="h-4 w-4 text-slate-500 mt-0.5" />
             <div>
-              <strong>Disco duro local (descarga manual)</strong> — Pulsa "Descargar" en cualquier copia del histórico para bajarla a tu equipo.
+              <strong>Disco duro local (descarga manual)</strong> — "Descargar" en cualquier copia del histórico baja solo la BD (JSON). Para llevarte <strong>todo</strong> (BD + los archivos adjuntos de R2 en un ZIP) usa el botón <strong>"Descargar copia completa"</strong> de arriba.
             </div>
           </li>
           <li className="flex items-start gap-2">
