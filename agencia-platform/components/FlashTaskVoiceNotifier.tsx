@@ -2,9 +2,11 @@
 
 /**
  * Ventana emergente (modal) de aprobación: cuando Sonia deja acciones
- * PENDIENTES (llamadas, email, WhatsApp…), aparece un modal central que las
- * lista y deja dar el OK o el NO a cada una (o a todas). Además lo anuncia
- * por voz una vez. Todo lo aprobado se ejecuta; lo rechazado se descarta.
+ * PENDIENTES (llamadas, email, WhatsApp…), aparece un modal central en
+ * CUALQUIER página del Hub con la lista RESUMIDA de lo que va a hacer.
+ * Todas vienen MARCADAS por defecto; desmarcas las que no quieras y, al
+ * pulsar "Aprobar", se ejecutan las marcadas y se descartan las demás.
+ * Además lo anuncia por voz una vez.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -40,6 +42,12 @@ function kindIcon(kind: string): string {
   }
 }
 
+/** Resumen corto: la parte antes de ":" suele ser la acción concreta. */
+function shortLabel(title: string): string {
+  const base = title.includes(":") ? title.split(":")[0] : title;
+  return base.trim().slice(0, 80);
+}
+
 function voicedSet(): Set<string> {
   try {
     return new Set(JSON.parse(localStorage.getItem(VOICED_KEY) || "[]"));
@@ -56,7 +64,8 @@ function markVoiced(runId: string) {
 export default function FlashTaskVoiceNotifier() {
   const [pending, setPending] = useState<Pending | null>(null);
   const [drafts, setDrafts] = useState<Draft[]>([]);
-  const [busyId, setBusyId] = useState<string | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [busy, setBusy] = useState(false);
   const dismissedRef = useRef<Set<string>>(new Set());
   const pollingRef = useRef(false);
 
@@ -72,8 +81,10 @@ export default function FlashTaskVoiceNotifier() {
     } catch {
       /* autoplay bloqueado → fallback */
     }
-    const titles = p.drafts.map((d) => d.title).join(", ");
-    void speakSonia(`Tengo ${p.drafts.length === 1 ? "una acción" : p.drafts.length + " acciones"} esperando tu visto bueno: ${titles}.`);
+    const titles = p.drafts.map((d) => shortLabel(d.title)).join(", ");
+    void speakSonia(
+      `Tengo ${p.drafts.length === 1 ? "una acción" : p.drafts.length + " acciones"} esperando tu visto bueno: ${titles}.`
+    );
   }, []);
 
   // Poll: si hay pendientes (no descartados), abre el modal.
@@ -91,6 +102,7 @@ export default function FlashTaskVoiceNotifier() {
         if (dismissedRef.current.has(p.runId)) return;
         setPending(p);
         setDrafts(p.drafts);
+        setSelected(new Set(p.drafts.map((d) => d.id))); // todas marcadas por defecto
         announce(p);
       } catch {
         /* silencio */
@@ -106,64 +118,46 @@ export default function FlashTaskVoiceNotifier() {
     };
   }, [pending, announce]);
 
-  const closeIfEmpty = useCallback((remaining: Draft[]) => {
-    if (remaining.length === 0) {
-      setPending(null);
-      setDrafts([]);
-    }
+  const toggle = useCallback((id: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   }, []);
 
-  const act = useCallback(
-    async (draftId: string, action: "approve" | "reject") => {
-      if (busyId) return;
-      setBusyId(draftId);
-      try {
-        await fetch(`/api/v1/admin/ai-agent/drafts/${draftId}/${action}`, {
+  const close = useCallback(() => {
+    setPending(null);
+    setDrafts([]);
+    setSelected(new Set());
+  }, []);
+
+  const approve = useCallback(async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      // Marcadas → aprobar (ejecutar). Desmarcadas → rechazar (descartar).
+      for (const d of drafts) {
+        const action = selected.has(d.id) ? "approve" : "reject";
+        await fetch(`/api/v1/admin/ai-agent/drafts/${d.id}/${action}`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({})
         });
-        const remaining = drafts.filter((d) => d.id !== draftId);
-        setDrafts(remaining);
-        closeIfEmpty(remaining);
-      } catch {
-        /* deja el botón disponible para reintentar */
-      } finally {
-        setBusyId(null);
       }
-    },
-    [busyId, drafts, closeIfEmpty]
-  );
-
-  const actAll = useCallback(
-    async (action: "approve" | "reject") => {
-      if (busyId) return;
-      setBusyId("__all__");
-      try {
-        for (const d of [...drafts]) {
-          await fetch(`/api/v1/admin/ai-agent/drafts/${d.id}/${action}`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({})
-          });
-        }
-        setDrafts([]);
-        setPending(null);
-        if (action === "approve") void speakSonia("Hecho, me pongo con ello.");
-      } catch {
-        /* noop */
-      } finally {
-        setBusyId(null);
-      }
-    },
-    [busyId, drafts]
-  );
+      const n = selected.size;
+      if (n > 0) void speakSonia(n === 1 ? "Hecho, me pongo con ello." : `Hecho, me encargo de las ${n}.`);
+      close();
+    } catch {
+      setBusy(false);
+    }
+  }, [busy, drafts, selected, close]);
 
   const dismiss = useCallback(() => {
     if (pending) dismissedRef.current.add(pending.runId);
-    setPending(null);
-    setDrafts([]);
-  }, [pending]);
+    close();
+  }, [pending, close]);
 
   if (!pending || drafts.length === 0) return null;
 
@@ -172,35 +166,30 @@ export default function FlashTaskVoiceNotifier() {
       <div style={modal} onClick={(e) => e.stopPropagation()}>
         <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 2 }}>🎙️ Sonia necesita tu OK</div>
         <div style={{ fontSize: 13, color: "#666", marginBottom: 14 }}>
-          {pending.taskTitle ? pending.taskTitle : "Acciones preparadas"} — aprueba o rechaza:
+          Marca lo que quieres que haga y pulsa Aprobar:
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 16 }}>
-          {drafts.map((d) => (
-            <div key={d.id} style={row}>
-              <div style={{ fontSize: 14, flex: 1, minWidth: 0 }}>
-                <span style={{ marginRight: 6 }}>{kindIcon(d.kind)}</span>
-                {d.title}
-              </div>
-              <button style={btnOk} disabled={!!busyId} onClick={() => act(d.id, "approve")}>
-                ✓ Sí
-              </button>
-              <button style={btnNo} disabled={!!busyId} onClick={() => act(d.id, "reject")}>
-                ✗ No
-              </button>
-            </div>
-          ))}
+          {drafts.map((d) => {
+            const on = selected.has(d.id);
+            return (
+              <label key={d.id} style={{ ...row, opacity: on ? 1 : 0.5 }}>
+                <input type="checkbox" checked={on} disabled={busy} onChange={() => toggle(d.id)} style={{ width: 18, height: 18 }} />
+                <span style={{ fontSize: 14 }}>
+                  <span style={{ marginRight: 6 }}>{kindIcon(d.kind)}</span>
+                  {shortLabel(d.title)}
+                </span>
+              </label>
+            );
+          })}
         </div>
 
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", alignItems: "center" }}>
-          <button style={linkBtn} disabled={!!busyId} onClick={dismiss}>
+          <button style={linkBtn} disabled={busy} onClick={dismiss}>
             Ahora no
           </button>
-          <button style={btnNoAll} disabled={!!busyId} onClick={() => actAll("reject")}>
-            Rechazar todo
-          </button>
-          <button style={btnOkAll} disabled={!!busyId} onClick={() => actAll("approve")}>
-            Aprobar todo
+          <button style={btnApprove} disabled={busy} onClick={approve}>
+            {busy ? "Procesando…" : selected.size === drafts.length ? "Aprobar todo" : `Aprobar (${selected.size})`}
           </button>
         </div>
       </div>
@@ -230,40 +219,21 @@ const modal: React.CSSProperties = {
 const row: React.CSSProperties = {
   display: "flex",
   alignItems: "center",
-  gap: 8,
+  gap: 10,
   background: "#f7f7f8",
   border: "1px solid #ececec",
   borderRadius: 10,
-  padding: "10px 12px"
+  padding: "10px 12px",
+  cursor: "pointer"
 };
-const btnOk: React.CSSProperties = {
+const btnApprove: React.CSSProperties = {
   background: "#16a34a",
   color: "#fff",
   border: "none",
   borderRadius: 8,
-  padding: "6px 12px",
-  fontSize: 13,
-  cursor: "pointer",
-  whiteSpace: "nowrap"
-};
-const btnNo: React.CSSProperties = {
-  background: "#f3f3f3",
-  color: "#b91c1c",
-  border: "1px solid #e4c4c4",
-  borderRadius: 8,
-  padding: "6px 12px",
-  fontSize: 13,
-  cursor: "pointer",
-  whiteSpace: "nowrap"
-};
-const btnOkAll: React.CSSProperties = { ...btnOk, padding: "9px 16px", fontWeight: 600 };
-const btnNoAll: React.CSSProperties = {
-  background: "#fff",
-  color: "#b91c1c",
-  border: "1px solid #e4c4c4",
-  borderRadius: 8,
-  padding: "9px 16px",
-  fontSize: 13,
+  padding: "10px 18px",
+  fontSize: 14,
+  fontWeight: 600,
   cursor: "pointer"
 };
 const linkBtn: React.CSSProperties = {
