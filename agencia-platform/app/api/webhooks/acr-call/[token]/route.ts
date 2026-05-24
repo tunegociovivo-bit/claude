@@ -30,21 +30,30 @@ export const maxDuration = 60;
  */
 function parseAcrFilename(name: string) {
   const out: { date?: string; time?: string; type?: string; contact?: string; phone?: string; direction?: string } = {};
-  const dt = name.match(/(\d{4}-\d{2}-\d{2})\s+(\d{2})-(\d{2})-(\d{2})/);
+  const base = name.replace(/\.[a-z0-9]+$/i, "");
+  const dt = base.match(/(\d{4})-(\d{2})-(\d{2})[ _]+(\d{2})-(\d{2})-(\d{2})/);
   if (dt) {
-    out.date = `${dt[1].split("-").reverse().join("/")}`;
-    out.time = `${dt[2]}:${dt[3]}`;
+    out.date = `${dt[3]}/${dt[2]}/${dt[1]}`;
+    out.time = `${dt[4]}:${dt[5]}`;
   }
-  const typ = name.match(/\((phone|mic|[^)]*whatsapp[^)]*)\)/i);
+  const typ = base.match(/\((phone|mic)\)/i);
   if (typ) out.type = typ[1].toLowerCase();
-  // Teléfono entre paréntesis: (+34 616 36 28 64) o (34616362864)
-  const phone = name.match(/\(\s*(\+?\d[\d\s().-]{6,})\)/);
+  // Teléfono entre paréntesis: (+34 616 36 28 64) / (34616362864)
+  const phone = base.match(/\(\s*(\+?\d[\d\s().-]{6,})\)/);
   if (phone) out.phone = phone[1].replace(/[^\d+]/g, "");
-  if (name.includes("↙")) out.direction = "Entrante";
-  else if (name.includes("↗")) out.direction = "Saliente";
-  // Nombre del contacto: lo que va tras "(phone) " y antes del "(+34...":
-  const m = name.match(/\((?:phone|mic)\)\s*(.+?)\s*\(\+?\d/i);
-  if (m) out.contact = m[1].trim();
+  // Dirección: flechas ↙/↗ o texto [Entrante]/[Saliente] (formato del WebHook).
+  if (/↙/.test(base) || /entrante/i.test(base)) out.direction = "Entrante";
+  else if (/↗/.test(base) || /saliente/i.test(base)) out.direction = "Saliente";
+  // Nombre del contacto: lo que va antes del teléfono, quitando prefijos.
+  if (phone && typeof phone.index === "number") {
+    let pre = base.slice(0, phone.index);
+    pre = pre
+      .replace(/\((?:phone|mic)\)/i, "")
+      .replace(/\d{4}-\d{2}-\d{2}[ _]+\d{2}-\d{2}-\d{2}/, "")
+      .replace(/[[\]]/g, "")
+      .trim();
+    if (pre) out.contact = pre.slice(0, 80);
+  }
   return out;
 }
 
