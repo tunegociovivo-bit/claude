@@ -72,22 +72,31 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
     }
   }
 
-  // Buscar el audio (cualquier File del formulario).
-  let audio: File | null = null;
-  for (const [, v] of form.entries()) {
-    if (v instanceof File && v.size > 0) {
-      audio = v;
-      break;
+  // Buscar el audio: en el runtime de Node los ficheros de formData llegan
+  // como Blob/File (tienen arrayBuffer()). Recogemos también los nombres de
+  // campo y un posible teléfono/nombre en campos de texto, para diagnóstico.
+  let audio: Blob | null = null;
+  let audioName = "";
+  const fieldNames: string[] = [];
+  const textFields: Record<string, string> = {};
+  for (const [k, v] of form.entries()) {
+    fieldNames.push(k);
+    if (typeof v === "string") {
+      textFields[k] = v;
+    } else if (v && typeof (v as any).arrayBuffer === "function" && (v as any).size > 0) {
+      audio = v as Blob;
+      audioName = String((v as any).name ?? "");
     }
   }
   const dateField = String(form.get("date") ?? "").trim();
   const durationField = String(form.get("duration") ?? "").trim();
   const notesField = String(form.get("notes") ?? "").trim();
-  const filename = audio?.name ?? "";
+  const filename = audioName;
   const meta = parseAcrFilename(filename);
 
   // Transcribir con Whisper.
   let transcript = "";
+  let transcribeError = "";
   if (audio) {
     try {
       transcript = await transcribeAudioWithWhisper({
@@ -96,14 +105,40 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
         filename: filename || "call.m4a",
         language: "es"
       });
-    } catch {
-      transcript = "";
+    } catch (e: any) {
+      transcribeError = String(e?.message ?? e).slice(0, 200);
     }
   }
 
-  const from = meta.phone ?? "";
+  let from = meta.phone ?? "";
+  // Fallback: buscar un teléfono en cualquier campo de texto (por si ACR
+  // manda el número aparte y el archivo no trae nombre descriptivo).
+  if (!from) {
+    for (const val of Object.values(textFields)) {
+      const m = String(val).match(/\+?\d[\d\s().-]{7,}/);
+      if (m) {
+        from = m[0].replace(/[^\d+]/g, "");
+        break;
+      }
+    }
+  }
+
   if (!from && !transcript) {
-    return NextResponse.json({ ok: false, error: "missing phone/transcript" }, { status: 400 });
+    return NextResponse.json(
+      {
+        ok: false,
+        error: "missing phone/transcript",
+        debug: {
+          fields: fieldNames,
+          textFields,
+          fileFound: !!audio,
+          filename,
+          audioBytes: audio ? (audio as any).size : 0,
+          transcribeError
+        }
+      },
+      { status: 400 }
+    );
   }
 
   // Asociar a cliente por teléfono (últimos 9 dígitos).
