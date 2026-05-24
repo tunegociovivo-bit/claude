@@ -15,7 +15,7 @@ import { playSoniaBlob, speakSonia } from "@/lib/voice/sonia-audio";
 const POLL_MS = 20_000;
 const VOICED_KEY = "sonia-approval-voiced";
 
-type Draft = { id: string; title: string; kind: string };
+type Draft = { id: string; title: string; kind: string; detail?: string };
 type Pending = {
   runId: string;
   taskId: string | null;
@@ -65,6 +65,7 @@ export default function FlashTaskVoiceNotifier() {
   const [pending, setPending] = useState<Pending | null>(null);
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
   const dismissedRef = useRef<Set<string>>(new Set());
   const pollingRef = useRef(false);
@@ -127,6 +128,15 @@ export default function FlashTaskVoiceNotifier() {
     });
   }, []);
 
+  const toggleExpand = useCallback((id: string) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
   const close = useCallback(() => {
     setPending(null);
     setDrafts([]);
@@ -172,14 +182,32 @@ export default function FlashTaskVoiceNotifier() {
         <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 16 }}>
           {drafts.map((d) => {
             const on = selected.has(d.id);
+            const isOpen = expanded.has(d.id);
+            const hasDetail = !!(d.detail && d.detail.trim() && d.detail.trim() !== shortLabel(d.title));
             return (
-              <label key={d.id} style={{ ...row, opacity: on ? 1 : 0.5 }}>
-                <input type="checkbox" checked={on} disabled={busy} onChange={() => toggle(d.id)} style={{ width: 18, height: 18 }} />
-                <span style={{ fontSize: 14 }}>
-                  <span style={{ marginRight: 6 }}>{kindIcon(d.kind)}</span>
-                  {shortLabel(d.title)}
-                </span>
-              </label>
+              <div key={d.id} style={{ ...row, opacity: on ? 1 : 0.5 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <input
+                    type="checkbox"
+                    checked={on}
+                    disabled={busy}
+                    onChange={() => toggle(d.id)}
+                    style={{ width: 18, height: 18, flexShrink: 0 }}
+                  />
+                  <span
+                    style={{ fontSize: 14, cursor: hasDetail ? "pointer" : "default", flex: 1 }}
+                    title={hasDetail ? d.detail : undefined}
+                    onClick={() => hasDetail && toggleExpand(d.id)}
+                  >
+                    <span style={{ marginRight: 6 }}>{kindIcon(d.kind)}</span>
+                    {shortLabel(d.title)}
+                    {hasDetail && <span style={{ color: "#999", marginLeft: 6, fontSize: 12 }}>{isOpen ? "▲" : "ⓘ"}</span>}
+                  </span>
+                </div>
+                {isOpen && hasDetail && (
+                  <div style={detailBox}>{d.detail}</div>
+                )}
+              </div>
             );
           })}
         </div>
@@ -218,13 +246,23 @@ const modal: React.CSSProperties = {
 };
 const row: React.CSSProperties = {
   display: "flex",
-  alignItems: "center",
-  gap: 10,
+  flexDirection: "column",
+  gap: 8,
   background: "#f7f7f8",
   border: "1px solid #ececec",
   borderRadius: 10,
-  padding: "10px 12px",
-  cursor: "pointer"
+  padding: "10px 12px"
+};
+const detailBox: React.CSSProperties = {
+  fontSize: 12.5,
+  color: "#444",
+  background: "#fff",
+  border: "1px solid #ececec",
+  borderRadius: 8,
+  padding: "8px 10px",
+  whiteSpace: "pre-wrap",
+  maxHeight: 160,
+  overflowY: "auto"
 };
 const btnApprove: React.CSSProperties = {
   background: "#16a34a",
