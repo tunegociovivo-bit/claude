@@ -295,6 +295,37 @@ export async function processOneRun(runId: string): Promise<ProcessResult> {
       }
     });
 
+    // PUSH DE APROBACIÓN: si el run dejó acciones PENDIENTES (borradores de
+    // llamada/email/WhatsApp…), avisa por notificación push a los admins para
+    // que puedan aprobar aunque NO estén dentro de la app en ese momento.
+    try {
+      const pend = await prisma.aiDraft.findMany({
+        where: { workspaceId: run.workspaceId, aiAgentRunId: runId, status: "PENDING" },
+        select: { title: true },
+        orderBy: { createdAt: "asc" }
+      });
+      if (pend.length > 0) {
+        const resumen = pend
+          .slice(0, 3)
+          .map((d) => (d.title.includes(":") ? d.title.split(":")[0] : d.title).trim())
+          .join(" · ");
+        const admins = await prisma.membership.findMany({
+          where: { workspaceId: run.workspaceId, role: "ADMIN" },
+          select: { userId: true }
+        });
+        const { sendPushToUser } = await import("@/lib/push/web-push");
+        const title = pend.length === 1 ? "Sonia necesita tu OK" : `Sonia: ${pend.length} acciones esperan tu OK`;
+        const link = `/tareas?task=${run.taskId}`;
+        await Promise.all(
+          admins.map((a) =>
+            sendPushToUser(a.userId, { title, body: resumen.slice(0, 160), link, tag: `approve-${runId}` }).catch(() => {})
+          )
+        );
+      }
+    } catch (e: any) {
+      console.warn("[sonia] push de aprobación falló:", e?.message ?? e);
+    }
+
     // MEMORIA EPISÓDICA: graba este run como episodio buscable
     // semánticamente desde futuros runs. Falla silencioso si OpenAI
     // no está configurada — la app sigue funcionando sin recall.
