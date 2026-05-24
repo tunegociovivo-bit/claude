@@ -1422,16 +1422,18 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
     }
     stopPoll();
     let ticks = 0;
-    pollRef.current = setInterval(async () => {
+    const tick = async () => {
       ticks++;
       setQrNonce((n) => n + 1);
       try {
         const r = await fetch("/api/v1/leads/waha-test");
         const j = await r.json();
         setWahaTest(j);
-        if (j.ok || ticks > 40) { stopPoll(); setReconnecting(false); }
+        if (j.ok || ticks > 60) { stopPoll(); setReconnecting(false); }
       } catch { /* sigue sondeando */ }
-    }, 3000);
+    };
+    await tick();
+    pollRef.current = setInterval(tick, 3000);
   }
   return (
     <Modal open={open} onClose={onClose} title="Ajustes NV Leads Pro" size="lg" footer={
@@ -1484,9 +1486,9 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
                 )}
               </div>
             )}
-            {wahaTest && !wahaTest.ok && wahaTest.code !== "not_configured" && wahaTest.code !== "unreachable" && (
+            {(reconnecting || (wahaTest && !wahaTest.ok && wahaTest.code !== "not_configured" && wahaTest.code !== "unreachable")) && (
               <div className="rounded-lg border border-amber-200 bg-amber-50 p-2.5 space-y-2">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   <button
                     type="button"
                     onClick={reconnectWaha}
@@ -1496,9 +1498,12 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
                     {reconnecting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
                     {reconnecting ? "Reconectando…" : "Reconectar WhatsApp"}
                   </button>
-                  <span className="text-[11px] text-amber-800">Reinicia la sesión. Si pide QR, escanéalo con el teléfono de Sonia.</span>
+                  <span className="text-[11px] text-amber-800">Reinicia la sesión desde cero. Si pide QR, escanéalo con el teléfono de Sonia.</span>
                 </div>
-                {wahaTest.status === "SCAN_QR_CODE" && (
+                {reconnecting && wahaTest?.status && wahaTest.status !== "SCAN_QR_CODE" && (
+                  <div className="text-[11px] text-amber-800">Esperando QR… (estado: {wahaTest.status})</div>
+                )}
+                {wahaTest?.status === "SCAN_QR_CODE" && (
                   <div className="flex flex-col items-center gap-1">
                     <img
                       src={`/api/v1/leads/waha-qr?n=${qrNonce}`}
@@ -1506,6 +1511,12 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
                       className="w-48 h-48 bg-white rounded-lg border"
                     />
                     <span className="text-[11px] text-amber-800">WhatsApp → Dispositivos vinculados → Vincular dispositivo</span>
+                  </div>
+                )}
+                {wahaTest?.url && (
+                  <div className="text-[11px] text-amber-700">
+                    ¿No aparece el QR? Ábrelo en el panel de WAHA:{" "}
+                    <a href={wahaTest.url} target="_blank" rel="noreferrer" className="underline break-all">{wahaTest.url}</a>
                   </div>
                 )}
               </div>

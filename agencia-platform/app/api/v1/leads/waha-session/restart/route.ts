@@ -1,11 +1,14 @@
 /**
  * POST /api/v1/leads/waha-session/restart
  *
- * Reinicia la sesión WAHA cuando está FAILED/STOPPED para volver a
- * vincularla. Usa la API nueva (POST /api/sessions/{name}/restart) y, si el
- * servidor no la soporta (404), cae a stop + start. Tras reiniciar, la sesión
- * pasa a STARTING → SCAN_QR_CODE (escanear QR) o WORKING (si las credenciales
- * seguían en el servidor). Solo admins.
+ * Reconecta la sesión WAHA forzando un QR nuevo. Un simple restart reutiliza
+ * las credenciales cacheadas: si están rotas (sesión FAILED tras cerrarla
+ * desde el móvil) vuelve a FAILED sin pasar por SCAN_QR_CODE. Por eso:
+ *   1. logout  → limpia la autenticación rota
+ *   2. start   → arranca de cero ⇒ SCAN_QR_CODE (escanear QR)
+ *   3. si start falla ⇒ delete + create(start) para resetear la sesión entera
+ *
+ * El cliente sondea el estado y muestra el QR. Solo admins.
  */
 
 import { NextResponse } from "next/server";
@@ -30,38 +33,67 @@ export const POST = withApi({ scope: "*" }, async (_req, { api }) => {
     return NextResponse.json({ ok: false, code: "not_configured", message: e?.message ?? "WAHA no configurado." });
   }
 
-  const headers = { "Content-Type": "application/json", "X-Api-Key": cfg.apiKey };
-  const s = encodeURIComponent(cfg.session);
+  const base = cfg.baseUrl;
+  const name = cfg.session;
+  const s = encodeURIComponent(name);
+  const H = { "Content-Type": "application/json", "X-Api-Key": cfg.apiKey };
+  const post = (p: string, body?: any) =>
+    fetch(`${base}${p}`, { method: "POST", headers: H, body: body ? JSON.stringify(body) : undefined });
+  const del = (p: string) => fetch(`${base}${p}`, { method: "DELETE", headers: H });
 
-  async function call(url: string, body?: any) {
-    return fetch(url, { method: "POST", headers, body: body ? JSON.stringify(body) : undefined });
-  }
+  let connected = false; // ¿conseguimos hablar con el servidor?
+  let badKey = false;
+  const note = (r: Response) => {
+    connected = true;
+    if (r.status === 401 || r.status === 403) badKey = true;
+  };
 
   try {
-    let resp = await call(`${cfg.baseUrl}/api/sessions/${s}/restart`);
-    if (resp.status === 404 || resp.status === 405) {
-      // API antigua: stop + start con el nombre en el body
-      await call(`${cfg.baseUrl}/api/sessions/stop`, { name: cfg.session }).catch(() => null);
-      resp = await call(`${cfg.baseUrl}/api/sessions/start`, { name: cfg.session });
+    // 1) Limpia la autenticación rota (ignora errores si la sesión no la soporta)
+    try { note(await post(`/api/sessions/${s}/logout`)); } catch {}
+
+    // 2) Arranca de cero → debería ir a SCAN_QR_CODE
+    let started = false;
+    try {
+      const r = await post(`/api/sessions/${s}/start`);
+      note(r);
+      started = r.ok;
+    } catch {}
+
+    // 3) Si no arrancó, resetea la sesión entera: delete + create(start)
+    if (!started && !badKey) {
+      try { note(await del(`/api/sessions/${s}`)); } catch {}
+      try {
+        const r = await post(`/api/sessions`, { name, start: true });
+        note(r);
+        started = r.ok;
+      } catch {}
+      // último intento: start clásico tras recrear
+      if (!started) {
+        try { note(await post(`/api/sessions/${s}/start`)); } catch {}
+      }
     }
-    if (resp.status === 401 || resp.status === 403) {
-      return NextResponse.json({ ok: false, code: "bad_key", message: "El servidor rechazó la API key al reiniciar." });
-    }
-    if (!resp.ok) {
-      const txt = await resp.text().catch(() => "");
-      return NextResponse.json({ ok: false, code: "http_error", message: `WAHA respondió ${resp.status} al reiniciar. ${txt.slice(0, 160)}` });
-    }
-    const data: any = await resp.json().catch(() => ({}));
-    return NextResponse.json({
-      ok: true,
-      status: data?.status ?? "STARTING",
-      message: "Sesión reiniciada. Espera unos segundos y, si pide QR, escanéalo con el teléfono de Sonia."
-    });
   } catch (e: any) {
     return NextResponse.json({
       ok: false,
       code: "unreachable",
-      message: `No se pudo conectar a ${cfg.baseUrl} para reiniciar. (${e?.message ?? "error de red"})`
+      message: `No se pudo conectar a ${base} para reconectar. (${e?.message ?? "error de red"})`
     });
   }
+
+  if (!connected) {
+    return NextResponse.json({
+      ok: false,
+      code: "unreachable",
+      message: `No se pudo conectar a ${base}. Revisa que el servidor WAHA está encendido.`
+    });
+  }
+  if (badKey) {
+    return NextResponse.json({ ok: false, code: "bad_key", message: "El servidor rechazó la API key al reconectar." });
+  }
+
+  return NextResponse.json({
+    ok: true,
+    message: "Sesión reiniciada desde cero. En unos segundos debería aparecer el QR — escanéalo con el teléfono de Sonia."
+  });
 });
