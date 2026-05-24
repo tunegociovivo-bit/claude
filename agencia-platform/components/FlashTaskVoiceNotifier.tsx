@@ -16,12 +16,14 @@ const POLL_MS = 20_000;
 const VOICED_KEY = "sonia-approval-voiced";
 
 type Draft = { id: string; title: string; kind: string; detail?: string };
+type Blocked = { id: string; action: string; missing: string };
 type Pending = {
   runId: string;
   taskId: string | null;
   taskTitle: string | null;
   summary: string | null;
   drafts: Draft[];
+  blocked?: Blocked[];
 };
 
 function kindIcon(kind: string): string {
@@ -64,6 +66,7 @@ function markVoiced(runId: string) {
 export default function FlashTaskVoiceNotifier() {
   const [pending, setPending] = useState<Pending | null>(null);
   const [drafts, setDrafts] = useState<Draft[]>([]);
+  const [blocked, setBlocked] = useState<Blocked[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
@@ -82,9 +85,14 @@ export default function FlashTaskVoiceNotifier() {
     } catch {
       /* autoplay bloqueado → fallback */
     }
-    const titles = p.drafts.map((d) => shortLabel(d.title)).join(", ");
+    const ds = p.drafts ?? [];
+    if (ds.length === 0) {
+      void speakSonia("Necesito un dato para completar un encargo. Échale un vistazo.");
+      return;
+    }
+    const titles = ds.map((d) => shortLabel(d.title)).join(", ");
     void speakSonia(
-      `Tengo ${p.drafts.length === 1 ? "una acción" : p.drafts.length + " acciones"} esperando tu visto bueno: ${titles}.`
+      `Tengo ${ds.length === 1 ? "una acción" : ds.length + " acciones"} esperando tu visto bueno: ${titles}.`
     );
   }, []);
 
@@ -99,11 +107,13 @@ export default function FlashTaskVoiceNotifier() {
         if (!r.ok) return;
         const data = await r.json();
         const p: Pending | null = data?.pending ?? null;
-        if (!p || !p.drafts?.length) return;
+        const bl = p?.blocked ?? [];
+        if (!p || (!p.drafts?.length && !bl.length)) return;
         if (dismissedRef.current.has(p.runId)) return;
         setPending(p);
-        setDrafts(p.drafts);
-        setSelected(new Set(p.drafts.map((d) => d.id))); // todas marcadas por defecto
+        setDrafts(p.drafts ?? []);
+        setBlocked(bl);
+        setSelected(new Set((p.drafts ?? []).map((d) => d.id))); // todas marcadas por defecto
         announce(p);
       } catch {
         /* silencio */
@@ -140,6 +150,7 @@ export default function FlashTaskVoiceNotifier() {
   const close = useCallback(() => {
     setPending(null);
     setDrafts([]);
+    setBlocked([]);
     setSelected(new Set());
   }, []);
 
@@ -156,27 +167,36 @@ export default function FlashTaskVoiceNotifier() {
           body: JSON.stringify({})
         });
       }
+      // Las notas de "falta info" se marcan como vistas (rechazadas) para que
+      // no reaparezcan; el dato pendiente sigue anotado en la tarea.
+      for (const b of blocked) {
+        await fetch(`/api/v1/admin/ai-agent/drafts/${b.id}/reject`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ note: "Visto en la ventana de aprobación" })
+        }).catch(() => {});
+      }
       const n = selected.size;
       if (n > 0) void speakSonia(n === 1 ? "Hecho, me pongo con ello." : `Hecho, me encargo de las ${n}.`);
       close();
     } catch {
       setBusy(false);
     }
-  }, [busy, drafts, selected, close]);
+  }, [busy, drafts, blocked, selected, close]);
 
   const dismiss = useCallback(() => {
     if (pending) dismissedRef.current.add(pending.runId);
     close();
   }, [pending, close]);
 
-  if (!pending || drafts.length === 0) return null;
+  if (!pending || (drafts.length === 0 && blocked.length === 0)) return null;
 
   return (
     <div style={overlay} onClick={dismiss}>
       <div style={modal} onClick={(e) => e.stopPropagation()}>
         <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 2 }}>🎙️ Sonia necesita tu OK</div>
         <div style={{ fontSize: 13, color: "#666", marginBottom: 14 }}>
-          Marca lo que quieres que haga y pulsa Aprobar:
+          {drafts.length > 0 ? "Marca lo que quieres que haga y pulsa Aprobar:" : "Sonia no pudo completar esto todavía:"}
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 16 }}>
@@ -212,12 +232,34 @@ export default function FlashTaskVoiceNotifier() {
           })}
         </div>
 
+        {blocked.length > 0 && (
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: "#b45309", marginBottom: 6 }}>
+              ⚠️ Le falta info para hacer esto:
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {blocked.map((b) => (
+                <div key={b.id} style={blockedRow}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: "#92400e" }}>{b.action}</div>
+                  {b.missing && <div style={{ fontSize: 12, color: "#a16207", marginTop: 2 }}>Falta: {b.missing}</div>}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", alignItems: "center" }}>
           <button style={linkBtn} disabled={busy} onClick={dismiss}>
             Ahora no
           </button>
           <button style={btnApprove} disabled={busy} onClick={approve}>
-            {busy ? "Procesando…" : selected.size === drafts.length ? "Aprobar todo" : `Aprobar (${selected.size})`}
+            {busy
+              ? "Procesando…"
+              : drafts.length === 0
+              ? "Entendido"
+              : selected.size === drafts.length
+              ? "Aprobar todo"
+              : `Aprobar (${selected.size})`}
           </button>
         </div>
       </div>
@@ -252,6 +294,12 @@ const row: React.CSSProperties = {
   border: "1px solid #ececec",
   borderRadius: 10,
   padding: "10px 12px"
+};
+const blockedRow: React.CSSProperties = {
+  background: "#fffbeb",
+  border: "1px solid #fde68a",
+  borderRadius: 10,
+  padding: "8px 12px"
 };
 const detailBox: React.CSSProperties = {
   fontSize: 12.5,

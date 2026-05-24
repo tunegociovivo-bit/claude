@@ -2707,6 +2707,20 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
       additionalProperties: false
     }
   },
+  {
+    name: "note_blocked_action",
+    description:
+      "Registra una acción que NO has podido completar porque te FALTA un dato (p.ej. no tienes el email del destinatario). Aparecerá en la ventana de aprobación como nota '⚠️ Falta: …'. ÚSALA junto con los draft_* de lo que SÍ puedes hacer: NUNCA dejes de preparar lo que sí puedes por culpa de lo que falta. Una llamada a esta tool por cada acción bloqueada.",
+    input_schema: {
+      type: "object",
+      properties: {
+        action: { type: "string", description: "Qué querías hacer (ej. 'Email de enhorabuena a David Ríos')." },
+        missing: { type: "string", description: "Qué dato te falta para poder hacerlo (ej. 'su dirección de email')." }
+      },
+      required: ["action", "missing"],
+      additionalProperties: false
+    }
+  },
   // ──────────────────────────────────────────────────────────────
   // HOLDED: facturación / presupuestos / contactos (write)
   // ──────────────────────────────────────────────────────────────
@@ -7158,6 +7172,30 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
       };
     } catch (e: any) {
       return { error: `draft_phone_call: ${e?.message ?? e}` };
+    }
+  },
+  async note_blocked_action(input, ctx) {
+    try {
+      const action = String(input?.action ?? "").trim();
+      const missing = String(input?.missing ?? "").trim();
+      if (!action) return { error: "action vacío" };
+      const draft = await prisma.aiDraft.create({
+        data: {
+          workspaceId: ctx.workspaceId,
+          aiAgentRunId: ctx.runId,
+          taskId: ctx.taskId,
+          kind: "CUSTOM",
+          title: `⚠️ ${action}`,
+          payload: { blocked: true, action, missing }
+        }
+      });
+      return {
+        ok: true,
+        draftId: draft.id,
+        message: "Acción bloqueada registrada: aparecerá como nota '⚠️ Falta…' en la ventana de aprobación."
+      };
+    } catch (e: any) {
+      return { error: `note_blocked_action: ${e?.message ?? e}` };
     }
   },
   async holded_create_invoice(input, ctx) {

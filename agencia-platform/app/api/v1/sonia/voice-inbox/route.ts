@@ -57,12 +57,20 @@ export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
     }
     return title;
   }
-  const drafts = draftsRaw.map((d) => ({
-    id: d.id,
-    title: d.title,
-    kind: d.kind,
-    detail: draftDetail(d.kind, d.payload, d.title).slice(0, 1500)
-  }));
+  const drafts = draftsRaw
+    .filter((d) => !(d.payload as any)?.blocked)
+    .map((d) => ({
+      id: d.id,
+      title: d.title,
+      kind: d.kind,
+      detail: draftDetail(d.kind, d.payload, d.title).slice(0, 1500)
+    }));
+  const blocked = draftsRaw
+    .filter((d) => (d.payload as any)?.blocked)
+    .map((d) => {
+      const p = (d.payload ?? {}) as any;
+      return { id: d.id, action: String(p.action ?? d.title), missing: String(p.missing ?? "") };
+    });
 
   const run = await prisma.aiAgentRun.findFirst({
     where: { id: runId, workspaceId: api.workspaceId },
@@ -80,7 +88,8 @@ export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
       taskTitle: task?.title ?? null,
       summary: run?.summary ?? null,
       finishedAt: run?.finishedAt ?? null,
-      drafts
+      drafts,
+      blocked
     }
   });
 });
