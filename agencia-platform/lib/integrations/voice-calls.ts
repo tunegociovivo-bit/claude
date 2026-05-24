@@ -55,6 +55,9 @@ export async function startVoiceCall(opts: {
   goal: string;
   customerName?: string;
   userId?: string;
+  /** Tarea de origen: la grabación/resumen se adjuntará a ELLA al colgar. */
+  taskId?: string;
+  clientId?: string;
   variables?: Record<string, string>;
 }): Promise<{ id: string; providerCallId: string | null }> {
   const cfg = await getVoiceConfig(opts.workspaceId);
@@ -99,7 +102,9 @@ export async function startVoiceCall(opts: {
       toNumber: to,
       goal: opts.goal,
       status: data?.status ?? "queued",
-      createdById: opts.userId ?? null
+      createdById: opts.userId ?? null,
+      taskId: opts.taskId ?? null,
+      clientId: opts.clientId ?? null
     }
   });
   return { id: call.id, providerCallId };
@@ -176,6 +181,14 @@ export async function handleVapiWebhook(payload: any): Promise<{ ok: boolean }> 
       await createCallTask(fresh);
     } catch (e) {
       console.error("[voice] crear tarea de llamada falló:", (e as Error).message);
+    }
+  } else if (fresh && hasContent && fresh.taskId) {
+    // La llamada salió de una tarea concreta (Sonia la propuso ahí): adjunta
+    // la grabación + resumen/transcripción a ESA tarea para poder revisarla.
+    try {
+      await attachCallResultToTask(fresh);
+    } catch (e) {
+      console.error("[voice] adjuntar resultado a la tarea de origen falló:", (e as Error).message);
     }
   }
 
@@ -293,6 +306,85 @@ async function findReunionesColumn(
  * columna "Reuniones y llamadas", adjunta el audio (si hay storage) y enlaza
  * la VoiceCall.taskId.
  */
+/**
+ * Adjunta el resultado de una llamada (resumen + transcripción + grabación)
+ * a la TAREA DE ORIGEN (la que la propuso), en vez de crear una nueva. Para
+ * que el usuario compruebe cómo lo hizo Sonia. Idempotente por call.id.
+ */
+async function attachCallResultToTask(call: {
+  id: string;
+  workspaceId: string;
+  toNumber: string;
+  goal: string | null;
+  summary: string | null;
+  transcript: string | null;
+  recordingUrl: string | null;
+  createdById: string | null;
+  durationSec: number | null;
+  taskId: string | null;
+}): Promise<void> {
+  if (!call.taskId) return;
+  const marker = `voicecall:${call.id}`;
+  const already = await prisma.comment.findFirst({
+    where: { workspaceId: call.workspaceId, targetType: "TASK", targetId: call.taskId, body: { contains: marker } },
+    select: { id: true }
+  });
+  if (already) return; // ya adjuntado
+
+  const ws = await prisma.workspace.findUnique({ where: { id: call.workspaceId }, select: { settings: true } });
+  const authorId = call.createdById ?? ((ws?.settings as any)?.aiAgent?.userId as string | undefined);
+
+  const dur = call.durationSec ? ` (${Math.floor(call.durationSec / 60)}m${call.durationSec % 60}s)` : "";
+  const body =
+    `📞 Resultado de la llamada a ${call.toNumber}${dur}\n\n` +
+    (call.summary?.trim() ? `**Resumen:** ${call.summary.trim()}\n\n` : "") +
+    (call.recordingUrl ? `🎧 Grabación: ${call.recordingUrl}\n\n` : "") +
+    (call.transcript?.trim() ? `**Transcripción:**\n${call.transcript.trim().slice(0, 6000)}\n\n` : "") +
+    `<!-- ${marker} -->`;
+  if (authorId) {
+    await prisma.comment.create({
+      data: { workspaceId: call.workspaceId, authorId, targetType: "TASK", targetId: call.taskId, body }
+    });
+  }
+
+  // Descarga la grabación y la sube como adjunto de la tarea (mismo patrón
+  // que createCallTask).
+  if (call.recordingUrl) {
+    try {
+      const { isStorageEnabled, uploadBuffer, buildS3Key } = await import("@/lib/storage/r2");
+      if (isStorageEnabled()) {
+        const r = await fetch(call.recordingUrl, { signal: AbortSignal.timeout(30000) });
+        if (r.ok) {
+          const buf = Buffer.from(await r.arrayBuffer());
+          const ext = call.recordingUrl.includes(".mp3") ? "mp3" : "wav";
+          const mime = ext === "mp3" ? "audio/mpeg" : "audio/wav";
+          const s3Key = buildS3Key({
+            workspaceId: call.workspaceId,
+            targetType: "task",
+            targetId: call.taskId,
+            filename: `llamada-${call.id}.${ext}`
+          });
+          await uploadBuffer({ s3Key, body: buf, contentType: mime });
+          await prisma.file.create({
+            data: {
+              workspaceId: call.workspaceId,
+              name: `Llamada ${call.toNumber}.${ext}`,
+              mimeType: mime,
+              sizeBytes: buf.length,
+              s3Key,
+              targetType: "TASK",
+              targetId: call.taskId,
+              uploadedBy: call.createdById ?? undefined
+            }
+          });
+        }
+      }
+    } catch (e) {
+      console.warn("[voice] adjuntar audio a tarea de origen falló (queda el enlace en el comentario):", (e as Error).message);
+    }
+  }
+}
+
 async function createCallTask(call: {
   id: string;
   workspaceId: string;

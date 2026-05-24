@@ -2689,9 +2689,9 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
     }
   },
   {
-    name: "place_phone_call",
+    name: "draft_phone_call",
     description:
-      "Hace una LLAMADA TELEFÓNICA real (agente de voz Sonia vía Vapi) al número indicado, con un objetivo/guion en español. Úsala para ENCARGOS llegados por llamada/nota (reservar mesa o cita, contactar con un negocio/proveedor, pedir/confirmar información) cuando el objetivo esté claro. Cuesta dinero por minuto y habla con una persona real: confirma el número (búscalo con web_search si hace falta) y mete en 'goal' TODOS los datos (qué pedir, fecha, hora, nº de personas, a nombre de quién). El resultado (transcripción/resumen) llega después por webhook y se registra en 'Reuniones y llamadas'. Si el número o los datos no están claros, NO llames: pídelos o propón con add_comment.",
+      "PROPONE una LLAMADA TELEFÓNICA (agente de voz Sonia vía Vapi): crea un BORRADOR que queda PENDIENTE de aprobación del usuario. NO llama hasta que el usuario dé el OK (en la tarjeta de avisos o en /admin/nv-ia/drafts). Úsala para ENCARGOS llegados por llamada/nota (reservar mesa o cita, contactar con un negocio/proveedor, pedir/confirmar información). Confirma el número (búscalo con web_search si hace falta) y mete en 'goal' TODOS los datos (qué pedir, fecha, hora, nº de personas, a nombre de quién, alternativas). Tras crear el borrador, explica en el resumen qué propones; el usuario decide.",
     input_schema: {
       type: "object",
       properties: {
@@ -7128,53 +7128,32 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
       return { error: `send_whatsapp_message: ${e?.message ?? e}` };
     }
   },
-  async place_phone_call(input, ctx) {
+  async draft_phone_call(input, ctx) {
     try {
-      const { startVoiceCall, getVapiCallStatus } = await import("@/lib/integrations/voice-calls");
       const toNumber = String(input?.toNumber ?? "").trim();
       const goal = String(input?.goal ?? "").trim();
       if (!toNumber) return { error: "toNumber vacío" };
       if (!goal) return { error: "goal vacío" };
-      const r = await startVoiceCall({
-        workspaceId: ctx.workspaceId,
-        toNumber,
-        goal,
-        customerName: input?.customerName ? String(input.customerName) : undefined,
-        userId: ctx.config.userId
-      });
-      await prisma.comment.create({
+      const customerName = input?.customerName ? String(input.customerName) : undefined;
+      const draft = await prisma.aiDraft.create({
         data: {
           workspaceId: ctx.workspaceId,
-          authorId: ctx.config.userId,
-          targetType: "TASK",
-          targetId: ctx.taskId,
-          body: `📞 Llamada lanzada a **${toNumber}**. Objetivo: "${goal.slice(0, 160)}${goal.length > 160 ? "…" : ""}". El resultado llegará al colgar.`
+          aiAgentRunId: ctx.runId,
+          taskId: ctx.taskId,
+          kind: "PHONE_CALL",
+          title: `Llamar a ${customerName ? customerName + " " : ""}${toNumber}: ${goal.slice(0, 60)}…`,
+          payload: { toNumber, goal, ...(customerName ? { customerName } : {}) }
         }
       });
-      // Verificación: esperamos unos segundos y comprobamos en Vapi que no
-      // falló al arrancar (nº inválido, sin saldo, internacional bloqueado…).
-      if (r.providerCallId) {
-        await new Promise((res) => setTimeout(res, 9000));
-        const st = await getVapiCallStatus(ctx.workspaceId, r.providerCallId);
-        const reason = st?.endedReason ?? "";
-        if (st && st.status === "ended" && /error|fail|forbidden|invalid|international|no-?answer|busy|declined/i.test(reason)) {
-          return {
-            ok: false,
-            failed: true,
-            endedReason: reason,
-            message: `La llamada NO se pudo completar (Vapi: ${reason}). NO digas que se hizo con éxito; informa del problema.`
-          };
-        }
-        return {
-          ok: true,
-          callId: r.id,
-          status: st?.status ?? "in-progress",
-          message: "Llamada en curso. El resumen y la transcripción llegan al colgar (tarea en 'Reuniones y llamadas')."
-        };
-      }
-      return { ok: true, callId: r.id, status: "queued" };
+      // Las llamadas SIEMPRE requieren OK humano: no se auto-aprueban.
+      return {
+        ok: true,
+        draftId: draft.id,
+        message:
+          "Borrador de LLAMADA creado. Queda PENDIENTE de aprobación: la llamada NO se hará hasta que el usuario lo apruebe (en la tarjeta de avisos o en /admin/nv-ia/drafts)."
+      };
     } catch (e: any) {
-      return { error: `place_phone_call: ${e?.message ?? e}` };
+      return { error: `draft_phone_call: ${e?.message ?? e}` };
     }
   },
   async holded_create_invoice(input, ctx) {
@@ -7615,9 +7594,12 @@ function humanSize(bytes: number): string {
 // Así, lo que sabe hacer Sonia en el chat lo sabe hacer también sola.
 // ──────────────────────────────────────────────────────────────
 {
+  // Tools del chat que NO heredamos: la llamada DIRECTA (place_phone_call)
+  // se sustituye por draft_phone_call (requiere aprobación del usuario).
+  const EXCLUDE_FROM_CHAT = new Set(["place_phone_call"]);
   const existingNames = new Set(TOOL_DEFINITIONS.map((t) => t.name));
   for (const ct of chatTools) {
-    if (existingNames.has(ct.name)) continue;
+    if (existingNames.has(ct.name) || EXCLUDE_FROM_CHAT.has(ct.name)) continue;
     TOOL_DEFINITIONS.push({
       name: ct.name,
       description: ct.description,

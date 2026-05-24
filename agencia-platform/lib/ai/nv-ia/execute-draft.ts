@@ -176,6 +176,20 @@ export async function executeDraft(draftId: string): Promise<{
         result = { ok: true, externalId: r.url };
         break;
       }
+      case "PHONE_CALL": {
+        const { startVoiceCall } = await import("@/lib/integrations/voice-calls");
+        const r = await startVoiceCall({
+          workspaceId: draft.workspaceId,
+          toNumber: String(payload.toNumber ?? ""),
+          goal: String(payload.goal ?? ""),
+          customerName: payload.customerName ? String(payload.customerName) : undefined,
+          taskId: draft.taskId ?? undefined,
+          userId: draft.reviewedById ?? undefined,
+          clientId: payload.clientId ?? undefined
+        });
+        result = { ok: true, externalId: r.providerCallId ?? r.id };
+        break;
+      }
       case "CUSTOM":
       default: {
         result = { ok: true }; // marcar como executed sin acción

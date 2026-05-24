@@ -2109,6 +2109,7 @@ enum AiDraftKind {
   HOLDED_INVOICE
   HOLDED_QUOTE
   STRIPE_PAYMENT_LINK
+  PHONE_CALL // llamada de voz (Vapi) propuesta; se ejecuta al aprobar
   CUSTOM // texto libre — para acciones que aún no tienen integración
 }
 
