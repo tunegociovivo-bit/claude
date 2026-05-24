@@ -232,45 +232,76 @@ export const POST = withApi({ scope: "ai", rate: "ai" }, async (req, { api }) =>
     }
   }
 
-  // Loop agéntico: ejecutar tools hasta que el modelo termine
-  for (let i = 0; i < 10; i++) {
-    const resp = await createMessage();
+  // Último mensaje del usuario, para diagnóstico si el bucle falla.
+  const lastUserMsg =
+    [...parsed.data.messages].reverse().find((m) => m.role === "user")?.content ?? "";
 
-    // pause_turn: la API pausó un turno largo (típico con la búsqueda web
-    // del server tool). Reanudamos pasando el contenido tal cual.
-    if (resp.stop_reason === "pause_turn") {
-      messages.push({ role: "assistant", content: resp.content as any });
-      continue;
-    }
+  // Loop agéntico: ejecutar tools hasta que el modelo termine.
+  // Lo envolvemos en try/catch porque la única parte no protegida del turno
+  // es la llamada a la API de Anthropic (client.messages.create): las tools ya
+  // capturan sus errores y devuelven JSON. Si esa llamada falla (rate-limit,
+  // 5xx de Anthropic, mensaje inválido tras un tool_result, etc.) NO queremos
+  // soltar un 500 opaco "Error interno" — eso dispara el ErrorReporter sin
+  // dejar pista útil. En su lugar logueamos el detalle real (queda en Railway)
+  // y devolvemos una respuesta amable con el motivo técnico abreviado.
+  try {
+    for (let i = 0; i < 10; i++) {
+      const resp = await createMessage();
 
-    if (resp.stop_reason !== "tool_use") {
-      const text = resp.content
-        .filter((b) => b.type === "text")
-        .map((b: any) => b.text)
-        .join("\n")
-        .trim();
-      return NextResponse.json({ reply: text || "(sin respuesta)", cards: dedupedCards() });
-    }
-
-    // Ejecutar tool_use blocks
-    messages.push({ role: "assistant", content: resp.content as any });
-    const toolResults: Anthropic.ToolResultBlockParam[] = [];
-    for (const block of resp.content) {
-      if (block.type === "tool_use") {
-        const result = await runTool(block.name, block.input as any, {
-          workspaceId: api.workspaceId,
-          userId: api.userId,
-          isAdmin
-        });
-        allCards.push(...extractCardsFromTool(block.name, result));
-        toolResults.push({
-          type: "tool_result",
-          tool_use_id: block.id,
-          content: result
-        });
+      // pause_turn: la API pausó un turno largo (típico con la búsqueda web
+      // del server tool). Reanudamos pasando el contenido tal cual.
+      if (resp.stop_reason === "pause_turn") {
+        messages.push({ role: "assistant", content: resp.content as any });
+        continue;
       }
+
+      if (resp.stop_reason !== "tool_use") {
+        const text = resp.content
+          .filter((b) => b.type === "text")
+          .map((b: any) => b.text)
+          .join("\n")
+          .trim();
+        return NextResponse.json({ reply: text || "(sin respuesta)", cards: dedupedCards() });
+      }
+
+      // Ejecutar tool_use blocks
+      messages.push({ role: "assistant", content: resp.content as any });
+      const toolResults: Anthropic.ToolResultBlockParam[] = [];
+      for (const block of resp.content) {
+        if (block.type === "tool_use") {
+          const result = await runTool(block.name, block.input as any, {
+            workspaceId: api.workspaceId,
+            userId: api.userId,
+            isAdmin
+          });
+          allCards.push(...extractCardsFromTool(block.name, result));
+          toolResults.push({
+            type: "tool_result",
+            tool_use_id: block.id,
+            content: result
+          });
+        }
+      }
+      messages.push({ role: "user", content: toolResults });
     }
-    messages.push({ role: "user", content: toolResults });
+  } catch (err: any) {
+    const status = err?.status ?? err?.statusCode ?? null;
+    const detail = String(err?.error?.message ?? err?.message ?? err).slice(0, 300);
+    console.error(
+      "[ai/chat] fallo en el bucle agéntico:",
+      status ?? "",
+      detail,
+      "| último mensaje:",
+      String(lastUserMsg).slice(0, 200)
+    );
+    return NextResponse.json({
+      reply:
+        `Ahora mismo no he podido completar eso por un error técnico` +
+        `${status ? ` (${status})` : ""}: ${detail}. Inténtalo de nuevo en unos segundos; ` +
+        `si sigue fallando, revisa la conexión de IA en /admin/ai.`,
+      cards: dedupedCards(),
+      error: { code: "ai_loop_error", status, detail }
+    });
   }
 
   return NextResponse.json({
