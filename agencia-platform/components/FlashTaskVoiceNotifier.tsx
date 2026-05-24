@@ -13,6 +13,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { playSoniaBlob, speakSonia } from "@/lib/voice/sonia-audio";
 
 const LS_KEY = "flash-voiced-runids";
 const POLL_MS = 60_000;
@@ -43,13 +44,8 @@ function markVoiced(runId: string) {
 }
 
 function browserSpeak(text: string) {
-  try {
-    const u = new SpeechSynthesisUtterance(text);
-    u.lang = "es-ES";
-    window.speechSynthesis?.speak(u);
-  } catch {
-    /* sin TTS: nada */
-  }
+  // Pasa por la cola global para no solaparse con otras voces.
+  void speakSonia(text);
 }
 
 export default function FlashTaskVoiceNotifier() {
@@ -68,10 +64,7 @@ export default function FlashTaskVoiceNotifier() {
       const r = await fetch(`/api/v1/sonia/voice-inbox/${p.runId}/speak`, { cache: "no-store" });
       if (r.ok && r.status === 200) {
         const blob = await r.blob();
-        const url = URL.createObjectURL(blob);
-        const audio = new Audio(url);
-        audio.onended = () => URL.revokeObjectURL(url);
-        await audio.play();
+        await playSoniaBlob(blob);
         return;
       }
     } catch {

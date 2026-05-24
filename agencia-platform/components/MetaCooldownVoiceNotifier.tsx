@@ -8,6 +8,7 @@
  */
 
 import { useEffect, useRef } from "react";
+import { playSoniaBlob, speakSonia } from "@/lib/voice/sonia-audio";
 
 const LS_KEY = "meta-cooldown-voiced-until";
 const POLL_MS = 60_000;
@@ -19,30 +20,21 @@ export default function MetaCooldownVoiceNotifier() {
     let stop = false;
 
     async function announce(minutes: number) {
-      // 1) Voz de Sonia (ElevenLabs) vía endpoint.
+      // 1) Voz de Sonia (ElevenLabs) vía endpoint — por la cola GLOBAL.
       try {
         const r = await fetch("/api/v1/meta/guard-speak", { cache: "no-store" });
         if (r.ok && r.status === 200) {
           const blob = await r.blob();
-          const url = URL.createObjectURL(blob);
-          const audio = new Audio(url);
-          await audio.play();
-          audio.onended = () => URL.revokeObjectURL(url);
+          await playSoniaBlob(blob);
           return;
         }
       } catch {
         // autoplay bloqueado o error → fallback abajo
       }
-      // 2) Fallback: voz del navegador.
-      try {
-        const msg = new SpeechSynthesisUtterance(
-          `Atención. Meta está limitando la cuenta de anuncios. He pausado las publicaciones. Espera unos ${minutes} minutos antes de publicar en Meta.`
-        );
-        msg.lang = "es-ES";
-        window.speechSynthesis?.speak(msg);
-      } catch {
-        // sin TTS disponible: nada que hacer
-      }
+      // 2) Fallback: voz del navegador (también por la cola global).
+      void speakSonia(
+        `Atención. Meta está limitando la cuenta de anuncios. He pausado las publicaciones. Espera unos ${minutes} minutos antes de publicar en Meta.`
+      );
     }
 
     async function tick() {

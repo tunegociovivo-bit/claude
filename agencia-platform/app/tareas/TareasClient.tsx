@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { playSoniaBlob } from "@/lib/voice/sonia-audio";
 import {
   DndContext,
   DragOverlay,
@@ -378,19 +379,9 @@ export default function TareasClient({
       throw new Error(`speak ${r.status}`);
     }
     const blob = await r.blob();
-    const url = URL.createObjectURL(blob);
-    const audio = new Audio(url);
-    await new Promise<void>((resolve, reject) => {
-      audio.onended = () => {
-        URL.revokeObjectURL(url);
-        resolve();
-      };
-      audio.onerror = () => {
-        URL.revokeObjectURL(url);
-        reject(new Error("audio error"));
-      };
-      audio.play().catch(reject);
-    });
+    // Reproduce por la cola GLOBAL de voz: nunca se solapa con otras voces
+    // de Sonia (otras tarjetas, notificadores, etc.).
+    await playSoniaBlob(blob);
   }, []);
 
   // Procesa la cola de voz de UNA EN UNA. Garantiza que nunca suenen dos
