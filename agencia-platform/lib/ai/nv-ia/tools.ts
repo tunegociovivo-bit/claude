@@ -9,6 +9,7 @@
 
 import type Anthropic from "@anthropic-ai/sdk";
 import { prisma } from "@/lib/db/prisma";
+import { chatTools } from "@/lib/ai/chat-tools";
 import { semanticSearch } from "@/lib/search/embeddings";
 import { extractTextFromFile } from "./file-reader";
 import { readDriveFileText } from "./drive-reader";
@@ -7604,4 +7605,30 @@ function humanSize(bytes: number): string {
   if (bytes < 1024) return `${bytes}B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
   return `${(bytes / 1024 / 1024).toFixed(1)}MB`;
+}
+
+// ──────────────────────────────────────────────────────────────
+// PARIDAD CON EL CHAT: la Sonia autónoma hereda TODAS las tools del
+// asistente de chat (chat-tools) que no tenga ya bajo otro nombre
+// (dedupe por nombre). Reusa sus handlers; el ctx del chat se construye
+// desde el ToolContext de la autónoma (actúa como admin del workspace).
+// Así, lo que sabe hacer Sonia en el chat lo sabe hacer también sola.
+// ──────────────────────────────────────────────────────────────
+{
+  const existingNames = new Set(TOOL_DEFINITIONS.map((t) => t.name));
+  for (const ct of chatTools) {
+    if (existingNames.has(ct.name)) continue;
+    TOOL_DEFINITIONS.push({
+      name: ct.name,
+      description: ct.description,
+      input_schema: ct.input_schema as Anthropic.Tool["input_schema"]
+    });
+    TOOL_EXECUTORS[ct.name] = async (input, ctx) =>
+      ct.run(input ?? {}, {
+        workspaceId: ctx.workspaceId,
+        userId: ctx.config.userId,
+        isAdmin: true
+      });
+    existingNames.add(ct.name);
+  }
 }
