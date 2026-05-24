@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import PageHeader from "@/components/PageHeader";
 import Modal from "@/components/ui/Modal";
 import {
@@ -1347,10 +1347,20 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
   const [error, setError] = useState<string | null>(null);
   const [wahaTesting, setWahaTesting] = useState(false);
   const [wahaTest, setWahaTest] = useState<any>(null);
+  const [reconnecting, setReconnecting] = useState(false);
+  const [qrNonce, setQrNonce] = useState(0);
+  const pollRef = useRef<any>(null);
   useEffect(() => {
     if (!open) return;
     setGoogleKey(""); setWahaKey(""); setError(null); setSavedAt(null);
     fetch("/api/v1/leads/settings").then((r) => r.ok ? r.json() : null).then(setS);
+  }, [open]);
+  useEffect(() => {
+    if (!open) {
+      if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
+      setReconnecting(false);
+    }
+    return () => { if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; } };
   }, [open]);
   if (!s) return <Modal open={open} onClose={onClose} title="Ajustes leads" size="lg"><Loading /></Modal>;
   async function save() {
@@ -1384,6 +1394,9 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
     setSavedAt(new Date());
   }
   function setField(k: string, v: any) { setS({ ...s, [k]: v }); }
+  function stopPoll() {
+    if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
+  }
   async function testWaha() {
     setWahaTesting(true);
     setWahaTest(null);
@@ -1394,6 +1407,31 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
       setWahaTest({ ok: false, message: `No se pudo lanzar el test: ${e?.message ?? e}` });
     }
     setWahaTesting(false);
+  }
+  async function reconnectWaha() {
+    setReconnecting(true);
+    setWahaTest(null);
+    try {
+      const r = await fetch("/api/v1/leads/waha-session/restart", { method: "POST" });
+      const j = await r.json();
+      if (!j.ok) { setWahaTest(j); setReconnecting(false); return; }
+    } catch (e: any) {
+      setWahaTest({ ok: false, message: `No se pudo reiniciar: ${e?.message ?? e}` });
+      setReconnecting(false);
+      return;
+    }
+    stopPoll();
+    let ticks = 0;
+    pollRef.current = setInterval(async () => {
+      ticks++;
+      setQrNonce((n) => n + 1);
+      try {
+        const r = await fetch("/api/v1/leads/waha-test");
+        const j = await r.json();
+        setWahaTest(j);
+        if (j.ok || ticks > 40) { stopPoll(); setReconnecting(false); }
+      } catch { /* sigue sondeando */ }
+    }, 3000);
   }
   return (
     <Modal open={open} onClose={onClose} title="Ajustes NV Leads Pro" size="lg" footer={
@@ -1442,6 +1480,32 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
                 {wahaTest.status && (
                   <div className="mt-1 text-[11px] opacity-80">
                     Estado: {wahaTest.status}{wahaTest.engine ? ` · Motor: ${wahaTest.engine}` : ""}{wahaTest.session ? ` · Sesión: ${wahaTest.session}` : ""}
+                  </div>
+                )}
+              </div>
+            )}
+            {wahaTest && !wahaTest.ok && wahaTest.code !== "not_configured" && wahaTest.code !== "unreachable" && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 p-2.5 space-y-2">
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={reconnectWaha}
+                    disabled={reconnecting}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-xs font-medium disabled:opacity-50"
+                  >
+                    {reconnecting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                    {reconnecting ? "Reconectando…" : "Reconectar WhatsApp"}
+                  </button>
+                  <span className="text-[11px] text-amber-800">Reinicia la sesión. Si pide QR, escanéalo con el teléfono de Sonia.</span>
+                </div>
+                {wahaTest.status === "SCAN_QR_CODE" && (
+                  <div className="flex flex-col items-center gap-1">
+                    <img
+                      src={`/api/v1/leads/waha-qr?n=${qrNonce}`}
+                      alt="QR para vincular WhatsApp"
+                      className="w-48 h-48 bg-white rounded-lg border"
+                    />
+                    <span className="text-[11px] text-amber-800">WhatsApp → Dispositivos vinculados → Vincular dispositivo</span>
                   </div>
                 )}
               </div>
