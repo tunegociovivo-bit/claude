@@ -110,6 +110,18 @@ export async function executeDraft(draftId: string): Promise<{
         break;
       }
       case "WHATSAPP": {
+        if (payload.voice) {
+          const { elevenlabsSynthesize } = await import("@/lib/integrations/elevenlabs");
+          const { sendVoice } = await import("@/lib/leads/waha");
+          const audio = await elevenlabsSynthesize({ workspaceId: draft.workspaceId, text: payload.text });
+          const r = await sendVoice({
+            workspaceId: draft.workspaceId,
+            phoneNormalized: payload.phoneNormalized,
+            audio
+          });
+          result = { ok: true, externalId: r.messageId };
+          break;
+        }
         const r = await sendText({
           workspaceId: draft.workspaceId,
           phoneNormalized: payload.phoneNormalized,

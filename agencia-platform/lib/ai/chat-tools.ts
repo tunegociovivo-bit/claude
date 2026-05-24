@@ -1674,6 +1674,46 @@ chatTools.push({
 });
 
 chatTools.push({
+  name: "send_whatsapp_voice",
+  description:
+    "Envía una NOTA DE VOZ por WhatsApp (vía WAHA): genera el audio con la voz de la marca (ElevenLabs) a partir del texto y lo manda como nota de voz natural, no como texto. Úsalo cuando el usuario pida mandar un audio/nota de voz, o para responder a una nota de voz con otra. SIEMPRE muestra antes el destinatario + el texto que se va a 'hablar' y envíalo solo tras confirmar. Requiere WAHA y ElevenLabs configurados.",
+  input_schema: {
+    type: "object",
+    properties: {
+      phone: { type: "string", description: "Teléfono con prefijo internacional, p.ej. +34600111222." },
+      text: { type: "string", description: "Texto que se convertirá a voz y se enviará como nota de voz. Tono coloquial (estás 'hablando')." }
+    },
+    required: ["phone", "text"]
+  },
+  run: async (args, ctx) => {
+    try {
+      const raw = String(args?.phone ?? "").replace(/[^\d+]/g, "");
+      let phone = raw.replace(/^\+/, "");
+      if (phone.length === 9) phone = `34${phone}`; // español sin prefijo
+      const text = String(args?.text ?? "").trim();
+      if (!phone || !text) return JSON.stringify({ error: "Falta teléfono o texto." });
+      const { elevenlabsSynthesize } = await import("@/lib/integrations/elevenlabs");
+      const { sendVoice } = await import("@/lib/leads/waha");
+      const audio = await elevenlabsSynthesize({ workspaceId: ctx.workspaceId, text });
+      const r = await sendVoice({ workspaceId: ctx.workspaceId, phoneNormalized: phone, audio });
+      return JSON.stringify({ ok: true, messageId: r.messageId, message: `Nota de voz enviada a +${phone}.` });
+    } catch (e: any) {
+      const msg = String(e?.message ?? e);
+      if (/elevenlabs/i.test(msg)) {
+        return JSON.stringify({ ok: false, error: "ElevenLabs no está configurado. Añádelo en ajustes para enviar notas de voz." });
+      }
+      if (/waha|not configured|no configurad|baseUrl|apiKey/i.test(msg)) {
+        return JSON.stringify({ ok: false, error: "WhatsApp (WAHA) no está configurado." });
+      }
+      if (/sendVoice|convert|ffmpeg|opus/i.test(msg)) {
+        return JSON.stringify({ ok: false, error: `El servidor WAHA no pudo convertir el audio a nota de voz: ${msg}` });
+      }
+      return JSON.stringify({ ok: false, error: `No se pudo enviar la nota de voz: ${msg}` });
+    }
+  }
+});
+
+chatTools.push({
   name: "meta_via_mcp",
   description:
     "Ejecuta una gestión de Meta Ads a través del CONECTOR OFICIAL de Meta (MCP), autenticado como el usuario con ACCESO TOTAL a todas sus cuentas. Úsalo como ALTERNATIVA automática cuando una tool meta_* normal falla por permisos (el token permanente no tiene acceso a esa cuenta), o para operar cuentas que ese token no alcanza. Describe la gestión en lenguaje natural y detallado: cuenta (nombre o act_id), acción y parámetros. Devuelve el resultado real de lo que hizo.",

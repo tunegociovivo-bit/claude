@@ -503,6 +503,7 @@ Escritura inmediata (firmada como Sonia, sin aprobación):
 Borradores (TODOS requieren aprobación humana antes de ejecutarse):
 - draft_email: redacta email (Resend).
 - draft_whatsapp: redacta mensaje WhatsApp (WAHA).
+- draft_whatsapp_voice: redacta una NOTA DE VOZ de WhatsApp; al aprobarse, el texto se convierte a audio con la voz de la marca (ElevenLabs) y se envía como nota de voz. Úsalo para responder con audio (p.ej. si el cliente mandó una nota de voz) en vez de texto.
 - draft_editorial_post: redacta post para redes/blog.
 - draft_calendar_event: propone evento de calendario.
 - draft_drive_file: propone un Google Doc/Sheet/Slides para crear en Drive. Útil para informes, hojas de seguimiento, propuestas largas.

@@ -290,6 +290,26 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
     }
   },
   {
+    name: "draft_whatsapp_voice",
+    description:
+      "Redacta una NOTA DE VOZ de WhatsApp PARA QUE LA APRUEBE UN HUMANO antes de enviarla. NO se envía automáticamente. Al aprobarse, el texto se convierte a audio con la voz de la marca (ElevenLabs) y se envía como nota de voz. Úsalo cuando quieras responder con audio en lugar de texto (p.ej. el cliente mandó una nota de voz). Aparece en /admin/nv-ia/drafts. Requiere ElevenLabs configurado.",
+    input_schema: {
+      type: "object",
+      properties: {
+        phone: {
+          type: "string",
+          description: "Teléfono en formato internacional con prefijo (+34...). Si solo tienes el número español sin prefijo, ponlo igual — el sistema normaliza."
+        },
+        text: {
+          type: "string",
+          description: "Texto que se convertirá a voz. Tono coloquial y natural (estás 'hablando', no escribiendo). Idealmente < 800 chars, max 4000."
+        }
+      },
+      required: ["phone", "text"],
+      additionalProperties: false
+    }
+  },
+  {
     name: "draft_editorial_post",
     description:
       "Redacta un post editorial (Instagram, blog, LinkedIn, etc.) PARA QUE LO APRUEBE UN HUMANO antes de programarlo o publicarlo. NO se publica automáticamente — al aprobar se crea como DRAFT en /editorial.",
@@ -2689,6 +2709,21 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
     }
   },
   {
+    name: "send_whatsapp_voice",
+    description:
+      "Envía una NOTA DE VOZ REAL por WhatsApp (no draft) vía WAHA: genera el audio con la voz de la marca (ElevenLabs) a partir del texto y lo manda como nota de voz natural. Mismas reglas que send_whatsapp_message (rutinario/confirmaciones, NO primer contacto comercial). Ideal para responder a una nota de voz del cliente con otra nota de voz. El número se normaliza solo. Requiere ElevenLabs configurado.",
+    input_schema: {
+      type: "object",
+      properties: {
+        toPhone: { type: "string", description: "Teléfono del destinatario. Cualquier formato — se normaliza." },
+        text: { type: "string", description: "Texto que se convertirá a voz. Tono coloquial (estás 'hablando', no escribiendo). Max 4000 chars." },
+        defaultCountryCode: { type: "string", description: "Código país a asumir si toPhone viene sin él (default '34')." }
+      },
+      required: ["toPhone", "text"],
+      additionalProperties: false
+    }
+  },
+  {
     name: "draft_phone_call",
     description:
       "PROPONE una LLAMADA TELEFÓNICA (agente de voz Sonia vía Vapi): crea un BORRADOR que queda PENDIENTE de aprobación del usuario. NO llama hasta que el usuario dé el OK (en la tarjeta de avisos o en /admin/nv-ia/drafts). Úsala para ENCARGOS llegados por llamada/nota (reservar mesa o cita, contactar con un negocio/proveedor, pedir/confirmar información). Confirma el número (búscalo con web_search si hace falta) y mete en 'goal' TODOS los datos (qué pedir, fecha, hora, nº de personas, a nombre de quién, alternativas). Tras crear el borrador, explica en el resumen qué propones; el usuario decide.",
@@ -3318,6 +3353,35 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
       message: auto.autoApproved
         ? "Borrador de WhatsApp creado y AUTO-ENVIADO (regla del cliente)."
         : "Borrador de WhatsApp creado. Quedará pendiente hasta que un admin lo apruebe."
+    };
+  },
+
+  async draft_whatsapp_voice(input, ctx) {
+    const { normalizePhone } = await import("@/lib/leads/waha");
+    const phone = normalizePhone(String(input?.phone ?? ""));
+    const text = String(input?.text ?? "").trim();
+    if (!phone) return { error: "teléfono inválido o no normalizable" };
+    if (!text) return { error: "text vacío" };
+    if (text.length > 4000) return { error: "texto demasiado largo (>4000)" };
+    const draft = await prisma.aiDraft.create({
+      data: {
+        workspaceId: ctx.workspaceId,
+        aiAgentRunId: ctx.runId,
+        taskId: ctx.taskId,
+        kind: "WHATSAPP",
+        title: `🎤 Nota de voz a +${phone}: ${text.slice(0, 60)}…`,
+        payload: { phoneNormalized: phone, text, voice: true }
+      }
+    });
+    const auto = await maybeAutoApproveDraft(draft.id, "WHATSAPP", ctx);
+    return {
+      ok: true,
+      draftId: draft.id,
+      autoApproved: auto.autoApproved,
+      executionResult: auto.executionResult,
+      message: auto.autoApproved
+        ? "Borrador de nota de voz creado y AUTO-ENVIADO (regla del cliente)."
+        : "Borrador de nota de voz creado. Al aprobarlo se generará el audio y se enviará."
     };
   },
 
@@ -7146,6 +7210,59 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
       return { error: `send_whatsapp_message: ${e?.message ?? e}` };
     }
   },
+  async send_whatsapp_voice(input, ctx) {
+    try {
+      const { sendVoice, normalizePhone } = await import("@/lib/leads/waha");
+      const { elevenlabsSynthesize } = await import("@/lib/integrations/elevenlabs");
+      const rawPhone = String(input?.toPhone ?? "");
+      const country = input?.defaultCountryCode ? String(input.defaultCountryCode) : "34";
+      const phone = normalizePhone(rawPhone, country);
+      if (!phone) return { error: `Teléfono inválido: ${rawPhone}` };
+      const text = String(input?.text ?? "").trim();
+      if (!text) return { error: "text vacío" };
+      if (text.length > 4000) return { error: "text demasiado largo (>4000)" };
+
+      const audio = await elevenlabsSynthesize({ workspaceId: ctx.workspaceId, text });
+
+      // Deja rastro: sube el audio a R2 y crea el File adjunto a la tarea
+      let fileId: string | null = null;
+      try {
+        const filename = `nv-ia-voice-${Date.now()}.mp3`;
+        const s3Key = buildS3Key({ workspaceId: ctx.workspaceId, targetType: "TASK", targetId: ctx.taskId, filename });
+        await uploadBuffer({ s3Key, body: audio, contentType: "audio/mpeg" });
+        const file = await prisma.file.create({
+          data: {
+            workspaceId: ctx.workspaceId,
+            name: filename,
+            mimeType: "audio/mpeg",
+            sizeBytes: audio.length,
+            s3Key,
+            targetType: "TASK",
+            targetId: ctx.taskId,
+            uploadedBy: ctx.config.userId
+          }
+        });
+        fileId = file.id;
+      } catch { /* el rastro es best-effort; no bloquea el envío */ }
+
+      const result = await sendVoice({ workspaceId: ctx.workspaceId, phoneNormalized: phone, audio });
+      await prisma.comment.create({
+        data: {
+          workspaceId: ctx.workspaceId,
+          authorId: ctx.config.userId,
+          targetType: "TASK",
+          targetId: ctx.taskId,
+          body: `🎤 Nota de voz enviada a **+${phone}**. Texto: "${text.slice(0, 100)}${text.length > 100 ? "…" : ""}"`
+        }
+      });
+      return { ok: true, phone, fileId, result };
+    } catch (e: any) {
+      const msg = String(e?.message ?? e);
+      if (/elevenlabs/i.test(msg)) return { error: "ElevenLabs no está configurado (settings.integrations.elevenlabs)." };
+      if (/sendVoice|convert|ffmpeg|opus/i.test(msg)) return { error: `WAHA no pudo convertir el audio a nota de voz: ${msg}` };
+      return { error: `send_whatsapp_voice: ${msg}` };
+    }
+  },
   async draft_phone_call(input, ctx) {
     try {
       const toNumber = String(input?.toNumber ?? "").trim();
@@ -7664,7 +7781,7 @@ function humanSize(bytes: number): string {
 // WhatsApp reales sin borrador). Así Sonia solo puede usar draft_email /
 // draft_whatsapp, que quedan pendientes de tu aprobación antes de salir.
 {
-  const GATED = new Set(["send_email", "send_whatsapp_message"]);
+  const GATED = new Set(["send_email", "send_whatsapp_message", "send_whatsapp_voice"]);
   for (let i = TOOL_DEFINITIONS.length - 1; i >= 0; i--) {
     if (GATED.has(TOOL_DEFINITIONS[i].name)) TOOL_DEFINITIONS.splice(i, 1);
   }

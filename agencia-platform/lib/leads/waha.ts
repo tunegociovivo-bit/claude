@@ -82,6 +82,46 @@ export async function sendText(opts: {
   return { messageId: String(data?.id ?? data?.key?.id ?? "") };
 }
 
+/**
+ * Envía una NOTA DE VOZ (PTT) por WhatsApp. WhatsApp solo acepta audio en
+ * OGG/Opus; ElevenLabs nos da MP3, así que mandamos el audio en base64 con
+ * `convert: true` para que WAHA lo transcodifique a opus con su ffmpeg.
+ */
+export async function sendVoice(opts: {
+  workspaceId: string;
+  phoneNormalized: string;
+  audio: Buffer;
+  mimetype?: string; // mimetype de ORIGEN (lo que mandamos), default audio/mpeg
+  filename?: string;
+  session?: string;
+}): Promise<{ messageId: string }> {
+  const cfg = await getWahaConfig(opts.workspaceId);
+  const chatId = `${opts.phoneNormalized}@c.us`;
+  const resp = await fetch(`${cfg.baseUrl}/api/sendVoice`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Api-Key": cfg.apiKey
+    },
+    body: JSON.stringify({
+      session: opts.session ?? cfg.session,
+      chatId,
+      convert: true,
+      file: {
+        mimetype: opts.mimetype ?? "audio/mpeg",
+        filename: opts.filename ?? "voice.mp3",
+        data: opts.audio.toString("base64")
+      }
+    })
+  });
+  if (!resp.ok) {
+    const txt = await resp.text();
+    throw new Error(`WAHA sendVoice ${resp.status}: ${txt.slice(0, 200)}`);
+  }
+  const data = await resp.json();
+  return { messageId: String(data?.id ?? data?.key?.id ?? "") };
+}
+
 export async function getSession(opts: { workspaceId: string; session?: string }): Promise<any> {
   const cfg = await getWahaConfig(opts.workspaceId);
   const resp = await fetch(`${cfg.baseUrl}/api/sessions/${opts.session ?? cfg.session}`, {
