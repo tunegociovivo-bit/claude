@@ -53,6 +53,10 @@ export async function triggerNvIaFromInbound(
   const inboundCfg = aiCfg?.inbound?.[inboundKey];
   if (!inboundCfg?.enabled) return null;
 
+  // Proyecto destino: cada canal puede tener el suyo
+  // (settings.aiAgent.inbound.<canal>.projectId); si no, cae al buzón.
+  const targetProjectId: string = inboundCfg?.projectId ?? aiCfg.inboxProjectId;
+
   // Dedupe: si hay una task creada en las últimas 24h con este
   // externalId en su descripción, no creamos otra (el msg vuelve a
   // llegar por webhook duplicado, retry de WAHA, reforward de email).
@@ -60,7 +64,7 @@ export async function triggerNvIaFromInbound(
   const existing = await prisma.task.findFirst({
     where: {
       workspaceId: opts.workspaceId,
-      projectId: aiCfg.inboxProjectId,
+      projectId: targetProjectId,
       createdAt: { gte: since },
       description: { contains: `external_id=${opts.externalId}` }
     },
@@ -81,7 +85,7 @@ export async function triggerNvIaFromInbound(
   const task = await prisma.task.create({
     data: {
       workspaceId: opts.workspaceId,
-      projectId: aiCfg.inboxProjectId,
+      projectId: targetProjectId,
       clientId: opts.clientId ?? null,
       title: opts.taskTitle.slice(0, 500),
       description,

@@ -45,7 +45,8 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
     call: {
       enabled: cfg.call?.enabled === true,
       webhookToken: callToken,
-      webhookUrl: callToken ? `${origin}/api/webhooks/inbound-call/${callToken}` : null
+      webhookUrl: callToken ? `${origin}/api/webhooks/inbound-call/${callToken}` : null,
+      projectId: cfg.call?.projectId ?? null
     }
   });
 });
@@ -58,7 +59,9 @@ const putSchema = z.object({
       enabled: z.boolean(),
       // Token a medida opcional: si se pasa, se usa ese exacto (útil para
       // reaprovechar una URL ya configurada en Make). Si no, se genera/mantiene.
-      webhookToken: z.string().trim().min(16).max(100).regex(/^[A-Za-z0-9._-]+$/).optional()
+      webhookToken: z.string().trim().min(16).max(100).regex(/^[A-Za-z0-9._-]+$/).optional(),
+      // Proyecto destino de las tareas de llamadas. null = usar el buzón.
+      projectId: z.string().trim().min(1).max(64).nullable().optional()
     })
     .optional()
 });
@@ -88,13 +91,19 @@ export const PUT = withApi({ scope: "*" }, async (req, { api }) => {
     settings.aiAgent.inbound.whatsapp = { enabled: parsed.data.whatsapp.enabled };
   }
   if (parsed.data.call) {
+    const prev = settings.aiAgent.inbound.call ?? {};
     settings.aiAgent.inbound.call = {
       enabled: parsed.data.call.enabled,
       // Prioridad: token a medida (si se pasa) > token existente > generado.
       webhookToken:
         parsed.data.call.webhookToken ??
-        settings.aiAgent.inbound.call?.webhookToken ??
-        (parsed.data.call.enabled ? randomBytes(24).toString("hex") : null)
+        prev.webhookToken ??
+        (parsed.data.call.enabled ? randomBytes(24).toString("hex") : null),
+      // projectId: si viene en el body se actualiza (null = limpiar); si no, se mantiene.
+      projectId:
+        parsed.data.call.projectId !== undefined
+          ? parsed.data.call.projectId || null
+          : prev.projectId ?? null
     };
   }
   await prisma.workspace.update({

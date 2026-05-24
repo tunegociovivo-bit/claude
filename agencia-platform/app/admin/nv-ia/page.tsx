@@ -51,8 +51,10 @@ type ProactiveCfg = {
 type InboundCfg = {
   email: { enabled: boolean; webhookToken: string | null };
   whatsapp: { enabled: boolean };
-  call: { enabled: boolean; webhookToken: string | null };
+  call: { enabled: boolean; webhookToken: string | null; projectId: string | null };
 };
+
+type ProjectOpt = { id: string; name: string };
 
 export default function NvIaAdminPage() {
   const [status, setStatus] = useState<Status | null>(null);
@@ -62,6 +64,7 @@ export default function NvIaAdminPage() {
   const [inbound, setInbound] = useState<InboundCfg | null>(null);
   const [savingInbound, setSavingInbound] = useState(false);
   const [callTokenInput, setCallTokenInput] = useState("");
+  const [projectOpts, setProjectOpts] = useState<ProjectOpt[]>([]);
   const [loading, setLoading] = useState(true);
   const [initing, setIniting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -69,12 +72,17 @@ export default function NvIaAdminPage() {
   async function loadStatus() {
     setLoading(true);
     try {
-      const [sR, rR, pR, iR] = await Promise.all([
+      const [sR, rR, pR, iR, prR] = await Promise.all([
         fetch("/api/v1/admin/ai-agent/init", { cache: "no-store" }),
         fetch("/api/v1/admin/ai-agent/runs?limit=20", { cache: "no-store" }),
         fetch("/api/v1/admin/ai-agent/proactive", { cache: "no-store" }),
-        fetch("/api/v1/admin/ai-agent/inbound", { cache: "no-store" })
+        fetch("/api/v1/admin/ai-agent/inbound", { cache: "no-store" }),
+        fetch("/api/v1/projects", { cache: "no-store" })
       ]);
+      if (prR.ok) {
+        const pj = await prR.json();
+        setProjectOpts(((pj.items ?? []) as any[]).map((p) => ({ id: p.id, name: p.name })));
+      }
       if (sR.ok) setStatus(await sR.json());
       if (rR.ok) {
         const j = await rR.json();
@@ -119,7 +127,7 @@ export default function NvIaAdminPage() {
     }
   }
 
-  async function saveInbound(next: Partial<{ email: { enabled: boolean; webhookToken?: string | null }; whatsapp: { enabled: boolean }; call: { enabled: boolean; webhookToken?: string } }>) {
+  async function saveInbound(next: Partial<{ email: { enabled: boolean; webhookToken?: string | null }; whatsapp: { enabled: boolean }; call: { enabled: boolean; webhookToken?: string; projectId?: string | null } }>) {
     setSavingInbound(true);
     setError(null);
     try {
@@ -133,6 +141,8 @@ export default function NvIaAdminPage() {
         // Token a medida (opcional): solo se manda si tiene formato válido.
         const t = (next.call.webhookToken ?? "").trim();
         if (t && /^[A-Za-z0-9._-]{16,100}$/.test(t)) body.call.webhookToken = t;
+        // Proyecto destino (opcional): "" o null = limpiar (usar buzón).
+        if (next.call.projectId !== undefined) body.call.projectId = next.call.projectId || null;
       }
       const r = await fetch("/api/v1/admin/ai-agent/inbound", {
         method: "PUT",
@@ -148,7 +158,11 @@ export default function NvIaAdminPage() {
       setInbound({
         email: { enabled: inb.email?.enabled ?? false, webhookToken: inb.email?.webhookToken ?? null },
         whatsapp: { enabled: inb.whatsapp?.enabled ?? false },
-        call: { enabled: inb.call?.enabled ?? false, webhookToken: inb.call?.webhookToken ?? null }
+        call: {
+          enabled: inb.call?.enabled ?? false,
+          webhookToken: inb.call?.webhookToken ?? null,
+          projectId: inb.call?.projectId ?? null
+        }
       });
     } catch (e: any) {
       setError(String(e?.message ?? e));
@@ -421,6 +435,26 @@ export default function NvIaAdminPage() {
                       />
                       <span className="text-xs font-medium">{inbound.call.enabled ? "Activo" : "Inactivo"}</span>
                     </label>
+                  </div>
+                  <div className="mt-3">
+                    <label className="block text-[11px] text-slate-600 mb-1">
+                      Proyecto donde se crean las tareas de llamadas:
+                    </label>
+                    <select
+                      value={inbound.call.projectId ?? ""}
+                      disabled={savingInbound}
+                      onChange={(e) =>
+                        saveInbound({ call: { enabled: inbound.call.enabled, projectId: e.target.value || null } })
+                      }
+                      className="w-full text-[12px] border rounded px-2 py-1.5 bg-white"
+                    >
+                      <option value="">Buzón por defecto de Sonia</option>
+                      {projectOpts.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name}
+                        </option>
+                      ))}
+                    </select>
                   </div>
                   <div className="mt-3">
                     <label className="block text-[11px] text-slate-600 mb-1">
