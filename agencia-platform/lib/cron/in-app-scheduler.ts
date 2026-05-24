@@ -50,5 +50,23 @@ export function startInAppScheduler(): void {
   // Primer tick 60s tras el arranque (deja estabilizar la app y la BD).
   setTimeout(tick, 60_000);
   setInterval(tick, TICK_MS);
-  console.log("[in-app-cron] planificador interno activo (tick cada 5 min).");
+
+  // NV Leads Pro: cola de WhatsApp + secuencias + búsquedas. Tick cada
+  // minuto (como el WP-Cron del plugin). El ritmo REAL de envío lo marca el
+  // anti-baneo de la cola (delay min–max, ventana horaria, tope diario y
+  // cadencia mínima): aunque el tick corra cada minuto, processQueueTick
+  // solo envía si toca, así que no hay riesgo de ráfaga.
+  const LEADS_TICK_MS = 60 * 1000;
+  async function leadsTick() {
+    try {
+      const { runLeadsCronAllWorkspaces } = await import("@/lib/leads/cron");
+      await runLeadsCronAllWorkspaces();
+    } catch (e) {
+      console.warn("[in-app-cron] leads:", (e as Error).message);
+    }
+  }
+  setTimeout(leadsTick, 90_000);
+  setInterval(leadsTick, LEADS_TICK_MS);
+
+  console.log("[in-app-cron] planificador interno activo (general 5 min · leads 1 min).");
 }

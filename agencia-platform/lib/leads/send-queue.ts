@@ -61,6 +61,32 @@ function parseHM(hm: string): { h: number; m: number } {
 }
 
 /**
+ * ¿La hora actual está dentro de la ventana de envío? (anti-baneo: no
+ * enviar de madrugada ni en fin de semana si no está permitido). Usa la
+ * hora local del servidor, igual que computeNextSlot, para que el cálculo
+ * al encolar y al enviar sean coherentes.
+ */
+export function isInsideWindow(settings: LeadsSendSettings, now: Date = new Date()): boolean {
+  const day = now.getDay(); // 0=Dom, 6=Sáb
+  if (!settings.sendOnWeekends && (day === 0 || day === 6)) return false;
+  const cur = now.getHours() * 60 + now.getMinutes();
+  const start = parseHM(settings.sendWindowStart);
+  const end = parseHM(settings.sendWindowEnd);
+  return cur >= start.h * 60 + start.m && cur < end.h * 60 + end.m;
+}
+
+/** Mensajes realmente ENVIADOS hoy (para el tope diario en el envío). */
+export async function countSentToday(workspaceId: string): Promise<number> {
+  const dayStart = new Date();
+  dayStart.setHours(0, 0, 0, 0);
+  const dayEnd = new Date(dayStart);
+  dayEnd.setDate(dayEnd.getDate() + 1);
+  return prisma.leadMessage.count({
+    where: { workspaceId, status: "sent", sentAt: { gte: dayStart, lt: dayEnd } }
+  });
+}
+
+/**
  * Mueve `date` al siguiente slot válido respetando ventana, weekends y
  * daily limit. Devuelve la nueva fecha.
  */
@@ -168,8 +194,21 @@ export async function enqueueMessage(opts: {
     rendered = varyMessage(rendered, lead.id);
   }
 
-  // Calcular slot
-  const desired = new Date(Date.now() + (settings.sendDelayMinSec + Math.random() * (settings.sendDelayMaxSec - settings.sendDelayMinSec)) * 1000);
+  // Calcular slot. ANTI-BANEO: encadenamos tras el ÚLTIMO mensaje ya
+  // programado (no desde "ahora"), para que un alta masiva quede ESPACIADA
+  // (uno cada delay min–max) en vez de amontonarse y dispararse en ráfaga
+  // —que es justo lo que provoca el baneo del número.
+  const lastScheduled = await prisma.leadMessage.findFirst({
+    where: { workspaceId: opts.workspaceId, status: { in: ["queued", "sending"] } },
+    orderBy: { scheduledAt: "desc" },
+    select: { scheduledAt: true }
+  });
+  const nowMs = Date.now();
+  const baseMs = Math.max(nowMs, lastScheduled?.scheduledAt?.getTime() ?? nowMs);
+  const gapSec =
+    settings.sendDelayMinSec +
+    Math.random() * Math.max(0, settings.sendDelayMaxSec - settings.sendDelayMinSec);
+  const desired = new Date(baseMs + gapSec * 1000);
   const scheduledAt = await computeNextSlot({
     workspaceId: opts.workspaceId,
     desired,
@@ -205,11 +244,38 @@ export async function processQueueTick(workspaceId: string): Promise<{
   if (!settings.sendEnabled || settings.sendPaused) {
     return { processed: false, error: "queue_paused" };
   }
+
+  // ANTI-BANEO en el momento de enviar (red de seguridad además del
+  // scheduledAt encadenado), espejo de NVL_Send_Queue::next_ready_message:
+  const now = new Date();
+  // 1) Ventana horaria + fines de semana: nunca enviar fuera de horas humanas.
+  if (!isInsideWindow(settings, now)) {
+    return { processed: false, error: "outside_window" };
+  }
+  // 2) Tope diario REAL: contar mensajes ya enviados hoy (no solo programados).
+  const sentToday = await countSentToday(workspaceId);
+  if (sentToday >= settings.dailyLimit) {
+    return { processed: false, error: "daily_limit_reached" };
+  }
+  // 3) Cadencia mínima desde el último envío real: aunque haya varios
+  //    mensajes vencidos en cola, respeta el delay mínimo entre envíos.
+  const lastSent = await prisma.leadMessage.findFirst({
+    where: { workspaceId, status: "sent", sentAt: { not: null } },
+    orderBy: { sentAt: "desc" },
+    select: { sentAt: true }
+  });
+  if (lastSent?.sentAt) {
+    const elapsedSec = (now.getTime() - lastSent.sentAt.getTime()) / 1000;
+    if (elapsedSec < settings.sendDelayMinSec) {
+      return { processed: false, error: "pacing_wait" };
+    }
+  }
+
   const msg = await prisma.leadMessage.findFirst({
     where: {
       workspaceId,
       status: "queued",
-      scheduledAt: { lte: new Date() }
+      scheduledAt: { lte: now }
     },
     orderBy: { scheduledAt: "asc" }
   });

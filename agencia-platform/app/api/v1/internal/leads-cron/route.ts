@@ -9,10 +9,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/db/prisma";
-import { processSearchBatch } from "@/lib/leads/search-manager";
-import { processQueueTick } from "@/lib/leads/send-queue";
-import { processSequencesTick } from "@/lib/leads/sequences";
+import { runLeadsCronAllWorkspaces } from "@/lib/leads/cron";
 
 export async function POST(req: NextRequest) {
   const auth = req.headers.get("authorization") ?? "";
@@ -22,40 +19,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: { code: "bad_token", message: "Token inválido" } }, { status: 401 });
   }
 
-  const workspaces = await prisma.workspace.findMany({ select: { id: true } });
-  const report: any[] = [];
-
-  for (const ws of workspaces) {
-    const wsReport: any = { workspaceId: ws.id };
-    // 1. Procesar 1 batch de la búsqueda más antigua pendiente (si hay)
-    try {
-      const search = await prisma.leadSearch.findFirst({
-        where: { workspaceId: ws.id, status: { in: ["PENDING", "RUNNING"] } },
-        orderBy: { createdAt: "asc" }
-      });
-      if (search) {
-        const r = await processSearchBatch({ workspaceId: ws.id, searchId: search.id, batchSize: 5 });
-        wsReport.search = { searchId: search.id, ...r };
-      }
-    } catch (e: any) {
-      wsReport.searchError = e?.message ?? String(e);
-    }
-    // 2. Tick de la cola de envío
-    try {
-      const r = await processQueueTick(ws.id);
-      wsReport.queue = r;
-    } catch (e: any) {
-      wsReport.queueError = e?.message ?? String(e);
-    }
-    // 3. Avanzar secuencias activas
-    try {
-      const r = await processSequencesTick({ workspaceId: ws.id, batchSize: 20 });
-      wsReport.sequences = r;
-    } catch (e: any) {
-      wsReport.sequencesError = e?.message ?? String(e);
-    }
-    report.push(wsReport);
-  }
-
+  const report = await runLeadsCronAllWorkspaces();
   return NextResponse.json({ ok: true, workspaces: report });
 }
