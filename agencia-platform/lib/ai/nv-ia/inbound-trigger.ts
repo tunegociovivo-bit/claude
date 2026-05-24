@@ -89,7 +89,9 @@ export async function triggerNvIaFromInbound(
       clientId: opts.clientId ?? null,
       title: opts.taskTitle.slice(0, 500),
       description,
-      status: "TODO",
+      // Columna kanban destino del canal (settings.aiAgent.inbound.<canal>.status);
+      // si no, primera columna por defecto.
+      status: (inboundCfg?.status as string) || "TODO",
       priority: "MEDIUM"
     }
   });

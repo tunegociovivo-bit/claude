@@ -46,7 +46,8 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
       enabled: cfg.call?.enabled === true,
       webhookToken: callToken,
       webhookUrl: callToken ? `${origin}/api/webhooks/inbound-call/${callToken}` : null,
-      projectId: cfg.call?.projectId ?? null
+      projectId: cfg.call?.projectId ?? null,
+      status: cfg.call?.status ?? null
     }
   });
 });
@@ -61,7 +62,9 @@ const putSchema = z.object({
       // reaprovechar una URL ya configurada en Make). Si no, se genera/mantiene.
       webhookToken: z.string().trim().min(16).max(100).regex(/^[A-Za-z0-9._-]+$/).optional(),
       // Proyecto destino de las tareas de llamadas. null = usar el buzón.
-      projectId: z.string().trim().min(1).max(64).nullable().optional()
+      projectId: z.string().trim().min(1).max(64).nullable().optional(),
+      // Columna kanban destino dentro del proyecto. null = primera columna.
+      status: z.string().trim().min(1).max(64).nullable().optional()
     })
     .optional()
 });
@@ -103,7 +106,12 @@ export const PUT = withApi({ scope: "*" }, async (req, { api }) => {
       projectId:
         parsed.data.call.projectId !== undefined
           ? parsed.data.call.projectId || null
-          : prev.projectId ?? null
+          : prev.projectId ?? null,
+      // status (columna): igual criterio.
+      status:
+        parsed.data.call.status !== undefined
+          ? parsed.data.call.status || null
+          : prev.status ?? null
     };
   }
   await prisma.workspace.update({

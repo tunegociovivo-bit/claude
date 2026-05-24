@@ -51,10 +51,18 @@ type ProactiveCfg = {
 type InboundCfg = {
   email: { enabled: boolean; webhookToken: string | null };
   whatsapp: { enabled: boolean };
-  call: { enabled: boolean; webhookToken: string | null; projectId: string | null };
+  call: { enabled: boolean; webhookToken: string | null; projectId: string | null; status: string | null };
 };
 
-type ProjectOpt = { id: string; name: string };
+type ColumnOpt = { id: string; label: string };
+type ProjectOpt = { id: string; name: string; columns: ColumnOpt[] };
+
+const DEFAULT_COLUMN_OPTS: ColumnOpt[] = [
+  { id: "TODO", label: "Por hacer" },
+  { id: "IN_PROGRESS", label: "En curso" },
+  { id: "REVIEW", label: "Revisión" },
+  { id: "DONE", label: "Hecha" }
+];
 
 export default function NvIaAdminPage() {
   const [status, setStatus] = useState<Status | null>(null);
@@ -81,7 +89,14 @@ export default function NvIaAdminPage() {
       ]);
       if (prR.ok) {
         const pj = await prR.json();
-        setProjectOpts(((pj.items ?? []) as any[]).map((p) => ({ id: p.id, name: p.name })));
+        setProjectOpts(
+          ((pj.items ?? []) as any[]).map((p) => {
+            const cols = Array.isArray(p.kanbanColumns) && p.kanbanColumns.length
+              ? (p.kanbanColumns as any[]).map((c) => ({ id: String(c.id), label: String(c.label ?? c.id) }))
+              : DEFAULT_COLUMN_OPTS;
+            return { id: p.id, name: p.name, columns: cols };
+          })
+        );
       }
       if (sR.ok) setStatus(await sR.json());
       if (rR.ok) {
@@ -127,7 +142,7 @@ export default function NvIaAdminPage() {
     }
   }
 
-  async function saveInbound(next: Partial<{ email: { enabled: boolean; webhookToken?: string | null }; whatsapp: { enabled: boolean }; call: { enabled: boolean; webhookToken?: string; projectId?: string | null } }>) {
+  async function saveInbound(next: Partial<{ email: { enabled: boolean; webhookToken?: string | null }; whatsapp: { enabled: boolean }; call: { enabled: boolean; webhookToken?: string; projectId?: string | null; status?: string | null } }>) {
     setSavingInbound(true);
     setError(null);
     try {
@@ -143,6 +158,8 @@ export default function NvIaAdminPage() {
         if (t && /^[A-Za-z0-9._-]{16,100}$/.test(t)) body.call.webhookToken = t;
         // Proyecto destino (opcional): "" o null = limpiar (usar buzón).
         if (next.call.projectId !== undefined) body.call.projectId = next.call.projectId || null;
+        // Columna destino (opcional): "" o null = limpiar (primera columna).
+        if (next.call.status !== undefined) body.call.status = next.call.status || null;
       }
       const r = await fetch("/api/v1/admin/ai-agent/inbound", {
         method: "PUT",
@@ -161,7 +178,8 @@ export default function NvIaAdminPage() {
         call: {
           enabled: inb.call?.enabled ?? false,
           webhookToken: inb.call?.webhookToken ?? null,
-          projectId: inb.call?.projectId ?? null
+          projectId: inb.call?.projectId ?? null,
+          status: inb.call?.status ?? null
         }
       });
     } catch (e: any) {
@@ -456,6 +474,28 @@ export default function NvIaAdminPage() {
                       ))}
                     </select>
                   </div>
+                  {inbound.call.projectId && (
+                    <div className="mt-3">
+                      <label className="block text-[11px] text-slate-600 mb-1">
+                        Columna / sección dentro del proyecto:
+                      </label>
+                      <select
+                        value={inbound.call.status ?? ""}
+                        disabled={savingInbound}
+                        onChange={(e) =>
+                          saveInbound({ call: { enabled: inbound.call.enabled, status: e.target.value || null } })
+                        }
+                        className="w-full text-[12px] border rounded px-2 py-1.5 bg-white"
+                      >
+                        <option value="">Primera columna del proyecto</option>
+                        {(projectOpts.find((p) => p.id === inbound.call.projectId)?.columns ?? []).map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
                   <div className="mt-3">
                     <label className="block text-[11px] text-slate-600 mb-1">
                       Token del webhook (déjalo vacío para generar uno):
