@@ -120,7 +120,7 @@ function ProgressToast({ captured, onDismiss }: { captured: Captured; onDismiss:
   // Animación de progreso continuo: muestra que "el equipo está en ello" sin
   // inventarse ETA. Llena lentamente y se reinicia si toma más de 30 min.
   const progressPct = Math.min(95, (secondsOpen / 1800) * 100);
-  const sessionUrl = "https://claude.ai/code/session_01G1DKhjb6esoaVNydSvcQ38";
+  const sessionUrl = "https://claude.ai/code/session_0176NZVYVByJWdJ3qvH85bnb";
 
   return (
     <div className="rounded-xl border border-amber-300 bg-white shadow-lg overflow-hidden">

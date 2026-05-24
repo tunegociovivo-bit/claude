@@ -450,7 +450,7 @@ const SECTIONS: AdminSection[] = [
     icon: Wrench,
     cards: [
       {
-        href: "https://claude.ai/code/session_01G1DKhjb6esoaVNydSvcQ38",
+        href: "https://claude.ai/code/session_0176NZVYVByJWdJ3qvH85bnb",
         title: "Sesión de Claude (mantenimiento)",
         description:
           "Atajo a la conversación de Claude donde se está desarrollando esta plataforma. Para pedir cambios o consultar el estado del proyecto.",

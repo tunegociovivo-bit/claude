@@ -301,7 +301,7 @@ function DetailModal({
             />
           </div>
           <a
-            href="https://claude.ai/code/session_01G1DKhjb6esoaVNydSvcQ38"
+            href="https://claude.ai/code/session_0176NZVYVByJWdJ3qvH85bnb"
             target="_blank"
             rel="noreferrer"
             className="inline-flex items-center gap-1.5 text-xs text-brand-600 hover:underline"
