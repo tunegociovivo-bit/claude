@@ -84,19 +84,39 @@ export async function sendText(opts: {
 
 /**
  * Envía una NOTA DE VOZ (PTT) por WhatsApp. WhatsApp solo acepta audio en
- * OGG/Opus; ElevenLabs nos da MP3, así que mandamos el audio en base64 con
- * `convert: true` para que WAHA lo transcodifique a opus con su ffmpeg.
+ * OGG/Opus; ElevenLabs nos da MP3, así que lo transcodificamos a Opus en
+ * NUESTRO servidor (ffmpeg-static) y lo mandamos ya listo con convert:false.
+ * Si la conversión local fallara, caemos a mandar el MP3 con convert:true
+ * (que lo convierta WAHA).
  */
 export async function sendVoice(opts: {
   workspaceId: string;
   phoneNormalized: string;
   audio: Buffer;
-  mimetype?: string; // mimetype de ORIGEN (lo que mandamos), default audio/mpeg
+  mimetype?: string; // mimetype de ORIGEN, default audio/mpeg
   filename?: string;
   session?: string;
 }): Promise<{ messageId: string }> {
   const cfg = await getWahaConfig(opts.workspaceId);
   const chatId = `${opts.phoneNormalized}@c.us`;
+
+  let file: { mimetype: string; filename: string; data: string };
+  let convert: boolean;
+  try {
+    const { mp3ToOpusOgg } = await import("@/lib/leads/audio");
+    const ogg = await mp3ToOpusOgg(opts.audio);
+    file = { mimetype: "audio/ogg; codecs=opus", filename: "voice.ogg", data: ogg.toString("base64") };
+    convert = false;
+  } catch {
+    // Sin ffmpeg local: que convierta WAHA desde el MP3
+    file = {
+      mimetype: opts.mimetype ?? "audio/mpeg",
+      filename: opts.filename ?? "voice.mp3",
+      data: opts.audio.toString("base64")
+    };
+    convert = true;
+  }
+
   const resp = await fetch(`${cfg.baseUrl}/api/sendVoice`, {
     method: "POST",
     headers: {
@@ -106,12 +126,8 @@ export async function sendVoice(opts: {
     body: JSON.stringify({
       session: opts.session ?? cfg.session,
       chatId,
-      convert: true,
-      file: {
-        mimetype: opts.mimetype ?? "audio/mpeg",
-        filename: opts.filename ?? "voice.mp3",
-        data: opts.audio.toString("base64")
-      }
+      convert,
+      file
     })
   });
   if (!resp.ok) {

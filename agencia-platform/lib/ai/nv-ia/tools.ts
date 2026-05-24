@@ -7259,7 +7259,6 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
     } catch (e: any) {
       const msg = String(e?.message ?? e);
       if (/elevenlabs/i.test(msg)) return { error: "ElevenLabs no está configurado (settings.integrations.elevenlabs)." };
-      if (/sendVoice|convert|ffmpeg|opus/i.test(msg)) return { error: `WAHA no pudo convertir el audio a nota de voz: ${msg}` };
       return { error: `send_whatsapp_voice: ${msg}` };
     }
   },

@@ -1702,12 +1702,12 @@ chatTools.push({
       if (/elevenlabs/i.test(msg)) {
         return JSON.stringify({ ok: false, error: "ElevenLabs no está configurado. Añádelo en ajustes para enviar notas de voz." });
       }
-      if (/waha|not configured|no configurad|baseUrl|apiKey/i.test(msg)) {
+      // Solo es "no configurado" si getWahaConfig lo dice literalmente.
+      if (/no configurad/i.test(msg)) {
         return JSON.stringify({ ok: false, error: "WhatsApp (WAHA) no está configurado." });
       }
-      if (/sendVoice|convert|ffmpeg|opus/i.test(msg)) {
-        return JSON.stringify({ ok: false, error: `El servidor WAHA no pudo convertir el audio a nota de voz: ${msg}` });
-      }
+      // Cualquier otro caso (incluido un error HTTP de /api/sendVoice) se
+      // muestra tal cual para poder diagnosticar.
       return JSON.stringify({ ok: false, error: `No se pudo enviar la nota de voz: ${msg}` });
     }
   }
