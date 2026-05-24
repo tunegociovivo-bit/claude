@@ -3010,6 +3010,10 @@ async function maybeAutoApproveDraft(
   kind: string,
   ctx: ToolContext
 ): Promise<{ autoApproved: boolean; executionResult?: any }> {
+  // Acciones que SIEMPRE requieren el OK humano, aunque un cliente tenga
+  // regla de auto-aprobación: comunicaciones salientes y llamadas.
+  const ALWAYS_MANUAL = new Set(["PHONE_CALL", "EMAIL", "WHATSAPP"]);
+  if (ALWAYS_MANUAL.has(kind)) return { autoApproved: false };
   try {
     const task = await prisma.task.findFirst({
       where: { id: ctx.taskId, workspaceId: ctx.workspaceId },
@@ -7594,9 +7598,12 @@ function humanSize(bytes: number): string {
 // Así, lo que sabe hacer Sonia en el chat lo sabe hacer también sola.
 // ──────────────────────────────────────────────────────────────
 {
-  // Tools del chat que NO heredamos: la llamada DIRECTA (place_phone_call)
-  // se sustituye por draft_phone_call (requiere aprobación del usuario).
-  const EXCLUDE_FROM_CHAT = new Set(["place_phone_call"]);
+  // Tools del chat que NO heredamos: las acciones que ejecutan DIRECTO sin
+  // aprobación se sustituyen por sus draft_* (requieren OK del usuario):
+  //  - place_phone_call → draft_phone_call
+  //  - email_send       → draft_email
+  //  - send_whatsapp    → draft_whatsapp
+  const EXCLUDE_FROM_CHAT = new Set(["place_phone_call", "email_send", "send_whatsapp"]);
   const existingNames = new Set(TOOL_DEFINITIONS.map((t) => t.name));
   for (const ct of chatTools) {
     if (existingNames.has(ct.name) || EXCLUDE_FROM_CHAT.has(ct.name)) continue;
@@ -7613,4 +7620,15 @@ function humanSize(bytes: number): string {
       });
     existingNames.add(ct.name);
   }
+}
+
+// TODO con TU OK: quita de la autónoma los ENVÍOS DIRECTOS nativos (email /
+// WhatsApp reales sin borrador). Así Sonia solo puede usar draft_email /
+// draft_whatsapp, que quedan pendientes de tu aprobación antes de salir.
+{
+  const GATED = new Set(["send_email", "send_whatsapp_message"]);
+  for (let i = TOOL_DEFINITIONS.length - 1; i >= 0; i--) {
+    if (GATED.has(TOOL_DEFINITIONS[i].name)) TOOL_DEFINITIONS.splice(i, 1);
+  }
+  for (const n of GATED) delete TOOL_EXECUTORS[n];
 }

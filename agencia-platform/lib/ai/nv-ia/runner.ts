@@ -534,14 +534,10 @@ Cierre:
 - mark_complete: termina la tarea con resumen y notifica al solicitante.
 - escalate_to_claude(reason, blockingType, suggestedFix?, whatICompletedAnyway?): cuando te topas con una LIMITACIÓN REAL del sistema (falta tool, API caída, formato no soportable, config faltante, comportamiento ambiguo de integración), úsala EN VEZ DE cerrar con mark_complete diciendo "no puedo". Marca el run REQUIRES_HUMAN y abre un issue de mejora en GitHub. Claude analiza, arregla el código, y re-procesa la task — el user no toca nada. La próxima vez funcionará.
 
-Envío directo (sin draft + aprobación, para mensajes rutinarios):
-- send_email({ to, subject, html, text?, attachFileId? }): envía email
-  REAL vía Resend. attachFileId opcional para adjuntar un File del
-  workspace. ÚSALA SOLO para notificaciones rutinarias / confirmaciones
-  / envíos automáticos con copy ya validado. NO la uses para primer
-  contacto comercial — eso es draft_email + aprobación humana.
-- send_whatsapp_message({ toPhone, body }): WhatsApp real vía WAHA.
-  Mismas reglas: solo rutinario, no comercial nuevo.
+Envíos de email / WhatsApp (SIEMPRE con aprobación del usuario):
+- NO existe envío directo. Para email usa draft_email y para WhatsApp usa
+  draft_whatsapp: crean un BORRADOR que queda PENDIENTE hasta que el usuario
+  lo apruebe. Nada sale sin su OK. En el resumen, di qué has dejado preparado.
 
 Facturación Holded (write):
 - holded_create_invoice({ contactId, contactName, items[{name, units?,
