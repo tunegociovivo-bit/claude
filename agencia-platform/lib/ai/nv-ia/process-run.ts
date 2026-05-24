@@ -309,18 +309,28 @@ export async function processOneRun(runId: string): Promise<ProcessResult> {
           .slice(0, 3)
           .map((d) => (d.title.includes(":") ? d.title.split(":")[0] : d.title).trim())
           .join(" · ");
+        // Solo al DUEÑO: el admin más antiguo que NO sea el usuario-bot de Sonia.
+        const wsCfg = await prisma.workspace.findUnique({
+          where: { id: run.workspaceId },
+          select: { settings: true }
+        });
+        const aiUserId = (wsCfg?.settings as any)?.aiAgent?.userId as string | undefined;
         const admins = await prisma.membership.findMany({
           where: { workspaceId: run.workspaceId, role: "ADMIN" },
           select: { userId: true }
         });
-        const { sendPushToUser } = await import("@/lib/push/web-push");
-        const title = pend.length === 1 ? "Sonia necesita tu OK" : `Sonia: ${pend.length} acciones esperan tu OK`;
-        const link = `/tareas?task=${run.taskId}`;
-        await Promise.all(
-          admins.map((a) =>
-            sendPushToUser(a.userId, { title, body: resumen.slice(0, 160), link, tag: `approve-${runId}` }).catch(() => {})
-          )
-        );
+        const ownerId = admins.map((a) => a.userId).find((id) => id !== aiUserId) ?? admins[0]?.userId;
+        if (ownerId) {
+          const { sendPushToUser } = await import("@/lib/push/web-push");
+          const title = pend.length === 1 ? "Sonia necesita tu OK" : `Sonia: ${pend.length} acciones esperan tu OK`;
+          const link = `/tareas?task=${run.taskId}`;
+          await sendPushToUser(ownerId, {
+            title,
+            body: resumen.slice(0, 160),
+            link,
+            tag: `approve-${runId}`
+          }).catch(() => {});
+        }
       }
     } catch (e: any) {
       console.warn("[sonia] push de aprobación falló:", e?.message ?? e);
