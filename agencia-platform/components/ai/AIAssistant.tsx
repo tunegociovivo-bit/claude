@@ -68,6 +68,13 @@ export default function AIAssistant() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Atajo de la app (mantener pulsado el icono → "SONIA"): /?sonia=1 abre el chat.
+  useEffect(() => {
+    if (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("sonia") === "1") {
+      setOpen(true);
+    }
+  }, []);
   const [recording, setRecording] = useState(false);
   const [transcribing, setTranscribing] = useState(false);
   const [attached, setAttached] = useState<File | null>(null);

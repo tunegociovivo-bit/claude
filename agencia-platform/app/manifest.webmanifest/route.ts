@@ -55,24 +55,17 @@ export async function GET() {
     // mismo por ahora para mantenerlo simple.
     shortcuts: [
       {
-        name: "Tareas",
-        short_name: "Tareas",
-        description: "Ver y gestionar tareas",
-        url: "/tareas",
+        name: "SONIA",
+        short_name: "SONIA",
+        description: "Hablar con Sonia",
+        url: "/?sonia=1",
         icons: [{ src: "/icon-192.png", sizes: "192x192", type: "image/png" }]
       },
       {
-        name: "Mi día",
-        short_name: "Mi día",
-        description: "Tu vista del día",
-        url: "/mi-dia",
-        icons: [{ src: "/icon-192.png", sizes: "192x192", type: "image/png" }]
-      },
-      {
-        name: "Calendario",
-        short_name: "Calendario",
-        description: "Calendario editorial y de equipo",
-        url: "/calendario",
+        name: "+ TAREA",
+        short_name: "+ Tarea",
+        description: "Crear una tarea nueva",
+        url: "/tareas?new=1",
         icons: [{ src: "/icon-192.png", sizes: "192x192", type: "image/png" }]
       }
     ]

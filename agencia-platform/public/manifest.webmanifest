@@ -13,7 +13,7 @@
     { "src": "/icon-512-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
   ],
   "shortcuts": [
-    { "name": "Mi día", "url": "/mi-dia", "icons": [{ "src": "/api/brand-icon", "sizes": "192x192" }] },
-    { "name": "Tareas", "url": "/tareas", "icons": [{ "src": "/api/brand-icon", "sizes": "192x192" }] }
+    { "name": "SONIA", "short_name": "SONIA", "description": "Hablar con Sonia", "url": "/?sonia=1", "icons": [{ "src": "/api/brand-icon", "sizes": "192x192" }] },
+    { "name": "+ TAREA", "short_name": "+ Tarea", "description": "Crear una tarea nueva", "url": "/tareas?new=1", "icons": [{ "src": "/api/brand-icon", "sizes": "192x192" }] }
   ]
 }

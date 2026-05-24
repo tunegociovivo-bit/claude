@@ -792,6 +792,18 @@ export default function TareasClient({
     setEditingTask(null);
     setNewTaskOpen(true);
   }
+
+  // Atajo de la app (mantener pulsado el icono → "+ TAREA"): /tareas?new=1
+  // abre directamente el formulario de nueva tarea al cargar.
+  const newParamHandledRef = useRef(false);
+  useEffect(() => {
+    if (newParamHandledRef.current) return;
+    if (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("new") === "1") {
+      newParamHandledRef.current = true;
+      openNewTask();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   function openEditTask(task: UiTask) {
     if (selectionMode) {
       toggleSelected(task.id);
