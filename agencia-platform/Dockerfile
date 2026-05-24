@@ -39,4 +39,9 @@ ENV PORT=3000
 # alguien lanzó manualmente el seed, las cuentas demo quedaron en BD —
 # de ahí la fuga reportada. Para ejecutar el seed contra LOCAL, hazlo
 # manualmente con `ALLOW_SEED=1 npx tsx scripts/seed.ts`.
-CMD ["sh", "-c", "npx prisma migrate deploy; node server.js"]
+# Sincroniza el schema con `prisma db push` (este proyecto NO usa migraciones
+# — carpeta prisma/migrations vacía—, así que `migrate deploy` era un no-op y
+# las tablas nuevas del schema, p.ej. BackupRun, nunca llegaban a producción).
+# Mismos flags que el `start` de package.json: no acepta pérdida de datos.
+# Usamos `;` para que la app arranque aunque el push falle (disponibilidad).
+CMD ["sh", "-c", "npx prisma db push --accept-data-loss=false --skip-generate; node server.js"]

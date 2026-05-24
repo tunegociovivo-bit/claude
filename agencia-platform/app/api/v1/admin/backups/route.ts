@@ -36,11 +36,18 @@ export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
   });
   if (!me || me.role !== "ADMIN") throw new ApiError(403, "forbidden", "Solo admins");
 
-  const items = await prisma.backupRun.findMany({
-    where: { workspaceId: api.workspaceId },
-    orderBy: { startedAt: "desc" },
-    take: 50
-  });
+  let items: any[] = [];
+  try {
+    items = await prisma.backupRun.findMany({
+      where: { workspaceId: api.workspaceId },
+      orderBy: { startedAt: "desc" },
+      take: 50
+    });
+  } catch (e) {
+    // La tabla puede no existir aún si el schema no se ha sincronizado;
+    // devolvemos lista vacía en vez de romper la página.
+    console.error("[backup] listado falló:", e);
+  }
   return NextResponse.json({
     items,
     storageEnabled: isStorageEnabled()
@@ -52,14 +59,22 @@ export const POST = withApi({ scope: "*" }, async (req, { api }) => {
 
   const trigger = req.headers.get("x-cron-trigger") === "1" ? "cron" : "manual";
 
-  const run = await prisma.backupRun.create({
-    data: {
-      workspaceId: api.workspaceId,
-      status: "RUNNING",
-      trigger,
-      destinations: isStorageEnabled() ? "r2" : "local"
-    }
-  });
+  // El registro BackupRun es best-effort: si su tabla no existe (schema sin
+  // sincronizar) o falla la escritura, el backup debe generarse igualmente —
+  // no queremos devolver un 500 genérico por no poder anotar la fila.
+  let run: { id: string } | null = null;
+  try {
+    run = await prisma.backupRun.create({
+      data: {
+        workspaceId: api.workspaceId,
+        status: "RUNNING",
+        trigger,
+        destinations: isStorageEnabled() ? "r2" : "local"
+      }
+    });
+  } catch (e) {
+    console.error("[backup] no se pudo crear BackupRun (se continúa):", e);
+  }
 
   try {
     const dump = await generateWorkspaceDump(api.workspaceId);
@@ -74,8 +89,8 @@ export const POST = withApi({ scope: "*" }, async (req, { api }) => {
       const key = buildS3Key({
         workspaceId: api.workspaceId,
         targetType: "BACKUP",
-        targetId: run.id,
-        filename: `backup-${dump.workspaceName}-${run.id}.json`
+        targetId: run?.id ?? "adhoc",
+        filename: `backup-${dump.workspaceName}-${run?.id ?? Date.now()}.json`
       });
       const presign = await signedUploadUrl(key, "application/json");
       const putRes = await fetch(presign, {
@@ -90,33 +105,42 @@ export const POST = withApi({ scope: "*" }, async (req, { api }) => {
       downloadUrl = await signedDownloadUrl(key);
     }
 
-    await prisma.backupRun.update({
-      where: { id: run.id },
-      data: {
-        status: "COMPLETED",
-        completedAt: new Date(),
-        sizeBytes: bytes,
-        downloadKey: downloadKey ?? undefined
+    if (run) {
+      try {
+        await prisma.backupRun.update({
+          where: { id: run.id },
+          data: {
+            status: "COMPLETED",
+            completedAt: new Date(),
+            sizeBytes: bytes,
+            downloadKey: downloadKey ?? undefined
+          }
+        });
+      } catch (e) {
+        console.error("[backup] no se pudo actualizar BackupRun:", e);
       }
-    });
+    }
 
     return NextResponse.json({
       ok: true,
-      run: { id: run.id, sizeBytes: bytes, status: "COMPLETED" },
-      // Si no hay R2, devolvemos el JSON inline (truncado) o el cliente puede pedir
-      // /download al endpoint local
+      run: { id: run?.id ?? null, sizeBytes: bytes, status: "COMPLETED" },
+      // Si no hay R2, el cliente puede pedir /download al endpoint local
       downloadUrl,
       inlineAvailable: !isStorageEnabled()
     });
   } catch (e: any) {
-    await prisma.backupRun.update({
-      where: { id: run.id },
-      data: {
-        status: "FAILED",
-        completedAt: new Date(),
-        errorMessage: String(e?.message ?? e).slice(0, 500)
-      }
-    });
+    if (run) {
+      try {
+        await prisma.backupRun.update({
+          where: { id: run.id },
+          data: {
+            status: "FAILED",
+            completedAt: new Date(),
+            errorMessage: String(e?.message ?? e).slice(0, 500)
+          }
+        });
+      } catch {}
+    }
     console.error("[backup] fallo:", e);
     throw new ApiError(500, "backup_failed", String(e?.message ?? e));
   }
