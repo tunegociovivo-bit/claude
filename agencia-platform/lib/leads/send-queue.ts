@@ -7,7 +7,7 @@
 
 import { prisma } from "@/lib/db/prisma";
 import { renderTemplate, varyMessage } from "./template-engine";
-import { normalizePhone, sendText, getWahaConfig } from "./waha";
+import { normalizePhone, sendText, getWahaConfig, checkNumberExists } from "./waha";
 
 export type LeadsSendSettings = {
   sendEnabled: boolean;
@@ -21,6 +21,7 @@ export type LeadsSendSettings = {
   sendPaused: boolean;
   countryCode: string;
   maxAttempts: number;
+  validateWaBeforeSend: boolean;
 };
 
 const DEFAULTS: LeadsSendSettings = {
@@ -34,7 +35,8 @@ const DEFAULTS: LeadsSendSettings = {
   enableVariations: true,
   sendPaused: false,
   countryCode: "34",
-  maxAttempts: 3
+  maxAttempts: 3,
+  validateWaBeforeSend: true
 };
 
 export async function getSendSettings(workspaceId: string): Promise<LeadsSendSettings> {
@@ -51,7 +53,8 @@ export async function getSendSettings(workspaceId: string): Promise<LeadsSendSet
     enableVariations: s.enableVariations ?? DEFAULTS.enableVariations,
     sendPaused: s.sendPaused ?? DEFAULTS.sendPaused,
     countryCode: s.whatsappCountryCode ?? DEFAULTS.countryCode,
-    maxAttempts: s.maxAttempts ?? DEFAULTS.maxAttempts
+    maxAttempts: s.maxAttempts ?? DEFAULTS.maxAttempts,
+    validateWaBeforeSend: s.validateWaBeforeSend ?? DEFAULTS.validateWaBeforeSend
   };
 }
 
@@ -288,6 +291,37 @@ export async function processQueueTick(workspaceId: string): Promise<{
 
   try {
     const cfg = await getWahaConfig(workspaceId);
+    // Validación previa: no enviar a números que NO estén en WhatsApp (es
+    // señal de spam y sube el riesgo de baneo). Solo descartamos ante un
+    // "false" definitivo; si la comprobación falla (null) enviamos igual.
+    if (settings.validateWaBeforeSend) {
+      const exists = await checkNumberExists({
+        workspaceId,
+        phone: msg.phoneNormalized,
+        session: msg.instanceName ?? cfg.session
+      });
+      if (exists === false) {
+        await prisma.leadMessage.update({
+          where: { id: msg.id },
+          data: { status: "failed", lastError: "Número sin WhatsApp" }
+        });
+        await prisma.lead.update({
+          where: { id: msg.leadId },
+          data: { hasWhatsapp: false, whatsappChecked: true, whatsappCheckedAt: new Date() }
+        });
+        await prisma.lead.updateMany({
+          where: { id: msg.leadId, contactStatus: "pending" },
+          data: { contactStatus: "discarded" }
+        });
+        return { processed: true, messageId: msg.id, status: "no_whatsapp" };
+      }
+      if (exists === true) {
+        await prisma.lead.update({
+          where: { id: msg.leadId },
+          data: { hasWhatsapp: true, whatsappChecked: true, whatsappCheckedAt: new Date() }
+        });
+      }
+    }
     const out = await sendText({
       workspaceId,
       phoneNormalized: msg.phoneNormalized,

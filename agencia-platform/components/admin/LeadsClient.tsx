@@ -264,6 +264,7 @@ function TabBtn({ icon, label, active, onClick }: { icon: React.ReactNode; label
 function LeadsTable({ loading, items, onChanged }: { loading: boolean; items: Lead[]; onChanged: () => void }) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [enqueueOpen, setEnqueueOpen] = useState(false);
+  const [enrollOpen, setEnrollOpen] = useState(false);
 
   // Al refrescar/filtrar, descarta de la selección los leads que ya no salen.
   useEffect(() => {
@@ -302,6 +303,13 @@ function LeadsTable({ loading, items, onChanged }: { loading: boolean; items: Le
           <div className="flex items-center gap-3">
             <button onClick={() => setSelected(new Set())} className="text-xs text-slate-600 hover:underline">
               Quitar selección
+            </button>
+            <button
+              onClick={() => setEnrollOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border bg-white hover:bg-slate-50 text-sm font-medium"
+            >
+              <GitBranch className="h-4 w-4" />
+              Añadir a secuencia
             </button>
             <button
               onClick={() => setEnqueueOpen(true)}
@@ -379,7 +387,116 @@ function LeadsTable({ loading, items, onChanged }: { loading: boolean; items: Le
           onChanged();
         }}
       />
+      <EnrollModal
+        open={enrollOpen}
+        onClose={() => setEnrollOpen(false)}
+        leadIds={Array.from(selected)}
+        onDone={() => {
+          setEnrollOpen(false);
+          setSelected(new Set());
+          onChanged();
+        }}
+      />
     </div>
+  );
+}
+
+function EnrollModal({
+  open,
+  onClose,
+  leadIds,
+  onDone
+}: {
+  open: boolean;
+  onClose: () => void;
+  leadIds: string[];
+  onDone: () => void;
+}) {
+  const [sequences, setSequences] = useState<any[]>([]);
+  const [sequenceId, setSequenceId] = useState<string>("");
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<{ ok: number; failed: number; total: number } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    setResult(null);
+    setError(null);
+    fetch("/api/v1/leads/sequences")
+      .then((r) => (r.ok ? r.json() : { items: [] }))
+      .then((d) => {
+        const items: any[] = (d.items ?? []).filter((s: any) => s.active !== false);
+        setSequences(items);
+        const def = items.find((s) => s.isDefault) ?? items[0];
+        setSequenceId(def?.id ?? "");
+      })
+      .catch(() => setSequences([]));
+  }, [open]);
+
+  async function submit() {
+    if (!sequenceId) return;
+    setBusy(true);
+    setError(null);
+    let ok = 0;
+    let failed = 0;
+    // Secuencial: cada enroll encola su primer paso (con espaciado anti-baneo).
+    for (const leadId of leadIds) {
+      try {
+        const r = await fetch("/api/v1/leads/sequences/enroll", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ leadId, sequenceId })
+        });
+        if (r.ok) ok++;
+        else failed++;
+      } catch {
+        failed++;
+      }
+    }
+    setBusy(false);
+    setResult({ ok, failed, total: leadIds.length });
+  }
+
+  return (
+    <Modal open={open} onClose={onClose} title={`Añadir ${leadIds.length} lead(s) a una secuencia`}>
+      {!result ? (
+        <div className="space-y-3">
+          <p className="text-sm text-slate-600">
+            Los leads entran en la secuencia y reciben cada paso con su retraso. Se detiene sola si el lead responde.
+          </p>
+          <label className="block text-sm font-medium text-slate-700">Secuencia</label>
+          {sequences.length === 0 ? (
+            <p className="text-sm text-amber-700">No hay secuencias. Créala en la pestaña <strong>Secuencias</strong>.</p>
+          ) : (
+            <select value={sequenceId} onChange={(e) => setSequenceId(e.target.value)} className="w-full px-3 py-2 rounded-lg border bg-white text-sm">
+              {sequences.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name} ({s.steps?.length ?? 0} pasos){s.isDefault ? " · default" : ""}
+                </option>
+              ))}
+            </select>
+          )}
+          {error && <p className="text-sm text-rose-600">{error}</p>}
+          <div className="flex justify-end gap-2 pt-1">
+            <button onClick={onClose} className="px-3 py-2 rounded-lg text-sm border bg-white hover:bg-slate-50">Cancelar</button>
+            <button onClick={submit} disabled={busy || !sequenceId} className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium disabled:opacity-50">
+              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <GitBranch className="h-4 w-4" />}
+              Enrolar {leadIds.length}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          <p className="text-sm">
+            <strong className="text-emerald-700">{result.ok}</strong> enrolados de {result.total}.
+            {result.failed > 0 && <span className="text-amber-700"> {result.failed} fallidos (ya enrolados, sin teléfono o excluidos).</span>}
+          </p>
+          <div className="flex justify-end">
+            <button onClick={onDone} className="px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium">Hecho</button>
+          </div>
+        </div>
+      )}
+    </Modal>
   );
 }
 
@@ -690,31 +807,212 @@ function TemplatesTable({ loading, items, onChanged }: { loading: boolean; items
 function SequencesView() {
   const [items, setItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
-  useEffect(() => {
+  const [createOpen, setCreateOpen] = useState(false);
+
+  function load() {
     setLoading(true);
     fetch("/api/v1/leads/sequences")
       .then((r) => (r.ok ? r.json() : { items: [] }))
       .then((d) => setItems(d.items ?? []))
       .finally(() => setLoading(false));
+  }
+  useEffect(() => {
+    load();
   }, []);
-  if (loading) return <Loading />;
-  if (items.length === 0) return <Empty msg="Sin secuencias. Endpoint /api/v1/leads/sequences GET disponible (la UI de creación está en roadmap)." />;
+
   return (
-    <div className="grid md:grid-cols-2 gap-3">
-      {items.map((s) => (
-        <div key={s.id} className="bg-white rounded-lg border p-3">
-          <div className="flex items-center justify-between mb-1.5">
-            <h3 className="font-semibold text-sm">{s.name}</h3>
-            <div className="flex gap-1">
-              {s.active && <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">activa</span>}
-              {s.isDefault && <span className="text-[10px] px-1.5 py-0.5 rounded bg-brand-50 text-brand-700 border border-brand-200">default</span>}
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <p className="text-xs text-slate-500">
+          Secuencias de seguimiento (drip): cada paso se envía tras un retraso. Se detienen solas si el lead responde.
+        </p>
+        <button
+          onClick={() => setCreateOpen(true)}
+          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium"
+        >
+          <Plus className="h-4 w-4" />
+          Nueva secuencia
+        </button>
+      </div>
+
+      {loading ? (
+        <Loading />
+      ) : items.length === 0 ? (
+        <Empty msg="Sin secuencias todavía. Crea una con 'Nueva secuencia'." />
+      ) : (
+        <div className="grid md:grid-cols-2 gap-3">
+          {items.map((s) => (
+            <div key={s.id} className="bg-white rounded-lg border p-3">
+              <div className="flex items-center justify-between mb-1.5">
+                <h3 className="font-semibold text-sm">{s.name}</h3>
+                <div className="flex gap-1">
+                  {s.active && <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">activa</span>}
+                  {s.isDefault && <span className="text-[10px] px-1.5 py-0.5 rounded bg-brand-50 text-brand-700 border border-brand-200">default</span>}
+                </div>
+              </div>
+              {s.description && <p className="text-xs text-slate-600 mb-1.5">{s.description}</p>}
+              <ol className="space-y-1">
+                {(s.steps ?? []).map((st: any, i: number) => (
+                  <li key={st.id ?? i} className="text-xs text-slate-600 flex gap-2">
+                    <span className="shrink-0 font-medium text-slate-500">
+                      {i === 0 && (st.delayDays ?? 0) === 0 ? "Inmediato" : `+${st.delayDays ?? 0}d`}
+                    </span>
+                    <span className="truncate" title={st.templateBody}>{st.templateBody}</span>
+                  </li>
+                ))}
+              </ol>
+              {(s.steps?.length ?? 0) === 0 && <div className="text-xs text-slate-400">Sin pasos</div>}
             </div>
-          </div>
-          {s.description && <p className="text-xs text-slate-600 mb-1.5">{s.description}</p>}
-          <div className="text-xs text-slate-500">{s.steps?.length ?? 0} pasos</div>
+          ))}
         </div>
-      ))}
+      )}
+
+      <NewSequenceModal open={createOpen} onClose={() => setCreateOpen(false)} onSaved={() => { setCreateOpen(false); load(); }} />
     </div>
+  );
+}
+
+type StepDraft = { delayDays: number; templateBody: string; stopIfResponded: boolean };
+
+function NewSequenceModal({ open, onClose, onSaved }: { open: boolean; onClose: () => void; onSaved: () => void }) {
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const [isDefault, setIsDefault] = useState(false);
+  const [steps, setSteps] = useState<StepDraft[]>([{ delayDays: 0, templateBody: "", stopIfResponded: true }]);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    setName("");
+    setDescription("");
+    setIsDefault(false);
+    setSteps([{ delayDays: 0, templateBody: "", stopIfResponded: true }]);
+    setError(null);
+  }, [open]);
+
+  function updateStep(i: number, patch: Partial<StepDraft>) {
+    setSteps((prev) => prev.map((st, idx) => (idx === i ? { ...st, ...patch } : st)));
+  }
+  function addStep() {
+    setSteps((prev) => [...prev, { delayDays: 1, templateBody: "", stopIfResponded: true }]);
+  }
+  function removeStep(i: number) {
+    setSteps((prev) => prev.filter((_, idx) => idx !== i));
+  }
+
+  async function save() {
+    if (!name.trim()) { setError("Ponle un nombre a la secuencia."); return; }
+    if (steps.length === 0) { setError("Añade al menos un paso."); return; }
+    if (steps.some((st) => !st.templateBody.trim())) { setError("Cada paso necesita un mensaje."); return; }
+    setSaving(true);
+    setError(null);
+    try {
+      const r = await fetch("/api/v1/leads/sequences", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: name.trim(),
+          description: description.trim() || undefined,
+          isDefault,
+          steps: steps.map((st, idx) => ({
+            order: idx,
+            delayDays: st.delayDays,
+            delayHours: st.delayDays * 24,
+            templateBody: st.templateBody,
+            channel: "whatsapp",
+            stopIfResponded: st.stopIfResponded
+          }))
+        })
+      });
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        setError(j?.error?.message ?? `Error ${r.status}`);
+        return;
+      }
+      onSaved();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title="Nueva secuencia de seguimiento"
+      size="lg"
+      footer={
+        <>
+          <button onClick={onClose} className="px-3 py-2 rounded-lg text-sm border bg-white hover:bg-slate-50">Cancelar</button>
+          <button onClick={save} disabled={saving} className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium disabled:opacity-50">
+            {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+            Crear secuencia
+          </button>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        <div className="grid sm:grid-cols-2 gap-2">
+          <label className="text-xs">
+            Nombre
+            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Ej: Seguimiento 3 toques" className="w-full px-3 py-2 rounded-lg border bg-white text-sm" />
+          </label>
+          <label className="text-xs">
+            Descripción (opcional)
+            <input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Para qué sirve" className="w-full px-3 py-2 rounded-lg border bg-white text-sm" />
+          </label>
+        </div>
+        <label className="flex items-center gap-1.5 text-xs cursor-pointer">
+          <input type="checkbox" checked={isDefault} onChange={(e) => setIsDefault(e.target.checked)} className="accent-brand-600" />
+          Aplicar por defecto a leads nuevos
+        </label>
+
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-slate-700">Pasos</span>
+            <button onClick={addStep} className="inline-flex items-center gap-1 text-xs text-brand-700 hover:underline">
+              <Plus className="h-3.5 w-3.5" /> Añadir paso
+            </button>
+          </div>
+          {steps.map((st, i) => (
+            <div key={i} className="border rounded-lg p-2.5 bg-slate-50 space-y-2">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-medium text-slate-600">Paso {i + 1}</span>
+                <label className="text-xs flex items-center gap-1">
+                  Tras
+                  <input
+                    type="number"
+                    min={0}
+                    value={st.delayDays}
+                    onChange={(e) => updateStep(i, { delayDays: Math.max(0, Number(e.target.value)) })}
+                    className="w-16 px-2 py-1 rounded border bg-white"
+                  />
+                  días {i === 0 && st.delayDays === 0 ? "(inmediato al enrolar)" : ""}
+                </label>
+                <label className="text-xs flex items-center gap-1 ml-auto cursor-pointer">
+                  <input type="checkbox" checked={st.stopIfResponded} onChange={(e) => updateStep(i, { stopIfResponded: e.target.checked })} className="accent-brand-600" />
+                  Parar si responde
+                </label>
+                {steps.length > 1 && (
+                  <button onClick={() => removeStep(i)} className="text-slate-400 hover:text-rose-600" title="Eliminar paso">
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                )}
+              </div>
+              <textarea
+                value={st.templateBody}
+                onChange={(e) => updateStep(i, { templateBody: e.target.value })}
+                rows={2}
+                placeholder="Mensaje. Placeholders: {{nombre}}, {{provincia}}…"
+                className="w-full px-3 py-2 rounded-lg border bg-white text-sm"
+              />
+            </div>
+          ))}
+        </div>
+        {error && <p className="text-xs text-rose-600">{error}</p>}
+      </div>
+    </Modal>
   );
 }
 
@@ -1033,6 +1331,7 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
       sendOnWeekends: s.sendOnWeekends,
       dailyLimit: s.dailyLimit,
       enableVariations: s.enableVariations,
+      validateWaBeforeSend: s.validateWaBeforeSend,
       maxAttempts: s.maxAttempts
     };
     if (googleKey) body.googleApiKey = googleKey;
@@ -1103,6 +1402,10 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
             <label className="flex items-center gap-1.5 cursor-pointer">
               <input type="checkbox" checked={!!s.enableVariations} onChange={(e) => setField("enableVariations", e.target.checked)} className="accent-brand-600" />
               Variaciones anti-spam
+            </label>
+            <label className="flex items-center gap-1.5 cursor-pointer">
+              <input type="checkbox" checked={s.validateWaBeforeSend !== false} onChange={(e) => setField("validateWaBeforeSend", e.target.checked)} className="accent-brand-600" />
+              Validar WhatsApp antes de enviar
             </label>
           </div>
         </section>

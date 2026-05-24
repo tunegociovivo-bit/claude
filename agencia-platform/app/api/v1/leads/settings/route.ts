@@ -47,6 +47,7 @@ export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
     sendOnWeekends: s.sendOnWeekends ?? false,
     dailyLimit: s.dailyLimit ?? 80,
     enableVariations: s.enableVariations ?? true,
+    validateWaBeforeSend: s.validateWaBeforeSend ?? true,
     maxAttempts: s.maxAttempts ?? 3,
     webhookToken: s.webhookToken
   });
@@ -67,6 +68,7 @@ const schema = z.object({
   sendOnWeekends: z.boolean().optional(),
   dailyLimit: z.number().int().min(1).max(10000).optional(),
   enableVariations: z.boolean().optional(),
+  validateWaBeforeSend: z.boolean().optional(),
   maxAttempts: z.number().int().min(1).max(10).optional(),
   rotateWebhookToken: z.boolean().optional()
 });
@@ -111,6 +113,7 @@ export const PATCH = withApi({ scope: "*" }, async (req, { api }) => {
     "sendOnWeekends",
     "dailyLimit",
     "enableVariations",
+    "validateWaBeforeSend",
     "maxAttempts"
   ] as const) {
     if (parsed.data[k] !== undefined) s[k] = parsed.data[k];

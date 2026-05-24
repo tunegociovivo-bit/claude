@@ -107,6 +107,36 @@ export function qrUrl(cfg: WahaConfig, session?: string): string {
 }
 
 /**
+ * Comprueba si UN número tiene WhatsApp, vía el endpoint oficial de WAHA
+ * `/api/contacts/check-exists`. Devuelve:
+ *   - true  → el número está en WhatsApp
+ *   - false → NO está (descartable con seguridad)
+ *   - null  → desconocido (error/timeout): el llamante debe enviar igual,
+ *             nunca descartar por una comprobación que falló.
+ */
+export async function checkNumberExists(opts: {
+  workspaceId: string;
+  phone: string; // normalizado, sin "+"
+  session?: string;
+}): Promise<boolean | null> {
+  const cfg = await getWahaConfig(opts.workspaceId);
+  const session = opts.session ?? cfg.session;
+  try {
+    const resp = await fetch(
+      `${cfg.baseUrl}/api/contacts/check-exists?phone=${encodeURIComponent(opts.phone)}&session=${encodeURIComponent(session)}`,
+      { headers: { "X-Api-Key": cfg.apiKey } }
+    );
+    if (!resp.ok) return null;
+    const j: any = await resp.json();
+    if (typeof j?.numberExists === "boolean") return j.numberExists;
+    if (j?.chatId) return true;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Comprueba si un array de números tiene WhatsApp activo.
  * Útil para batch validation.
  */
@@ -114,23 +144,10 @@ export async function checkNumbers(opts: {
   workspaceId: string;
   phones: string[]; // ya normalizados (sin +)
 }): Promise<Record<string, boolean>> {
-  const cfg = await getWahaConfig(opts.workspaceId);
   const out: Record<string, boolean> = {};
-  // WAHA expone /api/{session}/check-number?phone=X — vamos uno a uno
   for (const phone of opts.phones) {
-    try {
-      const resp = await fetch(`${cfg.baseUrl}/api/${cfg.session}/check-number?phone=${phone}`, {
-        headers: { "X-Api-Key": cfg.apiKey }
-      });
-      if (resp.ok) {
-        const j = await resp.json();
-        out[phone] = !!j?.numberExists;
-      } else {
-        out[phone] = false;
-      }
-    } catch {
-      out[phone] = false;
-    }
+    const exists = await checkNumberExists({ workspaceId: opts.workspaceId, phone });
+    out[phone] = exists === true;
     // Pequeño delay para no saturar
     await new Promise((r) => setTimeout(r, 100));
   }
