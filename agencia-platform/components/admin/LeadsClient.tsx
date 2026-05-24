@@ -1345,6 +1345,8 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<Date | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [wahaTesting, setWahaTesting] = useState(false);
+  const [wahaTest, setWahaTest] = useState<any>(null);
   useEffect(() => {
     if (!open) return;
     setGoogleKey(""); setWahaKey(""); setError(null); setSavedAt(null);
@@ -1382,6 +1384,17 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
     setSavedAt(new Date());
   }
   function setField(k: string, v: any) { setS({ ...s, [k]: v }); }
+  async function testWaha() {
+    setWahaTesting(true);
+    setWahaTest(null);
+    try {
+      const r = await fetch("/api/v1/leads/waha-test");
+      setWahaTest(await r.json());
+    } catch (e: any) {
+      setWahaTest({ ok: false, message: `No se pudo lanzar el test: ${e?.message ?? e}` });
+    }
+    setWahaTesting(false);
+  }
   return (
     <Modal open={open} onClose={onClose} title="Ajustes NV Leads Pro" size="lg" footer={
       <>
@@ -1410,6 +1423,29 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
             <div className="text-[11px] text-slate-500 break-all">
               Webhook URL: <code>{typeof window !== "undefined" ? window.location.origin : ""}/api/v1/leads/webhook/{s.webhookToken}</code>
             </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={testWaha}
+                disabled={wahaTesting}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border bg-white hover:bg-slate-50 text-xs font-medium disabled:opacity-50"
+              >
+                {wahaTesting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                Probar conexión
+              </button>
+              <span className="text-[11px] text-slate-400">Comprueba el servidor y la sesión sin enviar nada. Guarda antes si cambiaste algo.</span>
+            </div>
+            {wahaTest && (
+              <div className={`text-xs rounded-lg border p-2.5 ${wahaTest.ok ? "bg-emerald-50 border-emerald-200 text-emerald-800" : "bg-rose-50 border-rose-200 text-rose-800"}`}>
+                <div className="font-medium">{wahaTest.ok ? "✓ Conectado" : "✗ No conectado"}</div>
+                <div className="mt-0.5">{wahaTest.message}</div>
+                {wahaTest.status && (
+                  <div className="mt-1 text-[11px] opacity-80">
+                    Estado: {wahaTest.status}{wahaTest.engine ? ` · Motor: ${wahaTest.engine}` : ""}{wahaTest.session ? ` · Sesión: ${wahaTest.session}` : ""}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </section>
         <section>
