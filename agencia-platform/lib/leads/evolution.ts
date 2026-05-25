@@ -152,6 +152,8 @@ export async function evoConnect(workspaceId: string): Promise<{
   ok: boolean;
   base64: string | null;
   pairingCode?: string | null;
+  count?: number | null;
+  state?: string | null;
   error?: string;
 }> {
   let cfg: EvolutionConfig;
@@ -199,13 +201,46 @@ export async function evoConnect(workspaceId: string): Promise<{
 
     // 3) El QR de Baileys puede tardar un par de segundos: reintenta /connect
     //    hasta que aparezca el base64 (en vez de devolver una imagen vacía).
-    let got = pick(await resp.json().catch(() => ({})));
+    let raw: any = await resp.json().catch(() => ({}));
+    let got = pick(raw);
     for (let i = 0; i < 6 && !got.base64; i++) {
       await new Promise((r) => setTimeout(r, 800));
       const r2 = await getConnect();
-      if (r2.ok) got = pick(await r2.json().catch(() => ({})));
+      if (r2.ok) {
+        raw = await r2.json().catch(() => ({}));
+        got = pick(raw);
+      }
     }
-    return { ok: true, base64: got.base64 ? String(got.base64) : null, pairingCode: got.pairingCode };
+    if (got.base64) {
+      return { ok: true, base64: String(got.base64), pairingCode: got.pairingCode };
+    }
+
+    // Sin QR: diagnostica el porqué para que la UI no se quede en "imagen rota".
+    // `count` lo da /connect (0 = Baileys aún no ha emitido ningún QR); el
+    // estado de la instancia distingue "ya conectada" de "no arranca el socket".
+    const count = typeof raw?.count === "number" ? raw.count : null;
+    let state: string | null = null;
+    try {
+      const stResp = await fetch(`${cfg.baseUrl}/instance/connectionState/${inst}`, { headers: headers(cfg.apiKey) });
+      if (stResp.ok) {
+        const stData: any = await stResp.json().catch(() => ({}));
+        state = stData?.instance?.state ?? stData?.state ?? null;
+      }
+    } catch {
+      /* estado desconocido */
+    }
+    let error: string;
+    if (state === "open") {
+      error = "La instancia ya está vinculada (no necesita QR).";
+    } else if (count === 0) {
+      error =
+        `Evolution devolvió count:0 — Baileys no ha generado el QR (estado "${state ?? "?"}"). ` +
+        "Suele indicar que el socket a WhatsApp no arranca: revisa LOG_BAILEYS=debug, la versión " +
+        "de WhatsApp Web (CONFIG_SESSION_PHONE_VERSION) o un posible bloqueo de red/IP.";
+    } else {
+      error = `Evolution no devolvió QR (count:${count ?? "?"}, estado "${state ?? "?"}").`;
+    }
+    return { ok: false, base64: null, pairingCode: got.pairingCode, count, state, error };
   } catch (e: any) {
     return { ok: false, base64: null, error: e?.message ?? "error de red" };
   }

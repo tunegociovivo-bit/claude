@@ -1350,6 +1350,7 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
   const [wahaTest, setWahaTest] = useState<any>(null);
   const [reconnecting, setReconnecting] = useState(false);
   const [qrNonce, setQrNonce] = useState(0);
+  const [qrError, setQrError] = useState<string | null>(null);
   const pollRef = useRef<any>(null);
   useEffect(() => {
     if (!open) return;
@@ -1429,6 +1430,7 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
     let ticks = 0;
     const tick = async () => {
       ticks++;
+      setQrError(null);
       setQrNonce((n) => n + 1);
       try {
         const r = await fetch("/api/v1/leads/waha-test");
@@ -1544,12 +1546,30 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
                 )}
                 {wahaTest?.status === "SCAN_QR_CODE" && (
                   <div className="flex flex-col items-center gap-1">
-                    <img
-                      src={`/api/v1/leads/waha-qr?n=${qrNonce}`}
-                      alt="QR para vincular WhatsApp"
-                      className="w-48 h-48 bg-white rounded-lg border"
-                    />
-                    <span className="text-[11px] text-amber-800">WhatsApp → Dispositivos vinculados → Vincular dispositivo</span>
+                    {!qrError && (
+                      <img
+                        src={`/api/v1/leads/waha-qr?n=${qrNonce}`}
+                        alt="QR para vincular WhatsApp"
+                        className="w-48 h-48 bg-white rounded-lg border"
+                        onLoad={() => setQrError(null)}
+                        onError={async () => {
+                          // El QR no es una imagen: la ruta devolvió un JSON con el
+                          // motivo (p.ej. Evolution count:0). Lo recuperamos y mostramos.
+                          try {
+                            const r = await fetch(`/api/v1/leads/waha-qr?n=${qrNonce}`);
+                            const j = await r.json().catch(() => null);
+                            setQrError(j?.message ?? "No se pudo obtener el QR.");
+                          } catch {
+                            setQrError("No se pudo obtener el QR.");
+                          }
+                        }}
+                      />
+                    )}
+                    {qrError ? (
+                      <span className="text-[11px] text-rose-700 max-w-[16rem] text-center">{qrError}</span>
+                    ) : (
+                      <span className="text-[11px] text-amber-800">WhatsApp → Dispositivos vinculados → Vincular dispositivo</span>
+                    )}
                   </div>
                 )}
                 {wahaTest?.url && (

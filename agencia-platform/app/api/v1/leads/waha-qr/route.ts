@@ -27,7 +27,12 @@ export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
     const r = await evoConnect(api.workspaceId);
     if (!r.ok || !r.base64) {
       return NextResponse.json(
-        { ok: false, message: r.error ?? "QR no disponible (la instancia puede estar ya conectada)." },
+        {
+          ok: false,
+          message: r.error ?? "QR no disponible (la instancia puede estar ya conectada).",
+          count: r.count ?? null,
+          state: r.state ?? null
+        },
         { status: 409 }
       );
     }
