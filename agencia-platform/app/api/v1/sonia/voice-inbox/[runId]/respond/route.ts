@@ -62,9 +62,14 @@ export const POST = withApi({ scope: "*", rate: "destructive" }, async (req, { a
 
   const run = await prisma.aiAgentRun.findFirst({
     where: { id: runId, workspaceId: api.workspaceId },
-    select: { id: true, taskId: true }
+    select: { id: true, taskId: true, requesterId: true }
   });
   if (!run) throw new ApiError(404, "not_found", "Llamada no encontrada");
+  // Aislamiento: solo quien encargó el run (o runs automáticos sin dueño)
+  // puede aprobar/ejecutar sus drafts. No actuar sobre avisos de otro usuario.
+  if (run.requesterId && run.requesterId !== api.userId) {
+    throw new ApiError(403, "forbidden", "Ese aviso no es tuyo");
+  }
 
   // --- Leer entrada: JSON {decision|reply} o multipart {audio} ---
   let decision: Decision | null = null;

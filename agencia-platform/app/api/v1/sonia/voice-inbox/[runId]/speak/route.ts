@@ -64,9 +64,14 @@ export const GET = withApi({ scope: "*" }, async (_req, { api, params }) => {
 
   const run = await prisma.aiAgentRun.findFirst({
     where: { id: runId, workspaceId: api.workspaceId },
-    select: { id: true, taskId: true }
+    select: { id: true, taskId: true, requesterId: true }
   });
   if (!run) throw new ApiError(404, "not_found", "Llamada no encontrada");
+  // Aislamiento: solo el usuario que encargó el run (o runs sin dueño,
+  // automáticos/entrantes) pueden oírlo. No leer avisos de otro usuario.
+  if (run.requesterId && run.requesterId !== api.userId) {
+    throw new ApiError(403, "forbidden", "Ese aviso no es tuyo");
+  }
 
   const drafts = await prisma.aiDraft.findMany({
     where: { workspaceId: api.workspaceId, aiAgentRunId: run.id, status: "PENDING" },
