@@ -167,6 +167,14 @@ function stripTrailingHashtags(text: string): string {
   return text.replace(/(?:\s*#[\p{L}0-9_]+)+\s*$/gu, "").trim();
 }
 
+/** Detecta si una URL de media es un vídeo (ignora el query string de las
+ *  URLs firmadas de R2/S3). */
+function isVideoUrl(url: string): boolean {
+  if (!url) return false;
+  const path = url.split("?")[0].toLowerCase();
+  return /\.(mp4|webm|mov|m4v)$/.test(path);
+}
+
 function formatIcon(format: string | null) {
   const f = (format ?? "").toLowerCase();
   if (f.includes("reel") || f.includes("video")) return Film;
@@ -2356,14 +2364,23 @@ function PostFormModal({
           <div className="grid md:grid-cols-[minmax(0,400px)_1fr] gap-5 items-start">
             <div>
               {images[0] ? (
-                <a href={images[0]} target="_blank" rel="noreferrer" className="block">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
+                isVideoUrl(images[0]) ? (
+                  <video
                     src={images[0]}
-                    alt={fullPost.title}
-                    className="w-full max-h-[560px] object-contain rounded-xl border bg-slate-50 hover:opacity-95 transition"
+                    controls
+                    playsInline
+                    className="w-full max-h-[560px] object-contain rounded-xl border bg-black"
                   />
-                </a>
+                ) : (
+                  <a href={images[0]} target="_blank" rel="noreferrer" className="block">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={images[0]}
+                      alt={fullPost.title}
+                      className="w-full max-h-[560px] object-contain rounded-xl border bg-slate-50 hover:opacity-95 transition"
+                    />
+                  </a>
+                )
               ) : (
                 <div className="w-full aspect-square rounded-xl border bg-slate-50 flex items-center justify-center text-slate-400">
                   <ImageIcon className="h-10 w-10" />
@@ -2373,8 +2390,16 @@ function PostFormModal({
                 <div className="mt-2 flex gap-1.5 overflow-x-auto">
                   {images.slice(1).map((u, i) => (
                     <a key={`${u}-${i}`} href={u} target="_blank" rel="noreferrer" className="shrink-0">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={u} alt={`media-${i + 1}`} className="h-14 w-14 object-cover rounded-md border" />
+                      {isVideoUrl(u) ? (
+                        <video
+                          src={u}
+                          muted
+                          className="h-14 w-14 object-cover rounded-md border bg-black"
+                        />
+                      ) : (
+                        /* eslint-disable-next-line @next/next/no-img-element */
+                        <img src={u} alt={`media-${i + 1}`} className="h-14 w-14 object-cover rounded-md border" />
+                      )}
                     </a>
                   ))}
                 </div>
@@ -2969,26 +2994,39 @@ function MediaPreview({ post }: { post: EditorialPost }) {
   } catch {}
   if (post.thumbnail && !urls.includes(post.thumbnail)) urls.unshift(post.thumbnail);
   if (urls.length === 0) return null;
+  const hasVideo = urls.some(isVideoUrl);
   return (
     <div>
-      <div className="text-xs font-medium text-slate-700 mb-1.5">Imágenes ({urls.length})</div>
+      <div className="text-xs font-medium text-slate-700 mb-1.5">
+        {hasVideo ? "Media" : "Imágenes"} ({urls.length})
+      </div>
       <div className="flex gap-2 overflow-x-auto pb-1">
-        {urls.map((u, i) => (
-          <a
-            key={`${u}-${i}`}
-            href={u}
-            target="_blank"
-            rel="noreferrer"
-            className="shrink-0"
-          >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
+        {urls.map((u, i) =>
+          isVideoUrl(u) ? (
+            <video
+              key={`${u}-${i}`}
               src={u}
-              alt={`media-${i}`}
-              className="h-24 w-24 object-cover rounded-lg border hover:border-brand-300"
+              controls
+              playsInline
+              className="h-24 w-40 object-cover rounded-lg border bg-black shrink-0"
             />
-          </a>
-        ))}
+          ) : (
+            <a
+              key={`${u}-${i}`}
+              href={u}
+              target="_blank"
+              rel="noreferrer"
+              className="shrink-0"
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={u}
+                alt={`media-${i}`}
+                className="h-24 w-24 object-cover rounded-lg border hover:border-brand-300"
+              />
+            </a>
+          )
+        )}
       </div>
     </div>
   );
