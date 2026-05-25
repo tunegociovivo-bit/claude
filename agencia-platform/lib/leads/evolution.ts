@@ -138,7 +138,8 @@ export async function evoConnectionState(workspaceId: string): Promise<{
   }
 }
 
-/** Inicia/recupera la conexión y devuelve el QR (base64 data URL) para vincular. */
+/** Inicia/recupera la conexión y devuelve el QR (base64 data URL) para vincular.
+ *  Si la instancia aún no existe en el servidor Evolution, la crea (v2). */
 export async function evoConnect(workspaceId: string): Promise<{
   ok: boolean;
   base64: string | null;
@@ -151,17 +152,36 @@ export async function evoConnect(workspaceId: string): Promise<{
   } catch (e: any) {
     return { ok: false, base64: null, error: e?.message ?? "no configurado" };
   }
+  const inst = encodeURIComponent(cfg.instance);
   try {
-    const resp = await fetch(`${cfg.baseUrl}/instance/connect/${encodeURIComponent(cfg.instance)}`, {
-      headers: headers(cfg.apiKey)
-    });
-    if (!resp.ok) {
-      return { ok: false, base64: null, error: `${resp.status}: ${(await resp.text().catch(() => "")).slice(0, 160)}` };
+    // 1) Intentar conectar una instancia existente.
+    const resp = await fetch(`${cfg.baseUrl}/instance/connect/${inst}`, { headers: headers(cfg.apiKey) });
+    if (resp.ok) {
+      const data: any = await resp.json().catch(() => ({}));
+      const base64 = data?.base64 ?? data?.qrcode?.base64 ?? null;
+      const pairingCode = data?.pairingCode ?? data?.qrcode?.pairingCode ?? null;
+      return { ok: true, base64: base64 ? String(base64) : null, pairingCode };
     }
-    const data: any = await resp.json().catch(() => ({}));
-    const base64 = data?.base64 ?? data?.qrcode?.base64 ?? null;
-    const pairingCode = data?.pairingCode ?? data?.qrcode?.pairingCode ?? null;
-    return { ok: true, base64: base64 ? String(base64) : null, pairingCode };
+    // 2) Si no existe (404), crearla — Evolution v2 devuelve el QR al crear.
+    if (resp.status === 404) {
+      const create = await fetch(`${cfg.baseUrl}/instance/create`, {
+        method: "POST",
+        headers: headers(cfg.apiKey),
+        body: JSON.stringify({
+          instanceName: cfg.instance,
+          integration: "WHATSAPP-BAILEYS",
+          qrcode: true
+        })
+      });
+      if (!create.ok) {
+        return { ok: false, base64: null, error: `${create.status}: ${(await create.text().catch(() => "")).slice(0, 160)}` };
+      }
+      const data: any = await create.json().catch(() => ({}));
+      const base64 = data?.qrcode?.base64 ?? data?.base64 ?? null;
+      const pairingCode = data?.qrcode?.pairingCode ?? data?.pairingCode ?? null;
+      return { ok: true, base64: base64 ? String(base64) : null, pairingCode };
+    }
+    return { ok: false, base64: null, error: `${resp.status}: ${(await resp.text().catch(() => "")).slice(0, 160)}` };
   } catch (e: any) {
     return { ok: false, base64: null, error: e?.message ?? "error de red" };
   }

@@ -1,0 +1,86 @@
+# Evolution API — stack para enviar WhatsApp (incl. notas de voz) GRATIS
+#
+# Levanta Evolution API v2 + Postgres + Redis. A diferencia de WAHA Core,
+# Evolution envía audio/imágenes/archivos sin licencia de pago.
+#
+# Uso:
+#   1) Copia esta carpeta al VPS.
+#   2) cp .env.example .env  y edita .env (claves).
+#   3) docker compose up -d
+#   4) Abre el puerto 8080 en el firewall.
+#   5) En el Hub (/admin/leads -> Ajustes) elige proveedor "Evolution API",
+#      pon URL http://TU_IP:8080, la API key de .env y un nombre de instancia
+#      (p.ej. "sonia"). Guarda -> Probar conexion -> Reconectar -> escanea QR.
+
+version: "3.9"
+
+services:
+  evolution-api:
+    image: atendai/evolution-api:v2.1.1
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      # ── Autenticación: ESTA es la API key que pones en el Hub ──────────
+      AUTHENTICATION_API_KEY: ${EVOLUTION_API_KEY}
+      # ── URL pública del servidor (IP o dominio + puerto) ──────────────
+      SERVER_URL: ${SERVER_URL}
+      # ── Base de datos (obligatoria en v2) ─────────────────────────────
+      DATABASE_ENABLED: "true"
+      DATABASE_PROVIDER: postgresql
+      DATABASE_CONNECTION_URI: postgresql://evolution:${POSTGRES_PASSWORD}@postgres:5432/evolution?schema=public
+      DATABASE_CONNECTION_CLIENT_NAME: evolution
+      DATABASE_SAVE_DATA_INSTANCE: "true"
+      DATABASE_SAVE_DATA_NEW_MESSAGE: "true"
+      DATABASE_SAVE_MESSAGE_UPDATE: "true"
+      DATABASE_SAVE_DATA_CONTACTS: "true"
+      DATABASE_SAVE_DATA_CHATS: "true"
+      # ── Cache Redis ───────────────────────────────────────────────────
+      CACHE_REDIS_ENABLED: "true"
+      CACHE_REDIS_URI: redis://redis:6379/6
+      CACHE_REDIS_PREFIX_KEY: evolution
+      CACHE_REDIS_SAVE_INSTANCES: "false"
+      CACHE_LOCAL_ENABLED: "false"
+      # ── Logs ──────────────────────────────────────────────────────────
+      LOG_LEVEL: ERROR
+      LOG_COLOR: "true"
+      DEL_INSTANCE: "false"
+    volumes:
+      - evolution_instances:/evolution/instances
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    networks: [evo]
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: evolution
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: evolution
+    volumes:
+      - evo_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "evolution"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks: [evo]
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - evo_redis:/data
+    networks: [evo]
+
+volumes:
+  evolution_instances:
+  evo_pg:
+  evo_redis:
+
+networks:
+  evo:
