@@ -75,6 +75,7 @@ async function handler(api: any, ids: string[]) {
       id: true,
       taskId: true,
       status: true,
+      requesterId: true,
       humanReviewedAt: true,
       summary: true,
       error: true,
@@ -88,6 +89,17 @@ async function handler(api: any, ids: string[]) {
       outputTokens: true
     }
   });
+
+  // Dueño efectivo de cada tarea = el usuario que la encargó a Sonia
+  // (requesterId del run más reciente que lo tenga; los runs automáticos
+  // sin requester heredan así al humano original). Lo usa la UI para que
+  // SOLO el dueño oiga la voz de la tarea (el badge lo ven todos).
+  const ownerByTask = new Map<string, string>();
+  for (const r of runsBase) {
+    if (!ownerByTask.has(r.taskId) && r.requesterId) {
+      ownerByTask.set(r.taskId, r.requesterId);
+    }
+  }
   // Coste total por tarea = suma de tokens de TODOS sus runs × pricing.
   const { estimateCostMicros } = await import("@/lib/ai/usage");
   const { DEFAULT_MODEL } = await import("@/lib/ai/anthropic");
@@ -205,6 +217,9 @@ async function handler(api: any, ids: string[]) {
     const r = latestByTask.get(id);
     const lastComment = lastCommentByTask.get(id);
     const lastCommentIsAi = aiUserId && lastComment?.authorId === aiUserId;
+    // ¿La encargó el usuario actual? Solo entonces oirá su voz.
+    const ownerId = ownerByTask.get(id);
+    const mine = !!ownerId && !!api.userId && ownerId === api.userId;
     if (!r) {
       // Aunque no haya run, puede haber comentario reciente de Sonia
       // (ej tarea histórica). Si lo hay y no se ha "revisado", lo
@@ -214,11 +229,12 @@ async function handler(api: any, ids: string[]) {
           taskId: id,
           aiStatus: "ai_replied" as const,
           workedByAi: true,
+          mine,
           lastAiCommentAt: lastComment!.createdAt.toISOString(),
           lastAiCommentPreview: lastComment!.body.slice(0, 140)
         };
       }
-      return { taskId: id, aiStatus: null, workedByAi: false };
+      return { taskId: id, aiStatus: null, workedByAi: false, mine };
     }
     const escalation = extractEscalationFromLog(r.log);
     let visual:
@@ -275,6 +291,7 @@ async function handler(api: any, ids: string[]) {
       // el estado visual ya esté null (revisada/cerrada). Lo usa la UI para
       // marcar con un icono de robot las tareas que gestiona Sonia.
       workedByAi: true,
+      mine,
       runId: r.id,
       runStatus: r.status,
       startedAt: (r.startedAt ?? r.createdAt).toISOString(),
