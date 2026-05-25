@@ -161,16 +161,18 @@ export async function evoConnect(workspaceId: string): Promise<{
     return { ok: false, base64: null, error: e?.message ?? "no configurado" };
   }
   const inst = encodeURIComponent(cfg.instance);
+  const pick = (d: any) => ({
+    base64: (d?.base64 ?? d?.qrcode?.base64 ?? null) as string | null,
+    pairingCode: (d?.pairingCode ?? d?.qrcode?.pairingCode ?? null) as string | null
+  });
+  const getConnect = () => fetch(`${cfg.baseUrl}/instance/connect/${inst}`, { headers: headers(cfg.apiKey) });
+
   try {
     // 1) Intentar conectar una instancia existente.
-    const resp = await fetch(`${cfg.baseUrl}/instance/connect/${inst}`, { headers: headers(cfg.apiKey) });
-    if (resp.ok) {
-      const data: any = await resp.json().catch(() => ({}));
-      const base64 = data?.base64 ?? data?.qrcode?.base64 ?? null;
-      const pairingCode = data?.pairingCode ?? data?.qrcode?.pairingCode ?? null;
-      return { ok: true, base64: base64 ? String(base64) : null, pairingCode };
-    }
-    // 2) Si no existe (404), crearla — Evolution v2 devuelve el QR al crear.
+    let resp = await getConnect();
+
+    // 2) Si no existe (404), crearla. Evolution v2 a veces devuelve el QR aquí,
+    //    pero Baileys lo genera async: si llega vacío, lo recogemos en el bucle.
     if (resp.status === 404) {
       const create = await fetch(`${cfg.baseUrl}/instance/create`, {
         method: "POST",
@@ -181,15 +183,29 @@ export async function evoConnect(workspaceId: string): Promise<{
           qrcode: true
         })
       });
-      if (!create.ok) {
+      if (create.ok) {
+        const got = pick(await create.json().catch(() => ({})));
+        if (got.base64) return { ok: true, base64: String(got.base64), pairingCode: got.pairingCode };
+      } else if (create.status !== 403 && create.status !== 409) {
+        // 403/409 = "ya existe" (carrera) → seguimos a /connect; otro error sí corta.
         return { ok: false, base64: null, error: `${create.status}: ${(await create.text().catch(() => "")).slice(0, 160)}` };
       }
-      const data: any = await create.json().catch(() => ({}));
-      const base64 = data?.qrcode?.base64 ?? data?.base64 ?? null;
-      const pairingCode = data?.qrcode?.pairingCode ?? data?.pairingCode ?? null;
-      return { ok: true, base64: base64 ? String(base64) : null, pairingCode };
+      resp = await getConnect();
     }
-    return { ok: false, base64: null, error: `${resp.status}: ${(await resp.text().catch(() => "")).slice(0, 160)}` };
+
+    if (!resp.ok) {
+      return { ok: false, base64: null, error: `${resp.status}: ${(await resp.text().catch(() => "")).slice(0, 160)}` };
+    }
+
+    // 3) El QR de Baileys puede tardar un par de segundos: reintenta /connect
+    //    hasta que aparezca el base64 (en vez de devolver una imagen vacía).
+    let got = pick(await resp.json().catch(() => ({})));
+    for (let i = 0; i < 6 && !got.base64; i++) {
+      await new Promise((r) => setTimeout(r, 800));
+      const r2 = await getConnect();
+      if (r2.ok) got = pick(await r2.json().catch(() => ({})));
+    }
+    return { ok: true, base64: got.base64 ? String(got.base64) : null, pairingCode: got.pairingCode };
   } catch (e: any) {
     return { ok: false, base64: null, error: e?.message ?? "error de red" };
   }
