@@ -1610,6 +1610,11 @@ model CalendarEvent {
   // queda ligado a la VoiceCall para confirmarlo/actualizarlo cuando llega
   // la transcripción de la llamada por webhook.
   voiceCallId       String?
+  // Dueño del evento a efectos de PRIVACIDAD. null = evento compartido del
+  // workspace (visible para todos, comportamiento por defecto). Si está
+  // puesto, es un evento PERSONAL (p.ej. una reunión que Sonia añadió a
+  // petición de un usuario) y solo lo ve ese usuario en su calendario.
+  ownerUserId       String?
   // Marca de cuándo se envió el recordatorio push previo al evento (idempotencia).
   reminderSentAt    DateTime?
   createdAt         DateTime  @default(now())
@@ -1620,6 +1625,7 @@ model CalendarEvent {
 
   @@unique([googleCalendarId, googleEventId])
   @@index([googleOwnerUserId])
+  @@index([ownerUserId])
 }
 
 enum EventType {

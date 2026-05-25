@@ -194,6 +194,26 @@ export async function getTasksForUi(): Promise<UiTask[]> {
       take: 1000
     });
 
+    // Privacidad de encargos a Sonia: una tarea ASIGNADA a Sonia que tiene
+    // un dueño humano (quien se la encargó) solo la ven sus asignados
+    // humanos, no el resto de admins que miran el tablón completo. Las
+    // tareas automáticas de Sonia (sin asignado humano) siguen visibles
+    // para todos, igual que antes.
+    const wsForAi = await prisma.workspace.findUnique({
+      where: { id: workspaceId },
+      select: { settings: true }
+    });
+    const aiUserId = ((wsForAi?.settings as any)?.aiAgent?.userId as string) ?? null;
+    const visibleRows = !aiUserId
+      ? rows
+      : rows.filter((r) => {
+          const aids = r.assignees.map((a) => a.userId);
+          if (!aids.includes(aiUserId)) return true; // no es tarea de Sonia
+          const humanAssignees = aids.filter((id) => id !== aiUserId);
+          if (humanAssignees.length === 0) return true; // automática, sin dueño humano
+          return !!userId && humanAssignees.includes(userId); // personal → solo sus dueños
+        });
+
     // Portada: última imagen adjunta a cada tarea (estilo Asana). Una sola
     // query para todas las tareas visibles; nos quedamos con la más
     // reciente por tarea y firmamos su URL (R2). La firma es local (no
@@ -231,7 +251,7 @@ export async function getTasksForUi(): Promise<UiTask[]> {
       // Si falla la portada, las tarjetas se muestran sin imagen.
     }
 
-    return rows.map<UiTask>((r) => {
+    return visibleRows.map<UiTask>((r) => {
       const explicitAllDay = (r as any).dueAllDay;
       // Heurística: si la hora UTC almacenada NO es 00:00, hay hora
       // real, aunque dueAllDay esté a true (cubre tareas creadas antes
@@ -296,10 +316,16 @@ export async function getTasksForUi(): Promise<UiTask[]> {
   }, mockTasks);
 }
 
-export async function getEventsForUi(): Promise<UiEvent[]> {
+export async function getEventsForUi(userId?: string | null): Promise<UiEvent[]> {
   return tryPrisma(async () => {
     const { prisma } = await import("./prisma");
-    const rows = await prisma.calendarEvent.findMany({ orderBy: { startAt: "asc" } });
+    // Privacidad: los eventos personales (ownerUserId != null) solo los ve su
+    // dueño. Los compartidos (ownerUserId null) los ve todo el mundo. Si no
+    // hay userId, solo se devuelven los compartidos.
+    const rows = await prisma.calendarEvent.findMany({
+      where: { OR: [{ ownerUserId: null }, ...(userId ? [{ ownerUserId: userId }] : [])] } as any,
+      orderBy: { startAt: "asc" }
+    });
     return rows.map<UiEvent>((r) => ({
       id: r.id,
       title: r.title,
@@ -346,11 +372,13 @@ export async function getTeamForUi(): Promise<UiMember[]> {
 }
 
 export async function getDashboardData() {
+  const { getSessionUserId } = await import("@/lib/auth");
+  const dashUserId = await getSessionUserId();
   const [clients, tasks, projects, events, team] = await Promise.all([
     getClientsForUi(),
     getTasksForUi(),
     getProjectsForUi(),
-    getEventsForUi(),
+    getEventsForUi(dashUserId),
     getTeamForUi()
   ]);
   return { clients, tasks, projects, events, team };
