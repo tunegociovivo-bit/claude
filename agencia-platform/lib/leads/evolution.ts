@@ -44,7 +44,15 @@ export async function getEvolutionConfig(workspaceId: string): Promise<Evolution
   if (!baseUrl) throw new Error("Evolution URL no configurada");
   if (!apiKey) throw new Error("Evolution API key no configurada");
 
-  return { baseUrl: baseUrl.replace(/\/+$/, ""), apiKey, instance, countryCode };
+  return { baseUrl: normalizeBaseUrl(baseUrl), apiKey, instance, countryCode };
+}
+
+/** Limpia errores típicos al pegar la URL: prefijo "URL:", espacios,
+ *  barra final y esquema ausente. */
+function normalizeBaseUrl(raw: string): string {
+  let url = raw.trim().replace(/^url\s*:\s*/i, "").trim();
+  if (url && !/^https?:\/\//i.test(url)) url = `https://${url}`;
+  return url.replace(/\/+$/, "");
 }
 
 function headers(apiKey: string) {
