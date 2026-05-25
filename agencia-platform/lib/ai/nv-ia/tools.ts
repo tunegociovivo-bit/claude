@@ -6675,62 +6675,19 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
         }
       }
     });
-    // 2. Mover a la columna "completado" SOLO si el workspace lo activa
-    // explícitamente (settings.aiAgent.moveToDoneOnComplete = true). Por
-    // defecto NO cambiamos de columna: el user organiza su kanban a mano y
-    // no quiere que Sonia le mueva las tarjetas al terminar.
-    let doneStatus: string | null = null;
-    try {
-      const wsCfg = await prisma.workspace.findUnique({
-        where: { id: ctx.workspaceId },
-        select: { settings: true }
-      });
-      const moveOnComplete = (wsCfg?.settings as any)?.aiAgent?.moveToDoneOnComplete === true;
-      if (moveOnComplete) {
-        const task = await prisma.task.findUnique({
-          where: { id: ctx.taskId },
-          select: { projectId: true }
-        });
-        if (task?.projectId) {
-          const project = await prisma.project.findUnique({
-            where: { id: task.projectId },
-            select: { kanbanColumns: true }
-          });
-          const cols = Array.isArray((project as any)?.kanbanColumns)
-            ? ((project as any).kanbanColumns as Array<any>)
-            : [];
-          if (cols.length > 0) {
-            const explicitDone = cols.find((c) => c?.isDone === true);
-            const byName = explicitDone
-              ? null
-              : cols.find((c) =>
-                  /(hecho|done|complete|completad|publicad|finalizad|terminad)/i.test(
-                    `${c?.label ?? ""} ${c?.id ?? ""}`
-                  )
-                );
-            const last = cols
-              .slice()
-              .sort((a, b) => (a?.order ?? 0) - (b?.order ?? 0))
-              .at(-1);
-            doneStatus = explicitDone?.id ?? byName?.id ?? last?.id ?? "DONE";
-          } else {
-            doneStatus = "DONE";
-          }
-        }
-      }
-    } catch {
-      // Si algo falla, NO movemos de columna.
-    }
-
+    // 2. Sellar la tarea como completada SIN tocar nunca la columna.
+    // El user organiza su kanban a mano: una tarjeta solo cambia de
+    // columna cuando él la arrastra. Sonia marca `completedAt` (la tarea
+    // queda "hecha") pero la deja en la columna donde está.
     await prisma.task.update({
       where: { id: ctx.taskId },
-      data: { completedAt: new Date(), ...(doneStatus ? { status: doneStatus } : {}) }
+      data: { completedAt: new Date() }
     });
     return {
       ok: true,
       commentId: comment.id,
       completed: true,
-      status: doneStatus ?? "(columna sin cambios)"
+      status: "(columna sin cambios)"
     };
   },
   async attach_file_to_task(input, ctx) {
