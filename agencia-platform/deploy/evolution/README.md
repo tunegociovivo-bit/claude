@@ -3,6 +3,28 @@
 WAHA Core no envía audio/medios sin licencia Plus. Evolution API sí, gratis.
 Este stack levanta Evolution API v2 + Postgres + Redis en tu VPS.
 
+## ⚡ Camino recomendado (un solo comando)
+
+En el VPS, con la carpeta copiada en `/opt/evolution`:
+
+```bash
+cd /opt/evolution
+
+# Opción recomendada: HTTPS con subdominio (antes crea el DNS A y abre 80/443)
+ufw allow 80/tcp && ufw allow 443/tcp
+./install.sh evolution.negociovivo.app
+
+# — o — opción rápida sin dominio (HTTP en el puerto 8080)
+ufw allow 8080/tcp
+./install.sh
+```
+
+El instalador genera las claves solo, levanta los contenedores y al final
+imprime la **URL** y la **API key** que debes pegar en el Hub. Si prefieres
+hacerlo a mano, sigue los pasos detallados de abajo.
+
+---
+
 ## 1. Subir los ficheros al VPS
 
 Copia esta carpeta (`deploy/evolution/`) al servidor, p.ej.:
