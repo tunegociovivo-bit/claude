@@ -20,6 +20,7 @@ import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
 import { elevenlabsSynthesize } from "@/lib/integrations/elevenlabs";
 import { getAnthropicForWorkspace } from "@/lib/ai/anthropic";
+import { resolveRunOwnerId } from "@/lib/ai/nv-ia/run-owner";
 
 export const dynamic = "force-dynamic";
 
@@ -178,12 +179,27 @@ export const GET = withApi({ scope: "tasks:read" }, async (req, { api, params })
     select: {
       id: true,
       status: true,
+      requesterId: true,
       summary: true,
       error: true,
       humanReviewedAt: true,
       updatedAt: true
     }
   });
+
+  // Aislamiento por usuario: solo el dueño de la tarea (quien la encargó a
+  // Sonia) puede oír su voz. Otro admin que tenga el tablón abierto ve el
+  // badge pero NO recibe audio. 204 = sin contenido → el cliente no suena.
+  if (run) {
+    const ownerId = await resolveRunOwnerId({
+      workspaceId: api.workspaceId,
+      taskId: task.id,
+      requesterId: run.requesterId
+    });
+    if (ownerId && ownerId !== api.userId) {
+      return new NextResponse(null, { status: 204 });
+    }
+  }
 
   // Detectar si Sonia ha contestado en un hilo (último comentario suyo
   // tras humanReviewedAt) para frasear "te he contestado" en lugar de

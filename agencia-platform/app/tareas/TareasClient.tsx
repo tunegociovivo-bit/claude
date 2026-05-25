@@ -75,6 +75,10 @@ type AiStatusInfo = {
    *  aunque el estado visual ya sea null. Marca persistente para el
    *  icono de robot en la card. */
   workedByAi?: boolean;
+  /** true = la tarea la encargó el usuario actual a Sonia (es su dueño).
+   *  Solo el dueño oye la VOZ de la tarea; los demás (p.ej. otro admin
+   *  que ve el tablón completo) ven el badge pero no la escuchan. */
+  mine?: boolean;
   /** Inicio del paso ACTUAL (último tick) — para el cronómetro del banner,
    *  distinto del total (startedAt) que muestra el badge de arriba. */
   lastIterationAt?: string | null;
@@ -335,6 +339,10 @@ export default function TareasClient({
 
     if (notifyMode !== "off") {
       for (const tr of transitions) {
+        // Aislamiento por usuario: solo el DUEÑO de la tarea (quien se la
+        // encargó a Sonia) oye su voz/beep. Otro admin que ve el tablón
+        // completo sigue viendo el badge, pero en silencio.
+        if (!aiStatusByTask[tr.taskId]?.mine) continue;
         // SOLO transiciones "destacables" generan voz (para no quemar
         // créditos de ElevenLabs en cada working/claude_working). Las
         // que pasan a working o claude_working siguen sonando con beep
