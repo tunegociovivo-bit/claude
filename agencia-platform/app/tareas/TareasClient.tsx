@@ -11,6 +11,7 @@ import {
   closestCenter,
   pointerWithin,
   rectIntersection,
+  useDraggable,
   useSensor,
   useSensors,
   type CollisionDetection,
@@ -921,12 +922,52 @@ export default function TareasClient({
     setActiveDragId(String(e.active.id));
   }
 
+  // Mueve un ítem de tarea flash de una tarjeta a otra: lo quita del origen,
+  // lo añade al destino y persiste ambas tareas. Actualiza el estado local
+  // para que las dos tarjetas se refresquen al instante.
+  function moveFlashItem(srcTaskId: string, destTaskId: string, flashId: string) {
+    const src = tasks.find((t) => t.id === srcTaskId);
+    const dest = tasks.find((t) => t.id === destTaskId);
+    const item = src?.flashTasks?.find((f) => f.id === flashId);
+    if (!src || !dest || !item) return;
+    const newSrc = (src.flashTasks ?? []).filter((f) => f.id !== flashId);
+    const newDest = [...(dest.flashTasks ?? []).filter((f) => f.id !== flashId), item];
+    setTasks((prev) =>
+      prev.map((t) =>
+        t.id === srcTaskId
+          ? { ...t, flashTasks: newSrc }
+          : t.id === destTaskId
+            ? { ...t, flashTasks: newDest }
+            : t
+      )
+    );
+    const patch = (id: string, flashTasks: unknown) =>
+      fetch(`/api/v1/tasks/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ flashTasks })
+      }).catch(() => {});
+    void patch(srcTaskId, newSrc);
+    void patch(destTaskId, newDest);
+  }
+
   function handleDragEnd(e: DragEndEvent) {
     setActiveDragId(null);
     const { active, over } = e;
     if (!over) return;
     const activeType = active.data.current?.type;
     const overType = over.data.current?.type;
+
+    // Arrastrar una tarea flash de una tarjeta a otra.
+    if (activeType === "flash") {
+      const srcTaskId = String(active.data.current?.taskId ?? "");
+      const flashId = String(active.data.current?.flashId ?? "");
+      const destTaskId = overType === "task" ? String(over.id) : null;
+      if (srcTaskId && flashId && destTaskId && destTaskId !== srcTaskId) {
+        moveFlashItem(srcTaskId, destTaskId, flashId);
+      }
+      return;
+    }
 
     if (activeType === "column" && overType === "column" && active.id !== over.id) {
       const currentOrder = orderedColumns.map((c) => c.id);
@@ -1019,6 +1060,12 @@ export default function TareasClient({
   }
 
   const activeTaskBeingDragged = activeDragId ? tasks.find((t) => t.id === activeDragId) ?? null : null;
+  // Ítem flash que se está arrastrando (id "flash:taskId:flashId") — para el overlay.
+  const activeFlashItem = (() => {
+    if (!activeDragId || !activeDragId.startsWith("flash:")) return null;
+    const [, taskId, flashId] = activeDragId.split(":");
+    return tasks.find((t) => t.id === taskId)?.flashTasks?.find((f) => f.id === flashId) ?? null;
+  })();
   const isAdmin = !columnsLoaded; // placeholder; usaremos el endpoint /me en futuro si hace falta
 
   return (
@@ -1326,6 +1373,15 @@ export default function TareasClient({
                 columns={columns}
                 aiUserId={aiUserId}
               />
+            )}
+            {activeFlashItem && (
+              <div className="rounded-md border bg-white shadow-lg px-2 py-1 text-xs text-slate-700 flex items-center gap-1.5 max-w-[220px]">
+                <GripVertical className="h-3 w-3 text-slate-400 shrink-0" />
+                <span className="truncate">
+                  {activeFlashItem.urgent && !activeFlashItem.done && "🔴 "}
+                  {activeFlashItem.text}
+                </span>
+              </div>
             )}
           </DragOverlay>
         </DndContext>
@@ -1820,6 +1876,88 @@ function KanbanColumnView({
   );
 }
 
+/** Fila de una tarea flash en la tarjeta del Kanban, arrastrable por su asa
+ *  (grip) a otra tarjeta. El asa frena la propagación para no disparar el
+ *  arrastre de la tarjeta entera (cuya área completa es su propia asa). */
+function FlashItemRow({
+  f,
+  taskId,
+  onToggleDone,
+  onToggleUrgent
+}: {
+  f: { id: string; text: string; done: boolean; urgent?: boolean };
+  taskId: string;
+  onToggleDone: (id: string, e: React.MouseEvent) => void;
+  onToggleUrgent: (id: string, e: React.MouseEvent) => void;
+}) {
+  const { setNodeRef, attributes, listeners, isDragging } = useDraggable({
+    id: `flash:${taskId}:${f.id}`,
+    data: { type: "flash", taskId, flashId: f.id }
+  });
+  const gripListeners: Record<string, (e: any) => void> = {};
+  for (const k in listeners) {
+    const orig = (listeners as any)[k];
+    gripListeners[k] = (e: any) => {
+      e.stopPropagation();
+      orig(e);
+    };
+  }
+  return (
+    <div
+      ref={setNodeRef}
+      className={
+        "w-full flex items-center gap-1 text-xs rounded px-1 " +
+        (f.urgent && !f.done ? "bg-rose-100 " : "") +
+        (isDragging ? "opacity-40" : "")
+      }
+    >
+      <button
+        type="button"
+        {...attributes}
+        {...gripListeners}
+        onClick={(e) => e.stopPropagation()}
+        className="shrink-0 cursor-grab active:cursor-grabbing text-slate-300 hover:text-slate-500 touch-none"
+        title="Arrastrar a otra tarea"
+        aria-label="Mover tarea flash a otra tarea"
+      >
+        <GripVertical className="h-3 w-3" />
+      </button>
+      <button
+        type="button"
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={(e) => onToggleDone(f.id, e)}
+        className="flex-1 flex items-center gap-1.5 text-left min-w-0"
+        title={f.done ? "Marcar como pendiente" : "Marcar como hecha"}
+      >
+        {f.done ? (
+          <CheckSquare className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
+        ) : (
+          <Square className={"h-3.5 w-3.5 shrink-0 " + (f.urgent ? "text-rose-500" : "text-amber-500")} />
+        )}
+        <span
+          className={
+            "truncate " +
+            (f.done ? "line-through text-slate-400" : f.urgent ? "text-rose-700 font-semibold" : "text-slate-700")
+          }
+        >
+          {f.urgent && !f.done && "🔴 "}
+          {f.text}
+        </span>
+      </button>
+      <button
+        type="button"
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={(e) => onToggleUrgent(f.id, e)}
+        className={"shrink-0 px-0.5 " + (f.urgent ? "text-rose-500" : "text-slate-300 hover:text-rose-400")}
+        title={f.urgent ? "Quitar urgente" : "Marcar como urgente"}
+        aria-label={f.urgent ? "Quitar urgente" : "Marcar como urgente"}
+      >
+        <Zap className="h-3.5 w-3.5" />
+      </button>
+    </div>
+  );
+}
+
 function SortableTask({
   task,
   project,
@@ -2122,21 +2260,18 @@ function TaskCard({
                 : "bg-amber-50/60 border-amber-100")
           }
         >
-          {flash.map((f) => (
-            <div
-              key={f.id}
-              className={
-                "w-full flex items-center gap-1.5 text-xs rounded px-1 " +
-                (f.urgent && !f.done ? "bg-rose-100" : "")
-              }
-            >
-              <button
-                type="button"
-                onPointerDown={(e) => e.stopPropagation()}
-                onClick={(e) => toggleFlash(f.id, e)}
-                className="flex-1 flex items-center gap-1.5 text-left min-w-0"
-                title={f.done ? "Marcar como pendiente" : "Marcar como hecha"}
+          {flash.map((f) =>
+            isOverlay ? (
+              // En el overlay del drag de la tarjeta: fila estática (sin
+              // arrastre propio) para no duplicar el id de draggable.
+              <div
+                key={f.id}
+                className={
+                  "w-full flex items-center gap-1 text-xs rounded px-1 " +
+                  (f.urgent && !f.done ? "bg-rose-100" : "")
+                }
               >
+                <GripVertical className="h-3 w-3 text-slate-300 shrink-0" />
                 {f.done ? (
                   <CheckSquare className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
                 ) : (
@@ -2145,29 +2280,23 @@ function TaskCard({
                 <span
                   className={
                     "truncate " +
-                    (f.done
-                      ? "line-through text-slate-400"
-                      : f.urgent
-                        ? "text-rose-700 font-semibold"
-                        : "text-slate-700")
+                    (f.done ? "line-through text-slate-400" : f.urgent ? "text-rose-700 font-semibold" : "text-slate-700")
                   }
                 >
                   {f.urgent && !f.done && "🔴 "}
                   {f.text}
                 </span>
-              </button>
-              <button
-                type="button"
-                onPointerDown={(e) => e.stopPropagation()}
-                onClick={(e) => toggleFlashUrgent(f.id, e)}
-                className={"shrink-0 px-0.5 " + (f.urgent ? "text-rose-500" : "text-slate-300 hover:text-rose-400")}
-                title={f.urgent ? "Quitar urgente" : "Marcar como urgente"}
-                aria-label={f.urgent ? "Quitar urgente" : "Marcar como urgente"}
-              >
-                <Zap className="h-3.5 w-3.5" />
-              </button>
-            </div>
-          ))}
+              </div>
+            ) : (
+              <FlashItemRow
+                key={f.id}
+                f={f}
+                taskId={task.id}
+                onToggleDone={toggleFlash}
+                onToggleUrgent={toggleFlashUrgent}
+              />
+            )
+          )}
         </div>
       )}
       <div className="flex items-center justify-between">
