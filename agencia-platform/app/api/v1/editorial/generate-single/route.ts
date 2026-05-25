@@ -13,8 +13,13 @@ import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { generateMonth } from "@/lib/editorial/generate-month";
+import { generatePostVideo } from "@/lib/editorial/generate-video";
 import { AIDisabledError } from "@/lib/ai/anthropic";
 import { humanizeAiError } from "@/lib/ai/errors";
+
+/** Formatos que se generan como VÍDEO (pipeline tomas + voz + subtítulos)
+ *  en vez de como imagen estática. */
+const VIDEO_FORMATS = new Set(["video", "reel", "story"]);
 
 const schema = z.object({
   clientId: z.string().min(1),
@@ -90,6 +95,14 @@ async function runJobAsync(
 
     const scheduledFor = new Date(params.scheduledFor);
     const month = scheduledFor.toISOString().slice(0, 7);
+    const isVideo = VIDEO_FORMATS.has(params.format);
+
+    const updateProgress = async (msg: string, pct: number) => {
+      await prisma.backgroundJob
+        .update({ where: { id: jobId }, data: { progressMsg: msg, progressPct: pct } })
+        .catch(() => {});
+      await pushEvent("info", msg);
+    };
 
     const result = await generateMonth({
       workspaceId,
@@ -103,7 +116,9 @@ async function runJobAsync(
       perNetworkCopy: params.perNetworkCopy,
       extraGuidance: params.extraGuidance,
       status: params.status,
-      generateImages: true,
+      // En vídeo NO generamos imagen estática: el pipeline de vídeo crea sus
+      // propias tomas (gpt-image-2) y las anima. Generamos solo el copy aquí.
+      generateImages: !isVideo,
       imageQuality: params.imageQuality,
       singleTopic: params.title,
       singleFormat: params.format,
@@ -112,17 +127,41 @@ async function runJobAsync(
       imageAvoidHint: params.imageAvoidHint,
       useRosterPersons: (params as any).useRosterPersons,
       onProgress: async (msg, pct) => {
-        await prisma.backgroundJob
-          .update({ where: { id: jobId }, data: { progressMsg: msg, progressPct: pct } })
-          .catch(() => {});
-        await pushEvent("info", msg);
+        // En vídeo el copy es la primera mitad: dejamos espacio para el vídeo.
+        await updateProgress(msg, isVideo ? Math.min(40, Math.round(pct * 0.4)) : pct);
       }
     });
 
-    const summary =
-      result.count > 0
+    // Encadena el pipeline de vídeo sobre el post recién creado.
+    let videoNote = "";
+    if (isVideo && result.createdIds.length > 0) {
+      const postId = result.createdIds[0];
+      try {
+        await updateProgress("Generando vídeo: storyboard, tomas y montaje…", 45);
+        const out = await generatePostVideo({
+          workspaceId,
+          postId,
+          extraGuidance: params.extraGuidance,
+          shots: 2,
+          voiceover: true,
+          subtitles: true
+        });
+        videoNote = out.note;
+        await updateProgress("Vídeo listo y adjuntado al post.", 100);
+      } catch (e: any) {
+        const h = humanizeAiError(e);
+        await pushEvent("error", `Vídeo falló: ${h.message}`);
+        videoNote = ` (Vídeo no generado: ${h.message})`;
+      }
+    }
+
+    const summary = isVideo
+      ? result.count > 0
+        ? `✓ Publicación creada · ${videoNote.startsWith(" (Vídeo no") ? "vídeo falló" : "vídeo listo"}`
+        : "Sin resultado"
+      : result.count > 0
         ? `✓ Publicación creada · ${result.imagesGenerated > 0 ? "imagen lista" : result.imagesFailed > 0 ? "imagen falló" : "sin imagen"}`
-        : `Sin resultado`;
+        : "Sin resultado";
     await pushEvent("info", summary);
     if (result.imageErrors && result.imageErrors.length > 0) {
       for (const err of result.imageErrors) {
