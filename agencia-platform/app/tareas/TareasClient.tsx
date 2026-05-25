@@ -36,7 +36,7 @@ import VoiceTaskRecorder from "@/components/forms/VoiceTaskRecorder";
 import MeetingRecorder from "@/components/forms/MeetingRecorder";
 import { statusLabelOf, statusColorOf, priorityColors, priorityLabels } from "@/lib/mock-data";
 import type { UiTask, UiProject, UiClient, UiMember } from "@/lib/db/queries";
-import { LayoutGrid, List, Plus, Filter, CalendarDays, FolderPlus, GripVertical, CheckSquare, Square, Settings2, Loader2, Link2, Check, Bot, X } from "lucide-react";
+import { LayoutGrid, List, Plus, Filter, CalendarDays, FolderPlus, GripVertical, CheckSquare, Square, Settings2, Loader2, Link2, Check, Bot, X, Zap } from "lucide-react";
 import clsx from "clsx";
 import { DEFAULT_FILTERS, type TaskFilters } from "@/components/tareas/SavedFiltersBar";
 import { useSession } from "next-auth/react";
@@ -1912,17 +1912,14 @@ function TaskCard({
 }) {
   const aiStatus = aiInfo?.aiStatus ?? null;
   const [copied, setCopied] = useState(false);
-  const [flash, setFlash] = useState<{ id: string; text: string; done: boolean }[]>(
+  const [flash, setFlash] = useState<{ id: string; text: string; done: boolean; urgent?: boolean }[]>(
     () => (Array.isArray(task.flashTasks) ? task.flashTasks : [])
   );
   useEffect(() => {
     setFlash(Array.isArray(task.flashTasks) ? task.flashTasks : []);
   }, [task.flashTasks]);
 
-  async function toggleFlash(id: string, e: React.MouseEvent) {
-    e.stopPropagation();
-    e.preventDefault();
-    const next = flash.map((f) => (f.id === id ? { ...f, done: !f.done } : f));
+  async function persistFlash(next: { id: string; text: string; done: boolean; urgent?: boolean }[]) {
     setFlash(next);
     try {
       await fetch(`/api/v1/tasks/${task.id}`, {
@@ -1933,6 +1930,18 @@ function TaskCard({
     } catch {
       // si falla, el siguiente refresh del tablero restaura el estado real
     }
+  }
+
+  async function toggleFlash(id: string, e: React.MouseEvent) {
+    e.stopPropagation();
+    e.preventDefault();
+    await persistFlash(flash.map((f) => (f.id === id ? { ...f, done: !f.done } : f)));
+  }
+
+  async function toggleFlashUrgent(id: string, e: React.MouseEvent) {
+    e.stopPropagation();
+    e.preventDefault();
+    await persistFlash(flash.map((f) => (f.id === id ? { ...f, urgent: !f.urgent } : f)));
   }
   // Tick para refrescar el estado de alarma visual + el "🤖
   // Trabajando 1m 14s" del badge de Sonia. Si Sonia está
@@ -2106,27 +2115,58 @@ function TaskCard({
         <div
           className={
             "mb-3 space-y-1 rounded-lg border p-1.5 " +
-            (flash.every((f) => f.done) ? "bg-emerald-50 border-emerald-200" : "bg-amber-50/60 border-amber-100")
+            (flash.some((f) => f.urgent && !f.done)
+              ? "bg-rose-50 border-rose-300"
+              : flash.every((f) => f.done)
+                ? "bg-emerald-50 border-emerald-200"
+                : "bg-amber-50/60 border-amber-100")
           }
         >
           {flash.map((f) => (
-            <button
+            <div
               key={f.id}
-              type="button"
-              onPointerDown={(e) => e.stopPropagation()}
-              onClick={(e) => toggleFlash(f.id, e)}
-              className="w-full flex items-center gap-1.5 text-left text-xs"
-              title={f.done ? "Marcar como pendiente" : "Marcar como hecha"}
+              className={
+                "w-full flex items-center gap-1.5 text-xs rounded px-1 " +
+                (f.urgent && !f.done ? "bg-rose-100" : "")
+              }
             >
-              {f.done ? (
-                <CheckSquare className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
-              ) : (
-                <Square className="h-3.5 w-3.5 text-amber-500 shrink-0" />
-              )}
-              <span className={"truncate " + (f.done ? "line-through text-slate-400" : "text-slate-700")}>
-                {f.text}
-              </span>
-            </button>
+              <button
+                type="button"
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={(e) => toggleFlash(f.id, e)}
+                className="flex-1 flex items-center gap-1.5 text-left min-w-0"
+                title={f.done ? "Marcar como pendiente" : "Marcar como hecha"}
+              >
+                {f.done ? (
+                  <CheckSquare className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
+                ) : (
+                  <Square className={"h-3.5 w-3.5 shrink-0 " + (f.urgent ? "text-rose-500" : "text-amber-500")} />
+                )}
+                <span
+                  className={
+                    "truncate " +
+                    (f.done
+                      ? "line-through text-slate-400"
+                      : f.urgent
+                        ? "text-rose-700 font-semibold"
+                        : "text-slate-700")
+                  }
+                >
+                  {f.urgent && !f.done && "🔴 "}
+                  {f.text}
+                </span>
+              </button>
+              <button
+                type="button"
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={(e) => toggleFlashUrgent(f.id, e)}
+                className={"shrink-0 px-0.5 " + (f.urgent ? "text-rose-500" : "text-slate-300 hover:text-rose-400")}
+                title={f.urgent ? "Quitar urgente" : "Marcar como urgente"}
+                aria-label={f.urgent ? "Quitar urgente" : "Marcar como urgente"}
+              >
+                <Zap className="h-3.5 w-3.5" />
+              </button>
+            </div>
           ))}
         </div>
       )}
@@ -2153,11 +2193,17 @@ function TaskCard({
             <span
               className={
                 "inline-flex items-center gap-0.5 px-1.5 h-5 rounded-md text-[10px] font-medium ring-1 " +
-                (flash.every((f) => f.done)
-                  ? "bg-emerald-50 text-emerald-700 ring-emerald-200"
-                  : "bg-amber-50 text-amber-700 ring-amber-200")
+                (flash.some((f) => f.urgent && !f.done)
+                  ? "bg-rose-100 text-rose-700 ring-rose-300"
+                  : flash.every((f) => f.done)
+                    ? "bg-emerald-50 text-emerald-700 ring-emerald-200"
+                    : "bg-amber-50 text-amber-700 ring-amber-200")
               }
-              title="Tareas flash completadas"
+              title={
+                flash.some((f) => f.urgent && !f.done)
+                  ? "Tiene tareas flash urgentes pendientes"
+                  : "Tareas flash completadas"
+              }
             >
               ⚡ {flash.filter((f) => f.done).length}/{flash.length}
             </span>
