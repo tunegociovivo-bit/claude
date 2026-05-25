@@ -37,9 +37,13 @@ export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
   const evo: any = (ws?.settings as any)?.integrations?.evolution ?? {};
   return NextResponse.json({
     googleConfigured: !!(s.googleApiKey || (ws?.settings as any)?.integrations?.googlePlaces?.apiKeyEnc),
+    whatsappProvider: s.whatsappProvider === "evolution" ? "evolution" : "waha",
     wahaUrl: s.wahaUrl ?? evo.url ?? process.env.WAHA_URL ?? null,
     wahaConfigured: !!(s.wahaApiKey || evo.apiKeyEnc || process.env.WAHA_API_KEY),
     wahaSession: s.wahaSession ?? process.env.WAHA_SESSION ?? "default",
+    evolutionUrl: s.evolutionUrl ?? evo.url ?? process.env.EVOLUTION_API_URL ?? null,
+    evolutionConfigured: !!(s.evolutionApiKey || evo.apiKeyEnc || process.env.EVOLUTION_API_KEY),
+    evolutionInstance: s.evolutionInstance ?? evo.instance ?? "default",
     whatsappCountryCode: s.whatsappCountryCode ?? "34",
     sendEnabled: s.sendEnabled ?? true,
     sendPaused: s.sendPaused ?? false,
@@ -58,9 +62,13 @@ export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
 
 const schema = z.object({
   googleApiKey: z.string().nullable().optional(),
+  whatsappProvider: z.enum(["waha", "evolution"]).optional(),
   wahaUrl: z.string().url().or(z.literal("")).nullable().optional(),
   wahaApiKey: z.string().nullable().optional(),
   wahaSession: z.string().optional(),
+  evolutionUrl: z.string().url().or(z.literal("")).nullable().optional(),
+  evolutionApiKey: z.string().nullable().optional(),
+  evolutionInstance: z.string().optional(),
   whatsappCountryCode: z.string().regex(/^\d{1,3}$/).optional(),
   sendEnabled: z.boolean().optional(),
   sendPaused: z.boolean().optional(),
@@ -104,8 +112,20 @@ export const PATCH = withApi({ scope: "*" }, async (req, { api }) => {
       s.wahaApiKey = encryptSecret(parsed.data.wahaApiKey);
     }
   }
+  if (parsed.data.evolutionUrl !== undefined) {
+    s.evolutionUrl = parsed.data.evolutionUrl || null;
+  }
+  if (parsed.data.evolutionApiKey !== undefined) {
+    if (parsed.data.evolutionApiKey === null || parsed.data.evolutionApiKey === "") {
+      delete s.evolutionApiKey;
+    } else {
+      s.evolutionApiKey = encryptSecret(parsed.data.evolutionApiKey);
+    }
+  }
   for (const k of [
+    "whatsappProvider",
     "wahaSession",
+    "evolutionInstance",
     "whatsappCountryCode",
     "sendEnabled",
     "sendPaused",

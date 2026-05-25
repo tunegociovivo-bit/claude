@@ -14,6 +14,13 @@ export type WahaConfig = {
   countryCode: string;
 };
 
+/** Proveedor de WhatsApp activo para el workspace. */
+export async function getWhatsappProvider(workspaceId: string): Promise<"waha" | "evolution"> {
+  const ws = await prisma.workspace.findUnique({ where: { id: workspaceId } });
+  const p = (ws?.settings as any)?.leads?.whatsappProvider;
+  return p === "evolution" ? "evolution" : "waha";
+}
+
 export async function getWahaConfig(workspaceId: string): Promise<WahaConfig> {
   const ws = await prisma.workspace.findUnique({ where: { id: workspaceId } });
   const settings: any = ws?.settings ?? {};
@@ -60,6 +67,10 @@ export async function sendText(opts: {
   text: string;
   session?: string;
 }): Promise<{ messageId: string }> {
+  if ((await getWhatsappProvider(opts.workspaceId)) === "evolution") {
+    const { evoSendText } = await import("./evolution");
+    return evoSendText(opts);
+  }
   const cfg = await getWahaConfig(opts.workspaceId);
   const chatId = `${opts.phoneNormalized}@c.us`;
   const resp = await fetch(`${cfg.baseUrl}/api/sendText`, {
@@ -97,6 +108,10 @@ export async function sendVoice(opts: {
   filename?: string;
   session?: string;
 }): Promise<{ messageId: string }> {
+  if ((await getWhatsappProvider(opts.workspaceId)) === "evolution") {
+    const { evoSendVoice } = await import("./evolution");
+    return evoSendVoice({ workspaceId: opts.workspaceId, phoneNormalized: opts.phoneNormalized, audio: opts.audio });
+  }
   const cfg = await getWahaConfig(opts.workspaceId);
   const chatId = `${opts.phoneNormalized}@c.us`;
 
@@ -182,6 +197,10 @@ export async function checkNumberExists(opts: {
   phone: string; // normalizado, sin "+"
   session?: string;
 }): Promise<boolean | null> {
+  if ((await getWhatsappProvider(opts.workspaceId)) === "evolution") {
+    const { evoCheckNumber } = await import("./evolution");
+    return evoCheckNumber({ workspaceId: opts.workspaceId, phone: opts.phone });
+  }
   const cfg = await getWahaConfig(opts.workspaceId);
   const session = opts.session ?? cfg.session;
   try {

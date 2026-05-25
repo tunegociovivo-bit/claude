@@ -1342,6 +1342,7 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
   const [s, setS] = useState<any>(null);
   const [googleKey, setGoogleKey] = useState("");
   const [wahaKey, setWahaKey] = useState("");
+  const [evoKey, setEvoKey] = useState("");
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<Date | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -1352,7 +1353,7 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
   const pollRef = useRef<any>(null);
   useEffect(() => {
     if (!open) return;
-    setGoogleKey(""); setWahaKey(""); setError(null); setSavedAt(null);
+    setGoogleKey(""); setWahaKey(""); setEvoKey(""); setError(null); setSavedAt(null);
     fetch("/api/v1/leads/settings").then((r) => r.ok ? r.json() : null).then(setS);
   }, [open]);
   useEffect(() => {
@@ -1367,8 +1368,11 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
     setSaving(true);
     setError(null);
     const body: any = {
+      whatsappProvider: s.whatsappProvider,
       wahaUrl: s.wahaUrl,
       wahaSession: s.wahaSession,
+      evolutionUrl: s.evolutionUrl,
+      evolutionInstance: s.evolutionInstance,
       whatsappCountryCode: s.whatsappCountryCode,
       sendEnabled: s.sendEnabled,
       sendPaused: s.sendPaused,
@@ -1384,6 +1388,7 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
     };
     if (googleKey) body.googleApiKey = googleKey;
     if (wahaKey) body.wahaApiKey = wahaKey;
+    if (evoKey) body.evolutionApiKey = evoKey;
     const r = await fetch("/api/v1/leads/settings", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     setSaving(false);
     if (!r.ok) {
@@ -1452,14 +1457,48 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
           <p className="mt-1 text-[11px] text-slate-500">Se cifra con AES-256-GCM. Requiere Places API habilitada.</p>
         </section>
         <section>
-          <h3 className="text-sm font-semibold mb-2">📱 WhatsApp (WAHA)</h3>
+          <h3 className="text-sm font-semibold mb-2">📱 WhatsApp</h3>
           <div className="space-y-2">
-            <input value={s.wahaUrl ?? ""} onChange={(e) => setField("wahaUrl", e.target.value)} placeholder="https://waha.ejemplo.com" className="w-full px-3 py-2 rounded-lg border bg-white text-sm font-mono" />
-            <input type="password" value={wahaKey} onChange={(e) => setWahaKey(e.target.value)} placeholder={s.wahaConfigured ? "•••• (configurada)" : "API key WAHA"} className="w-full px-3 py-2 rounded-lg border bg-white text-sm font-mono" />
-            <div className="grid grid-cols-2 gap-2">
-              <input value={s.wahaSession ?? "default"} onChange={(e) => setField("wahaSession", e.target.value)} placeholder="Nombre sesión" className="px-3 py-2 rounded-lg border bg-white text-sm" />
-              <input value={s.whatsappCountryCode ?? "34"} onChange={(e) => setField("whatsappCountryCode", e.target.value)} placeholder="Código país (34)" className="px-3 py-2 rounded-lg border bg-white text-sm" />
+            <div className="flex items-center gap-2 text-xs">
+              <span className="text-slate-600">Proveedor:</span>
+              <div className="inline-flex rounded-lg border overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => setField("whatsappProvider", "waha")}
+                  className={`px-3 py-1.5 ${(s.whatsappProvider ?? "waha") === "waha" ? "bg-brand-600 text-white" : "bg-white hover:bg-slate-50"}`}
+                >
+                  WAHA
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setField("whatsappProvider", "evolution")}
+                  className={`px-3 py-1.5 border-l ${s.whatsappProvider === "evolution" ? "bg-brand-600 text-white" : "bg-white hover:bg-slate-50"}`}
+                >
+                  Evolution API
+                </button>
+              </div>
             </div>
+            {s.whatsappProvider === "evolution" ? (
+              <>
+                <p className="text-[11px] text-emerald-700">Evolution API envía notas de voz, imágenes y archivos (también gratis). Tras guardar, pulsa Probar conexión y Reconectar para escanear el QR.</p>
+                <input value={s.evolutionUrl ?? ""} onChange={(e) => setField("evolutionUrl", e.target.value)} placeholder="https://evolution.tu-servidor.com" className="w-full px-3 py-2 rounded-lg border bg-white text-sm font-mono" />
+                <input type="password" value={evoKey} onChange={(e) => setEvoKey(e.target.value)} placeholder={s.evolutionConfigured ? "•••• (configurada)" : "API key (apikey global de Evolution)"} className="w-full px-3 py-2 rounded-lg border bg-white text-sm font-mono" />
+                <div className="grid grid-cols-2 gap-2">
+                  <input value={s.evolutionInstance ?? "default"} onChange={(e) => setField("evolutionInstance", e.target.value)} placeholder="Nombre instancia" className="px-3 py-2 rounded-lg border bg-white text-sm" />
+                  <input value={s.whatsappCountryCode ?? "34"} onChange={(e) => setField("whatsappCountryCode", e.target.value)} placeholder="Código país (34)" className="px-3 py-2 rounded-lg border bg-white text-sm" />
+                </div>
+              </>
+            ) : (
+              <>
+                <input value={s.wahaUrl ?? ""} onChange={(e) => setField("wahaUrl", e.target.value)} placeholder="https://waha.ejemplo.com" className="w-full px-3 py-2 rounded-lg border bg-white text-sm font-mono" />
+                <input type="password" value={wahaKey} onChange={(e) => setWahaKey(e.target.value)} placeholder={s.wahaConfigured ? "•••• (configurada)" : "API key WAHA"} className="w-full px-3 py-2 rounded-lg border bg-white text-sm font-mono" />
+                <div className="grid grid-cols-2 gap-2">
+                  <input value={s.wahaSession ?? "default"} onChange={(e) => setField("wahaSession", e.target.value)} placeholder="Nombre sesión" className="px-3 py-2 rounded-lg border bg-white text-sm" />
+                  <input value={s.whatsappCountryCode ?? "34"} onChange={(e) => setField("whatsappCountryCode", e.target.value)} placeholder="Código país (34)" className="px-3 py-2 rounded-lg border bg-white text-sm" />
+                </div>
+                <p className="text-[11px] text-amber-700">WAHA Core no envía notas de voz (requiere WAHA Plus). Para voz gratis, cambia a Evolution API.</p>
+              </>
+            )}
             <div className="text-[11px] text-slate-500 break-all">
               Webhook URL: <code>{typeof window !== "undefined" ? window.location.origin : ""}/api/v1/leads/webhook/{s.webhookToken}</code>
             </div>

@@ -108,6 +108,34 @@ export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
       configIn: "/admin/leads → Ajustes",
       sensitive: false
     },
+    whatsappProvider: {
+      key: "WHATSAPP_PROVIDER",
+      label: "Proveedor WhatsApp activo (waha | evolution)",
+      value: leads.whatsappProvider ?? "waha",
+      configIn: "/admin/leads → Ajustes",
+      sensitive: false
+    },
+    evolutionUrl: {
+      key: "EVOLUTION_API_URL",
+      label: "Evolution API — URL",
+      value: leads.evolutionUrl ?? integrations.evolution?.url ?? null,
+      configIn: "/admin/leads → Ajustes",
+      sensitive: false
+    },
+    evolutionApiKey: {
+      key: "EVOLUTION_API_KEY",
+      label: "Evolution API — API key",
+      value: safeDecrypt(leads.evolutionApiKey) ?? safeDecrypt(integrations.evolution?.apiKeyEnc),
+      configIn: "/admin/leads → Ajustes",
+      sensitive: true
+    },
+    evolutionInstance: {
+      key: "EVOLUTION_INSTANCE",
+      label: "Evolution API — Instancia",
+      value: leads.evolutionInstance ?? integrations.evolution?.instance ?? "default",
+      configIn: "/admin/leads → Ajustes",
+      sensitive: false
+    },
     leadsWebhookToken: {
       key: "LEADS_WEBHOOK_TOKEN",
       label: "Token webhook entrante leads",

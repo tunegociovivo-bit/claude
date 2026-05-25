@@ -10,7 +10,8 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
-import { getWahaConfig } from "@/lib/leads/waha";
+import { getWahaConfig, getWhatsappProvider } from "@/lib/leads/waha";
+import { evoConnect } from "@/lib/leads/evolution";
 
 async function requireAdmin(workspaceId: string, userId: string | undefined) {
   if (!userId) throw new ApiError(401, "no_user", "Sesión requerida");
@@ -20,6 +21,25 @@ async function requireAdmin(workspaceId: string, userId: string | undefined) {
 
 export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
   await requireAdmin(api.workspaceId, api.userId);
+
+  // Evolution: el QR viene como data URL base64 en /instance/connect.
+  if ((await getWhatsappProvider(api.workspaceId)) === "evolution") {
+    const r = await evoConnect(api.workspaceId);
+    if (!r.ok || !r.base64) {
+      return NextResponse.json(
+        { ok: false, message: r.error ?? "QR no disponible (la instancia puede estar ya conectada)." },
+        { status: 409 }
+      );
+    }
+    const m = /^data:(image\/[a-z.+-]+);base64,(.*)$/i.exec(r.base64);
+    const b64 = m ? m[2] : r.base64;
+    const ct = m ? m[1] : "image/png";
+    const buf = Buffer.from(b64, "base64");
+    return new NextResponse(new Uint8Array(buf), {
+      status: 200,
+      headers: { "Content-Type": ct, "Cache-Control": "no-store" }
+    });
+  }
 
   let cfg;
   try {

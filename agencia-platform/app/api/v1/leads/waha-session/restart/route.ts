@@ -15,7 +15,8 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
-import { getWahaConfig } from "@/lib/leads/waha";
+import { getWahaConfig, getWhatsappProvider } from "@/lib/leads/waha";
+import { evoConnect } from "@/lib/leads/evolution";
 
 async function requireAdmin(workspaceId: string, userId: string | undefined) {
   if (!userId) throw new ApiError(401, "no_user", "Sesión requerida");
@@ -25,6 +26,22 @@ async function requireAdmin(workspaceId: string, userId: string | undefined) {
 
 export const POST = withApi({ scope: "*" }, async (_req, { api }) => {
   await requireAdmin(api.workspaceId, api.userId);
+
+  // Evolution: iniciar/recuperar conexión (genera QR si no está vinculada).
+  if ((await getWhatsappProvider(api.workspaceId)) === "evolution") {
+    const r = await evoConnect(api.workspaceId);
+    if (!r.ok) {
+      return NextResponse.json({
+        ok: false,
+        code: r.error?.includes("no configurad") ? "not_configured" : "unreachable",
+        message: r.error ?? "No se pudo iniciar la conexión con Evolution."
+      });
+    }
+    return NextResponse.json({
+      ok: true,
+      message: "Conexión Evolution iniciada. En unos segundos aparecerá el QR — escanéalo con el teléfono de Sonia."
+    });
+  }
 
   let cfg;
   try {

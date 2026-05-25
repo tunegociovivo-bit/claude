@@ -11,7 +11,8 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
-import { getWahaConfig } from "@/lib/leads/waha";
+import { getWahaConfig, getWhatsappProvider } from "@/lib/leads/waha";
+import { evoConnectionState } from "@/lib/leads/evolution";
 
 async function requireAdmin(workspaceId: string, userId: string | undefined) {
   if (!userId) throw new ApiError(401, "no_user", "Sesión requerida");
@@ -21,6 +22,33 @@ async function requireAdmin(workspaceId: string, userId: string | undefined) {
 
 export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
   await requireAdmin(api.workspaceId, api.userId);
+
+  // Proveedor Evolution: estado de la instancia.
+  if ((await getWhatsappProvider(api.workspaceId)) === "evolution") {
+    const st = await evoConnectionState(api.workspaceId);
+    if (!st.reachable) {
+      return NextResponse.json({
+        ok: false,
+        code: st.error?.includes("no configurad") ? "not_configured" : "unreachable",
+        provider: "evolution",
+        message: st.error?.includes("no configurad")
+          ? "Evolution no configurado. Guarda URL + API key + instancia en Ajustes."
+          : `No se pudo conectar al servidor Evolution. (${st.error ?? "error"})`
+      });
+    }
+    const open = st.state === "open";
+    return NextResponse.json({
+      ok: open,
+      code: open ? "ok" : "not_linked",
+      provider: "evolution",
+      engine: "Evolution",
+      // Mapeamos al vocabulario que ya entiende la UI (SCAN_QR_CODE → muestra QR)
+      status: open ? "WORKING" : "SCAN_QR_CODE",
+      message: open
+        ? "Conectado. Instancia Evolution vinculada y operativa."
+        : `La instancia Evolution está en estado "${st.state ?? "desconocido"}" (no vinculada). Pulsa Reconectar y escanea el QR.`
+    });
+  }
 
   let cfg;
   try {
