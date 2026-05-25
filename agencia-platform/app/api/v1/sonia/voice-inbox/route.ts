@@ -23,8 +23,8 @@ export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
   if (!(await callerIsAdmin(api))) throw new ApiError(403, "forbidden", "Solo admin");
 
   const since = new Date(Date.now() - LOOKBACK_MS);
-  // Borrador PENDIENTE más reciente (de cualquier run/origen).
-  const latest = await prisma.aiDraft.findFirst({
+  // Borradores PENDIENTES recientes (de cualquier run/origen), nuevos primero.
+  const recent = await prisma.aiDraft.findMany({
     where: {
       workspaceId: api.workspaceId,
       status: "PENDING",
@@ -34,7 +34,21 @@ export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
     orderBy: { createdAt: "desc" },
     select: { aiAgentRunId: true }
   });
-  const runId = latest?.aiAgentRunId ?? null;
+  if (recent.length === 0) return NextResponse.json({ pending: null });
+
+  // Aislamiento por usuario: cada quien solo oye los avisos de los runs que
+  // ÉL encargó (run.requesterId === su userId). Los runs automáticos sin
+  // dueño (cron, email/WhatsApp entrante → requesterId null) son compartidos
+  // y los ve cualquier admin. Los encargados por OTRO usuario quedan ocultos.
+  const runIds = [...new Set(recent.map((d) => d.aiAgentRunId).filter((x): x is string => !!x))];
+  const runsMeta = await prisma.aiAgentRun.findMany({
+    where: { id: { in: runIds }, workspaceId: api.workspaceId },
+    select: { id: true, requesterId: true }
+  });
+  const visible = new Set(
+    runsMeta.filter((r) => r.requesterId === null || r.requesterId === api.userId).map((r) => r.id)
+  );
+  const runId = runIds.find((id) => visible.has(id)) ?? null;
   if (!runId) return NextResponse.json({ pending: null });
 
   const draftsRaw = await prisma.aiDraft.findMany({
