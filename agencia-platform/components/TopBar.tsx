@@ -27,16 +27,22 @@ export default function TopBar({ onToggleMobileMenu }: { onToggleMobileMenu?: ()
   const [team, setTeam] = useState<TopBarMember[]>([]);
   const [search, setSearch] = useState("");
   const [unreadCount, setUnreadCount] = useState(0);
+  const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
     let aborted = false;
     (async () => {
       try {
-        const [pr, cr, tr] = await Promise.all([
+        const [pr, cr, tr, mr] = await Promise.all([
           fetch("/api/v1/projects"),
           fetch("/api/v1/clients"),
-          fetch("/api/v1/users")
+          fetch("/api/v1/users"),
+          fetch("/api/v1/me")
         ]);
+        if (!aborted && mr.ok) {
+          const d = await mr.json();
+          setIsAdmin(d?.role === "ADMIN");
+        }
         if (!aborted && pr.ok) {
           const d = await pr.json();
           setProjects(d.items ?? []);
@@ -176,33 +182,46 @@ export default function TopBar({ onToggleMobileMenu }: { onToggleMobileMenu?: ()
           )}
         </Link>
 
-        <Link
-          href="/admin/usuarios"
-          className="flex items-center gap-0 hover:opacity-90 transition"
-          title="Gestionar usuarios"
-        >
-          <div className="flex -space-x-2">
-            {team.slice(0, 4).map((m) => (
-              <div
-                key={m.id}
-                className={`h-8 w-8 rounded-full ${m.color} text-white grid place-items-center text-xs font-semibold ring-2 ring-white`}
-                title={m.name}
-              >
-                {m.initials}
-              </div>
-            ))}
-            {team.length > 4 && (
-              <div className="h-8 w-8 rounded-full bg-slate-200 text-slate-600 grid place-items-center text-xs font-semibold ring-2 ring-white">
-                +{team.length - 4}
-              </div>
-            )}
-            {team.length === 0 && (
-              <div className="h-8 w-8 rounded-full bg-slate-100 text-slate-400 grid place-items-center text-xs ring-2 ring-white">
-                <Users className="h-3.5 w-3.5" />
-              </div>
-            )}
-          </div>
-        </Link>
+        {(() => {
+          const avatars = (
+            <div className="flex -space-x-2">
+              {team.slice(0, 4).map((m) => (
+                <div
+                  key={m.id}
+                  className={`h-8 w-8 rounded-full ${m.color} text-white grid place-items-center text-xs font-semibold ring-2 ring-white`}
+                  title={m.name}
+                >
+                  {m.initials}
+                </div>
+              ))}
+              {team.length > 4 && (
+                <div className="h-8 w-8 rounded-full bg-slate-200 text-slate-600 grid place-items-center text-xs font-semibold ring-2 ring-white">
+                  +{team.length - 4}
+                </div>
+              )}
+              {team.length === 0 && (
+                <div className="h-8 w-8 rounded-full bg-slate-100 text-slate-400 grid place-items-center text-xs ring-2 ring-white">
+                  <Users className="h-3.5 w-3.5" />
+                </div>
+              )}
+            </div>
+          );
+          // Solo los admins pueden ir a /admin/usuarios; al resto se les
+          // muestra el equipo pero sin enlace (la página rebota a la home).
+          return isAdmin ? (
+            <Link
+              href="/admin/usuarios"
+              className="flex items-center gap-0 hover:opacity-90 transition"
+              title="Gestionar usuarios"
+            >
+              {avatars}
+            </Link>
+          ) : (
+            <div className="flex items-center gap-0" title="Equipo">
+              {avatars}
+            </div>
+          );
+        })()}
       </div>
 
       <TaskFormModal
