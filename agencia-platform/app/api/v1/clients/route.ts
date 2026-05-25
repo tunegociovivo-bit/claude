@@ -16,9 +16,15 @@ export const GET = withApi({ scope: "clients:read" }, async (req, { api }) => {
   // antiguos al haber muchos.
   const take = Math.min(Number(url.searchParams.get("limit") ?? 500), 500);
   const skip = Number(url.searchParams.get("offset") ?? 0);
+  // Búsqueda por nombre en servidor. Imprescindible cuando hay más de
+  // 500 clientes: el cap de 500 deja fuera a los más antiguos, así que
+  // los dropdowns con buscador (p.ej. filtro del calendario editorial)
+  // deben poder encontrarlos consultando la BD, no solo la lista cargada.
+  const q = (url.searchParams.get("q") ?? "").trim();
 
   const where: any = { workspaceId: api.workspaceId, deletedAt: null };
   if (status) where.status = status;
+  if (q) where.name = { contains: q, mode: "insensitive" };
 
   const [items, total, isAdmin] = await Promise.all([
     prisma.client.findMany({ where, take, skip, orderBy: { createdAt: "desc" } }),

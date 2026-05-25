@@ -4615,6 +4615,9 @@ function ClientFilterCombobox({
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const [remote, setRemote] = useState<UiClient[] | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [pickedName, setPickedName] = useState<string | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -4622,13 +4625,60 @@ function ClientFilterCombobox({
     () => [...clients].sort((a, b) => a.name.localeCompare(b.name, "es", { sensitivity: "base" })),
     [clients]
   );
+  // Búsqueda en servidor con debounce. La lista precargada está topada
+  // a 500 clientes (los más recientes), así que en workspaces con más
+  // clientes hay que consultar la BD para encontrar al resto.
+  useEffect(() => {
+    const q = query.trim();
+    if (!q) {
+      setRemote(null);
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    const t = setTimeout(async () => {
+      try {
+        const r = await fetch(`/api/v1/clients?limit=50&q=${encodeURIComponent(q)}`);
+        if (r.ok) setRemote((await r.json()).items ?? []);
+      } catch {
+        /* red: nos quedamos con el filtro local */
+      } finally {
+        setLoading(false);
+      }
+    }, 250);
+    return () => clearTimeout(t);
+  }, [query]);
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return sorted;
-    return sorted.filter((c) => c.name.toLowerCase().includes(q));
-  }, [sorted, query]);
+    const base = remote ?? sorted.filter((c) => c.name.toLowerCase().includes(q));
+    return [...base].sort((a, b) => a.name.localeCompare(b.name, "es", { sensitivity: "base" }));
+  }, [sorted, query, remote]);
 
-  const selectedName = value === "ALL" ? "Todos" : clients.find((c) => c.id === value)?.name ?? "Todos";
+  // Nombre a mostrar en el pill. Si el cliente seleccionado no está en
+  // la lista precargada (porque quedó fuera del tope de 500), lo
+  // resolvemos: del último pick o consultándolo por id.
+  const selectedName =
+    value === "ALL" ? "Todos" : clients.find((c) => c.id === value)?.name ?? pickedName ?? "…";
+
+  useEffect(() => {
+    if (value === "ALL") {
+      setPickedName(null);
+      return;
+    }
+    if (clients.find((c) => c.id === value)) return;
+    let cancelled = false;
+    fetch(`/api/v1/clients/${value}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((c) => {
+        if (!cancelled && c?.name) setPickedName(c.name);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [value, clients]);
 
   useEffect(() => {
     if (!open) return;
@@ -4644,8 +4694,9 @@ function ClientFilterCombobox({
     return () => document.removeEventListener("mousedown", onDoc);
   }, [open]);
 
-  function pick(id: string) {
+  function pick(id: string, name?: string) {
     onChange(id);
+    setPickedName(id === "ALL" ? null : name ?? null);
     setOpen(false);
     setQuery("");
   }
@@ -4700,7 +4751,7 @@ function ClientFilterCombobox({
               <li key={c.id}>
                 <button
                   type="button"
-                  onClick={() => pick(c.id)}
+                  onClick={() => pick(c.id, c.name)}
                   className={
                     "w-full text-left px-2 py-1.5 rounded text-xs hover:bg-slate-100 truncate " +
                     (value === c.id ? "bg-brand-50 text-brand-700 font-medium" : "")
@@ -4710,7 +4761,10 @@ function ClientFilterCombobox({
                 </button>
               </li>
             ))}
-            {filtered.length === 0 && (
+            {loading && (
+              <li className="px-2 py-3 text-xs text-slate-400 text-center">Buscando…</li>
+            )}
+            {!loading && filtered.length === 0 && (
               <li className="px-2 py-3 text-xs text-slate-400 text-center">Sin resultados</li>
             )}
           </ul>
