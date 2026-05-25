@@ -15,6 +15,7 @@
  */
 
 import { prisma } from "@/lib/db/prisma";
+import { resolveRunOwnerId } from "@/lib/ai/nv-ia/run-owner";
 import { sendEmail, isEmailEnabled } from "@/lib/integrations/email";
 import { sendText } from "@/lib/leads/waha";
 import { createDriveNativeFile } from "@/lib/integrations/google-drive";
@@ -155,17 +156,29 @@ export async function executeDraft(draftId: string): Promise<{
         break;
       }
       case "CALENDAR_EVENT": {
+        // Privacidad: si es un evento PERSONAL (sin cliente), lo marcamos
+        // como propiedad de quien se lo encargó a Sonia, para que NO aparezca
+        // en el calendario de otros usuarios. Los eventos con cliente se
+        // dejan compartidos (reuniones de cliente que el equipo debe ver).
+        const ownerUserId = payload.clientId
+          ? null
+          : await resolveRunOwnerId({
+              workspaceId: draft.workspaceId,
+              taskId: draft.taskId,
+              requesterId: null
+            });
         const ev = await prisma.calendarEvent.create({
           data: {
             workspaceId: draft.workspaceId,
             clientId: payload.clientId ?? null,
+            ownerUserId: ownerUserId ?? null,
             title: payload.title,
             description: payload.description ?? null,
             startAt: new Date(payload.startIso),
             endAt: payload.endIso ? new Date(payload.endIso) : null,
             allDay: payload.allDay === true,
             type: payload.type ?? "MEETING"
-          }
+          } as any
         });
         result = { ok: true, externalId: ev.id };
         break;

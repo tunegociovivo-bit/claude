@@ -15,6 +15,9 @@ export const GET = withApi({ scope: "events:read" }, async (req, { api }) => {
     if (from) where.startAt.gte = new Date(from);
     if (to) where.startAt.lte = new Date(to);
   }
+  // Privacidad: eventos personales (ownerUserId != null) solo para su dueño;
+  // los compartidos (ownerUserId null) para todos.
+  where.OR = [{ ownerUserId: null }, ...(api.userId ? [{ ownerUserId: api.userId }] : [])];
   const items = await prisma.calendarEvent.findMany({
     where,
     include: { client: { select: { id: true, name: true } } },
