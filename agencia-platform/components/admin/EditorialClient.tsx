@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import PageHeader from "@/components/PageHeader";
 import Modal from "@/components/ui/Modal";
 import EditorialJobsToast from "@/components/admin/EditorialJobsToast";
@@ -792,7 +793,20 @@ export default function EditorialClient() {
                             title={approved ? "Desaprobar" : "Aprobar"}
                           />
                           <Icon className="h-3 w-3 shrink-0 opacity-75" />
-                          <span className="truncate flex-1">{p.title}</span>
+                          <span className="flex-1 min-w-0">
+                            <span className="truncate block">{p.title}</span>
+                            {filterClient === "ALL" && p.client && (
+                              <Link
+                                href={`/clientes/${p.client.id}`}
+                                draggable={false}
+                                onClick={(e) => e.stopPropagation()}
+                                className="truncate block text-[10px] opacity-70 hover:underline"
+                                title="Ver ficha del cliente"
+                              >
+                                {p.client.name}
+                              </Link>
+                            )}
+                          </span>
                           {isPublished && <span className="shrink-0 text-emerald-600" title="Publicada">●</span>}
                           {isScheduled && <span className="shrink-0 text-indigo-600" title="Programada">▶</span>}
                         </div>
@@ -833,7 +847,18 @@ export default function EditorialClient() {
                 return (
                   <tr key={p.id} className="hover:bg-slate-50 cursor-pointer" onClick={() => { setEditing(p); setFormOpen(true); }}>
                     <td className="px-5 py-3 font-medium truncate max-w-xs">{p.title}</td>
-                    <td className="px-3 py-3 text-slate-600">{p.client?.name ?? "—"}</td>
+                    <td className="px-3 py-3 text-slate-600">
+                      {p.client ? (
+                        <Link
+                          href={`/clientes/${p.client.id}`}
+                          onClick={(e) => e.stopPropagation()}
+                          className="text-brand-600 hover:text-brand-700 hover:underline"
+                          title="Ver ficha del cliente"
+                        >
+                          {p.client.name}
+                        </Link>
+                      ) : "—"}
+                    </td>
                     <td className="px-3 py-3 text-xs text-slate-600">
                       {p.scheduledFor ? new Date(p.scheduledFor).toLocaleDateString("es-ES", { day: "2-digit", month: "short", year: "numeric" }) : "—"}
                     </td>
@@ -2316,7 +2341,18 @@ function PostFormModal({
             <Icon className="h-4 w-4 text-slate-400" />
             <span className="font-medium tracking-wide">{formatLabel}</span>
             {scheduledLabel && <><span>·</span><span>{scheduledLabel}</span></>}
-            {fullPost.client && <><span>·</span><span>{fullPost.client.name}</span></>}
+            {fullPost.client && (
+              <>
+                <span>·</span>
+                <Link
+                  href={`/clientes/${fullPost.client.id}`}
+                  className="font-medium text-brand-600 hover:text-brand-700 hover:underline"
+                  title="Ver ficha del cliente"
+                >
+                  {fullPost.client.name}
+                </Link>
+              </>
+            )}
           </div>
 
           <div className="grid md:grid-cols-[minmax(0,400px)_1fr] gap-5 items-start">
