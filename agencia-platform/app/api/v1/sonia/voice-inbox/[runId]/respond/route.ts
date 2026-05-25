@@ -20,6 +20,7 @@ import { callerIsAdmin } from "@/lib/api/permissions";
 import { executeDraft } from "@/lib/ai/nv-ia/execute-draft";
 import { transcribeAudioWithWhisper } from "@/lib/ai/openai";
 import { getAnthropicForWorkspace } from "@/lib/ai/anthropic";
+import { resolveRunOwnerId } from "@/lib/ai/nv-ia/run-owner";
 
 export const dynamic = "force-dynamic";
 
@@ -65,9 +66,14 @@ export const POST = withApi({ scope: "*", rate: "destructive" }, async (req, { a
     select: { id: true, taskId: true, requesterId: true }
   });
   if (!run) throw new ApiError(404, "not_found", "Llamada no encontrada");
-  // Aislamiento: solo quien encargó el run (o runs automáticos sin dueño)
-  // puede aprobar/ejecutar sus drafts. No actuar sobre avisos de otro usuario.
-  if (run.requesterId && run.requesterId !== api.userId) {
+  // Aislamiento: solo el dueño efectivo de la tarea (o runs automáticos sin
+  // dueño) puede aprobar/ejecutar. No actuar sobre avisos de otro usuario.
+  const ownerId = await resolveRunOwnerId({
+    workspaceId: api.workspaceId,
+    taskId: run.taskId,
+    requesterId: run.requesterId
+  });
+  if (ownerId !== null && ownerId !== api.userId) {
     throw new ApiError(403, "forbidden", "Ese aviso no es tuyo");
   }
 

@@ -16,6 +16,7 @@ import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { callerIsAdmin } from "@/lib/api/permissions";
 import { elevenlabsSynthesize } from "@/lib/integrations/elevenlabs";
+import { resolveRunOwnerId } from "@/lib/ai/nv-ia/run-owner";
 
 export const dynamic = "force-dynamic";
 
@@ -67,9 +68,14 @@ export const GET = withApi({ scope: "*" }, async (_req, { api, params }) => {
     select: { id: true, taskId: true, requesterId: true }
   });
   if (!run) throw new ApiError(404, "not_found", "Llamada no encontrada");
-  // Aislamiento: solo el usuario que encargó el run (o runs sin dueño,
+  // Aislamiento: solo el dueño efectivo de la tarea (o avisos sin dueño,
   // automáticos/entrantes) pueden oírlo. No leer avisos de otro usuario.
-  if (run.requesterId && run.requesterId !== api.userId) {
+  const ownerId = await resolveRunOwnerId({
+    workspaceId: api.workspaceId,
+    taskId: run.taskId,
+    requesterId: run.requesterId
+  });
+  if (ownerId !== null && ownerId !== api.userId) {
     throw new ApiError(403, "forbidden", "Ese aviso no es tuyo");
   }
 

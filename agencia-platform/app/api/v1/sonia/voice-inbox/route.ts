@@ -14,6 +14,7 @@ import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { callerIsAdmin } from "@/lib/api/permissions";
+import { resolveRunOwnerId } from "@/lib/ai/nv-ia/run-owner";
 
 export const dynamic = "force-dynamic";
 
@@ -36,19 +37,32 @@ export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
   });
   if (recent.length === 0) return NextResponse.json({ pending: null });
 
-  // Aislamiento por usuario: cada quien solo oye los avisos de los runs que
-  // ÉL encargó (run.requesterId === su userId). Los runs automáticos sin
-  // dueño (cron, email/WhatsApp entrante → requesterId null) son compartidos
-  // y los ve cualquier admin. Los encargados por OTRO usuario quedan ocultos.
+  // Aislamiento por usuario: cada quien solo oye los avisos de las tareas que
+  // ÉL encargó a Sonia. Los runs automáticos (recurrentes, followups,
+  // relanzamientos) heredan el dueño de la tarea; los verdaderamente sin dueño
+  // (email/WhatsApp entrante, escaneos proactivos) son compartidos entre
+  // admins. Los encargados por OTRO usuario quedan ocultos.
   const runIds = [...new Set(recent.map((d) => d.aiAgentRunId).filter((x): x is string => !!x))];
   const runsMeta = await prisma.aiAgentRun.findMany({
     where: { id: { in: runIds }, workspaceId: api.workspaceId },
-    select: { id: true, requesterId: true }
+    select: { id: true, taskId: true, requesterId: true }
   });
-  const visible = new Set(
-    runsMeta.filter((r) => r.requesterId === null || r.requesterId === api.userId).map((r) => r.id)
-  );
-  const runId = runIds.find((id) => visible.has(id)) ?? null;
+  const metaById = new Map(runsMeta.map((r) => [r.id, r]));
+  // runIds viene en orden de recencia: elegimos el run visible más reciente.
+  let runId: string | null = null;
+  for (const id of runIds) {
+    const meta = metaById.get(id);
+    if (!meta) continue;
+    const ownerId = await resolveRunOwnerId({
+      workspaceId: api.workspaceId,
+      taskId: meta.taskId,
+      requesterId: meta.requesterId
+    });
+    if (ownerId === null || ownerId === api.userId) {
+      runId = id;
+      break;
+    }
+  }
   if (!runId) return NextResponse.json({ pending: null });
 
   const draftsRaw = await prisma.aiDraft.findMany({
