@@ -210,7 +210,7 @@ export default function TaskFormModal({
   const [subtasks, setSubtasks] = useState<{ id: string; title: string; status: string }[]>([]);
   const [newSubtask, setNewSubtask] = useState("");
   const [addingSubtask, setAddingSubtask] = useState(false);
-  const [flashTasks, setFlashTasks] = useState<{ id: string; text: string; done: boolean }[]>([]);
+  const [flashTasks, setFlashTasks] = useState<{ id: string; text: string; done: boolean; urgent?: boolean }[]>([]);
   const [newFlash, setNewFlash] = useState("");
 
   // Reset del subtaskStack al abrir / cerrar modal. Solo se usa
@@ -954,7 +954,30 @@ export default function TaskFormModal({
                       <Square className="h-4 w-4 text-slate-400" />
                     )}
                   </button>
-                  <span className={"flex-1 text-sm " + (f.done ? "line-through text-slate-400" : "")}>{f.text}</span>
+                  <span
+                    className={
+                      "flex-1 text-sm " +
+                      (f.done
+                        ? "line-through text-slate-400"
+                        : f.urgent
+                          ? "text-rose-600 font-semibold"
+                          : "")
+                    }
+                  >
+                    {f.urgent && !f.done && <span className="mr-1" title="Urgente">🔴</span>}
+                    {f.text}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setFlashTasks((prev) => prev.map((x) => (x.id === f.id ? { ...x, urgent: !x.urgent } : x)))
+                    }
+                    className={"shrink-0 " + (f.urgent ? "text-rose-500" : "text-slate-300 hover:text-rose-400")}
+                    title={f.urgent ? "Quitar urgente" : "Marcar como urgente"}
+                    aria-label={f.urgent ? "Quitar urgente" : "Marcar como urgente"}
+                  >
+                    <Zap className="h-3.5 w-3.5" />
+                  </button>
                   <div className="hidden group-hover:flex flex-col -my-1 shrink-0">
                     <button
                       type="button"
