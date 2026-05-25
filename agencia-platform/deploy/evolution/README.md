@@ -55,6 +55,29 @@ ufw allow 8080/tcp        # si usas ufw
 > con un subdominio, p.ej. `https://evolution.negociovivo.app`. Para empezar,
 > `http://IP:8080` funciona.
 
+## 4-bis. (Recomendado) HTTPS con subdominio y Caddy
+
+En vez de exponer `http://IP:8080`, puedes servir Evolution en
+`https://evolution.negociovivo.app` con certificado automático.
+
+1. Crea un registro **DNS A**: `evolution.negociovivo.app → 116.203.16.76`.
+2. En `.env` rellena `EVOLUTION_DOMAIN=evolution.negociovivo.app`.
+3. Abre los puertos **80 y 443** (no hace falta el 8080):
+   ```bash
+   ufw allow 80/tcp && ufw allow 443/tcp
+   ```
+4. Levanta con el compose HTTPS:
+   ```bash
+   docker compose -f docker-compose.https.yml up -d
+   docker compose -f docker-compose.https.yml logs -f caddy   # ver emisión del cert
+   ```
+5. Comprueba: `curl -s https://evolution.negociovivo.app/ | head`
+
+En el Hub usa la **URL `https://evolution.negociovivo.app`** (sin `:8080`).
+
+> Si arrancaste antes la versión sin HTTPS, párala primero:
+> `docker compose down` (no borra datos) y luego usa el compose HTTPS.
+
 ## 5. Conectar desde el Hub
 
 En `/admin/leads → Ajustes → WhatsApp`:

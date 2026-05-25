@@ -1,0 +1,6 @@
+# Caddy obtiene y renueva el certificado TLS automáticamente.
+# EVOLUTION_DOMAIN viene del .env (p.ej. evolution.negociovivo.app).
+
+{$EVOLUTION_DOMAIN} {
+	reverse_proxy evolution-api:8080
+}
