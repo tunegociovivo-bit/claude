@@ -1876,9 +1876,11 @@ function KanbanColumnView({
   );
 }
 
-/** Fila de una tarea flash en la tarjeta del Kanban, arrastrable por su asa
- *  (grip) a otra tarjeta. El asa frena la propagación para no disparar el
- *  arrastre de la tarjeta entera (cuya área completa es su propia asa). */
+/** Fila de una tarea flash en la tarjeta del Kanban. Se arrastra a otra
+ *  tarjeta manteniendo pulsado sobre el NOMBRE (no hay asa). Un clic corto
+ *  sobre el nombre marca hecha/pendiente; mantener pulsado y mover, la
+ *  arrastra. Frena la propagación para no disparar el arrastre de la
+ *  tarjeta entera. */
 function FlashItemRow({
   f,
   taskId,
@@ -1894,10 +1896,12 @@ function FlashItemRow({
     id: `flash:${taskId}:${f.id}`,
     data: { type: "flash", taskId, flashId: f.id }
   });
-  const gripListeners: Record<string, (e: any) => void> = {};
+  // Los listeners de arrastre van sobre el nombre; frenamos la propagación
+  // para que no se active a la vez el arrastre de la tarjeta.
+  const dragListeners: Record<string, (e: any) => void> = {};
   for (const k in listeners) {
     const orig = (listeners as any)[k];
-    gripListeners[k] = (e: any) => {
+    dragListeners[k] = (e: any) => {
       e.stopPropagation();
       orig(e);
     };
@@ -1906,7 +1910,7 @@ function FlashItemRow({
     <div
       ref={setNodeRef}
       className={
-        "w-full flex items-center gap-1 text-xs rounded px-1 " +
+        "w-full flex items-center gap-1.5 text-xs rounded px-1 " +
         (f.urgent && !f.done ? "bg-rose-100 " : "") +
         (isDragging ? "opacity-40" : "")
       }
@@ -1914,20 +1918,10 @@ function FlashItemRow({
       <button
         type="button"
         {...attributes}
-        {...gripListeners}
-        onClick={(e) => e.stopPropagation()}
-        className="shrink-0 cursor-grab active:cursor-grabbing text-slate-300 hover:text-slate-500 touch-none"
-        title="Arrastrar a otra tarea"
-        aria-label="Mover tarea flash a otra tarea"
-      >
-        <GripVertical className="h-3 w-3" />
-      </button>
-      <button
-        type="button"
-        onPointerDown={(e) => e.stopPropagation()}
+        {...dragListeners}
         onClick={(e) => onToggleDone(f.id, e)}
-        className="flex-1 flex items-center gap-1.5 text-left min-w-0"
-        title={f.done ? "Marcar como pendiente" : "Marcar como hecha"}
+        className="flex-1 flex items-center gap-1.5 text-left min-w-0 cursor-grab active:cursor-grabbing"
+        title={f.done ? "Clic: marcar pendiente · mantén pulsado para mover" : "Clic: marcar hecha · mantén pulsado para mover"}
       >
         {f.done ? (
           <CheckSquare className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
@@ -2267,11 +2261,10 @@ function TaskCard({
               <div
                 key={f.id}
                 className={
-                  "w-full flex items-center gap-1 text-xs rounded px-1 " +
+                  "w-full flex items-center gap-1.5 text-xs rounded px-1 " +
                   (f.urgent && !f.done ? "bg-rose-100" : "")
                 }
               >
-                <GripVertical className="h-3 w-3 text-slate-300 shrink-0" />
                 {f.done ? (
                   <CheckSquare className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
                 ) : (
