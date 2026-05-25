@@ -96,8 +96,9 @@ export type UiTask = (typeof mockTasks)[number] & {
   // como portada en la tarjeta del Kanban (estilo Asana). undefined si no
   // tiene imágenes adjuntas.
   coverImage?: string;
-  /** Tareas flash (minitareas) que se muestran en la tarjeta del kanban. */
-  flashTasks?: { id: string; text: string; done: boolean }[];
+  /** Tareas flash (minitareas) que se muestran en la tarjeta del kanban.
+   *  `urgent` resalta el ítem en rojo en la tarjeta del tablón. */
+  flashTasks?: { id: string; text: string; done: boolean; urgent?: boolean }[];
 };
 export type UiProject = (typeof mockProjects)[number];
 export type UiEvent = (typeof mockEvents)[number];
