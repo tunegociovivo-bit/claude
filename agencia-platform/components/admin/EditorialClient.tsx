@@ -1642,14 +1642,12 @@ function GenerateMonthModal({
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="block text-xs font-medium text-slate-700 mb-1">Cliente *</label>
-            <select
+            <ClientPickerCombobox
+              clients={clients}
               value={clientId}
-              onChange={(e) => setClientId(e.target.value)}
-              className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
-            >
-              <option value="" disabled>Selecciona…</option>
-              {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
+              onChange={(id) => setClientId(id)}
+              placeholder="Selecciona…"
+            />
           </div>
           <div>
             <label className="block text-xs font-medium text-slate-700 mb-1">Nº publicaciones</label>
@@ -2573,10 +2571,13 @@ function PostFormModal({
           className="w-full text-lg font-semibold px-0 py-1 bg-transparent border-0 border-b border-transparent focus:border-brand-500 focus:outline-none focus:ring-0"
         />
         <div className="grid grid-cols-3 gap-2">
-          <select value={form.clientId} onChange={(e) => setForm({ ...form, clientId: e.target.value })} className="px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
-            <option value="">— Sin cliente —</option>
-            {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </select>
+          <ClientPickerCombobox
+            clients={clients}
+            value={form.clientId}
+            onChange={(id) => setForm({ ...form, clientId: id })}
+            placeholder="— Sin cliente —"
+            allowEmpty
+          />
           <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })} className="px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
             {STATUS_OPTIONS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
           </select>
@@ -4604,6 +4605,179 @@ function ApprovalLinkButton({ clientId, month }: { clientId: string; month: stri
 
 // Combobox de filtro de cliente con buscador. Lista alfabética + opción
 // "Todos" siempre arriba. Se cierra al click fuera o al elegir un cliente.
+// Selector de UN cliente con buscador server-side. Para los modales
+// (Generar mes con IA, Nueva publicación…) donde el <select> nativo no
+// podía mostrar clientes fuera de los 500 precargados ni permitía buscar.
+function ClientPickerCombobox({
+  clients,
+  value,
+  onChange,
+  placeholder = "Selecciona cliente…",
+  allowEmpty = false
+}: {
+  clients: UiClient[];
+  value: string;
+  onChange: (id: string, name?: string) => void;
+  placeholder?: string;
+  allowEmpty?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [remote, setRemote] = useState<UiClient[] | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [pickedName, setPickedName] = useState<string | null>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const sorted = useMemo(
+    () => [...clients].sort((a, b) => a.name.localeCompare(b.name, "es", { sensitivity: "base" })),
+    [clients]
+  );
+
+  useEffect(() => {
+    const q = query.trim();
+    if (!q) {
+      setRemote(null);
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    const t = setTimeout(async () => {
+      try {
+        const r = await fetch(`/api/v1/clients?limit=50&q=${encodeURIComponent(q)}`);
+        if (r.ok) setRemote((await r.json()).items ?? []);
+      } catch {
+        /* red: filtro local */
+      } finally {
+        setLoading(false);
+      }
+    }, 250);
+    return () => clearTimeout(t);
+  }, [query]);
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return sorted;
+    const base = remote ?? sorted.filter((c) => c.name.toLowerCase().includes(q));
+    return [...base].sort((a, b) => a.name.localeCompare(b.name, "es", { sensitivity: "base" }));
+  }, [sorted, query, remote]);
+
+  const selectedName = !value ? "" : clients.find((c) => c.id === value)?.name ?? pickedName ?? "";
+
+  // Resuelve el nombre del cliente preseleccionado aunque no esté en la
+  // lista precargada (quedó fuera del tope de 500).
+  useEffect(() => {
+    if (!value) {
+      setPickedName(null);
+      return;
+    }
+    if (clients.find((c) => c.id === value)) return;
+    let cancelled = false;
+    fetch(`/api/v1/clients/${value}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((c) => {
+        if (!cancelled && c?.name) setPickedName(c.name);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [value, clients]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => {
+      if (rootRef.current && !rootRef.current.contains(e.target as Node)) {
+        setOpen(false);
+        setQuery("");
+      }
+    };
+    document.addEventListener("mousedown", onDoc);
+    setTimeout(() => inputRef.current?.focus(), 0);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [open]);
+
+  function pick(id: string, name?: string) {
+    onChange(id, name);
+    setPickedName(id ? name ?? null : null);
+    setOpen(false);
+    setQuery("");
+  }
+
+  return (
+    <div ref={rootRef} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="w-full inline-flex items-center justify-between gap-2 px-3 py-2 rounded-lg border bg-white text-sm hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-brand-500"
+      >
+        <span className={"truncate " + (selectedName ? "" : "text-slate-400")}>{selectedName || placeholder}</span>
+        <ChevronDown className="h-3.5 w-3.5 text-slate-400 shrink-0" />
+      </button>
+      {open && (
+        <div className="absolute left-0 top-full mt-1 z-30 w-full min-w-[16rem] rounded-lg border bg-white shadow-lg p-2">
+          <div className="relative mb-2">
+            <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+            <input
+              ref={inputRef}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Buscar cliente…"
+              className="w-full pl-7 pr-7 py-1.5 rounded-md border bg-white text-xs focus:outline-none focus:ring-2 focus:ring-brand-500"
+            />
+            {query && (
+              <button
+                type="button"
+                onClick={() => {
+                  setQuery("");
+                  inputRef.current?.focus();
+                }}
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            )}
+          </div>
+          <ul className="max-h-72 overflow-y-auto -mx-1">
+            {allowEmpty && (
+              <li>
+                <button
+                  type="button"
+                  onClick={() => pick("")}
+                  className={
+                    "w-full text-left px-2 py-1.5 rounded text-xs hover:bg-slate-100 " +
+                    (value === "" ? "bg-brand-50 text-brand-700 font-medium" : "")
+                  }
+                >
+                  — Sin cliente —
+                </button>
+              </li>
+            )}
+            {filtered.map((c) => (
+              <li key={c.id}>
+                <button
+                  type="button"
+                  onClick={() => pick(c.id, c.name)}
+                  className={
+                    "w-full text-left px-2 py-1.5 rounded text-xs hover:bg-slate-100 truncate " +
+                    (value === c.id ? "bg-brand-50 text-brand-700 font-medium" : "")
+                  }
+                >
+                  {c.name}
+                </button>
+              </li>
+            ))}
+            {loading && <li className="px-2 py-3 text-xs text-slate-400 text-center">Buscando…</li>}
+            {!loading && filtered.length === 0 && (
+              <li className="px-2 py-3 text-xs text-slate-400 text-center">Sin resultados</li>
+            )}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ClientFilterCombobox({
   clients,
   value,
