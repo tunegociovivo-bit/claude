@@ -50,6 +50,10 @@ export type GenerateMonthOptions = {
   // Personas del roster que SÍ deben aparecer en TODAS las imágenes de
   // esta tanda (override del auto-detect por mención en el copy).
   useRosterPersons?: string[];
+  // Aspect ratio elegido por el usuario en el modal (1:1, 9:16, 16:9…). Se
+  // guarda en cada EditorialPost creado y los pipelines de imagen/vídeo lo
+  // usan para fijar las dimensiones de salida.
+  aspectRatio?: string;
   // ID del BackgroundJob para chequear cancelRequested entre
   // iteraciones (cancelación cooperativa).
   jobId?: string;
@@ -555,8 +559,11 @@ export async function generateMonth(opts: GenerateMonthOptions): Promise<Generat
       // Plan visual estructurado
       headlineLines: headlineLines && headlineLines.length > 0 ? (headlineLines as any) : undefined,
       imagePrompt: imagePrompt ?? undefined,
-      textPlacement: textPlacement ?? undefined
-    });
+      textPlacement: textPlacement ?? undefined,
+      // Aspect ratio que el usuario eligió en el modal. Los pipelines de
+      // imagen y vídeo lo respetan al fijar las dimensiones.
+      aspectRatio: opts.aspectRatio ?? null
+    } as any);
   }
 
   if (records.length === 0) {

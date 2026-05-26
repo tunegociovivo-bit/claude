@@ -35,7 +35,10 @@ const schema = z.object({
   useRosterPersons: z.array(z.string()).optional(),
   status: z.enum(["DRAFT", "REVIEW"]).default("DRAFT"),
   // Siempre generamos imagen — el usuario quiso quitar el checkbox.
-  imageQuality: z.enum(["low", "medium", "high"]).default("medium")
+  imageQuality: z.enum(["low", "medium", "high"]).default("medium"),
+  // Aspect ratio elegido por el usuario en el modal (1:1, 9:16, 16:9, …).
+  // Se guarda en el post para que generate-image y generate-video lo respeten.
+  aspectRatio: z.string().optional()
 });
 
 type Params = z.infer<typeof schema>;
@@ -126,6 +129,7 @@ async function runJobAsync(
       imageIncludeHint: params.imageIncludeHint,
       imageAvoidHint: params.imageAvoidHint,
       useRosterPersons: (params as any).useRosterPersons,
+      aspectRatio: params.aspectRatio,
       onProgress: async (msg, pct) => {
         // En vídeo el copy es la primera mitad: dejamos espacio para el vídeo.
         await updateProgress(msg, isVideo ? Math.min(40, Math.round(pct * 0.4)) : pct);
