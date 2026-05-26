@@ -31,6 +31,7 @@ import clsx from "clsx";
 import ProjectFormModal from "@/components/forms/ProjectFormModal";
 import DeleteProjectModal from "@/components/projects/DeleteProjectModal";
 import type { UiClient } from "@/lib/db/queries";
+import { readHiddenNav, subscribeHiddenNav } from "@/lib/ui/hidden-nav";
 
 type SidebarPlatform = { key: string; label: string; href: string };
 
@@ -94,6 +95,17 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}
       if (pl) setPlatformOrder(JSON.parse(pl));
     } catch {}
   }, []);
+
+  // Preferencia personal de pestañas/secciones ocultas (configurable en
+  // /admin/personalizar). Reactiva: cambios en la página de personalización
+  // se reflejan al instante sin recargar.
+  const [hiddenNav, setHiddenNav] = useState<string[]>([]);
+  useEffect(() => {
+    const reload = () => setHiddenNav(readHiddenNav());
+    reload();
+    return subscribeHiddenNav(reload);
+  }, []);
+  const isHidden = (key: string) => hiddenNav.includes(key);
 
   function moveProject(id: string, dir: -1 | 1) {
     const ids = orderItems(projects.map((p) => p.id), projectOrder);
@@ -216,6 +228,8 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}
             if (!me) return true;
             return me.features.includes(item.feature);
           })
+          // Preferencia personal: pestañas ocultadas en /admin/personalizar.
+          .filter((item) => !isHidden(item.href))
           .map((item) => {
           const Icon = item.icon;
           const active =
@@ -237,7 +251,7 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}
           );
         })}
 
-        {(!me || me.role === "ADMIN") && (
+        {(!me || me.role === "ADMIN") && !isHidden("facturacion") && (
           <div className="pt-4 mt-2 border-t border-slate-800">
             <span className="block px-3 mb-1 text-[10px] uppercase tracking-wide text-slate-400 font-semibold">
               Facturación
@@ -258,6 +272,7 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}
           </div>
         )}
 
+        {!isHidden("section:proyectos") && (
         <div className="pt-4 mt-2 border-t border-slate-800">
           <div className="flex items-center justify-between px-3 mb-1">
             <span className="text-[10px] uppercase tracking-wide text-slate-400 font-semibold flex items-center gap-1.5">
@@ -358,8 +373,9 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}
             )}
           </div>
         </div>
+        )}
 
-        {(() => {
+        {!isHidden("section:plataformas") && (() => {
           const showGmb = !me || me.features.includes("gmb");
           const gmbActive = pathname.startsWith("/gmb-hub");
           return (platforms.length > 0 || showGmb || me?.role === "ADMIN") && (

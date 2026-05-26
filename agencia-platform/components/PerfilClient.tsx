@@ -84,6 +84,15 @@ export default function PerfilClient() {
     <div className="max-w-2xl mx-auto">
       <PageHeader title="Mi perfil" description="Edita tu nombre, foto, teléfono y contraseña." />
 
+      <div className="mb-4">
+        <a
+          href="/admin/personalizar"
+          className="inline-flex items-center gap-2 text-sm text-brand-700 hover:text-brand-800 hover:underline"
+        >
+          Personalizar mi menú lateral →
+        </a>
+      </div>
+
       {loading || !me ? (
         <div className="bg-white rounded-xl border p-8 text-sm text-slate-500 flex items-center gap-2">
           <Loader2 className="h-4 w-4 animate-spin" /> Cargando…
