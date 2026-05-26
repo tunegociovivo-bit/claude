@@ -87,7 +87,9 @@ export async function generateFreepikKlingVideo(opts: {
   modelSlug?: string;
 }): Promise<{ url: string; model: string }> {
   const apiKey = await getFreepikKeyForWorkspace(opts.workspaceId);
-  const slug = opts.modelSlug ?? process.env.FREEPIK_VIDEO_MODEL ?? "kling-v2";
+  // Default: Kling 2.5 720p (la versión "ilimitada" más reciente). Override
+  // con env FREEPIK_VIDEO_MODEL o con opts.modelSlug si Freepik cambia el slug.
+  const slug = opts.modelSlug ?? process.env.FREEPIK_VIDEO_MODEL ?? "kling-v2-5-720p";
   const submit = await fetch(`${FREEPIK_BASE}/image-to-video/${slug}`, {
     method: "POST",
     headers: { "x-freepik-api-key": apiKey, "Content-Type": "application/json" },

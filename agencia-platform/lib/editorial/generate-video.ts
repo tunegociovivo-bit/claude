@@ -34,6 +34,7 @@ import { getOpenAiKeyForWorkspace } from "@/lib/ai/openai";
 import { generateFreepikKlingVideo } from "@/lib/ai/freepik";
 import { elevenlabsSynthesize } from "@/lib/integrations/elevenlabs";
 import { completeJson } from "@/lib/ai/anthropic";
+import { openaiImagesEdits } from "./generate-image";
 
 const execFileAsync = promisify(execFile);
 
@@ -358,6 +359,61 @@ async function generateShotImage(workspaceId: string, prompt: string, size: stri
   return Buffer.from(b64, "base64");
 }
 
+/** Resuelve hasta 5 URLs de referencia de las personas indicadas en
+ *  forceRosterPersons a partir del roster del cliente (client.referenceImages).
+ *  Distribución: 1 persona → 2 fotos; 2 → 4; 3 → 5; 4+ → 5 (1 por persona).
+ *  Si no hay forceRosterPersons o no hay matches, devuelve []. */
+function resolveShotReferenceUrls(client: any, forceRosterPersons: string[]): string[] {
+  if (!forceRosterPersons || forceRosterPersons.length === 0) return [];
+  const refs: any[] = Array.isArray(client?.referenceImages) ? client.referenceImages : [];
+  const peopleByName = new Map<string, string[]>();
+  for (const r of refs) {
+    const name = (r?.personName ?? "").toString().trim();
+    const url = typeof r?.url === "string" ? r.url : null;
+    if (!name || !url) continue;
+    if (!peopleByName.has(name)) peopleByName.set(name, []);
+    peopleByName.get(name)!.push(url);
+  }
+  const forcedLower = forceRosterPersons.map((n) => n.toLowerCase().trim()).filter(Boolean);
+  const names = Array.from(peopleByName.keys()).filter((n) => forcedLower.includes(n.toLowerCase()));
+  const TOTAL_CAP = 5;
+  const perPerson = names.length >= 4 ? 1 : 2;
+  const urls: string[] = [];
+  for (const name of names) {
+    const list = peopleByName.get(name) ?? [];
+    for (const u of list.slice(0, perPerson)) {
+      if (urls.length < TOTAL_CAP) urls.push(u);
+    }
+  }
+  return urls;
+}
+
+/** Genera la imagen de una toma usando gpt-image-2 /edits con fotos del
+ *  roster como referencia (mismo camino que el pipeline de imagen). Esto
+ *  es lo que permite que Rochar (u otras personas reales) salgan con su
+ *  cara real, no inventada. Si no hay refs, hace fallback a text-to-image. */
+async function generateShotImageWithRefs(
+  workspaceId: string,
+  prompt: string,
+  size: string,
+  referenceUrls: string[]
+): Promise<Buffer> {
+  if (referenceUrls.length === 0) {
+    return generateShotImage(workspaceId, prompt, size);
+  }
+  const apiKey = await getOpenAiKeyForWorkspace(workspaceId);
+  const augmented =
+    prompt +
+    " Match the identity, facial features and overall look of the people in the provided reference images.";
+  return openaiImagesEdits({
+    apiKey,
+    prompt: augmented,
+    size,
+    quality: "high",
+    referenceUrls
+  });
+}
+
 const STORYBOARD_SCHEMA = {
   type: "object",
   properties: {
@@ -448,6 +504,11 @@ export async function generatePostVideo(opts: {
   subtitles?: boolean;
   /** Voz de ElevenLabs a usar (default: la configurada en el workspace). */
   voiceId?: string;
+  /** Personas del roster del cliente que DEBEN aparecer en las tomas. Si
+   *  se pasa, las imágenes de cada toma se generan con gpt-image-2 /edits
+   *  usando las fotos reales del roster como referencia, igual que el
+   *  pipeline de imagen. Si está vacío, fallback a generación text-to-image. */
+  forceRosterPersons?: string[];
 }): Promise<{ videoUrls: string[]; shots: number; note: string }> {
   if (!isStorageEnabled()) {
     throw new Error("STORAGE_* no configurado — no se pueden guardar vídeos generados");
@@ -503,12 +564,19 @@ export async function generatePostVideo(opts: {
   }
 
   // 2) Por cada toma: imagen con gpt-image-2 → vídeo con Freepik/Kling.
+  // Si el modal forzó personas del roster, las imágenes se generan con
+  // /v1/images/edits + fotos reales como referencia, así Rochar (etc.)
+  // aparece con su cara real en cada toma, no inventada.
+  const shotRefUrls = resolveShotReferenceUrls(client, opts.forceRosterPersons ?? []);
+  if (shotRefUrls.length > 0) {
+    console.log(`[generate-video] usando ${shotRefUrls.length} fotos de referencia del roster para las tomas`);
+  }
   const videoUrls: string[] = [];
   const imageUrls: string[] = [];
   const clipBuffers: Buffer[] = [];
   for (let i = 0; i < shots.length; i++) {
     const shot = shots[i];
-    const imgBuf = await generateShotImage(opts.workspaceId, shot.image_prompt, imageSize);
+    const imgBuf = await generateShotImageWithRefs(opts.workspaceId, shot.image_prompt, imageSize, shotRefUrls);
     const imgKey = buildS3Key({
       workspaceId: opts.workspaceId,
       targetType: "editorial",

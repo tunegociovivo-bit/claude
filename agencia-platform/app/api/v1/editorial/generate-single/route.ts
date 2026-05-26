@@ -144,7 +144,11 @@ async function runJobAsync(
           extraGuidance: params.extraGuidance,
           shots: 2,
           voiceover: true,
-          subtitles: true
+          subtitles: true,
+          // Personas del roster marcadas en el modal: el pipeline generará
+          // las imágenes de cada toma con sus fotos reales como referencia
+          // (gpt-image-2 /edits), para que aparezcan con su cara real.
+          forceRosterPersons: params.useRosterPersons ?? []
         });
         videoNote = out.note;
         await updateProgress("Vídeo listo y adjuntado al post.", 100);
