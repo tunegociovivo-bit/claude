@@ -12,6 +12,7 @@ import {
   pointerWithin,
   rectIntersection,
   useDraggable,
+  useDroppable,
   useSensor,
   useSensors,
   type CollisionDetection,
@@ -37,7 +38,7 @@ import VoiceTaskRecorder from "@/components/forms/VoiceTaskRecorder";
 import MeetingRecorder from "@/components/forms/MeetingRecorder";
 import { statusLabelOf, statusColorOf, priorityColors, priorityLabels } from "@/lib/mock-data";
 import type { UiTask, UiProject, UiClient, UiMember } from "@/lib/db/queries";
-import { LayoutGrid, List, Plus, Filter, CalendarDays, FolderPlus, GripVertical, CheckSquare, Square, Settings2, Loader2, Link2, Check, Bot, X, Zap } from "lucide-react";
+import { LayoutGrid, List, Plus, Filter, CalendarDays, FolderPlus, GripVertical, CheckSquare, Square, Settings2, Loader2, Link2, Check, Bot, X, Zap, Pencil } from "lucide-react";
 import clsx from "clsx";
 import { DEFAULT_FILTERS, type TaskFilters } from "@/components/tareas/SavedFiltersBar";
 import { useSession } from "next-auth/react";
@@ -842,9 +843,22 @@ export default function TareasClient({
   //      target → cubre cuando el puntero queda en el padding.
   //   3) closestCenter: fallback final por distancia al centro.
   const collisionDetectionStrategy: CollisionDetection = (args) => {
-    const pointer = pointerWithin(args);
+    // Cuando se arrastra un ítem flash, preferimos siempre los drops sobre
+    // OTRAS filas flash (para reordenar/insertar antes) si existen, en lugar
+    // de la tarjeta entera que las contiene. Sin esto, el drop podría caer
+    // en la tarjeta y siempre añadir al final, perdiendo el orden preciso.
+    const isFlashActive = (args.active?.data?.current as any)?.type === "flash";
+    const preferFlash = (list: ReturnType<typeof pointerWithin>) => {
+      if (!isFlashActive || list.length === 0) return list;
+      const flashHits = list.filter((c) => {
+        const t = (c.data as any)?.droppableContainer?.data?.current?.type;
+        return t === "flash";
+      });
+      return flashHits.length > 0 ? flashHits : list;
+    };
+    const pointer = preferFlash(pointerWithin(args));
     if (pointer.length > 0) return pointer;
-    const intersect = rectIntersection(args);
+    const intersect = preferFlash(rectIntersection(args));
     if (intersect.length > 0) return intersect;
     return closestCenter(args);
   };
@@ -922,16 +936,47 @@ export default function TareasClient({
     setActiveDragId(String(e.active.id));
   }
 
-  // Mueve un ítem de tarea flash de una tarjeta a otra: lo quita del origen,
-  // lo añade al destino y persiste ambas tareas. Actualiza el estado local
-  // para que las dos tarjetas se refresquen al instante.
-  function moveFlashItem(srcTaskId: string, destTaskId: string, flashId: string) {
+  // Mueve un ítem flash. Si srcTaskId === destTaskId, reordena dentro de la
+  // MISMA tarea (insertando antes de beforeFlashId, o al final si es null);
+  // si son distintos, lo traslada de tarjeta. Persiste solo lo que cambia.
+  function moveFlashItemAt(
+    srcTaskId: string,
+    destTaskId: string,
+    flashId: string,
+    beforeFlashId: string | null
+  ) {
     const src = tasks.find((t) => t.id === srcTaskId);
     const dest = tasks.find((t) => t.id === destTaskId);
     const item = src?.flashTasks?.find((f) => f.id === flashId);
     if (!src || !dest || !item) return;
+    const patch = (id: string, flashTasks: unknown) =>
+      fetch(`/api/v1/tasks/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ flashTasks })
+      }).catch(() => {});
+
+    if (srcTaskId === destTaskId) {
+      // Reordenar dentro de la misma tarea.
+      const list = (src.flashTasks ?? []).filter((f) => f.id !== flashId);
+      let toIdx = beforeFlashId ? list.findIndex((f) => f.id === beforeFlashId) : list.length;
+      if (toIdx < 0) toIdx = list.length;
+      list.splice(toIdx, 0, item);
+      // No-op si la posición final coincide con la original.
+      const same =
+        (src.flashTasks ?? []).every((f, i) => list[i]?.id === f.id) && list.length === (src.flashTasks ?? []).length;
+      if (same) return;
+      setTasks((prev) => prev.map((t) => (t.id === srcTaskId ? { ...t, flashTasks: list } : t)));
+      void patch(srcTaskId, list);
+      return;
+    }
+
+    // Mover a otra tarea.
     const newSrc = (src.flashTasks ?? []).filter((f) => f.id !== flashId);
-    const newDest = [...(dest.flashTasks ?? []).filter((f) => f.id !== flashId), item];
+    const newDest = (dest.flashTasks ?? []).filter((f) => f.id !== flashId);
+    let toIdx = beforeFlashId ? newDest.findIndex((f) => f.id === beforeFlashId) : newDest.length;
+    if (toIdx < 0) toIdx = newDest.length;
+    newDest.splice(toIdx, 0, item);
     setTasks((prev) =>
       prev.map((t) =>
         t.id === srcTaskId
@@ -941,14 +986,24 @@ export default function TareasClient({
             : t
       )
     );
-    const patch = (id: string, flashTasks: unknown) =>
-      fetch(`/api/v1/tasks/${id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ flashTasks })
-      }).catch(() => {});
     void patch(srcTaskId, newSrc);
     void patch(destTaskId, newDest);
+  }
+
+  // Actualiza el texto de un ítem flash (edición inline desde la tarjeta).
+  function updateFlashText(taskId: string, flashId: string, newText: string) {
+    const t = tasks.find((x) => x.id === taskId);
+    const item = t?.flashTasks?.find((f) => f.id === flashId);
+    if (!t || !item) return;
+    const clean = newText.trim();
+    if (!clean || clean === item.text) return;
+    const next = (t.flashTasks ?? []).map((f) => (f.id === flashId ? { ...f, text: clean } : f));
+    setTasks((prev) => prev.map((x) => (x.id === taskId ? { ...x, flashTasks: next } : x)));
+    void fetch(`/api/v1/tasks/${taskId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ flashTasks: next })
+    }).catch(() => {});
   }
 
   function handleDragEnd(e: DragEndEvent) {
@@ -958,13 +1013,25 @@ export default function TareasClient({
     const activeType = active.data.current?.type;
     const overType = over.data.current?.type;
 
-    // Arrastrar una tarea flash de una tarjeta a otra.
+    // Arrastrar una tarea flash: reordenar dentro de la misma tarea o
+    // moverla a otra tarjeta. El destino depende de sobre qué se suelte:
+    //   - sobre OTRO ítem flash → inserta antes de ese (misma u otra tarea).
+    //   - sobre una tarjeta → al final de la lista de esa tarea.
     if (activeType === "flash") {
       const srcTaskId = String(active.data.current?.taskId ?? "");
       const flashId = String(active.data.current?.flashId ?? "");
-      const destTaskId = overType === "task" ? String(over.id) : null;
-      if (srcTaskId && flashId && destTaskId && destTaskId !== srcTaskId) {
-        moveFlashItem(srcTaskId, destTaskId, flashId);
+      if (!srcTaskId || !flashId) return;
+      let destTaskId: string | null = null;
+      let beforeFlashId: string | null = null;
+      if (overType === "flash") {
+        destTaskId = String(over.data.current?.taskId ?? "");
+        beforeFlashId = String(over.data.current?.flashId ?? "");
+        if (beforeFlashId === flashId) return; // soltado sobre sí mismo
+      } else if (overType === "task") {
+        destTaskId = String(over.id);
+      }
+      if (destTaskId) {
+        moveFlashItemAt(srcTaskId, destTaskId, flashId, beforeFlashId);
       }
       return;
     }
@@ -1876,67 +1943,147 @@ function KanbanColumnView({
   );
 }
 
-/** Fila de una tarea flash en la tarjeta del Kanban. Se arrastra a otra
- *  tarjeta manteniendo pulsado sobre el NOMBRE (no hay asa). Un clic corto
- *  sobre el nombre marca hecha/pendiente; mantener pulsado y mover, la
- *  arrastra. Frena la propagación para no disparar el arrastre de la
- *  tarjeta entera. */
+/** Fila de una tarea flash en la tarjeta del Kanban.
+ *
+ *  - Arrastre: mantener pulsado sobre el NOMBRE. Si se suelta sobre otra
+ *    fila flash, se inserta justo antes (reordena dentro de la misma tarea
+ *    o cambia de tarea). Si se suelta sobre el cuerpo de otra tarjeta, va
+ *    al final de su lista.
+ *  - Clic corto sobre el nombre: marcar hecha/pendiente.
+ *  - Botón ⚡: alternar urgente.
+ *  - Botón lápiz: editar el texto en línea (Enter guarda, Esc cancela,
+ *    al perder el foco también guarda).
+ *
+ *  Toda interacción para la propagación al arrastre de la tarjeta entera. */
 function FlashItemRow({
   f,
   taskId,
   onToggleDone,
-  onToggleUrgent
+  onToggleUrgent,
+  onEditText
 }: {
   f: { id: string; text: string; done: boolean; urgent?: boolean };
   taskId: string;
   onToggleDone: (id: string, e: React.MouseEvent) => void;
   onToggleUrgent: (id: string, e: React.MouseEvent) => void;
+  onEditText: (flashId: string, newText: string) => void;
 }) {
-  const { setNodeRef, attributes, listeners, isDragging } = useDraggable({
+  const drag = useDraggable({
     id: `flash:${taskId}:${f.id}`,
     data: { type: "flash", taskId, flashId: f.id }
   });
+  // Mismo nodo es también droppable, para que al arrastrar OTRO ítem encima
+  // se pueda detectar y se inserte justo antes de éste (mismo o distinto
+  // task). El id es distinto al del draggable para no colisionar.
+  const drop = useDroppable({
+    id: `flash-drop:${taskId}:${f.id}`,
+    data: { type: "flash", taskId, flashId: f.id }
+  });
+  const setNodeRef = (el: HTMLElement | null) => {
+    drag.setNodeRef(el);
+    drop.setNodeRef(el);
+  };
   // Los listeners de arrastre van sobre el nombre; frenamos la propagación
   // para que no se active a la vez el arrastre de la tarjeta.
   const dragListeners: Record<string, (e: any) => void> = {};
-  for (const k in listeners) {
-    const orig = (listeners as any)[k];
+  for (const k in drag.listeners ?? {}) {
+    const orig = (drag.listeners as any)[k];
     dragListeners[k] = (e: any) => {
       e.stopPropagation();
       orig(e);
     };
   }
+
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(f.text);
+  // Si el texto externo cambia (otra pestaña, drag…), sincronizamos.
+  useEffect(() => {
+    if (!editing) setDraft(f.text);
+  }, [f.text, editing]);
+
+  function startEdit(e: React.MouseEvent) {
+    e.stopPropagation();
+    e.preventDefault();
+    setDraft(f.text);
+    setEditing(true);
+  }
+  function commitEdit() {
+    setEditing(false);
+    onEditText(f.id, draft);
+  }
+  function cancelEdit() {
+    setEditing(false);
+    setDraft(f.text);
+  }
+
   return (
     <div
       ref={setNodeRef}
       className={
         "w-full flex items-center gap-1.5 text-xs rounded px-1 " +
+        (drop.isOver && !drag.isDragging ? "ring-1 ring-brand-300 " : "") +
         (f.urgent && !f.done ? "bg-rose-100 " : "") +
-        (isDragging ? "opacity-40" : "")
+        (drag.isDragging ? "opacity-40" : "")
       }
     >
+      {editing ? (
+        <>
+          <div className="shrink-0 w-3.5" />
+          <input
+            type="text"
+            autoFocus
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
+            onKeyDown={(e) => {
+              e.stopPropagation();
+              if (e.key === "Enter") {
+                e.preventDefault();
+                commitEdit();
+              } else if (e.key === "Escape") {
+                e.preventDefault();
+                cancelEdit();
+              }
+            }}
+            onBlur={commitEdit}
+            className="flex-1 text-xs px-1 py-0.5 border rounded bg-white min-w-0"
+          />
+        </>
+      ) : (
+        <button
+          type="button"
+          {...drag.attributes}
+          {...dragListeners}
+          onClick={(e) => onToggleDone(f.id, e)}
+          className="flex-1 flex items-center gap-1.5 text-left min-w-0 cursor-grab active:cursor-grabbing"
+          title={f.done ? "Clic: marcar pendiente · mantén pulsado para mover" : "Clic: marcar hecha · mantén pulsado para mover"}
+        >
+          {f.done ? (
+            <CheckSquare className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
+          ) : (
+            <Square className={"h-3.5 w-3.5 shrink-0 " + (f.urgent ? "text-rose-500" : "text-amber-500")} />
+          )}
+          <span
+            className={
+              "truncate " +
+              (f.done ? "line-through text-slate-400" : f.urgent ? "text-rose-700 font-semibold" : "text-slate-700")
+            }
+          >
+            {f.urgent && !f.done && "🔴 "}
+            {f.text}
+          </span>
+        </button>
+      )}
       <button
         type="button"
-        {...attributes}
-        {...dragListeners}
-        onClick={(e) => onToggleDone(f.id, e)}
-        className="flex-1 flex items-center gap-1.5 text-left min-w-0 cursor-grab active:cursor-grabbing"
-        title={f.done ? "Clic: marcar pendiente · mantén pulsado para mover" : "Clic: marcar hecha · mantén pulsado para mover"}
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={startEdit}
+        className="shrink-0 px-0.5 text-slate-300 hover:text-slate-600"
+        title="Editar texto"
+        aria-label="Editar texto"
       >
-        {f.done ? (
-          <CheckSquare className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
-        ) : (
-          <Square className={"h-3.5 w-3.5 shrink-0 " + (f.urgent ? "text-rose-500" : "text-amber-500")} />
-        )}
-        <span
-          className={
-            "truncate " +
-            (f.done ? "line-through text-slate-400" : f.urgent ? "text-rose-700 font-semibold" : "text-slate-700")
-          }
-        >
-          {f.urgent && !f.done && "🔴 "}
-          {f.text}
-        </span>
+        <Pencil className="h-3.5 w-3.5" />
       </button>
       <button
         type="button"
@@ -2074,6 +2221,14 @@ function TaskCard({
     e.stopPropagation();
     e.preventDefault();
     await persistFlash(flash.map((f) => (f.id === id ? { ...f, urgent: !f.urgent } : f)));
+  }
+
+  async function editFlashText(flashId: string, newText: string) {
+    const clean = newText.trim();
+    if (!clean) return;
+    const cur = flash.find((f) => f.id === flashId);
+    if (!cur || cur.text === clean) return;
+    await persistFlash(flash.map((f) => (f.id === flashId ? { ...f, text: clean } : f)));
   }
   // Tick para refrescar el estado de alarma visual + el "🤖
   // Trabajando 1m 14s" del badge de Sonia. Si Sonia está
@@ -2287,6 +2442,7 @@ function TaskCard({
                 taskId={task.id}
                 onToggleDone={toggleFlash}
                 onToggleUrgent={toggleFlashUrgent}
+                onEditText={editFlashText}
               />
             )
           )}
