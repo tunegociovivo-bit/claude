@@ -2238,7 +2238,12 @@ function PostFormModal({
           imageAvoidHint: aiImageAvoid || undefined,
           useRosterPersons: aiForcedRoster.length > 0 ? aiForcedRoster : undefined,
           status: form.status === "REVIEW" ? "REVIEW" : "DRAFT",
-          imageQuality: aiImageQuality
+          imageQuality: aiImageQuality,
+          // Si el usuario eligió un aspect ratio en el modal (1:1, 9:16, …),
+          // se lo pasamos al generador para que respete las dimensiones tanto
+          // en la imagen como en el storyboard del vídeo.
+          aspectRatio:
+            form.aspectRatio && form.aspectRatio !== "auto" ? form.aspectRatio : undefined
         })
       });
       const data = await r.json().catch(() => null);
