@@ -1226,19 +1226,16 @@ export async function executeAgentRun(opts: {
         // de respuestas con muchos tool_use blocks o text largos,
         // dejando turns sin tool_use → bucle se rompía con 400.
         max_tokens: 8192,
-        // EXTENDED THINKING: Opus 4.7 usa la API "adaptive" (sustituye
-        // a la antigua "enabled" + budget_tokens, que devolvía
-        // "thinking.type.enabled is not supported for this model"). Con
-        // adaptive + effort=high el modelo decide cuánto pensar; effort
-        // medium/low gasta menos. Lo activamos solo en los primeros 3
-        // pasos (donde se toman las decisiones grandes); a partir del 4º
-        // paso es ejecución mecánica donde no aporta.
-        ...(step < 3
-          ? {
-              thinking: { type: "adaptive" as const },
-              output_config: { effort: "high" as const }
-            }
-          : {}),
+        // EXTENDED THINKING: deshabilitado. El modelo configurado
+        // (claude-opus-4-7) no acepta ni `thinking.type="enabled"`
+        // (devuelve "thinking.type.enabled is not supported for this
+        // model") ni `thinking.type="adaptive"` (devuelve
+        // "adaptive thinking is not supported on this model"). Hasta
+        // que Anthropic exponga thinking en este modelo / actualicemos
+        // el modelId, no enviamos el bloque — la API 400 reventaba TODO
+        // run en su primer paso. El agente funciona correctamente sin
+        // extended thinking; solo perdemos un poco de calidad de
+        // razonamiento en pasos iniciales.
         system: [
           { type: "text", text: SYSTEM_PROMPT, cache_control: { type: "ephemeral" } as any }
         ],
