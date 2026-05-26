@@ -65,6 +65,9 @@ export async function processSearchBatch(opts: {
         : [{ name: search.location, capital: search.location, lat: 0, lng: 0, ccaa: "" }];
 
   let leadsInserted = 0;
+  // Si Places lanza error en alguna provincia, guardamos el último para
+  // surfacearlo en la UI si la búsqueda acaba con 0 leads.
+  let batchError: string | null = null;
   for (const prov of targets) {
     try {
       await prisma.leadSearch.update({
@@ -95,20 +98,44 @@ export async function processSearchBatch(opts: {
         }
       }
     } catch (e: any) {
-      console.error(`[search-manager] provincia ${prov.name} fallo:`, e?.message ?? e);
+      const msg = e?.message ?? String(e);
+      console.error(`[search-manager] provincia ${prov.name} fallo:`, msg);
+      // Recordamos el último error para mostrarlo en la UI si el batch
+      // acaba sin haber insertado ningún lead. Sin esto, el usuario veía
+      // "COMPLETED · 0 leads" sin pista de por qué (caso típico: API key
+      // de Google Places caducada, billing desactivado, Places API sin
+      // habilitar). Ahora aparece el mensaje literal de Google.
+      batchError = msg.slice(0, 600);
     }
   }
 
   const newProcessed = Math.min(search.processedProvinces + targets.length, search.totalProvinces);
   const pending = search.totalProvinces - newProcessed;
-  const newStatus = pending === 0 ? "COMPLETED" : "RUNNING";
+  // Si terminamos toda la búsqueda sin ningún lead y SÍ hubo error de
+  // Places en algún momento, marcamos FAILED con el mensaje. Si hubo
+  // leads, lo dejamos en COMPLETED aunque alguna provincia fallara
+  // puntualmente (resultado parcial sigue siendo útil).
+  const totalAfter = search.totalResults + leadsInserted;
+  let newStatus: string;
+  let errorToPersist: string | null = null;
+  if (pending === 0) {
+    if (totalAfter === 0 && batchError) {
+      newStatus = "FAILED";
+      errorToPersist = batchError;
+    } else {
+      newStatus = "COMPLETED";
+    }
+  } else {
+    newStatus = "RUNNING";
+  }
 
   await prisma.leadSearch.update({
     where: { id: search.id },
     data: {
       processedProvinces: newProcessed,
-      totalResults: search.totalResults + leadsInserted,
+      totalResults: totalAfter,
       status: newStatus,
+      errorMessage: errorToPersist ?? (newStatus === "COMPLETED" ? null : undefined),
       currentProvince: pending === 0 ? null : search.currentProvince,
       completedAt: pending === 0 ? new Date() : null
     }
