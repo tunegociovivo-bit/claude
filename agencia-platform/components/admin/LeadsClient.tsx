@@ -95,6 +95,7 @@ export default function LeadsClient() {
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [urgencyFilter, setUrgencyFilter] = useState("ALL");
+  const [searchIdFilter, setSearchIdFilter] = useState("ALL");
   const [searchQ, setSearchQ] = useState("");
   const [newSearchOpen, setNewSearchOpen] = useState(false);
   const [newTemplateOpen, setNewTemplateOpen] = useState(false);
@@ -107,9 +108,14 @@ export default function LeadsClient() {
         const q = new URLSearchParams();
         if (statusFilter !== "ALL") q.set("contactStatus", statusFilter);
         if (urgencyFilter !== "ALL") q.set("urgency", urgencyFilter);
+        if (searchIdFilter !== "ALL") q.set("searchId", searchIdFilter);
         if (searchQ) q.set("search", searchQ);
-        const r = await fetch(`/api/v1/leads?${q.toString()}`);
-        if (r.ok) setLeads((await r.json()).items ?? []);
+        const [leadsRes, searchesRes] = await Promise.all([
+          fetch(`/api/v1/leads?${q.toString()}`),
+          fetch("/api/v1/leads/searches")
+        ]);
+        if (leadsRes.ok) setLeads((await leadsRes.json()).items ?? []);
+        if (searchesRes.ok) setSearches((await searchesRes.json()).items ?? []);
       } else if (tab === "searches") {
         const r = await fetch("/api/v1/leads/searches");
         if (r.ok) setSearches((await r.json()).items ?? []);
@@ -134,7 +140,7 @@ export default function LeadsClient() {
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, statusFilter, urgencyFilter, searchQ]);
+  }, [tab, statusFilter, urgencyFilter, searchIdFilter, searchQ]);
 
   return (
     <div className="max-w-7xl mx-auto">
@@ -218,8 +224,23 @@ export default function LeadsClient() {
               <option value="baja">Baja</option>
               <option value="descartar">Descartar</option>
             </select>
+            <select
+              value={searchIdFilter}
+              onChange={(e) => setSearchIdFilter(e.target.value)}
+              className="px-3 py-2 rounded-lg border bg-white text-sm max-w-[260px]"
+              title="Filtrar por búsqueda realizada"
+            >
+              <option value="ALL">Todas las búsquedas</option>
+              {searches.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.keyword}
+                  {s.location ? ` · ${s.location}` : ""}
+                  {s._count?.leads != null ? ` (${s._count.leads})` : ""}
+                </option>
+              ))}
+            </select>
             <a
-              href="/api/v1/leads/export"
+              href={`/api/v1/leads/export${searchIdFilter !== "ALL" ? `?searchId=${searchIdFilter}` : ""}`}
               className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border bg-white hover:bg-slate-50 text-sm"
             >
               <Download className="h-4 w-4" />
