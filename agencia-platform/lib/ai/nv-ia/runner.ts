@@ -1226,19 +1226,16 @@ export async function executeAgentRun(opts: {
         // de respuestas con muchos tool_use blocks o text largos,
         // dejando turns sin tool_use → bucle se rompía con 400.
         max_tokens: 8192,
-        // EXTENDED THINKING: Opus 4.7 usa la API "adaptive" (sustituye
-        // a la antigua "enabled" + budget_tokens, que devolvía
-        // "thinking.type.enabled is not supported for this model"). Con
-        // adaptive + effort=high el modelo decide cuánto pensar; effort
-        // medium/low gasta menos. Lo activamos solo en los primeros 3
-        // pasos (donde se toman las decisiones grandes); a partir del 4º
-        // paso es ejecución mecánica donde no aporta.
-        ...(step < 3
-          ? {
-              thinking: { type: "adaptive" as const },
-              output_config: { effort: "high" as const }
-            }
-          : {}),
+        // EXTENDED THINKING: desactivado. Probamos primero `thinking:{type:"enabled",budget_tokens:N}`
+        // y luego `thinking:{type:"adaptive"}` + `output_config.effort`; ambos formatos devuelven
+        // 400 desde Anthropic en los modelos que usamos (Opus 4.7, Sonnet 4.6, Haiku 4.5):
+        //   - "thinking.type.enabled is not supported for this model"
+        //   - "adaptive thinking is not supported on this model"
+        // El segundo error tumbaba todos los runs de Sonia (incluso los CALL_INBOUND rutinarios
+        // que ni necesitan thinking). Hasta que la API de Anthropic estabilice un formato
+        // soportado por estos modelos, NO mandamos parámetros de thinking — el modelo razona
+        // internamente igual, sin la sección visible de reasoning.
+        ...({} as Record<string, never>),
         system: [
           { type: "text", text: SYSTEM_PROMPT, cache_control: { type: "ephemeral" } as any }
         ],
