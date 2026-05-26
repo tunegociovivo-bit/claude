@@ -409,7 +409,11 @@ async function generateShotImageWithRefs(
     apiKey,
     prompt: augmented,
     size,
-    quality: "high",
+    // "medium" en lugar de "high": la imagen se ANIMA después con Kling, así
+    // que las diferencias finas se pierden de todos modos, y "medium" reduce
+    // mucho la tasa de 502 transitorios de OpenAI /edits con 5 refs (que
+    // pueden tardar 90-150s en "high").
+    quality: "medium",
     referenceUrls
   });
 }
