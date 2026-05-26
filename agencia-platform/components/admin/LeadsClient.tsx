@@ -34,6 +34,7 @@ type SearchRow = {
   processedProvinces: number;
   currentProvince: string | null;
   totalResults: number;
+  errorMessage?: string | null;
   createdAt: string;
   _count?: { leads: number };
 };
@@ -661,7 +662,25 @@ function SearchesTable({ loading, items, onChanged }: { loading: boolean; items:
                   {s.currentProvince && <div className="text-[10px] text-slate-400 mt-0.5">en {s.currentProvince}</div>}
                 </td>
                 <td className="px-3 py-2 font-semibold">{s.totalResults}</td>
-                <td className="px-3 py-2 text-xs">{s.status}</td>
+                <td className="px-3 py-2 text-xs">
+                  <span
+                    className={
+                      s.status === "FAILED"
+                        ? "inline-block px-1.5 py-0.5 rounded bg-rose-50 text-rose-700 border border-rose-200"
+                        : ""
+                    }
+                  >
+                    {s.status}
+                  </span>
+                  {s.status === "FAILED" && s.errorMessage && (
+                    <div
+                      className="mt-1 text-[11px] text-rose-700 max-w-[320px] whitespace-pre-wrap leading-snug"
+                      title={s.errorMessage}
+                    >
+                      {s.errorMessage}
+                    </div>
+                  )}
+                </td>
                 <td className="px-3 py-2 text-right whitespace-nowrap">
                   {pending && (
                     <button
