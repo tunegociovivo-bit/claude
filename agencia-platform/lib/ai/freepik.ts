@@ -87,9 +87,11 @@ export async function generateFreepikKlingVideo(opts: {
   modelSlug?: string;
 }): Promise<{ url: string; model: string }> {
   const apiKey = await getFreepikKeyForWorkspace(opts.workspaceId);
-  // Default: Kling 2.5 720p (la versión "ilimitada" más reciente). Override
-  // con env FREEPIK_VIDEO_MODEL o con opts.modelSlug si Freepik cambia el slug.
-  const slug = opts.modelSlug ?? process.env.FREEPIK_VIDEO_MODEL ?? "kling-v2-5-720p";
+  // Default: kling-v2 (slug conocido y estable de Freepik). Para usar la 2.5
+  // u otra versión, configura FREEPIK_VIDEO_MODEL en Railway con el slug
+  // exacto (p.ej. "kling-v2-5", "kling-v2-5-pro", "kling-v2-1-pro") — el
+  // catálogo y los nombres exactos los publica Freepik en su API y cambian.
+  const slug = opts.modelSlug ?? process.env.FREEPIK_VIDEO_MODEL ?? "kling-v2";
   const submit = await fetch(`${FREEPIK_BASE}/image-to-video/${slug}`, {
     method: "POST",
     headers: { "x-freepik-api-key": apiKey, "Content-Type": "application/json" },
@@ -101,7 +103,14 @@ export async function generateFreepikKlingVideo(opts: {
   });
   if (!submit.ok) {
     const t = await submit.text();
-    throw new Error(`Freepik vídeo submit ${submit.status}: ${t.slice(0, 300)}`);
+    // 404 normalmente = slug del modelo no existe en Freepik. Mensaje claro
+    // para que el usuario sepa qué configurar sin tener que abrir el repo.
+    if (submit.status === 404) {
+      throw new Error(
+        `Freepik no conoce el modelo "${slug}". Configura FREEPIK_VIDEO_MODEL en Railway con un slug válido (p.ej. kling-v2, kling-v2-1-pro, kling-v2-5).`
+      );
+    }
+    throw new Error(`Freepik vídeo submit ${submit.status} (modelo "${slug}"): ${t.slice(0, 300)}`);
   }
   const sub = await submit.json();
   const taskId = sub?.data?.task_id ?? sub?.data?.id ?? sub?.task_id;
