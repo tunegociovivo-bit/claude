@@ -199,6 +199,13 @@ const SECTIONS: AdminSection[] = [
     icon: Users,
     cards: [
       {
+        href: "/admin/personalizar",
+        title: "Personalizar Hub",
+        description:
+          "Elige qué pestañas y secciones quieres ver en tu menú lateral. Preferencia personal por usuario.",
+        icon: Palette
+      },
+      {
         href: "/admin/usuarios",
         title: "Usuarios y permisos",
         description:
