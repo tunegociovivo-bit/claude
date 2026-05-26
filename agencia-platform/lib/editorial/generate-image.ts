@@ -33,8 +33,11 @@ type Size = "1024x1024" | "1024x1536" | "1536x1024";
  * Llama a OpenAI /v1/images/edits con reference images. Equivale al
  * camino "image-to-image" del plugin (gpt-image-2 con multipart).
  * Multiples refs vía campo image[]; single ref vía campo image.
+ * Exportada: la usa también el pipeline de vídeo para generar las
+ * imágenes de cada toma con las mismas fotos de referencia (roster del
+ * cliente), de modo que las caras reales sí aparezcan en el vídeo.
  */
-async function openaiImagesEdits(opts: {
+export async function openaiImagesEdits(opts: {
   apiKey: string;
   prompt: string;
   size: string;
