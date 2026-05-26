@@ -771,6 +771,11 @@ model EditorialPost {
   // para esta publicación. Si está, la IA la usa como guía de estilo
   // (imagen de referencia) con intensidad patternStrength.
   patternTemplateId String?
+  // Aspect ratio elegido por el usuario al crear el post (ej "1:1", "16:9",
+  // "9:16", "4:3", "3:4", "2:3", "3:2", "2:1", "3:1", "21:9"). Null o "auto"
+  // = derivado del formato según los defaults del cliente. La generación de
+  // imagen/vídeo lo usa para fijar las dimensiones de la salida.
+  aspectRatio    String?
   metaJson       Json? // resto de ACF / metadatos
   legacyWpId     Int?      @unique
   metricoolJobId String? // reservado para integración API directa (futura)

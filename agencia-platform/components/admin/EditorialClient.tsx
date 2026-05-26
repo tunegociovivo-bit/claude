@@ -55,6 +55,7 @@ type EditorialPost = {
   visualPattern?: string | null;
   patternStrength?: number | null;
   patternTemplateId?: string | null;
+  aspectRatio?: string | null;
   copyByNetwork?: Record<string, string> | null;
   metaJson?: any;
   revisions?: Array<{
@@ -249,6 +250,9 @@ export default function EditorialClient() {
   }, [filterClient]);
   const [filterFormat, setFilterFormat] = useState("ALL");
   const [formOpen, setFormOpen] = useState(false);
+  // Fecha preseleccionada cuando se abre el modal tras clic en un día del
+  // calendario (YYYY-MM-DD). null = modo manual / botón "Nueva publicación".
+  const [newPostDate, setNewPostDate] = useState<string | null>(null);
   const [editing, setEditing] = useState<EditorialPost | null>(null);
   const [generateOpen, setGenerateOpen] = useState(false);
   const [metricoolOpen, setMetricoolOpen] = useState(false);
@@ -718,6 +722,7 @@ export default function EditorialClient() {
                   className="border-r border-b last:border-r-0 p-1.5 overflow-hidden hover:bg-brand-50/20 transition cursor-pointer"
                   onClick={() => {
                     setEditing(null);
+                    setNewPostDate(iso);
                     setFormOpen(true);
                   }}
                   onDragOver={(e) => {
@@ -892,12 +897,13 @@ export default function EditorialClient() {
 
       <PostFormModal
         open={formOpen}
-        onClose={() => setFormOpen(false)}
+        onClose={() => { setFormOpen(false); setNewPostDate(null); }}
         post={editing}
         clients={clients}
         defaultMonth={month}
         defaultClientId={filterClient !== "ALL" ? filterClient : undefined}
-        onSaved={() => { setFormOpen(false); load(); }}
+        defaultDateIso={newPostDate ?? undefined}
+        onSaved={() => { setFormOpen(false); setNewPostDate(null); load(); }}
       />
 
       <GenerateMonthModal
@@ -2002,6 +2008,7 @@ function PostFormModal({
   clients,
   defaultMonth,
   defaultClientId,
+  defaultDateIso,
   onSaved
 }: {
   open: boolean;
@@ -2010,6 +2017,10 @@ function PostFormModal({
   clients: UiClient[];
   defaultMonth: string;
   defaultClientId?: string;
+  /** Si se abre el modal en modo "nuevo" tras hacer clic en un día del
+   *  calendario, ese día llega aquí (YYYY-MM-DD) para preseleccionar la
+   *  fecha en lugar del default genérico del día 15 del mes. */
+  defaultDateIso?: string;
   onSaved: () => void;
 }) {
   const isEdit = !!post;
@@ -2031,6 +2042,7 @@ function PostFormModal({
     networks: [] as string[],
     hashtags: "",
     firstComment: "",
+    aspectRatio: "auto",
     copyByNetwork: {} as Record<string, string>
   });
   const [saving, setSaving] = useState(false);
@@ -2113,25 +2125,30 @@ function PostFormModal({
         networks: nets,
         hashtags: post.hashtags ?? "",
         firstComment: post.firstComment ?? "",
+        aspectRatio: post.aspectRatio ?? "auto",
         copyByNetwork: (post.copyByNetwork as Record<string, string> | null) ?? {}
       });
     } else {
       const [y, m] = defaultMonth.split("-").map(Number);
+      // Si el modal se abrió tras hacer clic en un día concreto del
+      // calendario, usamos ese día (a las 10:00). Si no, el 15 del mes.
+      const dateForNew = defaultDateIso ?? `${defaultMonth}-15`;
       setForm({
         title: "",
         content: "",
         excerpt: "",
-        scheduledFor: `${defaultMonth}-15T10:00`,
+        scheduledFor: `${dateForNew}T10:00`,
         status: "DRAFT",
         format: "post",
         clientId: defaultClientId ?? clients[0]?.id ?? "",
         networks: ["instagram"],
         hashtags: "",
         firstComment: "",
+        aspectRatio: "auto",
         copyByNetwork: {}
       });
     }
-  }, [open, post, clients, defaultMonth, defaultClientId]);
+  }, [open, post, clients, defaultMonth, defaultClientId, defaultDateIso]);
 
   function toggleNetwork(n: string) {
     setForm((f) => ({ ...f, networks: f.networks.includes(n) ? f.networks.filter((x) => x !== n) : [...f.networks, n] }));
@@ -2266,6 +2283,7 @@ function PostFormModal({
       networks: form.networks,
       hashtags: form.hashtags || null,
       firstComment: form.firstComment || null,
+      aspectRatio: form.aspectRatio && form.aspectRatio !== "auto" ? form.aspectRatio : null,
       copyByNetwork: Object.keys(form.copyByNetwork).length > 0 ? form.copyByNetwork : null
     };
     if (form.scheduledFor) payload.scheduledFor = new Date(form.scheduledFor).toISOString();
@@ -2608,6 +2626,24 @@ function PostFormModal({
           </select>
           <select value={form.format} onChange={(e) => setForm({ ...form, format: e.target.value })} className="px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
             {["post", "reel", "story", "video", "blog", "email", "carousel"].map((x) => <option key={x} value={x}>{x}</option>)}
+          </select>
+          <select
+            value={form.aspectRatio}
+            onChange={(e) => setForm({ ...form, aspectRatio: e.target.value })}
+            className="px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+            title="Formato de medida: si lo dejas en 'auto' se usa el del cliente/formato"
+          >
+            <option value="auto">Auto (cliente)</option>
+            <option value="1:1">1:1 · Cuadrado</option>
+            <option value="2:1">2:1 · Horizontal</option>
+            <option value="3:1">3:1 · Banner</option>
+            <option value="2:3">2:3 · Retrato</option>
+            <option value="3:2">3:2 · Estándar</option>
+            <option value="3:4">3:4 · Tradicional</option>
+            <option value="4:3">4:3 · Clásico</option>
+            <option value="16:9">16:9 · Panorámico</option>
+            <option value="9:16">9:16 · Story / Reel</option>
+            <option value="21:9">21:9 · Ultrapanorámico</option>
           </select>
         </div>
         <input

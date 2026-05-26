@@ -20,7 +20,11 @@ const createSchema = z.object({
   mediaUrls: z.array(z.string().url()).default([]),
   copyByNetwork: z.record(z.string(), z.string()).optional(),
   hashtags: z.string().optional(),
-  firstComment: z.string().optional()
+  firstComment: z.string().optional(),
+  // Aspect ratio elegido en el modal "Nueva publicación". Null/"auto" =
+  // derivado del formato + ficha del cliente. Cualquier "W:H" (1:1, 16:9, …)
+  // se respeta en la generación de imagen/vídeo.
+  aspectRatio: z.string().optional().nullable()
 });
 
 export const GET = withApi({ scope: "*" }, async (req, { api }) => {
@@ -71,7 +75,8 @@ export const POST = withApi({ scope: "*" }, async (req, { api }) => {
       mediaUrls: JSON.stringify(parsed.data.mediaUrls ?? []),
       copyByNetwork: parsed.data.copyByNetwork ?? undefined,
       hashtags: parsed.data.hashtags ?? null,
-      firstComment: parsed.data.firstComment ?? null
+      firstComment: parsed.data.firstComment ?? null,
+      aspectRatio: parsed.data.aspectRatio ?? null
     }
   });
   return NextResponse.json(created, { status: 201 });

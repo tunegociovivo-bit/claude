@@ -120,6 +120,25 @@ export async function openaiImagesEdits(opts: {
   return Buffer.from(b64, "base64");
 }
 
+/** Convierte un aspect ratio "W:H" elegido por el usuario (p.ej. "16:9",
+ *  "9:16", "1:1") en una caja de dimensiones que pickOpenAiSize /
+ *  pickFreepikSize puedan mapear al tamaño soportado más cercano. Devuelve
+ *  null si la cadena no es válida o si llega "auto" (entonces se aplica el
+ *  default del cliente/formato). */
+export function parseAspectRatioDims(
+  ar: string | null | undefined
+): { width: number; height: number } | null {
+  if (!ar || ar === "auto") return null;
+  const m = /^(\d+):(\d+)$/.exec(ar.trim());
+  if (!m) return null;
+  const w = Number(m[1]);
+  const h = Number(m[2]);
+  if (!w || !h) return null;
+  const base = 1024;
+  if (w >= h) return { width: Math.round(base * (w / h)), height: base };
+  return { width: base, height: Math.round(base * (h / w)) };
+}
+
 export function pickOpenAiSize(width: number, height: number): Size {
   const r = width / height;
   // Umbrales agresivos hacia square: gpt-image-2 con 1024x1536 o
@@ -227,7 +246,10 @@ export async function generateImageForPost(opts: GenerateImageOptions): Promise<
   const client = post.client;
   const format = (opts.format ?? (post.format as EditorialFormat) ?? "imagen") as EditorialFormat;
   const dims = (client?.dimensionsByFormat as DimensionsByFormat | null) ?? defaultDimensionsByFormat();
-  const dim = dims[format] ?? dims.imagen;
+  // Si la publicación tiene un aspect ratio elegido por el usuario en el
+  // modal (ej "16:9"), lo usamos en vez del default por formato.
+  const arDim = parseAspectRatioDims((post as any).aspectRatio ?? null);
+  const dim = arDim ?? dims[format] ?? dims.imagen;
   const size = pickOpenAiSize(dim.width, dim.height);
 
   // Build prompt. Si el post ya tiene un imagePrompt estructurado generado
