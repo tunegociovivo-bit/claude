@@ -155,6 +155,76 @@ export const VISUAL_PATTERNS = [
     description: "Fondo oscuro elegante, dorados/acentos, sensación premium y exclusiva.",
     promptHint:
       "luxury dark aesthetic, deep dark background, gold/metallic accents, elegant premium exclusive mood, dramatic lighting"
+  },
+  {
+    key: "cinematic",
+    label: "Cinemático",
+    description: "Estética de cine: paleta teal/orange, grano de película, profundidad de campo marcada.",
+    promptHint:
+      "cinematic film still, anamorphic look, teal-and-orange color grading, subtle film grain, shallow depth of field, dramatic mood, widescreen-feel composition"
+  },
+  {
+    key: "vintage",
+    label: "Vintage / Retro",
+    description: "Paleta sepia/años 70-80, tipografías retro, sensación analógica y nostálgica.",
+    promptHint:
+      "vintage retro aesthetic, warm sepia/70s-80s palette, slightly faded analog look, retro-style typography hints, nostalgic mood, soft natural light"
+  },
+  {
+    key: "pastel",
+    label: "Pastel / Wellness",
+    description: "Colores pasteles suaves, luz difusa. Perfecto para wellness, beauty soft, infantil.",
+    promptHint:
+      "soft pastel palette, milky/dreamy diffused light, airy and gentle composition, wellness/spa/beauty mood, calm and feminine premium feel"
+  },
+  {
+    key: "handdrawn",
+    label: "Ilustrado / Dibujado a mano",
+    description: "Estilo ilustración con trazos dibujados a mano, doodles y notas decorativas.",
+    promptHint:
+      "hand-drawn illustration style, sketchy line art, handwritten doodles and notes as decorative accents, marker/pen texture, friendly editorial-illustration vibe"
+  },
+  {
+    key: "brutalism",
+    label: "Brutalismo",
+    description: "Tipografía enorme, layouts crudos, contrastes duros, estética anti-pulida.",
+    promptHint:
+      "brutalist web/print design, oversized raw typography, hard contrasts, unrefined grid breaks, harsh black/white with brand accent, intentional rough edges"
+  },
+  {
+    key: "y2k_chrome",
+    label: "Y2K / Cromado",
+    description: "Futurismo retro Y2K, gradientes vibrantes y reflejos cromados/líquidos.",
+    promptHint:
+      "Y2K aesthetic, glossy chrome/liquid metal accents, vibrant gradients, futuristic 2000s pop vibe, holographic highlights, bold modern typography hints"
+  },
+  {
+    key: "botanical",
+    label: "Botánico / Natural",
+    description: "Verdes, hojas, texturas orgánicas. Para wellness, eco, herbal, hortícola.",
+    promptHint:
+      "botanical natural composition, leaves and foliage framing, organic earthy palette of greens and warm neutrals, soft daylight, eco/herbal mood"
+  },
+  {
+    key: "typographic",
+    label: "Tipográfico",
+    description: "Mensaje protagonista: tipografía enorme, casi sin imagen. Foco total en el texto.",
+    promptHint:
+      "type-first composition, oversized expressive typography as the main visual element, minimal photographic content, strong brand-color background, editorial poster feel"
+  },
+  {
+    key: "overhead_flatlay",
+    label: "Flat lay (vista cenital)",
+    description: "Composición desde arriba (cenital). Ideal para producto, restaurantes, food, retail.",
+    promptHint:
+      "overhead top-down flat lay composition, objects arranged on a clean surface, natural soft light, magazine-style food/product styling, generous negative space"
+  },
+  {
+    key: "isometric_3d",
+    label: "3D isométrico",
+    description: "Render 3D isométrico moderno (tech, SaaS, ilustración corporativa amigable).",
+    promptHint:
+      "modern isometric 3D render illustration, clean geometric shapes, soft shadows, friendly tech/SaaS aesthetic, brand-color palette, subtle gradients"
   }
 ] as const;
 
