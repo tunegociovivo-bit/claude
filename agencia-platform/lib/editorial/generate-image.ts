@@ -83,19 +83,37 @@ export async function openaiImagesEdits(opts: {
 
   const t2 = Date.now();
   console.log(`[openaiImagesEdits] enviando ${added} refs a OpenAI gpt-image-2, quality=${opts.quality}, size=${opts.size}`);
-  const resp = await fetch("https://api.openai.com/v1/images/edits", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${opts.apiKey}` },
-    body: formData,
-    // Hasta 180s — gpt-image-2 con 5 refs medium suele tardar 60-120s.
-    signal: AbortSignal.timeout(180000)
-  });
-  const t3 = Date.now();
-  console.log(`[openaiImagesEdits] OpenAI respondió en ${((t3 - t2) / 1000).toFixed(1)}s con status ${resp.status} (total con refs: ${((t3 - t0) / 1000).toFixed(1)}s)`);
-  if (!resp.ok) {
-    const txt = await resp.text();
-    throw new Error(`OpenAI Images Edits ${resp.status}: ${txt.slice(0, 400)}`);
+  // OpenAI Images/edits a veces devuelve 5xx transitorios (Cloudflare 502
+  // tras el timeout del edge, 503 por sobrecarga). Reintentamos hasta 2
+  // veces con backoff antes de fallar al usuario.
+  let resp: Response | null = null;
+  let lastErrTxt = "";
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    const r = await fetch("https://api.openai.com/v1/images/edits", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${opts.apiKey}` },
+      body: formData,
+      // Hasta 180s — gpt-image-2 con 5 refs medium suele tardar 60-120s.
+      signal: AbortSignal.timeout(180000)
+    });
+    const t3 = Date.now();
+    console.log(`[openaiImagesEdits] intento ${attempt} → status ${r.status} en ${((t3 - t2) / 1000).toFixed(1)}s (total con refs: ${((t3 - t0) / 1000).toFixed(1)}s)`);
+    if (r.ok) {
+      resp = r;
+      break;
+    }
+    // Solo reintentamos en 5xx (caída/sobrecarga upstream); 4xx son
+    // errores deterministas (auth, política, validación) y no mejoran.
+    if (r.status < 500 || r.status >= 600 || attempt === 3) {
+      lastErrTxt = (await r.text().catch(() => "")).slice(0, 400);
+      throw new Error(`OpenAI Images Edits ${r.status}: ${lastErrTxt}`);
+    }
+    lastErrTxt = (await r.text().catch(() => "")).slice(0, 200);
+    const wait = attempt === 1 ? 5000 : 12000;
+    console.log(`[openaiImagesEdits] reintentando en ${wait}ms tras ${r.status}: ${lastErrTxt.slice(0, 120)}`);
+    await new Promise((res) => setTimeout(res, wait));
   }
+  if (!resp) throw new Error(`OpenAI Images Edits: sin respuesta tras reintentos. ${lastErrTxt}`);
   const data = await resp.json();
   const b64 = data?.data?.[0]?.b64_json;
   if (!b64) throw new Error("OpenAI /edits no devolvió b64_json");
