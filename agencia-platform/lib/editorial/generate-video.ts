@@ -526,9 +526,25 @@ export async function generatePostVideo(opts: {
   const client: any = post.client;
 
   const format = (post as any).format ?? "reel";
-  const vertical = format === "reel" || format === "story";
-  const imageSize = vertical ? "1024x1536" : "1536x1024";
-  const aspectRatio = vertical ? "9:16" : "16:9";
+  // Aspect ratio: si el usuario lo eligió en el modal (p.ej. "1:1", "16:9",
+  // "9:16"), gana sobre el default por formato. Si no, vertical para
+  // reel/story y horizontal para el resto.
+  const { parseAspectRatioDims, pickOpenAiSize } = await import("./generate-image");
+  const arDim = parseAspectRatioDims((post as any).aspectRatio ?? null);
+  let imageSize: string;
+  let aspectRatio: string;
+  if (arDim) {
+    const s = pickOpenAiSize(arDim.width, arDim.height);
+    imageSize = s;
+    aspectRatio = (post as any).aspectRatio as string;
+  } else {
+    const v = format === "reel" || format === "story";
+    imageSize = v ? "1024x1536" : "1536x1024";
+    aspectRatio = v ? "9:16" : "16:9";
+  }
+  // Re-derivamos vertical desde imageSize por si más adelante lo necesita
+  // el render (overlay, subtítulos, etc.).
+  const vertical = imageSize === "1024x1536";
   const nShots = Math.max(1, Math.min(opts.shots ?? 2, 4));
 
   const baseCtx = buildVideoPrompt({
