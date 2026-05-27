@@ -9,6 +9,9 @@ const createSchema = z.object({
   keyword: z.string().min(2).max(120),
   location: z.string().max(120).optional().default(""),
   scope: z.enum(["custom", "spain"]).default("custom"),
+  // Búsqueda incremental + dedup cross-keyword: saltar leads cuyo placeId
+  // ya esté en otra búsqueda del workspace.
+  skipExisting: z.boolean().optional().default(false),
   // Legacy field, ignorado si llega
   provincesScope: z.array(z.string()).optional()
 });
@@ -37,7 +40,8 @@ export const POST = withApi({ scope: "*" }, async (req, { api }) => {
     userId: api.userId,
     keyword: parsed.data.keyword,
     location: parsed.data.location,
-    scope: parsed.data.scope
+    scope: parsed.data.scope,
+    skipExisting: parsed.data.skipExisting
   });
   return NextResponse.json(out, { status: 201 });
 });

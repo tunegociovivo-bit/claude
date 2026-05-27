@@ -219,6 +219,44 @@ export async function ingestInbox(opts: {
         clientId: null
       }).catch((e) => console.warn("[nv-ia inbound-whatsapp]:", e?.message ?? e));
     } catch {}
+
+    // Notificación directa a David por WhatsApp cuando un lead muestra
+    // INTERÉS: número configurado en settings.leads.notifyInterestedPhone.
+    // Fire-and-forget: el webhook no se bloquea si la notificación falla.
+    if (classified.classification === "interested") {
+      const notifyTo: string | undefined =
+        (ws?.settings as any)?.leads?.notifyInterestedPhone;
+      if (notifyTo) {
+        const notifyNormalized = normalizePhone(notifyTo, countryCode);
+        if (notifyNormalized) {
+          const summary = [
+            `🔥 Lead interesado`,
+            leadName ? `• Negocio: ${leadName}` : null,
+            `• Teléfono: ${phoneNormalized}`,
+            `• Mensaje: "${opts.text.slice(0, 220)}${opts.text.length > 220 ? "…" : ""}"`,
+            classified.confidence
+              ? `• Confianza IA: ${Math.round(classified.confidence * 100)}%`
+              : null,
+            ``,
+            `Abre la conversación en el Hub para responder.`
+          ]
+            .filter(Boolean)
+            .join("\n");
+          void (async () => {
+            try {
+              const { sendText } = await import("./waha");
+              await sendText({
+                workspaceId: opts.workspaceId,
+                phoneNormalized: notifyNormalized,
+                text: summary
+              });
+            } catch (e: any) {
+              console.warn("[inbox notify-interested]:", e?.message ?? e);
+            }
+          })();
+        }
+      }
+    }
   }
 
   return { messageId: msg.id, classification: classified.classification, leadId };
