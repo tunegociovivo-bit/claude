@@ -60,28 +60,10 @@ export default function RegistroNegocio() {
       <main className="max-w-2xl mx-auto px-4 py-12">
         <h1 className="text-3xl font-bold mb-3">¡Bienvenido a Bipi!</h1>
         <p className="text-slate-700 mb-6">
-          Tu negocio está dado de alta. Imprime este QR y ponlo en tu caja para
-          que los clientes lo escaneen. Cada escaneo te hace más visible en la red.
+          Tu negocio está dado de alta. Elige un estilo de cartel, imprime el PNG y ponlo en la caja.
+          Cada escaneo te hace más visible en la red.
         </p>
-        <div className="rounded-2xl bg-white border p-6 shadow-sm text-center">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={result.qrPngUrl}
-            alt="QR del negocio"
-            className="mx-auto rounded-lg border max-w-xs"
-          />
-          <p className="mt-4 text-xs font-mono break-all text-slate-500">{result.scanUrl}</p>
-          <a
-            href={result.qrPngUrl}
-            download="bipi-qr.png"
-            className="mt-4 inline-block px-4 py-2 rounded-full bg-amber-600 hover:bg-amber-700 text-white text-sm font-medium"
-          >
-            Descargar PNG del QR
-          </a>
-        </div>
-        <p className="text-xs text-slate-500 mt-6">
-          Próximamente: cartel auto-generado con IA + login del panel del negocio.
-        </p>
+        <PosterPicker businessId={result.businessId} qrPngUrl={result.qrPngUrl} scanUrl={result.scanUrl} />
       </main>
     );
   }
@@ -205,6 +187,64 @@ export default function RegistroNegocio() {
         }
       `}</style>
     </main>
+  );
+}
+
+function PosterPicker({ businessId, qrPngUrl, scanUrl }: { businessId: string; qrPngUrl: string; scanUrl: string }) {
+  const [style, setStyle] = useState<"cosy" | "bold" | "fresh">("cosy");
+  const posterUrl = `/api/bipi/business/${businessId}/poster.png?style=${style}&t=${style}`;
+  return (
+    <div className="space-y-4">
+      <div className="rounded-2xl bg-white border p-4 shadow-sm">
+        <div className="flex items-center justify-center gap-2 mb-3 flex-wrap">
+          {(["cosy", "bold", "fresh"] as const).map((s) => (
+            <button
+              key={s}
+              onClick={() => setStyle(s)}
+              className={
+                "px-3 py-1.5 rounded-full text-xs font-medium border " +
+                (style === s ? "bg-amber-600 text-white border-amber-600" : "bg-white border-slate-200 text-slate-600")
+              }
+            >
+              {s === "cosy" ? "🌅 Cálido" : s === "bold" ? "🎯 Atrevido" : "🌿 Fresco"}
+            </button>
+          ))}
+        </div>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          key={style}
+          src={posterUrl}
+          alt="Cartel del negocio"
+          className="w-full rounded-xl border bg-slate-50"
+        />
+        <div className="flex items-center justify-between gap-2 mt-4">
+          <a
+            href={posterUrl}
+            download={`bipi-cartel-${style}.png`}
+            className="flex-1 text-center inline-block px-4 py-2 rounded-full bg-amber-600 hover:bg-amber-700 text-white text-sm font-medium"
+          >
+            Descargar cartel ({style})
+          </a>
+          <a
+            href={qrPngUrl}
+            download="bipi-qr.png"
+            className="flex-1 text-center inline-block px-4 py-2 rounded-full border bg-white hover:bg-slate-50 text-sm"
+          >
+            Solo QR
+          </a>
+        </div>
+      </div>
+      <details className="bg-slate-50 rounded-xl p-3 text-xs text-slate-600">
+        <summary className="cursor-pointer">URL del QR ↗</summary>
+        <p className="font-mono break-all mt-2">{scanUrl}</p>
+      </details>
+      <a
+        href="/bipi/negocio"
+        className="block text-center text-sm text-amber-700 hover:underline mt-4"
+      >
+        → Ir al panel del negocio
+      </a>
+    </div>
   );
 }
 
