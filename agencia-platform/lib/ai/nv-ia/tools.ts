@@ -939,7 +939,8 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
         name: { type: "string" },
         source: { type: "string", enum: ["page", "instagram", "lead_form", "video"] },
         sourceId: { type: "string", description: "pageId | ig business id | leadFormId | videoId según source." },
-        retentionDays: { type: "number", description: "Ventana de retención en días (1-365, default 365)." }
+        retentionDays: { type: "number", description: "Ventana de retención en días (1-365, default 365)." },
+        adAccountId: { type: "string", description: "Opcional. Override del Ad Account (act_XXX) para crear la audience en la cuenta correcta." }
       },
       required: ["name", "source", "sourceId"],
       additionalProperties: false
@@ -992,7 +993,8 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
         headline: { type: "string", description: "Headline corto (40 chars max, debajo de la imagen)." },
         description: { type: "string", description: "Descripción opcional." },
         callToAction: { type: "string", description: "CTA: LEARN_MORE, SIGN_UP, GET_QUOTE, CONTACT_US, GET_OFFER, BOOK_NOW. Default SIGN_UP para Lead Ads.", enum: ["LEARN_MORE", "SIGN_UP", "GET_QUOTE", "CONTACT_US", "GET_OFFER", "BOOK_NOW", "DOWNLOAD", "APPLY_NOW"] },
-        followUpActionUrl: { type: "string", description: "URL opcional donde mandar al user tras enviar el form (gracias-page)." }
+        followUpActionUrl: { type: "string", description: "URL opcional donde mandar al user tras enviar el form (gracias-page)." },
+        adAccountId: { type: "string", description: "Opcional. Override del Ad Account (act_XXX) para clientes con cuenta publicitaria propia." }
       },
       required: ["campaignName", "pageId", "dailyBudgetEur", "countries", "formName", "formQuestions", "privacyPolicyUrl", "imageFileId", "adName", "primaryText"],
       additionalProperties: false
@@ -1009,7 +1011,8 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
         dailyBudgetEur: { type: "number" },
         lifetimeBudgetEur: { type: "number", description: "Alternativo a dailyBudgetEur." },
         status: { type: "string", enum: ["PAUSED", "ACTIVE"] },
-        forceCreate: { type: "boolean", description: "Crea una campaña nueva aunque esta task ya tenga una registrada (salta el dedupe). Útil si la anterior se borró o quieres un A/B." }
+        forceCreate: { type: "boolean", description: "Crea una campaña nueva aunque esta task ya tenga una registrada (salta el dedupe). Útil si la anterior se borró o quieres un A/B." },
+        adAccountId: { type: "string", description: "Opcional. Override del Ad Account (act_XXX)." }
       },
       required: ["name", "objective"],
       additionalProperties: false
@@ -1077,7 +1080,8 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
           type: "boolean",
           description:
             "Crea OTRO adset aunque esta task ya tenga uno registrado (salta el dedupe). ÚSALO cuando necesitas un SEGUNDO adset en la misma campaña (p.ej. el adset de REMARKETING además del de frío)."
-        }
+        },
+        adAccountId: { type: "string", description: "Opcional. Override del Ad Account (act_XXX)." }
       },
       required: ["campaignId", "name", "targeting"],
       additionalProperties: false
@@ -1119,7 +1123,8 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
         privacyPolicyUrl: { type: "string" },
         privacyPolicyLinkText: { type: "string" },
         followUpActionUrl: { type: "string" },
-        locale: { type: "string" }
+        locale: { type: "string" },
+        adAccountId: { type: "string", description: "Opcional. Override del Ad Account (act_XXX)." }
       },
       required: ["pageId", "name", "questions", "privacyPolicyUrl"],
       additionalProperties: false
@@ -1132,7 +1137,8 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
       type: "object",
       properties: {
         fileId: { type: "string", description: "ID del File (de list_task_files o del campo de archivos del formulario)." },
-        url: { type: "string", description: "Alternativa: URL de la imagen (p.ej. la del formulario). El servidor la descarga y la sube a Meta." }
+        url: { type: "string", description: "Alternativa: URL de la imagen (p.ej. la del formulario). El servidor la descarga y la sube a Meta." },
+        adAccountId: { type: "string", description: "Opcional. Override del Ad Account (act_XXX) para subir la imagen a la cuenta correcta." }
       },
       additionalProperties: false
     }
@@ -1145,7 +1151,8 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
       type: "object",
       properties: {
         fileId: { type: "string", description: "ID del File del vídeo." },
-        url: { type: "string", description: "Alternativa: URL del vídeo." }
+        url: { type: "string", description: "Alternativa: URL del vídeo." },
+        adAccountId: { type: "string", description: "Opcional. Override del Ad Account (act_XXX)." }
       },
       additionalProperties: false
     }
@@ -1172,7 +1179,8 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
           }
         },
         callToAction: { type: "string", description: "Default SIGN_UP. Otros: LEARN_MORE, GET_QUOTE, CONTACT_US…" },
-        link: { type: "string", description: "URL https válida (privacidad/home del cliente)." }
+        link: { type: "string", description: "URL https válida (privacidad/home del cliente)." },
+        adAccountId: { type: "string", description: "Opcional. Override del Ad Account (act_XXX)." }
       },
       required: ["name", "pageId", "leadFormId", "imageHashes", "primaryText"],
       additionalProperties: false
@@ -1222,7 +1230,7 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
   },
   {
     name: "meta_ads_create_ad",
-    description: "Crea un ad concreto (el último paso): adset + creative ya existentes. Status PAUSED por defecto. El dedupe es POR ADSET: puedes añadir varios ads a la misma campaña creando uno por cada adset (vídeo, carrusel, remarketing) sin que devuelva el primero. Para crear DOS ads en el MISMO adset (A/B de creatividad), pasa forceCreate:true en el segundo.",
+    description: "Crea un ad concreto (el último paso): adset + creative ya existentes. Status PAUSED por defecto. El dedupe es POR ADSET: puedes añadir varios ads a la misma campaña creando uno por cada adset (vídeo, carrusel, remarketing) sin que devuelva el primero. Para crear DOS ads en el MISMO adset (A/B de creatividad), pasa forceCreate:true en el segundo. Si trabajas en una Ad Account distinta a la default del workspace, pasa adAccountId explícito.",
     input_schema: {
       type: "object",
       properties: {
@@ -1230,7 +1238,8 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
         name: { type: "string" },
         creativeId: { type: "string" },
         status: { type: "string", enum: ["PAUSED", "ACTIVE"] },
-        forceCreate: { type: "boolean", description: "Crea OTRO ad aunque esta task ya tenga uno en ESTE adset (salta el dedupe). Útil para A/B de creatividad dentro del mismo adset." }
+        forceCreate: { type: "boolean", description: "Crea OTRO ad aunque esta task ya tenga uno en ESTE adset (salta el dedupe). Útil para A/B de creatividad dentro del mismo adset." },
+        adAccountId: { type: "string", description: "Override del Ad Account (act_XXX, id numérico o URL con ?act=) para campañas en cuentas que no son la default del workspace." }
       },
       required: ["adsetId", "name", "creativeId"],
       additionalProperties: false
@@ -4633,7 +4642,7 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
         description: input?.description ? String(input.description) : undefined,
         callToAction: input?.callToAction ? String(input.callToAction) : undefined,
         followUpActionUrl: input?.followUpActionUrl ? String(input.followUpActionUrl) : undefined,
-        adhoc: ctx.adhocCredentials
+        adhoc: adhocWithAdAccount(ctx.adhocCredentials, input?.adAccountId)
       });
       // Comentario informativo firmado por Sonia con resumen.
       if (result.ok) {
@@ -4716,7 +4725,7 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
         dailyBudgetEur: typeof input?.dailyBudgetEur === "number" ? input.dailyBudgetEur : undefined,
         lifetimeBudgetEur: typeof input?.lifetimeBudgetEur === "number" ? input.lifetimeBudgetEur : undefined,
         status: "PAUSED", // Política anti-bloqueo: Sonia siempre crea en PAUSA; activa el humano.
-        adhoc: ctx.adhocCredentials
+        adhoc: adhocWithAdAccount(ctx.adhocCredentials, input?.adAccountId)
       });
       // Campaña nueva → limpiamos adset/ad viejos del registro (pertenecían a
       // la campaña anterior; si los dejáramos, el dedupe de adset/ad los
@@ -4780,7 +4789,7 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
         bidStrategy: input?.bidStrategy as any,
         bidAmountCents:
           typeof input?.bidAmountCents === "number" ? input.bidAmountCents : undefined,
-        adhoc: ctx.adhocCredentials
+        adhoc: adhocWithAdAccount(ctx.adhocCredentials, input?.adAccountId)
       });
       await recordResources(ctx.taskId, { meta_ads: { adsetId: r.id } });
       return { ok: true, ...r };
@@ -4814,7 +4823,7 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
         privacyPolicyLinkText: input?.privacyPolicyLinkText ? String(input.privacyPolicyLinkText) : undefined,
         followUpActionUrl: input?.followUpActionUrl ? String(input.followUpActionUrl) : undefined,
         locale: input?.locale ? String(input.locale) : undefined,
-        adhoc: ctx.adhocCredentials
+        adhoc: adhocWithAdAccount(ctx.adhocCredentials, input?.adAccountId)
       });
       await recordResources(ctx.taskId, { meta_ads: { formId: r.id } });
       return { ok: true, ...r };
@@ -4829,7 +4838,7 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
         workspaceId: ctx.workspaceId,
         fileId: input?.fileId ? String(input.fileId) : undefined,
         url: input?.url ? String(input.url) : undefined,
-        adhoc: ctx.adhocCredentials
+        adhoc: adhocWithAdAccount(ctx.adhocCredentials, input?.adAccountId)
       });
       const { recordResources } = await import("@/lib/ai/nv-ia/resource-registry");
       await recordResources(ctx.taskId, { meta_ads: { imageHash: r.hash } });
@@ -4845,7 +4854,7 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
         workspaceId: ctx.workspaceId,
         fileId: input?.fileId ? String(input.fileId) : undefined,
         url: input?.url ? String(input.url) : undefined,
-        adhoc: ctx.adhocCredentials
+        adhoc: adhocWithAdAccount(ctx.adhocCredentials, input?.adAccountId)
       });
       return { ok: true, ...r };
     } catch (e: any) {
@@ -4865,7 +4874,7 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
         cards: Array.isArray(input?.cards) ? input.cards : undefined,
         callToAction: input?.callToAction ? String(input.callToAction) : undefined,
         link: input?.link ? String(input.link) : undefined,
-        adhoc: ctx.adhocCredentials
+        adhoc: adhocWithAdAccount(ctx.adhocCredentials, input?.adAccountId)
       });
       const { recordResources } = await import("@/lib/ai/nv-ia/resource-registry");
       await recordResources(ctx.taskId, { meta_ads: { creativeId: r.id } });
@@ -4889,7 +4898,7 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
         description: input?.description ? String(input.description) : undefined,
         callToAction: input?.callToAction ? String(input.callToAction) : undefined,
         link: input?.link ? String(input.link) : undefined,
-        adhoc: ctx.adhocCredentials
+        adhoc: adhocWithAdAccount(ctx.adhocCredentials, input?.adAccountId)
       });
       const { recordResources } = await import("@/lib/ai/nv-ia/resource-registry");
       await recordResources(ctx.taskId, { meta_ads: { creativeId: r.id } });
@@ -4907,7 +4916,7 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
         source: String(input?.source ?? "page") as any,
         sourceId: String(input?.sourceId ?? ""),
         retentionDays: typeof input?.retentionDays === "number" ? input.retentionDays : undefined,
-        adhoc: ctx.adhocCredentials
+        adhoc: adhocWithAdAccount(ctx.adhocCredentials, input?.adAccountId)
       });
       const { recordResources } = await import("@/lib/ai/nv-ia/resource-registry");
       await recordResources(ctx.taskId, { meta_ads: { customAudienceId: r.id } as any });
@@ -4930,7 +4939,7 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
         description: input?.description ? String(input.description) : undefined,
         callToAction: input?.callToAction ? String(input.callToAction) : undefined,
         link: input?.link ? String(input.link) : undefined,
-        adhoc: ctx.adhocCredentials
+        adhoc: adhocWithAdAccount(ctx.adhocCredentials, input?.adAccountId)
       });
       const { recordResources } = await import("@/lib/ai/nv-ia/resource-registry");
       await recordResources(ctx.taskId, { meta_ads: { creativeId: r.id } });
@@ -4974,7 +4983,7 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
         name: String(input?.name ?? ""),
         creativeId: String(input?.creativeId ?? ""),
         status: "PAUSED", // Política anti-bloqueo: Sonia siempre crea en PAUSA; activa el humano.
-        adhoc: ctx.adhocCredentials
+        adhoc: adhocWithAdAccount(ctx.adhocCredentials, input?.adAccountId)
       });
       await recordResources(ctx.taskId, {
         meta_ads: { adId: r.id, adIdsByAdset: { ...byAdset, ...(adsetId ? { [adsetId]: r.id } : {}) } }
