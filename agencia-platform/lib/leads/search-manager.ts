@@ -12,6 +12,7 @@ import { prisma } from "@/lib/db/prisma";
 import { placesTextSearch, type PlacesResult } from "./google-places";
 import { scoreLead } from "./scorer";
 import { SPAIN_PROVINCES, findProvince } from "./spain-provinces";
+import { classifyLeadsRelevance, type RelevanceVerdict } from "./relevance";
 
 export async function startSearch(opts: {
   workspaceId: string;
@@ -82,15 +83,35 @@ export async function processSearchBatch(opts: {
         lng: prov.lng || undefined,
         province: prov.name
       });
+      // Clasificación IA de relevancia: descarta resultados que NO encajan
+      // con el nicho real del keyword (p. ej. masajes terapéuticos cuando
+      // se buscaba "masajes eróticos"). Los descartados se guardan igual,
+      // pero con contactStatus="excluded" para que NO se encolen mensajes.
+      const valid = results.filter((r) => !!r.placeId);
+      const verdicts = await classifyLeadsRelevance({
+        workspaceId: opts.workspaceId,
+        keyword: search.keyword,
+        location: prov.name,
+        leads: valid.map((r) => ({
+          placeId: r.placeId!,
+          name: r.name,
+          category: r.category,
+          types: r.types,
+          formattedAddress: r.formattedAddress,
+          website: r.website
+        }))
+      });
       let position = 1;
       for (const r of results) {
         try {
+          const v = r.placeId ? verdicts.get(r.placeId) : null;
           await upsertLead({
             workspaceId: opts.workspaceId,
             searchId: search.id,
             province: prov.name,
             position: position++,
-            r
+            r,
+            aiRelevance: v ?? null
           });
           leadsInserted++;
         } catch (err) {
@@ -150,6 +171,7 @@ async function upsertLead(opts: {
   province: string;
   position: number;
   r: PlacesResult;
+  aiRelevance: RelevanceVerdict | null;
 }) {
   const { r } = opts;
   if (!r.placeId) return;
@@ -163,7 +185,7 @@ async function upsertLead(opts: {
     website: r.website
   });
 
-  // Check de exclusión por nombre
+  // Check de exclusión por nombre (lista negra manual del usuario).
   const exclusions = await prisma.leadExclusion.findMany({
     where: { workspaceId: opts.workspaceId, matchType: "name" }
   });
@@ -178,6 +200,14 @@ async function upsertLead(opts: {
       exclusionReason = ex.reason ?? `Patrón "${ex.matchValue}"`;
       break;
     }
+  }
+
+  // Si la IA marcó el lead como NO relevante con el keyword (p. ej. centro
+  // de masaje terapéutico cuando se busca "masajes eróticos"), lo guardamos
+  // pero excluido para que la cola de envío lo ignore.
+  if (!excluded && opts.aiRelevance && opts.aiRelevance.relevant === false) {
+    excluded = true;
+    exclusionReason = `IA: ${opts.aiRelevance.reason || "no encaja con el keyword"}`;
   }
 
   const data = {
@@ -209,15 +239,25 @@ async function upsertLead(opts: {
     notes: excluded ? `Excluido: ${exclusionReason}` : null
   };
 
+  // En re-búsquedas no degradamos el progreso del funnel: si el lead ya está
+  // como contactado / cliente / respondido / descartado manualmente, mantenemos
+  // ese estado aunque la IA cambie de opinión sobre la relevancia.
+  const existing = await prisma.lead.findUnique({
+    where: { workspaceId_placeId: { workspaceId: opts.workspaceId, placeId: r.placeId } },
+    select: { contactStatus: true, notes: true }
+  });
+  const preserveStatuses = new Set(["contacted", "responded", "client", "discarded"]);
+  const updateData: any = { ...data, aiOpener: null, aiOpenerGeneratedAt: null };
+  if (existing && preserveStatuses.has(existing.contactStatus)) {
+    updateData.contactStatus = existing.contactStatus;
+    updateData.notes = existing.notes;
+  }
+
   await prisma.lead.upsert({
     where: { workspaceId_placeId: { workspaceId: opts.workspaceId, placeId: r.placeId } },
     create: data,
     // En el update limpiamos también el aiOpener antiguo (legado del plugin
-    // WordPress) para que no aparezcan en el mensaje datos obsoletos —p.ej.
-    // "posición 24" cuando la nueva búsqueda dice "posición 13"—. El opener
-    // se regenerará a partir de los datos actuales si en el futuro se vuelve
-    // a generar; mientras tanto el placeholder {{opener_ia}} se renderiza
-    // vacío y el resto del mensaje sigue siendo válido.
-    update: { ...data, aiOpener: null, aiOpenerGeneratedAt: null }
+    // WordPress) para que no aparezcan datos obsoletos en el mensaje.
+    update: updateData
   });
 }
