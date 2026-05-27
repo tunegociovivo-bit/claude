@@ -3479,3 +3479,19 @@ model BipiPushLog {
 
   @@index([customerId, sentAt])
 }
+
+/// Suscripción Web Push de un cliente Bipi (PWA). Permite mandarle
+/// notificaciones de "tu cupón caduca en 4h" y "nuevo descuento cerca".
+/// Cuando el cliente desinstala la PWA o desactiva permisos, web-push
+/// devuelve 404/410 y la limpiamos automáticamente.
+model BipiPushSubscription {
+  id          String   @id @default(cuid())
+  customerId  String
+  endpoint    String   @unique
+  p256dh      String
+  authKey     String
+  userAgent   String?
+  createdAt   DateTime @default(now())
+
+  @@index([customerId])
+}
