@@ -172,6 +172,9 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
       {/* Plan + Upgrade */}
       <PlanCard business={b} />
 
+      {/* Editar perfil */}
+      <ProfileEditor business={b} token={session.token} onSaved={load} />
+
       {/* Cruces — la mina de datos */}
       <CrossShopperPanel businessId={b.id} />
 
@@ -219,6 +222,194 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
         )}
       </section>
     </main>
+  );
+}
+
+/** Editor de perfil del negocio. Permite cambiar descripción, dirección,
+ *  geo coords, logo URL, brand color y los % de descuento. Lo que se
+ *  cambie aquí impacta la página pública (/bipi/n/<slug>) y el cartel. */
+function ProfileEditor({ business, token, onSaved }: { business: any; token: string; onSaved: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState({
+    description: business.description ?? "",
+    address: business.address ?? "",
+    latitude: business.latitude ?? "",
+    longitude: business.longitude ?? "",
+    logoUrl: business.logoUrl ?? "",
+    brandColor: business.brandColor ?? "#FDF2E1",
+    defaultDiscountPct: business.defaultDiscountPct ?? 5,
+    crossDiscountPct: business.crossDiscountPct ?? 8,
+    purchaseMode: business.purchaseMode ?? "double_confirm"
+  });
+  const [saving, setSaving] = useState(false);
+  const [status, setStatus] = useState<{ kind: "ok" | "err"; msg: string } | null>(null);
+
+  async function save() {
+    setSaving(true);
+    setStatus(null);
+    try {
+      const payload: any = {};
+      if (form.description !== business.description) payload.description = form.description || null;
+      if (form.address !== business.address) payload.address = form.address || null;
+      if (form.latitude !== "" && Number(form.latitude) !== business.latitude) payload.latitude = Number(form.latitude);
+      if (form.longitude !== "" && Number(form.longitude) !== business.longitude) payload.longitude = Number(form.longitude);
+      if (form.logoUrl !== business.logoUrl) payload.logoUrl = form.logoUrl || null;
+      if (form.brandColor !== business.brandColor) payload.brandColor = form.brandColor || null;
+      if (Number(form.defaultDiscountPct) !== business.defaultDiscountPct) payload.defaultDiscountPct = Number(form.defaultDiscountPct);
+      if (Number(form.crossDiscountPct) !== business.crossDiscountPct) payload.crossDiscountPct = Number(form.crossDiscountPct);
+      if (form.purchaseMode !== business.purchaseMode) payload.purchaseMode = form.purchaseMode;
+      if (Object.keys(payload).length === 0) {
+        setStatus({ kind: "ok", msg: "Sin cambios." });
+        return;
+      }
+      const r = await fetch(`/api/bipi/business/${business.id}/profile`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify(payload)
+      });
+      const j = await r.json();
+      if (!r.ok) {
+        setStatus({ kind: "err", msg: j?.error?.message ?? `Error ${r.status}` });
+        return;
+      }
+      setStatus({ kind: "ok", msg: "Guardado." });
+      onSaved();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!open) {
+    return (
+      <section className="bg-white border rounded-xl p-5 shadow-sm flex items-center justify-between">
+        <div>
+          <h3 className="font-semibold text-sm">✏️ Editar perfil</h3>
+          <p className="text-xs text-slate-600">
+            Logo, descripción, dirección, color de marca y % de descuento.
+          </p>
+        </div>
+        <button
+          onClick={() => setOpen(true)}
+          className="px-3 py-1.5 rounded-lg border bg-white hover:bg-slate-50 text-xs font-medium"
+        >
+          Abrir editor
+        </button>
+      </section>
+    );
+  }
+
+  return (
+    <section className="bg-white border rounded-xl p-5 shadow-sm space-y-3">
+      <div className="flex items-center justify-between">
+        <h3 className="font-semibold text-sm">✏️ Editar perfil</h3>
+        <button onClick={() => setOpen(false)} className="text-xs text-slate-500 hover:underline">Cerrar</button>
+      </div>
+      <div className="grid sm:grid-cols-2 gap-2 text-xs">
+        <label>
+          <span className="block font-medium mb-1">Descripción</span>
+          <textarea
+            rows={3}
+            value={form.description}
+            onChange={(e) => setForm({ ...form, description: e.target.value })}
+            className="w-full px-2 py-1.5 border rounded bg-white"
+          />
+        </label>
+        <label>
+          <span className="block font-medium mb-1">URL del logo</span>
+          <input
+            value={form.logoUrl}
+            onChange={(e) => setForm({ ...form, logoUrl: e.target.value })}
+            placeholder="https://…"
+            className="w-full px-2 py-1.5 border rounded bg-white"
+          />
+        </label>
+        <label className="sm:col-span-2">
+          <span className="block font-medium mb-1">Dirección</span>
+          <input
+            value={form.address}
+            onChange={(e) => setForm({ ...form, address: e.target.value })}
+            className="w-full px-2 py-1.5 border rounded bg-white"
+          />
+        </label>
+        <label>
+          <span className="block font-medium mb-1">Latitud</span>
+          <input
+            type="number"
+            step="any"
+            value={form.latitude}
+            onChange={(e) => setForm({ ...form, latitude: e.target.value })}
+            className="w-full px-2 py-1.5 border rounded bg-white"
+          />
+        </label>
+        <label>
+          <span className="block font-medium mb-1">Longitud</span>
+          <input
+            type="number"
+            step="any"
+            value={form.longitude}
+            onChange={(e) => setForm({ ...form, longitude: e.target.value })}
+            className="w-full px-2 py-1.5 border rounded bg-white"
+          />
+        </label>
+        <label>
+          <span className="block font-medium mb-1">Color de marca</span>
+          <input
+            type="color"
+            value={form.brandColor}
+            onChange={(e) => setForm({ ...form, brandColor: e.target.value })}
+            className="w-full h-9 border rounded bg-white"
+          />
+        </label>
+        <label>
+          <span className="block font-medium mb-1">Modo de compra</span>
+          <select
+            value={form.purchaseMode}
+            onChange={(e) => setForm({ ...form, purchaseMode: e.target.value })}
+            className="w-full px-2 py-1.5 border rounded bg-white"
+          >
+            <option value="double_confirm">Doble confirmación (anti-fraude)</option>
+            <option value="express">Express (sin confirmar)</option>
+          </select>
+        </label>
+        <label>
+          <span className="block font-medium mb-1">% descuento al escanear</span>
+          <input
+            type="number"
+            min={3}
+            max={30}
+            value={form.defaultDiscountPct}
+            onChange={(e) => setForm({ ...form, defaultDiscountPct: Number(e.target.value) })}
+            className="w-full px-2 py-1.5 border rounded bg-white"
+          />
+        </label>
+        <label>
+          <span className="block font-medium mb-1">% descuento con cupón cruzado</span>
+          <input
+            type="number"
+            min={3}
+            max={30}
+            value={form.crossDiscountPct}
+            onChange={(e) => setForm({ ...form, crossDiscountPct: Number(e.target.value) })}
+            className="w-full px-2 py-1.5 border rounded bg-white"
+          />
+        </label>
+      </div>
+      <p className="text-[11px] text-slate-500">
+        Consejo: si no sabes lat/lng, búscalo en Google Maps (clic derecho → coordenadas). Sin coordenadas no se puede activar el geofencing ni el anti-fraude.
+      </p>
+      {status && (
+        <p className={"text-xs " + (status.kind === "ok" ? "text-emerald-700" : "text-rose-700")}>
+          {status.msg}
+        </p>
+      )}
+      <button
+        onClick={save}
+        disabled={saving}
+        className="w-full py-2 rounded-full bg-amber-600 hover:bg-amber-700 text-white text-sm font-medium disabled:opacity-50"
+      >
+        {saving ? "Guardando…" : "Guardar cambios"}
+      </button>
+    </section>
   );
 }
 
