@@ -3335,6 +3335,10 @@ model BipiBusiness {
   ownerPhone    String?
   // Quien lo refirió a Bipi (si vino vía QR de otro negocio).
   referrerId    String?
+  // Stripe billing — para suscripción Pro/Premium.
+  bipiStripeCustomerId  String?
+  bipiStripeSubscriptionId String?
+  planExpiresAt DateTime? // null o futuro = activo; pasado = volver a free.
   // Status.
   active        Boolean  @default(true)
   createdAt     DateTime @default(now())
