@@ -1563,6 +1563,7 @@ function NewSearchModal({ open, onClose, onSaved }: { open: boolean; onClose: ()
   const [keyword, setKeyword] = useState("");
   const [location, setLocation] = useState("");
   const [scope, setScope] = useState<"custom" | "spain">("custom");
+  const [skipExisting, setSkipExisting] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
@@ -1570,6 +1571,7 @@ function NewSearchModal({ open, onClose, onSaved }: { open: boolean; onClose: ()
     setKeyword("");
     setLocation("");
     setScope("custom");
+    setSkipExisting(false);
     setError(null);
     setSaving(false);
   }, [open]);
@@ -1581,7 +1583,7 @@ function NewSearchModal({ open, onClose, onSaved }: { open: boolean; onClose: ()
     const r = await fetch("/api/v1/leads/searches", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ keyword, location, scope })
+      body: JSON.stringify({ keyword, location, scope, skipExisting })
     });
     setSaving(false);
     if (!r.ok) {
@@ -1633,6 +1635,22 @@ function NewSearchModal({ open, onClose, onSaved }: { open: boolean; onClose: ()
             className="w-full px-3 py-2 rounded-lg border bg-white text-sm"
           />
         )}
+        <label className="flex items-start gap-2 p-2 rounded-md border bg-slate-50/60 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={skipExisting}
+            onChange={(e) => setSkipExisting(e.target.checked)}
+            className="mt-0.5 accent-brand-600"
+          />
+          <div className="flex-1">
+            <span className="text-xs font-medium text-slate-800">Solo nuevos negocios</span>
+            <p className="text-[11px] text-slate-500">
+              Saltar leads que ya estén en otra búsqueda anterior (por <code>placeId</code> de Google).
+              Útil al rebuscar el mismo keyword o keywords que se solapan
+              ("peluquería" vs "salón de belleza").
+            </p>
+          </div>
+        </label>
         {error && <p className="text-xs text-rose-600">{error}</p>}
       </div>
     </Modal>
@@ -1735,6 +1753,7 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
       evolutionUrl: s.evolutionUrl,
       evolutionInstance: s.evolutionInstance,
       whatsappCountryCode: s.whatsappCountryCode,
+      notifyInterestedPhone: s.notifyInterestedPhone ?? "",
       sendEnabled: s.sendEnabled,
       sendPaused: s.sendPaused,
       sendWindowStart: s.sendWindowStart,
@@ -1877,6 +1896,16 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
                 <p className="text-[11px] text-amber-700">WAHA Core no envía notas de voz (requiere WAHA Plus). Para voz gratis, cambia a Evolution API.</p>
               </>
             )}
+            <div className="mt-2">
+              <label className="block text-xs font-medium text-slate-700 mb-1">📱 Avisar a este teléfono cuando un lead conteste interesado</label>
+              <input
+                value={s.notifyInterestedPhone ?? ""}
+                onChange={(e) => setField("notifyInterestedPhone", e.target.value)}
+                placeholder="Ej: +34 600 11 22 33"
+                className="w-full px-3 py-2 rounded-lg border bg-white text-sm"
+              />
+              <p className="text-[11px] text-slate-500 mt-1">Te llega un WhatsApp inmediato cuando la IA clasifica una respuesta como interesada. Déjalo vacío para no recibir avisos.</p>
+            </div>
             <div className="text-[11px] text-slate-500 break-all">
               Webhook URL: <code>{typeof window !== "undefined" ? window.location.origin : ""}/api/v1/leads/webhook/{s.webhookToken}</code>
             </div>

@@ -884,6 +884,11 @@ model LeadSearch {
   completedAt        DateTime?
   errorMessage       String?   @db.Text
   legacyWpId         Int?      @unique
+  // Si true: leads cuyo placeId YA exista en otra búsqueda del workspace
+  // se saltan (búsqueda incremental + dedup cross-búsqueda). Se cuentan
+  // aparte como `leadsSkipped` para informar al usuario.
+  skipExisting       Boolean   @default(false)
+  leadsSkipped       Int       @default(0)
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @default(now()) @updatedAt
 

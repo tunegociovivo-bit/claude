@@ -20,6 +20,9 @@ export async function startSearch(opts: {
   keyword: string;
   location: string;
   scope: "custom" | "spain";
+  /** Si true, leads con placeId ya presente en otras búsquedas del workspace
+   *  se saltan (búsqueda incremental + dedup cross-búsqueda). */
+  skipExisting?: boolean;
 }): Promise<{ searchId: string; totalProvinces: number }> {
   const totalProvinces = opts.scope === "spain" ? SPAIN_PROVINCES.length : 1;
   const search = await prisma.leadSearch.create({
@@ -30,7 +33,8 @@ export async function startSearch(opts: {
       scope: opts.scope,
       totalProvinces,
       processedProvinces: 0,
-      status: "PENDING"
+      status: "PENDING",
+      skipExisting: !!opts.skipExisting
     }
   });
   return { searchId: search.id, totalProvinces };
@@ -44,13 +48,13 @@ export async function processSearchBatch(opts: {
   workspaceId: string;
   searchId: string;
   batchSize?: number;
-}): Promise<{ processed: number; pending: number; status: string; leadsInserted: number }> {
+}): Promise<{ processed: number; pending: number; status: string; leadsInserted: number; leadsSkipped: number }> {
   const search = await prisma.leadSearch.findFirst({
     where: { id: opts.searchId, workspaceId: opts.workspaceId }
   });
   if (!search) throw new Error("Búsqueda no encontrada");
   if (["COMPLETED", "FAILED"].includes(search.status)) {
-    return { processed: search.processedProvinces, pending: 0, status: search.status, leadsInserted: 0 };
+    return { processed: search.processedProvinces, pending: 0, status: search.status, leadsInserted: 0, leadsSkipped: 0 };
   }
 
   await prisma.leadSearch.update({
@@ -66,6 +70,7 @@ export async function processSearchBatch(opts: {
         : [{ name: search.location, capital: search.location, lat: 0, lng: 0, ccaa: "" }];
 
   let leadsInserted = 0;
+  let leadsSkipped = 0;
   // Si Places lanza error en alguna provincia, guardamos el último para
   // surfacearlo en la UI si la búsqueda acaba con 0 leads.
   let batchError: string | null = null;
@@ -105,15 +110,17 @@ export async function processSearchBatch(opts: {
       for (const r of results) {
         try {
           const v = r.placeId ? verdicts.get(r.placeId) : null;
-          await upsertLead({
+          const upsertOut = await upsertLead({
             workspaceId: opts.workspaceId,
             searchId: search.id,
             province: prov.name,
             position: position++,
             r,
-            aiRelevance: v ?? null
+            aiRelevance: v ?? null,
+            skipExisting: search.skipExisting
           });
-          leadsInserted++;
+          if (upsertOut?.skipped) leadsSkipped++;
+          else leadsInserted++;
         } catch (err) {
           console.error("[search-manager] upsert lead error:", err);
         }
@@ -158,11 +165,12 @@ export async function processSearchBatch(opts: {
       status: newStatus,
       errorMessage: errorToPersist ?? (newStatus === "COMPLETED" ? null : undefined),
       currentProvince: pending === 0 ? null : search.currentProvince,
-      completedAt: pending === 0 ? new Date() : null
+      completedAt: pending === 0 ? new Date() : null,
+      leadsSkipped: { increment: leadsSkipped }
     }
   });
 
-  return { processed: newProcessed, pending, status: newStatus, leadsInserted };
+  return { processed: newProcessed, pending, status: newStatus, leadsInserted, leadsSkipped };
 }
 
 async function upsertLead(opts: {
@@ -172,9 +180,25 @@ async function upsertLead(opts: {
   position: number;
   r: PlacesResult;
   aiRelevance: RelevanceVerdict | null;
-}) {
+  skipExisting?: boolean;
+}): Promise<{ skipped: boolean } | undefined> {
   const { r } = opts;
   if (!r.placeId) return;
+
+  // Búsqueda incremental: si el lead ya existe en OTRA búsqueda del workspace,
+  // lo saltamos en silencio. Esto cubre dos casos:
+  //   #7 rebuscar el mismo keyword sin reescribir lo ya recolectado;
+  //   #13 keyword distinto que solapa (peluquería vs salón de belleza) →
+  //        evita contactar dos veces a la misma ficha.
+  if (opts.skipExisting) {
+    const existingOther = await prisma.lead.findUnique({
+      where: { workspaceId_placeId: { workspaceId: opts.workspaceId, placeId: r.placeId } },
+      select: { id: true, searchId: true }
+    });
+    if (existingOther && existingOther.searchId && existingOther.searchId !== opts.searchId) {
+      return { skipped: true };
+    }
+  }
 
   // Calcular score
   const score = scoreLead({
