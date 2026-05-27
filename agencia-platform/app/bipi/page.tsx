@@ -5,9 +5,35 @@
 
 import Link from "next/link";
 
+const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? "https://hub.negociovivo.app";
+
+const ORG_JSON_LD = {
+  "@context": "https://schema.org",
+  "@type": "Organization",
+  name: "Bipi",
+  alternateName: "Bipi · Red de negocios locales",
+  url: `${SITE_URL}/bipi`,
+  logo: `${SITE_URL}/bipi/icon-512.png`,
+  description: "Red de negocios locales que se recomiendan entre sí. Cada compra te abre descuentos cerca. Piloto en Benalmádena.",
+  areaServed: {
+    "@type": "City",
+    name: "Benalmádena",
+    "@id": "https://www.wikidata.org/wiki/Q15683"
+  },
+  slogan: "Ahorra. Disfruta. Apoya local.",
+  parentOrganization: {
+    "@type": "Organization",
+    name: "Negocio Vivo"
+  }
+};
+
 export default function BipiHome() {
   return (
     <main className="max-w-5xl mx-auto px-4 pt-12 pb-24">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(ORG_JSON_LD) }}
+      />
       {/* HERO */}
       <section className="text-center">
         <span className="bipi-eyebrow bipi-fade-up">Nuevo · Piloto en Benalmádena</span>

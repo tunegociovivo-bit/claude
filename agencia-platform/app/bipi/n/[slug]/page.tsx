@@ -29,6 +29,8 @@ async function getBusiness(slug: string) {
       city: true,
       province: true,
       address: true,
+      latitude: true,
+      longitude: true,
       logoUrl: true,
       brandColor: true,
       defaultDiscountPct: true,
@@ -38,6 +40,20 @@ async function getBusiness(slug: string) {
       createdAt: true
     }
   });
+}
+
+/** Mapea categoría libre a un tipo de schema.org adecuado. */
+function categoryToSchemaType(category: string): string {
+  const c = category.toLowerCase();
+  if (c.includes("restaur")) return "Restaurant";
+  if (c.includes("café") || c.includes("cafe") || c.includes("bar")) return "CafeOrCoffeeShop";
+  if (c.includes("peluqu") || c.includes("barber") || c.includes("estét") || c.includes("estet") || c.includes("spa")) return "BeautySalon";
+  if (c.includes("gimnasio") || c.includes("fitness")) return "ExerciseGym";
+  if (c.includes("nutric") || c.includes("salud")) return "HealthAndBeautyBusiness";
+  if (c.includes("joy")) return "JewelryStore";
+  if (c.includes("flor")) return "Florist";
+  if (c.includes("tienda") || c.includes("moda") || c.includes("regalo")) return "Store";
+  return "LocalBusiness";
 }
 
 export async function generateMetadata({ params }: { params: { slug: string } }): Promise<Metadata> {
@@ -66,8 +82,58 @@ export default async function BusinessPublicPage({ params }: { params: { slug: s
     select: { slug: true, name: true, category: true, defaultDiscountPct: true }
   });
 
+  // JSON-LD para SEO: LocalBusiness + Offer. Google lo usa para rich
+  // snippets en búsquedas locales y Maps.
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://hub.negociovivo.app";
+  const businessUrl = `${siteUrl}/bipi/n/${business.slug}`;
+  const jsonLd = {
+    "@context": "https://schema.org",
+    "@type": categoryToSchemaType(business.category),
+    name: business.name,
+    description: business.description ?? `${business.name} en ${business.city}. Forma parte de la red Bipi: descuentos cruzados entre negocios locales.`,
+    url: businessUrl,
+    image: `${siteUrl}/api/bipi/business/${business.id}/poster.png`,
+    ...(business.address || business.city
+      ? {
+          address: {
+            "@type": "PostalAddress",
+            streetAddress: business.address ?? undefined,
+            addressLocality: business.city,
+            addressRegion: business.province ?? undefined,
+            addressCountry: "ES"
+          }
+        }
+      : {}),
+    ...(business.latitude != null && business.longitude != null
+      ? {
+          geo: {
+            "@type": "GeoCoordinates",
+            latitude: business.latitude,
+            longitude: business.longitude
+          }
+        }
+      : {}),
+    makesOffer: {
+      "@type": "Offer",
+      name: `Descuento Bipi ${business.defaultDiscountPct}%`,
+      description: `${business.defaultDiscountPct}% al escanear el QR de ${business.name} con la app Bipi. Y desbloqueas cupones en otros negocios cerca.`,
+      url: `${siteUrl}/bipi/scan/${business.id}`,
+      priceSpecification: {
+        "@type": "UnitPriceSpecification",
+        priceCurrency: "EUR",
+        price: 0,
+        valueAddedTaxIncluded: true
+      },
+      availability: "https://schema.org/InStock"
+    }
+  };
+
   return (
     <main className="max-w-3xl mx-auto px-4 py-12">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+      />
       <article className="bipi-card overflow-hidden bipi-fade-up">
         {/* Photo hero — estilo mockup */}
         <div
