@@ -769,6 +769,7 @@ function SearchesTable({ loading, items, onChanged }: { loading: boolean; items:
 
 function QueueTable({ loading, items, onChanged }: { loading: boolean; items: QueueRow[]; onChanged: () => void }) {
   const [processing, setProcessing] = useState(false);
+  const [tickResult, setTickResult] = useState<{ kind: "ok" | "warn" | "error"; text: string } | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -800,9 +801,37 @@ function QueueTable({ loading, items, onChanged }: { loading: boolean; items: Qu
 
   async function tick() {
     setProcessing(true);
-    await fetch("/api/v1/leads/queue/process", { method: "POST" });
-    setProcessing(false);
-    onChanged();
+    setTickResult(null);
+    try {
+      const r = await fetch("/api/v1/leads/queue/process", { method: "POST" });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        setTickResult({ kind: "error", text: d?.message ?? `Error HTTP ${r.status}` });
+      } else if (d?.processed && d?.status === "sent") {
+        setTickResult({ kind: "ok", text: "✓ Mensaje enviado." });
+      } else if (d?.processed && d?.status === "no_whatsapp") {
+        setTickResult({ kind: "warn", text: "Número sin WhatsApp — descartado." });
+      } else if (d?.processed && d?.status === "failed") {
+        setTickResult({ kind: "error", text: `Envío falló: ${d?.error ?? "sin detalle"}` });
+      } else {
+        const code = d?.error as string | undefined;
+        const reasons: Record<string, string> = {
+          queue_paused: "La cola está pausada o desactivada en Ajustes.",
+          outside_window: "Fuera de la ventana horaria configurada (Ajustes → Envío).",
+          daily_limit_reached: "Tope diario alcanzado.",
+          pacing_wait: "Aún no toca: hay que esperar el delay mínimo desde el último envío."
+        };
+        const human = code && reasons[code] ? reasons[code] : code
+          ? `No procesado: ${code}`
+          : "Nada que procesar ahora (revisa la fecha programada de los mensajes).";
+        setTickResult({ kind: "warn", text: human });
+      }
+    } catch (e: any) {
+      setTickResult({ kind: "error", text: e?.message ?? "Error de red" });
+    } finally {
+      setProcessing(false);
+      onChanged();
+    }
   }
   async function removeOne(id: string) {
     if (!confirm("¿Borrar este mensaje de la cola? No se enviará.")) return;
@@ -864,6 +893,20 @@ function QueueTable({ loading, items, onChanged }: { loading: boolean; items: Qu
         )}
         <span className="text-xs text-slate-500">{items.length} mensajes en cola/historial</span>
       </div>
+      {tickResult && (
+        <div
+          className={
+            "text-xs px-3 py-2 rounded border " +
+            (tickResult.kind === "ok"
+              ? "bg-emerald-50 border-emerald-200 text-emerald-800"
+              : tickResult.kind === "warn"
+                ? "bg-amber-50 border-amber-200 text-amber-800"
+                : "bg-rose-50 border-rose-200 text-rose-800")
+          }
+        >
+          {tickResult.text}
+        </div>
+      )}
       {items.length === 0 ? (
         <Empty msg="Sin mensajes. Encola algo desde el detalle de un lead." />
       ) : (
