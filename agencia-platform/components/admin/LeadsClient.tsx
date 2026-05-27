@@ -22,6 +22,7 @@ type Lead = {
   contactStatus: string;
   aiOpener: string | null;
   hasWhatsapp: boolean;
+  messagesSent: number;
 };
 
 type SearchRow = {
@@ -358,6 +359,7 @@ function LeadsTable({ loading, items, onChanged }: { loading: boolean; items: Le
               <th className="text-left px-3 py-2.5">Score</th>
               <th className="text-left px-3 py-2.5">Urgencia</th>
               <th className="text-left px-3 py-2.5">WA</th>
+              <th className="text-left px-3 py-2.5" title="Mensajes WhatsApp enviados a este lead">Enviados</th>
               <th className="text-left px-3 py-2.5">Estado</th>
             </tr>
           </thead>
@@ -390,6 +392,19 @@ function LeadsTable({ loading, items, onChanged }: { loading: boolean; items: Le
                     )}
                   </td>
                   <td className="px-3 py-2 text-center">{l.hasWhatsapp ? "✓" : "—"}</td>
+                  <td className="px-3 py-2">
+                    {l.messagesSent > 0 ? (
+                      <span
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold border border-emerald-200 bg-emerald-50 text-emerald-800"
+                        title={`${l.messagesSent} mensaje${l.messagesSent === 1 ? "" : "s"} enviado${l.messagesSent === 1 ? "" : "s"}`}
+                      >
+                        <Send className="h-2.5 w-2.5" />
+                        {l.messagesSent}
+                      </span>
+                    ) : (
+                      <span className="text-slate-300 text-xs">—</span>
+                    )}
+                  </td>
                   <td className="px-3 py-2">
                     <span className={`inline-block px-2 py-0.5 rounded text-[10px] border ${st.color}`}>{st.label}</span>
                   </td>
