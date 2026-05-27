@@ -1,6 +1,6 @@
 /**
- * Landing pública de Bipi — paleta rosa + negro + blanco, animaciones
- * de entrada y CTA muy llamativos.
+ * Landing pública de Bipi — v2 diseño limpio premium.
+ * Wordmark con punto rosa, slogan "Ahorra. Disfruta. Apoya local."
  */
 
 import Link from "next/link";
@@ -10,39 +10,40 @@ export default function BipiHome() {
     <main className="max-w-5xl mx-auto px-4 pt-12 pb-24">
       {/* HERO */}
       <section className="text-center">
-        <span className="bipi-eyebrow bipi-fade-up">🚀 Nuevo · Piloto en Benalmádena</span>
-        <h1 className="bipi-hero-title mt-5 bipi-fade-up bipi-fade-up-1">
-          Cada compra te <br />
-          <span className="bipi-brand">abre descuentos</span> <br />
-          cerca de ti.
+        <span className="bipi-eyebrow bipi-fade-up">Nuevo · Piloto en Benalmádena</span>
+        <h1 className="bipi-wordmark bipi-wordmark-shine mt-6 bipi-fade-up bipi-fade-up-1" style={{ fontSize: "clamp(96px, 24vw, 200px)" }}>
+          bipi
         </h1>
-        <p className="mt-6 text-lg text-black/70 max-w-2xl mx-auto bipi-fade-up bipi-fade-up-2">
-          Bipi es una red de negocios locales que se recomiendan entre sí.
-          Sin tarjetas. Sin puntos. Sin spam.
+        <p className="bipi-fade-up bipi-fade-up-2 mt-2 text-xl sm:text-2xl font-bold tracking-tight text-black">
+          Ahorra. Disfruta. <span style={{ color: "#EC4899" }}>Apoya local.</span>
         </p>
-        <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-3 bipi-fade-up bipi-fade-up-3">
-          <Link href="/bipi/registro" className="bipi-btn inline-flex items-center gap-2">
-            🏪 Quiero registrar mi negocio
+        <p className="mt-5 text-base text-black/60 max-w-xl mx-auto bipi-fade-up bipi-fade-up-3">
+          Una red de negocios del barrio que se recomiendan entre sí.
+          Pagas, escaneas, y se te abren descuentos cerca.
+        </p>
+        <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-3 bipi-fade-up bipi-fade-up-4">
+          <Link href="/bipi/registro" className="bipi-btn">
+            Quiero registrar mi negocio
           </Link>
-          <Link href="/bipi/app" className="bipi-btn-ghost inline-flex items-center gap-2">
-            🛍 Soy cliente
+          <Link href="/bipi/app" className="bipi-btn-ghost">
+            Soy cliente · Abrir app
           </Link>
         </div>
       </section>
 
       {/* Cómo funciona */}
       <section className="mt-24">
-        <h2 className="text-4xl font-black text-center mb-10 tracking-tight">
+        <h2 className="text-3xl sm:text-4xl font-black text-center mb-10 tracking-tight">
           Así funciona
         </h2>
         <div className="grid md:grid-cols-3 gap-4">
-          <Step n={1} title="Pagas en una tienda Bipi" color="from-pink-500 to-pink-600">
+          <Step n={1} title="Pagas en una tienda Bipi">
             Escaneas el QR de la caja con la app. Te aplican 5%, 8% o más, según el negocio.
           </Step>
-          <Step n={2} title="Desbloqueas descuentos cerca" color="from-pink-600 to-pink-500">
+          <Step n={2} title="Desbloqueas descuentos cerca">
             Tu compra te abre <strong>3-5 cupones</strong> en negocios cerca de ti. Caducan en 4 días.
           </Step>
-          <Step n={3} title="Saltas de uno a otro" color="from-pink-500 to-pink-600">
+          <Step n={3} title="Saltas de uno a otro">
             Vas a otro negocio Bipi → escaneas → más descuentos. Cuanto más usas, más ahorras.
           </Step>
         </div>
@@ -53,15 +54,15 @@ export default function BipiHome() {
         <div className="absolute -top-20 -right-20 w-60 h-60 bg-pink-500/10 rounded-full blur-3xl pointer-events-none" />
         <div className="absolute -bottom-20 -left-20 w-60 h-60 bg-pink-500/10 rounded-full blur-3xl pointer-events-none" />
         <div className="relative">
-          <span className="bipi-eyebrow">🏪 Para negocios</span>
-          <h2 className="text-4xl font-black mt-4 tracking-tight">
+          <span className="bipi-eyebrow">Para negocios</span>
+          <h2 className="text-3xl sm:text-4xl font-black mt-4 tracking-tight">
             ¿Tienes un negocio en Benalmádena?
           </h2>
-          <p className="text-black/70 max-w-2xl mx-auto mt-3">
+          <p className="text-black/60 max-w-xl mx-auto mt-3">
             Únete gratis y empieza a recibir clientes del barrio. La red crece sola: cuanto más
             activo eres, más visible te haces para los demás.
           </p>
-          <Link href="/bipi/registro" className="bipi-btn mt-6 inline-block">
+          <Link href="/bipi/registro" className="bipi-btn mt-6 inline-flex">
             Crear cuenta de negocio →
           </Link>
         </div>
@@ -80,21 +81,27 @@ export default function BipiHome() {
 function Step({
   n,
   title,
-  color,
   children
 }: {
   n: number;
   title: string;
-  color: string;
   children: React.ReactNode;
 }) {
   return (
-    <div className="bipi-card p-6 relative">
-      <div className={`text-7xl font-black bg-gradient-to-br ${color} bg-clip-text text-transparent leading-none`}>
+    <div className="bipi-card p-6">
+      <div
+        className="text-7xl font-black leading-none"
+        style={{
+          background: "linear-gradient(135deg, #EC4899, #DB2777)",
+          WebkitBackgroundClip: "text",
+          backgroundClip: "text",
+          color: "transparent"
+        }}
+      >
         {n}
       </div>
       <h3 className="font-bold text-lg mt-3 mb-2">{title}</h3>
-      <p className="text-black/70 text-sm">{children}</p>
+      <p className="text-black/60 text-sm leading-relaxed">{children}</p>
     </div>
   );
 }
@@ -103,7 +110,7 @@ function Stat({ big, label }: { big: string; label: string }) {
   return (
     <div className="bipi-card p-6 text-center">
       <div className="bipi-discount-big">{big}</div>
-      <div className="text-xs uppercase tracking-wider text-black/50 mt-2 font-semibold">
+      <div className="text-[11px] uppercase tracking-wider text-black/50 mt-2 font-bold">
         {label}
       </div>
     </div>

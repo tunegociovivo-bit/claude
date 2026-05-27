@@ -33,11 +33,11 @@ export default function BipiLayout({ children }: { children: React.ReactNode }) 
     <div className="min-h-screen bipi-bg text-black">
       <header className="border-b border-black/5 bg-white/80 backdrop-blur-md sticky top-0 z-30">
         <div className="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between">
-          <a href="/bipi" className="font-black text-2xl tracking-tight">
-            <span className="bipi-brand">bipi</span>
+          <a href="/bipi" className="bipi-wordmark" style={{ fontSize: 28 }}>
+            bipi
           </a>
           <nav className="text-sm flex items-center gap-3">
-            <a href="/bipi/registro" className="text-black/70 hover:text-pink-600 font-medium">
+            <a href="/bipi/registro" className="text-black/70 hover:text-pink-600 font-semibold">
               Negocios
             </a>
             <a
@@ -51,8 +51,9 @@ export default function BipiLayout({ children }: { children: React.ReactNode }) 
       </header>
       {children}
       <footer className="mt-20 py-8 text-center text-xs text-black/40 border-t border-black/5">
-        <span className="bipi-brand font-black">bipi</span> · Piloto en Benalmádena · Una app de
-        Negocio Vivo
+        <span className="bipi-wordmark" style={{ fontSize: 18, verticalAlign: "-3px" }}>bipi</span>
+        <span className="mx-2">·</span>
+        Ahorra. Disfruta. Apoya local. · Piloto en Benalmádena · Una app de Negocio Vivo
       </footer>
     </div>
   );

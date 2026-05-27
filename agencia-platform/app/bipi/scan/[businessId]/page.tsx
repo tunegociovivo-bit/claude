@@ -185,8 +185,8 @@ function SignupForm({
   return (
     <main className="max-w-md mx-auto px-4 py-12">
       <div className="text-center mb-6">
-        <h1 className="text-5xl font-black"><span className="bipi-brand">bipi</span></h1>
-        <p className="text-slate-600 text-sm mt-2">
+        <h1 className="bipi-wordmark mx-auto justify-center" style={{ fontSize: 64 }}>bipi</h1>
+        <p className="text-black/60 text-sm mt-3">
           ¡Estás a un paso de tu descuento! Crea tu cuenta — 30 segundos.
         </p>
       </div>

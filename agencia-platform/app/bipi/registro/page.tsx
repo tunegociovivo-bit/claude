@@ -58,11 +58,16 @@ export default function RegistroNegocio() {
   if (result) {
     return (
       <main className="max-w-2xl mx-auto px-4 py-12">
-        <h1 className="text-3xl font-bold mb-3">¡Bienvenido a Bipi!</h1>
-        <p className="text-slate-700 mb-6">
-          Tu negocio está dado de alta. Elige un estilo de cartel, imprime el PNG y ponlo en la caja.
-          Cada escaneo te hace más visible en la red.
-        </p>
+        <div className="text-center mb-6 bipi-fade-up">
+          <span className="bipi-eyebrow">✓ Listo</span>
+          <h1 className="text-3xl sm:text-4xl font-black mt-4 tracking-tight">
+            ¡Bienvenido a <span className="bipi-wordmark" style={{ fontSize: "1em", verticalAlign: "-0.05em" }}>bipi</span>!
+          </h1>
+          <p className="text-black/60 mt-3 text-sm">
+            Tu negocio está dado de alta. Elige un estilo de cartel, imprime el PNG y ponlo en la caja.
+            Cada escaneo te hace más visible en la red.
+          </p>
+        </div>
         <PosterPicker businessId={result.businessId} qrPngUrl={result.qrPngUrl} scanUrl={result.scanUrl} />
       </main>
     );
@@ -70,10 +75,17 @@ export default function RegistroNegocio() {
 
   return (
     <main className="max-w-2xl mx-auto px-4 py-12">
-      <h1 className="text-3xl font-bold mb-2">Alta de negocio en Bipi</h1>
-      <p className="text-slate-700 mb-6">
-        Gratis. 2 minutos. Saldrás con tu QR listo para imprimir.
-      </p>
+      <div className="text-center mb-8 bipi-fade-up">
+        <span className="bipi-eyebrow">Para negocios</span>
+        <h1 className="bipi-wordmark mx-auto justify-center mt-4" style={{ fontSize: 64 }}>bipi</h1>
+        <p className="text-black mt-3 font-bold tracking-tight">
+          Ahorra. Disfruta. <span style={{ color: "#EC4899" }}>Apoya local.</span>
+        </p>
+        <h2 className="text-2xl sm:text-3xl font-black mt-6 tracking-tight">Alta de negocio</h2>
+        <p className="text-black/60 text-sm mt-2">
+          Gratis. 2 minutos. Saldrás con tu QR listo para imprimir.
+        </p>
+      </div>
       <form onSubmit={submit} className="space-y-4 bg-white border rounded-2xl p-6 shadow-sm">
         <div className="grid sm:grid-cols-2 gap-3">
           <Field label="Nombre del negocio" required>
@@ -164,11 +176,7 @@ export default function RegistroNegocio() {
           </Field>
         </div>
         {error && <p className="text-sm text-rose-700">{error}</p>}
-        <button
-          type="submit"
-          disabled={saving}
-          className="w-full py-3 rounded-full bg-pink-500 hover:bg-pink-600 text-white font-medium disabled:opacity-50"
-        >
+        <button type="submit" disabled={saving} className="bipi-btn w-full">
           {saving ? "Creando…" : "Crear cuenta y generar mi QR"}
         </button>
       </form>

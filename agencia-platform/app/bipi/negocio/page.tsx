@@ -59,16 +59,18 @@ function LoginForm({ onLogin }: { onLogin: (s: Session) => void }) {
   }
   return (
     <main className="max-w-md mx-auto px-4 py-12">
-      <h1 className="text-2xl font-bold mb-2">Panel del negocio</h1>
-      <p className="text-slate-600 mb-6 text-sm">Entra con tu email y contraseña.</p>
-      <form onSubmit={submit} className="space-y-3 bg-white border rounded-xl p-5 shadow-sm">
+      <div className="text-center mb-6 bipi-fade-up">
+        <h1 className="bipi-wordmark mx-auto justify-center" style={{ fontSize: 56 }}>bipi</h1>
+        <p className="text-black/60 text-sm mt-3">Panel del negocio</p>
+      </div>
+      <form onSubmit={submit} className="space-y-3 bipi-card p-6 bipi-fade-up bipi-fade-up-1">
         <input
           type="email"
           placeholder="Email"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           required
-          className="w-full px-3 py-2 border rounded-lg bg-white"
+          className="bipi-input"
         />
         <input
           type="password"
@@ -76,18 +78,14 @@ function LoginForm({ onLogin }: { onLogin: (s: Session) => void }) {
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           required
-          className="w-full px-3 py-2 border rounded-lg bg-white"
+          className="bipi-input"
         />
         {error && <p className="text-rose-700 text-sm">{error}</p>}
-        <button
-          type="submit"
-          disabled={busy}
-          className="w-full py-2.5 rounded-full bg-pink-500 hover:bg-pink-600 text-white font-medium disabled:opacity-50"
-        >
+        <button type="submit" disabled={busy} className="bipi-btn w-full">
           {busy ? "Entrando…" : "Entrar"}
         </button>
-        <p className="text-xs text-slate-500 text-center">
-          ¿Aún no tienes cuenta? <a href="/bipi/registro" className="text-pink-600 underline">Crea tu negocio</a>
+        <p className="text-xs text-black/55 text-center">
+          ¿Aún no tienes cuenta? <a href="/bipi/registro" className="text-pink-600 font-semibold hover:underline">Crea tu negocio</a>
         </p>
       </form>
     </main>
@@ -140,22 +138,30 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
 
   return (
     <main className="max-w-4xl mx-auto px-4 py-8 space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between bipi-fade-up">
         <div>
-          <h1 className="text-2xl font-bold">{b.name}</h1>
-          <p className="text-xs text-slate-500">
+          <h1 className="text-2xl font-black tracking-tight">{b.name}</h1>
+          <p className="text-xs text-black/55">
             {b.category} · {b.city} · Plan {b.plan} · Karma {b.visibilityScore}/100
           </p>
         </div>
-        <button onClick={onLogout} className="text-xs text-slate-500 hover:underline">Cerrar sesión</button>
+        <button onClick={onLogout} className="text-xs text-black/45 hover:text-black/70">Cerrar sesión</button>
       </div>
 
-      {/* Métricas */}
-      <section className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <Metric label="Escaneos 7d" value={m.scans7} />
-        <Metric label="Escaneos 30d" value={m.scans30} />
-        <Metric label="Ventas Bipi 7d" value={`${(m.revenue7 ?? 0).toFixed(0)} €`} />
-        <Metric label="Cupones recibidos 7d" value={m.redeemedFromOthers7} sub="desde otros negocios" />
+      {/* Resumen — stat hero como en el mockup */}
+      <section className="bipi-card p-6 bipi-fade-up bipi-fade-up-1">
+        <div className="flex items-end justify-between flex-wrap gap-4">
+          <div className="bipi-stat-hero">
+            <div className="label">Resumen · ventas Bipi 30d</div>
+            <div className="value">{(m.revenue30 ?? m.revenue7 ?? 0).toLocaleString("es-ES", { maximumFractionDigits: 0 })} €</div>
+            <div className="sub">Confirmadas · netas de descuento</div>
+          </div>
+          <div className="grid grid-cols-3 gap-2 min-w-[280px]">
+            <MiniMetric label="Escaneos 7d" value={m.scans7} />
+            <MiniMetric label="Escaneos 30d" value={m.scans30} />
+            <MiniMetric label="Cupones recibidos 7d" value={m.redeemedFromOthers7} />
+          </div>
+        </div>
       </section>
 
       {/* QR descargable */}
@@ -186,42 +192,54 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
       <PushAdForm businessId={b.id} />
 
 
-      {/* Pendientes */}
-      <section>
-        <h3 className="font-semibold mb-2">Compras pendientes ({data.pending.length})</h3>
+      {/* Pendientes — estilo tabla compacta como en el mockup */}
+      <section className="bipi-card p-5">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="font-bold text-sm">Últimas transacciones · pendientes</h3>
+          <span className="text-xs text-black/50">{data.pending.length}</span>
+        </div>
         {data.pending.length === 0 ? (
-          <div className="bg-white border rounded-xl p-6 text-center text-sm text-slate-500">
+          <div className="py-6 text-center text-sm text-black/55">
             Sin compras pendientes. Cuando un cliente escanee, aparecerá aquí.
           </div>
         ) : (
-          <div className="space-y-2">
-            {data.pending.map((p: any) => (
-              <div key={p.id} className="bg-white border rounded-xl p-4 flex items-center justify-between gap-3">
-                <div>
-                  <div className="font-semibold">{p.amount.toFixed(2)} € · {p.discountPct}% off</div>
-                  <div className="text-xs text-slate-500">
-                    {p.customer.name ?? p.customer.email} · {new Date(p.scannedAt).toLocaleTimeString("es-ES")}
-                    {p.offerRedeemed && <span className="ml-2 text-emerald-700">🎟 cupón cruzado</span>}
+          <div className="bipi-table">
+            {data.pending.map((p: any) => {
+              const initial = (p.customer.name ?? p.customer.email ?? "?").charAt(0).toUpperCase();
+              return (
+                <div key={p.id} className="row">
+                  <div className="left min-w-0">
+                    <div className="avatar">{initial}</div>
+                    <div className="min-w-0">
+                      <div className="name truncate">
+                        {p.customer.name ?? p.customer.email}
+                        {p.offerRedeemed && <span className="ml-1.5 text-[10px] font-bold text-pink-600">🎟 CRUZADO</span>}
+                      </div>
+                      <div className="sub">
+                        {new Date(p.scannedAt).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })} · {p.discountPct}% off
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="amount mr-2">{p.amount.toFixed(2)} €</div>
+                    <button
+                      onClick={() => act(p.id, "reject")}
+                      disabled={confirming === p.id}
+                      className="px-3 py-1.5 rounded-full border border-black/15 bg-white hover:bg-black/5 text-xs font-semibold disabled:opacity-50"
+                    >
+                      Rechazar
+                    </button>
+                    <button
+                      onClick={() => act(p.id, "confirm")}
+                      disabled={confirming === p.id}
+                      className="px-3 py-1.5 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold disabled:opacity-50"
+                    >
+                      Confirmar
+                    </button>
                   </div>
                 </div>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => act(p.id, "reject")}
-                    disabled={confirming === p.id}
-                    className="px-3 py-1.5 rounded-lg border bg-white hover:bg-slate-50 text-sm disabled:opacity-50"
-                  >
-                    Rechazar
-                  </button>
-                  <button
-                    onClick={() => act(p.id, "confirm")}
-                    disabled={confirming === p.id}
-                    className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium disabled:opacity-50"
-                  >
-                    Confirmar
-                  </button>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </section>
@@ -770,6 +788,15 @@ function Metric({ label, value, sub }: { label: string; value: number | string; 
       <div className="text-[11px] text-slate-500 uppercase tracking-wide">{label}</div>
       <div className="text-2xl font-bold mt-1">{value}</div>
       {sub && <div className="text-[10px] text-slate-400">{sub}</div>}
+    </div>
+  );
+}
+
+function MiniMetric({ label, value }: { label: string; value: number | string }) {
+  return (
+    <div className="rounded-xl bg-pink-50/60 border border-pink-100 p-2.5 text-center">
+      <div className="text-[10px] uppercase tracking-wide text-black/55 font-bold">{label}</div>
+      <div className="text-lg font-black mt-0.5">{value}</div>
     </div>
   );
 }

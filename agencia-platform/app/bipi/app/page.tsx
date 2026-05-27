@@ -87,10 +87,11 @@ function Signup({ onDone }: { onDone: (c: Customer) => void }) {
   return (
     <main className="max-w-md mx-auto px-4 py-12">
       <div className="text-center mb-6 bipi-fade-up">
-        <h1 className="text-5xl font-black tracking-tight">
-          <span className="bipi-brand">bipi</span>
-        </h1>
-        <p className="text-black/60 text-sm mt-3">Tus descuentos en el barrio. Escanea, ahorra, descubre.</p>
+        <h1 className="bipi-wordmark mx-auto justify-center" style={{ fontSize: 72 }}>bipi</h1>
+        <p className="text-black mt-3 text-base font-bold tracking-tight">
+          Ahorra. Disfruta. <span style={{ color: "#EC4899" }}>Apoya local.</span>
+        </p>
+        <p className="text-black/55 text-xs mt-2">Tus descuentos en el barrio. Escanea, ahorra, descubre.</p>
       </div>
       <form onSubmit={submit} className="space-y-3 bipi-card p-6 bipi-fade-up bipi-fade-up-1">
         <input
@@ -124,10 +125,14 @@ function Signup({ onDone }: { onDone: (c: Customer) => void }) {
   );
 }
 
+const CATEGORIES = ["Todo", "Restauración", "Café / Bar", "Belleza", "Tiendas", "Fitness"];
+
 function OffersFeed({ customer, coords, onLogout }: { customer: Customer; coords: { lat: number; lng: number } | null; onLogout: () => void }) {
   const [offers, setOffers] = useState<Offer[]>([]);
   const [loading, setLoading] = useState(true);
   const [pushState, setPushState] = useState<"unknown" | "unsupported" | "denied" | "granted" | "loading">("unknown");
+  const [query, setQuery] = useState("");
+  const [category, setCategory] = useState("Todo");
 
   // Carga ofertas + refresca perfil (badge embajador, total ahorrado real…)
   useEffect(() => {
@@ -214,16 +219,21 @@ function OffersFeed({ customer, coords, onLogout }: { customer: Customer; coords
     }
   }
 
+  const filtered = offers.filter((o) => {
+    if (category !== "Todo" && !o.business.category?.toLowerCase().includes(category.toLowerCase().split(" ")[0])) return false;
+    if (query.trim() && !`${o.business.name} ${o.business.category}`.toLowerCase().includes(query.toLowerCase())) return false;
+    return true;
+  });
+
   return (
-    <main className="max-w-md mx-auto px-4 py-6">
-      <div className="flex items-start justify-between mb-5 bipi-fade-up">
+    <main className="max-w-md mx-auto px-4 py-6 pb-24">
+      {/* Header con nombre + ahorrado */}
+      <div className="flex items-start justify-between mb-4 bipi-fade-up">
         <div>
           <div className="text-xs text-black/50">Hola{customer.name ? `, ${customer.name}` : ""}</div>
-          <div className="text-2xl font-black mt-0.5">
-            Has ahorrado{" "}
-            <span className="bipi-discount-big text-2xl align-baseline">
-              {customer.totalSaved.toFixed(2)} €
-            </span>
+          <div className="mt-1">
+            <div className="text-[10px] uppercase tracking-wider text-black/45 font-bold">Has ahorrado</div>
+            <div className="bipi-discount-big">{customer.totalSaved.toFixed(2)} €</div>
           </div>
           {customer.ambassadorLevel &&
             customer.ambassadorLevel !== "none" &&
@@ -239,18 +249,42 @@ function OffersFeed({ customer, coords, onLogout }: { customer: Customer; coords
         </button>
       </div>
 
-      {/* CTA de notificaciones */}
+      {/* Search bar */}
+      <div className="bipi-search bipi-fade-up bipi-fade-up-1 mb-3">
+        <span aria-hidden>🔍</span>
+        <input
+          type="search"
+          placeholder="Buscar negocio o categoría…"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+      </div>
+
+      {/* Category chips */}
+      <div className="bipi-chips bipi-fade-up bipi-fade-up-2 mb-4">
+        {CATEGORIES.map((c) => (
+          <button
+            key={c}
+            onClick={() => setCategory(c)}
+            className={"bipi-chip" + (category === c ? " active" : "")}
+          >
+            {c}
+          </button>
+        ))}
+      </div>
+
+      {/* CTA de notificaciones (compactado) */}
       {pushState === "unknown" && (
         <button
           onClick={activatePush}
-          className="bipi-btn w-full mb-4 text-sm py-3 bipi-fade-up bipi-fade-up-1"
+          className="bipi-btn w-full mb-4 text-sm py-2.5 bipi-fade-up bipi-fade-up-3"
         >
-          🔔 Activar avisos de tus cupones
+          🔔 Activar avisos de cupones
         </button>
       )}
       {pushState === "denied" && (
         <div className="mb-4 px-3 py-2 rounded-lg bg-pink-50 border border-pink-200 text-xs text-pink-900">
-          Has bloqueado las notificaciones. Actívalas en los ajustes del navegador para recibir avisos cuando tus cupones caduquen.
+          Has bloqueado las notificaciones. Actívalas en los ajustes del navegador.
         </div>
       )}
       {pushState === "granted" && (
@@ -259,51 +293,61 @@ function OffersFeed({ customer, coords, onLogout }: { customer: Customer; coords
         </div>
       )}
 
-      <div className="bg-black text-white rounded-2xl p-4 mb-5 text-sm bipi-fade-up bipi-fade-up-1">
-        📲 <strong>Escanea el QR del negocio</strong> donde vayas a pagar. Cada compra te abre 3-5 cupones cerca.
-      </div>
-
-      <h2 className="text-xs font-bold uppercase tracking-wider text-black/50 mb-2">
-        Tus cupones activos ({offers.length})
+      <h2 className="text-xs font-bold uppercase tracking-wider text-black/50 mb-3">
+        Tus cupones activos ({filtered.length})
       </h2>
       {loading ? (
-        <div className="space-y-2">
+        <div className="space-y-3">
           {[1, 2, 3].map((i) => (
-            <div key={i} className="bipi-skeleton h-20" />
+            <div key={i} className="bipi-skeleton h-44" />
           ))}
         </div>
-      ) : offers.length === 0 ? (
+      ) : filtered.length === 0 ? (
         <div className="bipi-card p-6 text-center text-sm text-black/60">
-          Aún no tienes cupones. Escanea el QR de un negocio Bipi y empieza a desbloquear.
+          {offers.length === 0
+            ? "Aún no tienes cupones. Escanea el QR de un negocio Bipi y empieza a desbloquear."
+            : "Sin resultados para tu filtro."}
         </div>
       ) : (
-        <div className="space-y-2">
-          {offers.map((o, i) => (
+        <div className="space-y-3">
+          {filtered.map((o, i) => (
             <div
               key={o.offerId}
-              className={"bipi-offer-card pl-5 bipi-fade-up " + (i < 4 ? `bipi-fade-up-${i + 1}` : "")}
+              className={"bipi-photo-card bipi-fade-up " + (i < 4 ? `bipi-fade-up-${i + 1}` : "")}
             >
-              <div className="flex-1 min-w-0">
-                <div className="font-bold text-black truncate">{o.business.name}</div>
-                <div className="text-xs text-black/50 truncate">
-                  {o.business.category}
-                  {o.distanceM != null &&
-                    ` · a ${o.distanceM > 1000 ? `${(o.distanceM / 1000).toFixed(1)} km` : `${o.distanceM} m`}`}
-                </div>
-                <div className={"text-xs mt-1 font-semibold " + (o.hoursLeft < 24 ? "text-pink-600" : "text-black/50")}>
-                  ⏰ caduca en {o.hoursLeft}h
-                </div>
+              <div
+                className="photo"
+                style={
+                  o.business.brandColor
+                    ? { background: o.business.brandColor }
+                    : undefined
+                }
+              >
+                <div className="discount-tag">-{o.discountPct}%</div>
               </div>
-              <div className="text-right ml-3">
-                <div className="bipi-discount-big">{o.discountPct}%</div>
-                <div className="text-[9px] text-black/40 uppercase tracking-widest font-semibold">
-                  descuento
+              <div className="body">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="name truncate">{o.business.name}</div>
+                    <div className="meta truncate">
+                      {o.business.category}
+                      {o.distanceM != null &&
+                        ` · ${o.distanceM > 1000 ? `${(o.distanceM / 1000).toFixed(1)} km` : `${o.distanceM} m`}`}
+                    </div>
+                  </div>
+                  <div className={"text-[11px] font-bold whitespace-nowrap " + (o.hoursLeft < 24 ? "text-pink-600" : "text-black/50")}>
+                    ⏰ {o.hoursLeft}h
+                  </div>
                 </div>
               </div>
             </div>
           ))}
         </div>
       )}
+
+      <div className="mt-6 bg-black text-white rounded-2xl p-4 text-sm">
+        📲 <strong>Escanea el QR del negocio</strong> donde vayas a pagar. Cada compra te abre 3-5 cupones cerca.
+      </div>
     </main>
   );
 }

@@ -69,68 +69,58 @@ export default async function BusinessPublicPage({ params }: { params: { slug: s
   return (
     <main className="max-w-3xl mx-auto px-4 py-12">
       <article className="bipi-card overflow-hidden bipi-fade-up">
-        {/* Hero */}
+        {/* Photo hero — estilo mockup */}
         <div
-          className="px-8 py-14 text-center relative overflow-hidden"
+          className="relative"
           style={{
+            aspectRatio: "16 / 9",
             background:
-              business.brandColor ??
-              "linear-gradient(135deg, #FDF2F8 0%, #FCE7F3 100%)"
+              business.logoUrl
+                ? `center/cover no-repeat url(${business.logoUrl})`
+                : (business.brandColor ?? "linear-gradient(135deg, #FDF2F8 0%, #FCE7F3 100%)")
           }}
         >
-          <div className="absolute -top-12 -right-12 w-48 h-48 bg-pink-500/20 rounded-full blur-3xl pointer-events-none" />
-          <div className="absolute -bottom-12 -left-12 w-48 h-48 bg-pink-500/10 rounded-full blur-3xl pointer-events-none" />
-          <div className="relative">
-            {business.logoUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={business.logoUrl}
-                alt={business.name}
-                className="h-24 w-24 mx-auto mb-5 rounded-full bg-white object-cover border-4 border-white shadow-xl"
-              />
-            ) : (
-              <div className="h-24 w-24 mx-auto mb-5 rounded-full bg-black grid place-items-center text-white text-3xl font-black border-4 border-white shadow-xl">
-                {business.name.charAt(0)}
-              </div>
-            )}
-            <h1 className="text-5xl font-black tracking-tight text-black">{business.name}</h1>
-            <p className="text-black/60 mt-2 font-medium">
-              {business.category} · {business.city}
-            </p>
-            {business.address && (
-              <p className="text-black/50 text-sm mt-1">📍 {business.address}</p>
-            )}
+          {/* Discount tag flotante arriba-derecha */}
+          <div
+            className="absolute top-4 right-4 text-white font-black px-4 py-2 rounded-full text-base shadow-lg"
+            style={{ background: "linear-gradient(135deg, #EC4899, #DB2777)" }}
+          >
+            -{business.defaultDiscountPct}%
           </div>
+          {/* Overlay para legibilidad si hay foto */}
+          {business.logoUrl && (
+            <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent" />
+          )}
         </div>
 
-        {/* Oferta */}
-        <div className="px-8 py-10 text-center bg-white">
-          <p className="bipi-eyebrow">Descuento al escanear</p>
-          <p className="bipi-discount-big mt-4" style={{ fontSize: "8rem" }}>
-            {business.defaultDiscountPct}%
+        {/* Datos del negocio */}
+        <div className="px-6 sm:px-8 pt-6">
+          <h1 className="text-3xl sm:text-4xl font-black tracking-tight text-black">{business.name}</h1>
+          <p className="text-black/55 mt-1 text-sm font-semibold">
+            {business.category} · {business.city}
           </p>
-          <p className="text-sm text-black/60 mt-2">
-            Llévate el descuento con la app Bipi al pagar
-          </p>
+          {business.address && (
+            <p className="text-black/50 text-xs mt-1">📍 {business.address}</p>
+          )}
         </div>
 
-        {/* Descripción */}
+        {/* Sobre nosotros */}
         {business.description && (
-          <div className="px-8 pb-8 text-black/70 whitespace-pre-wrap leading-relaxed">
-            {business.description}
+          <div className="px-6 sm:px-8 pt-6">
+            <div className="text-xs font-bold uppercase tracking-wider text-black/45 mb-2">Sobre nosotros</div>
+            <p className="text-black/75 whitespace-pre-wrap leading-relaxed text-sm">
+              {business.description}
+            </p>
           </div>
         )}
 
-        {/* CTAs */}
-        <div className="px-8 pb-10 flex flex-col sm:flex-row gap-3 items-stretch">
-          <a href="/bipi/app" className="bipi-btn flex-1 text-center">
-            📲 Abrir Bipi
+        {/* CTA principal — Canjear oferta */}
+        <div className="px-6 sm:px-8 py-7 mt-6 border-t border-black/5 flex flex-col sm:flex-row gap-3 items-stretch">
+          <a href={`/bipi/scan/${business.id}`} className="bipi-btn flex-1 text-center">
+            Canjear oferta · {business.defaultDiscountPct}%
           </a>
-          <a
-            href={`/bipi/scan/${business.id}`}
-            className="bipi-btn-ghost flex-1 text-center"
-          >
-            🎟 Quiero el descuento ya
+          <a href="/bipi/app" className="bipi-btn-ghost flex-1 text-center">
+            Abrir Bipi
           </a>
         </div>
       </article>
