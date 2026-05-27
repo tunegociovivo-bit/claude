@@ -1,0 +1,17 @@
+name: Drive backup diario
+# Corre todos los días a las 03:00 UTC (~05:00 Madrid en invierno, ~04:00 en verano).
+# El endpoint del hub detecta automáticamente si toca también weekly y/o monthly.
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch: # permite disparar a mano desde GitHub UI
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Disparar backup hub
+        run: |
+          curl -fsSL -X POST \
+            -H "Authorization: Bearer ${{ secrets.INTERNAL_CRON_TOKEN }}" \
+            https://hub.negociovivo.app/api/v1/internal/drive-backup-cron

@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <title>Hub Reuniones</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <header>
+      <div class="logo">⏺</div>
+      <div class="title">
+        <strong>Hub Negocio Vivo</strong>
+        <span class="version" id="user-chip">v0.6.0</span>
+      </div>
+    </header>
+
+    <main>
+      <!-- Sin sesión en el Hub -->
+      <section id="state-login" class="state hidden">
+        <p class="muted">
+          Necesitas <strong>iniciar sesión en hub.negociovivo.app</strong> en este navegador.
+          La extensión se vincula sola — no hay que meter usuario ni contraseña aquí.
+        </p>
+        <button id="btn-open-login" class="primary">🌐 Conectar con Hub</button>
+        <button id="btn-recheck" class="ghost">↻ Ya he iniciado sesión, reintentar</button>
+        <p id="login-error" class="error small hidden"></p>
+      </section>
+
+      <!-- Logueado, listo para grabar -->
+      <section id="state-idle" class="state hidden">
+        <div class="field">
+          <label class="lbl" for="proj-select">Proyecto destino</label>
+          <select id="proj-select" class="select"></select>
+        </div>
+        <div class="field">
+          <label class="lbl" for="col-select">Columna</label>
+          <select id="col-select" class="select"></select>
+        </div>
+        <button id="btn-start" class="primary">⏺ Grabar reunión</button>
+        <button id="btn-mic-perm" class="ghost" style="margin-top:8px">🎤 Activar micrófono (graba también tu voz)</button>
+        <div id="mic-status" class="muted small"></div>
+        <div id="meeting-hint" class="muted small"></div>
+        <hr style="margin:10px 0;border:none;border-top:1px solid #eee" />
+        <button id="btn-meta-invoices" class="ghost">🧾 Sincronizar facturas de Meta</button>
+        <div id="meta-invoices-status" class="muted small"></div>
+      </section>
+
+      <section id="state-recording" class="state hidden">
+        <div class="rec-indicator">
+          <span class="dot"></span>
+          <span>Grabando</span>
+          <span id="elapsed" class="elapsed">00:00</span>
+        </div>
+        <p class="muted small">
+          La pestaña sigue oyéndose normalmente. No la cierres hasta detener
+          la grabación.
+        </p>
+        <button id="btn-stop" class="danger">⏹ Detener y subir</button>
+      </section>
+
+      <section id="state-uploading" class="state hidden">
+        <div class="spinner"></div>
+        <p>Subiendo y procesando en el Hub…</p>
+        <p class="muted small">
+          Whisper transcribe + Claude resume. Suele tardar 30–90 s.
+          Puedes cerrar este popup, te avisamos por notificación al terminar.
+        </p>
+      </section>
+
+      <section id="state-done" class="state hidden">
+        <p class="ok">✅ Tarea creada</p>
+        <a id="task-link" target="_blank" class="primary as-button">Abrir tarea</a>
+        <button id="btn-new" class="ghost">Grabar otra</button>
+      </section>
+
+      <section id="state-error" class="state hidden">
+        <p class="error">⚠️ <span id="error-msg">Error</span></p>
+        <button id="btn-retry" class="ghost">Volver a intentarlo</button>
+      </section>
+
+      <section id="notifications-block" class="notifications hidden">
+        <div class="notifications-header">
+          <span>🔔 Notificaciones</span>
+          <span id="notif-count" class="badge"></span>
+          <button id="btn-mark-read" class="link-btn hidden">Marcar todas leídas</button>
+        </div>
+        <ul id="notif-list" class="notif-list"></ul>
+        <p id="notif-empty" class="muted small hidden">Sin notificaciones nuevas.</p>
+      </section>
+
+      <!-- Diagnóstico SIEMPRE visible — sin importar el estado. Útil
+           para ver versión, tab activa, plataforma detectada, etc.
+           sin tener que abrir DevTools del SW. -->
+      <details class="diag">
+        <summary class="muted small">🔧 Diagnóstico</summary>
+        <pre id="diag-output" class="diag-pre">cargando…</pre>
+      </details>
+
+      <details id="config" class="config">
+        <summary>Configuración avanzada</summary>
+        <label>
+          URL del Hub
+          <input id="cfg-hub-url" type="url" placeholder="https://hub.negociovivo.app" />
+        </label>
+        <button id="btn-save-config" class="ghost">Guardar URL</button>
+      </details>
+    </main>
+
+    <script src="popup.js"></script>
+  </body>
+</html>

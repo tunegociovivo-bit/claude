@@ -1,0 +1,17 @@
+name: Purga de papelera
+# Una vez al día a las 03:00 UTC borra definitivamente lo que lleva
+# > 30 días en papelera. Housekeeping silencioso.
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping endpoint trash-purge
+        run: |
+          curl -fsSL -X GET \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            https://hub.negociovivo.app/api/cron/trash-purge

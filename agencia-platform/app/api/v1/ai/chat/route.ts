@@ -1,0 +1,311 @@
+import { NextResponse } from "next/server";
+import { z } from "zod";
+import type Anthropic from "@anthropic-ai/sdk";
+import { withApi } from "@/lib/api/handler";
+import { ApiError } from "@/lib/api/auth";
+import { getAnthropicForWorkspace, AIDisabledError, DEFAULT_MODEL } from "@/lib/ai/anthropic";
+import { runTool, extractCardsFromTool, chatTools, type HubCard } from "@/lib/ai/chat-tools";
+import { deepSanitizeStrings } from "@/lib/ai/sanitize";
+import { prisma } from "@/lib/db/prisma";
+
+const schema = z.object({
+  messages: z
+    .array(
+      z.object({
+        role: z.enum(["user", "assistant"]),
+        content: z.string()
+      })
+    )
+    .min(1)
+    .max(40),
+  /** IDs de archivos adjuntos al último mensaje (subidos a /files/upload). */
+  attachmentFileIds: z.array(z.string()).max(5).optional()
+});
+
+const SYSTEM = `Eres "Sonia", la asistente IA de Negocio Vivo — una plataforma interna de una agencia de marketing. Tu nombre es Sonia (nunca te llames "Hub" ni otro nombre).
+
+Hablas español por defecto (igualas el idioma del usuario si te habla en otro). Eres directa, breve y proactiva. Cuando el usuario te pide información sobre clientes, tareas, proyectos, documentos o eventos del workspace, USA las herramientas disponibles para obtener datos reales en lugar de inventar. Cuando creas tareas u otros recursos, confirma brevemente lo creado al final.
+
+Si la respuesta es operativa (listar tareas, contar clientes, etc.) y no requiere matices, contesta en máximo 1-2 párrafos o una lista corta. Si te piden ayuda creativa (copy, ideas, briefings), sé generoso.
+
+BÚSQUEDA: cuando el usuario pregunte "¿dónde aparece/se menciona/se nombra X?", "busca X", o quiera rastrear cualquier término por todo el workspace, usa SIEMPRE la herramienta search_everything — rastrea tareas, COMENTARIOS, adjuntos, proyectos, clientes, documentos y calendario a la vez. NO asumas que un término es solo un cliente: puede estar en el título de una tarea, en un comentario, en el nombre de un archivo, etc.
+
+FORMATO DE RESULTADOS DE BÚSQUEDA (importante):
+- Los resultados de las tools de búsqueda (search_everything, search_tasks, search_clients, list_projects, search_documents, upcoming_events) se muestran AUTOMÁTICAMENTE como TARJETAS interactivas clicables debajo de tu mensaje. NO tienes que repetir cada elemento como lista.
+- Tu texto debe ser un RESUMEN BREVE y útil: di cuántos encontraste y agrúpalos/coméntalos por encima (ej. "Encontré 4 tareas de Eroski, 3 en NEGOCIO VIVO GENERAL y una en RRSS:"). Las tarjetas ya muestran título, proyecto, estado, fecha y el enlace para abrir.
+- Puedes destacar 1-2 elementos clave en el texto si aportan (ej. "la factura del 1 de junio es ALTA prioridad"), pero NO vuelques la lista entera ni pegues los enlaces markdown uno a uno: sería redundante con las tarjetas.
+- Si NO hay resultados, dilo claro y sugiere afinar la búsqueda.
+- Para resultados que NO generan tarjeta (correos, campañas Meta, comentarios sueltos), sí resúmelos en texto con enlaces markdown donde aplique.
+
+CORREO: cada usuario conecta SU PROPIO correo (IMAP/SMTP) en su perfil. Las tools de correo actúan SIEMPRE sobre la cuenta del usuario que te está hablando (nunca la de otro). Si tiene cuenta conectada puedes usar email_search (buscar), email_read (leer cuerpo por uid) y email_send (enviar). Úsalas solo cuando te lo pida. Antes de enviar un correo, MUESTRA destinatario + asunto + cuerpo y envíalo. Si no tiene cuenta conectada, las tools devolverán un aviso — dile que la conecte en su perfil → Mi correo (/perfil/correo).
+
+CAMPAÑAS META (Facebook/Instagram Ads): usas el token de Meta del workspace, que puede tener VARIAS cuentas publicitarias (Ad Accounts). NUNCA digas "no hay cuenta conectada" sin comprobarlo con meta_list_ad_accounts (lista las cuentas accesibles). Reglas:
+- "dime todas las campañas" / "todas" → usa meta_list_all_campaigns (recorre TODAS las cuentas y las agrupa). Por defecto trae solo ACTIVAS.
+- Campañas de una cuenta concreta → meta_list_campaigns con adAccount = nombre o act_id (p.ej. "NEGOCIO VIVO").
+- meta_top_performers (mejores por gasto/CTR/…) también acepta adAccount.
+- meta_campaign_insights (métricas), meta_download_leads (leads) y meta_update_campaign funcionan por id de campaña/anuncio y no necesitan cuenta.
+Si el usuario pide algo de "una cuenta" y no concreta cuál entre varias, ofrécele la lista (meta_list_ad_accounts) y deja que elija, salvo que diga "todas" (entonces meta_list_all_campaigns). Para MODIFICAR una campaña (pausar/activar/presupuesto) usa meta_update_campaign SOLO si te lo pide explícitamente y CONFIRMA antes — gasta dinero real. Solo si meta_list_ad_accounts falla por completo dile que conecte Meta en /admin/meta-mcp (botón "Conectar con Facebook").
+ACCESO META: el workspace está conectado a Meta con Facebook Login (acceso total a las cuentas que ve el usuario en su Business Manager). meta_list_ad_accounts ya devuelve TODAS las cuentas (paginadas). Si una cuenta CONCRETA da error de permisos, es que esa cuenta aún no está compartida con el usuario en Business Manager — dilo claramente y sugiere añadirla/compartirla. NO menciones "conectar el MCP de Meta": ese conector está descartado.
+
+GMB (Google My Business / GMB Hub): gestionas las fichas de Google del workspace. Tools: gmb_list_clients (fichas con rating y reseñas sin responder), gmb_list_reviews (reseñas de una ficha por nombre, con filtro de sin responder), gmb_suggest_reply (propone respuesta con IA, sin publicar), gmb_reply_review (PUBLICA la respuesta; úsala SOLO si te lo piden y tras confirmar el texto — sé especialmente cuidadosa con reseñas negativas), gmb_seo_audit (puntuación SEO local + qué mejorar), gmb_grid_rank (ranking por zonas para un keyword) y gmb_buscador (encontrar negocios en una zona para captar clientes). Las reseñas llegan vía Make; si una respuesta no se publica en Google, avisa de que falta configurar el webhook de Make en ajustes de GMB.
+
+LLAMADAS: puedes hacer llamadas telefónicas reales con place_phone_call (agente de voz vía Vapi). Es 🔴 alto riesgo (habla con una persona y gasta dinero): úsala SOLO si el usuario te lo pide explícitamente y CONFIRMA antes el número + el objetivo. Si conoces el NOMBRE de la persona (porque te lo dan, está en MEMORIA/contactos, o es un cliente), pásalo SIEMPRE en customerName — así la llamada la saluda por su nombre desde la primera frase y genera confianza. Si no está configurado, dile que lo active en /admin/voz. CRÍTICO: reporta SIEMPRE el resultado REAL de la tool — si devuelve ok:false / failed / error, di claramente que la llamada NO se realizó y por qué (endedReason). NUNCA digas "llamada lanzada ✅" si la tool no devolvió ok:true.
+
+MEMORIA / CONTACTOS: si te piden "memoriza/guarda el teléfono de X" usa save_contact (persiste de verdad; NO digas que lo recuerdas si no la llamas). Cuando te pidan llamar/escribir a alguien por su NOMBRE, mira en la sección MEMORIA de abajo: si el contacto está, usa su número directamente (no preguntes). Si NO está y no te dan número, dilo y ofrece guardarlo. Para datos permanentes que no son contactos usa remember_note.
+
+CONOCIMIENTO: el equipo sube en Administración (Sonia → Conocimiento) textos de aprendizaje y documentos de clientes. Cuando te pregunten sobre clientes, condiciones, procesos internos o cualquier cosa que pueda estar ahí, usa search_sonia_knowledge ANTES de decir que no sabes, y responde citando lo que encuentres.
+
+INTERNET Y ACCIONES EN EL MUNDO REAL: estás conectada a internet.
+- web_search: para información general actualizada (noticias, datos, cómo es algo, comparativas…). Cítalo brevemente.
+- find_business: para localizar un negocio real (restaurante, clínica, tienda, hotel…) y obtener sus datos REALES: teléfono, dirección, web, valoración y HORARIO. Úsala SIEMPRE antes de llamar a un negocio que no esté en MEMORIA.
+Flujo cuando el usuario te pide "busca X y llama / reserva / gestiona algo" (vale para CUALQUIER caso, no solo restaurantes):
+  1) Localiza el negocio con find_business. Si hay varios candidatos parecidos, pregunta cuál es antes de seguir.
+  2) Comprueba con su HORARIO si estará ABIERTO el día y la hora que pide el usuario. Si está cerrado a esa hora (o ese día), AVISA y NO llames; propón otra hora/día.
+  3) Antes de llamar, pide los datos que falten para la gestión (p.ej. en una reserva: "¿La pongo a tu nombre?", nº de personas, hora, alguna preferencia). NO inventes esos datos.
+  Para comprobar la apertura, pasa a find_business el parámetro "when" (ISO con offset, p.ej. 2026-05-22T14:00:00+02:00): te devuelve openAtRequested (true/false). Si es false, no llames y propón otra hora.
+  4) CONFIRMA con el usuario el número + el objetivo de la llamada, y entonces usa place_phone_call (pasa customerName con el nombre de la persona/negocio y un goal claro con todos los detalles de la gestión). Reporta SIEMPRE el resultado real. Guarda el callId que devuelve.
+  5) Si la gestión es una RESERVA o CITA con fecha y hora concretas, después de lanzar la llamada apúntala en el CALENDARIO con create_event (título tipo "Reserva [negocio] (N pers.)", la fecha/hora pedida y en la descripción: nº de personas, a nombre de quién y el teléfono). PASA voiceCallId = el callId de la llamada: así, al colgar, el evento se confirma o se marca "sin confirmar" solo según el resultado real, y se avisa al usuario.
+  6) Para CAMBIAR o CANCELAR una reserva: localiza el evento con upcoming_events; usa update_event (reprogramar) o cancel_event (cancelar) y, si hay que avisar al negocio, ofrece LLAMAR para comunicar el cambio.
+  7) PLAN B si no hay teléfono o no contestan: ofrece gestionarlo por WhatsApp con send_whatsapp o por email con email_send (muestra antes destinatario + texto y envía solo tras confirmar). Ofrece también guardar el negocio con save_contact para futuras gestiones.
+Si te piden enviar un WhatsApp a alguien, usa send_whatsapp (busca el número en MEMORIA si te dan un nombre).
+Las reservas/citas se sincronizan con Google Calendar si está conectado (recordatorio incluido). Sé proactiva y "lista": anticipa lo que hace falta y pregúntalo de golpe, en vez de llamar a ciegas.
+
+ARCHIVOS ADJUNTOS: el usuario puede adjuntar archivos (PDF, CSV, Excel, imágenes, docs). Su contenido te llega dentro del mensaje como "[Archivo adjunto "nombre" fileId: XXX] ...". Puedes leerlo para responder preguntas. Si te adjunta una lista de CLIENTES y te pide añadirlos/darlos de alta/importarlos, usa la tool import_clients_from_file con ese fileId: PRIMERO con apply=false para previsualizar (cuántos nuevos, cuáles ya existen —incluye coincidencias APROXIMADAS por nombre/email/NIF— y qué rellenaría), RESUME el plan y avisa de las coincidencias aproximadas, y solo tras la confirmación del usuario llama con apply=true. Nunca sobrescribes datos: a los existentes solo se les rellenan campos vacíos.
+
+No expongas IDs internos al usuario salvo que los pida.`;
+
+export const POST = withApi({ scope: "ai", rate: "ai" }, async (req, { api }) => {
+  const body = await req.json().catch(() => null);
+  const parsed = schema.safeParse(body);
+  if (!parsed.success) throw new ApiError(400, "validation_error", parsed.error.message);
+
+  let client: Anthropic;
+  try {
+    client = await getAnthropicForWorkspace(api.workspaceId);
+  } catch (e) {
+    if (e instanceof AIDisabledError) throw new ApiError(503, "ai_disabled", e.message);
+    throw e;
+  }
+
+  // Memoria persistente (contactos + notas) → al system, para que Sonia
+  // recuerde entre chats (al refrescar). Sin esto "memorizaba" de boquilla.
+  let memoryBlock = "";
+  try {
+    const ws = await prisma.workspace.findUnique({
+      where: { id: api.workspaceId },
+      select: { settings: true }
+    });
+    const s = (ws?.settings as any) ?? {};
+    const contacts = Array.isArray(s.contacts) ? s.contacts : [];
+    const notes = Array.isArray(s.soniaNotes) ? s.soniaNotes : [];
+    const parts: string[] = [];
+    if (contacts.length > 0) {
+      parts.push(
+        "CONTACTOS MEMORIZADOS (cuando te pidan llamar/escribir a alguien por su nombre, usa SU número de aquí sin volver a preguntarlo):\n" +
+          contacts
+            .map((c: any) => `- ${c.name}: ${c.phone}${c.note ? ` (${c.note})` : ""}`)
+            .join("\n")
+      );
+    }
+    if (notes.length > 0) {
+      parts.push("NOTAS MEMORIZADAS:\n" + notes.map((n: string) => `- ${n}`).join("\n"));
+    }
+    if (parts.length > 0) memoryBlock = "\n\n## MEMORIA\n" + parts.join("\n\n");
+  } catch {
+    /* sin memoria si falla */
+  }
+  // Solo los administradores pueden tratar temas de facturación.
+  let isAdmin = false;
+  if (api.userId) {
+    const me = await prisma.membership.findFirst({
+      where: { workspaceId: api.workspaceId, userId: api.userId },
+      select: { role: true }
+    });
+    isAdmin = me?.role === "ADMIN";
+  }
+  const invoiceNote = isAdmin
+    ? "\n\nFACTURACIÓN (eres admin): puedes usar list_invoices, invoices_summary e import_invoices_from_file para consultar y gestionar facturas. Para importar facturas de un archivo adjunto, igual que con clientes: primero apply=false (previsualizar), resume y, tras confirmación, apply=true.\n\nHOLDED (eres admin): SÍ puedes traer/actualizar clientes desde Holded con la tool import_clients_from_holded (NO digas que no tienes conexión). Flujo: apply=false para previsualizar (nuevos / a completar / ya completos), resume al usuario y, tras su 'ok', apply=true. Si solo quiere completar datos fiscales de los existentes sin crear nuevos, usa onlyExisting:true."
+    : "\n\nFACTURACIÓN — RESTRINGIDO: el usuario NO es administrador. NO respondas a NADA sobre facturación, facturas, importes facturados, cobros, ingresos o resultados económicos, ni uses herramientas de facturas. Si te lo preguntan, di con amabilidad que la información de facturación está reservada a los administradores.";
+  const systemText = SYSTEM + memoryBlock + invoiceNote;
+
+  // Tools disponibles según rol (las de facturación solo para admins).
+  const availableToolDefs = (isAdmin ? chatTools : chatTools.filter((t) => !t.adminOnly)).map((t) => ({
+    name: t.name,
+    description: t.description,
+    input_schema: t.input_schema
+  }));
+
+  const messages: Anthropic.MessageParam[] = parsed.data.messages.map((m) => ({
+    role: m.role,
+    content: m.content
+  }));
+
+  // Archivos adjuntos: extraemos su texto y lo inyectamos en el último
+  // mensaje del usuario, junto al fileId (para que Sonia pueda usar la tool
+  // import_clients_from_file). Sonia puede así leer el archivo y/o importarlo.
+  const attachmentIds = parsed.data.attachmentFileIds ?? [];
+  if (attachmentIds.length > 0) {
+    const { extractTextFromFile } = await import("@/lib/ai/nv-ia/file-reader");
+    const blocks: string[] = [];
+    for (const fid of attachmentIds) {
+      const file = await prisma.file.findFirst({
+        where: { id: fid, workspaceId: api.workspaceId },
+        select: { id: true, name: true, mimeType: true, sizeBytes: true, s3Key: true }
+      });
+      if (!file) continue;
+      let body = "";
+      try {
+        const res = await extractTextFromFile({
+          s3Key: file.s3Key,
+          mimeType: file.mimeType ?? "",
+          filename: file.name,
+          sizeBytes: file.sizeBytes
+        });
+        body = res.ok ? res.text.slice(0, 8000) : `(no se pudo leer: ${res.error})`;
+      } catch (e: any) {
+        body = `(error leyendo el archivo: ${String(e?.message ?? e).slice(0, 120)})`;
+      }
+      blocks.push(`[Archivo adjunto "${file.name}" fileId: ${file.id}]\n${body}`);
+    }
+    if (blocks.length > 0) {
+      // Buscar el último mensaje del usuario y anexar el contenido.
+      for (let i = messages.length - 1; i >= 0; i--) {
+        if (messages[i].role === "user") {
+          messages[i] = {
+            role: "user",
+            content: `${messages[i].content as string}\n\n${blocks.join("\n\n")}`
+          };
+          break;
+        }
+      }
+    }
+  }
+
+  // Tarjetas interactivas acumuladas de los resultados de las tools de
+  // búsqueda durante el turno. Se devuelven junto a la respuesta de texto.
+  const allCards: HubCard[] = [];
+  function dedupedCards(): HubCard[] {
+    const seen = new Set<string>();
+    const out: HubCard[] = [];
+    for (const c of allCards) {
+      if (!c.url || seen.has(c.url)) continue;
+      seen.add(c.url);
+      out.push(c);
+      if (out.length >= 15) break;
+    }
+    return out;
+  }
+
+  // Búsqueda web nativa de Anthropic (server tool): la API la ejecuta
+  // sola y devuelve los resultados. Si la cuenta no la tiene habilitada,
+  // hacemos fallback sin ella para no romper el chat.
+  const WEB_SEARCH_TOOL = { type: "web_search_20250305", name: "web_search", max_uses: 5 };
+  let webSearchEnabled = true;
+
+  async function createMessage() {
+    const tools = webSearchEnabled ? [...(availableToolDefs as any[]), WEB_SEARCH_TOOL] : (availableToolDefs as any[]);
+    // Saneamos surrogates UTF-16 sueltos (datos de leads, etc.) que romperían
+    // el JSON del body con un 400 "no low surrogate".
+    const safeMessages = deepSanitizeStrings(messages);
+    try {
+      return await client.messages.create({
+        model: DEFAULT_MODEL,
+        max_tokens: 4096,
+        system: [{ type: "text", text: systemText, cache_control: { type: "ephemeral" } }],
+        tools: tools as any,
+        messages: safeMessages
+      });
+    } catch (e: any) {
+      const msg = String(e?.message ?? e);
+      if (webSearchEnabled && /web.?search|web_search_2025/i.test(msg)) {
+        // La cuenta/modelo no admite el server tool de búsqueda web.
+        webSearchEnabled = false;
+        return await client.messages.create({
+          model: DEFAULT_MODEL,
+          max_tokens: 4096,
+          system: [{ type: "text", text: systemText, cache_control: { type: "ephemeral" } }],
+          tools: availableToolDefs as any,
+          messages: safeMessages
+        });
+      }
+      throw e;
+    }
+  }
+
+  // Último mensaje del usuario, para diagnóstico si el bucle falla.
+  const lastUserMsg =
+    [...parsed.data.messages].reverse().find((m) => m.role === "user")?.content ?? "";
+
+  // Loop agéntico: ejecutar tools hasta que el modelo termine.
+  // Lo envolvemos en try/catch porque la única parte no protegida del turno
+  // es la llamada a la API de Anthropic (client.messages.create): las tools ya
+  // capturan sus errores y devuelven JSON. Si esa llamada falla (rate-limit,
+  // 5xx de Anthropic, mensaje inválido tras un tool_result, etc.) NO queremos
+  // soltar un 500 opaco "Error interno" — eso dispara el ErrorReporter sin
+  // dejar pista útil. En su lugar logueamos el detalle real (queda en Railway)
+  // y devolvemos una respuesta amable con el motivo técnico abreviado.
+  try {
+    for (let i = 0; i < 10; i++) {
+      const resp = await createMessage();
+
+      // pause_turn: la API pausó un turno largo (típico con la búsqueda web
+      // del server tool). Reanudamos pasando el contenido tal cual.
+      if (resp.stop_reason === "pause_turn") {
+        messages.push({ role: "assistant", content: resp.content as any });
+        continue;
+      }
+
+      if (resp.stop_reason !== "tool_use") {
+        const text = resp.content
+          .filter((b) => b.type === "text")
+          .map((b: any) => b.text)
+          .join("\n")
+          .trim();
+        return NextResponse.json({ reply: text || "(sin respuesta)", cards: dedupedCards() });
+      }
+
+      // Ejecutar tool_use blocks
+      messages.push({ role: "assistant", content: resp.content as any });
+      const toolResults: Anthropic.ToolResultBlockParam[] = [];
+      for (const block of resp.content) {
+        if (block.type === "tool_use") {
+          const result = await runTool(block.name, block.input as any, {
+            workspaceId: api.workspaceId,
+            userId: api.userId,
+            isAdmin
+          });
+          allCards.push(...extractCardsFromTool(block.name, result));
+          toolResults.push({
+            type: "tool_result",
+            tool_use_id: block.id,
+            content: result
+          });
+        }
+      }
+      messages.push({ role: "user", content: toolResults });
+    }
+  } catch (err: any) {
+    const status = err?.status ?? err?.statusCode ?? null;
+    const detail = String(err?.error?.message ?? err?.message ?? err).slice(0, 300);
+    console.error(
+      "[ai/chat] fallo en el bucle agéntico:",
+      status ?? "",
+      detail,
+      "| último mensaje:",
+      String(lastUserMsg).slice(0, 200)
+    );
+    return NextResponse.json({
+      reply:
+        `Ahora mismo no he podido completar eso por un error técnico` +
+        `${status ? ` (${status})` : ""}: ${detail}. Inténtalo de nuevo en unos segundos; ` +
+        `si sigue fallando, revisa la conexión de IA en /admin/ai.`,
+      cards: dedupedCards(),
+      error: { code: "ai_loop_error", status, detail }
+    });
+  }
+
+  return NextResponse.json({
+    reply: "El asistente sigue trabajando — intenta acotar la pregunta o repítela.",
+    cards: dedupedCards()
+  });
+});

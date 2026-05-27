@@ -1,0 +1,242 @@
+/**
+ * NV Claude Widget - Estilos
+ *
+ * @since 1.0.4
+ */
+
+.nv-claude-widget {
+    font-size: 13px;
+}
+
+.nv-claude-widget .description {
+    color: #666;
+    font-size: 12px;
+    margin: 0 0 8px;
+    line-height: 1.4;
+}
+
+.nv-claude-widget select.widefat,
+.nv-claude-widget textarea.widefat {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 6px 8px;
+    border: 1px solid #c3c4c7;
+    border-radius: 4px;
+    font-size: 13px;
+}
+
+.nv-claude-widget textarea.widefat {
+    resize: vertical;
+    min-height: 90px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+.nv-claude-widget textarea.widefat:focus,
+.nv-claude-widget select.widefat:focus {
+    border-color: #D2A039;
+    box-shadow: 0 0 0 1px #D2A039;
+    outline: none;
+}
+
+.nv-claude-widget #nv-claude-open {
+    color: #fff !important;
+    font-weight: 600;
+    transition: transform 0.1s ease;
+}
+
+.nv-claude-widget #nv-claude-open:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(210, 160, 57, 0.3) !important;
+    color: #fff !important;
+}
+
+.nv-claude-widget #nv-claude-open:active {
+    transform: translateY(0);
+}
+
+.nv-claude-preview-box {
+    margin-top: 12px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    background: #f9f9f9;
+    overflow: hidden;
+}
+
+.nv-claude-preview-header {
+    background: #f0f0f1;
+    padding: 6px 10px;
+    border-bottom: 1px solid #ddd;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 12px;
+}
+
+.nv-claude-preview-header .nv-claude-char-count {
+    color: #666;
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+}
+
+.nv-claude-preview-box pre {
+    margin: 0;
+    padding: 10px;
+    max-height: 280px;
+    overflow-y: auto;
+    font-family: ui-monospace, "SF Mono", Monaco, monospace;
+    font-size: 11px;
+    line-height: 1.45;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    color: #2c3338;
+    background: #fff;
+}
+
+/* ════════════════════════════════════════════════════════════
+   v1.0.7 — Botones rápidos + historial revisiones
+   ════════════════════════════════════════════════════════════ */
+
+/* Botones revisión rápida */
+.nv-claude-quick-actions {
+    margin: 12px 0 0;
+    padding: 10px 12px;
+    background: #faf8f3;
+    border: 1px solid #f0e8d4;
+    border-radius: 6px;
+}
+
+.nv-claude-quick-label {
+    display: block;
+    font-size: 11px;
+    font-weight: 600;
+    color: #888;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    margin-bottom: 8px;
+}
+
+.nv-claude-quick-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+}
+
+.nv-claude-quick-btn {
+    background: #fff;
+    border: 1px solid #d4c8a8;
+    color: #5a4a1f;
+    padding: 6px 8px;
+    border-radius: 4px;
+    font-size: 11.5px;
+    font-weight: 500;
+    cursor: pointer;
+    text-align: left;
+    transition: all 0.12s ease;
+    line-height: 1.3;
+}
+
+.nv-claude-quick-btn:hover {
+    background: #D2A039;
+    color: #fff;
+    border-color: #b8862a;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 4px rgba(210, 160, 57, 0.25);
+}
+
+/* Historial revisiones */
+.nv-claude-history {
+    margin-top: 14px;
+    border: 1px solid #e0e0e0;
+    border-radius: 6px;
+    background: #fafafa;
+    overflow: hidden;
+}
+
+.nv-claude-history-header {
+    padding: 10px 12px;
+    background: #f0f0f0;
+    border-bottom: 1px solid #e0e0e0;
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 12px;
+    user-select: none;
+    transition: background 0.12s ease;
+}
+
+.nv-claude-history-header:hover {
+    background: #e8e8e8;
+}
+
+.nv-claude-history-arrow {
+    color: #888;
+    font-size: 10px;
+}
+
+.nv-claude-history-body {
+    padding: 4px 0;
+    max-height: 320px;
+    overflow-y: auto;
+}
+
+.nv-claude-history-empty {
+    padding: 14px;
+    margin: 0;
+    color: #888;
+    font-style: italic;
+    font-size: 12px;
+    text-align: center;
+}
+
+.nv-claude-history-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.nv-claude-history-item {
+    padding: 10px 12px;
+    border-bottom: 1px solid #ececec;
+}
+
+.nv-claude-history-item:last-child {
+    border-bottom: none;
+}
+
+.nv-claude-history-meta {
+    display: flex;
+    gap: 8px;
+    font-size: 10.5px;
+    margin-bottom: 5px;
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+.nv-claude-history-tipo {
+    background: #D2A039;
+    color: #fff;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+    font-size: 9.5px;
+}
+
+.nv-claude-history-time {
+    color: #666;
+    font-variant-numeric: tabular-nums;
+}
+
+.nv-claude-history-user {
+    color: #888;
+    font-style: italic;
+    margin-left: auto;
+}
+
+.nv-claude-history-orden {
+    font-size: 12px;
+    color: #333;
+    line-height: 1.4;
+    word-break: break-word;
+}

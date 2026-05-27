@@ -1,0 +1,260 @@
+/**
+ * NV Dashboard · Estilos modo público
+ *
+ * Reset + topbar + layout standalone (sin chrome de wp-admin)
+ *
+ * @since 1.0.5
+ */
+
+/* ─── Reset básico ───────────────────────────────────────── */
+.nv-public-body {
+    margin: 0;
+    padding: 0;
+    background: #f4f4f5;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    color: #1a1a1a;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+.nv-public-body * {
+    box-sizing: border-box;
+}
+
+.nv-public-body a {
+    color: #D2A039;
+    text-decoration: none;
+}
+.nv-public-body a:hover {
+    text-decoration: underline;
+}
+
+/* ─── Topbar pública ─────────────────────────────────────── */
+.nv-public-topbar {
+    background: linear-gradient(135deg, #0a0a0a 0%, #1a1a1a 100%);
+    color: #fff;
+    border-bottom: 3px solid #D2A039;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.nv-public-topbar-inner {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 14px 24px;
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    flex-wrap: wrap;
+}
+
+.nv-public-brand {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    color: #fff !important;
+    text-decoration: none !important;
+    font-weight: 600;
+}
+
+.nv-public-brand-logo {
+    background: #D2A039;
+    color: #0a0a0a;
+    width: 38px;
+    height: 38px;
+    border-radius: 6px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 800;
+    font-size: 14px;
+    letter-spacing: -0.5px;
+}
+
+.nv-public-brand-text {
+    font-size: 16px;
+    letter-spacing: -0.2px;
+}
+
+.nv-public-nav {
+    display: flex;
+    gap: 4px;
+    margin-left: 12px;
+    flex: 1;
+}
+
+.nv-public-nav-link {
+    color: rgba(255, 255, 255, 0.85) !important;
+    padding: 8px 14px;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 500;
+    transition: all 0.15s ease;
+    text-decoration: none !important;
+}
+
+.nv-public-nav-link:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: #fff !important;
+}
+
+.nv-public-nav-link.active {
+    background: #D2A039;
+    color: #0a0a0a !important;
+}
+
+.nv-public-user {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    font-size: 12px;
+}
+
+.nv-public-user-badge {
+    padding: 5px 10px;
+    border-radius: 4px;
+    font-weight: 500;
+    font-size: 11px;
+    letter-spacing: 0.2px;
+}
+
+.nv-public-user-edit {
+    background: rgba(46, 160, 67, 0.18);
+    color: #5dd180;
+    border: 1px solid rgba(46, 160, 67, 0.4);
+}
+
+.nv-public-user-readonly {
+    background: rgba(255, 255, 255, 0.08);
+    color: rgba(255, 255, 255, 0.7);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.nv-public-link-admin {
+    color: rgba(255, 255, 255, 0.7) !important;
+    font-size: 11px;
+    font-weight: 500;
+}
+.nv-public-link-admin:hover {
+    color: #D2A039 !important;
+}
+
+/* ─── Cliente bar ────────────────────────────────────────── */
+.nv-public-cliente-bar {
+    background: #fff;
+    border-bottom: 1px solid #e5e5e5;
+}
+
+.nv-public-cliente-bar-inner {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 12px 24px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex-wrap: wrap;
+}
+
+.nv-public-cliente-label {
+    font-weight: 600;
+    color: #444;
+    font-size: 13px;
+}
+
+.nv-public-cliente-select {
+    padding: 7px 12px;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    background: #fff;
+    font-size: 13px;
+    cursor: pointer;
+    min-width: 220px;
+    color: #1a1a1a;
+}
+
+.nv-public-cliente-select:focus {
+    outline: none;
+    border-color: #D2A039;
+    box-shadow: 0 0 0 2px rgba(210, 160, 57, 0.15);
+}
+
+.nv-public-readonly-notice {
+    margin-left: auto;
+    font-size: 12px;
+    color: #666;
+}
+
+/* ─── Main content ───────────────────────────────────────── */
+.nv-public-main {
+    flex: 1;
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 24px;
+    width: 100%;
+}
+
+.nv-public-wrap {
+    /* override de .wrap del wp-admin: en modo público no aplican márgenes admin */
+    margin: 0;
+}
+
+/* Asegurar que el dashboard no tenga padding extra dentro del main */
+.nv-public-main .nv-dashboard {
+    margin: 0;
+    padding: 0;
+}
+
+/* ─── Footer ─────────────────────────────────────────────── */
+.nv-public-footer {
+    background: #fafafa;
+    border-top: 1px solid #e5e5e5;
+    padding: 16px 24px;
+    text-align: center;
+    color: #888;
+    font-size: 12px;
+}
+
+.nv-public-footer a {
+    color: #666;
+}
+
+/* ─── Mobile ─────────────────────────────────────────────── */
+@media (max-width: 760px) {
+    .nv-public-topbar-inner {
+        gap: 12px;
+        padding: 12px 16px;
+    }
+    .nv-public-nav {
+        order: 3;
+        width: 100%;
+        margin-left: 0;
+        justify-content: center;
+    }
+    .nv-public-user {
+        margin-left: auto;
+    }
+    .nv-public-link-admin {
+        display: none;
+    }
+    .nv-public-main {
+        padding: 16px;
+    }
+    .nv-public-cliente-bar-inner {
+        padding: 10px 16px;
+    }
+    .nv-public-readonly-notice {
+        margin-left: 0;
+        width: 100%;
+        margin-top: 4px;
+    }
+}
+
+/* ─── Iframe-friendly: minimal mode ──────────────────────── */
+/* Si la URL incluye ?minimal=1 podríamos ocultar topbar.
+   Lo dejamos preparado pero no implementado en server-side. */
+.nv-public-body.nv-minimal .nv-public-topbar,
+.nv-public-body.nv-minimal .nv-public-footer {
+    display: none;
+}

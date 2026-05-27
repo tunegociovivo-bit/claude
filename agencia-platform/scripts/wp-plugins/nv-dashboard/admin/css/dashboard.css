@@ -1,0 +1,685 @@
+/* NV Dashboard - Paleta oficial Negocio Vivo */
+/* Gold: #D2A039 · Black: #0A0A0A */
+
+.nv-dashboard {
+    max-width: 1280px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+/* Header */
+.nv-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: #fff;
+    padding: 20px 24px;
+    border-radius: 12px;
+    border: 1px solid #e5e5e5;
+    margin: 20px 0;
+}
+
+.nv-logo-block {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+}
+
+.nv-logo {
+    width: 48px;
+    height: 48px;
+    border-radius: 8px;
+    background: #D2A039;
+    color: #0A0A0A;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 18px;
+    letter-spacing: -0.5px;
+}
+
+.nv-header h1 {
+    margin: 0;
+    font-size: 22px;
+    font-weight: 600;
+    color: #0A0A0A;
+}
+
+.nv-subtitle {
+    margin: 0;
+    font-size: 13px;
+    color: #666;
+}
+
+.nv-cliente-selector {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.nv-cliente-selector label {
+    font-size: 13px;
+    color: #666;
+}
+
+.nv-cliente-selector select {
+    padding: 6px 12px;
+    font-size: 13px;
+    border-radius: 6px;
+}
+
+/* Tabs */
+.nv-tabs {
+    display: flex;
+    gap: 4px;
+    background: #fff;
+    padding: 8px;
+    border-radius: 8px;
+    border: 1px solid #e5e5e5;
+    margin-bottom: 20px;
+    overflow-x: auto;
+}
+
+.nv-tab {
+    padding: 8px 16px;
+    font-size: 13px;
+    color: #666;
+    text-decoration: none;
+    border-radius: 6px;
+    white-space: nowrap;
+    transition: background 0.15s;
+}
+
+.nv-tab:hover {
+    background: #f5f5f5;
+    color: #0A0A0A;
+}
+
+.nv-tab.active {
+    background: #FFF8E5;
+    color: #854F0B;
+    font-weight: 500;
+}
+
+/* Stats grid */
+.nv-stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px;
+    margin-bottom: 20px;
+}
+
+.nv-stat-card {
+    background: #fff;
+    padding: 16px 20px;
+    border-radius: 10px;
+    border: 1px solid #e5e5e5;
+}
+
+.nv-stat-label {
+    margin: 0;
+    font-size: 12px;
+    color: #888;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.nv-stat-value {
+    margin: 6px 0 0 0;
+    font-size: 28px;
+    font-weight: 600;
+    color: #0A0A0A;
+}
+
+.nv-stat-warning {
+    background: #FFF8E5;
+    border-color: #EF9F27;
+}
+.nv-stat-warning .nv-stat-value { color: #854F0B; }
+
+.nv-stat-success {
+    background: #E1F5EE;
+    border-color: #5DCAA5;
+}
+.nv-stat-success .nv-stat-value { color: #085041; }
+
+.nv-stat-info {
+    background: #E6F1FB;
+    border-color: #85B7EB;
+}
+.nv-stat-info .nv-stat-value { color: #0C447C; }
+
+.nv-stat-purple {
+    background: #EEEDFE;
+    border-color: #AFA9EC;
+}
+.nv-stat-purple .nv-stat-value { color: #3C3489; }
+
+/* Quick actions */
+.nv-quick-actions {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+}
+
+/* Botón dorado NV */
+.nv-button-gold,
+.button-primary.nv-button-gold {
+    background: #D2A039 !important;
+    border-color: #B8851D !important;
+    color: #0A0A0A !important;
+    font-weight: 500 !important;
+    text-shadow: none !important;
+    box-shadow: none !important;
+}
+
+.nv-button-gold:hover {
+    background: #B8851D !important;
+    border-color: #8B6515 !important;
+    color: #0A0A0A !important;
+}
+
+/* Info box */
+.nv-info-box {
+    background: #fff;
+    padding: 24px;
+    border-radius: 10px;
+    border: 1px solid #e5e5e5;
+    border-left: 4px solid #D2A039;
+}
+
+.nv-info-box h3 {
+    margin: 0 0 12px 0;
+    font-size: 16px;
+    color: #0A0A0A;
+}
+
+.nv-info-box ol {
+    margin: 12px 0;
+    padding-left: 20px;
+}
+
+.nv-info-box li {
+    margin-bottom: 6px;
+    color: #444;
+}
+
+/* Calendar */
+#nv-calendar {
+    background: #fff;
+    padding: 16px;
+    border-radius: 10px;
+    border: 1px solid #e5e5e5;
+    margin-bottom: 20px;
+}
+
+#nv-calendar .fc-event {
+    cursor: pointer;
+    padding: 2px 6px;
+    font-size: 11px;
+    border: none;
+    margin-bottom: 2px;
+}
+
+#nv-calendar .fc-event-reel {
+    background: #FAEEDA !important;
+    color: #854F0B !important;
+}
+
+#nv-calendar .fc-event-imagen {
+    background: #E6F1FB !important;
+    color: #0C447C !important;
+}
+
+#nv-calendar .fc-event-carrusel {
+    background: #EEEDFE !important;
+    color: #3C3489 !important;
+}
+
+#nv-calendar .fc-event-story {
+    background: #E1F5EE !important;
+    color: #085041 !important;
+}
+
+#nv-calendar .fc-event-approved {
+    border-left: 3px solid #28a745 !important;
+}
+
+#nv-calendar .fc-event-scheduled {
+    border-left: 3px solid #0066cc !important;
+    opacity: 0.7;
+}
+
+/* Legend */
+.nv-legend {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    background: #fff;
+    padding: 12px 16px;
+    border-radius: 8px;
+    border: 1px solid #e5e5e5;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+}
+
+.nv-tag {
+    padding: 4px 10px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 500;
+}
+
+.nv-tag-reel { background: #FAEEDA; color: #854F0B; }
+.nv-tag-imagen { background: #E6F1FB; color: #0C447C; }
+.nv-tag-carrusel { background: #EEEDFE; color: #3C3489; }
+.nv-tag-story { background: #E1F5EE; color: #085041; }
+
+.nv-legend-sep {
+    width: 1px;
+    height: 20px;
+    background: #ddd;
+}
+
+.nv-status {
+    font-size: 12px;
+    color: #666;
+}
+
+.nv-status-pending::before { content: ""; }
+.nv-status-approved { color: #28a745; }
+.nv-status-scheduled { color: #0066cc; }
+
+/* Approve bar */
+.nv-approve-bar {
+    background: #FFF8E5;
+    border: 1px solid #EF9F27;
+    border-radius: 10px;
+    padding: 16px 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    position: sticky;
+    bottom: 20px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.1);
+}
+
+.nv-approve-title {
+    margin: 0 0 4px 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: #633806;
+}
+
+.nv-approve-subtitle {
+    margin: 0;
+    font-size: 13px;
+    color: #854F0B;
+}
+
+#nv-approved-count {
+    font-weight: 700;
+    color: #0A0A0A;
+}
+
+/* Settings cards */
+.nv-settings-card {
+    background: #fff;
+    padding: 20px 24px;
+    border-radius: 10px;
+    border: 1px solid #e5e5e5;
+    margin-bottom: 16px;
+}
+
+.nv-settings-card h2 {
+    margin: 0 0 12px 0;
+    font-size: 16px;
+    color: #0A0A0A;
+}
+
+.nv-settings-card label {
+    display: block;
+    margin-bottom: 4px;
+    font-size: 13px;
+}
+
+.nv-settings-card input[type="text"],
+.nv-settings-card input[type="url"],
+.nv-settings-card input[type="email"] {
+    width: 100%;
+    max-width: 600px;
+    padding: 8px 12px;
+    margin-top: 4px;
+    border-radius: 6px;
+    border: 1px solid #ddd;
+}
+
+.nv-settings-card .description {
+    color: #888;
+    font-size: 12px;
+    margin-top: 6px;
+}
+
+.nv-settings-card table {
+    margin-top: 8px;
+    font-size: 12px;
+}
+
+.nv-settings-card table code {
+    background: #f5f5f5;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 11px;
+}
+
+/* Modal */
+.nv-modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0,0,0,0.5);
+    z-index: 99999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.nv-modal-content {
+    background: #fff;
+    border-radius: 12px;
+    padding: 24px;
+    max-width: 800px;
+    width: 90%;
+    max-height: 90vh;
+    overflow-y: auto;
+    position: relative;
+}
+
+.nv-modal-close {
+    position: absolute;
+    top: 12px;
+    right: 16px;
+    font-size: 28px;
+    cursor: pointer;
+    color: #888;
+}
+
+.nv-modal-close:hover {
+    color: #0A0A0A;
+}
+
+/* Preview detail */
+.nv-preview-grid {
+    display: grid;
+    grid-template-columns: 200px 1fr;
+    gap: 20px;
+}
+
+.nv-preview-asset {
+    background: #f5f5f5;
+    border-radius: 8px;
+    aspect-ratio: 9/16;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.nv-preview-asset img,
+.nv-preview-asset video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.nv-preview-meta p {
+    margin: 0 0 8px 0;
+}
+
+.nv-preview-copy {
+    background: #f5f5f5;
+    padding: 12px;
+    border-radius: 6px;
+    font-size: 13px;
+    line-height: 1.6;
+    white-space: pre-wrap;
+}
+
+/* ════════════════════════════════════════════════════════════
+   v1.0.6 — Stats granulares (por red y tipo)
+   ════════════════════════════════════════════════════════════ */
+.nv-granular-stats h3 {
+    font-size: 16px;
+    font-weight: 600;
+    color: #1a1a1a;
+    margin: 0 0 14px;
+}
+
+.nv-granular-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+}
+
+@media (max-width: 760px) {
+    .nv-granular-grid { grid-template-columns: 1fr; }
+}
+
+.nv-granular-card {
+    background: #fff;
+    border: 1px solid #e5e5e5;
+    border-radius: 8px;
+    padding: 16px 18px;
+}
+
+.nv-granular-card h4 {
+    margin: 0 0 12px;
+    font-size: 13px;
+    font-weight: 600;
+    color: #444;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+}
+
+.nv-granular-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.nv-granular-row {
+    display: grid;
+    grid-template-columns: 28px 1fr 100px 32px;
+    gap: 10px;
+    align-items: center;
+    font-size: 13px;
+}
+
+.nv-granular-icon {
+    font-size: 16px;
+    text-align: center;
+}
+
+.nv-granular-label {
+    color: #1a1a1a;
+    font-weight: 500;
+}
+
+.nv-granular-bar {
+    background: #f0f0f1;
+    height: 8px;
+    border-radius: 4px;
+    overflow: hidden;
+    position: relative;
+}
+
+.nv-granular-fill {
+    display: block;
+    height: 100%;
+    background: linear-gradient(90deg, #D2A039 0%, #b8862a 100%);
+    border-radius: 4px;
+    transition: width 0.3s ease;
+}
+
+.nv-granular-value {
+    text-align: right;
+    color: #555;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+}
+
+.nv-loading {
+    color: #888;
+    font-size: 12px;
+    font-style: italic;
+}
+
+/* ============================================================
+ * v1.0.14 — APROBACIÓN RÁPIDA INLINE (botón en cada evento FC)
+ * ============================================================ */
+
+/* Permite posicionar el botón absolutamente sobre cada evento */
+.fc .fc-event {
+    position: relative !important;
+    overflow: visible;
+}
+
+/* Botón circular pequeño en esquina superior derecha del evento */
+.nv-approve-btn {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    border: 1.5px solid #fff;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.92);
+    color: #555;
+    font-size: 14px;
+    font-weight: 700;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.25);
+    transition: transform 0.12s ease, background 0.12s ease, color 0.12s ease;
+    z-index: 5;
+}
+.nv-approve-btn:hover {
+    transform: scale(1.15);
+    background: #fff;
+}
+.nv-approve-btn[data-aprobado="1"] {
+    background: #16a34a;
+    color: #fff;
+    border-color: #fff;
+}
+.nv-approve-btn[data-aprobado="1"]:hover {
+    background: #15803d;
+}
+.nv-approve-btn-loading {
+    cursor: wait;
+    opacity: 0.7;
+}
+
+/* Spinner del botón */
+.nv-approve-spinner {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border: 2px solid rgba(0,0,0,0.15);
+    border-top-color: #555;
+    border-radius: 50%;
+    animation: nv-approve-spin 0.7s linear infinite;
+}
+@keyframes nv-approve-spin {
+    to { transform: rotate(360deg); }
+}
+
+/* Vista lista (listMonth): el botón también funciona */
+.fc-list-event .nv-approve-btn {
+    top: 50%;
+    right: 8px;
+    transform: translateY(-50%);
+}
+.fc-list-event .nv-approve-btn:hover {
+    transform: translateY(-50%) scale(1.15);
+}
+
+/* Toast de feedback */
+.nv-approve-toast {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%) translateY(120%);
+    background: #1f2937;
+    color: #fff;
+    padding: 10px 18px;
+    border-radius: 999px;
+    font-size: 14px;
+    font-weight: 500;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+    z-index: 100000;
+    opacity: 0;
+    transition: transform 0.25s ease, opacity 0.25s ease;
+    pointer-events: none;
+}
+.nv-approve-toast-show {
+    transform: translateX(-50%) translateY(0);
+    opacity: 1;
+}
+.nv-approve-toast-error {
+    background: #dc2626;
+}
+
+/* Vista day-grid: añadir un poco de padding-right para que el botón no
+   solape con el título corto del evento */
+.fc-daygrid-event .fc-event-title-container {
+    padding-right: 26px;
+}
+
+/* v1.0.45 — Badge rojo pulsante para eventos sin imagen.
+   Reemplaza al amarillo débil de v1.0.44 que FullCalendar sobrescribía. */
+.fc .fc-event.nv-event-no-image,
+.fc .fc-daygrid-event.nv-event-no-image,
+.fc .fc-list-event.nv-event-no-image {
+    position: relative !important;
+    border-left: 4px solid #dc2626 !important;
+    box-shadow: 0 0 0 1px #dc2626 inset !important;
+}
+.nv-no-image-badge {
+    position: absolute !important;
+    top: -6px !important;
+    left: -6px !important;
+    width: 18px !important;
+    height: 18px !important;
+    border-radius: 50% !important;
+    background: #dc2626 !important;
+    color: #fff !important;
+    font-size: 11px !important;
+    font-weight: 700 !important;
+    line-height: 18px !important;
+    text-align: center !important;
+    z-index: 10 !important;
+    box-shadow: 0 0 0 2px #fff, 0 2px 6px rgba(220,38,38,0.5) !important;
+    pointer-events: auto !important;
+    cursor: help !important;
+    animation: nvPulseRed 1.6s ease-in-out infinite !important;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
+}
+@keyframes nvPulseRed {
+    0%, 100% { transform: scale(1); box-shadow: 0 0 0 2px #fff, 0 0 0 0 rgba(220,38,38,0.6); }
+    50%      { transform: scale(1.18); box-shadow: 0 0 0 2px #fff, 0 0 0 6px rgba(220,38,38,0); }
+}
+/* En vista lista, el badge no funciona bien con position:absolute → mostrar inline */
+.fc-list-event.nv-event-no-image .nv-no-image-badge {
+    position: static !important;
+    display: inline-block !important;
+    margin-right: 6px !important;
+    vertical-align: middle !important;
+}

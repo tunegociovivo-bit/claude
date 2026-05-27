@@ -1,0 +1,27 @@
+name: Backup diario
+
+on:
+  schedule:
+    # 03:00 UTC (04:00 / 05:00 en España según horario)
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Lanza backup en Hub
+        run: |
+          set -e
+          response=$(curl -sS -o /tmp/body -w "%{http_code}" \
+            -X POST \
+            -H "Authorization: Bearer ${{ secrets.INTERNAL_CRON_TOKEN }}" \
+            -H "X-Cron-Trigger: 1" \
+            -H "Content-Type: application/json" \
+            "${{ secrets.HUB_BASE_URL }}/api/v1/admin/backups")
+          echo "HTTP $response"
+          cat /tmp/body
+          if [ "$response" != "200" ]; then
+            echo "::error::Backup endpoint devolvió $response"
+            exit 1
+          fi

@@ -1,0 +1,99 @@
+# Evolution API detrás de HTTPS con Caddy (TLS automático)
+#
+# Igual que docker-compose.yml pero SIN exponer el 8080 al exterior:
+# Caddy publica 80/443 y obtiene certificado Let's Encrypt automático para
+# tu subdominio (EVOLUTION_DOMAIN). Úsalo en producción.
+#
+# Requisito previo: un registro DNS A de EVOLUTION_DOMAIN -> IP del VPS.
+#
+# Uso:
+#   cp .env.example .env   (rellena EVOLUTION_DOMAIN, EVOLUTION_API_KEY, POSTGRES_PASSWORD)
+#   docker compose -f docker-compose.https.yml up -d
+#
+# En el Hub usa la URL  https://EVOLUTION_DOMAIN  (sin :8080).
+
+version: "3.9"
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      EVOLUTION_DOMAIN: ${EVOLUTION_DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - evolution-api
+    networks: [evo]
+
+  evolution-api:
+    image: atendai/evolution-api:v2.1.1
+    restart: unless-stopped
+    expose:
+      - "8080"            # solo interno; Caddy hace de proxy
+    environment:
+      AUTHENTICATION_API_KEY: ${EVOLUTION_API_KEY}
+      SERVER_URL: https://${EVOLUTION_DOMAIN}
+      DATABASE_ENABLED: "true"
+      DATABASE_PROVIDER: postgresql
+      DATABASE_CONNECTION_URI: postgresql://evolution:${POSTGRES_PASSWORD}@postgres:5432/evolution?schema=public
+      DATABASE_CONNECTION_CLIENT_NAME: evolution
+      DATABASE_SAVE_DATA_INSTANCE: "true"
+      DATABASE_SAVE_DATA_NEW_MESSAGE: "true"
+      DATABASE_SAVE_MESSAGE_UPDATE: "true"
+      DATABASE_SAVE_DATA_CONTACTS: "true"
+      DATABASE_SAVE_DATA_CHATS: "true"
+      CACHE_REDIS_ENABLED: "true"
+      CACHE_REDIS_URI: redis://redis:6379/6
+      CACHE_REDIS_PREFIX_KEY: evolution
+      CACHE_REDIS_SAVE_INSTANCES: "false"
+      CACHE_LOCAL_ENABLED: "false"
+      LOG_LEVEL: ERROR
+      LOG_COLOR: "true"
+      DEL_INSTANCE: "false"
+    volumes:
+      - evolution_instances:/evolution/instances
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    networks: [evo]
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: evolution
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: evolution
+    volumes:
+      - evo_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "evolution"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks: [evo]
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - evo_redis:/data
+    networks: [evo]
+
+volumes:
+  evolution_instances:
+  evo_pg:
+  evo_redis:
+  caddy_data:
+  caddy_config:
+
+networks:
+  evo:

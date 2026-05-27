@@ -1,0 +1,57 @@
+{
+  "expo": {
+    "name": "Bipi",
+    "slug": "bipi",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "scheme": "bipi",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#FDF2E1"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.negociovivo.bipi",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Bipi necesita la cámara para escanear el QR de los negocios y aplicarte el descuento.",
+        "NSLocationWhenInUseUsageDescription": "Bipi usa tu ubicación para mostrarte los descuentos cerca de ti.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Bipi usa tu ubicación para avisarte de descuentos cuando pases cerca."
+      }
+    },
+    "android": {
+      "package": "com.negociovivo.bipi",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/icon.png",
+        "backgroundColor": "#FDF2E1"
+      },
+      "permissions": ["CAMERA", "ACCESS_COARSE_LOCATION", "ACCESS_FINE_LOCATION", "POST_NOTIFICATIONS"],
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [{ "scheme": "https", "host": "hub.negociovivo.app", "pathPrefix": "/bipi/scan" }],
+          "category": ["BROWSABLE", "DEFAULT"]
+        }
+      ]
+    },
+    "plugins": [
+      [
+        "expo-camera",
+        { "cameraPermission": "Bipi necesita la cámara para escanear el QR de los negocios." }
+      ],
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Bipi usa tu ubicación para mostrar descuentos cerca y avisarte cuando pases junto a uno."
+        }
+      ],
+      "expo-notifications"
+    ],
+    "extra": {
+      "apiBaseUrl": "https://hub.negociovivo.app"
+    }
+  }
+}

@@ -1,0 +1,20 @@
+name: Resumen diario por email
+# Corre una vez al día a las 06:30 UTC ≈ 08:30 hora peninsular (07:30
+# en invierno). El endpoint mira tareas vencidas, hoy, mañana y
+# notificaciones sin leer, y manda email a cada usuario con algo
+# pendiente. La idempotencia diaria está en TaskNotificationSent con
+# taskId="DIGEST" y ruleKey="daily_digest:YYYY-MM-DD".
+on:
+  schedule:
+    - cron: "30 6 * * *"
+  workflow_dispatch:
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping endpoint daily-digest
+        run: |
+          curl -fsSL -X GET \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            https://hub.negociovivo.app/api/cron/daily-digest

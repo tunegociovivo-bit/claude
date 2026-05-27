@@ -1,0 +1,47 @@
+{
+  "name": "Bipi — Descuentos cerca de ti",
+  "short_name": "Bipi",
+  "description": "Cada compra te abre descuentos en otros negocios cerca. Tu barrio, tu cartera.",
+  "start_url": "/bipi/app",
+  "scope": "/bipi/",
+  "display": "standalone",
+  "background_color": "#FFFFFF",
+  "theme_color": "#EC4899",
+  "orientation": "portrait",
+  "lang": "es",
+  "categories": ["shopping", "lifestyle"],
+  "icons": [
+    {
+      "src": "/bipi/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/bipi/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/bipi/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Escanear QR",
+      "short_name": "Escanear",
+      "url": "/bipi/scan/",
+      "icons": [{ "src": "/bipi/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Mis cupones",
+      "short_name": "Cupones",
+      "url": "/bipi/app",
+      "icons": [{ "src": "/bipi/icon-192.png", "sizes": "192x192" }]
+    }
+  ]
+}

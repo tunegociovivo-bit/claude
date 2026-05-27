@@ -1,0 +1,18 @@
+name: Sync Google Calendar
+# Pull incremental cada 15 min. El push (Hub → Google) ocurre en
+# tiempo real desde los endpoints de eventos, así que aquí solo
+# necesitamos traer cambios de Google.
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping endpoint calendar-sync
+        run: |
+          curl -fsSL -X GET \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            https://hub.negociovivo.app/api/cron/calendar-sync

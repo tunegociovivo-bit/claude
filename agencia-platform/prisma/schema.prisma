@@ -1,0 +1,3501 @@
+// Prisma schema for Agencia Hub (Phase 2)
+// Modelo multi-tenant: cada cuenta es un Workspace, con miembros (users)
+// y todos los recursos llevan workspaceId para aislamiento.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ====================================================================
+// AUTH (NextAuth.js)
+// ====================================================================
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  name          String?
+  passwordHash  String?
+  image         String?
+  phone         String? // para futuras notificaciones SMS/WhatsApp
+  emailVerified DateTime?
+  role          UserRole  @default(MEMBER)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // 2FA TOTP (RFC 6238). totpSecret es base32, cifrado con
+  // NEXTAUTH_SECRET (igual que los tokens Asana). totpEnabledAt se
+  // setea tras la primera verificación exitosa — antes de eso el
+  // user puede abortar la inscripción sin penalty.
+  totpSecret      String?
+  totpEnabledAt   DateTime?
+  // Códigos de recuperación: 8 strings de 10 chars hasheados (bcrypt).
+  // Se generan al activar 2FA. Cada uso los marca como consumidos.
+  totpBackupCodes Json?
+
+  // Para forzar verificación tras cambio de email crítico o
+  // re-verificación periódica. Si null, no se exige.
+  emailVerificationRequiredAt DateTime?
+
+  accounts                  Account[]
+  sessions                  Session[]
+  memberships               Membership[]
+  projectMembers            ProjectMember[]
+  ownedApiKeys              ApiKey[]
+  asanaTokens               AsanaConnection[]
+  notifications             Notification[]
+  pushSubscriptions         PushSubscription[]
+  comments                  Comment[]
+  assignedTasks             TaskAssignee[]
+  externalCalendars         UserExternalCalendar[]
+  vacationDays              VacationDay[]
+  teamMessages              TeamMessage[]
+  editorialMessages         EditorialPostMessage[]
+  googleCalendarConnections GoogleCalendarConnection[]
+  userSessions              UserSession[]
+  MetaConnection            MetaConnection[]
+  aiMemoryEntries           AiUserMemory[]
+  managedProjects           Project[]                  @relation("ProjectManager")
+  emailAccounts             EmailAccount[]             @relation("UserEmailAccounts")
+}
+
+// Registro de intentos de login para throttling/lockout. Se guardan
+// éxitos y fracasos. La lógica en lib/security/login-throttle.ts
+// rechaza nuevos intentos si en los últimos LOCK_WINDOW_MIN minutos
+// hubo >= LOCK_MAX_FAILS fallos para el mismo email O para la misma
+// IP. Limpieza periódica vía cron /api/cron/login-attempts-purge.
+model LoginAttempt {
+  id        String   @id @default(cuid())
+  email     String
+  ip        String
+  userAgent String?  @db.Text
+  success   Boolean
+  reason    String? // p.ej. "bad_password", "locked", "no_user"
+  createdAt DateTime @default(now())
+
+  @@index([email, createdAt])
+  @@index([ip, createdAt])
+}
+
+// Sesión activa de un usuario (manualmente trackeada — la JWT de
+// NextAuth no se guarda en BD, así que esto nos permite listar y
+// revocar dispositivos desde /perfil/seguridad). Se crea en el
+// callback de signIn y se actualiza lastSeenAt en cada request
+// autenticado (middleware). Para revocar: revokedAt != null hace que
+// authenticate() rechace cualquier petición con esa sessionId.
+model UserSession {
+  id            String    @id @default(cuid())
+  userId        String
+  // Identificador estable que viaja en la JWT como `sid`. Si no
+  // coincide con ninguna sesión viva, se rechaza la petición.
+  sid           String    @unique
+  deviceLabel   String? // p.ej. "Chrome on Mac", "Safari iOS"
+  ip            String?
+  userAgent     String?   @db.Text
+  createdAt     DateTime  @default(now())
+  lastSeenAt    DateTime  @default(now())
+  expiresAt     DateTime
+  revokedAt     DateTime?
+  revokedReason String? // "logout", "user_revoked", "password_changed", "admin_revoked"
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, revokedAt])
+  @@index([sid])
+}
+
+// Calendarios externos del usuario (Google Calendar, Outlook, iCloud,
+// Proton...) vinculados vía "secret iCal URL". Se fetchean en el
+// /calendario para mostrar eventos personales junto a los de la
+// plataforma. Compatible con cualquier proveedor que exporte .ics.
+//
+// Cómo obtener la URL en Google Calendar:
+//   Settings → Settings for my calendars → [calendario] →
+//   "Integrate calendar" → "Secret address in iCal format"
+model UserExternalCalendar {
+  id           String    @id @default(cuid())
+  userId       String
+  workspaceId  String
+  name         String
+  icsUrl       String    @db.Text
+  // Hex color para distinguir en la grid del calendario. Default
+  // violeta para que destaque sobre los eventos del workspace.
+  color        String    @default("#8b5cf6")
+  enabled      Boolean   @default(true)
+  lastSyncedAt DateTime?
+  lastError    String?   @db.Text
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([workspaceId])
+}
+
+enum UserRole {
+  ADMIN
+  MEMBER
+  GUEST
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// ====================================================================
+// WORKSPACE & MEMBERSHIP
+// ====================================================================
+
+model Workspace {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  logo      String?
+  settings  Json? // { ai: { anthropicApiKey: "...", defaultModel: "..." }, ... }
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  memberships               Membership[]
+  clients                   Client[]
+  projects                  Project[]
+  tasks                     Task[]
+  documents                 Document[]
+  databases                 Database[]
+  tags                      Tag[]
+  files                     File[]
+  events                    CalendarEvent[]
+  apiKeys                   ApiKey[]
+  webhooks                  Webhook[]
+  auditLogs                 AuditLog[]
+  asanaImports              AsanaImport[]
+  comments                  Comment[]
+  reviewClients             ReviewClient[]
+  voiceBusinesses           VoiceBusiness[]
+  editorialPosts            EditorialPost[]
+  approvalLinks             ClientApprovalLink[]
+  deliverables              Deliverable[]
+  credentialGrants          CredentialAccessGrant[]
+  leadSearches              LeadSearch[]
+  leads                     Lead[]
+  leadTemplates             LeadTemplate[]
+  leadSequences             LeadSequence[]
+  leadInboxMsgs             LeadInboxMessage[]
+  leadMessages              LeadMessage[]
+  leadExclusions            LeadExclusion[]
+  leadOptouts               LeadOptout[]
+  externalCalendars         UserExternalCalendar[]
+  vacationDays              VacationDay[]
+  teamMessages              TeamMessage[]
+  googleCalendarConnections GoogleCalendarConnection[]
+  emailAccounts             EmailAccount[]
+  searchEmbeddings          SearchEmbedding[]
+  metaConnections           MetaConnection[]
+  metaCampaigns             MetaCampaign[]
+  aiAgentRuns               AiAgentRun[]
+  aiDrafts                  AiDraft[]
+  aiClientMemories          AiClientMemory[]
+  aiAgentLessons            AiAgentLesson[]
+  taskTemplates             TaskTemplate[]
+  aiWorkspaceMemory         AiWorkspaceMemory?
+  aiUserMemories            AiUserMemory[]
+  aiProposedTools           AiProposedTool[]
+  aiOwnerships              AiOwnership[]
+  aiClientWorkflows         AiClientWorkflow[]
+  googleAdsConnection       GoogleAdsConnection?
+  pricingServices           PricingService[]
+  deals                     Deal[]
+  liveMeetingSessions       LiveMeetingSession[]
+  invoices                  Invoice[]
+  invoiceIssuers            InvoiceIssuer[]
+  invoiceCounters           InvoiceCounter[]
+  expenses                  Expense[]
+}
+
+// ====================================================================
+// FACTURACIÓN (gestor de facturas tipo Holded, admin-only)
+// ====================================================================
+
+// Empresa emisora. Soporta varios perfiles (multi-emisor). Cada factura
+// referencia un emisor; sus datos se "congelan" en la factura al emitir.
+model InvoiceIssuer {
+  id          String  @id @default(cuid())
+  workspaceId String
+  name        String // nombre comercial
+  legalName   String? // razón social (si difiere)
+  taxId       String // NIF/CIF
+  address     String?
+  postalCode  String?
+  city        String?
+  province    String?
+  countryCode String  @default("ESP") // ISO 3166-1 alpha-3 (Facturae)
+  email       String?
+  phone       String?
+  web         String?
+  iban        String? // para transferencia / remesa SEPA
+  logoUrl     String?
+  // Facturae: tipo de persona (F=física, J=jurídica) y residencia (R/E/U).
+  personType    String @default("J") // F | J
+  residenceType String @default("R") // R (residente) | E (extranjero) | U (UE)
+  isDefault   Boolean @default(false)
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  invoices  Invoice[]
+  clients   Client[]  @relation("IssuerClients")
+  expenses  Expense[]
+
+  @@index([workspaceId])
+}
+
+// Estado del guardián anti-bloqueo de Meta. Fila única ("global") para
+// que el enfriamiento (cooldown) sobreviva a reinicios del servidor: si
+// Meta nos está limitando y el proceso reinicia, no volvemos a escribir
+// hasta que pase el enfriamiento.
+model MetaGuardState {
+  id            String    @id @default("global")
+  cooldownUntil DateTime?
+  reason        String?
+  lastUsagePct  Float     @default(0)
+  updatedAt     DateTime  @updatedAt
+}
+
+// Gastos de una empresa emisora (compras, suministros, cuotas, etc.).
+// A diferencia de las facturas emitidas, aquí registramos los gastos que
+// la empresa asume, para tener una visión de resultado por empresa.
+model Expense {
+  id          String  @id @default(cuid())
+  workspaceId String
+  issuerId    String? // empresa que asume el gasto
+
+  date     DateTime @default(now())
+  // category: CUOTA_AUTONOMO | SOFTWARE | PUBLICIDAD | PROVEEDORES |
+  //           SUMINISTROS | ALQUILER | MATERIAL | VIAJES | IMPUESTOS |
+  //           BANCO | OTROS
+  category String   @default("OTROS")
+
+  supplier      String? // proveedor
+  supplierTaxId String?
+  concept       String? @db.Text
+
+  currency String @default("EUR") // EUR | USD
+  // paymentMethod: STRIPE | TRANSFER | REMITTANCE | CARD | CASH | OTHER
+  paymentMethod String @default("TRANSFER")
+  // status: PENDING | PAID
+  status        String @default("PAID")
+
+  baseCents  Int   @default(0)
+  taxRate    Float @default(21)
+  taxCents   Int   @default(0)
+  totalCents Int   @default(0)
+  // Si el IVA es deducible (afecta a reporting fiscal).
+  deductible Boolean @default(true)
+
+  notes   String? @db.Text
+  fileUrl String? // justificante/adjunto opcional
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  workspace Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  issuer    InvoiceIssuer? @relation(fields: [issuerId], references: [id])
+
+  @@index([workspaceId])
+  @@index([issuerId])
+  @@index([date])
+}
+
+// Contador de numeración por (workspace, tipo/serie, año). Garantiza
+// numeración correlativa sin huecos por serie y año fiscal.
+model InvoiceCounter {
+  id          String @id @default(cuid())
+  workspaceId String
+  series      String // código de serie (p.ej. "FAC", "REC", "PRO", "PRE")
+  year        Int
+  next        Int    @default(1)
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, series, year])
+  @@index([workspaceId])
+}
+
+model Invoice {
+  id          String @id @default(cuid())
+  workspaceId String
+
+  // type: NORMAL | RECTIFICATIVA | PROFORMA | PRESUPUESTO
+  type   String @default("NORMAL")
+  // status NORMAL/RECT/PROF: DRAFT | ISSUED | PAID | CANCELLED
+  // status PRESUPUESTO:      DRAFT | SENT | ACCEPTED | REJECTED
+  status String @default("DRAFT")
+
+  // Número correlativo (p.ej. "FAC-2026-0001"). Se asigna al emitir.
+  // Los borradores pueden tener number null hasta que se emiten.
+  series String?
+  number String?
+
+  issuerId String?
+  clientId String?
+
+  // Snapshots de datos fiscales al emitir (no cambian si luego editas el
+  // emisor/cliente). JSON con name, legalName, taxId, address, etc.
+  issuerSnapshot Json?
+  clientSnapshot Json?
+
+  issueDate DateTime @default(now())
+  dueDate   DateTime?
+
+  currency String @default("EUR") // EUR | USD
+  // paymentMethod: STRIPE | TRANSFER | REMITTANCE | CARD | CASH | OTHER
+  paymentMethod String @default("STRIPE")
+
+  // Líneas: [{ description, quantity, unitPriceCents, taxRate, discountPct }]
+  lines Json
+
+  // Totales en céntimos de la divisa (enteros, sin floats).
+  subtotalCents Int @default(0)
+  discountCents Int @default(0)
+  taxCents      Int @default(0)
+  totalCents    Int @default(0)
+  paidCents     Int @default(0)
+
+  notes String? @db.Text
+  terms String? @db.Text // pie legal / condiciones
+
+  // Rectificativa: a qué factura rectifica y por qué.
+  rectifiesInvoiceId String?
+  rectifyReason      String?
+
+  // Recurrencia: si recurring=true esta factura es una PLANTILLA que el
+  // cron usa para generar facturas reales. recurrenceConfig:
+  // { intervalMonths, dayOfMonth, nextRunAt, endsAt }
+  recurring        Boolean @default(false)
+  recurrenceConfig Json?
+  // Si esta factura fue GENERADA por una plantilla recurrente, su id.
+  recurringSourceId String?
+
+  // Factura-e
+  facturaeXml      String? @db.Text // XML generado (sin firma en fase 1)
+  facturaeSignedAt DateTime?
+
+  // Cobro
+  stripePaymentLinkUrl String?
+  paidAt               DateTime?
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+  deletedById String?
+
+  workspace Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  issuer    InvoiceIssuer? @relation(fields: [issuerId], references: [id])
+  client    Client?        @relation(fields: [clientId], references: [id])
+
+  @@unique([workspaceId, number])
+  @@index([workspaceId])
+  @@index([clientId])
+  @@index([status])
+  @@index([type])
+  @@index([issueDate])
+}
+
+model Membership {
+  id          String    @id @default(cuid())
+  workspaceId String
+  userId      String
+  role        UserRole  @default(MEMBER)
+  // features: lista explícita de herramientas que este miembro puede usar.
+  // null = se aplican los defaults del rol (Admin todo, Member todos los
+  // estándar, Guest sólo lectura). Array = sólo las herramientas listadas.
+  // Se ignora para ADMIN (siempre tiene todo).
+  features    Json?
+  joinedAt    DateTime  @default(now())
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, userId])
+}
+
+// ====================================================================
+// CRM (Clients & Contacts)
+// ====================================================================
+
+model Client {
+  id          String       @id @default(cuid())
+  workspaceId String
+  name        String
+  industry    String?
+  status      ClientStatus @default(ACTIVE)
+  contactName String?
+  email       String?
+  phone       String?
+  mrr         Int          @default(0) // céntimos opcionalmente, aquí euros enteros
+  since       DateTime?
+  notes       String?      @db.Text
+  asanaId     String?      @unique // trazabilidad migración
+
+  // ----- Secciones nuevas del modal Editar cliente -----
+  // Información general libre (sector ampliado, ubicación, horarios,
+  // sucursales, tipo de empresa, etc.). Texto libre.
+  infoGeneral String?         @db.Text
+  // Accesos: URLs/usuarios/passwords del cliente (cPanel, WP, GMB,
+  // Metricool, etc.). Texto libre por ahora; se podría cifrar en
+  // futuro con encryptSecret() como hacemos con las API keys.
+  accesos     String?         @db.Text
+  // Servicios contratados. Array de slugs predefinidos:
+  // "diseno_web" | "seo_web" | "seo_ia" | "gmb" | "sem" |
+  // "gestion_redes" | "campana_redes" | "mantenimiento" |
+  // "servidor" | "dominio"
+  servicios   Json?
+  // Bono Kit Digital (ayudas Red.es). Boolean para reporting.
+  kitDigital  Boolean         @default(false)
+  // Prioridad para el equipo interno (no es lo mismo que status).
+  // ALTA → urgencia visual (rojo/rose en listados).
+  // NORMAL → default.
+  // BAJA → cliente de bajo mantenimiento (gris/verde).
+  prioridad   ClientPrioridad @default(NORMAL)
+
+  // ----- Editorial / NV Dashboard meta (migrado del plugin) -----
+  // Brief & branding básico
+  brandBrief         String? @db.Text
+  website            String?
+  brandColorPrimary  String  @default("#1F2937")
+  brandColorAccent   String  @default("#2563EB")
+  brandColorText     String  @default("#FFFFFF")
+  // Logo
+  logoUrl            String?
+  logoPosition       String  @default("br") // br | bl | tr | tl
+  // Patrón visual
+  visualPattern      String  @default("clean") // clean | frame
+  refsFidelity       Int     @default(50) // 0-100
+  // Competidores (texto libre, URL/nombre por línea)
+  competitors        String? @db.Text
+  // Dimensiones por formato — JSON { imagen:{w,h,preset}, reel:{...}, ... }
+  dimensionsByFormat Json?
+  // Referencias visuales — JSON [{ url, type, personName }]
+  referenceImages    Json?
+  // Plantillas visuales subidas por el cliente — JSON
+  // [{ id, url, name, notes? }]. Imágenes de ejemplo/layout que el
+  // usuario puede elegir por publicación como guía de estilo para la IA.
+  patternTemplates   Json?
+  // Fuentes corporativas — JSON [{ url, name, weight }]
+  fonts              Json?
+  // Guía de estilo cacheada (generada por IA a partir de las refs visuales)
+  styleGuideCached   String? @db.Text
+  styleGuideHash     String?
+  // Google Drive refs
+  driveMode          String  @default("pending") // configured | pending | no_drive_refs
+  driveRootId        String?
+  driveSubfolders    Json? // [{ name, id, type }]
+  // Modelo de imagen (override del default del workspace).
+  // Valores: "openai-gpt-image-1" | "freepik-seedream-v4" | null = default
+  imageModel         String?
+  // Preset del modal "Generar mes con IA" para este cliente: count,
+  // networks[], mix{}, copyLength, perNetworkCopy, extraGuidance,
+  // status, generateImages, imageQuality. Si null usa los defaults
+  // globales del modal.
+  editorialDefaults  Json?
+  // Negativo permanente de imagen: cosas/personas/objetos que NUNCA
+  // deben aparecer en imágenes generadas para este cliente (free-text).
+  // Se aplica automáticamente a TODAS las generaciones, incluso si el
+  // user no rellena el cuadro de negativo en el modal.
+  imageGlobalAvoid   String? @db.Text
+
+  // ----- Meta Ads: vinculación cuenta/página por cliente -----
+  // Cuando una tarea de campaña tiene clientId, Sonia resuelve estos
+  // valores automáticamente (sin tener que pegar la URL del Ads Manager).
+  // metaAdAccountId: id de la cuenta publicitaria (con o sin "act_").
+  metaAdAccountId    String?
+  // metaPageId: id de la página de Facebook que publicará los anuncios.
+  metaPageId         String?
+  // metaInstagramId: id de la cuenta de Instagram vinculada (opcional).
+  metaInstagramId    String?
+  // metaLeadEmails: emails (coma-separados) a los que avisar de leads.
+  metaLeadEmails     String?
+
+  // ----- Datos fiscales (para el gestor de facturas) -----
+  // Razón social (si difiere del nombre comercial). taxId = NIF/CIF/VAT.
+  legalName    String?
+  taxId        String?
+  fiscalAddress String?
+  postalCode   String?
+  city         String?
+  province     String?
+  countryCode  String? @default("ESP") // ISO 3166-1 alpha-3 (Facturae)
+  // Customer de Stripe (para cobros vía payment link / remesa).
+  stripeCustomerId String?
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+  deletedById String?
+
+  workspace      Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  projects       Project[]
+  tasks          Task[]
+  events         CalendarEvent[]
+  editorialPosts EditorialPost[]
+  deliverables   Deliverable[]
+  aiMemory       AiClientMemory?
+  aiOwnership    AiOwnership?
+  aiWorkflows    AiClientWorkflow[]
+  invoices       Invoice[]
+  issuers        InvoiceIssuer[]    @relation("IssuerClients")
+
+  @@index([workspaceId])
+}
+
+enum ClientStatus {
+  ACTIVE
+  PAUSED
+  PROSPECT
+  CHURNED
+}
+
+enum ClientPrioridad {
+  ALTA
+  NORMAL
+  BAJA
+}
+
+// ====================================================================
+// PROJECTS & TASKS
+// ====================================================================
+
+model Project {
+  id            String    @id @default(cuid())
+  workspaceId   String
+  clientId      String?
+  name          String
+  description   String?   @db.Text
+  color         String    @default("bg-brand-500")
+  // Emoji corto (1-4 chars) que precede al nombre del proyecto en
+  // UI: tablones, sidebar, breadcrumbs. Mejora reconocimiento visual.
+  // Si null, no se renderiza nada extra.
+  emoji         String?
+  // Usuario que GESTIONA este proyecto (manager / responsable). Se
+  // muestra su avatar en la card del proyecto. Es independiente de
+  // ProjectMember (que son los participantes): el manager es uno solo.
+  managerUserId String?
+  progress      Int       @default(0)
+  archived      Boolean   @default(false)
+  asanaId       String?   @unique
+  // Columnas kanban específicas de este proyecto. Si null, se usan
+  // las columnas globales del workspace (Workspace.settings.kanban.columns).
+  // Cada item es { id, label, color, order, isDone? }, mismo shape
+  // que las del workspace. La importación desde Asana las rellena
+  // a partir de las secciones del proyecto.
+  kanbanColumns Json?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  deletedAt     DateTime?
+  deletedById   String?
+
+  workspace Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  client    Client?         @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  manager   User?           @relation("ProjectManager", fields: [managerUserId], references: [id], onDelete: SetNull)
+  tasks     Task[]
+  taskLinks TaskProject[]
+  members   ProjectMember[]
+
+  @@index([workspaceId])
+  @@index([clientId])
+  @@index([managerUserId])
+}
+
+// Membresía explícita por proyecto. Si una fila NO existe para (projectId, userId),
+// el usuario no tiene acceso al proyecto, salvo que sea ADMIN del workspace
+// (los admins ven y editan todo por defecto).
+model ProjectMember {
+  id        String   @id @default(cuid())
+  projectId String
+  userId    String
+  role      UserRole @default(MEMBER) // rol DENTRO del proyecto
+  addedAt   DateTime @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, userId])
+  @@index([userId])
+}
+
+// ====================================================================
+// REVIEWS GENERATOR (migrado de Generador de Reseñas IA PRO de WordPress)
+// ====================================================================
+model ReviewClient {
+  id                String   @id @default(cuid())
+  workspaceId       String
+  slug              String // identificador URL-safe único por workspace
+  name              String
+  webUrl            String?
+  // destinationUrl es OPCIONAL: lo usa el modo AI_GENERATOR (la web
+  // a la que se manda al user para pegar el texto IA). En modo
+  // STAR_REDIRECT se ignora y se usan positiveUrl/negativeUrl.
+  // Por compatibilidad con registros existentes lo dejamos no-null
+  // y los nuevos clientes en modo STAR_REDIRECT lo dejan en "" o
+  // duplicado de positiveUrl.
+  destinationUrl    String
+  // Modo de funcionamiento del cliente público en /r/[slug]:
+  //   AI_GENERATOR  → modo histórico: cliente cuenta su experiencia,
+  //                   OpenAI redacta la reseña al estilo configurado,
+  //                   y se le redirige a destinationUrl con el texto
+  //                   listo para pegar.
+  //   STAR_REDIRECT → modo "Automatic Choice": landing con 5 estrellas;
+  //                   si elige 4-5 → positiveUrl (típicamente GMB);
+  //                   si elige 1-3 → negativeUrl (form interno de la
+  //                   agencia para captar feedback negativo SIN que
+  //                   acabe en Google).
+  mode              ReviewMode @default(AI_GENERATOR)
+  // STAR_REDIRECT — destinos por puntuación.
+  positiveUrl       String?
+  negativeUrl       String?
+  // Google Place ID — opcional, helper para auto-generar positiveUrl
+  // con el formato de whitespark:
+  //   https://search.google.com/local/writereview?placeid=<placeId>
+  placeId           String?
+  topics            String   @db.Text // un tema por línea (solo AI_GENERATOR)
+  bannedWords       String? // separadas por coma (solo AI_GENERATOR)
+  recommendedWords  String? // separadas por coma (solo AI_GENERATOR)
+  extraInstructions String?  @db.Text // (solo AI_GENERATOR)
+  model             String   @default("gpt-4o-mini")
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  workspace Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  history   ReviewHistory[]
+
+  @@unique([workspaceId, slug])
+  @@index([workspaceId])
+}
+
+enum ReviewMode {
+  AI_GENERATOR
+  STAR_REDIRECT
+}
+
+model ReviewHistory {
+  id        String   @id @default(cuid())
+  clientId  String
+  body      String   @db.Text
+  createdAt DateTime @default(now())
+
+  client ReviewClient @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([clientId])
+}
+
+// ====================================================================
+// VOICE REVIEWS (migrado del plugin Voice Reviews)
+// ====================================================================
+// ====================================================================
+// EDITORIAL (migrado de NV Dashboard WP — calendario de publicaciones)
+// ====================================================================
+model EditorialPost {
+  id             String    @id @default(cuid())
+  workspaceId    String
+  clientId       String?
+  title          String
+  content        String?   @db.Text
+  excerpt        String?   @db.Text
+  scheduledFor   DateTime?
+  publishedAt    DateTime?
+  status         String    @default("DRAFT") // DRAFT|REVIEW|APPROVED|SCHEDULED|PUBLISHED|ARCHIVED
+  format         String? // post|reel|story|video|blog|email|carousel
+  networks       String    @default("[]") // JSON array de redes destino
+  thumbnail      String?
+  mediaUrls      String    @default("[]") // JSON array
+  // Copy distinto por red — JSON { instagram: "...", facebook: "...", ... }.
+  // Si una red no aparece en el mapa, se usa `content` como fallback.
+  copyByNetwork  Json?
+  hashtags       String?   @db.Text // copy compartido de hashtags (no por red)
+  firstComment   String?   @db.Text // primer comentario para Metricool
+  // Plan visual estructurado generado JUNTO al copy por Claude (migrado
+  // del plugin NV Dashboard). Permite que la imagen IA respete personas
+  // del roster y el overlay de texto se componga limpio sin alucinaciones.
+  // headlineLines: array de {text, size:sm|md|lg|xl, color:white|accent|primary, weight:regular|bold}
+  headlineLines  Json?
+  // imagePrompt: prompt en inglés para gpt-image-1, con descripción física
+  // de personas mencionadas en copy, espacio negativo, "no readable text".
+  imagePrompt    String?   @db.Text
+  // textPlacement: top|center|bottom (lado opuesto a donde va la persona)
+  textPlacement  String?
+  // Patrón visual ELEGIDO para esta publicación (override del cliente).
+  // key de VISUAL_PATTERNS (clean/frame/bold_blocks/...). Si null, usa
+  // el del cliente.
+  visualPattern  String?
+  // % (0-100) de cuánto debe la IA aplicar el estilo del patrón al
+  // generar la imagen. 0 = ignóralo, 100 = aplícalo al máximo.
+  patternStrength Int?
+  // id de una plantilla visual del cliente (patternTemplates) elegida
+  // para esta publicación. Si está, la IA la usa como guía de estilo
+  // (imagen de referencia) con intensidad patternStrength.
+  patternTemplateId String?
+  // Aspect ratio elegido por el usuario al crear el post (ej "1:1", "16:9",
+  // "9:16", "4:3", "3:4", "2:3", "3:2", "2:1", "3:1", "21:9"). Null o "auto"
+  // = derivado del formato según los defaults del cliente. La generación de
+  // imagen/vídeo lo usa para fijar las dimensiones de la salida.
+  aspectRatio    String?
+  metaJson       Json? // resto de ACF / metadatos
+  legacyWpId     Int?      @unique
+  metricoolJobId String? // reservado para integración API directa (futura)
+  lastExportedAt DateTime? // última vez que se incluyó en un export CSV/Metricool
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  workspace Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  client    Client?                @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  revisions EditorialRevision[]
+  messages  EditorialPostMessage[]
+
+  @@index([workspaceId, status])
+  @@index([clientId])
+  @@index([scheduledFor])
+}
+
+// Mensajes de hilo en una pieza editorial. Permiten conversación
+// inline entre cliente y equipo dentro del panel de aprobación.
+// `authorType` distingue al cliente (sin login) del equipo (con
+// User). Para el cliente, `authorId` es null y guardamos su nombre
+// si lo proporciona el link público (típicamente lo dejamos en
+// blanco y mostramos el nombre del cliente). Para el equipo,
+// `authorId` apunta al User humano y `authorType="TEAM"`.
+model EditorialPostMessage {
+  id         String   @id @default(cuid())
+  postId     String
+  authorType String // "CLIENT" | "TEAM"
+  authorId   String? // null para el cliente, User.id para el equipo
+  authorName String? // fallback visible si authorId es null
+  body       String   @db.Text
+  // En el futuro: attachments, mentions a nivel de mensaje, etc.
+  createdAt  DateTime @default(now())
+
+  post   EditorialPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  author User?         @relation(fields: [authorId], references: [id], onDelete: SetNull)
+
+  @@index([postId, createdAt])
+  @@index([authorId])
+}
+
+model EditorialRevision {
+  id            String   @id @default(cuid())
+  postId        String
+  authorId      String?
+  body          String?  @db.Text
+  changeSummary String?
+  createdAt     DateTime @default(now())
+
+  post EditorialPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@index([postId])
+}
+
+// Link público de aprobación que la agencia comparte con el cliente.
+// El cliente entra sin login a /p/editorial/[token], ve las publicaciones
+// del mes, puede aprobar/rechazar y dejar comentarios.
+model ClientApprovalLink {
+  id          String    @id @default(cuid())
+  workspaceId String
+  clientId    String
+  token       String    @unique @default(cuid())
+  month       String // YYYY-MM
+  createdById String?
+  expiresAt   DateTime?
+  revokedAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, clientId, month])
+  @@index([token])
+}
+
+// Decisión / comentario del cliente desde el link público sobre una
+// publicación concreta.
+model ClientApprovalDecision {
+  id        String   @id @default(cuid())
+  linkId    String
+  postId    String
+  decision  String // approved | rejected | comment
+  comment   String?  @db.Text
+  createdAt DateTime @default(now())
+
+  @@index([linkId, postId])
+  @@index([postId])
+}
+
+// ====================================================================
+// NV LEADS PRO (migrado: Google Places + WhatsApp + secuencias)
+// ====================================================================
+model LeadSearch {
+  id                 String    @id @default(cuid())
+  workspaceId        String
+  keyword            String
+  location           String
+  scope              String    @default("custom") // custom | spain (loop por provincias)
+  /// Fuente de leads: "places" (Google Places) | "borme" | "trustpilot"
+  /// | "doctoralia" | "idealista" | "fotocasa" | "linkedin". Cada fuente
+  /// tiene su collector en lib/leads/sources/*.ts.
+  source             String    @default("places")
+  status             String    @default("PENDING") // PENDING|RUNNING|COMPLETED|FAILED
+  provincesScope     String    @default("[]") // JSON array (legacy)
+  totalProvinces     Int       @default(1)
+  processedProvinces Int       @default(0)
+  currentProvince    String?
+  totalResults       Int       @default(0)
+  startedAt          DateTime?
+  completedAt        DateTime?
+  errorMessage       String?   @db.Text
+  legacyWpId         Int?      @unique
+  // Si true: leads cuyo placeId YA exista en otra búsqueda del workspace
+  // se saltan (búsqueda incremental + dedup cross-búsqueda). Se cuentan
+  // aparte como `leadsSkipped` para informar al usuario.
+  /// Configuración específica por fuente. P.ej. para "places":
+  /// { lowRatingOnly: true, minReviewsCount: 5, maxRating: 3.5 }.
+  /// JSON libre para no migrar cada vez que añadimos un filtro nuevo.
+  sourceConfig       Json?
+  skipExisting       Boolean   @default(false)
+  leadsSkipped       Int       @default(0)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @default(now()) @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  leads     Lead[]
+
+  @@index([workspaceId, status])
+}
+
+model Lead {
+  id                  String    @id @default(cuid())
+  workspaceId         String
+  searchId            String?
+  placeId             String
+  // Datos básicos del negocio (Google Places)
+  name                String
+  address             String?
+  formattedAddress    String?
+  province            String?
+  phone               String?
+  internationalPhone  String?
+  website             String?
+  category            String?
+  types               Json?
+  latitude            Float?
+  longitude           Float?
+  position            Int?
+  gmbUrl              String?
+  businessStatus      String?
+  priceLevel          Int?
+  // Reviews
+  rating              Float?
+  reviewsCount        Int       @default(0)
+  reviewsJson         Json?
+  positivePct         Float?
+  negativePct         Float?
+  neutralPct          Float?
+  // Datos crudos completos del API
+  rawData             Json?
+  // Lead scorer (heurística)
+  score               Int? // 0-100
+  urgency             String? // critica | alta | media | baja | descartar
+  scoreBreakdown      Json?
+  // IA
+  aiOpener            String?   @db.Text
+  aiOpenerGeneratedAt DateTime?
+  // WhatsApp
+  hasWhatsapp         Boolean   @default(false)
+  whatsappChecked     Boolean   @default(false)
+  whatsappCheckedAt   DateTime?
+  // Estado del contacto
+  contactStatus       String    @default("pending") // pending|contacted|responded|client|excluded|discarded
+  notes               String?   @db.Text
+  legacyWpId          Int?      @unique
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  workspace     Workspace                @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  search        LeadSearch?              @relation(fields: [searchId], references: [id], onDelete: SetNull)
+  competitors   LeadCompetitor[]
+  assignments   LeadSequenceAssignment[]
+  inboxMessages LeadInboxMessage[]
+  messages      LeadMessage[]
+
+  @@unique([workspaceId, placeId])
+  @@index([workspaceId, contactStatus])
+  @@index([workspaceId, urgency])
+  @@index([searchId])
+  @@index([score])
+}
+
+// Cola de envío de mensajes (saliente). Cron procesa items con
+// status="queued" y scheduledAt <= now respetando ventana y delays.
+model LeadMessage {
+  id                String    @id @default(cuid())
+  workspaceId       String
+  leadId            String
+  templateId        String?
+  renderedMessage   String    @db.Text
+  channel           String    @default("whatsapp")
+  instanceName      String? // sesión WAHA (default si null)
+  phoneNormalized   String // E.164 sin +
+  status            String    @default("queued") // queued|sending|sent|failed|delivered|read
+  scheduledAt       DateTime?
+  sentAt            DateTime?
+  sendAttempts      Int       @default(0)
+  lastError         String?   @db.Text
+  externalMessageId String?
+  priority          Int       @default(0)
+  createdAt         DateTime  @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  lead      Lead      @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, status])
+  @@index([leadId, status])
+  @@index([status, scheduledAt])
+}
+
+model LeadCompetitor {
+  id           String  @id @default(cuid())
+  leadId       String
+  placeId      String?
+  name         String
+  position     Int
+  rating       Float?
+  reviewsCount Int     @default(0)
+
+  lead Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  @@index([leadId])
+}
+
+model LeadTemplate {
+  id          String   @id @default(cuid())
+  workspaceId String
+  name        String
+  body        String   @db.Text
+  channel     String   @default("whatsapp") // whatsapp|email|sms
+  isDefault   Boolean  @default(false) // si true, entra en el pool de rotación
+  legacyWpId  Int?     @unique
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+  @@index([workspaceId, isDefault])
+}
+
+model LeadSequence {
+  id          String   @id @default(cuid())
+  workspaceId String
+  name        String
+  description String?
+  active      Boolean  @default(true) // legacy: equivalente a isActive
+  isDefault   Boolean  @default(false) // si true, se aplica automáticamente al crear lead
+  legacyWpId  Int?     @unique
+  createdAt   DateTime @default(now())
+
+  workspace   Workspace                @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  steps       LeadSequenceStep[]
+  assignments LeadSequenceAssignment[]
+
+  @@index([workspaceId])
+  @@index([workspaceId, isDefault])
+}
+
+model LeadSequenceStep {
+  id              String  @id @default(cuid())
+  sequenceId      String
+  order           Int
+  delayHours      Int     @default(24)
+  delayDays       Int     @default(1) // alias humano; cron mira delayHours/delayDays
+  templateBody    String  @db.Text
+  channel         String  @default("whatsapp")
+  stopIfResponded Boolean @default(true)
+
+  sequence LeadSequence @relation(fields: [sequenceId], references: [id], onDelete: Cascade)
+
+  @@index([sequenceId])
+}
+
+model LeadSequenceAssignment {
+  id            String    @id @default(cuid())
+  leadId        String
+  sequenceId    String
+  status        String    @default("active") // active|paused|completed|stopped
+  currentStep   Int       @default(0)
+  nextRunAt     DateTime?
+  startedAt     DateTime  @default(now())
+  completedAt   DateTime?
+  stoppedReason String? // respuesta_recibida | manual | excluded | max_attempts
+
+  lead     Lead         @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  sequence LeadSequence @relation(fields: [sequenceId], references: [id], onDelete: Cascade)
+
+  @@unique([leadId, sequenceId])
+  @@index([leadId])
+  @@index([sequenceId])
+  @@index([status, nextRunAt])
+}
+
+model LeadInboxMessage {
+  id                       String   @id @default(cuid())
+  workspaceId              String
+  leadId                   String?
+  fromPhone                String
+  phoneNormalized          String? // alias E.164 sin +
+  channel                  String   @default("whatsapp")
+  direction                String   @default("in") // in | out
+  body                     String   @db.Text
+  meta                     Json?
+  read                     Boolean  @default(false)
+  externalMessageId        String?
+  instanceName             String?
+  // Clasificación IA
+  classification           String? // interested|objection|info_request|opt_out|off_topic|positive_no|auto_reply
+  classificationConfidence Float?
+  classificationReason     String?  @db.Text
+  receivedAt               DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  lead      Lead?     @relation(fields: [leadId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, read])
+  @@index([workspaceId, classification])
+  @@index([leadId])
+  @@index([phoneNormalized])
+}
+
+// Patrones de exclusión por nombre (ej: cliente existente).
+// Al crear un lead, si su nombre matchea, queda contactStatus=excluded.
+model LeadExclusion {
+  id          String   @id @default(cuid())
+  workspaceId String
+  matchType   String   @default("name") // name (futuro: domain, phone)
+  matchValue  String
+  matchMode   String   @default("contains") // contains | exact
+  reason      String?
+  // Legacy fields (compat con seed/import previo)
+  placeId     String?
+  phone       String?
+  createdAt   DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+  @@index([workspaceId, matchType])
+}
+
+model LeadOptout {
+  id          String   @id @default(cuid())
+  workspaceId String
+  phone       String
+  leadId      String?
+  reason      String?
+  source      String   @default("manual") // manual | ai_classification
+  createdAt   DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, phone])
+}
+
+// ====================================================================
+// AI USAGE TRACKING — cuánto cuesta cada proyecto/trabajador en IA
+// ====================================================================
+model AiUsage {
+  id           String   @id @default(cuid())
+  workspaceId  String
+  userId       String? // usuario que disparó la llamada (null = API key sin user)
+  projectId    String? // si la llamada está atada a un proyecto
+  feature      String // "chat", "summarize", "redactor", "reviews", "voice_draft", etc.
+  provider     String // "anthropic" | "openai"
+  model        String // "claude-opus-4-7", "gpt-4o-mini", "whisper-1", etc.
+  inputTokens  Int      @default(0)
+  outputTokens Int      @default(0)
+  costMicros   Int      @default(0) // coste en micros de USD (1 USD = 1_000_000)
+  createdAt    DateTime @default(now())
+
+  @@index([workspaceId, createdAt])
+  @@index([userId, createdAt])
+  @@index([projectId, createdAt])
+}
+
+// ====================================================================
+// BACKUPS
+// ====================================================================
+model BackupRun {
+  id           String    @id @default(cuid())
+  workspaceId  String
+  startedAt    DateTime  @default(now())
+  completedAt  DateTime?
+  status       String    @default("RUNNING") // RUNNING | COMPLETED | FAILED
+  trigger      String    @default("manual") // manual | cron
+  destinations String    @default("local") // CSV: "local,r2,drive"
+  sizeBytes    Int?
+  downloadKey  String? // s3Key en R2 si se subió allí
+  errorMessage String?   @db.Text
+
+  @@index([workspaceId, startedAt])
+}
+
+model VoiceBusiness {
+  id            String   @id @default(cuid())
+  workspaceId   String
+  slug          String // identificador en /v/<slug>
+  name          String
+  location      String?
+  googleUrl     String?
+  trustpilotUrl String?
+  introText     String?  @db.Text
+  disclaimer    String?  @db.Text
+  customPrompt  String?  @db.Text
+  maxSeconds    Int      @default(30)
+  aiProvider    String   @default("anthropic") // "anthropic" | "openai"
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, slug])
+  @@index([workspaceId])
+}
+
+model Task {
+  id                String       @id @default(cuid())
+  workspaceId       String
+  projectId         String
+  clientId          String?
+  parentId          String? // subtareas
+  title             String
+  description       String?      @db.Text
+  status            String       @default("TODO") // antes enum TaskStatus; ahora libre para soportar columnas custom del workspace
+  priority          TaskPriority @default(MEDIUM)
+  dueDate           DateTime?
+  // false = la tarea tiene hora concreta (la hora viene en dueDate).
+  // true (default) = solo fecha, sin hora; en el calendario se renderiza
+  // como evento de día completo. Mantenido true por defecto para que
+  // las tareas existentes no cambien de comportamiento.
+  dueAllDay         Boolean      @default(true)
+  completedAt       DateTime?
+  order             Int          @default(0)
+  asanaId           String?      @unique
+  // URL pública del task en Asana (permalink_url de la API). Nos sirve
+  // para que el equipo pueda ir al original durante la convivencia,
+  // y para auditar la migración.
+  asanaPermalink    String?
+  // Custom fields de Asana (priority, status custom, etc.) preservados
+  // tal cual los devuelve la API. La estructura es la que Asana usa:
+  // [{ gid, name, type, enum_value, text_value, number_value, ... }].
+  // Lo guardamos para que el equipo pueda consultarlo desde la UI
+  // aunque todavía no haya UI dedicada para cada custom field.
+  asanaCustomFields Json?
+  // Tareas flash: checklist de minitareas [{id, text, done}] que también se
+  // muestra en la tarjeta del kanban para marcarlas desde el panel general.
+  flashTasks        Json?
+  // Estado persistente de Sonia para esta task. Mapa de recursos
+  // creados por la IA durante runs anteriores, para idempotencia:
+  // si la task se re-ejecuta, en lugar de crear duplicados, reutiliza
+  // lo registrado aquí. Estructura típica:
+  // {
+  //   meta_ads: { campaignId?, adsetId?, formId?, creativeId?, adId?, imageHash? },
+  //   make: { scenarioId?, hookId? },
+  //   editorial: { postId? },
+  //   ...
+  // }
+  // Se vacía cuando un humano edita la task (PATCH /tasks/[id]).
+  aiState           Json?
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+  // Soft delete. Si != null, el registro está en la papelera. Las
+  // queries de UI filtran por `deletedAt: null`. La purga definitiva
+  // la hace el cron /api/cron/trash-purge cuando supera la
+  // retención (30 días por defecto).
+  deletedAt         DateTime?
+  deletedById       String?
+
+  workspace      Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  project        Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  client         Client?        @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  parent         Task?          @relation("Subtasks", fields: [parentId], references: [id], onDelete: Cascade)
+  subtasks       Task[]         @relation("Subtasks")
+  assignees      TaskAssignee[]
+  tags           TaskTag[]
+  // Proyectos EXTRA donde aparece la misma tarea. El proyecto principal
+  // sigue siendo `projectId` (define la columna kanban canónica). Esta
+  // tabla permite que la tarea aparezca también en los listados de
+  // otros proyectos sin duplicar el registro.
+  extraProjects  TaskProject[]
+  // (Comment[] backref removido: la relación era polimórfica y
+  // generaba FK constraints conflictivos contra Document. La query
+  // de comentarios de una tarea se hace por targetType+targetId.)
+  // Notificaciones por fecha de entrega — array de keys persistidas:
+  // "day_7am", "1h_before", "10min_before". null = defaults
+  // (todas activas). [] = ninguna. Sólo se programa el envío si la
+  // tarea tiene dueDate.
+  notifyDueRules Json?
+
+  // Plantillas de tarea — si la task se creó desde un TaskTemplate,
+  // referenciamos el id aquí. customData contiene los valores
+  // rellenados para los custom fields definidos en la plantilla
+  // (objeto plano { fieldId: value }). null = task sin plantilla.
+  templateId String?
+  customData Json?
+
+  // Recurrencia: si la tarea debe relanzarse sola cada cierto tiempo
+  // (sobre todo tareas de Sonia, para no relanzarlas a mano cada día).
+  //   none | daily | every_2_days | weekly | biweekly | monthly
+  recurrence       String    @default("none")
+  // Próxima ejecución programada. El cron de recurrencia dispara un run
+  // de Sonia cuando recurrenceNextAt <= now y avanza al siguiente slot.
+  recurrenceNextAt DateTime?
+
+  @@index([workspaceId])
+  @@index([projectId])
+  @@index([status])
+  @@index([recurrenceNextAt])
+}
+
+// Proyectos adicionales en los que aparece una tarea (multi-proyecto).
+// La tarea sigue teniendo UN proyecto principal en Task.projectId; los
+// extra van aquí. Pivot table simple.
+model TaskProject {
+  taskId    String
+  projectId String
+  // Estado/columna en ESTE proyecto extra. Una tarea con
+  // proyecto principal A (status="EN_CURSO") puede aparecer en
+  // proyecto B en cualquier columna distinta (p.ej. "REVISION").
+  // Si null, en B aparece en la primera columna del proyecto.
+  status    String?
+  task      Task    @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@id([taskId, projectId])
+  @@index([projectId])
+}
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  REVIEW
+  DONE
+  CANCELLED
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+model TaskAssignee {
+  taskId String
+  userId String
+  task   Task   @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([taskId, userId])
+}
+
+model Tag {
+  id          String    @id @default(cuid())
+  workspaceId String
+  name        String
+  color       String    @default("bg-slate-200")
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  tasks       TaskTag[]
+
+  @@unique([workspaceId, name])
+}
+
+model TaskTag {
+  taskId String
+  tagId  String
+  task   Task   @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  tag    Tag    @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([taskId, tagId])
+}
+
+// ====================================================================
+// DOCUMENTS (Notion-like page tree with block-based content)
+// ====================================================================
+
+model Document {
+  id          String    @id @default(cuid())
+  workspaceId String
+  parentId    String? // permite subpáginas anidadas
+  title       String    @default("Sin título")
+  icon        String? // emoji o nombre de icono Lucide
+  cover       String?
+  category    String?
+  content     Json? // contenido TipTap (ProseMirror doc); null si usa blocks
+  isTemplate  Boolean   @default(false)
+  archived    Boolean   @default(false)
+  authorId    String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+  deletedById String?
+
+  workspace Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  parent    Document?  @relation("Subpages", fields: [parentId], references: [id], onDelete: Cascade)
+  children  Document[] @relation("Subpages")
+  blocks    Block[]
+  // (Comment[] backref removido — ver nota en model Comment.)
+  databases Database[] // un documento puede tener vista de DB inline
+
+  @@index([workspaceId])
+  @@index([parentId])
+}
+
+model Block {
+  id         String    @id @default(cuid())
+  documentId String
+  parentId   String? // bloques anidados (toggles, columnas)
+  type       BlockType
+  content    Json // texto enriquecido + props del bloque
+  order      Int
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  parent   Block?   @relation("BlockChildren", fields: [parentId], references: [id], onDelete: Cascade)
+  children Block[]  @relation("BlockChildren")
+
+  @@index([documentId])
+}
+
+enum BlockType {
+  PARAGRAPH
+  HEADING_1
+  HEADING_2
+  HEADING_3
+  BULLET_LIST
+  NUMBERED_LIST
+  TODO
+  TOGGLE
+  QUOTE
+  CALLOUT
+  CODE
+  DIVIDER
+  IMAGE
+  VIDEO
+  EMBED
+  FILE
+  TABLE
+  COLUMNS
+  PAGE_LINK
+  DATABASE_VIEW
+}
+
+// ====================================================================
+// DATABASES (Notion-style con propiedades + vistas)
+// ====================================================================
+
+model Database {
+  id          String   @id @default(cuid())
+  workspaceId String
+  documentId  String? // si es inline en un documento
+  name        String
+  icon        String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace  Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  document   Document?          @relation(fields: [documentId], references: [id], onDelete: SetNull)
+  properties DatabaseProperty[]
+  records    DatabaseRecord[]
+  views      DatabaseView[]
+}
+
+model DatabaseProperty {
+  id         String          @id @default(cuid())
+  databaseId String
+  name       String
+  type       PropertyType
+  config     Json // opciones según tipo (select options, formula, etc.)
+  order      Int             @default(0)
+  database   Database        @relation(fields: [databaseId], references: [id], onDelete: Cascade)
+  values     DatabaseValue[]
+
+  @@unique([databaseId, name])
+}
+
+enum PropertyType {
+  TEXT
+  NUMBER
+  SELECT
+  MULTI_SELECT
+  DATE
+  PERSON
+  CHECKBOX
+  URL
+  EMAIL
+  PHONE
+  FILE
+  RELATION
+  ROLLUP
+  FORMULA
+  CREATED_TIME
+  CREATED_BY
+}
+
+model DatabaseRecord {
+  id         String   @id @default(cuid())
+  databaseId String
+  title      String   @default("Sin título")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  database Database        @relation(fields: [databaseId], references: [id], onDelete: Cascade)
+  values   DatabaseValue[]
+
+  @@index([databaseId])
+}
+
+model DatabaseValue {
+  id         String           @id @default(cuid())
+  recordId   String
+  propertyId String
+  value      Json // formato según PropertyType
+  record     DatabaseRecord   @relation(fields: [recordId], references: [id], onDelete: Cascade)
+  property   DatabaseProperty @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@unique([recordId, propertyId])
+}
+
+model DatabaseView {
+  id         String   @id @default(cuid())
+  databaseId String
+  name       String
+  type       ViewType
+  config     Json // filtros, ordenación, agrupación, columnas visibles
+  order      Int      @default(0)
+  database   Database @relation(fields: [databaseId], references: [id], onDelete: Cascade)
+}
+
+enum ViewType {
+  TABLE
+  BOARD
+  CALENDAR
+  TIMELINE
+  GALLERY
+  LIST
+}
+
+// ====================================================================
+// COMMENTS & MENTIONS (polimórficos)
+// ====================================================================
+
+model Comment {
+  id          String        @id @default(cuid())
+  workspaceId String
+  authorId    String
+  targetType  CommentTarget
+  targetId    String
+  // `body` se mantiene como String por compatibilidad con
+  // comentarios antiguos importados de Asana (texto plano) y para
+  // que la búsqueda LIKE de SQL siga funcionando sin un GIN sobre
+  // un Json. Cuando hay rich text, también se persiste el doc
+  // TipTap completo en `bodyJson`. Las lecturas priorizan bodyJson
+  // si existe. Lazy migration: al primer GET de un comentario
+  // legacy se parsea body y se rellena bodyJson en background.
+  body        String        @db.Text
+  bodyJson    Json?
+  // GID de la "story" original de Asana cuando este comentario viene
+  // de una importación. UNIQUE para idempotencia: si re-ejecutas
+  // el import, los ya migrados se saltan en lugar de duplicarse.
+  asanaId     String?       @unique
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  author    User      @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  // Nota: `targetId` es polimórfico (apunta a Task, Document, Client
+  // o Project según `targetType`). NO añadimos FK constraint porque
+  // Prisma exigiría que el id exista en TODAS las relaciones a la
+  // vez, lo que es imposible para un campo polimórfico — fallaba al
+  // crear un comentario de tarea porque la BD evaluaba también el
+  // FK contra Document. La integridad referencial se asegura en
+  // código (cada handler valida el target antes de crear el comment).
+  // La columna `targetId` queda como simple índice.
+
+  @@index([targetType, targetId])
+}
+
+enum CommentTarget {
+  TASK
+  DOCUMENT
+  CLIENT
+  PROJECT
+}
+
+// ====================================================================
+// FILES & ATTACHMENTS (MinIO/S3)
+// ====================================================================
+
+model File {
+  id          String   @id @default(cuid())
+  workspaceId String
+  name        String
+  mimeType    String
+  sizeBytes   Int
+  s3Key       String // ruta dentro del bucket
+  targetType  String? // TASK | DOCUMENT | CLIENT | …
+  targetId    String?
+  uploadedBy  String?
+  // GID del attachment original de Asana cuando este archivo viene
+  // de una importación. UNIQUE para idempotencia.
+  asanaId     String?  @unique
+  createdAt   DateTime @default(now())
+
+  workspace    Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  deliverables Deliverable[]
+
+  @@index([workspaceId])
+  @@index([targetType, targetId])
+}
+
+// ====================================================================
+// CALENDAR
+// ====================================================================
+
+model CalendarEvent {
+  id                String    @id @default(cuid())
+  workspaceId       String
+  clientId          String?
+  title             String
+  description       String?   @db.Text
+  startAt           DateTime
+  endAt             DateTime?
+  allDay            Boolean   @default(false)
+  type              EventType @default(MEETING)
+  // Sincronización bidireccional con Google Calendar. Cuando un evento
+  // nace en el Hub y se empuja a Google, guardamos su id remoto.
+  // Cuando un evento viene de Google al sincronizar, también. El par
+  // (googleCalendarId, googleEventId) identifica únicamente un evento
+  // en Google. `googleOwnerUserId` apunta al user del Hub que tiene
+  // la conexión OAuth con la que se sincroniza este evento.
+  googleEventId     String?
+  googleCalendarId  String?
+  googleOwnerUserId String?
+  lastSyncedAt      DateTime?
+  // Si el evento nació de una gestión por teléfono de Sonia (reserva/cita),
+  // queda ligado a la VoiceCall para confirmarlo/actualizarlo cuando llega
+  // la transcripción de la llamada por webhook.
+  voiceCallId       String?
+  // Dueño del evento a efectos de PRIVACIDAD. null = evento compartido del
+  // workspace (visible para todos, comportamiento por defecto). Si está
+  // puesto, es un evento PERSONAL (p.ej. una reunión que Sonia añadió a
+  // petición de un usuario) y solo lo ve ese usuario en su calendario.
+  ownerUserId       String?
+  // Marca de cuándo se envió el recordatorio push previo al evento (idempotencia).
+  reminderSentAt    DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  client    Client?   @relation(fields: [clientId], references: [id], onDelete: SetNull)
+
+  @@unique([googleCalendarId, googleEventId])
+  @@index([googleOwnerUserId])
+  @@index([ownerUserId])
+}
+
+enum EventType {
+  PUBLICATION
+  MEETING
+  DEADLINE
+  CAMPAIGN
+  OTHER
+}
+
+// ====================================================================
+// API KEYS, WEBHOOKS, AUDIT
+// ====================================================================
+
+model ApiKey {
+  id          String    @id @default(cuid())
+  workspaceId String
+  userId      String? // null si es key de servicio
+  name        String
+  prefix      String    @unique
+  hashed      String // bcrypt
+  scopes      String[] // ej: ["clients:read", "tasks:write"]
+  lastUsedAt  DateTime?
+  expiresAt   DateTime?
+  revokedAt   DateTime?
+  createdAt   DateTime  @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId])
+}
+
+model Webhook {
+  id          String   @id @default(cuid())
+  workspaceId String
+  url         String
+  secret      String
+  events      String[] // ej: ["task.created", "task.updated"]
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  workspace  Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  deliveries WebhookDelivery[]
+}
+
+model WebhookDelivery {
+  id         String   @id @default(cuid())
+  webhookId  String
+  event      String
+  payload    Json
+  statusCode Int?
+  response   String?
+  attempts   Int      @default(0)
+  succeeded  Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  webhook Webhook @relation(fields: [webhookId], references: [id], onDelete: Cascade)
+
+  @@index([webhookId])
+}
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  workspaceId String
+  actorId     String?
+  action      String // ej: "task.created"
+  targetType  String?
+  targetId    String?
+  meta        Json?
+  createdAt   DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+  @@index([createdAt])
+}
+
+// ====================================================================
+// NOTIFICATIONS
+// ====================================================================
+
+// Token de acceso temporal de un solo uso para que un admin comparta
+// con el equipo de soporte (Claude) un volcado de credenciales.
+// Generado por admin, válido típicamente 1h y consumido en la primera
+// lectura (single-use). Auditable.
+model CredentialAccessGrant {
+  id          String    @id @default(cuid())
+  workspaceId String
+  token       String    @unique
+  createdById String?
+  expiresAt   DateTime
+  usedAt      DateTime?
+  usedFromIp  String?
+  revokedAt   DateTime?
+  createdAt   DateTime  @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([token])
+  @@index([workspaceId, createdAt])
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  type      String
+  body      String
+  link      String?
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, read])
+}
+
+// ===================================================================
+// Sonia — Agente autónomo (Fase 1)
+// ===================================================================
+// Cada vez que una Task se enlaza con el proyecto "buzón" de Sonia
+// (configurado en Workspace.settings.aiAgent.inboxProjectId) se crea
+// un AiAgentRun en estado PENDING. El cron /api/cron/ai-agent/process
+// los recoge y ejecuta un agent loop de Claude con tools acotadas
+// (Fase 1: read-only + comentar + cambiar estado + marcar done).
+//
+// log: array de steps {type, ts, tool?, input?, output?, text?, error?}
+//   para auditoría completa de cada acción. Permite revisar EXACTAMENTE
+//   qué hizo la IA antes de aprobar acciones más sensibles en Fase 2.
+//
+// requesterId: el user que disparó el run (al añadir la tarea al
+//   buzón IA). Se notifica al terminar.
+model AiAgentRun {
+  id            String              @id @default(cuid())
+  workspaceId   String
+  taskId        String
+  requesterId   String? // user que enlazó la task al proyecto IA
+  status        AiAgentRunStatus    @default(PENDING)
+  trigger       AiAgentRunTrigger   @default(MANUAL)
+  // Contexto extra del trigger (ej: "vence en 36h", "lleva 8 días
+  // sin actividad"). Se inyecta en el primer mensaje al modelo.
+  triggerContext String?            @db.Text
+  // Fase 50: timestamp del último ciclo del loop. El runner lo
+  // actualiza cada vez que vuelve de una llamada al modelo. Un
+  // watchdog cron marca como REQUIRES_HUMAN los RUNNING que no
+  // hacen tick en >10 min (proceso muerto: deploy, crash, OOM).
+  lastIterationAt DateTime?
+  // Modelo usado (por si en el futuro queremos elegir Haiku/Sonnet/Opus)
+  model         String              @default("claude-opus-4-7")
+  summary       String?             @db.Text // resumen final de la IA al user
+  error         String?             @db.Text
+  log           Json                @default("[]") // steps
+  stepsCount    Int                 @default(0)
+  inputTokens   Int                 @default(0)
+  outputTokens  Int                 @default(0)
+  startedAt     DateTime?
+  finishedAt    DateTime?
+  // Φ — UI: cuándo un humano "revisó" el resultado de este run. Mientras
+  // sea null y status sea SUCCEEDED/REQUIRES_HUMAN, la task parpadea
+  // verde/naranja en el tablón. Se rellena automáticamente al editar la
+  // task (PATCH significa que el humano la atendió) o vía endpoint manual.
+  humanReviewedAt DateTime?
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, status])
+  @@index([taskId])
+}
+
+enum AiAgentRunStatus {
+  PENDING       // creado, esperando worker
+  RUNNING       // agent loop en marcha
+  SUCCEEDED     // terminó OK, resumen disponible
+  FAILED        // error fatal (timeout, tokens, exception)
+  REQUIRES_HUMAN // la IA pidió ayuda — la tarea queda en mano del user
+}
+
+// Φ5 — Asistencia en vivo durante videollamadas. La extensión Chrome
+// graba en chunks; cada chunk se envía a backend, se transcribe con
+// Whisper, se procesa con Claude en modo "asistente en vivo", y se
+// devuelven sugerencias contextuales (búsquedas, action items, tone
+// alerts) que la extensión muestra como overlay flotante.
+//
+// Al terminar la reunión se crea una task normal con el transcript
+// completo + resumen + action items extraídos.
+model LiveMeetingSession {
+  id              String   @id @default(cuid())
+  workspaceId     String
+  userId          String // quien arrancó la sesión
+  taskId          String? // task creada al finalizar
+  platform        String // "meet" | "teams" | "zoom" | ...
+  meetingUrl      String?
+  meetingTitle    String?
+  startedAt       DateTime @default(now())
+  endedAt         DateTime?
+  status          String   @default("LIVE") // LIVE | ENDED | FAILED
+  // Append-only — concat del texto de cada chunk transcrito.
+  fullTranscript  String   @default("") @db.Text
+  // Append-only — { ts, chunkIdx, transcript, suggestions[] }
+  suggestionsLog  Json     @default("[]")
+  // Para throttling — cuándo procesamos la última vez con Claude.
+  lastProcessedAt DateTime?
+  chunksReceived  Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, status])
+  @@index([userId])
+}
+
+// Φ3 — Negociación autónoma. Sonia gestiona deals con leads/clientes
+// dentro de rangos pre-aprobados por el admin.
+model PricingService {
+  id            String    @id @default(cuid())
+  workspaceId   String
+  name          String // "Diseño web", "Gestión RRSS mensual", etc.
+  description   String?   @db.Text
+  baseAmountEur Float // precio "lista" en EUR
+  minAmountEur  Float // mínimo aceptable — Sonia no baja de aquí sin escalación
+  unit          String    @default("one_time") // "one_time" | "monthly" | "hourly"
+  // Trade-offs que Sonia puede ofrecer durante la negociación.
+  // Json shape: [{ if: "discount_pct >= 15", then: "min_term_months >= 12" }]
+  // o simple lista de items: ["compromiso 12m", "sin módulo X", "pago 100% upfront"]
+  tradeoffs     Json      @default("[]")
+  active        Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, active])
+}
+
+model Deal {
+  id              String   @id @default(cuid())
+  workspaceId     String
+  leadId          String? // si conocemos el Lead en BD
+  clientId        String? // si ya es cliente nuestro (upsell)
+  contactName     String?
+  contactEmail    String?
+  contactPhone    String?
+  status          String   @default("PROSPECT")
+  // PROSPECT | PROPOSED | NEGOTIATING | CLOSED_WON | CLOSED_LOST | ESCALATED
+  proposedItems   Json     @default("[]") // [{ serviceId, name, units, amountEur, unit }]
+  negotiationLog  Json     @default("[]") // [{ ts, actor, action, snapshot }]
+  currentValueEur Float?
+  // Estado libre — lo que llevamos negociado en lenguaje natural,
+  // para que Sonia lo lea sin parsear el log entero.
+  notes           String?  @db.Text
+  expectedCloseAt DateTime?
+  closedAt        DateTime?
+  closedReason    String?  @db.Text
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, status])
+  @@index([leadId])
+  @@index([clientId])
+}
+
+enum AiAgentRunTrigger {
+  MANUAL              // user enlazó la task al proyecto buzón
+  MENTION             // @nv-ia en un comentario
+  PROACTIVE_DEADLINE  // cron detectó deadline cercana sin progreso
+  PROACTIVE_STALE     // cron detectó task estancada (IN_PROGRESS sin updates)
+  SCHEDULED           // cron diario de revisión global
+  WHATSAPP_INBOUND    // llegó WhatsApp de cliente vía /leads/webhook
+  EMAIL_INBOUND       // llegó email vía /api/webhooks/inbound-email
+  CALL_INBOUND        // llamada telefónica recibida (Twilio/Vonage/Aircall)
+  STRATEGIC_REVIEW    // Co-CEO trimestral (Fase 40)
+  OWNER_MODE_CHECK    // Owner mode: cliente bajo responsabilidad de Sonia (Fase 31)
+  COMPLIANCE_FLAG     // Filtro de compliance bloqueó algo (Fase 36)
+  LEAD_OPPORTUNITY    // Detección de señal de oportunidad (Fase 35)
+  WORKFLOW_STEP       // Paso de un workflow automático (Fase 41)
+  CHURN_RISK          // Señal de fuga de cliente detectada (Fase 43)
+  SELF_HEALING        // Cron de auto-mejora detectó patrón de fallos (Fase 44)
+  NEGOTIATION        // Lead/cliente en proceso de negociación (Φ3)
+  LIVE_MEETING_TICK  // Tick de transcripción en vivo durante meeting (Φ5)
+}
+
+// Fase 41 — Workflows automáticos por cliente.
+// Cuando se ficha un cliente nuevo (o se promueve un lead) se
+// arranca un workflow tipo "onboarding 7 días" que ejecuta pasos
+// programados: día 0 email bienvenida, día 1 recolectar info, día 3
+// primer entregable, día 7 reunión check-in. Cada paso es una task
+// en el inbox de Sonia con trigger=WORKFLOW_STEP.
+model AiClientWorkflow {
+  id            String   @id @default(cuid())
+  workspaceId   String
+  clientId      String
+  // Tipo del workflow (clave para buscar la definición en code):
+  // "onboarding_7d", "renewal_30d", "churn_recovery_14d", custom...
+  workflowType  String
+  // Plantilla de pasos como Json: [{ id, label, dayOffset, prompt }].
+  // Se copia desde la definición en code al crear (snapshot — si
+  // cambia la plantilla, los workflows ya iniciados no se ven afectados).
+  steps         Json     @default("[]")
+  // Índice del próximo paso a ejecutar (0-based).
+  nextStepIdx   Int      @default(0)
+  status        String   @default("ACTIVE") // ACTIVE | PAUSED | COMPLETED | ABANDONED
+  startedAt     DateTime @default(now())
+  completedAt   DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  client    Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, status])
+  @@index([clientId])
+}
+
+// Fase 8: memoria persistente que Sonia acumula sobre cada cliente
+// a través de los runs. Notas tipo:
+//   - Preferencias confirmadas (cliente prefiere tono formal)
+//   - Decisiones tomadas (acordamos usar Notion en lugar de Confluence)
+//   - Rechazos previos (no le gustó que mencionáramos competencia)
+//   - Restricciones (no contactar en horario de oficina)
+//
+// content es markdown plano. La IA o el admin lo edita; lo guardamos
+// con cap de 50KB — si crece más, los apends viejos se truncan con
+// marca. Cada actualización registra updatedBy ("nv-ia" o userId).
+// Fase 31: Owner mode — Sonia es RESPONSABLE de un cliente con KPIs
+// medibles. El cron OWNER_MODE_CHECK la dispara periódicamente (default
+// semanal) para que revise estado, identifique desviaciones, escale.
+model AiOwnership {
+  id            String   @id @default(cuid())
+  workspaceId   String
+  clientId      String   @unique
+  // KPIs en formato libre — la IA los lee/interpreta. Ej:
+  // { responseTimeHours: 2, monthlyEngagement: ">5%", escalationCap: 1 }
+  kpis          Json     @default("{}")
+  // Cada cuánto revisa (default 7 días)
+  checkFreqDays Int      @default(7)
+  lastCheckAt   DateTime?
+  // Último estado conocido (resumen breve de la última revisión)
+  lastStatus    String?  @db.Text
+  active        Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  client    Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, active])
+}
+
+model AiClientMemory {
+  id          String   @id @default(cuid())
+  workspaceId String
+  clientId    String   @unique
+  content     String   @db.Text @default("")
+  updatedBy   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  // Fase 18: si autoApproveDraftKinds tiene valores (ej:
+  // ["WHATSAPP", "EMAIL"]), los drafts de Sonia sobre tareas de
+  // este cliente y de ese kind se auto-aprueban + ejecutan sin
+  // esperar revisión humana. Solo activable manualmente por admin
+  // tras observar tasa de aprobación alta. Sin esto = comportamiento
+  // por defecto (todo draft requiere aprobación).
+  autoApproveDraftKinds String[] @default([])
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  client    Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+}
+
+// Fase 34: Sonia puede PROPONER nuevas tools cuando detecta patrones
+// repetitivos. NO se ejecutan automáticamente — el admin revisa el
+// código TypeScript propuesto, lo añade manualmente a tools.ts si
+// le parece bien, y Sonia gana una capacidad nueva.
+//
+// La IA escribe:
+//   - name: "send_invoice_reminder" (snake_case)
+//   - description: para qué sirve
+//   - input_schema: JSON Schema de los args
+//   - executorPseudoCode: pseudocódigo o TS describiendo qué debería
+//     hacer la tool (consulta a BD, llamada a API, etc.). NO se
+//     ejecuta — es input para el dev humano que la implementa.
+//   - rationale: por qué la pide, qué runs/tareas se beneficiarían
+model AiProposedTool {
+  id              String   @id @default(cuid())
+  workspaceId     String
+  proposedByRunId String? // qué AiAgentRun la propuso
+  name            String
+  description     String   @db.Text
+  inputSchema     Json
+  executorPseudoCode String @db.Text
+  rationale       String   @db.Text
+  status          String   @default("PROPOSED") // PROPOSED | APPROVED | REJECTED | IMPLEMENTED
+  reviewedById    String?
+  reviewedAt      DateTime?
+  reviewerNote    String?  @db.Text
+  // Si el admin la marca IMPLEMENTED, anota el commit o referencia
+  // donde quedó añadida al código.
+  implementationRef String?
+  createdAt       DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, status])
+}
+
+// Fase 17: memoria GLOBAL del workspace — políticas, firma estándar,
+// horario, dirección, todo lo que aplica a TODA la comunicación.
+// Una sola fila por workspace.
+model AiWorkspaceMemory {
+  id          String   @id @default(cuid())
+  workspaceId String   @unique
+  content     String   @db.Text @default("")
+  updatedBy   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+}
+
+// Fase 17: memoria por MIEMBRO del equipo — sus áreas, horarios,
+// preferencias. Sonia la usa al decidir a quién delegar.
+model AiUserMemory {
+  id          String   @id @default(cuid())
+  workspaceId String
+  userId      String
+  content     String   @db.Text @default("")
+  updatedBy   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, userId])
+  @@index([workspaceId])
+}
+
+// Fase 2: borradores generados por Sonia que necesitan aprobación
+// humana antes de ejecutarse (envío real de email/WhatsApp, creación
+// de un post editorial, etc). Filosofía: la IA escribe el borrador,
+// el humano lo lee, lo edita si quiere, y aprueba. Solo entonces se
+// hace la acción irreversible.
+//
+// payload (Json) contiene el shape específico del tipo de draft:
+//   - EMAIL:           { to, subject, html, text? }
+//   - WHATSAPP:        { phoneNormalized, text, clientId? }
+//   - EDITORIAL_POST:  { title, content, networks[], scheduledFor?, ... }
+//
+// executionResult: respuesta del backend al ejecutar (ej. messageId
+//   de Resend, gid del post creado), o el error si falló.
+model AiDraft {
+  id              String         @id @default(cuid())
+  workspaceId     String
+  aiAgentRunId    String? // run que lo creó (null si lo creó admin a mano)
+  taskId          String? // tarea de origen (opcional — drafts pueden venir de tareas IA)
+  kind            AiDraftKind
+  title           String // resumen humano-legible para la lista de aprobación
+  payload         Json
+  status          AiDraftStatus  @default(PENDING)
+  reviewedById    String? // user que aprobó/rechazó
+  reviewedAt      DateTime?
+  reviewerNote    String?        @db.Text
+  executedAt      DateTime?
+  executionResult Json? // { ok: true, externalId: "..." } | { ok: false, error: "..." }
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, status])
+  @@index([taskId])
+  @@index([aiAgentRunId])
+}
+
+enum AiDraftKind {
+  EMAIL
+  WHATSAPP
+  EDITORIAL_POST
+  CALENDAR_EVENT
+  DRIVE_FILE
+  HOLDED_INVOICE
+  HOLDED_QUOTE
+  STRIPE_PAYMENT_LINK
+  PHONE_CALL // llamada de voz (Vapi) propuesta; se ejecuta al aprobar
+  CUSTOM // texto libre — para acciones que aún no tienen integración
+}
+
+enum AiDraftStatus {
+  PENDING     // recién creado, esperando review
+  APPROVED    // aprobado pero aún no ejecutado (race window)
+  REJECTED    // descartado, no se ejecuta
+  EXECUTED    // ejecutado con éxito
+  FAILED      // intentó ejecutarse y falló — admin puede reintentar
+}
+
+// Reportes automáticos de errores producidos en el frontend o backend.
+// Capturados por window.onerror + unhandledrejection + fetch wrapper en
+// cliente, y por catch blocks en los endpoints en servidor.
+//
+// Cuando se crea un ErrorReport, opcionalmente se abre una GitHub Issue
+// en el repo del proyecto (si hay GITHUB_TOKEN configurado).
+//
+// El ErrorReport se cierra cuando un commit referencia su id en el
+// mensaje (ej: "fix: ... closes ErrorReport#abc123").
+// Jobs en segundo plano (generación masiva de mes editorial, etc.). Se
+// usan para no bloquear la respuesta HTTP cuando la operación tarda y el
+// proxy de Railway corta a los 30-60s.
+model BackgroundJob {
+  id              String    @id @default(cuid())
+  workspaceId     String
+  userId          String?
+  kind            String // editorial.generate_month | leads.search_batch | ...
+  status          String    @default("PENDING") // PENDING|RUNNING|COMPLETED|FAILED|CANCELLED
+  progressPct     Int       @default(0) // 0-100
+  progressMsg     String? // mensaje legible "Generando publicación 3/14"
+  request         Json? // params originales
+  result          Json? // payload de éxito
+  // Log de eventos del job para el toast expandible. Array de
+  // { ts, level: "info"|"warn"|"error", message, durationMs? }.
+  events          Json?
+  // Prompts enviados a Claude (system + user) — auditoría de "qué le
+  // pedí exactamente al modelo". Sólo aplica a kinds de IA editorial.
+  systemPrompt    String?   @db.Text
+  userPrompt      String?   @db.Text
+  // Bandera de cancelación cooperativa. El loop del job la mira entre
+  // iteraciones y para limpiamente, conservando lo ya creado.
+  cancelRequested Boolean   @default(false)
+  errorCode       String?
+  errorMessage    String?   @db.Text
+  startedAt       DateTime?
+  completedAt     DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([workspaceId, kind, status])
+  @@index([workspaceId, createdAt])
+}
+
+model ErrorReport {
+  id               String    @id @default(cuid())
+  workspaceId      String?
+  userId           String?
+  source           String // client | server | api
+  status           String    @default("REPORTED") // REPORTED | ACKNOWLEDGED | IN_PROGRESS | RESOLVED | DISMISSED
+  message          String    @db.Text
+  stack            String?   @db.Text
+  url              String? // URL donde ocurrió
+  userAgent        String?
+  context          Json? // info extra (params, body, etc.)
+  fingerprint      String? // hash para agrupar errores parecidos
+  count            Int       @default(1) // veces que se ha repetido este fingerprint
+  githubIssueUrl   String? // si se abrió issue automática
+  resolutionNote   String?   @db.Text
+  resolutionCommit String? // SHA del commit que lo resolvió
+  acknowledgedAt   DateTime?
+  resolvedAt       DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@index([workspaceId, status])
+  @@index([fingerprint])
+  @@index([status, createdAt])
+}
+
+// Suscripciones Web Push del usuario (un usuario puede tener varias:
+// portátil, móvil, tablet, navegadores distintos).
+model PushSubscription {
+  id        String   @id @default(cuid())
+  userId    String
+  endpoint  String   @unique
+  p256dh    String   @db.Text
+  authKey   String   @db.Text
+  userAgent String?
+  createdAt DateTime @default(now())
+  lastSeen  DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+// ====================================================================
+// ASANA MIGRATION
+// ====================================================================
+
+model AsanaConnection {
+  id             String    @id @default(cuid())
+  // Históricamente se acumulaban duplicados porque saveAsanaToken hacía
+  // findFirst+update y dejaba huérfanos; sin orderBy, findFirst después
+  // elegía no-determinísticamente una u otra (síntoma: "modo automático"
+  // funcionaba para workspaces pero fallaba con 401 al listar projects
+  // porque cada llamada cogía una fila distinta). saveAsanaToken hace
+  // deleteMany+create desde mid-2026, y getActiveAsanaConnection() limpia
+  // duplicados al leer. Pendiente: añadir @@unique([userId]) cuando se
+  // confirme que no hay duplicados legacy en producción.
+  userId         String
+  // `accessToken` quedó como texto plano por una iteración temprana.
+  // Lo mantenemos para no romper conexiones existentes, pero los
+  // tokens nuevos se cifran en `accessTokenEnc` con encryptSecret().
+  // El helper de lectura prefiere accessTokenEnc; si solo hay
+  // accessToken, lo migra cifrándolo en el primer uso.
+  accessToken    String    @db.Text
+  accessTokenEnc String?   @db.Text
+  refreshToken   String?   @db.Text
+  expiresAt      DateTime?
+  asanaUserId    String?
+  createdAt      DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model AsanaImport {
+  id          String    @id @default(cuid())
+  workspaceId String
+  status      String // PENDING | RUNNING | COMPLETED | FAILED
+  startedAt   DateTime  @default(now())
+  finishedAt  DateTime?
+  // Latido del background job: el importer actualiza este campo cada
+  // pocas operaciones. Si el UI ve status=RUNNING pero lastHeartbeatAt
+  // > 5 min sin actualizar, sabe que el proceso ha muerto (deploy,
+  // crash, OOM) y muestra "atascado — puedes relanzar".
+  lastHeartbeatAt DateTime?
+  // Etapa actual en lenguaje humano: "Leyendo usuarios de Asana",
+  // "Importando tareas (proyecto 3/12)", "Subiendo adjuntos", etc.
+  // El UI lo muestra para que el user vea QUÉ está haciendo, no solo
+  // contadores.
+  currentStage String?
+  stats       Json? // { projects: 12, tasks: 340, attachments: 18, ... }
+  errorMsg    String?
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+}
+
+// ====================================================================
+// Equipo: vacaciones + chat grupal
+// ====================================================================
+
+// Un día de vacaciones marcado por un trabajador. Granularidad por día
+// (no por hora). Si la fecha ya pasó, queda lockedAt != null y no se
+// puede modificar/borrar — se considera registro histórico.
+model VacationDay {
+  id          String    @id @default(cuid())
+  workspaceId String
+  userId      String
+  date        DateTime  @db.Date
+  note        String?
+  // Marca cuándo se "selló" el registro porque la fecha ya pasó. Si es
+  // null, todavía es modificable. La capa de aplicación lo rellena en
+  // el primer acceso después de que la fecha haya pasado.
+  lockedAt    DateTime?
+  createdAt   DateTime  @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, userId, date])
+  @@index([workspaceId, date])
+}
+
+// Chat grupal del equipo. Un solo "canal" por workspace por ahora; si
+// más adelante hace falta multi-canal se añade channelId.
+model TeamMessage {
+  id          String   @id @default(cuid())
+  workspaceId String
+  authorId    String
+  body        String   @db.Text
+  // Lista opcional de referencias del tipo {kind:"task"|"project", id:"..."}
+  // para deep-links a tareas/proyectos. Se rellena al parsear el body.
+  references  Json?
+  createdAt   DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  author    User      @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, createdAt])
+}
+
+// Registro de notificaciones de tarea ya enviadas, para no duplicar.
+// Una fila por (taskId, ruleKey, userId). El cron crea estas filas
+// dentro de la misma transacción que envía el email; si reintenta y
+// ya existe, salta.
+model TaskNotificationSent {
+  taskId  String
+  ruleKey String
+  userId  String
+  sentAt  DateTime @default(now())
+
+  @@id([taskId, ruleKey, userId])
+  @@index([sentAt])
+}
+
+// ====================================================================
+// DELIVERABLES — entregables genéricos para aprobación del cliente
+// ====================================================================
+//
+// Un "entregable" es cualquier pieza que la agencia entrega al cliente
+// y que requiere su visto bueno: un PDF de propuesta, un mockup, un
+// vídeo, un audio, etc. A diferencia de EditorialPost (que es
+// específico de redes sociales), Deliverable es agnóstico: el cliente
+// solo aprueba o pide cambios.
+//
+// El archivo en sí vive en File (storage R2/S3); Deliverable apunta
+// con `fileId` (nullable porque a veces se crea el slot antes de
+// adjuntar el archivo final).
+model Deliverable {
+  id          String    @id @default(cuid())
+  workspaceId String
+  clientId    String
+  fileId      String?
+  title       String
+  description String?   @db.Text
+  status      String    @default("PENDING") // PENDING|APPROVED|REJECTED
+  dueAt       DateTime?
+  createdById String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  workspace Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  client    Client                @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  file      File?                 @relation(fields: [fileId], references: [id], onDelete: SetNull)
+  decisions DeliverableDecision[]
+
+  @@index([workspaceId, status])
+  @@index([clientId])
+}
+
+model DeliverableDecision {
+  id            String   @id @default(cuid())
+  deliverableId String
+  decision      String // "approved" | "rejected" | "comment"
+  comment       String?  @db.Text
+  createdAt     DateTime @default(now())
+
+  deliverable Deliverable @relation(fields: [deliverableId], references: [id], onDelete: Cascade)
+
+  @@index([deliverableId, createdAt])
+}
+
+// ====================================================================
+// GOOGLE CALENDAR — integración bidireccional por usuario
+// ====================================================================
+//
+// A diferencia de UserExternalCalendar (que es read-only vía iCal),
+// esta tabla guarda los tokens OAuth para hacer push y pull contra
+// el API de Google Calendar. Tokens cifrados con encryptSecret().
+//
+// `syncToken` es el cursor incremental que Google nos devuelve tras
+// cada listado. La próxima llamada usa ese token y Google solo nos
+// manda lo cambiado. Si Google lo invalida (sucede tras 30 días sin
+// uso o si revocas permiso), reseteamos a null y hacemos full sync.
+//
+// `calendarId` por ahora siempre = "primary" del usuario; en un
+// futuro se puede ampliar a múltiples calendarios por user.
+model GoogleCalendarConnection {
+  id                 String    @id @default(cuid())
+  userId             String
+  workspaceId        String
+  googleAccountEmail String
+  calendarId         String    @default("primary")
+  // Tokens cifrados con lib/ai/crypto.ts:encryptSecret
+  accessTokenEnc     String    @db.Text
+  refreshTokenEnc    String    @db.Text
+  expiresAt          DateTime
+  // Cursor de sync incremental Google Calendar API
+  syncToken          String?   @db.Text
+  // Direcciones permitidas: por defecto bidi. Si el user quiere
+  // solo importar (sin que sus cambios pisen Google), pone pushEnabled=false.
+  pullEnabled        Boolean   @default(true)
+  pushEnabled        Boolean   @default(true)
+  lastSyncedAt       DateTime?
+  lastError          String?   @db.Text
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  user          User                         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace     Workspace                    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  watchChannels GoogleCalendarWatchChannel[]
+
+  @@unique([userId, workspaceId])
+  @@index([workspaceId])
+}
+
+// Cuenta de correo IMAP/SMTP por usuario (ej. info@negociovivo.com en
+// hosting propio cPanel). Sonia puede leer/buscar/enviar correos SOLO
+// en nombre del usuario dueño de esta cuenta, y SOLO cuando ese mismo
+// usuario se lo pide desde su sesión (gating en chat-tools por
+// api.userId). La contraseña (idealmente una "app password") se guarda
+// cifrada con lib/ai/crypto.ts.
+model EmailAccount {
+  id           String   @id @default(cuid())
+  userId       String
+  workspaceId  String
+  email        String // info@negociovivo.com
+  // IMAP (lectura)
+  imapHost     String
+  imapPort     Int      @default(993)
+  imapSecure   Boolean  @default(true)
+  // SMTP (envío)
+  smtpHost     String
+  smtpPort     Int      @default(465)
+  smtpSecure   Boolean  @default(true)
+  // Usuario de login (suele ser el email completo) + password cifrada
+  loginUser    String
+  passwordEnc  String   @db.Text
+  lastError    String?  @db.Text
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user      User      @relation("UserEmailAccounts", fields: [userId], references: [id], onDelete: Cascade)
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, workspaceId])
+  @@index([workspaceId])
+}
+// Cada fila representa el vector de embedding de una entidad (tarea,
+// cliente, proyecto, documento, comentario). Lo almacenamos como Json
+// en lugar de usar pgvector para no obligar a habilitar la extensión
+// PostgreSQL — el cálculo de cosine similarity se hace en memoria al
+// buscar. Aceptable hasta ~50k filas; si crece más, se migra a
+// pgvector con un script de re-indexación.
+//
+// `entityType` es el modelo origen (TASK, CLIENT, PROJECT, DOCUMENT,
+// COMMENT). `entityId` su id. Garantizamos UNIQUE por (entityType,
+// entityId) para que cada entidad tenga un solo vector vigente.
+//
+// `text` es el texto preprocesado que generó el vector, lo guardamos
+// para mostrar snippet en los resultados y para detectar si ya
+// reflejaba el contenido actual (skip si no ha cambiado).
+//
+// `model` permite migrar entre modelos sin destruir índices —
+// guardamos qué modelo generó este vector y, al buscar, sólo
+// comparamos contra vectores del mismo modelo. Cuando se cambia el
+// modelo default, las filas viejas se re-indexan progresivamente.
+model SearchEmbedding {
+  id          String   @id @default(cuid())
+  workspaceId String
+  entityType  String // "TASK" | "CLIENT" | "PROJECT" | "DOCUMENT" | "COMMENT"
+  entityId    String
+  text        String   @db.Text
+  embedding   Json // number[] (1536 floats para text-embedding-3-small)
+  model       String   @default("text-embedding-3-small")
+  tokens      Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([entityType, entityId])
+  @@index([workspaceId, entityType])
+  @@index([workspaceId, model])
+}
+
+// Canales de notificación push de Google Calendar API. Cada canal
+// es la suscripción "avísame en esta URL cuando cambie algo" contra
+// el calendario de la conexión. Google los corta a los 30 días max,
+// así que hay que renovar antes de que expiren (cron diario).
+//
+// `channelId` es el UUID que enviamos a Google al crear el canal;
+// `resourceId` es lo que Google nos devuelve y lo necesitamos para
+// hacer channels.stop. `token` es el secreto compartido que Google
+// nos reenvía en cada webhook (cabecera X-Goog-Channel-Token); lo
+// usamos para validar que el webhook viene del canal que esperamos.
+model GoogleCalendarWatchChannel {
+  id           String   @id @default(cuid())
+  connectionId String
+  channelId    String   @unique
+  token        String
+  resourceId   String
+  expiration   DateTime
+  createdAt    DateTime @default(now())
+
+  connection GoogleCalendarConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  @@index([expiration])
+}
+
+// ====================================================================
+// CAMPAÑA REDES IA — planificador y ejecutor de campañas en Meta Ads
+// ====================================================================
+//
+// Workflow alto nivel:
+//   1) El user rellena un wizard con todo el setup (token, fanpage,
+//      tipo de campaña, conjuntos, segmentación, nº de anuncios…).
+//   2) MetaCampaign se guarda como DRAFT con la config completa.
+//   3) Se crea automáticamente una Task con todo el detalle + links.
+//   4) (Fase 2) La IA expande la segmentación y propone copy+imagen
+//      por cada MetaAd → preview → user aprueba.
+//   5) (Fase 2) Llamada a Meta Marketing API: crea campaign, ad sets,
+//      ads; rellena los xxxId de Meta y pasa el status a ACTIVE.
+//   6) (Fase 3) En reviewAt el cron pide informe a la IA.
+//
+// El token de Meta se cifra con NEXTAUTH_SECRET (encryptSecret).
+
+// Fase 52 — Google Ads. La API exige OAuth2 refresh_token (a obtener
+// vía consentimiento del user en una cuenta Google con acceso al
+// adsAccount), customer_id (la cuenta Google Ads a consultar) y un
+// developer_token de la app (env var compartido por todo el server).
+// loginCustomerId opcional: necesario solo si gestionas la cuenta
+// desde un MCC (manager account).
+model GoogleAdsConnection {
+  id                 String   @id @default(cuid())
+  workspaceId        String   @unique
+  refreshTokenEnc    String   @db.Text
+  customerId         String // "1234567890" sin guiones
+  loginCustomerId    String? // si gestionas desde un MCC
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+}
+
+model MetaConnection {
+  id             String    @id @default(cuid())
+  workspaceId    String
+  userId         String
+  // Token de larga duración del usuario de Meta. Cifrado.
+  accessTokenEnc String    @db.Text
+  // Opcional: id de la cuenta de Meta del user (no del business).
+  metaUserId     String?
+  expiresAt      DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  campaigns MetaCampaign[]
+
+  @@unique([userId, workspaceId])
+  @@index([workspaceId])
+}
+
+enum MetaCampaignStatus {
+  DRAFT // creada en Hub pero todavía no enviada a Meta
+  PENDING_REVIEW // user pidió generar copys/imágenes, pendiente de su aprobación
+  APPROVED // user dio el visto bueno a previews
+  LAUNCHING // enviando a Meta API
+  ACTIVE // ya en Meta, corriendo
+  PAUSED
+  COMPLETED
+  FAILED // error al crear en Meta — ver lastError
+}
+
+enum MetaCampaignObjective {
+  LEADS // clientes potenciales
+  TRAFFIC // tráfico
+  ENGAGEMENT
+  CONVERSIONS
+  AWARENESS
+  SALES
+  APP_PROMOTION
+  VIDEO_VIEWS
+  REACH
+}
+
+enum MetaLeadDestination {
+  INSTANT_FORM // formularios instantáneos en Meta
+  WEBSITE // formulario en web propia
+  MESSENGER
+  WHATSAPP
+  PHONE_CALL
+}
+
+enum MetaAdsetMode {
+  COLD_ONLY // 1 conjunto público frío
+  COLD_PLUS_REMARKETING // 2 conjuntos
+  CUSTOM // user define cuántos y a quién va cada uno
+}
+
+model MetaCampaign {
+  id          String  @id @default(cuid())
+  workspaceId String
+  // Opcional — campaña ligada a un cliente del CRM. Útil para que
+  // aparezca en la ficha del cliente y para imputar costes.
+  clientId    String?
+  // User que la creó / asignado de la campaña ("el que va a
+  // generar la campaña" en el spec del user).
+  ownerId     String
+
+  // Identidad y descripción
+  name        String
+  description String? @db.Text // "público objetivo, contexto, briefing…"
+
+  // Datos básicos del setup
+  metaConnectionId String? // de qué conexión / token sale
+  adsManagerUrl    String? // URL de business.facebook.com/adsmanager — para el sidebar
+  fanpageUrl       String?
+  fanpageName      String?
+
+  // Programación y presupuesto
+  startDate        DateTime
+  endDate          DateTime? // null si "sin fecha de finalización"
+  dailyBudgetCents Int // en céntimos para evitar floats
+
+  // Objetivo + destino (este último solo aplica si LEADS)
+  objective       MetaCampaignObjective
+  leadDestination MetaLeadDestination?
+
+  // Aprobación políticas Meta (legal)
+  metaPoliciesAccepted   Boolean   @default(false)
+  metaPoliciesAcceptedAt DateTime?
+
+  // Conjuntos de anuncios
+  adsetMode  MetaAdsetMode
+  adsetCount Int           @default(1)
+
+  // Segmentación libre que la IA expandirá en Fase 2.
+  // En `expandedSegmentation` queda el JSON ya digerido (intereses,
+  // edades, comportamientos…) listo para Meta.
+  segmentationRaw      String @db.Text
+  expandedSegmentation Json?
+
+  // Geo
+  locationsIncluded String[] // p.ej. ["Madrid", "Barcelona", "ES"]
+  locationsExcluded String[]
+
+  // Quién genera el contenido visual: VISUAL_BY_USER el user los sube,
+  // VISUAL_BY_AI los genera gpt-image-1 / gpt-image-2.
+  visualMode MetaVisualMode
+
+  // Para campañas de LEAD con INSTANT_FORM: preguntas propuestas por
+  // IA, aprobadas por el user. Cada item: { question, type, required, options? }
+  formQuestions           Json?
+  formQuestionsApprovedAt DateTime?
+
+  // Emails que reciben los leads (para el escenario de Make)
+  leadEmails String[]
+
+  // Cuándo el cron debe pedir informe a la IA.
+  reviewAt     DateTime?
+  reviewSentAt DateTime?
+
+  // Estado + integración con Meta
+  status         MetaCampaignStatus @default(DRAFT)
+  metaCampaignId String?            @unique // id real en Meta tras crear
+  makeScenarioId String? // id del escenario de Make creado en Fase 3
+  // Task generada en /tareas al crear — link bidireccional para que
+  // borrar la campaña pueda limpiar la task (o viceversa).
+  taskId         String?
+
+  lastError   String?   @db.Text
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+  deletedById String?
+
+  // Logo de la marca (1 URL en R2) — la IA lo coloca como footer del
+  // anuncio si está presente.
+  logoUrl String?
+  // Imágenes de referencia (productos, brand visuals, fotos de equipo)
+  // que la IA toma como inspiración estilística para el creativo. Hasta
+  // 5 URLs en R2. Pasadas al modelo via image-to-image (gpt-image-2 con
+  // /v1/images/edits).
+  referenceImageUrls String[]
+  // Sliders / preferencias que el user fija ANTES de generar — se
+  // mezclan con el imagePrompt para sesgar el estilo del anuncio.
+  //   { attentionLevel: 1-5,    // 1=discreto, 5=ultra llamativo
+  //     toneFormality: 1-5,     // 1=tuteo cercano, 5=usted formal
+  //     energyLevel: 1-5,       // 1=calmado, 5=urgente
+  //     styleHint: string }     // editorial|casual|corporate|playful|luxurious
+  generationSettings Json?
+
+  workspace      Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  metaConnection MetaConnection?      @relation(fields: [metaConnectionId], references: [id], onDelete: SetNull)
+  adsets         MetaAdset[]
+  reviews        MetaCampaignReview[]
+
+  @@index([workspaceId, status])
+  @@index([clientId])
+  @@index([ownerId])
+  @@index([reviewAt])
+}
+
+enum MetaVisualMode {
+  USER_UPLOADS
+  AI_GENERATES
+}
+
+// Conjunto de anuncios. Define la audiencia y el subpresupuesto si
+// procede. La cantidad de MetaAd dentro depende del wizard.
+model MetaAdset {
+  id            String  @id @default(cuid())
+  campaignId    String
+  // "público frío", "remarketing 30d", "custom: lookalike 1% IT"
+  label         String
+  // Para CUSTOM: descripción del público objetivo concreto. La IA la
+  // expande igual que la segmentación de la campaña.
+  audienceBrief String? @db.Text
+  metaAdsetId   String? @unique // tras crear en Meta
+
+  ads      MetaAd[]
+  campaign MetaCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@index([campaignId])
+}
+
+enum MetaAdFormat {
+  IMAGE
+  CAROUSEL
+  VIDEO
+}
+
+enum MetaAdContentStatus {
+  PLACEHOLDER // aún no se ha generado nada
+  GENERATING // llamada a OpenAI / freepik en curso
+  READY_FOR_REVIEW
+  APPROVED
+  PUBLISHED
+  FAILED
+}
+
+// Cada anuncio individual. Para CAROUSEL, mediaUrls tendrá 2-10 entradas.
+model MetaAd {
+  id             String              @id @default(cuid())
+  adsetId        String
+  format         MetaAdFormat
+  // Copy generado por la IA o tecleado a mano.
+  headline       String?
+  primaryText    String?             @db.Text
+  description    String?
+  callToAction   String? // p.ej. "LEARN_MORE", "SIGN_UP"
+  destinationUrl String?
+  // URLs en R2 — para IMAGE: 1 elemento (square); CAROUSEL: 2-10
+  // (square); VIDEO: 1. Es el formato canónico usado de fallback /
+  // legacy. Las variantes específicas por placement viven en
+  // mediaVariants (ver abajo).
+  mediaUrls      String[]
+  // Variantes de la imagen para los distintos placements de Meta.
+  // Para IMAGE: { square: url, portrait: url, landscape: url }.
+  // Para CAROUSEL: [ {square,portrait,landscape}, ... ] (1 entrada
+  // por tarjeta). Para VIDEO: null.
+  //   - square    1024x1024  → Feed (móvil + desktop, Instagram)
+  //   - portrait  1024x1536  → Stories, Reels, Feed 4:5
+  //   - landscape 1536x1024  → Columna derecha desktop, Marketplace,
+  //                            Audience Network
+  // Sin este campo la UI solo mostraba la cuadrada recortada y el
+  // user no podía ver el anuncio completo ni cómo se vería en cada
+  // placement antes de lanzar.
+  mediaVariants  Json?
+  // Instrucciones libres del user para regenerar ("hazla más colorida")
+  userNotes      String?             @db.Text
+  contentStatus  MetaAdContentStatus @default(PLACEHOLDER)
+  metaAdId       String?             @unique
+  lastError      String?             @db.Text
+
+  adset MetaAdset @relation(fields: [adsetId], references: [id], onDelete: Cascade)
+
+  @@index([adsetId])
+}
+
+// Snapshot de cómo iba la campaña en una fecha concreta. Lo genera
+// el cron en reviewAt y queda registrado para histórico.
+model MetaCampaignReview {
+  id                String    @id @default(cuid())
+  campaignId        String
+  generatedAt       DateTime  @default(now())
+  // Stats que sacamos de Meta API en ese momento.
+  metrics           Json
+  // Resumen + recomendaciones de la IA.
+  summary           String    @db.Text
+  recommendations   Json?
+  autoFixOffered    Boolean   @default(false)
+  autoFixAcceptedAt DateTime?
+  autoFixResult     Json?
+
+  campaign MetaCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@index([campaignId, generatedAt])
+}
+
+// ====================================================================
+// AI AGENT — MEMORIA PERSISTENTE (lecciones aprendidas)
+//
+// Cada vez que Sonia descubre cómo hacer algo (porque Claude se lo
+// arregló tras una escalación, porque ella misma resolvió un caso
+// difícil, o porque un admin se lo enseñó manualmente), se persiste
+// como AiAgentLesson. En cada run posterior, el runner carga las
+// lecciones relevantes al contexto y las inyecta en el initial
+// message. Así Sonia "aprende" entre runs sin necesidad de
+// reentrenar el modelo.
+// ====================================================================
+
+model AiAgentLesson {
+  id          String  @id @default(cuid())
+  workspaceId String
+  // Scope semántico — usado para filtrar qué lecciones cargar en
+  // cada run. Convención:
+  //   "general"                    → siempre cargar
+  //   "tool:meta_ads_*"            → si la task mencione meta ads
+  //   "client:<clientId>"          → si el task tiene ese client
+  //   "task_type:meta_lead_campaign" → si trigger context coincide
+  //   "error_pattern:robots_txt"   → match por palabra clave error
+  scope       String
+  // Texto natural que se inyecta en el system prompt cuando aplica.
+  // Pensado como instrucción accionable, ej:
+  //   "Cuando el user pegue múltiples tokens Meta en comentarios,
+  //    usa el ÚLTIMO (más reciente), no el primero."
+  lesson      String  @db.Text
+  // Patrón regex/keyword para refinar el matching dentro del scope.
+  // Opcional: si null, se carga siempre que el scope aplique.
+  triggerPattern String? @db.Text
+  // Quién creó la lección. Solo para auditoría:
+  //   "claude"     → Claude Code tras resolver una escalación
+  //   "sonia_self" → Sonia llamó record_lesson durante un run
+  //   "human"      → un admin del workspace
+  source      String  @default("sonia_self")
+  // Task donde se aprendió (opcional, para auditoría).
+  taskId      String?
+  // Cuántas veces se ha cargado/aplicado esta lección. Las más
+  // usadas se priorizan cuando hay muchas y hay que recortar.
+  useCount    Int     @default(0)
+  lastUsedAt  DateTime?
+  // Lecciones obsoletas pueden inactivarse sin borrar (para auditoría).
+  isActive    Boolean @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, scope, isActive])
+  @@index([workspaceId, useCount])
+}
+
+// ====================================================================
+// PLANTILLAS DE TAREAS
+// ====================================================================
+//
+// El usuario crea plantillas con nombre + descripción + campos
+// preconfigurados (proyecto default, prioridad, assignees, tags, due
+// offset en días) + campos personalizados (custom fields) tipo
+// text/textarea/number/date/select/multiselect/checkbox.
+//
+// Al crear una task desde una plantilla:
+//   - Los campos estándar se prerellenan en el TaskFormModal.
+//   - Los custom fields se renderizan dinámicamente y al guardar
+//     los valores van a Task.customData (JSON keyed por field id).
+//
+// customFields shape (Json):
+//   [
+//     {
+//       id: "cliente_destino",
+//       label: "Cliente destino",
+//       type: "select",
+//       required: true,
+//       options: ["Reva", "Champiso", "Esaem"],
+//       placeholder: "Elige cliente"
+//     },
+//     ...
+//   ]
+//
+// types soportados:
+//   text | textarea | number | date | select | multiselect | checkbox
+//
+// Al editar la task más tarde, el modal recupera customData del Task
+// y los pinta otra vez con el schema del TaskTemplate referenciado.
+model TaskTemplate {
+  id          String   @id @default(cuid())
+  workspaceId String
+  name        String
+  description String?  @db.Text
+  // Emoji o nombre de icono lucide para mostrar en el selector.
+  icon        String?
+
+  // Pre-fills (todos opcionales). Si null, el formulario coge el
+  // default que tendría una task nueva sin plantilla.
+  defaultProjectId      String?
+  defaultStatus         String? // id de columna kanban
+  defaultPriority       String? // LOW / MEDIUM / HIGH / URGENT
+  defaultAssigneeIds    Json? // string[] de userIds
+  defaultTags           Json? // string[] de tag names
+  // Offset desde la creación de la task. Si 3, dueDate = now + 3d.
+  defaultDueOffsetDays  Int?
+  // Cuerpo de descripción preconfigurado (markdown / texto plano).
+  // El TaskFormModal lo carga al rich text editor.
+  bodyMarkdown          String? @db.Text
+
+  // Schema de custom fields (ver doc arriba).
+  customFields Json?
+
+  // Workflow IA preconfigurado para Sonia. Si presente y la task se
+  // procesa con AI agent, este workflow se inyecta al SYSTEM_PROMPT
+  // como "secuencia EXACTA a seguir" — Sonia no decide los pasos,
+  // los ejecuta linealmente. Estructura:
+  // {
+  //   description: "Resumen del workflow para Sonia",
+  //   steps: [
+  //     { tool: "validate_credentials", input: {...}, why: "..." },
+  //     { tool: "meta_ads_list_campaigns", input: {...}, why: "..." },
+  //     ...
+  //   ],
+  //   successCriteria: "Qué debe verificar al final"
+  // }
+  // Si null, Sonia improvisa como hoy.
+  aiWorkflow   Json?
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  createdById String?
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, name])
+  @@index([workspaceId])
+}
+
+// ============================================================================
+// GMB HUB — gestión de fichas de Google My Business (port del plugin WP).
+// La conexión con Google se hace VÍA MAKE.COM (igual que el plugin original):
+// Make trae las reseñas por webhook y publica las respuestas por webhook.
+// Maps Places + ScraperAPI + OpenAI sí se llaman directo (fases 2/3).
+// ============================================================================
+
+model GmbClient {
+  id          String   @id @default(cuid())
+  workspaceId String
+  name        String
+  category    String   @default("")
+  description String?  @db.Text
+  tone        String   @default("profesional") // profesional|cercano|formal|entusiasta|custom
+  customTone  String?  @db.Text
+  accountId   String   @default("") // GMB "accounts/XXX"
+  locationId  String   @default("") // GMB "accounts/XXX/locations/YYY"
+  emails      String   @default("") // emails de notificación, separados por coma
+  mainKeyword String   @default("")
+  autoReply   String   @default("manual") // manual|auto
+  connectionId String  @default("") // override de connection de Make
+  frequency   Int      @default(15) // minutos
+  scenarioId  String   @default("") // id del escenario de Make
+  status      String   @default("active") // active|paused
+  // Campos geo/SEO (el plugin los usa pero no estaban en el CREATE original)
+  placeId     String   @default("")
+  latitude    Float?
+  longitude   Float?
+  rating      Float    @default(0)
+  reviewCount Int      @default(0)
+  phone       String   @default("")
+  website     String   @default("")
+  address     String   @default("")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  reviews    GmbReview[]
+  activities GmbActivity[]
+  clientTags GmbClientTag[]
+  ratingHistory GmbRatingHistory[]
+
+  @@index([workspaceId])
+  @@index([workspaceId, status])
+}
+
+model GmbReview {
+  id          String    @id @default(cuid())
+  workspaceId String
+  clientId    String
+  reviewId    String // id de Google (o generado rev_+hash)
+  authorName  String   @default("")
+  authorPhoto String   @default("")
+  rating      Int      @default(0) // 1-5
+  comment     String?  @db.Text
+  reviewReply String?  @db.Text
+  reviewTime  DateTime?
+  updateTime  DateTime?
+  createdAt   DateTime @default(now())
+
+  client GmbClient @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@unique([clientId, reviewId])
+  @@index([workspaceId])
+  @@index([clientId])
+}
+
+model GmbActivity {
+  id          String   @id @default(cuid())
+  workspaceId String
+  clientId    String
+  actionType  String
+  description String?  @db.Text
+  createdAt   DateTime @default(now())
+
+  client GmbClient @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+  @@index([clientId])
+}
+
+model GmbTag {
+  id          String   @id @default(cuid())
+  workspaceId String
+  name        String
+  color       String   @default("#F4600C")
+  createdAt   DateTime @default(now())
+
+  clientTags GmbClientTag[]
+
+  @@index([workspaceId])
+}
+
+model GmbClientTag {
+  id       String @id @default(cuid())
+  clientId String
+  tagId    String
+
+  client GmbClient @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  tag    GmbTag    @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@unique([clientId, tagId])
+  @@index([clientId])
+  @@index([tagId])
+}
+
+model GmbRatingHistory {
+  id          String   @id @default(cuid())
+  workspaceId String
+  clientId    String
+  monthYear   String // YYYY-MM
+  avgRating   Float    @default(0)
+  reviewCount Int      @default(0)
+  recordedAt  DateTime @default(now())
+
+  client GmbClient @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@unique([clientId, monthYear])
+  @@index([workspaceId])
+}
+
+model GmbKeyword {
+  id          String   @id @default(cuid())
+  workspaceId String
+  clientId    String
+  keyword     String
+  isPrimary   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  @@unique([clientId, keyword])
+  @@index([workspaceId])
+  @@index([clientId])
+}
+
+model GmbPosition {
+  id          String   @id @default(cuid())
+  workspaceId String
+  clientId    String
+  keyword     String
+  avgPosition Float    @default(0) // media de posición en las celdas encontradas (0 = no aparece)
+  top3Count   Int      @default(0)
+  foundCount  Int      @default(0)
+  cellCount   Int      @default(0)
+  gridData    Json? // matriz de celdas [{lat,lng,position}]
+  checkedAt   DateTime @default(now())
+
+  @@index([workspaceId])
+  @@index([clientId, keyword])
+}
+
+// Llamadas de voz de Sonia (agente conversacional vía Vapi). El número +
+// asistente se configuran en Vapi; aquí guardamos cada llamada y su
+// resultado (transcripción, resumen, datos extraídos) que llega por webhook.
+model VoiceCall {
+  id           String   @id @default(cuid())
+  workspaceId  String
+  provider     String   @default("vapi")
+  providerCallId String? // id de la llamada en Vapi
+  toNumber     String
+  goal         String?  @db.Text // objetivo/guion de la llamada
+  status       String   @default("queued") // queued|ringing|in-progress|ended|failed
+  endedReason  String?
+  durationSec  Int?
+  transcript   String?  @db.Text
+  summary      String?  @db.Text
+  structured   Json? // datos extraídos (variables/análisis)
+  recordingUrl String?
+  clientId     String?
+  createdById  String?
+  taskId       String? // tarea creada en "Reuniones y llamadas" al colgar
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([workspaceId])
+  @@index([providerCallId])
+}
+
+// === GMB Hub — Bloque Contenido + IA ===
+
+// Fotos de la ficha (galería por cliente)
+model GmbPhoto {
+  id          String   @id @default(cuid())
+  workspaceId String
+  clientId    String
+  url         String   @db.Text
+  type        String   @default("general") // general|logo|cover|interior|exterior|producto
+  caption     String   @default("")
+  createdAt   DateTime @default(now())
+
+  @@index([workspaceId])
+  @@index([clientId])
+}
+
+// Preguntas y respuestas de la ficha
+model GmbQa {
+  id          String   @id @default(cuid())
+  workspaceId String
+  clientId    String
+  question    String   @db.Text
+  answer      String   @db.Text
+  createdAt   DateTime @default(now())
+
+  @@index([workspaceId])
+  @@index([clientId])
+}
+
+// Plantillas de respuesta a reseñas
+model GmbReplyTemplate {
+  id          String   @id @default(cuid())
+  workspaceId String
+  clientId    String?  // null = plantilla global del workspace
+  name        String
+  content     String   @db.Text
+  type        String   @default("positive") // positive|neutral|negative
+  createdAt   DateTime @default(now())
+
+  @@index([workspaceId])
+  @@index([clientId])
+}
+
+// Publicaciones de Google Business Profile (programadas / borradores)
+model GmbPost {
+  id           String    @id @default(cuid())
+  workspaceId  String
+  clientId     String
+  title        String    @default("")
+  content      String    @db.Text
+  cta          String    @default("")
+  imageUrl     String?   @db.Text
+  scheduledAt  DateTime?
+  status       String    @default("draft") // draft|scheduled|published|failed
+  publishedAt  DateTime?
+  createdById  String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([workspaceId])
+  @@index([clientId])
+  @@index([status])
+}
+
+// === GMB Hub — Bloque Alertas y notificaciones ===
+
+// Notificaciones in-app del GMB Hub (reseñas negativas, cambios de posición,
+// cambios en la ficha…). Se marcan como leídas y alimentan el contador.
+model GmbNotification {
+  id          String   @id @default(cuid())
+  workspaceId String
+  clientId    String?
+  type        String   // negative_review|position_drop|profile_change|claimable|info
+  title       String
+  body        String?  @db.Text
+  data        Json?
+  isRead      Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  @@index([workspaceId, isRead])
+  @@index([clientId])
+}
+
+// Snapshots de la ficha para detectar cambios (rating, nº reseñas, teléfono…).
+model GmbSnapshot {
+  id          String   @id @default(cuid())
+  workspaceId String
+  clientId    String
+  data        Json
+  changes     Json?
+  createdAt   DateTime @default(now())
+
+  @@index([workspaceId])
+  @@index([clientId])
+}
+
+// === GMB Hub — Bloque Buscador/captación avanzado ===
+
+// Búsquedas guardadas del buscador GMB (captación de fichas reclamables).
+model GmbSearch {
+  id             String   @id @default(cuid())
+  workspaceId    String
+  name           String
+  locations      String   @db.Text // una localización por línea
+  keyword        String   @default("")
+  type           String   @default("")
+  radiusKm       Float    @default(3)
+  schedule       String   @default("none") // none|daily|weekly|monthly
+  lastRun        DateTime?
+  totalFound     Int      @default(0)
+  totalClaimable Int      @default(0)
+  createdById    String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  results GmbSearchResult[]
+
+  @@index([workspaceId])
+  @@index([schedule])
+}
+
+model GmbSearchResult {
+  id          String   @id @default(cuid())
+  workspaceId String
+  searchId    String
+  placeId     String
+  name        String   @default("")
+  address     String   @default("")
+  rating      Float    @default(0)
+  reviewCount Int      @default(0)
+  lat         Float    @default(0)
+  lng         Float    @default(0)
+  isClaimable Boolean  @default(false)
+  checked     Boolean  @default(false)
+  checkedAt   DateTime?
+  createdAt   DateTime @default(now())
+
+  search GmbSearch @relation(fields: [searchId], references: [id], onDelete: Cascade)
+
+  @@unique([searchId, placeId])
+  @@index([workspaceId])
+  @@index([searchId])
+}
+
+// Base de conocimiento de Sonia: textos de aprendizaje + documentos de
+// clientes que el admin sube. Se indexan para búsqueda semántica y el chat
+// los consulta para responder preguntas directas sobre lo que se gestiona.
+model SoniaKnowledge {
+  id          String   @id @default(cuid())
+  workspaceId String
+  title       String
+  content     String   @db.Text
+  sourceType  String   @default("text") // text | document
+  fileName    String?
+  fileId      String?
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([workspaceId])
+}
+
+// ════════════════════════════════════════════════════════════════════
+// BIPI — App de descuentos cruzados entre negocios locales
+// ════════════════════════════════════════════════════════════════════
+// Producto independiente que vive en el mismo Hub (mismo Postgres) con
+// tablas separadas. Cada negocio Bipi tiene su QR único; cada cliente
+// que lo escanea entra a la red y desbloquea descuentos en negocios
+// complementarios cercanos con caducidad de 4 días.
+
+/// Negocio dado de alta en la red Bipi.
+model BipiBusiness {
+  id            String   @id @default(cuid())
+  // Slug humano para QR url corto y SEO (bipi.app/n/spa-bambu).
+  slug          String   @unique
+  name          String
+  category      String   // peluquería | restaurante | gimnasio | spa | nutrición | ...
+  description   String?  @db.Text
+  // Localización del local (para geofencing + radio de visibilidad).
+  address       String?
+  city          String   @default("Benalmádena")
+  province      String   @default("Málaga")
+  latitude      Float?
+  longitude     Float?
+  // Branding mínimo.
+  logoUrl       String?
+  brandColor    String?
+  // Oferta default (descuento estándar al cliente cuando escanea).
+  defaultDiscountPct Int @default(5)
+  // Cupón cruzado: el % que ofrece a clientes de otros negocios.
+  crossDiscountPct   Int @default(8)
+  // Karma de visibilidad (0-100, recalculado nocturno).
+  visibilityScore Int @default(50)
+  scoreUpdatedAt  DateTime?
+  // Modelo de validación de compra.
+  purchaseMode  String   @default("double_confirm") // double_confirm | express
+  // Suscripción.
+  plan          String   @default("free") // free | pro | premium
+  // Email + contraseña hash del dueño (auth simple v1; iremos a oauth en v2).
+  ownerEmail    String   @unique
+  ownerPasswordHash String
+  ownerName     String?
+  ownerPhone    String?
+  // Quien lo refirió a Bipi (si vino vía QR de otro negocio).
+  referrerId    String?
+  // Stripe billing — para suscripción Pro/Premium.
+  bipiStripeCustomerId  String?
+  bipiStripeSubscriptionId String?
+  planExpiresAt DateTime? // null o futuro = activo; pasado = volver a free.
+  // Status.
+  active        Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  referrer  BipiBusiness?     @relation("BipiReferral", fields: [referrerId], references: [id])
+  referrals BipiBusiness[]    @relation("BipiReferral")
+  purchases BipiPurchase[]
+  offers    BipiOffer[]
+  pushAds   BipiPushAd[]
+
+  @@index([city, active])
+  @@index([referrerId])
+  @@index([visibilityScore])
+}
+
+/// Cliente final dado de alta en la app Bipi.
+model BipiCustomer {
+  id              String   @id @default(cuid())
+  email           String   @unique
+  phone           String?  @unique
+  name            String?
+  // Token push (Expo / FCM / APNs).
+  pushToken       String?
+  // Última ubicación (para feed + push geo).
+  lastLat         Float?
+  lastLng         Float?
+  lastLocationAt  DateTime?
+  // Métrica showcase.
+  totalSaved      Float    @default(0) // €  total ahorrados con Bipi
+  totalPurchases  Int      @default(0)
+  // Embajador (nivel desbloqueado).
+  ambassadorLevel String   @default("none") // none | bronze | silver | gold | founder
+  // Quien lo refirió (negocio donde escaneó por primera vez).
+  firstBusinessId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  purchases BipiPurchase[]
+  offers    BipiOffer[]
+  pushLogs  BipiPushLog[]
+
+  @@index([lastLat, lastLng])
+}
+
+/// Compra registrada con escaneo del QR.
+///
+/// Estados:
+///   pending   → cliente escaneó e introdujo importe; negocio aún no confirma.
+///   confirmed → negocio aprobó. Descuento aplicado, ofertas desbloqueadas.
+///   rejected  → negocio rechazó (importe incorrecto o no es válido).
+model BipiPurchase {
+  id              String   @id @default(cuid())
+  customerId      String
+  businessId      String
+  amount          Float    // importe bruto pagado en caja
+  discountPct     Int      // descuento aplicado %
+  discountAmount  Float    // € de descuento
+  status          String   @default("pending") // pending | confirmed | rejected
+  // Si vino vía un cupón cruzado, link al BipiOffer que se canjeó.
+  redeemedOfferId String?
+  // Geolocalización al escanear (anti-fraude).
+  scanLat         Float?
+  scanLng         Float?
+  scanDistanceM   Float?   // distancia al local en metros
+  // Razón si rejected.
+  rejectionReason String?
+  scannedAt       DateTime @default(now())
+  confirmedAt     DateTime?
+
+  customer BipiCustomer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  business BipiBusiness @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId, status])
+  @@index([customerId])
+  @@index([scannedAt])
+}
+
+/// Oferta desbloqueada para un cliente concreto en un negocio concreto.
+/// Se generan tras cada compra confirmada (3-5 ofertas de negocios
+/// complementarios cercanos) y caducan a los 4 días.
+model BipiOffer {
+  id              String   @id @default(cuid())
+  customerId      String
+  businessId      String   // negocio que ofrece el descuento
+  discountPct     Int
+  // Negocio "originador" — la compra que desbloqueó esta oferta.
+  triggerBusinessId String?
+  expiresAt       DateTime
+  redeemed        Boolean  @default(false)
+  redeemedAt      DateTime?
+  createdAt       DateTime @default(now())
+
+  customer BipiCustomer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  business BipiBusiness @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([customerId, expiresAt])
+  @@index([businessId, expiresAt])
+  @@unique([customerId, businessId, triggerBusinessId])
+}
+
+/// Anuncio push pagado (el "Push del Día" que paga el negocio por 24h).
+model BipiPushAd {
+  id            String   @id @default(cuid())
+  businessId    String
+  title         String
+  body          String   @db.Text
+  // Radio de envío (km).
+  radiusKm      Float    @default(1)
+  centerLat     Float
+  centerLng     Float
+  // Pricing.
+  reach         Int      // usuarios estimados al crear
+  pricePaidEur  Float
+  // Programación.
+  startsAt      DateTime
+  endsAt        DateTime
+  // Stats.
+  sentCount     Int      @default(0)
+  openedCount   Int      @default(0)
+  redeemCount   Int      @default(0)
+  status        String   @default("scheduled") // scheduled | sending | done | cancelled
+  createdAt     DateTime @default(now())
+
+  business BipiBusiness @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@index([startsAt, endsAt])
+}
+
+/// Log de cada push enviado (para evitar dups y medir performance).
+model BipiPushLog {
+  id          String   @id @default(cuid())
+  customerId  String
+  pushAdId    String?
+  kind        String   // ad | offer_expiring | new_offers | welcome
+  payload     Json
+  sentAt      DateTime @default(now())
+  opened      Boolean  @default(false)
+
+  customer BipiCustomer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId, sentAt])
+}
+
+/// Suscripción Web Push de un cliente Bipi (PWA). Permite mandarle
+/// notificaciones de "tu cupón caduca en 4h" y "nuevo descuento cerca".
+/// Cuando el cliente desinstala la PWA o desactiva permisos, web-push
+/// devuelve 404/410 y la limpiamos automáticamente.
+model BipiPushSubscription {
+  id          String   @id @default(cuid())
+  customerId  String
+  endpoint    String   @unique
+  p256dh      String
+  authKey     String
+  userAgent   String?
+  createdAt   DateTime @default(now())
+
+  @@index([customerId])
+}

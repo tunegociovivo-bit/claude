@@ -1,0 +1,64 @@
+/**
+ * POST /api/v1/editorial/posts/[id]/generate-image
+ * Body: { quality?, promptOverride?, format? }
+ *
+ * Genera una imagen con gpt-image-1 usando el brief + colores + guía de
+ * estilo del cliente. La sube a R2 y la asocia al post como thumbnail.
+ */
+
+import { NextResponse } from "next/server";
+import { z } from "zod";
+import { prisma } from "@/lib/db/prisma";
+import { withApi } from "@/lib/api/handler";
+import { ApiError } from "@/lib/api/auth";
+import { generateImageForPost } from "@/lib/editorial/generate-image";
+import { AIDisabledError } from "@/lib/ai/anthropic";
+import { humanizeAiError } from "@/lib/ai/errors";
+
+const schema = z.object({
+  quality: z.enum(["low", "medium", "high"]).default("medium"),
+  promptOverride: z.string().optional(),
+  format: z.enum(["imagen", "reel", "carrusel", "story", "video"]).optional(),
+  // Patrón visual + intensidad elegidos para esta generación. Se persisten
+  // en el post para que generateImageForPost los lea de la BD.
+  visualPattern: z.string().nullable().optional(),
+  patternStrength: z.number().int().min(0).max(100).nullable().optional(),
+  patternTemplateId: z.string().nullable().optional()
+});
+
+export const POST = withApi({ scope: "*" }, async (req, { params, api }) => {
+  const body = await req.json().catch(() => ({}));
+  const parsed = schema.safeParse(body ?? {});
+  if (!parsed.success) throw new ApiError(400, "validation_error", parsed.error.message);
+
+  const { visualPattern, patternStrength, patternTemplateId, ...genOpts } = parsed.data;
+  if (visualPattern !== undefined || patternStrength !== undefined || patternTemplateId !== undefined) {
+    const patch: any = {};
+    if (visualPattern !== undefined) patch.visualPattern = visualPattern;
+    if (patternStrength !== undefined) patch.patternStrength = patternStrength;
+    if (patternTemplateId !== undefined) patch.patternTemplateId = patternTemplateId;
+    await prisma.editorialPost.updateMany({
+      where: { id: params.id, workspaceId: api.workspaceId },
+      data: patch
+    });
+  }
+
+  try {
+    const out = await generateImageForPost({
+      workspaceId: api.workspaceId,
+      userId: api.userId,
+      postId: params.id,
+      ...genOpts
+    });
+    return NextResponse.json(out);
+  } catch (e: any) {
+    if (e instanceof AIDisabledError) throw new ApiError(503, "ai_disabled", e.message);
+    if (e?.message === "Publicación no encontrada") throw new ApiError(404, "not_found", e.message);
+    if (e?.message?.startsWith("Storage no configurado")) {
+      throw new ApiError(503, "storage_disabled", e.message);
+    }
+    console.error("[generate-image] error:", e);
+    const h = humanizeAiError(e);
+    throw new ApiError(500, h.code, h.message);
+  }
+});

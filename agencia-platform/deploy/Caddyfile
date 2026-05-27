@@ -1,0 +1,9 @@
+{$APP_DOMAIN:agencia.localhost} {
+    encode zstd gzip
+    reverse_proxy app:3000
+}
+
+{$FILES_DOMAIN:files.agencia.localhost} {
+    encode gzip
+    reverse_proxy minio:9000
+}

@@ -1,0 +1,89 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: 248 250 252;
+  --foreground: 15 23 42;
+  --muted: 100 116 139;
+  --border: 226 232 240;
+  --card: 255 255 255;
+}
+
+* {
+  border-color: rgb(var(--border));
+}
+
+html,
+body {
+  background-color: rgb(var(--background));
+  color: rgb(var(--foreground));
+  font-family: "Inter", ui-sans-serif, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.scrollbar-thin::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background-color: rgb(203 213 225);
+  border-radius: 9999px;
+}
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Scrollbar del menú lateral oscuro, estilo Asana:
+   - Track oscuro (mismo tono que el sidebar slate-900)
+   - Thumb gris, redondeado
+   - Solo VISIBLE cuando el ratón está sobre el menú (hover)
+   Por defecto el thumb es transparente; al hacer hover sobre el aside
+   aparece en gris. Firefox usa scrollbar-color. */
+.sidebar-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+  transition: scrollbar-color 0.2s ease;
+}
+.sidebar-scroll:hover {
+  scrollbar-color: rgb(100 116 139) transparent; /* slate-500 */
+}
+.sidebar-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+.sidebar-scroll::-webkit-scrollbar-track {
+  background: rgb(15 23 42); /* slate-900 — track oscuro */
+}
+.sidebar-scroll::-webkit-scrollbar-thumb {
+  background-color: transparent; /* oculto por defecto */
+  border-radius: 9999px;
+  border: 2px solid rgb(15 23 42);
+  transition: background-color 0.2s ease;
+}
+.sidebar-scroll:hover::-webkit-scrollbar-thumb {
+  background-color: rgb(100 116 139); /* slate-500 gris al hover */
+}
+.sidebar-scroll:hover::-webkit-scrollbar-thumb:hover {
+  background-color: rgb(148 163 184); /* slate-400 al pasar por el thumb */
+}
+
+/* Animación del indicador de estado de Sonia en TaskCard.
+   Definida aquí en lugar de via animate-pulse de Tailwind por dos
+   razones:
+   1) Garantiza que el frame NO se purga jamás en build de prod
+      (esto explicaba que a veces no se viese el morado).
+   2) animate-pulse de Tailwind opera sobre opacity de TODO el
+      contenido — el texto del card quedaba semi-transparente en
+      el valle del pulso. Aquí solo varía la sombra y el brillo,
+      manteniendo el contenido legible.
+   El TaskCard pasa el color via box-shadow inline; aquí solo
+   modulamos su intensidad. */
+@keyframes sonia-pulse {
+  0%,
+  100% {
+    filter: brightness(1);
+  }
+  50% {
+    filter: brightness(1.05);
+  }
+}

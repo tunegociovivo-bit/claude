@@ -1,0 +1,817 @@
+/**
+ * Procesa los datos aparcados en workspace.settings.pendingImport:
+ *   - nvDashboard.publications → EditorialPost (upsert por legacyWpId)
+ *   - nvDashboard.clientesTaxonomy → matchea por nombre con Client existente
+ *   - nvLeads.tables.{nvl_searches,nvl_leads,nvl_competitors,nvl_messages,
+ *     nvl_templates,nvl_sequences,nvl_sequence_steps,nvl_lead_sequences,
+ *     nvl_inbox,nvl_exclusions,nvl_optouts} → schemas Lead* equivalentes.
+ *
+ * Idempotente: upsert por legacyWpId / placeId / phone. Llamarlo varias
+ * veces es seguro.
+ *
+ * Solo admins.
+ */
+
+import { NextResponse } from "next/server";
+import { prisma } from "@/lib/db/prisma";
+import { withApi } from "@/lib/api/handler";
+import { ApiError } from "@/lib/api/auth";
+import { VISUAL_PATTERNS } from "@/lib/editorial/client-meta";
+
+async function requireAdmin(workspaceId: string, userId: string | undefined) {
+  if (!userId) throw new ApiError(401, "no_user", "Sesión requerida");
+  const me = await prisma.membership.findFirst({ where: { workspaceId, userId } });
+  if (!me || me.role !== "ADMIN") throw new ApiError(403, "forbidden", "Solo admins");
+}
+
+function parseDate(v: any): Date | null {
+  if (!v) return null;
+  const d = new Date(v);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+/**
+ * Mapea el objeto cliente_meta exportado por el plugin (term_meta de
+ * nv_cliente + URLs resueltas) a campos del modelo Client del hub.
+ *
+ * El exporter envía:
+ *   {
+ *     term_id, slug, name,
+ *     meta: { nv_brand_brief, nv_brand_color_*, nv_visual_pattern,
+ *             nv_refs_fidelity, nv_competidores, nv_dimensiones_formatos,
+ *             nv_style_guide_cached, nv_style_guide_hash, nv_drive_mode,
+ *             nv_drive_root_id, nv_drive_subfolders, nv_logo_position,
+ *             nv_cliente_website, ... },
+ *     resolved: { logo_url, fonts:[{url,name,weight}], reference_images:[...] }
+ *   }
+ */
+function mapClienteMetaToFields(cm: any): Record<string, any> {
+  const meta = (cm?.meta ?? {}) as Record<string, any>;
+  const resolved = (cm?.resolved ?? {}) as Record<string, any>;
+  const out: Record<string, any> = {};
+
+  const str = (v: any) =>
+    typeof v === "string" && v.trim() ? v.trim() : null;
+
+  const hex = (v: any) => {
+    const s = typeof v === "string" ? v.trim() : "";
+    return /^#[0-9A-Fa-f]{6}$/.test(s) ? s.toUpperCase() : null;
+  };
+
+  // Brief & website
+  const brief = str(meta.nv_brand_brief);
+  if (brief) out.brandBrief = brief;
+  const website = str(meta.nv_cliente_website);
+  if (website && /^https?:\/\//.test(website)) out.website = website;
+
+  // Colores
+  const cP = hex(meta.nv_brand_color_primary);
+  if (cP) out.brandColorPrimary = cP;
+  const cA = hex(meta.nv_brand_color_accent);
+  if (cA) out.brandColorAccent = cA;
+  const cT = hex(meta.nv_brand_color_text);
+  if (cT) out.brandColorText = cT;
+
+  // Logo
+  const logo = str(resolved.logo_url);
+  if (logo) out.logoUrl = logo;
+  const pos = str(meta.nv_logo_position);
+  if (pos && ["br", "bl", "tr", "tl"].includes(pos)) out.logoPosition = pos;
+
+  // Patrón visual + fidelidad
+  const pattern = str(meta.nv_visual_pattern);
+  if (pattern && VISUAL_PATTERNS.some((p) => p.key === pattern)) out.visualPattern = pattern;
+  const fidelity = Number(meta.nv_refs_fidelity);
+  if (Number.isFinite(fidelity) && fidelity >= 0 && fidelity <= 100) {
+    out.refsFidelity = Math.round(fidelity);
+  }
+
+  // Competidores (textarea por línea)
+  const comp = str(meta.nv_competidores);
+  if (comp) out.competitors = comp;
+
+  // Dimensiones por formato (JSON)
+  const dims = meta.nv_dimensiones_formatos;
+  if (dims && typeof dims === "object" && !Array.isArray(dims)) {
+    out.dimensionsByFormat = dims;
+  }
+
+  // Refs visuales (URLs resueltas) → JSON [{url, type, personName}]
+  const refs = Array.isArray(resolved.reference_images) ? resolved.reference_images : [];
+  if (refs.length > 0) {
+    out.referenceImages = refs.map((r: any) => ({
+      url: String(r.url),
+      type: typeof r.type === "string" ? r.type : "general",
+      personName: r.personName ?? r.person_name ?? undefined
+    }));
+  }
+
+  // Fuentes (URLs resueltas)
+  const fonts = Array.isArray(resolved.fonts) ? resolved.fonts : [];
+  if (fonts.length > 0) {
+    out.fonts = fonts.map((f: any) => ({
+      url: String(f.url),
+      name: f.name ?? "",
+      weight: f.weight === "bold" ? "bold" : "regular"
+    }));
+  }
+
+  // Guía de estilo cacheada + hash
+  const guide = str(meta.nv_style_guide_cached);
+  if (guide) {
+    out.styleGuideCached = guide;
+    const hash = str(meta.nv_style_guide_hash);
+    if (hash) out.styleGuideHash = hash;
+  }
+
+  // Drive
+  const driveMode = str(meta.nv_drive_mode);
+  if (driveMode && ["configured", "pending", "no_drive_refs"].includes(driveMode)) {
+    out.driveMode = driveMode;
+  }
+  const driveRoot = str(meta.nv_drive_root_id);
+  if (driveRoot) out.driveRootId = driveRoot;
+  const subs = meta.nv_drive_subfolders;
+  if (Array.isArray(subs) && subs.length > 0) {
+    out.driveSubfolders = subs
+      .map((s: any) => ({
+        name: String(s?.name ?? ""),
+        id: String(s?.id ?? ""),
+        type: typeof s?.type === "string" ? s.type : "otros"
+      }))
+      .filter((s) => s.id);
+  }
+
+  return out;
+}
+
+export const POST = withApi({ scope: "*" }, async (_req, { api }) => {
+  await requireAdmin(api.workspaceId, api.userId);
+
+  const ws = await prisma.workspace.findUnique({ where: { id: api.workspaceId } });
+  const settings: any = (ws?.settings as any) ?? {};
+  const pending: any = settings.pendingImport ?? {};
+
+  const report: Record<string, any> = {
+    editorialPostsCreated: 0,
+    editorialPostsUpdated: 0,
+    editorialClientsCreated: 0,
+    editorialClientsUpdated: 0,
+    leadSearchesProcessed: 0,
+    leadsProcessed: 0,
+    competitorsProcessed: 0,
+    templatesProcessed: 0,
+    sequencesProcessed: 0,
+    inboxProcessed: 0,
+    exclusionsProcessed: 0,
+    optoutsProcessed: 0,
+    errors: [] as string[]
+  };
+
+  // ────────────────────────────────────────────────────────────
+  // NV Dashboard publicaciones → EditorialPost
+  if (pending.nvDashboard) {
+    // ── PASO 0: crear / actualizar Clients desde la taxonomía nv_cliente ──
+    // El plugin WP guardaba cada cliente como un término de la taxonomía
+    // nv_cliente + una opción nv_dashboard_cliente_config_<slug>. Aquí lo
+    // mapeamos a filas de la tabla Client (con upsert por nombre para no
+    // duplicar si el cliente ya existía en el workspace).
+    const taxes = Array.isArray(pending.nvDashboard.clientesTaxonomy)
+      ? pending.nvDashboard.clientesTaxonomy
+      : [];
+    const configs = (pending.nvDashboard.clienteConfigs ?? {}) as Record<string, any>;
+    // Term meta exportado por agencia-exporter v2 (cliente_meta resuelto:
+    // brief, branding, colores, fuentes, refs, drive, dimensiones, etc.)
+    const clienteMetaArr: any[] = Array.isArray(pending.nvDashboard.clienteMeta)
+      ? pending.nvDashboard.clienteMeta
+      : [];
+    const clienteMetaByName = new Map<string, any>();
+    for (const cm of clienteMetaArr) {
+      const n = String(cm?.name ?? "").trim().toLowerCase();
+      if (n) clienteMetaByName.set(n, cm);
+    }
+    console.log(
+      `[process-pending-import] NV Dashboard: ${taxes.length} clientes en taxonomía, ` +
+      `${Array.isArray(pending.nvDashboard.publications) ? pending.nvDashboard.publications.length : 0} publicaciones`
+    );
+
+    for (const t of taxes) {
+      try {
+        const name = String(t?.name ?? "").trim();
+        if (!name) continue;
+        // Buscamos config por convención de nombre de opción del plugin
+        const slugCandidates = [
+          `nv_dashboard_cliente_config_${t?.slug}`,
+          `nv_dashboard_cliente_config_${name.toLowerCase().replace(/\s+/g, "_")}`
+        ];
+        let cfg: any = null;
+        for (const k of slugCandidates) {
+          if (configs[k]) { cfg = configs[k]; break; }
+        }
+
+        // Notas: si hay configuración del plugin, la metemos en notes
+        // como markdown sencillo para que el usuario las vea en el CRM.
+        let notes: string | null = null;
+        if (cfg && typeof cfg === "object") {
+          const lines: string[] = ["**Configuración importada de NV Dashboard:**"];
+          for (const [k, v] of Object.entries<any>(cfg)) {
+            if (v === null || v === undefined || v === "") continue;
+            const val = typeof v === "object" ? JSON.stringify(v) : String(v);
+            lines.push(`- ${k}: ${val.slice(0, 200)}`);
+          }
+          notes = lines.join("\n");
+        }
+
+        // Mapear cliente_meta exportado → campos editoriales del Client
+        const cm = clienteMetaByName.get(name.toLowerCase());
+        const editorialFields = cm ? mapClienteMetaToFields(cm) : null;
+
+        // Industry y demás se quedan vacíos por ahora; los rellena el user
+        const existing = await prisma.client.findFirst({
+          where: { workspaceId: api.workspaceId, name, deletedAt: null }
+        });
+        if (existing) {
+          // Actualiza notas si están vacías + sobreescribe campos editoriales
+          // que estén en valores por defecto (no pisar overrides del user).
+          const upd: any = {};
+          if (!existing.notes && notes) upd.notes = notes;
+          if (editorialFields) {
+            // Sólo aplicamos si el campo del cliente está vacío / default
+            if (!existing.brandBrief && editorialFields.brandBrief) upd.brandBrief = editorialFields.brandBrief;
+            if (!existing.website && editorialFields.website) upd.website = editorialFields.website;
+            if (existing.brandColorPrimary === "#1F2937" && editorialFields.brandColorPrimary) upd.brandColorPrimary = editorialFields.brandColorPrimary;
+            if (existing.brandColorAccent === "#2563EB" && editorialFields.brandColorAccent) upd.brandColorAccent = editorialFields.brandColorAccent;
+            if (existing.brandColorText === "#FFFFFF" && editorialFields.brandColorText) upd.brandColorText = editorialFields.brandColorText;
+            if (!existing.logoUrl && editorialFields.logoUrl) upd.logoUrl = editorialFields.logoUrl;
+            if (existing.logoPosition === "br" && editorialFields.logoPosition) upd.logoPosition = editorialFields.logoPosition;
+            if (existing.visualPattern === "clean" && editorialFields.visualPattern) upd.visualPattern = editorialFields.visualPattern;
+            if (existing.refsFidelity === 50 && typeof editorialFields.refsFidelity === "number") upd.refsFidelity = editorialFields.refsFidelity;
+            if (!existing.competitors && editorialFields.competitors) upd.competitors = editorialFields.competitors;
+            if (!existing.dimensionsByFormat && editorialFields.dimensionsByFormat) upd.dimensionsByFormat = editorialFields.dimensionsByFormat;
+            if (!existing.referenceImages && editorialFields.referenceImages) upd.referenceImages = editorialFields.referenceImages;
+            if (!existing.fonts && editorialFields.fonts) upd.fonts = editorialFields.fonts;
+            if (!existing.styleGuideCached && editorialFields.styleGuideCached) {
+              upd.styleGuideCached = editorialFields.styleGuideCached;
+              upd.styleGuideHash = editorialFields.styleGuideHash ?? null;
+            }
+            if (existing.driveMode === "pending" && editorialFields.driveMode) upd.driveMode = editorialFields.driveMode;
+            if (!existing.driveRootId && editorialFields.driveRootId) upd.driveRootId = editorialFields.driveRootId;
+            if (!existing.driveSubfolders && editorialFields.driveSubfolders) upd.driveSubfolders = editorialFields.driveSubfolders;
+          }
+          if (Object.keys(upd).length > 0) {
+            await prisma.client.update({ where: { id: existing.id }, data: upd });
+            report.editorialClientsUpdated++;
+          }
+        } else {
+          await prisma.client.create({
+            data: {
+              workspaceId: api.workspaceId,
+              name,
+              notes,
+              since: new Date(),
+              ...(editorialFields ?? {})
+            }
+          });
+          report.editorialClientsCreated++;
+        }
+      } catch (e: any) {
+        report.errors.push(`clientFromTaxonomy[${t?.name ?? "?"}]: ${e?.message ?? e}`);
+      }
+    }
+  }
+
+  if (pending.nvDashboard?.publications && Array.isArray(pending.nvDashboard.publications)) {
+    const clients = await prisma.client.findMany({
+      where: { workspaceId: api.workspaceId, deletedAt: null }
+    });
+    const clientByNameLower = new Map(clients.map((c) => [c.name.toLowerCase(), c.id]));
+
+    for (const p of pending.nvDashboard.publications) {
+      try {
+        const id = Number(p.id) || null;
+        const meta = (p.meta ?? {}) as any;
+        // Intento de mapeo de cliente: buscar primer término de taxonomía nv_cliente.
+        // Si el término no estaba en clientes_taxonomy (export incompleto), creamos
+        // el Client al vuelo para no perder la asociación.
+        let clientId: string | null = null;
+        const pubTaxes = Array.isArray(p.clientes) ? p.clientes : [];
+        if (pubTaxes.length > 0) {
+          const taxName = String(pubTaxes[0]?.name ?? "").trim();
+          const taxNameLower = taxName.toLowerCase();
+          clientId = clientByNameLower.get(taxNameLower) ?? null;
+          if (!clientId && taxName) {
+            const created = await prisma.client.create({
+              data: { workspaceId: api.workspaceId, name: taxName, since: new Date() }
+            });
+            clientByNameLower.set(taxNameLower, created.id);
+            clientId = created.id;
+            report.editorialClientsCreated++;
+          }
+        }
+
+        const status = mapStatus(p.status);
+        // Fecha: intentamos varios campos ACF habituales del plugin
+        const scheduled = parseDate(
+          meta?.fecha_publicacion ??
+          meta?.fecha ??
+          meta?.scheduled_for ??
+          meta?.fecha_programada ??
+          (meta?.fecha_dia && meta?.hora_publicacion ? `${meta.fecha_dia} ${meta.hora_publicacion}` : null) ??
+          p.date
+        );
+
+        // Redes: el plugin solía guardarlas como array, CSV o JSON
+        let networks: string[] = [];
+        const rawNets = meta?.redes ?? meta?.redes_sociales ?? meta?.plataformas ?? meta?.canales;
+        if (Array.isArray(rawNets)) {
+          networks = rawNets.map(String);
+        } else if (typeof rawNets === "string") {
+          try {
+            const j = JSON.parse(rawNets);
+            networks = Array.isArray(j) ? j.map(String) : rawNets.split(/[,;]/).map((s) => s.trim()).filter(Boolean);
+          } catch {
+            networks = rawNets.split(/[,;]/).map((s) => s.trim()).filter(Boolean);
+          }
+        }
+
+        const format = meta?.formato ?? meta?.format ?? meta?.tipo ?? meta?.tipo_publicacion ?? null;
+
+        // Copy / texto principal — buscamos en muchos campos ACF candidatos
+        const contentCandidates = [
+          meta?.copy,
+          meta?.copy_principal,
+          meta?.texto,
+          meta?.texto_publicacion,
+          meta?.texto_post,
+          meta?.contenido,
+          meta?.contenido_publicacion,
+          meta?.descripcion,
+          meta?.description,
+          meta?.cuerpo,
+          meta?.post_text,
+          meta?.text,
+          meta?.caption,
+          meta?.copy_facebook,
+          meta?.copy_instagram,
+          meta?.copy_linkedin,
+          meta?.copy_redes
+        ];
+        let content = (contentCandidates.find(
+          (v) => typeof v === "string" && v.trim().length > 0
+        ) as string | undefined) ?? null;
+        if (!content && typeof p.content === "string" && p.content.trim().length > 0) {
+          content = p.content;
+        }
+        // FALLBACK AGRESIVO: si seguimos sin content, coge el STRING MÁS LARGO
+        // de todo meta que no sea URL ni un valor de ACF interno (field_*).
+        if (!content) {
+          let longest = "";
+          for (const [k, v] of Object.entries<any>(meta)) {
+            if (k.startsWith("_") || k.startsWith("field_")) continue;
+            if (typeof v !== "string") continue;
+            if (/^https?:\/\//.test(v)) continue;
+            if (v.length > longest.length && v.length > 30) longest = v;
+          }
+          if (longest) content = longest;
+        }
+
+        // Imagen / foto — thumbnail destacada + posibles ACF
+        const mediaCandidates: string[] = [];
+        if (p.thumbnail) mediaCandidates.push(String(p.thumbnail));
+        for (const k of [
+          "imagen", "imagen_principal", "imagen_publicacion",
+          "foto", "foto_principal", "foto_publicacion",
+          "imagen_url", "media", "media_url", "thumbnail", "thumbnail_url",
+          "image", "img", "photo", "picture",
+          "imagen_instagram", "imagen_facebook", "imagen_linkedin"
+        ]) {
+          const v = meta?.[k];
+          if (typeof v === "string" && /^https?:\/\//.test(v)) mediaCandidates.push(v);
+          // ACF a veces guarda objeto image con .url o número (ID de attachment)
+          if (v && typeof v === "object" && typeof v.url === "string") mediaCandidates.push(v.url);
+        }
+        // Imágenes adicionales (galería): claves comunes
+        const galleryCandidates = [
+          meta?.imagenes,
+          meta?.galeria,
+          meta?.gallery,
+          meta?.images,
+          meta?.media_gallery,
+          meta?.fotos
+        ];
+        for (const g of galleryCandidates) {
+          if (Array.isArray(g)) {
+            for (const item of g) {
+              if (typeof item === "string" && /^https?:\/\//.test(item)) mediaCandidates.push(item);
+              else if (item && typeof item === "object" && typeof item.url === "string") mediaCandidates.push(item.url);
+            }
+          }
+        }
+        // FALLBACK AGRESIVO: scan todas las claves de meta buscando URLs de imagen
+        for (const [k, v] of Object.entries<any>(meta)) {
+          if (k.startsWith("_") || k.startsWith("field_")) continue;
+          if (typeof v === "string" && /^https?:\/\/.+\.(jpe?g|png|gif|webp|svg)(\?|$)/i.test(v)) {
+            mediaCandidates.push(v);
+          } else if (v && typeof v === "object" && typeof v.url === "string" && /\.(jpe?g|png|gif|webp|svg)(\?|$)/i.test(v.url)) {
+            mediaCandidates.push(v.url);
+          }
+        }
+        // dedupe preservando orden
+        const seen = new Set<string>();
+        const mediaUrls = mediaCandidates.filter((u) => {
+          if (seen.has(u)) return false;
+          seen.add(u);
+          return true;
+        });
+        const thumbnail = mediaUrls[0] ?? null;
+
+        // Excerpt
+        const excerpt = (typeof p.excerpt === "string" && p.excerpt.trim()) ||
+          (typeof meta?.excerpt === "string" ? meta.excerpt : null) ||
+          (typeof meta?.resumen === "string" ? meta.resumen : null) ||
+          null;
+
+        // Hashtags: campo dedicado nv_hashtags del plugin (también probamos variantes)
+        const hashtagsRaw =
+          meta?.nv_hashtags ?? meta?.hashtags ?? meta?.hashtag ?? meta?.etiquetas ?? meta?.tags ?? null;
+        const hashtags =
+          typeof hashtagsRaw === "string" && hashtagsRaw.trim()
+            ? hashtagsRaw.trim()
+            : Array.isArray(hashtagsRaw)
+              ? hashtagsRaw
+                  .map((t) => String(t).trim())
+                  .filter(Boolean)
+                  .map((t) => (t.startsWith("#") ? t : `#${t}`))
+                  .join(" ")
+              : null;
+
+        // First comment: nv_first_comment del plugin
+        const firstCommentRaw = meta?.nv_first_comment ?? meta?.first_comment ?? meta?.primer_comentario ?? null;
+        const firstComment = typeof firstCommentRaw === "string" && firstCommentRaw.trim() ? firstCommentRaw : null;
+
+        // Copy por red: detectar copys distintos por red (nv_copy_instagram, etc.)
+        const copyByNetwork: Record<string, string> = {};
+        for (const net of ["instagram", "facebook", "linkedin", "tiktok", "twitter", "youtube", "pinterest"]) {
+          const candidates = [
+            meta?.[`nv_copy_${net}`],
+            meta?.[`copy_${net}`],
+            meta?.[`texto_${net}`],
+            meta?.[`${net}_copy`],
+            meta?.[`${net}_text`]
+          ];
+          for (const c of candidates) {
+            if (typeof c === "string" && c.trim() && c.trim() !== (content ?? "")) {
+              copyByNetwork[net] = c.trim();
+              break;
+            }
+          }
+        }
+
+        const data = {
+          workspaceId: api.workspaceId,
+          clientId,
+          title: String(p.title ?? "Sin título").slice(0, 200),
+          content,
+          excerpt,
+          scheduledFor: scheduled,
+          status,
+          format: format ? String(format).slice(0, 40) : null,
+          networks: JSON.stringify(networks),
+          thumbnail,
+          mediaUrls: JSON.stringify(mediaUrls),
+          hashtags,
+          firstComment,
+          copyByNetwork: Object.keys(copyByNetwork).length > 0 ? copyByNetwork : undefined,
+          metaJson: meta
+        };
+
+        if (id) {
+          const upserted = await prisma.editorialPost.upsert({
+            where: { legacyWpId: id },
+            create: { ...data, legacyWpId: id },
+            update: data
+          });
+          report.editorialPostsCreated++;
+        } else {
+          await prisma.editorialPost.create({ data });
+          report.editorialPostsCreated++;
+        }
+      } catch (e: any) {
+        report.errors.push(`editorial[${p.id ?? "?"}]: ${e?.message ?? e}`);
+      }
+    }
+  }
+
+  // ────────────────────────────────────────────────────────────
+  // NV Leads tablas → schemas Lead*
+  const tables: any = pending.nvLeads?.tables ?? {};
+
+  // 1. Searches
+  if (Array.isArray(tables.nvl_searches)) {
+    for (const s of tables.nvl_searches) {
+      try {
+        const legacyId = Number(s.id) || null;
+        const data = {
+          workspaceId: api.workspaceId,
+          keyword: String(s.keyword ?? ""),
+          location: String(s.location ?? ""),
+          status: mapLeadSearchStatus(s.status),
+          totalResults: Number(s.total_results ?? 0),
+          currentProvince: s.current_province ? String(s.current_province) : null,
+          startedAt: parseDate(s.started_at),
+          completedAt: parseDate(s.completed_at),
+          errorMessage: s.error_message ? String(s.error_message) : null
+        };
+        if (legacyId) {
+          await prisma.leadSearch.upsert({
+            where: { legacyWpId: legacyId },
+            create: { ...data, legacyWpId: legacyId },
+            update: data
+          });
+        } else {
+          await prisma.leadSearch.create({ data });
+        }
+        report.leadSearchesProcessed++;
+      } catch (e: any) {
+        report.errors.push(`search[${s.id ?? "?"}]: ${e?.message ?? e}`);
+      }
+    }
+  }
+
+  // 2. Leads
+  if (Array.isArray(tables.nvl_leads)) {
+    const searchByLegacy = await prisma.leadSearch.findMany({
+      where: { workspaceId: api.workspaceId, legacyWpId: { not: null } },
+      select: { id: true, legacyWpId: true }
+    });
+    const searchMap = new Map(searchByLegacy.map((s) => [s.legacyWpId!, s.id]));
+
+    for (const l of tables.nvl_leads) {
+      try {
+        const placeId = String(l.place_id ?? "").trim();
+        if (!placeId) continue;
+        const legacyId = Number(l.id) || null;
+        const searchId = l.search_id ? searchMap.get(Number(l.search_id)) ?? null : null;
+        let reviewsJson: any = null;
+        try {
+          reviewsJson = typeof l.reviews_json === "string" ? JSON.parse(l.reviews_json) : l.reviews_json;
+        } catch {}
+
+        // Scoreboard breakdown si viene como JSON string
+        let scoreBreakdown: any = null;
+        try {
+          scoreBreakdown = typeof l.score_breakdown === "string"
+            ? JSON.parse(l.score_breakdown)
+            : l.score_breakdown;
+        } catch {}
+
+        // Types como JSON
+        let types: any = null;
+        try {
+          types = typeof l.types === "string" ? JSON.parse(l.types) : l.types;
+        } catch {}
+
+        // Raw data del API de Places
+        let rawData: any = null;
+        try {
+          rawData = typeof l.raw_data === "string" ? JSON.parse(l.raw_data) : l.raw_data;
+        } catch {}
+
+        const data = {
+          workspaceId: api.workspaceId,
+          searchId,
+          placeId,
+          name: String(l.name ?? "Sin nombre"),
+          address: l.address ? String(l.address) : null,
+          formattedAddress: l.formatted_address ? String(l.formatted_address) : null,
+          province: l.province ? String(l.province) : null,
+          phone: l.phone ? String(l.phone) : null,
+          internationalPhone: l.international_phone ? String(l.international_phone) : null,
+          website: l.website ? String(l.website) : null,
+          category: l.category ? String(l.category) : null,
+          types,
+          latitude: l.latitude !== undefined && l.latitude !== null ? Number(l.latitude) : null,
+          longitude: l.longitude !== undefined && l.longitude !== null ? Number(l.longitude) : null,
+          position: l.position !== undefined && l.position !== null ? Number(l.position) : null,
+          gmbUrl: l.gmb_url ? String(l.gmb_url) : null,
+          businessStatus: l.business_status ? String(l.business_status) : null,
+          priceLevel: l.price_level !== undefined && l.price_level !== null ? Number(l.price_level) : null,
+          rating: l.rating !== undefined && l.rating !== null ? Number(l.rating) : null,
+          reviewsCount: Number(l.reviews_count ?? 0),
+          reviewsJson,
+          positivePct: l.positive_pct !== undefined && l.positive_pct !== null ? Number(l.positive_pct) : null,
+          negativePct: l.negative_pct !== undefined && l.negative_pct !== null ? Number(l.negative_pct) : null,
+          neutralPct: l.neutral_pct !== undefined && l.neutral_pct !== null ? Number(l.neutral_pct) : null,
+          rawData,
+          score: l.score !== undefined && l.score !== null ? Math.round(Number(l.score)) : null,
+          urgency: typeof l.urgency === "string" ? l.urgency : null,
+          scoreBreakdown,
+          hasWhatsapp: Boolean(Number(l.has_whatsapp ?? 0)),
+          whatsappChecked: Boolean(Number(l.whatsapp_checked ?? 0)),
+          whatsappCheckedAt: l.whatsapp_checked_at ? new Date(l.whatsapp_checked_at) : null,
+          aiOpener: l.ai_opener ? String(l.ai_opener) : null,
+          aiOpenerGeneratedAt: l.ai_opener_generated_at ? new Date(l.ai_opener_generated_at) : null,
+          notes: l.notes ? String(l.notes) : null,
+          contactStatus: mapContactStatus(l.contact_status)
+        };
+
+        await prisma.lead.upsert({
+          where: { workspaceId_placeId: { workspaceId: api.workspaceId, placeId } },
+          create: { ...data, ...(legacyId ? { legacyWpId: legacyId } : {}) },
+          update: data
+        });
+        report.leadsProcessed++;
+      } catch (e: any) {
+        report.errors.push(`lead[${l.place_id ?? "?"}]: ${e?.message ?? e}`);
+      }
+    }
+  }
+
+  // 3. Templates
+  if (Array.isArray(tables.nvl_templates)) {
+    for (const t of tables.nvl_templates) {
+      try {
+        const legacyId = Number(t.id) || null;
+        const data = {
+          workspaceId: api.workspaceId,
+          name: String(t.name ?? "Sin nombre"),
+          body: String(t.body ?? ""),
+          channel: t.channel ? String(t.channel) : "whatsapp"
+        };
+        if (legacyId) {
+          await prisma.leadTemplate.upsert({
+            where: { legacyWpId: legacyId },
+            create: { ...data, legacyWpId: legacyId },
+            update: data
+          });
+        } else {
+          await prisma.leadTemplate.create({ data });
+        }
+        report.templatesProcessed++;
+      } catch (e: any) {
+        report.errors.push(`template[${t.id ?? "?"}]: ${e?.message ?? e}`);
+      }
+    }
+  }
+
+  // 4. Sequences + steps
+  if (Array.isArray(tables.nvl_sequences)) {
+    for (const s of tables.nvl_sequences) {
+      try {
+        const legacyId = Number(s.id) || null;
+        const data = {
+          workspaceId: api.workspaceId,
+          name: String(s.name ?? "Sin nombre"),
+          description: s.description ? String(s.description) : null,
+          active: s.active === undefined ? true : Boolean(Number(s.active))
+        };
+        if (legacyId) {
+          await prisma.leadSequence.upsert({
+            where: { legacyWpId: legacyId },
+            create: { ...data, legacyWpId: legacyId },
+            update: data
+          });
+        } else {
+          await prisma.leadSequence.create({ data });
+        }
+        report.sequencesProcessed++;
+      } catch (e: any) {
+        report.errors.push(`sequence[${s.id ?? "?"}]: ${e?.message ?? e}`);
+      }
+    }
+
+    // Steps: depend on sequence ids
+    if (Array.isArray(tables.nvl_sequence_steps)) {
+      const seqs = await prisma.leadSequence.findMany({
+        where: { workspaceId: api.workspaceId, legacyWpId: { not: null } },
+        select: { id: true, legacyWpId: true }
+      });
+      const seqMap = new Map(seqs.map((s) => [s.legacyWpId!, s.id]));
+      for (const st of tables.nvl_sequence_steps) {
+        try {
+          const seqId = seqMap.get(Number(st.sequence_id));
+          if (!seqId) continue;
+          await prisma.leadSequenceStep.create({
+            data: {
+              sequenceId: seqId,
+              order: Number(st.step_order ?? st.order ?? 0),
+              delayHours: Number(st.delay_hours ?? 24),
+              templateBody: String(st.template_body ?? st.body ?? "")
+            }
+          });
+        } catch (e: any) {
+          report.errors.push(`step[${st.id ?? "?"}]: ${e?.message ?? e}`);
+        }
+      }
+    }
+  }
+
+  // 5. Inbox
+  if (Array.isArray(tables.nvl_inbox)) {
+    for (const m of tables.nvl_inbox) {
+      try {
+        await prisma.leadInboxMessage.create({
+          data: {
+            workspaceId: api.workspaceId,
+            leadId: null,
+            fromPhone: String(m.from_phone ?? m.phone ?? ""),
+            body: String(m.body ?? m.message ?? ""),
+            read: Boolean(Number(m.read ?? 0)),
+            receivedAt: parseDate(m.received_at) ?? new Date()
+          }
+        });
+        report.inboxProcessed++;
+      } catch (e: any) {
+        report.errors.push(`inbox[${m.id ?? "?"}]: ${e?.message ?? e}`);
+      }
+    }
+  }
+
+  // 6. Exclusions (plugin: nvl_exclusions con match_type/match_value/match_mode)
+  if (Array.isArray(tables.nvl_exclusions)) {
+    for (const e of tables.nvl_exclusions) {
+      try {
+        const matchValue = String(e.match_value ?? e.place_id ?? e.phone ?? "").trim();
+        if (!matchValue) continue;
+        await prisma.leadExclusion.create({
+          data: {
+            workspaceId: api.workspaceId,
+            matchType: String(e.match_type ?? "name"),
+            matchValue,
+            matchMode: String(e.match_mode ?? "contains") === "exact" ? "exact" : "contains",
+            placeId: e.place_id ? String(e.place_id) : null,
+            phone: e.phone ? String(e.phone) : null,
+            reason: e.reason ? String(e.reason) : null
+          }
+        });
+        report.exclusionsProcessed++;
+      } catch (err: any) {
+        report.errors.push(`exclusion[${e.id ?? "?"}]: ${err?.message ?? err}`);
+      }
+    }
+  }
+
+  // 7. Optouts
+  if (Array.isArray(tables.nvl_optouts)) {
+    for (const o of tables.nvl_optouts) {
+      try {
+        const phone = String(o.phone ?? "").trim();
+        if (!phone) continue;
+        await prisma.leadOptout.upsert({
+          where: { workspaceId_phone: { workspaceId: api.workspaceId, phone } },
+          create: {
+            workspaceId: api.workspaceId,
+            phone,
+            reason: o.reason ? String(o.reason) : null
+          },
+          update: { reason: o.reason ? String(o.reason) : null }
+        });
+        report.optoutsProcessed++;
+      } catch (err: any) {
+        report.errors.push(`optout[${o.id ?? "?"}]: ${err?.message ?? err}`);
+      }
+    }
+  }
+
+  // Limpia pendingImport una vez procesado correctamente (deja un sello)
+  settings.pendingImport ??= {};
+  settings.pendingImport.processedAt = new Date().toISOString();
+  await prisma.workspace.update({
+    where: { id: api.workspaceId },
+    data: { settings }
+  });
+
+  return NextResponse.json({ ok: true, report });
+});
+
+function mapStatus(wp: string | undefined): string {
+  const s = String(wp ?? "").toLowerCase();
+  if (s === "publish" || s === "published") return "PUBLISHED";
+  if (s === "future" || s === "scheduled") return "SCHEDULED";
+  if (s === "pending" || s === "approved") return "APPROVED";
+  if (s === "review" || s === "in_review") return "REVIEW";
+  if (s === "private" || s === "archive") return "ARCHIVED";
+  return "DRAFT";
+}
+
+function mapLeadSearchStatus(s: any): string {
+  const v = String(s ?? "").toUpperCase();
+  if (["PENDING", "RUNNING", "COMPLETED", "FAILED"].includes(v)) return v;
+  return "PENDING";
+}
+
+function mapContactStatus(s: any): string {
+  // Plugin usa: pending|contacted|responded|client|excluded|discarded
+  const v = String(s ?? "").toLowerCase().trim();
+  const allowed = ["pending", "contacted", "responded", "client", "excluded", "discarded"];
+  if (allowed.includes(v)) return v;
+  // Compat con valores antiguos del hub:
+  const compat: Record<string, string> = {
+    new: "pending",
+    queued: "pending",
+    replied: "responded",
+    converted: "client",
+    lost: "discarded"
+  };
+  return compat[v] ?? "pending";
+}
