@@ -49,8 +49,27 @@ export async function renderTemplate(opts: {
   });
   if (!lead) throw new Error("Lead no encontrado");
 
-  const comps = lead.competitors ?? [];
-  const compNames = comps.map((c) => c.name);
+  // Si el lead no tiene competidores explícitos (búsquedas antiguas, plugin
+  // legacy, etc.), los inferimos en el momento desde los otros leads de la
+  // misma búsqueda + provincia ordenados por posición. Así el placeholder
+  // {{competidor_top}} no aparece vacío en el mensaje renderizado.
+  let competitorNames = lead.competitors.map((c) => c.name);
+  if (competitorNames.length === 0 && lead.searchId) {
+    const peers = await prisma.lead.findMany({
+      where: {
+        workspaceId: opts.workspaceId,
+        searchId: lead.searchId,
+        province: lead.province ?? undefined,
+        id: { not: lead.id },
+        position: { not: null }
+      },
+      orderBy: { position: "asc" },
+      take: 3,
+      select: { name: true }
+    });
+    competitorNames = peers.map((p) => p.name);
+  }
+
   const vars: Record<string, string> = {
     nombre_negocio: lead.name ?? "",
     direccion: lead.formattedAddress ?? lead.address ?? "",
@@ -64,10 +83,10 @@ export async function renderTemplate(opts: {
     pct_negativas: lead.negativePct != null ? `${lead.negativePct}%` : "",
     posicion: lead.position != null ? String(lead.position) : "",
     keyword: lead.search?.keyword ?? "",
-    competidor_top: compNames[0] ?? "",
-    competidor_top2: compNames[1] ?? "",
-    competidor_top3: compNames[2] ?? "",
-    competidores_lista: compNames.slice(0, 3).join(", "),
+    competidor_top: competitorNames[0] ?? "",
+    competidor_top2: competitorNames[1] ?? "",
+    competidor_top3: competitorNames[2] ?? "",
+    competidores_lista: competitorNames.slice(0, 3).join(", "),
     score: lead.score != null ? String(lead.score) : "",
     urgencia: lead.urgency ?? "",
     opener_ia: lead.aiOpener ?? ""

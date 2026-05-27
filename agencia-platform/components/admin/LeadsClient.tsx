@@ -733,11 +733,26 @@ function SearchesTable({ loading, items, onChanged }: { loading: boolean; items:
 
 function QueueTable({ loading, items, onChanged }: { loading: boolean; items: QueueRow[]; onChanged: () => void }) {
   const [processing, setProcessing] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   async function tick() {
     setProcessing(true);
     await fetch("/api/v1/leads/queue/process", { method: "POST" });
     setProcessing(false);
     onChanged();
+  }
+  async function removeOne(id: string) {
+    if (!confirm("¿Borrar este mensaje de la cola? No se enviará.")) return;
+    setDeletingId(id);
+    try {
+      const r = await fetch(`/api/v1/leads/queue/${id}`, { method: "DELETE" });
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        alert(j?.message ?? "No se pudo borrar.");
+      }
+      onChanged();
+    } finally {
+      setDeletingId(null);
+    }
   }
   if (loading) return <Loading />;
   return (
@@ -765,6 +780,7 @@ function QueueTable({ loading, items, onChanged }: { loading: boolean; items: Qu
                 <th className="text-left px-3 py-2.5">Programado</th>
                 <th className="text-left px-3 py-2.5">Estado</th>
                 <th className="text-left px-3 py-2.5">Intentos</th>
+                <th className="text-right px-3 py-2.5 w-12"></th>
               </tr>
             </thead>
             <tbody className="divide-y">
@@ -777,6 +793,16 @@ function QueueTable({ loading, items, onChanged }: { loading: boolean; items: Qu
                   </td>
                   <td className="px-3 py-2 text-xs">{m.status}</td>
                   <td className="px-3 py-2 text-xs">{m.sendAttempts}{m.lastError && ` ⚠ ${m.lastError.slice(0, 40)}`}</td>
+                  <td className="px-3 py-2 text-right">
+                    <button
+                      onClick={() => removeOne(m.id)}
+                      disabled={deletingId === m.id || m.status === "sending"}
+                      className="inline-flex items-center justify-center p-1.5 rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50 disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-slate-400"
+                      title={m.status === "sending" ? "En envío, no se puede borrar" : "Borrar de la cola"}
+                    >
+                      {deletingId === m.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>
