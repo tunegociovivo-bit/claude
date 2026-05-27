@@ -161,7 +161,7 @@ Reglas:
     `  (d) Iluminación específica.`,
     `  (e) Estilo fotográfico (editorial / documentary / lifestyle).`,
     `  (f) Paleta hex (usa la guía cacheada si existe).`,
-    `  (g) "ample empty negative space at the [TOP/CENTER/BOTTOM]" coincidiendo con text_placement.`,
+    `  (g) Si "text_placement" es bottom/top/center, asegúrate de que esa zona quede VISUALMENTE LIBRE pero usando contenido REAL del escenario (pared lisa, cielo, suelo o superficie continua del propio entorno) — NUNCA un fade/desvanecido a blanco, NUNCA una viñeta, NUNCA un halo difuso. La imagen debe llegar a los bordes con su escena natural.`,
     `  (h) Photographic realism, no illustrations, no AI-art look.`,
     `  (i) MUY IMPORTANTE: "no readable text, no letters, no numbers, no watermarks, no signs" — el texto lo componemos NOSOTROS encima.`,
     `- "headline_lines": ARRAY de 2-4 líneas con jerarquía. Cada línea: {text, size, color, weight}.`,
@@ -176,7 +176,7 @@ Reglas:
     `  · Si la persona va arriba o centro → bottom. Si la persona va abajo → top.`,
     `  · NUNCA pongas top si la persona ocupa la mitad superior (taparías la cara).`,
     `  · NUNCA pongas center si hay UNA SOLA persona centrada — taparías su cara o torso. Mueve a bottom o top.`,
-    `  · REGLA DE ORO: el bloque de texto va en una franja horizontal completamente VACÍA (pared lisa, cielo, escritorio limpio, suelo). Si tu image_prompt no garantiza una franja vacía de ~35% de la altura libre de personas en la zona "text_placement", REESCRIBE el image_prompt para que sí.`,
+    `  · REGLA DE ORO: el bloque de texto va en una franja horizontal donde el ESCENARIO REAL del entorno está limpio (pared lisa que continúa hasta el borde, cielo, escritorio limpio, suelo) — NUNCA un fade a blanco, viñeta o desenfoque artificial. Si tu image_prompt no garantiza una franja libre de personas de ~35% en la zona "text_placement", REESCRIBE el image_prompt para que el propio entorno lo proporcione.`,
     `  · Para fotos donde el sujeto principal aparece sentado mirando a cámara en el centro, lo correcto es: composición con espacio negativo a la IZQUIERDA del sujeto + text_placement="center" (el scrim del overlay queda en la mitad izquierda). En este caso, el image_prompt debe especificar "subject seated on the right third of the frame, left two-thirds clear background, ample negative space on the left for vertical text overlay".`,
     ``,
     `Devuelve SIEMPRE un JSON con la forma del schema. Sin preámbulos ni comentarios fuera del JSON.`

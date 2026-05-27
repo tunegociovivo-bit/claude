@@ -282,7 +282,8 @@ export async function generateImageForPost(opts: GenerateImageOptions): Promise<
       brandColors,
       guide,
       userCopy,
-      `Editorial photographic realism. Composition with ample empty negative space at the bottom for text overlay.`,
+      `Editorial photographic realism. The scene must extend naturally to all four edges of the frame.`,
+      `CRITICAL: do NOT add any white blur, soft fade, vignette or hazy halo at the bottom (or any edge). If extra room is needed for text, leave a clean continuous part of the actual environment (a wall, sky, table or floor) — never an artificial light fade.`,
       `CRITICAL: no readable text, no letters, no numbers, no watermarks, no signs of any kind — text is composed separately afterwards.`
     ]
       .filter(Boolean)
@@ -368,6 +369,18 @@ export async function generateImageForPost(opts: GenerateImageOptions): Promise<
         textColor: client?.brandColorText
       });
   }
+
+  // Cierre universal anti-fade. Aunque el prompt almacenado pida "negative
+  // space at the bottom", queremos que la IA NO interprete eso como un
+  // desvanecido a blanco/halo, sino como una continuación natural del propio
+  // escenario hasta el borde. Esto aplica a todos los patrones visuales.
+  prompt += [
+    "",
+    "HARD RULE — frame edges:",
+    "The image must reach all four edges with real scene content (wall, floor, sky, surface…).",
+    "Do NOT add a soft fade / white wash / vignette / hazy halo / blur at the bottom (or any edge).",
+    "If you need empty room for text, leave a continuous clean stretch of the actual environment, not an artificial gradient."
+  ].join("\n");
 
   // Detectar personas del roster que deben aparecer en la imagen.
   // Reglas (en orden de prioridad):
