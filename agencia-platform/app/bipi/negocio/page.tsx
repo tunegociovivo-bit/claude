@@ -172,6 +172,9 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
       {/* Plan + Upgrade */}
       <PlanCard business={b} />
 
+      {/* Cruces — la mina de datos */}
+      <CrossShopperPanel businessId={b.id} />
+
       {/* Crear Push del Día */}
       <PushAdForm businessId={b.id} />
 
@@ -216,6 +219,96 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
         )}
       </section>
     </main>
+  );
+}
+
+/** Panel "Cruces" — muestra a qué negocios el actual envía clientes y de
+ *  cuáles recibe. Esto es el dato más valioso de Bipi: la red de tráfico
+ *  cruzado que ningún Meta/Google sabe ver. */
+function CrossShopperPanel({ businessId }: { businessId: string }) {
+  const [data, setData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    fetch(`/api/bipi/business/${businessId}/cross-shopper`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => setData(d))
+      .finally(() => setLoading(false));
+  }, [businessId]);
+  if (loading) {
+    return <div className="bg-white border rounded-xl p-5 shadow-sm text-sm text-slate-500">Calculando cruces…</div>;
+  }
+  if (!data) return null;
+  const s = data.summary;
+  return (
+    <section className="bg-white border rounded-xl p-5 shadow-sm space-y-4">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div>
+          <h3 className="font-semibold text-sm">🔁 Red de cruces</h3>
+          <p className="text-xs text-slate-600">A quién mandas clientes y quién te los manda a ti.</p>
+        </div>
+        <div className="text-xs text-slate-600">
+          <span className="font-semibold text-amber-700">{s.conversionPct}%</span> de tus cupones se canjean
+        </div>
+      </div>
+
+      <div className="grid grid-cols-3 gap-2 text-xs">
+        <SmallStat label="Cupones generados" value={s.cuponesGenerados} />
+        <SmallStat label="Canjeados (otros)" value={s.canjeadosPorOtros} />
+        <SmallStat label="Recibidos canjeados" value={s.cuponesRecibidosCanjeados} />
+      </div>
+
+      <div className="grid md:grid-cols-2 gap-4">
+        <div>
+          <h4 className="text-xs font-semibold text-slate-700 mb-2">📤 Mandas clientes a</h4>
+          {data.sentTo.length === 0 ? (
+            <p className="text-xs text-slate-500">Aún sin datos. Cuando un cliente que compre aquí canjee en otro negocio, aparecerá.</p>
+          ) : (
+            <ul className="space-y-1.5">
+              {data.sentTo.slice(0, 6).map((r: any) => (
+                <li key={r.business.id} className="flex items-center justify-between text-xs">
+                  <span className="truncate">
+                    <span className="font-medium">{r.business.name}</span>
+                    <span className="text-slate-400 ml-1">{r.business.category}</span>
+                  </span>
+                  <span className="text-amber-700 font-semibold whitespace-nowrap ml-2">
+                    {r.redeemed}/{r.total} · {r.conversionPct}%
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+        <div>
+          <h4 className="text-xs font-semibold text-slate-700 mb-2">📥 Recibes clientes de</h4>
+          {data.receivedFrom.length === 0 ? (
+            <p className="text-xs text-slate-500">Aún sin datos. Cuando un cliente con cupón cruzado venga aquí, aparecerá.</p>
+          ) : (
+            <ul className="space-y-1.5">
+              {data.receivedFrom.slice(0, 6).map((r: any) => (
+                <li key={r.business.id} className="flex items-center justify-between text-xs">
+                  <span className="truncate">
+                    <span className="font-medium">{r.business.name}</span>
+                    <span className="text-slate-400 ml-1">{r.business.category}</span>
+                  </span>
+                  <span className="text-emerald-700 font-semibold whitespace-nowrap ml-2">
+                    +{r.redeemed}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function SmallStat({ label, value }: { label: string; value: number | string }) {
+  return (
+    <div className="rounded-lg bg-slate-50 border p-2 text-center">
+      <div className="text-[10px] text-slate-500 uppercase tracking-wide">{label}</div>
+      <div className="text-lg font-bold">{value}</div>
+    </div>
   );
 }
 
