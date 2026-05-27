@@ -348,6 +348,26 @@ function OffersFeed({ customer, coords, onLogout }: { customer: Customer; coords
       <div className="mt-6 bg-black text-white rounded-2xl p-4 text-sm">
         📲 <strong>Escanea el QR del negocio</strong> donde vayas a pagar. Cada compra te abre 3-5 cupones cerca.
       </div>
+
+      {/* Bottom nav (mobile) */}
+      <nav className="bipi-bottom-nav">
+        <a href="/bipi/app" className="active">
+          <span style={{ fontSize: 18 }}>🎟</span>
+          <span>Cupones</span>
+        </a>
+        <a href="/bipi">
+          <span style={{ fontSize: 18 }}>🏪</span>
+          <span>Negocios</span>
+        </a>
+        <a href="#" onClick={(e) => { e.preventDefault(); alert("Abre la cámara del móvil y escanea el QR del negocio."); }}>
+          <span style={{ fontSize: 18 }}>📷</span>
+          <span>Escanear</span>
+        </a>
+        <a href="#" onClick={(e) => { e.preventDefault(); onLogout(); }}>
+          <span style={{ fontSize: 18 }}>👤</span>
+          <span>Salir</span>
+        </a>
+      </nav>
     </main>
   );
 }
