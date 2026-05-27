@@ -179,6 +179,9 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
         </div>
       </section>
 
+      {/* Comparte tu página pública */}
+      <ShareWidget slug={b.slug} name={b.name} discountPct={b.defaultDiscountPct} />
+
       {/* Plan + Upgrade */}
       <PlanCard business={b} />
 
@@ -283,6 +286,97 @@ function CsvDownloadButton({ businessId, token }: { businessId: string; token: s
     >
       {busy ? "Generando…" : "Descargar CSV compras"}
     </button>
+  );
+}
+
+/** Widget de compartir página pública. Native Web Share API si está
+ *  disponible (móvil), si no fallback a deep links de WhatsApp/Telegram
+ *  + botón "copiar URL" con feedback. */
+function ShareWidget({ slug, name, discountPct }: { slug: string; name: string; discountPct: number }) {
+  const [copied, setCopied] = useState(false);
+  const [origin, setOrigin] = useState("");
+  useEffect(() => {
+    setOrigin(window.location.origin);
+  }, []);
+  const url = origin ? `${origin}/bipi/n/${slug}` : `/bipi/n/${slug}`;
+  const shareText = `${discountPct}% en ${name} con la app Bipi 🎟\nEscanea, paga, y se te abren descuentos en otros negocios cerca.`;
+  const fullMessage = `${shareText}\n${url}`;
+
+  async function nativeShare() {
+    if (typeof navigator !== "undefined" && (navigator as any).share) {
+      try {
+        await (navigator as any).share({ title: `${name} · Bipi`, text: shareText, url });
+        return;
+      } catch {
+        // user cancelled
+      }
+    }
+    // Fallback: copiar.
+    await copy();
+  }
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {}
+  }
+
+  const wa = `https://wa.me/?text=${encodeURIComponent(fullMessage)}`;
+  const tg = `https://t.me/share/url?url=${encodeURIComponent(url)}&text=${encodeURIComponent(shareText)}`;
+  const fb = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(url)}`;
+
+  return (
+    <section className="bipi-card p-5 space-y-3">
+      <div>
+        <h3 className="font-bold text-sm">📣 Comparte tu Bipi</h3>
+        <p className="text-xs text-black/55 mt-0.5">
+          Cada vez que un cliente entra por tu enlace, te ahorras anuncios y subes karma.
+        </p>
+      </div>
+      <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-black/10 bg-pink-50/40">
+        <span className="text-xs text-black/70 font-mono truncate flex-1">{url || "—"}</span>
+        <button
+          onClick={copy}
+          className="px-3 py-1 rounded-full bg-black text-white text-xs font-bold hover:bg-pink-600 transition"
+        >
+          {copied ? "✓ Copiado" : "Copiar"}
+        </button>
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+        <button onClick={nativeShare} className="bipi-btn text-xs py-2">
+          📲 Compartir
+        </button>
+        <a
+          href={wa}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-center text-xs py-2 px-3 rounded-full border-2 border-emerald-500 text-emerald-700 font-bold hover:bg-emerald-50 transition"
+        >
+          WhatsApp
+        </a>
+        <a
+          href={tg}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-center text-xs py-2 px-3 rounded-full border-2 border-sky-500 text-sky-700 font-bold hover:bg-sky-50 transition"
+        >
+          Telegram
+        </a>
+        <a
+          href={fb}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-center text-xs py-2 px-3 rounded-full border-2 border-blue-600 text-blue-700 font-bold hover:bg-blue-50 transition"
+        >
+          Facebook
+        </a>
+      </div>
+      <p className="text-[11px] text-black/50">
+        💡 Pégalo en tu bio de Instagram, en tu firma de email o en una historia. Cada visita es un cliente potencial.
+      </p>
+    </section>
   );
 }
 
