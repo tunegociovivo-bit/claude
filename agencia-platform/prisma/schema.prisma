@@ -891,6 +891,10 @@ model LeadSearch {
   // Si true: leads cuyo placeId YA exista en otra búsqueda del workspace
   // se saltan (búsqueda incremental + dedup cross-búsqueda). Se cuentan
   // aparte como `leadsSkipped` para informar al usuario.
+  /// Configuración específica por fuente. P.ej. para "places":
+  /// { lowRatingOnly: true, minReviewsCount: 5, maxRating: 3.5 }.
+  /// JSON libre para no migrar cada vez que añadimos un filtro nuevo.
+  sourceConfig       Json?
   skipExisting       Boolean   @default(false)
   leadsSkipped       Int       @default(0)
   createdAt          DateTime  @default(now())

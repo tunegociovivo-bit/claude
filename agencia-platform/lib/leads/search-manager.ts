@@ -25,6 +25,9 @@ export async function startSearch(opts: {
   /** Si true, leads con placeId ya presente en otras búsquedas del workspace
    *  se saltan (búsqueda incremental + dedup cross-búsqueda). */
   skipExisting?: boolean;
+  /** Filtros específicos por fuente. Para "places":
+   *    { lowRatingOnly?: boolean, maxRating?: number, minReviewsCount?: number } */
+  sourceConfig?: Record<string, any>;
 }): Promise<{ searchId: string; totalProvinces: number }> {
   const source: LeadSourceKey = opts.source ?? "places";
   // Para fuentes que NO son places no iteramos provincias; va en 1 batch.
@@ -39,8 +42,9 @@ export async function startSearch(opts: {
       totalProvinces,
       processedProvinces: 0,
       status: "PENDING",
-      skipExisting: !!opts.skipExisting
-    }
+      skipExisting: !!opts.skipExisting,
+      sourceConfig: opts.sourceConfig ?? undefined
+    } as any
   });
   return { searchId: search.id, totalProvinces };
 }
@@ -95,13 +99,28 @@ export async function processSearchBatch(opts: {
         data: { currentProvince: prov.name }
       });
       const query = `${search.keyword} en ${prov.name}`.trim();
-      const results = await placesTextSearch({
+      let results = await placesTextSearch({
         workspaceId: opts.workspaceId,
         query,
         lat: prov.lat || undefined,
         lng: prov.lng || undefined,
         province: prov.name
       });
+      // Filtro de "reseñas bajas" (mejora propuesta — leads urgentes con
+      // problema reputacional, encaje perfecto con el pitch GMB). Activado
+      // desde NewSearchModal con el checkbox "Solo negocios con reseñas
+      // bajas". Se persiste en LeadSearch.sourceConfig.lowRatingOnly.
+      const cfg: any = (search as any).sourceConfig ?? {};
+      if (cfg.lowRatingOnly) {
+        const maxRating = typeof cfg.maxRating === "number" ? cfg.maxRating : 3.5;
+        const minReviews = typeof cfg.minReviewsCount === "number" ? cfg.minReviewsCount : 5;
+        results = results.filter(
+          (r) =>
+            r.rating != null &&
+            r.rating <= maxRating &&
+            (r.userRatingCount ?? 0) >= minReviews
+        );
+      }
       // Clasificación IA de relevancia: descarta resultados que NO encajan
       // con el nicho real del keyword (p. ej. masajes terapéuticos cuando
       // se buscaba "masajes eróticos"). Los descartados se guardan igual,

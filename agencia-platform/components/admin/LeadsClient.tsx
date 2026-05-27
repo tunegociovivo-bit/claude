@@ -471,6 +471,46 @@ function escapeHtmlClient(s: string): string {
     .replace(/"/g, "&quot;");
 }
 
+/** Botón one-shot para purgar el campo aiOpener legacy de todos los leads
+ *  del workspace. Los openers vinieron del plugin WordPress y mostraban
+ *  datos obsoletos al re-buscar; este botón los borra y deja los mensajes
+ *  con {{opener_ia}} vacío. Útil tras los fixes recientes del template. */
+function CleanupOpenerButton() {
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<string | null>(null);
+  async function run() {
+    if (!confirm("¿Borrar el opener IA legacy (heredado del plugin WordPress) de TODOS los leads? Los mensajes encolados después ya no incluirán esa frase obsoleta.")) return;
+    setBusy(true);
+    setResult(null);
+    try {
+      const r = await fetch("/api/v1/leads/cleanup-ai-opener", { method: "POST" });
+      const j = await r.json();
+      if (r.ok) setResult(`✓ ${j.updated ?? 0} leads limpiados.`);
+      else setResult(`✗ ${j?.error?.message ?? `Error ${r.status}`}`);
+    } catch (e: any) {
+      setResult(`✗ ${e?.message ?? "Error de red"}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <div className="space-y-1">
+      <button
+        onClick={run}
+        disabled={busy}
+        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border bg-white hover:bg-slate-50 text-xs disabled:opacity-50"
+      >
+        {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+        Limpiar openers heredados del plugin WordPress
+      </button>
+      <p className="text-[11px] text-slate-500">
+        Una sola vez: borra el campo <code>aiOpener</code> obsoleto de todos los leads del workspace.
+      </p>
+      {result && <p className={"text-[11px] " + (result.startsWith("✓") ? "text-emerald-700" : "text-rose-700")}>{result}</p>}
+    </div>
+  );
+}
+
 function TabBtn({ icon, label, active, onClick }: { icon: React.ReactNode; label: string; active: boolean; onClick: () => void }) {
   return (
     <button
@@ -2049,6 +2089,7 @@ function NewSearchModal({ open, onClose, onSaved }: { open: boolean; onClose: ()
   const [location, setLocation] = useState("");
   const [scope, setScope] = useState<"custom" | "spain">("custom");
   const [skipExisting, setSkipExisting] = useState(false);
+  const [lowRatingOnly, setLowRatingOnly] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const sourceMeta = LEAD_SOURCES.find((s) => s.key === source) ?? LEAD_SOURCES[0];
@@ -2059,6 +2100,7 @@ function NewSearchModal({ open, onClose, onSaved }: { open: boolean; onClose: ()
     setLocation("");
     setScope("custom");
     setSkipExisting(false);
+    setLowRatingOnly(false);
     setError(null);
     setSaving(false);
   }, [open]);
@@ -2079,7 +2121,17 @@ function NewSearchModal({ open, onClose, onSaved }: { open: boolean; onClose: ()
     const r = await fetch("/api/v1/leads/searches", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ keyword, location, scope, skipExisting, source })
+      body: JSON.stringify({
+        keyword,
+        location,
+        scope,
+        skipExisting,
+        source,
+        sourceConfig:
+          source === "places" && lowRatingOnly
+            ? { lowRatingOnly: true, maxRating: 3.5, minReviewsCount: 5 }
+            : undefined
+      })
     });
     setSaving(false);
     if (!r.ok) {
@@ -2174,6 +2226,24 @@ function NewSearchModal({ open, onClose, onSaved }: { open: boolean; onClose: ()
             </p>
           </div>
         </label>
+        {source === "places" && (
+          <label className="flex items-start gap-2 p-2 rounded-md border border-rose-200 bg-rose-50/40 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={lowRatingOnly}
+              onChange={(e) => setLowRatingOnly(e.target.checked)}
+              className="mt-0.5 accent-rose-600"
+            />
+            <div className="flex-1">
+              <span className="text-xs font-medium text-slate-800">🔥 Solo negocios con reseñas bajas (≤3,5★)</span>
+              <p className="text-[11px] text-slate-500">
+                Filtra resultados a negocios con rating ≤3,5 y al menos 5 reseñas. Son los
+                <strong> leads más urgentes</strong>: tienen problema reputacional y reciben mejor
+                tu pitch GMB / parallel listings.
+              </p>
+            </div>
+          </label>
+        )}
         {error && <p className="text-xs text-rose-600">{error}</p>}
       </div>
     </Modal>
@@ -2601,6 +2671,10 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
               Validar WhatsApp antes de enviar
             </label>
           </div>
+        </section>
+        <section>
+          <h3 className="text-sm font-semibold mb-2">🧹 Mantenimiento</h3>
+          <CleanupOpenerButton />
         </section>
         {error && <p className="text-xs text-rose-600">{error}</p>}
         {savedAt && <p className="text-xs text-emerald-700">Guardado a las {savedAt.toLocaleTimeString("es-ES")}.</p>}
