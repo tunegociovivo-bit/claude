@@ -356,6 +356,28 @@ export async function processQueueTick(workspaceId: string): Promise<{
   });
   if (!msg) return { processed: false };
 
+  return sendMessageById(workspaceId, msg.id, { settings });
+}
+
+/**
+ * Envía un mensaje concreto YA, saltándose ventana/scheduledAt/pacing.
+ * Útil para pruebas manuales desde la UI ("⚡ Enviar ahora"). Sigue
+ * respetando la validación WhatsApp y la conexión WAHA/Evolution.
+ */
+export async function sendMessageById(
+  workspaceId: string,
+  messageId: string,
+  ctx?: { settings?: LeadsSendSettings }
+): Promise<{ processed: boolean; messageId?: string; status?: string; error?: string }> {
+  const settings = ctx?.settings ?? (await getSendSettings(workspaceId));
+  const msg = await prisma.leadMessage.findFirst({
+    where: { workspaceId, id: messageId }
+  });
+  if (!msg) return { processed: false, error: "not_found" };
+  if (msg.status !== "queued") {
+    return { processed: false, error: `estado actual: ${msg.status}` };
+  }
+
   await prisma.leadMessage.update({
     where: { id: msg.id },
     data: { status: "sending", sendAttempts: msg.sendAttempts + 1 }
@@ -363,9 +385,6 @@ export async function processQueueTick(workspaceId: string): Promise<{
 
   try {
     const cfg = await getWahaConfig(workspaceId);
-    // Validación previa: no enviar a números que NO estén en WhatsApp (es
-    // señal de spam y sube el riesgo de baneo). Solo descartamos ante un
-    // "false" definitivo; si la comprobación falla (null) enviamos igual.
     if (settings.validateWaBeforeSend) {
       const exists = await checkNumberExists({
         workspaceId,
@@ -404,7 +423,6 @@ export async function processQueueTick(workspaceId: string): Promise<{
       where: { id: msg.id },
       data: { status: "sent", sentAt: new Date(), externalMessageId: out.messageId }
     });
-    // Marcar lead como contacted
     await prisma.lead.updateMany({
       where: { id: msg.leadId, contactStatus: "pending" },
       data: { contactStatus: "contacted" }
@@ -418,7 +436,7 @@ export async function processQueueTick(workspaceId: string): Promise<{
       data: {
         status: maxed ? "failed" : "queued",
         lastError: String(e?.message ?? e).slice(0, 500),
-        scheduledAt: maxed ? msg.scheduledAt : new Date(Date.now() + 30 * 60 * 1000) // +30min
+        scheduledAt: maxed ? msg.scheduledAt : new Date(Date.now() + 30 * 60 * 1000)
       }
     });
     return { processed: true, messageId: msg.id, status: maxed ? "failed" : "retry", error: e?.message };

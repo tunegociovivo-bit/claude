@@ -5,7 +5,7 @@ import PageHeader from "@/components/PageHeader";
 import Modal from "@/components/ui/Modal";
 import {
   Loader2, Plus, Search, Inbox, ListChecks, BarChart3, MessageCircle,
-  Settings as SettingsIcon, Ban, GitBranch, Send, RefreshCw, Download, Play, Pause, Trash2, Pencil
+  Settings as SettingsIcon, Ban, GitBranch, Send, RefreshCw, Download, Play, Pause, Trash2, Pencil, Zap
 } from "lucide-react";
 
 type Lead = {
@@ -772,6 +772,7 @@ function QueueTable({ loading, items, onChanged }: { loading: boolean; items: Qu
   const [tickResult, setTickResult] = useState<{ kind: "ok" | "warn" | "error"; text: string } | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [sendingNowId, setSendingNowId] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
   // Al refrescar, descarta de la selección los que ya no salen.
@@ -830,6 +831,31 @@ function QueueTable({ loading, items, onChanged }: { loading: boolean; items: Qu
       setTickResult({ kind: "error", text: e?.message ?? "Error de red" });
     } finally {
       setProcessing(false);
+      onChanged();
+    }
+  }
+  async function sendNow(id: string) {
+    if (!confirm("¿Enviar ESTE mensaje ahora mismo? Se salta la ventana horaria y el delay anti-spam.")) return;
+    setSendingNowId(id);
+    setTickResult(null);
+    try {
+      const r = await fetch(`/api/v1/leads/queue/${id}/send-now`, { method: "POST" });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        setTickResult({ kind: "error", text: d?.message ?? `Error HTTP ${r.status}` });
+      } else if (d?.status === "sent") {
+        setTickResult({ kind: "ok", text: "✓ Mensaje enviado." });
+      } else if (d?.status === "no_whatsapp") {
+        setTickResult({ kind: "warn", text: "Número sin WhatsApp — descartado." });
+      } else if (d?.status === "failed" || d?.status === "retry") {
+        setTickResult({ kind: "error", text: `Envío falló: ${d?.error ?? "sin detalle"}` });
+      } else {
+        setTickResult({ kind: "warn", text: d?.error ?? "No procesado." });
+      }
+    } catch (e: any) {
+      setTickResult({ kind: "error", text: e?.message ?? "Error de red" });
+    } finally {
+      setSendingNowId(null);
       onChanged();
     }
   }
@@ -953,7 +979,17 @@ function QueueTable({ loading, items, onChanged }: { loading: boolean; items: Qu
                     </td>
                     <td className="px-3 py-2 text-xs">{m.status}</td>
                     <td className="px-3 py-2 text-xs">{m.sendAttempts}{m.lastError && ` ⚠ ${m.lastError.slice(0, 40)}`}</td>
-                    <td className="px-3 py-2 text-right">
+                    <td className="px-3 py-2 text-right whitespace-nowrap">
+                      {m.status === "queued" && (
+                        <button
+                          onClick={() => sendNow(m.id)}
+                          disabled={sendingNowId === m.id}
+                          className="mr-1 inline-flex items-center justify-center p-1.5 rounded text-slate-400 hover:text-amber-600 hover:bg-amber-50 disabled:opacity-40"
+                          title="Enviar ahora (ignora ventana y delay)"
+                        >
+                          {sendingNowId === m.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />}
+                        </button>
+                      )}
                       <button
                         onClick={() => removeOne(m.id)}
                         disabled={deletingId === m.id || !rowDeletable}
