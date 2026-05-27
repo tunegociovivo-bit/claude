@@ -9,8 +9,10 @@ const createSchema = z.object({
   keyword: z.string().min(2).max(120),
   location: z.string().max(120).optional().default(""),
   scope: z.enum(["custom", "spain"]).default("custom"),
-  // Búsqueda incremental + dedup cross-keyword: saltar leads cuyo placeId
-  // ya esté en otra búsqueda del workspace.
+  source: z
+    .enum(["places", "borme", "trustpilot", "doctoralia", "idealista", "fotocasa", "linkedin"])
+    .optional()
+    .default("places"),
   skipExisting: z.boolean().optional().default(false),
   // Legacy field, ignorado si llega
   provincesScope: z.array(z.string()).optional()
@@ -31,7 +33,14 @@ export const POST = withApi({ scope: "*" }, async (req, { api }) => {
   const parsed = createSchema.safeParse(body);
   if (!parsed.success) throw new ApiError(400, "validation_error", parsed.error.message);
 
-  if (parsed.data.scope === "custom" && !parsed.data.location.trim()) {
+  // Para fuente "places" la localidad es obligatoria en scope=custom. Para
+  // fuente "borme" puede venir vacía (filtra por provincia si llega, o
+  // saca todas las constituciones del país si no).
+  if (
+    parsed.data.source === "places" &&
+    parsed.data.scope === "custom" &&
+    !parsed.data.location.trim()
+  ) {
     throw new ApiError(400, "missing_location", "Falta la provincia / localidad");
   }
 
@@ -41,6 +50,7 @@ export const POST = withApi({ scope: "*" }, async (req, { api }) => {
     keyword: parsed.data.keyword,
     location: parsed.data.location,
     scope: parsed.data.scope,
+    source: parsed.data.source,
     skipExisting: parsed.data.skipExisting
   });
   return NextResponse.json(out, { status: 201 });

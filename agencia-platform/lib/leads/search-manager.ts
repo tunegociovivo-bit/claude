@@ -13,6 +13,7 @@ import { placesTextSearch, type PlacesResult } from "./google-places";
 import { scoreLead } from "./scorer";
 import { SPAIN_PROVINCES, findProvince } from "./spain-provinces";
 import { classifyLeadsRelevance, type RelevanceVerdict } from "./relevance";
+import { collectFromSource, type LeadSourceKey } from "./sources";
 
 export async function startSearch(opts: {
   workspaceId: string;
@@ -20,17 +21,21 @@ export async function startSearch(opts: {
   keyword: string;
   location: string;
   scope: "custom" | "spain";
+  source?: LeadSourceKey; // default "places"
   /** Si true, leads con placeId ya presente en otras búsquedas del workspace
    *  se saltan (búsqueda incremental + dedup cross-búsqueda). */
   skipExisting?: boolean;
 }): Promise<{ searchId: string; totalProvinces: number }> {
-  const totalProvinces = opts.scope === "spain" ? SPAIN_PROVINCES.length : 1;
+  const source: LeadSourceKey = opts.source ?? "places";
+  // Para fuentes que NO son places no iteramos provincias; va en 1 batch.
+  const totalProvinces = source === "places" ? (opts.scope === "spain" ? SPAIN_PROVINCES.length : 1) : 1;
   const search = await prisma.leadSearch.create({
     data: {
       workspaceId: opts.workspaceId,
       keyword: opts.keyword.trim(),
       location: opts.location.trim() || (opts.scope === "spain" ? "Toda España" : ""),
       scope: opts.scope,
+      source,
       totalProvinces,
       processedProvinces: 0,
       status: "PENDING",
@@ -61,6 +66,15 @@ export async function processSearchBatch(opts: {
     where: { id: search.id },
     data: { status: "RUNNING", startedAt: search.startedAt ?? new Date() }
   });
+
+  // ──────────────────────────────────────────────────────────────────
+  // Dispatcher por fuente. "places" mantiene el flujo histórico (loop
+  // por provincias con google-places). El resto de fuentes (borme,
+  // trustpilot…) se procesan en UN solo batch via collectFromSource.
+  // ──────────────────────────────────────────────────────────────────
+  if ((search as any).source && (search as any).source !== "places") {
+    return processNonPlacesBatch({ workspaceId: opts.workspaceId, search });
+  }
 
   const targets =
     search.scope === "spain"
@@ -171,6 +185,99 @@ export async function processSearchBatch(opts: {
   });
 
   return { processed: newProcessed, pending, status: newStatus, leadsInserted, leadsSkipped };
+}
+
+/**
+ * Procesa una búsqueda cuya fuente NO es Google Places. Llama al collector
+ * de la fuente (borme / trustpilot / etc.), pasa los resultados por el
+ * clasificador IA de relevancia, hace upsertLead y marca la búsqueda como
+ * COMPLETED. Se ejecuta en un solo batch — no hay "provincias" que iterar.
+ */
+async function processNonPlacesBatch(opts: {
+  workspaceId: string;
+  search: any;
+}): Promise<{ processed: number; pending: number; status: string; leadsInserted: number; leadsSkipped: number }> {
+  const search = opts.search;
+  const source = (search.source ?? "borme") as LeadSourceKey;
+
+  let results: PlacesResult[] = [];
+  let errorMessage: string | null = null;
+  try {
+    results = await collectFromSource(source, {
+      workspaceId: opts.workspaceId,
+      keyword: search.keyword,
+      location: search.location,
+      scope: search.scope as "custom" | "spain"
+    });
+  } catch (e: any) {
+    errorMessage = String(e?.message ?? e).slice(0, 600);
+  }
+
+  let leadsInserted = 0;
+  let leadsSkipped = 0;
+
+  if (!errorMessage && results.length > 0) {
+    // IA: filtra por relevancia respecto al keyword (útil sobre todo en
+    // BORME — el sumario trae TODAS las constituciones del día, no solo
+    // las del nicho del usuario).
+    const valid = results.filter((r) => !!r.placeId);
+    const verdicts = await classifyLeadsRelevance({
+      workspaceId: opts.workspaceId,
+      keyword: search.keyword,
+      location: search.location || "España",
+      leads: valid.map((r) => ({
+        placeId: r.placeId!,
+        name: r.name,
+        category: r.category,
+        types: r.types,
+        formattedAddress: r.formattedAddress,
+        website: r.website
+      }))
+    });
+
+    let position = 1;
+    for (const r of results) {
+      try {
+        const v = r.placeId ? verdicts.get(r.placeId) : null;
+        const upsertOut = await upsertLead({
+          workspaceId: opts.workspaceId,
+          searchId: search.id,
+          province: r.province ?? "España",
+          position: position++,
+          r,
+          aiRelevance: v ?? null,
+          skipExisting: search.skipExisting
+        });
+        if (upsertOut?.skipped) leadsSkipped++;
+        else leadsInserted++;
+      } catch (err) {
+        console.error(`[search-manager ${source}] upsert lead error:`, err);
+      }
+    }
+  }
+
+  const newStatus = errorMessage && leadsInserted === 0 ? "FAILED" : "COMPLETED";
+  await prisma.leadSearch.update({
+    where: { id: search.id },
+    data: {
+      processedProvinces: 1,
+      totalProvinces: 1,
+      totalResults: search.totalResults + leadsInserted,
+      status: newStatus,
+      errorMessage: errorMessage ?? null,
+      currentProvince: null,
+      completedAt: new Date(),
+      leadsSkipped: { increment: leadsSkipped }
+    }
+  });
+
+  return {
+    processed: 1,
+    pending: 0,
+    status: newStatus,
+    leadsInserted,
+    leadsSkipped
+  };
 }
 
 async function upsertLead(opts: {
