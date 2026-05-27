@@ -106,6 +106,11 @@ export async function GET(req: NextRequest) {
 
 async function notifyAdmins(workspaceId: string, body: string): Promise<void> {
   try {
+    const ws = await prisma.workspace.findUnique({
+      where: { id: workspaceId },
+      select: { settings: true }
+    });
+    const settings: any = ws?.settings ?? {};
     const admins = await prisma.membership.findMany({
       where: { workspaceId, role: "ADMIN" },
       select: { userId: true }
@@ -130,6 +135,28 @@ async function notifyAdmins(workspaceId: string, body: string): Promise<void> {
         }).catch(() => {})
       )
     );
+    // Telegram extra (si está configurado a nivel workspace). Endpoint de
+    // alerta separado del bot personal — para esto recomiendo un grupo o
+    // un chat dedicado al "operations alerts" donde lleguen avisos críticos.
+    const botToken: string | undefined = settings?.integrations?.telegram?.botToken;
+    const alertChatId: string | undefined =
+      settings?.integrations?.telegram?.alertChatId ?? settings?.integrations?.telegram?.chatId;
+    if (botToken && alertChatId) {
+      try {
+        await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            chat_id: alertChatId,
+            text: `🚨 *Negocio Vivo — Leads*\n${body}`,
+            parse_mode: "Markdown"
+          }),
+          signal: AbortSignal.timeout(8000)
+        });
+      } catch (e: any) {
+        console.warn("[leads-health telegram]:", e?.message ?? e);
+      }
+    }
   } catch (e) {
     console.warn("[leads-health notify]:", (e as any)?.message ?? e);
   }

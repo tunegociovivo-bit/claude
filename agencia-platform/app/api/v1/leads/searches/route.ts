@@ -14,6 +14,9 @@ const createSchema = z.object({
     .optional()
     .default("places"),
   skipExisting: z.boolean().optional().default(false),
+  // Filtros opcionales por fuente. Para "places":
+  //   { lowRatingOnly?: boolean, maxRating?: number, minReviewsCount?: number }
+  sourceConfig: z.record(z.any()).optional(),
   // Legacy field, ignorado si llega
   provincesScope: z.array(z.string()).optional()
 });
@@ -51,7 +54,8 @@ export const POST = withApi({ scope: "*" }, async (req, { api }) => {
     location: parsed.data.location,
     scope: parsed.data.scope,
     source: parsed.data.source,
-    skipExisting: parsed.data.skipExisting
+    skipExisting: parsed.data.skipExisting,
+    sourceConfig: parsed.data.sourceConfig
   });
   return NextResponse.json(out, { status: 201 });
 });
