@@ -135,7 +135,7 @@ export default function BipiAdmin() {
                 {data.topByScanning.map((r) => (
                   <tr key={r.business.id}>
                     <td className="px-3 py-2">
-                      <a href={`/bipi/n/${r.business.slug ?? r.business.id}`} className="text-amber-700 hover:underline">
+                      <a href={`/bipi/n/${r.business.slug ?? r.business.id}`} className="text-pink-600 hover:underline">
                         {r.business.name}
                       </a>
                     </td>
@@ -164,7 +164,7 @@ export default function BipiAdmin() {
                 {data.topByCross.map((r) => (
                   <tr key={r.business.id}>
                     <td className="px-3 py-2">
-                      <a href={`/bipi/n/${r.business.slug ?? r.business.id}`} className="text-amber-700 hover:underline">
+                      <a href={`/bipi/n/${r.business.slug ?? r.business.id}`} className="text-pink-600 hover:underline">
                         {r.business.name}
                       </a>
                     </td>
@@ -208,7 +208,7 @@ function TokenForm({ onSet }: { onSet: (t: string) => void }) {
       />
       <button
         onClick={() => token && onSet(token)}
-        className="w-full py-2.5 rounded-full bg-amber-600 hover:bg-amber-700 text-white font-medium"
+        className="w-full py-2.5 rounded-full bg-pink-500 hover:bg-pink-600 text-white font-medium"
       >
         Entrar
       </button>

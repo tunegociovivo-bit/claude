@@ -5,8 +5,8 @@
 
 import sharp from "sharp";
 
-const BG = "#C8612C";
-const FG = "#FDF2E1";
+const BG = "#EC4899";
+const FG = "#FFFFFF";
 
 function makeSvg(size: number, maskable: boolean): string {
   const pad = maskable ? Math.round(size * 0.15) : Math.round(size * 0.08);

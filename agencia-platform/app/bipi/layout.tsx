@@ -1,10 +1,11 @@
 import type { Metadata, Viewport } from "next";
 import "../globals.css";
+import "./bipi.css";
 
 export const metadata: Metadata = {
   title: "Bipi — Descuentos cruzados entre negocios cerca de ti",
   description:
-    "Escanea, paga, descubre. Cada compra en un negocio Bipi te abre descuentos en otros negocios cerca de ti. Piloto en Benalmádena.",
+    "Escanea, paga, descubre. Cada compra en un negocio Bipi te abre descuentos en otros cerca de ti. Piloto en Benalmádena.",
   manifest: "/bipi/manifest.webmanifest",
   appleWebApp: {
     capable: true,
@@ -21,7 +22,7 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#C8612C",
+  themeColor: "#EC4899",
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover"
@@ -29,25 +30,29 @@ export const viewport: Viewport = {
 
 export default function BipiLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="min-h-screen bg-gradient-to-b from-amber-50 via-white to-amber-50">
-      <header className="border-b bg-white/80 backdrop-blur">
+    <div className="min-h-screen bipi-bg text-black">
+      <header className="border-b border-black/5 bg-white/80 backdrop-blur-md sticky top-0 z-30">
         <div className="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between">
-          <a href="/bipi" className="font-bold text-xl tracking-tight">
-            <span className="text-amber-600">bi</span>pi
+          <a href="/bipi" className="font-black text-2xl tracking-tight">
+            <span className="bipi-brand">bipi</span>
           </a>
-          <nav className="text-sm flex items-center gap-4">
-            <a href="/bipi/registro" className="text-slate-700 hover:text-amber-700">
-              Soy un negocio
+          <nav className="text-sm flex items-center gap-3">
+            <a href="/bipi/registro" className="text-black/70 hover:text-pink-600 font-medium">
+              Negocios
             </a>
-            <a href="/bipi/app" className="text-slate-700 hover:text-amber-700">
-              Soy cliente
+            <a
+              href="/bipi/app"
+              className="text-white bg-black hover:bg-pink-600 transition rounded-full px-4 py-1.5 font-semibold"
+            >
+              Abrir app
             </a>
           </nav>
         </div>
       </header>
       {children}
-      <footer className="border-t mt-16 py-6 text-center text-xs text-slate-500">
-        Bipi · Piloto en Benalmádena · Una app de Negocio Vivo
+      <footer className="mt-20 py-8 text-center text-xs text-black/40 border-t border-black/5">
+        <span className="bipi-brand font-black">bipi</span> · Piloto en Benalmádena · Una app de
+        Negocio Vivo
       </footer>
     </div>
   );

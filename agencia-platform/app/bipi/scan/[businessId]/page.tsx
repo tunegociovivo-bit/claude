@@ -120,15 +120,15 @@ export default function ScanPage() {
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
               autoFocus
-              className="flex-1 text-4xl font-bold border-b-2 border-amber-400 focus:outline-none focus:border-amber-600 py-2"
+              className="flex-1 text-5xl font-black border-b-2 border-pink-500 focus:outline-none focus:border-pink-600 py-2 bg-transparent"
             />
-            <span className="text-2xl font-bold text-slate-500">€</span>
+            <span className="text-3xl font-bold text-black/50">€</span>
           </div>
           {error && <p className="text-rose-700 text-sm">{error}</p>}
           <button
             onClick={submitAmount}
             disabled={sending || !amount}
-            className="w-full py-3 rounded-full bg-amber-600 hover:bg-amber-700 text-white font-bold disabled:opacity-50"
+            className="bipi-btn w-full"
           >
             {sending ? "Enviando…" : "Confirmar"}
           </button>
@@ -156,12 +156,12 @@ export default function ScanPage() {
               el <strong>{result?.discountPct ?? "—"}%</strong> de descuento.
             </p>
             {result?.offerRedeemed && (
-              <p className="text-sm text-emerald-700">🎟 Estás canjeando un cupón cruzado.</p>
+              <p className="text-sm font-semibold text-pink-600">🎟 Estás canjeando un cupón cruzado.</p>
             )}
-            <p className="text-xs text-slate-500">
+            <p className="text-xs text-black/50">
               Cuando el negocio confirme, desbloquearás 3-5 cupones nuevos en otros negocios cerca.
             </p>
-            <a href="/bipi/app" className="block py-2.5 rounded-full bg-amber-600 hover:bg-amber-700 text-white font-medium">
+            <a href="/bipi/app" className="bipi-btn block text-center">
               Ver mis cupones
             </a>
           </>
@@ -185,7 +185,7 @@ function SignupForm({
   return (
     <main className="max-w-md mx-auto px-4 py-12">
       <div className="text-center mb-6">
-        <h1 className="text-3xl font-bold"><span className="text-amber-600">bi</span>pi</h1>
+        <h1 className="text-5xl font-black"><span className="bipi-brand">bipi</span></h1>
         <p className="text-slate-600 text-sm mt-2">
           ¡Estás a un paso de tu descuento! Crea tu cuenta — 30 segundos.
         </p>
@@ -216,7 +216,7 @@ function SignupForm({
         <button
           type="submit"
           disabled={busy}
-          className="w-full py-3 rounded-full bg-amber-600 hover:bg-amber-700 text-white font-medium disabled:opacity-50"
+          className="bipi-btn w-full"
         >
           {busy ? "Creando…" : "Crear cuenta y seguir"}
         </button>

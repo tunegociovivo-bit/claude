@@ -68,56 +68,67 @@ export default async function BusinessPublicPage({ params }: { params: { slug: s
 
   return (
     <main className="max-w-3xl mx-auto px-4 py-12">
-      <article className="bg-white rounded-2xl border shadow-sm overflow-hidden">
+      <article className="bipi-card overflow-hidden bipi-fade-up">
         {/* Hero */}
         <div
-          className="px-8 py-12 text-center"
-          style={{ background: business.brandColor ?? "#FDF2E1" }}
+          className="px-8 py-14 text-center relative overflow-hidden"
+          style={{
+            background:
+              business.brandColor ??
+              "linear-gradient(135deg, #FDF2F8 0%, #FCE7F3 100%)"
+          }}
         >
-          {business.logoUrl && (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={business.logoUrl}
-              alt={business.name}
-              className="h-20 w-20 mx-auto mb-4 rounded-full bg-white object-cover border-4 border-white shadow"
-            />
-          )}
-          <h1 className="text-4xl font-bold text-slate-900">{business.name}</h1>
-          <p className="text-slate-700 mt-2">
-            {business.category} · {business.city}
-          </p>
-          {business.address && (
-            <p className="text-slate-600 text-sm mt-1">📍 {business.address}</p>
-          )}
+          <div className="absolute -top-12 -right-12 w-48 h-48 bg-pink-500/20 rounded-full blur-3xl pointer-events-none" />
+          <div className="absolute -bottom-12 -left-12 w-48 h-48 bg-pink-500/10 rounded-full blur-3xl pointer-events-none" />
+          <div className="relative">
+            {business.logoUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={business.logoUrl}
+                alt={business.name}
+                className="h-24 w-24 mx-auto mb-5 rounded-full bg-white object-cover border-4 border-white shadow-xl"
+              />
+            ) : (
+              <div className="h-24 w-24 mx-auto mb-5 rounded-full bg-black grid place-items-center text-white text-3xl font-black border-4 border-white shadow-xl">
+                {business.name.charAt(0)}
+              </div>
+            )}
+            <h1 className="text-5xl font-black tracking-tight text-black">{business.name}</h1>
+            <p className="text-black/60 mt-2 font-medium">
+              {business.category} · {business.city}
+            </p>
+            {business.address && (
+              <p className="text-black/50 text-sm mt-1">📍 {business.address}</p>
+            )}
+          </div>
         </div>
 
         {/* Oferta */}
-        <div className="px-8 py-8 text-center">
-          <p className="text-sm text-slate-500 uppercase tracking-wide">Descuento al escanear</p>
-          <p className="text-7xl font-black text-amber-600">{business.defaultDiscountPct}%</p>
-          <p className="text-sm text-slate-600 mt-2">
+        <div className="px-8 py-10 text-center bg-white">
+          <p className="bipi-eyebrow">Descuento al escanear</p>
+          <p className="bipi-discount-big mt-4" style={{ fontSize: "8rem" }}>
+            {business.defaultDiscountPct}%
+          </p>
+          <p className="text-sm text-black/60 mt-2">
             Llévate el descuento con la app Bipi al pagar
           </p>
         </div>
 
         {/* Descripción */}
         {business.description && (
-          <div className="px-8 pb-6 text-slate-700 whitespace-pre-wrap">
+          <div className="px-8 pb-8 text-black/70 whitespace-pre-wrap leading-relaxed">
             {business.description}
           </div>
         )}
 
         {/* CTAs */}
-        <div className="px-8 pb-8 flex flex-col sm:flex-row gap-3 items-stretch">
-          <a
-            href="/bipi/app"
-            className="flex-1 text-center bg-amber-600 hover:bg-amber-700 text-white font-medium py-3 rounded-full"
-          >
+        <div className="px-8 pb-10 flex flex-col sm:flex-row gap-3 items-stretch">
+          <a href="/bipi/app" className="bipi-btn flex-1 text-center">
             📲 Abrir Bipi
           </a>
           <a
             href={`/bipi/scan/${business.id}`}
-            className="flex-1 text-center bg-slate-900 hover:bg-slate-800 text-white font-medium py-3 rounded-full"
+            className="bipi-btn-ghost flex-1 text-center"
           >
             🎟 Quiero el descuento ya
           </a>
@@ -146,12 +157,15 @@ export default async function BusinessPublicPage({ params }: { params: { slug: s
               <li key={o.slug}>
                 <a
                   href={`/bipi/n/${o.slug}`}
-                  className="block bg-white border rounded-xl p-3 hover:bg-slate-50"
+                  className="bipi-link-card flex items-center justify-between"
                 >
-                  <div className="font-medium">{o.name}</div>
-                  <div className="text-xs text-slate-500">
-                    {o.category} · {o.defaultDiscountPct}% al escanear
+                  <div className="min-w-0">
+                    <div className="font-bold truncate">{o.name}</div>
+                    <div className="text-xs text-black/50 truncate">
+                      {o.category}
+                    </div>
                   </div>
+                  <div className="bipi-discount-big text-2xl ml-2">{o.defaultDiscountPct}%</div>
                 </a>
               </li>
             ))}
@@ -164,9 +178,9 @@ export default async function BusinessPublicPage({ params }: { params: { slug: s
 
 function Card({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="bg-white rounded-xl border p-4">
-      <div className="font-semibold mb-1">{title}</div>
-      <p className="text-slate-700 text-sm">{children}</p>
+    <div className="bipi-card p-5">
+      <div className="font-bold mb-1 text-black">{title}</div>
+      <p className="text-black/60 text-sm leading-relaxed">{children}</p>
     </div>
   );
 }

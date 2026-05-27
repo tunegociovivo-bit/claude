@@ -82,12 +82,12 @@ function LoginForm({ onLogin }: { onLogin: (s: Session) => void }) {
         <button
           type="submit"
           disabled={busy}
-          className="w-full py-2.5 rounded-full bg-amber-600 hover:bg-amber-700 text-white font-medium disabled:opacity-50"
+          className="w-full py-2.5 rounded-full bg-pink-500 hover:bg-pink-600 text-white font-medium disabled:opacity-50"
         >
           {busy ? "Entrando…" : "Entrar"}
         </button>
         <p className="text-xs text-slate-500 text-center">
-          ¿Aún no tienes cuenta? <a href="/bipi/registro" className="text-amber-700 underline">Crea tu negocio</a>
+          ¿Aún no tienes cuenta? <a href="/bipi/registro" className="text-pink-600 underline">Crea tu negocio</a>
         </p>
       </form>
     </main>
@@ -166,7 +166,7 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
           <h3 className="font-semibold text-sm">Tu QR</h3>
           <p className="text-xs text-slate-600 mb-2">Imprímelo y ponlo en la caja. Cada escaneo sube tu karma y te hace más visible.</p>
           <div className="flex items-center gap-2 flex-wrap">
-            <a href={b.qrPngUrl} download className="text-sm text-amber-700 hover:underline">Descargar PNG</a>
+            <a href={b.qrPngUrl} download className="text-sm text-pink-600 hover:underline">Descargar PNG</a>
             <span className="text-slate-400">·</span>
             <CsvDownloadButton businessId={b.id} token={session.token} />
           </div>
@@ -261,7 +261,7 @@ function CsvDownloadButton({ businessId, token }: { businessId: string; token: s
     <button
       onClick={go}
       disabled={busy}
-      className="text-sm text-amber-700 hover:underline disabled:opacity-50"
+      className="text-sm text-pink-600 hover:underline disabled:opacity-50"
     >
       {busy ? "Generando…" : "Descargar CSV compras"}
     </button>
@@ -448,7 +448,7 @@ function ProfileEditor({ business, token, onSaved }: { business: any; token: str
       <button
         onClick={save}
         disabled={saving}
-        className="w-full py-2 rounded-full bg-amber-600 hover:bg-amber-700 text-white text-sm font-medium disabled:opacity-50"
+        className="w-full py-2 rounded-full bg-pink-500 hover:bg-pink-600 text-white text-sm font-medium disabled:opacity-50"
       >
         {saving ? "Guardando…" : "Guardar cambios"}
       </button>
@@ -481,7 +481,7 @@ function CrossShopperPanel({ businessId }: { businessId: string }) {
           <p className="text-xs text-slate-600">A quién mandas clientes y quién te los manda a ti.</p>
         </div>
         <div className="text-xs text-slate-600">
-          <span className="font-semibold text-amber-700">{s.conversionPct}%</span> de tus cupones se canjean
+          <span className="font-semibold text-pink-600">{s.conversionPct}%</span> de tus cupones se canjean
         </div>
       </div>
 
@@ -504,7 +504,7 @@ function CrossShopperPanel({ businessId }: { businessId: string }) {
                     <span className="font-medium">{r.business.name}</span>
                     <span className="text-slate-400 ml-1">{r.business.category}</span>
                   </span>
-                  <span className="text-amber-700 font-semibold whitespace-nowrap ml-2">
+                  <span className="text-pink-600 font-semibold whitespace-nowrap ml-2">
                     {r.redeemed}/{r.total} · {r.conversionPct}%
                   </span>
                 </li>
@@ -570,7 +570,7 @@ function PlanCard({ business }: { business: any }) {
     <section className="bg-white border rounded-xl p-5 shadow-sm">
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div>
-          <h3 className="font-semibold text-sm">Tu plan: <span className="text-amber-700 capitalize">{business.plan}</span></h3>
+          <h3 className="font-semibold text-sm">Tu plan: <span className="text-pink-600 capitalize">{business.plan}</span></h3>
           <p className="text-xs text-slate-600">
             {business.plan === "free"
               ? "Aparece en feed (según karma). Sube de plan para destacar y recibir más clientes."
@@ -583,7 +583,7 @@ function PlanCard({ business }: { business: any }) {
           <button
             onClick={() => upgrade("pro")}
             disabled={busy !== null}
-            className="text-left p-3 rounded-lg border border-amber-300 hover:bg-amber-50 disabled:opacity-50"
+            className="text-left p-3 rounded-lg border border-pink-300 hover:bg-pink-50 disabled:opacity-50"
           >
             <div className="font-semibold">⭐ Pro · 29€/mes</div>
             <div className="text-xs text-slate-600 mt-1">+ 1 push gratis/mes · AI Studio · analytics avanzado</div>
@@ -749,14 +749,14 @@ function PushAdForm({ businessId }: { businessId: string }) {
         </label>
         {quote && (
           <div className="text-xs text-slate-600">
-            ~{quote.reach} usuarios · <strong className="text-amber-700">{quote.priceEur}€</strong>
+            ~{quote.reach} usuarios · <strong className="text-pink-600">{quote.priceEur}€</strong>
           </div>
         )}
       </div>
       <button
         onClick={pay}
         disabled={busy || !title.trim() || !body.trim()}
-        className="w-full py-2.5 rounded-full bg-amber-600 hover:bg-amber-700 text-white font-medium disabled:opacity-50"
+        className="w-full py-2.5 rounded-full bg-pink-500 hover:bg-pink-600 text-white font-medium disabled:opacity-50"
       >
         {busy ? "Procesando…" : `Pagar y lanzar (${quote?.priceEur ?? "—"} €)`}
       </button>

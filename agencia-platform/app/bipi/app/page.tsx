@@ -19,10 +19,10 @@ type Customer = {
 };
 
 const AMBASSADOR_BADGE: Record<string, { label: string; emoji: string; color: string }> = {
-  bronze: { label: "Embajador Bronce", emoji: "🥉", color: "bg-orange-100 text-orange-800 border-orange-300" },
-  silver: { label: "Embajador Plata", emoji: "🥈", color: "bg-slate-200 text-slate-800 border-slate-400" },
-  gold: { label: "Embajador Oro", emoji: "🥇", color: "bg-amber-100 text-amber-900 border-amber-400" },
-  founder: { label: "Bipi Founder", emoji: "💎", color: "bg-violet-100 text-violet-900 border-violet-400" }
+  bronze: { label: "Embajador Bronce", emoji: "🥉", color: "bg-orange-100 text-orange-800 border border-orange-300" },
+  silver: { label: "Embajador Plata", emoji: "🥈", color: "bg-slate-200 text-slate-800 border border-slate-400" },
+  gold: { label: "Embajador Oro", emoji: "🥇", color: "bg-pink-100 text-pink-800 border border-pink-300" },
+  founder: { label: "Bipi Founder", emoji: "💎", color: "bg-black text-white border border-black" }
 };
 type Offer = {
   offerId: string;
@@ -86,17 +86,19 @@ function Signup({ onDone }: { onDone: (c: Customer) => void }) {
   }
   return (
     <main className="max-w-md mx-auto px-4 py-12">
-      <div className="text-center mb-6">
-        <h1 className="text-3xl font-bold"><span className="text-amber-600">bi</span>pi</h1>
-        <p className="text-slate-600 text-sm mt-2">Tus descuentos en el barrio. Escanea, ahorra, descubre.</p>
+      <div className="text-center mb-6 bipi-fade-up">
+        <h1 className="text-5xl font-black tracking-tight">
+          <span className="bipi-brand">bipi</span>
+        </h1>
+        <p className="text-black/60 text-sm mt-3">Tus descuentos en el barrio. Escanea, ahorra, descubre.</p>
       </div>
-      <form onSubmit={submit} className="space-y-3 bg-white border rounded-xl p-5 shadow-sm">
+      <form onSubmit={submit} className="space-y-3 bipi-card p-6 bipi-fade-up bipi-fade-up-1">
         <input
           type="text"
           placeholder="Tu nombre"
           value={name}
           onChange={(e) => setName(e.target.value)}
-          className="w-full px-3 py-2 border rounded-lg bg-white"
+          className="bipi-input"
         />
         <input
           type="email"
@@ -104,17 +106,17 @@ function Signup({ onDone }: { onDone: (c: Customer) => void }) {
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           required
-          className="w-full px-3 py-2 border rounded-lg bg-white"
+          className="bipi-input"
         />
         {error && <p className="text-rose-700 text-sm">{error}</p>}
         <button
           type="submit"
           disabled={busy}
-          className="w-full py-3 rounded-full bg-amber-600 hover:bg-amber-700 text-white font-medium disabled:opacity-50"
+          className="bipi-btn w-full"
         >
           {busy ? "Creando…" : "Entrar a Bipi"}
         </button>
-        <p className="text-[11px] text-slate-500 text-center pt-2">
+        <p className="text-[11px] text-black/50 text-center pt-2">
           Sin cartera. Sin tarjetas. Sin spam. Los descuentos se aplican directamente cuando escaneas el QR de un negocio Bipi.
         </p>
       </form>
@@ -214,70 +216,89 @@ function OffersFeed({ customer, coords, onLogout }: { customer: Customer; coords
 
   return (
     <main className="max-w-md mx-auto px-4 py-6">
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-start justify-between mb-5 bipi-fade-up">
         <div>
-          <div className="text-xs text-slate-500">Hola{customer.name ? `, ${customer.name}` : ""}</div>
-          <div className="font-bold text-lg">Has ahorrado <span className="text-emerald-600">{customer.totalSaved.toFixed(2)} €</span></div>
-          {customer.ambassadorLevel && customer.ambassadorLevel !== "none" && AMBASSADOR_BADGE[customer.ambassadorLevel] && (
-            <div className={"inline-flex items-center gap-1 mt-1 px-2 py-0.5 rounded-full text-[11px] font-medium border " + AMBASSADOR_BADGE[customer.ambassadorLevel].color}>
-              <span>{AMBASSADOR_BADGE[customer.ambassadorLevel].emoji}</span>
-              <span>{AMBASSADOR_BADGE[customer.ambassadorLevel].label}</span>
-            </div>
-          )}
+          <div className="text-xs text-black/50">Hola{customer.name ? `, ${customer.name}` : ""}</div>
+          <div className="text-2xl font-black mt-0.5">
+            Has ahorrado{" "}
+            <span className="bipi-discount-big text-2xl align-baseline">
+              {customer.totalSaved.toFixed(2)} €
+            </span>
+          </div>
+          {customer.ambassadorLevel &&
+            customer.ambassadorLevel !== "none" &&
+            AMBASSADOR_BADGE[customer.ambassadorLevel] && (
+              <div className={"inline-flex items-center gap-1 mt-2 px-2.5 py-0.5 rounded-full text-[11px] font-semibold " + AMBASSADOR_BADGE[customer.ambassadorLevel].color}>
+                <span>{AMBASSADOR_BADGE[customer.ambassadorLevel].emoji}</span>
+                <span>{AMBASSADOR_BADGE[customer.ambassadorLevel].label}</span>
+              </div>
+            )}
         </div>
-        <button onClick={onLogout} className="text-xs text-slate-500 hover:underline">Salir</button>
+        <button onClick={onLogout} className="text-xs text-black/40 hover:text-black/70">
+          Salir
+        </button>
       </div>
 
       {/* CTA de notificaciones */}
       {pushState === "unknown" && (
         <button
           onClick={activatePush}
-          className="w-full mb-4 px-4 py-3 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 text-white text-sm font-medium shadow"
+          className="bipi-btn w-full mb-4 text-sm py-3 bipi-fade-up bipi-fade-up-1"
         >
-          🔔 Activar avisos cuando tus cupones estén a punto de caducar
+          🔔 Activar avisos de tus cupones
         </button>
       )}
       {pushState === "denied" && (
-        <div className="mb-4 px-3 py-2 rounded-lg bg-amber-50 border border-amber-200 text-xs text-amber-800">
-          Has bloqueado las notificaciones. Ve a los ajustes del navegador para reactivarlas si quieres recibir avisos cuando tus cupones caduquen.
+        <div className="mb-4 px-3 py-2 rounded-lg bg-pink-50 border border-pink-200 text-xs text-pink-900">
+          Has bloqueado las notificaciones. Actívalas en los ajustes del navegador para recibir avisos cuando tus cupones caduquen.
         </div>
       )}
       {pushState === "granted" && (
-        <div className="mb-4 px-3 py-2 rounded-lg bg-emerald-50 border border-emerald-200 text-xs text-emerald-800">
-          ✅ Avisos activos. Te recordaremos cuando tus cupones estén a punto de caducar.
+        <div className="mb-4 px-3 py-2 rounded-lg bg-black text-xs text-white">
+          ✅ Avisos activos. Te avisaremos cuando tus cupones estén a punto de caducar.
         </div>
       )}
 
-      <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-4 text-sm">
-        📲 <strong>Escanea el QR del negocio</strong> donde vas a pagar para llevarte el descuento. Cada compra te abre 3-5 cupones cerca.
+      <div className="bg-black text-white rounded-2xl p-4 mb-5 text-sm bipi-fade-up bipi-fade-up-1">
+        📲 <strong>Escanea el QR del negocio</strong> donde vayas a pagar. Cada compra te abre 3-5 cupones cerca.
       </div>
 
-      <h2 className="text-sm font-semibold text-slate-700 mb-2">
+      <h2 className="text-xs font-bold uppercase tracking-wider text-black/50 mb-2">
         Tus cupones activos ({offers.length})
       </h2>
       {loading ? (
-        <div className="text-sm text-slate-500">Cargando…</div>
+        <div className="space-y-2">
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="bipi-skeleton h-20" />
+          ))}
+        </div>
       ) : offers.length === 0 ? (
-        <div className="bg-white border rounded-xl p-6 text-center text-sm text-slate-500">
+        <div className="bipi-card p-6 text-center text-sm text-black/60">
           Aún no tienes cupones. Escanea el QR de un negocio Bipi y empieza a desbloquear.
         </div>
       ) : (
         <div className="space-y-2">
-          {offers.map((o) => (
-            <div key={o.offerId} className="bg-white border rounded-xl p-4 flex items-center justify-between">
-              <div className="flex-1">
-                <div className="font-semibold">{o.business.name}</div>
-                <div className="text-xs text-slate-500">
+          {offers.map((o, i) => (
+            <div
+              key={o.offerId}
+              className={"bipi-offer-card pl-5 bipi-fade-up " + (i < 4 ? `bipi-fade-up-${i + 1}` : "")}
+            >
+              <div className="flex-1 min-w-0">
+                <div className="font-bold text-black truncate">{o.business.name}</div>
+                <div className="text-xs text-black/50 truncate">
                   {o.business.category}
-                  {o.distanceM != null && ` · a ${o.distanceM > 1000 ? `${(o.distanceM / 1000).toFixed(1)} km` : `${o.distanceM} m`}`}
+                  {o.distanceM != null &&
+                    ` · a ${o.distanceM > 1000 ? `${(o.distanceM / 1000).toFixed(1)} km` : `${o.distanceM} m`}`}
                 </div>
-                <div className={"text-xs mt-1 " + (o.hoursLeft < 24 ? "text-rose-700" : "text-slate-500")}>
+                <div className={"text-xs mt-1 font-semibold " + (o.hoursLeft < 24 ? "text-pink-600" : "text-black/50")}>
                   ⏰ caduca en {o.hoursLeft}h
                 </div>
               </div>
-              <div className="text-right">
-                <div className="text-2xl font-bold text-amber-700">{o.discountPct}%</div>
-                <div className="text-[10px] text-slate-500 uppercase">descuento</div>
+              <div className="text-right ml-3">
+                <div className="bipi-discount-big">{o.discountPct}%</div>
+                <div className="text-[9px] text-black/40 uppercase tracking-widest font-semibold">
+                  descuento
+                </div>
               </div>
             </div>
           ))}

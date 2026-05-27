@@ -1,0 +1,253 @@
+/* Bipi — estilos y animaciones propias.
+ *
+ * Paleta:
+ *   - Rosa principal:  #EC4899
+ *   - Rosa profundo:   #DB2777
+ *   - Rosa suave:      #FDF2F8 (background)
+ *   - Negro:           #000000
+ *   - Blanco:          #FFFFFF
+ *   - Gris medio:      #6B7280
+ *
+ * Las animaciones están centradas en feedback rápido + sensación premium:
+ * gradient flowing en el brand, fade-up al entrar, pulse en badges y
+ * shimmer en estados de carga.
+ */
+
+.bipi-bg {
+  background:
+    radial-gradient(circle at 20% 0%, rgba(236, 72, 153, 0.15) 0%, transparent 50%),
+    radial-gradient(circle at 80% 100%, rgba(236, 72, 153, 0.10) 0%, transparent 50%),
+    #FFFFFF;
+}
+
+.bipi-brand {
+  background: linear-gradient(120deg, #EC4899 0%, #DB2777 40%, #EC4899 80%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: bipi-shine 4s ease-in-out infinite;
+}
+
+@keyframes bipi-shine {
+  0%, 100% { background-position: 0% 50%; }
+  50%      { background-position: 100% 50%; }
+}
+
+.bipi-fade-up {
+  opacity: 0;
+  transform: translateY(20px);
+  animation: bipi-fadeUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.bipi-fade-up-1 { animation-delay: 0.05s; }
+.bipi-fade-up-2 { animation-delay: 0.15s; }
+.bipi-fade-up-3 { animation-delay: 0.25s; }
+.bipi-fade-up-4 { animation-delay: 0.35s; }
+
+@keyframes bipi-fadeUp {
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.bipi-pulse-ring {
+  position: relative;
+}
+.bipi-pulse-ring::after {
+  content: "";
+  position: absolute;
+  inset: -4px;
+  border-radius: inherit;
+  border: 2px solid #EC4899;
+  opacity: 0;
+  animation: bipi-pulseRing 2s ease-out infinite;
+  pointer-events: none;
+}
+@keyframes bipi-pulseRing {
+  0%   { transform: scale(0.9); opacity: 0.7; }
+  100% { transform: scale(1.25); opacity: 0; }
+}
+
+.bipi-btn {
+  background: linear-gradient(135deg, #EC4899, #DB2777);
+  color: white;
+  font-weight: 700;
+  padding: 14px 28px;
+  border-radius: 999px;
+  border: none;
+  box-shadow: 0 8px 20px -6px rgba(236, 72, 153, 0.5);
+  transition: transform 120ms ease, box-shadow 200ms ease, filter 200ms ease;
+  cursor: pointer;
+}
+.bipi-btn:hover:not(:disabled) {
+  transform: translateY(-2px);
+  filter: brightness(1.05);
+  box-shadow: 0 14px 30px -8px rgba(236, 72, 153, 0.6);
+}
+.bipi-btn:active:not(:disabled) {
+  transform: translateY(0) scale(0.98);
+}
+.bipi-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.bipi-btn-ghost {
+  background: white;
+  color: #000;
+  border: 2px solid #000;
+  font-weight: 700;
+  padding: 12px 26px;
+  border-radius: 999px;
+  transition: all 200ms ease;
+}
+.bipi-btn-ghost:hover { background: #000; color: white; }
+
+.bipi-card {
+  background: white;
+  border-radius: 24px;
+  border: 1px solid rgba(0,0,0,0.06);
+  box-shadow:
+    0 1px 2px rgba(0,0,0,0.04),
+    0 8px 24px -10px rgba(236, 72, 153, 0.10);
+  transition: transform 200ms ease, box-shadow 250ms ease;
+}
+.bipi-card:hover {
+  transform: translateY(-2px);
+  box-shadow:
+    0 1px 2px rgba(0,0,0,0.04),
+    0 16px 36px -12px rgba(236, 72, 153, 0.20);
+}
+
+.bipi-offer-card {
+  background: white;
+  border-radius: 20px;
+  padding: 14px;
+  border: 1px solid rgba(0,0,0,0.06);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  position: relative;
+  overflow: hidden;
+  transition: transform 200ms ease;
+}
+.bipi-offer-card:hover { transform: translateY(-1px); }
+.bipi-offer-card::before {
+  content: "";
+  position: absolute;
+  left: 0; top: 0; bottom: 0; width: 4px;
+  background: linear-gradient(180deg, #EC4899, #DB2777);
+}
+
+.bipi-discount-big {
+  font-size: 36px;
+  font-weight: 900;
+  background: linear-gradient(135deg, #EC4899, #DB2777);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  line-height: 1;
+}
+
+.bipi-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 99px;
+  font-size: 11px;
+  font-weight: 600;
+  background: #000;
+  color: white;
+}
+.bipi-badge.pink { background: linear-gradient(135deg, #EC4899, #DB2777); }
+.bipi-badge.urgent {
+  background: #000;
+  color: white;
+  animation: bipi-bounce 1s ease-in-out infinite;
+}
+@keyframes bipi-bounce {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-2px); }
+}
+
+.bipi-input {
+  width: 100%;
+  background: white;
+  border: 2px solid #E5E7EB;
+  border-radius: 14px;
+  padding: 12px 16px;
+  font-size: 15px;
+  color: #000;
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+.bipi-input:focus {
+  outline: none;
+  border-color: #EC4899;
+  box-shadow: 0 0 0 4px rgba(236, 72, 153, 0.15);
+}
+
+.bipi-skeleton {
+  background: linear-gradient(90deg, #F3F4F6 25%, #E5E7EB 50%, #F3F4F6 75%);
+  background-size: 200% 100%;
+  animation: bipi-shimmer 1.4s ease-in-out infinite;
+  border-radius: 12px;
+}
+@keyframes bipi-shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+.bipi-hero-title {
+  font-size: clamp(48px, 14vw, 96px);
+  font-weight: 900;
+  line-height: 0.95;
+  letter-spacing: -0.04em;
+}
+
+.bipi-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: rgba(236, 72, 153, 0.10);
+  color: #DB2777;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.bipi-link-card {
+  display: block;
+  padding: 14px;
+  border-radius: 18px;
+  background: white;
+  border: 1px solid rgba(0,0,0,0.06);
+  transition: transform 200ms ease, border-color 200ms ease, box-shadow 250ms ease;
+}
+.bipi-link-card:hover {
+  border-color: #EC4899;
+  transform: translateY(-2px);
+  box-shadow: 0 16px 30px -16px rgba(236, 72, 153, 0.4);
+}
+
+/* Confetti container — usado tras una compra confirmada exitosa. */
+.bipi-confetti-burst {
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+.bipi-confetti-burst span {
+  position: absolute;
+  top: 50%; left: 50%;
+  width: 8px; height: 8px;
+  border-radius: 2px;
+  animation: bipi-confetti 1.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+@keyframes bipi-confetti {
+  0%   { transform: translate(-50%, -50%) scale(0.5); opacity: 0; }
+  20%  { opacity: 1; }
+  100% { transform: translate(var(--x), var(--y)) rotate(var(--r)) scale(1); opacity: 0; }
+}

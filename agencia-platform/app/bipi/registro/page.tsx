@@ -167,7 +167,7 @@ export default function RegistroNegocio() {
         <button
           type="submit"
           disabled={saving}
-          className="w-full py-3 rounded-full bg-amber-600 hover:bg-amber-700 text-white font-medium disabled:opacity-50"
+          className="w-full py-3 rounded-full bg-pink-500 hover:bg-pink-600 text-white font-medium disabled:opacity-50"
         >
           {saving ? "Creando…" : "Crear cuenta y generar mi QR"}
         </button>
@@ -203,7 +203,7 @@ function PosterPicker({ businessId, qrPngUrl, scanUrl }: { businessId: string; q
               onClick={() => setStyle(s)}
               className={
                 "px-3 py-1.5 rounded-full text-xs font-medium border " +
-                (style === s ? "bg-amber-600 text-white border-amber-600" : "bg-white border-slate-200 text-slate-600")
+                (style === s ? "bg-pink-600 text-white border-pink-600" : "bg-white border-slate-200 text-slate-600")
               }
             >
               {s === "cosy" ? "🌅 Cálido" : s === "bold" ? "🎯 Atrevido" : "🌿 Fresco"}
@@ -221,7 +221,7 @@ function PosterPicker({ businessId, qrPngUrl, scanUrl }: { businessId: string; q
           <a
             href={posterUrl}
             download={`bipi-cartel-${style}.png`}
-            className="flex-1 text-center inline-block px-4 py-2 rounded-full bg-amber-600 hover:bg-amber-700 text-white text-sm font-medium"
+            className="flex-1 text-center inline-block px-4 py-2 rounded-full bg-pink-500 hover:bg-pink-600 text-white text-sm font-medium"
           >
             Descargar cartel ({style})
           </a>
@@ -240,7 +240,7 @@ function PosterPicker({ businessId, qrPngUrl, scanUrl }: { businessId: string; q
       </details>
       <a
         href="/bipi/negocio"
-        className="block text-center text-sm text-amber-700 hover:underline mt-4"
+        className="block text-center text-sm text-pink-600 hover:underline mt-4"
       >
         → Ir al panel del negocio
       </a>

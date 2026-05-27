@@ -25,18 +25,18 @@ export const maxDuration = 120;
 const STYLES: Record<string, { prompt: string; palette: { bg: string; fg: string; accent: string } }> = {
   cosy: {
     prompt:
-      "warm cozy beige/terracotta poster background, soft watercolor textures, sun-kissed Mediterranean coast vibe, professional retail flyer aesthetic, lots of empty space in the center for a QR code, no text, no letters, no numbers, no logos",
-    palette: { bg: "#FDF2E1", fg: "#3D2A1B", accent: "#C8612C" }
+      "bright pink and white poster background with soft pink gradient washes and playful shapes, modern feminine retail flyer aesthetic, lots of empty space in the center for a QR code, no text, no letters, no numbers, no logos",
+    palette: { bg: "#FDF2F8", fg: "#000000", accent: "#EC4899" }
   },
   bold: {
     prompt:
-      "bold modern editorial poster background, deep navy + bright amber color blocks, geometric shapes, professional retail flyer aesthetic, large empty area in the center for a QR code, no text, no letters, no numbers, no logos",
-    palette: { bg: "#0E1B33", fg: "#F8F5EF", accent: "#F2B441" }
+      "bold modern editorial poster background, jet black + hot pink color blocks, geometric shapes, fashion magazine aesthetic, large empty area in the center for a QR code, no text, no letters, no numbers, no logos",
+    palette: { bg: "#000000", fg: "#FFFFFF", accent: "#EC4899" }
   },
   fresh: {
     prompt:
-      "fresh light mint and white poster background, clean botanical accents, modern minimal flyer aesthetic, large empty area in the center for a QR code, no text, no letters, no numbers, no logos",
-    palette: { bg: "#E9F6EF", fg: "#1B3D31", accent: "#3DA174" }
+      "fresh white and bubble-gum pink poster background, clean minimalist flyer aesthetic with subtle confetti or stars accents, large empty area in the center for a QR code, no text, no letters, no numbers, no logos",
+    palette: { bg: "#FFFFFF", fg: "#000000", accent: "#EC4899" }
   }
 };
 
