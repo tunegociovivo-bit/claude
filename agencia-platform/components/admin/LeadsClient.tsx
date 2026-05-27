@@ -88,6 +88,7 @@ const URGENCY_COLORS: Record<string, string> = {
 
 export default function LeadsClient() {
   const [tab, setTab] = useState<Tab>("leads");
+  const [recoveryInfo, setRecoveryInfo] = useState<{ active: boolean; since: string | null; days: number } | null>(null);
   const [leads, setLeads] = useState<Lead[]>([]);
   const [searches, setSearches] = useState<SearchRow[]>([]);
   const [queue, setQueue] = useState<QueueRow[]>([]);
@@ -149,6 +150,21 @@ export default function LeadsClient() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, statusFilter, urgencyFilter, searchIdFilter, searchQ]);
 
+  // Carga el estado del modo recuperación una vez para el banner anti-baneo.
+  useEffect(() => {
+    fetch("/api/v1/leads/settings")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) =>
+        d &&
+        setRecoveryInfo({
+          active: !!d.recoveryMode,
+          since: d.recoverySince ?? null,
+          days: d.recoveryDurationDays ?? 14
+        })
+      )
+      .catch(() => {});
+  }, []);
+
   return (
     <div className="max-w-7xl mx-auto">
       <PageHeader
@@ -189,6 +205,17 @@ export default function LeadsClient() {
       {/* Tabs reorderables: cada usuario guarda en localStorage el orden que
           prefiera. Para mover una pestaña: arrástrala hacia la izquierda o
           la derecha sobre las demás. */}
+      {recoveryInfo?.active && recoveryInfo.since && (() => {
+        const exp = new Date(new Date(recoveryInfo.since).getTime() + recoveryInfo.days * 86_400_000);
+        const daysLeft = Math.max(0, Math.ceil((exp.getTime() - Date.now()) / 86_400_000));
+        return (
+          <div className="mb-3 px-3 py-2 rounded-lg bg-rose-50 border border-rose-300 text-rose-900 text-xs">
+            🛡 <strong>Modo recuperación activo</strong> — quedan {daysLeft} día{daysLeft === 1 ? "" : "s"} con
+            límites endurecidos (máx 15/día · 3/hora · 8 nuevas convos/día · cool-down 10 días · delay 5-15 min).
+            Se desactiva solo el {exp.toLocaleString("es-ES", { dateStyle: "short", timeStyle: "short" })}.
+          </div>
+        );
+      })()}
       <DraggableTabs tab={tab} setTab={setTab} />
 
       {/* Contenido por tab */}
@@ -1225,6 +1252,9 @@ function QueueTable({ loading, items, onChanged }: { loading: boolean; items: Qu
           queue_paused: "La cola está pausada o desactivada en Ajustes.",
           outside_window: "Fuera de la ventana horaria configurada (Ajustes → Envío).",
           daily_limit_reached: "Tope diario alcanzado.",
+          hourly_limit_reached: "Tope POR HORA alcanzado (anti-baneo). Vuelve a la próxima hora.",
+          recipient_cooldown: "Este número recibió un mensaje hace poco; reprogramado tras el cool-down configurado.",
+          new_chats_daily_cap: "Tope de NUEVAS conversaciones por hoy alcanzado. Reprogramado para mañana.",
           pacing_wait: "Aún no toca: hay que esperar el delay mínimo desde el último envío."
         };
         const human = code && reasons[code] ? reasons[code] : code
@@ -2506,6 +2536,48 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
             <label>Delay max (s) <input type="number" value={s.sendDelayMaxSec ?? 180} onChange={(e) => setField("sendDelayMaxSec", Number(e.target.value))} className="w-full px-2 py-1 rounded border" /></label>
             <label>Daily limit <input type="number" value={s.dailyLimit ?? 80} onChange={(e) => setField("dailyLimit", Number(e.target.value))} className="w-full px-2 py-1 rounded border" /></label>
             <label>Max intentos <input type="number" value={s.maxAttempts ?? 3} onChange={(e) => setField("maxAttempts", Number(e.target.value))} className="w-full px-2 py-1 rounded border" /></label>
+            <label title="Tope de mensajes enviados por hora. Anti-baneo: WhatsApp detecta ráfagas como bot.">
+              Max/hora
+              <input type="number" value={s.maxPerHour ?? 10} onChange={(e) => setField("maxPerHour", Number(e.target.value))} className="w-full px-2 py-1 rounded border" />
+            </label>
+            <label title="Mínimo de días entre dos mensajes al MISMO número. Evita doble contacto entre campañas.">
+              Cool-down (días)
+              <input type="number" value={s.minCoolDownDaysPerRecipient ?? 7} onChange={(e) => setField("minCoolDownDaysPerRecipient", Number(e.target.value))} className="w-full px-2 py-1 rounded border" />
+            </label>
+            <label title="Cap de NUEVAS conversaciones por día. Meta vigila este número más que el total.">
+              Max nuevas convos/día
+              <input type="number" value={s.maxNewChatsPerDay ?? 25} onChange={(e) => setField("maxNewChatsPerDay", Number(e.target.value))} className="w-full px-2 py-1 rounded border" />
+            </label>
+          </div>
+          <div className={
+            "mt-3 p-3 rounded-lg border " +
+            (s.recoveryMode
+              ? "bg-rose-50 border-rose-300 text-rose-900"
+              : "bg-amber-50/40 border-amber-200 text-amber-900")
+          }>
+            <label className="flex items-start gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={!!s.recoveryMode}
+                onChange={(e) => setField("recoveryMode", e.target.checked)}
+                className="mt-0.5 accent-rose-600"
+              />
+              <div className="flex-1 text-xs">
+                <strong className="block text-sm">🛡 Modo recuperación post-restricción WhatsApp</strong>
+                <p className="mt-1">
+                  Activa esto cuando Meta te haya restringido la cuenta. Aplica límites ultra-cautelosos
+                  durante {s.recoveryDurationDays ?? 14} días: máx <strong>15/día</strong>, <strong>3/hora</strong>,
+                  <strong> 8 nuevas convos/día</strong>, delay entre envíos <strong>5-15 min</strong>, cool-down
+                  por número <strong>10 días</strong>. Después se auto-desactiva.
+                </p>
+                {s.recoveryMode && s.recoverySince && (
+                  <p className="mt-1 font-mono text-[11px]">
+                    Activo desde: {new Date(s.recoverySince).toLocaleString("es-ES")} ·
+                    expira: {new Date(new Date(s.recoverySince).getTime() + (s.recoveryDurationDays ?? 14) * 86_400_000).toLocaleString("es-ES")}
+                  </p>
+                )}
+              </div>
+            </label>
           </div>
           <div className="flex flex-wrap gap-3 mt-2 text-xs">
             <label className="flex items-center gap-1.5 cursor-pointer">

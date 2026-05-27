@@ -48,6 +48,12 @@ export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
     notifyInterestedPhone: s.notifyInterestedPhone ?? "",
     webhookLastHit: s.webhookLastHit ?? null,
     webhookLastEvent: s.webhookLastEvent ?? null,
+    maxPerHour: s.maxPerHour ?? 10,
+    minCoolDownDaysPerRecipient: s.minCoolDownDaysPerRecipient ?? 7,
+    maxNewChatsPerDay: s.maxNewChatsPerDay ?? 25,
+    recoveryMode: !!s.recoveryMode,
+    recoverySince: s.recoverySince ?? null,
+    recoveryDurationDays: s.recoveryDurationDays ?? 14,
     sendEnabled: s.sendEnabled ?? true,
     sendPaused: s.sendPaused ?? false,
     sendWindowStart: s.sendWindowStart ?? "09:00",
@@ -92,6 +98,11 @@ const schema = z.object({
   enableVariations: z.boolean().optional(),
   validateWaBeforeSend: z.boolean().optional(),
   maxAttempts: z.number().int().min(1).max(10).optional(),
+  maxPerHour: z.number().int().min(1).max(100).optional(),
+  minCoolDownDaysPerRecipient: z.number().int().min(0).max(60).optional(),
+  maxNewChatsPerDay: z.number().int().min(1).max(500).optional(),
+  recoveryMode: z.boolean().optional(),
+  recoveryDurationDays: z.number().int().min(1).max(60).optional(),
   rotateWebhookToken: z.boolean().optional()
 });
 
@@ -146,9 +157,24 @@ export const PATCH = withApi({ scope: "*" }, async (req, { api }) => {
     "dailyLimit",
     "enableVariations",
     "validateWaBeforeSend",
-    "maxAttempts"
+    "maxAttempts",
+    "maxPerHour",
+    "minCoolDownDaysPerRecipient",
+    "maxNewChatsPerDay",
+    "recoveryDurationDays"
   ] as const) {
     if (parsed.data[k] !== undefined) s[k] = parsed.data[k];
+  }
+  // Recovery toggle: al activar, sella la fecha de inicio. Al desactivar
+  // borra recoverySince para que el siguiente toggle vuelva a empezar.
+  if (parsed.data.recoveryMode !== undefined) {
+    if (parsed.data.recoveryMode) {
+      if (!s.recoveryMode) s.recoverySince = new Date().toISOString();
+      s.recoveryMode = true;
+    } else {
+      s.recoveryMode = false;
+      s.recoverySince = null;
+    }
   }
   if (parsed.data.rotateWebhookToken) {
     s.webhookToken = randomBytes(24).toString("hex");
