@@ -6,7 +6,8 @@
  */
 
 import { prisma } from "@/lib/db/prisma";
-import { renderTemplate, varyMessage } from "./template-engine";
+import { renderTemplate } from "./template-engine";
+import { aiRewriteMessage } from "./ai-vary";
 import { normalizePhone, sendText, getWahaConfig, checkNumberExists } from "./waha";
 
 export type LeadsSendSettings = {
@@ -264,9 +265,16 @@ export async function enqueueMessage(opts: {
     rendered = await renderTemplate({ workspaceId: opts.workspaceId, body: opts.body, leadId: lead.id });
   } catch {}
 
-  // Aplicar variaciones
+  // Aplicar variaciones: cada mensaje se reescribe con IA para que dos leads
+  // nunca reciban texto idéntico (anti-spam Meta) y para mejorar el formato
+  // visual en WhatsApp (párrafos, CTA, líneas cortas). Si la IA falla cae al
+  // varyMessage determinístico para no bloquear el envío.
   if (settings.enableVariations) {
-    rendered = varyMessage(rendered, lead.id);
+    rendered = await aiRewriteMessage({
+      workspaceId: opts.workspaceId,
+      base: rendered,
+      seed: lead.id
+    });
   }
 
   // Calcular slot. ANTI-BANEO: encadenamos tras el ÚLTIMO mensaje ya
