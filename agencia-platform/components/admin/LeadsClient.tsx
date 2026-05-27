@@ -734,6 +734,34 @@ function SearchesTable({ loading, items, onChanged }: { loading: boolean; items:
 function QueueTable({ loading, items, onChanged }: { loading: boolean; items: QueueRow[]; onChanged: () => void }) {
   const [processing, setProcessing] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+
+  // Al refrescar, descarta de la selección los que ya no salen.
+  useEffect(() => {
+    const present = new Set(items.map((m) => m.id));
+    setSelected((prev) => {
+      const next = new Set<string>();
+      for (const id of prev) if (present.has(id)) next.add(id);
+      return next;
+    });
+  }, [items]);
+
+  const deletable = items.filter((m) => m.status !== "sending");
+  const allSelected = deletable.length > 0 && deletable.every((m) => selected.has(m.id));
+
+  function toggle(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+  function toggleAll() {
+    setSelected(allSelected ? new Set() : new Set(deletable.map((m) => m.id)));
+  }
+
   async function tick() {
     setProcessing(true);
     await fetch("/api/v1/leads/queue/process", { method: "POST" });
@@ -754,10 +782,32 @@ function QueueTable({ loading, items, onChanged }: { loading: boolean; items: Qu
       setDeletingId(null);
     }
   }
+  async function removeSelected() {
+    const ids = Array.from(selected);
+    if (ids.length === 0) return;
+    if (!confirm(`¿Borrar ${ids.length} mensaje${ids.length === 1 ? "" : "s"} de la cola? No se enviarán.`)) return;
+    setBulkDeleting(true);
+    try {
+      const r = await fetch("/api/v1/leads/queue", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids })
+      });
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        alert(j?.message ?? "No se pudieron borrar.");
+      }
+      setSelected(new Set());
+      onChanged();
+    } finally {
+      setBulkDeleting(false);
+    }
+  }
+
   if (loading) return <Loading />;
   return (
     <div className="space-y-3">
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <button
           onClick={tick}
           disabled={processing}
@@ -766,6 +816,16 @@ function QueueTable({ loading, items, onChanged }: { loading: boolean; items: Qu
           {processing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
           Procesar siguiente
         </button>
+        {selected.size > 0 && (
+          <button
+            onClick={removeSelected}
+            disabled={bulkDeleting}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs disabled:opacity-50"
+          >
+            {bulkDeleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+            Borrar {selected.size} seleccionado{selected.size === 1 ? "" : "s"}
+          </button>
+        )}
         <span className="text-xs text-slate-500">{items.length} mensajes en cola/historial</span>
       </div>
       {items.length === 0 ? (
@@ -775,6 +835,15 @@ function QueueTable({ loading, items, onChanged }: { loading: boolean; items: Qu
           <table className="w-full text-sm">
             <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
               <tr>
+                <th className="px-3 py-2.5 w-8">
+                  <input
+                    type="checkbox"
+                    checked={allSelected}
+                    onChange={toggleAll}
+                    className="accent-brand-600"
+                    title="Seleccionar todos los borrables"
+                  />
+                </th>
                 <th className="text-left px-3 py-2.5">Teléfono</th>
                 <th className="text-left px-3 py-2.5">Mensaje</th>
                 <th className="text-left px-3 py-2.5">Programado</th>
@@ -784,27 +853,40 @@ function QueueTable({ loading, items, onChanged }: { loading: boolean; items: Qu
               </tr>
             </thead>
             <tbody className="divide-y">
-              {items.map((m) => (
-                <tr key={m.id} className="hover:bg-slate-50">
-                  <td className="px-3 py-2 font-mono text-xs">{m.phoneNormalized}</td>
-                  <td className="px-3 py-2 text-xs max-w-md truncate" title={m.renderedMessage}>{m.renderedMessage}</td>
-                  <td className="px-3 py-2 text-xs">
-                    {m.scheduledAt ? new Date(m.scheduledAt).toLocaleString("es-ES") : "—"}
-                  </td>
-                  <td className="px-3 py-2 text-xs">{m.status}</td>
-                  <td className="px-3 py-2 text-xs">{m.sendAttempts}{m.lastError && ` ⚠ ${m.lastError.slice(0, 40)}`}</td>
-                  <td className="px-3 py-2 text-right">
-                    <button
-                      onClick={() => removeOne(m.id)}
-                      disabled={deletingId === m.id || m.status === "sending"}
-                      className="inline-flex items-center justify-center p-1.5 rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50 disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-slate-400"
-                      title={m.status === "sending" ? "En envío, no se puede borrar" : "Borrar de la cola"}
-                    >
-                      {deletingId === m.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
-                    </button>
-                  </td>
-                </tr>
-              ))}
+              {items.map((m) => {
+                const rowDeletable = m.status !== "sending";
+                return (
+                  <tr key={m.id} className="hover:bg-slate-50">
+                    <td className="px-3 py-2">
+                      <input
+                        type="checkbox"
+                        disabled={!rowDeletable}
+                        checked={selected.has(m.id)}
+                        onChange={() => toggle(m.id)}
+                        className="accent-brand-600 disabled:opacity-30"
+                        title={rowDeletable ? "" : "En envío"}
+                      />
+                    </td>
+                    <td className="px-3 py-2 font-mono text-xs">{m.phoneNormalized}</td>
+                    <td className="px-3 py-2 text-xs max-w-md truncate" title={m.renderedMessage}>{m.renderedMessage}</td>
+                    <td className="px-3 py-2 text-xs">
+                      {m.scheduledAt ? new Date(m.scheduledAt).toLocaleString("es-ES") : "—"}
+                    </td>
+                    <td className="px-3 py-2 text-xs">{m.status}</td>
+                    <td className="px-3 py-2 text-xs">{m.sendAttempts}{m.lastError && ` ⚠ ${m.lastError.slice(0, 40)}`}</td>
+                    <td className="px-3 py-2 text-right">
+                      <button
+                        onClick={() => removeOne(m.id)}
+                        disabled={deletingId === m.id || !rowDeletable}
+                        className="inline-flex items-center justify-center p-1.5 rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50 disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-slate-400"
+                        title={rowDeletable ? "Borrar de la cola" : "En envío, no se puede borrar"}
+                      >
+                        {deletingId === m.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
