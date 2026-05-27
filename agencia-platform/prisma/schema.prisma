@@ -874,6 +874,10 @@ model LeadSearch {
   keyword            String
   location           String
   scope              String    @default("custom") // custom | spain (loop por provincias)
+  /// Fuente de leads: "places" (Google Places) | "borme" | "trustpilot"
+  /// | "doctoralia" | "idealista" | "fotocasa" | "linkedin". Cada fuente
+  /// tiene su collector en lib/leads/sources/*.ts.
+  source             String    @default("places")
   status             String    @default("PENDING") // PENDING|RUNNING|COMPLETED|FAILED
   provincesScope     String    @default("[]") // JSON array (legacy)
   totalProvinces     Int       @default(1)

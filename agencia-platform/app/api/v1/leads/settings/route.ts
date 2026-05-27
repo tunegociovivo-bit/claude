@@ -46,6 +46,8 @@ export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
     evolutionInstance: s.evolutionInstance ?? evo.instance ?? "default",
     whatsappCountryCode: s.whatsappCountryCode ?? "34",
     notifyInterestedPhone: s.notifyInterestedPhone ?? "",
+    webhookLastHit: s.webhookLastHit ?? null,
+    webhookLastEvent: s.webhookLastEvent ?? null,
     sendEnabled: s.sendEnabled ?? true,
     sendPaused: s.sendPaused ?? false,
     sendWindowStart: s.sendWindowStart ?? "09:00",

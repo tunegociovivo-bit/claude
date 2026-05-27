@@ -36,6 +36,25 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
     return NextResponse.json({ error: { code: "bad_json", message: "Payload inválido" } }, { status: 400 });
   }
 
+  // Marcador "el webhook está vivo": al menos UN evento ha llegado. Lo usamos
+  // en la UI de Inbox/Ajustes para indicar si WAHA está realmente apuntando
+  // aquí. Guardamos también el último evento bruto truncado para diagnosis.
+  void prisma.workspace
+    .update({
+      where: { id: ws.id },
+      data: {
+        settings: {
+          ...((ws.settings as any) ?? {}),
+          leads: {
+            ...(((ws.settings as any) ?? {}).leads ?? {}),
+            webhookLastHit: new Date().toISOString(),
+            webhookLastEvent: String(body?.event ?? body?.type ?? "unknown")
+          }
+        }
+      }
+    })
+    .catch((e) => console.warn("[leads webhook] no se pudo persistir lastHit:", e?.message ?? e));
+
   // WAHA: ignorar mensajes fromMe (echo de los nuestros)
   const fromMe =
     body?.payload?.fromMe === true ||
