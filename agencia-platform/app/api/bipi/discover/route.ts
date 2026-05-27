@@ -1,0 +1,60 @@
+/**
+ * GET /api/bipi/discover?lat=...&lng=...&limit=24
+ *
+ * Devuelve todos los negocios Bipi activos para que el cliente vea
+ * la red completa antes de tener su primer cupón. Ordena por:
+ *   1. Cercanía si llegan coordenadas (haversine, máx 10km).
+ *   2. Visibility score (karma) en su defecto.
+ *
+ * No requiere customerId — es público para favorecer descubrimiento.
+ */
+
+import { NextResponse } from "next/server";
+import { prisma } from "@/lib/db/prisma";
+import { haversineMeters } from "@/lib/bipi/core";
+
+export const dynamic = "force-dynamic";
+
+export async function GET(req: Request) {
+  const url = new URL(req.url);
+  const lat = url.searchParams.has("lat") ? Number(url.searchParams.get("lat")) : null;
+  const lng = url.searchParams.has("lng") ? Number(url.searchParams.get("lng")) : null;
+  const limit = Math.min(60, Math.max(1, Number(url.searchParams.get("limit") ?? 24)));
+
+  const businesses = await prisma.bipiBusiness.findMany({
+    where: { active: true },
+    select: {
+      id: true,
+      slug: true,
+      name: true,
+      category: true,
+      city: true,
+      address: true,
+      latitude: true,
+      longitude: true,
+      logoUrl: true,
+      brandColor: true,
+      defaultDiscountPct: true,
+      visibilityScore: true
+    },
+    orderBy: { visibilityScore: "desc" },
+    take: 200
+  });
+
+  const withDistance = businesses.map((b) => {
+    const distanceM =
+      lat != null && lng != null && b.latitude != null && b.longitude != null
+        ? Math.round(haversineMeters(lat, lng, b.latitude, b.longitude))
+        : null;
+    return { ...b, distanceM };
+  });
+
+  const sorted = withDistance.sort((a, b) => {
+    if (a.distanceM != null && b.distanceM != null) return a.distanceM - b.distanceM;
+    if (a.distanceM != null) return -1;
+    if (b.distanceM != null) return 1;
+    return (b.visibilityScore ?? 0) - (a.visibilityScore ?? 0);
+  });
+
+  return NextResponse.json({ items: sorted.slice(0, limit) });
+}

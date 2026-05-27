@@ -303,11 +303,21 @@ function OffersFeed({ customer, coords, onLogout }: { customer: Customer; coords
           ))}
         </div>
       ) : filtered.length === 0 ? (
-        <div className="bipi-card p-6 text-center text-sm text-black/60">
-          {offers.length === 0
-            ? "Aún no tienes cupones. Escanea el QR de un negocio Bipi y empieza a desbloquear."
-            : "Sin resultados para tu filtro."}
-        </div>
+        offers.length === 0 ? (
+          <div className="bipi-card p-6 text-center space-y-3">
+            <div className="text-4xl">🎟</div>
+            <p className="text-sm text-black/70">
+              Aún no tienes cupones. Empieza por descubrir los negocios Bipi de tu zona.
+            </p>
+            <a href="/bipi/app/descubre" className="bipi-btn inline-flex">
+              🧭 Descubrir negocios cerca
+            </a>
+          </div>
+        ) : (
+          <div className="bipi-card p-6 text-center text-sm text-black/60">
+            Sin resultados para tu filtro.
+          </div>
+        )
       ) : (
         <div className="space-y-3">
           {filtered.map((o, i) => (
@@ -355,13 +365,13 @@ function OffersFeed({ customer, coords, onLogout }: { customer: Customer; coords
           <span style={{ fontSize: 18 }}>🎟</span>
           <span>Cupones</span>
         </a>
-        <a href="/bipi">
+        <a href="/bipi/app/descubre">
+          <span style={{ fontSize: 18 }}>🧭</span>
+          <span>Descubre</span>
+        </a>
+        <a href="/bipi/registro">
           <span style={{ fontSize: 18 }}>🏪</span>
           <span>Negocios</span>
-        </a>
-        <a href="#" onClick={(e) => { e.preventDefault(); alert("Abre la cámara del móvil y escanea el QR del negocio."); }}>
-          <span style={{ fontSize: 18 }}>📷</span>
-          <span>Escanear</span>
         </a>
         <a href="#" onClick={(e) => { e.preventDefault(); onLogout(); }}>
           <span style={{ fontSize: 18 }}>👤</span>
