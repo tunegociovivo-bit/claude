@@ -2405,8 +2405,26 @@ function PostFormModal({
                   </a>
                 )
               ) : (
-                <div className="w-full aspect-square rounded-xl border bg-slate-50 flex items-center justify-center text-slate-400">
-                  <ImageIcon className="h-10 w-10" />
+                <div className="space-y-2">
+                  <div className="w-full aspect-square rounded-xl border bg-slate-50 flex items-center justify-center text-slate-400">
+                    <ImageIcon className="h-10 w-10" />
+                  </div>
+                  {/* Si es un post de vídeo y NO tiene vídeo adjunto, ofrecemos
+                      relanzar la generación directamente desde el preview, para
+                      que el usuario no tenga que abrir el modal de edición. */}
+                  {fullPost && ["video", "reel", "story"].includes(fullPost.format ?? "") && (
+                    <RetryVideoButton
+                      postId={fullPost.id}
+                      onDone={() => {
+                        // Refresca el detalle para que aparezca el vídeo nuevo
+                        // sin cerrar el modal de preview.
+                        fetch(`/api/v1/editorial/posts/${fullPost.id}`)
+                          .then((r) => (r.ok ? r.json() : null))
+                          .then((d) => d && setFullPost(d))
+                          .catch(() => {});
+                      }}
+                    />
+                  )}
                 </div>
               )}
               {images.length > 1 && (
@@ -2618,38 +2636,50 @@ function PostFormModal({
           placeholder="Título"
           className="w-full text-lg font-semibold px-0 py-1 bg-transparent border-0 border-b border-transparent focus:border-brand-500 focus:outline-none focus:ring-0"
         />
-        <div className="grid grid-cols-3 gap-2">
-          <ClientPickerCombobox
-            clients={clients}
-            value={form.clientId}
-            onChange={(id) => setForm({ ...form, clientId: id })}
-            placeholder="— Sin cliente —"
-            allowEmpty
-          />
-          <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })} className="px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
-            {STATUS_OPTIONS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
-          </select>
-          <select value={form.format} onChange={(e) => setForm({ ...form, format: e.target.value })} className="px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
-            {["post", "reel", "story", "video", "blog", "email", "carousel"].map((x) => <option key={x} value={x}>{x}</option>)}
-          </select>
-          <select
-            value={form.aspectRatio}
-            onChange={(e) => setForm({ ...form, aspectRatio: e.target.value })}
-            className="px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
-            title="Formato de medida: si lo dejas en 'auto' se usa el del cliente/formato"
-          >
-            <option value="auto">Auto (cliente)</option>
-            <option value="1:1">1:1 · Cuadrado</option>
-            <option value="2:1">2:1 · Horizontal</option>
-            <option value="3:1">3:1 · Banner</option>
-            <option value="2:3">2:3 · Retrato</option>
-            <option value="3:2">3:2 · Estándar</option>
-            <option value="3:4">3:4 · Tradicional</option>
-            <option value="4:3">4:3 · Clásico</option>
-            <option value="16:9">16:9 · Panorámico</option>
-            <option value="9:16">9:16 · Story / Reel</option>
-            <option value="21:9">21:9 · Ultrapanorámico</option>
-          </select>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+          <div>
+            <label className="block text-[11px] font-medium text-slate-500 mb-1">Cliente</label>
+            <ClientPickerCombobox
+              clients={clients}
+              value={form.clientId}
+              onChange={(id) => setForm({ ...form, clientId: id })}
+              placeholder="— Sin cliente —"
+              allowEmpty
+            />
+          </div>
+          <div>
+            <label className="block text-[11px] font-medium text-slate-500 mb-1">Estado</label>
+            <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })} className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
+              {STATUS_OPTIONS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-[11px] font-medium text-slate-500 mb-1">Formato</label>
+            <select value={form.format} onChange={(e) => setForm({ ...form, format: e.target.value })} className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
+              {["post", "reel", "story", "video", "blog", "email", "carousel"].map((x) => <option key={x} value={x}>{x}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-[11px] font-medium text-slate-500 mb-1">Medida / aspect ratio</label>
+            <select
+              value={form.aspectRatio}
+              onChange={(e) => setForm({ ...form, aspectRatio: e.target.value })}
+              className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+              title="Si lo dejas en 'auto' se usa el del cliente/formato"
+            >
+              <option value="auto">Auto (cliente)</option>
+              <option value="1:1">1:1 · Cuadrado</option>
+              <option value="2:1">2:1 · Horizontal</option>
+              <option value="3:1">3:1 · Banner</option>
+              <option value="2:3">2:3 · Retrato</option>
+              <option value="3:2">3:2 · Estándar</option>
+              <option value="3:4">3:4 · Tradicional</option>
+              <option value="4:3">4:3 · Clásico</option>
+              <option value="16:9">16:9 · Panorámico</option>
+              <option value="9:16">9:16 · Story / Reel</option>
+              <option value="21:9">21:9 · Ultrapanorámico</option>
+            </select>
+          </div>
         </div>
         <input
           type="datetime-local"
@@ -3857,6 +3887,64 @@ function GenerateImageBar({
       {error && <p className="text-[11px] text-rose-600">{error}</p>}
       {lastUrl && (
         <div className="text-[11px] text-emerald-700">✓ Imagen generada y asociada al post.</div>
+      )}
+    </div>
+  );
+}
+
+/** Botón compacto para relanzar la generación de vídeo desde el preview de
+ *  un post de vídeo que se quedó sin media (porque la primera ejecución
+ *  falló). Muestra el error inline para que el usuario sepa qué pasó.
+ */
+function RetryVideoButton({ postId, onDone }: { postId: string; onDone: () => void }) {
+  const [running, setRunning] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [done, setDone] = useState<string | null>(null);
+
+  async function run() {
+    setRunning(true);
+    setError(null);
+    setDone(null);
+    try {
+      const r = await fetch(`/api/v1/editorial/posts/${postId}/generate-video`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ shots: 2, voiceover: true, subtitles: true })
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        setError(j?.error?.message ?? `Error ${r.status}`);
+        return;
+      }
+      setDone(j?.note ?? "Vídeo generado y adjuntado.");
+      onDone();
+    } catch (e: any) {
+      setError(e?.message ?? "Error de red");
+    } finally {
+      setRunning(false);
+    }
+  }
+
+  return (
+    <div className="space-y-1.5">
+      <button
+        type="button"
+        onClick={run}
+        disabled={running}
+        className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-violet-600 hover:bg-violet-700 text-white text-xs font-medium disabled:opacity-60"
+      >
+        {running ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Film className="h-3.5 w-3.5" />}
+        {running ? "Generando vídeo (1-5 min)…" : "Generar vídeo ahora"}
+      </button>
+      {error && (
+        <div className="text-[11px] text-rose-700 bg-rose-50 border border-rose-200 rounded p-2 whitespace-pre-wrap">
+          {error}
+        </div>
+      )}
+      {done && (
+        <div className="text-[11px] text-emerald-700 bg-emerald-50 border border-emerald-200 rounded p-2">
+          {done}
+        </div>
       )}
     </div>
   );
