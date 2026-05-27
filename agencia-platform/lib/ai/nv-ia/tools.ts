@@ -248,7 +248,7 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
   {
     name: "draft_email",
     description:
-      "Redacta un email PARA QUE LO APRUEBE UN HUMANO antes de enviarlo. NO se envía automáticamente — el email aparece en /admin/nv-ia/drafts y un admin pulsa 'Aprobar y enviar'. Úsalo para responder a un cliente, comunicar entregables, hacer seguimiento, etc. Sé claro, profesional y conciso.",
+      "Redacta un email PARA QUE LO APRUEBE UN HUMANO antes de enviarlo (clientes/leads externos): aparece en /admin/nv-ia/drafts y un admin pulsa 'Aprobar y enviar'. Úsalo para responder a un cliente, comunicar entregables, hacer seguimiento, etc.\n\nEXCEPCIÓN para internos del equipo: si TODOS los destinatarios son @negociovivo.com (trabajadores de la empresa), el draft se auto-aprueba y se envía sin esperar a nadie. En la práctica para internos puedes usar draft_email o send_email indistintamente — ambos salen al instante. Para clientes externos prefiere draft_email y para internos sale directo igual.",
     input_schema: {
       type: "object",
       properties: {
@@ -3061,6 +3061,49 @@ async function maybeAutoApproveDraft(
   kind: string,
   ctx: ToolContext
 ): Promise<{ autoApproved: boolean; executionResult?: any }> {
+  // ──────────────────────────────────────────────────────────────────
+  // Atajo "destinatario interno": cualquier email cuyo destinatario sea
+  // del propio equipo (@negociovivo.com) se auto-aprueba y se envía sin
+  // tener que pasar por /admin/nv-ia/drafts. Política explícita del
+  // usuario: "todos los correos @negociovivo.com son trabajadores de la
+  // empresa, Sonia puede enviar directo".
+  // ──────────────────────────────────────────────────────────────────
+  if (kind === "EMAIL") {
+    try {
+      const draft = await prisma.aiDraft.findUnique({
+        where: { id: draftId },
+        select: { payload: true }
+      });
+      const payload: any = draft?.payload ?? {};
+      const toField = payload?.to;
+      const recipients: string[] = Array.isArray(toField)
+        ? toField
+        : typeof toField === "string"
+          ? [toField]
+          : [];
+      const allInternal =
+        recipients.length > 0 &&
+        recipients.every((r) => /@negociovivo\.com$/i.test(r.trim()));
+      if (allInternal) {
+        await prisma.aiDraft.update({
+          where: { id: draftId },
+          data: {
+            status: "APPROVED",
+            reviewedById: ctx.config.userId,
+            reviewedAt: new Date(),
+            reviewerNote: "Auto-aprobado: destinatario interno (@negociovivo.com)"
+          }
+        });
+        const { executeDraft } = await import("./execute-draft");
+        const result = await executeDraft(draftId);
+        return { autoApproved: true, executionResult: result };
+      }
+    } catch (e: any) {
+      console.warn("[nv-ia auto-approve internal] fail:", e?.message ?? e);
+      // Caemos al flujo normal de aprobación manual.
+    }
+  }
+
   // Acciones que SIEMPRE requieren el OK humano, aunque un cliente tenga
   // regla de auto-aprobación: comunicaciones salientes y llamadas.
   const ALWAYS_MANUAL = new Set(["PHONE_CALL", "EMAIL", "WHATSAPP"]);
