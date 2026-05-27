@@ -93,6 +93,7 @@ export default function LeadsClient() {
   const [queue, setQueue] = useState<QueueRow[]>([]);
   const [templates, setTemplates] = useState<Template[]>([]);
   const [inbox, setInbox] = useState<InboxRow[]>([]);
+  const [inboxDiag, setInboxDiag] = useState<{ webhookLastHit: string | null; webhookLastEvent: string | null }>({ webhookLastHit: null, webhookLastEvent: null });
   const [analytics, setAnalytics] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState("ALL");
@@ -129,7 +130,11 @@ export default function LeadsClient() {
         if (r.ok) setTemplates((await r.json()).items ?? []);
       } else if (tab === "inbox") {
         const r = await fetch("/api/v1/leads/inbox");
-        if (r.ok) setInbox((await r.json()).items ?? []);
+        if (r.ok) {
+          const d = await r.json();
+          setInbox(d.items ?? []);
+          setInboxDiag(d.diagnostics ?? { webhookLastHit: null, webhookLastEvent: null });
+        }
       } else if (tab === "analytics") {
         const r = await fetch("/api/v1/leads/analytics");
         if (r.ok) setAnalytics(await r.json());
@@ -248,7 +253,7 @@ export default function LeadsClient() {
 
       {tab === "searches" && <SearchesTable loading={loading} items={searches} onChanged={load} />}
       {tab === "queue" && <QueueTable loading={loading} items={queue} onChanged={load} />}
-      {tab === "inbox" && <InboxList loading={loading} items={inbox} />}
+      {tab === "inbox" && <InboxList loading={loading} items={inbox} diagnostics={inboxDiag} />}
       {tab === "sequences" && <SequencesView />}
       {tab === "templates" && <TemplatesTable loading={loading} items={templates} onChanged={load} />}
       {tab === "exclusions" && <ExclusionsView />}
@@ -1412,9 +1417,44 @@ function QueueTable({ loading, items, onChanged }: { loading: boolean; items: Qu
 
 // ============ INBOX ============
 
-function InboxList({ loading, items }: { loading: boolean; items: InboxRow[] }) {
+function InboxList({
+  loading,
+  items,
+  diagnostics
+}: {
+  loading: boolean;
+  items: InboxRow[];
+  diagnostics: { webhookLastHit: string | null; webhookLastEvent: string | null };
+}) {
   if (loading) return <Loading />;
-  if (items.length === 0) return <Empty msg="Sin mensajes recibidos. Configura el webhook de WAHA en Ajustes." />;
+  if (items.length === 0) {
+    const hit = diagnostics.webhookLastHit ? new Date(diagnostics.webhookLastHit) : null;
+    const minSinceHit = hit ? Math.round((Date.now() - hit.getTime()) / 60_000) : null;
+    return (
+      <div className="bg-white rounded-xl border p-6 text-sm text-slate-600 space-y-3">
+        <p className="font-medium text-slate-800">Sin mensajes recibidos todavía.</p>
+        {hit ? (
+          <div className="text-xs space-y-1 bg-emerald-50 border border-emerald-200 rounded-md p-2.5 text-emerald-800">
+            <div>✅ WAHA SÍ está enviando eventos: último recibido hace {minSinceHit} min ({hit.toLocaleString("es-ES")}).</div>
+            <div>Tipo del último evento: <code>{diagnostics.webhookLastEvent ?? "—"}</code>.</div>
+            <div className="mt-1">
+              Si llegan eventos pero no aparecen mensajes, lo más probable es que ese evento NO era de tipo
+              "message" (puede ser un ack/typing/status). Pide al lead que escriba un mensaje de texto nuevo y vuelve.
+            </div>
+          </div>
+        ) : (
+          <div className="text-xs space-y-1 bg-rose-50 border border-rose-200 rounded-md p-2.5 text-rose-800">
+            <div>❌ WAHA aún no ha enviado NINGÚN webhook a este Hub.</div>
+            <div>
+              Pulsa <strong>"Configurar webhook en WAHA"</strong> en Ajustes (arriba a la derecha) para que WAHA empiece a
+              reenviarnos los mensajes entrantes. Si ya lo hiciste, comprueba que la sesión WAHA está
+              en estado <code>WORKING</code> con "Probar conexión".
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
   return (
     <ul className="space-y-2">
       {items.map((m) => (
