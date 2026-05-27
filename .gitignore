@@ -1,3 +1,20 @@
+# Dependencies
 node_modules/
 package.json
 package-lock.json
+
+# Next.js build output
+.next/
+out/
+
+# Build info
+*.tsbuildinfo
+
+# Env files
+.env
+.env.local
+.env*.local
+
+# Logs
+*.log
+npm-debug.log*
