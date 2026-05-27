@@ -157,6 +157,20 @@ export const GET = withApi({ scope: "admin" }, async (_req, { api }) => {
       credentialAt: "Workspace.settings.integrations.holded.apiKeyEnc"
     },
     {
+      key: "google_places",
+      name: "Google Places API",
+      role: "Captación de leads: búsquedas Places (New) por keyword + provincia.",
+      configured:
+        has(() => s.leads?.googleApiKey) ||
+        has(() => s.integrations?.googlePlaces?.apiKeyEnc) ||
+        !!process.env.GOOGLE_PLACES_API_KEY,
+      dashboard: "https://console.cloud.google.com/apis/credentials",
+      credentialAt: "Workspace.settings.leads.googleApiKey (cifrada) — o /admin/leads → Ajustes",
+      recovery:
+        "Si Google revoca o se borra la key: crea otra en Google Cloud → APIs y servicios → Credenciales, " +
+        "habilita 'Places API (New)' en APIs y servicios → Biblioteca, y pégala en /admin/leads → Ajustes."
+    },
+    {
       key: "waha",
       name: "WAHA (WhatsApp)",
       role: "Envío de WhatsApp a leads + alertas de Sonia.",

@@ -61,13 +61,20 @@ export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
 });
 
 const schema = z.object({
+  // Para las API keys: NO se borran al recibir "" — eso pasaba antes y la
+  // gente perdía la key al pulsar Guardar sin tocar el campo. Solo se borra
+  // con el flag explícito clearXxxKey:true. Si llega un string no vacío,
+  // se cifra y guarda.
   googleApiKey: z.string().nullable().optional(),
+  clearGoogleApiKey: z.boolean().optional(),
   whatsappProvider: z.enum(["waha", "evolution"]).optional(),
   wahaUrl: z.string().url().or(z.literal("")).nullable().optional(),
   wahaApiKey: z.string().nullable().optional(),
+  clearWahaApiKey: z.boolean().optional(),
   wahaSession: z.string().optional(),
   evolutionUrl: z.string().url().or(z.literal("")).nullable().optional(),
   evolutionApiKey: z.string().nullable().optional(),
+  clearEvolutionApiKey: z.boolean().optional(),
   evolutionInstance: z.string().optional(),
   whatsappCountryCode: z.string().regex(/^\d{1,3}$/).optional(),
   sendEnabled: z.boolean().optional(),
@@ -95,32 +102,29 @@ export const PATCH = withApi({ scope: "*" }, async (req, { api }) => {
   settings.leads = settings.leads ?? {};
   const s = settings.leads;
 
-  if (parsed.data.googleApiKey !== undefined) {
-    if (parsed.data.googleApiKey === null || parsed.data.googleApiKey === "") {
-      delete s.googleApiKey;
-    } else {
-      s.googleApiKey = encryptSecret(parsed.data.googleApiKey);
-    }
+  // Borrar requiere flag explícito clearXxxKey:true. Si solo llega "" o null
+  // lo IGNORAMOS — antes esto borraba la key al pulsar Guardar sin tocar el
+  // campo (placeholder ••••••••).
+  if (parsed.data.clearGoogleApiKey) {
+    delete s.googleApiKey;
+  } else if (typeof parsed.data.googleApiKey === "string" && parsed.data.googleApiKey.trim()) {
+    s.googleApiKey = encryptSecret(parsed.data.googleApiKey.trim());
   }
   if (parsed.data.wahaUrl !== undefined) {
     s.wahaUrl = parsed.data.wahaUrl || null;
   }
-  if (parsed.data.wahaApiKey !== undefined) {
-    if (parsed.data.wahaApiKey === null || parsed.data.wahaApiKey === "") {
-      delete s.wahaApiKey;
-    } else {
-      s.wahaApiKey = encryptSecret(parsed.data.wahaApiKey);
-    }
+  if (parsed.data.clearWahaApiKey) {
+    delete s.wahaApiKey;
+  } else if (typeof parsed.data.wahaApiKey === "string" && parsed.data.wahaApiKey.trim()) {
+    s.wahaApiKey = encryptSecret(parsed.data.wahaApiKey.trim());
   }
   if (parsed.data.evolutionUrl !== undefined) {
     s.evolutionUrl = parsed.data.evolutionUrl || null;
   }
-  if (parsed.data.evolutionApiKey !== undefined) {
-    if (parsed.data.evolutionApiKey === null || parsed.data.evolutionApiKey === "") {
-      delete s.evolutionApiKey;
-    } else {
-      s.evolutionApiKey = encryptSecret(parsed.data.evolutionApiKey);
-    }
+  if (parsed.data.clearEvolutionApiKey) {
+    delete s.evolutionApiKey;
+  } else if (typeof parsed.data.evolutionApiKey === "string" && parsed.data.evolutionApiKey.trim()) {
+    s.evolutionApiKey = encryptSecret(parsed.data.evolutionApiKey.trim());
   }
   for (const k of [
     "whatsappProvider",
