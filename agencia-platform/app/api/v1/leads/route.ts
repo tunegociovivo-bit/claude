@@ -43,6 +43,8 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
       contactStatus: true,
       aiOpener: true,
       hasWhatsapp: true,
+      latitude: true,
+      longitude: true,
       _count: {
         select: {
           // Solo mensajes que SALIERON de verdad por WhatsApp.
