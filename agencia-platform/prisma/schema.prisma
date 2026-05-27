@@ -3291,3 +3291,191 @@ model SoniaKnowledge {
 
   @@index([workspaceId])
 }
+
+// ════════════════════════════════════════════════════════════════════
+// BIPI — App de descuentos cruzados entre negocios locales
+// ════════════════════════════════════════════════════════════════════
+// Producto independiente que vive en el mismo Hub (mismo Postgres) con
+// tablas separadas. Cada negocio Bipi tiene su QR único; cada cliente
+// que lo escanea entra a la red y desbloquea descuentos en negocios
+// complementarios cercanos con caducidad de 4 días.
+
+/// Negocio dado de alta en la red Bipi.
+model BipiBusiness {
+  id            String   @id @default(cuid())
+  // Slug humano para QR url corto y SEO (bipi.app/n/spa-bambu).
+  slug          String   @unique
+  name          String
+  category      String   // peluquería | restaurante | gimnasio | spa | nutrición | ...
+  description   String?  @db.Text
+  // Localización del local (para geofencing + radio de visibilidad).
+  address       String?
+  city          String   @default("Benalmádena")
+  province      String   @default("Málaga")
+  latitude      Float?
+  longitude     Float?
+  // Branding mínimo.
+  logoUrl       String?
+  brandColor    String?
+  // Oferta default (descuento estándar al cliente cuando escanea).
+  defaultDiscountPct Int @default(5)
+  // Cupón cruzado: el % que ofrece a clientes de otros negocios.
+  crossDiscountPct   Int @default(8)
+  // Karma de visibilidad (0-100, recalculado nocturno).
+  visibilityScore Int @default(50)
+  scoreUpdatedAt  DateTime?
+  // Modelo de validación de compra.
+  purchaseMode  String   @default("double_confirm") // double_confirm | express
+  // Suscripción.
+  plan          String   @default("free") // free | pro | premium
+  // Email + contraseña hash del dueño (auth simple v1; iremos a oauth en v2).
+  ownerEmail    String   @unique
+  ownerPasswordHash String
+  ownerName     String?
+  ownerPhone    String?
+  // Quien lo refirió a Bipi (si vino vía QR de otro negocio).
+  referrerId    String?
+  // Status.
+  active        Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  referrer  BipiBusiness?     @relation("BipiReferral", fields: [referrerId], references: [id])
+  referrals BipiBusiness[]    @relation("BipiReferral")
+  purchases BipiPurchase[]
+  offers    BipiOffer[]
+  pushAds   BipiPushAd[]
+
+  @@index([city, active])
+  @@index([referrerId])
+  @@index([visibilityScore])
+}
+
+/// Cliente final dado de alta en la app Bipi.
+model BipiCustomer {
+  id              String   @id @default(cuid())
+  email           String   @unique
+  phone           String?  @unique
+  name            String?
+  // Token push (Expo / FCM / APNs).
+  pushToken       String?
+  // Última ubicación (para feed + push geo).
+  lastLat         Float?
+  lastLng         Float?
+  lastLocationAt  DateTime?
+  // Métrica showcase.
+  totalSaved      Float    @default(0) // €  total ahorrados con Bipi
+  totalPurchases  Int      @default(0)
+  // Embajador (nivel desbloqueado).
+  ambassadorLevel String   @default("none") // none | bronze | silver | gold | founder
+  // Quien lo refirió (negocio donde escaneó por primera vez).
+  firstBusinessId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  purchases BipiPurchase[]
+  offers    BipiOffer[]
+  pushLogs  BipiPushLog[]
+
+  @@index([lastLat, lastLng])
+}
+
+/// Compra registrada con escaneo del QR.
+///
+/// Estados:
+///   pending   → cliente escaneó e introdujo importe; negocio aún no confirma.
+///   confirmed → negocio aprobó. Descuento aplicado, ofertas desbloqueadas.
+///   rejected  → negocio rechazó (importe incorrecto o no es válido).
+model BipiPurchase {
+  id              String   @id @default(cuid())
+  customerId      String
+  businessId      String
+  amount          Float    // importe bruto pagado en caja
+  discountPct     Int      // descuento aplicado %
+  discountAmount  Float    // € de descuento
+  status          String   @default("pending") // pending | confirmed | rejected
+  // Si vino vía un cupón cruzado, link al BipiOffer que se canjeó.
+  redeemedOfferId String?
+  // Geolocalización al escanear (anti-fraude).
+  scanLat         Float?
+  scanLng         Float?
+  scanDistanceM   Float?   // distancia al local en metros
+  // Razón si rejected.
+  rejectionReason String?
+  scannedAt       DateTime @default(now())
+  confirmedAt     DateTime?
+
+  customer BipiCustomer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  business BipiBusiness @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId, status])
+  @@index([customerId])
+  @@index([scannedAt])
+}
+
+/// Oferta desbloqueada para un cliente concreto en un negocio concreto.
+/// Se generan tras cada compra confirmada (3-5 ofertas de negocios
+/// complementarios cercanos) y caducan a los 4 días.
+model BipiOffer {
+  id              String   @id @default(cuid())
+  customerId      String
+  businessId      String   // negocio que ofrece el descuento
+  discountPct     Int
+  // Negocio "originador" — la compra que desbloqueó esta oferta.
+  triggerBusinessId String?
+  expiresAt       DateTime
+  redeemed        Boolean  @default(false)
+  redeemedAt      DateTime?
+  createdAt       DateTime @default(now())
+
+  customer BipiCustomer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  business BipiBusiness @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([customerId, expiresAt])
+  @@index([businessId, expiresAt])
+  @@unique([customerId, businessId, triggerBusinessId])
+}
+
+/// Anuncio push pagado (el "Push del Día" que paga el negocio por 24h).
+model BipiPushAd {
+  id            String   @id @default(cuid())
+  businessId    String
+  title         String
+  body          String   @db.Text
+  // Radio de envío (km).
+  radiusKm      Float    @default(1)
+  centerLat     Float
+  centerLng     Float
+  // Pricing.
+  reach         Int      // usuarios estimados al crear
+  pricePaidEur  Float
+  // Programación.
+  startsAt      DateTime
+  endsAt        DateTime
+  // Stats.
+  sentCount     Int      @default(0)
+  openedCount   Int      @default(0)
+  redeemCount   Int      @default(0)
+  status        String   @default("scheduled") // scheduled | sending | done | cancelled
+  createdAt     DateTime @default(now())
+
+  business BipiBusiness @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@index([startsAt, endsAt])
+}
+
+/// Log de cada push enviado (para evitar dups y medir performance).
+model BipiPushLog {
+  id          String   @id @default(cuid())
+  customerId  String
+  pushAdId    String?
+  kind        String   // ad | offer_expiring | new_offers | welcome
+  payload     Json
+  sentAt      DateTime @default(now())
+  opened      Boolean  @default(false)
+
+  customer BipiCustomer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId, sentAt])
+}
