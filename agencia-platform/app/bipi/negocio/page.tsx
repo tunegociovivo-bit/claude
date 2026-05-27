@@ -165,7 +165,11 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
         <div className="flex-1">
           <h3 className="font-semibold text-sm">Tu QR</h3>
           <p className="text-xs text-slate-600 mb-2">Imprímelo y ponlo en la caja. Cada escaneo sube tu karma y te hace más visible.</p>
-          <a href={b.qrPngUrl} download className="text-sm text-amber-700 hover:underline">Descargar PNG →</a>
+          <div className="flex items-center gap-2 flex-wrap">
+            <a href={b.qrPngUrl} download className="text-sm text-amber-700 hover:underline">Descargar PNG</a>
+            <span className="text-slate-400">·</span>
+            <CsvDownloadButton businessId={b.id} token={session.token} />
+          </div>
         </div>
       </section>
 
@@ -222,6 +226,45 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
         )}
       </section>
     </main>
+  );
+}
+
+/** Botón para descargar CSV con las compras confirmadas del negocio.
+ *  Usa fetch para incluir el header Authorization, crea blob y dispara
+ *  descarga (no se puede hacer con <a download> porque no permite headers). */
+function CsvDownloadButton({ businessId, token }: { businessId: string; token: string }) {
+  const [busy, setBusy] = useState(false);
+  async function go() {
+    setBusy(true);
+    try {
+      const r = await fetch(`/api/bipi/business/${businessId}/purchases.csv`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (!r.ok) {
+        alert("No se pudo descargar el CSV.");
+        return;
+      }
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `bipi-compras-${businessId.slice(0, 8)}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <button
+      onClick={go}
+      disabled={busy}
+      className="text-sm text-amber-700 hover:underline disabled:opacity-50"
+    >
+      {busy ? "Generando…" : "Descargar CSV compras"}
+    </button>
   );
 }
 

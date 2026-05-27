@@ -10,7 +10,20 @@
 
 import { useEffect, useState } from "react";
 
-type Customer = { customerId: string; name?: string; totalSaved: number; totalPurchases: number };
+type Customer = {
+  customerId: string;
+  name?: string;
+  totalSaved: number;
+  totalPurchases: number;
+  ambassadorLevel?: string;
+};
+
+const AMBASSADOR_BADGE: Record<string, { label: string; emoji: string; color: string }> = {
+  bronze: { label: "Embajador Bronce", emoji: "🥉", color: "bg-orange-100 text-orange-800 border-orange-300" },
+  silver: { label: "Embajador Plata", emoji: "🥈", color: "bg-slate-200 text-slate-800 border-slate-400" },
+  gold: { label: "Embajador Oro", emoji: "🥇", color: "bg-amber-100 text-amber-900 border-amber-400" },
+  founder: { label: "Bipi Founder", emoji: "💎", color: "bg-violet-100 text-violet-900 border-violet-400" }
+};
 type Offer = {
   offerId: string;
   business: { id: string; name: string; category: string; city: string; brandColor?: string | null };
@@ -114,7 +127,7 @@ function OffersFeed({ customer, coords, onLogout }: { customer: Customer; coords
   const [loading, setLoading] = useState(true);
   const [pushState, setPushState] = useState<"unknown" | "unsupported" | "denied" | "granted" | "loading">("unknown");
 
-  // Carga ofertas
+  // Carga ofertas + refresca perfil (badge embajador, total ahorrado real…)
   useEffect(() => {
     (async () => {
       setLoading(true);
@@ -125,8 +138,19 @@ function OffersFeed({ customer, coords, onLogout }: { customer: Customer; coords
         url.searchParams.set("lng", String(coords.lng));
       }
       try {
-        const r = await fetch(url.toString());
-        if (r.ok) setOffers((await r.json()).items ?? []);
+        const [offersRes, profileRes] = await Promise.all([
+          fetch(url.toString()),
+          fetch(`/api/bipi/customer/${customer.customerId}`)
+        ]);
+        if (offersRes.ok) setOffers((await offersRes.json()).items ?? []);
+        if (profileRes.ok) {
+          const fresh = await profileRes.json();
+          // Persist actualizado en localStorage para los siguientes renders.
+          try {
+            const merged = { ...customer, ...fresh };
+            localStorage.setItem("bipi.customer", JSON.stringify(merged));
+          } catch {}
+        }
       } finally {
         setLoading(false);
       }
@@ -194,6 +218,12 @@ function OffersFeed({ customer, coords, onLogout }: { customer: Customer; coords
         <div>
           <div className="text-xs text-slate-500">Hola{customer.name ? `, ${customer.name}` : ""}</div>
           <div className="font-bold text-lg">Has ahorrado <span className="text-emerald-600">{customer.totalSaved.toFixed(2)} €</span></div>
+          {customer.ambassadorLevel && customer.ambassadorLevel !== "none" && AMBASSADOR_BADGE[customer.ambassadorLevel] && (
+            <div className={"inline-flex items-center gap-1 mt-1 px-2 py-0.5 rounded-full text-[11px] font-medium border " + AMBASSADOR_BADGE[customer.ambassadorLevel].color}>
+              <span>{AMBASSADOR_BADGE[customer.ambassadorLevel].emoji}</span>
+              <span>{AMBASSADOR_BADGE[customer.ambassadorLevel].label}</span>
+            </div>
+          )}
         </div>
         <button onClick={onLogout} className="text-xs text-slate-500 hover:underline">Salir</button>
       </div>
