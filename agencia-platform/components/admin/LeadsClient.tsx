@@ -1989,15 +1989,42 @@ function Timeline({ title, data, color }: { title: string; data: { date: string;
 function Loading() { return <div className="flex items-center justify-center py-12 text-slate-500"><Loader2 className="h-5 w-5 animate-spin mr-2" /> Cargando…</div>; }
 function Empty({ msg }: { msg: string }) { return <div className="bg-white rounded-xl border p-8 text-center text-sm text-slate-500">{msg}</div>; }
 
+type LeadSourceKey =
+  | "places"
+  | "borme"
+  | "trustpilot"
+  | "doctoralia"
+  | "idealista"
+  | "fotocasa"
+  | "linkedin";
+
+const LEAD_SOURCES: Array<{
+  key: LeadSourceKey;
+  label: string;
+  status: "ready" | "stub";
+  help: string;
+}> = [
+  { key: "places", label: "Google Places", status: "ready", help: "Negocios listados en Google Maps." },
+  { key: "borme", label: "BORME (constituciones)", status: "ready", help: "Sociedades recién constituidas en España (día 1, sin web ni GMB)." },
+  { key: "trustpilot", label: "Trustpilot (reseñas bajas)", status: "stub", help: "Próximamente — falta configurar scraper." },
+  { key: "doctoralia", label: "Doctoralia", status: "stub", help: "Próximamente — falta configurar scraper." },
+  { key: "idealista", label: "Idealista", status: "stub", help: "Próximamente — falta API key." },
+  { key: "fotocasa", label: "Fotocasa", status: "stub", help: "Próximamente — falta scraper." },
+  { key: "linkedin", label: "LinkedIn", status: "stub", help: "Próximamente — falta integración PhantomBuster/Apollo." }
+];
+
 function NewSearchModal({ open, onClose, onSaved }: { open: boolean; onClose: () => void; onSaved: () => void }) {
+  const [source, setSource] = useState<LeadSourceKey>("places");
   const [keyword, setKeyword] = useState("");
   const [location, setLocation] = useState("");
   const [scope, setScope] = useState<"custom" | "spain">("custom");
   const [skipExisting, setSkipExisting] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const sourceMeta = LEAD_SOURCES.find((s) => s.key === source) ?? LEAD_SOURCES[0];
   useEffect(() => {
     if (!open) return;
+    setSource("places");
     setKeyword("");
     setLocation("");
     setScope("custom");
@@ -2006,14 +2033,23 @@ function NewSearchModal({ open, onClose, onSaved }: { open: boolean; onClose: ()
     setSaving(false);
   }, [open]);
   async function save() {
-    if (!keyword.trim()) { setError("Falta el keyword"); return; }
-    if (scope === "custom" && !location.trim()) { setError("Falta la localidad"); return; }
+    if (!keyword.trim()) { setError("Falta el keyword / nicho a buscar"); return; }
+    // En "places" exigimos localidad. En "borme" la localidad es OPCIONAL
+    // (si se rellena, filtra por provincia; si no, trae toda España).
+    if (source === "places" && scope === "custom" && !location.trim()) {
+      setError("Falta la provincia / localidad");
+      return;
+    }
+    if (sourceMeta.status === "stub") {
+      setError(sourceMeta.help);
+      return;
+    }
     setSaving(true);
     setError(null);
     const r = await fetch("/api/v1/leads/searches", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ keyword, location, scope, skipExisting })
+      body: JSON.stringify({ keyword, location, scope, skipExisting, source })
     });
     setSaving(false);
     if (!r.ok) {
@@ -2038,30 +2074,57 @@ function NewSearchModal({ open, onClose, onSaved }: { open: boolean; onClose: ()
         <p className="text-xs text-slate-500">
           Las búsquedas se procesan en batches por el cron. Tras crearla pulsa "Procesar batch" para arrancar.
         </p>
+        <div>
+          <label className="block text-xs font-medium text-slate-700 mb-1">Fuente de leads</label>
+          <select
+            value={source}
+            onChange={(e) => setSource(e.target.value as LeadSourceKey)}
+            className="w-full px-3 py-2 rounded-lg border bg-white text-sm"
+          >
+            {LEAD_SOURCES.map((src) => (
+              <option key={src.key} value={src.key}>
+                {src.status === "stub" ? `${src.label} (próximamente)` : src.label}
+              </option>
+            ))}
+          </select>
+          <p className={"text-[11px] mt-1 " + (sourceMeta.status === "stub" ? "text-amber-700" : "text-slate-500")}>
+            {sourceMeta.help}
+          </p>
+        </div>
         <input
           value={keyword}
           onChange={(e) => setKeyword(e.target.value)}
-          placeholder="Keyword (ej: plomero, dentista, abogado)"
+          placeholder={source === "borme" ? "Sector / palabra clave (filtra empresas del BORME)" : "Keyword (ej: plomero, dentista, abogado)"}
           className="w-full px-3 py-2 rounded-lg border bg-white text-sm"
         />
         <div>
-          <label className="block text-xs font-medium text-slate-700 mb-1">Alcance</label>
+          <label className="block text-xs font-medium text-slate-700 mb-1">
+            {source === "borme" ? "Días hacia atrás" : "Alcance"}
+          </label>
           <div className="grid grid-cols-2 gap-2">
             <label className={"flex items-center gap-2 p-2 rounded border cursor-pointer " + (scope === "custom" ? "bg-brand-50 border-brand-300" : "bg-white")}>
               <input type="radio" checked={scope === "custom"} onChange={() => setScope("custom")} className="accent-brand-600" />
-              <span className="text-xs">Una provincia / localidad</span>
+              <span className="text-xs">
+                {source === "borme" ? "Hoy (último día publicado)" : "Una provincia / localidad"}
+              </span>
             </label>
             <label className={"flex items-center gap-2 p-2 rounded border cursor-pointer " + (scope === "spain" ? "bg-brand-50 border-brand-300" : "bg-white")}>
               <input type="radio" checked={scope === "spain"} onChange={() => setScope("spain")} className="accent-brand-600" />
-              <span className="text-xs">Toda España (52 provincias)</span>
+              <span className="text-xs">
+                {source === "borme" ? "Última semana" : "Toda España (52 provincias)"}
+              </span>
             </label>
           </div>
         </div>
-        {scope === "custom" && (
+        {(source === "places" ? scope === "custom" : true) && (
           <input
             value={location}
             onChange={(e) => setLocation(e.target.value)}
-            placeholder="Provincia o localidad (ej: Málaga, Madrid)"
+            placeholder={
+              source === "borme"
+                ? "Provincia (opcional, filtra registro mercantil)"
+                : "Provincia o localidad (ej: Málaga, Madrid)"
+            }
             className="w-full px-3 py-2 rounded-lg border bg-white text-sm"
           />
         )}
