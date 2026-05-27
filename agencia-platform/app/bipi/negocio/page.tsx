@@ -169,6 +169,13 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
         </div>
       </section>
 
+      {/* Plan + Upgrade */}
+      <PlanCard business={b} />
+
+      {/* Crear Push del Día */}
+      <PushAdForm businessId={b.id} />
+
+
       {/* Pendientes */}
       <section>
         <h3 className="font-semibold mb-2">Compras pendientes ({data.pending.length})</h3>
@@ -209,6 +216,149 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
         )}
       </section>
     </main>
+  );
+}
+
+function PlanCard({ business }: { business: any }) {
+  const [busy, setBusy] = useState<string | null>(null);
+  async function upgrade(plan: "pro" | "premium") {
+    setBusy(plan);
+    try {
+      const r = await fetch("/api/bipi/stripe/checkout-subscription", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ businessId: business.id, plan })
+      });
+      const j = await r.json();
+      if (!r.ok || !j.url) {
+        alert(j?.error?.message ?? "No se pudo crear el checkout");
+        return;
+      }
+      window.location.href = j.url;
+    } finally {
+      setBusy(null);
+    }
+  }
+  return (
+    <section className="bg-white border rounded-xl p-5 shadow-sm">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div>
+          <h3 className="font-semibold text-sm">Tu plan: <span className="text-amber-700 capitalize">{business.plan}</span></h3>
+          <p className="text-xs text-slate-600">
+            {business.plan === "free"
+              ? "Aparece en feed (según karma). Sube de plan para destacar y recibir más clientes."
+              : "Tienes ventajas Pro/Premium activas."}
+          </p>
+        </div>
+      </div>
+      {business.plan === "free" && (
+        <div className="grid sm:grid-cols-2 gap-2 mt-3">
+          <button
+            onClick={() => upgrade("pro")}
+            disabled={busy !== null}
+            className="text-left p-3 rounded-lg border border-amber-300 hover:bg-amber-50 disabled:opacity-50"
+          >
+            <div className="font-semibold">⭐ Pro · 29€/mes</div>
+            <div className="text-xs text-slate-600 mt-1">+ 1 push gratis/mes · AI Studio · analytics avanzado</div>
+          </button>
+          <button
+            onClick={() => upgrade("premium")}
+            disabled={busy !== null}
+            className="text-left p-3 rounded-lg border border-rose-300 hover:bg-rose-50 disabled:opacity-50"
+          >
+            <div className="font-semibold">🔥 Premium · 99€/mes</div>
+            <div className="text-xs text-slate-600 mt-1">+ 4 push gratis/mes · -25% en push extra · soporte prioritario</div>
+          </button>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function PushAdForm({ businessId }: { businessId: string }) {
+  const [title, setTitle] = useState("");
+  const [body, setBody] = useState("");
+  const [radiusKm, setRadiusKm] = useState(1);
+  const [quote, setQuote] = useState<{ reach: number; priceEur: number } | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const r = await fetch("/api/bipi/push-quote", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ businessId, radiusKm })
+      });
+      if (cancelled) return;
+      if (r.ok) setQuote(await r.json());
+    })();
+    return () => { cancelled = true; };
+  }, [businessId, radiusKm]);
+
+  async function pay() {
+    if (!title.trim() || !body.trim()) return;
+    setBusy(true);
+    try {
+      const r = await fetch("/api/bipi/stripe/checkout-push-ad", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ businessId, title, body, radiusKm })
+      });
+      const j = await r.json();
+      if (!r.ok || !j.url) {
+        alert(j?.error?.message ?? "No se pudo crear el pago");
+        return;
+      }
+      window.location.href = j.url;
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="bg-white border rounded-xl p-5 shadow-sm space-y-3">
+      <h3 className="font-semibold text-sm">📣 Push del Día</h3>
+      <p className="text-xs text-slate-600">
+        Envía una notificación push a clientes Bipi cerca de tu local. 24h activa.
+      </p>
+      <input
+        value={title}
+        onChange={(e) => setTitle(e.target.value)}
+        placeholder="Título (ej: ¡Hoy 30% en cortes hasta las 20h!)"
+        className="w-full px-3 py-2 border rounded-lg bg-white text-sm"
+      />
+      <textarea
+        value={body}
+        onChange={(e) => setBody(e.target.value)}
+        placeholder="Mensaje del push (1-2 frases con gancho)"
+        rows={2}
+        className="w-full px-3 py-2 border rounded-lg bg-white text-sm"
+      />
+      <div className="flex items-center justify-between text-sm">
+        <label className="flex items-center gap-2">
+          Radio:
+          <select value={radiusKm} onChange={(e) => setRadiusKm(Number(e.target.value))} className="border rounded px-2 py-1">
+            <option value={0.5}>500 m</option>
+            <option value={1}>1 km</option>
+            <option value={2}>2 km</option>
+            <option value={3}>3 km</option>
+            <option value={5}>5 km</option>
+          </select>
+        </label>
+        {quote && (
+          <div className="text-xs text-slate-600">
+            ~{quote.reach} usuarios · <strong className="text-amber-700">{quote.priceEur}€</strong>
+          </div>
+        )}
+      </div>
+      <button
+        onClick={pay}
+        disabled={busy || !title.trim() || !body.trim()}
+        className="w-full py-2.5 rounded-full bg-amber-600 hover:bg-amber-700 text-white font-medium disabled:opacity-50"
+      >
+        {busy ? "Procesando…" : `Pagar y lanzar (${quote?.priceEur ?? "—"} €)`}
+      </button>
+    </section>
   );
 }
 
