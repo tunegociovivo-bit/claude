@@ -23,6 +23,23 @@ export type LeadsSendSettings = {
   countryCode: string;
   maxAttempts: number;
   validateWaBeforeSend: boolean;
+  // ── ANTI-BANEO REFORZADO ──
+  /** Máx mensajes enviados por hora (no solo por día). Evita ráfagas que
+   *  WhatsApp detecta como bot. */
+  maxPerHour: number;
+  /** Mínimo de días entre dos mensajes al MISMO número. Evita rebotes,
+   *  doble-contacto entre campañas distintas y mejora reputación. */
+  minCoolDownDaysPerRecipient: number;
+  /** Cap de "nuevas conversaciones" iniciadas hoy. WhatsApp vigila esto
+   *  más que el volumen total: empezar muchas convos nuevas con el mismo
+   *  copy = bandera roja. */
+  maxNewChatsPerDay: number;
+  /** Modo recuperación post-restricción. Si true, aplica límites mucho
+   *  más conservadores durante recoveryDurationDays. Después se auto-
+   *  desactiva. */
+  recoveryMode: boolean;
+  recoverySince: string | null; // ISO date
+  recoveryDurationDays: number;
 };
 
 const DEFAULTS: LeadsSendSettings = {
@@ -37,13 +54,30 @@ const DEFAULTS: LeadsSendSettings = {
   sendPaused: false,
   countryCode: "34",
   maxAttempts: 3,
-  validateWaBeforeSend: true
+  validateWaBeforeSend: true,
+  maxPerHour: 10,
+  minCoolDownDaysPerRecipient: 7,
+  maxNewChatsPerDay: 25,
+  recoveryMode: false,
+  recoverySince: null,
+  recoveryDurationDays: 14
+};
+
+/** Límites endurecidos durante el modo recuperación. Se aplican encima de
+ *  los settings del usuario tomando siempre el valor MÁS conservador. */
+const RECOVERY_OVERRIDES = {
+  sendDelayMinSec: 300, // 5 min
+  sendDelayMaxSec: 900, // 15 min
+  dailyLimit: 15,
+  maxPerHour: 3,
+  maxNewChatsPerDay: 8,
+  minCoolDownDaysPerRecipient: 10
 };
 
 export async function getSendSettings(workspaceId: string): Promise<LeadsSendSettings> {
   const ws = await prisma.workspace.findUnique({ where: { id: workspaceId } });
   const s: any = (ws?.settings as any)?.leads ?? {};
-  return {
+  const base: LeadsSendSettings = {
     sendEnabled: s.sendEnabled ?? DEFAULTS.sendEnabled,
     sendDelayMinSec: s.sendDelayMinSec ?? DEFAULTS.sendDelayMinSec,
     sendDelayMaxSec: s.sendDelayMaxSec ?? DEFAULTS.sendDelayMaxSec,
@@ -55,8 +89,52 @@ export async function getSendSettings(workspaceId: string): Promise<LeadsSendSet
     sendPaused: s.sendPaused ?? DEFAULTS.sendPaused,
     countryCode: s.whatsappCountryCode ?? DEFAULTS.countryCode,
     maxAttempts: s.maxAttempts ?? DEFAULTS.maxAttempts,
-    validateWaBeforeSend: s.validateWaBeforeSend ?? DEFAULTS.validateWaBeforeSend
+    validateWaBeforeSend: s.validateWaBeforeSend ?? DEFAULTS.validateWaBeforeSend,
+    maxPerHour: s.maxPerHour ?? DEFAULTS.maxPerHour,
+    minCoolDownDaysPerRecipient: s.minCoolDownDaysPerRecipient ?? DEFAULTS.minCoolDownDaysPerRecipient,
+    maxNewChatsPerDay: s.maxNewChatsPerDay ?? DEFAULTS.maxNewChatsPerDay,
+    recoveryMode: s.recoveryMode ?? DEFAULTS.recoveryMode,
+    recoverySince: s.recoverySince ?? DEFAULTS.recoverySince,
+    recoveryDurationDays: s.recoveryDurationDays ?? DEFAULTS.recoveryDurationDays
   };
+
+  // Auto-desactiva recoveryMode al pasar el plazo (recoveryDurationDays
+  // desde recoverySince). Persistimos para que la UI lo vea apagado.
+  if (base.recoveryMode && base.recoverySince) {
+    const expires =
+      new Date(base.recoverySince).getTime() + base.recoveryDurationDays * 86_400_000;
+    if (Date.now() > expires) {
+      base.recoveryMode = false;
+      await prisma.workspace
+        .update({
+          where: { id: workspaceId },
+          data: {
+            settings: {
+              ...((ws?.settings as any) ?? {}),
+              leads: { ...(s ?? {}), recoveryMode: false }
+            }
+          }
+        })
+        .catch(() => {});
+    }
+  }
+
+  // Si recoveryMode sigue activo, aplica overrides (siempre escogiendo el
+  // valor MÁS conservador entre user y override — el user no puede
+  // aflojarlos durante la recuperación).
+  if (base.recoveryMode) {
+    base.sendDelayMinSec = Math.max(base.sendDelayMinSec, RECOVERY_OVERRIDES.sendDelayMinSec);
+    base.sendDelayMaxSec = Math.max(base.sendDelayMaxSec, RECOVERY_OVERRIDES.sendDelayMaxSec);
+    base.dailyLimit = Math.min(base.dailyLimit, RECOVERY_OVERRIDES.dailyLimit);
+    base.maxPerHour = Math.min(base.maxPerHour, RECOVERY_OVERRIDES.maxPerHour);
+    base.maxNewChatsPerDay = Math.min(base.maxNewChatsPerDay, RECOVERY_OVERRIDES.maxNewChatsPerDay);
+    base.minCoolDownDaysPerRecipient = Math.max(
+      base.minCoolDownDaysPerRecipient,
+      RECOVERY_OVERRIDES.minCoolDownDaysPerRecipient
+    );
+  }
+
+  return base;
 }
 
 function parseHM(hm: string): { h: number; m: number } {
@@ -155,6 +233,46 @@ export async function countSentToday(workspaceId: string): Promise<number> {
   return prisma.leadMessage.count({
     where: { workspaceId, status: "sent", sentAt: { gte: dayStart, lt: dayEnd } }
   });
+}
+
+/** Mensajes enviados en los últimos N minutos (cap por hora anti-baneo). */
+export async function countSentInWindow(workspaceId: string, minutes: number): Promise<number> {
+  const since = new Date(Date.now() - minutes * 60_000);
+  return prisma.leadMessage.count({
+    where: { workspaceId, status: "sent", sentAt: { gte: since } }
+  });
+}
+
+/** Cuántas NUEVAS conversaciones se han abierto hoy (Madrid). Una nueva
+ *  conversación = un mensaje "sent" cuyo phoneNormalized no había recibido
+ *  ningún mensaje sent antes. Aproximación: contamos `phoneNormalized`s
+ *  cuyo primer "sent" cae dentro de hoy. */
+export async function countNewConversationsToday(workspaceId: string): Promise<number> {
+  const mp = getMadridParts(new Date());
+  const dayStart = madridWallToDate(mp.year, mp.month, mp.day, 0, 0);
+  const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
+  const sentTodayPhones = await prisma.leadMessage.findMany({
+    where: { workspaceId, status: "sent", sentAt: { gte: dayStart, lt: dayEnd } },
+    select: { phoneNormalized: true },
+    distinct: ["phoneNormalized"]
+  });
+  if (sentTodayPhones.length === 0) return 0;
+  // Para cada teléfono que recibió hoy, comprobamos si hay un envío
+  // anterior. Si no hay anterior, cuenta como nueva conversación.
+  let count = 0;
+  for (const p of sentTodayPhones) {
+    const prior = await prisma.leadMessage.findFirst({
+      where: {
+        workspaceId,
+        status: "sent",
+        phoneNormalized: p.phoneNormalized,
+        sentAt: { lt: dayStart }
+      },
+      select: { id: true }
+    });
+    if (!prior) count++;
+  }
+  return count;
 }
 
 /**
@@ -340,7 +458,13 @@ export async function processQueueTick(workspaceId: string): Promise<{
   if (sentToday >= settings.dailyLimit) {
     return { processed: false, error: "daily_limit_reached" };
   }
-  // 3) Cadencia mínima desde el último envío real: aunque haya varios
+  // 3) Cap por hora — ANTI-BANEO: incluso si el daily lo permite, evitamos
+  //    ráfagas que dispararían las alertas de Meta.
+  const sentLastHour = await countSentInWindow(workspaceId, 60);
+  if (sentLastHour >= settings.maxPerHour) {
+    return { processed: false, error: "hourly_limit_reached" };
+  }
+  // 4) Cadencia mínima desde el último envío real: aunque haya varios
   //    mensajes vencidos en cola, respeta el delay mínimo entre envíos.
   const lastSent = await prisma.leadMessage.findFirst({
     where: { workspaceId, status: "sent", sentAt: { not: null } },
@@ -363,6 +487,67 @@ export async function processQueueTick(workspaceId: string): Promise<{
     orderBy: { scheduledAt: "asc" }
   });
   if (!msg) return { processed: false };
+
+  // 5) Cool-down POR DESTINATARIO: no contactar dos veces al mismo número
+  //    dentro de la ventana configurada (default 7 días). Re-encolamos el
+  //    mensaje para más tarde y seguimos al siguiente; no es un fallo del
+  //    propio envío.
+  const cooldownDays = settings.minCoolDownDaysPerRecipient;
+  if (cooldownDays > 0) {
+    const cutoff = new Date(now.getTime() - cooldownDays * 86_400_000);
+    const recent = await prisma.leadMessage.findFirst({
+      where: {
+        workspaceId,
+        phoneNormalized: msg.phoneNormalized,
+        id: { not: msg.id },
+        status: "sent",
+        sentAt: { gte: cutoff }
+      },
+      select: { sentAt: true }
+    });
+    if (recent) {
+      const nextAllowed = new Date(
+        (recent.sentAt?.getTime() ?? now.getTime()) + cooldownDays * 86_400_000
+      );
+      await prisma.leadMessage.update({
+        where: { id: msg.id },
+        data: { scheduledAt: nextAllowed }
+      });
+      return { processed: false, error: "recipient_cooldown" };
+    }
+  }
+
+  // 6) Cap de NUEVAS conversaciones por día. Una "nueva conversación" es
+  //    un envío a un número al que no se le había escrito antes. Meta
+  //    vigila este número más que el volumen total: si abres 80 chats
+  //    nuevos en un día, te marcan como bot.
+  const earlierToThisPhone = await prisma.leadMessage.findFirst({
+    where: {
+      workspaceId,
+      phoneNormalized: msg.phoneNormalized,
+      id: { not: msg.id },
+      status: "sent"
+    },
+    select: { id: true }
+  });
+  const isNewConversation = !earlierToThisPhone;
+  if (isNewConversation) {
+    const newChatsToday = await countNewConversationsToday(workspaceId);
+    if (newChatsToday >= settings.maxNewChatsPerDay) {
+      // Reprograma este mensaje al primer slot de mañana en ventana.
+      const tomorrowSlot = await computeNextSlot({
+        workspaceId,
+        desired: new Date(now.getTime() + 1 * 60_000),
+        settings
+      });
+      const tomorrow = new Date(tomorrowSlot.getTime() + 24 * 60 * 60 * 1000);
+      await prisma.leadMessage.update({
+        where: { id: msg.id },
+        data: { scheduledAt: tomorrow }
+      });
+      return { processed: false, error: "new_chats_daily_cap" };
+    }
+  }
 
   return sendMessageById(workspaceId, msg.id, { settings });
 }
