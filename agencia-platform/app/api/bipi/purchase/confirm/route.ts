@@ -14,7 +14,11 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db/prisma";
-import { unlockOffersForPurchase, recalculateVisibilityScore } from "@/lib/bipi/core";
+import {
+  unlockOffersForPurchase,
+  recalculateVisibilityScore,
+  recalculateAmbassadorLevel
+} from "@/lib/bipi/core";
 
 export const dynamic = "force-dynamic";
 
@@ -89,8 +93,10 @@ export async function POST(req: Request) {
       })
     : { created: 0 };
 
-  // Recalcula score del negocio (fire-and-forget, no bloquea respuesta).
+  // Recalcula score del negocio + nivel embajador del cliente
+  // (fire-and-forget, no bloquea respuesta).
   void recalculateVisibilityScore(purchase.businessId).catch(() => {});
+  void recalculateAmbassadorLevel(purchase.customerId).catch(() => {});
 
   return NextResponse.json({
     ok: true,

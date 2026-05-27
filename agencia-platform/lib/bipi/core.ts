@@ -176,6 +176,33 @@ export async function recalculateVisibilityScore(businessId: string): Promise<nu
   return score;
 }
 
+/** Recalcula el nivel embajador del cliente en función de variedad y
+ *  volumen de compras. Niveles:
+ *    none    →  default
+ *    bronze  →  5+ compras en 2+ negocios distintos
+ *    silver  →  15+ compras en 5+ negocios distintos
+ *    gold    →  40+ compras en 10+ negocios distintos
+ *    founder →  100+ compras en 20+ negocios distintos
+ */
+export async function recalculateAmbassadorLevel(customerId: string): Promise<string> {
+  const purchases = await prisma.bipiPurchase.findMany({
+    where: { customerId, status: "confirmed" },
+    select: { businessId: true }
+  });
+  const total = purchases.length;
+  const distinct = new Set(purchases.map((p) => p.businessId)).size;
+  let level = "none";
+  if (total >= 100 && distinct >= 20) level = "founder";
+  else if (total >= 40 && distinct >= 10) level = "gold";
+  else if (total >= 15 && distinct >= 5) level = "silver";
+  else if (total >= 5 && distinct >= 2) level = "bronze";
+  await prisma.bipiCustomer.update({
+    where: { id: customerId },
+    data: { ambassadorLevel: level }
+  });
+  return level;
+}
+
 /** Pricing dinámico de un push según radio + ciudad + densidad estimada.
  *  v1: aproximación por radio y por densidad de la zona (Benalmádena vs
  *  Madrid). En producción esto consulta la base de usuarios activos. */
