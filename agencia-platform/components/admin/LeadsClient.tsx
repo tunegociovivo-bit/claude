@@ -180,17 +180,10 @@ export default function LeadsClient() {
         }
       />
 
-      {/* Tabs */}
-      <div className="flex flex-wrap items-center gap-1 mb-4 bg-white border rounded-lg p-1">
-        <TabBtn icon={<BarChart3 className="h-3.5 w-3.5" />} label="Leads" active={tab === "leads"} onClick={() => setTab("leads")} />
-        <TabBtn icon={<Search className="h-3.5 w-3.5" />} label="Búsquedas" active={tab === "searches"} onClick={() => setTab("searches")} />
-        <TabBtn icon={<Send className="h-3.5 w-3.5" />} label="Cola envío" active={tab === "queue"} onClick={() => setTab("queue")} />
-        <TabBtn icon={<Inbox className="h-3.5 w-3.5" />} label="Inbox" active={tab === "inbox"} onClick={() => setTab("inbox")} />
-        <TabBtn icon={<GitBranch className="h-3.5 w-3.5" />} label="Secuencias" active={tab === "sequences"} onClick={() => setTab("sequences")} />
-        <TabBtn icon={<ListChecks className="h-3.5 w-3.5" />} label="Plantillas" active={tab === "templates"} onClick={() => setTab("templates")} />
-        <TabBtn icon={<Ban className="h-3.5 w-3.5" />} label="Exclusiones" active={tab === "exclusions"} onClick={() => setTab("exclusions")} />
-        <TabBtn icon={<BarChart3 className="h-3.5 w-3.5" />} label="Analytics" active={tab === "analytics"} onClick={() => setTab("analytics")} />
-      </div>
+      {/* Tabs reorderables: cada usuario guarda en localStorage el orden que
+          prefiera. Para mover una pestaña: arrástrala hacia la izquierda o
+          la derecha sobre las demás. */}
+      <DraggableTabs tab={tab} setTab={setTab} />
 
       {/* Contenido por tab */}
       {tab === "leads" && (
@@ -279,6 +272,93 @@ function TabBtn({ icon, label, active, onClick }: { icon: React.ReactNode; label
       {icon}
       {label}
     </button>
+  );
+}
+
+/** Definición fija de pestañas. El orden visible se persiste por usuario en
+ *  localStorage ("leads.tabOrder"); este array solo aporta el catálogo. */
+const LEADS_TAB_DEFS: { key: Tab; label: string; icon: React.ReactNode }[] = [
+  { key: "leads",      label: "Leads",       icon: <BarChart3 className="h-3.5 w-3.5" /> },
+  { key: "searches",   label: "Búsquedas",   icon: <Search className="h-3.5 w-3.5" /> },
+  { key: "queue",      label: "Cola envío",  icon: <Send className="h-3.5 w-3.5" /> },
+  { key: "inbox",      label: "Inbox",       icon: <Inbox className="h-3.5 w-3.5" /> },
+  { key: "sequences",  label: "Secuencias",  icon: <GitBranch className="h-3.5 w-3.5" /> },
+  { key: "templates",  label: "Plantillas",  icon: <ListChecks className="h-3.5 w-3.5" /> },
+  { key: "exclusions", label: "Exclusiones", icon: <Ban className="h-3.5 w-3.5" /> },
+  { key: "analytics",  label: "Analytics",   icon: <BarChart3 className="h-3.5 w-3.5" /> }
+];
+const LEADS_TAB_ORDER_KEY = "leads.tabOrder";
+
+function DraggableTabs({ tab, setTab }: { tab: Tab; setTab: (t: Tab) => void }) {
+  const allKeys = LEADS_TAB_DEFS.map((t) => t.key);
+  const [order, setOrder] = useState<Tab[]>(allKeys);
+  const [dragKey, setDragKey] = useState<Tab | null>(null);
+
+  // Carga orden guardado al montar y reconcilia con las pestañas existentes
+  // (por si añadimos/quitamos pestañas en el futuro).
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(LEADS_TAB_ORDER_KEY);
+      if (!raw) return;
+      const saved = JSON.parse(raw) as Tab[];
+      if (!Array.isArray(saved)) return;
+      const set = new Set(allKeys);
+      const kept = saved.filter((k) => set.has(k));
+      const missing = allKeys.filter((k) => !kept.includes(k));
+      setOrder([...kept, ...missing] as Tab[]);
+    } catch {}
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function persist(next: Tab[]) {
+    setOrder(next);
+    try {
+      localStorage.setItem(LEADS_TAB_ORDER_KEY, JSON.stringify(next));
+    } catch {}
+  }
+
+  function onDragStart(e: React.DragEvent, key: Tab) {
+    setDragKey(key);
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", key);
+  }
+  function onDragOver(e: React.DragEvent) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+  }
+  function onDrop(e: React.DragEvent, targetKey: Tab) {
+    e.preventDefault();
+    const src = (dragKey ?? e.dataTransfer.getData("text/plain")) as Tab;
+    setDragKey(null);
+    if (!src || src === targetKey) return;
+    const next = order.filter((k) => k !== src);
+    const idx = next.indexOf(targetKey);
+    next.splice(idx, 0, src);
+    persist(next);
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-1 mb-4 bg-white border rounded-lg p-1">
+      {order.map((key) => {
+        const def = LEADS_TAB_DEFS.find((d) => d.key === key);
+        if (!def) return null;
+        const active = tab === key;
+        return (
+          <div
+            key={key}
+            draggable
+            onDragStart={(e) => onDragStart(e, key)}
+            onDragOver={onDragOver}
+            onDrop={(e) => onDrop(e, key)}
+            onDragEnd={() => setDragKey(null)}
+            className={dragKey === key ? "opacity-50" : ""}
+            title="Arrástrame para reordenar"
+          >
+            <TabBtn icon={def.icon} label={def.label} active={active} onClick={() => setTab(key)} />
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
@@ -1627,6 +1707,8 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
   const [wahaTesting, setWahaTesting] = useState(false);
   const [wahaTest, setWahaTest] = useState<any>(null);
   const [reconnecting, setReconnecting] = useState(false);
+  const [webhookSetting, setWebhookSetting] = useState(false);
+  const [webhookSetupResult, setWebhookSetupResult] = useState<{ ok: boolean; url?: string; error?: string } | null>(null);
   const [qrNonce, setQrNonce] = useState(0);
   const [qrError, setQrError] = useState<string | null>(null);
   const pollRef = useRef<any>(null);
@@ -1691,6 +1773,22 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
       setWahaTest({ ok: false, message: `No se pudo lanzar el test: ${e?.message ?? e}` });
     }
     setWahaTesting(false);
+  }
+  async function setupWebhook() {
+    setWebhookSetting(true);
+    setWebhookSetupResult(null);
+    try {
+      const r = await fetch("/api/v1/leads/waha-webhook-setup", { method: "POST" });
+      const j = await r.json();
+      if (!r.ok || !j.ok) {
+        setWebhookSetupResult({ ok: false, error: j?.error?.message ?? j?.message ?? `Error ${r.status}` });
+      } else {
+        setWebhookSetupResult({ ok: true, url: j.url });
+      }
+    } catch (e: any) {
+      setWebhookSetupResult({ ok: false, error: e?.message ?? "Error de red" });
+    }
+    setWebhookSetting(false);
   }
   async function reconnectWaha() {
     setReconnecting(true);
@@ -1782,7 +1880,7 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
             <div className="text-[11px] text-slate-500 break-all">
               Webhook URL: <code>{typeof window !== "undefined" ? window.location.origin : ""}/api/v1/leads/webhook/{s.webhookToken}</code>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <button
                 type="button"
                 onClick={testWaha}
@@ -1792,8 +1890,25 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
                 {wahaTesting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
                 Probar conexión
               </button>
-              <span className="text-[11px] text-slate-400">Comprueba el servidor y la sesión sin enviar nada. Guarda antes si cambiaste algo.</span>
+              <button
+                type="button"
+                onClick={setupWebhook}
+                disabled={webhookSetting}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-brand-200 bg-brand-50 hover:bg-brand-100 text-brand-700 text-xs font-medium disabled:opacity-50"
+                title="Configura el webhook de WAHA para que esta app reciba los mensajes entrantes en el Inbox"
+              >
+                {webhookSetting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                Configurar webhook en WAHA
+              </button>
+              <span className="text-[11px] text-slate-400">Comprueba la sesión y, si los leads responden pero no aparecen en Inbox, pulsa "Configurar webhook".</span>
             </div>
+            {webhookSetupResult && (
+              <div className={`text-xs rounded-lg border p-2.5 ${webhookSetupResult.ok ? "bg-emerald-50 border-emerald-200 text-emerald-800" : "bg-rose-50 border-rose-200 text-rose-800"}`}>
+                {webhookSetupResult.ok
+                  ? `✓ Webhook configurado en WAHA (${webhookSetupResult.url}). A partir de ahora los mensajes entrantes llegarán al Inbox.`
+                  : `✗ ${webhookSetupResult.error ?? "No se pudo configurar"}`}
+              </div>
+            )}
             {wahaTest && (
               <div className={`text-xs rounded-lg border p-2.5 ${wahaTest.ok ? "bg-emerald-50 border-emerald-200 text-emerald-800" : "bg-rose-50 border-rose-200 text-rose-800"}`}>
                 <div className="font-medium">{wahaTest.ok ? "✓ Conectado" : "✗ No conectado"}</div>

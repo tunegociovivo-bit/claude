@@ -5,10 +5,32 @@ import { isAdmin, requireFeature } from "@/lib/auth-utils";
 import { statusLabels, statusColors, priorityColors } from "@/lib/mock-data";
 import { ArrowUpRight, CheckCircle2, Clock, Users, Briefcase, TrendingUp } from "lucide-react";
 import Link from "next/link";
+import { redirect } from "next/navigation";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
+import { prisma } from "@/lib/db/prisma";
 
 export const dynamic = "force-dynamic";
 
+/** Redirección personalizada de la home según el email del usuario.
+ *  info@negociovivo.com aterriza directamente en el kanban del proyecto
+ *  "NEGOCIO VIVO GENERAL". El resto sigue viendo el dashboard por defecto. */
+async function maybeRedirectByUser(): Promise<void> {
+  const s = await getServerSession(authOptions);
+  const email = (s?.user as any)?.email?.toLowerCase?.();
+  const workspaceId = (s?.user as any)?.workspaceId;
+  if (!email || !workspaceId) return;
+  if (email === "info@negociovivo.com") {
+    const proj = await prisma.project.findFirst({
+      where: { workspaceId, name: "NEGOCIO VIVO GENERAL" },
+      select: { id: true }
+    });
+    if (proj?.id) redirect(`/tareas?project=${proj.id}`);
+  }
+}
+
 export default async function DashboardPage() {
+  await maybeRedirectByUser();
   await requireFeature("inicio");
   const { clients, tasks, projects, events, team } = await getDashboardData();
   const admin = await isAdmin();
