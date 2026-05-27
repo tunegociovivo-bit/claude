@@ -2655,7 +2655,7 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
         title: { type: "string" },
         description: { type: "string" },
         dueDate: { type: "string", description: "ISO, opcional. Default 3 días desde ahora." },
-        priority: { type: "string", enum: ["LOW", "NORMAL", "HIGH", "URGENT"] }
+        priority: { type: "string", enum: ["LOW", "MEDIUM", "HIGH", "URGENT"] }
       },
       required: ["userIdOrEmail", "title"],
       additionalProperties: false
@@ -7050,7 +7050,7 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
             (typeof input?.description === "string" ? input.description : "") +
             `\n\n_(Auto-creada por Sonia como seguimiento de la task ${ctx.taskId})_`,
           status: "TODO",
-          priority: "NORMAL",
+          priority: "MEDIUM",
           projectId,
           clientId: clientId ?? null,
           dueDate
@@ -7100,7 +7100,11 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
             (typeof input?.description === "string" ? input.description : "") +
             `\n\n_(Delegada por Sonia desde la task ${ctx.taskId})_`,
           status: "TODO",
-          priority: (input?.priority as any) ?? "NORMAL",
+          // Normaliza "NORMAL" (alias histórico que Sonia podría seguir
+          // mandando) a "MEDIUM", que es lo que acepta TaskPriority.
+          priority: ((p) => (p === "NORMAL" ? "MEDIUM" : p))(
+            (input?.priority as any) ?? "MEDIUM"
+          ),
           projectId: parent?.projectId,
           clientId: parent?.clientId,
           dueDate,
