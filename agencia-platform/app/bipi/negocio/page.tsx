@@ -608,6 +608,32 @@ function PushAdForm({ businessId }: { businessId: string }) {
   const [radiusKm, setRadiusKm] = useState(1);
   const [quote, setQuote] = useState<{ reach: number; priceEur: number } | null>(null);
   const [busy, setBusy] = useState(false);
+  // AI Studio state
+  const [brief, setBrief] = useState("");
+  const [vibe, setVibe] = useState<"cercano" | "directo" | "premium" | "divertido">("cercano");
+  const [variantes, setVariantes] = useState<any[] | null>(null);
+  const [generating, setGenerating] = useState(false);
+
+  async function generateCopy() {
+    if (!brief.trim()) return;
+    setGenerating(true);
+    setVariantes(null);
+    try {
+      const r = await fetch("/api/bipi/ai-studio/push-copy", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ businessId, productOrOffer: brief.trim(), vibe })
+      });
+      const j = await r.json();
+      if (j.variantes) setVariantes(j.variantes);
+    } finally {
+      setGenerating(false);
+    }
+  }
+  function pickVariante(v: any) {
+    setTitle(v.titulo);
+    setBody(v.body);
+  }
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -648,6 +674,55 @@ function PushAdForm({ businessId }: { businessId: string }) {
       <p className="text-xs text-slate-600">
         Envía una notificación push a clientes Bipi cerca de tu local. 24h activa.
       </p>
+
+      {/* AI Studio — copy automático */}
+      <div className="rounded-lg border border-violet-200 bg-violet-50/40 p-3 space-y-2">
+        <div className="text-[11px] font-semibold text-violet-900">✨ Vivo Studio · copy automático con IA</div>
+        <textarea
+          value={brief}
+          onChange={(e) => setBrief(e.target.value)}
+          placeholder="¿Qué quieres promocionar? (ej: 30% en cortes hasta las 20h, menú degustación esta noche…)"
+          rows={2}
+          className="w-full px-2 py-1.5 border rounded text-xs bg-white"
+        />
+        <div className="flex items-center gap-2">
+          <select value={vibe} onChange={(e) => setVibe(e.target.value as any)} className="px-2 py-1 border rounded text-xs bg-white">
+            <option value="cercano">Cercano</option>
+            <option value="directo">Directo</option>
+            <option value="premium">Premium</option>
+            <option value="divertido">Divertido</option>
+          </select>
+          <button
+            type="button"
+            onClick={generateCopy}
+            disabled={generating || !brief.trim()}
+            className="px-3 py-1.5 rounded-full bg-violet-600 hover:bg-violet-700 text-white text-xs font-medium disabled:opacity-50"
+          >
+            {generating ? "Generando…" : "Generar 3 variantes"}
+          </button>
+        </div>
+        {variantes && (
+          <div className="space-y-2 mt-2">
+            {variantes.map((v: any, i: number) => (
+              <button
+                key={i}
+                type="button"
+                onClick={() => pickVariante(v)}
+                className="w-full text-left p-2 rounded-lg border border-violet-200 bg-white hover:bg-violet-50"
+              >
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-[10px] font-semibold text-violet-700 uppercase">{v.angulo}</span>
+                  <span className="text-[10px] text-slate-500">{v.horarioSugerido}</span>
+                </div>
+                <div className="text-xs font-semibold text-slate-900">{v.titulo}</div>
+                <div className="text-[11px] text-slate-600 mt-0.5">{v.body}</div>
+              </button>
+            ))}
+            <p className="text-[10px] text-slate-500">Toca una variante para usarla.</p>
+          </div>
+        )}
+      </div>
+
       <input
         value={title}
         onChange={(e) => setTitle(e.target.value)}
