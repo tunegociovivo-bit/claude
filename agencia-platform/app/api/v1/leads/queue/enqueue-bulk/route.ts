@@ -46,10 +46,39 @@ export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api }) 
     throw new ApiError(400, "no_template", "No hay ninguna plantilla. Crea una en la pestaña Plantillas.");
   }
 
+  // Segmentación por score/urgencia (mejora #8): los leads que pasan al
+  // encolar se ordenan primero por urgencia (crítica → alta → media → baja)
+  // y luego por score DESC. Así el primer envío del día va a los leads más
+  // calientes y la tasa de respuesta sube sin saturar el número.
+  const leadsForOrder = await prisma.lead.findMany({
+    where: { id: { in: parsed.data.leadIds }, workspaceId: api.workspaceId },
+    select: { id: true, score: true, urgency: true }
+  });
+  const URGENCY_RANK: Record<string, number> = {
+    critica: 0,
+    alta: 1,
+    media: 2,
+    baja: 3,
+    descartar: 4
+  };
+  const orderedIds = leadsForOrder
+    .slice()
+    .sort((a, b) => {
+      const ua = URGENCY_RANK[a.urgency ?? ""] ?? 5;
+      const ub = URGENCY_RANK[b.urgency ?? ""] ?? 5;
+      if (ua !== ub) return ua - ub;
+      return (b.score ?? 0) - (a.score ?? 0);
+    })
+    .map((l) => l.id);
+  // Conservamos por compatibilidad cualquier id de la request que no haya
+  // venido en la query (improbable, pero por defensa).
+  const known = new Set(orderedIds);
+  for (const id of parsed.data.leadIds) if (!known.has(id)) orderedIds.push(id);
+
   let ok = 0;
   const skipped: { leadId: string; reason: string }[] = [];
 
-  for (const leadId of parsed.data.leadIds) {
+  for (const leadId of orderedIds) {
     try {
       await enqueueMessage({
         workspaceId: api.workspaceId,

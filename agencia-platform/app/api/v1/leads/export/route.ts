@@ -17,8 +17,13 @@ function csvCell(v: any): string {
 export const GET = withApi({ scope: "*" }, async (req, { api }) => {
   const url = new URL(req.url);
   const searchId = url.searchParams.get("searchId") ?? undefined;
+  // Lista de IDs separados por coma — usado por el bulk action "Exportar
+  // CSV" desde la pestaña Leads tras seleccionar varios manualmente.
+  const idsParam = url.searchParams.get("ids") ?? "";
+  const ids = idsParam ? idsParam.split(",").filter(Boolean) : [];
   const where: any = { workspaceId: api.workspaceId };
   if (searchId) where.searchId = searchId;
+  if (ids.length > 0) where.id = { in: ids };
 
   const leads = await prisma.lead.findMany({
     where,

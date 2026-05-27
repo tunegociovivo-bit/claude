@@ -260,6 +260,53 @@ export default function LeadsClient() {
   );
 }
 
+/** Botón compacto para cambiar masivamente el contactStatus de N leads
+ *  desde la pestaña Leads. Pide confirmación y delega en POST
+ *  /api/v1/leads/bulk-status. Usado para Excluir y Descartar. */
+function BulkStatusButton({
+  ids,
+  status,
+  label,
+  onDone
+}: {
+  ids: string[];
+  status: "excluded" | "discarded";
+  label: string;
+  onDone: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  async function run() {
+    if (ids.length === 0) return;
+    if (!confirm(`¿${label.toLowerCase()} ${ids.length} lead(s)? Quedarán fuera de la cola de envío.`)) return;
+    setBusy(true);
+    try {
+      await fetch("/api/v1/leads/bulk-status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ leadIds: ids, contactStatus: status })
+      });
+      onDone();
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <button
+      onClick={run}
+      disabled={busy}
+      className={
+        "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-sm disabled:opacity-50 " +
+        (status === "excluded"
+          ? "bg-rose-50 border-rose-200 text-rose-700 hover:bg-rose-100"
+          : "bg-slate-100 border-slate-300 text-slate-700 hover:bg-slate-200")
+      }
+    >
+      {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Ban className="h-4 w-4" />}
+      {label}
+    </button>
+  );
+}
+
 function TabBtn({ icon, label, active, onClick }: { icon: React.ReactNode; label: string; active: boolean; onClick: () => void }) {
   return (
     <button
@@ -401,12 +448,21 @@ function LeadsTable({ loading, items, onChanged }: { loading: boolean; items: Le
   return (
     <div className="space-y-2">
       {selected.size > 0 && (
-        <div className="flex items-center justify-between gap-2 bg-brand-50 border border-brand-200 rounded-lg px-3 py-2">
+        <div className="flex flex-wrap items-center justify-between gap-2 bg-brand-50 border border-brand-200 rounded-lg px-3 py-2">
           <span className="text-sm text-brand-800 font-medium">{selected.size} lead(s) seleccionados</span>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-2">
             <button onClick={() => setSelected(new Set())} className="text-xs text-slate-600 hover:underline">
               Quitar selección
             </button>
+            <BulkStatusButton ids={Array.from(selected)} status="excluded" label="Excluir" onDone={onChanged} />
+            <BulkStatusButton ids={Array.from(selected)} status="discarded" label="Descartar" onDone={onChanged} />
+            <a
+              href={`/api/v1/leads/export?ids=${Array.from(selected).join(",")}`}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border bg-white hover:bg-slate-50 text-sm"
+            >
+              <Download className="h-4 w-4" />
+              Exportar CSV
+            </a>
             <button
               onClick={() => setEnrollOpen(true)}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border bg-white hover:bg-slate-50 text-sm font-medium"

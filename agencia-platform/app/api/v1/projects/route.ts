@@ -48,5 +48,18 @@ export const POST = withApi({ scope: "projects:write" }, async (req, { api }) =>
   const parsed = projectCreateSchema.safeParse(body);
   if (!parsed.success) throw new ApiError(400, "validation_error", parsed.error.message);
   const project = await prisma.project.create({ data: { ...parsed.data, workspaceId: api.workspaceId } });
+  // Si quien crea es un usuario humano (no API key), añadirle como
+  // ProjectMember para que vea las tareas que cree en este proyecto.
+  // Sin esto, un no-admin creaba el proyecto + una tarea y luego no la
+  // veía porque taskVisibilityWhere exige ser miembro del proyecto.
+  if (api.userId) {
+    await prisma.projectMember.create({
+      data: { projectId: project.id, userId: api.userId }
+    }).catch(() => {
+      // Si la tabla no existe en este schema o ya hay constraint
+      // (proyecto duplicado en una carrera), ignoramos: el proyecto
+      // se ha creado igual.
+    });
+  }
   return NextResponse.json(project, { status: 201 });
 });
