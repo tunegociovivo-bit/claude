@@ -642,11 +642,33 @@ function EnqueueModal({
 // ============ BÚSQUEDAS ============
 
 function SearchesTable({ loading, items, onChanged }: { loading: boolean; items: SearchRow[]; onChanged: () => void }) {
+  const [runningAllId, setRunningAllId] = useState<string | null>(null);
   if (loading) return <Loading />;
   if (items.length === 0) return <Empty msg="Sin búsquedas. Pulsa 'Nueva búsqueda' arriba." />;
   async function process(id: string) {
     await fetch(`/api/v1/leads/searches/${id}/process`, { method: "POST" });
     onChanged();
+  }
+  /** Encadena llamadas a /process hasta que la búsqueda quede COMPLETED o FAILED.
+   *  Útil para escaneos de toda España: el usuario pulsa una vez y se procesan
+   *  los 52 batches automáticamente. */
+  async function processAll(id: string) {
+    setRunningAllId(id);
+    try {
+      // Cota dura por si el endpoint nunca señala "pending=0" (no quedar en bucle).
+      for (let i = 0; i < 60; i++) {
+        const r = await fetch(`/api/v1/leads/searches/${id}/process`, { method: "POST" });
+        if (!r.ok) break;
+        const d = await r.json().catch(() => ({}));
+        onChanged();
+        if (d?.pending === 0 || d?.status === "COMPLETED" || d?.status === "FAILED") break;
+        // Pequeña pausa para no saturar Google Places ni dar la sensación de cuelgue.
+        await new Promise((res) => setTimeout(res, 500));
+      }
+    } finally {
+      setRunningAllId(null);
+      onChanged();
+    }
   }
   return (
     <div className="bg-white rounded-xl border overflow-x-auto">
@@ -704,13 +726,27 @@ function SearchesTable({ loading, items, onChanged }: { loading: boolean; items:
                 </td>
                 <td className="px-3 py-2 text-right whitespace-nowrap">
                   {pending && (
-                    <button
-                      onClick={() => process(s.id)}
-                      className="inline-flex items-center gap-1 px-2 py-1 rounded border bg-brand-50 hover:bg-brand-100 border-brand-200 text-brand-700 text-xs"
-                    >
-                      <Play className="h-3 w-3" />
-                      Procesar batch
-                    </button>
+                    <>
+                      <button
+                        onClick={() => process(s.id)}
+                        disabled={runningAllId === s.id}
+                        className="inline-flex items-center gap-1 px-2 py-1 rounded border bg-brand-50 hover:bg-brand-100 border-brand-200 text-brand-700 text-xs disabled:opacity-50"
+                      >
+                        <Play className="h-3 w-3" />
+                        Procesar batch
+                      </button>
+                      {s.scope === "spain" && (
+                        <button
+                          onClick={() => processAll(s.id)}
+                          disabled={runningAllId === s.id}
+                          className="ml-1 inline-flex items-center gap-1 px-2 py-1 rounded border bg-emerald-50 hover:bg-emerald-100 border-emerald-200 text-emerald-700 text-xs disabled:opacity-50"
+                          title="Procesar todas las provincias restantes seguidas"
+                        >
+                          {runningAllId === s.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
+                          Procesar todo
+                        </button>
+                      )}
+                    </>
                   )}
                   <a
                     href={`/api/v1/leads/export?searchId=${s.id}`}

@@ -212,6 +212,12 @@ async function upsertLead(opts: {
   await prisma.lead.upsert({
     where: { workspaceId_placeId: { workspaceId: opts.workspaceId, placeId: r.placeId } },
     create: data,
-    update: data
+    // En el update limpiamos también el aiOpener antiguo (legado del plugin
+    // WordPress) para que no aparezcan en el mensaje datos obsoletos —p.ej.
+    // "posición 24" cuando la nueva búsqueda dice "posición 13"—. El opener
+    // se regenerará a partir de los datos actuales si en el futuro se vuelve
+    // a generar; mientras tanto el placeholder {{opener_ia}} se renderiza
+    // vacío y el resto del mensaje sigue siendo válido.
+    update: { ...data, aiOpener: null, aiOpenerGeneratedAt: null }
   });
 }
