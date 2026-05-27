@@ -23,6 +23,7 @@ type Lead = {
   aiOpener: string | null;
   hasWhatsapp: boolean;
   messagesSent: number;
+  nextScheduledAt: string | null;
 };
 
 type SearchRow = {
@@ -415,6 +416,7 @@ function LeadsTable({ loading, items, onChanged }: { loading: boolean; items: Le
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [enqueueOpen, setEnqueueOpen] = useState(false);
   const [enrollOpen, setEnrollOpen] = useState(false);
+  const [detailLeadId, setDetailLeadId] = useState<string | null>(null);
 
   // Al refrescar/filtrar, descarta de la selección los leads que ya no salen.
   useEffect(() => {
@@ -495,6 +497,7 @@ function LeadsTable({ loading, items, onChanged }: { loading: boolean; items: Le
               <th className="text-left px-3 py-2.5">Score</th>
               <th className="text-left px-3 py-2.5">Urgencia</th>
               <th className="text-left px-3 py-2.5">WA</th>
+              <th className="text-left px-3 py-2.5" title="Próximo mensaje programado para este lead">Próximo</th>
               <th className="text-left px-3 py-2.5" title="Mensajes WhatsApp enviados a este lead">Enviados</th>
               <th className="text-left px-3 py-2.5">Estado</th>
             </tr>
@@ -516,7 +519,15 @@ function LeadsTable({ loading, items, onChanged }: { loading: boolean; items: Le
                       title={rowContactable ? "" : "Sin teléfono o excluido/descartado"}
                     />
                   </td>
-                  <td className="px-3 py-2 max-w-xs truncate font-medium" title={l.name}>{l.name}</td>
+                  <td className="px-3 py-2 max-w-xs truncate font-medium" title={l.name}>
+                    <button
+                      type="button"
+                      onClick={() => setDetailLeadId(l.id)}
+                      className="text-left hover:text-brand-700 hover:underline truncate"
+                    >
+                      {l.name}
+                    </button>
+                  </td>
                   <td className="px-3 py-2 text-slate-600">{l.province ?? "—"}</td>
                   <td className="px-3 py-2 font-mono text-xs">{l.phone ?? "—"}</td>
                   <td className="px-3 py-2 text-slate-700">{l.position ?? "—"}</td>
@@ -528,6 +539,15 @@ function LeadsTable({ loading, items, onChanged }: { loading: boolean; items: Le
                     )}
                   </td>
                   <td className="px-3 py-2 text-center">{l.hasWhatsapp ? "✓" : "—"}</td>
+                  <td className="px-3 py-2">
+                    {l.nextScheduledAt ? (
+                      <span className="text-[11px] text-slate-600" title={new Date(l.nextScheduledAt).toLocaleString("es-ES")}>
+                        {new Date(l.nextScheduledAt).toLocaleString("es-ES", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
+                      </span>
+                    ) : (
+                      <span className="text-slate-300 text-xs">—</span>
+                    )}
+                  </td>
                   <td className="px-3 py-2">
                     {l.messagesSent > 0 ? (
                       <span
@@ -570,7 +590,104 @@ function LeadsTable({ loading, items, onChanged }: { loading: boolean; items: Le
           onChanged();
         }}
       />
+      <LeadDetailModal
+        open={detailLeadId !== null}
+        leadId={detailLeadId}
+        onClose={() => setDetailLeadId(null)}
+      />
     </div>
+  );
+}
+
+function LeadDetailModal({
+  open,
+  leadId,
+  onClose
+}: {
+  open: boolean;
+  leadId: string | null;
+  onClose: () => void;
+}) {
+  const [data, setData] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
+  useEffect(() => {
+    if (!open || !leadId) return;
+    setLoading(true);
+    fetch(`/api/v1/leads/${leadId}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => setData(d))
+      .finally(() => setLoading(false));
+  }, [open, leadId]);
+
+  const lead = data?.lead;
+  const timeline = data?.timeline ?? [];
+
+  return (
+    <Modal open={open} onClose={onClose} title={lead?.name ?? "Lead"} size="xl">
+      {loading || !lead ? (
+        <div className="text-sm text-slate-500 flex items-center gap-2">
+          <Loader2 className="h-4 w-4 animate-spin" /> Cargando…
+        </div>
+      ) : (
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+            <div><span className="text-slate-500">Teléfono:</span> <span className="font-mono">{lead.phone ?? "—"}</span></div>
+            <div><span className="text-slate-500">Web:</span> {lead.website ? <a href={lead.website} target="_blank" rel="noreferrer" className="text-brand-700 hover:underline">abrir ↗</a> : "—"}</div>
+            <div><span className="text-slate-500">Provincia:</span> {lead.province ?? "—"}</div>
+            <div><span className="text-slate-500">Posición:</span> {lead.position ?? "—"}</div>
+            <div><span className="text-slate-500">Rating:</span> {lead.rating != null ? `★ ${lead.rating} (${lead.reviewsCount})` : "—"}</div>
+            <div><span className="text-slate-500">Score:</span> <span className="font-semibold">{lead.score ?? "—"}</span></div>
+            <div><span className="text-slate-500">Urgencia:</span> {lead.urgency ?? "—"}</div>
+            <div><span className="text-slate-500">Estado:</span> {lead.contactStatus}</div>
+          </div>
+          {lead.search && (
+            <div className="text-[11px] text-slate-500">
+              Búsqueda: <code>{lead.search.keyword}</code> · {lead.search.location}
+            </div>
+          )}
+          {lead.notes && (
+            <div className="text-xs px-3 py-2 rounded-md bg-slate-50 border text-slate-700">{lead.notes}</div>
+          )}
+          <div>
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">
+              Conversación ({timeline.length} mensaje{timeline.length === 1 ? "" : "s"})
+            </h3>
+            {timeline.length === 0 ? (
+              <p className="text-xs text-slate-500 italic">Sin mensajes todavía.</p>
+            ) : (
+              <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
+                {timeline.map((m: any, i: number) => (
+                  <div
+                    key={i}
+                    className={
+                      "rounded-lg p-2.5 text-xs border " +
+                      (m.kind === "out"
+                        ? "bg-emerald-50 border-emerald-200 ml-8"
+                        : "bg-white border-slate-200 mr-8")
+                    }
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-[10px] uppercase tracking-wide font-semibold text-slate-500">
+                        {m.kind === "out" ? "Saliente" : "Entrante"}
+                        {m.classification ? ` · ${m.classification}` : ""}
+                        {m.status ? ` · ${m.status}` : ""}
+                      </span>
+                      <span className="text-[10px] text-slate-400">
+                        {m.ts ? new Date(m.ts).toLocaleString("es-ES") : "—"}
+                      </span>
+                    </div>
+                    <div className="whitespace-pre-wrap leading-snug">{m.message}</div>
+                    {m.lastError && (
+                      <div className="mt-1 text-[11px] text-rose-700">⚠ {m.lastError}</div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </Modal>
   );
 }
 
