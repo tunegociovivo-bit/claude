@@ -1906,8 +1906,9 @@ function KanbanColumnView({
         </div>
         <button
           onClick={onAddTask}
-          className="text-slate-400 hover:text-slate-700"
+          className="inline-flex items-center justify-center h-7 w-7 rounded-md text-slate-500 hover:text-slate-900 hover:bg-white/70 active:bg-white"
           aria-label="Añadir tarea"
+          title="Añadir tarea en esta columna"
         >
           <Plus className="h-4 w-4" />
         </button>
@@ -1934,11 +1935,24 @@ function KanbanColumnView({
           ))}
           {tasks.length === 0 && (
             <div className="text-center py-8 text-xs text-slate-400 italic">
-              Suelta aquí o pulsa + para añadir
+              Suelta aquí o pulsa el botón de abajo para añadir
             </div>
           )}
         </div>
       </SortableContext>
+
+      {/* Botón "Añadir tarea" al pie de la columna: grande, evidente y SIEMPRE
+          visible (sobre todo en móvil). Antes solo existía el "+" diminuto del
+          header — los usuarios acababan usando el FAB global, que no sabe en
+          qué columna estás y caía siempre en la primera. */}
+      <button
+        type="button"
+        onClick={onAddTask}
+        className="mt-2 inline-flex items-center justify-center gap-1.5 w-full px-3 py-2 rounded-md border border-dashed border-slate-300 bg-white/40 hover:bg-white text-xs font-medium text-slate-600 hover:text-slate-900"
+      >
+        <Plus className="h-3.5 w-3.5" />
+        Añadir tarea aquí
+      </button>
     </div>
   );
 }
