@@ -42,8 +42,20 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
       urgency: true,
       contactStatus: true,
       aiOpener: true,
-      hasWhatsapp: true
+      hasWhatsapp: true,
+      _count: {
+        select: {
+          // Solo mensajes que SALIERON de verdad por WhatsApp.
+          messages: { where: { status: "sent" } }
+        }
+      }
     }
   });
-  return NextResponse.json({ items });
+  // Aplana _count.messages → messagesSent para que el cliente no tenga que
+  // navegar la subestructura.
+  const flat = items.map((l) => {
+    const { _count, ...rest } = l as any;
+    return { ...rest, messagesSent: _count?.messages ?? 0 };
+  });
+  return NextResponse.json({ items: flat });
 });
