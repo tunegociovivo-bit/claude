@@ -36,12 +36,20 @@ type Offer = {
 export default function BipiApp() {
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
+  // null = aún cargando localStorage; false = onboarded ya hecho; true = mostrar
+  const [showOnboarding, setShowOnboarding] = useState<boolean | null>(null);
+
   useEffect(() => {
     try {
       const raw = localStorage.getItem("bipi.customer");
       if (raw) setCustomer(JSON.parse(raw));
-    } catch {}
+      const onboarded = localStorage.getItem("bipi.onboarded") === "1";
+      setShowOnboarding(!raw && !onboarded);
+    } catch {
+      setShowOnboarding(false);
+    }
   }, []);
+
   // Pide localización al entrar (silenciosa, sin bloqueo).
   useEffect(() => {
     if (!customer) return;
@@ -53,10 +61,144 @@ export default function BipiApp() {
     );
   }, [customer]);
 
+  if (showOnboarding === null) return null; // SSR / mientras carga
+
+  if (showOnboarding) {
+    return (
+      <Onboarding
+        onDone={() => {
+          try { localStorage.setItem("bipi.onboarded", "1"); } catch {}
+          setShowOnboarding(false);
+        }}
+      />
+    );
+  }
+
   if (!customer) {
     return <Signup onDone={(c) => { setCustomer(c); localStorage.setItem("bipi.customer", JSON.stringify(c)); }} />;
   }
   return <OffersFeed customer={customer} coords={coords} onLogout={() => { setCustomer(null); localStorage.removeItem("bipi.customer"); }} />;
+}
+
+/** Onboarding · 3 slides con dots + Saltar + Siguiente/Empezar.
+ *  Sólo se muestra una vez por navegador (localStorage `bipi.onboarded`). */
+function Onboarding({ onDone }: { onDone: () => void }) {
+  const [step, setStep] = useState(0);
+  const slides = [
+    {
+      visual: (
+        <div className="relative h-44 w-full grid place-items-center">
+          <div className="absolute bipi-fade-up bipi-fade-up-1" style={{ transform: "translate(-46px, 10px) rotate(-8deg)" }}>
+            <CouponCard color="#FCE7F3" pct={5} label="Café" />
+          </div>
+          <div className="absolute bipi-fade-up bipi-fade-up-2" style={{ transform: "translate(0, -8px)" }}>
+            <CouponCard color="#FBCFE8" pct={10} label="Restaurante" highlight />
+          </div>
+          <div className="absolute bipi-fade-up bipi-fade-up-3" style={{ transform: "translate(46px, 10px) rotate(8deg)" }}>
+            <CouponCard color="#F9A8D4" pct={8} label="Estética" />
+          </div>
+        </div>
+      ),
+      title: "Cada compra te abre descuentos cerca",
+      body: "Escaneas el QR del negocio al pagar y se te abren 3-5 cupones en otros negocios del barrio."
+    },
+    {
+      visual: (
+        <div className="h-44 grid place-items-center">
+          <div className="bipi-card p-5 text-left space-y-2 w-64 bipi-fade-up">
+            <CheckLine>Sin cartera ni saldo</CheckLine>
+            <CheckLine>Sin puntos que no canjeas</CheckLine>
+            <CheckLine>Sin spam ni emails raros</CheckLine>
+            <CheckLine>Sin tarjetas físicas</CheckLine>
+          </div>
+        </div>
+      ),
+      title: "Limpio. Directo. Sin trucos.",
+      body: "El descuento se aplica cuando el negocio confirma tu compra. Punto."
+    },
+    {
+      visual: (
+        <div className="h-44 grid place-items-center">
+          <div className="text-7xl bipi-fade-up">💖</div>
+          <div className="absolute mt-32 text-[10px] uppercase tracking-widest text-black/55 font-bold">
+            Piloto · Benalmádena
+          </div>
+        </div>
+      ),
+      title: "Apoya el comercio del barrio",
+      body: "Cada euro que gastas en Bipi se queda en tu barrio. Negocios locales, no cadenas."
+    }
+  ];
+
+  const cur = slides[step];
+  const isLast = step === slides.length - 1;
+
+  return (
+    <main className="max-w-md mx-auto px-4 py-10 min-h-screen flex flex-col">
+      <div className="flex items-center justify-between mb-8">
+        <h1 className="bipi-wordmark" style={{ fontSize: 36 }}>bipi</h1>
+        <button
+          onClick={onDone}
+          className="text-xs text-black/55 hover:text-black/80 font-semibold"
+        >
+          Saltar
+        </button>
+      </div>
+
+      <div key={step} className="flex-1 flex flex-col justify-center text-center bipi-fade-up">
+        <div className="mb-8">{cur.visual}</div>
+        <h2 className="text-2xl font-black tracking-tight text-black px-4">{cur.title}</h2>
+        <p className="text-black/60 text-sm mt-3 px-6 leading-relaxed">{cur.body}</p>
+      </div>
+
+      <div className="mt-8 space-y-4">
+        {/* Dots */}
+        <div className="flex items-center justify-center gap-1.5">
+          {slides.map((_, i) => (
+            <button
+              key={i}
+              onClick={() => setStep(i)}
+              aria-label={`Slide ${i + 1}`}
+              className="transition-all"
+              style={{
+                width: i === step ? 24 : 8,
+                height: 8,
+                borderRadius: 999,
+                background: i === step ? "#EC4899" : "rgba(0,0,0,0.15)"
+              }}
+            />
+          ))}
+        </div>
+        <button
+          onClick={() => (isLast ? onDone() : setStep(step + 1))}
+          className="bipi-btn w-full"
+        >
+          {isLast ? "Empezar" : "Siguiente"}
+        </button>
+      </div>
+    </main>
+  );
+}
+
+function CouponCard({ color, pct, label, highlight }: { color: string; pct: number; label: string; highlight?: boolean }) {
+  return (
+    <div
+      className={"rounded-2xl px-5 py-3 shadow-lg " + (highlight ? "ring-2 ring-pink-500" : "")}
+      style={{ background: color, minWidth: 130 }}
+    >
+      <div className="font-black text-2xl text-black leading-none">-{pct}%</div>
+      <div className="text-[10px] uppercase tracking-wider text-black/65 font-bold mt-1">{label}</div>
+    </div>
+  );
+}
+
+function CheckLine({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="flex items-center gap-2 text-sm font-semibold text-black">
+      <div className="w-5 h-5 rounded-full bg-pink-500 grid place-items-center text-white text-[11px] font-black">✓</div>
+      <span>{children}</span>
+    </div>
+  );
 }
 
 function Signup({ onDone }: { onDone: (c: Customer) => void }) {
@@ -369,9 +511,9 @@ function OffersFeed({ customer, coords, onLogout }: { customer: Customer; coords
           <span style={{ fontSize: 18 }}>🧭</span>
           <span>Descubre</span>
         </a>
-        <a href="/bipi/registro">
-          <span style={{ fontSize: 18 }}>🏪</span>
-          <span>Negocios</span>
+        <a href="/bipi/app/mapa">
+          <span style={{ fontSize: 18 }}>🗺</span>
+          <span>Mapa</span>
         </a>
         <a href="#" onClick={(e) => { e.preventDefault(); onLogout(); }}>
           <span style={{ fontSize: 18 }}>👤</span>

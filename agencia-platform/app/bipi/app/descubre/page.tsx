@@ -154,9 +154,9 @@ export default function DescubrePage() {
           <span style={{ fontSize: 18 }}>🧭</span>
           <span>Descubre</span>
         </a>
-        <a href="/bipi/registro">
-          <span style={{ fontSize: 18 }}>🏪</span>
-          <span>Negocios</span>
+        <a href="/bipi/app/mapa">
+          <span style={{ fontSize: 18 }}>🗺</span>
+          <span>Mapa</span>
         </a>
         <a href="/bipi">
           <span style={{ fontSize: 18 }}>ℹ️</span>
