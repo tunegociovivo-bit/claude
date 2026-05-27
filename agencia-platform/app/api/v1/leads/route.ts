@@ -48,14 +48,26 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
           // Solo mensajes que SALIERON de verdad por WhatsApp.
           messages: { where: { status: "sent" } }
         }
+      },
+      // Próximo mensaje encolado pendiente de salir (para mostrar la hora
+      // a la que el lead recibirá la próxima comunicación de Sonia).
+      messages: {
+        where: { status: { in: ["queued", "sending"] } },
+        orderBy: { scheduledAt: "asc" },
+        take: 1,
+        select: { scheduledAt: true, status: true }
       }
     }
   });
-  // Aplana _count.messages → messagesSent para que el cliente no tenga que
-  // navegar la subestructura.
+  // Aplana _count.messages → messagesSent y derivado nextScheduledAt.
   const flat = items.map((l) => {
-    const { _count, ...rest } = l as any;
-    return { ...rest, messagesSent: _count?.messages ?? 0 };
+    const { _count, messages, ...rest } = l as any;
+    const next = Array.isArray(messages) && messages.length > 0 ? messages[0] : null;
+    return {
+      ...rest,
+      messagesSent: _count?.messages ?? 0,
+      nextScheduledAt: next?.scheduledAt ?? null
+    };
   });
   return NextResponse.json({ items: flat });
 });

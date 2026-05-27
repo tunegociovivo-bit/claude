@@ -220,6 +220,37 @@ export async function ingestInbox(opts: {
       }).catch((e) => console.warn("[nv-ia inbound-whatsapp]:", e?.message ?? e));
     } catch {}
 
+    // Notificación push + in-app a todos los admins del workspace cuando
+    // un lead se clasifica como INTERESADO. Mejora #20.
+    if (classified.classification === "interested") {
+      try {
+        const admins = await prisma.membership.findMany({
+          where: { workspaceId: opts.workspaceId, role: "ADMIN" },
+          select: { userId: true }
+        });
+        const body = `🔥 ${leadName ?? phoneNormalized} responde interesado: "${opts.text.slice(0, 120)}${opts.text.length > 120 ? "…" : ""}"`;
+        const link = leadId ? `/admin/leads?lead=${leadId}` : "/admin/leads";
+        if (admins.length > 0) {
+          await prisma.notification.createMany({
+            data: admins.map((a) => ({ userId: a.userId, type: "lead_interested", body, link }))
+          });
+          const { sendPushToUser } = await import("@/lib/push/web-push");
+          await Promise.all(
+            admins.map((a) =>
+              sendPushToUser(a.userId, {
+                title: "Lead interesado 🔥",
+                body,
+                link,
+                tag: `lead-interested-${msg.id}`
+              }).catch((e) => console.warn("[push lead-interested]:", e?.message ?? e))
+            )
+          );
+        }
+      } catch (e: any) {
+        console.warn("[inbox notify-push interested]:", e?.message ?? e);
+      }
+    }
+
     // Notificación directa a David por WhatsApp cuando un lead muestra
     // INTERÉS: número configurado en settings.leads.notifyInterestedPhone.
     // Fire-and-forget: el webhook no se bloquea si la notificación falla.
