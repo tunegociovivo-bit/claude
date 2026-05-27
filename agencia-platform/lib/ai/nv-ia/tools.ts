@@ -4518,7 +4518,26 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
 
       return { error: `attachAs desconocido: ${attachAs}` };
     } catch (e: any) {
-      return { error: `meta_ads_download_leads: ${e?.message ?? e}` };
+      // Surface tanto el message como cualquier ctx útil (status HTTP, código
+      // de error de Meta, etc.) para que Sonia lo pegue literal en la task.
+      const m = e?.message ?? String(e);
+      const ctx = [
+        input?.campaignId ? `campaign=${input.campaignId}` : null,
+        input?.adsetId ? `adset=${input.adsetId}` : null,
+        input?.adId ? `ad=${input.adId}` : null,
+        input?.formId ? `form=${input.formId}` : null,
+        input?.since && input?.until ? `${input.since}→${input.until}` : null,
+        input?.adAccountId ? `act=${input.adAccountId}` : null
+      ]
+        .filter(Boolean)
+        .join(" · ");
+      return {
+        error: `meta_ads_download_leads: ${m}${ctx ? ` [${ctx}]` : ""}`,
+        hint:
+          "Si el error menciona 'token', 'OAuthException' o 'permissions': el META_ADS_TOKEN está caducado o le falta scope leads_retrieval/ads_management/pages_show_list. Pídeselo al user en un comment. " +
+          "Si menciona 'does not exist' o '#100': el ID de campaña/adset/ad puede pertenecer a otra Ad Account — confirma con meta_ads_resolve_ad_account_by_name. " +
+          "Si menciona '#190' o 'session expired': hay que renovar el token."
+      };
     }
   },
   // ──────────────────────────────────────────────────────────────
