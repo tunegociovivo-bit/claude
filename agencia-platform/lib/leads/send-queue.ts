@@ -63,27 +63,94 @@ function parseHM(hm: string): { h: number; m: number } {
   return { h: Number.isFinite(h) ? h : 9, m: Number.isFinite(m) ? m : 0 };
 }
 
+/** Zona horaria de referencia para ventana de envío + tope diario. Hetzner /
+ *  Railway funcionan en UTC; los usuarios piensan en hora local de Madrid. */
+const TZ = "Europe/Madrid";
+
+const WEEKDAYS_EN = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+/** Hora-pared y día de la semana de `dt` proyectados a Europe/Madrid. */
+function getMadridParts(dt: Date): {
+  year: number;
+  month: number;
+  day: number;
+  hour: number;
+  minute: number;
+  dayOfWeek: number;
+} {
+  const fmt = new Intl.DateTimeFormat("en-CA", {
+    timeZone: TZ,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    weekday: "short",
+    hour12: false
+  });
+  const parts: Record<string, string> = {};
+  for (const p of fmt.formatToParts(dt)) parts[p.type] = p.value;
+  let hour = Number(parts.hour);
+  if (hour === 24) hour = 0;
+  return {
+    year: Number(parts.year),
+    month: Number(parts.month),
+    day: Number(parts.day),
+    hour,
+    minute: Number(parts.minute),
+    dayOfWeek: WEEKDAYS_EN.indexOf(parts.weekday ?? "Mon")
+  };
+}
+
+/** Devuelve el offset (minutos) entre Madrid y UTC en el instante `dt`. */
+function getMadridOffsetMin(dt: Date): number {
+  const m = getMadridParts(dt);
+  const asUtc = Date.UTC(m.year, m.month - 1, m.day, m.hour, m.minute);
+  const realUtc = Date.UTC(
+    dt.getUTCFullYear(),
+    dt.getUTCMonth(),
+    dt.getUTCDate(),
+    dt.getUTCHours(),
+    dt.getUTCMinutes()
+  );
+  return Math.round((asUtc - realUtc) / 60_000);
+}
+
+/** Construye una Date (UTC) cuyo reloj-pared en Madrid sea {y, mo, d, h, m}. */
+function madridWallToDate(y: number, mo: number, d: number, h: number, m: number): Date {
+  // Guess inicial restando 2h (CEST). Si caemos en CET o en el cambio de hora
+  // el offset real corrige en la segunda iteración.
+  let guess = new Date(Date.UTC(y, mo - 1, d, h - 2, m, 0));
+  for (let i = 0; i < 2; i++) {
+    const offset = getMadridOffsetMin(guess);
+    const desiredUtc = Date.UTC(y, mo - 1, d, h, m, 0) - offset * 60_000;
+    if (desiredUtc === guess.getTime()) break;
+    guess = new Date(desiredUtc);
+  }
+  return guess;
+}
+
 /**
  * ¿La hora actual está dentro de la ventana de envío? (anti-baneo: no
- * enviar de madrugada ni en fin de semana si no está permitido). Usa la
- * hora local del servidor, igual que computeNextSlot, para que el cálculo
- * al encolar y al enviar sean coherentes.
+ * enviar de madrugada ni en fin de semana si no está permitido). Calcula
+ * la hora en Europe/Madrid para que coincida con la que ve el usuario en
+ * el navegador, no la UTC del servidor.
  */
 export function isInsideWindow(settings: LeadsSendSettings, now: Date = new Date()): boolean {
-  const day = now.getDay(); // 0=Dom, 6=Sáb
-  if (!settings.sendOnWeekends && (day === 0 || day === 6)) return false;
-  const cur = now.getHours() * 60 + now.getMinutes();
+  const m = getMadridParts(now);
+  if (!settings.sendOnWeekends && (m.dayOfWeek === 0 || m.dayOfWeek === 6)) return false;
+  const cur = m.hour * 60 + m.minute;
   const start = parseHM(settings.sendWindowStart);
   const end = parseHM(settings.sendWindowEnd);
   return cur >= start.h * 60 + start.m && cur < end.h * 60 + end.m;
 }
 
-/** Mensajes realmente ENVIADOS hoy (para el tope diario en el envío). */
+/** Mensajes realmente ENVIADOS hoy (para el tope diario en el envío). Cuenta
+ *  por día natural de Madrid, no por día UTC del servidor. */
 export async function countSentToday(workspaceId: string): Promise<number> {
-  const dayStart = new Date();
-  dayStart.setHours(0, 0, 0, 0);
-  const dayEnd = new Date(dayStart);
-  dayEnd.setDate(dayEnd.getDate() + 1);
+  const mp = getMadridParts(new Date());
+  const dayStart = madridWallToDate(mp.year, mp.month, mp.day, 0, 0);
+  const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
   return prisma.leadMessage.count({
     where: { workspaceId, status: "sent", sentAt: { gte: dayStart, lt: dayEnd } }
   });
@@ -99,39 +166,43 @@ export async function computeNextSlot(opts: {
   settings: LeadsSendSettings;
 }): Promise<Date> {
   const { settings } = opts;
-  const d = new Date(opts.desired);
   const win = { start: parseHM(settings.sendWindowStart), end: parseHM(settings.sendWindowEnd) };
   const minMinutes = win.start.h * 60 + win.start.m;
   const maxMinutes = win.end.h * 60 + win.end.m;
 
-  // Empujar fuera de fin de semana si así está configurado
-  function isWeekend(dt: Date) {
-    const g = dt.getDay(); // 0=Dom, 6=Sab
-    return g === 0 || g === 6;
-  }
-  while (!settings.sendOnWeekends && isWeekend(d)) {
-    d.setDate(d.getDate() + 1);
-    d.setHours(win.start.h, win.start.m, 0, 0);
+  // Trabajamos en reloj-pared de Madrid para que el slot que generemos
+  // coincida con la ventana que el usuario configuró en hora local.
+  let mp = getMadridParts(opts.desired);
+
+  // Avanzar un día (Madrid) preservando hora de inicio.
+  function rollToNextDayStart() {
+    const next = madridWallToDate(mp.year, mp.month, mp.day, win.start.h, win.start.m);
+    next.setTime(next.getTime() + 24 * 60 * 60 * 1000);
+    mp = getMadridParts(next);
+    mp.hour = win.start.h;
+    mp.minute = win.start.m;
   }
 
-  // Si fuera de ventana → siguiente apertura
-  const curMinutes = d.getHours() * 60 + d.getMinutes();
+  while (!settings.sendOnWeekends && (mp.dayOfWeek === 0 || mp.dayOfWeek === 6)) {
+    rollToNextDayStart();
+  }
+
+  const curMinutes = mp.hour * 60 + mp.minute;
   if (curMinutes < minMinutes) {
-    d.setHours(win.start.h, win.start.m, 0, 0);
+    mp.hour = win.start.h;
+    mp.minute = win.start.m;
   } else if (curMinutes >= maxMinutes) {
-    d.setDate(d.getDate() + 1);
-    d.setHours(win.start.h, win.start.m, 0, 0);
-    if (!settings.sendOnWeekends && isWeekend(d)) {
-      // recursión sencilla: añadir 1 día más mientras siga siendo finde
-      while (isWeekend(d)) d.setDate(d.getDate() + 1);
+    rollToNextDayStart();
+    while (!settings.sendOnWeekends && (mp.dayOfWeek === 0 || mp.dayOfWeek === 6)) {
+      rollToNextDayStart();
     }
   }
 
-  // Daily limit: contar mensajes enviados o programados para este día
-  const dayStart = new Date(d);
-  dayStart.setHours(0, 0, 0, 0);
-  const dayEnd = new Date(dayStart);
-  dayEnd.setDate(dayEnd.getDate() + 1);
+  let d = madridWallToDate(mp.year, mp.month, mp.day, mp.hour, mp.minute);
+
+  // Daily limit: contar mensajes enviados o programados para este día Madrid.
+  const dayStart = madridWallToDate(mp.year, mp.month, mp.day, 0, 0);
+  const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
 
   const count = await prisma.leadMessage.count({
     where: {
@@ -143,10 +214,11 @@ export async function computeNextSlot(opts: {
     }
   });
   if (count >= settings.dailyLimit) {
-    // Pasamos al día siguiente, hora de apertura
-    d.setDate(d.getDate() + 1);
-    d.setHours(win.start.h, win.start.m, 0, 0);
-    while (!settings.sendOnWeekends && isWeekend(d)) d.setDate(d.getDate() + 1);
+    rollToNextDayStart();
+    while (!settings.sendOnWeekends && (mp.dayOfWeek === 0 || mp.dayOfWeek === 6)) {
+      rollToNextDayStart();
+    }
+    d = madridWallToDate(mp.year, mp.month, mp.day, mp.hour, mp.minute);
   }
 
   return d;
