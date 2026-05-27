@@ -2666,14 +2666,16 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
   // que el humano apruebe el draft antes (notificaciones rutinarias,
   // confirmaciones a leads, follow-ups con copy ya validado).
   //
-  // CAVEAT: para mensajes COMERCIALES nuevos a un cliente o lead,
-  // SIEMPRE prefiere draft_email / draft_whatsapp (que pasan por
-  // aprobación humana). send_* es para casos rutinarios.
+  // CAVEAT: para PRIMER CONTACTO comercial a un cliente o lead EXTERNO,
+  // prefiere draft_email / draft_whatsapp (que pasan por aprobación
+  // humana). Para emails INTERNOS (@negociovivo.com) o cualquier flujo
+  // donde el usuario diga "envía/manda" explícitamente, usa send_*
+  // directamente — el usuario espera la acción inmediata.
   // ──────────────────────────────────────────────────────────────
   {
     name: "send_email",
     description:
-      "Envía un email REAL (no draft) inmediatamente vía Resend. Úsala SOLO para:\n- Notificaciones rutinarias al cliente (informe mensual, confirmación de descarga, alerta de KPI).\n- Follow-ups automáticos con copy ya validado.\n- Mensajes internos al equipo.\n\nNO la uses para: primer contacto comercial a un lead (eso es draft_email + aprobación), copy nuevo a un cliente importante.\n\nSi el copy es importante o nuevo, mejor draft_email — pasa por aprobación humana.",
+      "Envía un email REAL (no draft) inmediatamente vía Resend. Úsala cuando:\n- El usuario te pide explícitamente \"envía\", \"manda\", \"mándalo\" o equivalente (no \"prepara un borrador\").\n- Notificaciones rutinarias al cliente (informe mensual, confirmación de descarga, alerta de KPI).\n- Follow-ups automáticos con copy ya validado.\n- Mensajes INTERNOS al equipo (cualquier @negociovivo.com): recordatorios, resúmenes, alertas. NO uses draft para internos a no ser que el usuario lo pida.\n\nNO la uses para: primer contacto comercial a un LEAD o cliente externo (eso es draft_email + aprobación), copy nuevo a un cliente importante.\n\nRegla mental: si el destinatario es @negociovivo.com o cualquier interno del equipo, envía directo. Si es un cliente/lead externo y el copy es nuevo, mejor draft_email.",
     input_schema: {
       type: "object",
       properties: {
@@ -7733,13 +7735,10 @@ function humanSize(bytes: number): string {
   }
 }
 
-// TODO con TU OK: quita de la autónoma los ENVÍOS DIRECTOS nativos (email /
-// WhatsApp reales sin borrador). Así Sonia solo puede usar draft_email /
-// draft_whatsapp, que quedan pendientes de tu aprobación antes de salir.
-{
-  const GATED = new Set(["send_email", "send_whatsapp_message", "send_whatsapp_voice"]);
-  for (let i = TOOL_DEFINITIONS.length - 1; i >= 0; i--) {
-    if (GATED.has(TOOL_DEFINITIONS[i].name)) TOOL_DEFINITIONS.splice(i, 1);
-  }
-  for (const n of GATED) delete TOOL_EXECUTORS[n];
-}
+// Histórico: aquí había un gate que ELIMINABA send_email / send_whatsapp_*
+// de las herramientas de Sonia para forzar siempre el flujo draft_*. El
+// usuario lo encontraba bloqueante (le pedía "manda este recordatorio
+// interno" y Sonia se quedaba en draft eternamente). Lo retiramos: ahora
+// send_email vuelve a estar disponible. La prompt del modelo ya le indica
+// que para PRIMER CONTACTO o copy importante use draft_email; para
+// notificaciones internas o de equipo, send_email directo.
