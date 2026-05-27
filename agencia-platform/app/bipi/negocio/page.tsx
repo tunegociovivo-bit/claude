@@ -192,7 +192,7 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
       <CrossShopperPanel businessId={b.id} />
 
       {/* Crear Push del Día */}
-      <PushAdForm businessId={b.id} />
+      <PushAdForm businessId={b.id} businessName={b.name} />
 
 
       {/* Pendientes — estilo tabla compacta como en el mockup */}
@@ -714,7 +714,7 @@ function PlanCard({ business }: { business: any }) {
   );
 }
 
-function PushAdForm({ businessId }: { businessId: string }) {
+function PushAdForm({ businessId, businessName }: { businessId: string; businessName: string }) {
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [radiusKm, setRadiusKm] = useState(1);
@@ -848,6 +848,10 @@ function PushAdForm({ businessId }: { businessId: string }) {
         rows={2}
         className="w-full px-3 py-2 border rounded-lg bg-white text-sm"
       />
+
+      {/* Preview en vivo del push */}
+      <PushPreview businessName={businessName} title={title} body={body} />
+
       <div className="flex items-center justify-between text-sm">
         <label className="flex items-center gap-2">
           Radio:
@@ -873,6 +877,96 @@ function PushAdForm({ businessId }: { businessId: string }) {
         {busy ? "Procesando…" : `Pagar y lanzar (${quote?.priceEur ?? "—"} €)`}
       </button>
     </section>
+  );
+}
+
+/** Mockup visual del push tal y como lo verá el cliente. Doble vista:
+ *  iOS (lockscreen card) + Android (banner top). */
+function PushPreview({ businessName, title, body }: { businessName: string; title: string; body: string }) {
+  const [mode, setMode] = useState<"ios" | "android">("ios");
+  const now = new Date();
+  const hh = now.getHours().toString().padStart(2, "0");
+  const mm = now.getMinutes().toString().padStart(2, "0");
+
+  const displayTitle = title.trim() || "Tu título aparecerá aquí";
+  const displayBody = body.trim() || "Y tu mensaje justo debajo. Cuanto más concreto, más conversión.";
+
+  return (
+    <div className="rounded-xl border border-black/10 bg-gradient-to-br from-slate-50 to-pink-50/40 p-4">
+      <div className="flex items-center justify-between mb-3">
+        <div className="text-[11px] font-bold uppercase tracking-wider text-black/55">
+          Preview · cómo lo ve el cliente
+        </div>
+        <div className="flex items-center gap-1 text-[10px] font-bold">
+          <button
+            type="button"
+            onClick={() => setMode("ios")}
+            className={"px-2 py-0.5 rounded-full " + (mode === "ios" ? "bg-black text-white" : "text-black/55")}
+          >
+            iOS
+          </button>
+          <button
+            type="button"
+            onClick={() => setMode("android")}
+            className={"px-2 py-0.5 rounded-full " + (mode === "android" ? "bg-black text-white" : "text-black/55")}
+          >
+            Android
+          </button>
+        </div>
+      </div>
+
+      {mode === "ios" ? (
+        <div className="bg-white/90 backdrop-blur rounded-2xl px-3.5 py-3 shadow-sm border border-black/5">
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-pink-500 to-pink-600 grid place-items-center text-white font-black text-sm shadow">
+              B
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center justify-between">
+                <div className="text-[11px] font-bold text-black/75">BIPI</div>
+                <div className="text-[10px] text-black/45">ahora</div>
+              </div>
+              <div className="text-[13px] font-bold text-black truncate">{displayTitle}</div>
+              <div className="text-[12px] text-black/70 leading-snug line-clamp-2">{displayBody}</div>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="bg-white rounded-lg px-3.5 py-2.5 shadow-sm border border-black/5">
+          <div className="flex items-center gap-2 text-[10px] text-black/55 font-semibold uppercase tracking-wider mb-1">
+            <div className="w-3.5 h-3.5 rounded-sm bg-gradient-to-br from-pink-500 to-pink-600" />
+            <span>Bipi · {businessName}</span>
+            <span className="ml-auto">{hh}:{mm}</span>
+          </div>
+          <div className="text-[13px] font-bold text-black">{displayTitle}</div>
+          <div className="text-[12px] text-black/70 leading-snug">{displayBody}</div>
+        </div>
+      )}
+
+      <div className="mt-3 grid grid-cols-2 gap-2 text-[10px]">
+        <Hint
+          ok={displayTitle.length >= 6 && displayTitle.length <= 65 && !!title.trim()}
+          label={`Título · ${title.trim().length}/65`}
+        />
+        <Hint
+          ok={displayBody.length >= 20 && displayBody.length <= 140 && !!body.trim()}
+          label={`Mensaje · ${body.trim().length}/140`}
+        />
+      </div>
+    </div>
+  );
+}
+
+function Hint({ ok, label }: { ok: boolean; label: string }) {
+  return (
+    <div
+      className={
+        "px-2 py-1 rounded font-bold " +
+        (ok ? "bg-emerald-50 text-emerald-700 border border-emerald-200" : "bg-amber-50 text-amber-800 border border-amber-200")
+      }
+    >
+      {ok ? "✓" : "⚠"} {label}
+    </div>
   );
 }
 
