@@ -112,6 +112,9 @@ function Signup({ onDone }: { onDone: (c: Customer) => void }) {
 function OffersFeed({ customer, coords, onLogout }: { customer: Customer; coords: { lat: number; lng: number } | null; onLogout: () => void }) {
   const [offers, setOffers] = useState<Offer[]>([]);
   const [loading, setLoading] = useState(true);
+  const [pushState, setPushState] = useState<"unknown" | "unsupported" | "denied" | "granted" | "loading">("unknown");
+
+  // Carga ofertas
   useEffect(() => {
     (async () => {
       setLoading(true);
@@ -130,6 +133,61 @@ function OffersFeed({ customer, coords, onLogout }: { customer: Customer; coords
     })();
   }, [customer.customerId, coords]);
 
+  // Estado de push: ¿el navegador soporta?, ¿el cliente ya aceptó?
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
+      setPushState("unsupported");
+      return;
+    }
+    if (Notification.permission === "granted") setPushState("granted");
+    else if (Notification.permission === "denied") setPushState("denied");
+    else setPushState("unknown");
+  }, []);
+
+  async function activatePush() {
+    setPushState("loading");
+    try {
+      // 1. Obtener VAPID
+      const r = await fetch("/api/bipi/push/vapid-public");
+      const cfg = await r.json();
+      if (!cfg.enabled || !cfg.key) {
+        alert("Las notificaciones aún no están configuradas en el servidor.");
+        setPushState("unknown");
+        return;
+      }
+      // 2. Registrar SW
+      const reg = await navigator.serviceWorker.register("/bipi-sw.js", { scope: "/bipi/" });
+      await navigator.serviceWorker.ready;
+      // 3. Pedir permiso
+      const perm = await Notification.requestPermission();
+      if (perm !== "granted") {
+        setPushState(perm === "denied" ? "denied" : "unknown");
+        return;
+      }
+      // 4. Suscribir
+      const sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(cfg.key) as unknown as BufferSource
+      });
+      // 5. Enviar al backend
+      await fetch("/api/bipi/push/subscribe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          customerId: customer.customerId,
+          subscription: sub.toJSON(),
+          userAgent: navigator.userAgent
+        })
+      });
+      setPushState("granted");
+    } catch (e: any) {
+      console.warn("push activation failed", e);
+      setPushState("unknown");
+      alert("No se pudieron activar las notificaciones: " + (e?.message ?? "error"));
+    }
+  }
+
   return (
     <main className="max-w-md mx-auto px-4 py-6">
       <div className="flex items-center justify-between mb-4">
@@ -139,6 +197,26 @@ function OffersFeed({ customer, coords, onLogout }: { customer: Customer; coords
         </div>
         <button onClick={onLogout} className="text-xs text-slate-500 hover:underline">Salir</button>
       </div>
+
+      {/* CTA de notificaciones */}
+      {pushState === "unknown" && (
+        <button
+          onClick={activatePush}
+          className="w-full mb-4 px-4 py-3 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 text-white text-sm font-medium shadow"
+        >
+          🔔 Activar avisos cuando tus cupones estén a punto de caducar
+        </button>
+      )}
+      {pushState === "denied" && (
+        <div className="mb-4 px-3 py-2 rounded-lg bg-amber-50 border border-amber-200 text-xs text-amber-800">
+          Has bloqueado las notificaciones. Ve a los ajustes del navegador para reactivarlas si quieres recibir avisos cuando tus cupones caduquen.
+        </div>
+      )}
+      {pushState === "granted" && (
+        <div className="mb-4 px-3 py-2 rounded-lg bg-emerald-50 border border-emerald-200 text-xs text-emerald-800">
+          ✅ Avisos activos. Te recordaremos cuando tus cupones estén a punto de caducar.
+        </div>
+      )}
 
       <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-4 text-sm">
         📲 <strong>Escanea el QR del negocio</strong> donde vas a pagar para llevarte el descuento. Cada compra te abre 3-5 cupones cerca.
@@ -177,4 +255,15 @@ function OffersFeed({ customer, coords, onLogout }: { customer: Customer; coords
       )}
     </main>
   );
+}
+
+/** Convierte la VAPID public key (URL-safe base64) a Uint8Array como
+ *  pide PushManager.subscribe. */
+function urlBase64ToUint8Array(base64String: string): Uint8Array {
+  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const rawData = typeof window !== "undefined" ? window.atob(base64) : Buffer.from(base64, "base64").toString("binary");
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; ++i) outputArray[i] = rawData.charCodeAt(i);
+  return outputArray;
 }
