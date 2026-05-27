@@ -97,8 +97,14 @@ export async function renderTemplate(opts: {
     const re = new RegExp(`\\{\\{\\s*${k}\\s*\\}\\}`, "g");
     out = out.replace(re, v);
   }
-  // Limpieza
-  out = out.replace(/\n{3,}/g, "\n\n").trim();
+  // Limpieza: si un placeholder se queda vacío, no dejes dobles espacios ni
+  // ", ," colgando justo antes/después del hueco.
+  out = out
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/,\s*,/g, ",")
+    .replace(/\s+([,.!?;:])/g, "$1")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
   return out;
 }
 
