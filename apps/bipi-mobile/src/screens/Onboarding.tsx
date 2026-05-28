@@ -77,12 +77,17 @@ export function Onboarding() {
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
+  const [birthDate, setBirthDate] = useState("");
+  const [gender, setGender] = useState("");
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
 
   async function sendCode() {
     if (!name.trim()) { Alert.alert("Pon tu nombre"); return; }
     if (phone.trim().length < 6) { Alert.alert("Teléfono inválido"); return; }
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.trim())) { Alert.alert("Email inválido"); return; }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(birthDate.trim())) { Alert.alert("Fecha", "Usa el formato AAAA-MM-DD"); return; }
+    if (!gender) { Alert.alert("Indica tu sexo"); return; }
     setBusy(true);
     try {
       await api.requestOtp(phone.trim());
@@ -97,7 +102,14 @@ export function Onboarding() {
   async function verify() {
     setBusy(true);
     try {
-      const r = await api.verifyOtp(phone.trim(), code.trim(), name.trim(), email.trim() || undefined);
+      const r = await api.verifyOtp({
+        phone: phone.trim(),
+        code: code.trim(),
+        name: name.trim(),
+        email: email.trim(),
+        birthDate: birthDate.trim(),
+        gender
+      });
       await Location.requestForegroundPermissionsAsync();
       await Notifications.requestPermissionsAsync();
       await saveSession({
@@ -195,13 +207,44 @@ export function Onboarding() {
           />
           <TextInput
             style={styles.input}
-            placeholder="Email (opcional)"
+            placeholder="Email"
             placeholderTextColor={colors.grayLight}
             value={email}
             onChangeText={setEmail}
             keyboardType="email-address"
             autoCapitalize="none"
           />
+          <TextInput
+            style={styles.input}
+            placeholder="Fecha de nacimiento (AAAA-MM-DD)"
+            placeholderTextColor={colors.grayLight}
+            value={birthDate}
+            onChangeText={(t) => setBirthDate(t.replace(/[^0-9-]/g, "").slice(0, 10))}
+            keyboardType="numbers-and-punctuation"
+          />
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+            {[
+              { v: "female", l: "Mujer" },
+              { v: "male", l: "Hombre" },
+              { v: "other", l: "Otro" },
+              { v: "prefer_not", l: "Prefiero no decirlo" }
+            ].map((g) => (
+              <TouchableOpacity
+                key={g.v}
+                onPress={() => setGender(g.v)}
+                style={{
+                  paddingVertical: 8,
+                  paddingHorizontal: 14,
+                  borderRadius: 999,
+                  borderWidth: 1.5,
+                  borderColor: gender === g.v ? colors.pink : "#E5E7EB",
+                  backgroundColor: gender === g.v ? colors.pink : colors.white
+                }}
+              >
+                <Text style={{ fontSize: 13, fontWeight: "700", color: gender === g.v ? colors.white : colors.black }}>{g.l}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
           <TouchableOpacity style={[styles.btn, busy && { opacity: 0.5 }]} onPress={sendCode} disabled={busy} activeOpacity={0.9}>
             <Text style={styles.btnText}>{busy ? "Enviando…" : "Enviar código SMS"}</Text>
           </TouchableOpacity>

@@ -3362,6 +3362,8 @@ model BipiCustomer {
   phone           String?  @unique
   phoneVerified   Boolean  @default(false)
   name            String?
+  birthDate       String?  // ISO YYYY-MM-DD
+  gender          String?  // female | male | other | prefer_not
   // Token push (Expo / FCM / APNs).
   pushToken       String?
   // Última ubicación (para feed + push geo).

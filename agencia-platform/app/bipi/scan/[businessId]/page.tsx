@@ -165,6 +165,8 @@ function SignupForm({
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
+  const [birthDate, setBirthDate] = useState("");
+  const [gender, setGender] = useState("");
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -172,6 +174,9 @@ function SignupForm({
   async function sendCode(e: React.FormEvent) {
     e.preventDefault();
     if (!name.trim()) { setError("Pon tu nombre"); return; }
+    if (!email.trim()) { setError("El email es obligatorio"); return; }
+    if (!birthDate) { setError("Indica tu fecha de nacimiento"); return; }
+    if (!gender) { setError("Indica tu sexo"); return; }
     setBusy(true);
     setError(null);
     try {
@@ -196,7 +201,7 @@ function SignupForm({
       const r = await fetch("/api/bipi/customer/verify-otp", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone, code, name, email, firstBusinessId: businessId })
+        body: JSON.stringify({ phone, code, name, email, birthDate, gender, firstBusinessId: businessId })
       });
       const j = await r.json();
       if (!r.ok) { setError(j?.error?.message ?? `Error ${r.status}`); return; }
@@ -234,11 +239,30 @@ function SignupForm({
           />
           <input
             type="email"
-            placeholder="Email (opcional)"
+            placeholder="Email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
+            required
             className="bipi-input"
           />
+          <label className="block text-xs font-semibold text-black/55">
+            Fecha de nacimiento
+            <input
+              type="date"
+              value={birthDate}
+              onChange={(e) => setBirthDate(e.target.value)}
+              required
+              max={new Date().toISOString().slice(0, 10)}
+              className="bipi-input mt-1"
+            />
+          </label>
+          <select value={gender} onChange={(e) => setGender(e.target.value)} required className="bipi-input">
+            <option value="">Sexo…</option>
+            <option value="female">Mujer</option>
+            <option value="male">Hombre</option>
+            <option value="other">Otro</option>
+            <option value="prefer_not">Prefiero no decirlo</option>
+          </select>
           {error && <p className="text-rose-700 text-sm">{error}</p>}
           <button type="submit" disabled={busy} className="bipi-btn w-full">
             {busy ? "Enviando…" : "Enviar código SMS"}
