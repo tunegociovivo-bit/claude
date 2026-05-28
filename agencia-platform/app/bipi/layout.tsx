@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "../globals.css";
 import "./bipi.css";
+import InstallPrompt from "./InstallPrompt";
 
 export const metadata: Metadata = {
   title: "Bipi — Descuentos cruzados entre negocios cerca de ti",
@@ -55,6 +56,7 @@ export default function BipiLayout({ children }: { children: React.ReactNode }) 
         <span className="mx-2">·</span>
         Ahorra. Disfruta. Apoya local. · Piloto en Benalmádena · Una app de Negocio Vivo
       </footer>
+      <InstallPrompt />
     </div>
   );
 }

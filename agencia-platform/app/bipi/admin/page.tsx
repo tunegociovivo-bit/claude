@@ -77,23 +77,27 @@ export default function BipiAdmin() {
 
   return (
     <main className="max-w-5xl mx-auto px-4 py-8 space-y-6">
-      <header className="flex items-center justify-between gap-2 flex-wrap">
-        <div>
-          <h1 className="text-2xl font-bold">Bipi Admin</h1>
-          <p className="text-xs text-slate-500">
-            Vista global de la red ({data?.scope.city ?? "—"})
-          </p>
+      <header className="flex items-center justify-between gap-2 flex-wrap bipi-fade-up">
+        <div className="flex items-center gap-3">
+          <span className="bipi-wordmark" style={{ fontSize: 32 }}>bipi</span>
+          <div>
+            <div className="text-xs font-bold uppercase tracking-wider text-black/55">Admin</div>
+            <p className="text-[11px] text-black/45">
+              Vista global de la red · {data?.scope.city ?? "todas las ciudades"}
+            </p>
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <input
             value={city}
             onChange={(e) => setCity(e.target.value)}
             placeholder="Filtrar por ciudad"
-            className="px-3 py-1.5 border rounded-lg text-sm bg-white"
+            className="bipi-input text-sm py-1.5"
+            style={{ width: 180 }}
           />
           <button
             onClick={() => { localStorage.removeItem("bipi.adminToken"); setToken(null); }}
-            className="text-xs text-slate-500 hover:underline"
+            className="text-xs text-black/45 hover:text-black/70 font-semibold"
           >
             Salir
           </button>
@@ -101,80 +105,69 @@ export default function BipiAdmin() {
       </header>
 
       {error && <div className="text-rose-700 text-sm">{error}</div>}
-      {loading && !data && <div className="text-sm text-slate-500">Cargando…</div>}
+      {loading && !data && (
+        <div className="space-y-3">
+          <div className="bipi-skeleton h-28" />
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            {[1, 2, 3, 4, 5, 6].map((i) => <div key={i} className="bipi-skeleton h-20" />)}
+          </div>
+        </div>
+      )}
 
       {data && (
         <>
-          <section className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <Stat label="Negocios" value={data.summary.businesses} />
-            <Stat label="Clientes" value={data.summary.customers} />
-            <Stat label="Compras 30d" value={data.summary.purchases30} />
-            <Stat label="Cupones 30d" value={data.summary.offers30} />
-            <Stat label="Canjes 30d" value={data.summary.offersRedeemed30} />
-            <Stat label="Conversion %" value={`${data.summary.conversionPct}%`} />
-            <Stat label="Ventas 30d" value={`${(data.summary.revenue30 ?? 0).toFixed(0)} €`} />
-            <Stat
-              label="Plan distribution"
-              value={data.plansBreakdown.map((p) => `${p.plan} ${p.count}`).join(" · ") || "—"}
+          {/* Stat hero — ventas de la red */}
+          <section className="bipi-card p-6 bipi-fade-up bipi-fade-up-1">
+            <div className="flex items-end justify-between flex-wrap gap-4">
+              <div className="bipi-stat-hero">
+                <div className="label">Ventas de la red · 30d</div>
+                <div className="value">{(data.summary.revenue30 ?? 0).toLocaleString("es-ES", { maximumFractionDigits: 0 })} €</div>
+                <div className="sub">
+                  {data.summary.conversionPct}% de cupones canjeados · {data.summary.offersRedeemed30}/{data.summary.offers30}
+                </div>
+              </div>
+              <div className="grid grid-cols-3 gap-2 min-w-[280px]">
+                <MiniStat label="Negocios" value={data.summary.businesses} />
+                <MiniStat label="Clientes" value={data.summary.customers} />
+                <MiniStat label="Compras 30d" value={data.summary.purchases30} />
+              </div>
+            </div>
+            {data.plansBreakdown.length > 0 && (
+              <div className="mt-4 pt-4 border-t border-black/5 flex items-center gap-2 flex-wrap">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-black/45">Planes:</span>
+                {data.plansBreakdown.map((p) => (
+                  <span key={p.plan} className="bipi-chip" style={{ cursor: "default" }}>
+                    {p.plan} · {p.count}
+                  </span>
+                ))}
+              </div>
+            )}
+          </section>
+
+          <section className="bipi-card p-5 bipi-fade-up bipi-fade-up-2">
+            <h2 className="text-sm font-bold mb-3">🔥 Top escaneos · 7 días</h2>
+            <RankTable
+              rows={data.topByScanning.map((r) => ({
+                business: r.business,
+                extra: `Karma ${r.business.visibilityScore}`,
+                value: r.scans
+              }))}
+              valueLabel="escaneos"
+              empty="Aún sin escaneos en este periodo."
             />
           </section>
 
-          <section>
-            <h2 className="text-sm font-semibold mb-2">🔥 Top escaneos (7 días)</h2>
-            <table className="w-full text-sm bg-white border rounded-xl overflow-hidden">
-              <thead className="bg-slate-50 text-xs uppercase text-slate-500">
-                <tr>
-                  <th className="text-left px-3 py-2">Negocio</th>
-                  <th className="text-left px-3 py-2">Categoría</th>
-                  <th className="text-left px-3 py-2">Ciudad</th>
-                  <th className="text-left px-3 py-2">Karma</th>
-                  <th className="text-right px-3 py-2">Escaneos</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y">
-                {data.topByScanning.map((r) => (
-                  <tr key={r.business.id}>
-                    <td className="px-3 py-2">
-                      <a href={`/bipi/n/${r.business.slug ?? r.business.id}`} className="text-pink-600 hover:underline">
-                        {r.business.name}
-                      </a>
-                    </td>
-                    <td className="px-3 py-2 text-slate-500">{r.business.category}</td>
-                    <td className="px-3 py-2 text-slate-500">{r.business.city}</td>
-                    <td className="px-3 py-2 text-slate-500">{r.business.visibilityScore}</td>
-                    <td className="px-3 py-2 text-right font-semibold">{r.scans}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </section>
-
-          <section>
-            <h2 className="text-sm font-semibold mb-2">🎟 Top cupones canjeados recibidos (30 días)</h2>
-            <table className="w-full text-sm bg-white border rounded-xl overflow-hidden">
-              <thead className="bg-slate-50 text-xs uppercase text-slate-500">
-                <tr>
-                  <th className="text-left px-3 py-2">Negocio</th>
-                  <th className="text-left px-3 py-2">Categoría</th>
-                  <th className="text-left px-3 py-2">Ciudad</th>
-                  <th className="text-right px-3 py-2">Canjes</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y">
-                {data.topByCross.map((r) => (
-                  <tr key={r.business.id}>
-                    <td className="px-3 py-2">
-                      <a href={`/bipi/n/${r.business.slug ?? r.business.id}`} className="text-pink-600 hover:underline">
-                        {r.business.name}
-                      </a>
-                    </td>
-                    <td className="px-3 py-2 text-slate-500">{r.business.category}</td>
-                    <td className="px-3 py-2 text-slate-500">{r.business.city}</td>
-                    <td className="px-3 py-2 text-right font-semibold">{r.redeemed}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <section className="bipi-card p-5 bipi-fade-up bipi-fade-up-3">
+            <h2 className="text-sm font-bold mb-3">🎟 Top cupones canjeados recibidos · 30 días</h2>
+            <RankTable
+              rows={data.topByCross.map((r) => ({
+                business: r.business,
+                extra: r.business.city,
+                value: r.redeemed
+              }))}
+              valueLabel="canjes"
+              empty="Aún sin canjes cruzados en este periodo."
+            />
           </section>
         </>
       )}
@@ -182,11 +175,49 @@ export default function BipiAdmin() {
   );
 }
 
-function Stat({ label, value }: { label: string; value: number | string }) {
+function RankTable({
+  rows,
+  valueLabel,
+  empty
+}: {
+  rows: Array<{ business: any; extra: string; value: number }>;
+  valueLabel: string;
+  empty: string;
+}) {
+  if (rows.length === 0) {
+    return <div className="py-6 text-center text-sm text-black/50">{empty}</div>;
+  }
   return (
-    <div className="bg-white border rounded-xl p-3 shadow-sm">
-      <div className="text-[10px] text-slate-500 uppercase tracking-wide">{label}</div>
-      <div className="text-xl font-bold mt-1">{value}</div>
+    <div className="bipi-table">
+      {rows.map((r, i) => (
+        <div key={r.business.id} className="row">
+          <div className="left min-w-0">
+            <div className="avatar">{i + 1}</div>
+            <div className="min-w-0">
+              <a
+                href={`/bipi/n/${r.business.slug ?? r.business.id}`}
+                className="name truncate hover:text-pink-600"
+              >
+                {r.business.name}
+              </a>
+              <div className="sub truncate">{r.business.category} · {r.extra}</div>
+            </div>
+          </div>
+          <div className="text-right">
+            <div className="amount">{r.value}</div>
+            <div className="sub">{valueLabel}</div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function MiniStat({ label, value }: { label: string; value: number | string }) {
+  return (
+    <div className="rounded-xl bg-pink-50/60 border border-pink-100 p-2.5 text-center">
+      <div className="text-[10px] uppercase tracking-wide text-black/55 font-bold">{label}</div>
+      <div className="text-lg font-black mt-0.5">{value}</div>
     </div>
   );
 }
@@ -195,23 +226,26 @@ function TokenForm({ onSet }: { onSet: (t: string) => void }) {
   const [token, setToken] = useState("");
   return (
     <main className="max-w-md mx-auto px-4 py-12">
-      <h1 className="text-2xl font-bold mb-2">Bipi Admin</h1>
-      <p className="text-sm text-slate-600 mb-4">
-        Introduce el <code>BIPI_ADMIN_TOKEN</code> configurado en Railway.
-      </p>
-      <input
-        type="password"
-        value={token}
-        onChange={(e) => setToken(e.target.value)}
-        placeholder="Bearer token"
-        className="w-full px-3 py-2 border rounded-lg bg-white mb-3"
-      />
-      <button
-        onClick={() => token && onSet(token)}
-        className="w-full py-2.5 rounded-full bg-pink-500 hover:bg-pink-600 text-white font-medium"
-      >
-        Entrar
-      </button>
+      <div className="text-center mb-6 bipi-fade-up">
+        <span className="bipi-wordmark mx-auto justify-center" style={{ fontSize: 48 }}>bipi</span>
+        <div className="text-xs font-bold uppercase tracking-wider text-black/55 mt-2">Admin</div>
+      </div>
+      <div className="bipi-card p-6 bipi-fade-up bipi-fade-up-1">
+        <p className="text-sm text-black/60 mb-4">
+          Introduce el <code className="text-pink-600 font-mono text-xs">BIPI_ADMIN_TOKEN</code> configurado en Railway.
+        </p>
+        <input
+          type="password"
+          value={token}
+          onChange={(e) => setToken(e.target.value)}
+          placeholder="Bearer token"
+          className="bipi-input mb-3"
+          onKeyDown={(e) => { if (e.key === "Enter" && token) onSet(token); }}
+        />
+        <button onClick={() => token && onSet(token)} className="bipi-btn w-full">
+          Entrar
+        </button>
+      </div>
     </main>
   );
 }
