@@ -10,11 +10,15 @@
 
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
+import { businessTokenAllows } from "@/lib/bipi/auth";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(_req: Request, { params }: { params: { id: string } }) {
+export async function GET(req: Request, { params }: { params: { id: string } }) {
   const id = params.id;
+  if (!businessTokenAllows(req.headers.get("authorization"), id)) {
+    return NextResponse.json({ error: { code: "unauthorized", message: "No autorizado" } }, { status: 401 });
+  }
   const business = await prisma.bipiBusiness.findUnique({ where: { id } });
   if (!business) {
     return NextResponse.json({ error: { code: "not_found" } }, { status: 404 });

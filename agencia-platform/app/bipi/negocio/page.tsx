@@ -100,7 +100,9 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
   async function load() {
     setLoading(true);
     try {
-      const r = await fetch(`/api/bipi/business/${session.businessId}/dashboard`);
+      const r = await fetch(`/api/bipi/business/${session.businessId}/dashboard`, {
+        headers: { Authorization: `Bearer ${session.token}` }
+      });
       if (r.ok) setData(await r.json());
     } finally {
       setLoading(false);
@@ -119,7 +121,7 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
     try {
       const r = await fetch("/api/bipi/purchase/confirm", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.token}` },
         body: JSON.stringify({ purchaseId, businessId: session.businessId, action })
       });
       if (!r.ok) {
@@ -189,7 +191,7 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
       <ProfileEditor business={b} token={session.token} onSaved={load} />
 
       {/* Cruces — la mina de datos */}
-      <CrossShopperPanel businessId={b.id} />
+      <CrossShopperPanel businessId={b.id} token={session.token} />
 
       {/* Crear Push del Día */}
       <PushAdForm businessId={b.id} businessName={b.name} />
@@ -571,15 +573,17 @@ function ProfileEditor({ business, token, onSaved }: { business: any; token: str
 /** Panel "Cruces" — muestra a qué negocios el actual envía clientes y de
  *  cuáles recibe. Esto es el dato más valioso de Bipi: la red de tráfico
  *  cruzado que ningún Meta/Google sabe ver. */
-function CrossShopperPanel({ businessId }: { businessId: string }) {
+function CrossShopperPanel({ businessId, token }: { businessId: string; token: string }) {
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   useEffect(() => {
-    fetch(`/api/bipi/business/${businessId}/cross-shopper`)
+    fetch(`/api/bipi/business/${businessId}/cross-shopper`, {
+      headers: { Authorization: `Bearer ${token}` }
+    })
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => setData(d))
       .finally(() => setLoading(false));
-  }, [businessId]);
+  }, [businessId, token]);
   if (loading) {
     return <div className="bg-white border rounded-xl p-5 shadow-sm text-sm text-slate-500">Calculando cruces…</div>;
   }
