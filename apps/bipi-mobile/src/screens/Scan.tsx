@@ -5,6 +5,7 @@ import * as Location from "expo-location";
 import { useNavigation, useRoute, type RouteProp } from "@react-navigation/native";
 import { CheckSession } from "../lib/session";
 import { api } from "../lib/api";
+import { colors, radius, shadow } from "../lib/theme";
 import type { RootStackParamList } from "../../App";
 
 type ScanRoute = RouteProp<RootStackParamList, "Scan">;
@@ -28,7 +29,6 @@ export function Scan() {
   }, []);
 
   function onScanned(result: { data: string }) {
-    // Esperamos URLs del estilo https://hub.negociovivo.app/bipi/scan/<businessId>
     const m = /\/bipi\/scan\/([a-z0-9_-]+)/i.exec(result.data);
     if (m) {
       setBusinessId(m[1]);
@@ -67,32 +67,23 @@ export function Scan() {
   }
 
   if (hasPermission === null) {
-    return <View style={styles.center}><Text>Pidiendo permiso de cámara…</Text></View>;
+    return <View style={styles.center}><Text style={styles.muted}>Pidiendo permiso de cámara…</Text></View>;
   }
   if (hasPermission === false) {
-    return <View style={styles.center}><Text>Sin permiso de cámara. Actívalo en ajustes.</Text></View>;
+    return <View style={styles.center}><Text style={styles.muted}>Sin permiso de cámara. Actívalo en ajustes.</Text></View>;
   }
 
   if (done) {
+    const rejected = done.status === "rejected";
     return (
       <View style={[styles.center, { padding: 24 }]}>
-        {done.status === "rejected" ? (
-          <>
-            <Text style={{ fontSize: 64 }}>❌</Text>
-            <Text style={styles.bigTitle}>Escaneo no válido</Text>
-            <Text style={{ textAlign: "center", color: "#7A5C3E", marginVertical: 12 }}>
-              {done.rejectionReason}
-            </Text>
-          </>
-        ) : (
-          <>
-            <Text style={{ fontSize: 64 }}>✅</Text>
-            <Text style={styles.bigTitle}>Enviado al negocio</Text>
-            <Text style={{ textAlign: "center", color: "#7A5C3E", marginVertical: 12 }}>
-              En cuanto confirme el importe, te aplican el {done.discountPct}% y desbloqueas nuevos cupones cerca.
-            </Text>
-          </>
-        )}
+        <Text style={{ fontSize: 64 }}>{rejected ? "❌" : "✅"}</Text>
+        <Text style={styles.bigTitle}>{rejected ? "Escaneo no válido" : "Enviado al negocio"}</Text>
+        <Text style={styles.muted}>
+          {rejected
+            ? done.rejectionReason
+            : `En cuanto el negocio confirme el importe, te aplican el ${done.discountPct}% y desbloqueas nuevos cupones cerca.`}
+        </Text>
         <TouchableOpacity style={styles.btn} onPress={() => nav.reset({ index: 0, routes: [{ name: "Feed" }] })}>
           <Text style={styles.btnText}>Ver mis cupones</Text>
         </TouchableOpacity>
@@ -108,8 +99,10 @@ export function Scan() {
           onBarcodeScanned={onScanned}
           barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
         />
+        {/* Marco visual de escaneo */}
+        <View style={styles.scanFrame} pointerEvents="none" />
         <View style={styles.overlayHint}>
-          <Text style={{ color: "#FFF", textAlign: "center" }}>Apunta al QR del negocio</Text>
+          <Text style={styles.overlayText}>Apunta al QR del negocio</Text>
         </View>
       </View>
     );
@@ -118,7 +111,7 @@ export function Scan() {
   return (
     <View style={styles.amountRoot}>
       <Text style={styles.bigTitle}>¿Cuánto has pagado?</Text>
-      <Text style={{ color: "#7A5C3E", marginBottom: 24, textAlign: "center" }}>
+      <Text style={[styles.muted, { marginBottom: 24 }]}>
         Introduce el importe del ticket. El negocio confirma y te aplican el descuento.
       </Text>
       <View style={{ flexDirection: "row", alignItems: "flex-end", justifyContent: "center" }}>
@@ -126,6 +119,7 @@ export function Scan() {
           style={styles.bigInput}
           keyboardType="decimal-pad"
           placeholder="0,00"
+          placeholderTextColor={colors.grayLight}
           value={amount}
           onChangeText={setAmount}
           autoFocus
@@ -140,12 +134,15 @@ export function Scan() {
 }
 
 const styles = StyleSheet.create({
-  center: { flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "#FDF2E1" },
-  amountRoot: { flex: 1, padding: 24, backgroundColor: "#FDF2E1", paddingTop: 80, alignItems: "center" },
-  bigTitle: { fontSize: 24, fontWeight: "800", color: "#3D2A1B", textAlign: "center" },
-  bigInput: { fontSize: 48, fontWeight: "900", color: "#3D2A1B", borderBottomColor: "#C8612C", borderBottomWidth: 2, minWidth: 160, textAlign: "center" },
-  bigSymbol: { fontSize: 32, fontWeight: "800", color: "#7A5C3E", marginLeft: 8, paddingBottom: 8 },
-  btn: { marginTop: 32, backgroundColor: "#C8612C", borderRadius: 999, paddingVertical: 14, paddingHorizontal: 28 },
-  btnText: { color: "#FFF", fontSize: 16, fontWeight: "700" },
-  overlayHint: { position: "absolute", bottom: 60, left: 0, right: 0, padding: 12 }
+  center: { flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: colors.white, gap: 12 },
+  muted: { color: colors.gray, textAlign: "center", fontSize: 14, lineHeight: 20, paddingHorizontal: 24 },
+  amountRoot: { flex: 1, padding: 24, backgroundColor: colors.white, paddingTop: 80, alignItems: "center" },
+  bigTitle: { fontSize: 24, fontWeight: "900", color: colors.black, textAlign: "center", letterSpacing: -0.5 },
+  bigInput: { fontSize: 52, fontWeight: "900", color: colors.black, borderBottomColor: colors.pink, borderBottomWidth: 2, minWidth: 160, textAlign: "center" },
+  bigSymbol: { fontSize: 32, fontWeight: "800", color: colors.gray, marginLeft: 8, paddingBottom: 10 },
+  btn: { marginTop: 32, backgroundColor: colors.pink, borderRadius: radius.pill, paddingVertical: 15, paddingHorizontal: 32, ...shadow.btn },
+  btnText: { color: colors.white, fontSize: 16, fontWeight: "800" },
+  scanFrame: { position: "absolute", top: "30%", left: "15%", width: "70%", height: "30%", borderColor: colors.pink, borderWidth: 3, borderRadius: 24 },
+  overlayHint: { position: "absolute", bottom: 80, left: 0, right: 0, padding: 12 },
+  overlayText: { color: "#FFF", textAlign: "center", fontSize: 15, fontWeight: "700" }
 });

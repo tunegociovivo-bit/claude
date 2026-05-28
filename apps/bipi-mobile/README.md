@@ -1,19 +1,51 @@
 # Bipi mobile (Expo)
 
-App nativa iOS + Android del cliente Bipi. Consume el backend del Hub
+App nativa iOS + Android del cliente Bipi. Diseño v2 (rosa · negro ·
+blanco, wordmark con punto). Consume el backend del Hub
 (`hub.negociovivo.app`) — todos los endpoints `/api/bipi/...` ya existen.
 
-## Setup local
+## 📲 Verla en tu móvil HOY (la forma más rápida)
 
 ```bash
 cd apps/bipi-mobile
 npm install
-npx expo prebuild        # genera /android y /ios (solo primera vez)
-npx expo start           # abre Expo Dev Tools
+npx expo start            # muestra un QR en la terminal
 ```
 
-Pulsa `i` (iOS simulator), `a` (Android emulator) o escanea el QR con la
-app **Expo Go** desde tu móvil.
+1. Instala **Expo Go** desde la App Store / Google Play.
+2. Escanea el QR de la terminal:
+   - **Android**: con la propia app Expo Go.
+   - **iOS**: con la cámara del iPhone (abre Expo Go).
+3. La app se abre en tu móvil al instante. Cada cambio recarga en caliente.
+
+> Si el móvil no está en la misma WiFi que el ordenador, usa
+> `npx expo start --tunnel` (instala `@expo/ngrok` si lo pide).
+
+## 📦 Generar un APK instalable (sin Expo Go, sin cable)
+
+Requiere una cuenta gratuita de Expo (https://expo.dev).
+
+```bash
+npm install -g eas-cli
+eas login
+eas init                  # vincula el proyecto (genera projectId)
+eas build -p android --profile preview
+```
+
+Al terminar (en la nube, ~10-15 min) te da un **enlace de descarga**:
+ábrelo en el móvil Android y instala el `.apk` directamente. El perfil
+`preview` ya está configurado en `eas.json` para generar APK.
+
+Para iOS necesitas cuenta Apple Developer (99 USD/año):
+`eas build -p ios --profile preview`.
+
+## Setup avanzado (build nativo local)
+
+```bash
+npx expo prebuild        # genera /android y /ios (solo primera vez)
+npx expo run:android     # requiere Android Studio
+npx expo run:ios         # requiere Xcode (solo Mac)
+```
 
 ## Configuración del backend
 
@@ -41,10 +73,12 @@ añadiendo `apple-app-site-association` en el dominio.
 
 ## Pantallas
 
-- `Splash` → loader inicial.
-- `Onboarding` → email + nombre + permisos.
-- `Feed` → cupones activos, escanear QR.
-- `Scan` → cámara + introducir importe.
+- `Splash` → wordmark + loader inicial.
+- `Onboarding` → 3 slides intro (descuentos / sin trucos / apoya local) + alta email/nombre + permisos.
+- `Feed` → cupones activos como photo-cards con tag -X%, ahorro acumulado, escanear QR.
+- `Scan` → cámara con marco rosa + introducir importe + resultado.
+
+Identidad visual en `src/lib/theme.ts` y `src/components/Wordmark.tsx`.
 
 ## Próximos hitos
 
