@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { View, Text, FlatList, RefreshControl, TouchableOpacity, StyleSheet, Animated, Easing, Image } from "react-native";
+import { View, Text, FlatList, RefreshControl, TouchableOpacity, StyleSheet, Animated, Easing, Image, Dimensions } from "react-native";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import * as Location from "expo-location";
 import { CheckSession, clearSession, type Customer } from "../lib/session";
@@ -15,6 +15,9 @@ type Offer = {
   hoursLeft: number;
   distanceM: number | null;
 };
+
+// Banner cuadrado, centrado y acotado: nunca a pantalla completa ni recortado.
+const PROMO_SIZE = Math.min(Dimensions.get("window").width - 64, 300);
 
 export function Feed() {
   const nav = useNavigation<any>();
@@ -149,7 +152,7 @@ const styles = StyleSheet.create({
   savedAmount: { fontSize: 36, fontWeight: "900", color: colors.pink, letterSpacing: -1 },
   cta: { backgroundColor: colors.pink, borderRadius: radius.pill, paddingVertical: 16, alignItems: "center", ...shadow.btn },
   ctaText: { color: colors.white, fontSize: 16, fontWeight: "800" },
-  promo: { width: "100%", aspectRatio: 1, marginBottom: 22, borderRadius: radius.xl },
+  promo: { width: PROMO_SIZE, height: PROMO_SIZE, alignSelf: "center", marginBottom: 22, borderRadius: radius.xl },
   section: { fontSize: 12, fontWeight: "800", color: colors.gray, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 10 },
   card: { backgroundColor: colors.white, borderRadius: radius.lg, marginBottom: 12, overflow: "hidden", borderWidth: 1, borderColor: colors.border, ...shadow.card },
   photo: { height: 130, backgroundColor: colors.pinkSoft, justifyContent: "flex-start", alignItems: "flex-end" },
