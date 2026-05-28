@@ -18,6 +18,8 @@ type Offer = {
 
 // Banner cuadrado, centrado y acotado: nunca a pantalla completa ni recortado.
 const PROMO_SIZE = Math.min(Dimensions.get("window").width - 64, 300);
+// Tarjeta de estado vacío: ancho explícito (el % no resuelve dentro del FlatList).
+const EMPTY_W = Dimensions.get("window").width - 32;
 
 export function Feed() {
   const nav = useNavigation<any>();
@@ -158,5 +160,5 @@ const styles = StyleSheet.create({
   bizCat: { color: colors.gray, fontSize: 12, marginTop: 2 },
   exp: { fontSize: 12, color: colors.gray, fontWeight: "700" },
   expUrgent: { color: colors.pink },
-  empty: { width: "100%", aspectRatio: 1304 / 832, marginTop: 2 }
+  empty: { width: EMPTY_W, height: Math.round((EMPTY_W * 832) / 1304), alignSelf: "center", marginTop: 2 }
 });
