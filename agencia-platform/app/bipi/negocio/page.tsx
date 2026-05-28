@@ -150,19 +150,30 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
         <button onClick={onLogout} className="text-xs text-black/45 hover:text-black/70">Cerrar sesión</button>
       </div>
 
-      {/* Resumen — stat hero como en el mockup */}
-      <section className="bipi-card p-6 bipi-fade-up bipi-fade-up-1">
-        <div className="flex items-end justify-between flex-wrap gap-4">
-          <div className="bipi-stat-hero">
-            <div className="label">Resumen · ventas Bipi 30d</div>
-            <div className="value">{(m.revenue30 ?? m.revenue7 ?? 0).toLocaleString("es-ES", { maximumFractionDigits: 0 })} €</div>
-            <div className="sub">Confirmadas · netas de descuento</div>
+      {/* Resumen — tarjeta oscura con gráfica de ventas + métricas */}
+      <section className="bipi-fade-up bipi-fade-up-1 space-y-3">
+        <div className="rounded-2xl p-5 text-white" style={{ background: "linear-gradient(160deg,#1A1A1A,#0A0A0A)" }}>
+          <div className="flex items-start justify-between">
+            <div>
+              <div className="text-[11px] uppercase tracking-wider text-white/50 font-bold">Ventas Bipi · 30 días</div>
+              <div className="text-4xl font-black mt-1">
+                {(m.revenue30 ?? 0).toLocaleString("es-ES", { maximumFractionDigits: 0 })} €
+              </div>
+            </div>
+            {typeof m.deltas?.scans7 === "number" && (
+              <div className={"text-xs font-bold px-2 py-1 rounded-full " + (m.deltas.scans7 >= 0 ? "bg-emerald-500/20 text-emerald-300" : "bg-rose-500/20 text-rose-300")}>
+                {m.deltas.scans7 >= 0 ? "↗" : "↘"} {Math.abs(m.deltas.scans7)}% escaneos 7d
+              </div>
+            )}
           </div>
-          <div className="grid grid-cols-3 gap-2 min-w-[280px]">
-            <MiniMetric label="Escaneos 7d" value={m.scans7} />
-            <MiniMetric label="Escaneos 30d" value={m.scans30} />
-            <MiniMetric label="Cupones recibidos 7d" value={m.redeemedFromOthers7} />
-          </div>
+          <SalesChart data={m.dailyRevenue ?? []} />
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          <MetricCard label="Ventas 30d" value={m.scans30} sub="confirmadas" />
+          <MetricCard label="Nuevos clientes" value={m.newCustomers30 ?? 0} sub="30 días" />
+          <MetricCard label="Ticket medio" value={`${(m.ticketMedio ?? 0).toFixed(2)} €`} />
+          <MetricCard label="Escaneos 7d" value={m.scans7} />
         </div>
       </section>
 
@@ -980,6 +991,46 @@ function Metric({ label, value, sub }: { label: string; value: number | string; 
       <div className="text-[11px] text-slate-500 uppercase tracking-wide">{label}</div>
       <div className="text-2xl font-bold mt-1">{value}</div>
       {sub && <div className="text-[10px] text-slate-400">{sub}</div>}
+    </div>
+  );
+}
+
+/** Gráfica de área SVG (ventas diarias) sobre la tarjeta oscura. */
+function SalesChart({ data }: { data: { day: string; total: number }[] }) {
+  const W = 320, H = 90, pad = 4;
+  if (!data || data.length < 2) {
+    return <div className="mt-4 h-[90px] grid place-items-center text-white/30 text-xs">Aún sin ventas para la gráfica</div>;
+  }
+  const max = Math.max(1, ...data.map((d) => d.total));
+  const stepX = (W - pad * 2) / (data.length - 1);
+  const pts = data.map((d, i) => {
+    const x = pad + i * stepX;
+    const y = H - pad - (d.total / max) * (H - pad * 2);
+    return [x, y] as const;
+  });
+  const line = pts.map(([x, y], i) => `${i === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
+  const area = `${line} L${pts[pts.length - 1][0].toFixed(1)},${H} L${pts[0][0].toFixed(1)},${H} Z`;
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} width="100%" height="90" className="mt-4 overflow-visible">
+      <defs>
+        <linearGradient id="salesfill" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor="#EC4899" stopOpacity="0.55" />
+          <stop offset="1" stopColor="#EC4899" stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      <path d={area} fill="url(#salesfill)" />
+      <path d={line} fill="none" stroke="#F472B6" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx={pts[pts.length - 1][0]} cy={pts[pts.length - 1][1]} r="3.5" fill="#fff" />
+    </svg>
+  );
+}
+
+function MetricCard({ label, value, sub }: { label: string; value: number | string; sub?: string }) {
+  return (
+    <div className="bipi-card p-3">
+      <div className="text-[10px] uppercase tracking-wide text-black/50 font-bold">{label}</div>
+      <div className="text-xl font-black mt-0.5">{value}</div>
+      {sub && <div className="text-[10px] text-black/45">{sub}</div>}
     </div>
   );
 }

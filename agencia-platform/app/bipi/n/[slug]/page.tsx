@@ -170,6 +170,16 @@ export default async function BusinessPublicPage({ params }: { params: { slug: s
           )}
         </div>
 
+        {/* Oferta destacada */}
+        <div className="px-6 sm:px-8 pt-5">
+          <div className="flex items-center gap-3 rounded-2xl bg-pink-50 border border-pink-100 px-4 py-3">
+            <div className="text-2xl font-black text-pink-600">-{business.defaultDiscountPct}%</div>
+            <div className="text-sm font-semibold text-black/75">
+              Descuento al escanear su QR con Bipi
+            </div>
+          </div>
+        </div>
+
         {/* Sobre nosotros */}
         {business.description && (
           <div className="px-6 sm:px-8 pt-6">
@@ -177,6 +187,33 @@ export default async function BusinessPublicPage({ params }: { params: { slug: s
             <p className="text-black/75 whitespace-pre-wrap leading-relaxed text-sm">
               {business.description}
             </p>
+          </div>
+        )}
+
+        {/* Mapa (si hay coordenadas) */}
+        {business.latitude != null && business.longitude != null && (
+          <div className="px-6 sm:px-8 pt-6">
+            <div className="text-xs font-bold uppercase tracking-wider text-black/45 mb-2">Dónde estamos</div>
+            <div className="rounded-2xl overflow-hidden border border-black/10">
+              <iframe
+                title="Mapa"
+                width="100%"
+                height="200"
+                loading="lazy"
+                style={{ border: 0, display: "block" }}
+                src={`https://www.openstreetmap.org/export/embed.html?bbox=${business.longitude - 0.004}%2C${business.latitude - 0.003}%2C${business.longitude + 0.004}%2C${business.latitude + 0.003}&layer=mapnik&marker=${business.latitude}%2C${business.longitude}`}
+              />
+            </div>
+            {business.address && (
+              <a
+                href={`https://www.google.com/maps/search/?api=1&query=${business.latitude},${business.longitude}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs text-pink-600 font-semibold mt-2 inline-block hover:underline"
+              >
+                📍 {business.address} · Cómo llegar →
+              </a>
+            )}
           </div>
         )}
 
