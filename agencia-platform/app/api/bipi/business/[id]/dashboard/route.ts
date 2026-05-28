@@ -85,6 +85,12 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
     if (i != null) dailyRevenue[i].total += p.amount;
   }
 
+  const notifications = await prisma.bipiBusinessNotification.findMany({
+    where: { businessId: id, read: false },
+    orderBy: { createdAt: "desc" },
+    take: 20
+  });
+
   const rev7 = revenue7._sum.amount ?? 0;
   const rev30 = revenue30._sum.amount ?? 0;
   const ticketMedio = scans30 > 0 ? rev30 / scans30 : 0;
@@ -107,6 +113,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
       referralReward3: business.referralReward3,
       referralReward5: business.referralReward5
     },
+    notifications: notifications.map((n) => ({ id: n.id, message: n.message, createdAt: n.createdAt })),
     pending: pending.map((p) => ({
       id: p.id,
       amount: p.amount,

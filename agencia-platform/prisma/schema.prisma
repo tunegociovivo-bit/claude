@@ -3354,10 +3354,25 @@ model BipiBusiness {
   purchases BipiPurchase[]
   offers    BipiOffer[]
   pushAds   BipiPushAd[]
+  notifications BipiBusinessNotification[]
 
   @@index([city, active])
   @@index([referrerId])
   @@index([visibilityScore])
+}
+
+/// Aviso para el dueño del negocio (ej. un cliente alcanzó 5 referidos).
+model BipiBusinessNotification {
+  id         String   @id @default(cuid())
+  businessId String
+  type       String   // referral_milestone | ...
+  message    String   @db.Text
+  read       Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  business BipiBusiness @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId, read])
 }
 
 /// Cliente final dado de alta en la app Bipi.

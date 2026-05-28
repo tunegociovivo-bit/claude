@@ -7,7 +7,12 @@
 
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
-import { ensureReferralCode, countVerifiedReferrals, rewardLabelFor, MILESTONES } from "@/lib/bipi/referral";
+import { ensureReferralCode, countVerifiedReferrals, rewardLabelFor, parseReward, MILESTONES } from "@/lib/bipi/referral";
+
+function displayReward(raw: string): string {
+  const { discountPct, label } = parseReward(raw);
+  return label ?? `${discountPct}% de descuento`;
+}
 
 export const dynamic = "force-dynamic";
 
@@ -32,7 +37,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
 
   const milestones = MILESTONES.map((n) => ({
     n,
-    reward: rewardLabelFor(business, n),
+    reward: displayReward(rewardLabelFor(business, n)),
     unlocked: count >= n
   }));
 
