@@ -1,0 +1,9 @@
+# Expo / build artifacts (generados por prebuild, no versionar)
+/android
+/ios
+.expo/
+dist/
+web-build/
+node_modules/
+*.log
+.DS_Store
