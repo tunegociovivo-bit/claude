@@ -28,6 +28,20 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
   const activeOffers = await prisma.bipiOffer.count({
     where: { customerId: c.id, redeemed: false, expiresAt: { gt: new Date() } }
   });
+  // Historial de ahorro: últimas compras confirmadas.
+  const purchases = await prisma.bipiPurchase.findMany({
+    where: { customerId: c.id, status: "confirmed" },
+    orderBy: { confirmedAt: "desc" },
+    take: 20,
+    select: {
+      id: true,
+      discountPct: true,
+      discountAmount: true,
+      confirmedAt: true,
+      scannedAt: true,
+      business: { select: { name: true } }
+    }
+  });
   return NextResponse.json({
     customerId: c.id,
     name: c.name,
@@ -35,6 +49,13 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
     totalSaved: c.totalSaved,
     totalPurchases: c.totalPurchases,
     ambassadorLevel: c.ambassadorLevel,
-    activeOffers
+    activeOffers,
+    savings: purchases.map((p) => ({
+      id: p.id,
+      discountPct: p.discountPct,
+      discountAmount: p.discountAmount,
+      businessName: p.business?.name ?? "Negocio Bipi",
+      date: p.confirmedAt ?? p.scannedAt
+    }))
   });
 }

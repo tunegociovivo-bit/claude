@@ -364,6 +364,8 @@ function OffersFeed({ customer, coords, onLogout }: { customer: Customer; coords
   const [offers, setOffers] = useState<Offer[]>([]);
   const [loading, setLoading] = useState(true);
   const [pushState, setPushState] = useState<"unknown" | "unsupported" | "denied" | "granted" | "loading">("unknown");
+  const [savings, setSavings] = useState<{ id: string; discountPct: number; discountAmount: number; businessName: string; date: string }[]>([]);
+  const [totalSaved, setTotalSaved] = useState(customer.totalSaved ?? 0);
 
   // Carga ofertas + refresca perfil (badge embajador, total ahorrado real…)
   useEffect(() => {
@@ -383,6 +385,8 @@ function OffersFeed({ customer, coords, onLogout }: { customer: Customer; coords
         if (offersRes.ok) setOffers((await offersRes.json()).items ?? []);
         if (profileRes.ok) {
           const fresh = await profileRes.json();
+          if (Array.isArray(fresh.savings)) setSavings(fresh.savings);
+          if (typeof fresh.totalSaved === "number") setTotalSaved(fresh.totalSaved);
           // Persist actualizado en localStorage para los siguientes renders.
           try {
             const merged = { ...customer, ...fresh };
@@ -461,21 +465,42 @@ function OffersFeed({ customer, coords, onLogout }: { customer: Customer; coords
         </button>
       </div>
 
-      {/* Tarjeta Has ahorrado + cupón */}
-      <div className="bipi-card p-5 mb-4 flex items-center justify-between bipi-fade-up bipi-fade-up-1">
-        <div>
-          <div className="text-[10px] uppercase tracking-wider text-black/45 font-bold">Has ahorrado</div>
-          <div className="bipi-discount-big">{customer.totalSaved.toFixed(2)} €</div>
-          {customer.ambassadorLevel &&
-            customer.ambassadorLevel !== "none" &&
-            AMBASSADOR_BADGE[customer.ambassadorLevel] && (
-              <div className={"inline-flex items-center gap-1 mt-2 px-2.5 py-0.5 rounded-full text-[11px] font-semibold " + AMBASSADOR_BADGE[customer.ambassadorLevel].color}>
-                <span>{AMBASSADOR_BADGE[customer.ambassadorLevel].emoji}</span>
-                <span>{AMBASSADOR_BADGE[customer.ambassadorLevel].label}</span>
-              </div>
-            )}
+      {/* Tarjeta Has ahorrado + historial */}
+      <div className="bipi-card p-5 mb-4 bipi-fade-up bipi-fade-up-1">
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="text-[10px] uppercase tracking-wider text-black/45 font-bold">Has ahorrado</div>
+            <div className="bipi-discount-big">{totalSaved.toFixed(2)} €</div>
+            {customer.ambassadorLevel &&
+              customer.ambassadorLevel !== "none" &&
+              AMBASSADOR_BADGE[customer.ambassadorLevel] && (
+                <div className={"inline-flex items-center gap-1 mt-2 px-2.5 py-0.5 rounded-full text-[11px] font-semibold " + AMBASSADOR_BADGE[customer.ambassadorLevel].color}>
+                  <span>{AMBASSADOR_BADGE[customer.ambassadorLevel].emoji}</span>
+                  <span>{AMBASSADOR_BADGE[customer.ambassadorLevel].label}</span>
+                </div>
+              )}
+          </div>
+          <div className="text-4xl" aria-hidden>🐷</div>
         </div>
-        <div className="text-4xl" aria-hidden>🎟️</div>
+
+        {savings.length > 0 ? (
+          <div className="mt-4 pt-4 border-t border-black/5 space-y-2">
+            {savings.slice(0, 4).map((s) => (
+              <div key={s.id} className="flex items-center justify-between text-sm">
+                <span className="text-black/75 truncate">
+                  <span className="font-bold text-pink-600">{s.discountPct}%</span> en {s.businessName}
+                </span>
+                <span className="text-xs text-black/45 whitespace-nowrap ml-2">
+                  {new Date(s.date).toLocaleDateString("es-ES", { day: "2-digit", month: "short" })} · {s.discountAmount.toFixed(2)} €
+                </span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="mt-4 pt-4 border-t border-black/5 text-xs text-black/55">
+            Aún no has ahorrado. En tu próxima compra, escanea el QR del negocio y verás aquí tu ahorro 🎉
+          </div>
+        )}
       </div>
 
       {/* Botón escanear QR — con animación de atención */}
