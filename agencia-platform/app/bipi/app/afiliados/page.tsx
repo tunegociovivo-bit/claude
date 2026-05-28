@@ -23,17 +23,29 @@ export default function AfiliadosPage() {
   const [link, setLink] = useState("");
   const [copied, setCopied] = useState(false);
   const [noSession, setNoSession] = useState(false);
+  const [embedded, setEmbedded] = useState(false);
 
   useEffect(() => {
     let id = "";
+    let fromApp = false;
     try {
       // cid en URL (cuando se abre embebido desde la app nativa) o sesión local.
-      id = new URLSearchParams(window.location.search).get("cid") || "";
+      const cid = new URLSearchParams(window.location.search).get("cid") || "";
+      if (cid) id = cid;
       if (!id) {
         const raw = localStorage.getItem("bipi.customer");
         if (raw) id = JSON.parse(raw).customerId;
       }
+      // Embebido = dentro de la WebView nativa (react-native-webview inyecta
+      // window.ReactNativeWebView) o abierto con ?cid= desde la app.
+      fromApp = Boolean((window as any).ReactNativeWebView) || Boolean(cid);
     } catch {}
+    // Embebido en la app nativa: ocultamos cabecera/footer/nav web para no
+    // duplicar la barra inferior nativa.
+    if (fromApp) {
+      setEmbedded(true);
+      document.body.classList.add("bipi-embedded");
+    }
     if (!id) { setNoSession(true); setLoading(false); return; }
     (async () => {
       try {
@@ -49,12 +61,9 @@ export default function AfiliadosPage() {
     })();
   }, []);
 
-  async function share() {
-    const text = `¡Únete a Bipi y llévate descuentos en negocios del barrio! Usa mi enlace 🎁`;
-    if (typeof navigator !== "undefined" && (navigator as any).share) {
-      try { await (navigator as any).share({ title: "Bipi", text, url: link }); return; } catch {}
-    }
-    await copy();
+  function shareWhatsApp() {
+    const text = `¡Únete a Bipi y llévate descuentos en negocios del barrio! 🎁 ${link}`;
+    window.location.href = `https://wa.me/?text=${encodeURIComponent(text)}`;
   }
   async function copy() {
     try { await navigator.clipboard.writeText(link); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch {}
@@ -75,14 +84,8 @@ export default function AfiliadosPage() {
 
   return (
     <main className="max-w-md mx-auto px-4 py-6 pb-24">
-      <div className="mb-4 bipi-fade-up">
-        <span className="bipi-eyebrow">Afiliados</span>
-        <h1 className="text-2xl font-black tracking-tight mt-3">Invita y ganáis los dos 🎁</h1>
-        <p className="text-black/55 text-sm mt-1">
-          Cuando un amigo se registra con tu enlace y verifica su teléfono, suma. Las recompensas las pone{" "}
-          {data?.originBusiness ? <strong>{data.originBusiness}</strong> : "tu negocio Bipi"}.
-        </p>
-      </div>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src="/bipi/banner-amigo.png" alt="Invita y ganáis los dos" className="w-full rounded-2xl mb-4 bipi-fade-up" />
 
       {loading ? (
         <div className="space-y-3">
@@ -121,7 +124,7 @@ export default function AfiliadosPage() {
           </div>
 
           {/* Compartir */}
-          <button onClick={share} className="bipi-btn bipi-attention w-full py-4 text-base">
+          <button onClick={shareWhatsApp} className="bipi-btn bipi-attention w-full py-4 text-base">
             📲 Invitar amigos por WhatsApp
           </button>
           <div className="flex items-center gap-2 mt-3 px-3 py-2 rounded-lg border border-black/10 bg-pink-50/40">
@@ -131,17 +134,19 @@ export default function AfiliadosPage() {
             </button>
           </div>
           <p className="text-[11px] text-black/45 mt-2 text-center">
-            Abre el menú "Compartir" del móvil para mandarlo a varios contactos a la vez.
+            Se abrirá WhatsApp con el mensaje listo — solo elige a tus amigos. O copia el enlace para enviarlo por donde quieras.
           </p>
         </>
       )}
 
-      <nav className="bipi-bottom-nav">
-        <a href="/bipi/app"><span style={{ fontSize: 18 }}>🏠</span><span>Inicio</span></a>
-        <a href="/bipi/app/descubre"><span style={{ fontSize: 18 }}>🧭</span><span>Descubre</span></a>
-        <a href="/bipi/app/afiliados" className="active"><span style={{ fontSize: 18 }}>🎁</span><span>Afiliados</span></a>
-        <a href="/bipi/app/mapa"><span style={{ fontSize: 18 }}>🗺</span><span>Mapa</span></a>
-      </nav>
+      {!embedded && (
+        <nav className="bipi-bottom-nav">
+          <a href="/bipi/app"><span style={{ fontSize: 18 }}>🏠</span><span>Inicio</span></a>
+          <a href="/bipi/app/descubre"><span style={{ fontSize: 18 }}>🧭</span><span>Descubre</span></a>
+          <a href="/bipi/app/afiliados" className="active"><span style={{ fontSize: 18 }}>🎁</span><span>Afiliados</span></a>
+          <a href="/bipi/app/mapa"><span style={{ fontSize: 18 }}>🗺</span><span>Mapa</span></a>
+        </nav>
+      )}
     </main>
   );
 }

@@ -39,6 +39,13 @@ export default function MapaPage() {
   const [items, setItems] = useState<Business[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // Embebido en la app nativa: ocultamos cabecera/footer/nav web (CSS).
+  useEffect(() => {
+    if (typeof window !== "undefined" && (window as any).ReactNativeWebView) {
+      document.body.classList.add("bipi-embedded");
+    }
+  }, []);
+
   // Carga datos de negocios con coordenadas.
   useEffect(() => {
     (async () => {

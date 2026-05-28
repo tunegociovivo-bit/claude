@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { View, StyleSheet, ActivityIndicator } from "react-native";
+import { View, StyleSheet, ActivityIndicator, Linking } from "react-native";
 import { WebView } from "react-native-webview";
 import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import { CheckSession } from "../lib/session";
@@ -27,6 +27,14 @@ export function Afiliados() {
         <WebView
           source={{ uri: `${API_BASE}/bipi/app/afiliados?cid=${encodeURIComponent(cid)}` }}
           style={{ flex: 1 }}
+          onShouldStartLoadWithRequest={(req) => {
+            const u = req.url;
+            if (/^(whatsapp:|mailto:|tel:|sms:)/.test(u) || /wa\.me|api\.whatsapp\.com/.test(u)) {
+              Linking.openURL(u).catch(() => {});
+              return false;
+            }
+            return true;
+          }}
           startInLoadingState
           renderLoading={() => (
             <View style={styles.loading}><ActivityIndicator color={colors.pink} size="large" /></View>
