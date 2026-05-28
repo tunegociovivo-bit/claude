@@ -26,9 +26,11 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
 
   const now = new Date();
   const d7 = new Date(now.getTime() - 7 * 86_400_000);
+  const d14 = new Date(now.getTime() - 14 * 86_400_000);
+  const prev7 = new Date(now.getTime() - 14 * 86_400_000); // ventana 7d anterior: [prev7, d7)
   const d30 = new Date(now.getTime() - 30 * 86_400_000);
 
-  const [pending, scans7, scans30, redeemedFromOthers7, offersOpen] = await Promise.all([
+  const [pending, scans7, scansPrev7, scans30, redeemedFromOthers7, offersOpen, confirmed14, customers30] = await Promise.all([
     prisma.bipiPurchase.findMany({
       where: { businessId: id, status: "pending" },
       orderBy: { scannedAt: "desc" },
@@ -39,17 +41,25 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
       where: { businessId: id, status: "confirmed", scannedAt: { gte: d7 } }
     }),
     prisma.bipiPurchase.count({
+      where: { businessId: id, status: "confirmed", scannedAt: { gte: prev7, lt: d7 } }
+    }),
+    prisma.bipiPurchase.count({
       where: { businessId: id, status: "confirmed", scannedAt: { gte: d30 } }
     }),
     prisma.bipiOffer.count({
       where: { businessId: id, redeemed: true, redeemedAt: { gte: d7 } }
     }),
     prisma.bipiOffer.count({
-      where: {
-        businessId: id,
-        redeemed: false,
-        expiresAt: { gt: now }
-      }
+      where: { businessId: id, redeemed: false, expiresAt: { gt: now } }
+    }),
+    prisma.bipiPurchase.findMany({
+      where: { businessId: id, status: "confirmed", scannedAt: { gte: d14 } },
+      select: { amount: true, scannedAt: true }
+    }),
+    prisma.bipiPurchase.findMany({
+      where: { businessId: id, status: "confirmed", scannedAt: { gte: d30 } },
+      select: { customerId: true },
+      distinct: ["customerId"]
     })
   ]);
 
@@ -61,6 +71,24 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
     where: { businessId: id, status: "confirmed", scannedAt: { gte: d30 } },
     _sum: { amount: true }
   });
+
+  // Serie diaria de ventas (últimos 14 días) para la gráfica del panel.
+  const dailyRevenue: { day: string; total: number }[] = [];
+  for (let i = 13; i >= 0; i--) {
+    const d = new Date(now.getTime() - i * 86_400_000);
+    dailyRevenue.push({ day: d.toISOString().slice(0, 10), total: 0 });
+  }
+  const idxByDay = new Map(dailyRevenue.map((d, i) => [d.day, i]));
+  for (const p of confirmed14) {
+    const key = new Date(p.scannedAt).toISOString().slice(0, 10);
+    const i = idxByDay.get(key);
+    if (i != null) dailyRevenue[i].total += p.amount;
+  }
+
+  const rev7 = revenue7._sum.amount ?? 0;
+  const rev30 = revenue30._sum.amount ?? 0;
+  const ticketMedio = scans30 > 0 ? rev30 / scans30 : 0;
+  const pct = (cur: number, prev: number) => (prev > 0 ? Math.round(((cur - prev) / prev) * 100) : null);
 
   return NextResponse.json({
     business: {
@@ -87,10 +115,16 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
     metrics: {
       scans7,
       scans30,
-      revenue7: revenue7._sum.amount ?? 0,
-      revenue30: revenue30._sum.amount ?? 0,
+      revenue7: rev7,
+      revenue30: rev30,
       redeemedFromOthers7,
-      offersOpen
+      offersOpen,
+      newCustomers30: customers30.length,
+      ticketMedio,
+      dailyRevenue,
+      deltas: {
+        scans7: pct(scans7, scansPrev7)
+      }
     }
   });
 }
