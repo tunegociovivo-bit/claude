@@ -480,19 +480,22 @@ function OffersFeed({ customer, coords, onLogout }: { customer: Customer; coords
       </button>
 
       {/* Banner promocional */}
-      <div className="bipi-promo bipi-fade-up bipi-fade-up-3 mb-5">
-        <BipiConfetti />
-        <div className="bipi-promo-badge">%</div>
-        <div className="relative text-center px-5 pb-5">
-          <p className="text-lg leading-snug font-black text-black">
+      <div
+        className="relative rounded-3xl overflow-hidden mb-5 bipi-fade-up bipi-fade-up-3"
+        style={{
+          backgroundImage: "url(/bipi/promo.png)",
+          backgroundSize: "cover",
+          backgroundPosition: "center",
+          aspectRatio: "900 / 760"
+        }}
+      >
+        <div className="absolute left-1/2 -translate-x-1/2 top-[6%] bipi-promo-badge">%</div>
+        <div className="absolute inset-x-0 top-[26%] px-8 text-center">
+          <p className="font-black text-black leading-tight" style={{ fontSize: "clamp(20px, 6vw, 30px)" }}>
             En breve comenzarás a recibir{" "}
             <span style={{ color: "#DB2777" }}>grandes descuentos</span>{" "}
-            al pasar cerca de un comercio{" "}
-            <span className="bipi-brand">bipi</span>
+            al pasar cerca de un comercio <span className="bipi-brand">bipi</span>
           </p>
-          <div className="flex items-end justify-center gap-6 mt-3 text-3xl" aria-hidden>
-            <span>🏪</span><span className="text-pink-600">📍</span><span>🏬</span>
-          </div>
         </div>
       </div>
 
@@ -572,39 +575,6 @@ function OffersFeed({ customer, coords, onLogout }: { customer: Customer; coords
         </a>
       </nav>
     </main>
-  );
-}
-
-/** Confeti decorativo del banner promocional. */
-function BipiConfetti() {
-  const bits = [
-    { top: 10, left: "12%", c: "#EC4899", r: -20 },
-    { top: 22, left: "78%", c: "#F59E0B", r: 15 },
-    { top: 40, left: "8%", c: "#F59E0B", r: 40 },
-    { top: 16, left: "50%", c: "#DB2777", r: 0 },
-    { top: 50, left: "88%", c: "#EC4899", r: -30 },
-    { top: 64, left: "30%", c: "#F59E0B", r: 10 }
-  ];
-  return (
-    <>
-      {bits.map((b, i) => (
-        <span
-          key={i}
-          aria-hidden
-          style={{
-            position: "absolute",
-            top: b.top,
-            left: b.left,
-            width: 8,
-            height: 8,
-            background: b.c,
-            borderRadius: 2,
-            transform: `rotate(${b.r}deg)`,
-            opacity: 0.85
-          }}
-        />
-      ))}
-    </>
   );
 }
 
