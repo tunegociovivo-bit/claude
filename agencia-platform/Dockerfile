@@ -17,9 +17,11 @@ ENV NODE_ENV=production
 RUN apk add --no-cache libc6-compat openssl tini && \
     addgroup -g 1001 -S nodejs && \
     adduser -S nextjs -u 1001
-RUN mkdir -p ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+# Next standalone NO incluye public/ — hay que copiarlo a mano o los
+# archivos estáticos (iconos PWA, manifest de Bipi) dan 404.
+COPY --from=builder --chown=nextjs:nodejs /app/public ./public
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/scripts ./scripts
 COPY --from=builder /app/lib ./lib
