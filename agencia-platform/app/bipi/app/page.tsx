@@ -512,24 +512,13 @@ function OffersFeed({ customer, coords, onLogout }: { customer: Customer; coords
       </button>
 
       {/* Banner promocional */}
-      <div
-        className="relative rounded-3xl overflow-hidden mb-5 bipi-fade-up bipi-fade-up-3"
-        style={{
-          backgroundImage: "url(/bipi/promo.png)",
-          backgroundSize: "cover",
-          backgroundPosition: "center",
-          aspectRatio: "900 / 760"
-        }}
-      >
-        <div className="absolute left-1/2 -translate-x-1/2 top-[6%] bipi-promo-badge">%</div>
-        <div className="absolute inset-x-0 top-[26%] px-8 text-center">
-          <p className="font-black text-black leading-tight" style={{ fontSize: "clamp(20px, 6vw, 30px)" }}>
-            En breve comenzarás a recibir{" "}
-            <span style={{ color: "#DB2777" }}>grandes descuentos</span>{" "}
-            al pasar cerca de un comercio <span className="bipi-brand">bipi</span>
-          </p>
-        </div>
-      </div>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src="/bipi/promo.png"
+        alt="En breve comenzarás a recibir grandes descuentos al pasar cerca de un comercio bipi"
+        className="w-full rounded-3xl mb-5 bipi-fade-up bipi-fade-up-3"
+        style={{ display: "block" }}
+      />
 
       {/* Invita amigos */}
       <a href="/bipi/app/afiliados" className="bipi-card p-4 mb-5 flex items-center gap-3 bipi-fade-up bipi-fade-up-3">
