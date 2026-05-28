@@ -12,7 +12,12 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db/prisma";
-import { haversineMeters } from "@/lib/bipi/core";
+import {
+  haversineMeters,
+  unlockOffersForPurchase,
+  recalculateVisibilityScore,
+  recalculateAmbassadorLevel
+} from "@/lib/bipi/core";
 
 export const dynamic = "force-dynamic";
 
@@ -93,7 +98,8 @@ export async function POST(req: Request) {
       amount: d.amount,
       discountPct,
       discountAmount,
-      status: autoReject ? "rejected" : "pending",
+      status: autoReject ? "rejected" : "confirmed",
+      confirmedAt: autoReject ? undefined : new Date(),
       redeemedOfferId: activeOffer?.id,
       scanLat: d.scanLat,
       scanLng: d.scanLng,
@@ -104,12 +110,39 @@ export async function POST(req: Request) {
     }
   });
 
+  let offersUnlocked = 0;
+  if (!autoReject) {
+    // Registro inmediato del ahorro (sin confirmación del negocio):
+    // marca cupón canjeado, suma ahorro al cliente y desbloquea cercanos.
+    if (activeOffer) {
+      await prisma.bipiOffer.update({
+        where: { id: activeOffer.id },
+        data: { redeemed: true, redeemedAt: new Date() }
+      }).catch(() => {});
+    }
+    await prisma.bipiCustomer.update({
+      where: { id: d.customerId },
+      data: { totalPurchases: { increment: 1 }, totalSaved: { increment: discountAmount } }
+    });
+    const res = await unlockOffersForPurchase({
+      customerId: d.customerId,
+      triggerBusinessId: d.businessId,
+      triggerCategory: business.category,
+      triggerLat: business.latitude,
+      triggerLng: business.longitude
+    });
+    offersUnlocked = res.created;
+    void recalculateVisibilityScore(d.businessId).catch(() => {});
+    void recalculateAmbassadorLevel(d.customerId).catch(() => {});
+  }
+
   return NextResponse.json({
     ok: true,
     purchaseId: purchase.id,
     status: purchase.status,
     discountPct,
     discountAmount,
+    offersUnlocked,
     business: { id: business.id, name: business.name, category: business.category },
     rejectionReason: purchase.rejectionReason,
     offerRedeemed: !!activeOffer

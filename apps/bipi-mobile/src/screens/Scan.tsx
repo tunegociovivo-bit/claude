@@ -77,15 +77,15 @@ export function Scan() {
     const rejected = done.status === "rejected";
     return (
       <View style={[styles.center, { padding: 24 }]}>
-        <Text style={{ fontSize: 64 }}>{rejected ? "❌" : "✅"}</Text>
-        <Text style={styles.bigTitle}>{rejected ? "Escaneo no válido" : "Enviado al negocio"}</Text>
+        <Text style={{ fontSize: 64 }}>{rejected ? "❌" : "🎉"}</Text>
+        <Text style={styles.bigTitle}>{rejected ? "Escaneo no válido" : "¡Ahorro aplicado!"}</Text>
         <Text style={styles.muted}>
           {rejected
             ? done.rejectionReason
-            : `En cuanto el negocio confirme el importe, te aplican el ${done.discountPct}% y desbloqueas nuevos cupones cerca.`}
+            : `Te has llevado un ${done.discountPct}% en esta compra${done.offersUnlocked ? ` y has desbloqueado ${done.offersUnlocked} cupones cerca` : ""}.`}
         </Text>
         <TouchableOpacity style={styles.btn} onPress={() => nav.reset({ index: 0, routes: [{ name: "Feed" }] })}>
-          <Text style={styles.btnText}>Ver mis cupones</Text>
+          <Text style={styles.btnText}>Ver mi ahorro</Text>
         </TouchableOpacity>
       </View>
     );

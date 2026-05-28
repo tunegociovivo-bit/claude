@@ -132,20 +132,22 @@ export default function ScanPage() {
           </>
         ) : (
           <>
-            <div className="text-5xl">✅</div>
-            <h2 className="text-xl font-bold">Enviado al negocio</h2>
+            <div className="text-5xl">🎉</div>
+            <h2 className="text-xl font-bold">¡Ahorro aplicado!</h2>
             <p className="text-sm text-slate-600">
-              Esperando que el negocio confirme el importe. En cuanto confirme, se te aplica
-              el <strong>{result?.discountPct ?? "—"}%</strong> de descuento.
+              Te has llevado un <strong>{result?.discountPct ?? "—"}%</strong>
+              {typeof result?.discountAmount === "number" ? ` (${result.discountAmount.toFixed(2)} €)` : ""} en esta compra.
             </p>
             {result?.offerRedeemed && (
-              <p className="text-sm font-semibold text-pink-600">🎟 Estás canjeando un cupón cruzado.</p>
+              <p className="text-sm font-semibold text-pink-600">🎟 Has canjeado un cupón cruzado.</p>
             )}
-            <p className="text-xs text-black/50">
-              Cuando el negocio confirme, desbloquearás 3-5 cupones nuevos en otros negocios cerca.
-            </p>
+            {result?.offersUnlocked > 0 && (
+              <p className="text-xs text-black/50">
+                🔓 Has desbloqueado {result.offersUnlocked} cupones nuevos en negocios cerca.
+              </p>
+            )}
             <a href="/bipi/app" className="bipi-btn block text-center">
-              Ver mis cupones
+              Ver mi ahorro y cupones
             </a>
           </>
         )}
