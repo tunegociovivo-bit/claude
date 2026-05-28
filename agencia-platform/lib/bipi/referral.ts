@@ -11,14 +11,23 @@
 
 import { randomBytes } from "crypto";
 import { prisma } from "@/lib/db/prisma";
+import { sendEmail, isEmailEnabled } from "@/lib/integrations/email";
 
 export const MILESTONES = [1, 3, 5] as const;
 
 const DEFAULT_REWARDS: Record<number, string> = {
-  1: "5% de descuento extra",
-  3: "10% de descuento",
-  5: "Tapa o postre gratis"
+  1: "2",
+  3: "3",
+  5: "5"
 };
+
+/** Interpreta la recompensa: si es un número (o "5%") → cupón de ese %
+ *  guardado para otro día; si es texto → etiqueta (ej. "Tapa gratis"). */
+export function parseReward(text: string): { discountPct: number; label: string | null } {
+  const m = /^\s*(\d{1,2})\s*%?\s*$/.exec(text);
+  if (m) return { discountPct: Math.min(90, Math.max(1, parseInt(m[1], 10))), label: null };
+  return { discountPct: 0, label: text };
+}
 
 export function rewardLabelFor(
   business: { referralReward1: string | null; referralReward3: string | null; referralReward5: string | null } | null,
@@ -98,21 +107,50 @@ export async function applyReferral(friendId: string, code: string): Promise<voi
 
   // Recompensas de hito para el referidor.
   const count = await countVerifiedReferrals(referrer.id);
+  const newlyReached: number[] = [];
   for (const m of MILESTONES) {
     if (count >= m) {
-      await prisma.bipiOffer
-        .create({
+      const { discountPct, label } = parseReward(rewardLabelFor(business, m));
+      try {
+        await prisma.bipiOffer.create({
           data: {
             customerId: referrer.id,
             businessId: originId,
-            discountPct: 0,
-            rewardLabel: rewardLabelFor(business, m),
+            discountPct,
+            rewardLabel: label,
             triggerBusinessId: `ref:${m}`,
             source: "referral",
             expiresAt: exp
           }
-        })
-        .catch(() => {}); // unique → ya otorgado
+        });
+        newlyReached.push(m); // create OK = hito recién alcanzado
+      } catch {
+        // P2002 → ya otorgado, no es nuevo
+      }
+    }
+  }
+
+  // Aviso al dueño por cada hito recién alcanzado (panel siempre; email al
+  // llegar a 5, el hito grande).
+  if (newlyReached.length > 0) {
+    const referrerInfo = await prisma.bipiCustomer.findUnique({
+      where: { id: referrer.id },
+      select: { name: true, phone: true }
+    });
+    const who = referrerInfo?.name || "Un cliente";
+    for (const m of newlyReached) {
+      const msg = `🎁 ${who} ha traído ${m} ${m === 1 ? "amigo" : "amigos"} a ${business.name} con su enlace de afiliado.${m >= 5 ? " ¡Hito de 5 alcanzado!" : ""}`;
+      await prisma.bipiBusinessNotification
+        .create({ data: { businessId: originId, type: "referral_milestone", message: msg } })
+        .catch(() => {});
+      if (m >= 5 && business.ownerEmail && isEmailEnabled()) {
+        sendEmail({
+          to: business.ownerEmail,
+          subject: `Bipi · ${who} ha traído 5 amigos a ${business.name}`,
+          html: `<p>${msg}</p><p>Entra a tu panel Bipi para ver el detalle.</p>`,
+          text: msg
+        }).catch(() => {});
+      }
     }
   }
 }

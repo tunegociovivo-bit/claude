@@ -150,6 +150,35 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
         <button onClick={onLogout} className="text-xs text-black/45 hover:text-black/70">Cerrar sesión</button>
       </div>
 
+      {/* Avisos (ej. cliente alcanzó 5 referidos) */}
+      {Array.isArray(data.notifications) && data.notifications.length > 0 && (
+        <section className="rounded-2xl border-2 border-pink-300 bg-pink-50 p-4 bipi-fade-up">
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="font-bold text-sm text-pink-800">🔔 Novedades ({data.notifications.length})</h3>
+            <button
+              onClick={async () => {
+                await fetch(`/api/bipi/business/${b.id}/notifications/read`, {
+                  method: "POST",
+                  headers: { Authorization: `Bearer ${session.token}` }
+                });
+                load();
+              }}
+              className="text-xs font-semibold text-pink-700 hover:underline"
+            >
+              Marcar leídas
+            </button>
+          </div>
+          <ul className="space-y-1.5">
+            {data.notifications.map((n: any) => (
+              <li key={n.id} className="text-sm text-black/75">
+                {n.message}
+                <span className="text-[11px] text-black/40 ml-1">· {new Date(n.createdAt).toLocaleDateString("es-ES")}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
       {/* Resumen — tarjeta oscura con gráfica de ventas + métricas */}
       <section className="bipi-fade-up bipi-fade-up-1 space-y-3">
         <div className="rounded-2xl p-5 text-white" style={{ background: "linear-gradient(160deg,#1A1A1A,#0A0A0A)" }}>
@@ -312,9 +341,9 @@ function CsvDownloadButton({ businessId, token }: { businessId: string; token: s
  *  que financia este negocio. */
 function ReferralConfig({ business, token, onSaved }: { business: any; token: string; onSaved: () => void }) {
   const [enabled, setEnabled] = useState<boolean>(business.referralEnabled ?? true);
-  const [r1, setR1] = useState(business.referralReward1 ?? "5% de descuento extra");
-  const [r3, setR3] = useState(business.referralReward3 ?? "10% de descuento");
-  const [r5, setR5] = useState(business.referralReward5 ?? "Tapa o postre gratis");
+  const [r1, setR1] = useState(business.referralReward1 ?? "2");
+  const [r3, setR3] = useState(business.referralReward3 ?? "3");
+  const [r5, setR5] = useState(business.referralReward5 ?? "5");
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
 
@@ -345,7 +374,7 @@ function ReferralConfig({ business, token, onSaved }: { business: any; token: st
         <div>
           <h3 className="font-bold text-sm">🎁 Programa "Trae amigos"</h3>
           <p className="text-xs text-black/55 mt-0.5">
-            Tus clientes invitan; al llegar a 1, 3 y 5 amigos verificados, tú les das estas recompensas. Captación baratísima.
+            Tus clientes invitan; al llegar a 1, 3 y 5 amigos verificados, tú les das estas recompensas. Pon un <strong>número</strong> (ej. 5 = cupón del 5% guardado) o un <strong>texto</strong> (ej. "Tapa gratis"). Recibirás un aviso al llegar a 5.
           </p>
         </div>
         <label className="flex items-center gap-2 text-xs font-semibold shrink-0">
