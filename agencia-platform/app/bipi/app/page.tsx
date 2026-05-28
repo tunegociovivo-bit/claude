@@ -353,14 +353,10 @@ function Signup({ onDone }: { onDone: (c: Customer) => void }) {
   );
 }
 
-const CATEGORIES = ["Todo", "Restauración", "Café / Bar", "Belleza", "Tiendas", "Fitness"];
-
 function OffersFeed({ customer, coords, onLogout }: { customer: Customer; coords: { lat: number; lng: number } | null; onLogout: () => void }) {
   const [offers, setOffers] = useState<Offer[]>([]);
   const [loading, setLoading] = useState(true);
   const [pushState, setPushState] = useState<"unknown" | "unsupported" | "denied" | "granted" | "loading">("unknown");
-  const [query, setQuery] = useState("");
-  const [category, setCategory] = useState("Todo");
 
   // Carga ofertas + refresca perfil (badge embajador, total ahorrado real…)
   useEffect(() => {
@@ -447,22 +443,22 @@ function OffersFeed({ customer, coords, onLogout }: { customer: Customer; coords
     }
   }
 
-  const filtered = offers.filter((o) => {
-    if (category !== "Todo" && !o.business.category?.toLowerCase().includes(category.toLowerCase().split(" ")[0])) return false;
-    if (query.trim() && !`${o.business.name} ${o.business.category}`.toLowerCase().includes(query.toLowerCase())) return false;
-    return true;
-  });
-
   return (
     <main className="max-w-md mx-auto px-4 py-6 pb-24">
-      {/* Header con nombre + ahorrado */}
-      <div className="flex items-start justify-between mb-4 bipi-fade-up">
+      {/* Header: logo + salir */}
+      <div className="flex items-center justify-between mb-4 bipi-fade-up">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/bipi/logo.png" alt="bipi" style={{ height: 26, width: "auto" }} />
+        <button onClick={onLogout} className="text-xs text-black/45 hover:text-black/70 font-semibold">
+          Salir
+        </button>
+      </div>
+
+      {/* Tarjeta Has ahorrado + cupón */}
+      <div className="bipi-card p-5 mb-4 flex items-center justify-between bipi-fade-up bipi-fade-up-1">
         <div>
-          <div className="text-xs text-black/50">Hola{customer.name ? `, ${customer.name}` : ""}</div>
-          <div className="mt-1">
-            <div className="text-[10px] uppercase tracking-wider text-black/45 font-bold">Has ahorrado</div>
-            <div className="bipi-discount-big">{customer.totalSaved.toFixed(2)} €</div>
-          </div>
+          <div className="text-[10px] uppercase tracking-wider text-black/45 font-bold">Has ahorrado</div>
+          <div className="bipi-discount-big">{customer.totalSaved.toFixed(2)} €</div>
           {customer.ambassadorLevel &&
             customer.ambassadorLevel !== "none" &&
             AMBASSADOR_BADGE[customer.ambassadorLevel] && (
@@ -472,95 +468,69 @@ function OffersFeed({ customer, coords, onLogout }: { customer: Customer; coords
               </div>
             )}
         </div>
-        <button onClick={onLogout} className="text-xs text-black/40 hover:text-black/70">
-          Salir
-        </button>
+        <div className="text-4xl" aria-hidden>🎟️</div>
       </div>
 
-      {/* Search bar */}
-      <div className="bipi-search bipi-fade-up bipi-fade-up-1 mb-3">
-        <span aria-hidden>🔍</span>
-        <input
-          type="search"
-          placeholder="Buscar negocio o categoría…"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-        />
+      {/* Botón escanear QR — con animación de atención */}
+      <button
+        onClick={() => alert("Abre la cámara de tu móvil y escanea el QR del negocio Bipi para llevarte el descuento.")}
+        className="bipi-btn bipi-attention w-full mb-5 py-4 text-base bipi-fade-up bipi-fade-up-2"
+      >
+        <span aria-hidden>⛶</span> Escanear QR de un negocio
+      </button>
+
+      {/* Banner promocional */}
+      <div className="bipi-promo bipi-fade-up bipi-fade-up-3 mb-5">
+        <BipiConfetti />
+        <div className="bipi-promo-badge">%</div>
+        <div className="relative text-center px-5 pb-5">
+          <p className="text-lg leading-snug font-black text-black">
+            En breve comenzarás a recibir{" "}
+            <span style={{ color: "#DB2777" }}>grandes descuentos</span>{" "}
+            al pasar cerca de un comercio{" "}
+            <span className="bipi-brand">bipi</span>
+          </p>
+          <div className="flex items-end justify-center gap-6 mt-3 text-3xl" aria-hidden>
+            <span>🏪</span><span className="text-pink-600">📍</span><span>🏬</span>
+          </div>
+        </div>
       </div>
 
-      {/* Category chips */}
-      <div className="bipi-chips bipi-fade-up bipi-fade-up-2 mb-4">
-        {CATEGORIES.map((c) => (
-          <button
-            key={c}
-            onClick={() => setCategory(c)}
-            className={"bipi-chip" + (category === c ? " active" : "")}
-          >
-            {c}
-          </button>
-        ))}
-      </div>
-
-      {/* CTA de notificaciones (compactado) */}
+      {/* Notificaciones */}
       {pushState === "unknown" && (
-        <button
-          onClick={activatePush}
-          className="bipi-btn w-full mb-4 text-sm py-2.5 bipi-fade-up bipi-fade-up-3"
-        >
+        <button onClick={activatePush} className="bipi-btn-ghost w-full mb-5 text-sm py-2.5">
           🔔 Activar avisos de cupones
         </button>
       )}
-      {pushState === "denied" && (
-        <div className="mb-4 px-3 py-2 rounded-lg bg-pink-50 border border-pink-200 text-xs text-pink-900">
-          Has bloqueado las notificaciones. Actívalas en los ajustes del navegador.
-        </div>
-      )}
       {pushState === "granted" && (
-        <div className="mb-4 px-3 py-2 rounded-lg bg-black text-xs text-white">
+        <div className="mb-5 px-3 py-2 rounded-lg bg-black text-xs text-white">
           ✅ Avisos activos. Te avisaremos cuando tus cupones estén a punto de caducar.
         </div>
       )}
 
       <h2 className="text-xs font-bold uppercase tracking-wider text-black/50 mb-3">
-        Tus cupones activos ({filtered.length})
+        Tus cupones activos ({offers.length})
       </h2>
       {loading ? (
         <div className="space-y-3">
-          {[1, 2, 3].map((i) => (
-            <div key={i} className="bipi-skeleton h-44" />
-          ))}
+          {[1, 2].map((i) => <div key={i} className="bipi-skeleton h-44" />)}
         </div>
-      ) : filtered.length === 0 ? (
-        offers.length === 0 ? (
-          <div className="bipi-card p-6 text-center space-y-3">
-            <div className="text-4xl">🎟</div>
-            <p className="text-sm text-black/70">
-              Aún no tienes cupones. Empieza por descubrir los negocios Bipi de tu zona.
-            </p>
-            <a href="/bipi/app/descubre" className="bipi-btn inline-flex">
-              🧭 Descubrir negocios cerca
-            </a>
-          </div>
-        ) : (
-          <div className="bipi-card p-6 text-center text-sm text-black/60">
-            Sin resultados para tu filtro.
-          </div>
-        )
+      ) : offers.length === 0 ? (
+        <div className="bipi-card p-6 text-center space-y-3">
+          <div className="text-4xl">🎟️</div>
+          <p className="text-sm text-black/70 font-semibold">Aún no tienes cupones</p>
+          <p className="text-xs text-black/55">
+            Escanea el QR de un negocio Bipi para empezar a desbloquear descuentos cerca.
+          </p>
+          <a href="/bipi/app/descubre" className="bipi-btn-ghost inline-flex text-sm">
+            🧭 Ver negocios cerca
+          </a>
+        </div>
       ) : (
         <div className="space-y-3">
-          {filtered.map((o, i) => (
-            <div
-              key={o.offerId}
-              className={"bipi-photo-card bipi-fade-up " + (i < 4 ? `bipi-fade-up-${i + 1}` : "")}
-            >
-              <div
-                className="photo"
-                style={
-                  o.business.brandColor
-                    ? { background: o.business.brandColor }
-                    : undefined
-                }
-              >
+          {offers.map((o, i) => (
+            <div key={o.offerId} className={"bipi-photo-card bipi-fade-up " + (i < 4 ? `bipi-fade-up-${i + 1}` : "")}>
+              <div className="photo" style={o.business.brandColor ? { background: o.business.brandColor } : undefined}>
                 <div className="discount-tag">-{o.discountPct}%</div>
               </div>
               <div className="body">
@@ -569,8 +539,7 @@ function OffersFeed({ customer, coords, onLogout }: { customer: Customer; coords
                     <div className="name truncate">{o.business.name}</div>
                     <div className="meta truncate">
                       {o.business.category}
-                      {o.distanceM != null &&
-                        ` · ${o.distanceM > 1000 ? `${(o.distanceM / 1000).toFixed(1)} km` : `${o.distanceM} m`}`}
+                      {o.distanceM != null && ` · ${o.distanceM > 1000 ? `${(o.distanceM / 1000).toFixed(1)} km` : `${o.distanceM} m`}`}
                     </div>
                   </div>
                   <div className={"text-[11px] font-bold whitespace-nowrap " + (o.hoursLeft < 24 ? "text-pink-600" : "text-black/50")}>
@@ -583,15 +552,11 @@ function OffersFeed({ customer, coords, onLogout }: { customer: Customer; coords
         </div>
       )}
 
-      <div className="mt-6 bg-black text-white rounded-2xl p-4 text-sm">
-        📲 <strong>Escanea el QR del negocio</strong> donde vayas a pagar. Cada compra te abre 3-5 cupones cerca.
-      </div>
-
       {/* Bottom nav (mobile) */}
       <nav className="bipi-bottom-nav">
         <a href="/bipi/app" className="active">
-          <span style={{ fontSize: 18 }}>🎟</span>
-          <span>Cupones</span>
+          <span style={{ fontSize: 18 }}>🏠</span>
+          <span>Inicio</span>
         </a>
         <a href="/bipi/app/descubre">
           <span style={{ fontSize: 18 }}>🧭</span>
@@ -607,6 +572,39 @@ function OffersFeed({ customer, coords, onLogout }: { customer: Customer; coords
         </a>
       </nav>
     </main>
+  );
+}
+
+/** Confeti decorativo del banner promocional. */
+function BipiConfetti() {
+  const bits = [
+    { top: 10, left: "12%", c: "#EC4899", r: -20 },
+    { top: 22, left: "78%", c: "#F59E0B", r: 15 },
+    { top: 40, left: "8%", c: "#F59E0B", r: 40 },
+    { top: 16, left: "50%", c: "#DB2777", r: 0 },
+    { top: 50, left: "88%", c: "#EC4899", r: -30 },
+    { top: 64, left: "30%", c: "#F59E0B", r: 10 }
+  ];
+  return (
+    <>
+      {bits.map((b, i) => (
+        <span
+          key={i}
+          aria-hidden
+          style={{
+            position: "absolute",
+            top: b.top,
+            left: b.left,
+            width: 8,
+            height: 8,
+            background: b.c,
+            borderRadius: 2,
+            transform: `rotate(${b.r}deg)`,
+            opacity: 0.85
+          }}
+        />
+      ))}
+    </>
   );
 }
 

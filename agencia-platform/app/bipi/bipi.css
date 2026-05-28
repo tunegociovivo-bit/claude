@@ -383,6 +383,57 @@
   line-height: 1;
 }
 
+/* ── Botón con animación de atención (escanear QR) ───────────────────
+   Pulso de escala + halo que late, con un wiggle puntual cada ciclo
+   para captar la mirada sin ser molesto. */
+.bipi-attention {
+  animation: bipi-attn 2.4s ease-in-out infinite;
+}
+@keyframes bipi-attn {
+  0%, 100% { transform: translateY(0) scale(1); box-shadow: 0 8px 20px -6px rgba(236,72,153,0.5); }
+  20%      { transform: translateY(-2px) scale(1.035); box-shadow: 0 16px 34px -8px rgba(236,72,153,0.75); }
+  40%      { transform: translateY(0) scale(1.01); }
+  46%      { transform: translateX(-3px); }
+  52%      { transform: translateX(3px); }
+  58%      { transform: translateX(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bipi-attention { animation: none; }
+}
+
+/* ── Banner promocional del Home ─────────────────────────────────── */
+.bipi-promo {
+  position: relative;
+  overflow: hidden;
+  border-radius: 24px;
+  background:
+    radial-gradient(circle at 50% 0%, rgba(236,72,153,0.16) 0%, transparent 60%),
+    linear-gradient(180deg, #FFF1F7 0%, #FFE3EF 100%);
+  border: 1px solid rgba(236,72,153,0.12);
+  padding-top: 52px;
+}
+.bipi-promo-badge {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #EC4899, #DB2777);
+  color: #fff;
+  font-weight: 900;
+  font-size: 26px;
+  display: grid;
+  place-items: center;
+  box-shadow: 0 8px 18px -6px rgba(236,72,153,0.6);
+  animation: bipi-badge-pop 2.4s ease-in-out infinite;
+}
+@keyframes bipi-badge-pop {
+  0%, 100% { transform: translateX(-50%) scale(1); }
+  50%      { transform: translateX(-50%) scale(1.08); }
+}
+
 /* Retrocompat: bipi-brand antiguo → ahora wordmark con punto rosa inline */
 .bipi-brand {
   background: linear-gradient(135deg, #EC4899, #DB2777);
