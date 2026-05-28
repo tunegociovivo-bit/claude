@@ -14,6 +14,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db/prisma";
 import { toE164, checkVerification } from "@/lib/bipi/twilio";
+import { ensureReferralCode, applyReferral } from "@/lib/bipi/referral";
 
 export const dynamic = "force-dynamic";
 
@@ -24,7 +25,8 @@ const schema = z.object({
   email: z.string().email(),
   birthDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Fecha inválida"),
   gender: z.enum(["female", "male", "other", "prefer_not"]),
-  firstBusinessId: z.string().optional()
+  firstBusinessId: z.string().optional(),
+  ref: z.string().max(12).optional()
 });
 
 function sessionFrom(c: { id: string; name: string | null; totalSaved: number; totalPurchases: number }, reused: boolean, status = 200) {
@@ -76,6 +78,8 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: { code: "email_other_phone", message: "Ese email ya tiene cuenta con otro teléfono. Usa ese número o cambia de email." } }, { status: 409 });
     }
     const merged = await prisma.bipiCustomer.update({ where: { id: byEmail.id }, data: { phone, phoneVerified: true, ...profile } });
+    await ensureReferralCode(merged.id);
+    if (d.ref) await applyReferral(merged.id, d.ref).catch(() => {});
     return sessionFrom(merged, true);
   }
 
@@ -84,6 +88,8 @@ export async function POST(req: Request) {
     const created = await prisma.bipiCustomer.create({
       data: { phone, phoneVerified: true, ...profile, firstBusinessId: d.firstBusinessId ?? null }
     });
+    await ensureReferralCode(created.id);
+    if (d.ref) await applyReferral(created.id, d.ref).catch(() => {});
     return sessionFrom(created, false, 201);
   } catch (e: any) {
     if (e?.code === "P2002") {

@@ -23,7 +23,11 @@ const schema = z.object({
   brandColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional().nullable(),
   defaultDiscountPct: z.number().int().min(3).max(30).optional(),
   crossDiscountPct: z.number().int().min(3).max(30).optional(),
-  purchaseMode: z.enum(["double_confirm", "express"]).optional()
+  purchaseMode: z.enum(["double_confirm", "express"]).optional(),
+  referralEnabled: z.boolean().optional(),
+  referralReward1: z.string().max(60).optional().nullable(),
+  referralReward3: z.string().max(60).optional().nullable(),
+  referralReward5: z.string().max(60).optional().nullable()
 });
 
 function tokenAllows(token: string | null, businessId: string): boolean {

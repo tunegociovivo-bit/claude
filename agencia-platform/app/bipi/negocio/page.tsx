@@ -201,6 +201,9 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
       {/* Editar perfil */}
       <ProfileEditor business={b} token={session.token} onSaved={load} />
 
+      {/* Programa de afiliados — lo financia el negocio */}
+      <ReferralConfig business={b} token={session.token} onSaved={load} />
+
       {/* Cruces — la mina de datos */}
       <CrossShopperPanel businessId={b.id} token={session.token} />
 
@@ -305,6 +308,78 @@ function CsvDownloadButton({ businessId, token }: { businessId: string; token: s
 /** Widget de compartir página pública. Native Web Share API si está
  *  disponible (móvil), si no fallback a deep links de WhatsApp/Telegram
  *  + botón "copiar URL" con feedback. */
+/** Configuración del programa de afiliados: recompensas por hito (1/3/5)
+ *  que financia este negocio. */
+function ReferralConfig({ business, token, onSaved }: { business: any; token: string; onSaved: () => void }) {
+  const [enabled, setEnabled] = useState<boolean>(business.referralEnabled ?? true);
+  const [r1, setR1] = useState(business.referralReward1 ?? "5% de descuento extra");
+  const [r3, setR3] = useState(business.referralReward3 ?? "10% de descuento");
+  const [r5, setR5] = useState(business.referralReward5 ?? "Tapa o postre gratis");
+  const [saving, setSaving] = useState(false);
+  const [status, setStatus] = useState<string | null>(null);
+
+  async function save() {
+    setSaving(true);
+    setStatus(null);
+    try {
+      const r = await fetch(`/api/bipi/business/${business.id}/profile`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          referralEnabled: enabled,
+          referralReward1: r1 || null,
+          referralReward3: r3 || null,
+          referralReward5: r5 || null
+        })
+      });
+      setStatus(r.ok ? "Guardado." : "Error al guardar.");
+      if (r.ok) onSaved();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <section className="bipi-card p-5 space-y-3">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="font-bold text-sm">🎁 Programa "Trae amigos"</h3>
+          <p className="text-xs text-black/55 mt-0.5">
+            Tus clientes invitan; al llegar a 1, 3 y 5 amigos verificados, tú les das estas recompensas. Captación baratísima.
+          </p>
+        </div>
+        <label className="flex items-center gap-2 text-xs font-semibold shrink-0">
+          <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
+          Activo
+        </label>
+      </div>
+      {enabled && (
+        <div className="space-y-2">
+          {[
+            { n: 1, v: r1, set: setR1 },
+            { n: 3, v: r3, set: setR3 },
+            { n: 5, v: r5, set: setR5 }
+          ].map((m) => (
+            <label key={m.n} className="flex items-center gap-2 text-xs">
+              <span className="w-20 font-semibold text-black/60">{m.n} {m.n === 1 ? "amigo" : "amigos"}</span>
+              <input
+                value={m.v}
+                onChange={(e) => m.set(e.target.value)}
+                placeholder="Recompensa (ej: Tapa gratis)"
+                className="flex-1 px-2 py-1.5 border rounded bg-white"
+              />
+            </label>
+          ))}
+        </div>
+      )}
+      {status && <p className="text-xs text-emerald-700">{status}</p>}
+      <button onClick={save} disabled={saving} className="bipi-btn w-full text-sm py-2">
+        {saving ? "Guardando…" : "Guardar afiliados"}
+      </button>
+    </section>
+  );
+}
+
 function ShareWidget({ slug, name, discountPct }: { slug: string; name: string; discountPct: number }) {
   const [copied, setCopied] = useState(false);
   const [origin, setOrigin] = useState("");

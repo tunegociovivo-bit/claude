@@ -3326,6 +3326,11 @@ model BipiBusiness {
   scoreUpdatedAt  DateTime?
   // Modelo de validación de compra.
   purchaseMode  String   @default("double_confirm") // double_confirm | express
+  // Programa de afiliados (lo financia el negocio). Recompensas por hito.
+  referralEnabled Boolean @default(true)
+  referralReward1 String? // recompensa al traer 1 amigo
+  referralReward3 String? // al traer 3
+  referralReward5 String? // al traer 5
   // Suscripción.
   plan          String   @default("free") // free | pro | premium
   // Email + contraseña hash del dueño (auth simple v1; iremos a oauth en v2).
@@ -3377,6 +3382,9 @@ model BipiCustomer {
   ambassadorLevel String   @default("none") // none | bronze | silver | gold | founder
   // Quien lo refirió (negocio donde escaneó por primera vez).
   firstBusinessId String?
+  // Programa de afiliados.
+  referralCode    String?  @unique // código corto para su enlace de invitación
+  referredById    String?  // cliente que lo invitó
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -3429,7 +3437,14 @@ model BipiOffer {
   businessId      String   // negocio que ofrece el descuento
   discountPct     Int
   // Negocio "originador" — la compra que desbloqueó esta oferta.
+  // En ofertas de afiliados se usa como marcador: "ref:1" | "ref:3" |
+  // "ref:5" | "ref:welcome" (garantiza unicidad por hito).
   triggerBusinessId String?
+  // Etiqueta de premio no porcentual (ej. "Tapa gratis"). Si está, la UI
+  // la muestra en vez del %.
+  rewardLabel     String?
+  // Origen de la oferta: "cross" (cupón cruzado) | "referral" | "referral_welcome".
+  source          String?  @default("cross")
   expiresAt       DateTime
   redeemed        Boolean  @default(false)
   redeemedAt      DateTime?

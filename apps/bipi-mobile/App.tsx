@@ -8,6 +8,7 @@ import { Feed } from "./src/screens/Feed";
 import { Descubre } from "./src/screens/Descubre";
 import { Mapa } from "./src/screens/Mapa";
 import { Cuenta } from "./src/screens/Cuenta";
+import { Afiliados } from "./src/screens/Afiliados";
 import { Scan } from "./src/screens/Scan";
 import { CheckSession } from "./src/lib/session";
 
@@ -18,6 +19,7 @@ export type RootStackParamList = {
   Descubre: undefined;
   Mapa: undefined;
   Cuenta: undefined;
+  Afiliados: undefined;
   Scan: { businessId: string };
 };
 
@@ -54,6 +56,7 @@ export default function App() {
         <Stack.Screen name="Descubre" component={Descubre} />
         <Stack.Screen name="Mapa" component={Mapa} />
         <Stack.Screen name="Cuenta" component={Cuenta} />
+        <Stack.Screen name="Afiliados" component={Afiliados} />
         <Stack.Screen name="Scan" component={Scan} />
       </Stack.Navigator>
     </NavigationContainer>

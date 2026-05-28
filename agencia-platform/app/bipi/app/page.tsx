@@ -28,6 +28,7 @@ type Offer = {
   offerId: string;
   business: { id: string; name: string; category: string; city: string; brandColor?: string | null };
   discountPct: number;
+  rewardLabel?: string | null;
   expiresAt: string;
   hoursLeft: number;
   distanceM: number | null;
@@ -38,6 +39,7 @@ export default function BipiApp() {
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
   // null = aún cargando localStorage; false = onboarded ya hecho; true = mostrar
   const [showOnboarding, setShowOnboarding] = useState<boolean | null>(null);
+  const [ref, setRef] = useState<string | null>(null);
 
   useEffect(() => {
     try {
@@ -45,6 +47,11 @@ export default function BipiApp() {
       if (raw) setCustomer(JSON.parse(raw));
       const onboarded = localStorage.getItem("bipi.onboarded") === "1";
       setShowOnboarding(!raw && !onboarded);
+      // Código de referido: ?ref= o el guardado por /bipi/r/<code>.
+      const urlRef = new URLSearchParams(window.location.search).get("ref");
+      const stored = localStorage.getItem("bipi.ref");
+      const r = urlRef || stored;
+      if (r) { setRef(r); localStorage.setItem("bipi.ref", r); }
     } catch {
       setShowOnboarding(false);
     }
@@ -75,7 +82,7 @@ export default function BipiApp() {
   }
 
   if (!customer) {
-    return <Signup onDone={(c) => { setCustomer(c); localStorage.setItem("bipi.customer", JSON.stringify(c)); }} />;
+    return <Signup refCode={ref} onDone={(c) => { setCustomer(c); localStorage.setItem("bipi.customer", JSON.stringify(c)); try { localStorage.removeItem("bipi.ref"); } catch {} }} />;
   }
   return <OffersFeed customer={customer} coords={coords} onLogout={() => { setCustomer(null); localStorage.removeItem("bipi.customer"); }} />;
 }
@@ -201,7 +208,7 @@ function CheckLine({ children }: { children: React.ReactNode }) {
   );
 }
 
-function Signup({ onDone }: { onDone: (c: Customer) => void }) {
+function Signup({ onDone, refCode }: { onDone: (c: Customer) => void; refCode?: string | null }) {
   // step "form": nombre + teléfono (+ email opcional) → enviar código.
   // step "code": introducir el código SMS → verificar y entrar.
   const [step, setStep] = useState<"form" | "code">("form");
@@ -244,7 +251,7 @@ function Signup({ onDone }: { onDone: (c: Customer) => void }) {
       const r = await fetch("/api/bipi/customer/verify-otp", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone, code, name, email, birthDate, gender })
+        body: JSON.stringify({ phone, code, name, email, birthDate, gender, ref: refCode || undefined })
       });
       const j = await r.json();
       if (!r.ok) { setError(j?.error?.message ?? `Error ${r.status}`); return; }
@@ -499,6 +506,16 @@ function OffersFeed({ customer, coords, onLogout }: { customer: Customer; coords
         </div>
       </div>
 
+      {/* Invita amigos */}
+      <a href="/bipi/app/afiliados" className="bipi-card p-4 mb-5 flex items-center gap-3 bipi-fade-up bipi-fade-up-3">
+        <div className="text-3xl" aria-hidden>🎁</div>
+        <div className="flex-1 min-w-0">
+          <div className="font-black text-sm">Invita a 5 amigos, gana premios</div>
+          <div className="text-xs text-black/55">Tú y ellos os lleváis cupones. Hitos 1 · 3 · 5.</div>
+        </div>
+        <div className="text-pink-600 font-bold">→</div>
+      </a>
+
       {/* Notificaciones */}
       {pushState === "unknown" && (
         <button onClick={activatePush} className="bipi-btn-ghost w-full mb-5 text-sm py-2.5">
@@ -534,7 +551,7 @@ function OffersFeed({ customer, coords, onLogout }: { customer: Customer; coords
           {offers.map((o, i) => (
             <div key={o.offerId} className={"bipi-photo-card bipi-fade-up " + (i < 4 ? `bipi-fade-up-${i + 1}` : "")}>
               <div className="photo" style={o.business.brandColor ? { background: o.business.brandColor } : undefined}>
-                <div className="discount-tag">-{o.discountPct}%</div>
+                <div className="discount-tag">{o.rewardLabel ? o.rewardLabel : `-${o.discountPct}%`}</div>
               </div>
               <div className="body">
                 <div className="flex items-start justify-between gap-2">
