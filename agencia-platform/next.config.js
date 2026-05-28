@@ -32,6 +32,16 @@ const nextConfig = {
             }
         ];
     },
+    // Compatibilidad tras el rebrand Bipi → Bubui: las rutas antiguas
+    // /bipi/* siguen sirviendo el contenido nuevo /bubui/* para no romper
+    // QR impresos ni la app nativa instalada antes del cambio.
+    async rewrites() {
+        return [
+            { source: '/bipi/:path*', destination: '/bubui/:path*' },
+            { source: '/api/bipi/:path*', destination: '/api/bubui/:path*' },
+            { source: '/bipi-sw.js', destination: '/bubui-sw.js' }
+        ];
+    },
     // serverComponentsExternalPackages cubre Server Components. La
     // config webpack.externals de abajo cubre además Route Handlers
     // (app/api/.../route.ts), que es donde realmente se usan estos

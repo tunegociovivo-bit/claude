@@ -1,0 +1,469 @@
+/* Bubui v2 — diseño inspirado en mockup limpio premium.
+ *
+ * Paleta:
+ *   - Rosa principal:   #EC4899 (pink-500)
+ *   - Rosa profundo:    #DB2777 (pink-600)
+ *   - Rosa suave:       #FDF2F8 (background washes)
+ *   - Rosa pastel hero: linear gradient soft (#FFF5F9 → #FCE7F3)
+ *   - Negro:            #0A0A0A
+ *   - Gris medio:       #6B7280
+ *   - Blanco:           #FFFFFF
+ *
+ * Slogan oficial: "Ahorra. Disfruta. Apoya local."
+ *
+ * Componentes nuevos pensados para el feed estilo Glovo/Cabify:
+ *   .bubui-wordmark      → wordmark "bubui" con punto rosa sobre la i.
+ *   .bubui-search        → barra de búsqueda redondeada con icono lupa.
+ *   .bubui-chip          → píldora horizontal para filtros de categoría.
+ *   .bubui-photo-card    → card con foto de cabecera + datos del negocio.
+ *   .bubui-stat-hero     → número grande (1.890 €) + label arriba.
+ *   .bubui-table         → tabla compacta para "Últimas transacciones".
+ *   .bubui-bottom-nav    → barra inferior móvil con 4 iconos.
+ */
+
+.bubui-bg {
+  background:
+    radial-gradient(circle at 30% 0%, rgba(236, 72, 153, 0.12) 0%, transparent 50%),
+    radial-gradient(circle at 80% 100%, rgba(236, 72, 153, 0.08) 0%, transparent 50%),
+    #FFFFFF;
+}
+
+/* ── Wordmark "bubui" con punto rosa sobre la i ────────────────────── */
+.bubui-wordmark {
+  display: inline-flex;
+  align-items: flex-start;
+  font-family: ui-rounded, -apple-system, BlinkMacSystemFont, "SF Pro Rounded", "Segoe UI", system-ui, sans-serif;
+  font-weight: 900;
+  letter-spacing: -0.06em;
+  line-height: 0.9;
+  color: #0A0A0A;
+}
+/* Diana (bullseye): punto central + anillo, dibujado con radial-gradient
+   en un solo pseudo-elemento. Sustituye al punto plano anterior. */
+.bubui-wordmark::after {
+  content: "";
+  width: 0.22em;
+  height: 0.22em;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle,
+    #EC4899 0 28%,
+    transparent 28% 52%,
+    #EC4899 52% 100%
+  );
+  margin-left: 0.05em;
+  margin-top: 0.12em;
+  align-self: flex-end;
+}
+
+/* Animación shine para uso en hero principal */
+.bubui-wordmark-shine {
+  background: linear-gradient(120deg, #0A0A0A 0%, #2A2A2A 40%, #0A0A0A 80%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: bubui-shine 4s ease-in-out infinite;
+}
+@keyframes bubui-shine {
+  0%, 100% { background-position: 0% 50%; }
+  50%      { background-position: 100% 50%; }
+}
+
+/* ── Animaciones de entrada ──────────────────────────────────────── */
+.bubui-fade-up {
+  opacity: 0;
+  transform: translateY(20px);
+  animation: bubui-fadeUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+.bubui-fade-up-1 { animation-delay: 0.05s; }
+.bubui-fade-up-2 { animation-delay: 0.15s; }
+.bubui-fade-up-3 { animation-delay: 0.25s; }
+.bubui-fade-up-4 { animation-delay: 0.35s; }
+@keyframes bubui-fadeUp {
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Botones ─────────────────────────────────────────────────────── */
+.bubui-btn {
+  background: linear-gradient(135deg, #EC4899, #DB2777);
+  color: white;
+  font-weight: 700;
+  padding: 14px 28px;
+  border-radius: 999px;
+  border: none;
+  box-shadow: 0 8px 20px -6px rgba(236, 72, 153, 0.5);
+  transition: transform 120ms ease, box-shadow 200ms ease, filter 200ms ease;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+.bubui-btn:hover:not(:disabled) {
+  transform: translateY(-2px);
+  filter: brightness(1.05);
+  box-shadow: 0 14px 30px -8px rgba(236, 72, 153, 0.6);
+}
+.bubui-btn:active:not(:disabled) { transform: translateY(0) scale(0.98); }
+.bubui-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.bubui-btn-ghost {
+  background: white;
+  color: #0A0A0A;
+  border: 2px solid #0A0A0A;
+  font-weight: 700;
+  padding: 12px 26px;
+  border-radius: 999px;
+  transition: all 200ms ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+.bubui-btn-ghost:hover { background: #0A0A0A; color: white; }
+
+/* ── Cards ───────────────────────────────────────────────────────── */
+.bubui-card {
+  background: white;
+  border-radius: 24px;
+  border: 1px solid rgba(0,0,0,0.05);
+  box-shadow:
+    0 1px 2px rgba(0,0,0,0.04),
+    0 8px 24px -10px rgba(236, 72, 153, 0.10);
+  transition: transform 200ms ease, box-shadow 250ms ease;
+}
+.bubui-card:hover {
+  transform: translateY(-2px);
+  box-shadow:
+    0 1px 2px rgba(0,0,0,0.04),
+    0 16px 36px -12px rgba(236, 72, 153, 0.20);
+}
+
+/* ── Search bar ──────────────────────────────────────────────────── */
+.bubui-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  background: white;
+  border: 1px solid rgba(0,0,0,0.06);
+  border-radius: 999px;
+  font-size: 14px;
+  color: rgba(0,0,0,0.5);
+  box-shadow: 0 2px 8px -4px rgba(0,0,0,0.06);
+}
+.bubui-search input {
+  flex: 1;
+  border: 0;
+  background: transparent;
+  outline: none;
+  font-size: 14px;
+  color: #0A0A0A;
+}
+
+/* ── Chips de categoría ──────────────────────────────────────────── */
+.bubui-chips {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  padding-bottom: 4px;
+}
+.bubui-chips::-webkit-scrollbar { display: none; }
+.bubui-chip {
+  flex-shrink: 0;
+  padding: 8px 16px;
+  border-radius: 999px;
+  background: white;
+  border: 1px solid rgba(0,0,0,0.08);
+  font-size: 13px;
+  font-weight: 600;
+  color: #0A0A0A;
+  cursor: pointer;
+  transition: all 150ms ease;
+  white-space: nowrap;
+}
+.bubui-chip:hover { border-color: #EC4899; }
+.bubui-chip.active {
+  background: linear-gradient(135deg, #EC4899, #DB2777);
+  color: white;
+  border-color: transparent;
+  box-shadow: 0 4px 12px -4px rgba(236, 72, 153, 0.4);
+}
+
+/* ── Photo card (negocio con foto) ───────────────────────────────── */
+.bubui-photo-card {
+  background: white;
+  border-radius: 20px;
+  overflow: hidden;
+  border: 1px solid rgba(0,0,0,0.05);
+  transition: transform 200ms ease, box-shadow 250ms ease;
+  position: relative;
+  cursor: pointer;
+}
+.bubui-photo-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 16px 36px -12px rgba(236, 72, 153, 0.25);
+}
+.bubui-photo-card .photo {
+  aspect-ratio: 16 / 10;
+  background: linear-gradient(135deg, #FDF2F8 0%, #FCE7F3 100%);
+  background-size: cover;
+  background-position: center;
+  position: relative;
+}
+.bubui-photo-card .discount-tag {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  background: linear-gradient(135deg, #EC4899, #DB2777);
+  color: white;
+  font-weight: 800;
+  font-size: 13px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  box-shadow: 0 6px 14px -4px rgba(236, 72, 153, 0.5);
+}
+.bubui-photo-card .body {
+  padding: 12px 14px;
+}
+.bubui-photo-card .name {
+  font-weight: 800;
+  font-size: 15px;
+  color: #0A0A0A;
+}
+.bubui-photo-card .meta {
+  font-size: 12px;
+  color: rgba(0,0,0,0.55);
+  margin-top: 2px;
+}
+
+/* ── Stat hero (Resumen del negocio) ─────────────────────────────── */
+.bubui-stat-hero {
+  text-align: left;
+}
+.bubui-stat-hero .label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: rgba(0,0,0,0.5);
+  font-weight: 700;
+}
+.bubui-stat-hero .value {
+  font-size: 56px;
+  font-weight: 900;
+  letter-spacing: -0.03em;
+  background: linear-gradient(135deg, #0A0A0A, #1F1F1F);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  line-height: 1;
+  margin-top: 4px;
+}
+.bubui-stat-hero .sub {
+  font-size: 12px;
+  color: rgba(0,0,0,0.55);
+  margin-top: 8px;
+}
+
+/* ── Tabla compacta ──────────────────────────────────────────────── */
+.bubui-table {
+  width: 100%;
+  font-size: 13px;
+}
+.bubui-table .row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 0;
+  border-bottom: 1px solid rgba(0,0,0,0.06);
+}
+.bubui-table .row:last-child { border-bottom: 0; }
+.bubui-table .left { display: flex; align-items: center; gap: 10px; }
+.bubui-table .avatar {
+  width: 32px; height: 32px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #FDF2F8, #FCE7F3);
+  display: grid;
+  place-items: center;
+  font-size: 13px;
+  font-weight: 800;
+  color: #DB2777;
+}
+.bubui-table .name { font-weight: 700; color: #0A0A0A; }
+.bubui-table .sub  { font-size: 11px; color: rgba(0,0,0,0.5); }
+.bubui-table .amount { font-weight: 800; color: #0A0A0A; }
+
+/* ── Bottom nav (mobile) ─────────────────────────────────────────── */
+.bubui-bottom-nav {
+  position: fixed;
+  bottom: 0; left: 0; right: 0;
+  background: white;
+  border-top: 1px solid rgba(0,0,0,0.06);
+  display: flex;
+  justify-content: space-around;
+  align-items: center;
+  padding: 10px 16px 18px;
+  z-index: 50;
+  box-shadow: 0 -4px 20px -8px rgba(0,0,0,0.08);
+}
+.bubui-bottom-nav a {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  font-size: 10px;
+  color: rgba(0,0,0,0.5);
+  text-decoration: none;
+}
+.bubui-bottom-nav a.active { color: #EC4899; font-weight: 700; }
+
+/* Embebido en la app nativa (WebView): ocultamos la cabecera, el footer
+   y la barra inferior web para no duplicar la navegación nativa. */
+body.bubui-embedded .bubui-bg > header,
+body.bubui-embedded .bubui-bg > footer,
+body.bubui-embedded .bubui-bottom-nav { display: none !important; }
+
+/* Embebido en la app nativa (WebView): ocultamos la cabecera, el footer
+   y la barra inferior web para no duplicar la navegación nativa. */
+body.bipi-embedded .bipi-bg > header,
+body.bipi-embedded .bipi-bg > footer,
+body.bipi-embedded .bipi-bottom-nav { display: none !important; }
+
+/* ── Inputs ──────────────────────────────────────────────────────── */
+.bubui-input {
+  width: 100%;
+  background: white;
+  border: 2px solid #E5E7EB;
+  border-radius: 14px;
+  padding: 12px 16px;
+  font-size: 15px;
+  color: #0A0A0A;
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+.bubui-input:focus {
+  outline: none;
+  border-color: #EC4899;
+  box-shadow: 0 0 0 4px rgba(236, 72, 153, 0.15);
+}
+
+/* ── Skeletons ───────────────────────────────────────────────────── */
+.bubui-skeleton {
+  background: linear-gradient(90deg, #F3F4F6 25%, #E5E7EB 50%, #F3F4F6 75%);
+  background-size: 200% 100%;
+  animation: bubui-shimmer 1.4s ease-in-out infinite;
+  border-radius: 12px;
+}
+@keyframes bubui-shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* ── Eyebrow (pill encima de títulos) ────────────────────────────── */
+.bubui-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: rgba(236, 72, 153, 0.10);
+  color: #DB2777;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.bubui-hero-title {
+  font-size: clamp(48px, 14vw, 96px);
+  font-weight: 900;
+  line-height: 0.95;
+  letter-spacing: -0.04em;
+}
+
+/* Mantenemos discount-big para retrocompat con páginas existentes */
+.bubui-discount-big {
+  font-size: 36px;
+  font-weight: 900;
+  background: linear-gradient(135deg, #EC4899, #DB2777);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  line-height: 1;
+}
+
+/* ── Botón con animación de atención (escanear QR) ───────────────────
+   Pulso de escala + halo que late, con un wiggle puntual cada ciclo
+   para captar la mirada sin ser molesto. */
+.bubui-attention {
+  animation: bubui-attn 2.4s ease-in-out infinite;
+}
+@keyframes bubui-attn {
+  0%, 100% { transform: translateY(0) scale(1); box-shadow: 0 8px 20px -6px rgba(236,72,153,0.5); }
+  20%      { transform: translateY(-2px) scale(1.035); box-shadow: 0 16px 34px -8px rgba(236,72,153,0.75); }
+  40%      { transform: translateY(0) scale(1.01); }
+  46%      { transform: translateX(-3px); }
+  52%      { transform: translateX(3px); }
+  58%      { transform: translateX(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bubui-attention { animation: none; }
+}
+
+/* ── Banner promocional del Home ─────────────────────────────────── */
+.bubui-promo {
+  position: relative;
+  overflow: hidden;
+  border-radius: 24px;
+  background:
+    radial-gradient(circle at 50% 0%, rgba(236,72,153,0.16) 0%, transparent 60%),
+    linear-gradient(180deg, #FFF1F7 0%, #FFE3EF 100%);
+  border: 1px solid rgba(236,72,153,0.12);
+  padding-top: 52px;
+}
+.bubui-promo-badge {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #EC4899, #DB2777);
+  color: #fff;
+  font-weight: 900;
+  font-size: 26px;
+  display: grid;
+  place-items: center;
+  box-shadow: 0 8px 18px -6px rgba(236,72,153,0.6);
+  animation: bubui-badge-pop 2.4s ease-in-out infinite;
+}
+@keyframes bubui-badge-pop {
+  0%, 100% { transform: translateX(-50%) scale(1); }
+  50%      { transform: translateX(-50%) scale(1.08); }
+}
+
+/* Retrocompat: bubui-brand antiguo → ahora wordmark con punto rosa inline */
+.bubui-brand {
+  background: linear-gradient(135deg, #EC4899, #DB2777);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.bubui-link-card {
+  display: block;
+  padding: 14px;
+  border-radius: 18px;
+  background: white;
+  border: 1px solid rgba(0,0,0,0.06);
+  transition: transform 200ms ease, border-color 200ms ease, box-shadow 250ms ease;
+}
+.bubui-link-card:hover {
+  border-color: #EC4899;
+  transform: translateY(-2px);
+  box-shadow: 0 16px 30px -16px rgba(236, 72, 153, 0.4);
+}

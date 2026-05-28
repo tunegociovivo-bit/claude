@@ -3293,17 +3293,18 @@ model SoniaKnowledge {
 }
 
 // ════════════════════════════════════════════════════════════════════
-// BIPI — App de descuentos cruzados entre negocios locales
+// BUBUI — App de descuentos cruzados entre negocios locales
 // ════════════════════════════════════════════════════════════════════
 // Producto independiente que vive en el mismo Hub (mismo Postgres) con
-// tablas separadas. Cada negocio Bipi tiene su QR único; cada cliente
+// tablas separadas. Cada negocio Bubui tiene su QR único; cada cliente
 // que lo escanea entra a la red y desbloquea descuentos en negocios
 // complementarios cercanos con caducidad de 4 días.
 
-/// Negocio dado de alta en la red Bipi.
-model BipiBusiness {
+/// Negocio dado de alta en la red Bubui.
+model BubuiBusiness {
+  @@map("BipiBusiness")
   id            String   @id @default(cuid())
-  // Slug humano para QR url corto y SEO (bipi.app/n/spa-bambu).
+  // Slug humano para QR url corto y SEO (bubui.app/n/spa-bambu).
   slug          String   @unique
   name          String
   category      String   // peluquería | restaurante | gimnasio | spa | nutrición | ...
@@ -3338,23 +3339,23 @@ model BipiBusiness {
   ownerPasswordHash String
   ownerName     String?
   ownerPhone    String?
-  // Quien lo refirió a Bipi (si vino vía QR de otro negocio).
+  // Quien lo refirió a Bubui (si vino vía QR de otro negocio).
   referrerId    String?
   // Stripe billing — para suscripción Pro/Premium.
-  bipiStripeCustomerId  String?
-  bipiStripeSubscriptionId String?
+  bubuiStripeCustomerId  String?
+  bubuiStripeSubscriptionId String?
   planExpiresAt DateTime? // null o futuro = activo; pasado = volver a free.
   // Status.
   active        Boolean  @default(true)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  referrer  BipiBusiness?     @relation("BipiReferral", fields: [referrerId], references: [id])
-  referrals BipiBusiness[]    @relation("BipiReferral")
-  purchases BipiPurchase[]
-  offers    BipiOffer[]
-  pushAds   BipiPushAd[]
-  notifications BipiBusinessNotification[]
+  referrer  BubuiBusiness?     @relation("BubuiReferral", fields: [referrerId], references: [id])
+  referrals BubuiBusiness[]    @relation("BubuiReferral")
+  purchases BubuiPurchase[]
+  offers    BubuiOffer[]
+  pushAds   BubuiPushAd[]
+  notifications BubuiBusinessNotification[]
 
   @@index([city, active])
   @@index([referrerId])
@@ -3362,7 +3363,8 @@ model BipiBusiness {
 }
 
 /// Aviso para el dueño del negocio (ej. un cliente alcanzó 5 referidos).
-model BipiBusinessNotification {
+model BubuiBusinessNotification {
+  @@map("BipiBusinessNotification")
   id         String   @id @default(cuid())
   businessId String
   type       String   // referral_milestone | ...
@@ -3370,13 +3372,14 @@ model BipiBusinessNotification {
   read       Boolean  @default(false)
   createdAt  DateTime @default(now())
 
-  business BipiBusiness @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  business BubuiBusiness @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
   @@index([businessId, read])
 }
 
-/// Cliente final dado de alta en la app Bipi.
-model BipiCustomer {
+/// Cliente final dado de alta en la app Bubui.
+model BubuiCustomer {
+  @@map("BipiCustomer")
   id              String   @id @default(cuid())
   email           String?  @unique
   phone           String?  @unique
@@ -3391,7 +3394,7 @@ model BipiCustomer {
   lastLng         Float?
   lastLocationAt  DateTime?
   // Métrica showcase.
-  totalSaved      Float    @default(0) // €  total ahorrados con Bipi
+  totalSaved      Float    @default(0) // €  total ahorrados con Bubui
   totalPurchases  Int      @default(0)
   // Embajador (nivel desbloqueado).
   ambassadorLevel String   @default("none") // none | bronze | silver | gold | founder
@@ -3403,9 +3406,9 @@ model BipiCustomer {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
-  purchases BipiPurchase[]
-  offers    BipiOffer[]
-  pushLogs  BipiPushLog[]
+  purchases BubuiPurchase[]
+  offers    BubuiOffer[]
+  pushLogs  BubuiPushLog[]
 
   @@index([lastLat, lastLng])
 }
@@ -3416,7 +3419,8 @@ model BipiCustomer {
 ///   pending   → cliente escaneó e introdujo importe; negocio aún no confirma.
 ///   confirmed → negocio aprobó. Descuento aplicado, ofertas desbloqueadas.
 ///   rejected  → negocio rechazó (importe incorrecto o no es válido).
-model BipiPurchase {
+model BubuiPurchase {
+  @@map("BipiPurchase")
   id              String   @id @default(cuid())
   customerId      String
   businessId      String
@@ -3424,7 +3428,7 @@ model BipiPurchase {
   discountPct     Int      // descuento aplicado %
   discountAmount  Float    // € de descuento
   status          String   @default("pending") // pending | confirmed | rejected
-  // Si vino vía un cupón cruzado, link al BipiOffer que se canjeó.
+  // Si vino vía un cupón cruzado, link al BubuiOffer que se canjeó.
   redeemedOfferId String?
   // Geolocalización al escanear (anti-fraude).
   scanLat         Float?
@@ -3435,8 +3439,8 @@ model BipiPurchase {
   scannedAt       DateTime @default(now())
   confirmedAt     DateTime?
 
-  customer BipiCustomer @relation(fields: [customerId], references: [id], onDelete: Cascade)
-  business BipiBusiness @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  customer BubuiCustomer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  business BubuiBusiness @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
   @@index([businessId, status])
   @@index([customerId])
@@ -3446,7 +3450,8 @@ model BipiPurchase {
 /// Oferta desbloqueada para un cliente concreto en un negocio concreto.
 /// Se generan tras cada compra confirmada (3-5 ofertas de negocios
 /// complementarios cercanos) y caducan a los 4 días.
-model BipiOffer {
+model BubuiOffer {
+  @@map("BipiOffer")
   id              String   @id @default(cuid())
   customerId      String
   businessId      String   // negocio que ofrece el descuento
@@ -3465,8 +3470,8 @@ model BipiOffer {
   redeemedAt      DateTime?
   createdAt       DateTime @default(now())
 
-  customer BipiCustomer @relation(fields: [customerId], references: [id], onDelete: Cascade)
-  business BipiBusiness @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  customer BubuiCustomer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  business BubuiBusiness @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
   @@index([customerId, expiresAt])
   @@index([businessId, expiresAt])
@@ -3474,7 +3479,8 @@ model BipiOffer {
 }
 
 /// Anuncio push pagado (el "Push del Día" que paga el negocio por 24h).
-model BipiPushAd {
+model BubuiPushAd {
+  @@map("BipiPushAd")
   id            String   @id @default(cuid())
   businessId    String
   title         String
@@ -3496,14 +3502,15 @@ model BipiPushAd {
   status        String   @default("scheduled") // scheduled | sending | done | cancelled
   createdAt     DateTime @default(now())
 
-  business BipiBusiness @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  business BubuiBusiness @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
   @@index([businessId])
   @@index([startsAt, endsAt])
 }
 
 /// Log de cada push enviado (para evitar dups y medir performance).
-model BipiPushLog {
+model BubuiPushLog {
+  @@map("BipiPushLog")
   id          String   @id @default(cuid())
   customerId  String
   pushAdId    String?
@@ -3512,16 +3519,17 @@ model BipiPushLog {
   sentAt      DateTime @default(now())
   opened      Boolean  @default(false)
 
-  customer BipiCustomer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  customer BubuiCustomer @relation(fields: [customerId], references: [id], onDelete: Cascade)
 
   @@index([customerId, sentAt])
 }
 
-/// Suscripción Web Push de un cliente Bipi (PWA). Permite mandarle
+/// Suscripción Web Push de un cliente Bubui (PWA). Permite mandarle
 /// notificaciones de "tu cupón caduca en 4h" y "nuevo descuento cerca".
 /// Cuando el cliente desinstala la PWA o desactiva permisos, web-push
 /// devuelve 404/410 y la limpiamos automáticamente.
-model BipiPushSubscription {
+model BubuiPushSubscription {
+  @@map("BipiPushSubscription")
   id          String   @id @default(cuid())
   customerId  String
   endpoint    String   @unique

@@ -1,0 +1,156 @@
+/**
+ * Programa de afiliados de Bubui.
+ *
+ * - Cada cliente tiene un referralCode para su enlace de invitación.
+ * - Cuenta un referido cuando el amigo VERIFICA su teléfono.
+ * - Hitos 1 / 3 / 5 amigos verificados → cupón de premio para el
+ *   referidor, en su negocio de origen (firstBusinessId), que es quien
+ *   financia y configura las recompensas.
+ * - El amigo recibe un cupón de bienvenida al registrarse por el enlace.
+ */
+
+import { randomBytes } from "crypto";
+import { prisma } from "@/lib/db/prisma";
+import { sendEmail, isEmailEnabled } from "@/lib/integrations/email";
+
+export const MILESTONES = [1, 3, 5] as const;
+
+const DEFAULT_REWARDS: Record<number, string> = {
+  1: "2",
+  3: "3",
+  5: "5"
+};
+
+/** Interpreta la recompensa: si es un número (o "5%") → cupón de ese %
+ *  guardado para otro día; si es texto → etiqueta (ej. "Tapa gratis"). */
+export function parseReward(text: string): { discountPct: number; label: string | null } {
+  const m = /^\s*(\d{1,2})\s*%?\s*$/.exec(text);
+  if (m) return { discountPct: Math.min(90, Math.max(1, parseInt(m[1], 10))), label: null };
+  return { discountPct: 0, label: text };
+}
+
+export function rewardLabelFor(
+  business: { referralReward1: string | null; referralReward3: string | null; referralReward5: string | null } | null,
+  n: number
+): string {
+  const map: Record<number, string | null | undefined> = {
+    1: business?.referralReward1,
+    3: business?.referralReward3,
+    5: business?.referralReward5
+  };
+  return (map[n] && map[n]!.trim()) || DEFAULT_REWARDS[n] || "Recompensa Bubui";
+}
+
+/** Genera un código corto único (6 chars, sin caracteres ambiguos). */
+export async function ensureReferralCode(customerId: string): Promise<string> {
+  const existing = await prisma.bubuiCustomer.findUnique({ where: { id: customerId }, select: { referralCode: true } });
+  if (existing?.referralCode) return existing.referralCode;
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  for (let attempt = 0; attempt < 6; attempt++) {
+    const buf = randomBytes(6);
+    let code = "";
+    for (let i = 0; i < 6; i++) code += alphabet[buf[i] % alphabet.length];
+    try {
+      await prisma.bubuiCustomer.update({ where: { id: customerId }, data: { referralCode: code } });
+      return code;
+    } catch {
+      // colisión improbable → reintenta
+    }
+  }
+  // fallback determinista
+  const code = customerId.slice(-6).toUpperCase();
+  await prisma.bubuiCustomer.update({ where: { id: customerId }, data: { referralCode: code } }).catch(() => {});
+  return code;
+}
+
+export async function countVerifiedReferrals(referrerId: string): Promise<number> {
+  return prisma.bubuiCustomer.count({ where: { referredById: referrerId, phoneVerified: true } });
+}
+
+/**
+ * Vincula un amigo recién verificado a su referidor (por código) y aplica
+ * recompensas: cupón de bienvenida al amigo + cupones de hito al referidor.
+ * Es idempotente (no duplica premios).
+ */
+export async function applyReferral(friendId: string, code: string): Promise<void> {
+  const referrer = await prisma.bubuiCustomer.findUnique({
+    where: { referralCode: code.toUpperCase() },
+    select: { id: true, firstBusinessId: true }
+  });
+  if (!referrer || referrer.id === friendId) return;
+
+  // Vincula (solo si el amigo aún no tenía referidor).
+  const friend = await prisma.bubuiCustomer.findUnique({ where: { id: friendId }, select: { referredById: true } });
+  if (friend?.referredById) return; // ya estaba referido
+  await prisma.bubuiCustomer.update({ where: { id: friendId }, data: { referredById: referrer.id } });
+
+  const originId = referrer.firstBusinessId;
+  if (!originId) return; // sin negocio de origen no hay quien financie premios
+  const business = await prisma.bubuiBusiness.findUnique({ where: { id: originId } });
+  if (!business || !business.referralEnabled) return;
+
+  const exp = new Date(Date.now() + 30 * 86_400_000);
+
+  // Cupón de bienvenida para el amigo (en el negocio de origen).
+  await prisma.bubuiOffer
+    .create({
+      data: {
+        customerId: friendId,
+        businessId: originId,
+        discountPct: business.defaultDiscountPct,
+        triggerBusinessId: "ref:welcome",
+        source: "referral_welcome",
+        expiresAt: exp
+      }
+    })
+    .catch(() => {});
+
+  // Recompensas de hito para el referidor.
+  const count = await countVerifiedReferrals(referrer.id);
+  const newlyReached: number[] = [];
+  for (const m of MILESTONES) {
+    if (count >= m) {
+      const { discountPct, label } = parseReward(rewardLabelFor(business, m));
+      try {
+        await prisma.bubuiOffer.create({
+          data: {
+            customerId: referrer.id,
+            businessId: originId,
+            discountPct,
+            rewardLabel: label,
+            triggerBusinessId: `ref:${m}`,
+            source: "referral",
+            expiresAt: exp
+          }
+        });
+        newlyReached.push(m); // create OK = hito recién alcanzado
+      } catch {
+        // P2002 → ya otorgado, no es nuevo
+      }
+    }
+  }
+
+  // Aviso al dueño por cada hito recién alcanzado (panel siempre; email al
+  // llegar a 5, el hito grande).
+  if (newlyReached.length > 0) {
+    const referrerInfo = await prisma.bubuiCustomer.findUnique({
+      where: { id: referrer.id },
+      select: { name: true, phone: true }
+    });
+    const who = referrerInfo?.name || "Un cliente";
+    for (const m of newlyReached) {
+      const msg = `🎁 ${who} ha traído ${m} ${m === 1 ? "amigo" : "amigos"} a ${business.name} con su enlace de afiliado.${m >= 5 ? " ¡Hito de 5 alcanzado!" : ""}`;
+      await prisma.bubuiBusinessNotification
+        .create({ data: { businessId: originId, type: "referral_milestone", message: msg } })
+        .catch(() => {});
+      if (m >= 5 && business.ownerEmail && isEmailEnabled()) {
+        sendEmail({
+          to: business.ownerEmail,
+          subject: `Bubui · ${who} ha traído 5 amigos a ${business.name}`,
+          html: `<p>${msg}</p><p>Entra a tu panel Bubui para ver el detalle.</p>`,
+          text: msg
+        }).catch(() => {});
+      }
+    }
+  }
+}
