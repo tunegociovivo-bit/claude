@@ -3358,8 +3358,9 @@ model BipiBusiness {
 /// Cliente final dado de alta en la app Bipi.
 model BipiCustomer {
   id              String   @id @default(cuid())
-  email           String   @unique
+  email           String?  @unique
   phone           String?  @unique
+  phoneVerified   Boolean  @default(false)
   name            String?
   // Token push (Expo / FCM / APNs).
   pushToken       String?

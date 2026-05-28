@@ -23,6 +23,16 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ email, name, firstBusinessId })
     }),
+  requestOtp: (phone: string) =>
+    call("/api/bipi/customer/request-otp", {
+      method: "POST",
+      body: JSON.stringify({ phone })
+    }),
+  verifyOtp: (phone: string, code: string, name: string, email?: string, firstBusinessId?: string) =>
+    call("/api/bipi/customer/verify-otp", {
+      method: "POST",
+      body: JSON.stringify({ phone, code, name, email, firstBusinessId })
+    }),
   offers: (customerId: string, lat?: number, lng?: number) => {
     const url = new URL(`${API_BASE}/api/bipi/offers`);
     url.searchParams.set("customerId", customerId);

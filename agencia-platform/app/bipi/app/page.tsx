@@ -202,30 +202,53 @@ function CheckLine({ children }: { children: React.ReactNode }) {
 }
 
 function Signup({ onDone }: { onDone: (c: Customer) => void }) {
+  // step "form": nombre + teléfono (+ email opcional) → enviar código.
+  // step "code": introducir el código SMS → verificar y entrar.
+  const [step, setStep] = useState<"form" | "code">("form");
   const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
+  const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  async function submit(e: React.FormEvent) {
+
+  async function sendCode(e: React.FormEvent) {
+    e.preventDefault();
+    if (!name.trim()) { setError("Pon tu nombre"); return; }
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await fetch("/api/bipi/customer/request-otp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone })
+      });
+      const j = await r.json();
+      if (!r.ok) { setError(j?.error?.message ?? `Error ${r.status}`); return; }
+      setStep("code");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function verify(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
     setError(null);
     try {
-      const r = await fetch("/api/bipi/customer/signup", {
+      const r = await fetch("/api/bipi/customer/verify-otp", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, name })
+        body: JSON.stringify({ phone, code, name, email })
       });
       const j = await r.json();
-      if (!r.ok) {
-        setError(j?.error?.message ?? `Error ${r.status}`);
-        return;
-      }
+      if (!r.ok) { setError(j?.error?.message ?? `Error ${r.status}`); return; }
       onDone({ customerId: j.customerId, name: j.name, totalSaved: j.totalSaved ?? 0, totalPurchases: j.totalPurchases ?? 0 });
     } finally {
       setBusy(false);
     }
   }
+
   return (
     <main className="max-w-md mx-auto px-4 py-12">
       <div className="text-center mb-6 bipi-fade-up">
@@ -233,36 +256,70 @@ function Signup({ onDone }: { onDone: (c: Customer) => void }) {
         <p className="text-black mt-3 text-base font-bold tracking-tight">
           Ahorra. Disfruta. <span style={{ color: "#EC4899" }}>Apoya local.</span>
         </p>
-        <p className="text-black/55 text-xs mt-2">Tus descuentos en el barrio. Escanea, ahorra, descubre.</p>
+        <p className="text-black/55 text-xs mt-2">Crea tu cuenta verificando tu teléfono.</p>
       </div>
-      <form onSubmit={submit} className="space-y-3 bipi-card p-6 bipi-fade-up bipi-fade-up-1">
-        <input
-          type="text"
-          placeholder="Tu nombre"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          className="bipi-input"
-        />
-        <input
-          type="email"
-          placeholder="Email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          required
-          className="bipi-input"
-        />
-        {error && <p className="text-rose-700 text-sm">{error}</p>}
-        <button
-          type="submit"
-          disabled={busy}
-          className="bipi-btn w-full"
-        >
-          {busy ? "Creando…" : "Entrar a Bipi"}
-        </button>
-        <p className="text-[11px] text-black/50 text-center pt-2">
-          Sin cartera. Sin tarjetas. Sin spam. Los descuentos se aplican directamente cuando escaneas el QR de un negocio Bipi.
-        </p>
-      </form>
+
+      {step === "form" ? (
+        <form onSubmit={sendCode} className="space-y-3 bipi-card p-6 bipi-fade-up bipi-fade-up-1">
+          <input
+            type="text"
+            placeholder="Tu nombre"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            className="bipi-input"
+          />
+          <input
+            type="tel"
+            inputMode="tel"
+            placeholder="Teléfono móvil (ej: 600 11 12 22)"
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+            required
+            className="bipi-input"
+          />
+          <input
+            type="email"
+            placeholder="Email (opcional)"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            className="bipi-input"
+          />
+          {error && <p className="text-rose-700 text-sm">{error}</p>}
+          <button type="submit" disabled={busy} className="bipi-btn w-full">
+            {busy ? "Enviando…" : "Enviar código SMS"}
+          </button>
+          <p className="text-[11px] text-black/50 text-center pt-2">
+            Te enviaremos un SMS con un código para verificar tu número. Sin cartera, sin tarjetas, sin spam.
+          </p>
+        </form>
+      ) : (
+        <form onSubmit={verify} className="space-y-3 bipi-card p-6 bipi-fade-up bipi-fade-up-1">
+          <p className="text-sm text-black/70">
+            Introduce el código que enviamos por SMS a <strong>{phone}</strong>.
+          </p>
+          <input
+            type="text"
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            placeholder="● ● ● ● ● ●"
+            value={code}
+            onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 8))}
+            autoFocus
+            className="bipi-input text-center text-2xl tracking-[0.4em] font-bold"
+          />
+          {error && <p className="text-rose-700 text-sm">{error}</p>}
+          <button type="submit" disabled={busy || code.length < 4} className="bipi-btn w-full">
+            {busy ? "Verificando…" : "Verificar y entrar"}
+          </button>
+          <button
+            type="button"
+            onClick={() => { setStep("form"); setCode(""); setError(null); }}
+            className="w-full text-xs text-black/50 hover:text-black/80"
+          >
+            ← Cambiar número o reenviar
+          </button>
+        </form>
+      )}
     </main>
   );
 }
