@@ -149,7 +149,7 @@ const styles = StyleSheet.create({
   savedAmount: { fontSize: 36, fontWeight: "900", color: colors.pink, letterSpacing: -1 },
   cta: { backgroundColor: colors.pink, borderRadius: radius.pill, paddingVertical: 16, alignItems: "center", ...shadow.btn },
   ctaText: { color: colors.white, fontSize: 16, fontWeight: "800" },
-  promo: { width: "100%", aspectRatio: 1024 / 703, marginBottom: 22, borderRadius: radius.xl },
+  promo: { width: "100%", aspectRatio: 1, marginBottom: 22, borderRadius: radius.xl },
   section: { fontSize: 12, fontWeight: "800", color: colors.gray, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 10 },
   card: { backgroundColor: colors.white, borderRadius: radius.lg, marginBottom: 12, overflow: "hidden", borderWidth: 1, borderColor: colors.border, ...shadow.card },
   photo: { height: 130, backgroundColor: colors.pinkSoft, justifyContent: "flex-start", alignItems: "flex-end" },
