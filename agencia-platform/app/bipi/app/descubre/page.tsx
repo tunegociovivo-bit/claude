@@ -1,11 +1,9 @@
 "use client";
 
 /**
- * Descubre — feed público de todos los negocios Bipi cerca.
- * Pensado para que el cliente vea la red antes de tener su primer cupón.
- *
- * Layout idéntico al feed de cupones (photo cards + buscador + chips)
- * pero usando /api/bipi/discover en vez de /api/bipi/offers.
+ * Descubre — feed público de negocios Bipi cerca (estilo "Feed Cliente").
+ * Buscador + chips con icono + photo cards con corazón de favorito
+ * (persistido en localStorage). Usa /api/bipi/discover.
  */
 
 import { useEffect, useState } from "react";
@@ -23,7 +21,16 @@ type Business = {
   distanceM: number | null;
 };
 
-const CATEGORIES = ["Todo", "Restauración", "Café / Bar", "Belleza", "Tiendas", "Fitness"];
+const CATEGORIES: { key: string; label: string; icon: string }[] = [
+  { key: "Todo", label: "Todos", icon: "✨" },
+  { key: "Restauración", label: "Restaurantes", icon: "🍴" },
+  { key: "Café / Bar", label: "Cafeterías", icon: "☕" },
+  { key: "Belleza", label: "Belleza", icon: "💅" },
+  { key: "Tiendas", label: "Tiendas", icon: "🛍" },
+  { key: "Fitness", label: "Fitness", icon: "💪" }
+];
+
+const FAVS_KEY = "bipi.favs";
 
 export default function DescubrePage() {
   const [items, setItems] = useState<Business[]>([]);
@@ -31,15 +38,29 @@ export default function DescubrePage() {
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("Todo");
+  const [favs, setFavs] = useState<string[]>([]);
 
   useEffect(() => {
-    if (!navigator.geolocation) return;
-    navigator.geolocation.getCurrentPosition(
-      (p) => setCoords({ lat: p.coords.latitude, lng: p.coords.longitude }),
-      () => {},
-      { timeout: 5000 }
-    );
+    try {
+      const raw = localStorage.getItem(FAVS_KEY);
+      if (raw) setFavs(JSON.parse(raw));
+    } catch {}
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (p) => setCoords({ lat: p.coords.latitude, lng: p.coords.longitude }),
+        () => {},
+        { timeout: 5000 }
+      );
+    }
   }, []);
+
+  function toggleFav(slug: string) {
+    setFavs((prev) => {
+      const next = prev.includes(slug) ? prev.filter((s) => s !== slug) : [...prev, slug];
+      try { localStorage.setItem(FAVS_KEY, JSON.stringify(next)); } catch {}
+      return next;
+    });
+  }
 
   useEffect(() => {
     (async () => {
@@ -67,18 +88,14 @@ export default function DescubrePage() {
   return (
     <main className="max-w-md mx-auto px-4 py-6 pb-24">
       <div className="mb-4 bipi-fade-up">
-        <span className="bipi-eyebrow">Descubre</span>
-        <h1 className="text-2xl font-black tracking-tight mt-3">Negocios Bipi cerca de ti</h1>
-        <p className="text-black/55 text-sm mt-1">
-          Escanea su QR para llevarte el descuento y desbloquear más cupones.
-        </p>
+        <h1 className="text-2xl font-black tracking-tight leading-tight">Descubre y ahorra<br />cerca de ti</h1>
       </div>
 
       <div className="bipi-search bipi-fade-up bipi-fade-up-1 mb-3">
         <span aria-hidden>🔍</span>
         <input
           type="search"
-          placeholder="Buscar negocio o categoría…"
+          placeholder="Buscar negocios, comida, belleza…"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
@@ -87,20 +104,23 @@ export default function DescubrePage() {
       <div className="bipi-chips bipi-fade-up bipi-fade-up-2 mb-4">
         {CATEGORIES.map((c) => (
           <button
-            key={c}
-            onClick={() => setCategory(c)}
-            className={"bipi-chip" + (category === c ? " active" : "")}
+            key={c.key}
+            onClick={() => setCategory(c.key)}
+            className={"bipi-chip" + (category === c.key ? " active" : "")}
           >
-            {c}
+            <span className="mr-1" aria-hidden>{c.icon}</span>{c.label}
           </button>
         ))}
       </div>
 
+      <div className="flex items-center justify-between mb-2">
+        <h2 className="text-sm font-black">Cerca de ti</h2>
+        <a href="/bipi/app/mapa" className="text-xs font-bold text-pink-600 hover:underline">Ver mapa →</a>
+      </div>
+
       {loading ? (
         <div className="space-y-3">
-          {[1, 2, 3].map((i) => (
-            <div key={i} className="bipi-skeleton h-44" />
-          ))}
+          {[1, 2, 3].map((i) => <div key={i} className="bipi-skeleton h-44" />)}
         </div>
       ) : filtered.length === 0 ? (
         <div className="bipi-card p-6 text-center text-sm text-black/60">
@@ -110,27 +130,31 @@ export default function DescubrePage() {
         </div>
       ) : (
         <div className="space-y-3">
-          {filtered.map((b, i) => (
-            <a
-              key={b.id}
-              href={`/bipi/n/${b.slug}`}
-              className={"block bipi-photo-card bipi-fade-up " + (i < 4 ? `bipi-fade-up-${i + 1}` : "")}
-            >
-              <div
-                className="photo"
-                style={
-                  b.logoUrl
-                    ? { background: `center/cover no-repeat url(${b.logoUrl})` }
-                    : b.brandColor
-                    ? { background: b.brandColor }
-                    : undefined
-                }
-              >
-                <div className="discount-tag">-{b.defaultDiscountPct}%</div>
-              </div>
-              <div className="body">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
+          {filtered.map((b, i) => {
+            const fav = favs.includes(b.slug);
+            return (
+              <div key={b.id} className={"relative bipi-fade-up " + (i < 4 ? `bipi-fade-up-${i + 1}` : "")}>
+                <button
+                  onClick={() => toggleFav(b.slug)}
+                  aria-label={fav ? "Quitar de favoritos" : "Guardar"}
+                  className="absolute top-3 left-3 z-10 h-9 w-9 grid place-items-center rounded-full bg-white/90 backdrop-blur shadow text-lg"
+                >
+                  {fav ? "❤️" : "🤍"}
+                </button>
+                <a href={`/bipi/n/${b.slug}`} className="block bipi-photo-card">
+                  <div
+                    className="photo"
+                    style={
+                      b.logoUrl
+                        ? { background: `center/cover no-repeat url(${b.logoUrl})` }
+                        : b.brandColor
+                        ? { background: b.brandColor }
+                        : undefined
+                    }
+                  >
+                    <div className="discount-tag">-{b.defaultDiscountPct}%</div>
+                  </div>
+                  <div className="body">
                     <div className="name truncate">{b.name}</div>
                     <div className="meta truncate">
                       {b.category}
@@ -138,17 +162,17 @@ export default function DescubrePage() {
                         ` · ${b.distanceM > 1000 ? `${(b.distanceM / 1000).toFixed(1)} km` : `${b.distanceM} m`}`}
                     </div>
                   </div>
-                </div>
+                </a>
               </div>
-            </a>
-          ))}
+            );
+          })}
         </div>
       )}
 
       <nav className="bipi-bottom-nav">
         <a href="/bipi/app">
-          <span style={{ fontSize: 18 }}>🎟</span>
-          <span>Cupones</span>
+          <span style={{ fontSize: 18 }}>🏠</span>
+          <span>Inicio</span>
         </a>
         <a href="/bipi/app/descubre" className="active">
           <span style={{ fontSize: 18 }}>🧭</span>
