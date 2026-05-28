@@ -14,6 +14,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db/prisma";
+import { businessTokenAllows } from "@/lib/bipi/auth";
 import {
   unlockOffersForPurchase,
   recalculateVisibilityScore,
@@ -35,6 +36,10 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: { code: "validation", message: parsed.error.message } }, { status: 400 });
   }
   const d = parsed.data;
+
+  if (!businessTokenAllows(req.headers.get("authorization"), d.businessId)) {
+    return NextResponse.json({ error: { code: "unauthorized", message: "No autorizado" } }, { status: 401 });
+  }
 
   const purchase = await prisma.bipiPurchase.findUnique({ where: { id: d.purchaseId } });
   if (!purchase) {
