@@ -28,10 +28,18 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ phone })
     }),
-  verifyOtp: (phone: string, code: string, name: string, email?: string, firstBusinessId?: string) =>
+  verifyOtp: (args: {
+    phone: string;
+    code: string;
+    name: string;
+    email: string;
+    birthDate: string;
+    gender: string;
+    firstBusinessId?: string;
+  }) =>
     call("/api/bipi/customer/verify-otp", {
       method: "POST",
-      body: JSON.stringify({ phone, code, name, email, firstBusinessId })
+      body: JSON.stringify(args)
     }),
   offers: (customerId: string, lat?: number, lng?: number) => {
     const url = new URL(`${API_BASE}/api/bipi/offers`);
