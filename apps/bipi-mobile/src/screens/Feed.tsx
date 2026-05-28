@@ -5,6 +5,7 @@ import * as Location from "expo-location";
 import { CheckSession, clearSession, type Customer } from "../lib/session";
 import { api } from "../lib/api";
 import { Wordmark } from "../components/Wordmark";
+import { BottomNav } from "../components/BottomNav";
 import { colors, radius, shadow } from "../lib/theme";
 
 type Offer = {
@@ -146,6 +147,7 @@ export function Feed() {
           </View>
         )}
       />
+      <BottomNav active="Feed" />
     </View>
   );
 }

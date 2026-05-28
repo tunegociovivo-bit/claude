@@ -2,10 +2,12 @@ import { NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { useEffect, useState } from "react";
 import { StatusBar } from "expo-status-bar";
-import * as Linking from "expo-linking";
 import { Splash } from "./src/screens/Splash";
 import { Onboarding } from "./src/screens/Onboarding";
 import { Feed } from "./src/screens/Feed";
+import { Descubre } from "./src/screens/Descubre";
+import { Mapa } from "./src/screens/Mapa";
+import { Cuenta } from "./src/screens/Cuenta";
 import { Scan } from "./src/screens/Scan";
 import { CheckSession } from "./src/lib/session";
 
@@ -13,6 +15,9 @@ export type RootStackParamList = {
   Splash: undefined;
   Onboarding: undefined;
   Feed: undefined;
+  Descubre: undefined;
+  Mapa: undefined;
+  Cuenta: undefined;
   Scan: { businessId: string };
 };
 
@@ -42,10 +47,13 @@ export default function App() {
   return (
     <NavigationContainer linking={linking}>
       <StatusBar style="dark" />
-      <Stack.Navigator initialRouteName={initial} screenOptions={{ headerShown: false }}>
+      <Stack.Navigator initialRouteName={initial} screenOptions={{ headerShown: false, animation: "fade" }}>
         <Stack.Screen name="Splash" component={Splash} />
         <Stack.Screen name="Onboarding" component={Onboarding} />
         <Stack.Screen name="Feed" component={Feed} />
+        <Stack.Screen name="Descubre" component={Descubre} />
+        <Stack.Screen name="Mapa" component={Mapa} />
+        <Stack.Screen name="Cuenta" component={Cuenta} />
         <Stack.Screen name="Scan" component={Scan} />
       </Stack.Navigator>
     </NavigationContainer>
