@@ -327,6 +327,12 @@ body.bubui-embedded .bubui-bg > header,
 body.bubui-embedded .bubui-bg > footer,
 body.bubui-embedded .bubui-bottom-nav { display: none !important; }
 
+/* Embebido en la app nativa (WebView): ocultamos la cabecera, el footer
+   y la barra inferior web para no duplicar la navegación nativa. */
+body.bipi-embedded .bipi-bg > header,
+body.bipi-embedded .bipi-bg > footer,
+body.bipi-embedded .bipi-bottom-nav { display: none !important; }
+
 /* ── Inputs ──────────────────────────────────────────────────────── */
 .bubui-input {
   width: 100%;
