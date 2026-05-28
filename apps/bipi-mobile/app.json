@@ -68,7 +68,8 @@
           "locationAlwaysAndWhenInUsePermission": "Bipi usa tu ubicación para mostrar descuentos cerca y avisarte cuando pases junto a uno."
         }
       ],
-      "expo-notifications"
+      "expo-notifications",
+      "expo-font"
     ],
     "extra": {
       "apiBaseUrl": "https://hub.negociovivo.app",
