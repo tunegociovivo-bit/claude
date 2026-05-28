@@ -34,8 +34,9 @@ export default function BipiLayout({ children }: { children: React.ReactNode }) 
     <div className="min-h-screen bipi-bg text-black">
       <header className="border-b border-black/5 bg-white/80 backdrop-blur-md sticky top-0 z-30">
         <div className="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between">
-          <a href="/bipi" className="bipi-wordmark" style={{ fontSize: 28 }}>
-            bipi
+          <a href="/bipi" className="inline-flex items-center">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/bipi/logo.png" alt="bipi" style={{ height: 28, width: "auto" }} />
           </a>
           <nav className="text-sm flex items-center gap-3">
             <a href="/bipi/registro" className="text-black/70 hover:text-pink-600 font-semibold">
@@ -52,7 +53,8 @@ export default function BipiLayout({ children }: { children: React.ReactNode }) 
       </header>
       {children}
       <footer className="mt-20 py-8 text-center text-xs text-black/40 border-t border-black/5">
-        <span className="bipi-wordmark" style={{ fontSize: 18, verticalAlign: "-3px" }}>bipi</span>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/bipi/logo.png" alt="bipi" className="inline-block align-middle" style={{ height: 20, width: "auto" }} />
         <span className="mx-2">·</span>
         Ahorra. Disfruta. Apoya local. · Piloto en Benalmádena · Una app de Negocio Vivo
       </footer>
