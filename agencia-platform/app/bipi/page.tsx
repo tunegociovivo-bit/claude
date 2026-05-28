@@ -37,9 +37,13 @@ export default function BipiHome() {
       {/* HERO */}
       <section className="text-center">
         <span className="bipi-eyebrow bipi-fade-up">Nuevo · Piloto en Benalmádena</span>
-        <h1 className="bipi-wordmark bipi-wordmark-shine mt-6 bipi-fade-up bipi-fade-up-1" style={{ fontSize: "clamp(96px, 24vw, 200px)" }}>
-          bipi
-        </h1>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src="/bipi/logo.png"
+          alt="bipi"
+          className="mx-auto mt-6 bipi-fade-up bipi-fade-up-1"
+          style={{ height: "clamp(72px, 18vw, 150px)", width: "auto" }}
+        />
         <p className="bipi-fade-up bipi-fade-up-2 mt-2 text-xl sm:text-2xl font-bold tracking-tight text-black">
           Ahorra. Disfruta. <span style={{ color: "#EC4899" }}>Apoya local.</span>
         </p>
