@@ -3,6 +3,11 @@ node_modules/
 package.json
 package-lock.json
 
+# El proyecto Expo SÍ necesita su manifest y lockfile en git (EAS Build
+# los lee del archivo subido). Se exceptúan de la regla global de arriba.
+!apps/bipi-mobile/package.json
+!apps/bipi-mobile/package-lock.json
+
 # Next.js build output
 .next/
 out/
