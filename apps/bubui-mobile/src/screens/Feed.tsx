@@ -113,12 +113,7 @@ export function Feed() {
         ListHeaderComponent={header}
         contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 56, paddingBottom: 40 }}
         ListEmptyComponent={
-          <View style={styles.empty}>
-            <Text style={{ fontSize: 40, textAlign: "center" }}>🎟️</Text>
-            <Text style={styles.emptyText}>
-              Aún no tienes cupones. Escanea el QR de un negocio Bubui para empezar a desbloquear.
-            </Text>
-          </View>
+          <Image source={require("../../assets/empty-cupones.png")} style={styles.empty} resizeMode="contain" />
         }
         renderItem={({ item }) => (
           <View style={styles.card}>
@@ -163,6 +158,5 @@ const styles = StyleSheet.create({
   bizCat: { color: colors.gray, fontSize: 12, marginTop: 2 },
   exp: { fontSize: 12, color: colors.gray, fontWeight: "700" },
   expUrgent: { color: colors.pink },
-  empty: { padding: 28, backgroundColor: colors.white, borderRadius: radius.lg, borderColor: colors.border, borderWidth: 1, gap: 10 },
-  emptyText: { textAlign: "center", color: colors.gray, fontSize: 14, lineHeight: 20 }
+  empty: { width: "100%", aspectRatio: 1304 / 832, marginTop: 2 }
 });
