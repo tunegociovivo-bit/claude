@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ScrollView } from "react-native";
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ScrollView, Platform } from "react-native";
 import { useNavigation } from "@react-navigation/native";
+import DateTimePicker from "@react-native-community/datetimepicker";
 import * as Location from "expo-location";
 import * as Notifications from "expo-notifications";
 import { api } from "../lib/api";
@@ -9,6 +10,15 @@ import { Wordmark } from "../components/Wordmark";
 import { colors, radius, shadow } from "../lib/theme";
 
 const AMBER = "#F59E0B";
+
+function fmtDate(d: Date): string {
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+function fmtDateHuman(iso: string): string {
+  const [y, m, d] = iso.split("-");
+  return `${d}/${m}/${y}`;
+}
 
 type Feature = { icon: string; label: string; sub?: string };
 type Slide = {
@@ -78,6 +88,7 @@ export function Onboarding() {
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
   const [birthDate, setBirthDate] = useState("");
+  const [showDatePicker, setShowDatePicker] = useState(false);
   const [gender, setGender] = useState("");
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
@@ -214,14 +225,28 @@ export function Onboarding() {
             keyboardType="email-address"
             autoCapitalize="none"
           />
-          <TextInput
+          <TouchableOpacity
             style={styles.input}
-            placeholder="Fecha de nacimiento (AAAA-MM-DD)"
-            placeholderTextColor={colors.grayLight}
-            value={birthDate}
-            onChangeText={(t) => setBirthDate(t.replace(/[^0-9-]/g, "").slice(0, 10))}
-            keyboardType="numbers-and-punctuation"
-          />
+            onPress={() => setShowDatePicker(true)}
+            activeOpacity={0.7}
+          >
+            <Text style={{ fontSize: 16, color: birthDate ? colors.black : colors.grayLight }}>
+              {birthDate ? `📅  ${fmtDateHuman(birthDate)}` : "Fecha de nacimiento"}
+            </Text>
+          </TouchableOpacity>
+          {showDatePicker && (
+            <DateTimePicker
+              value={birthDate ? new Date(birthDate) : new Date(1995, 0, 1)}
+              mode="date"
+              display={Platform.OS === "ios" ? "spinner" : "calendar"}
+              maximumDate={new Date()}
+              minimumDate={new Date(1920, 0, 1)}
+              onChange={(event, date) => {
+                setShowDatePicker(Platform.OS === "ios");
+                if (event.type === "set" && date) setBirthDate(fmtDate(date));
+              }}
+            />
+          )}
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
             {[
               { v: "female", l: "Mujer" },
@@ -265,6 +290,9 @@ export function Onboarding() {
             onChangeText={(t) => setCode(t.replace(/[^0-9]/g, "").slice(0, 8))}
             keyboardType="number-pad"
             autoFocus
+            autoComplete="sms-otp"
+            textContentType="oneTimeCode"
+            importantForAutofill="yes"
           />
           <TouchableOpacity style={[styles.btn, (busy || code.length < 4) && { opacity: 0.5 }]} onPress={verify} disabled={busy || code.length < 4} activeOpacity={0.9}>
             <Text style={styles.btnText}>{busy ? "Verificando…" : "Verificar y entrar"}</Text>
