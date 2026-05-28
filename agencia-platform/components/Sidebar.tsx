@@ -29,13 +29,13 @@ import {
   MapPin
 } from "lucide-react";
 
-// Áreas de la plataforma Bipi accesibles desde "Otros Proyectos".
-const BIPI_LINKS: { href: string; label: string; exact?: boolean }[] = [
-  { href: "/bipi", label: "Inicio (landing)", exact: true },
-  { href: "/bipi/app", label: "App cliente" },
-  { href: "/bipi/negocio", label: "Panel del negocio" },
-  { href: "/bipi/registro", label: "Alta de negocio" },
-  { href: "/bipi/admin", label: "Admin Bipi" }
+// Áreas de la plataforma Bubui accesibles desde "Otros Proyectos".
+const BUBUI_LINKS: { href: string; label: string; exact?: boolean }[] = [
+  { href: "/bubui", label: "Inicio (landing)", exact: true },
+  { href: "/bubui/app", label: "App cliente" },
+  { href: "/bubui/negocio", label: "Panel del negocio" },
+  { href: "/bubui/registro", label: "Alta de negocio" },
+  { href: "/bubui/admin", label: "Admin Bubui" }
 ];
 import clsx from "clsx";
 import ProjectFormModal from "@/components/forms/ProjectFormModal";
@@ -481,13 +481,13 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}
               <MapPin className="h-3 w-3" />
               Otros Proyectos
             </span>
-            {/* Bipi + acceso directo a todas sus áreas */}
+            {/* Bubui + acceso directo a todas sus áreas */}
             <Link
               onClick={onNavigate}
-              href="/bipi"
+              href="/bubui"
               className={clsx(
                 "flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition-colors",
-                pathname === "/bipi"
+                pathname === "/bubui"
                   ? "bg-brand-600/25 text-white font-medium"
                   : "text-slate-300 hover:bg-slate-800 hover:text-white"
               )}
@@ -498,10 +498,10 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}
               >
                 b
               </span>
-              <span className="font-semibold">Bipi</span>
+              <span className="font-semibold">Bubui</span>
             </Link>
             <div className="ml-5 mt-0.5 border-l border-slate-800 pl-2 space-y-0.5">
-              {BIPI_LINKS.map((l) => {
+              {BUBUI_LINKS.map((l) => {
                 const active = l.exact ? pathname === l.href : pathname.startsWith(l.href);
                 return (
                   <Link
