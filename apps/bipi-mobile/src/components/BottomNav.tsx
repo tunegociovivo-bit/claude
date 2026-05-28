@@ -5,6 +5,7 @@ import { colors } from "../lib/theme";
 const TABS: { route: string; label: string; icon: string }[] = [
   { route: "Feed", label: "Inicio", icon: "🏠" },
   { route: "Descubre", label: "Descubre", icon: "🧭" },
+  { route: "Afiliados", label: "Amigos", icon: "🎁" },
   { route: "Mapa", label: "Mapa", icon: "🗺" },
   { route: "Cuenta", label: "Cuenta", icon: "👤" }
 ];

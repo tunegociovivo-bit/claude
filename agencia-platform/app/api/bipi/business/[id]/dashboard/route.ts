@@ -101,7 +101,11 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
       defaultDiscountPct: business.defaultDiscountPct,
       crossDiscountPct: business.crossDiscountPct,
       visibilityScore: business.visibilityScore,
-      qrPngUrl: `/api/bipi/business/${business.id}/qr.png`
+      qrPngUrl: `/api/bipi/business/${business.id}/qr.png`,
+      referralEnabled: business.referralEnabled,
+      referralReward1: business.referralReward1,
+      referralReward3: business.referralReward3,
+      referralReward5: business.referralReward5
     },
     pending: pending.map((p) => ({
       id: p.id,

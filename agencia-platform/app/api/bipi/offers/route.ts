@@ -61,6 +61,8 @@ export async function GET(req: Request) {
       offerId: o.id,
       business: o.business,
       discountPct: o.discountPct,
+      rewardLabel: o.rewardLabel,
+      source: o.source,
       expiresAt: o.expiresAt,
       hoursLeft: Math.round(hoursLeft),
       distanceM
