@@ -1,12 +1,12 @@
 # Dependencies
 node_modules/
-package.json
-package-lock.json
 
-# El proyecto Expo SÍ necesita su manifest y lockfile en git (EAS Build
-# los lee del archivo subido). Se exceptúan de la regla global de arriba.
-!apps/bipi-mobile/package.json
-!apps/bipi-mobile/package-lock.json
+# Sólo el package.json/lock ACCIDENTAL de la raíz del repo (ancla "/").
+# OJO: sin la barra inicial el patrón matchea package.json en CUALQUIER
+# subcarpeta y rompe `railway up` (excluye agencia-platform/package.json
+# del build context → "COPY package.json: not found") y EAS Build.
+/package.json
+/package-lock.json
 
 # Next.js build output
 .next/
