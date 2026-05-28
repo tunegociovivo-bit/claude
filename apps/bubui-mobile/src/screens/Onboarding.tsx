@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ScrollView, Platform } from "react-native";
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ScrollView, Platform, Image } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import * as Location from "expo-location";
@@ -8,8 +8,6 @@ import { api } from "../lib/api";
 import { saveSession } from "../lib/session";
 import { Wordmark } from "../components/Wordmark";
 import { colors, radius, shadow } from "../lib/theme";
-
-const AMBER = "#F59E0B";
 
 function fmtDate(d: Date): string {
   const p = (n: number) => String(n).padStart(2, "0");
@@ -20,64 +18,12 @@ function fmtDateHuman(iso: string): string {
   return `${d}/${m}/${y}`;
 }
 
-type Feature = { icon: string; label: string; sub?: string };
-type Slide = {
-  scene: "coupon" | "sparkle" | "heart";
-  title: React.ReactNode;
-  subtitle: string;
-  features: Feature[];
-  note?: string;
-  cta: string;
-};
-
+// Pantallas de bienvenida = ilustraciones de marca (diseño Bubui).
+type Slide = { image: any; cta: string };
 const SLIDES: Slide[] = [
-  {
-    scene: "coupon",
-    title: (
-      <>
-        Cada compra{"\n"}
-        <Text style={{ color: colors.pink }}>te abre descuentos cerca</Text>
-      </>
-    ),
-    subtitle: "Escaneas el QR del negocio al pagar y se te abren 3-5 cupones en otros negocios del barrio.",
-    features: [
-      { icon: "📷", label: "Escanea", sub: "el QR al pagar" },
-      { icon: "🎟", label: "Recibe", sub: "3-5 cupones cerca" },
-      { icon: "💗", label: "Disfruta", sub: "descuentos cerca" }
-    ],
-    cta: "Siguiente"
-  },
-  {
-    scene: "sparkle",
-    title: (
-      <>
-        Limpio. <Text style={{ color: colors.pink }}>Directo.</Text> Sin trucos.
-      </>
-    ),
-    subtitle: "Sin complicaciones: el descuento se aplica solo cuando el negocio confirma tu compra.",
-    features: [
-      { icon: "💳", label: "Sin cartera" },
-      { icon: "⭐", label: "Sin puntos" },
-      { icon: "🛡", label: "Sin spam" }
-    ],
-    note: "Sin tarjetas. El descuento se aplica al confirmar tu compra.",
-    cta: "Siguiente"
-  },
-  {
-    scene: "heart",
-    title: (
-      <>
-        Apoya el <Text style={{ color: colors.pink }}>comercio</Text> del barrio
-      </>
-    ),
-    subtitle: "Cada euro que gastas en Bubui se queda en tu barrio. Negocios locales, no cadenas.",
-    features: [
-      { icon: "🏪", label: "Impulsa", sub: "los negocios locales" },
-      { icon: "👥", label: "Fortalece", sub: "tu comunidad" },
-      { icon: "💖", label: "Genera", sub: "un impacto real" }
-    ],
-    cta: "Crear mi cuenta"
-  }
+  { image: require("../../assets/onb-descuentos.png"), cta: "Siguiente" },
+  { image: require("../../assets/onb-limpio.png"), cta: "Siguiente" },
+  { image: require("../../assets/onb-barrio.png"), cta: "Crear mi cuenta" }
 ];
 
 export function Onboarding() {
@@ -138,7 +84,7 @@ export function Onboarding() {
     }
   }
 
-  // Slides de intro
+  // Slides de intro (imágenes de marca)
   if (step < SLIDES.length) {
     const s = SLIDES[step];
     return (
@@ -151,29 +97,7 @@ export function Onboarding() {
         </View>
 
         <View style={styles.slideBody}>
-          <Scene kind={s.scene} />
-
-          <Text style={styles.slideTitle}>{s.title}</Text>
-          <Text style={styles.slideText}>{s.subtitle}</Text>
-
-          <View style={styles.features}>
-            {s.features.map((f, i) => (
-              <View key={i} style={styles.featureCard}>
-                <View style={styles.featureIconWrap}>
-                  <Text style={styles.featureIcon}>{f.icon}</Text>
-                </View>
-                <Text style={styles.featureLabel}>{f.label}</Text>
-                {!!f.sub && <Text style={styles.featureSub}>{f.sub}</Text>}
-              </View>
-            ))}
-          </View>
-
-          {!!s.note && (
-            <View style={styles.note}>
-              <Text style={styles.noteIcon}>🏷️</Text>
-              <Text style={styles.noteText}>{s.note}</Text>
-            </View>
-          )}
+          <Image source={s.image} style={styles.slideImage} resizeMode="contain" />
         </View>
 
         <View style={styles.footer}>
@@ -306,161 +230,13 @@ export function Onboarding() {
   );
 }
 
-/* ── Escena ilustrada (círculo rosa + confeti + foco) ───────────────── */
-function Scene({ kind }: { kind: Slide["scene"] }) {
-  return (
-    <View style={styles.scene}>
-      {/* Anillos concéntricos suaves */}
-      <View style={[styles.ring, { width: 230, height: 230, opacity: 0.5 }]} />
-      <View style={[styles.ring, { width: 170, height: 170, opacity: 0.7 }]} />
-
-      {/* Confeti */}
-      <Confetti />
-
-      {/* Casas/tiendas al fondo en slides de barrio */}
-      {kind !== "sparkle" && (
-        <>
-          <Text style={[styles.shop, { left: 18, bottom: 14 }]}>🏪</Text>
-          <Text style={[styles.shop, { right: 18, bottom: 14 }]}>🏬</Text>
-        </>
-      )}
-
-      {/* Foco */}
-      {kind === "coupon" && <CouponGraphic />}
-      {kind === "sparkle" && <SparkleBadge />}
-      {kind === "heart" && (
-        <View style={styles.heartWrap}>
-          <Text style={styles.heartGlyph}>💖</Text>
-        </View>
-      )}
-    </View>
-  );
-}
-
-function CouponGraphic() {
-  return (
-    <View style={styles.coupon}>
-      <View style={styles.couponNotchLeft} />
-      <View style={styles.couponNotchRight} />
-      <Text style={styles.couponPct}>%</Text>
-      <Text style={styles.couponSpark}>✨</Text>
-    </View>
-  );
-}
-
-function SparkleBadge() {
-  return (
-    <View style={styles.badge}>
-      <Text style={styles.badgeGlyph}>✨</Text>
-    </View>
-  );
-}
-
-function Confetti() {
-  // Puntos y rayas decorativas en rosa + ámbar.
-  const dots = [
-    { top: 18, left: 40, c: colors.pink, s: 7 },
-    { top: 34, right: 46, c: AMBER, s: 9 },
-    { bottom: 40, left: 30, c: AMBER, s: 6 },
-    { bottom: 26, right: 38, c: colors.pink, s: 8 },
-    { top: 60, left: 14, c: colors.pinkDeep, s: 5 },
-    { top: 70, right: 18, c: colors.pink, s: 6 }
-  ];
-  return (
-    <>
-      {dots.map((d, i) => (
-        <View
-          key={i}
-          style={{
-            position: "absolute",
-            width: d.s,
-            height: d.s,
-            borderRadius: d.s / 2,
-            backgroundColor: d.c,
-            top: (d as any).top,
-            bottom: (d as any).bottom,
-            left: (d as any).left,
-            right: (d as any).right,
-            opacity: 0.85
-          }}
-        />
-      ))}
-    </>
-  );
-}
-
 const styles = StyleSheet.create({
   root: { flex: 1, paddingTop: 56, paddingHorizontal: 22, paddingBottom: 36, backgroundColor: colors.white },
   topBar: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   skip: { color: colors.gray, fontSize: 14, fontWeight: "700" },
 
   slideBody: { flex: 1, justifyContent: "center", alignItems: "center" },
-
-  // Escena
-  scene: {
-    width: "100%",
-    height: 220,
-    borderRadius: 28,
-    backgroundColor: colors.pinkWash,
-    alignItems: "center",
-    justifyContent: "center",
-    overflow: "hidden",
-    marginBottom: 28
-  },
-  ring: { position: "absolute", borderRadius: 999, backgroundColor: "rgba(236,72,153,0.06)" },
-  shop: { position: "absolute", fontSize: 34, opacity: 0.35 },
-
-  coupon: {
-    width: 168,
-    height: 96,
-    borderRadius: 16,
-    backgroundColor: colors.pink,
-    alignItems: "center",
-    justifyContent: "center",
-    transform: [{ rotate: "-7deg" }],
-    ...shadow.btn
-  },
-  couponPct: { color: colors.white, fontSize: 52, fontWeight: "900" },
-  couponSpark: { position: "absolute", top: 8, right: 12, fontSize: 18 },
-  couponNotchLeft: {
-    position: "absolute", left: -9, top: 39, width: 18, height: 18, borderRadius: 9, backgroundColor: colors.pinkWash
-  },
-  couponNotchRight: {
-    position: "absolute", right: -9, top: 39, width: 18, height: 18, borderRadius: 9, backgroundColor: colors.pinkWash
-  },
-
-  badge: {
-    width: 124, height: 124, borderRadius: 62, backgroundColor: colors.white,
-    alignItems: "center", justifyContent: "center", ...shadow.card
-  },
-  badgeGlyph: { fontSize: 58 },
-
-  heartWrap: { alignItems: "center", justifyContent: "center" },
-  heartGlyph: { fontSize: 96 },
-
-  slideTitle: { fontSize: 25, fontWeight: "900", color: colors.black, textAlign: "center", letterSpacing: -0.5, lineHeight: 31 },
-  slideText: { fontSize: 14, color: colors.gray, textAlign: "center", lineHeight: 21, paddingHorizontal: 6, marginTop: 10 },
-
-  // Mini-tarjetas
-  features: { flexDirection: "row", gap: 10, marginTop: 22, alignSelf: "stretch" },
-  featureCard: {
-    flex: 1, backgroundColor: colors.white, borderRadius: 16, borderWidth: 1, borderColor: colors.border,
-    paddingVertical: 14, paddingHorizontal: 8, alignItems: "center", ...shadow.card
-  },
-  featureIconWrap: {
-    width: 40, height: 40, borderRadius: 12, backgroundColor: colors.pinkWash,
-    alignItems: "center", justifyContent: "center", marginBottom: 8
-  },
-  featureIcon: { fontSize: 20 },
-  featureLabel: { fontSize: 13, fontWeight: "800", color: colors.black, textAlign: "center" },
-  featureSub: { fontSize: 10, color: colors.gray, textAlign: "center", marginTop: 2, lineHeight: 13 },
-
-  note: {
-    flexDirection: "row", alignItems: "center", gap: 8, marginTop: 16, alignSelf: "stretch",
-    backgroundColor: colors.pinkWash, borderRadius: 14, paddingVertical: 12, paddingHorizontal: 14
-  },
-  noteIcon: { fontSize: 16 },
-  noteText: { flex: 1, fontSize: 12, color: colors.pinkDeep, fontWeight: "600", lineHeight: 17 },
+  slideImage: { width: "100%", height: "100%" },
 
   // Footer
   footer: { gap: 18 },
