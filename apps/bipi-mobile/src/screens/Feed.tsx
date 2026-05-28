@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { View, Text, FlatList, RefreshControl, TouchableOpacity, StyleSheet, Animated, Easing } from "react-native";
+import { View, Text, FlatList, RefreshControl, TouchableOpacity, StyleSheet, Animated, Easing, ImageBackground } from "react-native";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import * as Location from "expo-location";
 import { CheckSession, clearSession, type Customer } from "../lib/session";
@@ -94,20 +94,20 @@ export function Feed() {
         </TouchableOpacity>
       </Animated.View>
 
-      {/* Banner promocional */}
-      <View style={styles.promo}>
+      {/* Banner promocional (ilustración + texto superpuesto) */}
+      <ImageBackground
+        source={require("../../assets/promo.png")}
+        style={styles.promo}
+        imageStyle={{ borderRadius: radius.xl }}
+        resizeMode="cover"
+      >
         <View style={styles.promoBadge}><Text style={styles.promoBadgeText}>%</Text></View>
         <Text style={styles.promoText}>
           En breve comenzarás a recibir{" "}
           <Text style={{ color: colors.pinkDeep }}>grandes descuentos</Text>{" "}
           al pasar cerca de un comercio <Text style={{ color: colors.pink, fontWeight: "900" }}>bipi</Text>
         </Text>
-        <View style={styles.promoShops}>
-          <Text style={{ fontSize: 30 }}>🏪</Text>
-          <Text style={{ fontSize: 26 }}>📍</Text>
-          <Text style={{ fontSize: 30 }}>🏬</Text>
-        </View>
-      </View>
+      </ImageBackground>
 
       <Text style={styles.section}>Tus cupones activos ({offers.length})</Text>
     </View>
@@ -161,11 +161,10 @@ const styles = StyleSheet.create({
   savedAmount: { fontSize: 36, fontWeight: "900", color: colors.pink, letterSpacing: -1 },
   cta: { backgroundColor: colors.pink, borderRadius: radius.pill, paddingVertical: 16, alignItems: "center", ...shadow.btn },
   ctaText: { color: colors.white, fontSize: 16, fontWeight: "800" },
-  promo: { backgroundColor: colors.pinkWash, borderRadius: radius.xl, borderWidth: 1, borderColor: "rgba(236,72,153,0.12)", paddingTop: 34, paddingBottom: 18, paddingHorizontal: 18, marginBottom: 22, alignItems: "center" },
-  promoBadge: { position: "absolute", top: 12, alignSelf: "center", width: 50, height: 50, borderRadius: 25, backgroundColor: colors.pink, alignItems: "center", justifyContent: "center", ...shadow.btn },
+  promo: { width: "100%", aspectRatio: 900 / 760, marginBottom: 22 },
+  promoBadge: { position: "absolute", top: "6%", alignSelf: "center", width: 50, height: 50, borderRadius: 25, backgroundColor: colors.pink, alignItems: "center", justifyContent: "center", ...shadow.btn },
   promoBadgeText: { color: colors.white, fontWeight: "900", fontSize: 24 },
-  promoText: { fontSize: 17, fontWeight: "900", color: colors.black, textAlign: "center", lineHeight: 23 },
-  promoShops: { flexDirection: "row", gap: 18, alignItems: "flex-end", marginTop: 10 },
+  promoText: { position: "absolute", top: "25%", left: 24, right: 24, fontSize: 18, fontWeight: "900", color: colors.black, textAlign: "center", lineHeight: 24 },
   section: { fontSize: 12, fontWeight: "800", color: colors.gray, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 10 },
   card: { backgroundColor: colors.white, borderRadius: radius.lg, marginBottom: 12, overflow: "hidden", borderWidth: 1, borderColor: colors.border, ...shadow.card },
   photo: { height: 130, backgroundColor: colors.pinkSoft, justifyContent: "flex-start", alignItems: "flex-end" },
