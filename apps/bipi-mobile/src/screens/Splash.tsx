@@ -1,19 +1,18 @@
-import { View, Text, StyleSheet } from "react-native";
+import { View, Text, StyleSheet, ActivityIndicator } from "react-native";
+import { Wordmark } from "../components/Wordmark";
+import { colors } from "../lib/theme";
 
 export function Splash() {
   return (
     <View style={styles.root}>
-      <Text style={styles.brand}>
-        <Text style={styles.accent}>bi</Text>pi
-      </Text>
-      <Text style={styles.tag}>Cargando…</Text>
+      <Wordmark size={72} />
+      <Text style={styles.tag}>Ahorra. Disfruta. Apoya local.</Text>
+      <ActivityIndicator color={colors.pink} style={{ marginTop: 24 }} />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "#FDF2E1" },
-  brand: { fontSize: 64, fontWeight: "900", color: "#3D2A1B" },
-  accent: { color: "#C8612C" },
-  tag: { marginTop: 12, color: "#7A5C3E" }
+  root: { flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: colors.white },
+  tag: { marginTop: 14, color: colors.gray, fontSize: 14, fontWeight: "700" }
 });
