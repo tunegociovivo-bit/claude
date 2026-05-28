@@ -49,12 +49,9 @@ export default function AfiliadosPage() {
     })();
   }, []);
 
-  async function share() {
-    const text = `¡Únete a Bipi y llévate descuentos en negocios del barrio! Usa mi enlace 🎁`;
-    if (typeof navigator !== "undefined" && (navigator as any).share) {
-      try { await (navigator as any).share({ title: "Bipi", text, url: link }); return; } catch {}
-    }
-    await copy();
+  function shareWhatsApp() {
+    const text = `¡Únete a Bipi y llévate descuentos en negocios del barrio! 🎁 ${link}`;
+    window.location.href = `https://wa.me/?text=${encodeURIComponent(text)}`;
   }
   async function copy() {
     try { await navigator.clipboard.writeText(link); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch {}
@@ -121,7 +118,7 @@ export default function AfiliadosPage() {
           </div>
 
           {/* Compartir */}
-          <button onClick={share} className="bipi-btn bipi-attention w-full py-4 text-base">
+          <button onClick={shareWhatsApp} className="bipi-btn bipi-attention w-full py-4 text-base">
             📲 Invitar amigos por WhatsApp
           </button>
           <div className="flex items-center gap-2 mt-3 px-3 py-2 rounded-lg border border-black/10 bg-pink-50/40">
@@ -131,7 +128,7 @@ export default function AfiliadosPage() {
             </button>
           </div>
           <p className="text-[11px] text-black/45 mt-2 text-center">
-            Abre el menú "Compartir" del móvil para mandarlo a varios contactos a la vez.
+            Se abrirá WhatsApp con el mensaje listo — solo elige a tus amigos. O copia el enlace para enviarlo por donde quieras.
           </p>
         </>
       )}
