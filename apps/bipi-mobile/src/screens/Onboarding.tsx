@@ -73,30 +73,43 @@ const SLIDES: Slide[] = [
 export function Onboarding() {
   const nav = useNavigation<any>();
   const [step, setStep] = useState(0); // 0..2 slides, 3 = signup
+  const [otpStep, setOtpStep] = useState<"form" | "code">("form");
   const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
+  const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
 
-  async function go() {
-    if (!email.includes("@")) {
-      Alert.alert("Email inválido");
-      return;
-    }
+  async function sendCode() {
+    if (!name.trim()) { Alert.alert("Pon tu nombre"); return; }
+    if (phone.trim().length < 6) { Alert.alert("Teléfono inválido"); return; }
     setBusy(true);
     try {
+      await api.requestOtp(phone.trim());
+      setOtpStep("code");
+    } catch (e: any) {
+      Alert.alert("Error", e?.message ?? "No se pudo enviar el código");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function verify() {
+    setBusy(true);
+    try {
+      const r = await api.verifyOtp(phone.trim(), code.trim(), name.trim(), email.trim() || undefined);
       await Location.requestForegroundPermissionsAsync();
       await Notifications.requestPermissionsAsync();
-      const r = await api.customerSignup(email.trim(), name.trim());
       await saveSession({
         customerId: r.customerId,
         name: r.name,
-        email,
+        email: email.trim() || undefined,
         totalSaved: r.totalSaved ?? 0,
         totalPurchases: r.totalPurchases ?? 0
       });
       nav.reset({ index: 0, routes: [{ name: "Feed" }] });
     } catch (e: any) {
-      Alert.alert("Error", e?.message ?? "No se pudo crear la cuenta");
+      Alert.alert("Error", e?.message ?? "Código incorrecto");
     } finally {
       setBusy(false);
     }
@@ -154,7 +167,7 @@ export function Onboarding() {
     );
   }
 
-  // Signup
+  // Signup con verificación por teléfono
   return (
     <ScrollView contentContainerStyle={styles.signupRoot}>
       <View style={{ alignItems: "center" }}>
@@ -162,31 +175,62 @@ export function Onboarding() {
         <Text style={styles.tag}>Ahorra. Disfruta. Apoya local.</Text>
       </View>
 
-      <View style={styles.card}>
-        <TextInput
-          style={styles.input}
-          placeholder="Tu nombre"
-          placeholderTextColor={colors.grayLight}
-          value={name}
-          onChangeText={setName}
-          autoCapitalize="words"
-        />
-        <TextInput
-          style={styles.input}
-          placeholder="Email"
-          placeholderTextColor={colors.grayLight}
-          value={email}
-          onChangeText={setEmail}
-          keyboardType="email-address"
-          autoCapitalize="none"
-        />
-        <TouchableOpacity style={[styles.btn, busy && { opacity: 0.5 }]} onPress={go} disabled={busy} activeOpacity={0.9}>
-          <Text style={styles.btnText}>{busy ? "Creando…" : "Entrar a Bipi"}</Text>
-        </TouchableOpacity>
-        <Text style={styles.legal}>
-          Sin tarjetas. Sin puntos. Sin spam. Cada compra en un negocio Bipi te abre descuentos en otros cerca.
-        </Text>
-      </View>
+      {otpStep === "form" ? (
+        <View style={styles.card}>
+          <TextInput
+            style={styles.input}
+            placeholder="Tu nombre"
+            placeholderTextColor={colors.grayLight}
+            value={name}
+            onChangeText={setName}
+            autoCapitalize="words"
+          />
+          <TextInput
+            style={styles.input}
+            placeholder="Teléfono móvil"
+            placeholderTextColor={colors.grayLight}
+            value={phone}
+            onChangeText={setPhone}
+            keyboardType="phone-pad"
+          />
+          <TextInput
+            style={styles.input}
+            placeholder="Email (opcional)"
+            placeholderTextColor={colors.grayLight}
+            value={email}
+            onChangeText={setEmail}
+            keyboardType="email-address"
+            autoCapitalize="none"
+          />
+          <TouchableOpacity style={[styles.btn, busy && { opacity: 0.5 }]} onPress={sendCode} disabled={busy} activeOpacity={0.9}>
+            <Text style={styles.btnText}>{busy ? "Enviando…" : "Enviar código SMS"}</Text>
+          </TouchableOpacity>
+          <Text style={styles.legal}>
+            Te enviaremos un SMS con un código para verificar tu número. Sin tarjetas, sin spam.
+          </Text>
+        </View>
+      ) : (
+        <View style={styles.card}>
+          <Text style={{ color: colors.gray, fontSize: 13, textAlign: "center" }}>
+            Introduce el código SMS enviado a {phone}
+          </Text>
+          <TextInput
+            style={[styles.input, { textAlign: "center", fontSize: 24, letterSpacing: 8, fontWeight: "800" }]}
+            placeholder="••••••"
+            placeholderTextColor={colors.grayLight}
+            value={code}
+            onChangeText={(t) => setCode(t.replace(/[^0-9]/g, "").slice(0, 8))}
+            keyboardType="number-pad"
+            autoFocus
+          />
+          <TouchableOpacity style={[styles.btn, (busy || code.length < 4) && { opacity: 0.5 }]} onPress={verify} disabled={busy || code.length < 4} activeOpacity={0.9}>
+            <Text style={styles.btnText}>{busy ? "Verificando…" : "Verificar y entrar"}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => { setOtpStep("form"); setCode(""); }}>
+            <Text style={{ color: colors.gray, fontSize: 12, textAlign: "center" }}>← Cambiar número o reenviar</Text>
+          </TouchableOpacity>
+        </View>
+      )}
     </ScrollView>
   );
 }

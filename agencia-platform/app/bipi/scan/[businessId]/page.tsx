@@ -46,27 +46,10 @@ export default function ScanPage() {
     }
   }, []);
 
-  async function signup(email: string, name: string) {
-    setSending(true);
-    setError(null);
-    try {
-      const r = await fetch("/api/bipi/customer/signup", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, name, firstBusinessId: businessId })
-      });
-      const j = await r.json();
-      if (!r.ok) {
-        setError(j?.error?.message ?? `Error ${r.status}`);
-        return;
-      }
-      const c = { customerId: j.customerId, name: j.name, totalSaved: j.totalSaved ?? 0, totalPurchases: j.totalPurchases ?? 0 };
-      localStorage.setItem("bipi.customer", JSON.stringify(c));
-      setCustomer(c);
-      setStage("amount");
-    } finally {
-      setSending(false);
-    }
+  function onVerified(c: Customer) {
+    localStorage.setItem("bipi.customer", JSON.stringify(c));
+    setCustomer(c);
+    setStage("amount");
   }
 
   async function submitAmount() {
@@ -103,7 +86,7 @@ export default function ScanPage() {
   }
 
   if (stage === "signup") {
-    return <SignupForm onSubmit={signup} busy={sending} error={error} />;
+    return <SignupForm businessId={businessId} onVerified={onVerified} />;
   }
 
   if (stage === "amount") {
@@ -172,55 +155,123 @@ export default function ScanPage() {
 }
 
 function SignupForm({
-  onSubmit,
-  busy,
-  error
+  businessId,
+  onVerified
 }: {
-  onSubmit: (email: string, name: string) => void;
-  busy: boolean;
-  error: string | null;
+  businessId: string;
+  onVerified: (c: Customer) => void;
 }) {
-  const [email, setEmail] = useState("");
+  const [step, setStep] = useState<"form" | "code">("form");
   const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
+  const [code, setCode] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function sendCode(e: React.FormEvent) {
+    e.preventDefault();
+    if (!name.trim()) { setError("Pon tu nombre"); return; }
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await fetch("/api/bipi/customer/request-otp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone })
+      });
+      const j = await r.json();
+      if (!r.ok) { setError(j?.error?.message ?? `Error ${r.status}`); return; }
+      setStep("code");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function verify(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await fetch("/api/bipi/customer/verify-otp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone, code, name, email, firstBusinessId: businessId })
+      });
+      const j = await r.json();
+      if (!r.ok) { setError(j?.error?.message ?? `Error ${r.status}`); return; }
+      onVerified({ customerId: j.customerId, name: j.name, totalSaved: j.totalSaved ?? 0, totalPurchases: j.totalPurchases ?? 0 });
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <main className="max-w-md mx-auto px-4 py-12">
       <div className="text-center mb-6">
         <h1 className="bipi-wordmark mx-auto justify-center" style={{ fontSize: 64 }}>bipi</h1>
         <p className="text-black/60 text-sm mt-3">
-          ¡Estás a un paso de tu descuento! Crea tu cuenta — 30 segundos.
+          ¡Estás a un paso de tu descuento! Verifica tu teléfono — 30 segundos.
         </p>
       </div>
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          onSubmit(email, name);
-        }}
-        className="space-y-3 bg-white border rounded-xl p-5 shadow-sm"
-      >
-        <input
-          type="text"
-          placeholder="Tu nombre"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          className="w-full px-3 py-2 border rounded-lg bg-white"
-        />
-        <input
-          type="email"
-          placeholder="Email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          required
-          className="w-full px-3 py-2 border rounded-lg bg-white"
-        />
-        {error && <p className="text-rose-700 text-sm">{error}</p>}
-        <button
-          type="submit"
-          disabled={busy}
-          className="bipi-btn w-full"
-        >
-          {busy ? "Creando…" : "Crear cuenta y seguir"}
-        </button>
-      </form>
+      {step === "form" ? (
+        <form onSubmit={sendCode} className="space-y-3 bipi-card p-5">
+          <input
+            type="text"
+            placeholder="Tu nombre"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            className="bipi-input"
+          />
+          <input
+            type="tel"
+            inputMode="tel"
+            placeholder="Teléfono móvil"
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+            required
+            className="bipi-input"
+          />
+          <input
+            type="email"
+            placeholder="Email (opcional)"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            className="bipi-input"
+          />
+          {error && <p className="text-rose-700 text-sm">{error}</p>}
+          <button type="submit" disabled={busy} className="bipi-btn w-full">
+            {busy ? "Enviando…" : "Enviar código SMS"}
+          </button>
+        </form>
+      ) : (
+        <form onSubmit={verify} className="space-y-3 bipi-card p-5">
+          <p className="text-sm text-black/70">
+            Código SMS enviado a <strong>{phone}</strong>.
+          </p>
+          <input
+            type="text"
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            placeholder="● ● ● ● ● ●"
+            value={code}
+            onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 8))}
+            autoFocus
+            className="bipi-input text-center text-2xl tracking-[0.4em] font-bold"
+          />
+          {error && <p className="text-rose-700 text-sm">{error}</p>}
+          <button type="submit" disabled={busy || code.length < 4} className="bipi-btn w-full">
+            {busy ? "Verificando…" : "Verificar y seguir"}
+          </button>
+          <button
+            type="button"
+            onClick={() => { setStep("form"); setCode(""); setError(null); }}
+            className="w-full text-xs text-black/50 hover:text-black/80"
+          >
+            ← Cambiar número o reenviar
+          </button>
+        </form>
+      )}
     </main>
   );
 }
