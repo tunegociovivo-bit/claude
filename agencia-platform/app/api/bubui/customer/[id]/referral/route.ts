@@ -41,12 +41,26 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
     unlocked: count >= n
   }));
 
+  // Lista de amigos invitados — primer carácter del nombre + estado. Para
+  // el panel visual del cliente (5 checks). Datos mínimos por privacidad.
+  const friends = await prisma.bubuiCustomer.findMany({
+    where: { referredById: customer.id },
+    orderBy: { createdAt: "asc" },
+    take: 50,
+    select: { name: true, phoneVerified: true, createdAt: true }
+  });
+
   return NextResponse.json({
     code,
     verifiedReferrals: count,
     originBusiness: business?.name ?? null,
     referralEnabled: business ? business.referralEnabled : false,
     milestones,
-    nextMilestone: MILESTONES.find((n) => count < n) ?? null
+    nextMilestone: MILESTONES.find((n) => count < n) ?? null,
+    friends: friends.map((f) => ({
+      initial: (f.name?.trim()?.[0] || "?").toUpperCase(),
+      verified: f.phoneVerified,
+      joinedAt: f.createdAt
+    }))
   });
 }

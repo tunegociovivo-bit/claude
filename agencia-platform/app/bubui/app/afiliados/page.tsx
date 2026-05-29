@@ -8,6 +8,7 @@
 import { useEffect, useState } from "react";
 
 type Milestone = { n: number; reward: string; unlocked: boolean };
+type Friend = { initial: string; verified: boolean; joinedAt: string };
 type RefData = {
   code: string;
   verifiedReferrals: number;
@@ -15,6 +16,7 @@ type RefData = {
   referralEnabled: boolean;
   milestones: Milestone[];
   nextMilestone: number | null;
+  friends?: Friend[];
 };
 
 export default function AfiliadosPage() {
@@ -106,6 +108,46 @@ export default function AfiliadosPage() {
             <div className="h-2.5 rounded-full bg-pink-100 overflow-hidden">
               <div className="h-full rounded-full" style={{ width: `${pct}%`, background: "linear-gradient(90deg,#EC4899,#DB2777)" }} />
             </div>
+
+            {/* 5 slots visuales — uno por amigo. Se marcan a medida que tus
+                amigos se dan de alta. Cuando los 5 están en verde, se
+                desbloquea el cupón grande automáticamente. */}
+            <div className="flex justify-between gap-1 mt-4">
+              {Array.from({ length: 5 }).map((_, i) => {
+                const f = data?.friends?.[i];
+                const filledVerified = !!f && f.verified;
+                const filledPending = !!f && !f.verified;
+                return (
+                  <div key={i} className="flex-1 flex flex-col items-center gap-1">
+                    <div
+                      className={
+                        "h-11 w-11 rounded-full grid place-items-center text-sm font-black border-2 transition-all " +
+                        (filledVerified
+                          ? "bg-pink-500 text-white border-pink-500"
+                          : filledPending
+                            ? "bg-amber-50 text-amber-700 border-amber-300"
+                            : "bg-white text-black/25 border-dashed border-black/15")
+                      }
+                      title={
+                        filledVerified
+                          ? "Amigo verificado"
+                          : filledPending
+                            ? "Pendiente de verificar su teléfono"
+                            : "Slot libre"
+                      }
+                    >
+                      {filledVerified ? "✓" : filledPending ? "…" : i + 1}
+                    </div>
+                    <div className="text-[10px] text-black/45 font-semibold">
+                      {f ? f.initial : "—"}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <p className="text-[11px] text-black/45 mt-2 text-center">
+              Cada vez que un amigo se da de alta verás su check aquí. Al llenar los 5, ¡el cupón grande es tuyo!
+            </p>
           </div>
 
           {/* Hitos */}

@@ -457,23 +457,44 @@ function ReferralConfig({ business, token, onSaved }: { business: any; token: st
         </label>
       </div>
       {enabled && (
-        <div className="space-y-2">
-          {[
-            { n: 1, v: r1, set: setR1 },
-            { n: 3, v: r3, set: setR3 },
-            { n: 5, v: r5, set: setR5 }
-          ].map((m) => (
-            <label key={m.n} className="flex items-center gap-2 text-xs">
-              <span className="w-20 font-semibold text-black/60">{m.n} {m.n === 1 ? "amigo" : "amigos"}</span>
-              <input
-                value={m.v}
-                onChange={(e) => m.set(e.target.value)}
-                placeholder="Recompensa (ej: Tapa gratis)"
-                className="flex-1 px-2 py-1.5 border rounded bg-white"
-              />
-            </label>
-          ))}
-        </div>
+        <>
+          {/* Plantillas preestablecidas — un clic rellena los 3 hitos. El
+              dueño puede afinar valores después. */}
+          <div className="flex flex-wrap items-center gap-1.5 pt-1">
+            <span className="text-[11px] uppercase tracking-wider font-bold text-black/45 mr-1">Plantillas:</span>
+            {[
+              { label: "Conservadora", r1: "3", r3: "5", r5: "10" },
+              { label: "Equilibrada", r1: "5", r3: "10", r5: "15" },
+              { label: "Agresiva", r1: "5", r3: "15", r5: "25" }
+            ].map((p) => (
+              <button
+                key={p.label}
+                type="button"
+                onClick={() => { setR1(p.r1); setR3(p.r3); setR5(p.r5); }}
+                className="text-[11px] font-semibold px-2.5 py-1 rounded-full border border-pink-300 text-pink-700 hover:bg-pink-50"
+              >
+                {p.label} {p.r1}/{p.r3}/{p.r5}%
+              </button>
+            ))}
+          </div>
+          <div className="space-y-2">
+            {[
+              { n: 1, v: r1, set: setR1 },
+              { n: 3, v: r3, set: setR3 },
+              { n: 5, v: r5, set: setR5 }
+            ].map((m) => (
+              <label key={m.n} className="flex items-center gap-2 text-xs">
+                <span className="w-20 font-semibold text-black/60">{m.n} {m.n === 1 ? "amigo" : "amigos"}</span>
+                <input
+                  value={m.v}
+                  onChange={(e) => m.set(e.target.value)}
+                  placeholder="Recompensa (ej: Tapa gratis)"
+                  className="flex-1 px-2 py-1.5 border rounded bg-white"
+                />
+              </label>
+            ))}
+          </div>
+        </>
       )}
       {status && <p className="text-xs text-emerald-700">{status}</p>}
       <button onClick={save} disabled={saving} className="bubui-btn w-full text-sm py-2">
