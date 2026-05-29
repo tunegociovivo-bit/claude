@@ -3322,6 +3322,15 @@ model BubuiBusiness {
   defaultDiscountPct Int @default(5)
   // Cupón cruzado: el % que ofrece a clientes de otros negocios.
   crossDiscountPct   Int @default(8)
+  // % de descuento extra que el negocio regala al cliente cuando deja una
+  // reseña. 0 = no se incentivan reseñas. Solo se da una vez por cliente
+  // (clave única en BubuiOffer triggerBusinessId="review:<businessId>").
+  reviewRewardPct    Int @default(0)
+  // Place ID de Google Business Profile (Google My Business) del negocio,
+  // si lo tienen verificado. Habilita el CTA "compártela también en Google"
+  // tras dejar una reseña — abre el formulario de reseñas de Google con
+  // este local pre-seleccionado.
+  googlePlaceId      String?
   // Programa de afiliados: recompensas por hitos de amigos traídos.
   referralEnabled Boolean @default(true)
   referralReward1 String? // recompensa al traer 1 amigo

@@ -585,7 +585,9 @@ function ProfileEditor({ business, token, onSaved }: { business: any; token: str
     brandColor: business.brandColor ?? "#FDF2E1",
     defaultDiscountPct: business.defaultDiscountPct ?? 5,
     crossDiscountPct: business.crossDiscountPct ?? 8,
-    purchaseMode: business.purchaseMode ?? "double_confirm"
+    purchaseMode: business.purchaseMode ?? "double_confirm",
+    reviewRewardPct: business.reviewRewardPct ?? 0,
+    googlePlaceId: business.googlePlaceId ?? ""
   });
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState<{ kind: "ok" | "err"; msg: string } | null>(null);
@@ -604,6 +606,8 @@ function ProfileEditor({ business, token, onSaved }: { business: any; token: str
       if (Number(form.defaultDiscountPct) !== business.defaultDiscountPct) payload.defaultDiscountPct = Number(form.defaultDiscountPct);
       if (Number(form.crossDiscountPct) !== business.crossDiscountPct) payload.crossDiscountPct = Number(form.crossDiscountPct);
       if (form.purchaseMode !== business.purchaseMode) payload.purchaseMode = form.purchaseMode;
+      if (Number(form.reviewRewardPct) !== (business.reviewRewardPct ?? 0)) payload.reviewRewardPct = Number(form.reviewRewardPct);
+      if ((form.googlePlaceId || null) !== (business.googlePlaceId || null)) payload.googlePlaceId = form.googlePlaceId.trim() || null;
       if (Object.keys(payload).length === 0) {
         setStatus({ kind: "ok", msg: "Sin cambios." });
         return;
@@ -738,6 +742,33 @@ function ProfileEditor({ business, token, onSaved }: { business: any; token: str
             onChange={(e) => setForm({ ...form, crossDiscountPct: Number(e.target.value) })}
             className="w-full px-2 py-1.5 border rounded bg-white"
           />
+        </label>
+        <label>
+          <span className="block font-medium mb-1">% extra por dejar reseña</span>
+          <input
+            type="number"
+            min={0}
+            max={30}
+            value={form.reviewRewardPct}
+            onChange={(e) => setForm({ ...form, reviewRewardPct: Number(e.target.value) })}
+            className="w-full px-2 py-1.5 border rounded bg-white"
+          />
+          <span className="block text-[10px] text-slate-500 mt-0.5">0 = sin recompensa</span>
+        </label>
+        <label className="sm:col-span-2">
+          <span className="block font-medium mb-1">Google Place ID (Google My Business)</span>
+          <input
+            value={form.googlePlaceId}
+            onChange={(e) => setForm({ ...form, googlePlaceId: e.target.value })}
+            placeholder="Ej. ChIJN1t_tDeuEmsRUsoyG83frY4"
+            className="w-full px-2 py-1.5 border rounded bg-white font-mono text-[11px]"
+          />
+          <span className="block text-[10px] text-slate-500 mt-0.5">
+            Habilita el botón "Compártela también en Google" tras la reseña. Encuéntralo en{" "}
+            <a href="https://developers.google.com/maps/documentation/places/web-service/place-id" target="_blank" rel="noopener noreferrer" className="text-pink-600 hover:underline">
+              Place ID Finder
+            </a>.
+          </span>
         </label>
       </div>
       <p className="text-[11px] text-slate-500">

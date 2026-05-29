@@ -24,7 +24,7 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: { code: "validation", message: "Falta businessId" } }, { status: 400 });
   }
 
-  const [reviews, agg] = await Promise.all([
+  const [reviews, agg, business] = await Promise.all([
     prisma.bubuiReview.findMany({
       where: { businessId },
       orderBy: { createdAt: "desc" },
@@ -35,6 +35,10 @@ export async function GET(req: Request) {
       where: { businessId },
       _avg: { rating: true },
       _count: true
+    }),
+    prisma.bubuiBusiness.findUnique({
+      where: { id: businessId },
+      select: { reviewRewardPct: true, googlePlaceId: true }
     })
   ]);
 
@@ -65,7 +69,9 @@ export async function GET(req: Request) {
       createdAt: r.createdAt
     })),
     mine,
-    canReview
+    canReview,
+    reviewRewardPct: business?.reviewRewardPct ?? 0,
+    googlePlaceId: business?.googlePlaceId ?? null
   });
 }
 
@@ -97,6 +103,12 @@ export async function POST(req: Request) {
     );
   }
 
+  // ¿Existe ya su reseña? (para decidir si toca dar recompensa o no).
+  const existing = await prisma.bubuiReview.findUnique({
+    where: { customerId_businessId: { customerId, businessId } },
+    select: { id: true }
+  });
+
   const cleanComment = comment?.trim() ? comment.trim() : null;
   const review = await prisma.bubuiReview.upsert({
     where: { customerId_businessId: { customerId, businessId } },
@@ -104,5 +116,36 @@ export async function POST(req: Request) {
     update: { rating, comment: cleanComment }
   });
 
-  return NextResponse.json({ ok: true, id: review.id });
+  // Recompensa por reseña: solo en la PRIMERA reseña del cliente para ese
+  // negocio y si el dueño la tiene configurada. Usamos triggerBusinessId =
+  // "review:<businessId>" para reutilizar la clave única
+  // (customerId, businessId, triggerBusinessId) y prevenir farmeo.
+  let reward: { discountPct: number; expiresAt: Date } | null = null;
+  if (!existing) {
+    const business = await prisma.bubuiBusiness.findUnique({
+      where: { id: businessId },
+      select: { reviewRewardPct: true }
+    });
+    const pct = business?.reviewRewardPct ?? 0;
+    if (pct > 0) {
+      const expiresAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000);
+      try {
+        await prisma.bubuiOffer.create({
+          data: {
+            customerId,
+            businessId,
+            discountPct: pct,
+            triggerBusinessId: `review:${businessId}`,
+            source: "review_reward",
+            expiresAt
+          }
+        });
+        reward = { discountPct: pct, expiresAt };
+      } catch {
+        // Carrera o ya existía: el cliente ya tiene la recompensa, ok silencioso.
+      }
+    }
+  }
+
+  return NextResponse.json({ ok: true, id: review.id, reward });
 }

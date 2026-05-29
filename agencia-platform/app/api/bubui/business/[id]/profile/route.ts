@@ -27,7 +27,9 @@ const schema = z.object({
   referralEnabled: z.boolean().optional(),
   referralReward1: z.string().max(60).optional().nullable(),
   referralReward3: z.string().max(60).optional().nullable(),
-  referralReward5: z.string().max(60).optional().nullable()
+  referralReward5: z.string().max(60).optional().nullable(),
+  reviewRewardPct: z.number().int().min(0).max(30).optional(),
+  googlePlaceId: z.string().trim().max(200).optional().nullable()
 });
 
 function tokenAllows(token: string | null, businessId: string): boolean {
@@ -45,9 +47,13 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   if (!parsed.success) {
     return NextResponse.json({ error: { code: "validation", message: parsed.error.message } }, { status: 400 });
   }
+  // Normaliza googlePlaceId vacío a null para limpiar el dato.
+  const data = { ...parsed.data };
+  if (data.googlePlaceId === "") data.googlePlaceId = null;
+
   const updated = await prisma.bubuiBusiness.update({
     where: { id: params.id },
-    data: parsed.data
+    data
   });
   return NextResponse.json({
     ok: true,

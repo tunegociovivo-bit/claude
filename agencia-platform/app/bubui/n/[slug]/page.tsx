@@ -74,6 +74,8 @@ async function getBusiness(slug: string) {
       brandColor: true,
       defaultDiscountPct: true,
       crossDiscountPct: true,
+      reviewRewardPct: true,
+      googlePlaceId: true,
       visibilityScore: true,
       active: true,
       createdAt: true
@@ -323,7 +325,12 @@ export default async function BusinessPublicPage({ params }: { params: { slug: s
         ) : (
           <p className="text-sm text-black/45">Aún no hay valoraciones. ¡Sé el primero!</p>
         )}
-        <ReviewForm businessId={business.id} />
+        <ReviewForm
+          businessId={business.id}
+          reviewRewardPct={business.reviewRewardPct ?? 0}
+          googlePlaceId={business.googlePlaceId ?? null}
+          businessName={business.name}
+        />
       </section>
 
       {/* Otros negocios */}
