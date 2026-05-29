@@ -3331,6 +3331,16 @@ model BubuiBusiness {
   // tras dejar una reseña — abre el formulario de reseñas de Google con
   // este local pre-seleccionado.
   googlePlaceId      String?
+  // Tarjeta de fidelidad (sellos digitales). Cada compra confirmada del
+  // cliente suma 1 sello; al completar `loyaltyGoal` sellos se desbloquea
+  // automáticamente un cupón con loyaltyRewardPct (o loyaltyRewardLabel) y
+  // la tarjeta arranca el siguiente ciclo. Triggers únicos
+  // "loyalty:<businessId>:<cycle>" → un cliente puede ciclar muchas veces
+  // pero no farmea dentro de un ciclo.
+  loyaltyEnabled     Boolean @default(false)
+  loyaltyGoal        Int     @default(5) // nº de visitas para completar
+  loyaltyRewardPct   Int     @default(0) // % de la recompensa (0 = label)
+  loyaltyRewardLabel String? // texto libre alternativo (ej. "Café gratis")
   // Programa de afiliados: recompensas por hitos de amigos traídos.
   referralEnabled Boolean @default(true)
   referralReward1 String? // recompensa al traer 1 amigo

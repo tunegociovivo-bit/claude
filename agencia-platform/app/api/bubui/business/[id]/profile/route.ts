@@ -29,7 +29,11 @@ const schema = z.object({
   referralReward3: z.string().max(60).optional().nullable(),
   referralReward5: z.string().max(60).optional().nullable(),
   reviewRewardPct: z.number().int().min(0).max(30).optional(),
-  googlePlaceId: z.string().trim().max(200).optional().nullable()
+  googlePlaceId: z.string().trim().max(200).optional().nullable(),
+  loyaltyEnabled: z.boolean().optional(),
+  loyaltyGoal: z.number().int().min(2).max(20).optional(),
+  loyaltyRewardPct: z.number().int().min(0).max(90).optional(),
+  loyaltyRewardLabel: z.string().trim().max(60).optional().nullable()
 });
 
 function tokenAllows(token: string | null, businessId: string): boolean {
@@ -47,9 +51,10 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   if (!parsed.success) {
     return NextResponse.json({ error: { code: "validation", message: parsed.error.message } }, { status: 400 });
   }
-  // Normaliza googlePlaceId vacío a null para limpiar el dato.
+  // Normaliza strings vacíos a null para limpiar el dato.
   const data = { ...parsed.data };
   if (data.googlePlaceId === "") data.googlePlaceId = null;
+  if (data.loyaltyRewardLabel === "") data.loyaltyRewardLabel = null;
 
   const updated = await prisma.bubuiBusiness.update({
     where: { id: params.id },

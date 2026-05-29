@@ -307,6 +307,8 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
       {/* Programa de afiliados — lo financia el negocio */}
       <ReferralConfig business={b} token={session.token} onSaved={load} />
 
+      <LoyaltyConfig business={b} token={session.token} onSaved={load} />
+
       {/* Cruces — la mina de datos */}
       <CrossShopperPanel businessId={b.id} token={session.token} />
 
@@ -499,6 +501,129 @@ function ReferralConfig({ business, token, onSaved }: { business: any; token: st
       {status && <p className="text-xs text-emerald-700">{status}</p>}
       <button onClick={save} disabled={saving} className="bubui-btn w-full text-sm py-2">
         {saving ? "Guardando…" : "Guardar afiliados"}
+      </button>
+    </section>
+  );
+}
+
+/** Tarjeta de fidelidad — sellos digitales. El cliente acumula 1 sello por
+ *  cada compra confirmada en el negocio; al completar el objetivo se le
+ *  desbloquea automáticamente un cupón. La tarjeta empieza el siguiente
+ *  ciclo y el cliente puede repetir. */
+function LoyaltyConfig({ business, token, onSaved }: { business: any; token: string; onSaved: () => void }) {
+  const [enabled, setEnabled] = useState<boolean>(business.loyaltyEnabled ?? false);
+  const [goal, setGoal] = useState<number>(business.loyaltyGoal ?? 5);
+  const [pct, setPct] = useState<number>(business.loyaltyRewardPct ?? 0);
+  const [label, setLabel] = useState<string>(business.loyaltyRewardLabel ?? "");
+  const [saving, setSaving] = useState(false);
+  const [status, setStatus] = useState<string | null>(null);
+
+  async function save() {
+    setSaving(true);
+    setStatus(null);
+    try {
+      const r = await fetch(`/api/bubui/business/${business.id}/profile`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          loyaltyEnabled: enabled,
+          loyaltyGoal: Number(goal),
+          loyaltyRewardPct: Number(pct),
+          loyaltyRewardLabel: label.trim() || null
+        })
+      });
+      setStatus(r.ok ? "Guardado." : "Error al guardar.");
+      if (r.ok) onSaved();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <section className="bubui-card p-5 space-y-3">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="font-bold text-sm">🎟️ Tarjeta de fidelidad</h3>
+          <p className="text-xs text-black/55 mt-0.5">
+            Cada compra confirmada suma 1 sello. Al completar el objetivo, el
+            cliente recibe automáticamente el cupón y la tarjeta se reinicia
+            para el siguiente ciclo.
+          </p>
+        </div>
+        <label className="flex items-center gap-2 text-xs font-semibold shrink-0">
+          <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
+          Activa
+        </label>
+      </div>
+      {enabled && (
+        <>
+          <div className="flex flex-wrap items-center gap-1.5 pt-1">
+            <span className="text-[11px] uppercase tracking-wider font-bold text-black/45 mr-1">Plantillas:</span>
+            {[
+              { label: "Café × 5", goal: 5, pct: 0, txt: "Café gratis" },
+              { label: "5 visitas · 15%", goal: 5, pct: 15, txt: "" },
+              { label: "10 visitas · 30%", goal: 10, pct: 30, txt: "" }
+            ].map((p) => (
+              <button
+                key={p.label}
+                type="button"
+                onClick={() => { setGoal(p.goal); setPct(p.pct); setLabel(p.txt); }}
+                className="text-[11px] font-semibold px-2.5 py-1 rounded-full border border-pink-300 text-pink-700 hover:bg-pink-50"
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+          <div className="grid sm:grid-cols-3 gap-2 text-xs">
+            <label>
+              <span className="block font-medium mb-1">Sellos para completar</span>
+              <input
+                type="number"
+                min={2}
+                max={20}
+                value={goal}
+                onChange={(e) => setGoal(Number(e.target.value))}
+                className="w-full px-2 py-1.5 border rounded bg-white"
+              />
+            </label>
+            <label>
+              <span className="block font-medium mb-1">% de la recompensa</span>
+              <input
+                type="number"
+                min={0}
+                max={90}
+                value={pct}
+                onChange={(e) => setPct(Number(e.target.value))}
+                className="w-full px-2 py-1.5 border rounded bg-white"
+              />
+              <span className="block text-[10px] text-slate-500 mt-0.5">0 si usas texto libre</span>
+            </label>
+            <label>
+              <span className="block font-medium mb-1">o texto (alternativa)</span>
+              <input
+                value={label}
+                onChange={(e) => setLabel(e.target.value)}
+                placeholder="Ej. Café gratis"
+                className="w-full px-2 py-1.5 border rounded bg-white"
+              />
+            </label>
+          </div>
+          {/* Vista previa de los sellos */}
+          <div className="flex gap-1 pt-1">
+            {Array.from({ length: Math.max(2, Math.min(20, goal)) }).map((_, i) => (
+              <div
+                key={i}
+                className="h-7 w-7 rounded-full grid place-items-center text-[10px] font-black border-2 border-dashed border-pink-300 text-pink-300"
+              >
+                {i + 1}
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+      {status && <p className="text-xs text-emerald-700">{status}</p>}
+      <button onClick={save} disabled={saving} className="bubui-btn w-full text-sm py-2">
+        {saving ? "Guardando…" : "Guardar fidelidad"}
       </button>
     </section>
   );

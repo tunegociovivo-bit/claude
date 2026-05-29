@@ -103,6 +103,17 @@ export async function POST(req: Request) {
   void recalculateVisibilityScore(purchase.businessId).catch(() => {});
   void recalculateAmbassadorLevel(purchase.customerId).catch(() => {});
 
+  // Tarjeta de fidelidad: si esta compra completa el ciclo, otorga el cupón.
+  // Best-effort: si falla, la compra ya está confirmada y la siguiente lo
+  // intentará al hacer el mod 0 de nuevo. No bloquea respuesta.
+  let loyalty: { granted: boolean; cycle?: number; discountPct?: number; label?: string | null } = { granted: false };
+  try {
+    const { grantLoyaltyIfReached } = await import("@/lib/bubui/loyalty");
+    loyalty = await grantLoyaltyIfReached({ customerId: purchase.customerId, businessId: purchase.businessId });
+  } catch (e: any) {
+    console.warn("[bubui loyalty]", e?.message ?? e);
+  }
+
   // Email de confirmación al cliente (best-effort, no bloquea).
   if (customer.email && business) {
     void import("@/lib/bubui/email").then(({ sendPurchaseConfirmationEmail }) =>
@@ -121,6 +132,7 @@ export async function POST(req: Request) {
     ok: true,
     status: "confirmed",
     offersUnlocked: offers.created,
-    discountAmount: purchase.discountAmount
+    discountAmount: purchase.discountAmount,
+    loyalty
   });
 }

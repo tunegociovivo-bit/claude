@@ -368,6 +368,19 @@ function OffersFeed({ customer, coords, onLogout }: { customer: Customer; coords
   const [totalSaved, setTotalSaved] = useState(customer.totalSaved ?? 0);
   const [sharing, setSharing] = useState<string | null>(null);
   const [shareToast, setShareToast] = useState<string | null>(null);
+  const [loyalty, setLoyalty] = useState<
+    Array<{
+      businessId: string;
+      businessSlug: string;
+      businessName: string;
+      goal: number;
+      rewardPct: number;
+      rewardLabel: string | null;
+      totalPurchases: number;
+      stampsInCycle: number;
+      cyclesCompleted: number;
+    }>
+  >([]);
 
   // Código de referido del cliente (lazy: se pide la 1ª vez que comparte).
   const refCodeRef = useRef<string | null>(null);
@@ -433,11 +446,13 @@ function OffersFeed({ customer, coords, onLogout }: { customer: Customer; coords
         url.searchParams.set("lng", String(coords.lng));
       }
       try {
-        const [offersRes, profileRes] = await Promise.all([
+        const [offersRes, profileRes, loyaltyRes] = await Promise.all([
           fetch(url.toString()),
-          fetch(`/api/bubui/customer/${customer.customerId}`)
+          fetch(`/api/bubui/customer/${customer.customerId}`),
+          fetch(`/api/bubui/customer/${customer.customerId}/loyalty`)
         ]);
         if (offersRes.ok) setOffers((await offersRes.json()).items ?? []);
+        if (loyaltyRes.ok) setLoyalty((await loyaltyRes.json()).items ?? []);
         if (profileRes.ok) {
           const fresh = await profileRes.json();
           if (Array.isArray(fresh.savings)) setSavings(fresh.savings);
@@ -595,6 +610,64 @@ function OffersFeed({ customer, coords, onLogout }: { customer: Customer; coords
         <div className="mb-5 px-3 py-2 rounded-lg bg-black text-xs text-white">
           ✅ Avisos activos. Te avisaremos cuando tus cupones estén a punto de caducar.
         </div>
+      )}
+
+      {loyalty.length > 0 && (
+        <section className="mb-6">
+          <h2 className="text-xs font-bold uppercase tracking-wider text-black/50 mb-3">
+            Tarjetas de fidelidad
+          </h2>
+          <div className="space-y-3">
+            {loyalty.map((c) => {
+              const stamps = c.stampsInCycle;
+              const reward = c.rewardLabel ? c.rewardLabel : `${c.rewardPct}% de descuento`;
+              return (
+                <a
+                  key={c.businessId}
+                  href={`/bubui/n/${c.businessSlug}`}
+                  className="bubui-card p-4 block hover:shadow-md transition"
+                >
+                  <div className="flex items-center justify-between gap-2 mb-2">
+                    <div className="min-w-0">
+                      <div className="font-bold text-sm truncate">{c.businessName}</div>
+                      <div className="text-[11px] text-black/55 truncate">
+                        Completa {c.goal} visitas → {reward}
+                      </div>
+                    </div>
+                    {c.cyclesCompleted > 0 && (
+                      <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full whitespace-nowrap">
+                        🏆 {c.cyclesCompleted}
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {Array.from({ length: c.goal }).map((_, i) => {
+                      const filled = i < stamps;
+                      return (
+                        <div
+                          key={i}
+                          className={
+                            "h-8 w-8 rounded-full grid place-items-center text-[12px] font-black border-2 transition-all " +
+                            (filled
+                              ? "bg-pink-500 text-white border-pink-500"
+                              : "bg-white text-black/25 border-dashed border-black/15")
+                          }
+                          aria-label={filled ? `Sello ${i + 1} ganado` : `Sello ${i + 1} pendiente`}
+                        >
+                          {filled ? "✓" : i + 1}
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div className="text-[11px] text-black/45 mt-2">
+                    {stamps}/{c.goal} sellos
+                    {stamps === 0 && c.cyclesCompleted > 0 ? " · ¡Empieza una nueva tarjeta!" : ""}
+                  </div>
+                </a>
+              );
+            })}
+          </div>
+        </section>
       )}
 
       <h2 className="text-xs font-bold uppercase tracking-wider text-black/50 mb-3">
