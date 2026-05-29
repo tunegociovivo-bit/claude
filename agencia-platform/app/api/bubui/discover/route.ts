@@ -35,7 +35,8 @@ export async function GET(req: Request) {
       logoUrl: true,
       brandColor: true,
       defaultDiscountPct: true,
-      visibilityScore: true
+      visibilityScore: true,
+      featured: true
     },
     orderBy: { visibilityScore: "desc" },
     take: 200
@@ -50,6 +51,8 @@ export async function GET(req: Request) {
   });
 
   const sorted = withDistance.sort((a, b) => {
+    // Los destacados (admin) van siempre primero.
+    if (a.featured !== b.featured) return a.featured ? -1 : 1;
     if (a.distanceM != null && b.distanceM != null) return a.distanceM - b.distanceM;
     if (a.distanceM != null) return -1;
     if (b.distanceM != null) return 1;
