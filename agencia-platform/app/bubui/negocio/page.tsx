@@ -304,6 +304,8 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
       {/* Editar perfil */}
       <ProfileEditor business={b} token={session.token} onSaved={load} />
 
+      <AiPhotoStudio business={b} token={session.token} onSaved={load} />
+
       {/* Programa de afiliados — lo financia el negocio */}
       <ReferralConfig business={b} token={session.token} onSaved={load} />
 
@@ -631,6 +633,133 @@ function LoyaltyConfig({ business, token, onSaved }: { business: any; token: str
       <button onClick={save} disabled={saving} className="bubui-btn w-full text-sm py-2">
         {saving ? "Guardando…" : "Guardar fidelidad"}
       </button>
+    </section>
+  );
+}
+
+/** Generador de fotos pro con IA: el dueño describe el ambiente/estilo y
+ *  recibe una portada lista para "Guardar como mi imagen de portada".
+ *  Gated por plan != "free". */
+function AiPhotoStudio({ business, token, onSaved }: { business: any; token: string; onSaved: () => void }) {
+  const paid = business.plan === "pro" || business.plan === "premium";
+  const [open, setOpen] = useState(false);
+  const [prompt, setPrompt] = useState("");
+  const [aspect, setAspect] = useState<"wide" | "square">("wide");
+  const [busy, setBusy] = useState(false);
+  const [url, setUrl] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+
+  async function generate() {
+    if (!prompt.trim()) return;
+    setBusy(true);
+    setError(null);
+    setUrl(null);
+    setSaved(false);
+    try {
+      const r = await fetch(`/api/bubui/business/${business.id}/ai-photo`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ prompt: prompt.trim(), aspect })
+      });
+      const j = await r.json();
+      if (!r.ok) {
+        setError(j?.error?.message ?? "No se pudo generar");
+        return;
+      }
+      setUrl(j.url);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function useAsLogo() {
+    if (!url) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await fetch(`/api/bubui/business/${business.id}/profile`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ logoUrl: url })
+      });
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        setError(j?.error?.message ?? "No se pudo guardar como portada");
+        return;
+      }
+      setSaved(true);
+      onSaved();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="bubui-card p-5 space-y-3">
+      <button onClick={() => setOpen((v) => !v)} className="flex items-center justify-between w-full">
+        <h3 className="font-bold text-sm flex items-center gap-2">
+          📸 Foto IA · Genera tu portada
+          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-300">PREMIUM</span>
+        </h3>
+        <span className="text-xs text-black/55">{open ? "Cerrar" : "Abrir"}</span>
+      </button>
+      {open && (
+        <>
+          {!paid && (
+            <p className="text-xs text-rose-700">La generación con IA requiere plan Pro o Premium.</p>
+          )}
+          <p className="text-xs text-black/55">
+            Describe el ambiente o el producto que quieres en la foto (un café humeante en una mesa de mármol, un escaparate con flores frescas, un cliente recibiendo un masaje…). La IA generará una imagen profesional sin texto ni logos.
+          </p>
+          <textarea
+            rows={3}
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+            placeholder="Ej. Mesa de madera con un café con leche y un croissant recién horneado, luz dorada de la mañana entrando por la ventana, ambiente acogedor."
+            className="bubui-input w-full text-sm"
+            maxLength={300}
+            disabled={!paid || busy}
+          />
+          <div className="flex items-center gap-2 text-xs">
+            <span className="font-semibold">Formato:</span>
+            <label className="flex items-center gap-1">
+              <input type="radio" checked={aspect === "wide"} onChange={() => setAspect("wide")} disabled={busy} />
+              16:9 (portada)
+            </label>
+            <label className="flex items-center gap-1">
+              <input type="radio" checked={aspect === "square"} onChange={() => setAspect("square")} disabled={busy} />
+              1:1 (logo)
+            </label>
+          </div>
+          <button
+            onClick={generate}
+            disabled={!paid || busy || !prompt.trim()}
+            className="bubui-btn w-full text-sm py-2 disabled:opacity-50"
+          >
+            {busy ? "Generando… (15-30s)" : "✨ Generar"}
+          </button>
+          {error && <p className="text-xs text-rose-700">{error}</p>}
+          {url && (
+            <div className="space-y-2 pt-1">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={url} alt="Foto generada" className="w-full rounded-lg border" />
+              {saved ? (
+                <p className="text-xs text-emerald-700 font-semibold">✅ Guardada como tu portada. Ya se ve en tu ficha pública.</p>
+              ) : (
+                <div className="flex gap-2">
+                  <button onClick={useAsLogo} disabled={busy} className="bubui-btn flex-1 text-xs py-2">
+                    Guardar como mi portada
+                  </button>
+                  <a href={url} download="bubui-ai.png" className="px-3 py-2 rounded-full border text-xs font-semibold inline-flex items-center">
+                    Descargar
+                  </a>
+                </div>
+              )}
+            </div>
+          )}
+        </>
+      )}
     </section>
   );
 }

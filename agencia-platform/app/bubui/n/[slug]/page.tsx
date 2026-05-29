@@ -17,6 +17,7 @@ import { prisma } from "@/lib/db/prisma";
 import type { Metadata } from "next";
 import ReviewForm from "./ReviewForm";
 import RefCapture from "./RefCapture";
+import { getTopPosition } from "@/lib/bubui/topcategory";
 
 export const revalidate = 300;
 
@@ -125,6 +126,12 @@ export default async function BusinessPublicPage({ params }: { params: { slug: s
 
   const reviews = await getReviews(business.id);
 
+  const topPosition = await getTopPosition({
+    businessId: business.id,
+    city: business.city,
+    category: business.category
+  });
+
   // JSON-LD para SEO: LocalBusiness + Offer. Google lo usa para rich
   // snippets en búsquedas locales y Maps.
   const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://hub.negociovivo.app";
@@ -222,6 +229,12 @@ export default async function BusinessPublicPage({ params }: { params: { slug: s
           <p className="text-black/55 mt-1 text-sm font-semibold">
             {business.category} · {business.city}
           </p>
+          {topPosition != null && (
+            <div className="inline-flex items-center gap-1.5 mt-2 text-[11px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full bg-gradient-to-r from-amber-100 to-pink-100 text-amber-800 border border-amber-300">
+              <span>🏆</span>
+              Top {topPosition} en {business.category.toLowerCase()} · {business.city}
+            </div>
+          )}
           {business.address && (
             <p className="text-black/50 text-xs mt-1">📍 {business.address}</p>
           )}

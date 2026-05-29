@@ -21,6 +21,7 @@ type Business = {
   longitude: number | null;
   defaultDiscountPct: number;
   featured?: boolean;
+  topInCategory?: boolean;
 };
 
 declare global {
@@ -126,10 +127,14 @@ export default function MapaPage() {
         popupAnchor: [0, -height + 6]
       });
       const m = L.marker([b.latitude, b.longitude], { icon }).addTo(mapRef.current);
+      const topBadge = b.topInCategory
+        ? `<div style="display:inline-flex;align-items:center;gap:4px;margin-top:4px;padding:2px 8px;border-radius:999px;background:linear-gradient(90deg,#FEF3C7,#FCE7F3);color:#92400E;font-size:10px;font-weight:800;border:1px solid #FCD34D;letter-spacing:0.02em;">🏆 Top en ${escapeHtml(b.category)}</div>`
+        : "";
       m.bindPopup(
         `<div style="font-family:system-ui;min-width:160px;">
           <div style="font-weight:800;font-size:14px;color:#0A0A0A;">${escapeHtml(b.name)}</div>
           <div style="font-size:11px;color:rgba(0,0,0,.55);">${escapeHtml(b.category)} · ${escapeHtml(b.city)}</div>
+          ${topBadge}
           <a href="/bubui/n/${encodeURIComponent(b.slug)}" style="display:inline-block;margin-top:8px;padding:6px 14px;border-radius:999px;background:linear-gradient(135deg,#EC4899,#DB2777);color:white;font-size:12px;font-weight:700;text-decoration:none;">Ver y canjear</a>
         </div>`
       );

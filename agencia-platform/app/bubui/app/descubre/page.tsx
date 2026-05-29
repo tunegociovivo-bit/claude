@@ -19,6 +19,7 @@ type Business = {
   brandColor: string | null;
   defaultDiscountPct: number;
   distanceM: number | null;
+  topInCategory?: boolean;
 };
 
 const CATEGORIES: { key: string; label: string; icon: string }[] = [
@@ -155,7 +156,14 @@ export default function DescubrePage() {
                     <div className="discount-tag">-{b.defaultDiscountPct}%</div>
                   </div>
                   <div className="body">
-                    <div className="name truncate">{b.name}</div>
+                    <div className="name truncate flex items-center gap-1">
+                      <span className="truncate">{b.name}</span>
+                      {b.topInCategory && (
+                        <span title={`Top en ${b.category}`} className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-300 whitespace-nowrap shrink-0">
+                          🏆 Top
+                        </span>
+                      )}
+                    </div>
                     <div className="meta truncate">
                       {b.category}
                       {b.distanceM != null &&

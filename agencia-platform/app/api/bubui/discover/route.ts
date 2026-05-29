@@ -12,6 +12,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { haversineMeters } from "@/lib/bubui/core";
+import { getTopBusinessIds } from "@/lib/bubui/topcategory";
 
 export const dynamic = "force-dynamic";
 
@@ -42,12 +43,19 @@ export async function GET(req: Request) {
     take: 200
   });
 
+  // "Top en categoría" — ranking ganado por ciudad. Anotamos cada negocio.
+  // Cogemos las ciudades únicas de los resultados para no consultar todas.
+  const cities = Array.from(new Set(businesses.map((b) => b.city)));
+  const topIdSets = await Promise.all(cities.map((c) => getTopBusinessIds(c)));
+  const topIds = new Set<string>();
+  for (const s of topIdSets) for (const id of s) topIds.add(id);
+
   const withDistance = businesses.map((b) => {
     const distanceM =
       lat != null && lng != null && b.latitude != null && b.longitude != null
         ? Math.round(haversineMeters(lat, lng, b.latitude, b.longitude))
         : null;
-    return { ...b, distanceM };
+    return { ...b, distanceM, topInCategory: topIds.has(b.id) };
   });
 
   const sorted = withDistance.sort((a, b) => {
