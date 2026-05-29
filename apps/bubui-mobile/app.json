@@ -44,6 +44,11 @@
           "data": [
             {
               "scheme": "https",
+              "host": "bubui.app",
+              "pathPrefix": "/scan"
+            },
+            {
+              "scheme": "https",
               "host": "hub.negociovivo.app",
               "pathPrefix": "/bubui/scan"
             }
@@ -72,7 +77,7 @@
       "expo-font"
     ],
     "extra": {
-      "apiBaseUrl": "https://hub.negociovivo.app",
+      "apiBaseUrl": "https://bubui.app",
       "eas": {
         "projectId": "d8f1d22c-36b4-416e-9c91-1a681b4c37d5"
       }
