@@ -25,8 +25,19 @@ import {
   ArrowDown,
   Trash2,
   Sunrise,
-  Receipt
+  Receipt,
+  MapPin
 } from "lucide-react";
+
+// Áreas de la plataforma Bubui accesibles desde "Otros Proyectos".
+const BUBUI_LINKS: { href: string; label: string; exact?: boolean }[] = [
+  { href: "/bubui", label: "Inicio (landing)", exact: true },
+  { href: "/bubui/app", label: "App cliente" },
+  { href: "/bubui/negocio", label: "Panel del negocio" },
+  { href: "/bubui/registro", label: "Alta de negocio" },
+  { href: "/bubui/admin", label: "Admin Bubui" }
+];
+
 import clsx from "clsx";
 import ProjectFormModal from "@/components/forms/ProjectFormModal";
 import DeleteProjectModal from "@/components/projects/DeleteProjectModal";
@@ -464,6 +475,55 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}
           </div>
           );
         })()}
+
+        {(!me || me.role === "ADMIN") && !isHidden("section:otros-proyectos") && (
+          <div className="pt-4 mt-2 border-t border-slate-800">
+            <span className="px-3 mb-1 text-[10px] uppercase tracking-wide text-slate-400 font-semibold flex items-center gap-1.5">
+              <MapPin className="h-3 w-3" />
+              Otros Proyectos
+            </span>
+            {/* Bubui + acceso directo a todas sus áreas */}
+            <Link
+              onClick={onNavigate}
+              href="/bubui"
+              className={clsx(
+                "flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition-colors",
+                pathname === "/bubui"
+                  ? "bg-brand-600/25 text-white font-medium"
+                  : "text-slate-300 hover:bg-slate-800 hover:text-white"
+              )}
+            >
+              <span
+                className="h-4 w-4 rounded-[5px] shrink-0 grid place-items-center text-[9px] font-black text-white"
+                style={{ background: "linear-gradient(135deg,#F86FB0,#D1186A)" }}
+              >
+                b
+              </span>
+              <span className="font-semibold">Bubui</span>
+            </Link>
+            <div className="ml-5 mt-0.5 border-l border-slate-800 pl-2 space-y-0.5">
+              {BUBUI_LINKS.map((l) => {
+                const active = l.exact ? pathname === l.href : pathname.startsWith(l.href);
+                return (
+                  <Link
+                    key={l.href}
+                    onClick={onNavigate}
+                    href={l.href}
+                    className={clsx(
+                      "flex items-center gap-2 px-3 py-1.5 rounded-lg text-[13px] transition-colors",
+                      active
+                        ? "bg-brand-600/25 text-white font-medium"
+                        : "text-slate-400 hover:bg-slate-800 hover:text-white"
+                    )}
+                  >
+                    <span className="h-1.5 w-1.5 rounded-full bg-pink-500 shrink-0" />
+                    <span className="truncate">{l.label}</span>
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </nav>
 
       <div className="border-t border-slate-800 p-3">
