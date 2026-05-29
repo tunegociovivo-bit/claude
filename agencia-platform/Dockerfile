@@ -1,5 +1,6 @@
 FROM node:20-alpine AS deps
 WORKDIR /app
+# cache-bust: 2026-05-29
 RUN apk add --no-cache libc6-compat openssl
 COPY package.json package-lock.json* .npmrc ./
 RUN npm ci
