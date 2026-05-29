@@ -3,7 +3,7 @@
  * Se guarda como JSON en BubuiSetting (clave "home_banner").
  */
 
-import { prisma } from "@/lib/db";
+import { prisma } from "@/lib/db/prisma";
 
 export type HomeBanner = {
   imageUrl: string; // URL pública de la imagen (vacío = usar el banner por defecto de la app)
