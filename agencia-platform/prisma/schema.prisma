@@ -3322,6 +3322,11 @@ model BubuiBusiness {
   defaultDiscountPct Int @default(5)
   // Cupón cruzado: el % que ofrece a clientes de otros negocios.
   crossDiscountPct   Int @default(8)
+  // Programa de afiliados: recompensas por hitos de amigos traídos.
+  referralEnabled Boolean @default(true)
+  referralReward1 String? // recompensa al traer 1 amigo
+  referralReward3 String? // al traer 3
+  referralReward5 String? // al traer 5
   // Karma de visibilidad (0-100, recalculado nocturno).
   visibilityScore Int @default(50)
   scoreUpdatedAt  DateTime?
@@ -3337,8 +3342,8 @@ model BubuiBusiness {
   // Quien lo refirió a Bubui (si vino vía QR de otro negocio).
   referrerId    String?
   // Stripe billing — para suscripción Pro/Premium.
-  bipiStripeCustomerId  String?
-  bipiStripeSubscriptionId String?
+  bubuiStripeCustomerId  String? @map("bipiStripeCustomerId")
+  bubuiStripeSubscriptionId String? @map("bipiStripeSubscriptionId")
   planExpiresAt DateTime? // null o futuro = activo; pasado = volver a free.
   // Status.
   active        Boolean  @default(true)
@@ -3365,6 +3370,7 @@ model BubuiCustomer {
   id              String   @id @default(cuid())
   email           String   @unique
   phone           String?  @unique
+  phoneVerified   Boolean  @default(false)
   name            String?
   gender          String?  // male | female | other
   birthDate       String?  // YYYY-MM-DD
@@ -3535,8 +3541,8 @@ model BubuiBusinessNotification {
   @@map("BipiBusinessNotification")
   id         String   @id @default(cuid())
   businessId String
-  type       String   // new_purchase | offer_redeemed | ...
-  payload    Json
+  type       String   // new_purchase | offer_redeemed | referral_milestone | ...
+  message    String   @db.Text
   read       Boolean  @default(false)
   createdAt  DateTime @default(now())
 

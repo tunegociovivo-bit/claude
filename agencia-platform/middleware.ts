@@ -35,7 +35,16 @@ const PUBLIC_PATHS = [
   "/api/v1/voice/webhook",
   "/gmb-widget/",
   "/api/v1/internal/",
-  "/api/public/"
+  "/api/public/",
+  // Bubui es un producto público (cliente final + alta de negocios). Sus
+  // páginas y endpoints no usan NextAuth: los del negocio validan su
+  // propio token dentro del endpoint; los del cliente son públicos.
+  "/bubui/",
+  "/api/bubui/",
+  // Compatibilidad temporal: rutas antiguas /bipi/* (QR impresos y app
+  // instalada antes del rebrand). Se reescriben a /bubui/* en next.config.
+  "/bipi/",
+  "/api/bipi/"
 ];
 
 function isPublic(pathname: string): boolean {
@@ -45,6 +54,7 @@ function isPublic(pathname: string): boolean {
     pathname.startsWith("/icon") ||
     pathname.startsWith("/apple-touch-icon") ||
     pathname === "/sw.js" ||
+    pathname === "/bubui-sw.js" ||
     pathname === "/manifest.json" ||
     pathname === "/manifest.webmanifest" ||
     pathname === "/robots.txt"
