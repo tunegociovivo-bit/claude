@@ -3413,6 +3413,14 @@ model BubuiCustomer {
   @@index([lastLat, lastLng])
 }
 
+/// Ajustes simples clave-valor de Bubui (p. ej. banner del Home).
+model BubuiSetting {
+  @@map("BipiSetting")
+  key       String   @id
+  value     String   @db.Text
+  updatedAt DateTime @default(now()) @updatedAt
+}
+
 /// Compra registrada con escaneo del QR.
 ///
 /// Estados:
