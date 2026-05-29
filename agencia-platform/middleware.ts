@@ -7,6 +7,7 @@
  *   - /api/v1/leads/webhook/* (webhook con token propio)
  *   - /api/v1/internal/* (cron protegido por bearer)
  *   - /_next, /favicon, /sw.js, /icon* (assets)
+ *   - Todo el dominio bubui.app (producto público con su propia auth)
  *
  * NOTA: este middleware usa la cookie de NextAuth para detectar sesión
  * sin tener que tocar la BD. La validación real sigue siendo en cada
@@ -15,6 +16,8 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
+
+const BUBUI_HOSTS = new Set(["bubui.app", "www.bubui.app"]);
 
 const PUBLIC_PATHS = [
   "/login",
@@ -66,6 +69,30 @@ function isPublic(pathname: string): boolean {
 
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
+  const host = req.headers.get("host") ?? "";
+
+  // ── Dominio bubui.app ────────────────────────────────────────────────────
+  // Todo el dominio es público (el producto tiene su propia auth).
+  // Reescribimos las rutas al subárbol /bubui/* para que Next.js sirva
+  // el contenido correcto sin redirect visible en la barra del navegador.
+  if (BUBUI_HOSTS.has(host)) {
+    // Assets de Next.js, service worker y manifest: sin reescritura.
+    if (
+      pathname.startsWith("/_next") ||
+      pathname.startsWith("/api/") ||
+      pathname === "/bubui-sw.js" ||
+      pathname === "/manifest.webmanifest" ||
+      pathname === "/robots.txt" ||
+      pathname.startsWith("/bubui")
+    ) {
+      return NextResponse.next();
+    }
+    // / → /bubui,  /app → /bubui/app,  /admin → /bubui/admin …
+    const url = req.nextUrl.clone();
+    url.pathname = pathname === "/" ? "/bubui" : "/bubui" + pathname;
+    return NextResponse.rewrite(url);
+  }
+  // ────────────────────────────────────────────────────────────────────────
 
   if (isPublic(pathname)) return NextResponse.next();
 

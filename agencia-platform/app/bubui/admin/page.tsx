@@ -1,24 +1,10 @@
-import { redirect } from "next/navigation";
-import { getServerSession } from "next-auth";
-import { authOptions, getSessionWorkspaceId } from "@/lib/auth";
-import { prisma } from "@/lib/db/prisma";
+// El panel admin de Bubui usa su propia auth (BUBUI_ADMIN_TOKEN via TokenForm
+// en BubuiAdminClient). No depende de la sesión del Hub, por lo que esta
+// página es pública — la protección real está en las APIs /api/bubui/admin/*.
 import BubuiAdminClient from "./BubuiAdminClient";
 
 export const dynamic = "force-dynamic";
 
-export default async function BubuiAdminPage() {
-  const session = await getServerSession(authOptions);
-  const userId = (session?.user as any)?.id as string | undefined;
-
-  if (userId) {
-    const workspaceId = await getSessionWorkspaceId();
-    if (workspaceId) {
-      const membership = await prisma.membership.findFirst({ where: { userId, workspaceId } });
-      if (membership && membership.role !== "ADMIN") {
-        redirect("/");
-      }
-    }
-  }
-
+export default function BubuiAdminPage() {
   return <BubuiAdminClient />;
 }

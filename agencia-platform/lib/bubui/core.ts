@@ -11,9 +11,15 @@
 import { prisma } from "@/lib/db/prisma";
 import QRCode from "qrcode";
 
-/** URL pública que codifica el QR del negocio. */
+const BUBUI_DOMAIN_RE = /^https?:\/\/(www\.)?bubui\.app(\/|$)/;
+
+/** URL pública que codifica el QR del negocio.
+ * En el dominio bubui.app genera /scan/:id (limpio, sin prefijo /bubui/).
+ * En hub.negociovivo.app sigue usando /bubui/scan/:id. */
 export function bubuiScanUrl(businessId: string, baseUrl: string): string {
-  return `${baseUrl.replace(/\/+$/, "")}/bubui/scan/${businessId}`;
+  const base = baseUrl.replace(/\/+$/, "");
+  const prefix = BUBUI_DOMAIN_RE.test(base) ? "" : "/bubui";
+  return `${base}${prefix}/scan/${businessId}`;
 }
 
 /** Genera un slug humano único a partir del nombre del negocio. */

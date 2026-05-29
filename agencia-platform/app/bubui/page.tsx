@@ -5,7 +5,8 @@
 
 import Link from "next/link";
 
-const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? "https://hub.negociovivo.app";
+// En producción la landing vive en bubui.app; como fallback usamos el Hub.
+const SITE_URL = process.env.NEXT_PUBLIC_BUBUI_URL ?? process.env.NEXT_PUBLIC_SITE_URL ?? "https://hub.negociovivo.app";
 
 const ORG_JSON_LD = {
   "@context": "https://schema.org",
