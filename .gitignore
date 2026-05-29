@@ -7,6 +7,12 @@ package-lock.json
 .next/
 out/
 
+# Expo / React Native build output
+apps/bubui-mobile/android/
+apps/bipi-mobile/android/
+apps/bubui-mobile/.expo/
+apps/bipi-mobile/.expo/
+
 # Build info
 *.tsbuildinfo
 
