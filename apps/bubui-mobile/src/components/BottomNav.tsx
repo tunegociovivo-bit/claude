@@ -1,20 +1,41 @@
+import { useEffect, useState } from "react";
 import { View, Text, TouchableOpacity, StyleSheet, Image, ImageSourcePropType } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import { colors } from "../lib/theme";
+import { api } from "../lib/api";
 
-const TABS: { route: string; label: string; icon: ImageSourcePropType }[] = [
+const TABS: { route: string; label: string; icon: ImageSourcePropType; gated?: boolean }[] = [
   { route: "Feed", label: "Inicio", icon: require("../../assets/nav-inicio.png") },
-  { route: "Descubre", label: "Descubre", icon: require("../../assets/nav-descubre.png") },
+  { route: "Descubre", label: "Descubre", icon: require("../../assets/nav-descubre.png"), gated: true },
   { route: "Afiliados", label: "Amigos", icon: require("../../assets/nav-amigos.png") },
-  { route: "Mapa", label: "Mapa", icon: require("../../assets/nav-mapa.png") },
+  { route: "Mapa", label: "Mapa", icon: require("../../assets/nav-mapa.png"), gated: true },
   { route: "Cuenta", label: "Cuenta", icon: require("../../assets/nav-cuenta.png") }
 ];
 
+// Mínimo de comercios para mostrar Descubre/Mapa. Se cachea entre pantallas.
+const MIN_BUSINESSES = 10;
+let cachedUnlocked: boolean | null = null;
+
 export function BottomNav({ active }: { active: string }) {
   const nav = useNavigation<any>();
+  const [unlocked, setUnlocked] = useState<boolean>(cachedUnlocked ?? false);
+
+  useEffect(() => {
+    if (cachedUnlocked !== null) return;
+    api
+      .stats()
+      .then((s) => {
+        cachedUnlocked = (s?.businesses ?? 0) >= MIN_BUSINESSES;
+        setUnlocked(cachedUnlocked);
+      })
+      .catch(() => {});
+  }, []);
+
+  const tabs = TABS.filter((t) => unlocked || !t.gated);
+
   return (
     <View style={styles.bar}>
-      {TABS.map((t) => {
+      {tabs.map((t) => {
         const on = t.route === active;
         return (
           <TouchableOpacity
