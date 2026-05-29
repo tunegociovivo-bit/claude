@@ -2357,7 +2357,12 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
       dailyLimit: s.dailyLimit,
       enableVariations: s.enableVariations,
       validateWaBeforeSend: s.validateWaBeforeSend,
-      maxAttempts: s.maxAttempts
+      maxAttempts: s.maxAttempts,
+      maxPerHour: s.maxPerHour,
+      minCoolDownDaysPerRecipient: s.minCoolDownDaysPerRecipient,
+      maxNewChatsPerDay: s.maxNewChatsPerDay,
+      recoveryMode: s.recoveryMode,
+      recoveryDurationDays: s.recoveryDurationDays
     };
     if (googleKey) body.googleApiKey = googleKey;
     if (wahaKey) body.wahaApiKey = wahaKey;
