@@ -476,7 +476,7 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}
           );
         })()}
 
-        {(!me || me.role === "ADMIN") && !isHidden("section:otros-proyectos") && (
+        {me?.role === "ADMIN" && !isHidden("section:otros-proyectos") && (
           <div className="pt-4 mt-2 border-t border-slate-800">
             <span className="px-3 mb-1 text-[10px] uppercase tracking-wide text-slate-400 font-semibold flex items-center gap-1.5">
               <MapPin className="h-3 w-3" />
