@@ -20,15 +20,18 @@ export async function GET(req: Request) {
       name: true,
       category: true,
       brandColor: true,
-      lat: true,
-      lng: true,
+      latitude: true,
+      longitude: true,
       address: true,
-      phone: true,
-      whatsapp: true,
+      city: true,
+      ownerName: true,
+      ownerEmail: true,
+      ownerPhone: true,
+      plan: true,
       active: true,
       slug: true,
       createdAt: true,
-      _count: { select: { offers: true, scans: true } }
+      _count: { select: { offers: true, purchases: true } }
     }
   });
   return NextResponse.json({ count: businesses.length, businesses });

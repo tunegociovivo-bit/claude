@@ -22,12 +22,14 @@ export async function GET(req: Request) {
       email: true,
       birthDate: true,
       gender: true,
-      lat: true,
-      lng: true,
+      lastLat: true,
+      lastLng: true,
+      lastLocationAt: true,
       totalSaved: true,
       totalPurchases: true,
+      ambassadorLevel: true,
       createdAt: true,
-      _count: { select: { scans: true } }
+      _count: { select: { purchases: true } }
     }
   });
   return NextResponse.json({ count: customers.length, customers });
