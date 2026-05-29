@@ -62,6 +62,16 @@
     },
     "plugins": [
       [
+        "expo-build-properties",
+        {
+          "android": {
+            "compileSdkVersion": 35,
+            "targetSdkVersion": 35,
+            "buildToolsVersion": "35.0.0"
+          }
+        }
+      ],
+      [
         "expo-camera",
         {
           "cameraPermission": "Bubui necesita la cámara para escanear el QR de los negocios."
@@ -74,7 +84,8 @@
         }
       ],
       "expo-notifications",
-      "expo-font"
+      "expo-font",
+      "expo-build-properties"
     ],
     "extra": {
       "apiBaseUrl": "https://bubui.app",
