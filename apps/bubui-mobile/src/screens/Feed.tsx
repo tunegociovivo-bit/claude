@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { View, Text, FlatList, RefreshControl, TouchableOpacity, StyleSheet, Animated, Easing, Image, Dimensions } from "react-native";
+import { View, Text, FlatList, RefreshControl, TouchableOpacity, StyleSheet, Animated, Easing, Image, Dimensions, Linking } from "react-native";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import * as Location from "expo-location";
 import { CheckSession, clearSession, type Customer } from "../lib/session";
@@ -26,6 +26,11 @@ export function Feed() {
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [offers, setOffers] = useState<Offer[]>([]);
   const [refreshing, setRefreshing] = useState(false);
+  const [banner, setBanner] = useState<{ imageUrl: string; link: string; active: boolean } | null>(null);
+
+  useEffect(() => {
+    api.banner().then(setBanner).catch(() => {});
+  }, []);
 
   // Animación de atención del botón Escanear: pulso de escala continuo.
   const pulse = useRef(new Animated.Value(0)).current;
@@ -99,8 +104,17 @@ export function Feed() {
         </TouchableOpacity>
       </Animated.View>
 
-      {/* Banner promocional (imagen tal cual, texto ya incluido) */}
-      <Image source={require("../../assets/promo.png")} style={styles.promo} resizeMode="contain" />
+      {/* Banner promocional: remoto (gestionado desde admin) o el de por defecto */}
+      {banner?.active && banner.imageUrl ? (
+        <TouchableOpacity
+          activeOpacity={banner.link ? 0.85 : 1}
+          onPress={() => { if (banner.link) Linking.openURL(banner.link).catch(() => {}); }}
+        >
+          <Image source={{ uri: banner.imageUrl }} style={styles.promo} resizeMode="contain" />
+        </TouchableOpacity>
+      ) : (
+        <Image source={require("../../assets/promo.png")} style={styles.promo} resizeMode="contain" />
+      )}
 
       <Text style={styles.section}>Tus cupones activos ({offers.length})</Text>
     </View>
