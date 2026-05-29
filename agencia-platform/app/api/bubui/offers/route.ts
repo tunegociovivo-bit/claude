@@ -24,6 +24,13 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: { code: "missing_customer", message: "Falta customerId" } }, { status: 400 });
   }
 
+  // Guarda la última ubicación conocida del cliente (panel admin). No bloquea.
+  if (lat != null && !Number.isNaN(lat) && lng != null && !Number.isNaN(lng)) {
+    prisma.bubuiCustomer
+      .update({ where: { id: customerId }, data: { lastLat: lat, lastLng: lng, lastLocationAt: new Date() } })
+      .catch(() => {});
+  }
+
   const now = new Date();
   const offers = await prisma.bubuiOffer.findMany({
     where: {

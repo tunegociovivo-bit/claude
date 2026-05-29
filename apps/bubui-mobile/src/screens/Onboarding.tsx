@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ScrollView, Platform, Image } from "react-native";
+import { useRef, useState } from "react";
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ScrollView, Platform, Image, FlatList, Dimensions } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import * as Location from "expo-location";
@@ -28,7 +28,11 @@ const SLIDES: Slide[] = [
 
 export function Onboarding() {
   const nav = useNavigation<any>();
-  const [step, setStep] = useState(0); // 0..2 slides, 3 = signup
+  const [step, setStep] = useState(0); // 0..2 slides (carrusel), 3 = signup
+  const [slideIndex, setSlideIndex] = useState(0);
+  const [bodyW, setBodyW] = useState(0);
+  const [bodyH, setBodyH] = useState(0);
+  const listRef = useRef<FlatList>(null);
   const [otpStep, setOtpStep] = useState<"form" | "code">("form");
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
@@ -84,30 +88,66 @@ export function Onboarding() {
     }
   }
 
-  // Slides de intro (imágenes de marca)
+  // Slides de intro: carrusel deslizable (swipe), tocando la imagen o con el botón.
   if (step < SLIDES.length) {
-    const s = SLIDES[step];
+    const goSignup = () => setStep(SLIDES.length);
+    const advance = () => {
+      if (slideIndex < SLIDES.length - 1) {
+        const next = slideIndex + 1;
+        setSlideIndex(next);
+        listRef.current?.scrollToOffset({ offset: next * bodyW, animated: true });
+      } else {
+        goSignup();
+      }
+    };
     return (
       <View style={styles.root}>
         <View style={styles.topBar}>
           <Wordmark size={30} />
-          <TouchableOpacity onPress={() => setStep(SLIDES.length)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+          <TouchableOpacity onPress={goSignup} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
             <Text style={styles.skip}>Saltar</Text>
           </TouchableOpacity>
         </View>
 
-        <View style={styles.slideBody}>
-          <Image source={s.image} style={styles.slideImage} resizeMode="contain" />
+        <View
+          style={styles.slideBody}
+          onLayout={(e) => {
+            setBodyW(e.nativeEvent.layout.width);
+            setBodyH(e.nativeEvent.layout.height);
+          }}
+        >
+          {bodyW > 0 && bodyH > 0 && (
+            <FlatList
+              ref={listRef}
+              data={SLIDES}
+              horizontal
+              pagingEnabled
+              showsHorizontalScrollIndicator={false}
+              keyExtractor={(_, i) => String(i)}
+              style={{ width: bodyW, height: bodyH }}
+              getItemLayout={(_, i) => ({ length: bodyW, offset: bodyW * i, index: i })}
+              onMomentumScrollEnd={(e) => setSlideIndex(Math.round(e.nativeEvent.contentOffset.x / bodyW))}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  activeOpacity={0.95}
+                  onPress={advance}
+                  style={{ width: bodyW, height: bodyH, alignItems: "center", justifyContent: "center" }}
+                >
+                  <Image source={item.image} style={{ width: bodyW, height: bodyH }} resizeMode="contain" />
+                </TouchableOpacity>
+              )}
+            />
+          )}
         </View>
 
         <View style={styles.footer}>
           <View style={styles.dots}>
             {SLIDES.map((_, i) => (
-              <View key={i} style={[styles.dot, i === step && styles.dotActive]} />
+              <View key={i} style={[styles.dot, i === slideIndex && styles.dotActive]} />
             ))}
           </View>
-          <TouchableOpacity style={styles.btn} onPress={() => setStep(step + 1)} activeOpacity={0.9}>
-            <Text style={styles.btnText}>{s.cta}</Text>
+          <TouchableOpacity style={styles.btn} onPress={advance} activeOpacity={0.9}>
+            <Text style={styles.btnText}>{SLIDES[slideIndex].cta}</Text>
           </TouchableOpacity>
         </View>
       </View>

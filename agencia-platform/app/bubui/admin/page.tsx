@@ -25,12 +25,15 @@ type Overview = {
   topByCross: Array<{ business: any; redeemed: number }>;
 };
 
+type AdminTab = "overview" | "users" | "businesses" | "banner" | "push";
+
 export default function BubuiAdmin() {
   const [token, setToken] = useState<string | null>(null);
   const [data, setData] = useState<Overview | null>(null);
   const [city, setCity] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [tab, setTab] = useState<AdminTab>("overview");
 
   useEffect(() => {
     try {
@@ -104,6 +107,32 @@ export default function BubuiAdmin() {
         </div>
       </header>
 
+      <nav className="flex gap-2 flex-wrap bubui-fade-up">
+        {([
+          ["overview", "Resumen"],
+          ["users", "Usuarios"],
+          ["businesses", "Comercios"],
+          ["banner", "Banner"],
+          ["push", "Push"]
+        ] as [AdminTab, string][]).map(([k, label]) => (
+          <button
+            key={k}
+            onClick={() => setTab(k)}
+            className="bubui-chip"
+            style={tab === k ? { background: "#ec1c6e", color: "#fff" } : { cursor: "pointer" }}
+          >
+            {label}
+          </button>
+        ))}
+      </nav>
+
+      {tab === "users" && <UsersPanel token={token} />}
+      {tab === "businesses" && <BusinessesPanel token={token} />}
+      {tab === "banner" && <BannerPanel token={token} />}
+      {tab === "push" && <PushPanel token={token} />}
+
+      {tab === "overview" && (
+      <>
       {error && <div className="text-rose-700 text-sm">{error}</div>}
       {loading && !data && (
         <div className="space-y-3">
@@ -171,7 +200,205 @@ export default function BubuiAdmin() {
           </section>
         </>
       )}
+      </>
+      )}
     </main>
+  );
+}
+
+// ---------- Helpers de fetch para los paneles admin ----------
+async function adminFetch(token: string, path: string, init?: RequestInit) {
+  const r = await fetch(path, {
+    ...init,
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", ...(init?.headers ?? {}) }
+  });
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  return r.json();
+}
+
+// ---------- Usuarios ----------
+function UsersPanel({ token }: { token: string }) {
+  const [rows, setRows] = useState<any[] | null>(null);
+  const [err, setErr] = useState("");
+  useEffect(() => {
+    adminFetch(token, "/api/bubui/admin/customers").then((d) => setRows(d.customers)).catch((e) => setErr(String(e)));
+  }, [token]);
+  if (err) return <p className="text-rose-700 text-sm mt-4">{err}</p>;
+  if (!rows) return <div className="bubui-skeleton h-40 mt-4" />;
+  return (
+    <section className="bubui-card p-4 mt-4 overflow-x-auto">
+      <h2 className="text-sm font-bold mb-3">Usuarios ({rows.length})</h2>
+      <table className="w-full text-[13px]" style={{ borderCollapse: "collapse" }}>
+        <thead>
+          <tr>
+            {["Nombre", "Teléfono", "Email", "Sexo", "Nacim.", "Ahorrado", "Compras", "Nivel", "Ubicación", "Alta"].map((h) => (
+              <th key={h} className="text-left p-2 border-b-2 border-black/10 whitespace-nowrap text-black/55">{h}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((c) => (
+            <tr key={c.id}>
+              <td className="p-2 border-b border-black/5 whitespace-nowrap">{c.name ?? "—"}</td>
+              <td className="p-2 border-b border-black/5 whitespace-nowrap">{c.phone ?? "—"}</td>
+              <td className="p-2 border-b border-black/5 whitespace-nowrap">{c.email ?? "—"}</td>
+              <td className="p-2 border-b border-black/5 whitespace-nowrap">{c.gender ?? "—"}</td>
+              <td className="p-2 border-b border-black/5 whitespace-nowrap">{c.birthDate ?? "—"}</td>
+              <td className="p-2 border-b border-black/5 whitespace-nowrap">{(c.totalSaved ?? 0).toFixed(2)} €</td>
+              <td className="p-2 border-b border-black/5 whitespace-nowrap">{c.totalPurchases}</td>
+              <td className="p-2 border-b border-black/5 whitespace-nowrap">{c.ambassadorLevel}</td>
+              <td className="p-2 border-b border-black/5 whitespace-nowrap">
+                {c.lastLat != null && c.lastLng != null ? (
+                  <a href={`https://www.google.com/maps?q=${c.lastLat},${c.lastLng}`} target="_blank" rel="noreferrer" className="text-pink-600">ver</a>
+                ) : "—"}
+              </td>
+              <td className="p-2 border-b border-black/5 whitespace-nowrap">{c.createdAt ? new Date(c.createdAt).toLocaleDateString("es-ES") : "—"}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </section>
+  );
+}
+
+// ---------- Comercios (con destacar) ----------
+function BusinessesPanel({ token }: { token: string }) {
+  const [rows, setRows] = useState<any[] | null>(null);
+  const [err, setErr] = useState("");
+  useEffect(() => {
+    adminFetch(token, "/api/bubui/admin/businesses").then((d) => setRows(d.businesses)).catch((e) => setErr(String(e)));
+  }, [token]);
+  async function toggleFeatured(id: string, featured: boolean) {
+    setRows((prev) => prev?.map((b) => (b.id === id ? { ...b, featured } : b)) ?? prev);
+    try {
+      await adminFetch(token, "/api/bubui/admin/businesses", { method: "PATCH", body: JSON.stringify({ id, featured }) });
+    } catch {
+      setRows((prev) => prev?.map((b) => (b.id === id ? { ...b, featured: !featured } : b)) ?? prev);
+    }
+  }
+  if (err) return <p className="text-rose-700 text-sm mt-4">{err}</p>;
+  if (!rows) return <div className="bubui-skeleton h-40 mt-4" />;
+  return (
+    <section className="bubui-card p-4 mt-4 overflow-x-auto">
+      <h2 className="text-sm font-bold mb-3">Comercios ({rows.length})</h2>
+      <table className="w-full text-[13px]" style={{ borderCollapse: "collapse" }}>
+        <thead>
+          <tr>
+            {["Destacar", "Nombre", "Categoría", "Ciudad", "Dueño", "Teléfono", "Plan", "Ofertas", "Compras", "Activo", "Ubicación"].map((h) => (
+              <th key={h} className="text-left p-2 border-b-2 border-black/10 whitespace-nowrap text-black/55">{h}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((b) => (
+            <tr key={b.id}>
+              <td className="p-2 border-b border-black/5 text-center">
+                <input type="checkbox" checked={!!b.featured} onChange={(e) => toggleFeatured(b.id, e.target.checked)} />
+              </td>
+              <td className="p-2 border-b border-black/5 whitespace-nowrap font-semibold">{b.name}{b.featured ? " ⭐" : ""}</td>
+              <td className="p-2 border-b border-black/5 whitespace-nowrap">{b.category}</td>
+              <td className="p-2 border-b border-black/5 whitespace-nowrap">{b.city ?? "—"}</td>
+              <td className="p-2 border-b border-black/5 whitespace-nowrap">{b.ownerName ?? "—"}</td>
+              <td className="p-2 border-b border-black/5 whitespace-nowrap">{b.ownerPhone ?? "—"}</td>
+              <td className="p-2 border-b border-black/5 whitespace-nowrap">{b.plan}</td>
+              <td className="p-2 border-b border-black/5 whitespace-nowrap">{b._count?.offers ?? 0}</td>
+              <td className="p-2 border-b border-black/5 whitespace-nowrap">{b._count?.purchases ?? 0}</td>
+              <td className="p-2 border-b border-black/5 whitespace-nowrap">{b.active ? "Sí" : "No"}</td>
+              <td className="p-2 border-b border-black/5 whitespace-nowrap">
+                {b.latitude != null && b.longitude != null ? (
+                  <a href={`https://www.google.com/maps?q=${b.latitude},${b.longitude}`} target="_blank" rel="noreferrer" className="text-pink-600">ver</a>
+                ) : "—"}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </section>
+  );
+}
+
+// ---------- Banner del Home ----------
+function BannerPanel({ token }: { token: string }) {
+  const [b, setB] = useState<{ imageUrl: string; link: string; active: boolean }>({ imageUrl: "", link: "", active: false });
+  const [msg, setMsg] = useState("");
+  useEffect(() => {
+    adminFetch(token, "/api/bubui/admin/banner").then(setB).catch(() => {});
+  }, [token]);
+  async function save() {
+    setMsg("");
+    try {
+      const saved = await adminFetch(token, "/api/bubui/admin/banner", { method: "PUT", body: JSON.stringify(b) });
+      setB(saved);
+      setMsg("Guardado ✓");
+    } catch (e) {
+      setMsg("Error: " + String(e));
+    }
+  }
+  return (
+    <section className="bubui-card p-5 mt-4 max-w-xl">
+      <h2 className="text-sm font-bold mb-2">Banner del Home</h2>
+      <p className="text-[13px] text-black/55 mb-3">
+        Imagen promocional grande de la pantalla de inicio. Pega la URL pública de una imagen. Si lo desactivas o dejas
+        la URL vacía, la app usa su banner por defecto.
+      </p>
+      <label className="text-xs font-bold uppercase tracking-wide text-black/55">URL de la imagen</label>
+      <input className="bubui-input mb-3 mt-1" value={b.imageUrl} onChange={(e) => setB({ ...b, imageUrl: e.target.value })} placeholder="https://…/banner.png" />
+      <label className="text-xs font-bold uppercase tracking-wide text-black/55">Enlace al tocar (opcional)</label>
+      <input className="bubui-input mb-3 mt-1" value={b.link} onChange={(e) => setB({ ...b, link: e.target.value })} placeholder="https://…" />
+      <label className="flex items-center gap-2 text-sm mb-3">
+        <input type="checkbox" checked={b.active} onChange={(e) => setB({ ...b, active: e.target.checked })} />
+        Banner activo
+      </label>
+      {b.imageUrl ? <img src={b.imageUrl} alt="preview" className="rounded-xl max-w-[320px] w-full mb-3 border border-black/10" /> : null}
+      <div className="flex items-center gap-3">
+        <button onClick={save} className="bubui-btn">Guardar</button>
+        {msg && <span className="text-sm">{msg}</span>}
+      </div>
+    </section>
+  );
+}
+
+// ---------- Push promocional ----------
+function PushPanel({ token }: { token: string }) {
+  const [title, setTitle] = useState("");
+  const [body, setBody] = useState("");
+  const [link, setLink] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+  async function send() {
+    if (!title.trim() || !body.trim()) { setMsg("Pon título y mensaje."); return; }
+    if (!confirm("¿Enviar esta notificación a todos los usuarios suscritos?")) return;
+    setBusy(true);
+    setMsg("");
+    try {
+      const r = await adminFetch(token, "/api/bubui/admin/push", { method: "POST", body: JSON.stringify({ title, body, link }) });
+      setMsg(`Enviado a ${r.recipients} usuarios (${r.sent} dispositivos).`);
+      setTitle(""); setBody(""); setLink("");
+    } catch (e) {
+      setMsg("Error: " + String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <section className="bubui-card p-5 mt-4 max-w-xl">
+      <h2 className="text-sm font-bold mb-2">Notificación push promocional</h2>
+      <p className="text-[13px] text-black/55 mb-3">
+        Se envía a todos los usuarios que tengan las notificaciones activadas en la app.
+      </p>
+      <label className="text-xs font-bold uppercase tracking-wide text-black/55">Título</label>
+      <input className="bubui-input mb-3 mt-1" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Ej: ¡Ofertas nuevas cerca de ti!" maxLength={120} />
+      <label className="text-xs font-bold uppercase tracking-wide text-black/55">Mensaje</label>
+      <textarea className="bubui-input mb-3 mt-1" value={body} onChange={(e) => setBody(e.target.value)} placeholder="Cuerpo de la notificación" maxLength={300} rows={3} />
+      <label className="text-xs font-bold uppercase tracking-wide text-black/55">Enlace al tocar (opcional)</label>
+      <input className="bubui-input mb-3 mt-1" value={link} onChange={(e) => setLink(e.target.value)} placeholder="https://…" />
+      <div className="flex items-center gap-3">
+        <button onClick={send} disabled={busy} className="bubui-btn" style={busy ? { opacity: 0.5 } : undefined}>
+          {busy ? "Enviando…" : "Enviar a todos"}
+        </button>
+        {msg && <span className="text-sm">{msg}</span>}
+      </div>
+    </section>
   );
 }
 

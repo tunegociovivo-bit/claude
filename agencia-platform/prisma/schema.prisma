@@ -3347,6 +3347,8 @@ model BubuiBusiness {
   planExpiresAt DateTime? // null o futuro = activo; pasado = volver a free.
   // Status.
   active        Boolean  @default(true)
+  // Destacado por admin (aparece primero en Descubre/Mapa).
+  featured      Boolean  @default(false)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
@@ -3411,6 +3413,14 @@ model BubuiCustomer {
   pushLogs  BubuiPushLog[]
 
   @@index([lastLat, lastLng])
+}
+
+/// Ajustes simples clave-valor de Bubui (p. ej. banner del Home).
+model BubuiSetting {
+  @@map("BipiSetting")
+  key       String   @id
+  value     String   @db.Text
+  updatedAt DateTime @default(now()) @updatedAt
 }
 
 /// Compra registrada con escaneo del QR.

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { View, Text, FlatList, RefreshControl, TouchableOpacity, StyleSheet, Animated, Easing, Image } from "react-native";
+import { View, Text, FlatList, RefreshControl, TouchableOpacity, StyleSheet, Animated, Easing, Image, Dimensions, Linking } from "react-native";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import * as Location from "expo-location";
 import { CheckSession, clearSession, type Customer } from "../lib/session";
@@ -16,11 +16,21 @@ type Offer = {
   distanceM: number | null;
 };
 
+// Banner cuadrado, centrado y acotado: nunca a pantalla completa ni recortado.
+const PROMO_SIZE = Math.min(Dimensions.get("window").width - 64, 300);
+// Tarjeta de estado vacío: ancho explícito (el % no resuelve dentro del FlatList).
+const EMPTY_W = Dimensions.get("window").width - 32;
+
 export function Feed() {
   const nav = useNavigation<any>();
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [offers, setOffers] = useState<Offer[]>([]);
   const [refreshing, setRefreshing] = useState(false);
+  const [banner, setBanner] = useState<{ imageUrl: string; link: string; active: boolean } | null>(null);
+
+  useEffect(() => {
+    api.banner().then(setBanner).catch(() => {});
+  }, []);
 
   // Animación de atención del botón Escanear: pulso de escala continuo.
   const pulse = useRef(new Animated.Value(0)).current;
@@ -94,8 +104,17 @@ export function Feed() {
         </TouchableOpacity>
       </Animated.View>
 
-      {/* Banner promocional (imagen tal cual, texto ya incluido) */}
-      <Image source={require("../../assets/promo.png")} style={styles.promo} resizeMode="contain" />
+      {/* Banner promocional: remoto (gestionado desde admin) o el de por defecto */}
+      {banner?.active && banner.imageUrl ? (
+        <TouchableOpacity
+          activeOpacity={banner.link ? 0.85 : 1}
+          onPress={() => { if (banner.link) Linking.openURL(banner.link).catch(() => {}); }}
+        >
+          <Image source={{ uri: banner.imageUrl }} style={styles.promo} resizeMode="contain" />
+        </TouchableOpacity>
+      ) : (
+        <Image source={require("../../assets/promo.png")} style={styles.promo} resizeMode="contain" />
+      )}
 
       <Text style={styles.section}>Tus cupones activos ({offers.length})</Text>
     </View>
@@ -110,12 +129,7 @@ export function Feed() {
         ListHeaderComponent={header}
         contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 56, paddingBottom: 40 }}
         ListEmptyComponent={
-          <View style={styles.empty}>
-            <Text style={{ fontSize: 40, textAlign: "center" }}>🎟️</Text>
-            <Text style={styles.emptyText}>
-              Aún no tienes cupones. Escanea el QR de un negocio Bubui para empezar a desbloquear.
-            </Text>
-          </View>
+          <Image source={require("../../assets/empty-cupones.png")} style={styles.empty} resizeMode="contain" />
         }
         renderItem={({ item }) => (
           <View style={styles.card}>
@@ -149,7 +163,7 @@ const styles = StyleSheet.create({
   savedAmount: { fontSize: 36, fontWeight: "900", color: colors.pink, letterSpacing: -1 },
   cta: { backgroundColor: colors.pink, borderRadius: radius.pill, paddingVertical: 16, alignItems: "center", ...shadow.btn },
   ctaText: { color: colors.white, fontSize: 16, fontWeight: "800" },
-  promo: { width: "100%", aspectRatio: 1, marginBottom: 22, borderRadius: radius.xl },
+  promo: { width: PROMO_SIZE, height: PROMO_SIZE, alignSelf: "center", marginBottom: 22, borderRadius: radius.xl },
   section: { fontSize: 12, fontWeight: "800", color: colors.gray, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 10 },
   card: { backgroundColor: colors.white, borderRadius: radius.lg, marginBottom: 12, overflow: "hidden", borderWidth: 1, borderColor: colors.border, ...shadow.card },
   photo: { height: 130, backgroundColor: colors.pinkSoft, justifyContent: "flex-start", alignItems: "flex-end" },
@@ -160,6 +174,5 @@ const styles = StyleSheet.create({
   bizCat: { color: colors.gray, fontSize: 12, marginTop: 2 },
   exp: { fontSize: 12, color: colors.gray, fontWeight: "700" },
   expUrgent: { color: colors.pink },
-  empty: { padding: 28, backgroundColor: colors.white, borderRadius: radius.lg, borderColor: colors.border, borderWidth: 1, gap: 10 },
-  emptyText: { textAlign: "center", color: colors.gray, fontSize: 14, lineHeight: 20 }
+  empty: { width: EMPTY_W, height: Math.round((EMPTY_W * 832) / 1304), alignSelf: "center", marginTop: 2 }
 });
