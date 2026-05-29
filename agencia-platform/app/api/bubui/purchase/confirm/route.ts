@@ -78,7 +78,7 @@ export async function POST(req: Request) {
   }
 
   // Actualiza stats del cliente.
-  await prisma.bubuiCustomer.update({
+  const customer = await prisma.bubuiCustomer.update({
     where: { id: purchase.customerId },
     data: {
       totalPurchases: { increment: 1 },
@@ -102,6 +102,20 @@ export async function POST(req: Request) {
   // (fire-and-forget, no bloquea respuesta).
   void recalculateVisibilityScore(purchase.businessId).catch(() => {});
   void recalculateAmbassadorLevel(purchase.customerId).catch(() => {});
+
+  // Email de confirmación al cliente (best-effort, no bloquea).
+  if (customer.email && business) {
+    void import("@/lib/bubui/email").then(({ sendPurchaseConfirmationEmail }) =>
+      sendPurchaseConfirmationEmail({
+        to: customer.email,
+        customerName: customer.name,
+        businessName: business.name,
+        amount: purchase.amount,
+        discountAmount: purchase.discountAmount,
+        offersUnlocked: offers.created
+      })
+    );
+  }
 
   return NextResponse.json({
     ok: true,

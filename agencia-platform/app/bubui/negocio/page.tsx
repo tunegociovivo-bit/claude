@@ -37,6 +37,73 @@ function LoginForm({ onLogin }: { onLogin: (s: Session) => void }) {
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [mode, setMode] = useState<"login" | "forgot">("login");
+  const [forgotSent, setForgotSent] = useState(false);
+
+  async function sendForgot(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      await fetch("/api/bubui/business/forgot-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email })
+      });
+      // Respuesta siempre ok (no enumeración). Mostramos confirmación.
+      setForgotSent(true);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (mode === "forgot") {
+    return (
+      <main className="max-w-md mx-auto px-4 py-12">
+        <div className="text-center mb-6 bubui-fade-up">
+          <h1 className="bubui-wordmark mx-auto justify-center" style={{ fontSize: 56 }}>bubui</h1>
+          <p className="text-black/60 text-sm mt-3">Recuperar contraseña</p>
+        </div>
+        {forgotSent ? (
+          <div className="bubui-card p-6 bubui-fade-up bubui-fade-up-1 text-center space-y-3">
+            <p className="text-sm">
+              Si <b>{email}</b> tiene una cuenta, te hemos enviado un enlace para
+              crear una contraseña nueva. Revisa tu correo (y la carpeta de spam).
+            </p>
+            <button onClick={() => { setMode("login"); setForgotSent(false); }} className="bubui-btn w-full">
+              Volver al inicio de sesión
+            </button>
+          </div>
+        ) : (
+          <form onSubmit={sendForgot} className="space-y-3 bubui-card p-6 bubui-fade-up bubui-fade-up-1">
+            <p className="text-xs text-black/60">
+              Introduce el email de tu negocio y te enviaremos un enlace para
+              restablecer la contraseña.
+            </p>
+            <input
+              type="email"
+              placeholder="Email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+              className="bubui-input"
+            />
+            <button type="submit" disabled={busy} className="bubui-btn w-full">
+              {busy ? "Enviando…" : "Enviar enlace"}
+            </button>
+            <button
+              type="button"
+              onClick={() => setMode("login")}
+              className="text-xs text-black/55 text-center w-full hover:underline"
+            >
+              ← Volver
+            </button>
+          </form>
+        )}
+      </main>
+    );
+  }
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
@@ -83,6 +150,13 @@ function LoginForm({ onLogin }: { onLogin: (s: Session) => void }) {
         {error && <p className="text-rose-700 text-sm">{error}</p>}
         <button type="submit" disabled={busy} className="bubui-btn w-full">
           {busy ? "Entrando…" : "Entrar"}
+        </button>
+        <button
+          type="button"
+          onClick={() => { setMode("forgot"); setError(null); }}
+          className="text-xs text-pink-600 font-semibold text-center w-full hover:underline"
+        >
+          ¿Olvidaste tu contraseña?
         </button>
         <p className="text-xs text-black/55 text-center">
           ¿Aún no tienes cuenta? <a href="/bubui/registro" className="text-pink-600 font-semibold hover:underline">Crea tu negocio</a>
@@ -225,7 +299,7 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
       <ShareWidget slug={b.slug} name={b.name} discountPct={b.defaultDiscountPct} />
 
       {/* Plan + Upgrade */}
-      <PlanCard business={b} />
+      <PlanCard business={b} token={session.token} onChanged={load} />
 
       {/* Editar perfil */}
       <ProfileEditor business={b} token={session.token} onSaved={load} />
@@ -777,8 +851,13 @@ function SmallStat({ label, value }: { label: string; value: number | string }) 
   );
 }
 
-function PlanCard({ business }: { business: any }) {
+function PlanCard({ business, token, onChanged }: { business: any; token: string; onChanged: () => void }) {
   const [busy, setBusy] = useState<string | null>(null);
+  const cancelAt: string | null = business.subscriptionCancelAt ?? null;
+  const expiresAt: string | null = business.planExpiresAt ?? null;
+  const fmt = (d: string) =>
+    new Date(d).toLocaleDateString("es-ES", { day: "numeric", month: "long", year: "numeric" });
+
   async function upgrade(plan: "pro" | "premium") {
     setBusy(plan);
     try {
@@ -797,6 +876,29 @@ function PlanCard({ business }: { business: any }) {
       setBusy(null);
     }
   }
+
+  async function cancelSub(resume: boolean) {
+    if (!resume && !confirm("¿Seguro que quieres cancelar tu suscripción? Conservarás las ventajas hasta el final del periodo ya pagado.")) {
+      return;
+    }
+    setBusy(resume ? "resume" : "cancel");
+    try {
+      const r = await fetch(`/api/bubui/business/${business.id}/cancel-subscription`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ resume })
+      });
+      const j = await r.json();
+      if (!r.ok) {
+        alert(j?.error?.message ?? "No se pudo procesar la solicitud");
+        return;
+      }
+      onChanged();
+    } finally {
+      setBusy(null);
+    }
+  }
+
   return (
     <section className="bg-white border rounded-xl p-5 shadow-sm">
       <div className="flex items-center justify-between flex-wrap gap-2">
@@ -805,7 +907,11 @@ function PlanCard({ business }: { business: any }) {
           <p className="text-xs text-slate-600">
             {business.plan === "free"
               ? "Aparece en feed (según karma). Sube de plan para destacar y recibir más clientes."
-              : "Tienes ventajas Pro/Premium activas."}
+              : cancelAt
+                ? `Tu suscripción se cancelará el ${fmt(cancelAt)}. Hasta entonces conservas las ventajas.`
+                : expiresAt
+                  ? `Activa. Se renueva el ${fmt(expiresAt)}.`
+                  : "Tienes ventajas Pro/Premium activas."}
           </p>
         </div>
       </div>
@@ -827,6 +933,27 @@ function PlanCard({ business }: { business: any }) {
             <div className="font-semibold">🔥 Premium · 99€/mes</div>
             <div className="text-xs text-slate-600 mt-1">+ 4 push gratis/mes · -25% en push extra · soporte prioritario</div>
           </button>
+        </div>
+      )}
+      {business.plan !== "free" && (
+        <div className="mt-3 border-t pt-3">
+          {cancelAt ? (
+            <button
+              onClick={() => cancelSub(true)}
+              disabled={busy !== null}
+              className="text-xs font-semibold text-emerald-700 hover:underline disabled:opacity-50"
+            >
+              {busy === "resume" ? "Reactivando…" : "Reactivar suscripción"}
+            </button>
+          ) : (
+            <button
+              onClick={() => cancelSub(false)}
+              disabled={busy !== null}
+              className="text-xs text-slate-500 hover:text-rose-600 hover:underline disabled:opacity-50"
+            >
+              {busy === "cancel" ? "Cancelando…" : "Cancelar suscripción"}
+            </button>
+          )}
         </div>
       )}
     </section>

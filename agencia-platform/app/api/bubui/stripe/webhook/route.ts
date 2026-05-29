@@ -120,12 +120,16 @@ async function handleSubscriptionUpsert(sub: any): Promise<void> {
     : null;
   // Plan activo si subscription está en active/trialing/past_due.
   const isActive = ["active", "trialing", "past_due"].includes(status);
+  // Cancelación programada: Stripe pone cancel_at_period_end=true y cancel_at.
+  const cancelAt =
+    sub?.cancel_at_period_end && sub?.cancel_at ? new Date(sub.cancel_at * 1000) : null;
   await prisma.bubuiBusiness.update({
     where: { id: businessId },
     data: {
       plan: isActive ? plan : "free",
       bubuiStripeSubscriptionId: sub.id,
-      planExpiresAt: isActive ? currentPeriodEnd : null
+      planExpiresAt: isActive ? currentPeriodEnd : null,
+      subscriptionCancelAt: isActive ? cancelAt : null
     }
   });
 }
@@ -135,7 +139,7 @@ async function handleSubscriptionDeleted(sub: any): Promise<void> {
   if (!businessId) return;
   await prisma.bubuiBusiness.update({
     where: { id: businessId },
-    data: { plan: "free", bubuiStripeSubscriptionId: null, planExpiresAt: null }
+    data: { plan: "free", bubuiStripeSubscriptionId: null, planExpiresAt: null, subscriptionCancelAt: null }
   });
 }
 

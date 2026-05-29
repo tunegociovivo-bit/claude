@@ -128,6 +128,34 @@ export async function createPushAdCheckout(opts: {
   return { url: data.url, sessionId: data.id };
 }
 
+/** Programa la cancelación de una suscripción al final del periodo ya
+ *  pagado (cancel_at_period_end=true). El negocio conserva el plan hasta
+ *  entonces. Devuelve la fecha de fin de periodo (cancel_at). */
+export async function cancelSubscriptionAtPeriodEnd(
+  subscriptionId: string
+): Promise<{ cancelAt: Date | null }> {
+  const body = new URLSearchParams();
+  body.set("cancel_at_period_end", "true");
+  const data = await stripeFetch<any>(`/subscriptions/${subscriptionId}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body
+  });
+  const ts = data?.cancel_at ?? data?.current_period_end;
+  return { cancelAt: ts ? new Date(ts * 1000) : null };
+}
+
+/** Reactiva una suscripción marcada para cancelar (cancel_at_period_end=false). */
+export async function resumeSubscription(subscriptionId: string): Promise<void> {
+  const body = new URLSearchParams();
+  body.set("cancel_at_period_end", "false");
+  await stripeFetch<any>(`/subscriptions/${subscriptionId}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body
+  });
+}
+
 /** Verifica la firma `stripe-signature` del webhook con timing-safe. */
 export function verifyStripeSignature(opts: {
   rawBody: string;

@@ -14,8 +14,45 @@
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db/prisma";
 import type { Metadata } from "next";
+import ReviewForm from "./ReviewForm";
 
 export const revalidate = 300;
+
+async function getReviews(businessId: string) {
+  const [agg, list] = await Promise.all([
+    prisma.bubuiReview.aggregate({
+      where: { businessId },
+      _avg: { rating: true },
+      _count: true
+    }),
+    prisma.bubuiReview.findMany({
+      where: { businessId, comment: { not: null } },
+      orderBy: { createdAt: "desc" },
+      take: 8,
+      include: { customer: { select: { name: true } } }
+    })
+  ]);
+  return {
+    count: agg._count,
+    average: agg._avg.rating ? Math.round(agg._avg.rating * 10) / 10 : null,
+    list: list.map((r) => ({
+      id: r.id,
+      rating: r.rating,
+      comment: r.comment,
+      author: r.customer?.name || "Cliente Bubui",
+      createdAt: r.createdAt
+    }))
+  };
+}
+
+function Stars({ value, size = 16 }: { value: number; size?: number }) {
+  return (
+    <span style={{ fontSize: size, color: "#F59E0B", letterSpacing: 1 }}>
+      {"★".repeat(Math.round(value))}
+      <span style={{ color: "#D1D5DB" }}>{"★".repeat(5 - Math.round(value))}</span>
+    </span>
+  );
+}
 
 async function getBusiness(slug: string) {
   return prisma.bubuiBusiness.findUnique({
@@ -82,6 +119,8 @@ export default async function BusinessPublicPage({ params }: { params: { slug: s
     select: { slug: true, name: true, category: true, defaultDiscountPct: true }
   });
 
+  const reviews = await getReviews(business.id);
+
   // JSON-LD para SEO: LocalBusiness + Offer. Google lo usa para rich
   // snippets en búsquedas locales y Maps.
   const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://hub.negociovivo.app";
@@ -110,6 +149,17 @@ export default async function BusinessPublicPage({ params }: { params: { slug: s
             "@type": "GeoCoordinates",
             latitude: business.latitude,
             longitude: business.longitude
+          }
+        }
+      : {}),
+    ...(reviews.average != null && reviews.count > 0
+      ? {
+          aggregateRating: {
+            "@type": "AggregateRating",
+            ratingValue: reviews.average,
+            reviewCount: reviews.count,
+            bestRating: 5,
+            worstRating: 1
           }
         }
       : {}),
@@ -239,6 +289,36 @@ export default async function BusinessPublicPage({ params }: { params: { slug: s
         <Card title="3. Desbloquea más">
           Descubres 3-5 cupones en otros negocios de {business.city}. Caducan en 4 días.
         </Card>
+      </section>
+
+      {/* Valoraciones */}
+      <section className="mt-10">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-lg font-bold">Valoraciones</h2>
+          {reviews.average != null && (
+            <div className="flex items-center gap-2 text-sm">
+              <Stars value={reviews.average} />
+              <span className="font-bold">{reviews.average}</span>
+              <span className="text-black/45">({reviews.count})</span>
+            </div>
+          )}
+        </div>
+        {reviews.list.length > 0 ? (
+          <ul className="space-y-2">
+            {reviews.list.map((r) => (
+              <li key={r.id} className="bubui-card p-4">
+                <div className="flex items-center justify-between">
+                  <span className="font-semibold text-sm">{r.author}</span>
+                  <Stars value={r.rating} size={14} />
+                </div>
+                {r.comment && <p className="text-sm text-black/70 mt-1 whitespace-pre-wrap">{r.comment}</p>}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-sm text-black/45">Aún no hay valoraciones. ¡Sé el primero!</p>
+        )}
+        <ReviewForm businessId={business.id} />
       </section>
 
       {/* Otros negocios */}

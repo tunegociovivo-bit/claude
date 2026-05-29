@@ -16,6 +16,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { sendPushToBubuiCustomer, isBubuiPushEnabled } from "@/lib/bubui/push";
+import { isEmailEnabled } from "@/lib/integrations/email";
+import { sendOfferExpiringEmail } from "@/lib/bubui/email";
 
 export const dynamic = "force-dynamic";
 
@@ -24,8 +26,10 @@ export async function GET(req: NextRequest) {
   if (!process.env.CRON_SECRET || auth !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
-  if (!isBubuiPushEnabled()) {
-    return NextResponse.json({ ok: false, reason: "push_not_configured" });
+  const pushOn = isBubuiPushEnabled();
+  const emailOn = isEmailEnabled();
+  if (!pushOn && !emailOn) {
+    return NextResponse.json({ ok: false, reason: "no_channel_configured" });
   }
 
   const now = new Date();
@@ -45,23 +49,30 @@ export async function GET(req: NextRequest) {
   // Agrupa por customer.
   const urgentByCustomer = groupBy(urgent, (o) => o.customerId);
   let urgentSent = 0;
+  let urgentEmailed = 0;
   for (const [customerId, offers] of urgentByCustomer) {
-    const dedup = await prisma.bubuiPushLog.findFirst({
-      where: { customerId, kind: "expiring_4h", sentAt: { gte: dedupCutoff } }
-    });
-    if (dedup) continue;
     const first = offers[0];
-    const body =
-      offers.length === 1
-        ? `Tu cupón en ${first.business.name} (${first.discountPct}%) caduca hoy. ¡Úsalo antes!`
-        : `Tienes ${offers.length} cupones que caducan hoy. Échales un ojo.`;
-    await sendPushToBubuiCustomer(customerId, {
-      title: "⏰ Caducan hoy",
-      body,
-      link: "/bubui/app",
-      tag: "expiring_4h"
-    });
-    urgentSent++;
+    if (pushOn) {
+      const dedup = await prisma.bubuiPushLog.findFirst({
+        where: { customerId, kind: "expiring_4h", sentAt: { gte: dedupCutoff } }
+      });
+      if (!dedup) {
+        const body =
+          offers.length === 1
+            ? `Tu cupón en ${first.business.name} (${first.discountPct}%) caduca hoy. ¡Úsalo antes!`
+            : `Tienes ${offers.length} cupones que caducan hoy. Échales un ojo.`;
+        await sendPushToBubuiCustomer(customerId, {
+          title: "⏰ Caducan hoy",
+          body,
+          link: "/bubui/app",
+          tag: "expiring_4h"
+        });
+        urgentSent++;
+      }
+    }
+    if (emailOn && (await sendExpiringEmail(customerId, offers, "expiring_4h", true, dedupCutoff))) {
+      urgentEmailed++;
+    }
   }
 
   // 2) MEDIO: cupones que caducan entre 4h y 24h (recordatorio "mañana")
@@ -74,31 +85,72 @@ export async function GET(req: NextRequest) {
   });
   const tomorrowByCustomer = groupBy(tomorrow, (o) => o.customerId);
   let tomorrowSent = 0;
+  let tomorrowEmailed = 0;
   for (const [customerId, offers] of tomorrowByCustomer) {
-    const dedup = await prisma.bubuiPushLog.findFirst({
-      where: { customerId, kind: "expiring_24h", sentAt: { gte: dedupCutoff } }
-    });
-    if (dedup) continue;
-    const body =
-      offers.length === 1
-        ? `Tu cupón en ${offers[0].business.name} caduca mañana. No te olvides.`
-        : `Tienes ${offers.length} cupones que caducan mañana.`;
-    await sendPushToBubuiCustomer(customerId, {
-      title: "🔔 Mañana caducan",
-      body,
-      link: "/bubui/app",
-      tag: "expiring_24h"
-    });
-    tomorrowSent++;
+    if (pushOn) {
+      const dedup = await prisma.bubuiPushLog.findFirst({
+        where: { customerId, kind: "expiring_24h", sentAt: { gte: dedupCutoff } }
+      });
+      if (!dedup) {
+        const body =
+          offers.length === 1
+            ? `Tu cupón en ${offers[0].business.name} caduca mañana. No te olvides.`
+            : `Tienes ${offers.length} cupones que caducan mañana.`;
+        await sendPushToBubuiCustomer(customerId, {
+          title: "🔔 Mañana caducan",
+          body,
+          link: "/bubui/app",
+          tag: "expiring_24h"
+        });
+        tomorrowSent++;
+      }
+    }
+    if (emailOn && (await sendExpiringEmail(customerId, offers, "expiring_24h", false, dedupCutoff))) {
+      tomorrowEmailed++;
+    }
   }
 
   return NextResponse.json({
     ok: true,
     urgent: urgentByCustomer.size,
     urgentSent,
+    urgentEmailed,
     tomorrow: tomorrowByCustomer.size,
-    tomorrowSent
+    tomorrowSent,
+    tomorrowEmailed
   });
+}
+
+/** Envía el email de caducidad a un cliente con dedup propio (kind
+ *  `email_*`). Devuelve true si lo envió. */
+async function sendExpiringEmail(
+  customerId: string,
+  offers: Array<{ business: { name: string } }>,
+  baseKind: "expiring_4h" | "expiring_24h",
+  urgent: boolean,
+  dedupCutoff: Date
+): Promise<boolean> {
+  const emailKind = `email_${baseKind}`;
+  const dedup = await prisma.bubuiPushLog.findFirst({
+    where: { customerId, kind: emailKind, sentAt: { gte: dedupCutoff } }
+  });
+  if (dedup) return false;
+  const customer = await prisma.bubuiCustomer.findUnique({
+    where: { id: customerId },
+    select: { email: true, name: true }
+  });
+  if (!customer?.email) return false;
+  await sendOfferExpiringEmail({
+    to: customer.email,
+    customerName: customer.name,
+    count: offers.length,
+    firstBusinessName: offers[0].business.name,
+    urgent
+  });
+  await prisma.bubuiPushLog.create({
+    data: { customerId, kind: emailKind, payload: { count: offers.length } }
+  });
+  return true;
 }
 
 function groupBy<T, K>(arr: T[], keyFn: (x: T) => K): Map<K, T[]> {
