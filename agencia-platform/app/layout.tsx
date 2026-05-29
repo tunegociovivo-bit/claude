@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { headers } from "next/headers";
 import "./globals.css";
 import AppChrome from "@/components/AppChrome";
 import PwaRegister from "@/components/PwaRegister";
@@ -165,7 +166,16 @@ const swSelfHeal = `
   })();
 `;
 
+// En el dominio público bubui.app el middleware reescribe /PATH → /bubui/PATH,
+// pero el navegador sigue mostrando /PATH (sin prefijo). AppChrome usa
+// usePathname() en cliente y no podría detectar que es una página Bubui,
+// así que pintaría el chrome del Hub. Leemos el host en el servidor y se lo
+// pasamos para forzar el modo sin-chrome en todo el dominio Bubui.
+const BUBUI_HOSTS = new Set(["bubui.app", "www.bubui.app"]);
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
+  const host = (headers().get("host") || "").split(":")[0].toLowerCase();
+  const isBubuiHost = BUBUI_HOSTS.has(host);
   return (
     <html lang="es">
       <head>
@@ -177,7 +187,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </head>
       <body className="overscroll-none">
         <Providers>
-          <AppChrome>{children}</AppChrome>
+          <AppChrome forceMinimal={isBubuiHost}>{children}</AppChrome>
         </Providers>
         <ErrorReporter />
         <PwaRegister />

@@ -11,11 +11,19 @@ import FlashTaskVoiceNotifier from "@/components/FlashTaskVoiceNotifier";
 
 const NO_CHROME_PREFIXES = ["/login", "/r/", "/v/", "/p/", "/bubui", "/bipi"];
 
-export default function AppChrome({ children }: { children: ReactNode }) {
+export default function AppChrome({
+  children,
+  forceMinimal = false,
+}: {
+  children: ReactNode;
+  forceMinimal?: boolean;
+}) {
   const pathname = usePathname();
-  const minimal = NO_CHROME_PREFIXES.some(
-    (p) => pathname === p.replace(/\/$/, "") || pathname.startsWith(p)
-  );
+  const minimal =
+    forceMinimal ||
+    NO_CHROME_PREFIXES.some(
+      (p) => pathname === p.replace(/\/$/, "") || pathname.startsWith(p)
+    );
 
   // Estado del sidebar en móvil: por defecto cerrado.
   const [mobileOpen, setMobileOpen] = useState(false);
