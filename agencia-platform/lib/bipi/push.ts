@@ -46,7 +46,7 @@ export async function sendPushToBipiCustomer(
   if (!isBipiPushEnabled()) return { sent: 0, removed: 0 };
   init();
 
-  const subs = await prisma.bipiPushSubscription.findMany({ where: { customerId } });
+  const subs = await prisma.bubuiPushSubscription.findMany({ where: { customerId } });
   let sent = 0;
   let removed = 0;
 
@@ -59,7 +59,7 @@ export async function sendPushToBipiCustomer(
         );
         sent++;
         // Guardamos log para analítica.
-        await prisma.bipiPushLog.create({
+        await prisma.bubuiPushLog.create({
           data: {
             customerId,
             kind: payload.tag?.split("-")[0] ?? "generic",
@@ -69,7 +69,7 @@ export async function sendPushToBipiCustomer(
       } catch (e: any) {
         const status = e?.statusCode ?? 0;
         if (status === 404 || status === 410) {
-          await prisma.bipiPushSubscription.delete({ where: { id: s.id } }).catch(() => {});
+          await prisma.bubuiPushSubscription.delete({ where: { id: s.id } }).catch(() => {});
           removed++;
         } else {
           console.warn("[bipi push] error:", status, e?.body ?? e?.message ?? e);

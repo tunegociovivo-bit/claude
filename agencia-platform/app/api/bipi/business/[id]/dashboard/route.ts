@@ -15,7 +15,7 @@ export const dynamic = "force-dynamic";
 
 export async function GET(_req: Request, { params }: { params: { id: string } }) {
   const id = params.id;
-  const business = await prisma.bipiBusiness.findUnique({ where: { id } });
+  const business = await prisma.bubuiBusiness.findUnique({ where: { id } });
   if (!business) {
     return NextResponse.json({ error: { code: "not_found" } }, { status: 404 });
   }
@@ -25,22 +25,22 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
   const d30 = new Date(now.getTime() - 30 * 86_400_000);
 
   const [pending, scans7, scans30, redeemedFromOthers7, offersOpen] = await Promise.all([
-    prisma.bipiPurchase.findMany({
+    prisma.bubuiPurchase.findMany({
       where: { businessId: id, status: "pending" },
       orderBy: { scannedAt: "desc" },
       take: 50,
       include: { customer: { select: { id: true, name: true, email: true } } }
     }),
-    prisma.bipiPurchase.count({
+    prisma.bubuiPurchase.count({
       where: { businessId: id, status: "confirmed", scannedAt: { gte: d7 } }
     }),
-    prisma.bipiPurchase.count({
+    prisma.bubuiPurchase.count({
       where: { businessId: id, status: "confirmed", scannedAt: { gte: d30 } }
     }),
-    prisma.bipiOffer.count({
+    prisma.bubuiOffer.count({
       where: { businessId: id, redeemed: true, redeemedAt: { gte: d7 } }
     }),
-    prisma.bipiOffer.count({
+    prisma.bubuiOffer.count({
       where: {
         businessId: id,
         redeemed: false,
@@ -49,11 +49,11 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
     })
   ]);
 
-  const revenue7 = await prisma.bipiPurchase.aggregate({
+  const revenue7 = await prisma.bubuiPurchase.aggregate({
     where: { businessId: id, status: "confirmed", scannedAt: { gte: d7 } },
     _sum: { amount: true }
   });
-  const revenue30 = await prisma.bipiPurchase.aggregate({
+  const revenue30 = await prisma.bubuiPurchase.aggregate({
     where: { businessId: id, status: "confirmed", scannedAt: { gte: d30 } },
     _sum: { amount: true }
   });

@@ -36,7 +36,7 @@ export async function POST(req: Request) {
   }
   const d = parsed.data;
 
-  const purchase = await prisma.bipiPurchase.findUnique({ where: { id: d.purchaseId } });
+  const purchase = await prisma.bubuiPurchase.findUnique({ where: { id: d.purchaseId } });
   if (!purchase) {
     return NextResponse.json({ error: { code: "not_found", message: "Compra no existe" } }, { status: 404 });
   }
@@ -51,7 +51,7 @@ export async function POST(req: Request) {
   }
 
   if (d.action === "reject") {
-    await prisma.bipiPurchase.update({
+    await prisma.bubuiPurchase.update({
       where: { id: purchase.id },
       data: { status: "rejected", rejectionReason: d.rejectionReason ?? "Rechazada por el negocio" }
     });
@@ -59,21 +59,21 @@ export async function POST(req: Request) {
   }
 
   // CONFIRM:
-  await prisma.bipiPurchase.update({
+  await prisma.bubuiPurchase.update({
     where: { id: purchase.id },
     data: { status: "confirmed", confirmedAt: new Date() }
   });
 
   // Si canjea una oferta cruzada, la marcamos redeemed.
   if (purchase.redeemedOfferId) {
-    await prisma.bipiOffer.update({
+    await prisma.bubuiOffer.update({
       where: { id: purchase.redeemedOfferId },
       data: { redeemed: true, redeemedAt: new Date() }
     });
   }
 
   // Actualiza stats del cliente.
-  await prisma.bipiCustomer.update({
+  await prisma.bubuiCustomer.update({
     where: { id: purchase.customerId },
     data: {
       totalPurchases: { increment: 1 },
@@ -82,7 +82,7 @@ export async function POST(req: Request) {
   });
 
   // Desbloquea ofertas en negocios complementarios cercanos.
-  const business = await prisma.bipiBusiness.findUnique({ where: { id: purchase.businessId } });
+  const business = await prisma.bubuiBusiness.findUnique({ where: { id: purchase.businessId } });
   const offers = business
     ? await unlockOffersForPurchase({
         customerId: purchase.customerId,

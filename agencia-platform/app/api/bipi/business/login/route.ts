@@ -24,7 +24,7 @@ export async function POST(req: Request) {
   if (!parsed.success) {
     return NextResponse.json({ error: { code: "validation", message: parsed.error.message } }, { status: 400 });
   }
-  const business = await prisma.bipiBusiness.findUnique({ where: { ownerEmail: parsed.data.email } });
+  const business = await prisma.bubuiBusiness.findUnique({ where: { ownerEmail: parsed.data.email } });
   if (!business) {
     return NextResponse.json({ error: { code: "invalid_credentials", message: "Email o contraseña no válidos" } }, { status: 401 });
   }

@@ -12,7 +12,7 @@ import { prisma } from "@/lib/db/prisma";
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request, { params }: { params: { id: string } }) {
-  const business = await prisma.bipiBusiness.findUnique({ where: { id: params.id } });
+  const business = await prisma.bubuiBusiness.findUnique({ where: { id: params.id } });
   if (!business) {
     return new NextResponse("Not found", { status: 404 });
   }

@@ -34,7 +34,7 @@ export async function GET(req: NextRequest) {
   const dedupCutoff = new Date(now.getTime() - 12 * 60 * 60 * 1000);
 
   // 1) URGENTE: cupones que caducan en <4h
-  const urgent = await prisma.bipiOffer.findMany({
+  const urgent = await prisma.bubuiOffer.findMany({
     where: {
       redeemed: false,
       expiresAt: { gt: now, lte: in4h }
@@ -46,7 +46,7 @@ export async function GET(req: NextRequest) {
   const urgentByCustomer = groupBy(urgent, (o) => o.customerId);
   let urgentSent = 0;
   for (const [customerId, offers] of urgentByCustomer) {
-    const dedup = await prisma.bipiPushLog.findFirst({
+    const dedup = await prisma.bubuiPushLog.findFirst({
       where: { customerId, kind: "expiring_4h", sentAt: { gte: dedupCutoff } }
     });
     if (dedup) continue;
@@ -65,7 +65,7 @@ export async function GET(req: NextRequest) {
   }
 
   // 2) MEDIO: cupones que caducan entre 4h y 24h (recordatorio "mañana")
-  const tomorrow = await prisma.bipiOffer.findMany({
+  const tomorrow = await prisma.bubuiOffer.findMany({
     where: {
       redeemed: false,
       expiresAt: { gt: in4h, lte: in24h }
@@ -75,7 +75,7 @@ export async function GET(req: NextRequest) {
   const tomorrowByCustomer = groupBy(tomorrow, (o) => o.customerId);
   let tomorrowSent = 0;
   for (const [customerId, offers] of tomorrowByCustomer) {
-    const dedup = await prisma.bipiPushLog.findFirst({
+    const dedup = await prisma.bubuiPushLog.findFirst({
       where: { customerId, kind: "expiring_24h", sentAt: { gte: dedupCutoff } }
     });
     if (dedup) continue;

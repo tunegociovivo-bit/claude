@@ -44,7 +44,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: { code: "validation", message: parsed.error.message } }, { status: 400 });
   }
   const d = parsed.data;
-  const business = await prisma.bipiBusiness.findUnique({ where: { id: d.businessId } });
+  const business = await prisma.bubuiBusiness.findUnique({ where: { id: d.businessId } });
   if (!business) {
     return NextResponse.json({ error: { code: "not_found" } }, { status: 404 });
   }
@@ -66,7 +66,7 @@ export async function POST(req: Request) {
       existingId: business.bipiStripeCustomerId
     });
     if (customer.id !== business.bipiStripeCustomerId) {
-      await prisma.bipiBusiness.update({
+      await prisma.bubuiBusiness.update({
         where: { id: business.id },
         data: { bipiStripeCustomerId: customer.id }
       });
@@ -74,7 +74,7 @@ export async function POST(req: Request) {
     // Creamos el BipiPushAd en estado "scheduled" (pendiente de pago).
     const startsAt = d.startsAt ? new Date(d.startsAt) : new Date();
     const endsAt = new Date(startsAt.getTime() + 24 * 60 * 60 * 1000);
-    const ad = await prisma.bipiPushAd.create({
+    const ad = await prisma.bubuiPushAd.create({
       data: {
         businessId: business.id,
         title: d.title,

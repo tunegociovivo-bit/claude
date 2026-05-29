@@ -41,7 +41,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   if (!parsed.success) {
     return NextResponse.json({ error: { code: "validation", message: parsed.error.message } }, { status: 400 });
   }
-  const updated = await prisma.bipiBusiness.update({
+  const updated = await prisma.bubuiBusiness.update({
     where: { id: params.id },
     data: parsed.data
   });

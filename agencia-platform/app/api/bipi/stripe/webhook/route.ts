@@ -89,12 +89,12 @@ async function handleCheckoutCompleted(session: any): Promise<void> {
     // Buscamos el ad más reciente scheduled del negocio si no nos pasaron id
     // (Stripe no lo guarda salvo que lo añadamos como metadata — lo
     // hacemos en una iteración futura; v1 confiamos en que hay uno).
-    const ad = await prisma.bipiPushAd.findFirst({
+    const ad = await prisma.bubuiPushAd.findFirst({
       where: { businessId, status: "scheduled" },
       orderBy: { createdAt: "desc" }
     });
     if (ad) {
-      await prisma.bipiPushAd.update({
+      await prisma.bubuiPushAd.update({
         where: { id: ad.id },
         data: { status: "sending" }
       });
@@ -120,7 +120,7 @@ async function handleSubscriptionUpsert(sub: any): Promise<void> {
     : null;
   // Plan activo si subscription está en active/trialing/past_due.
   const isActive = ["active", "trialing", "past_due"].includes(status);
-  await prisma.bipiBusiness.update({
+  await prisma.bubuiBusiness.update({
     where: { id: businessId },
     data: {
       plan: isActive ? plan : "free",
@@ -133,7 +133,7 @@ async function handleSubscriptionUpsert(sub: any): Promise<void> {
 async function handleSubscriptionDeleted(sub: any): Promise<void> {
   const businessId: string | undefined = sub?.metadata?.bipi_business_id;
   if (!businessId) return;
-  await prisma.bipiBusiness.update({
+  await prisma.bubuiBusiness.update({
     where: { id: businessId },
     data: { plan: "free", bipiStripeSubscriptionId: null, planExpiresAt: null }
   });
@@ -143,13 +143,13 @@ async function handleInvoicePaid(inv: any): Promise<void> {
   // Si periodEnd llega aquí, lo refrescamos en el negocio.
   const subId = inv?.subscription;
   if (!subId) return;
-  const business = await prisma.bipiBusiness.findFirst({
+  const business = await prisma.bubuiBusiness.findFirst({
     where: { bipiStripeSubscriptionId: subId }
   });
   if (!business) return;
   const periodEnd = inv?.lines?.data?.[0]?.period?.end;
   if (periodEnd) {
-    await prisma.bipiBusiness.update({
+    await prisma.bubuiBusiness.update({
       where: { id: business.id },
       data: { planExpiresAt: new Date(periodEnd * 1000) }
     });
@@ -160,7 +160,7 @@ async function handleInvoicePaid(inv: any): Promise<void> {
  *  v1 simple: filtra por última geolocalización registrada del cliente y
  *  por suscripción push activa. */
 async function sendBipiPushAd(adId: string): Promise<void> {
-  const ad = await prisma.bipiPushAd.findUnique({
+  const ad = await prisma.bubuiPushAd.findUnique({
     where: { id: adId },
     include: { business: { select: { name: true } } }
   });
@@ -169,18 +169,18 @@ async function sendBipiPushAd(adId: string): Promise<void> {
   const { haversineMeters } = await import("@/lib/bipi/core");
   const { sendPushToBipiCustomer, isBipiPushEnabled } = await import("@/lib/bipi/push");
   if (!isBipiPushEnabled()) {
-    await prisma.bipiPushAd.update({ where: { id: ad.id }, data: { status: "done" } });
+    await prisma.bubuiPushAd.update({ where: { id: ad.id }, data: { status: "done" } });
     return;
   }
 
   // Candidatos: clientes con suscripción push y última ubicación reciente.
-  const subs = await prisma.bipiPushSubscription.findMany({
+  const subs = await prisma.bubuiPushSubscription.findMany({
     select: { customerId: true },
     distinct: ["customerId"]
   });
   let sent = 0;
   for (const s of subs) {
-    const c = await prisma.bipiCustomer.findUnique({ where: { id: s.customerId } });
+    const c = await prisma.bubuiCustomer.findUnique({ where: { id: s.customerId } });
     if (!c?.lastLat || !c?.lastLng) continue;
     const d = haversineMeters(c.lastLat, c.lastLng, ad.centerLat, ad.centerLng);
     if (d > ad.radiusKm * 1000) continue;
@@ -192,7 +192,7 @@ async function sendBipiPushAd(adId: string): Promise<void> {
     });
     sent++;
   }
-  await prisma.bipiPushAd.update({
+  await prisma.bubuiPushAd.update({
     where: { id: ad.id },
     data: { sentCount: sent, status: "done" }
   });

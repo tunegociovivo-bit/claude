@@ -35,7 +35,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
   const to = toParam ? new Date(toParam) : new Date();
   to.setHours(23, 59, 59, 999);
 
-  const purchases = await prisma.bipiPurchase.findMany({
+  const purchases = await prisma.bubuiPurchase.findMany({
     where: {
       businessId: params.id,
       status: "confirmed",

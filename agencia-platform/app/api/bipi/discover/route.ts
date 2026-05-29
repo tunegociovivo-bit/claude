@@ -21,7 +21,7 @@ export async function GET(req: Request) {
   const lng = url.searchParams.has("lng") ? Number(url.searchParams.get("lng")) : null;
   const limit = Math.min(60, Math.max(1, Number(url.searchParams.get("limit") ?? 24)));
 
-  const businesses = await prisma.bipiBusiness.findMany({
+  const businesses = await prisma.bubuiBusiness.findMany({
     where: { active: true },
     select: {
       id: true,

@@ -34,15 +34,15 @@ export async function POST(req: Request) {
   const d = parsed.data;
 
   const [business, customer] = await Promise.all([
-    prisma.bipiBusiness.findUnique({ where: { id: d.businessId } }),
-    prisma.bipiCustomer.findUnique({ where: { id: d.customerId } })
+    prisma.bubuiBusiness.findUnique({ where: { id: d.businessId } }),
+    prisma.bubuiCustomer.findUnique({ where: { id: d.customerId } })
   ]);
   if (!business) return NextResponse.json({ error: { code: "not_found", message: "Negocio no existe" } }, { status: 404 });
   if (!business.active) return NextResponse.json({ error: { code: "inactive", message: "Negocio inactivo" } }, { status: 409 });
   if (!customer) return NextResponse.json({ error: { code: "not_found", message: "Cliente no existe" } }, { status: 404 });
 
   // Rate limit: máx 1 escaneo cliente-negocio cada 12h.
-  const recent = await prisma.bipiPurchase.findFirst({
+  const recent = await prisma.bubuiPurchase.findFirst({
     where: {
       customerId: d.customerId,
       businessId: d.businessId,
@@ -58,7 +58,7 @@ export async function POST(req: Request) {
 
   // ¿Hay una oferta canjeable de este cliente para este negocio?
   const now = new Date();
-  const activeOffer = await prisma.bipiOffer.findFirst({
+  const activeOffer = await prisma.bubuiOffer.findFirst({
     where: {
       customerId: d.customerId,
       businessId: d.businessId,
@@ -86,7 +86,7 @@ export async function POST(req: Request) {
     }
   }
 
-  const purchase = await prisma.bipiPurchase.create({
+  const purchase = await prisma.bubuiPurchase.create({
     data: {
       customerId: d.customerId,
       businessId: d.businessId,

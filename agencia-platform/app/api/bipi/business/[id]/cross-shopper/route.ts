@@ -19,11 +19,11 @@ export const dynamic = "force-dynamic";
 
 export async function GET(_req: Request, { params }: { params: { id: string } }) {
   const id = params.id;
-  const business = await prisma.bipiBusiness.findUnique({ where: { id } });
+  const business = await prisma.bubuiBusiness.findUnique({ where: { id } });
   if (!business) return NextResponse.json({ error: { code: "not_found" } }, { status: 404 });
 
   // 1. Cupones que ESTE negocio originó (porque alguien hizo una compra aquí).
-  const originated = await prisma.bipiOffer.findMany({
+  const originated = await prisma.bubuiOffer.findMany({
     where: { triggerBusinessId: id },
     select: {
       businessId: true, // ← negocio destino del cupón
@@ -34,7 +34,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
 
   // 2. Cupones que ESTE negocio recibió (clientes que llegaron con cupón
   //    desbloqueado en otro negocio y canjearon aquí).
-  const received = await prisma.bipiOffer.findMany({
+  const received = await prisma.bubuiOffer.findMany({
     where: { businessId: id, triggerBusinessId: { not: null }, redeemed: true },
     select: {
       triggerBusinessId: true,
@@ -64,7 +64,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
 
   const inIds = Array.from(new Set(received.map((r) => r.triggerBusinessId).filter(Boolean) as string[]));
   const inBusinesses = inIds.length
-    ? await prisma.bipiBusiness.findMany({
+    ? await prisma.bubuiBusiness.findMany({
         where: { id: { in: inIds } },
         select: { id: true, name: true, category: true }
       })

@@ -60,7 +60,7 @@ export async function POST(req: Request) {
   if (!parsed.success) {
     return NextResponse.json({ error: { code: "validation", message: parsed.error.message } }, { status: 400 });
   }
-  const business = await prisma.bipiBusiness.findUnique({ where: { id: parsed.data.businessId } });
+  const business = await prisma.bubuiBusiness.findUnique({ where: { id: parsed.data.businessId } });
   if (!business) {
     return NextResponse.json({ error: { code: "not_found" } }, { status: 404 });
   }

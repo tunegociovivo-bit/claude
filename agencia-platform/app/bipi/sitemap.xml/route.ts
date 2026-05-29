@@ -27,7 +27,7 @@ function esc(s: string): string {
 
 export async function GET(req: Request) {
   const origin = new URL(req.url).origin;
-  const businesses = await prisma.bipiBusiness.findMany({
+  const businesses = await prisma.bubuiBusiness.findMany({
     where: { active: true },
     select: { slug: true, updatedAt: true }
   });

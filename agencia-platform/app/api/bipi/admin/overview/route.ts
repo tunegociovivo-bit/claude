@@ -38,26 +38,26 @@ export async function GET(req: Request) {
     topByCross,
     plansBreakdown
   ] = await Promise.all([
-    prisma.bipiBusiness.count({ where: whereBiz }),
-    prisma.bipiCustomer.count(),
-    prisma.bipiPurchase.count({
+    prisma.bubuiBusiness.count({ where: whereBiz }),
+    prisma.bubuiCustomer.count(),
+    prisma.bubuiPurchase.count({
       where: {
         status: "confirmed",
         scannedAt: { gte: d30 },
         business: city ? { city } : undefined
       }
     }),
-    prisma.bipiOffer.count({
+    prisma.bubuiOffer.count({
       where: { createdAt: { gte: d30 }, business: city ? { city } : undefined }
     }),
-    prisma.bipiOffer.count({
+    prisma.bubuiOffer.count({
       where: {
         redeemed: true,
         redeemedAt: { gte: d30 },
         business: city ? { city } : undefined
       }
     }),
-    prisma.bipiPurchase.aggregate({
+    prisma.bubuiPurchase.aggregate({
       where: {
         status: "confirmed",
         scannedAt: { gte: d30 },
@@ -65,7 +65,7 @@ export async function GET(req: Request) {
       },
       _sum: { amount: true }
     }),
-    prisma.bipiPurchase.groupBy({
+    prisma.bubuiPurchase.groupBy({
       by: ["businessId"],
       where: {
         status: "confirmed",
@@ -75,7 +75,7 @@ export async function GET(req: Request) {
       orderBy: { _count: { businessId: "desc" } },
       take: 10
     }),
-    prisma.bipiOffer.groupBy({
+    prisma.bubuiOffer.groupBy({
       by: ["businessId"],
       where: {
         redeemed: true,
@@ -85,7 +85,7 @@ export async function GET(req: Request) {
       orderBy: { _count: { businessId: "desc" } },
       take: 10
     }),
-    prisma.bipiBusiness.groupBy({
+    prisma.bubuiBusiness.groupBy({
       by: ["plan"],
       _count: { _all: true },
       where: whereBiz
@@ -96,7 +96,7 @@ export async function GET(req: Request) {
   const topCrossIds = topByCross.map((t) => t.businessId);
   const allIds = Array.from(new Set([...topScanIds, ...topCrossIds]));
   const businesses = allIds.length
-    ? await prisma.bipiBusiness.findMany({
+    ? await prisma.bubuiBusiness.findMany({
         where: { id: { in: allIds } },
         select: { id: true, name: true, slug: true, category: true, city: true, visibilityScore: true }
       })

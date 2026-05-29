@@ -30,7 +30,7 @@ export async function POST(req: Request) {
   const d = parsed.data;
 
   // Si el email ya existe, devolvemos su customerId (login-by-email v1).
-  const existing = await prisma.bipiCustomer.findUnique({ where: { email: d.email } });
+  const existing = await prisma.bubuiCustomer.findUnique({ where: { email: d.email } });
   if (existing) {
     return NextResponse.json({
       ok: true,
@@ -42,7 +42,7 @@ export async function POST(req: Request) {
     });
   }
 
-  const customer = await prisma.bipiCustomer.create({
+  const customer = await prisma.bubuiCustomer.create({
     data: {
       email: d.email,
       name: d.name,

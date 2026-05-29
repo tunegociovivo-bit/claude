@@ -25,7 +25,7 @@ export async function GET(req: Request) {
   }
 
   const now = new Date();
-  const offers = await prisma.bipiOffer.findMany({
+  const offers = await prisma.bubuiOffer.findMany({
     where: {
       customerId,
       expiresAt: { gt: now },

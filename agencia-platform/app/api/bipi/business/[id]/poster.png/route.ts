@@ -57,7 +57,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
   const style = (url.searchParams.get("style") ?? "cosy") as keyof typeof STYLES;
   const styleDef = STYLES[style] ?? STYLES.cosy;
 
-  const business = await prisma.bipiBusiness.findUnique({ where: { id: params.id } });
+  const business = await prisma.bubuiBusiness.findUnique({ where: { id: params.id } });
   if (!business) return new NextResponse("Not found", { status: 404 });
 
   const baseUrl = new URL(req.url).origin;

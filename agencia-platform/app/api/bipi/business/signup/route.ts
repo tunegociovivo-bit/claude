@@ -47,7 +47,7 @@ export async function POST(req: Request) {
   }
   const d = parsed.data;
 
-  const exists = await prisma.bipiBusiness.findUnique({ where: { ownerEmail: d.ownerEmail } });
+  const exists = await prisma.bubuiBusiness.findUnique({ where: { ownerEmail: d.ownerEmail } });
   if (exists) {
     return NextResponse.json(
       { error: { code: "email_taken", message: "Ya hay un negocio con ese email" } },
@@ -58,7 +58,7 @@ export async function POST(req: Request) {
   const slug = await uniqueBusinessSlug(d.name);
   const passwordHash = await bcrypt.hash(d.ownerPassword, 10);
 
-  const business = await prisma.bipiBusiness.create({
+  const business = await prisma.bubuiBusiness.create({
     data: {
       slug,
       name: d.name,

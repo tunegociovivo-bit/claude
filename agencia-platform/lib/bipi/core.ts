@@ -27,7 +27,7 @@ export async function uniqueBusinessSlug(name: string): Promise<string> {
     .slice(0, 40);
   let slug = base || "negocio";
   let n = 1;
-  while (await prisma.bipiBusiness.findUnique({ where: { slug } })) {
+  while (await prisma.bubuiBusiness.findUnique({ where: { slug } })) {
     n++;
     slug = `${base}-${n}`;
   }
@@ -81,7 +81,7 @@ export async function unlockOffersForPurchase(opts: {
   triggerLat?: number | null;
   triggerLng?: number | null;
 }): Promise<{ created: number }> {
-  const allNearby = await prisma.bipiBusiness.findMany({
+  const allNearby = await prisma.bubuiBusiness.findMany({
     where: {
       id: { not: opts.triggerBusinessId },
       active: true,
@@ -118,7 +118,7 @@ export async function unlockOffersForPurchase(opts: {
   let created = 0;
   for (const b of targets) {
     try {
-      await prisma.bipiOffer.create({
+      await prisma.bubuiOffer.create({
         data: {
           customerId: opts.customerId,
           businessId: b.id,
@@ -143,16 +143,16 @@ export async function recalculateVisibilityScore(businessId: string): Promise<nu
   const d30 = new Date(now.getTime() - 30 * 86_400_000);
 
   const [scans7, scans30, redeemedFromOthers, business] = await Promise.all([
-    prisma.bipiPurchase.count({
+    prisma.bubuiPurchase.count({
       where: { businessId, status: "confirmed", scannedAt: { gte: d7 } }
     }),
-    prisma.bipiPurchase.count({
+    prisma.bubuiPurchase.count({
       where: { businessId, status: "confirmed", scannedAt: { gte: d30 } }
     }),
-    prisma.bipiOffer.count({
+    prisma.bubuiOffer.count({
       where: { businessId, redeemed: true, redeemedAt: { gte: d30 } }
     }),
-    prisma.bipiBusiness.findUnique({
+    prisma.bubuiBusiness.findUnique({
       where: { id: businessId },
       select: { createdAt: true }
     })
@@ -169,7 +169,7 @@ export async function recalculateVisibilityScore(businessId: string): Promise<nu
   const scoreAge = Math.min(5, Math.floor(ageDays / 30));
 
   const score = score7 + score30 + scoreRedeem + scoreAge;
-  await prisma.bipiBusiness.update({
+  await prisma.bubuiBusiness.update({
     where: { id: businessId },
     data: { visibilityScore: score, scoreUpdatedAt: now }
   });
@@ -185,7 +185,7 @@ export async function recalculateVisibilityScore(businessId: string): Promise<nu
  *    founder →  100+ compras en 20+ negocios distintos
  */
 export async function recalculateAmbassadorLevel(customerId: string): Promise<string> {
-  const purchases = await prisma.bipiPurchase.findMany({
+  const purchases = await prisma.bubuiPurchase.findMany({
     where: { customerId, status: "confirmed" },
     select: { businessId: true }
   });
@@ -196,7 +196,7 @@ export async function recalculateAmbassadorLevel(customerId: string): Promise<st
   else if (total >= 40 && distinct >= 10) level = "gold";
   else if (total >= 15 && distinct >= 5) level = "silver";
   else if (total >= 5 && distinct >= 2) level = "bronze";
-  await prisma.bipiCustomer.update({
+  await prisma.bubuiCustomer.update({
     where: { id: customerId },
     data: { ambassadorLevel: level }
   });

@@ -18,7 +18,7 @@ import type { Metadata } from "next";
 export const revalidate = 300;
 
 async function getBusiness(slug: string) {
-  return prisma.bipiBusiness.findUnique({
+  return prisma.bubuiBusiness.findUnique({
     where: { slug },
     select: {
       id: true,
@@ -75,7 +75,7 @@ export default async function BusinessPublicPage({ params }: { params: { slug: s
   if (!business || !business.active) notFound();
 
   // Otros negocios populares de la red en la misma ciudad (descubrimiento).
-  const others = await prisma.bipiBusiness.findMany({
+  const others = await prisma.bubuiBusiness.findMany({
     where: { city: business.city, active: true, id: { not: business.id } },
     orderBy: { visibilityScore: "desc" },
     take: 6,

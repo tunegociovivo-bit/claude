@@ -30,11 +30,11 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: { code: "validation", message: parsed.error.message } }, { status: 400 });
   }
   const d = parsed.data;
-  const customer = await prisma.bipiCustomer.findUnique({ where: { id: d.customerId } });
+  const customer = await prisma.bubuiCustomer.findUnique({ where: { id: d.customerId } });
   if (!customer) {
     return NextResponse.json({ error: { code: "not_found" } }, { status: 404 });
   }
-  await prisma.bipiPushSubscription.upsert({
+  await prisma.bubuiPushSubscription.upsert({
     where: { endpoint: d.subscription.endpoint },
     create: {
       customerId: d.customerId,

@@ -13,7 +13,7 @@ import { prisma } from "@/lib/db/prisma";
 export const dynamic = "force-dynamic";
 
 export async function GET(_req: Request, { params }: { params: { id: string } }) {
-  const c = await prisma.bipiCustomer.findUnique({
+  const c = await prisma.bubuiCustomer.findUnique({
     where: { id: params.id },
     select: {
       id: true,
@@ -25,7 +25,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
     }
   });
   if (!c) return NextResponse.json({ error: { code: "not_found" } }, { status: 404 });
-  const activeOffers = await prisma.bipiOffer.count({
+  const activeOffers = await prisma.bubuiOffer.count({
     where: { customerId: c.id, redeemed: false, expiresAt: { gt: new Date() } }
   });
   return NextResponse.json({
