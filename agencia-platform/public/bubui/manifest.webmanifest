@@ -1,0 +1,47 @@
+{
+  "name": "Bubui — Descuentos cerca de ti",
+  "short_name": "Bubui",
+  "description": "Cada compra te abre descuentos en otros negocios cerca. Tu barrio, tu cartera.",
+  "start_url": "/bubui/app",
+  "scope": "/bubui/",
+  "display": "standalone",
+  "background_color": "#FFFFFF",
+  "theme_color": "#EC4899",
+  "orientation": "portrait",
+  "lang": "es",
+  "categories": ["shopping", "lifestyle"],
+  "icons": [
+    {
+      "src": "/bubui/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/bubui/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/bubui/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Escanear QR",
+      "short_name": "Escanear",
+      "url": "/bubui/scan/",
+      "icons": [{ "src": "/bubui/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Mis cupones",
+      "short_name": "Cupones",
+      "url": "/bubui/app",
+      "icons": [{ "src": "/bubui/icon-192.png", "sizes": "192x192" }]
+    }
+  ]
+}

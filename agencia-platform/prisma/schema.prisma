@@ -3420,20 +3420,28 @@ model BipiPurchase {
 /// Oferta desbloqueada para un cliente concreto en un negocio concreto.
 /// Se generan tras cada compra confirmada (3-5 ofertas de negocios
 /// complementarios cercanos) y caducan a los 4 días.
-model BipiOffer {
+model BubuiOffer {
+  @@map("BipiOffer")
   id              String   @id @default(cuid())
   customerId      String
   businessId      String   // negocio que ofrece el descuento
   discountPct     Int
   // Negocio "originador" — la compra que desbloqueó esta oferta.
+  // En ofertas de afiliados se usa como marcador: "ref:1" | "ref:3" |
+  // "ref:5" | "ref:welcome" (garantiza unicidad por hito).
   triggerBusinessId String?
+  // Etiqueta de premio no porcentual (ej. "Tapa gratis"). Si está, la UI
+  // la muestra en vez del %.
+  rewardLabel     String?
+  // Origen de la oferta: "cross" (cupón cruzado) | "referral" | "referral_welcome".
+  source          String?  @default("cross")
   expiresAt       DateTime
   redeemed        Boolean  @default(false)
   redeemedAt      DateTime?
   createdAt       DateTime @default(now())
 
-  customer BipiCustomer @relation(fields: [customerId], references: [id], onDelete: Cascade)
-  business BipiBusiness @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  customer BubuiCustomer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  business BubuiBusiness @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
   @@index([customerId, expiresAt])
   @@index([businessId, expiresAt])
@@ -3441,7 +3449,8 @@ model BipiOffer {
 }
 
 /// Anuncio push pagado (el "Push del Día" que paga el negocio por 24h).
-model BipiPushAd {
+model BubuiPushAd {
+  @@map("BipiPushAd")
   id            String   @id @default(cuid())
   businessId    String
   title         String
@@ -3463,14 +3472,15 @@ model BipiPushAd {
   status        String   @default("scheduled") // scheduled | sending | done | cancelled
   createdAt     DateTime @default(now())
 
-  business BipiBusiness @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  business BubuiBusiness @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
   @@index([businessId])
   @@index([startsAt, endsAt])
 }
 
 /// Log de cada push enviado (para evitar dups y medir performance).
-model BipiPushLog {
+model BubuiPushLog {
+  @@map("BipiPushLog")
   id          String   @id @default(cuid())
   customerId  String
   pushAdId    String?
@@ -3479,16 +3489,17 @@ model BipiPushLog {
   sentAt      DateTime @default(now())
   opened      Boolean  @default(false)
 
-  customer BipiCustomer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  customer BubuiCustomer @relation(fields: [customerId], references: [id], onDelete: Cascade)
 
   @@index([customerId, sentAt])
 }
 
-/// Suscripción Web Push de un cliente Bipi (PWA). Permite mandarle
+/// Suscripción Web Push de un cliente Bubui (PWA). Permite mandarle
 /// notificaciones de "tu cupón caduca en 4h" y "nuevo descuento cerca".
 /// Cuando el cliente desinstala la PWA o desactiva permisos, web-push
 /// devuelve 404/410 y la limpiamos automáticamente.
-model BipiPushSubscription {
+model BubuiPushSubscription {
+  @@map("BipiPushSubscription")
   id          String   @id @default(cuid())
   customerId  String
   endpoint    String   @unique
