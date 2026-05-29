@@ -120,6 +120,18 @@ export const authOptions: NextAuthOptions = {
         // refreshes posteriores — así sobrevive en la JWT.
         const sid = (user as any).sid as string | undefined;
         if (sid) token.sid = sid;
+      } else if (token.uid && !token.workspaceId) {
+        // Refresh sin workspaceId: ocurre cuando el usuario inició sesión
+        // antes de ser añadido al workspace. Re-fetching aquí lo resuelve
+        // automáticamente sin obligarle a volver a logarse.
+        const membership = await prisma.membership.findFirst({
+          where: { userId: token.uid as string },
+          orderBy: { joinedAt: "asc" }
+        });
+        if (membership) {
+          token.workspaceId = membership.workspaceId;
+          token.role = membership.role;
+        }
       }
       return token;
     },
