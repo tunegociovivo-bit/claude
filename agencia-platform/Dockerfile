@@ -18,9 +18,12 @@ ENV NODE_ENV=production
 RUN apk add --no-cache libc6-compat openssl tini && \
     addgroup -g 1001 -S nodejs && \
     adduser -S nextjs -u 1001
-RUN mkdir -p ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+# El build standalone de Next NO incluye /public automáticamente. Sin esto,
+# los assets estáticos (logos Bubui, iconos PWA, manifest, service worker)
+# dan 404 en producción.
+COPY --from=builder --chown=nextjs:nodejs /app/public ./public
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/scripts ./scripts
 COPY --from=builder /app/lib ./lib

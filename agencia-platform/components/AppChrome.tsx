@@ -9,7 +9,7 @@ import CommandPalette from "@/components/CommandPalette";
 import MetaCooldownVoiceNotifier from "@/components/MetaCooldownVoiceNotifier";
 import FlashTaskVoiceNotifier from "@/components/FlashTaskVoiceNotifier";
 
-const NO_CHROME_PREFIXES = ["/login", "/r/", "/v/", "/p/"];
+const NO_CHROME_PREFIXES = ["/login", "/r/", "/v/", "/p/", "/bubui", "/bipi"];
 
 export default function AppChrome({ children }: { children: ReactNode }) {
   const pathname = usePathname();
