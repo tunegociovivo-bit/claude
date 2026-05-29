@@ -73,7 +73,22 @@ export async function POST(req: Request) {
     orderBy: { discountPct: "desc" }
   });
 
-  const discountPct = activeOffer?.discountPct ?? business.defaultDiscountPct;
+  // Si hay un cupón canjeable activo, gana ese %. Si no, y la ruleta está
+  // activa, sorteamos un % entre [wheelMinPct, wheelMaxPct]. Si no, el %
+  // por defecto del negocio.
+  let wheelSpin: { rolled: number; min: number; max: number } | null = null;
+  let discountPct: number;
+  if (activeOffer) {
+    discountPct = activeOffer.discountPct;
+  } else if (business.wheelEnabled) {
+    const min = Math.max(0, Math.min(90, business.wheelMinPct ?? 3));
+    const max = Math.max(min, Math.min(90, business.wheelMaxPct ?? 20));
+    const rolled = min + Math.floor(Math.random() * (max - min + 1));
+    discountPct = rolled;
+    wheelSpin = { rolled, min, max };
+  } else {
+    discountPct = business.defaultDiscountPct;
+  }
   const discountAmount = Math.round(d.amount * discountPct) / 100;
 
   // Geo-check anti-fraude.
@@ -145,6 +160,7 @@ export async function POST(req: Request) {
     offersUnlocked,
     business: { id: business.id, name: business.name, category: business.category },
     rejectionReason: purchase.rejectionReason,
-    offerRedeemed: !!activeOffer
+    offerRedeemed: !!activeOffer,
+    wheelSpin
   });
 }

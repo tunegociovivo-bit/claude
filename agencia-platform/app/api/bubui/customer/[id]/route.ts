@@ -21,10 +21,21 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
       email: true,
       totalSaved: true,
       totalPurchases: true,
-      ambassadorLevel: true
+      ambassadorLevel: true,
+      firstBusinessId: true
     }
   });
   if (!c) return NextResponse.json({ error: { code: "not_found" } }, { status: 404 });
+  // Ciudad inferida del negocio de origen para filtrar el slot patrocinado
+  // del feed del cliente. Si no tiene origen → null (no se muestra nada).
+  let city: string | null = null;
+  if (c.firstBusinessId) {
+    const b = await prisma.bubuiBusiness.findUnique({
+      where: { id: c.firstBusinessId },
+      select: { city: true }
+    });
+    city = b?.city ?? null;
+  }
   const activeOffers = await prisma.bubuiOffer.count({
     where: { customerId: c.id, redeemed: false, expiresAt: { gt: new Date() } }
   });
@@ -49,6 +60,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
     totalSaved: c.totalSaved,
     totalPurchases: c.totalPurchases,
     ambassadorLevel: c.ambassadorLevel,
+    city,
     activeOffers,
     savings: purchases.map((p) => ({
       id: p.id,

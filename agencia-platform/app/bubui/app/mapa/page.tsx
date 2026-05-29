@@ -20,6 +20,7 @@ type Business = {
   latitude: number | null;
   longitude: number | null;
   defaultDiscountPct: number;
+  featured?: boolean;
 };
 
 declare global {
@@ -101,15 +102,28 @@ export default function MapaPage() {
     const bounds: [number, number][] = [];
     items.forEach((b) => {
       if (b.latitude == null || b.longitude == null) return;
+      const featured = !!b.featured;
+      const size = featured ? 56 : 44;
+      const height = featured ? 68 : 54;
+      const grad = featured
+        ? "linear-gradient(135deg,#F59E0B,#DB2777)"
+        : "linear-gradient(135deg,#EC4899,#DB2777)";
+      const shadow = featured
+        ? "0 10px 22px -4px rgba(245,158,11,.55)"
+        : "0 8px 16px -4px rgba(236,72,153,.5)";
+      const crown = featured
+        ? '<div style="position:absolute;top:-14px;left:0;right:0;text-align:center;font-size:18px;line-height:1;filter:drop-shadow(0 1px 2px rgba(0,0,0,.25));">⭐</div>'
+        : "";
       const icon = L.divIcon({
         className: "bubui-pin",
-        html: `<div style="position:relative;width:44px;height:54px;">
-          <div style="position:absolute;inset:0;background:linear-gradient(135deg,#EC4899,#DB2777);border-radius:50% 50% 50% 0;transform:rotate(-45deg);box-shadow:0 8px 16px -4px rgba(236,72,153,.5);"></div>
-          <div style="position:absolute;top:6px;left:0;right:0;text-align:center;color:#fff;font-weight:900;font-size:13px;letter-spacing:-0.02em;">-${b.defaultDiscountPct}%</div>
+        html: `<div style="position:relative;width:${size}px;height:${height}px;">
+          ${crown}
+          <div style="position:absolute;inset:0;background:${grad};border-radius:50% 50% 50% 0;transform:rotate(-45deg);box-shadow:${shadow};${featured ? "outline:3px solid #fff;outline-offset:-3px;" : ""}"></div>
+          <div style="position:absolute;top:${featured ? 8 : 6}px;left:0;right:0;text-align:center;color:#fff;font-weight:900;font-size:${featured ? 15 : 13}px;letter-spacing:-0.02em;">-${b.defaultDiscountPct}%</div>
         </div>`,
-        iconSize: [44, 54],
-        iconAnchor: [22, 54],
-        popupAnchor: [0, -48]
+        iconSize: [size, height],
+        iconAnchor: [size / 2, height],
+        popupAnchor: [0, -height + 6]
       });
       const m = L.marker([b.latitude, b.longitude], { icon }).addTo(mapRef.current);
       m.bindPopup(

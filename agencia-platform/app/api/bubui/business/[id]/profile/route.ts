@@ -33,7 +33,13 @@ const schema = z.object({
   loyaltyEnabled: z.boolean().optional(),
   loyaltyGoal: z.number().int().min(2).max(20).optional(),
   loyaltyRewardPct: z.number().int().min(0).max(90).optional(),
-  loyaltyRewardLabel: z.string().trim().max(60).optional().nullable()
+  loyaltyRewardLabel: z.string().trim().max(60).optional().nullable(),
+  birthdayEnabled: z.boolean().optional(),
+  birthdayDiscountPct: z.number().int().min(3).max(50).optional(),
+  birthdayMessage: z.string().trim().max(300).optional().nullable(),
+  wheelEnabled: z.boolean().optional(),
+  wheelMinPct: z.number().int().min(0).max(90).optional(),
+  wheelMaxPct: z.number().int().min(0).max(90).optional()
 });
 
 function tokenAllows(token: string | null, businessId: string): boolean {
@@ -55,6 +61,14 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   const data = { ...parsed.data };
   if (data.googlePlaceId === "") data.googlePlaceId = null;
   if (data.loyaltyRewardLabel === "") data.loyaltyRewardLabel = null;
+  if (data.birthdayMessage === "") data.birthdayMessage = null;
+  // Garantía: ruleta min <= max.
+  if (data.wheelMinPct != null && data.wheelMaxPct != null && data.wheelMinPct > data.wheelMaxPct) {
+    return NextResponse.json(
+      { error: { code: "validation", message: "El mínimo de la ruleta no puede ser mayor que el máximo" } },
+      { status: 400 }
+    );
+  }
 
   const updated = await prisma.bubuiBusiness.update({
     where: { id: params.id },

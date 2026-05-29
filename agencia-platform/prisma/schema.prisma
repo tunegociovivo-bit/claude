@@ -3341,6 +3341,15 @@ model BubuiBusiness {
   loyaltyGoal        Int     @default(5) // nº de visitas para completar
   loyaltyRewardPct   Int     @default(0) // % de la recompensa (0 = label)
   loyaltyRewardLabel String? // texto libre alternativo (ej. "Café gratis")
+  // Premium: cupón automático el día del cumpleaños del cliente.
+  birthdayEnabled    Boolean @default(false)
+  birthdayDiscountPct Int    @default(15)
+  birthdayMessage    String? @db.Text
+  // Premium: ruleta / rasca y gana al escanear el QR. En lugar del descuento
+  // fijo (defaultDiscountPct) se sortea uno aleatorio entre min y max.
+  wheelEnabled       Boolean @default(false)
+  wheelMinPct        Int     @default(3)
+  wheelMaxPct        Int     @default(20)
   // Programa de afiliados: recompensas por hitos de amigos traídos.
   referralEnabled Boolean @default(true)
   referralReward1 String? // recompensa al traer 1 amigo
@@ -3385,6 +3394,7 @@ model BubuiBusiness {
   pushAds        BubuiPushAd[]
   notifications  BubuiBusinessNotification[]
   reviews        BubuiReview[]
+  sponsoredSlots BubuiSponsoredSlot[]
 
   @@index([city, active])
   @@index([referrerId])
@@ -3598,4 +3608,25 @@ model BubuiReview {
 
   @@unique([customerId, businessId])
   @@index([businessId, createdAt])
+}
+
+/// Slot patrocinado: anuncio "hero" del feed del cliente durante una
+/// ventana de tiempo (típicamente 24h). El negocio lo activa desde su panel
+/// si tiene plan != "free" (cuota mensual por plan). Cliente lo ve marcado
+/// como "Patrocinado" al abrir la app, filtrado por su ciudad.
+model BubuiSponsoredSlot {
+  @@map("BipiSponsoredSlot")
+  id         String   @id @default(cuid())
+  businessId String
+  title      String
+  body       String   @db.Text
+  city       String
+  startsAt   DateTime
+  endsAt     DateTime
+  createdAt  DateTime @default(now())
+
+  business BubuiBusiness @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([city, startsAt, endsAt])
+  @@index([businessId, startsAt])
 }

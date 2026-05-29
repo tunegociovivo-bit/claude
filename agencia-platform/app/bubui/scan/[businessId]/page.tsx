@@ -132,8 +132,23 @@ export default function ScanPage() {
           </>
         ) : (
           <>
-            <div className="text-5xl">🎉</div>
-            <h2 className="text-xl font-bold">¡Ahorro aplicado!</h2>
+            <div className="text-5xl">{result?.wheelSpin ? "🎰" : "🎉"}</div>
+            <h2 className="text-xl font-bold">
+              {result?.wheelSpin ? "¡La ruleta ha girado!" : "¡Ahorro aplicado!"}
+            </h2>
+            {result?.wheelSpin && (
+              <div className="rounded-2xl bg-pink-50 border border-pink-200 px-4 py-3">
+                <div className="text-[10px] uppercase tracking-wider font-bold text-pink-700/70">
+                  Te ha tocado
+                </div>
+                <div className="text-5xl font-black text-pink-600 bubui-fade-up">
+                  {result.wheelSpin.rolled}%
+                </div>
+                <div className="text-[11px] text-black/55 mt-1">
+                  Rango posible: {result.wheelSpin.min}% – {result.wheelSpin.max}%
+                </div>
+              </div>
+            )}
             <p className="text-sm text-slate-600">
               Te has llevado un <strong>{result?.discountPct ?? "—"}%</strong>
               {typeof result?.discountAmount === "number" ? ` (${result.discountAmount.toFixed(2)} €)` : ""} en esta compra.

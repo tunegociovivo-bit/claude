@@ -381,6 +381,14 @@ function OffersFeed({ customer, coords, onLogout }: { customer: Customer; coords
       cyclesCompleted: number;
     }>
   >([]);
+  const [sponsored, setSponsored] = useState<
+    Array<{
+      id: string;
+      title: string;
+      body: string;
+      business: { id: string; slug: string; name: string; brandColor: string | null; defaultDiscountPct: number };
+    }>
+  >([]);
 
   // Código de referido del cliente (lazy: se pide la 1ª vez que comparte).
   const refCodeRef = useRef<string | null>(null);
@@ -462,6 +470,13 @@ function OffersFeed({ customer, coords, onLogout }: { customer: Customer; coords
             const merged = { ...customer, ...fresh };
             localStorage.setItem("bubui.customer", JSON.stringify(merged));
           } catch {}
+          // Slots patrocinados de la ciudad del cliente.
+          if (fresh.city) {
+            try {
+              const s = await fetch(`/api/bubui/sponsored?city=${encodeURIComponent(fresh.city)}`);
+              if (s.ok) setSponsored((await s.json()).items ?? []);
+            } catch {}
+          }
         }
       } finally {
         setLoading(false);
@@ -610,6 +625,34 @@ function OffersFeed({ customer, coords, onLogout }: { customer: Customer; coords
         <div className="mb-5 px-3 py-2 rounded-lg bg-black text-xs text-white">
           ✅ Avisos activos. Te avisaremos cuando tus cupones estén a punto de caducar.
         </div>
+      )}
+
+      {sponsored.length > 0 && (
+        <section className="mb-6 space-y-3">
+          {sponsored.map((s) => (
+            <a
+              key={s.id}
+              href={`/bubui/n/${s.business.slug}`}
+              className="block rounded-2xl p-4 bubui-fade-up shadow-sm border"
+              style={{
+                background:
+                  s.business.brandColor
+                    ? `linear-gradient(135deg, ${s.business.brandColor}, #FFE4F1)`
+                    : "linear-gradient(135deg, #FCE7F3, #FDF2F8)",
+                borderColor: "#F9A8D4"
+              }}
+            >
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-pink-700/80">
+                  ⭐ Patrocinado
+                </span>
+                <span className="text-[10px] font-bold text-black/50">{s.business.name}</span>
+              </div>
+              <div className="font-black text-lg leading-tight text-black">{s.title}</div>
+              <div className="text-sm text-black/70 mt-0.5">{s.body}</div>
+            </a>
+          ))}
+        </section>
       )}
 
       {loyalty.length > 0 && (

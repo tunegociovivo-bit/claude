@@ -309,6 +309,12 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
 
       <LoyaltyConfig business={b} token={session.token} onSaved={load} />
 
+      <EngagementConfig business={b} token={session.token} onSaved={load} />
+
+      <PromotionPanel business={b} token={session.token} onChanged={load} />
+
+      <PremiumAnalytics businessId={b.id} token={session.token} plan={b.plan} />
+
       {/* Cruces — la mina de datos */}
       <CrossShopperPanel businessId={b.id} token={session.token} />
 
@@ -625,6 +631,451 @@ function LoyaltyConfig({ business, token, onSaved }: { business: any; token: str
       <button onClick={save} disabled={saving} className="bubui-btn w-full text-sm py-2">
         {saving ? "Guardando…" : "Guardar fidelidad"}
       </button>
+    </section>
+  );
+}
+
+/** Engagement automático: cumpleaños + ruleta al escanear el QR. Solo para
+ *  planes Pro/Premium (la API de PATCH acepta los campos pero el cron solo
+ *  procesa negocios de plan pago, y la ruleta queda inactiva con plan free
+ *  desde el mismo componente). */
+function EngagementConfig({ business, token, onSaved }: { business: any; token: string; onSaved: () => void }) {
+  const paid = business.plan === "pro" || business.plan === "premium";
+  const [bdEnabled, setBdEnabled] = useState<boolean>(business.birthdayEnabled ?? false);
+  const [bdPct, setBdPct] = useState<number>(business.birthdayDiscountPct ?? 15);
+  const [bdMsg, setBdMsg] = useState<string>(business.birthdayMessage ?? "");
+  const [wEnabled, setWEnabled] = useState<boolean>(business.wheelEnabled ?? false);
+  const [wMin, setWMin] = useState<number>(business.wheelMinPct ?? 3);
+  const [wMax, setWMax] = useState<number>(business.wheelMaxPct ?? 20);
+  const [saving, setSaving] = useState(false);
+  const [status, setStatus] = useState<string | null>(null);
+
+  async function save() {
+    setSaving(true);
+    setStatus(null);
+    try {
+      const r = await fetch(`/api/bubui/business/${business.id}/profile`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          birthdayEnabled: bdEnabled,
+          birthdayDiscountPct: Number(bdPct),
+          birthdayMessage: bdMsg.trim() || null,
+          wheelEnabled: wEnabled,
+          wheelMinPct: Number(wMin),
+          wheelMaxPct: Number(wMax)
+        })
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        setStatus(j?.error?.message ?? "Error al guardar.");
+        return;
+      }
+      setStatus("Guardado.");
+      onSaved();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <section className="bubui-card p-5 space-y-4">
+      <div>
+        <h3 className="font-bold text-sm flex items-center gap-2">
+          ⚡ Engagement automático
+          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-300">PREMIUM</span>
+        </h3>
+        <p className="text-xs text-black/55 mt-0.5">
+          Cumpleaños + ruleta al escanear el QR. Solo se aplican si tu plan es Pro o Premium.
+        </p>
+      </div>
+
+      {/* Cumpleaños */}
+      <div className="border-t pt-3">
+        <label className="flex items-center justify-between gap-2 text-sm">
+          <div>
+            <div className="font-semibold">🎂 Cupón de cumpleaños</div>
+            <div className="text-xs text-black/55">
+              El día del cumpleaños del cliente (los que vinieron por tu QR) recibe push + email con un cupón especial.
+            </div>
+          </div>
+          <input type="checkbox" checked={bdEnabled} onChange={(e) => setBdEnabled(e.target.checked)} />
+        </label>
+        {bdEnabled && (
+          <div className="mt-2 grid sm:grid-cols-3 gap-2 text-xs">
+            <label>
+              <span className="block font-medium mb-1">% descuento</span>
+              <input
+                type="number"
+                min={3}
+                max={50}
+                value={bdPct}
+                onChange={(e) => setBdPct(Number(e.target.value))}
+                className="w-full px-2 py-1.5 border rounded bg-white"
+              />
+            </label>
+            <label className="sm:col-span-2">
+              <span className="block font-medium mb-1">Mensaje opcional</span>
+              <input
+                value={bdMsg}
+                onChange={(e) => setBdMsg(e.target.value)}
+                placeholder="Ej. Ven a celebrarlo con nosotros 🎈"
+                className="w-full px-2 py-1.5 border rounded bg-white"
+              />
+            </label>
+          </div>
+        )}
+      </div>
+
+      {/* Ruleta */}
+      <div className="border-t pt-3">
+        <label className="flex items-center justify-between gap-2 text-sm">
+          <div>
+            <div className="font-semibold">🎰 Ruleta al escanear</div>
+            <div className="text-xs text-black/55">
+              En vez del % fijo por escanear el QR, el cliente gira y le sale un % aleatorio entre min y max.
+            </div>
+          </div>
+          <input type="checkbox" checked={wEnabled} onChange={(e) => setWEnabled(e.target.checked)} />
+        </label>
+        {wEnabled && (
+          <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
+            <label>
+              <span className="block font-medium mb-1">% mínimo</span>
+              <input
+                type="number"
+                min={0}
+                max={90}
+                value={wMin}
+                onChange={(e) => setWMin(Number(e.target.value))}
+                className="w-full px-2 py-1.5 border rounded bg-white"
+              />
+            </label>
+            <label>
+              <span className="block font-medium mb-1">% máximo</span>
+              <input
+                type="number"
+                min={0}
+                max={90}
+                value={wMax}
+                onChange={(e) => setWMax(Number(e.target.value))}
+                className="w-full px-2 py-1.5 border rounded bg-white"
+              />
+            </label>
+          </div>
+        )}
+      </div>
+
+      {!paid && (
+        <p className="text-[11px] text-rose-700">
+          Estás en plan Free — al guardar, los toggles quedarán guardados pero no se aplicarán hasta que subas a Pro o Premium.
+        </p>
+      )}
+      {status && <p className="text-xs text-emerald-700">{status}</p>}
+      <button onClick={save} disabled={saving} className="bubui-btn w-full text-sm py-2">
+        {saving ? "Guardando…" : "Guardar engagement"}
+      </button>
+    </section>
+  );
+}
+
+/** Pin destacado en mapa/Descubre + slot patrocinado en el feed. Gated por
+ *  plan != "free". */
+function PromotionPanel({ business, token, onChanged }: { business: any; token: string; onChanged: () => void }) {
+  const paid = business.plan === "pro" || business.plan === "premium";
+  const [featured, setFeatured] = useState<boolean>(business.featured ?? false);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [status, setStatus] = useState<string | null>(null);
+  const [sponsor, setSponsor] = useState<{ quota: number; usedThisMonth: number; remaining: number; active: any | null } | null>(null);
+  const [title, setTitle] = useState("");
+  const [body, setBody] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const r = await fetch(`/api/bubui/business/${business.id}/sponsored`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (!cancelled && r.ok) setSponsor(await r.json());
+    })();
+    return () => { cancelled = true; };
+  }, [business.id, token]);
+
+  async function toggleFeatured() {
+    if (!paid) return;
+    setBusy("featured");
+    setStatus(null);
+    try {
+      const r = await fetch(`/api/bubui/business/${business.id}/featured`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ featured: !featured })
+      });
+      const j = await r.json();
+      if (!r.ok) {
+        setStatus(j?.error?.message ?? "Error");
+        return;
+      }
+      setFeatured(j.featured);
+      onChanged();
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function launchSlot() {
+    if (!paid) return;
+    if (!title.trim() || !body.trim()) {
+      setStatus("Rellena título y cuerpo.");
+      return;
+    }
+    setBusy("slot");
+    setStatus(null);
+    try {
+      const r = await fetch(`/api/bubui/business/${business.id}/sponsored`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ title: title.trim(), body: body.trim() })
+      });
+      const j = await r.json();
+      if (!r.ok) {
+        setStatus(j?.error?.message ?? "Error");
+        return;
+      }
+      setStatus(`Slot activo. Te quedan ${j.remaining} este mes.`);
+      setTitle("");
+      setBody("");
+      // refresca estado
+      const r2 = await fetch(`/api/bubui/business/${business.id}/sponsored`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (r2.ok) setSponsor(await r2.json());
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <section className="bubui-card p-5 space-y-4">
+      <div>
+        <h3 className="font-bold text-sm flex items-center gap-2">
+          ⭐ Visibilidad
+          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-300">PREMIUM</span>
+        </h3>
+      </div>
+
+      {/* Pin destacado */}
+      <div className="border-t pt-3 flex items-center justify-between gap-3">
+        <div>
+          <div className="font-semibold text-sm">📍 Pin destacado en mapa y Descubre</div>
+          <div className="text-xs text-black/55">
+            Apareces primero, con borde rosa, al abrir el mapa o la sección "Descubre".
+          </div>
+        </div>
+        <button
+          onClick={toggleFeatured}
+          disabled={!paid || busy === "featured"}
+          className={"px-3 py-1.5 rounded-full text-xs font-bold border " + (featured ? "bg-pink-500 text-white border-pink-500" : "bg-white border-black/15") + (!paid ? " opacity-50 cursor-not-allowed" : "")}
+        >
+          {featured ? "Activado" : "Activar"}
+        </button>
+      </div>
+
+      {/* Sponsored slot */}
+      <div className="border-t pt-3 space-y-2">
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="font-semibold text-sm">📣 Slot patrocinado (24h)</div>
+            <div className="text-xs text-black/55">
+              Tu negocio aparece como "hero" del feed de clientes de tu ciudad durante 24h.
+            </div>
+          </div>
+          {sponsor && (
+            <span className="text-[11px] font-bold text-black/55">
+              {sponsor.usedThisMonth}/{sponsor.quota} este mes
+            </span>
+          )}
+        </div>
+        {sponsor?.active && (
+          <div className="rounded-lg bg-pink-50 border border-pink-200 p-2 text-xs">
+            <b>Activo ahora:</b> {sponsor.active.title} · acaba el{" "}
+            {new Date(sponsor.active.endsAt).toLocaleString("es-ES", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}.
+          </div>
+        )}
+        <input
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          placeholder="Título corto (máx 60)"
+          className="w-full px-2 py-1.5 border rounded bg-white text-xs"
+          disabled={!paid}
+          maxLength={60}
+        />
+        <textarea
+          rows={2}
+          value={body}
+          onChange={(e) => setBody(e.target.value)}
+          placeholder="Mensaje (máx 180)"
+          className="w-full px-2 py-1.5 border rounded bg-white text-xs"
+          disabled={!paid}
+          maxLength={180}
+        />
+        <button
+          onClick={launchSlot}
+          disabled={!paid || busy === "slot" || (sponsor != null && sponsor.remaining <= 0)}
+          className="bubui-btn w-full text-sm py-2 disabled:opacity-50"
+        >
+          {busy === "slot" ? "Activando…" : "Activar 24h"}
+        </button>
+      </div>
+
+      {!paid && (
+        <p className="text-[11px] text-rose-700 border-t pt-2">
+          Disponible con Pro (1 slot/mes) o Premium (4 slots/mes).
+        </p>
+      )}
+      {status && <p className="text-xs text-emerald-700">{status}</p>}
+    </section>
+  );
+}
+
+/** Analítica premium: cohortes + heatmap. Fetch lazy al abrir. */
+function PremiumAnalytics({ businessId, token, plan }: { businessId: string; token: string; plan: string }) {
+  const paid = plan === "pro" || plan === "premium";
+  const [cohorts, setCohorts] = useState<any[] | null>(null);
+  const [heatmap, setHeatmap] = useState<{ grid: number[][]; max: number; total: number; sinceDays: number } | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
+
+  async function load() {
+    setLoading(true);
+    setError(null);
+    try {
+      const [c, h] = await Promise.all([
+        fetch(`/api/bubui/business/${businessId}/cohorts`, { headers: { Authorization: `Bearer ${token}` } }),
+        fetch(`/api/bubui/business/${businessId}/heatmap`, { headers: { Authorization: `Bearer ${token}` } })
+      ]);
+      if (c.ok) setCohorts((await c.json()).cohorts);
+      if (h.ok) setHeatmap(await h.json());
+      if (!c.ok || !h.ok) setError("No se pudo cargar la analítica.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    if (open && paid && !cohorts) load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  return (
+    <section className="bubui-card p-5 space-y-3">
+      <button onClick={() => setOpen((v) => !v)} className="flex items-center justify-between w-full">
+        <h3 className="font-bold text-sm flex items-center gap-2">
+          📊 Analítica avanzada
+          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-300">PREMIUM</span>
+        </h3>
+        <span className="text-xs text-black/55">{open ? "Cerrar" : "Abrir"}</span>
+      </button>
+      {!paid && open && (
+        <p className="text-xs text-rose-700">Cohortes y heatmap requieren plan Pro o Premium.</p>
+      )}
+      {paid && open && (
+        <>
+          {loading && <p className="text-xs text-black/55">Cargando…</p>}
+          {error && <p className="text-xs text-rose-700">{error}</p>}
+
+          {/* Heatmap día×hora */}
+          {heatmap && (
+            <div className="border-t pt-3">
+              <div className="text-xs font-bold uppercase tracking-wider text-black/45 mb-2">
+                Hora pico / valle · últimos {heatmap.sinceDays} días ({heatmap.total} compras)
+              </div>
+              <div className="overflow-x-auto">
+                <table className="text-[10px] border-separate" style={{ borderSpacing: 2 }}>
+                  <thead>
+                    <tr>
+                      <th></th>
+                      {Array.from({ length: 24 }).map((_, h) => (
+                        <th key={h} className="text-black/40 font-normal w-5 text-center">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"].map((label, d) => (
+                      <tr key={d}>
+                        <td className="text-black/55 pr-1 font-semibold">{label}</td>
+                        {Array.from({ length: 24 }).map((_, h) => {
+                          const v = heatmap.grid[d][h];
+                          const intensity = heatmap.max > 0 ? v / heatmap.max : 0;
+                          const bg = v === 0
+                            ? "#F3F4F6"
+                            : `rgba(236, 72, 153, ${0.15 + intensity * 0.85})`;
+                          return (
+                            <td
+                              key={h}
+                              className="w-5 h-5 rounded text-center"
+                              style={{ background: bg }}
+                              title={`${label} ${h}:00 → ${v} compras`}
+                            />
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <p className="text-[10px] text-black/45 mt-1">
+                Cuanto más rosa, más compras. Las celdas grises son horas sin actividad — ahí mete tus pushes.
+              </p>
+            </div>
+          )}
+
+          {/* Cohortes */}
+          {cohorts && cohorts.length > 0 && (
+            <div className="border-t pt-3">
+              <div className="text-xs font-bold uppercase tracking-wider text-black/45 mb-2">
+                Cohortes y retención
+              </div>
+              <div className="overflow-x-auto">
+                <table className="text-[11px]">
+                  <thead>
+                    <tr className="text-black/45">
+                      <th className="pr-2 text-left">Mes</th>
+                      <th className="px-2">Clientes</th>
+                      {[0, 1, 2, 3, 4, 5, 6].map((n) => (
+                        <th key={n} className="px-2">M+{n}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {cohorts.map((c: any) => (
+                      <tr key={c.cohort} className="border-t">
+                        <td className="pr-2 py-1 font-semibold">{c.cohort}</td>
+                        <td className="px-2 py-1 text-center">{c.size}</td>
+                        {[0, 1, 2, 3, 4, 5, 6].map((n) => {
+                          const b = c.buckets.find((x: any) => x.offset === n);
+                          if (!b) return <td key={n} className="px-2 py-1 text-black/25 text-center">·</td>;
+                          const pct = b.pct;
+                          const bg = pct === 0 ? "#F3F4F6" : `rgba(236, 72, 153, ${0.15 + (pct / 100) * 0.85})`;
+                          return (
+                            <td key={n} className="px-2 py-1 text-center" style={{ background: bg }}>
+                              {pct > 0 ? `${pct}%` : "—"}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <p className="text-[10px] text-black/45 mt-1">
+                Cada fila = clientes que entraron por primera vez ese mes. M+1 = % de ellos que volvió al mes siguiente.
+              </p>
+            </div>
+          )}
+        </>
+      )}
     </section>
   );
 }
