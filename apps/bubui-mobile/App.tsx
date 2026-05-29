@@ -11,6 +11,7 @@ import { Cuenta } from "./src/screens/Cuenta";
 import { Afiliados } from "./src/screens/Afiliados";
 import { Scan } from "./src/screens/Scan";
 import { CheckSession } from "./src/lib/session";
+import { ErrorBoundary } from "./src/components/ErrorBoundary";
 
 export type RootStackParamList = {
   Splash: undefined;
@@ -47,18 +48,20 @@ export default function App() {
   if (!initial) return <Splash />;
 
   return (
-    <NavigationContainer linking={linking}>
-      <StatusBar style="dark" />
-      <Stack.Navigator initialRouteName={initial} screenOptions={{ headerShown: false, animation: "fade" }}>
-        <Stack.Screen name="Splash" component={Splash} />
-        <Stack.Screen name="Onboarding" component={Onboarding} />
-        <Stack.Screen name="Feed" component={Feed} />
-        <Stack.Screen name="Descubre" component={Descubre} />
-        <Stack.Screen name="Mapa" component={Mapa} />
-        <Stack.Screen name="Cuenta" component={Cuenta} />
-        <Stack.Screen name="Afiliados" component={Afiliados} />
-        <Stack.Screen name="Scan" component={Scan} />
-      </Stack.Navigator>
-    </NavigationContainer>
+    <ErrorBoundary>
+      <NavigationContainer linking={linking}>
+        <StatusBar style="dark" />
+        <Stack.Navigator initialRouteName={initial} screenOptions={{ headerShown: false, animation: "fade" }}>
+          <Stack.Screen name="Splash" component={Splash} />
+          <Stack.Screen name="Onboarding" component={Onboarding} />
+          <Stack.Screen name="Feed" component={Feed} />
+          <Stack.Screen name="Descubre" component={Descubre} />
+          <Stack.Screen name="Mapa" component={Mapa} />
+          <Stack.Screen name="Cuenta" component={Cuenta} />
+          <Stack.Screen name="Afiliados" component={Afiliados} />
+          <Stack.Screen name="Scan" component={Scan} />
+        </Stack.Navigator>
+      </NavigationContainer>
+    </ErrorBoundary>
   );
 }

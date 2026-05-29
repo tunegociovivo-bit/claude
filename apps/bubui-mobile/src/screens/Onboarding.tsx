@@ -71,8 +71,8 @@ export function Onboarding() {
         birthDate: birthDate.trim(),
         gender
       });
-      await Location.requestForegroundPermissionsAsync();
-      await Notifications.requestPermissionsAsync();
+      try { await Location.requestForegroundPermissionsAsync(); } catch {}
+      try { await Notifications.requestPermissionsAsync(); } catch {}
       await saveSession({
         customerId: r.customerId,
         name: r.name,

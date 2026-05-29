@@ -65,8 +65,12 @@ export function Feed() {
           lng = loc.coords.longitude;
         }
       } catch {}
-      const r = await api.offers(c.customerId, lat, lng);
-      setOffers(r.items ?? []);
+      try {
+        const r = await api.offers(c.customerId, lat, lng);
+        setOffers(r.items ?? []);
+      } catch {
+        setOffers([]);
+      }
     } finally {
       setRefreshing(false);
     }
