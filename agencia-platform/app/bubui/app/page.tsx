@@ -8,7 +8,7 @@
  * en app nativa con React Native Expo (misma API).
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 type Customer = {
   customerId: string;
@@ -26,7 +26,7 @@ const AMBASSADOR_BADGE: Record<string, { label: string; emoji: string; color: st
 };
 type Offer = {
   offerId: string;
-  business: { id: string; name: string; category: string; city: string; brandColor?: string | null };
+  business: { id: string; slug?: string | null; name: string; category: string; city: string; brandColor?: string | null };
   discountPct: number;
   rewardLabel?: string | null;
   expiresAt: string;
@@ -366,6 +366,61 @@ function OffersFeed({ customer, coords, onLogout }: { customer: Customer; coords
   const [pushState, setPushState] = useState<"unknown" | "unsupported" | "denied" | "granted" | "loading">("unknown");
   const [savings, setSavings] = useState<{ id: string; discountPct: number; discountAmount: number; businessName: string; date: string }[]>([]);
   const [totalSaved, setTotalSaved] = useState(customer.totalSaved ?? 0);
+  const [sharing, setSharing] = useState<string | null>(null);
+  const [shareToast, setShareToast] = useState<string | null>(null);
+
+  // Código de referido del cliente (lazy: se pide la 1ª vez que comparte).
+  const refCodeRef = useRef<string | null>(null);
+  async function getRefCode(): Promise<string | null> {
+    if (refCodeRef.current) return refCodeRef.current;
+    try {
+      const r = await fetch(`/api/bubui/customer/${customer.customerId}/referral`);
+      if (r.ok) {
+        const j = await r.json();
+        if (j.code) {
+          refCodeRef.current = j.code;
+          return j.code;
+        }
+      }
+    } catch {}
+    return null;
+  }
+
+  async function shareOffer(o: Offer) {
+    setSharing(o.offerId);
+    try {
+      const code = await getRefCode();
+      const origin = window.location.origin;
+      // Enlace al negocio con el ref del que comparte (acredita la invitación).
+      const url = o.business.slug
+        ? `${origin}/bubui/n/${o.business.slug}${code ? `?ref=${encodeURIComponent(code)}` : ""}`
+        : code
+          ? `${origin}/bubui/r/${encodeURIComponent(code)}`
+          : `${origin}/bubui/app`;
+      const deal = o.rewardLabel ? o.rewardLabel : `-${o.discountPct}%`;
+      const text = `Mira esta oferta en ${o.business.name} (${deal}) con Bubui 🎁 Descárgate la app y la desbloqueas tú también:`;
+      if (navigator.share) {
+        try {
+          await navigator.share({ title: `Oferta en ${o.business.name}`, text, url });
+          return;
+        } catch {
+          // El usuario canceló el share nativo → no hacemos fallback.
+          return;
+        }
+      }
+      // Fallback sin Web Share API: copia el enlace al portapapeles.
+      try {
+        await navigator.clipboard.writeText(`${text} ${url}`);
+        setShareToast("Enlace copiado. ¡Pégalo y compártelo!");
+        setTimeout(() => setShareToast(null), 2500);
+      } catch {
+        // Último recurso: abre WhatsApp Web.
+        window.open(`https://wa.me/?text=${encodeURIComponent(`${text} ${url}`)}`, "_blank");
+      }
+    } finally {
+      setSharing(null);
+    }
+  }
 
   // Carga ofertas + refresca perfil (badge embajador, total ahorrado real…)
   useEffect(() => {
@@ -580,9 +635,22 @@ function OffersFeed({ customer, coords, onLogout }: { customer: Customer; coords
                     ⏰ {o.hoursLeft}h
                   </div>
                 </div>
+                <button
+                  onClick={() => shareOffer(o)}
+                  disabled={sharing === o.offerId}
+                  className="mt-2 w-full text-xs font-semibold text-pink-600 border border-pink-200 rounded-full py-1.5 hover:bg-pink-50 disabled:opacity-50 inline-flex items-center justify-center gap-1"
+                >
+                  {sharing === o.offerId ? "Compartiendo…" : "📲 Compartir con un amigo"}
+                </button>
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {shareToast && (
+        <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-50 bg-black text-white text-xs font-semibold px-4 py-2 rounded-full shadow-lg">
+          {shareToast}
         </div>
       )}
 

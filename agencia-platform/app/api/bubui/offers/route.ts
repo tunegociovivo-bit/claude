@@ -43,6 +43,7 @@ export async function GET(req: Request) {
       business: {
         select: {
           id: true,
+          slug: true,
           name: true,
           category: true,
           city: true,

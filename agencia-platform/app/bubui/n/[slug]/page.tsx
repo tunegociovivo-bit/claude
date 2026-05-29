@@ -12,9 +12,11 @@
  */
 
 import { notFound } from "next/navigation";
+import { Suspense } from "react";
 import { prisma } from "@/lib/db/prisma";
 import type { Metadata } from "next";
 import ReviewForm from "./ReviewForm";
+import RefCapture from "./RefCapture";
 
 export const revalidate = 300;
 
@@ -180,6 +182,9 @@ export default async function BusinessPublicPage({ params }: { params: { slug: s
 
   return (
     <main className="max-w-3xl mx-auto px-4 py-12">
+      <Suspense fallback={null}>
+        <RefCapture />
+      </Suspense>
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
