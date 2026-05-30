@@ -3566,6 +3566,21 @@ model BubuiPushSubscription {
   @@index([customerId])
 }
 
+/// Token de push para apps móviles nativas (Expo Push Service). El campo
+/// `token` empieza por `ExponentPushToken[...]` o `ExpoPushToken[...]`.
+/// La entrega final en Android necesita FCM configurado en EAS.
+model BubuiMobilePushToken {
+  @@map("BipiMobilePushToken")
+  id          String   @id @default(cuid())
+  customerId  String
+  token       String   @unique
+  platform    String   // "ios" | "android"
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now()) @updatedAt
+
+  @@index([customerId])
+}
+
 /// Ajustes simples clave-valor de Bubui (p. ej. banner del Home).
 model BubuiSetting {
   @@map("BipiSetting")

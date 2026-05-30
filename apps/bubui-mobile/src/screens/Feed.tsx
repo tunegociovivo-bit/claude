@@ -7,6 +7,7 @@ import { api } from "../lib/api";
 import { Wordmark } from "../components/Wordmark";
 import { BottomNav } from "../components/BottomNav";
 import { colors, radius, shadow } from "../lib/theme";
+import { registerExpoPushForCustomer } from "../lib/push";
 
 type Offer = {
   offerId: string;
@@ -57,6 +58,8 @@ export function Feed() {
         return;
       }
       setCustomer(c);
+      // Registramos el token de push en background — no bloquea la carga.
+      registerExpoPushForCustomer(c.customerId).catch(() => {});
       let lat: number | undefined;
       let lng: number | undefined;
       try {

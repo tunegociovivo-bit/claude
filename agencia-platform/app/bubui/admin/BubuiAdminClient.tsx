@@ -360,6 +360,16 @@ function PushPanel() {
   const [link, setLink] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
+  const [stats, setStats] = useState<{
+    web: { enabled: boolean; devices: number; customers: number };
+    mobile: { enabled: boolean; devices: number; customers: number; android: number; ios: number };
+    totalUniqueCustomers: number;
+  } | null>(null);
+
+  useEffect(() => {
+    adminFetch("/api/bubui/admin/push/stats").then(setStats).catch(() => {});
+  }, []);
+
   async function send() {
     if (!title.trim() || !body.trim()) { setMsg("Pon título y mensaje."); return; }
     if (!confirm("¿Enviar esta notificación a todos los usuarios suscritos?")) return;
@@ -367,8 +377,15 @@ function PushPanel() {
     setMsg("");
     try {
       const r = await adminFetch("/api/bubui/admin/push", { method: "POST", body: JSON.stringify({ title, body, link }) });
-      setMsg(`Enviado a ${r.recipients} usuarios (${r.sent} dispositivos).`);
+      const w = r?.channels?.web;
+      const m = r?.channels?.mobile;
+      const parts: string[] = [];
+      if (w) parts.push(`Web ${w.sent}/${w.recipients}`);
+      if (m) parts.push(`Móvil ${m.sent}/${m.recipients}`);
+      setMsg(`Enviado · ${parts.join(" · ")}${r.removed ? ` · ${r.removed} muertos limpiados` : ""}`);
       setTitle(""); setBody(""); setLink("");
+      // refresca stats
+      adminFetch("/api/bubui/admin/push/stats").then(setStats).catch(() => {});
     } catch (e) {
       setMsg("Error: " + String(e));
     } finally {
@@ -379,8 +396,29 @@ function PushPanel() {
     <section className="bubui-card p-5 mt-4 max-w-xl">
       <h2 className="text-sm font-bold mb-2">Notificación push promocional</h2>
       <p className="text-[13px] text-black/55 mb-3">
-        Se envía a todos los usuarios que tengan las notificaciones activadas en la app.
+        Se envía a todos los usuarios suscritos — web (PWA) y app móvil — en una sola operación.
       </p>
+      {stats && (
+        <div className="flex flex-wrap items-center gap-2 mb-3 text-[11px]">
+          <span className="bubui-chip" style={{ cursor: "default" }}>
+            Web · {stats.web.customers} usuarios · {stats.web.devices} disp.
+          </span>
+          <span className="bubui-chip" style={{ cursor: "default" }}>
+            Móvil · {stats.mobile.customers} usuarios · {stats.mobile.android} Android / {stats.mobile.ios} iOS
+          </span>
+          <span className="bubui-chip" style={{ background: "#FCE7F3", color: "#9D174D", cursor: "default" }}>
+            Total únicos · {stats.totalUniqueCustomers}
+          </span>
+        </div>
+      )}
+      {stats && stats.totalUniqueCustomers === 0 && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 mb-3 text-[12px] text-amber-900">
+          <b>Aún no hay nadie suscrito.</b> Los usuarios de la PWA quedan suscritos al aceptar el permiso de
+          notificaciones del navegador. Los usuarios de la app móvil se suscriben al iniciar sesión, pero la
+          entrega final en Android requiere que la app esté firmada con un proyecto Firebase
+          (google-services.json).
+        </div>
+      )}
       <label className="text-xs font-bold uppercase tracking-wide text-black/55">Título</label>
       <input className="bubui-input mb-3 mt-1" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Ej: ¡Ofertas nuevas cerca de ti!" maxLength={120} />
       <label className="text-xs font-bold uppercase tracking-wide text-black/55">Mensaje</label>

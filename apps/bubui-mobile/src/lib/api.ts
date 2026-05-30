@@ -68,6 +68,11 @@ export const api = {
   vapidPublic: () => call("/api/bubui/push/vapid-public"),
   banner: () => call<{ active: boolean; imageUrl?: string; link?: string }>("/api/bubui/banner"),
   stats: () => call<{ businesses: number }>("/api/bubui/stats"),
+  registerPushToken: (args: { customerId: string; token: string; platform: "ios" | "android" }) =>
+    call<{ ok: true }>("/api/bubui/customer/push-token/register", {
+      method: "POST",
+      body: JSON.stringify(args)
+    }),
   subscribePush: (customerId: string, subscription: any, userAgent?: string) =>
     call("/api/bubui/push/subscribe", {
       method: "POST",
