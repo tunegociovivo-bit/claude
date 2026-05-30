@@ -116,8 +116,9 @@ export function Descubre() {
         ListEmptyComponent={
           !loading ? (
             <View style={styles.empty}>
+              <Image source={require("../../assets/ill-tienda.png")} style={styles.emptyIll} resizeMode="contain" />
               <Text style={styles.emptyText}>
-                {items.length === 0 ? "Aún no hay negocios en tu zona. Piloto en Benalmádena." : "Sin resultados."}
+                {items.length === 0 ? "Aún no hay negocios en tu zona.\nPiloto en Benalmádena." : "Sin resultados para tu búsqueda."}
               </Text>
             </View>
           ) : null
@@ -172,6 +173,7 @@ const makeStyles = (c: Palette) =>
     body: { padding: 14 },
     name: { fontWeight: "800", color: c.black, fontSize: 15 },
     meta: { color: c.gray, fontSize: 12, marginTop: 2 },
-    empty: { padding: 24, backgroundColor: c.white, borderRadius: radius.lg, borderColor: c.border, borderWidth: 1 },
+    empty: { padding: 24, alignItems: "center", backgroundColor: c.white, borderRadius: radius.lg, borderColor: c.border, borderWidth: 1 },
+    emptyIll: { width: 180, height: 146, marginBottom: 10 },
     emptyText: { textAlign: "center", color: c.gray, fontSize: 14, lineHeight: 20 }
   });

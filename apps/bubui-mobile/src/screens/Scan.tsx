@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, Alert } from "react-native";
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, Alert, Image } from "react-native";
 import { CameraView, Camera } from "expo-camera";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Location from "expo-location";
@@ -92,10 +92,21 @@ export function Scan() {
   }
 
   if (hasPermission === null) {
-    return <View style={styles.center}><Text style={styles.muted}>Pidiendo permiso de cámara…</Text></View>;
+    return (
+      <View style={[styles.center, { padding: 24 }]}>
+        <Image source={require("../../assets/ill-scan.png")} style={styles.permIll} resizeMode="contain" />
+        <Text style={styles.muted}>Pidiendo permiso de cámara…</Text>
+      </View>
+    );
   }
   if (hasPermission === false) {
-    return <View style={styles.center}><Text style={styles.muted}>Sin permiso de cámara. Actívalo en ajustes.</Text></View>;
+    return (
+      <View style={[styles.center, { padding: 24 }]}>
+        <Image source={require("../../assets/ill-scan.png")} style={styles.permIll} resizeMode="contain" />
+        <Text style={styles.bigTitle}>Necesitamos la cámara</Text>
+        <Text style={styles.muted}>Para escanear el QR del negocio y aplicarte el descuento. Actívala en los ajustes del teléfono.</Text>
+      </View>
+    );
   }
 
   if (done) {
@@ -181,6 +192,7 @@ export function Scan() {
 const makeStyles = (c: Palette) =>
   StyleSheet.create({
     center: { flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: c.bg, gap: 12 },
+    permIll: { width: 200, height: 200, marginBottom: 4 },
     muted: { color: c.gray, textAlign: "center", fontSize: 14, lineHeight: 20, paddingHorizontal: 24 },
     amountRoot: { flex: 1, padding: 24, backgroundColor: c.bg, paddingTop: 80, alignItems: "center" },
     bigTitle: { fontSize: 24, fontWeight: "900", color: c.black, textAlign: "center", letterSpacing: -0.5 },

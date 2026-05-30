@@ -85,9 +85,7 @@ export function Negocio() {
           {b.logoUrl ? (
             <Image source={{ uri: b.logoUrl }} style={styles.logo} resizeMode="cover" />
           ) : (
-            <View style={[styles.logo, styles.logoFallback]}>
-              <Text style={styles.logoInitial}>{b.name.charAt(0).toUpperCase()}</Text>
-            </View>
+            <Image source={require("../../assets/ill-tienda.png")} style={styles.logo} resizeMode="cover" />
           )}
           {discount != null && (
             <View style={styles.tag}><Text style={styles.tagText}>-{discount}%</Text></View>
@@ -152,8 +150,6 @@ const makeStyles = (c: Palette) =>
     shareBtn: { position: "absolute", right: 14, height: 40, width: 40, borderRadius: 20, backgroundColor: "rgba(255,255,255,0.92)", alignItems: "center", justifyContent: "center" },
     shareIcon: { fontSize: 20, fontWeight: "900", color: "#0A0A0A" },
     logo: { height: 110, width: 110, borderRadius: 24, marginBottom: -34, borderWidth: 4, borderColor: c.bg, backgroundColor: c.white, ...shadow.card },
-    logoFallback: { alignItems: "center", justifyContent: "center", backgroundColor: c.pink },
-    logoInitial: { color: c.onAccent, fontSize: 46, fontWeight: "900" },
     tag: { position: "absolute", right: 16, bottom: 14, backgroundColor: c.pink, borderRadius: radius.pill, paddingHorizontal: 14, paddingVertical: 7, ...shadow.btn },
     tagText: { color: c.onAccent, fontWeight: "900", fontSize: 15 },
     body: { paddingHorizontal: 20, paddingTop: 46, alignItems: "center" },

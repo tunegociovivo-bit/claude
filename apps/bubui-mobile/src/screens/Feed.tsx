@@ -31,8 +31,6 @@ type Offer = {
 
 // Banner cuadrado, centrado y acotado: nunca a pantalla completa ni recortado.
 const PROMO_SIZE = Math.min(Dimensions.get("window").width - 64, 300);
-// Tarjeta de estado vacío: ancho explícito (el % no resuelve dentro del FlatList).
-const EMPTY_W = Dimensions.get("window").width - 32;
 
 export function Feed() {
   const nav = useNavigation<any>();
@@ -164,7 +162,11 @@ export function Feed() {
         ListHeaderComponent={header}
         contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 56, paddingBottom: 40 }}
         ListEmptyComponent={
-          <Image source={require("../../assets/empty-cupones.png")} style={styles.empty} resizeMode="contain" />
+          <View style={styles.emptyWrap}>
+            <Image source={require("../../assets/ill-ruta.png")} style={styles.emptyIll} resizeMode="contain" />
+            <Text style={styles.emptyTitle}>Aún no tienes cupones</Text>
+            <Text style={styles.emptyText}>Escanea el QR de un negocio Bubui y empieza a ahorrar en tu barrio.</Text>
+          </View>
         }
         renderItem={({ item }) => (
           <TouchableOpacity
@@ -222,5 +224,8 @@ const makeStyles = (c: Palette) =>
     bizCat: { color: c.gray, fontSize: 12, marginTop: 2 },
     exp: { fontSize: 12, color: c.gray, fontWeight: "700" },
     expUrgent: { color: c.pink },
-    empty: { width: EMPTY_W, height: Math.round((EMPTY_W * 832) / 1304), alignSelf: "center", marginTop: 2 }
+    emptyWrap: { alignItems: "center", paddingHorizontal: 24, paddingTop: 8 },
+    emptyIll: { width: 220, height: 179, marginBottom: 6 },
+    emptyTitle: { fontSize: 17, fontWeight: "900", color: c.black, marginBottom: 4 },
+    emptyText: { fontSize: 14, color: c.gray, textAlign: "center", lineHeight: 20 }
   });
