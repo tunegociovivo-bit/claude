@@ -1,7 +1,17 @@
 import type { Metadata, Viewport } from "next";
+import { Poppins } from "next/font/google";
 import "../globals.css";
 import "./bubui.css";
 import InstallPrompt from "./InstallPrompt";
+
+// Poppins se carga solo dentro de /bubui (no contamina el Hub).
+// `variable` expone --font-poppins para que bubui.css la aplique.
+const poppins = Poppins({
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700", "800", "900"],
+  variable: "--font-poppins",
+  display: "swap"
+});
 
 export const metadata: Metadata = {
   title: "Bubui — Descuentos cruzados entre negocios cerca de ti",
@@ -31,7 +41,7 @@ export const viewport: Viewport = {
 
 export default function BubuiLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="min-h-screen bubui-bg text-black">
+    <div className={`min-h-screen bubui-bg text-black bubui-scope ${poppins.variable}`}>
       <header className="border-b border-black/5 bg-white/80 backdrop-blur-md sticky top-0 z-30">
         <div className="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between">
           <a href="/bubui" className="inline-flex items-center">

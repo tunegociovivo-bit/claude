@@ -28,6 +28,13 @@
     #FFFFFF;
 }
 
+/* Aplicar Poppins a todo lo que esté dentro de /bubui — el layout
+   añade .bubui-scope al wrapper, que también expone --font-poppins. */
+.bubui-scope,
+.bubui-scope * {
+  font-family: var(--font-poppins), ui-rounded, -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+}
+
 /* ── Wordmark "bubui" con punto rosa sobre la i ────────────────────── */
 .bubui-wordmark {
   display: inline-flex;

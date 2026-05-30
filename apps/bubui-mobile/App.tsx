@@ -12,6 +12,10 @@ import { Afiliados } from "./src/screens/Afiliados";
 import { Scan } from "./src/screens/Scan";
 import { CheckSession } from "./src/lib/session";
 import { ErrorBoundary } from "./src/components/ErrorBoundary";
+import { useAppFonts, applyPoppinsToTextDefaults } from "./src/lib/fonts";
+
+// Parche de Text aplicado al evaluar el módulo, antes del primer render.
+applyPoppinsToTextDefaults();
 
 export type RootStackParamList = {
   Splash: undefined;
@@ -37,6 +41,7 @@ const linking = {
 
 export default function App() {
   const [initial, setInitial] = useState<keyof RootStackParamList | null>(null);
+  const [fontsLoaded] = useAppFonts();
 
   useEffect(() => {
     (async () => {
@@ -45,7 +50,9 @@ export default function App() {
     })();
   }, []);
 
-  if (!initial) return <Splash />;
+  // Splash hasta que las fuentes carguen — evita ver Roboto un frame y
+  // luego cambiar a Poppins (FOIT).
+  if (!initial || !fontsLoaded) return <Splash />;
 
   return (
     <ErrorBoundary>
