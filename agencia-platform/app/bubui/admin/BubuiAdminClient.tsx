@@ -195,9 +195,19 @@ async function adminFetch(path: string, init?: RequestInit) {
   });
   if (r.status === 401) {
     window.location.href = "/login?callbackUrl=/bubui/admin";
-    throw new Error("unauthorized");
+    throw new Error("Sesión caducada — vuelve a iniciar sesión.");
   }
-  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  if (!r.ok) {
+    // Lee el cuerpo de error para dar un mensaje útil en la UI.
+    let detail = "";
+    try {
+      const j: any = await r.clone().json();
+      detail = j?.error?.message || j?.error?.code || j?.message || "";
+    } catch {
+      try { detail = (await r.clone().text()).slice(0, 200); } catch {}
+    }
+    throw new Error(`HTTP ${r.status}${detail ? " · " + detail : ""}`);
+  }
   return r.json();
 }
 
