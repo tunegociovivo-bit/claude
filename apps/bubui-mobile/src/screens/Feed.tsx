@@ -137,7 +137,7 @@ export function Feed() {
         </TouchableOpacity>
       </Animated.View>
 
-      {/* Banner promocional: remoto (gestionado desde admin) o el de por defecto */}
+      {/* Banner promocional: remoto (gestionado desde admin) o tarjeta por defecto */}
       {banner?.active && banner.imageUrl ? (
         <TouchableOpacity
           activeOpacity={banner.link ? 0.85 : 1}
@@ -146,7 +146,13 @@ export function Feed() {
           <Image source={{ uri: banner.imageUrl }} style={styles.promo} resizeMode="contain" />
         </TouchableOpacity>
       ) : (
-        <Image source={require("../../assets/promo.png")} style={styles.promo} resizeMode="contain" />
+        <View style={styles.promoCard}>
+          <Image source={require("../../assets/ill-ruta.png")} style={styles.promoIll} resizeMode="contain" />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.promoTitle}>Cuanto más compras local, más ahorras</Text>
+            <Text style={styles.promoSub}>Escanea en cada negocio y desbloquea nuevos cupones cerca de ti.</Text>
+          </View>
+        </View>
       )}
 
       <Text style={styles.section}>Tus cupones activos ({offers.length})</Text>
@@ -213,6 +219,10 @@ const makeStyles = (c: Palette) =>
     cta: { backgroundColor: c.pink, borderRadius: radius.pill, paddingVertical: 16, alignItems: "center", ...shadow.btn },
     ctaText: { color: c.onAccent, fontSize: 16, fontWeight: "800" },
     promo: { width: PROMO_SIZE, height: PROMO_SIZE, alignSelf: "center", marginBottom: 22, borderRadius: radius.xl },
+    promoCard: { flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: c.pinkWash, borderRadius: radius.xl, borderWidth: 1, borderColor: c.pinkSoft, padding: 14, marginBottom: 22 },
+    promoIll: { width: 76, height: 76 },
+    promoTitle: { fontSize: 15, fontWeight: "900", color: c.black, letterSpacing: -0.3 },
+    promoSub: { fontSize: 12, color: c.gray, marginTop: 3, lineHeight: 16 },
     section: { fontSize: 12, fontWeight: "800", color: c.gray, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 10 },
     card: { backgroundColor: c.white, borderRadius: radius.lg, marginBottom: 12, overflow: "hidden", borderWidth: 1, borderColor: c.border, ...shadow.card },
     photo: { height: 130, backgroundColor: c.pinkSoft, justifyContent: "flex-start", alignItems: "flex-end" },
