@@ -18,12 +18,37 @@ function fmtDateHuman(iso: string): string {
   return `${d}/${m}/${y}`;
 }
 
-// Pantallas de bienvenida = ilustraciones de marca (diseño Bubui).
-type Slide = { image: any; cta: string };
+// Pantallas de bienvenida — diseño del mockup oficial. El título lleva
+// una parte rosa al final; la ilustración 3D va centrada.
+type Slide = {
+  image: any;
+  titleStart: string; // parte en negro
+  titleEnd: string;   // parte en rosa
+  subtitle: string;
+  cta: string;
+};
 const SLIDES: Slide[] = [
-  { image: require("../../assets/onb-descuentos.png"), cta: "Siguiente" },
-  { image: require("../../assets/onb-limpio.png"), cta: "Siguiente" },
-  { image: require("../../assets/onb-barrio.png"), cta: "Crear mi cuenta" }
+  {
+    image: require("../../assets/onb-1.png"),
+    titleStart: "Descubre ofertas",
+    titleEnd: "cerca de ti",
+    subtitle: "Ahorra en comercios locales\ncada vez que compras.",
+    cta: "Empezar ahora"
+  },
+  {
+    image: require("../../assets/onb-2.png"),
+    titleStart: "Compra en un",
+    titleEnd: "negocio Bubui",
+    subtitle: "Escanea el QR de caja y\ndesbloquea nuevos descuentos.",
+    cta: "Siguiente"
+  },
+  {
+    image: require("../../assets/onb-3.png"),
+    titleStart: "Salta de comercio en",
+    titleEnd: "comercio",
+    subtitle: "Cuanto más compras local,\nmás beneficios recibes.",
+    cta: "Empezar ahora"
+  }
 ];
 
 export function Onboarding() {
@@ -137,11 +162,8 @@ export function Onboarding() {
     };
     return (
       <View style={styles.root}>
-        <View style={styles.topBar}>
-          <Wordmark size={30} />
-          <TouchableOpacity onPress={goSignup} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-            <Text style={styles.skip}>Saltar</Text>
-          </TouchableOpacity>
+        <View style={styles.brandRow}>
+          <Wordmark size={56} />
         </View>
 
         <View
@@ -163,13 +185,16 @@ export function Onboarding() {
               getItemLayout={(_, i) => ({ length: bodyW, offset: bodyW * i, index: i })}
               onMomentumScrollEnd={(e) => setSlideIndex(Math.round(e.nativeEvent.contentOffset.x / bodyW))}
               renderItem={({ item }) => (
-                <TouchableOpacity
-                  activeOpacity={0.95}
-                  onPress={advance}
-                  style={{ width: bodyW, height: bodyH, alignItems: "center", justifyContent: "center" }}
-                >
-                  <Image source={item.image} style={{ width: bodyW, height: bodyH }} resizeMode="contain" />
-                </TouchableOpacity>
+                <View style={{ width: bodyW, height: bodyH, alignItems: "center" }}>
+                  <Text style={styles.slideTitle}>
+                    {item.titleStart}{"\n"}
+                    <Text style={styles.slideTitleAccent}>{item.titleEnd}</Text>
+                  </Text>
+                  <Text style={styles.slideSubtitle}>{item.subtitle}</Text>
+                  <View style={styles.slideIllustrationWrap}>
+                    <Image source={item.image} style={styles.slideIllustration} resizeMode="contain" />
+                  </View>
+                </View>
               )}
             />
           )}
@@ -181,8 +206,11 @@ export function Onboarding() {
               <View key={i} style={[styles.dot, i === slideIndex && styles.dotActive]} />
             ))}
           </View>
-          <TouchableOpacity style={styles.btn} onPress={advance} activeOpacity={0.9}>
-            <Text style={styles.btnText}>{SLIDES[slideIndex].cta}</Text>
+          <TouchableOpacity style={styles.ctaBtn} onPress={advance} activeOpacity={0.9}>
+            <Text style={styles.ctaBtnText}>{SLIDES[slideIndex].cta}</Text>
+            <View style={styles.ctaArrowCircle}>
+              <Text style={styles.ctaArrow}>→</Text>
+            </View>
           </TouchableOpacity>
         </View>
       </View>
@@ -433,18 +461,76 @@ export function Onboarding() {
 const styles = StyleSheet.create({
   root: { flex: 1, paddingTop: 56, paddingHorizontal: 22, paddingBottom: 36, backgroundColor: colors.white },
   topBar: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  skip: { color: colors.gray, fontSize: 14, fontWeight: "700" },
 
-  slideBody: { flex: 1, justifyContent: "center", alignItems: "center" },
+  // Brand + slide body — diseño del mockup oficial.
+  brandRow: { alignItems: "center", paddingTop: 8, paddingBottom: 16 },
+  slideBody: { flex: 1, justifyContent: "flex-start", alignItems: "center" },
   slideImage: { width: "100%", height: "100%" },
+  slideTitle: {
+    fontSize: 30,
+    lineHeight: 36,
+    fontWeight: "900",
+    color: colors.black,
+    textAlign: "center",
+    letterSpacing: -0.6,
+    marginTop: 8
+  },
+  slideTitleAccent: { color: colors.pink },
+  slideSubtitle: {
+    marginTop: 12,
+    fontSize: 14,
+    lineHeight: 20,
+    color: colors.gray,
+    fontWeight: "500",
+    textAlign: "center"
+  },
+  slideIllustrationWrap: {
+    flex: 1,
+    width: "100%",
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 16
+  },
+  slideIllustration: { width: "100%", height: "100%" },
 
-  // Footer
+  // Footer — dots + botón CTA con flecha en círculo blanco.
   footer: { gap: 18 },
   dots: { flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 6 },
   dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: "rgba(0,0,0,0.15)" },
   dotActive: { width: 24, backgroundColor: colors.pink },
+
+  // CTA principal del slide: pill rosa con flecha en círculo blanco a la derecha.
+  ctaBtn: {
+    backgroundColor: colors.pink,
+    borderRadius: radius.pill,
+    paddingVertical: 16,
+    paddingHorizontal: 28,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    ...shadow.btn
+  },
+  ctaBtnText: {
+    color: colors.white,
+    fontWeight: "800",
+    fontSize: 17,
+    flex: 1,
+    textAlign: "center"
+  },
+  ctaArrowCircle: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: colors.white,
+    alignItems: "center",
+    justifyContent: "center"
+  },
+  ctaArrow: { color: colors.pink, fontSize: 18, fontWeight: "900", marginTop: -2 },
+
+  // Compat alias (en uso por el resto de pantallas).
   btn: { backgroundColor: colors.pink, borderRadius: radius.pill, paddingVertical: 16, alignItems: "center", ...shadow.btn },
   btnText: { color: colors.white, fontWeight: "800", fontSize: 16 },
+  skip: { color: colors.gray, fontSize: 14, fontWeight: "700" },
 
   // Pantalla intermedia "elige tipo" — rediseño con jerarquía: hero card cliente + link secundario negocio
   chooseRoot: { flex: 1, paddingTop: 64, paddingHorizontal: 22, paddingBottom: 28, backgroundColor: colors.white },
