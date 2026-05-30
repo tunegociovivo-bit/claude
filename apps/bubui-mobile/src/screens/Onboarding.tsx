@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ScrollView, Platform, Image, FlatList, Dimensions } from "react-native";
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ScrollView, Platform, Image, FlatList, Dimensions, Linking } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import * as Location from "expo-location";
@@ -28,7 +28,8 @@ const SLIDES: Slide[] = [
 
 export function Onboarding() {
   const nav = useNavigation<any>();
-  const [step, setStep] = useState(0); // 0..2 slides (carrusel), 3 = signup
+  // Flujo: 0..2 = slides (carrusel) → 3 = pantalla "elige tipo" → 4 = signup cliente
+  const [step, setStep] = useState(0);
   const [slideIndex, setSlideIndex] = useState(0);
   const [bodyW, setBodyW] = useState(0);
   const [bodyH, setBodyH] = useState(0);
@@ -150,6 +151,32 @@ export function Onboarding() {
             <Text style={styles.btnText}>{SLIDES[slideIndex].cta}</Text>
           </TouchableOpacity>
         </View>
+      </View>
+    );
+  }
+
+  // Pantalla intermedia: elegir entre alta de cliente o alta de negocio
+  if (step === SLIDES.length) {
+    return (
+      <View style={styles.chooseRoot}>
+        <View style={{ alignItems: "center", marginBottom: 28 }}>
+          <Wordmark size={64} />
+          <Text style={styles.tag}>Ahorra. Disfruta. Apoya local.</Text>
+        </View>
+
+        <Text style={styles.chooseHelp}>¿Qué quieres hacer?</Text>
+
+        <TouchableOpacity style={styles.btn} onPress={() => setStep(SLIDES.length + 1)} activeOpacity={0.9}>
+          <Text style={[styles.btnText, styles.btnTextSmall]}>DARME DE ALTA PARA OBTENER DESCUENTOS Y REGALOS</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.btn, styles.btnSecondary]}
+          onPress={() => Linking.openURL("https://bubui.app/registro").catch(() => {})}
+          activeOpacity={0.9}
+        >
+          <Text style={[styles.btnText, styles.btnTextSmall, styles.btnSecondaryText]}>DAR DE ALTA MI NEGOCIO</Text>
+        </TouchableOpacity>
       </View>
     );
   }
@@ -285,6 +312,13 @@ const styles = StyleSheet.create({
   dotActive: { width: 24, backgroundColor: colors.pink },
   btn: { backgroundColor: colors.pink, borderRadius: radius.pill, paddingVertical: 16, alignItems: "center", ...shadow.btn },
   btnText: { color: colors.white, fontWeight: "800", fontSize: 16 },
+
+  // Pantalla intermedia "elige tipo"
+  chooseRoot: { flex: 1, paddingTop: 100, paddingHorizontal: 24, paddingBottom: 40, backgroundColor: colors.white, gap: 14 },
+  chooseHelp: { textAlign: "center", color: colors.gray, fontSize: 13, fontWeight: "700", marginBottom: 18 },
+  btnSecondary: { backgroundColor: colors.white, borderWidth: 2, borderColor: colors.pink },
+  btnSecondaryText: { color: colors.pink },
+  btnTextSmall: { fontSize: 13, lineHeight: 17, textAlign: "center", paddingHorizontal: 6 },
 
   // Signup
   signupRoot: { paddingTop: 80, paddingHorizontal: 24, paddingBottom: 60, backgroundColor: colors.white, flexGrow: 1 },
