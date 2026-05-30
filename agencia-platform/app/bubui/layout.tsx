@@ -3,6 +3,7 @@ import { Poppins } from "next/font/google";
 import "../globals.css";
 import "./bubui.css";
 import InstallPrompt from "./InstallPrompt";
+import { BubuiErrorBoundary } from "./BubuiErrorBoundary";
 
 // Poppins se carga solo dentro de /bubui (no contamina el Hub).
 // `variable` expone --font-poppins para que bubui.css la aplique.
@@ -61,7 +62,7 @@ export default function BubuiLayout({ children }: { children: React.ReactNode })
           </nav>
         </div>
       </header>
-      {children}
+      <BubuiErrorBoundary>{children}</BubuiErrorBoundary>
       <footer className="mt-20 py-8 text-center text-xs text-black/40 border-t border-black/5">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src="/bubui/logo.png" alt="bubui" className="inline-block align-middle" style={{ height: 20, width: "auto" }} />

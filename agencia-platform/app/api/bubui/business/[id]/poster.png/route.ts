@@ -118,12 +118,15 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
   const textSvg = `
     <svg width="${POSTER_SIZE}" height="${POSTER_SIZE}" xmlns="http://www.w3.org/2000/svg">
       <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&amp;display=swap');
-        .name { font: 900 60px Inter, sans-serif; fill: ${styleDef.palette.fg}; }
-        .cat  { font: 400 30px Inter, sans-serif; fill: ${styleDef.palette.fg}; opacity: 0.8; }
-        .off  { font: 900 38px Inter, sans-serif; fill: ${styleDef.palette.accent}; }
-        .hint { font: 600 24px Inter, sans-serif; fill: ${styleDef.palette.fg}; opacity: 0.85; }
-        .brand{ font: 800 28px Inter, sans-serif; fill: ${styleDef.palette.accent}; }
+        /* Sharp / librsvg solo puede usar fuentes del sistema; un @import a
+           Google Fonts no se resuelve aquí (resultado: cuadrados ▢▢). Usamos
+           la familia genérica sans-serif que en el Linux base de Railway
+           se resuelve a DejaVu Sans. */
+        .name { font: 900 60px sans-serif; fill: ${styleDef.palette.fg}; }
+        .cat  { font: 400 30px sans-serif; fill: ${styleDef.palette.fg}; opacity: 0.8; }
+        .off  { font: 900 38px sans-serif; fill: ${styleDef.palette.accent}; }
+        .hint { font: 600 24px sans-serif; fill: ${styleDef.palette.fg}; opacity: 0.85; }
+        .brand{ font: 800 28px sans-serif; fill: ${styleDef.palette.accent}; }
       </style>
       <text x="50%" y="100" text-anchor="middle" class="brand">bubui</text>
       <text x="50%" y="170" text-anchor="middle" class="name">${headline}</text>
