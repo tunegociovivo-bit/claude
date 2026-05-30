@@ -8,29 +8,23 @@
 
 import webPush from "web-push";
 import { prisma } from "@/lib/db/prisma";
+import { getVapidConfig, isVapidConfigured } from "@/lib/push/vapid";
 
 let initialized = false;
 function init() {
   if (initialized) return;
   if (!isBubuiPushEnabled()) return;
-  webPush.setVapidDetails(
-    `mailto:${process.env.VAPID_CONTACT_EMAIL}`,
-    process.env.VAPID_PUBLIC_KEY!,
-    process.env.VAPID_PRIVATE_KEY!
-  );
+  const v = getVapidConfig();
+  webPush.setVapidDetails(`mailto:${v.contactEmail}`, v.publicKey, v.privateKey);
   initialized = true;
 }
 
 export function isBubuiPushEnabled(): boolean {
-  return Boolean(
-    process.env.VAPID_PUBLIC_KEY &&
-      process.env.VAPID_PRIVATE_KEY &&
-      process.env.VAPID_CONTACT_EMAIL
-  );
+  return isVapidConfigured();
 }
 
 export function getBubuiVapidPublicKey(): string | null {
-  return process.env.VAPID_PUBLIC_KEY ?? null;
+  return getVapidConfig().publicKey;
 }
 
 export async function sendPushToBubuiCustomer(
