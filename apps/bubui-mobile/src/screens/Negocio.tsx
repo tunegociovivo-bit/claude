@@ -2,7 +2,7 @@ import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, Linking, S
 import { useNavigation, useRoute, type RouteProp } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { API_BASE } from "../lib/api";
-import { colors, radius, shadow } from "../lib/theme";
+import { useTheme, type Palette, radius, shadow } from "../lib/theme";
 import type { RootStackParamList } from "../../App";
 
 /** Negocio mostrado en el detalle. Reúne los campos que devuelven los
@@ -39,6 +39,8 @@ function fmtDistance(m: number | null | undefined): string | null {
 export function Negocio() {
   const nav = useNavigation<any>();
   const insets = useSafeAreaInsets();
+  const c = useTheme();
+  const styles = makeStyles(c);
   const { business: b } = useRoute<NegocioRoute>().params;
 
   const discount = b.discountPct ?? b.defaultDiscountPct;
@@ -72,7 +74,7 @@ export function Negocio() {
     <View style={styles.root}>
       <ScrollView contentContainerStyle={{ paddingBottom: 32 }}>
         {/* Hero con color de marca o logo */}
-        <View style={[styles.hero, { backgroundColor: b.brandColor || colors.pinkSoft, paddingTop: insets.top + 8 }]}>
+        <View style={[styles.hero, { backgroundColor: b.brandColor || c.pinkSoft, paddingTop: insets.top + 8 }]}>
           <TouchableOpacity style={styles.closeBtn} onPress={() => (nav.canGoBack() ? nav.goBack() : nav.navigate("Feed"))} hitSlop={8}>
             <Text style={styles.closeText}>‹</Text>
           </TouchableOpacity>
@@ -116,7 +118,7 @@ export function Negocio() {
           {b.hoursLeft != null && (
             <View style={styles.infoRow}>
               <Text style={styles.infoIcon}>⏰</Text>
-              <Text style={[styles.infoText, b.hoursLeft < 24 && { color: colors.pink, fontWeight: "800" }]}>
+              <Text style={[styles.infoText, b.hoursLeft < 24 && { color: c.pink, fontWeight: "800" }]}>
                 Tu cupón caduca en {b.hoursLeft}h
               </Text>
             </View>
@@ -141,30 +143,31 @@ export function Negocio() {
   );
 }
 
-const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.white },
-  hero: { height: 240, alignItems: "center", justifyContent: "flex-end", paddingBottom: 0 },
-  closeBtn: { position: "absolute", left: 14, height: 40, width: 40, borderRadius: 20, backgroundColor: "rgba(255,255,255,0.92)", alignItems: "center", justifyContent: "center" },
-  closeText: { fontSize: 26, fontWeight: "900", color: colors.black, marginTop: -2 },
-  shareBtn: { position: "absolute", right: 14, height: 40, width: 40, borderRadius: 20, backgroundColor: "rgba(255,255,255,0.92)", alignItems: "center", justifyContent: "center" },
-  shareIcon: { fontSize: 20, fontWeight: "900", color: colors.black },
-  logo: { height: 110, width: 110, borderRadius: 24, marginBottom: -34, borderWidth: 4, borderColor: colors.white, backgroundColor: colors.white, ...shadow.card },
-  logoFallback: { alignItems: "center", justifyContent: "center", backgroundColor: colors.pink },
-  logoInitial: { color: colors.white, fontSize: 46, fontWeight: "900" },
-  tag: { position: "absolute", right: 16, bottom: 14, backgroundColor: colors.pink, borderRadius: radius.pill, paddingHorizontal: 14, paddingVertical: 7, ...shadow.btn },
-  tagText: { color: colors.white, fontWeight: "900", fontSize: 15 },
-  body: { paddingHorizontal: 20, paddingTop: 46, alignItems: "center" },
-  name: { fontSize: 24, fontWeight: "900", color: colors.black, textAlign: "center", letterSpacing: -0.5 },
-  meta: { fontSize: 14, color: colors.gray, marginTop: 4, textAlign: "center" },
-  badge: { marginTop: 12, backgroundColor: colors.pinkWash, borderRadius: radius.pill, paddingHorizontal: 14, paddingVertical: 7, borderWidth: 1, borderColor: colors.pinkSoft },
-  badgeText: { color: colors.pinkDeep, fontWeight: "800", fontSize: 13 },
-  reward: { marginTop: 12, fontSize: 15, fontWeight: "700", color: colors.ink, textAlign: "center" },
-  infoRow: { flexDirection: "row", alignItems: "center", gap: 8, alignSelf: "stretch", marginTop: 14, paddingHorizontal: 4 },
-  infoIcon: { fontSize: 16 },
-  infoText: { flex: 1, fontSize: 14, color: colors.ink, lineHeight: 20 },
-  cta: { alignSelf: "stretch", marginTop: 26, backgroundColor: colors.pink, borderRadius: radius.pill, paddingVertical: 16, alignItems: "center", ...shadow.btn },
-  ctaText: { color: colors.white, fontSize: 16, fontWeight: "800" },
-  secRow: { flexDirection: "row", gap: 10, alignSelf: "stretch", marginTop: 12 },
-  secBtn: { flex: 1, paddingVertical: 14, alignItems: "center", borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.white },
-  secText: { fontSize: 14, fontWeight: "800", color: colors.black }
-});
+const makeStyles = (c: Palette) =>
+  StyleSheet.create({
+    root: { flex: 1, backgroundColor: c.bg },
+    hero: { height: 240, alignItems: "center", justifyContent: "flex-end", paddingBottom: 0 },
+    closeBtn: { position: "absolute", left: 14, height: 40, width: 40, borderRadius: 20, backgroundColor: "rgba(255,255,255,0.92)", alignItems: "center", justifyContent: "center" },
+    closeText: { fontSize: 26, fontWeight: "900", color: "#0A0A0A", marginTop: -2 },
+    shareBtn: { position: "absolute", right: 14, height: 40, width: 40, borderRadius: 20, backgroundColor: "rgba(255,255,255,0.92)", alignItems: "center", justifyContent: "center" },
+    shareIcon: { fontSize: 20, fontWeight: "900", color: "#0A0A0A" },
+    logo: { height: 110, width: 110, borderRadius: 24, marginBottom: -34, borderWidth: 4, borderColor: c.bg, backgroundColor: c.white, ...shadow.card },
+    logoFallback: { alignItems: "center", justifyContent: "center", backgroundColor: c.pink },
+    logoInitial: { color: c.onAccent, fontSize: 46, fontWeight: "900" },
+    tag: { position: "absolute", right: 16, bottom: 14, backgroundColor: c.pink, borderRadius: radius.pill, paddingHorizontal: 14, paddingVertical: 7, ...shadow.btn },
+    tagText: { color: c.onAccent, fontWeight: "900", fontSize: 15 },
+    body: { paddingHorizontal: 20, paddingTop: 46, alignItems: "center" },
+    name: { fontSize: 24, fontWeight: "900", color: c.black, textAlign: "center", letterSpacing: -0.5 },
+    meta: { fontSize: 14, color: c.gray, marginTop: 4, textAlign: "center" },
+    badge: { marginTop: 12, backgroundColor: c.pinkWash, borderRadius: radius.pill, paddingHorizontal: 14, paddingVertical: 7, borderWidth: 1, borderColor: c.pinkSoft },
+    badgeText: { color: c.pinkDeep, fontWeight: "800", fontSize: 13 },
+    reward: { marginTop: 12, fontSize: 15, fontWeight: "700", color: c.ink, textAlign: "center" },
+    infoRow: { flexDirection: "row", alignItems: "center", gap: 8, alignSelf: "stretch", marginTop: 14, paddingHorizontal: 4 },
+    infoIcon: { fontSize: 16 },
+    infoText: { flex: 1, fontSize: 14, color: c.ink, lineHeight: 20 },
+    cta: { alignSelf: "stretch", marginTop: 26, backgroundColor: c.pink, borderRadius: radius.pill, paddingVertical: 16, alignItems: "center", ...shadow.btn },
+    ctaText: { color: c.onAccent, fontSize: 16, fontWeight: "800" },
+    secRow: { flexDirection: "row", gap: 10, alignSelf: "stretch", marginTop: 12 },
+    secBtn: { flex: 1, paddingVertical: 14, alignItems: "center", borderRadius: radius.md, borderWidth: 1, borderColor: c.border, backgroundColor: c.white },
+    secText: { fontSize: 14, fontWeight: "800", color: c.black }
+  });

@@ -5,10 +5,12 @@ import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import { CheckSession } from "../lib/session";
 import { API_BASE } from "../lib/api";
 import { BottomNav } from "../components/BottomNav";
-import { colors } from "../lib/theme";
+import { useTheme, type Palette } from "../lib/theme";
 
 export function Afiliados() {
   const nav = useNavigation<any>();
+  const c = useTheme();
+  const styles = makeStyles(c);
   const [cid, setCid] = useState<string | null>(null);
 
   useFocusEffect(
@@ -26,7 +28,7 @@ export function Afiliados() {
       {cid ? (
         <WebView
           source={{ uri: `${API_BASE}/bubui/app/afiliados?cid=${encodeURIComponent(cid)}` }}
-          style={{ flex: 1 }}
+          style={{ flex: 1, backgroundColor: c.bg }}
           onShouldStartLoadWithRequest={(req) => {
             const u = req.url;
             if (/^(whatsapp:|mailto:|tel:|sms:)/.test(u) || /wa\.me|api\.whatsapp\.com/.test(u)) {
@@ -37,18 +39,19 @@ export function Afiliados() {
           }}
           startInLoadingState
           renderLoading={() => (
-            <View style={styles.loading}><ActivityIndicator color={colors.pink} size="large" /></View>
+            <View style={styles.loading}><ActivityIndicator color={c.pink} size="large" /></View>
           )}
         />
       ) : (
-        <View style={styles.loading}><ActivityIndicator color={colors.pink} size="large" /></View>
+        <View style={styles.loading}><ActivityIndicator color={c.pink} size="large" /></View>
       )}
       <BottomNav active="Afiliados" />
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.white, paddingTop: 44 },
-  loading: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center", backgroundColor: colors.white }
-});
+const makeStyles = (c: Palette) =>
+  StyleSheet.create({
+    root: { flex: 1, backgroundColor: c.bg, paddingTop: 44 },
+    loading: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center", backgroundColor: c.bg }
+  });

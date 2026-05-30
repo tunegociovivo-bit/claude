@@ -5,18 +5,20 @@ import { CheckSession, clearSession, type Customer } from "../lib/session";
 import { Wordmark } from "../components/Wordmark";
 import { BottomNav } from "../components/BottomNav";
 import { API_BASE } from "../lib/api";
-import { colors, radius, shadow } from "../lib/theme";
+import { useTheme, type Palette, radius, shadow } from "../lib/theme";
 
 export function Cuenta() {
   const nav = useNavigation<any>();
-  const [c, setC] = useState<Customer | null>(null);
+  const c = useTheme();
+  const styles = makeStyles(c);
+  const [customer, setCustomer] = useState<Customer | null>(null);
 
   useFocusEffect(
     useCallback(() => {
       (async () => {
         const s = await CheckSession();
         if (!s) { nav.reset({ index: 0, routes: [{ name: "Onboarding" }] }); return; }
-        setC(s);
+        setCustomer(s);
       })();
     }, [nav])
   );
@@ -35,20 +37,20 @@ export function Cuenta() {
 
         <View style={styles.profile}>
           <View style={styles.avatar}>
-            <Text style={styles.avatarText}>{(c?.name ?? c?.email ?? "?").charAt(0).toUpperCase()}</Text>
+            <Text style={styles.avatarText}>{(customer?.name ?? customer?.email ?? "?").charAt(0).toUpperCase()}</Text>
           </View>
-          <Text style={styles.name}>{c?.name ?? "Cliente Bubui"}</Text>
-          {!!c?.email && <Text style={styles.sub}>{c.email}</Text>}
+          <Text style={styles.name}>{customer?.name ?? "Cliente Bubui"}</Text>
+          {!!customer?.email && <Text style={styles.sub}>{customer.email}</Text>}
         </View>
 
         <View style={styles.statRow}>
           <View style={styles.stat}>
             <Text style={styles.statLabel}>HAS AHORRADO</Text>
-            <Text style={styles.statValue}>{(c?.totalSaved ?? 0).toFixed(2)} €</Text>
+            <Text style={styles.statValue}>{(customer?.totalSaved ?? 0).toFixed(2)} €</Text>
           </View>
           <View style={styles.stat}>
             <Text style={styles.statLabel}>COMPRAS</Text>
-            <Text style={styles.statValue}>{c?.totalPurchases ?? 0}</Text>
+            <Text style={styles.statValue}>{customer?.totalPurchases ?? 0}</Text>
           </View>
         </View>
 
@@ -74,22 +76,23 @@ export function Cuenta() {
   );
 }
 
-const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.white },
-  profile: { alignItems: "center", marginBottom: 18 },
-  avatar: { height: 72, width: 72, borderRadius: 36, backgroundColor: colors.pink, alignItems: "center", justifyContent: "center", marginBottom: 10, ...shadow.btn },
-  avatarText: { color: colors.white, fontSize: 30, fontWeight: "900" },
-  name: { fontSize: 20, fontWeight: "900", color: colors.black },
-  sub: { fontSize: 13, color: colors.gray, marginTop: 2 },
-  statRow: { flexDirection: "row", gap: 10, marginBottom: 18 },
-  stat: { flex: 1, backgroundColor: colors.white, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, padding: 16, ...shadow.card },
-  statLabel: { fontSize: 10, fontWeight: "800", letterSpacing: 0.5, color: colors.grayLight },
-  statValue: { fontSize: 24, fontWeight: "900", color: colors.pink, marginTop: 2 },
-  link: { flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: colors.white, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, padding: 16, marginBottom: 10 },
-  linkIcon: { fontSize: 18 },
-  linkText: { flex: 1, fontSize: 14, fontWeight: "700", color: colors.black },
-  chev: { fontSize: 22, color: colors.grayLight },
-  logout: { marginTop: 8, paddingVertical: 14, alignItems: "center", borderRadius: radius.pill, borderWidth: 2, borderColor: "#E5E7EB" },
-  logoutText: { fontSize: 15, fontWeight: "800", color: colors.gray },
-  legal: { fontSize: 11, color: colors.grayLight, textAlign: "center", marginTop: 22 }
-});
+const makeStyles = (c: Palette) =>
+  StyleSheet.create({
+    root: { flex: 1, backgroundColor: c.bg },
+    profile: { alignItems: "center", marginBottom: 18 },
+    avatar: { height: 72, width: 72, borderRadius: 36, backgroundColor: c.pink, alignItems: "center", justifyContent: "center", marginBottom: 10, ...shadow.btn },
+    avatarText: { color: c.onAccent, fontSize: 30, fontWeight: "900" },
+    name: { fontSize: 20, fontWeight: "900", color: c.black },
+    sub: { fontSize: 13, color: c.gray, marginTop: 2 },
+    statRow: { flexDirection: "row", gap: 10, marginBottom: 18 },
+    stat: { flex: 1, backgroundColor: c.white, borderRadius: radius.lg, borderWidth: 1, borderColor: c.border, padding: 16, ...shadow.card },
+    statLabel: { fontSize: 10, fontWeight: "800", letterSpacing: 0.5, color: c.grayLight },
+    statValue: { fontSize: 24, fontWeight: "900", color: c.pink, marginTop: 2 },
+    link: { flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: c.white, borderRadius: radius.md, borderWidth: 1, borderColor: c.border, padding: 16, marginBottom: 10 },
+    linkIcon: { fontSize: 18 },
+    linkText: { flex: 1, fontSize: 14, fontWeight: "700", color: c.black },
+    chev: { fontSize: 22, color: c.grayLight },
+    logout: { marginTop: 8, paddingVertical: 14, alignItems: "center", borderRadius: radius.pill, borderWidth: 2, borderColor: c.border },
+    logoutText: { fontSize: 15, fontWeight: "800", color: c.gray },
+    legal: { fontSize: 11, color: c.grayLight, textAlign: "center", marginTop: 22 }
+  });

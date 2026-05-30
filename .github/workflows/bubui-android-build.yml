@@ -1,0 +1,51 @@
+name: Build APK Bubui (Android · EAS)
+
+# Compila la app móvil Bubui en la nube de EAS y deja un enlace de descarga
+# del APK (perfil "preview") o del AAB (perfil "production").
+#
+# REQUISITO: añadir un secret de repositorio llamado EXPO_TOKEN con un
+# Access Token de la cuenta de Expo dueña del proyecto (owner: bipiapp).
+# Se crea en https://expo.dev/accounts/[cuenta]/settings/access-tokens
+#
+# Uso: pestaña Actions → "Build APK Bubui (Android · EAS)" → Run workflow.
+
+on:
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: "Perfil EAS (preview = APK instalable · production = AAB para Play)"
+        required: true
+        default: preview
+        type: choice
+        options:
+          - preview
+          - production
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/bubui-mobile
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: apps/bubui-mobile/package-lock.json
+
+      - name: Setup EAS
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: EAS Build (Android)
+        run: eas build --platform android --profile ${{ github.event.inputs.profile }} --non-interactive --wait

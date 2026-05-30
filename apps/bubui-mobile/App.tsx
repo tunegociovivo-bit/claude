@@ -1,4 +1,4 @@
-import { NavigationContainer } from "@react-navigation/native";
+import { NavigationContainer, DefaultTheme, DarkTheme, type Theme } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { useEffect, useState } from "react";
 import { StatusBar } from "expo-status-bar";
@@ -14,6 +14,9 @@ import { Negocio, type NegocioParam } from "./src/screens/Negocio";
 import { CheckSession } from "./src/lib/session";
 import { ErrorBoundary } from "./src/components/ErrorBoundary";
 import { useAppFonts, applyPoppinsToTextDefaults } from "./src/lib/fonts";
+import { ThemeProvider, useThemeMeta } from "./src/lib/theme";
+// Registra la task de geofencing en background (debe importarse pronto).
+import "./src/lib/geofence";
 
 // Parche de Text aplicado al evaluar el módulo, antes del primer render.
 applyPoppinsToTextDefaults();
@@ -41,9 +44,10 @@ const linking = {
   }
 };
 
-export default function App() {
+function AppInner() {
   const [initial, setInitial] = useState<keyof RootStackParamList | null>(null);
   const [fontsLoaded] = useAppFonts();
+  const { colors, dark } = useThemeMeta();
 
   useEffect(() => {
     (async () => {
@@ -56,10 +60,22 @@ export default function App() {
   // luego cambiar a Poppins (FOIT).
   if (!initial || !fontsLoaded) return <Splash />;
 
+  const navTheme: Theme = {
+    ...(dark ? DarkTheme : DefaultTheme),
+    colors: {
+      ...(dark ? DarkTheme : DefaultTheme).colors,
+      background: colors.bg,
+      card: colors.white,
+      text: colors.black,
+      border: colors.border,
+      primary: colors.pink
+    }
+  };
+
   return (
     <ErrorBoundary>
-      <NavigationContainer linking={linking}>
-        <StatusBar style="dark" />
+      <NavigationContainer linking={linking} theme={navTheme}>
+        <StatusBar style={dark ? "light" : "dark"} />
         <Stack.Navigator initialRouteName={initial} screenOptions={{ headerShown: false, animation: "fade" }}>
           <Stack.Screen name="Splash" component={Splash} />
           <Stack.Screen name="Onboarding" component={Onboarding} />
@@ -73,5 +89,13 @@ export default function App() {
         </Stack.Navigator>
       </NavigationContainer>
     </ErrorBoundary>
+  );
+}
+
+export default function App() {
+  return (
+    <ThemeProvider>
+      <AppInner />
+    </ThemeProvider>
   );
 }

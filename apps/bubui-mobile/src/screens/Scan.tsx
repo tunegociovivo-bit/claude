@@ -6,7 +6,7 @@ import * as Location from "expo-location";
 import { useNavigation, useRoute, type RouteProp } from "@react-navigation/native";
 import { CheckSession } from "../lib/session";
 import { api } from "../lib/api";
-import { colors, radius, shadow } from "../lib/theme";
+import { useTheme, type Palette, radius, shadow } from "../lib/theme";
 import type { RootStackParamList } from "../../App";
 
 type ScanRoute = RouteProp<RootStackParamList, "Scan">;
@@ -15,6 +15,8 @@ export function Scan() {
   const nav = useNavigation<any>();
   const route = useRoute<ScanRoute>();
   const insets = useSafeAreaInsets();
+  const c = useTheme();
+  const styles = makeStyles(c);
   const initialBusinessId = route.params?.businessId || "";
 
   const [hasPermission, setHasPermission] = useState<boolean | null>(null);
@@ -159,7 +161,7 @@ export function Scan() {
           style={styles.bigInput}
           keyboardType="decimal-pad"
           placeholder="0,00"
-          placeholderTextColor={colors.grayLight}
+          placeholderTextColor={c.grayLight}
           value={amount}
           onChangeText={setAmount}
           autoFocus
@@ -176,24 +178,25 @@ export function Scan() {
   );
 }
 
-const styles = StyleSheet.create({
-  center: { flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: colors.white, gap: 12 },
-  muted: { color: colors.gray, textAlign: "center", fontSize: 14, lineHeight: 20, paddingHorizontal: 24 },
-  amountRoot: { flex: 1, padding: 24, backgroundColor: colors.white, paddingTop: 80, alignItems: "center" },
-  bigTitle: { fontSize: 24, fontWeight: "900", color: colors.black, textAlign: "center", letterSpacing: -0.5 },
-  bigInput: { fontSize: 52, fontWeight: "900", color: colors.black, borderBottomColor: colors.pink, borderBottomWidth: 2, minWidth: 160, textAlign: "center" },
-  bigSymbol: { fontSize: 32, fontWeight: "800", color: colors.gray, marginLeft: 8, paddingBottom: 10 },
-  btn: { marginTop: 32, backgroundColor: colors.pink, borderRadius: radius.pill, paddingVertical: 15, paddingHorizontal: 32, ...shadow.btn },
-  btnText: { color: colors.white, fontSize: 16, fontWeight: "800" },
-  scanFrame: { position: "absolute", top: "30%", left: "15%", width: "70%", height: "30%", borderColor: colors.pink, borderWidth: 3, borderRadius: 24 },
-  overlayHint: { position: "absolute", bottom: 80, left: 0, right: 0, padding: 12 },
-  overlayText: { color: "#FFF", textAlign: "center", fontSize: 15, fontWeight: "700" },
-  topBar: { position: "absolute", left: 16, right: 16, flexDirection: "row", justifyContent: "space-between" },
-  roundBtn: { height: 44, width: 44, borderRadius: 22, backgroundColor: "rgba(0,0,0,0.45)", alignItems: "center", justifyContent: "center" },
-  roundBtnOn: { backgroundColor: colors.pink },
-  roundBtnText: { color: "#FFF", fontSize: 18, fontWeight: "800" },
-  backRow: { position: "absolute", left: 16 },
-  backText: { color: colors.gray, fontSize: 16, fontWeight: "800" },
-  rescan: { marginTop: 18, paddingVertical: 8 },
-  rescanText: { color: colors.pink, fontSize: 14, fontWeight: "800" }
-});
+const makeStyles = (c: Palette) =>
+  StyleSheet.create({
+    center: { flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: c.bg, gap: 12 },
+    muted: { color: c.gray, textAlign: "center", fontSize: 14, lineHeight: 20, paddingHorizontal: 24 },
+    amountRoot: { flex: 1, padding: 24, backgroundColor: c.bg, paddingTop: 80, alignItems: "center" },
+    bigTitle: { fontSize: 24, fontWeight: "900", color: c.black, textAlign: "center", letterSpacing: -0.5 },
+    bigInput: { fontSize: 52, fontWeight: "900", color: c.black, borderBottomColor: c.pink, borderBottomWidth: 2, minWidth: 160, textAlign: "center" },
+    bigSymbol: { fontSize: 32, fontWeight: "800", color: c.gray, marginLeft: 8, paddingBottom: 10 },
+    btn: { marginTop: 32, backgroundColor: c.pink, borderRadius: radius.pill, paddingVertical: 15, paddingHorizontal: 32, ...shadow.btn },
+    btnText: { color: c.onAccent, fontSize: 16, fontWeight: "800" },
+    scanFrame: { position: "absolute", top: "30%", left: "15%", width: "70%", height: "30%", borderColor: c.pink, borderWidth: 3, borderRadius: 24 },
+    overlayHint: { position: "absolute", bottom: 80, left: 0, right: 0, padding: 12 },
+    overlayText: { color: "#FFF", textAlign: "center", fontSize: 15, fontWeight: "700" },
+    topBar: { position: "absolute", left: 16, right: 16, flexDirection: "row", justifyContent: "space-between" },
+    roundBtn: { height: 44, width: 44, borderRadius: 22, backgroundColor: "rgba(0,0,0,0.45)", alignItems: "center", justifyContent: "center" },
+    roundBtnOn: { backgroundColor: c.pink },
+    roundBtnText: { color: "#FFF", fontSize: 18, fontWeight: "800" },
+    backRow: { position: "absolute", left: 16 },
+    backText: { color: c.gray, fontSize: 16, fontWeight: "800" },
+    rescan: { marginTop: 18, paddingVertical: 8 },
+    rescanText: { color: c.pink, fontSize: 14, fontWeight: "800" }
+  });

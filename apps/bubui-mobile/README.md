@@ -40,6 +40,19 @@ Al terminar (en la nube, ~10-15 min) te da un **enlace de descarga**:
 Para iOS necesitas cuenta Apple Developer (99 USD/año):
 `eas build -p ios --profile preview`.
 
+### Sin terminal: compilar el APK desde GitHub Actions
+
+Hay un workflow (`.github/workflows/bubui-android-build.yml`) que compila el
+APK en la nube de EAS con un clic:
+
+1. Crea un **Access Token** en tu cuenta Expo
+   (https://expo.dev/accounts/&lt;cuenta&gt;/settings/access-tokens).
+2. En el repo: *Settings → Secrets and variables → Actions* → añade el
+   secret `EXPO_TOKEN` con ese valor.
+3. *Actions → "Build APK Bubui (Android · EAS)" → Run workflow* (perfil
+   `preview`). Al acabar, el enlace del APK aparece en el log y en
+   expo.dev → tu proyecto → Builds.
+
 ## Setup avanzado (build nativo local)
 
 ```bash
@@ -118,10 +131,25 @@ backend tras el onboarding / al entrar al Feed (`src/lib/push.ts` →
 `api.registerPushToken`). El admin del Hub envía a varios canales con
 conteo por canal.
 
+## Geofencing en segundo plano
+
+`src/lib/geofence.ts` registra geocercas (radio 150 m, máx. 20) alrededor
+de los negocios donde el cliente tiene un **cupón activo**. Al entrar en una
+salta una notificación local ("Estás cerca de X 🎟️"). Usa `expo-location`
++ `expo-task-manager`; pide el permiso de ubicación *siempre* (background)
+solo tras tener el de primer plano, y falla en silencio si se deniega. Se
+arranca desde el Feed al cargar las ofertas y se detiene al cerrar sesión.
+
+## Tema claro / oscuro
+
+`src/lib/theme.ts` expone paletas `lightColors`/`darkColors`, un
+`ThemeProvider` y el hook `useTheme()`. La app sigue el tema del sistema
+(`userInterfaceStyle: "automatic"`). Las pantallas construyen sus estilos
+con un factory `makeStyles(c)`. El token `onAccent` mantiene legible el
+texto sobre el rosa en ambos temas. _(El Onboarding aún se muestra en claro
+en esta primera iteración.)_
+
 ## Próximos hitos
 
-- Geofencing en background con `expo-location` + `expo-task-manager`
-  (avisar de cupones al pasar cerca). Requiere permisos `ACCESS_BACKGROUND_LOCATION`
-  y revisión de políticas de Play Store.
-- Tema oscuro / claro (refactor transversal de `theme.ts` + las pantallas).
+- Convertir el Onboarding al tema oscuro.
 - Foto/portada del negocio además del logo (cuando el backend la exponga).
