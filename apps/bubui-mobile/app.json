@@ -23,7 +23,7 @@
     },
     "android": {
       "package": "com.negociovivo.bubui",
-      "versionCode": 15,
+      "versionCode": 16,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#FFFFFF"
