@@ -92,8 +92,12 @@ añadiendo `apple-app-site-association` en el dominio.
   promocional (gestionado desde admin o el por defecto) y cupones activos
   como tarjetas con tag −X% y caducidad.
 - `Descubre` → buscador + filtros por categoría, negocios cercanos con
-  favoritos locales. _(pestaña condicionada: aparece al superar un mínimo de
-  comercios)._
+  logo, badge "🏆 Top" y favoritos locales. _(pestaña condicionada: aparece
+  al superar un mínimo de comercios)._
+- `Negocio` → detalle del comercio (logo/marca, categoría, distancia,
+  descuento, dirección). Acciones: **escanear aquí**, **cómo llegar**
+  (abre la app de mapas), **compartir** (deep link) y **ficha completa**
+  (web). Se abre al tocar una tarjeta en Feed o Descubre.
 - `Mapa` → mapa de comercios embebido (WebView). _(pestaña condicionada)._
 - `Scan` → cámara con marco rosa, linterna y cierre; introducir importe y
   resultado del descuento. Anti-doble-escaneo.
@@ -116,7 +120,8 @@ conteo por canal.
 
 ## Próximos hitos
 
-- Detalle de negocio al tocar una tarjeta (Feed / Descubre).
-- Geofencing en background con `expo-location`.
-- Tema oscuro / claro.
-- Compartir cupón con un amigo (deep link).
+- Geofencing en background con `expo-location` + `expo-task-manager`
+  (avisar de cupones al pasar cerca). Requiere permisos `ACCESS_BACKGROUND_LOCATION`
+  y revisión de políticas de Play Store.
+- Tema oscuro / claro (refactor transversal de `theme.ts` + las pantallas).
+- Foto/portada del negocio además del logo (cuando el backend la exponga).

@@ -11,8 +11,19 @@ import { registerExpoPushForCustomer } from "../lib/push";
 
 type Offer = {
   offerId: string;
-  business: { id: string; name: string; category: string; brandColor?: string | null };
+  business: {
+    id: string;
+    slug: string;
+    name: string;
+    category: string;
+    city?: string | null;
+    latitude?: number | null;
+    longitude?: number | null;
+    logoUrl?: string | null;
+    brandColor?: string | null;
+  };
   discountPct: number;
+  rewardLabel?: string | null;
   hoursLeft: number;
   distanceM: number | null;
 };
@@ -141,8 +152,19 @@ export function Feed() {
           <Image source={require("../../assets/empty-cupones.png")} style={styles.empty} resizeMode="contain" />
         }
         renderItem={({ item }) => (
-          <View style={styles.card}>
+          <TouchableOpacity
+            style={styles.card}
+            activeOpacity={0.85}
+            onPress={() =>
+              nav.navigate("Negocio", {
+                business: { ...item.business, discountPct: item.discountPct, hoursLeft: item.hoursLeft, distanceM: item.distanceM, rewardLabel: item.rewardLabel }
+              })
+            }
+          >
             <View style={[styles.photo, item.business.brandColor ? { backgroundColor: item.business.brandColor } : null]}>
+              {!!item.business.logoUrl && (
+                <Image source={{ uri: item.business.logoUrl }} style={styles.photoImg} resizeMode="cover" />
+              )}
               <View style={styles.tag}><Text style={styles.tagText}>-{item.discountPct}%</Text></View>
             </View>
             <View style={styles.cardBody}>
@@ -155,7 +177,7 @@ export function Feed() {
               </View>
               <Text style={[styles.exp, item.hoursLeft < 24 && styles.expUrgent]}>⏰ {item.hoursLeft}h</Text>
             </View>
-          </View>
+          </TouchableOpacity>
         )}
       />
       <BottomNav active="Feed" />
@@ -176,6 +198,7 @@ const styles = StyleSheet.create({
   section: { fontSize: 12, fontWeight: "800", color: colors.gray, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 10 },
   card: { backgroundColor: colors.white, borderRadius: radius.lg, marginBottom: 12, overflow: "hidden", borderWidth: 1, borderColor: colors.border, ...shadow.card },
   photo: { height: 130, backgroundColor: colors.pinkSoft, justifyContent: "flex-start", alignItems: "flex-end" },
+  photoImg: { ...StyleSheet.absoluteFillObject, width: "100%", height: "100%" },
   tag: { margin: 12, backgroundColor: colors.pink, borderRadius: radius.pill, paddingHorizontal: 12, paddingVertical: 6 },
   tagText: { color: colors.white, fontWeight: "900", fontSize: 13 },
   cardBody: { flexDirection: "row", alignItems: "center", padding: 14, gap: 8 },

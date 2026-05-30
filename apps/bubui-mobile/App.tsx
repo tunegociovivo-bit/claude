@@ -10,6 +10,7 @@ import { Mapa } from "./src/screens/Mapa";
 import { Cuenta } from "./src/screens/Cuenta";
 import { Afiliados } from "./src/screens/Afiliados";
 import { Scan } from "./src/screens/Scan";
+import { Negocio, type NegocioParam } from "./src/screens/Negocio";
 import { CheckSession } from "./src/lib/session";
 import { ErrorBoundary } from "./src/components/ErrorBoundary";
 import { useAppFonts, applyPoppinsToTextDefaults } from "./src/lib/fonts";
@@ -26,6 +27,7 @@ export type RootStackParamList = {
   Cuenta: undefined;
   Afiliados: undefined;
   Scan: { businessId: string };
+  Negocio: NegocioParam;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -67,6 +69,7 @@ export default function App() {
           <Stack.Screen name="Cuenta" component={Cuenta} />
           <Stack.Screen name="Afiliados" component={Afiliados} />
           <Stack.Screen name="Scan" component={Scan} />
+          <Stack.Screen name="Negocio" component={Negocio} />
         </Stack.Navigator>
       </NavigationContainer>
     </ErrorBoundary>
