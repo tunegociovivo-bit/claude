@@ -29,6 +29,7 @@ const SLIDES: Slide[] = [
 export function Onboarding() {
   const nav = useNavigation<any>();
   // Flujo: 0..2 = slides (carrusel) → 3 = pantalla "elige tipo" → 4 = signup cliente
+  //        5 = login (solo teléfono + OTP)
   const [step, setStep] = useState(0);
   const [slideIndex, setSlideIndex] = useState(0);
   const [bodyW, setBodyW] = useState(0);
@@ -43,6 +44,39 @@ export function Onboarding() {
   const [gender, setGender] = useState("");
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
+  // Login (solo teléfono): reutiliza phone/code de arriba, pero el sub-paso es independiente.
+  const [loginStep, setLoginStep] = useState<"phone" | "code">("phone");
+
+  async function loginRequestCode() {
+    if (phone.trim().length < 6) { Alert.alert("Teléfono inválido"); return; }
+    setBusy(true);
+    try {
+      await api.requestOtp(phone.trim());
+      setLoginStep("code");
+    } catch (e: any) {
+      Alert.alert("Error", e?.message ?? "No se pudo enviar el código");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function loginVerify() {
+    setBusy(true);
+    try {
+      const r = await api.login(phone.trim(), code.trim());
+      await saveSession({
+        customerId: r.customerId,
+        name: r.name ?? undefined,
+        totalSaved: r.totalSaved ?? 0,
+        totalPurchases: r.totalPurchases ?? 0
+      });
+      nav.reset({ index: 0, routes: [{ name: "Feed" }] });
+    } catch (e: any) {
+      Alert.alert("Error", e?.message ?? "No se pudo iniciar sesión");
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function sendCode() {
     if (!name.trim()) { Alert.alert("Pon tu nombre"); return; }
@@ -183,6 +217,17 @@ export function Onboarding() {
           <Text style={styles.heroFinePrint}>Sin tarjetas · Sin spam · 30 segundos</Text>
         </TouchableOpacity>
 
+        {/* Link discreto a iniciar sesión (para quien ya tiene cuenta) */}
+        <TouchableOpacity
+          style={styles.loginLink}
+          onPress={() => { setStep(SLIDES.length + 2); setLoginStep("phone"); setPhone(""); setCode(""); }}
+          activeOpacity={0.7}
+        >
+          <Text style={styles.loginLinkText}>
+            ¿Ya tienes cuenta? <Text style={styles.loginLinkStrong}>Inicia sesión</Text>
+          </Text>
+        </TouchableOpacity>
+
         {/* CTA secundaria: alta de negocio */}
         <View style={styles.bizRow}>
           <View style={styles.divider} />
@@ -197,6 +242,75 @@ export function Onboarding() {
           <Text style={styles.bizBtnText}>Dar de alta mi negocio  →</Text>
         </TouchableOpacity>
       </View>
+    );
+  }
+
+  // Pantalla de inicio de sesión (sólo teléfono + OTP)
+  if (step === SLIDES.length + 2) {
+    return (
+      <ScrollView contentContainerStyle={styles.signupRoot}>
+        <View style={{ alignItems: "center" }}>
+          <Wordmark size={56} />
+          <Text style={styles.tag}>Bienvenido de vuelta</Text>
+        </View>
+
+        {loginStep === "phone" ? (
+          <View style={styles.card}>
+            <Text style={{ color: colors.gray, fontSize: 13, textAlign: "center", marginBottom: 4 }}>
+              Introduce el teléfono de tu cuenta y te enviaremos un código por SMS.
+            </Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Teléfono móvil"
+              placeholderTextColor={colors.grayLight}
+              value={phone}
+              onChangeText={setPhone}
+              keyboardType="phone-pad"
+              autoFocus
+            />
+            <TouchableOpacity
+              style={[styles.btn, busy && { opacity: 0.5 }]}
+              onPress={loginRequestCode}
+              disabled={busy}
+              activeOpacity={0.9}
+            >
+              <Text style={styles.btnText}>{busy ? "Enviando…" : "Enviar código SMS"}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => setStep(SLIDES.length)}>
+              <Text style={{ color: colors.gray, fontSize: 12, textAlign: "center" }}>← Volver</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <View style={styles.card}>
+            <Text style={{ color: colors.gray, fontSize: 13, textAlign: "center" }}>
+              Código SMS enviado a {phone}
+            </Text>
+            <TextInput
+              style={[styles.input, { textAlign: "center", fontSize: 24, letterSpacing: 8, fontWeight: "800" }]}
+              placeholder="••••••"
+              placeholderTextColor={colors.grayLight}
+              value={code}
+              onChangeText={(t) => setCode(t.replace(/[^0-9]/g, "").slice(0, 8))}
+              keyboardType="number-pad"
+              autoFocus
+              autoComplete="sms-otp"
+              textContentType="oneTimeCode"
+              importantForAutofill="yes"
+            />
+            <TouchableOpacity
+              style={[styles.btn, (busy || code.length < 4) && { opacity: 0.5 }]}
+              onPress={loginVerify}
+              disabled={busy || code.length < 4}
+              activeOpacity={0.9}
+            >
+              <Text style={styles.btnText}>{busy ? "Verificando…" : "Entrar"}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => { setLoginStep("phone"); setCode(""); }}>
+              <Text style={{ color: colors.gray, fontSize: 12, textAlign: "center" }}>← Cambiar número o reenviar</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+      </ScrollView>
     );
   }
 
@@ -395,6 +509,11 @@ const styles = StyleSheet.create({
     marginTop: 12,
     letterSpacing: 0.2
   },
+
+  // Link "Ya tengo cuenta" — entre el hero y el bloque negocio
+  loginLink: { alignSelf: "center", paddingVertical: 14, paddingHorizontal: 18, marginTop: 8 },
+  loginLinkText: { fontSize: 14, color: colors.gray, fontWeight: "600" },
+  loginLinkStrong: { color: colors.pink, fontWeight: "800" },
 
   // Bloque inferior — negocio (secundario)
   bizRow: { flexDirection: "row", alignItems: "center", marginTop: 30, marginBottom: 12, gap: 10 },

@@ -209,6 +209,9 @@ function CheckLine({ children }: { children: React.ReactNode }) {
 }
 
 function Signup({ onDone, refCode }: { onDone: (c: Customer) => void; refCode?: string | null }) {
+  // mode "signup": alta nueva (pide perfil completo). mode "login": entrar
+  // con sólo teléfono + OTP, para quien ya se dio de alta antes.
+  const [mode, setMode] = useState<"signup" | "login">("signup");
   // step "form": nombre + teléfono (+ email opcional) → enviar código.
   // step "code": introducir el código SMS → verificar y entrar.
   const [step, setStep] = useState<"form" | "code">("form");
@@ -220,6 +223,43 @@ function Signup({ onDone, refCode }: { onDone: (c: Customer) => void; refCode?: 
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  async function loginRequestCode(e: React.FormEvent) {
+    e.preventDefault();
+    if (!phone.trim()) { setError("Pon tu teléfono"); return; }
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await fetch("/api/bubui/customer/request-otp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone })
+      });
+      const j = await r.json();
+      if (!r.ok) { setError(j?.error?.message ?? `Error ${r.status}`); return; }
+      setStep("code");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function loginVerify(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await fetch("/api/bubui/customer/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone, code })
+      });
+      const j = await r.json();
+      if (!r.ok) { setError(j?.error?.message ?? `Error ${r.status}`); return; }
+      onDone({ customerId: j.customerId, name: j.name, totalSaved: j.totalSaved ?? 0, totalPurchases: j.totalPurchases ?? 0 });
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function sendCode(e: React.FormEvent) {
     e.preventDefault();
@@ -259,6 +299,73 @@ function Signup({ onDone, refCode }: { onDone: (c: Customer) => void; refCode?: 
     } finally {
       setBusy(false);
     }
+  }
+
+  // Renderizado del modo "login" — sólo teléfono + OTP, sin perfil.
+  if (mode === "login") {
+    return (
+      <main className="max-w-md mx-auto px-4 py-12">
+        <div className="text-center mb-6 bubui-fade-up">
+          <h1 className="bubui-wordmark mx-auto justify-center" style={{ fontSize: 72 }}>bubui</h1>
+          <p className="text-black/70 mt-3 text-sm font-semibold">Bienvenido de vuelta</p>
+        </div>
+        {step === "form" ? (
+          <form onSubmit={loginRequestCode} className="space-y-3 bubui-card p-6 bubui-fade-up bubui-fade-up-1">
+            <p className="text-xs text-black/60">
+              Introduce el teléfono de tu cuenta y te enviaremos un código por SMS.
+            </p>
+            <input
+              type="tel"
+              inputMode="tel"
+              placeholder="Teléfono móvil"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              required
+              autoFocus
+              className="bubui-input"
+            />
+            {error && <p className="text-rose-700 text-sm">{error}</p>}
+            <button type="submit" disabled={busy} className="bubui-btn w-full">
+              {busy ? "Enviando…" : "Enviar código SMS"}
+            </button>
+            <button
+              type="button"
+              onClick={() => { setMode("signup"); setStep("form"); setCode(""); setError(null); }}
+              className="w-full text-xs text-black/55 hover:text-black/80"
+            >
+              ← Volver al alta
+            </button>
+          </form>
+        ) : (
+          <form onSubmit={loginVerify} className="space-y-3 bubui-card p-6 bubui-fade-up bubui-fade-up-1">
+            <p className="text-sm text-black/70">
+              Código SMS enviado a <strong>{phone}</strong>.
+            </p>
+            <input
+              type="text"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              placeholder="● ● ● ● ● ●"
+              value={code}
+              onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 8))}
+              autoFocus
+              className="bubui-input text-center text-2xl tracking-[0.4em] font-bold"
+            />
+            {error && <p className="text-rose-700 text-sm">{error}</p>}
+            <button type="submit" disabled={busy || code.length < 4} className="bubui-btn w-full">
+              {busy ? "Verificando…" : "Entrar"}
+            </button>
+            <button
+              type="button"
+              onClick={() => { setStep("form"); setCode(""); setError(null); }}
+              className="w-full text-xs text-black/50 hover:text-black/80"
+            >
+              ← Cambiar número o reenviar
+            </button>
+          </form>
+        )}
+      </main>
+    );
   }
 
   return (
@@ -323,6 +430,13 @@ function Signup({ onDone, refCode }: { onDone: (c: Customer) => void; refCode?: 
           {error && <p className="text-rose-700 text-sm">{error}</p>}
           <button type="submit" disabled={busy} className="bubui-btn w-full">
             {busy ? "Enviando…" : "Enviar código SMS"}
+          </button>
+          <button
+            type="button"
+            onClick={() => { setMode("login"); setStep("form"); setCode(""); setError(null); }}
+            className="w-full text-sm text-black/60 hover:text-pink-600 font-semibold pt-1"
+          >
+            ¿Ya tienes cuenta? <span className="text-pink-600">Inicia sesión</span>
           </button>
           <p className="text-[11px] text-black/50 text-center pt-2">
             Te enviaremos un SMS con un código para verificar tu número. Sin cartera, sin tarjetas, sin spam.

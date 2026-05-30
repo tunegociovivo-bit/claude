@@ -41,6 +41,11 @@ export const api = {
       method: "POST",
       body: JSON.stringify(args)
     }),
+  login: (phone: string, code: string) =>
+    call<{ customerId: string; name: string | null; totalSaved: number; totalPurchases: number }>(
+      "/api/bubui/customer/login",
+      { method: "POST", body: JSON.stringify({ phone, code }) }
+    ),
   offers: (customerId: string, lat?: number, lng?: number) => {
     const url = new URL(`${API_BASE}/api/bubui/offers`);
     url.searchParams.set("customerId", customerId);
