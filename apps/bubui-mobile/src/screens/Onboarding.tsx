@@ -7,7 +7,7 @@ import * as Notifications from "expo-notifications";
 import { api } from "../lib/api";
 import { saveSession } from "../lib/session";
 import { Wordmark } from "../components/Wordmark";
-import { colors, radius, shadow } from "../lib/theme";
+import { useTheme, type Palette, radius, shadow } from "../lib/theme";
 
 function fmtDate(d: Date): string {
   const p = (n: number) => String(n).padStart(2, "0");
@@ -53,6 +53,8 @@ const SLIDES: Slide[] = [
 
 export function Onboarding() {
   const nav = useNavigation<any>();
+  const c = useTheme();
+  const styles = makeStyles(c);
   // Flujo: 0..2 = slides (carrusel) → 3 = pantalla "elige tipo" → 4 = signup cliente
   //        5 = login (solo teléfono + OTP)
   const [step, setStep] = useState(0);
@@ -284,13 +286,13 @@ export function Onboarding() {
 
         {loginStep === "phone" ? (
           <View style={styles.card}>
-            <Text style={{ color: colors.gray, fontSize: 13, textAlign: "center", marginBottom: 4 }}>
+            <Text style={{ color: c.gray, fontSize: 13, textAlign: "center", marginBottom: 4 }}>
               Introduce el teléfono de tu cuenta y te enviaremos un código por SMS.
             </Text>
             <TextInput
               style={styles.input}
               placeholder="Teléfono móvil"
-              placeholderTextColor={colors.grayLight}
+              placeholderTextColor={c.grayLight}
               value={phone}
               onChangeText={setPhone}
               keyboardType="phone-pad"
@@ -305,18 +307,18 @@ export function Onboarding() {
               <Text style={styles.btnText}>{busy ? "Enviando…" : "Enviar código SMS"}</Text>
             </TouchableOpacity>
             <TouchableOpacity onPress={() => setStep(SLIDES.length)}>
-              <Text style={{ color: colors.gray, fontSize: 12, textAlign: "center" }}>← Volver</Text>
+              <Text style={{ color: c.gray, fontSize: 12, textAlign: "center" }}>← Volver</Text>
             </TouchableOpacity>
           </View>
         ) : (
           <View style={styles.card}>
-            <Text style={{ color: colors.gray, fontSize: 13, textAlign: "center" }}>
+            <Text style={{ color: c.gray, fontSize: 13, textAlign: "center" }}>
               Código SMS enviado a {phone}
             </Text>
             <TextInput
               style={[styles.input, { textAlign: "center", fontSize: 24, letterSpacing: 8, fontWeight: "800" }]}
               placeholder="••••••"
-              placeholderTextColor={colors.grayLight}
+              placeholderTextColor={c.grayLight}
               value={code}
               onChangeText={(t) => setCode(t.replace(/[^0-9]/g, "").slice(0, 8))}
               keyboardType="number-pad"
@@ -334,7 +336,7 @@ export function Onboarding() {
               <Text style={styles.btnText}>{busy ? "Verificando…" : "Entrar"}</Text>
             </TouchableOpacity>
             <TouchableOpacity onPress={() => { setLoginStep("phone"); setCode(""); }}>
-              <Text style={{ color: colors.gray, fontSize: 12, textAlign: "center" }}>← Cambiar número o reenviar</Text>
+              <Text style={{ color: c.gray, fontSize: 12, textAlign: "center" }}>← Cambiar número o reenviar</Text>
             </TouchableOpacity>
           </View>
         )}
@@ -355,7 +357,7 @@ export function Onboarding() {
           <TextInput
             style={styles.input}
             placeholder="Tu nombre"
-            placeholderTextColor={colors.grayLight}
+            placeholderTextColor={c.grayLight}
             value={name}
             onChangeText={setName}
             autoCapitalize="words"
@@ -363,7 +365,7 @@ export function Onboarding() {
           <TextInput
             style={styles.input}
             placeholder="Teléfono móvil"
-            placeholderTextColor={colors.grayLight}
+            placeholderTextColor={c.grayLight}
             value={phone}
             onChangeText={setPhone}
             keyboardType="phone-pad"
@@ -371,7 +373,7 @@ export function Onboarding() {
           <TextInput
             style={styles.input}
             placeholder="Email"
-            placeholderTextColor={colors.grayLight}
+            placeholderTextColor={c.grayLight}
             value={email}
             onChangeText={setEmail}
             keyboardType="email-address"
@@ -382,7 +384,7 @@ export function Onboarding() {
             onPress={() => setShowDatePicker(true)}
             activeOpacity={0.7}
           >
-            <Text style={{ fontSize: 16, color: birthDate ? colors.black : colors.grayLight }}>
+            <Text style={{ fontSize: 16, color: birthDate ? c.black : c.grayLight }}>
               {birthDate ? `📅  ${fmtDateHuman(birthDate)}` : "Fecha de nacimiento"}
             </Text>
           </TouchableOpacity>
@@ -414,11 +416,11 @@ export function Onboarding() {
                   paddingHorizontal: 14,
                   borderRadius: 999,
                   borderWidth: 1.5,
-                  borderColor: gender === g.v ? colors.pink : "#E5E7EB",
-                  backgroundColor: gender === g.v ? colors.pink : colors.white
+                  borderColor: gender === g.v ? c.pink : c.border,
+                  backgroundColor: gender === g.v ? c.pink : c.white
                 }}
               >
-                <Text style={{ fontSize: 13, fontWeight: "700", color: gender === g.v ? colors.white : colors.black }}>{g.l}</Text>
+                <Text style={{ fontSize: 13, fontWeight: "700", color: gender === g.v ? c.onAccent : c.black }}>{g.l}</Text>
               </TouchableOpacity>
             ))}
           </View>
@@ -431,13 +433,13 @@ export function Onboarding() {
         </View>
       ) : (
         <View style={styles.card}>
-          <Text style={{ color: colors.gray, fontSize: 13, textAlign: "center" }}>
+          <Text style={{ color: c.gray, fontSize: 13, textAlign: "center" }}>
             Introduce el código SMS enviado a {phone}
           </Text>
           <TextInput
             style={[styles.input, { textAlign: "center", fontSize: 24, letterSpacing: 8, fontWeight: "800" }]}
             placeholder="••••••"
-            placeholderTextColor={colors.grayLight}
+            placeholderTextColor={c.grayLight}
             value={code}
             onChangeText={(t) => setCode(t.replace(/[^0-9]/g, "").slice(0, 8))}
             keyboardType="number-pad"
@@ -450,7 +452,7 @@ export function Onboarding() {
             <Text style={styles.btnText}>{busy ? "Verificando…" : "Verificar y entrar"}</Text>
           </TouchableOpacity>
           <TouchableOpacity onPress={() => { setOtpStep("form"); setCode(""); }}>
-            <Text style={{ color: colors.gray, fontSize: 12, textAlign: "center" }}>← Cambiar número o reenviar</Text>
+            <Text style={{ color: c.gray, fontSize: 12, textAlign: "center" }}>← Cambiar número o reenviar</Text>
           </TouchableOpacity>
         </View>
       )}
@@ -458,169 +460,170 @@ export function Onboarding() {
   );
 }
 
-const styles = StyleSheet.create({
-  root: { flex: 1, paddingTop: 56, paddingHorizontal: 22, paddingBottom: 36, backgroundColor: colors.white },
-  topBar: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+const makeStyles = (c: Palette) =>
+  StyleSheet.create({
+    root: { flex: 1, paddingTop: 56, paddingHorizontal: 22, paddingBottom: 36, backgroundColor: c.bg },
+    topBar: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
 
-  // Brand + slide body — diseño del mockup oficial.
-  brandRow: { alignItems: "center", paddingTop: 8, paddingBottom: 16 },
-  slideBody: { flex: 1, justifyContent: "flex-start", alignItems: "center" },
-  slideImage: { width: "100%", height: "100%" },
-  slideTitle: {
-    fontSize: 30,
-    lineHeight: 36,
-    fontWeight: "900",
-    color: colors.black,
-    textAlign: "center",
-    letterSpacing: -0.6,
-    marginTop: 8
-  },
-  slideTitleAccent: { color: colors.pink },
-  slideSubtitle: {
-    marginTop: 12,
-    fontSize: 14,
-    lineHeight: 20,
-    color: colors.gray,
-    fontWeight: "500",
-    textAlign: "center"
-  },
-  slideIllustrationWrap: {
-    flex: 1,
-    width: "100%",
-    alignItems: "center",
-    justifyContent: "center",
-    marginTop: 16
-  },
-  slideIllustration: { width: "100%", height: "100%" },
+    // Brand + slide body — diseño del mockup oficial.
+    brandRow: { alignItems: "center", paddingTop: 8, paddingBottom: 16 },
+    slideBody: { flex: 1, justifyContent: "flex-start", alignItems: "center" },
+    slideImage: { width: "100%", height: "100%" },
+    slideTitle: {
+      fontSize: 30,
+      lineHeight: 36,
+      fontWeight: "900",
+      color: c.black,
+      textAlign: "center",
+      letterSpacing: -0.6,
+      marginTop: 8
+    },
+    slideTitleAccent: { color: c.pink },
+    slideSubtitle: {
+      marginTop: 12,
+      fontSize: 14,
+      lineHeight: 20,
+      color: c.gray,
+      fontWeight: "500",
+      textAlign: "center"
+    },
+    slideIllustrationWrap: {
+      flex: 1,
+      width: "100%",
+      alignItems: "center",
+      justifyContent: "center",
+      marginTop: 16
+    },
+    slideIllustration: { width: "100%", height: "100%" },
 
-  // Footer — dots + botón CTA con flecha en círculo blanco.
-  footer: { gap: 18 },
-  dots: { flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 6 },
-  dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: "rgba(0,0,0,0.15)" },
-  dotActive: { width: 24, backgroundColor: colors.pink },
+    // Footer — dots + botón CTA con flecha en círculo blanco.
+    footer: { gap: 18 },
+    dots: { flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 6 },
+    dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: c.border },
+    dotActive: { width: 24, backgroundColor: c.pink },
 
-  // CTA principal del slide: pill rosa con flecha en círculo blanco a la derecha.
-  ctaBtn: {
-    backgroundColor: colors.pink,
-    borderRadius: radius.pill,
-    paddingVertical: 16,
-    paddingHorizontal: 28,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    ...shadow.btn
-  },
-  ctaBtnText: {
-    color: colors.white,
-    fontWeight: "800",
-    fontSize: 17,
-    flex: 1,
-    textAlign: "center"
-  },
-  ctaArrowCircle: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: colors.white,
-    alignItems: "center",
-    justifyContent: "center"
-  },
-  ctaArrow: { color: colors.pink, fontSize: 18, fontWeight: "900", marginTop: -2 },
+    // CTA principal del slide: pill rosa con flecha en círculo blanco a la derecha.
+    ctaBtn: {
+      backgroundColor: c.pink,
+      borderRadius: radius.pill,
+      paddingVertical: 16,
+      paddingHorizontal: 28,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      ...shadow.btn
+    },
+    ctaBtnText: {
+      color: c.onAccent,
+      fontWeight: "800",
+      fontSize: 17,
+      flex: 1,
+      textAlign: "center"
+    },
+    ctaArrowCircle: {
+      width: 36,
+      height: 36,
+      borderRadius: 18,
+      backgroundColor: c.white,
+      alignItems: "center",
+      justifyContent: "center"
+    },
+    ctaArrow: { color: c.pink, fontSize: 18, fontWeight: "900", marginTop: -2 },
 
-  // Compat alias (en uso por el resto de pantallas).
-  btn: { backgroundColor: colors.pink, borderRadius: radius.pill, paddingVertical: 16, alignItems: "center", ...shadow.btn },
-  btnText: { color: colors.white, fontWeight: "800", fontSize: 16 },
-  skip: { color: colors.gray, fontSize: 14, fontWeight: "700" },
+    // Compat alias (en uso por el resto de pantallas).
+    btn: { backgroundColor: c.pink, borderRadius: radius.pill, paddingVertical: 16, alignItems: "center", ...shadow.btn },
+    btnText: { color: c.onAccent, fontWeight: "800", fontSize: 16 },
+    skip: { color: c.gray, fontSize: 14, fontWeight: "700" },
 
-  // Pantalla intermedia "elige tipo" — rediseño con jerarquía: hero card cliente + link secundario negocio
-  chooseRoot: { flex: 1, paddingTop: 64, paddingHorizontal: 22, paddingBottom: 28, backgroundColor: colors.white },
-  chooseHeader: { alignItems: "center", marginBottom: 28 },
+    // Pantalla intermedia "elige tipo" — rediseño con jerarquía: hero card cliente + link secundario negocio
+    chooseRoot: { flex: 1, paddingTop: 64, paddingHorizontal: 22, paddingBottom: 28, backgroundColor: c.bg },
+    chooseHeader: { alignItems: "center", marginBottom: 28 },
 
-  // Tarjeta hero (cliente) — la acción principal
-  heroCard: {
-    backgroundColor: colors.pink,
-    borderRadius: radius.xl,
-    paddingTop: 28,
-    paddingBottom: 22,
-    paddingHorizontal: 22,
-    alignItems: "center",
-    shadowColor: colors.pink,
-    shadowOpacity: 0.35,
-    shadowRadius: 22,
-    shadowOffset: { width: 0, height: 12 },
-    elevation: 14
-  },
-  heroIconWrap: {
-    width: 78, height: 78, borderRadius: 39,
-    backgroundColor: "rgba(255,255,255,0.18)",
-    alignItems: "center", justifyContent: "center",
-    marginBottom: 16
-  },
-  heroIcon: { fontSize: 44, lineHeight: 50 },
-  heroTitle: {
-    color: colors.white,
-    fontSize: 24,
-    lineHeight: 28,
-    fontWeight: "900",
-    textAlign: "center",
-    letterSpacing: -0.5
-  },
-  heroSubtitle: {
-    color: "rgba(255,255,255,0.92)",
-    fontSize: 14,
-    lineHeight: 19,
-    textAlign: "center",
-    marginTop: 10,
-    marginBottom: 22,
-    paddingHorizontal: 4
-  },
-  heroPill: {
-    backgroundColor: colors.white,
-    borderRadius: radius.pill,
-    paddingVertical: 14,
-    paddingHorizontal: 22,
-    alignSelf: "stretch",
-    alignItems: "center"
-  },
-  heroPillText: {
-    color: colors.pink,
-    fontWeight: "900",
-    fontSize: 14,
-    letterSpacing: 0.4
-  },
-  heroFinePrint: {
-    color: "rgba(255,255,255,0.85)",
-    fontSize: 11,
-    fontWeight: "700",
-    marginTop: 12,
-    letterSpacing: 0.2
-  },
+    // Tarjeta hero (cliente) — la acción principal
+    heroCard: {
+      backgroundColor: c.pink,
+      borderRadius: radius.xl,
+      paddingTop: 28,
+      paddingBottom: 22,
+      paddingHorizontal: 22,
+      alignItems: "center",
+      shadowColor: c.pink,
+      shadowOpacity: 0.35,
+      shadowRadius: 22,
+      shadowOffset: { width: 0, height: 12 },
+      elevation: 14
+    },
+    heroIconWrap: {
+      width: 78, height: 78, borderRadius: 39,
+      backgroundColor: "rgba(255,255,255,0.18)",
+      alignItems: "center", justifyContent: "center",
+      marginBottom: 16
+    },
+    heroIcon: { fontSize: 44, lineHeight: 50 },
+    heroTitle: {
+      color: c.onAccent,
+      fontSize: 24,
+      lineHeight: 28,
+      fontWeight: "900",
+      textAlign: "center",
+      letterSpacing: -0.5
+    },
+    heroSubtitle: {
+      color: "rgba(255,255,255,0.92)",
+      fontSize: 14,
+      lineHeight: 19,
+      textAlign: "center",
+      marginTop: 10,
+      marginBottom: 22,
+      paddingHorizontal: 4
+    },
+    heroPill: {
+      backgroundColor: c.white,
+      borderRadius: radius.pill,
+      paddingVertical: 14,
+      paddingHorizontal: 22,
+      alignSelf: "stretch",
+      alignItems: "center"
+    },
+    heroPillText: {
+      color: c.pink,
+      fontWeight: "900",
+      fontSize: 14,
+      letterSpacing: 0.4
+    },
+    heroFinePrint: {
+      color: "rgba(255,255,255,0.85)",
+      fontSize: 11,
+      fontWeight: "700",
+      marginTop: 12,
+      letterSpacing: 0.2
+    },
 
-  // Link "Ya tengo cuenta" — entre el hero y el bloque negocio
-  loginLink: { alignSelf: "center", paddingVertical: 14, paddingHorizontal: 18, marginTop: 8 },
-  loginLinkText: { fontSize: 14, color: colors.gray, fontWeight: "600" },
-  loginLinkStrong: { color: colors.pink, fontWeight: "800" },
+    // Link "Ya tengo cuenta" — entre el hero y el bloque negocio
+    loginLink: { alignSelf: "center", paddingVertical: 14, paddingHorizontal: 18, marginTop: 8 },
+    loginLinkText: { fontSize: 14, color: c.gray, fontWeight: "600" },
+    loginLinkStrong: { color: c.pink, fontWeight: "800" },
 
-  // Bloque inferior — negocio (secundario)
-  bizRow: { flexDirection: "row", alignItems: "center", marginTop: 30, marginBottom: 12, gap: 10 },
-  divider: { flex: 1, height: 1, backgroundColor: colors.border },
-  bizLead: { fontSize: 11, color: colors.gray, fontWeight: "800", letterSpacing: 0.8, textTransform: "uppercase" },
-  bizBtn: {
-    alignSelf: "center",
-    paddingVertical: 12,
-    paddingHorizontal: 18
-  },
-  bizBtnText: {
-    color: colors.pink,
-    fontWeight: "800",
-    fontSize: 14,
-    letterSpacing: 0.2
-  },
+    // Bloque inferior — negocio (secundario)
+    bizRow: { flexDirection: "row", alignItems: "center", marginTop: 30, marginBottom: 12, gap: 10 },
+    divider: { flex: 1, height: 1, backgroundColor: c.border },
+    bizLead: { fontSize: 11, color: c.gray, fontWeight: "800", letterSpacing: 0.8, textTransform: "uppercase" },
+    bizBtn: {
+      alignSelf: "center",
+      paddingVertical: 12,
+      paddingHorizontal: 18
+    },
+    bizBtnText: {
+      color: c.pink,
+      fontWeight: "800",
+      fontSize: 14,
+      letterSpacing: 0.2
+    },
 
-  // Signup
-  signupRoot: { paddingTop: 80, paddingHorizontal: 24, paddingBottom: 60, backgroundColor: colors.white, flexGrow: 1 },
-  tag: { color: colors.black, textAlign: "center", fontSize: 15, fontWeight: "800", marginTop: 12 },
-  card: { marginTop: 30, backgroundColor: colors.white, padding: 18, borderRadius: radius.xl, gap: 12, borderWidth: 1, borderColor: colors.border, ...shadow.card },
-  input: { borderColor: "#E5E7EB", borderWidth: 2, borderRadius: radius.sm, paddingHorizontal: 14, paddingVertical: 12, fontSize: 16, backgroundColor: colors.white, color: colors.black },
-  legal: { fontSize: 11, color: colors.gray, textAlign: "center", marginTop: 6, lineHeight: 16 }
-});
+    // Signup
+    signupRoot: { paddingTop: 80, paddingHorizontal: 24, paddingBottom: 60, backgroundColor: c.bg, flexGrow: 1 },
+    tag: { color: c.black, textAlign: "center", fontSize: 15, fontWeight: "800", marginTop: 12 },
+    card: { marginTop: 30, backgroundColor: c.white, padding: 18, borderRadius: radius.xl, gap: 12, borderWidth: 1, borderColor: c.border, ...shadow.card },
+    input: { borderColor: c.border, borderWidth: 2, borderRadius: radius.sm, paddingHorizontal: 14, paddingVertical: 12, fontSize: 16, backgroundColor: c.white, color: c.black },
+    legal: { fontSize: 11, color: c.gray, textAlign: "center", marginTop: 6, lineHeight: 16 }
+  });
