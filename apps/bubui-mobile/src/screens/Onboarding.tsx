@@ -29,21 +29,21 @@ type Slide = {
 };
 const SLIDES: Slide[] = [
   {
-    image: require("../../assets/onb-1.png"),
+    image: require("../../assets/ill-tienda.png"),
     titleStart: "Descubre ofertas",
     titleEnd: "cerca de ti",
     subtitle: "Ahorra en comercios locales\ncada vez que compras.",
     cta: "Empezar ahora"
   },
   {
-    image: require("../../assets/onb-2.png"),
+    image: require("../../assets/ill-scan.png"),
     titleStart: "Compra en un",
     titleEnd: "negocio Bubui",
     subtitle: "Escanea el QR de caja y\ndesbloquea nuevos descuentos.",
     cta: "Siguiente"
   },
   {
-    image: require("../../assets/onb-3.png"),
+    image: require("../../assets/ill-ruta.png"),
     titleStart: "Salta de comercio en",
     titleEnd: "comercio",
     subtitle: "Cuanto más compras local,\nmás beneficios recibes.",
