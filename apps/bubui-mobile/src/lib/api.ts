@@ -62,6 +62,7 @@ export const api = {
     }),
   vapidPublic: () => call("/api/bubui/push/vapid-public"),
   banner: () => call<{ active: boolean; imageUrl?: string; link?: string }>("/api/bubui/banner"),
+  stats: () => call<{ businesses: number }>("/api/bubui/stats"),
   subscribePush: (customerId: string, subscription: any, userAgent?: string) =>
     call("/api/bubui/push/subscribe", {
       method: "POST",
