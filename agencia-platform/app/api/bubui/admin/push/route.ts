@@ -24,7 +24,7 @@ const schema = z.object({
 });
 
 export async function POST(req: Request) {
-  if (!adminTokenOk(req)) {
+  if (!(await adminTokenOk(req))) {
     return NextResponse.json({ error: { code: "unauthorized" } }, { status: 401 });
   }
   if (!isBubuiPushEnabled()) {

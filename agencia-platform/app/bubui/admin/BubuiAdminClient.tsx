@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { signOut } from "next-auth/react";
 
 type Overview = {
   scope: { city: string };
@@ -21,33 +22,22 @@ type Overview = {
 type AdminTab = "overview" | "users" | "businesses" | "banner" | "push";
 
 export default function BubuiAdminClient() {
-  const [token, setToken] = useState<string | null>(null);
   const [data, setData] = useState<Overview | null>(null);
   const [city, setCity] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<AdminTab>("overview");
 
-  useEffect(() => {
-    try {
-      const t = localStorage.getItem("bubui.adminToken");
-      if (t) setToken(t);
-    } catch {}
-  }, []);
-
-  async function load(t: string, cityFilter: string) {
+  async function load(cityFilter: string) {
     setLoading(true);
     setError(null);
     try {
       const url = new URL("/api/bubui/admin/overview", window.location.origin);
       if (cityFilter) url.searchParams.set("city", cityFilter);
-      const r = await fetch(url.toString(), {
-        headers: { Authorization: `Bearer ${t}` }
-      });
+      const r = await fetch(url.toString());
       if (r.status === 401) {
-        localStorage.removeItem("bubui.adminToken");
-        setToken(null);
-        setError("Token no válido.");
+        // Sesión perdida — al login con vuelta a este panel.
+        window.location.href = "/login?callbackUrl=/bubui/admin";
         return;
       }
       if (!r.ok) {
@@ -63,13 +53,9 @@ export default function BubuiAdminClient() {
   }
 
   useEffect(() => {
-    if (token) load(token, city);
+    load(city);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, city]);
-
-  if (!token) {
-    return <TokenForm onSet={(t) => { localStorage.setItem("bubui.adminToken", t); setToken(t); }} />;
-  }
+  }, [city]);
 
   return (
     <main className="max-w-5xl mx-auto px-4 py-8 space-y-6">
@@ -92,7 +78,7 @@ export default function BubuiAdminClient() {
             style={{ width: 180 }}
           />
           <button
-            onClick={() => { localStorage.removeItem("bubui.adminToken"); setToken(null); }}
+            onClick={() => signOut({ callbackUrl: "/login" })}
             className="text-xs text-black/45 hover:text-black/70 font-semibold"
           >
             Salir
@@ -119,10 +105,10 @@ export default function BubuiAdminClient() {
         ))}
       </nav>
 
-      {tab === "users" && <UsersPanel token={token} />}
-      {tab === "businesses" && <BusinessesPanel token={token} />}
-      {tab === "banner" && <BannerPanel token={token} />}
-      {tab === "push" && <PushPanel token={token} />}
+      {tab === "users" && <UsersPanel />}
+      {tab === "businesses" && <BusinessesPanel />}
+      {tab === "banner" && <BannerPanel />}
+      {tab === "push" && <PushPanel />}
 
       {tab === "overview" && (
       <>
@@ -200,22 +186,28 @@ export default function BubuiAdminClient() {
 }
 
 // ---------- Helpers de fetch para los paneles admin ----------
-async function adminFetch(token: string, path: string, init?: RequestInit) {
+// Las cookies de sesión NextAuth viajan automáticamente al ser
+// llamadas same-origin; ya no usamos Authorization Bearer.
+async function adminFetch(path: string, init?: RequestInit) {
   const r = await fetch(path, {
     ...init,
-    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", ...(init?.headers ?? {}) }
+    headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) }
   });
+  if (r.status === 401) {
+    window.location.href = "/login?callbackUrl=/bubui/admin";
+    throw new Error("unauthorized");
+  }
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
   return r.json();
 }
 
 // ---------- Usuarios ----------
-function UsersPanel({ token }: { token: string }) {
+function UsersPanel() {
   const [rows, setRows] = useState<any[] | null>(null);
   const [err, setErr] = useState("");
   useEffect(() => {
-    adminFetch(token, "/api/bubui/admin/customers").then((d) => setRows(d.customers)).catch((e) => setErr(String(e)));
-  }, [token]);
+    adminFetch("/api/bubui/admin/customers").then((d) => setRows(d.customers)).catch((e) => setErr(String(e)));
+  }, []);
   if (err) return <p className="text-rose-700 text-sm mt-4">{err}</p>;
   if (!rows) return <div className="bubui-skeleton h-40 mt-4" />;
   return (
@@ -255,16 +247,16 @@ function UsersPanel({ token }: { token: string }) {
 }
 
 // ---------- Comercios (con destacar) ----------
-function BusinessesPanel({ token }: { token: string }) {
+function BusinessesPanel() {
   const [rows, setRows] = useState<any[] | null>(null);
   const [err, setErr] = useState("");
   useEffect(() => {
-    adminFetch(token, "/api/bubui/admin/businesses").then((d) => setRows(d.businesses)).catch((e) => setErr(String(e)));
-  }, [token]);
+    adminFetch("/api/bubui/admin/businesses").then((d) => setRows(d.businesses)).catch((e) => setErr(String(e)));
+  }, []);
   async function toggleFeatured(id: string, featured: boolean) {
     setRows((prev) => prev?.map((b) => (b.id === id ? { ...b, featured } : b)) ?? prev);
     try {
-      await adminFetch(token, "/api/bubui/admin/businesses", { method: "PATCH", body: JSON.stringify({ id, featured }) });
+      await adminFetch("/api/bubui/admin/businesses", { method: "PATCH", body: JSON.stringify({ id, featured }) });
     } catch {
       setRows((prev) => prev?.map((b) => (b.id === id ? { ...b, featured: !featured } : b)) ?? prev);
     }
@@ -311,16 +303,16 @@ function BusinessesPanel({ token }: { token: string }) {
 }
 
 // ---------- Banner del Home ----------
-function BannerPanel({ token }: { token: string }) {
+function BannerPanel() {
   const [b, setB] = useState<{ imageUrl: string; link: string; active: boolean }>({ imageUrl: "", link: "", active: false });
   const [msg, setMsg] = useState("");
   useEffect(() => {
-    adminFetch(token, "/api/bubui/admin/banner").then(setB).catch(() => {});
-  }, [token]);
+    adminFetch("/api/bubui/admin/banner").then(setB).catch(() => {});
+  }, []);
   async function save() {
     setMsg("");
     try {
-      const saved = await adminFetch(token, "/api/bubui/admin/banner", { method: "PUT", body: JSON.stringify(b) });
+      const saved = await adminFetch("/api/bubui/admin/banner", { method: "PUT", body: JSON.stringify(b) });
       setB(saved);
       setMsg("Guardado ✓");
     } catch (e) {
@@ -352,7 +344,7 @@ function BannerPanel({ token }: { token: string }) {
 }
 
 // ---------- Push promocional ----------
-function PushPanel({ token }: { token: string }) {
+function PushPanel() {
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [link, setLink] = useState("");
@@ -364,7 +356,7 @@ function PushPanel({ token }: { token: string }) {
     setBusy(true);
     setMsg("");
     try {
-      const r = await adminFetch(token, "/api/bubui/admin/push", { method: "POST", body: JSON.stringify({ title, body, link }) });
+      const r = await adminFetch("/api/bubui/admin/push", { method: "POST", body: JSON.stringify({ title, body, link }) });
       setMsg(`Enviado a ${r.recipients} usuarios (${r.sent} dispositivos).`);
       setTitle(""); setBody(""); setLink("");
     } catch (e) {
@@ -439,33 +431,5 @@ function MiniStat({ label, value }: { label: string; value: number | string }) {
       <div className="text-[10px] uppercase tracking-wide text-black/55 font-bold">{label}</div>
       <div className="text-lg font-black mt-0.5">{value}</div>
     </div>
-  );
-}
-
-function TokenForm({ onSet }: { onSet: (t: string) => void }) {
-  const [token, setToken] = useState("");
-  return (
-    <main className="max-w-md mx-auto px-4 py-12">
-      <div className="text-center mb-6 bubui-fade-up">
-        <span className="bubui-wordmark mx-auto justify-center" style={{ fontSize: 48 }}>bubui</span>
-        <div className="text-xs font-bold uppercase tracking-wider text-black/55 mt-2">Admin</div>
-      </div>
-      <div className="bubui-card p-6 bubui-fade-up bubui-fade-up-1">
-        <p className="text-sm text-black/60 mb-4">
-          Introduce el <code className="text-pink-600 font-mono text-xs">BUBUI_ADMIN_TOKEN</code> configurado en Railway.
-        </p>
-        <input
-          type="password"
-          value={token}
-          onChange={(e) => setToken(e.target.value)}
-          placeholder="Bearer token"
-          className="bubui-input mb-3"
-          onKeyDown={(e) => { if (e.key === "Enter" && token) onSet(token); }}
-        />
-        <button onClick={() => token && onSet(token)} className="bubui-btn w-full">
-          Entrar
-        </button>
-      </div>
-    </main>
   );
 }

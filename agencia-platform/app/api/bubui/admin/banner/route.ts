@@ -11,7 +11,7 @@ import { getHomeBanner, setHomeBanner } from "@/lib/bubui/banner";
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
-  if (!adminTokenOk(req)) {
+  if (!(await adminTokenOk(req))) {
     return NextResponse.json({ error: { code: "unauthorized" } }, { status: 401 });
   }
   return NextResponse.json(await getHomeBanner());
@@ -24,7 +24,7 @@ const schema = z.object({
 });
 
 export async function PUT(req: Request) {
-  if (!adminTokenOk(req)) {
+  if (!(await adminTokenOk(req))) {
     return NextResponse.json({ error: { code: "unauthorized" } }, { status: 401 });
   }
   const parsed = schema.safeParse(await req.json().catch(() => null));

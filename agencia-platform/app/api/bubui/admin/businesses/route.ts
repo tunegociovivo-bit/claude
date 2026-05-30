@@ -12,7 +12,7 @@ import { adminTokenOk } from "@/lib/bubui/admin";
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
-  if (!adminTokenOk(req)) {
+  if (!(await adminTokenOk(req))) {
     return NextResponse.json({ error: { code: "unauthorized" } }, { status: 401 });
   }
   const businesses = await prisma.bubuiBusiness.findMany({
@@ -47,7 +47,7 @@ const patchSchema = z.object({
 });
 
 export async function PATCH(req: Request) {
-  if (!adminTokenOk(req)) {
+  if (!(await adminTokenOk(req))) {
     return NextResponse.json({ error: { code: "unauthorized" } }, { status: 401 });
   }
   const parsed = patchSchema.safeParse(await req.json().catch(() => null));

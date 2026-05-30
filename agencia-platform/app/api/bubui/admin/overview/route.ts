@@ -4,18 +4,17 @@
  * Métricas globales de la red Bubui — pensado para que Negocio Vivo
  * supervise el piloto (Benalmádena).
  *
- * Auth simple v1: header `Authorization: Bearer ${BUBUI_ADMIN_TOKEN}`.
+ * Auth: sesión NextAuth del Hub con rol ADMIN.
  */
 
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
+import { isBubuiAdmin } from "@/lib/bubui/admin";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
-  const expected = process.env.BUBUI_ADMIN_TOKEN;
-  const auth = req.headers.get("authorization") ?? "";
-  if (!expected || auth !== `Bearer ${expected}`) {
+  if (!(await isBubuiAdmin(req))) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
   const url = new URL(req.url);

@@ -1,19 +1,28 @@
 /**
- * Autenticación mínima del panel de administración de Bubui.
- * Se valida un token compartido (BUBUI_ADMIN_TOKEN) enviado en la cabecera
- * `x-admin-token`. No usa la sesión del Hub: es un panel independiente.
+ * Autenticación del panel de administración de Bubui.
+ *
+ * Antes: token compartido (BUBUI_ADMIN_TOKEN) vía cabecera `x-admin-token`.
+ * Ahora: sesión NextAuth del Hub. El usuario debe estar logueado en el
+ * Hub y tener rol ADMIN. Esto evita compartir un token y reutiliza la
+ * misma cuenta + 2FA + audit del Hub.
+ *
+ * `isBubuiAdmin()` es async y solo funciona en contexto server (route
+ * handlers o server components). El parámetro `req` se mantiene en la
+ * firma para no romper los call sites, pero ya no se usa.
  */
 
-export function adminTokenOk(req: Request): boolean {
-  const expected = process.env.BUBUI_ADMIN_TOKEN;
-  if (!expected) return false;
-  // Convención del panel: `Authorization: Bearer <token>`. Aceptamos también
-  // `x-admin-token` por comodidad.
-  const auth = req.headers.get("authorization") ?? "";
-  const bearer = auth.startsWith("Bearer ") ? auth.slice(7) : "";
-  const got = bearer || req.headers.get("x-admin-token") || "";
-  if (got.length !== expected.length) return false;
-  let diff = 0;
-  for (let i = 0; i < got.length; i++) diff |= got.charCodeAt(i) ^ expected.charCodeAt(i);
-  return diff === 0;
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
+
+export async function isBubuiAdmin(_req?: Request): Promise<boolean> {
+  const s = await getServerSession(authOptions);
+  const role = (s?.user as any)?.role;
+  return role === "ADMIN";
+}
+
+// Compatibilidad: las rutas existentes llaman `adminTokenOk(req)`.
+// Mantenemos el nombre como alias async y dejamos el chequeo nuevo
+// para no tener que tocar todas las rutas con un rename masivo.
+export async function adminTokenOk(req: Request): Promise<boolean> {
+  return isBubuiAdmin(req);
 }
