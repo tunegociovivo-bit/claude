@@ -1,0 +1,113 @@
+name: Build APK Bubui (Android)
+
+# Compila la app móvil Bubui y deja el APK como artifact descargable.
+# Dos modos:
+#   - eas: build en la nube de EAS (necesita secret EXPO_TOKEN).
+#   - local: build con Gradle en el runner, firmado SIEMPRE con el mismo
+#     keystore (secrets BUBUI_KEYSTORE_B64 / *_PASS / *_ALIAS). Así cada APK
+#     se instala ENCIMA del anterior sin tener que desinstalar.
+#
+# Uso: pestaña Actions → "Build APK Bubui (Android)" → Run workflow.
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Dónde compilar"
+        required: true
+        default: local
+        type: choice
+        options:
+          - local
+          - eas
+      profile:
+        description: "(solo eas) preview = APK · production = AAB"
+        required: false
+        default: preview
+        type: choice
+        options:
+          - preview
+          - production
+
+jobs:
+  # ---- Build local con Gradle + firma estable ----------------------------
+  local:
+    if: ${{ github.event.inputs.mode == 'local' }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/bubui-mobile
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: apps/bubui-mobile/package-lock.json
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Prebuild (genera android/)
+        run: CI=1 npx expo prebuild --clean --platform android --no-install
+
+      - name: Restaurar keystore estable
+        run: echo "${{ secrets.BUBUI_KEYSTORE_B64 }}" | base64 -d > android/app/release.keystore
+
+      - name: Compilar APK (release firmado)
+        working-directory: apps/bubui-mobile/android
+        env:
+          BUBUI_STORE_FILE: release.keystore
+          BUBUI_STORE_PASS: ${{ secrets.BUBUI_KEYSTORE_PASS }}
+          BUBUI_KEY_ALIAS: ${{ secrets.BUBUI_KEY_ALIAS }}
+          BUBUI_KEY_PASS: ${{ secrets.BUBUI_KEY_PASS }}
+        run: ./gradlew :app:assembleRelease --no-daemon
+
+      - name: Subir APK como artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bubui-android-apk
+          path: apps/bubui-mobile/android/app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+
+  # ---- Build en la nube de EAS ------------------------------------------
+  eas:
+    if: ${{ github.event.inputs.mode == 'eas' }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/bubui-mobile
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: apps/bubui-mobile/package-lock.json
+
+      - name: Setup EAS
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: EAS Build (Android)
+        run: eas build --platform android --profile ${{ github.event.inputs.profile }} --non-interactive --wait

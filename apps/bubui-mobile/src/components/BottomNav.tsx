@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { View, Text, TouchableOpacity, StyleSheet, Image, ImageSourcePropType } from "react-native";
 import { useNavigation } from "@react-navigation/native";
-import { colors } from "../lib/theme";
+import { useTheme, type Palette } from "../lib/theme";
 import { api } from "../lib/api";
 
 const TABS: { route: string; label: string; icon: ImageSourcePropType; gated?: boolean }[] = [
@@ -18,6 +18,8 @@ let cachedUnlocked: boolean | null = null;
 
 export function BottomNav({ active }: { active: string }) {
   const nav = useNavigation<any>();
+  const c = useTheme();
+  const styles = makeStyles(c);
   const [unlocked, setUnlocked] = useState<boolean>(cachedUnlocked ?? false);
 
   useEffect(() => {
@@ -53,18 +55,19 @@ export function BottomNav({ active }: { active: string }) {
   );
 }
 
-const styles = StyleSheet.create({
-  bar: {
-    flexDirection: "row",
-    backgroundColor: colors.white,
-    borderTopWidth: 1,
-    borderTopColor: "rgba(0,0,0,0.06)",
-    paddingTop: 8,
-    paddingBottom: 22,
-    paddingHorizontal: 8
-  },
-  item: { flex: 1, alignItems: "center", gap: 3 },
-  icon: { width: 26, height: 26 },
-  label: { fontSize: 10, color: colors.gray, fontWeight: "600" },
-  labelOn: { color: colors.pink, fontWeight: "800" }
-});
+const makeStyles = (c: Palette) =>
+  StyleSheet.create({
+    bar: {
+      flexDirection: "row",
+      backgroundColor: c.white,
+      borderTopWidth: 1,
+      borderTopColor: c.border,
+      paddingTop: 8,
+      paddingBottom: 22,
+      paddingHorizontal: 8
+    },
+    item: { flex: 1, alignItems: "center", gap: 3 },
+    icon: { width: 26, height: 26 },
+    label: { fontSize: 10, color: c.gray, fontWeight: "600" },
+    labelOn: { color: c.pink, fontWeight: "800" }
+  });

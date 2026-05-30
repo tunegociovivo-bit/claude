@@ -1,11 +1,12 @@
-import { useEffect, useState } from "react";
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, Alert } from "react-native";
+import { useEffect, useRef, useState } from "react";
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, Alert, Image } from "react-native";
 import { CameraView, Camera } from "expo-camera";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Location from "expo-location";
 import { useNavigation, useRoute, type RouteProp } from "@react-navigation/native";
 import { CheckSession } from "../lib/session";
 import { api } from "../lib/api";
-import { colors, radius, shadow } from "../lib/theme";
+import { useTheme, type Palette, radius, shadow } from "../lib/theme";
 import type { RootStackParamList } from "../../App";
 
 type ScanRoute = RouteProp<RootStackParamList, "Scan">;
@@ -13,6 +14,9 @@ type ScanRoute = RouteProp<RootStackParamList, "Scan">;
 export function Scan() {
   const nav = useNavigation<any>();
   const route = useRoute<ScanRoute>();
+  const insets = useSafeAreaInsets();
+  const c = useTheme();
+  const styles = makeStyles(c);
   const initialBusinessId = route.params?.businessId || "";
 
   const [hasPermission, setHasPermission] = useState<boolean | null>(null);
@@ -20,6 +24,10 @@ export function Scan() {
   const [amount, setAmount] = useState("");
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState<any>(null);
+  const [torch, setTorch] = useState(false);
+  // onBarcodeScanned se dispara muchas veces por segundo; el lock evita
+  // procesar el mismo frame N veces (y Alerts en bucle con un QR no válido).
+  const lock = useRef(false);
 
   useEffect(() => {
     (async () => {
@@ -28,12 +36,29 @@ export function Scan() {
     })();
   }, []);
 
+  // Cierra la pantalla de escaneo volviendo al stack anterior (o al Feed).
+  function close() {
+    if (nav.canGoBack()) nav.goBack();
+    else nav.reset({ index: 0, routes: [{ name: "Feed" }] });
+  }
+
+  // Vuelve a la cámara para escanear otro negocio.
+  function rescan() {
+    lock.current = false;
+    setAmount("");
+    setBusinessId("");
+  }
+
   function onScanned(result: { data: string }) {
+    if (lock.current) return;
+    lock.current = true;
     const m = /\/bubui\/scan\/([a-z0-9_-]+)/i.exec(result.data);
     if (m) {
       setBusinessId(m[1]);
     } else {
-      Alert.alert("QR no reconocido", "Asegúrate de escanear un QR Bubui válido.");
+      Alert.alert("QR no reconocido", "Asegúrate de escanear un QR Bubui válido.", [
+        { text: "Reintentar", onPress: () => { lock.current = false; } }
+      ]);
     }
   }
 
@@ -67,10 +92,21 @@ export function Scan() {
   }
 
   if (hasPermission === null) {
-    return <View style={styles.center}><Text style={styles.muted}>Pidiendo permiso de cámara…</Text></View>;
+    return (
+      <View style={[styles.center, { padding: 24 }]}>
+        <Image source={require("../../assets/ill-scan.png")} style={styles.permIll} resizeMode="contain" />
+        <Text style={styles.muted}>Pidiendo permiso de cámara…</Text>
+      </View>
+    );
   }
   if (hasPermission === false) {
-    return <View style={styles.center}><Text style={styles.muted}>Sin permiso de cámara. Actívalo en ajustes.</Text></View>;
+    return (
+      <View style={[styles.center, { padding: 24 }]}>
+        <Image source={require("../../assets/ill-scan.png")} style={styles.permIll} resizeMode="contain" />
+        <Text style={styles.bigTitle}>Necesitamos la cámara</Text>
+        <Text style={styles.muted}>Para escanear el QR del negocio y aplicarte el descuento. Actívala en los ajustes del teléfono.</Text>
+      </View>
+    );
   }
 
   if (done) {
@@ -98,7 +134,21 @@ export function Scan() {
           style={{ flex: 1 }}
           onBarcodeScanned={onScanned}
           barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
+          enableTorch={torch}
         />
+        {/* Controles superiores: cerrar + linterna */}
+        <View style={[styles.topBar, { top: insets.top + 8 }]} pointerEvents="box-none">
+          <TouchableOpacity style={styles.roundBtn} onPress={close} hitSlop={8}>
+            <Text style={styles.roundBtnText}>✕</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.roundBtn, torch && styles.roundBtnOn]}
+            onPress={() => setTorch((t) => !t)}
+            hitSlop={8}
+          >
+            <Text style={styles.roundBtnText}>{torch ? "🔦" : "💡"}</Text>
+          </TouchableOpacity>
+        </View>
         {/* Marco visual de escaneo */}
         <View style={styles.scanFrame} pointerEvents="none" />
         <View style={styles.overlayHint}>
@@ -110,6 +160,9 @@ export function Scan() {
 
   return (
     <View style={styles.amountRoot}>
+      <TouchableOpacity style={[styles.backRow, { top: insets.top + 8 }]} onPress={close} hitSlop={8}>
+        <Text style={styles.backText}>‹ Cerrar</Text>
+      </TouchableOpacity>
       <Text style={styles.bigTitle}>¿Cuánto has pagado?</Text>
       <Text style={[styles.muted, { marginBottom: 24 }]}>
         Introduce el importe del ticket. El negocio confirma y te aplican el descuento.
@@ -119,7 +172,7 @@ export function Scan() {
           style={styles.bigInput}
           keyboardType="decimal-pad"
           placeholder="0,00"
-          placeholderTextColor={colors.grayLight}
+          placeholderTextColor={c.grayLight}
           value={amount}
           onChangeText={setAmount}
           autoFocus
@@ -129,20 +182,33 @@ export function Scan() {
       <TouchableOpacity style={[styles.btn, busy && { opacity: 0.5 }]} onPress={submit} disabled={busy}>
         <Text style={styles.btnText}>{busy ? "Enviando…" : "Confirmar"}</Text>
       </TouchableOpacity>
+      <TouchableOpacity style={styles.rescan} onPress={rescan} disabled={busy}>
+        <Text style={styles.rescanText}>Escanear otro código</Text>
+      </TouchableOpacity>
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  center: { flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: colors.white, gap: 12 },
-  muted: { color: colors.gray, textAlign: "center", fontSize: 14, lineHeight: 20, paddingHorizontal: 24 },
-  amountRoot: { flex: 1, padding: 24, backgroundColor: colors.white, paddingTop: 80, alignItems: "center" },
-  bigTitle: { fontSize: 24, fontWeight: "900", color: colors.black, textAlign: "center", letterSpacing: -0.5 },
-  bigInput: { fontSize: 52, fontWeight: "900", color: colors.black, borderBottomColor: colors.pink, borderBottomWidth: 2, minWidth: 160, textAlign: "center" },
-  bigSymbol: { fontSize: 32, fontWeight: "800", color: colors.gray, marginLeft: 8, paddingBottom: 10 },
-  btn: { marginTop: 32, backgroundColor: colors.pink, borderRadius: radius.pill, paddingVertical: 15, paddingHorizontal: 32, ...shadow.btn },
-  btnText: { color: colors.white, fontSize: 16, fontWeight: "800" },
-  scanFrame: { position: "absolute", top: "30%", left: "15%", width: "70%", height: "30%", borderColor: colors.pink, borderWidth: 3, borderRadius: 24 },
-  overlayHint: { position: "absolute", bottom: 80, left: 0, right: 0, padding: 12 },
-  overlayText: { color: "#FFF", textAlign: "center", fontSize: 15, fontWeight: "700" }
-});
+const makeStyles = (c: Palette) =>
+  StyleSheet.create({
+    center: { flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: c.bg, gap: 12 },
+    permIll: { width: 200, height: 200, marginBottom: 4 },
+    muted: { color: c.gray, textAlign: "center", fontSize: 14, lineHeight: 20, paddingHorizontal: 24 },
+    amountRoot: { flex: 1, padding: 24, backgroundColor: c.bg, paddingTop: 80, alignItems: "center" },
+    bigTitle: { fontSize: 24, fontWeight: "900", color: c.black, textAlign: "center", letterSpacing: -0.5 },
+    bigInput: { fontSize: 52, fontWeight: "900", color: c.black, borderBottomColor: c.pink, borderBottomWidth: 2, minWidth: 160, textAlign: "center" },
+    bigSymbol: { fontSize: 32, fontWeight: "800", color: c.gray, marginLeft: 8, paddingBottom: 10 },
+    btn: { marginTop: 32, backgroundColor: c.pink, borderRadius: radius.pill, paddingVertical: 15, paddingHorizontal: 32, ...shadow.btn },
+    btnText: { color: c.onAccent, fontSize: 16, fontWeight: "800" },
+    scanFrame: { position: "absolute", top: "30%", left: "15%", width: "70%", height: "30%", borderColor: c.pink, borderWidth: 3, borderRadius: 24 },
+    overlayHint: { position: "absolute", bottom: 80, left: 0, right: 0, padding: 12 },
+    overlayText: { color: "#FFF", textAlign: "center", fontSize: 15, fontWeight: "700" },
+    topBar: { position: "absolute", left: 16, right: 16, flexDirection: "row", justifyContent: "space-between" },
+    roundBtn: { height: 44, width: 44, borderRadius: 22, backgroundColor: "rgba(0,0,0,0.45)", alignItems: "center", justifyContent: "center" },
+    roundBtnOn: { backgroundColor: c.pink },
+    roundBtnText: { color: "#FFF", fontSize: 18, fontWeight: "800" },
+    backRow: { position: "absolute", left: 16 },
+    backText: { color: c.gray, fontSize: 16, fontWeight: "800" },
+    rescan: { marginTop: 18, paddingVertical: 8 },
+    rescanText: { color: c.pink, fontSize: 14, fontWeight: "800" }
+  });

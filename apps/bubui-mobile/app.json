@@ -5,7 +5,7 @@
     "version": "0.1.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "automatic",
     "scheme": "bubui",
     "splash": {
       "image": "./assets/splash.png",
@@ -18,12 +18,13 @@
       "infoPlist": {
         "NSCameraUsageDescription": "Bubui necesita la cámara para escanear el QR de los negocios y aplicarte el descuento.",
         "NSLocationWhenInUseUsageDescription": "Bubui usa tu ubicación para mostrarte los descuentos cerca de ti.",
-        "NSLocationAlwaysAndWhenInUseUsageDescription": "Bubui usa tu ubicación para avisarte de descuentos cuando pases cerca."
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Bubui usa tu ubicación para avisarte de descuentos cuando pases cerca.",
+        "UIBackgroundModes": ["location", "fetch"]
       }
     },
     "android": {
       "package": "com.negociovivo.bubui",
-      "versionCode": 17,
+      "versionCode": 22,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#FFFFFF"
@@ -32,11 +33,15 @@
         "CAMERA",
         "ACCESS_COARSE_LOCATION",
         "ACCESS_FINE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION",
+        "FOREGROUND_SERVICE",
+        "FOREGROUND_SERVICE_LOCATION",
         "POST_NOTIFICATIONS",
         "android.permission.CAMERA",
         "android.permission.RECORD_AUDIO",
         "android.permission.ACCESS_COARSE_LOCATION",
-        "android.permission.ACCESS_FINE_LOCATION"
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_BACKGROUND_LOCATION"
       ],
       "intentFilters": [
         {
@@ -81,7 +86,9 @@
       [
         "expo-location",
         {
-          "locationAlwaysAndWhenInUsePermission": "Bubui usa tu ubicación para mostrar descuentos cerca y avisarte cuando pases junto a uno."
+          "locationAlwaysAndWhenInUsePermission": "Bubui usa tu ubicación para mostrar descuentos cerca y avisarte cuando pases junto a uno.",
+          "isAndroidBackgroundLocationEnabled": true,
+          "isAndroidForegroundServiceEnabled": true
         }
       ],
       "expo-notifications",

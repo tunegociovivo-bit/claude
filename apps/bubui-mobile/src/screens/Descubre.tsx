@@ -1,16 +1,18 @@
 import { useCallback, useEffect, useState } from "react";
-import { View, Text, FlatList, TextInput, TouchableOpacity, StyleSheet, RefreshControl } from "react-native";
-import { useFocusEffect } from "@react-navigation/native";
+import { View, Text, FlatList, TextInput, TouchableOpacity, StyleSheet, RefreshControl, Image } from "react-native";
+import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import * as Location from "expo-location";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { api } from "../lib/api";
 import { Wordmark } from "../components/Wordmark";
 import { BottomNav } from "../components/BottomNav";
-import { colors, radius, shadow } from "../lib/theme";
+import { useTheme, type Palette, radius, shadow } from "../lib/theme";
 
 type Business = {
   id: string; slug: string; name: string; category: string; city: string;
-  brandColor?: string | null; defaultDiscountPct: number; distanceM: number | null;
+  address?: string | null; latitude?: number | null; longitude?: number | null;
+  logoUrl?: string | null; brandColor?: string | null;
+  defaultDiscountPct: number; distanceM: number | null; topInCategory?: boolean;
 };
 
 const CATS = [
@@ -24,6 +26,9 @@ const CATS = [
 const FAVS_KEY = "bubui.favs";
 
 export function Descubre() {
+  const nav = useNavigation<any>();
+  const c = useTheme();
+  const styles = makeStyles(c);
   const [items, setItems] = useState<Business[]>([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
@@ -75,7 +80,7 @@ export function Descubre() {
         <TextInput
           style={styles.searchInput}
           placeholder="Buscar negocios, comida, belleza…"
-          placeholderTextColor={colors.grayLight}
+          placeholderTextColor={c.grayLight}
           value={query}
           onChangeText={setQuery}
         />
@@ -84,14 +89,14 @@ export function Descubre() {
         horizontal
         showsHorizontalScrollIndicator={false}
         data={CATS}
-        keyExtractor={(c) => c.key}
+        keyExtractor={(ct) => ct.key}
         contentContainerStyle={{ gap: 8, paddingVertical: 4 }}
         style={{ marginBottom: 8 }}
-        renderItem={({ item: c }) => {
-          const on = cat === c.key;
+        renderItem={({ item: ct }) => {
+          const on = cat === ct.key;
           return (
-            <TouchableOpacity onPress={() => setCat(c.key)} style={[styles.chip, on && styles.chipOn]}>
-              <Text style={[styles.chipText, on && { color: colors.white }]}>{c.icon} {c.label}</Text>
+            <TouchableOpacity onPress={() => setCat(ct.key)} style={[styles.chip, on && styles.chipOn]}>
+              <Text style={[styles.chipText, on && { color: c.onAccent }]}>{ct.icon} {ct.label}</Text>
             </TouchableOpacity>
           );
         }}
@@ -107,12 +112,13 @@ export function Descubre() {
         keyExtractor={(b) => b.id}
         ListHeaderComponent={header}
         contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 52, paddingBottom: 30 }}
-        refreshControl={<RefreshControl refreshing={loading} onRefresh={load} tintColor={colors.pink} />}
+        refreshControl={<RefreshControl refreshing={loading} onRefresh={load} tintColor={c.pink} />}
         ListEmptyComponent={
           !loading ? (
             <View style={styles.empty}>
+              <Image source={require("../../assets/ill-tienda.png")} style={styles.emptyIll} resizeMode="contain" />
               <Text style={styles.emptyText}>
-                {items.length === 0 ? "Aún no hay negocios en tu zona. Piloto en Benalmádena." : "Sin resultados."}
+                {items.length === 0 ? "Aún no hay negocios en tu zona.\nPiloto en Benalmádena." : "Sin resultados para tu búsqueda."}
               </Text>
             </View>
           ) : null
@@ -120,11 +126,13 @@ export function Descubre() {
         renderItem={({ item: b }) => {
           const fav = favs.includes(b.slug);
           return (
-            <View style={styles.card}>
+            <TouchableOpacity style={styles.card} activeOpacity={0.85} onPress={() => nav.navigate("Negocio", { business: b })}>
               <View style={[styles.photo, b.brandColor ? { backgroundColor: b.brandColor } : null]}>
+                {!!b.logoUrl && <Image source={{ uri: b.logoUrl }} style={styles.photoImg} resizeMode="cover" />}
                 <TouchableOpacity style={styles.heart} onPress={() => toggleFav(b.slug)}>
                   <Text style={{ fontSize: 16 }}>{fav ? "❤️" : "🤍"}</Text>
                 </TouchableOpacity>
+                {b.topInCategory && <View style={styles.topBadge}><Text style={styles.topBadgeText}>🏆 Top</Text></View>}
                 <View style={styles.tag}><Text style={styles.tagText}>-{b.defaultDiscountPct}%</Text></View>
               </View>
               <View style={styles.body}>
@@ -134,7 +142,7 @@ export function Descubre() {
                   {b.distanceM != null && ` · ${b.distanceM > 1000 ? `${(b.distanceM / 1000).toFixed(1)} km` : `${b.distanceM} m`}`}
                 </Text>
               </View>
-            </View>
+            </TouchableOpacity>
           );
         }}
       />
@@ -143,24 +151,29 @@ export function Descubre() {
   );
 }
 
-const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.white },
-  top: { marginBottom: 10 },
-  h1: { fontSize: 24, fontWeight: "900", color: colors.black, letterSpacing: -0.5, lineHeight: 28, marginBottom: 12 },
-  search: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.border, borderRadius: radius.pill, paddingHorizontal: 14, paddingVertical: 10, marginBottom: 10, ...shadow.card },
-  searchInput: { flex: 1, fontSize: 14, color: colors.black },
-  chip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.white },
-  chipOn: { backgroundColor: colors.pink, borderColor: colors.pink },
-  chipText: { fontSize: 13, fontWeight: "700", color: colors.black },
-  section: { fontSize: 14, fontWeight: "900", color: colors.black, marginBottom: 10, marginTop: 4 },
-  card: { backgroundColor: colors.white, borderRadius: radius.lg, marginBottom: 12, overflow: "hidden", borderWidth: 1, borderColor: colors.border, ...shadow.card },
-  photo: { height: 130, backgroundColor: colors.pinkSoft, justifyContent: "flex-start", alignItems: "flex-end", flexDirection: "row" },
-  heart: { position: "absolute", top: 10, left: 10, height: 34, width: 34, borderRadius: 17, backgroundColor: "rgba(255,255,255,0.92)", alignItems: "center", justifyContent: "center" },
-  tag: { margin: 12, backgroundColor: colors.pink, borderRadius: radius.pill, paddingHorizontal: 12, paddingVertical: 6 },
-  tagText: { color: colors.white, fontWeight: "900", fontSize: 13 },
-  body: { padding: 14 },
-  name: { fontWeight: "800", color: colors.black, fontSize: 15 },
-  meta: { color: colors.gray, fontSize: 12, marginTop: 2 },
-  empty: { padding: 24, backgroundColor: colors.white, borderRadius: radius.lg, borderColor: colors.border, borderWidth: 1 },
-  emptyText: { textAlign: "center", color: colors.gray, fontSize: 14, lineHeight: 20 }
-});
+const makeStyles = (c: Palette) =>
+  StyleSheet.create({
+    root: { flex: 1, backgroundColor: c.bg },
+    top: { marginBottom: 10 },
+    h1: { fontSize: 24, fontWeight: "900", color: c.black, letterSpacing: -0.5, lineHeight: 28, marginBottom: 12 },
+    search: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: c.white, borderWidth: 1, borderColor: c.border, borderRadius: radius.pill, paddingHorizontal: 14, paddingVertical: 10, marginBottom: 10, ...shadow.card },
+    searchInput: { flex: 1, fontSize: 14, color: c.black },
+    chip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: radius.pill, borderWidth: 1, borderColor: c.border, backgroundColor: c.white },
+    chipOn: { backgroundColor: c.pink, borderColor: c.pink },
+    chipText: { fontSize: 13, fontWeight: "700", color: c.black },
+    section: { fontSize: 14, fontWeight: "900", color: c.black, marginBottom: 10, marginTop: 4 },
+    card: { backgroundColor: c.white, borderRadius: radius.lg, marginBottom: 12, overflow: "hidden", borderWidth: 1, borderColor: c.border, ...shadow.card },
+    photo: { height: 130, backgroundColor: c.pinkSoft, justifyContent: "flex-start", alignItems: "flex-end", flexDirection: "row" },
+    photoImg: { ...StyleSheet.absoluteFillObject, width: "100%", height: "100%" },
+    heart: { position: "absolute", top: 10, left: 10, height: 34, width: 34, borderRadius: 17, backgroundColor: "rgba(255,255,255,0.92)", alignItems: "center", justifyContent: "center", zIndex: 1 },
+    topBadge: { position: "absolute", bottom: 10, left: 10, backgroundColor: "rgba(255,255,255,0.92)", borderRadius: radius.pill, paddingHorizontal: 10, paddingVertical: 5 },
+    topBadgeText: { fontSize: 11, fontWeight: "800", color: "#DB2777" },
+    tag: { margin: 12, backgroundColor: c.pink, borderRadius: radius.pill, paddingHorizontal: 12, paddingVertical: 6 },
+    tagText: { color: c.onAccent, fontWeight: "900", fontSize: 13 },
+    body: { padding: 14 },
+    name: { fontWeight: "800", color: c.black, fontSize: 15 },
+    meta: { color: c.gray, fontSize: 12, marginTop: 2 },
+    empty: { padding: 24, alignItems: "center", backgroundColor: c.white, borderRadius: radius.lg, borderColor: c.border, borderWidth: 1 },
+    emptyIll: { width: 180, height: 146, marginBottom: 10 },
+    emptyText: { textAlign: "center", color: c.gray, fontSize: 14, lineHeight: 20 }
+  });
