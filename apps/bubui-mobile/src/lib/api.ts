@@ -61,6 +61,7 @@ export const api = {
       body: JSON.stringify({ businessId, customerId, amount, scanLat, scanLng })
     }),
   vapidPublic: () => call("/api/bubui/push/vapid-public"),
+  banner: () => call<{ active: boolean; imageUrl?: string; link?: string }>("/api/bubui/banner"),
   subscribePush: (customerId: string, subscription: any, userAgent?: string) =>
     call("/api/bubui/push/subscribe", {
       method: "POST",

@@ -29,7 +29,9 @@ export function Feed() {
   const [banner, setBanner] = useState<{ imageUrl: string; link: string; active: boolean } | null>(null);
 
   useEffect(() => {
-    api.banner().then(setBanner).catch(() => {});
+    try {
+      api.banner().then(setBanner).catch(() => {});
+    } catch {}
   }, []);
 
   // Animación de atención del botón Escanear: pulso de escala continuo.
