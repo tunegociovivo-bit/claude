@@ -159,23 +159,42 @@ export function Onboarding() {
   if (step === SLIDES.length) {
     return (
       <View style={styles.chooseRoot}>
-        <View style={{ alignItems: "center", marginBottom: 28 }}>
-          <Wordmark size={64} />
+        <View style={styles.chooseHeader}>
+          <Wordmark size={56} />
           <Text style={styles.tag}>Ahorra. Disfruta. Apoya local.</Text>
         </View>
 
-        <Text style={styles.chooseHelp}>¿Qué quieres hacer?</Text>
-
-        <TouchableOpacity style={styles.btn} onPress={() => setStep(SLIDES.length + 1)} activeOpacity={0.9}>
-          <Text style={[styles.btnText, styles.btnTextSmall]}>DARME DE ALTA PARA OBTENER DESCUENTOS Y REGALOS</Text>
+        {/* CTA principal: tarjeta hero para alta de cliente */}
+        <TouchableOpacity
+          style={styles.heroCard}
+          onPress={() => setStep(SLIDES.length + 1)}
+          activeOpacity={0.92}
+        >
+          <View style={styles.heroIconWrap}>
+            <Text style={styles.heroIcon}>🎁</Text>
+          </View>
+          <Text style={styles.heroTitle}>Descuentos y regalos{"\n"}cerca de ti</Text>
+          <Text style={styles.heroSubtitle}>
+            Crea tu cuenta gratis y empieza a ahorrar en bares, peluquerías, tiendas y mucho más de tu barrio.
+          </Text>
+          <View style={styles.heroPill}>
+            <Text style={styles.heroPillText}>CREAR MI CUENTA GRATIS</Text>
+          </View>
+          <Text style={styles.heroFinePrint}>Sin tarjetas · Sin spam · 30 segundos</Text>
         </TouchableOpacity>
 
+        {/* CTA secundaria: alta de negocio */}
+        <View style={styles.bizRow}>
+          <View style={styles.divider} />
+          <Text style={styles.bizLead}>¿Tienes un negocio?</Text>
+          <View style={styles.divider} />
+        </View>
         <TouchableOpacity
-          style={[styles.btn, styles.btnSecondary]}
+          style={styles.bizBtn}
           onPress={() => Linking.openURL("https://bubui.app/registro").catch(() => {})}
-          activeOpacity={0.9}
+          activeOpacity={0.8}
         >
-          <Text style={[styles.btnText, styles.btnTextSmall, styles.btnSecondaryText]}>DAR DE ALTA MI NEGOCIO</Text>
+          <Text style={styles.bizBtnText}>Dar de alta mi negocio  →</Text>
         </TouchableOpacity>
       </View>
     );
@@ -313,12 +332,85 @@ const styles = StyleSheet.create({
   btn: { backgroundColor: colors.pink, borderRadius: radius.pill, paddingVertical: 16, alignItems: "center", ...shadow.btn },
   btnText: { color: colors.white, fontWeight: "800", fontSize: 16 },
 
-  // Pantalla intermedia "elige tipo"
-  chooseRoot: { flex: 1, paddingTop: 100, paddingHorizontal: 24, paddingBottom: 40, backgroundColor: colors.white, gap: 14 },
-  chooseHelp: { textAlign: "center", color: colors.gray, fontSize: 13, fontWeight: "700", marginBottom: 18 },
-  btnSecondary: { backgroundColor: colors.white, borderWidth: 2, borderColor: colors.pink },
-  btnSecondaryText: { color: colors.pink },
-  btnTextSmall: { fontSize: 13, lineHeight: 17, textAlign: "center", paddingHorizontal: 6 },
+  // Pantalla intermedia "elige tipo" — rediseño con jerarquía: hero card cliente + link secundario negocio
+  chooseRoot: { flex: 1, paddingTop: 64, paddingHorizontal: 22, paddingBottom: 28, backgroundColor: colors.white },
+  chooseHeader: { alignItems: "center", marginBottom: 28 },
+
+  // Tarjeta hero (cliente) — la acción principal
+  heroCard: {
+    backgroundColor: colors.pink,
+    borderRadius: radius.xl,
+    paddingTop: 28,
+    paddingBottom: 22,
+    paddingHorizontal: 22,
+    alignItems: "center",
+    shadowColor: colors.pink,
+    shadowOpacity: 0.35,
+    shadowRadius: 22,
+    shadowOffset: { width: 0, height: 12 },
+    elevation: 14
+  },
+  heroIconWrap: {
+    width: 78, height: 78, borderRadius: 39,
+    backgroundColor: "rgba(255,255,255,0.18)",
+    alignItems: "center", justifyContent: "center",
+    marginBottom: 16
+  },
+  heroIcon: { fontSize: 44, lineHeight: 50 },
+  heroTitle: {
+    color: colors.white,
+    fontSize: 24,
+    lineHeight: 28,
+    fontWeight: "900",
+    textAlign: "center",
+    letterSpacing: -0.5
+  },
+  heroSubtitle: {
+    color: "rgba(255,255,255,0.92)",
+    fontSize: 14,
+    lineHeight: 19,
+    textAlign: "center",
+    marginTop: 10,
+    marginBottom: 22,
+    paddingHorizontal: 4
+  },
+  heroPill: {
+    backgroundColor: colors.white,
+    borderRadius: radius.pill,
+    paddingVertical: 14,
+    paddingHorizontal: 22,
+    alignSelf: "stretch",
+    alignItems: "center"
+  },
+  heroPillText: {
+    color: colors.pink,
+    fontWeight: "900",
+    fontSize: 14,
+    letterSpacing: 0.4
+  },
+  heroFinePrint: {
+    color: "rgba(255,255,255,0.85)",
+    fontSize: 11,
+    fontWeight: "700",
+    marginTop: 12,
+    letterSpacing: 0.2
+  },
+
+  // Bloque inferior — negocio (secundario)
+  bizRow: { flexDirection: "row", alignItems: "center", marginTop: 30, marginBottom: 12, gap: 10 },
+  divider: { flex: 1, height: 1, backgroundColor: colors.border },
+  bizLead: { fontSize: 11, color: colors.gray, fontWeight: "800", letterSpacing: 0.8, textTransform: "uppercase" },
+  bizBtn: {
+    alignSelf: "center",
+    paddingVertical: 12,
+    paddingHorizontal: 18
+  },
+  bizBtnText: {
+    color: colors.pink,
+    fontWeight: "800",
+    fontSize: 14,
+    letterSpacing: 0.2
+  },
 
   // Signup
   signupRoot: { paddingTop: 80, paddingHorizontal: 24, paddingBottom: 60, backgroundColor: colors.white, flexGrow: 1 },
