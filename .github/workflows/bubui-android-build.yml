@@ -10,9 +10,6 @@ name: Build Bubui (Android APK + AAB)
 
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - .github/workflows/bubui-android-build.yml
 
 jobs:
   build:
