@@ -41,12 +41,6 @@ export function Feed() {
   const [refreshing, setRefreshing] = useState(false);
   const [banner, setBanner] = useState<{ imageUrl?: string; link?: string; active: boolean } | null>(null);
 
-  useEffect(() => {
-    try {
-      api.banner().then(setBanner).catch(() => {});
-    } catch {}
-  }, []);
-
   // Animación de atención del botón Escanear: pulso de escala continuo.
   const pulse = useRef(new Animated.Value(0)).current;
   useEffect(() => {
@@ -70,6 +64,8 @@ export function Feed() {
         return;
       }
       setCustomer(c);
+      // Banner gestionable desde admin: se refresca en cada foco / pull-to-refresh.
+      api.banner().then(setBanner).catch(() => {});
       // Registramos el token de push en background — no bloquea la carga.
       registerExpoPushForCustomer(c.customerId).catch(() => {});
       let lat: number | undefined;
@@ -141,9 +137,14 @@ export function Feed() {
       {banner?.active && banner.imageUrl ? (
         <TouchableOpacity
           activeOpacity={banner.link ? 0.85 : 1}
-          onPress={() => { if (banner.link) Linking.openURL(banner.link).catch(() => {}); }}
+          onPress={() => { if (banner.link) Linking.openURL(banner.link!).catch(() => {}); }}
         >
-          <Image source={{ uri: banner.imageUrl }} style={styles.promo} resizeMode="contain" />
+          <Image
+            source={{ uri: banner.imageUrl }}
+            style={styles.promo}
+            resizeMode="contain"
+            onError={() => setBanner((b) => (b ? { ...b, active: false } : b))}
+          />
         </TouchableOpacity>
       ) : (
         <View style={styles.promoCard}>
