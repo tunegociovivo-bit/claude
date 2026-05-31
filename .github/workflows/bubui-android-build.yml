@@ -10,6 +10,9 @@ name: Build Bubui (Android APK + AAB)
 
 on:
   workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/bubui-android-build.yml
 
 jobs:
   build:
@@ -55,6 +58,21 @@ jobs:
       - name: Restaurar keystore estable
         run: echo "${{ secrets.BUBUI_KEYSTORE_B64 }}" | base64 -d > android/app/release.keystore
 
+      - name: Exportar certificado de subida (.pem) + huellas
+        working-directory: apps/bubui-mobile/android/app
+        env:
+          BUBUI_STORE_PASS: ${{ secrets.BUBUI_KEYSTORE_PASS }}
+          BUBUI_KEY_ALIAS: ${{ secrets.BUBUI_KEY_ALIAS }}
+        run: |
+          # Certificado público que Play pide al restablecer la clave de subida.
+          keytool -export -rfc \
+            -keystore release.keystore \
+            -alias "$BUBUI_KEY_ALIAS" \
+            -storepass "$BUBUI_STORE_PASS" \
+            -file upload_certificate.pem
+          echo "=== Huellas de ESTE keystore (clave de subida del workflow) ==="
+          keytool -list -v -keystore release.keystore -alias "$BUBUI_KEY_ALIAS" -storepass "$BUBUI_STORE_PASS" | grep -iE "SHA1|SHA256" || true
+
       - name: Compilar APK + AAB (release firmado)
         working-directory: apps/bubui-mobile/android
         env:
@@ -83,7 +101,7 @@ jobs:
             apps/bubui-mobile/android/app/build/outputs/bundle/release/bubui.aab
           if-no-files-found: error
 
-      - name: Publicar APK + AAB en una Release (enlaces estables)
+      - name: Publicar APK + AAB + certificado en una Release (enlaces estables)
         uses: softprops/action-gh-release@v2
         with:
           tag_name: bubui-${{ github.run_number }}
@@ -92,6 +110,7 @@ jobs:
           files: |
             apps/bubui-mobile/android/app/build/outputs/apk/release/bubui.apk
             apps/bubui-mobile/android/app/build/outputs/bundle/release/bubui.aab
+            apps/bubui-mobile/android/app/upload_certificate.pem
           body: |
             Bubui · build #${{ github.run_number }} · commit ${{ github.sha }}
 
@@ -100,5 +119,8 @@ jobs:
 
             **AAB (subir a Google Play Console):**
             https://github.com/${{ github.repository }}/releases/latest/download/bubui.aab
+
+            **Certificado de subida (para restablecer la clave en Play Console):**
+            https://github.com/${{ github.repository }}/releases/latest/download/upload_certificate.pem
 
             El APK se instala encima de la versión anterior (misma firma).
