@@ -34,12 +34,13 @@ type Offer = {
   distanceM: number | null;
 };
 
-// Banner cuadrado, centrado y acotado: nunca a pantalla completa ni recortado.
 const SCREEN_W = Dimensions.get("window").width;
 // Banner a ancho completo (edge-to-edge): cancela el padding lateral (16) del
-// FlatList con un margen negativo. Alto tipo banner (ratio ~2:1) para destacar.
+// FlatList con un margen negativo. La ALTURA se calcula con la proporción real
+// de la imagen (Image.getSize) para mostrarla COMPLETA, sin recortar. Mientras
+// se mide, se usa un alto provisional ~2:1.
 const BANNER_W = SCREEN_W;
-const BANNER_H = Math.round(SCREEN_W * 0.52);
+const BANNER_H_FALLBACK = Math.round(SCREEN_W * 0.52);
 
 export function Feed() {
   const nav = useNavigation<any>();
@@ -49,6 +50,17 @@ export function Feed() {
   const [offers, setOffers] = useState<Offer[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [banner, setBanner] = useState<{ imageUrl?: string; link?: string; active: boolean } | null>(null);
+  // Alto real del banner según la proporción de la imagen (para no recortarla).
+  const [bannerH, setBannerH] = useState<number>(BANNER_H_FALLBACK);
+  useEffect(() => {
+    const uri = banner?.active ? banner.imageUrl : undefined;
+    if (!uri) return;
+    Image.getSize(
+      uri,
+      (w, h) => { if (w > 0) setBannerH(Math.round((BANNER_W * h) / w)); },
+      () => setBannerH(BANNER_H_FALLBACK)
+    );
+  }, [banner?.imageUrl, banner?.active]);
 
   // Animación de atención del botón Escanear: pulso de escala continuo.
   const pulse = useRef(new Animated.Value(0)).current;
@@ -145,7 +157,7 @@ export function Feed() {
           >
             <Image
               source={{ uri: banner.imageUrl }}
-              style={styles.promo}
+              style={[styles.promo, { height: bannerH }]}
               resizeMode="cover"
               onError={() => setBanner((b) => (b ? { ...b, active: false } : b))}
             />
@@ -229,7 +241,8 @@ const makeStyles = (c: Palette) =>
     // Wrapper a ancho completo: -16 de margen a cada lado para cancelar el
     // padding del FlatList, sombra para que el banner resalte sobre el fondo.
     promoWrap: { width: BANNER_W, marginLeft: -16, marginBottom: 22, ...shadow.card },
-    promo: { width: BANNER_W, height: BANNER_H },
+    // height se fija dinámicamente (bannerH) según la proporción de la imagen.
+    promo: { width: BANNER_W },
     promoCard: { flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: c.pinkWash, borderRadius: radius.xl, borderWidth: 1, borderColor: c.pinkSoft, padding: 14, marginBottom: 22 },
     promoIll: { width: 76, height: 76 },
     promoTitle: { fontSize: 15, fontWeight: "900", color: c.black, letterSpacing: -0.3 },
