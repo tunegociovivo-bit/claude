@@ -10,6 +10,10 @@ name: Build APK Bubui (Android)
 # Uso: pestaña Actions → "Build APK Bubui (Android)" → Run workflow.
 
 on:
+  # Trigger temporal: lanzar un build local al tocar este archivo.
+  push:
+    paths:
+      - .github/workflows/bubui-android-build.yml
   workflow_dispatch:
     inputs:
       mode:
@@ -32,7 +36,7 @@ on:
 jobs:
   # ---- Build local con Gradle + firma estable ----------------------------
   local:
-    if: ${{ github.event.inputs.mode == 'local' }}
+    if: ${{ github.event.inputs.mode == 'local' || github.event_name == 'push' }}
     runs-on: ubuntu-latest
     defaults:
       run:
