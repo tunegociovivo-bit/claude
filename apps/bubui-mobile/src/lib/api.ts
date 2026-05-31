@@ -60,11 +60,23 @@ export const api = {
     if (lng != null) url.searchParams.set("lng", String(lng));
     return fetch(url.toString()).then((r) => r.json());
   },
-  scan: (businessId: string, customerId: string, amount: number, scanLat?: number, scanLng?: number) =>
+  scan: (businessId: string, customerId: string, amount: number, scanLat?: number, scanLng?: number, ticketUrl?: string) =>
     call("/api/bubui/scan", {
       method: "POST",
-      body: JSON.stringify({ businessId, customerId, amount, scanLat, scanLng })
+      body: JSON.stringify({ businessId, customerId, amount, scanLat, scanLng, ticketUrl })
     }),
+  /** Sube la foto de un ticket; la IA devuelve el importe total leído + la URL
+   *  donde quedó guardado el ticket. Multipart, sin Content-Type manual. */
+  readTicket: (customerId: string, uri: string) => {
+    const fd = new FormData();
+    fd.append("customerId", customerId);
+    fd.append("file", { uri, name: "ticket.jpg", type: "image/jpeg" } as any);
+    return fetch(`${API_BASE}/api/bubui/scan/read-ticket`, { method: "POST", body: fd }).then(async (r) => {
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j?.error?.message ?? `HTTP ${r.status}`);
+      return j as { amount: number | null; currency: string; confidence: number; ticketUrl: string | null };
+    });
+  },
   referral: (customerId: string) =>
     call<{
       code: string;

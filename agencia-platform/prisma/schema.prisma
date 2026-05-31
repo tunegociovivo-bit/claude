@@ -3355,6 +3355,11 @@ model BubuiBusiness {
   referralReward1 String? // recompensa al traer 1 amigo
   referralReward3 String? // al traer 3
   referralReward5 String? // al traer 5
+  // Programa de referidos B2B: cuántas semanas de banner Home se le han
+  // otorgado por traer negocios (1 semana por cada 5 negocios activos).
+  // bannerWeeksGranted es acumulativo histórico; se compara con floor(refs/5)
+  // para saber cuántas semanas nuevas hay que conceder.
+  bannerWeeksGranted Int @default(0)
   // Karma de visibilidad (0-100, recalculado nocturno).
   visibilityScore Int @default(50)
   scoreUpdatedAt  DateTime?
@@ -3395,6 +3400,7 @@ model BubuiBusiness {
   notifications  BubuiBusinessNotification[]
   reviews        BubuiReview[]
   sponsoredSlots BubuiSponsoredSlot[]
+  bannerCampaigns BubuiBannerCampaign[]
 
   @@index([city, active])
   @@index([referrerId])
@@ -3461,6 +3467,8 @@ model BubuiPurchase {
   scanDistanceM   Float?   // distancia al local en metros
   // Razón si rejected.
   rejectionReason String?
+  // Foto del ticket de compra (si el cliente la subió para leer el importe con IA).
+  ticketUrl       String?
   scannedAt       DateTime @default(now())
   confirmedAt     DateTime?
 
@@ -3644,4 +3652,30 @@ model BubuiSponsoredSlot {
 
   @@index([city, startsAt, endsAt])
   @@index([businessId, startsAt])
+}
+
+/// Campaña de banner del Home ganada por un negocio (recompensa de referidos
+/// B2B: 1 semana por cada 5 negocios activos que trae). Se sirven por turnos:
+/// el banner del Home muestra la campaña activa (status=active) más antigua.
+model BubuiBannerCampaign {
+  @@map("BipiBannerCampaign")
+  id         String   @id @default(cuid())
+  businessId String
+  // Imagen del banner (la sube el negocio); puede quedar pendiente hasta que
+  // la suba — entonces se usa su logo/nombre como fallback.
+  imageUrl   String?
+  link       String?
+  // queued | active | done
+  status     String   @default("queued")
+  // Semanas concedidas (cada recompensa = 1 semana). Al activarse fija las
+  // fechas; mientras está en cola, startsAt/endsAt son null.
+  weeks      Int      @default(1)
+  startsAt   DateTime?
+  endsAt     DateTime?
+  createdAt  DateTime @default(now())
+
+  business BubuiBusiness @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([status, startsAt])
+  @@index([businessId])
 }

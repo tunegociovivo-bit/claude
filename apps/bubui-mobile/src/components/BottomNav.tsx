@@ -1,16 +1,20 @@
 import { useEffect, useState } from "react";
-import { View, Text, TouchableOpacity, StyleSheet, Image, ImageSourcePropType } from "react-native";
+import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme, type Palette } from "../lib/theme";
 import { api } from "../lib/api";
 
-const TABS: { route: string; label: string; icon: ImageSourcePropType; gated?: boolean }[] = [
-  { route: "Feed", label: "Inicio", icon: require("../../assets/nav-inicio.png") },
-  { route: "Descubre", label: "Descubre", icon: require("../../assets/nav-descubre.png"), gated: true },
-  { route: "Afiliados", label: "Amigos", icon: require("../../assets/nav-amigos.png") },
-  { route: "Mapa", label: "Mapa", icon: require("../../assets/nav-mapa.png"), gated: true },
-  { route: "Cuenta", label: "Cuenta", icon: require("../../assets/nav-cuenta.png") }
+// Iconos vectoriales (Ionicons): nítidos y coherentes con la marca. Cada tab
+// define su variante "outline" (inactivo) y rellena (activo).
+type IconName = keyof typeof Ionicons.glyphMap;
+const TABS: { route: string; label: string; icon: IconName; iconOn: IconName; gated?: boolean }[] = [
+  { route: "Feed", label: "Inicio", icon: "home-outline", iconOn: "home" },
+  { route: "Descubre", label: "Descubre", icon: "compass-outline", iconOn: "compass", gated: true },
+  { route: "Afiliados", label: "Amigos", icon: "gift-outline", iconOn: "gift" },
+  { route: "Mapa", label: "Mapa", icon: "map-outline", iconOn: "map", gated: true },
+  { route: "Cuenta", label: "Cuenta", icon: "person-outline", iconOn: "person" }
 ];
 
 // Mínimo de comercios para mostrar Descubre/Mapa. Se cachea entre pantallas.
@@ -48,7 +52,7 @@ export function BottomNav({ active }: { active: string }) {
             onPress={() => { if (!on) nav.navigate(t.route); }}
             activeOpacity={0.7}
           >
-            <Image source={t.icon} style={[styles.icon, { opacity: on ? 1 : 0.45 }]} resizeMode="contain" />
+            <Ionicons name={on ? t.iconOn : t.icon} size={24} color={on ? c.pink : c.grayLight} />
             <Text style={[styles.label, on && styles.labelOn]}>{t.label}</Text>
           </TouchableOpacity>
         );
@@ -64,11 +68,10 @@ const makeStyles = (c: Palette) =>
       backgroundColor: c.white,
       borderTopWidth: 1,
       borderTopColor: c.border,
-      paddingTop: 8,
+      paddingTop: 10,
       paddingHorizontal: 8
     },
-    item: { flex: 1, alignItems: "center", gap: 3 },
-    icon: { width: 26, height: 26 },
+    item: { flex: 1, alignItems: "center", gap: 4 },
     label: { fontSize: 10, color: c.gray, fontWeight: "600" },
     labelOn: { color: c.pink, fontWeight: "800" }
   });

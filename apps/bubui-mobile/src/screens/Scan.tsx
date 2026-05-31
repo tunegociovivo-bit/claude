@@ -25,6 +25,11 @@ export function Scan() {
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState<any>(null);
   const [torch, setTorch] = useState(false);
+  // Captura de ticket: "ticketCam" muestra la cámara para fotografiar el
+  // ticket; "reading" mientras la IA lo procesa. ticketUrl = ticket guardado.
+  const [ticketMode, setTicketMode] = useState<"off" | "cam" | "reading">("off");
+  const [ticketUrl, setTicketUrl] = useState<string | undefined>(undefined);
+  const ticketCamRef = useRef<CameraView>(null);
   // onBarcodeScanned se dispara muchas veces por segundo; el lock evita
   // procesar el mismo frame N veces (y Alerts en bucle con un QR no válido).
   const lock = useRef(false);
@@ -62,6 +67,30 @@ export function Scan() {
     }
   }
 
+  // Foto del ticket → la IA lee el total → autocompleta el importe.
+  async function captureTicket() {
+    const cam = ticketCamRef.current;
+    if (!cam) return;
+    setTicketMode("reading");
+    try {
+      const photo = await cam.takePictureAsync({ quality: 0.6, skipProcessing: true });
+      if (!photo?.uri) throw new Error("No se pudo capturar la foto");
+      const session = await CheckSession();
+      const r = await api.readTicket(session?.customerId ?? "anon", photo.uri);
+      if (r.ticketUrl) setTicketUrl(r.ticketUrl);
+      if (r.amount != null) {
+        setAmount(String(r.amount).replace(".", ","));
+        setTicketMode("off");
+      } else {
+        setTicketMode("off");
+        Alert.alert("No pudimos leer el total", "Escribe el importe a mano; tu ticket queda guardado igualmente.");
+      }
+    } catch (e: any) {
+      setTicketMode("off");
+      Alert.alert("No se pudo leer el ticket", (e?.message ?? "") + "\nPuedes escribir el importe a mano.");
+    }
+  }
+
   async function submit() {
     const value = Number(amount.replace(",", "."));
     if (!value || value <= 0) {
@@ -82,7 +111,7 @@ export function Scan() {
         lat = loc.coords.latitude;
         lng = loc.coords.longitude;
       } catch {}
-      const r = await api.scan(businessId, session.customerId, value, lat, lng);
+      const r = await api.scan(businessId, session.customerId, value, lat, lng, ticketUrl);
       setDone(r);
     } catch (e: any) {
       Alert.alert("Error", e?.message ?? "No se pudo enviar el escaneo");
@@ -158,6 +187,33 @@ export function Scan() {
     );
   }
 
+  // Cámara para fotografiar el ticket (la IA leerá el total).
+  if (ticketMode !== "off") {
+    return (
+      <View style={{ flex: 1, backgroundColor: "#000" }}>
+        <CameraView ref={ticketCamRef} style={{ flex: 1 }} />
+        <View style={[styles.topBar, { top: insets.top + 8 }]} pointerEvents="box-none">
+          <TouchableOpacity style={styles.roundBtn} onPress={() => setTicketMode("off")} hitSlop={8} disabled={ticketMode === "reading"}>
+            <Text style={styles.roundBtnText}>✕</Text>
+          </TouchableOpacity>
+        </View>
+        <View style={styles.ticketFrame} pointerEvents="none" />
+        <View style={styles.overlayHint}>
+          {ticketMode === "reading" ? (
+            <Text style={styles.overlayText}>Leyendo el ticket con IA…</Text>
+          ) : (
+            <>
+              <Text style={styles.overlayText}>Encuadra el ticket completo</Text>
+              <TouchableOpacity style={styles.shutter} onPress={captureTicket}>
+                <Text style={styles.shutterText}>Hacer foto</Text>
+              </TouchableOpacity>
+            </>
+          )}
+        </View>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.amountRoot}>
       <TouchableOpacity style={[styles.backRow, { top: insets.top + 8 }]} onPress={close} hitSlop={8}>
@@ -179,6 +235,13 @@ export function Scan() {
         />
         <Text style={styles.bigSymbol}>€</Text>
       </View>
+
+      {/* Escanear ticket con IA en vez de teclear */}
+      <TouchableOpacity style={styles.ticketBtn} onPress={() => setTicketMode("cam")} disabled={busy}>
+        <Text style={styles.ticketBtnText}>📷  Escanear ticket y rellenar solo</Text>
+      </TouchableOpacity>
+      {!!ticketUrl && <Text style={styles.ticketOk}>✓ Ticket guardado</Text>}
+
       <TouchableOpacity style={[styles.btn, busy && { opacity: 0.5 }]} onPress={submit} disabled={busy}>
         <Text style={styles.btnText}>{busy ? "Enviando…" : "Confirmar"}</Text>
       </TouchableOpacity>
@@ -210,5 +273,11 @@ const makeStyles = (c: Palette) =>
     backRow: { position: "absolute", left: 16 },
     backText: { color: c.gray, fontSize: 16, fontWeight: "800" },
     rescan: { marginTop: 18, paddingVertical: 8 },
-    rescanText: { color: c.pink, fontSize: 14, fontWeight: "800" }
+    rescanText: { color: c.pink, fontSize: 14, fontWeight: "800" },
+    ticketBtn: { marginTop: 22, flexDirection: "row", alignItems: "center", justifyContent: "center", paddingVertical: 14, paddingHorizontal: 20, borderRadius: radius.pill, borderWidth: 2, borderColor: c.pink, backgroundColor: c.pinkWash },
+    ticketBtnText: { color: c.pinkDeep, fontSize: 15, fontWeight: "800" },
+    ticketOk: { marginTop: 8, color: c.green, fontSize: 13, fontWeight: "800" },
+    ticketFrame: { position: "absolute", top: "16%", left: "10%", width: "80%", height: "56%", borderColor: "#FFF", borderWidth: 3, borderRadius: 18, borderStyle: "dashed" },
+    shutter: { alignSelf: "center", marginTop: 16, backgroundColor: c.pink, borderRadius: radius.pill, paddingVertical: 14, paddingHorizontal: 36, ...shadow.btn },
+    shutterText: { color: c.onAccent, fontSize: 16, fontWeight: "900" }
   });

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 const CATEGORIES = [
   "Restauración",
@@ -31,6 +31,16 @@ export default function RegistroNegocio() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<{ businessId: string; qrPngUrl: string; scanUrl: string } | null>(null);
+  // Negocio que refirió a este (llega vía ?ref=<businessId> en el enlace de
+  // referido B2B). Se envía al signup para acreditarle la referencia.
+  const [referrerBusinessId, setReferrerBusinessId] = useState<string | null>(null);
+
+  useEffect(() => {
+    try {
+      const ref = new URLSearchParams(window.location.search).get("ref");
+      if (ref) setReferrerBusinessId(ref);
+    } catch {}
+  }, []);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -40,7 +50,7 @@ export default function RegistroNegocio() {
       const r = await fetch("/api/bubui/business/signup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form)
+        body: JSON.stringify({ ...form, referrerBusinessId: referrerBusinessId ?? undefined })
       });
       const j = await r.json();
       if (!r.ok) {
