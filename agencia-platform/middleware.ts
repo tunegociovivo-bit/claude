@@ -22,6 +22,9 @@ const BUBUI_HOSTS = new Set(["bubui.app", "www.bubui.app"]);
 const PUBLIC_PATHS = [
   "/login",
   "/api/auth",
+  // iOS Universal Links + Android App Links: deben servirse públicos y sin
+  // redirecciones para que el SO los valide.
+  "/.well-known/",
   "/r/",
   "/v/",
   "/p/",

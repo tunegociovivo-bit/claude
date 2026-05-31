@@ -19,6 +19,10 @@ import { useParams, useSearchParams } from "next/navigation";
 
 const ANDROID_PACKAGE = "com.negociovivo.bubui";
 const PLAY_URL = `https://play.google.com/store/apps/details?id=${ANDROID_PACKAGE}`;
+// URL de la app en la App Store (iPhone). Se rellena al publicar, vía la env
+// NEXT_PUBLIC_BUBUI_IOS_URL (ej: https://apps.apple.com/app/idXXXXXXXXX).
+// Mientras esté vacía, en iPhone caemos al flujo web.
+const APPSTORE_URL = process.env.NEXT_PUBLIC_BUBUI_IOS_URL || "";
 
 type Customer = { customerId: string; name?: string; totalSaved: number; totalPurchases: number };
 
@@ -54,6 +58,12 @@ function SmartRedirect({ businessId, onContinueWeb }: { businessId: string; onCo
 
     // En escritorio no tiene sentido el deep link → directo al flujo web.
     if (detected === "other") {
+      onContinueWeb();
+      return;
+    }
+    // iPhone sin App Store configurada todavía: no merece la pena intentar el
+    // deep link (no podríamos ofrecer descarga) → directo al flujo web.
+    if (detected === "ios" && !APPSTORE_URL) {
       onContinueWeb();
       return;
     }
@@ -100,6 +110,12 @@ function SmartRedirect({ businessId, onContinueWeb }: { businessId: string; onCo
           {os === "android" && (
             <a href={PLAY_URL} className="bubui-btn block text-center">
               Descargar en Google Play
+            </a>
+          )}
+
+          {os === "ios" && APPSTORE_URL && (
+            <a href={APPSTORE_URL} className="bubui-btn block text-center">
+              Descargar en App Store
             </a>
           )}
 

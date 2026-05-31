@@ -19,8 +19,14 @@
         "NSCameraUsageDescription": "Bubui necesita la cámara para escanear el QR de los negocios y aplicarte el descuento.",
         "NSLocationWhenInUseUsageDescription": "Bubui usa tu ubicación para mostrarte los descuentos cerca de ti.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "Bubui usa tu ubicación para avisarte de descuentos cuando pases cerca.",
-        "UIBackgroundModes": ["location", "fetch"]
-      }
+        "UIBackgroundModes": [
+          "location",
+          "fetch"
+        ]
+      },
+      "associatedDomains": [
+        "applinks:hub.negociovivo.app"
+      ]
     },
     "android": {
       "package": "com.negociovivo.bubui",
@@ -48,11 +54,6 @@
           "action": "VIEW",
           "autoVerify": true,
           "data": [
-            {
-              "scheme": "https",
-              "host": "bubui.app",
-              "pathPrefix": "/scan"
-            },
             {
               "scheme": "https",
               "host": "hub.negociovivo.app",
