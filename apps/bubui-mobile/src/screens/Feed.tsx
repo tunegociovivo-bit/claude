@@ -147,7 +147,7 @@ export function Feed() {
         </TouchableOpacity>
       ) : (
         <View style={styles.promoCard}>
-          <Image source={require("../../assets/ill-ruta.png")} style={styles.promoIll} resizeMode="contain" />
+          <Image source={require("../../assets/ill-cupon.png")} style={styles.promoIll} resizeMode="contain" />
           <View style={{ flex: 1 }}>
             <Text style={styles.promoTitle}>Cuanto más compras local, más ahorras</Text>
             <Text style={styles.promoSub}>Escanea en cada negocio y desbloquea nuevos cupones cerca de ti.</Text>

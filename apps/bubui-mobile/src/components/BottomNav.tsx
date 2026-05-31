@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { View, Text, TouchableOpacity, StyleSheet, Image, ImageSourcePropType } from "react-native";
 import { useNavigation } from "@react-navigation/native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme, type Palette } from "../lib/theme";
 import { api } from "../lib/api";
 
@@ -19,6 +20,7 @@ let cachedUnlocked: boolean | null = null;
 export function BottomNav({ active }: { active: string }) {
   const nav = useNavigation<any>();
   const c = useTheme();
+  const insets = useSafeAreaInsets();
   const styles = makeStyles(c);
   const [unlocked, setUnlocked] = useState<boolean>(cachedUnlocked ?? false);
 
@@ -36,7 +38,7 @@ export function BottomNav({ active }: { active: string }) {
   const tabs = TABS.filter((t) => unlocked || !t.gated);
 
   return (
-    <View style={styles.bar}>
+    <View style={[styles.bar, { paddingBottom: Math.max(insets.bottom, 12) }]}>
       {tabs.map((t) => {
         const on = t.route === active;
         return (
@@ -63,7 +65,6 @@ const makeStyles = (c: Palette) =>
       borderTopWidth: 1,
       borderTopColor: c.border,
       paddingTop: 8,
-      paddingBottom: 22,
       paddingHorizontal: 8
     },
     item: { flex: 1, alignItems: "center", gap: 3 },

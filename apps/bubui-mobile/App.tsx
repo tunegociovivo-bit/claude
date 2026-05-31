@@ -2,6 +2,7 @@ import { NavigationContainer, DefaultTheme, DarkTheme, type Theme } from "@react
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { useEffect, useState } from "react";
 import { StatusBar } from "expo-status-bar";
+import { SafeAreaProvider } from "react-native-safe-area-context";
 import { Splash } from "./src/screens/Splash";
 import { Onboarding } from "./src/screens/Onboarding";
 import { Feed } from "./src/screens/Feed";
@@ -94,8 +95,10 @@ function AppInner() {
 
 export default function App() {
   return (
-    <ThemeProvider>
-      <AppInner />
-    </ThemeProvider>
+    <SafeAreaProvider>
+      <ThemeProvider>
+        <AppInner />
+      </ThemeProvider>
+    </SafeAreaProvider>
   );
 }
