@@ -9,37 +9,44 @@ import { api } from "../lib/api";
 // Iconos vectoriales (Ionicons): nítidos y coherentes con la marca. Cada tab
 // define su variante "outline" (inactivo) y rellena (activo).
 type IconName = keyof typeof Ionicons.glyphMap;
-const TABS: { route: string; label: string; icon: IconName; iconOn: IconName; gated?: boolean }[] = [
+// `gate` indica de qué flag de sección depende la pestaña (Descubre/Mapa).
+type SectionGate = "discover" | "mapa";
+const TABS: { route: string; label: string; icon: IconName; iconOn: IconName; gate?: SectionGate }[] = [
   { route: "Feed", label: "Inicio", icon: "home-outline", iconOn: "home" },
-  { route: "Descubre", label: "Descubre", icon: "compass-outline", iconOn: "compass", gated: true },
+  { route: "Descubre", label: "Descubre", icon: "compass-outline", iconOn: "compass", gate: "discover" },
   { route: "Afiliados", label: "Amigos", icon: "gift-outline", iconOn: "gift" },
-  { route: "Mapa", label: "Mapa", icon: "map-outline", iconOn: "map", gated: true },
+  { route: "Mapa", label: "Mapa", icon: "map-outline", iconOn: "map", gate: "mapa" },
   { route: "Cuenta", label: "Cuenta", icon: "person-outline", iconOn: "person" }
 ];
 
-// Mínimo de comercios para mostrar Descubre/Mapa. Se cachea entre pantallas.
+// Mínimo de comercios para mostrar Descubre/Mapa (fallback si el servidor no
+// devuelve los flags `sections`, p. ej. versión antigua del backend).
 const MIN_BUSINESSES = 10;
-let cachedUnlocked: boolean | null = null;
+type Sections = { discover: boolean; mapa: boolean };
+let cachedSections: Sections | null = null;
 
 export function BottomNav({ active }: { active: string }) {
   const nav = useNavigation<any>();
   const c = useTheme();
   const insets = useSafeAreaInsets();
   const styles = makeStyles(c);
-  const [unlocked, setUnlocked] = useState<boolean>(cachedUnlocked ?? false);
+  const [sections, setSections] = useState<Sections>(cachedSections ?? { discover: false, mapa: false });
 
   useEffect(() => {
-    if (cachedUnlocked !== null) return;
+    if (cachedSections !== null) return;
     api
       .stats()
       .then((s) => {
-        cachedUnlocked = (s?.businesses ?? 0) >= MIN_BUSINESSES;
-        setUnlocked(cachedUnlocked);
+        // Backend nuevo: usa los flags resueltos (umbral u override admin).
+        // Backend antiguo: cae al umbral de comercios.
+        const fallback = (s?.businesses ?? 0) >= MIN_BUSINESSES;
+        cachedSections = s?.sections ?? { discover: fallback, mapa: fallback };
+        setSections(cachedSections);
       })
       .catch(() => {});
   }, []);
 
-  const tabs = TABS.filter((t) => unlocked || !t.gated);
+  const tabs = TABS.filter((t) => !t.gate || sections[t.gate]);
 
   return (
     <View style={[styles.bar, { paddingBottom: Math.max(insets.bottom, 12) }]}>

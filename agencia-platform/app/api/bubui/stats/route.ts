@@ -1,15 +1,17 @@
 /**
  * GET /api/bubui/stats
- * Conteo público para la app (p. ej. decidir si mostrar pestañas que
- * requieren un mínimo de comercios).
+ * Conteo público + visibilidad de secciones gated (Descubre/Mapa) ya resuelta
+ * (umbral de comercios o override del admin). La app usa los flags directamente.
  */
 
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/db/prisma";
+import { getSectionVisibility } from "@/lib/bubui/sections";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const businesses = await prisma.bubuiBusiness.count({ where: { active: true } });
-  return NextResponse.json({ businesses });
+  const { businesses, discover, mapa } = await getSectionVisibility();
+  // `businesses` se mantiene por compatibilidad con versiones antiguas de la
+  // app; las nuevas usan los flags `discover` y `mapa` directamente.
+  return NextResponse.json({ businesses, sections: { discover, mapa } });
 }

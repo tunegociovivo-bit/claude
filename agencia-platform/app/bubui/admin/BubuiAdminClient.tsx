@@ -19,7 +19,7 @@ type Overview = {
   topByCross: Array<{ business: any; redeemed: number }>;
 };
 
-type AdminTab = "overview" | "users" | "businesses" | "banner" | "push";
+type AdminTab = "overview" | "users" | "businesses" | "banner" | "push" | "sections";
 
 export default function BubuiAdminClient() {
   const [data, setData] = useState<Overview | null>(null);
@@ -92,7 +92,8 @@ export default function BubuiAdminClient() {
           ["users", "Usuarios"],
           ["businesses", "Comercios"],
           ["banner", "Banner"],
-          ["push", "Push"]
+          ["push", "Push"],
+          ["sections", "Secciones"]
         ] as [AdminTab, string][]).map(([k, label]) => (
           <button
             key={k}
@@ -109,6 +110,7 @@ export default function BubuiAdminClient() {
       {tab === "businesses" && <BusinessesPanel />}
       {tab === "banner" && <BannerPanel />}
       {tab === "push" && <PushPanel />}
+      {tab === "sections" && <SectionsPanel />}
 
       {tab === "overview" && (
       <>
@@ -569,5 +571,95 @@ function MiniStat({ label, value }: { label: string; value: number | string }) {
       <div className="text-[10px] uppercase tracking-wide text-black/55 font-bold">{label}</div>
       <div className="text-lg font-black mt-0.5">{value}</div>
     </div>
+  );
+}
+
+type SectionMode = "auto" | "on" | "off";
+type SectionsState = {
+  businesses: number;
+  minBusinesses: number;
+  visible: { discover: boolean; mapa: boolean };
+  modes: { discover: SectionMode; mapa: SectionMode };
+};
+
+/**
+ * Panel para forzar la visibilidad de las secciones "gated" (Descubre y Mapa)
+ * sin esperar a los N comercios activos. Cada sección: Automático / Mostrar /
+ * Ocultar. Los cambios afectan a la app al instante (la app lee /stats).
+ */
+function SectionsPanel() {
+  const [st, setSt] = useState<SectionsState | null>(null);
+  const [err, setErr] = useState("");
+  const [saving, setSaving] = useState<string | null>(null);
+
+  useEffect(() => {
+    adminFetch("/api/bubui/admin/sections").then(setSt).catch((e) => setErr(String(e)));
+  }, []);
+
+  async function setMode(section: "discover" | "mapa", mode: SectionMode) {
+    setSaving(section);
+    try {
+      const updated = await adminFetch("/api/bubui/admin/sections", {
+        method: "PATCH",
+        body: JSON.stringify({ [section]: mode })
+      });
+      setSt(updated);
+    } catch (e) {
+      setErr(String(e));
+    } finally {
+      setSaving(null);
+    }
+  }
+
+  if (err) return <p className="text-rose-700 text-sm mt-4">{err}</p>;
+  if (!st) return <div className="bubui-skeleton h-40 mt-4" />;
+
+  const rows: { key: "discover" | "mapa"; label: string; emoji: string }[] = [
+    { key: "discover", label: "Descubre", emoji: "🧭" },
+    { key: "mapa", label: "Mapa", emoji: "🗺️" }
+  ];
+
+  return (
+    <section className="bubui-card p-4 mt-4 space-y-4">
+      <div>
+        <h2 className="text-sm font-bold">Secciones de la app</h2>
+        <p className="text-xs text-black/50 mt-1">
+          Descubre y Mapa se muestran solas al llegar a <b>{st.minBusinesses}</b> comercios activos
+          (ahora hay <b>{st.businesses}</b>). Aquí puedes forzar que se vean ya, sin esperar.
+        </p>
+      </div>
+
+      {rows.map((r) => (
+        <div key={r.key} className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-pink-50/50 px-3 py-3">
+          <div>
+            <div className="font-semibold text-sm">{r.emoji} {r.label}</div>
+            <div className="text-[12px] text-black/50">
+              Estado actual:{" "}
+              <b className={st.visible[r.key] ? "text-emerald-600" : "text-black/60"}>
+                {st.visible[r.key] ? "Visible" : "Oculta"}
+              </b>
+              {st.modes[r.key] === "auto" ? " (automático)" : st.modes[r.key] === "on" ? " (forzada visible)" : " (forzada oculta)"}
+            </div>
+          </div>
+          <div className="flex gap-1.5">
+            {(["auto", "on", "off"] as SectionMode[]).map((m) => (
+              <button
+                key={m}
+                disabled={saving === r.key}
+                onClick={() => setMode(r.key, m)}
+                className="px-3 py-1.5 rounded-full text-xs font-bold border disabled:opacity-50"
+                style={
+                  st.modes[r.key] === m
+                    ? { background: "#ec1c6e", color: "#fff", borderColor: "#ec1c6e" }
+                    : { background: "#fff", borderColor: "rgba(0,0,0,0.12)", cursor: "pointer" }
+                }
+              >
+                {m === "auto" ? "Automático" : m === "on" ? "Mostrar" : "Ocultar"}
+              </button>
+            ))}
+          </div>
+        </div>
+      ))}
+    </section>
   );
 }

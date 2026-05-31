@@ -89,7 +89,7 @@ export const api = {
     }>(`/api/bubui/customer/${customerId}/referral`),
   vapidPublic: () => call("/api/bubui/push/vapid-public"),
   banner: () => call<{ active: boolean; imageUrl?: string; link?: string }>("/api/bubui/banner"),
-  stats: () => call<{ businesses: number }>("/api/bubui/stats"),
+  stats: () => call<{ businesses: number; sections?: { discover: boolean; mapa: boolean } }>("/api/bubui/stats"),
   registerPushToken: (args: { customerId: string; token: string; platform: "ios" | "android" }) =>
     call<{ ok: true }>("/api/bubui/customer/push-token/register", {
       method: "POST",
