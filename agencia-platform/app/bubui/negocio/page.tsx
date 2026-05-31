@@ -171,21 +171,23 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
   const [loading, setLoading] = useState(true);
   const [confirming, setConfirming] = useState<string | null>(null);
 
-  async function load() {
-    setLoading(true);
+  // `silent` evita el flash de "Cargando…" en los refrescos automáticos:
+  // solo la primera carga (sin datos aún) muestra el estado de carga.
+  async function load(silent = false) {
+    if (!silent) setLoading(true);
     try {
       const r = await fetch(`/api/bubui/business/${session.businessId}/dashboard`, {
         headers: { Authorization: `Bearer ${session.token}` }
       });
       if (r.ok) setData(await r.json());
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }
   useEffect(() => {
     load();
-    // Auto-refresh pendientes cada 10s
-    const i = setInterval(load, 10_000);
+    // Auto-refresh pendientes cada 10s — silencioso (sin flash de "Cargando…").
+    const i = setInterval(() => load(true), 10_000);
     return () => clearInterval(i);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -202,7 +204,7 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
         const j = await r.json();
         alert(j?.error?.message ?? `Error ${r.status}`);
       }
-      await load();
+      await load(true);
     } finally {
       setConfirming(null);
     }
