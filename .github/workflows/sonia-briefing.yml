@@ -15,10 +15,13 @@ jobs:
       - name: Ping endpoint sonia-briefing
         run: |
           set -e
+          # Misma convención que el resto de crons: HUB_BASE_URL + INTERNAL_CRON_TOKEN.
+          base="${{ secrets.HUB_BASE_URL }}"
+          base="${base:-https://hub.negociovivo.app}"
           response=$(curl -sS -o /tmp/body -w "%{http_code}" \
             -X GET \
-            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
-            "https://hub.negociovivo.app/api/cron/sonia-briefing")
+            -H "Authorization: Bearer ${{ secrets.INTERNAL_CRON_TOKEN }}" \
+            "${base}/api/cron/sonia-briefing")
           echo "HTTP $response"
           cat /tmp/body
           if [ "$response" != "200" ]; then
