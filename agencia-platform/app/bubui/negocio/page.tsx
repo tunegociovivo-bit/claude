@@ -377,7 +377,180 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
           </div>
         )}
       </section>
+
+      <BusinessReferralPanel businessId={b.id} token={session.token} />
     </main>
+  );
+}
+
+/** Programa de referidos B2B: invita a otros negocios y gana semanas de banner
+ *  del Home (1 por cada 5 negocios activos). Muestra enlace, progreso y las
+ *  campañas de banner ganadas (con subida de imagen). */
+function BusinessReferralPanel({ businessId, token }: { businessId: string; token: string }) {
+  const [data, setData] = useState<any>(null);
+  const [copied, setCopied] = useState(false);
+  const [savingId, setSavingId] = useState<string | null>(null);
+
+  async function load() {
+    try {
+      const r = await fetch(`/api/bubui/business/${businessId}/business-referral`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (r.ok) setData(await r.json());
+    } catch {}
+  }
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  if (!data) return null;
+
+  const pct = Math.round((data.towardsNext / data.businessesPerReward) * 100);
+
+  async function copyLink() {
+    try {
+      await navigator.clipboard.writeText(data.inviteUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {}
+  }
+  function shareWhatsApp() {
+    const text = `Únete a Bubui y consigue más clientes en el barrio. Date de alta con mi enlace: ${data.inviteUrl}`;
+    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, "_blank");
+  }
+  async function saveCampaignImage(campaignId: string, imageUrl: string, link: string) {
+    setSavingId(campaignId);
+    try {
+      const r = await fetch(`/api/bubui/business/${businessId}/business-referral`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ campaignId, imageUrl, link: link || null })
+      });
+      if (!r.ok) {
+        const j = await r.json();
+        alert(j?.error?.message ?? `Error ${r.status}`);
+      } else {
+        await load();
+      }
+    } finally {
+      setSavingId(null);
+    }
+  }
+
+  return (
+    <section className="bubui-card p-5 space-y-4">
+      <img
+        src="/bubui/referido-negocios.png"
+        alt="Comparte tu referido y recibe 1 semana de banner gratis por cada 5 negocios"
+        className="w-full max-w-[340px] mx-auto"
+      />
+      <div>
+        <h3 className="font-bold text-sm">🤝 Invita a otros negocios</h3>
+        <p className="text-[13px] text-black/55 mt-1">
+          Comparte tu enlace con otros comercios. Por cada <b>5 negocios</b> que se den de alta con tu enlace y reciban
+          su primer cliente, ganas <b>una semana de banner</b> en la portada de la app.
+        </p>
+      </div>
+
+      <div className="rounded-xl border border-black/10 p-4">
+        <div className="flex items-center justify-between text-sm mb-2">
+          <span className="font-semibold">
+            {data.qualifiedReferrals} negocio{data.qualifiedReferrals === 1 ? "" : "s"} activo
+            {data.qualifiedReferrals === 1 ? "" : "s"}
+          </span>
+          <span className="text-black/55">{data.remainingForNext} para la próxima semana 🎁</span>
+        </div>
+        <div className="h-2.5 w-full rounded-full bg-black/10 overflow-hidden">
+          <div className="h-full bg-pink-500 rounded-full transition-all" style={{ width: `${pct}%` }} />
+        </div>
+        {data.weeksEarned > 0 && (
+          <p className="text-xs text-emerald-600 font-semibold mt-2">
+            Has ganado {data.weeksEarned} semana{data.weeksEarned === 1 ? "" : "s"} de banner en total.
+          </p>
+        )}
+      </div>
+
+      <div className="space-y-2">
+        <div className="flex gap-2">
+          <input readOnly value={data.inviteUrl} className="bubui-input flex-1 text-xs" />
+          <button onClick={copyLink} className="bubui-btn whitespace-nowrap">
+            {copied ? "Copiado ✓" : "Copiar"}
+          </button>
+        </div>
+        <button onClick={shareWhatsApp} className="bubui-btn bubui-attention w-full">
+          Compartir por WhatsApp
+        </button>
+      </div>
+
+      {data.campaigns.length > 0 && (
+        <div className="space-y-2">
+          <h4 className="text-xs font-bold uppercase tracking-wide text-black/55">Tus banners</h4>
+          {data.campaigns.map((c: any) => (
+            <BannerCampaignRow
+              key={c.id}
+              campaign={c}
+              saving={savingId === c.id}
+              onSave={(img, link) => saveCampaignImage(c.id, img, link)}
+            />
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function BannerCampaignRow({
+  campaign,
+  saving,
+  onSave
+}: {
+  campaign: any;
+  saving: boolean;
+  onSave: (imageUrl: string, link: string) => void;
+}) {
+  const [imageUrl, setImageUrl] = useState(campaign.imageUrl ?? "");
+  const [link, setLink] = useState(campaign.link ?? "");
+  const statusLabel =
+    campaign.status === "active"
+      ? `🟢 En portada${campaign.endsAt ? ` · hasta ${new Date(campaign.endsAt).toLocaleDateString("es-ES")}` : ""}`
+      : campaign.status === "queued"
+      ? "🕒 En cola"
+      : "✓ Finalizada";
+
+  return (
+    <div className="rounded-xl border border-black/10 p-3 space-y-2">
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-semibold">{statusLabel}</span>
+        <span className="text-[11px] text-black/45">1 semana</span>
+      </div>
+      {campaign.status !== "done" && (
+        <>
+          <input
+            className="bubui-input text-xs"
+            value={imageUrl}
+            onChange={(e) => setImageUrl(e.target.value)}
+            placeholder="URL de la imagen del banner (https://…)"
+          />
+          <input
+            className="bubui-input text-xs"
+            value={link}
+            onChange={(e) => setLink(e.target.value)}
+            placeholder="Enlace al tocar (opcional)"
+          />
+          <button
+            onClick={() => onSave(imageUrl, link)}
+            disabled={saving || !imageUrl}
+            className="bubui-btn text-xs disabled:opacity-50"
+          >
+            {saving ? "Guardando…" : campaign.imageUrl ? "Actualizar imagen" : "Guardar imagen"}
+          </button>
+        </>
+      )}
+      {campaign.imageUrl && (
+        <img src={campaign.imageUrl} alt="banner" className="rounded-lg max-w-[280px] w-full border border-black/10" />
+      )}
+    </div>
   );
 }
 

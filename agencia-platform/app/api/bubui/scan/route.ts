@@ -159,6 +159,14 @@ export async function POST(req: Request) {
     offersUnlocked = res.created;
     void recalculateVisibilityScore(d.businessId).catch(() => {});
     void recalculateAmbassadorLevel(d.customerId).catch(() => {});
+    // Referidos B2B: este escaneo da "actividad real" al negocio. Si fue
+    // referido por otro, su referidor puede haber alcanzado un nuevo múltiplo
+    // de 5 negocios activos → se le concede una semana de banner (en cola).
+    if (business.referrerId) {
+      void import("@/lib/bubui/business-referral")
+        .then((m) => m.syncBusinessReferralRewards(business.referrerId!))
+        .catch(() => {});
+    }
   }
 
   return NextResponse.json({
