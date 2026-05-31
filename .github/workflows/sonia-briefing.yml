@@ -7,6 +7,10 @@ on:
     # responder. Idempotente: una notificación por usuario y día.
     - cron: "0 6 * * *"
   workflow_dispatch:
+  # Trigger temporal para lanzar una ejecución de prueba al tocar este archivo.
+  push:
+    paths:
+      - .github/workflows/sonia-briefing.yml
 
 jobs:
   run:
