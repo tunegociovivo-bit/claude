@@ -42,6 +42,13 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Fijar versionCode automático (Google Play exige uno creciente)
+        run: |
+          # versionCode = 1000 + nº de run → siempre creciente y por encima del
+          # valor histórico fijo (29). El prebuild lo lee de app.json.
+          VC=$((1000 + ${{ github.run_number }}))
+          node -e "const fs=require('fs');const c=JSON.parse(fs.readFileSync('app.json','utf8'));c.expo.android=c.expo.android||{};c.expo.android.versionCode=$VC;c.expo.ios=c.expo.ios||{};c.expo.ios.buildNumber=String($VC);fs.writeFileSync('app.json',JSON.stringify(c,null,2)+'\n');console.log('versionCode =',$VC);"
+
       - name: Prebuild (genera android/)
         run: CI=1 npx expo prebuild --clean --platform android --no-install
 
