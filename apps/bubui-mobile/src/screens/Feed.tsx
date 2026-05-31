@@ -35,7 +35,11 @@ type Offer = {
 };
 
 // Banner cuadrado, centrado y acotado: nunca a pantalla completa ni recortado.
-const PROMO_SIZE = Math.min(Dimensions.get("window").width - 64, 300);
+const SCREEN_W = Dimensions.get("window").width;
+// Banner a ancho completo (edge-to-edge): cancela el padding lateral (16) del
+// FlatList con un margen negativo. Alto tipo banner (ratio ~2:1) para destacar.
+const BANNER_W = SCREEN_W;
+const BANNER_H = Math.round(SCREEN_W * 0.52);
 
 export function Feed() {
   const nav = useNavigation<any>();
@@ -135,13 +139,14 @@ export function Feed() {
       <FadeIn replayOnFocus delay={stagger(3)}>
         {banner?.active && banner.imageUrl ? (
           <TouchableOpacity
-            activeOpacity={banner.link ? 0.85 : 1}
+            style={styles.promoWrap}
+            activeOpacity={banner.link ? 0.9 : 1}
             onPress={() => { if (banner.link) Linking.openURL(banner.link!).catch(() => {}); }}
           >
             <Image
               source={{ uri: banner.imageUrl }}
               style={styles.promo}
-              resizeMode="contain"
+              resizeMode="cover"
               onError={() => setBanner((b) => (b ? { ...b, active: false } : b))}
             />
           </TouchableOpacity>
@@ -221,7 +226,10 @@ const makeStyles = (c: Palette) =>
     savedAmount: { fontSize: 36, fontWeight: "900", color: c.pink, letterSpacing: -1 },
     cta: { backgroundColor: c.pink, borderRadius: radius.pill, paddingVertical: 16, alignItems: "center", ...shadow.btn },
     ctaText: { color: c.onAccent, fontSize: 16, fontWeight: "800" },
-    promo: { width: PROMO_SIZE, height: PROMO_SIZE, alignSelf: "center", marginBottom: 22, borderRadius: radius.xl },
+    // Wrapper a ancho completo: -16 de margen a cada lado para cancelar el
+    // padding del FlatList, sombra para que el banner resalte sobre el fondo.
+    promoWrap: { width: BANNER_W, marginLeft: -16, marginBottom: 22, ...shadow.card },
+    promo: { width: BANNER_W, height: BANNER_H },
     promoCard: { flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: c.pinkWash, borderRadius: radius.xl, borderWidth: 1, borderColor: c.pinkSoft, padding: 14, marginBottom: 22 },
     promoIll: { width: 76, height: 76 },
     promoTitle: { fontSize: 15, fontWeight: "900", color: c.black, letterSpacing: -0.3 },
