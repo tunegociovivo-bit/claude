@@ -24,6 +24,24 @@ const MAX_BYTES = 8 * 1024 * 1024; // 8 MB (bucket)
 const MAX_DB_BYTES = 2 * 1024 * 1024; // 2 MB (fallback en BD)
 const ALLOWED = ["image/png", "image/jpeg", "image/webp", "image/gif"];
 
+/**
+ * Origin público (https://dominio) para construir URLs absolutas servibles
+ * desde fuera (app móvil + web). Detrás del proxy de Railway, `req.url` trae
+ * el host interno del contenedor, así que priorizamos las cabeceras
+ * x-forwarded-* y, si no, una env con el dominio público.
+ */
+function publicOrigin(req: Request): string {
+  const h = req.headers;
+  const xfHost = h.get("x-forwarded-host") || h.get("host");
+  const xfProto = h.get("x-forwarded-proto") || "https";
+  // Hosts internos típicos del contenedor → no son públicos.
+  const looksInternal = xfHost ? /^(localhost|127\.|0\.0\.0\.0|\[|[0-9a-f]{8,})/i.test(xfHost) || xfHost.includes(":8080") : true;
+  if (xfHost && !looksInternal) return `${xfProto}://${xfHost}`;
+  const envUrl = process.env.NEXT_PUBLIC_BUBUI_URL || process.env.HUB_BASE_URL;
+  if (envUrl) return envUrl.replace(/\/+$/, "");
+  return "https://hub.negociovivo.app";
+}
+
 export async function POST(req: Request) {
   if (!(await adminTokenOk(req))) {
     return NextResponse.json({ error: { code: "unauthorized" } }, { status: 401 });
@@ -66,7 +84,11 @@ export async function POST(req: Request) {
   // ── Fallback en BD (sin bucket): guarda los bytes y devuelve URL absoluta ──
   if (!useBucket) {
     const row = await prisma.bubuiImage.create({ data: { mimeType, data: buf } });
-    const origin = new URL(req.url).origin;
+    // El origin debe ser el dominio PÚBLICO (lo consume también la app móvil),
+    // no el host interno del contenedor. Detrás del proxy de Railway, req.url
+    // trae el host interno (p.ej. cfc...:8080), así que preferimos las
+    // cabeceras x-forwarded-* y, en última instancia, el dominio configurado.
+    const origin = publicOrigin(req);
     return NextResponse.json({ url: `${origin}/api/bubui/banner-image/${row.id}` });
   }
 
