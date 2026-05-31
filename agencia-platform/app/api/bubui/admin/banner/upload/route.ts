@@ -6,43 +6,30 @@
  *
  * Body: multipart/form-data con campo "file".
  *
- * Requiere STORAGE_PUBLIC_URL (R2/S3 con dominio público): el banner lo
- * consume la app móvil y la web, así que la URL debe ser permanente, no
- * firmada temporalmente.
+ * Almacenamiento: si hay bucket S3/R2 con STORAGE_PUBLIC_URL configurado, sube
+ * ahí. Si no, guarda la imagen en la BD (BubuiImage) y devuelve una URL
+ * absoluta servida por /api/bubui/banner-image/<id> — así funciona sin
+ * configurar nada externo.
  */
 
 import { NextResponse } from "next/server";
 import { adminTokenOk } from "@/lib/bubui/admin";
+import { prisma } from "@/lib/db/prisma";
 import { isStorageEnabled, uploadBuffer } from "@/lib/storage/r2";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-const MAX_BYTES = 8 * 1024 * 1024; // 8 MB
+const MAX_BYTES = 8 * 1024 * 1024; // 8 MB (bucket)
+const MAX_DB_BYTES = 2 * 1024 * 1024; // 2 MB (fallback en BD)
 const ALLOWED = ["image/png", "image/jpeg", "image/webp", "image/gif"];
 
 export async function POST(req: Request) {
   if (!(await adminTokenOk(req))) {
     return NextResponse.json({ error: { code: "unauthorized" } }, { status: 401 });
   }
-  if (!isStorageEnabled()) {
-    return NextResponse.json(
-      { error: { code: "storage_disabled", message: "Storage no configurado (define STORAGE_* en env)." } },
-      { status: 503 }
-    );
-  }
-  if (!process.env.STORAGE_PUBLIC_URL) {
-    return NextResponse.json(
-      {
-        error: {
-          code: "no_public_url",
-          message:
-            "Falta STORAGE_PUBLIC_URL. El banner necesita una URL pública permanente; configúrala (dominio público del bucket) o pega la URL de la imagen a mano."
-        }
-      },
-      { status: 503 }
-    );
-  }
+  // Modo bucket (si está configurado con URL pública) o fallback a BD.
+  const useBucket = isStorageEnabled() && !!process.env.STORAGE_PUBLIC_URL;
 
   const form = await req.formData().catch(() => null);
   const file = form?.get("file");
@@ -52,9 +39,17 @@ export async function POST(req: Request) {
   if (file.size === 0) {
     return NextResponse.json({ error: { code: "empty", message: "Archivo vacío." } }, { status: 400 });
   }
-  if (file.size > MAX_BYTES) {
+  const maxBytes = useBucket ? MAX_BYTES : MAX_DB_BYTES;
+  if (file.size > maxBytes) {
     return NextResponse.json(
-      { error: { code: "too_large", message: `La imagen supera 8 MB (${(file.size / 1024 / 1024).toFixed(1)} MB).` } },
+      {
+        error: {
+          code: "too_large",
+          message: `La imagen supera ${(maxBytes / 1024 / 1024).toFixed(0)} MB (${(file.size / 1024 / 1024).toFixed(
+            1
+          )} MB).${useBucket ? "" : " Usa una imagen más ligera o configura un bucket para archivos grandes."}`
+        }
+      },
       { status: 413 }
     );
   }
@@ -66,10 +61,18 @@ export async function POST(req: Request) {
     );
   }
 
-  const ext = mimeType.split("/")[1]?.replace("jpeg", "jpg") || "png";
-  const s3Key = `bubui/banner/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
   const buf = Buffer.from(await file.arrayBuffer());
 
+  // ── Fallback en BD (sin bucket): guarda los bytes y devuelve URL absoluta ──
+  if (!useBucket) {
+    const row = await prisma.bubuiImage.create({ data: { mimeType, data: buf } });
+    const origin = new URL(req.url).origin;
+    return NextResponse.json({ url: `${origin}/api/bubui/banner-image/${row.id}` });
+  }
+
+  // ── Modo bucket S3/R2 ──
+  const ext = mimeType.split("/")[1]?.replace("jpeg", "jpg") || "png";
+  const s3Key = `bubui/banner/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
   try {
     await uploadBuffer({ s3Key, body: buf, contentType: mimeType });
   } catch (e: any) {
@@ -78,8 +81,6 @@ export async function POST(req: Request) {
       { status: 502 }
     );
   }
-
-  const base = process.env.STORAGE_PUBLIC_URL.replace(/\/+$/, "");
-  const url = `${base}/${s3Key}`;
-  return NextResponse.json({ url });
+  const base = process.env.STORAGE_PUBLIC_URL!.replace(/\/+$/, "");
+  return NextResponse.json({ url: `${base}/${s3Key}` });
 }
