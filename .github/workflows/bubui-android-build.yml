@@ -10,6 +10,10 @@ name: Build APK Bubui (Android)
 # Uso: pestaña Actions → "Build APK Bubui (Android)" → Run workflow.
 
 on:
+  # Trigger temporal: lanzar un build local al tocar este archivo.
+  push:
+    paths:
+      - .github/workflows/bubui-android-build.yml
   workflow_dispatch:
     inputs:
       mode:
@@ -32,8 +36,10 @@ on:
 jobs:
   # ---- Build local con Gradle + firma estable ----------------------------
   local:
-    if: ${{ github.event.inputs.mode == 'local' }}
+    if: ${{ github.event.inputs.mode == 'local' || github.event_name == 'push' }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # necesario para publicar la Release con el APK
     defaults:
       run:
         working-directory: apps/bubui-mobile
@@ -75,12 +81,36 @@ jobs:
           BUBUI_KEY_PASS: ${{ secrets.BUBUI_KEY_PASS }}
         run: ./gradlew :app:assembleRelease --no-daemon
 
+      - name: Renombrar APK a un nombre estable (bubui.apk)
+        working-directory: apps/bubui-mobile/android/app/build/outputs/apk/release
+        run: |
+          apk=$(ls *.apk | head -1)
+          cp "$apk" bubui.apk
+          echo "APK original: $apk"
+
       - name: Subir APK como artifact
         uses: actions/upload-artifact@v4
         with:
           name: bubui-android-apk
-          path: apps/bubui-mobile/android/app/build/outputs/apk/release/*.apk
+          path: apps/bubui-mobile/android/app/build/outputs/apk/release/bubui.apk
           if-no-files-found: error
+
+      - name: Publicar APK en una Release (enlace de descarga estable)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: bubui-${{ github.run_number }}
+          name: Bubui APK #${{ github.run_number }}
+          make_latest: true
+          files: apps/bubui-mobile/android/app/build/outputs/apk/release/bubui.apk
+          body: |
+            APK de Bubui · build #${{ github.run_number }} · commit ${{ github.sha }}
+
+            **Descarga directa (siempre la última versión):**
+            https://github.com/${{ github.repository }}/releases/latest/download/bubui.apk
+
+            Se instala encima de la versión anterior (misma firma). En Android,
+            al abrir el APK quizá tengas que permitir "instalar apps de esta
+            fuente" la primera vez.
 
   # ---- Build en la nube de EAS ------------------------------------------
   eas:
