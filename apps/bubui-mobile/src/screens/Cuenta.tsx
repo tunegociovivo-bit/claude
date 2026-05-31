@@ -2,7 +2,7 @@ import { useCallback, useState } from "react";
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Linking } from "react-native";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { CheckSession, clearSession, type Customer } from "../lib/session";
+import { CheckSession, type Customer } from "../lib/session";
 import { Wordmark } from "../components/Wordmark";
 import { BottomNav } from "../components/BottomNav";
 import { API_BASE } from "../lib/api";
@@ -24,11 +24,6 @@ export function Cuenta() {
       })();
     }, [nav])
   );
-
-  async function logout() {
-    await clearSession();
-    nav.reset({ index: 0, routes: [{ name: "Onboarding" }] });
-  }
 
   const initial = (customer?.name ?? customer?.email ?? "?").charAt(0).toUpperCase();
 
@@ -85,10 +80,6 @@ export function Cuenta() {
             </TouchableOpacity>
           </View>
 
-          <TouchableOpacity style={styles.logout} activeOpacity={0.8} onPress={logout}>
-            <Text style={styles.logoutText}>Cerrar sesión</Text>
-          </TouchableOpacity>
-
           <Text style={styles.legal}>Bubui · Piloto en Benalmádena · Una app de Negocio Vivo</Text>
         </View>
       </ScrollView>
@@ -138,7 +129,5 @@ const makeStyles = (c: Palette) =>
     linkText: { flex: 1, fontSize: 14, fontWeight: "700", color: c.black },
     chev: { fontSize: 22, color: c.grayLight },
     divider: { height: 1, backgroundColor: c.border, marginLeft: 46 },
-    logout: { marginTop: 18, paddingVertical: 14, alignItems: "center", borderRadius: radius.pill, borderWidth: 2, borderColor: c.border },
-    logoutText: { fontSize: 15, fontWeight: "800", color: c.gray },
     legal: { fontSize: 11, color: c.grayLight, textAlign: "center", marginTop: 22 }
   });

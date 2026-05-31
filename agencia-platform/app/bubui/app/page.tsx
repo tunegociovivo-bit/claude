@@ -84,7 +84,7 @@ export default function BubuiApp() {
   if (!customer) {
     return <Signup refCode={ref} onDone={(c) => { setCustomer(c); localStorage.setItem("bubui.customer", JSON.stringify(c)); try { localStorage.removeItem("bubui.ref"); } catch {} }} />;
   }
-  return <OffersFeed customer={customer} coords={coords} onLogout={() => { setCustomer(null); localStorage.removeItem("bubui.customer"); }} />;
+  return <OffersFeed customer={customer} coords={coords} />;
 }
 
 /** Onboarding · 3 slides con dots + Saltar + Siguiente/Empezar.
@@ -474,7 +474,7 @@ function Signup({ onDone, refCode }: { onDone: (c: Customer) => void; refCode?: 
   );
 }
 
-function OffersFeed({ customer, coords, onLogout }: { customer: Customer; coords: { lat: number; lng: number } | null; onLogout: () => void }) {
+function OffersFeed({ customer, coords }: { customer: Customer; coords: { lat: number; lng: number } | null }) {
   const [offers, setOffers] = useState<Offer[]>([]);
   const [loading, setLoading] = useState(true);
   const [pushState, setPushState] = useState<"unknown" | "unsupported" | "denied" | "granted" | "loading">("unknown");
@@ -655,13 +655,10 @@ function OffersFeed({ customer, coords, onLogout }: { customer: Customer; coords
 
   return (
     <main className="max-w-md mx-auto px-4 py-6 pb-24">
-      {/* Header: logo + salir */}
-      <div className="flex items-center justify-between mb-4 bubui-fade-up">
+      {/* Header: logo */}
+      <div className="flex items-center mb-4 bubui-fade-up">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src="/bubui/logo.png" alt="bubui" style={{ height: 26, width: "auto" }} />
-        <button onClick={onLogout} className="text-xs text-black/45 hover:text-black/70 font-semibold">
-          Salir
-        </button>
       </div>
 
       {/* Tarjeta Has ahorrado + historial */}
@@ -897,10 +894,6 @@ function OffersFeed({ customer, coords, onLogout }: { customer: Customer; coords
         <a href="/bubui/app/mapa">
           <span style={{ fontSize: 18 }}>🗺</span>
           <span>Mapa</span>
-        </a>
-        <a href="#" onClick={(e) => { e.preventDefault(); onLogout(); }}>
-          <span style={{ fontSize: 18 }}>👤</span>
-          <span>Salir</span>
         </a>
       </nav>
     </main>

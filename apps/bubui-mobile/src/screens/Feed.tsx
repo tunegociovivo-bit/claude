@@ -2,13 +2,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { View, Text, FlatList, RefreshControl, TouchableOpacity, StyleSheet, Animated, Easing, Image, Dimensions, Linking } from "react-native";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import * as Location from "expo-location";
-import { CheckSession, clearSession, type Customer } from "../lib/session";
+import { CheckSession, type Customer } from "../lib/session";
 import { api } from "../lib/api";
 import { Wordmark } from "../components/Wordmark";
 import { BottomNav } from "../components/BottomNav";
 import { useTheme, type Palette, radius, shadow } from "../lib/theme";
 import { registerExpoPushForCustomer } from "../lib/push";
-import { startBubuiGeofencing, stopBubuiGeofencing } from "../lib/geofence";
+import { startBubuiGeofencing } from "../lib/geofence";
 
 type Offer = {
   offerId: string;
@@ -102,19 +102,10 @@ export function Feed() {
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
-  async function logout() {
-    await clearSession();
-    stopBubuiGeofencing().catch(() => {});
-    nav.reset({ index: 0, routes: [{ name: "Onboarding" }] });
-  }
-
   const header = (
     <View>
       <View style={styles.header}>
         <Wordmark size={26} />
-        <TouchableOpacity onPress={logout}>
-          <Text style={styles.logout}>Salir</Text>
-        </TouchableOpacity>
       </View>
 
       {/* Has ahorrado + cupón */}
@@ -213,7 +204,6 @@ const makeStyles = (c: Palette) =>
   StyleSheet.create({
     root: { flex: 1, backgroundColor: c.bg },
     header: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 14 },
-    logout: { fontSize: 13, color: c.gray, fontWeight: "600" },
     savedCard: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", backgroundColor: c.white, borderRadius: radius.xl, borderWidth: 1, borderColor: c.border, padding: 18, marginBottom: 16, ...shadow.card },
     savedLabel: { fontSize: 10, fontWeight: "800", letterSpacing: 1, color: c.grayLight },
     savedAmount: { fontSize: 36, fontWeight: "900", color: c.pink, letterSpacing: -1 },
