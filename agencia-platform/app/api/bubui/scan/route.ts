@@ -26,7 +26,8 @@ const schema = z.object({
   customerId: z.string().min(1),
   amount: z.number().positive().max(10000),
   scanLat: z.number().optional(),
-  scanLng: z.number().optional()
+  scanLng: z.number().optional(),
+  ticketUrl: z.string().url().max(2000).optional()
 });
 
 const MAX_DISTANCE_METERS = 200;
@@ -124,6 +125,15 @@ export async function POST(req: Request) {
         : undefined
     }
   });
+
+  // Guarda la foto del ticket por separado y tolerante a fallo: si la columna
+  // `ticketUrl` aún no existe en la DB (db push pendiente), el escaneo no se
+  // rompe — solo no se persiste el ticket.
+  if (d.ticketUrl) {
+    await prisma.bubuiPurchase
+      .update({ where: { id: purchase.id }, data: { ticketUrl: d.ticketUrl } })
+      .catch(() => {});
+  }
 
   let offersUnlocked = 0;
   if (!autoReject) {

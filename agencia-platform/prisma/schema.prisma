@@ -3461,6 +3461,8 @@ model BubuiPurchase {
   scanDistanceM   Float?   // distancia al local en metros
   // Razón si rejected.
   rejectionReason String?
+  // Foto del ticket de compra (si el cliente la subió para leer el importe con IA).
+  ticketUrl       String?
   scannedAt       DateTime @default(now())
   confirmedAt     DateTime?
 
