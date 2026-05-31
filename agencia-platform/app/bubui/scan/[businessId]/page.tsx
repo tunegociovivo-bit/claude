@@ -3,24 +3,119 @@
 /**
  * Página que abre el QR del negocio en el móvil del cliente.
  *
- * Flujo:
- *   1. Si el cliente NO tiene customerId en localStorage → primero le pedimos
- *      email/nombre (alta express). El primer escaneo lo registra y lo asocia
- *      a este negocio como "negocio de origen".
- *   2. Tras alta o si ya tiene sesión: pide importe pagado.
- *   3. Pulsa "Confirmar" → POST /api/bubui/scan → muestra pantalla "esperando
- *      validación del negocio".
+ * 1) PUENTE (SmartRedirect): al entrar, intenta abrir la app instalada por
+ *    deep link (bubui://bubui/scan/<id>). Si la app NO está (seguimos en la
+ *    web tras ~1,5s), mostramos opciones: descargar en Play Store (Android) o
+ *    seguir en el navegador.
+ * 2) FLUJO WEB (WebFlow): alta express + importe, como red de seguridad para
+ *    quien no quiere/puede instalar la app (p. ej. iPhone hasta App Store).
+ *
+ * Se puede forzar el flujo web saltando el puente con ?web=1 (lo usa el propio
+ * botón "seguir en el navegador" y el deep link de retorno).
  */
 
 import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
+
+const ANDROID_PACKAGE = "com.negociovivo.bubui";
+const PLAY_URL = `https://play.google.com/store/apps/details?id=${ANDROID_PACKAGE}`;
 
 type Customer = { customerId: string; name?: string; totalSaved: number; totalPurchases: number };
 
 export default function ScanPage() {
   const params = useParams() as { businessId: string };
+  const search = useSearchParams();
   const businessId = params.businessId;
+  // Si ?web=1 → saltamos el puente y vamos directos al flujo web.
+  const [showBridge, setShowBridge] = useState(search.get("web") !== "1");
 
+  if (showBridge) {
+    return <SmartRedirect businessId={businessId} onContinueWeb={() => setShowBridge(false)} />;
+  }
+  return <WebFlow businessId={businessId} />;
+}
+
+/**
+ * Puente inteligente: detecta SO, intenta abrir la app y, si no aparece,
+ * ofrece tienda + web. La detección de "app instalada" no es 100% fiable en
+ * móvil (lo limitan iOS/Android), así que usamos el patrón estándar: lanzar el
+ * deep link y, si la página sigue visible pasado un tiempo, asumir que no está.
+ */
+function SmartRedirect({ businessId, onContinueWeb }: { businessId: string; onContinueWeb: () => void }) {
+  const [os, setOs] = useState<"android" | "ios" | "other">("other");
+  const [triedApp, setTriedApp] = useState(false);
+
+  useEffect(() => {
+    const ua = navigator.userAgent || "";
+    const isAndroid = /Android/i.test(ua);
+    const isIOS = /iPhone|iPad|iPod/i.test(ua);
+    const detected = isAndroid ? "android" : isIOS ? "ios" : "other";
+    setOs(detected);
+
+    // En escritorio no tiene sentido el deep link → directo al flujo web.
+    if (detected === "other") {
+      onContinueWeb();
+      return;
+    }
+
+    // Intentamos abrir la app por deep link. Si la app está instalada, el SO
+    // cambia de contexto (la pestaña pasa a background) y el timeout no salta.
+    const deepLink = `bubui://bubui/scan/${businessId}`;
+    let abort = false;
+    const onHide = () => { abort = true; };
+    document.addEventListener("visibilitychange", onHide);
+
+    const t = window.setTimeout(() => {
+      document.removeEventListener("visibilitychange", onHide);
+      // Si seguimos visibles → la app no se abrió. Mostramos opciones.
+      if (!abort && !document.hidden) setTriedApp(true);
+    }, 1500);
+
+    // Disparamos el deep link.
+    window.location.href = deepLink;
+
+    return () => {
+      window.clearTimeout(t);
+      document.removeEventListener("visibilitychange", onHide);
+    };
+  }, [businessId, onContinueWeb]);
+
+  return (
+    <main className="max-w-md mx-auto px-4 py-12 text-center">
+      <h1 className="bubui-wordmark mx-auto justify-center" style={{ fontSize: 56 }}>bubui</h1>
+
+      {!triedApp ? (
+        <p className="text-black/60 text-sm mt-6">Abriendo la app…</p>
+      ) : (
+        <div className="mt-6 space-y-4">
+          <p className="text-black/70 text-sm">
+            Para registrar tu compra y tu descuento, abre Bubui:
+          </p>
+
+          {/* Si tiene la app pero no se abrió sola, este botón la reintenta. */}
+          <a href={`bubui://bubui/scan/${businessId}`} className="bubui-btn block text-center">
+            Ya tengo la app — abrir
+          </a>
+
+          {os === "android" && (
+            <a href={PLAY_URL} className="bubui-btn block text-center">
+              Descargar en Google Play
+            </a>
+          )}
+
+          <button
+            onClick={onContinueWeb}
+            className="w-full text-sm text-pink-600 hover:underline mt-1"
+          >
+            Seguir en el navegador (sin instalar)
+          </button>
+        </div>
+      )}
+    </main>
+  );
+}
+
+function WebFlow({ businessId }: { businessId: string }) {
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [stage, setStage] = useState<"signup" | "amount" | "sent">("signup");
   const [amount, setAmount] = useState("");
