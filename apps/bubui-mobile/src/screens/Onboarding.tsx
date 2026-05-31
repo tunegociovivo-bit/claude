@@ -1,5 +1,6 @@
-import { useRef, useState } from "react";
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ScrollView, Platform, Image, FlatList, Dimensions, Linking } from "react-native";
+import { useEffect, useRef, useState } from "react";
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ScrollView, Platform, Image, FlatList, Dimensions, Linking, Animated, Easing } from "react-native";
+import { Bouncy } from "../components/Bouncy";
 import { useNavigation } from "@react-navigation/native";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import * as Location from "expo-location";
@@ -55,6 +56,19 @@ export function Onboarding() {
   const nav = useNavigation<any>();
   const c = useTheme();
   const styles = makeStyles(c);
+  // Flotación suave y continua de las ilustraciones (sensación "viva").
+  const float = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(float, { toValue: 1, duration: 1800, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+        Animated.timing(float, { toValue: 0, duration: 1800, easing: Easing.inOut(Easing.ease), useNativeDriver: true })
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [float]);
+  const floatY = float.interpolate({ inputRange: [0, 1], outputRange: [0, -10] });
   // Flujo: 0..2 = slides (carrusel) → 3 = pantalla "elige tipo" → 4 = signup cliente
   //        5 = login (solo teléfono + OTP)
   const [step, setStep] = useState(0);
@@ -193,9 +207,9 @@ export function Onboarding() {
                     <Text style={styles.slideTitleAccent}>{item.titleEnd}</Text>
                   </Text>
                   <Text style={styles.slideSubtitle}>{item.subtitle}</Text>
-                  <View style={styles.slideIllustrationWrap}>
+                  <Animated.View style={[styles.slideIllustrationWrap, { transform: [{ translateY: floatY }] }]}>
                     <Image source={item.image} style={styles.slideIllustration} resizeMode="contain" />
-                  </View>
+                  </Animated.View>
                 </View>
               )}
             />
@@ -208,12 +222,12 @@ export function Onboarding() {
               <View key={i} style={[styles.dot, i === slideIndex && styles.dotActive]} />
             ))}
           </View>
-          <TouchableOpacity style={styles.ctaBtn} onPress={advance} activeOpacity={0.9}>
+          <Bouncy style={styles.ctaBtn} onPress={advance}>
             <Text style={styles.ctaBtnText}>{SLIDES[slideIndex].cta}</Text>
             <View style={styles.ctaArrowCircle}>
               <Text style={styles.ctaArrow}>→</Text>
             </View>
-          </TouchableOpacity>
+          </Bouncy>
         </View>
       </View>
     );

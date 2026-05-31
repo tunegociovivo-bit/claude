@@ -5,6 +5,7 @@ import { CheckSession } from "../lib/session";
 import { api, API_BASE } from "../lib/api";
 import { Wordmark } from "../components/Wordmark";
 import { BottomNav } from "../components/BottomNav";
+import { FadeIn } from "../components/FadeIn";
 import { useTheme, type Palette, radius, shadow } from "../lib/theme";
 
 type Referral = Awaited<ReturnType<typeof api.referral>>;
@@ -56,6 +57,7 @@ export function Afiliados() {
 
   return (
     <View style={styles.root}>
+      <FadeIn replayOnFocus dy={0} style={{ flex: 1 }}>
       <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 52, paddingBottom: 30 }}>
         <View style={{ alignItems: "center", marginBottom: 10 }}>
           <Wordmark size={24} />
@@ -122,6 +124,7 @@ export function Afiliados() {
           </>
         )}
       </ScrollView>
+      </FadeIn>
       <BottomNav active="Afiliados" />
     </View>
   );

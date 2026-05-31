@@ -5,6 +5,10 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { CheckSession, type Customer } from "../lib/session";
 import { Wordmark } from "../components/Wordmark";
 import { BottomNav } from "../components/BottomNav";
+import { FadeIn } from "../components/FadeIn";
+import { Bouncy } from "../components/Bouncy";
+import { CountUp } from "../components/CountUp";
+import { stagger } from "../lib/anim";
 import { API_BASE } from "../lib/api";
 import { useTheme, type Palette, radius, shadow } from "../lib/theme";
 
@@ -31,42 +35,44 @@ export function Cuenta() {
     <View style={styles.root}>
       <ScrollView contentContainerStyle={{ paddingBottom: 30 }}>
         {/* Cabecera hero rosa con avatar + nombre */}
-        <View style={[styles.hero, { paddingTop: insets.top + 18 }]}>
+        <FadeIn replayOnFocus dy={0} style={[styles.hero, { paddingTop: insets.top + 18 }]}>
           <Wordmark size={24} />
           <View style={styles.avatar}>
             <Text style={styles.avatarText}>{initial}</Text>
           </View>
           <Text style={styles.name}>{customer?.name ?? "Cliente Bubui"}</Text>
           {!!customer?.email && <Text style={styles.sub}>{customer.email}</Text>}
-        </View>
+        </FadeIn>
 
         <View style={styles.body}>
           {/* Stats — superpuestas sobre el hero */}
-          <View style={styles.statRow}>
+          <FadeIn replayOnFocus delay={stagger(1)} style={styles.statRow}>
             <View style={styles.stat}>
               <Text style={styles.statEmoji}>💸</Text>
-              <Text style={styles.statValue}>{(customer?.totalSaved ?? 0).toFixed(2)} €</Text>
+              <CountUp value={customer?.totalSaved ?? 0} decimals={2} suffix=" €" style={styles.statValue} />
               <Text style={styles.statLabel}>HAS AHORRADO</Text>
             </View>
             <View style={styles.stat}>
               <Text style={styles.statEmoji}>🛍️</Text>
-              <Text style={styles.statValue}>{customer?.totalPurchases ?? 0}</Text>
+              <CountUp value={customer?.totalPurchases ?? 0} decimals={0} style={styles.statValue} />
               <Text style={styles.statLabel}>COMPRAS</Text>
             </View>
-          </View>
+          </FadeIn>
 
           {/* Invita a amigos — acceso destacado al programa de referidos */}
-          <TouchableOpacity style={styles.invite} activeOpacity={0.9} onPress={() => nav.navigate("Afiliados")}>
-            <Text style={styles.inviteEmoji}>🎁</Text>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.inviteTitle}>Invita a tus amigos</Text>
-              <Text style={styles.inviteSub}>Comparte Bubui y gana un megadescuento.</Text>
-            </View>
-            <Text style={styles.inviteChev}>›</Text>
-          </TouchableOpacity>
+          <FadeIn replayOnFocus delay={stagger(2)}>
+            <Bouncy style={styles.invite} onPress={() => nav.navigate("Afiliados")}>
+              <Text style={styles.inviteEmoji}>🎁</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.inviteTitle}>Invita a tus amigos</Text>
+                <Text style={styles.inviteSub}>Comparte Bubui y gana un megadescuento.</Text>
+              </View>
+              <Text style={styles.inviteChev}>›</Text>
+            </Bouncy>
+          </FadeIn>
 
           {/* Enlaces agrupados */}
-          <View style={styles.menu}>
+          <FadeIn replayOnFocus delay={stagger(3)} style={styles.menu}>
             <TouchableOpacity style={styles.link} activeOpacity={0.7} onPress={() => Linking.openURL(`${API_BASE}/bubui/registro`)}>
               <Text style={styles.linkIcon}>🏪</Text>
               <Text style={styles.linkText}>¿Tienes un negocio? Únete a Bubui</Text>
@@ -78,9 +84,11 @@ export function Cuenta() {
               <Text style={styles.linkText}>Cómo funciona Bubui</Text>
               <Text style={styles.chev}>›</Text>
             </TouchableOpacity>
-          </View>
+          </FadeIn>
 
-          <Text style={styles.legal}>Bubui · Piloto en Benalmádena · Una app de Negocio Vivo</Text>
+          <FadeIn replayOnFocus delay={stagger(4)}>
+            <Text style={styles.legal}>Bubui · Piloto en Benalmádena · Una app de Negocio Vivo</Text>
+          </FadeIn>
         </View>
       </ScrollView>
       <BottomNav active="Cuenta" />

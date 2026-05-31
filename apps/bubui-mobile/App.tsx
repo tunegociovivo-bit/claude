@@ -84,9 +84,9 @@ function AppInner() {
           <Stack.Screen name="Descubre" component={Descubre} />
           <Stack.Screen name="Mapa" component={Mapa} />
           <Stack.Screen name="Cuenta" component={Cuenta} />
-          <Stack.Screen name="Afiliados" component={Afiliados} />
-          <Stack.Screen name="Scan" component={Scan} />
-          <Stack.Screen name="Negocio" component={Negocio} />
+          <Stack.Screen name="Afiliados" component={Afiliados} options={{ animation: "slide_from_right" }} />
+          <Stack.Screen name="Scan" component={Scan} options={{ animation: "slide_from_bottom" }} />
+          <Stack.Screen name="Negocio" component={Negocio} options={{ animation: "slide_from_right" }} />
         </Stack.Navigator>
       </NavigationContainer>
     </ErrorBoundary>

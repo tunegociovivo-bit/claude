@@ -6,6 +6,10 @@ import { CheckSession, type Customer } from "../lib/session";
 import { api } from "../lib/api";
 import { Wordmark } from "../components/Wordmark";
 import { BottomNav } from "../components/BottomNav";
+import { FadeIn } from "../components/FadeIn";
+import { Bouncy } from "../components/Bouncy";
+import { CountUp } from "../components/CountUp";
+import { stagger } from "../lib/anim";
 import { useTheme, type Palette, radius, shadow } from "../lib/theme";
 import { registerExpoPushForCustomer } from "../lib/push";
 import { startBubuiGeofencing } from "../lib/geofence";
@@ -104,50 +108,56 @@ export function Feed() {
 
   const header = (
     <View>
-      <View style={styles.header}>
+      <FadeIn replayOnFocus style={styles.header}>
         <Wordmark size={26} />
-      </View>
+      </FadeIn>
 
       {/* Has ahorrado + cupón */}
-      <View style={styles.savedCard}>
+      <FadeIn replayOnFocus delay={stagger(1)} style={styles.savedCard}>
         <View>
           <Text style={styles.savedLabel}>HAS AHORRADO</Text>
-          <Text style={styles.savedAmount}>{(customer?.totalSaved ?? 0).toFixed(2)} €</Text>
+          <CountUp value={customer?.totalSaved ?? 0} decimals={2} suffix=" €" style={styles.savedAmount} />
         </View>
         <Text style={{ fontSize: 38 }}>🎟️</Text>
-      </View>
+      </FadeIn>
 
-      {/* Botón escanear con animación */}
-      <Animated.View style={{ transform: [{ scale }], marginBottom: 20 }}>
-        <TouchableOpacity style={styles.cta} onPress={() => nav.navigate("Scan", { businessId: "" })} activeOpacity={0.9}>
-          <Text style={styles.ctaText}>⛶  Escanear QR de un negocio</Text>
-        </TouchableOpacity>
-      </Animated.View>
+      {/* Botón escanear con animación (pulso + rebote al pulsar) */}
+      <FadeIn replayOnFocus delay={stagger(2)}>
+        <Animated.View style={{ transform: [{ scale }], marginBottom: 20 }}>
+          <Bouncy style={styles.cta} onPress={() => nav.navigate("Scan", { businessId: "" })}>
+            <Text style={styles.ctaText}>⛶  Escanear QR de un negocio</Text>
+          </Bouncy>
+        </Animated.View>
+      </FadeIn>
 
       {/* Banner promocional: remoto (gestionado desde admin) o tarjeta por defecto */}
-      {banner?.active && banner.imageUrl ? (
-        <TouchableOpacity
-          activeOpacity={banner.link ? 0.85 : 1}
-          onPress={() => { if (banner.link) Linking.openURL(banner.link!).catch(() => {}); }}
-        >
-          <Image
-            source={{ uri: banner.imageUrl }}
-            style={styles.promo}
-            resizeMode="contain"
-            onError={() => setBanner((b) => (b ? { ...b, active: false } : b))}
-          />
-        </TouchableOpacity>
-      ) : (
-        <View style={styles.promoCard}>
-          <Image source={require("../../assets/ill-cupon.png")} style={styles.promoIll} resizeMode="contain" />
-          <View style={{ flex: 1 }}>
-            <Text style={styles.promoTitle}>Cuanto más compras local, más ahorras</Text>
-            <Text style={styles.promoSub}>Escanea en cada negocio y desbloquea nuevos cupones cerca de ti.</Text>
+      <FadeIn replayOnFocus delay={stagger(3)}>
+        {banner?.active && banner.imageUrl ? (
+          <TouchableOpacity
+            activeOpacity={banner.link ? 0.85 : 1}
+            onPress={() => { if (banner.link) Linking.openURL(banner.link!).catch(() => {}); }}
+          >
+            <Image
+              source={{ uri: banner.imageUrl }}
+              style={styles.promo}
+              resizeMode="contain"
+              onError={() => setBanner((b) => (b ? { ...b, active: false } : b))}
+            />
+          </TouchableOpacity>
+        ) : (
+          <View style={styles.promoCard}>
+            <Image source={require("../../assets/ill-cupon.png")} style={styles.promoIll} resizeMode="contain" />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.promoTitle}>Cuanto más compras local, más ahorras</Text>
+              <Text style={styles.promoSub}>Escanea en cada negocio y desbloquea nuevos cupones cerca de ti.</Text>
+            </View>
           </View>
-        </View>
-      )}
+        )}
+      </FadeIn>
 
-      <Text style={styles.section}>Tus cupones activos ({offers.length})</Text>
+      <FadeIn replayOnFocus delay={stagger(4)}>
+        <Text style={styles.section}>Tus cupones activos ({offers.length})</Text>
+      </FadeIn>
     </View>
   );
 
@@ -166,33 +176,34 @@ export function Feed() {
             <Text style={styles.emptyText}>Escanea el QR de un negocio Bubui y empieza a ahorrar en tu barrio.</Text>
           </View>
         }
-        renderItem={({ item }) => (
-          <TouchableOpacity
-            style={styles.card}
-            activeOpacity={0.85}
-            onPress={() =>
-              nav.navigate("Negocio", {
-                business: { ...item.business, discountPct: item.discountPct, hoursLeft: item.hoursLeft, distanceM: item.distanceM, rewardLabel: item.rewardLabel }
-              })
-            }
-          >
-            <View style={[styles.photo, item.business.brandColor ? { backgroundColor: item.business.brandColor } : null]}>
-              {!!item.business.logoUrl && (
-                <Image source={{ uri: item.business.logoUrl }} style={styles.photoImg} resizeMode="cover" />
-              )}
-              <View style={styles.tag}><Text style={styles.tagText}>-{item.discountPct}%</Text></View>
-            </View>
-            <View style={styles.cardBody}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.bizName} numberOfLines={1}>{item.business.name}</Text>
-                <Text style={styles.bizCat} numberOfLines={1}>
-                  {item.business.category}
-                  {item.distanceM != null && ` · ${item.distanceM > 1000 ? `${(item.distanceM / 1000).toFixed(1)} km` : `${item.distanceM} m`}`}
-                </Text>
+        renderItem={({ item, index }) => (
+          <FadeIn delay={Math.min(index, 6) * 50} dy={18}>
+            <Bouncy
+              style={styles.card}
+              onPress={() =>
+                nav.navigate("Negocio", {
+                  business: { ...item.business, discountPct: item.discountPct, hoursLeft: item.hoursLeft, distanceM: item.distanceM, rewardLabel: item.rewardLabel }
+                })
+              }
+            >
+              <View style={[styles.photo, item.business.brandColor ? { backgroundColor: item.business.brandColor } : null]}>
+                {!!item.business.logoUrl && (
+                  <Image source={{ uri: item.business.logoUrl }} style={styles.photoImg} resizeMode="cover" />
+                )}
+                <View style={styles.tag}><Text style={styles.tagText}>-{item.discountPct}%</Text></View>
               </View>
-              <Text style={[styles.exp, item.hoursLeft < 24 && styles.expUrgent]}>⏰ {item.hoursLeft}h</Text>
-            </View>
-          </TouchableOpacity>
+              <View style={styles.cardBody}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.bizName} numberOfLines={1}>{item.business.name}</Text>
+                  <Text style={styles.bizCat} numberOfLines={1}>
+                    {item.business.category}
+                    {item.distanceM != null && ` · ${item.distanceM > 1000 ? `${(item.distanceM / 1000).toFixed(1)} km` : `${item.distanceM} m`}`}
+                  </Text>
+                </View>
+                <Text style={[styles.exp, item.hoursLeft < 24 && styles.expUrgent]}>⏰ {item.hoursLeft}h</Text>
+              </View>
+            </Bouncy>
+          </FadeIn>
         )}
       />
       <BottomNav active="Feed" />

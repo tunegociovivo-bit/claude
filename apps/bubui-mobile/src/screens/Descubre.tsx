@@ -6,6 +6,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { api } from "../lib/api";
 import { Wordmark } from "../components/Wordmark";
 import { BottomNav } from "../components/BottomNav";
+import { FadeIn } from "../components/FadeIn";
 import { useTheme, type Palette, radius, shadow } from "../lib/theme";
 
 type Business = {
@@ -123,26 +124,28 @@ export function Descubre() {
             </View>
           ) : null
         }
-        renderItem={({ item: b }) => {
+        renderItem={({ item: b, index }) => {
           const fav = favs.includes(b.slug);
           return (
-            <TouchableOpacity style={styles.card} activeOpacity={0.85} onPress={() => nav.navigate("Negocio", { business: b })}>
-              <View style={[styles.photo, b.brandColor ? { backgroundColor: b.brandColor } : null]}>
-                {!!b.logoUrl && <Image source={{ uri: b.logoUrl }} style={styles.photoImg} resizeMode="cover" />}
-                <TouchableOpacity style={styles.heart} onPress={() => toggleFav(b.slug)}>
-                  <Text style={{ fontSize: 16 }}>{fav ? "❤️" : "🤍"}</Text>
-                </TouchableOpacity>
-                {b.topInCategory && <View style={styles.topBadge}><Text style={styles.topBadgeText}>🏆 Top</Text></View>}
-                <View style={styles.tag}><Text style={styles.tagText}>-{b.defaultDiscountPct}%</Text></View>
-              </View>
-              <View style={styles.body}>
-                <Text style={styles.name} numberOfLines={1}>{b.name}</Text>
-                <Text style={styles.meta} numberOfLines={1}>
-                  {b.category}
-                  {b.distanceM != null && ` · ${b.distanceM > 1000 ? `${(b.distanceM / 1000).toFixed(1)} km` : `${b.distanceM} m`}`}
-                </Text>
-              </View>
-            </TouchableOpacity>
+            <FadeIn delay={Math.min(index, 6) * 50} dy={18}>
+              <TouchableOpacity style={styles.card} activeOpacity={0.85} onPress={() => nav.navigate("Negocio", { business: b })}>
+                <View style={[styles.photo, b.brandColor ? { backgroundColor: b.brandColor } : null]}>
+                  {!!b.logoUrl && <Image source={{ uri: b.logoUrl }} style={styles.photoImg} resizeMode="cover" />}
+                  <TouchableOpacity style={styles.heart} onPress={() => toggleFav(b.slug)}>
+                    <Text style={{ fontSize: 16 }}>{fav ? "❤️" : "🤍"}</Text>
+                  </TouchableOpacity>
+                  {b.topInCategory && <View style={styles.topBadge}><Text style={styles.topBadgeText}>🏆 Top</Text></View>}
+                  <View style={styles.tag}><Text style={styles.tagText}>-{b.defaultDiscountPct}%</Text></View>
+                </View>
+                <View style={styles.body}>
+                  <Text style={styles.name} numberOfLines={1}>{b.name}</Text>
+                  <Text style={styles.meta} numberOfLines={1}>
+                    {b.category}
+                    {b.distanceM != null && ` · ${b.distanceM > 1000 ? `${(b.distanceM / 1000).toFixed(1)} km` : `${b.distanceM} m`}`}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            </FadeIn>
           );
         }}
       />

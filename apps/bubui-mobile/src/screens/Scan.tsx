@@ -1,11 +1,14 @@
 import { useEffect, useRef, useState } from "react";
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, Alert, Image } from "react-native";
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, Alert, Image, Animated } from "react-native";
 import { CameraView, Camera } from "expo-camera";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Location from "expo-location";
 import { useNavigation, useRoute, type RouteProp } from "@react-navigation/native";
 import { CheckSession } from "../lib/session";
 import { api } from "../lib/api";
+import { FadeIn } from "../components/FadeIn";
+import { Bouncy } from "../components/Bouncy";
+import { Confetti, type ConfettiHandle } from "../components/Confetti";
 import { useTheme, type Palette, radius, shadow } from "../lib/theme";
 import type { RootStackParamList } from "../../App";
 
@@ -33,6 +36,18 @@ export function Scan() {
   // onBarcodeScanned se dispara muchas veces por segundo; el lock evita
   // procesar el mismo frame N veces (y Alerts en bucle con un QR no válido).
   const lock = useRef(false);
+
+  // Celebración al aplicar el ahorro: confeti + "pop" del emoji.
+  const confetti = useRef<ConfettiHandle>(null);
+  const pop = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    if (done && done.status !== "rejected") {
+      confetti.current?.fire();
+      pop.setValue(0);
+      Animated.spring(pop, { toValue: 1, useNativeDriver: true, speed: 12, bounciness: 12 }).start();
+    }
+  }, [done, pop]);
+  const popScale = pop.interpolate({ inputRange: [0, 1], outputRange: [0.6, 1] });
 
   useEffect(() => {
     (async () => {
@@ -142,16 +157,21 @@ export function Scan() {
     const rejected = done.status === "rejected";
     return (
       <View style={[styles.center, { padding: 24 }]}>
-        <Text style={{ fontSize: 64 }}>{rejected ? "❌" : "🎉"}</Text>
-        <Text style={styles.bigTitle}>{rejected ? "Escaneo no válido" : "¡Ahorro aplicado!"}</Text>
-        <Text style={styles.muted}>
-          {rejected
-            ? done.rejectionReason
-            : `Te has llevado un ${done.discountPct}% en esta compra${done.offersUnlocked ? ` y has desbloqueado ${done.offersUnlocked} cupones cerca` : ""}.`}
-        </Text>
-        <TouchableOpacity style={styles.btn} onPress={() => nav.reset({ index: 0, routes: [{ name: "Feed" }] })}>
-          <Text style={styles.btnText}>Ver mi ahorro</Text>
-        </TouchableOpacity>
+        {!rejected && <Confetti ref={confetti} />}
+        <Animated.Text style={{ fontSize: 64, transform: rejected ? undefined : [{ scale: popScale }] }}>
+          {rejected ? "❌" : "🎉"}
+        </Animated.Text>
+        <FadeIn delay={140} dy={10} style={{ alignItems: "center", gap: 12 }}>
+          <Text style={styles.bigTitle}>{rejected ? "Escaneo no válido" : "¡Ahorro aplicado!"}</Text>
+          <Text style={styles.muted}>
+            {rejected
+              ? done.rejectionReason
+              : `Te has llevado un ${done.discountPct}% en esta compra${done.offersUnlocked ? ` y has desbloqueado ${done.offersUnlocked} cupones cerca` : ""}.`}
+          </Text>
+          <Bouncy style={styles.btn} onPress={() => nav.reset({ index: 0, routes: [{ name: "Feed" }] })}>
+            <Text style={styles.btnText}>Ver mi ahorro</Text>
+          </Bouncy>
+        </FadeIn>
       </View>
     );
   }

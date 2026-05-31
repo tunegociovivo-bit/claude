@@ -2,6 +2,7 @@ import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, Linking, S
 import { useNavigation, useRoute, type RouteProp } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { API_BASE } from "../lib/api";
+import { FadeIn } from "../components/FadeIn";
 import { useTheme, type Palette, radius, shadow } from "../lib/theme";
 import type { RootStackParamList } from "../../App";
 
@@ -72,6 +73,7 @@ export function Negocio() {
 
   return (
     <View style={styles.root}>
+      <FadeIn replayOnFocus dy={0} style={{ flex: 1 }}>
       <ScrollView contentContainerStyle={{ paddingBottom: 32 }}>
         {/* Hero con color de marca o logo */}
         <View style={[styles.hero, { backgroundColor: b.brandColor || c.pinkSoft, paddingTop: insets.top + 8 }]}>
@@ -137,6 +139,7 @@ export function Negocio() {
           </View>
         </View>
       </ScrollView>
+      </FadeIn>
     </View>
   );
 }
