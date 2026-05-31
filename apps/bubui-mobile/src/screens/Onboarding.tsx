@@ -112,6 +112,7 @@ export function Onboarding() {
         totalSaved: r.totalSaved ?? 0,
         totalPurchases: r.totalPurchases ?? 0
       });
+      sfx.tap();
       nav.reset({ index: 0, routes: [{ name: "Feed" }] });
     } catch (e: any) {
       Alert.alert("Error", e?.message ?? "No se pudo iniciar sesión");
@@ -157,6 +158,7 @@ export function Onboarding() {
         totalSaved: r.totalSaved ?? 0,
         totalPurchases: r.totalPurchases ?? 0
       });
+      sfx.success();
       nav.reset({ index: 0, routes: [{ name: "Feed" }] });
     } catch (e: any) {
       Alert.alert("Error", e?.message ?? "Código incorrecto");

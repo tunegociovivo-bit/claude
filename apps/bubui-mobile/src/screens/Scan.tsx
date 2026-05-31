@@ -76,6 +76,7 @@ export function Scan() {
     lock.current = true;
     const m = /\/bubui\/scan\/([a-z0-9_-]+)/i.exec(result.data);
     if (m) {
+      sfx.tap();
       setBusinessId(m[1]);
     } else {
       Alert.alert("QR no reconocido", "Asegúrate de escanear un QR Bubui válido.", [
