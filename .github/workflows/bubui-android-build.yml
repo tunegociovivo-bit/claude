@@ -10,10 +10,6 @@ name: Build APK Bubui (Android)
 
 on:
   workflow_dispatch:
-  # Trigger temporal: lanzar un build al tocar este archivo.
-  push:
-    paths:
-      - .github/workflows/bubui-android-build.yml
 
 jobs:
   build:
