@@ -10,7 +10,7 @@ export const metadata = {
   description: "Cómo Bubui recopila, usa y protege tus datos personales."
 };
 
-const UPDATED = "29 de mayo de 2026";
+const UPDATED = "31 de mayo de 2026";
 
 export default function PrivacidadPage() {
   return (
@@ -32,7 +32,7 @@ export default function PrivacidadPage() {
 
       <Section title="2. Qué datos recogemos">
         <ul className="list-disc pl-5 space-y-1">
-          <li><b>Datos de cuenta:</b> nombre, correo electrónico y teléfono cuando te registras.</li>
+          <li><b>Datos de cuenta:</b> nombre, correo electrónico, teléfono y fecha de nacimiento cuando te registras. La fecha de nacimiento se usa para verificar que eres mayor de edad mínima y para ofertas personalizadas (p. ej. cupón de cumpleaños).</li>
           <li><b>Ubicación:</b> tu ubicación aproximada o precisa para mostrarte descuentos cerca de ti y validar que la compra se hace en el local (anti-fraude). Solo se usa mientras la app está en uso.</li>
           <li><b>Cámara:</b> para escanear los códigos QR de los negocios. Las imágenes no se almacenan.</li>
           <li><b>Uso del servicio:</b> compras registradas, ofertas canjeadas y métricas de ahorro.</li>
@@ -83,8 +83,9 @@ export default function PrivacidadPage() {
       </Section>
 
       <Section title="9. Menores">
-        Bubui no está dirigido a menores de 14 años y no recogemos datos de menores de
-        forma intencionada.
+        Bubui no está dirigido a menores de 16 años y no recogemos datos de menores de
+        forma intencionada. Si detectamos una cuenta de un menor de 16 años, la
+        eliminaremos.
       </Section>
 
       <Section title="10. Cambios">
