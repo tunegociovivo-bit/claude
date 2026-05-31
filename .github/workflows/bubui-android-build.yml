@@ -1,38 +1,22 @@
 name: Build APK Bubui (Android)
 
-# Compila la app móvil Bubui y deja el APK como artifact descargable.
-# Dos modos:
-#   - eas: build en la nube de EAS (necesita secret EXPO_TOKEN).
-#   - local: build con Gradle en el runner, firmado SIEMPRE con el mismo
-#     keystore (secrets BUBUI_KEYSTORE_B64 / *_PASS / *_ALIAS). Así cada APK
-#     se instala ENCIMA del anterior sin tener que desinstalar.
+# Compila la app móvil Bubui con Gradle (firma estable con el mismo keystore,
+# para que cada APK se instale ENCIMA del anterior) y:
+#   - deja el APK como artifact descargable
+#   - lo publica en una GitHub Release con enlace fijo:
+#       releases/latest/download/bubui.apk
 #
 # Uso: pestaña Actions → "Build APK Bubui (Android)" → Run workflow.
 
 on:
   workflow_dispatch:
-    inputs:
-      mode:
-        description: "Dónde compilar"
-        required: true
-        default: local
-        type: choice
-        options:
-          - local
-          - eas
-      profile:
-        description: "(solo eas) preview = APK · production = AAB"
-        required: false
-        default: preview
-        type: choice
-        options:
-          - preview
-          - production
+  # Trigger temporal: lanzar un build al tocar este archivo.
+  push:
+    paths:
+      - .github/workflows/bubui-android-build.yml
 
 jobs:
-  # ---- Build local con Gradle + firma estable ----------------------------
-  local:
-    if: ${{ github.event.inputs.mode == 'local' }}
+  build:
     runs-on: ubuntu-latest
     permissions:
       contents: write # necesario para publicar la Release con el APK
@@ -104,36 +88,4 @@ jobs:
             **Descarga directa (siempre la última versión):**
             https://github.com/${{ github.repository }}/releases/latest/download/bubui.apk
 
-            Se instala encima de la versión anterior (misma firma). En Android,
-            al abrir el APK quizá tengas que permitir "instalar apps de esta
-            fuente" la primera vez.
-
-  # ---- Build en la nube de EAS ------------------------------------------
-  eas:
-    if: ${{ github.event.inputs.mode == 'eas' }}
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: apps/bubui-mobile
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-          cache-dependency-path: apps/bubui-mobile/package-lock.json
-
-      - name: Setup EAS
-        uses: expo/expo-github-action@v8
-        with:
-          eas-version: latest
-          token: ${{ secrets.EXPO_TOKEN }}
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: EAS Build (Android)
-        run: eas build --platform android --profile ${{ github.event.inputs.profile }} --non-interactive --wait
+            Se instala encima de la versión anterior (misma firma).
