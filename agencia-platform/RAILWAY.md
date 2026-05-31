@@ -127,3 +127,52 @@ Si quieres `agencia.tudominio.com` en vez de la URL larga de Railway:
 | Redirect loop al hacer login | `NEXTAUTH_URL` no coincide con la URL real | Pon exactamente la URL que te dio Railway, con `https://` |
 | Error 503 al usar features de IA | Falta API key de Anthropic | Variables → `ANTHROPIC_API_KEY` o configúrala desde `/admin/ai` |
 | "MinIO/Redis/Meilisearch unreachable" en logs | Esos servicios no están en Railway | Inofensivo — la app degrada graciosamente. Para activar adjuntos/búsqueda, añade plugins de Redis/Meilisearch desde Railway (siguiente PR) |
+
+---
+
+## ⚠️ Qué rama despliega Railway (IMPORTANTE)
+
+El desarrollo vive en la rama **`claude/wordpress-ai-review-plugin-bdSLe`** (es la
+rama completa: plataforma de agencia + Bubui + todo lo nuevo). Sin embargo, el
+servicio de Railway está configurado para desplegar la rama
+**`claude/internal-project-platform-ZezvX`**, que en su día quedó congelada.
+
+Mientras Railway siga apuntando a `ZezvX`, **cada vez que hagas cambios en
+`bdSLe` tienes que volver a sincronizar `ZezvX`** o no se desplegarán.
+
+### Opción A (recomendada, una sola vez): cambiar la rama en Railway
+
+1. Railway → tu servicio → **Settings → Source**.
+2. Cambia **Branch** a `claude/wordpress-ai-review-plugin-bdSLe`.
+3. **Update**. A partir de ahí Railway despliega `bdSLe` directamente y te olvidas
+   del paso manual.
+
+### Opción B (si no tienes acceso al panel de Railway): sincronizar por git
+
+Hace que la rama que Railway despliega (`ZezvX`) tenga exactamente el contenido de
+`bdSLe`. El push dispara el redeploy automático:
+
+```bash
+git push --force origin \
+  origin/claude/wordpress-ai-review-plugin-bdSLe:claude/internal-project-platform-ZezvX
+```
+
+Es seguro: `bdSLe` es superconjunto de `ZezvX` (no se pierde código). La base de
+datos se migra sola en el arranque vía `prisma db push` (ver `Dockerfile`).
+
+---
+
+## Tareas recurrentes (cron de GitHub Actions)
+
+Los crons viven en `.github/workflows/` y **se ejecutan desde la rama por defecto
+del repo**, llamando a endpoints del Hub en producción. Dos convenciones de auth:
+
+| Convención | Secreto (GitHub Actions) | Env var en Railway | Endpoints |
+|---|---|---|---|
+| Interna (estándar) | `INTERNAL_CRON_TOKEN` + `HUB_BASE_URL` | `INTERNAL_CRON_TOKEN` | `/api/v1/internal/*`, backups, recordatorios, **sonia-briefing** |
+| Legacy | `CRON_SECRET` | `CRON_SECRET` | algunos `/api/cron/*`, `/api/v1/gmb/*` |
+
+**Para que un cron funcione**, el secreto de GitHub Actions debe **coincidir** con
+la env var del mismo nombre en Railway. Si un workflow falla con HTTP 401, casi
+siempre es que el secreto falta o no coincide entre GitHub y Railway. Settings del
+repo en GitHub → **Secrets and variables → Actions**.
