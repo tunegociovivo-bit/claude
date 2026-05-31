@@ -9,6 +9,7 @@ import { api } from "../lib/api";
 import { FadeIn } from "../components/FadeIn";
 import { Bouncy } from "../components/Bouncy";
 import { Confetti, type ConfettiHandle } from "../components/Confetti";
+import { sfx } from "../lib/sound";
 import { useTheme, type Palette, radius, shadow } from "../lib/theme";
 import type { RootStackParamList } from "../../App";
 
@@ -42,6 +43,7 @@ export function Scan() {
   const pop = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     if (done && done.status !== "rejected") {
+      sfx.success();
       confetti.current?.fire();
       pop.setValue(0);
       Animated.spring(pop, { toValue: 1, useNativeDriver: true, speed: 12, bounciness: 12 }).start();
@@ -107,6 +109,7 @@ export function Scan() {
   }
 
   async function submit() {
+    sfx.tap();
     const value = Number(amount.replace(",", "."));
     if (!value || value <= 0) {
       Alert.alert("Importe inválido");

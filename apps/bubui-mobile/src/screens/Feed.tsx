@@ -9,6 +9,7 @@ import { BottomNav } from "../components/BottomNav";
 import { FadeIn } from "../components/FadeIn";
 import { Bouncy } from "../components/Bouncy";
 import { CountUp } from "../components/CountUp";
+import { sfx } from "../lib/sound";
 import { stagger } from "../lib/anim";
 import { useTheme, type Palette, radius, shadow } from "../lib/theme";
 import { registerExpoPushForCustomer } from "../lib/push";
@@ -124,7 +125,7 @@ export function Feed() {
       {/* Botón escanear con animación (pulso + rebote al pulsar) */}
       <FadeIn replayOnFocus delay={stagger(2)}>
         <Animated.View style={{ transform: [{ scale }], marginBottom: 20 }}>
-          <Bouncy style={styles.cta} onPress={() => nav.navigate("Scan", { businessId: "" })}>
+          <Bouncy style={styles.cta} onPress={() => { sfx.tap(); nav.navigate("Scan", { businessId: "" }); }}>
             <Text style={styles.ctaText}>⛶  Escanear QR de un negocio</Text>
           </Bouncy>
         </Animated.View>

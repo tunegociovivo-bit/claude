@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ScrollView, Platform, Image, FlatList, Dimensions, Linking, Animated, Easing } from "react-native";
 import { Bouncy } from "../components/Bouncy";
+import { sfx } from "../lib/sound";
 import { useNavigation } from "@react-navigation/native";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import * as Location from "expo-location";
@@ -168,6 +169,7 @@ export function Onboarding() {
   if (step < SLIDES.length) {
     const goSignup = () => setStep(SLIDES.length);
     const advance = () => {
+      sfx.tap();
       if (slideIndex < SLIDES.length - 1) {
         const next = slideIndex + 1;
         setSlideIndex(next);
