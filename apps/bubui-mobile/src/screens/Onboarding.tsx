@@ -235,7 +235,7 @@ export function Onboarding() {
           activeOpacity={0.92}
         >
           <View style={styles.heroIconWrap}>
-            <Text style={styles.heroIcon}>🎁</Text>
+            <Image source={require("../../assets/ill-cupon.png")} style={styles.heroIconImg} resizeMode="contain" />
           </View>
           <Text style={styles.heroTitle}>Descuentos y regalos{"\n"}cerca de ti</Text>
           <Text style={styles.heroSubtitle}>
@@ -554,11 +554,12 @@ const makeStyles = (c: Palette) =>
       elevation: 14
     },
     heroIconWrap: {
-      width: 78, height: 78, borderRadius: 39,
-      backgroundColor: "rgba(255,255,255,0.18)",
+      width: 110, height: 110, borderRadius: 55,
+      backgroundColor: "rgba(255,255,255,0.16)",
       alignItems: "center", justifyContent: "center",
       marginBottom: 16
     },
+    heroIconImg: { width: 86, height: 86 },
     heroIcon: { fontSize: 44, lineHeight: 50 },
     heroTitle: {
       color: c.onAccent,

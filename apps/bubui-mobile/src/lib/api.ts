@@ -65,6 +65,16 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ businessId, customerId, amount, scanLat, scanLng })
     }),
+  referral: (customerId: string) =>
+    call<{
+      code: string;
+      verifiedReferrals: number;
+      originBusiness: string | null;
+      referralEnabled: boolean;
+      milestones: { n: number; reward: string; unlocked: boolean }[];
+      nextMilestone: number | null;
+      friends: { initial: string; verified: boolean; joinedAt: string }[];
+    }>(`/api/bubui/customer/${customerId}/referral`),
   vapidPublic: () => call("/api/bubui/push/vapid-public"),
   banner: () => call<{ active: boolean; imageUrl?: string; link?: string }>("/api/bubui/banner"),
   stats: () => call<{ businesses: number }>("/api/bubui/stats"),

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { signOut } from "next-auth/react";
 
 type Overview = {
@@ -316,6 +316,8 @@ function BusinessesPanel() {
 function BannerPanel() {
   const [b, setB] = useState<{ imageUrl: string; link: string; active: boolean }>({ imageUrl: "", link: "", active: false });
   const [msg, setMsg] = useState("");
+  const [uploading, setUploading] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
     adminFetch("/api/bubui/admin/banner").then(setB).catch(() => {});
   }, []);
@@ -329,13 +331,51 @@ function BannerPanel() {
       setMsg("Error: " + String(e));
     }
   }
+  async function onPickFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (file) e.target.value = ""; // permite re-subir el mismo archivo
+    if (!file) return;
+    setMsg("");
+    setUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      // multipart: NO fijamos Content-Type (el navegador pone el boundary).
+      const r = await fetch("/api/bubui/admin/banner/upload", { method: "POST", body: fd });
+      if (r.status === 401) {
+        window.location.href = "/login?callbackUrl=/bubui/admin";
+        return;
+      }
+      const j: any = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j?.error?.message || j?.error?.code || `HTTP ${r.status}`);
+      // Coloca la URL subida y activa el banner; el usuario solo pulsa Guardar.
+      setB((prev) => ({ ...prev, imageUrl: j.url, active: true }));
+      setMsg("Imagen subida ✓ — pulsa Guardar para publicarla");
+    } catch (err) {
+      setMsg("Error al subir: " + String(err));
+    } finally {
+      setUploading(false);
+    }
+  }
   return (
     <section className="bubui-card p-5 mt-4 max-w-xl">
       <h2 className="text-sm font-bold mb-2">Banner del Home</h2>
       <p className="text-[13px] text-black/55 mb-3">
-        Imagen promocional grande de la pantalla de inicio. Pega la URL pública de una imagen. Si lo desactivas o dejas
-        la URL vacía, la app usa su banner por defecto.
+        Imagen promocional grande de la pantalla de inicio. Sube una imagen desde tu dispositivo o pega la URL pública de
+        una. Si lo desactivas o dejas la URL vacía, la app usa su banner por defecto.
       </p>
+
+      {/* Subir desde el dispositivo */}
+      <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp,image/gif" className="hidden" onChange={onPickFile} />
+      <button
+        type="button"
+        onClick={() => fileRef.current?.click()}
+        disabled={uploading}
+        className="bubui-btn mb-3 disabled:opacity-50"
+      >
+        {uploading ? "Subiendo…" : "📷 Subir imagen"}
+      </button>
+
       <label className="text-xs font-bold uppercase tracking-wide text-black/55">URL de la imagen</label>
       <input className="bubui-input mb-3 mt-1" value={b.imageUrl} onChange={(e) => setB({ ...b, imageUrl: e.target.value })} placeholder="https://…/banner.png" />
       <label className="text-xs font-bold uppercase tracking-wide text-black/55">Enlace al tocar (opcional)</label>
