@@ -271,9 +271,58 @@ function BusinessesPanel() {
       setRows((prev) => prev?.map((b) => (b.id === id ? { ...b, featured: !featured } : b)) ?? prev);
     }
   }
+  async function markDelivered(id: string) {
+    const now = new Date().toISOString();
+    setRows((prev) => prev?.map((b) => (b.id === id ? { ...b, posterDeliveredAt: now } : b)) ?? prev);
+    try {
+      await adminFetch("/api/bubui/admin/businesses", { method: "PATCH", body: JSON.stringify({ id, posterDelivered: true }) });
+    } catch {
+      setRows((prev) => prev?.map((b) => (b.id === id ? { ...b, posterDeliveredAt: null } : b)) ?? prev);
+    }
+  }
   if (err) return <p className="text-rose-700 text-sm mt-4">{err}</p>;
   if (!rows) return <div className="bubui-skeleton h-40 mt-4" />;
+  const pendingPosters = rows.filter((b) => b.posterDeliveryRequestedAt && !b.posterDeliveredAt);
   return (
+    <>
+    {pendingPosters.length > 0 && (
+      <section className="bubui-card p-4 mt-4 border-2 border-pink-300">
+        <h2 className="text-sm font-bold mb-1">🚚 Carteles por entregar ({pendingPosters.length})</h2>
+        <p className="text-xs text-black/50 mb-3">Negocios que han pedido que les llevemos el cartel impreso a su local.</p>
+        <div className="space-y-2">
+          {pendingPosters.map((b) => (
+            <div key={b.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-pink-50 px-3 py-2">
+              <div className="min-w-0">
+                <p className="font-semibold text-[13px]">{b.name}</p>
+                <p className="text-[12px] text-black/60">
+                  📍 {b.posterDeliveryAddress ?? b.address ?? "—"}
+                  {b.posterDeliveryPhone ? ` · ☎ ${b.posterDeliveryPhone}` : b.ownerPhone ? ` · ☎ ${b.ownerPhone}` : ""}
+                </p>
+                {b.posterDeliveryNote ? <p className="text-[12px] text-black/50 italic">“{b.posterDeliveryNote}”</p> : null}
+              </div>
+              <div className="flex items-center gap-2">
+                {b.posterDeliveryAddress && (
+                  <a
+                    href={`https://www.google.com/maps?q=${encodeURIComponent(b.posterDeliveryAddress)}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-[12px] text-pink-600 font-semibold"
+                  >
+                    mapa
+                  </a>
+                )}
+                <button
+                  onClick={() => markDelivered(b.id)}
+                  className="text-[12px] font-bold bg-pink-600 text-white rounded-full px-3 py-1 hover:bg-pink-700"
+                >
+                  Marcar entregado
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+    )}
     <section className="bubui-card p-4 mt-4 overflow-x-auto">
       <h2 className="text-sm font-bold mb-3">Comercios ({rows.length})</h2>
       <table className="w-full text-[13px]" style={{ borderCollapse: "collapse" }}>
@@ -309,6 +358,7 @@ function BusinessesPanel() {
         </tbody>
       </table>
     </section>
+    </>
   );
 }
 

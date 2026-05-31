@@ -3360,6 +3360,15 @@ model BubuiBusiness {
   // bannerWeeksGranted es acumulativo histórico; se compara con floor(refs/5)
   // para saber cuántas semanas nuevas hay que conceder.
   bannerWeeksGranted Int @default(0)
+  // Cartel/QR físico: el negocio puede imprimirlo él mismo o pedir que se
+  // lo llevemos gratis (facilita el alta y acelera el crecimiento). Si
+  // posterDeliveryRequestedAt != null y posterDeliveredAt == null, está
+  // pendiente de que el equipo le lleve el cartel a la dirección indicada.
+  posterDeliveryRequestedAt DateTime?
+  posterDeliveryAddress     String?
+  posterDeliveryPhone       String?
+  posterDeliveryNote        String?   @db.Text
+  posterDeliveredAt         DateTime?
   // Karma de visibilidad (0-100, recalculado nocturno).
   visibilityScore Int @default(50)
   scoreUpdatedAt  DateTime?

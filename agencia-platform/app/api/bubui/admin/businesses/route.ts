@@ -34,6 +34,11 @@ export async function GET(req: Request) {
       featured: true,
       slug: true,
       createdAt: true,
+      posterDeliveryRequestedAt: true,
+      posterDeliveryAddress: true,
+      posterDeliveryPhone: true,
+      posterDeliveryNote: true,
+      posterDeliveredAt: true,
       _count: { select: { offers: true, purchases: true } }
     }
   });
@@ -43,7 +48,9 @@ export async function GET(req: Request) {
 const patchSchema = z.object({
   id: z.string().min(1),
   featured: z.boolean().optional(),
-  active: z.boolean().optional()
+  active: z.boolean().optional(),
+  // Marca el cartel como entregado (o reabre la entrega con false).
+  posterDelivered: z.boolean().optional()
 });
 
 export async function PATCH(req: Request) {
@@ -54,11 +61,15 @@ export async function PATCH(req: Request) {
   if (!parsed.success) {
     return NextResponse.json({ error: { code: "validation" } }, { status: 400 });
   }
-  const { id, ...data } = parsed.data;
+  const { id, posterDelivered, featured, active } = parsed.data;
   const updated = await prisma.bubuiBusiness.update({
     where: { id },
-    data,
-    select: { id: true, featured: true, active: true }
+    data: {
+      ...(featured !== undefined ? { featured } : {}),
+      ...(active !== undefined ? { active } : {}),
+      ...(posterDelivered !== undefined ? { posterDeliveredAt: posterDelivered ? new Date() : null } : {})
+    },
+    select: { id: true, featured: true, active: true, posterDeliveredAt: true }
   });
   return NextResponse.json(updated);
 }

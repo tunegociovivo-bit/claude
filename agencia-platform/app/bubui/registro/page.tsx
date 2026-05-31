@@ -74,11 +74,16 @@ export default function RegistroNegocio() {
             ¡Bienvenido a <span className="bubui-wordmark" style={{ fontSize: "1em", verticalAlign: "-0.05em" }}>bubui</span>!
           </h1>
           <p className="text-black/60 mt-3 text-sm">
-            Tu negocio está dado de alta. Elige un estilo de cartel, imprime el PNG y ponlo en la caja.
-            Cada escaneo te hace más visible en la red.
+            Tu negocio está dado de alta. ¿Cómo quieres tu cartel con el QR?
           </p>
         </div>
-        <PosterPicker businessId={result.businessId} qrPngUrl={result.qrPngUrl} scanUrl={result.scanUrl} />
+        <PosterStep
+          businessId={result.businessId}
+          qrPngUrl={result.qrPngUrl}
+          scanUrl={result.scanUrl}
+          defaultAddress={form.address}
+          defaultPhone={form.ownerPhone}
+        />
       </main>
     );
   }
@@ -93,7 +98,7 @@ export default function RegistroNegocio() {
         </p>
         <h2 className="text-2xl sm:text-3xl font-black mt-6 tracking-tight">Alta de negocio</h2>
         <p className="text-black/60 text-sm mt-2">
-          Gratis. 2 minutos. Saldrás con tu QR listo para imprimir.
+          Gratis. 2 minutos. Tú eliges: imprimes tu QR o te lo llevamos gratis al local.
         </p>
       </div>
       <form onSubmit={submit} className="space-y-4 bg-white border rounded-2xl p-6 shadow-sm">
@@ -205,6 +210,183 @@ export default function RegistroNegocio() {
         }
       `}</style>
     </main>
+  );
+}
+
+// Tras el alta: elegir entre imprimir el cartel uno mismo o pedir que se lo
+// llevemos gratis al local. Damos las dos opciones para facilitar el alta.
+function PosterStep({
+  businessId,
+  qrPngUrl,
+  scanUrl,
+  defaultAddress,
+  defaultPhone
+}: {
+  businessId: string;
+  qrPngUrl: string;
+  scanUrl: string;
+  defaultAddress: string;
+  defaultPhone: string;
+}) {
+  const [mode, setMode] = useState<"choose" | "print" | "deliver">("choose");
+
+  if (mode === "print") {
+    return (
+      <div className="space-y-4">
+        <button onClick={() => setMode("choose")} className="text-sm text-pink-600 hover:underline">‹ Volver a las opciones</button>
+        <PosterPicker businessId={businessId} qrPngUrl={qrPngUrl} scanUrl={scanUrl} />
+      </div>
+    );
+  }
+  if (mode === "deliver") {
+    return (
+      <div className="space-y-4">
+        <button onClick={() => setMode("choose")} className="text-sm text-pink-600 hover:underline">‹ Volver a las opciones</button>
+        <DeliveryForm businessId={businessId} defaultAddress={defaultAddress} defaultPhone={defaultPhone} />
+      </div>
+    );
+  }
+  return (
+    <div className="grid sm:grid-cols-2 gap-4">
+      <OptionCard
+        emoji="🖨️"
+        title="Lo imprimo yo"
+        desc="Descarga el cartel con tu QR (varios estilos) y ponlo en la caja ahora mismo."
+        cta="Ver e imprimir mi cartel"
+        onClick={() => setMode("print")}
+      />
+      <OptionCard
+        emoji="🚚"
+        badge="GRATIS"
+        title="Os lo lleváis vosotros"
+        desc="Te imprimimos un cartel bonito y te lo llevamos gratis a tu negocio. Tú no haces nada."
+        cta="Quiero que me lo llevéis"
+        onClick={() => setMode("deliver")}
+      />
+    </div>
+  );
+}
+
+function OptionCard({
+  emoji,
+  title,
+  desc,
+  cta,
+  onClick,
+  badge
+}: {
+  emoji: string;
+  title: string;
+  desc: string;
+  cta: string;
+  onClick: () => void;
+  badge?: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="text-left rounded-2xl bg-white border p-5 shadow-sm hover:border-pink-400 hover:shadow-md transition relative"
+    >
+      {badge && (
+        <span className="absolute top-3 right-3 text-[10px] font-black bg-pink-100 text-pink-700 px-2 py-0.5 rounded-full">
+          {badge}
+        </span>
+      )}
+      <div className="text-3xl mb-2">{emoji}</div>
+      <h3 className="font-black text-lg tracking-tight">{title}</h3>
+      <p className="text-black/60 text-sm mt-1 mb-4">{desc}</p>
+      <span className="bubui-btn inline-block w-full text-center">{cta}</span>
+    </button>
+  );
+}
+
+function DeliveryForm({
+  businessId,
+  defaultAddress,
+  defaultPhone
+}: {
+  businessId: string;
+  defaultAddress: string;
+  defaultPhone: string;
+}) {
+  const inputCls =
+    "w-full px-3 py-2 border border-slate-200 rounded-lg bg-white text-sm focus:outline-none focus:ring-2 focus:ring-pink-500";
+  const [address, setAddress] = useState(defaultAddress || "");
+  const [phone, setPhone] = useState(defaultPhone || "");
+  const [note, setNote] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [done, setDone] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!address.trim()) {
+      setError("Indica la dirección de entrega.");
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      const r = await fetch(`/api/bubui/business/${businessId}/request-poster`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ address, phone: phone || undefined, note: note || undefined })
+      });
+      const j = await r.json();
+      if (!r.ok) {
+        setError(j?.error?.message ?? `Error ${r.status}`);
+        return;
+      }
+      setDone(true);
+    } catch (e: any) {
+      setError(e?.message ?? "Error de red");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (done) {
+    return (
+      <div className="rounded-2xl bg-white border p-6 shadow-sm text-center">
+        <div className="text-4xl mb-2">🚚</div>
+        <h3 className="text-xl font-black tracking-tight">¡Recibido!</h3>
+        <p className="text-black/60 text-sm mt-2">
+          Prepararemos tu cartel y te lo llevaremos gratis a <b>{address}</b>. Te avisaremos antes de pasar.
+          Mientras, ya puedes configurar tu negocio desde el panel.
+        </p>
+        <a href="/bubui/negocio" className="inline-block mt-4 text-sm text-pink-600 hover:underline">
+          → Ir al panel del negocio
+        </a>
+      </div>
+    );
+  }
+
+  return (
+    <form onSubmit={submit} className="rounded-2xl bg-white border p-6 shadow-sm space-y-4">
+      <p className="text-sm text-black/60">
+        Te llevamos el cartel impreso <b>gratis</b> a tu local. Confírmanos dónde y cuándo.
+      </p>
+      <Field label="Dirección de entrega" required>
+        <input
+          className={inputCls}
+          value={address}
+          onChange={(e) => setAddress(e.target.value)}
+          placeholder="Av. de la Constitución 12, Benalmádena"
+          required
+        />
+      </Field>
+      <Field label="Teléfono de contacto">
+        <input className={inputCls} value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="6XX XXX XXX" />
+      </Field>
+      <Field label="Horario o nota para la entrega">
+        <input className={inputCls} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Ej: mejor por las mañanas" />
+      </Field>
+      {error && <p className="text-sm text-rose-700">{error}</p>}
+      <button type="submit" disabled={saving} className="bubui-btn w-full">
+        {saving ? "Enviando…" : "Confirmar entrega gratis"}
+      </button>
+    </form>
   );
 }
 
