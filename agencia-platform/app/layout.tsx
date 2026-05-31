@@ -1,6 +1,16 @@
 import type { Metadata, Viewport } from "next";
 import { headers } from "next/headers";
+import { Poppins } from "next/font/google";
 import "./globals.css";
+
+// Tipografía del Hub: Poppins (coherente con Bubui). Se expone como
+// variable CSS y globals.css la usa como fuente por defecto del body.
+const poppins = Poppins({
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700", "800"],
+  variable: "--font-poppins-hub",
+  display: "swap"
+});
 import AppChrome from "@/components/AppChrome";
 import PwaRegister from "@/components/PwaRegister";
 import ErrorReporter from "@/components/ErrorReporter";
@@ -177,7 +187,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   const host = (headers().get("host") || "").split(":")[0].toLowerCase();
   const isBubuiHost = BUBUI_HOSTS.has(host);
   return (
-    <html lang="es">
+    <html lang="es" className={poppins.variable}>
       <head>
         {/* PRIMER script: auto-heal del SW viejo. Va antes de
             cualquier otro porque puede disparar location.replace()

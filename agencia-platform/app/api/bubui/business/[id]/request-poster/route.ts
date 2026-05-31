@@ -10,6 +10,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db/prisma";
+import { sendPosterDeliveryRequestEmail } from "@/lib/bubui/email";
 
 export const dynamic = "force-dynamic";
 
@@ -28,8 +29,9 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     );
   }
   const { address, phone, note } = parsed.data;
+  let business: { name: string };
   try {
-    await prisma.bubuiBusiness.update({
+    business = await prisma.bubuiBusiness.update({
       where: { id: params.id },
       data: {
         posterDeliveryRequestedAt: new Date(),
@@ -37,7 +39,8 @@ export async function POST(req: Request, { params }: { params: { id: string } })
         posterDeliveryPhone: phone ?? undefined,
         posterDeliveryNote: note ?? undefined,
         posterDeliveredAt: null
-      }
+      },
+      select: { name: true }
     });
   } catch {
     return NextResponse.json(
@@ -45,5 +48,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       { status: 404 }
     );
   }
+  // Aviso al equipo (best-effort, no bloquea la respuesta).
+  void sendPosterDeliveryRequestEmail({ businessName: business.name, address, phone, note });
   return NextResponse.json({ ok: true });
 }

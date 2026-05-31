@@ -1,11 +1,10 @@
 import { NextResponse } from "next/server";
-import { z } from "zod";
 import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { requireAdmin } from "@/lib/api/admin";
-import { EXPENSE_CATEGORIES, EXPENSE_STATUS, computeExpenseTotals } from "@/lib/invoicing/expenses";
-import { PAYMENT_METHODS, CURRENCIES } from "@/lib/invoicing/core";
+import { computeExpenseTotals } from "@/lib/invoicing/expenses";
+import { expenseSchema } from "./schema";
 
 export const GET = withApi({ scope: "*", rate: "admin" }, async (req, { api }) => {
   await requireAdmin(api);
@@ -33,23 +32,6 @@ export const GET = withApi({ scope: "*", rate: "admin" }, async (req, { api }) =
     include: { issuer: { select: { id: true, name: true } } }
   });
   return NextResponse.json({ items });
-});
-
-export const expenseSchema = z.object({
-  issuerId: z.string().nullish(),
-  date: z.string().datetime().optional(),
-  category: z.enum(EXPENSE_CATEGORIES).default("OTROS"),
-  supplier: z.string().max(200).nullish(),
-  supplierTaxId: z.string().max(40).nullish(),
-  concept: z.string().max(5000).nullish(),
-  currency: z.enum(CURRENCIES).default("EUR"),
-  paymentMethod: z.enum(PAYMENT_METHODS).default("TRANSFER"),
-  status: z.enum(EXPENSE_STATUS).default("PAID"),
-  baseCents: z.number().int(),
-  taxRate: z.number().min(0).max(100).default(21),
-  deductible: z.boolean().default(true),
-  notes: z.string().max(5000).nullish(),
-  fileUrl: z.string().url().nullish()
 });
 
 export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api }) => {

@@ -136,3 +136,39 @@ export async function sendPasswordResetEmail(opts: {
     console.warn("[bubui email reset]", e?.message ?? e);
   }
 }
+
+/**
+ * Aviso interno al equipo cuando un negocio pide que le llevemos el cartel
+ * impreso a su local. Best-effort: requiere RESEND_API_KEY y la env
+ * BUBUI_TEAM_EMAIL (a quién avisar). Si falta, no hace nada (la solicitud
+ * sigue viéndose en el panel admin → Comercios → Carteles por entregar).
+ */
+export async function sendPosterDeliveryRequestEmail(opts: {
+  businessName: string;
+  address: string;
+  phone?: string | null;
+  note?: string | null;
+}): Promise<void> {
+  const to = process.env.BUBUI_TEAM_EMAIL;
+  if (!to || !isEmailEnabled()) return;
+  const html = shell(
+    "🚚 Cartel por entregar",
+    `<p style="margin:0 0 12px">El negocio <b>${opts.businessName}</b> ha pedido que le llevemos el cartel impreso a su local.</p>
+     <p style="margin:0 0 6px">📍 <b>Dirección:</b> ${opts.address}</p>
+     ${opts.phone ? `<p style="margin:0 0 6px">☎ <b>Teléfono:</b> ${opts.phone}</p>` : ""}
+     ${opts.note ? `<p style="margin:0 0 6px">📝 <b>Nota:</b> ${opts.note}</p>` : ""}
+     <p style="margin:16px 0 0;font-size:13px;color:#888">También en el panel: Bubui admin → Comercios → Carteles por entregar.</p>`
+  );
+  try {
+    await sendEmail({
+      to,
+      subject: `🚚 Cartel por entregar — ${opts.businessName}`,
+      html,
+      text: `${opts.businessName} pide entrega de cartel. Dirección: ${opts.address}${
+        opts.phone ? ` · Tel: ${opts.phone}` : ""
+      }${opts.note ? ` · Nota: ${opts.note}` : ""}`
+    });
+  } catch (e: any) {
+    console.warn("[bubui email poster]", e?.message ?? e);
+  }
+}

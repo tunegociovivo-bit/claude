@@ -4,7 +4,7 @@ import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { requireAdmin } from "@/lib/api/admin";
 import { computeExpenseTotals } from "@/lib/invoicing/expenses";
-import { expenseSchema } from "../route";
+import { expenseSchema } from "../schema";
 
 export const GET = withApi({ scope: "*", rate: "admin" }, async (_req, { api, params }) => {
   await requireAdmin(api);

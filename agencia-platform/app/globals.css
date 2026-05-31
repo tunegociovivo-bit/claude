@@ -18,7 +18,7 @@ html,
 body {
   background-color: rgb(var(--background));
   color: rgb(var(--foreground));
-  font-family: "Inter", ui-sans-serif, system-ui, sans-serif;
+  font-family: var(--font-poppins-hub), "Inter", ui-sans-serif, system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
 }
 
