@@ -1,15 +1,19 @@
-name: Build APK Bubui (Android)
+name: Build Bubui (Android APK + AAB)
 
 # Compila la app móvil Bubui con Gradle (firma estable con el mismo keystore,
-# para que cada APK se instale ENCIMA del anterior) y:
-#   - deja el APK como artifact descargable
-#   - lo publica en una GitHub Release con enlace fijo:
-#       releases/latest/download/bubui.apk
+# para que cada APK se instale ENCIMA del anterior) y publica en una GitHub
+# Release con enlaces fijos:
+#   - APK → releases/latest/download/bubui.apk   (instalar en el móvil)
+#   - AAB → releases/latest/download/bubui.aab   (subir a Google Play)
 #
-# Uso: pestaña Actions → "Build APK Bubui (Android)" → Run workflow.
+# Uso: pestaña Actions → "Build Bubui (Android APK + AAB)" → Run workflow.
 
 on:
   workflow_dispatch:
+  # Trigger temporal: lanzar un build al tocar este archivo.
+  push:
+    paths:
+      - .github/workflows/bubui-android-build.yml
 
 jobs:
   build:
@@ -48,40 +52,50 @@ jobs:
       - name: Restaurar keystore estable
         run: echo "${{ secrets.BUBUI_KEYSTORE_B64 }}" | base64 -d > android/app/release.keystore
 
-      - name: Compilar APK (release firmado)
+      - name: Compilar APK + AAB (release firmado)
         working-directory: apps/bubui-mobile/android
         env:
           BUBUI_STORE_FILE: release.keystore
           BUBUI_STORE_PASS: ${{ secrets.BUBUI_KEYSTORE_PASS }}
           BUBUI_KEY_ALIAS: ${{ secrets.BUBUI_KEY_ALIAS }}
           BUBUI_KEY_PASS: ${{ secrets.BUBUI_KEY_PASS }}
-        run: ./gradlew :app:assembleRelease --no-daemon
+        run: ./gradlew :app:assembleRelease :app:bundleRelease --no-daemon
 
-      - name: Renombrar APK a un nombre estable (bubui.apk)
-        working-directory: apps/bubui-mobile/android/app/build/outputs/apk/release
+      - name: Renombrar a nombres estables (bubui.apk / bubui.aab)
+        working-directory: apps/bubui-mobile/android/app/build/outputs
         run: |
-          apk=$(ls *.apk | head -1)
-          cp "$apk" bubui.apk
-          echo "APK original: $apk"
+          apk=$(ls apk/release/*.apk | head -1)
+          cp "$apk" apk/release/bubui.apk
+          echo "APK: $apk"
+          aab=$(ls bundle/release/*.aab | head -1)
+          cp "$aab" bundle/release/bubui.aab
+          echo "AAB: $aab"
 
-      - name: Subir APK como artifact
+      - name: Subir APK + AAB como artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: bubui-android-apk
-          path: apps/bubui-mobile/android/app/build/outputs/apk/release/bubui.apk
+          name: bubui-android
+          path: |
+            apps/bubui-mobile/android/app/build/outputs/apk/release/bubui.apk
+            apps/bubui-mobile/android/app/build/outputs/bundle/release/bubui.aab
           if-no-files-found: error
 
-      - name: Publicar APK en una Release (enlace de descarga estable)
+      - name: Publicar APK + AAB en una Release (enlaces estables)
         uses: softprops/action-gh-release@v2
         with:
           tag_name: bubui-${{ github.run_number }}
           name: Bubui APK #${{ github.run_number }}
           make_latest: true
-          files: apps/bubui-mobile/android/app/build/outputs/apk/release/bubui.apk
+          files: |
+            apps/bubui-mobile/android/app/build/outputs/apk/release/bubui.apk
+            apps/bubui-mobile/android/app/build/outputs/bundle/release/bubui.aab
           body: |
-            APK de Bubui · build #${{ github.run_number }} · commit ${{ github.sha }}
+            Bubui · build #${{ github.run_number }} · commit ${{ github.sha }}
 
-            **Descarga directa (siempre la última versión):**
+            **APK (instalar en el móvil, siempre la última versión):**
             https://github.com/${{ github.repository }}/releases/latest/download/bubui.apk
 
-            Se instala encima de la versión anterior (misma firma).
+            **AAB (subir a Google Play Console):**
+            https://github.com/${{ github.repository }}/releases/latest/download/bubui.aab
+
+            El APK se instala encima de la versión anterior (misma firma).
