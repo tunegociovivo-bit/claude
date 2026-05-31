@@ -30,7 +30,7 @@ type Slide = {
 const SLIDES: Slide[] = [
   {
     image: require("../../assets/ill-tienda.png"),
-    titleStart: "Descubre ofertas",
+    titleStart: "Desbloquea grandes descuentos, sorteos y productos gratis",
     titleEnd: "cerca de ti",
     subtitle: "Ahorra en comercios locales\ncada vez que compras.",
     cta: "Empezar ahora"
