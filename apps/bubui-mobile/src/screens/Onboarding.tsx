@@ -37,16 +37,16 @@ const SLIDES: Slide[] = [
   },
   {
     image: require("../../assets/ill-scan.png"),
-    titleStart: "Compra en un",
-    titleEnd: "negocio Bubui",
-    subtitle: "Escanea el QR de caja y\ndesbloquea nuevos descuentos.",
+    titleStart: "Escanea el QR de caja y",
+    titleEnd: "desbloquea premios",
+    subtitle: "Descuentos, sorteos y productos gratis\ncada vez que compras.",
     cta: "Siguiente"
   },
   {
     image: require("../../assets/ill-ruta.png"),
-    titleStart: "Salta de comercio en",
-    titleEnd: "comercio",
-    subtitle: "Cuanto más compras local,\nmás beneficios recibes.",
+    titleStart: "Cuanto más compras local,",
+    titleEnd: "más ganas",
+    subtitle: "Más descuentos, más sorteos\ny más productos gratis para ti.",
     cta: "Empezar ahora"
   }
 ];
