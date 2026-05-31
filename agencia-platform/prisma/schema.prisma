@@ -3606,6 +3606,17 @@ model BubuiSetting {
   updatedAt DateTime @default(now()) @updatedAt
 }
 
+/// Imagen subida y servida desde la propia BD (sin bucket externo). Se usa
+/// como fallback del banner cuando no hay storage S3/R2 configurado: la
+/// imagen se guarda aquí y se sirve vía /api/bubui/banner-image/<id>.
+model BubuiImage {
+  @@map("BipiImage")
+  id        String   @id @default(cuid())
+  mimeType  String
+  data      Bytes
+  createdAt DateTime @default(now())
+}
+
 /// Notificación para el panel del negocio (nueva compra, cupón canjeado…).
 model BubuiBusinessNotification {
   @@map("BipiBusinessNotification")
