@@ -49,6 +49,25 @@ jobs:
           VC=$((1000 + ${{ github.run_number }}))
           node -e "const fs=require('fs');const c=JSON.parse(fs.readFileSync('app.json','utf8'));c.expo.android=c.expo.android||{};c.expo.android.versionCode=$VC;c.expo.ios=c.expo.ios||{};c.expo.ios.buildNumber=String($VC);fs.writeFileSync('app.json',JSON.stringify(c,null,2)+'\n');console.log('versionCode =',$VC);"
 
+      - name: (Opcional) Restaurar google-services.json para push Android (FCM)
+        env:
+          BUBUI_GOOGLE_SERVICES_JSON: ${{ secrets.BUBUI_GOOGLE_SERVICES_JSON }}
+        run: |
+          set -euo pipefail
+          # Si el secret está configurado, escribe el archivo ANTES del prebuild
+          # para que el config plugin lo detecte y active FCM. Si no está, el
+          # build sigue (los push de Android simplemente no se entregan).
+          if [ -n "${BUBUI_GOOGLE_SERVICES_JSON:-}" ]; then
+            echo "${BUBUI_GOOGLE_SERVICES_JSON}" | base64 -d > google-services.json
+            if [ ! -s google-services.json ]; then
+              echo "::error::BUBUI_GOOGLE_SERVICES_JSON presente pero el archivo quedó vacío tras decodificar."
+              exit 1
+            fi
+            echo "google-services.json restaurado → push Android ACTIVADO."
+          else
+            echo "::warning::Sin secret BUBUI_GOOGLE_SERVICES_JSON: push Android DESACTIVADO en este build (todo lo demás funciona)."
+          fi
+
       - name: Prebuild (genera android/)
         run: CI=1 npx expo prebuild --clean --platform android --no-install
 

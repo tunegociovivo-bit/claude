@@ -2,7 +2,7 @@
   "expo": {
     "name": "Bubui",
     "slug": "bipi",
-    "version": "0.1.0",
+    "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
@@ -42,12 +42,7 @@
         "ACCESS_BACKGROUND_LOCATION",
         "FOREGROUND_SERVICE",
         "FOREGROUND_SERVICE_LOCATION",
-        "POST_NOTIFICATIONS",
-        "android.permission.CAMERA",
-        "android.permission.RECORD_AUDIO",
-        "android.permission.ACCESS_COARSE_LOCATION",
-        "android.permission.ACCESS_FINE_LOCATION",
-        "android.permission.ACCESS_BACKGROUND_LOCATION"
+        "POST_NOTIFICATIONS"
       ],
       "intentFilters": [
         {
@@ -94,8 +89,8 @@
       ],
       "expo-notifications",
       "expo-font",
-      "expo-build-properties",
-      "./plugins/withReleaseSigning"
+      "./plugins/withReleaseSigning",
+      "./plugins/withOptionalGoogleServices"
     ],
     "extra": {
       "apiBaseUrl": "https://bubui.app",

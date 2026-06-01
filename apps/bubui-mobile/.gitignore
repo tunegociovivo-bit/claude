@@ -7,3 +7,6 @@ web-build/
 node_modules/
 *.log
 .DS_Store
+
+# Firebase / FCM (se inyecta desde secret en CI; no commitear)
+google-services.json
