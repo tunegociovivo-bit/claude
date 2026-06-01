@@ -53,7 +53,29 @@ jobs:
         run: CI=1 npx expo prebuild --clean --platform android --no-install
 
       - name: Restaurar keystore estable
-        run: echo "${{ secrets.BUBUI_KEYSTORE_B64 }}" | base64 -d > android/app/release.keystore
+        env:
+          BUBUI_KEYSTORE_B64: ${{ secrets.BUBUI_KEYSTORE_B64 }}
+          BUBUI_STORE_PASS: ${{ secrets.BUBUI_KEYSTORE_PASS }}
+        run: |
+          set -euo pipefail
+          # Falla RUIDOSAMENTE si faltan los secrets, en vez de seguir y acabar
+          # firmando con la clave de debug (bug histórico de los builds #6-#8).
+          if [ -z "${BUBUI_KEYSTORE_B64}" ]; then
+            echo "::error::Falta el secret BUBUI_KEYSTORE_B64. Configúralo en Settings → Secrets and variables → Actions."
+            exit 1
+          fi
+          if [ -z "${BUBUI_STORE_PASS}" ]; then
+            echo "::error::Falta el secret BUBUI_KEYSTORE_PASS."
+            exit 1
+          fi
+          echo "${BUBUI_KEYSTORE_B64}" | base64 -d > android/app/release.keystore
+          # Verifica que el keystore no quedó vacío y que la contraseña es válida.
+          if [ ! -s android/app/release.keystore ]; then
+            echo "::error::release.keystore quedó vacío tras decodificar el secret."
+            exit 1
+          fi
+          keytool -list -keystore android/app/release.keystore -storepass "${BUBUI_STORE_PASS}" >/dev/null
+          echo "Keystore restaurado y validado correctamente."
 
       - name: Exportar certificado de subida (.pem) + huellas
         working-directory: apps/bubui-mobile/android/app

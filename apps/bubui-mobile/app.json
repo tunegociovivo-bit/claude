@@ -94,7 +94,8 @@
       ],
       "expo-notifications",
       "expo-font",
-      "expo-build-properties"
+      "expo-build-properties",
+      "./plugins/withReleaseSigning"
     ],
     "extra": {
       "apiBaseUrl": "https://bubui.app",
