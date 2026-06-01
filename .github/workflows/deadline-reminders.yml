@@ -12,16 +12,30 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Dispara endpoint de recordatorios
+        env:
+          HUB_BASE_URL: ${{ secrets.HUB_BASE_URL }}
+          INTERNAL_CRON_TOKEN: ${{ secrets.INTERNAL_CRON_TOKEN }}
         run: |
           set -e
+          # Host por defecto si el secret HUB_BASE_URL no está configurado
+          # (igual que el resto de crons, que apuntan al Hub directamente).
+          # Evita el "curl: (3) No host part in the URL" cuando el secret vacío
+          # dejaba la URL como "/api/v1/internal/reminders".
+          BASE="${HUB_BASE_URL:-https://hub.negociovivo.app}"
+          BASE="${BASE%/}" # quita la barra final si la hubiera
+          if [ -z "${INTERNAL_CRON_TOKEN:-}" ]; then
+            echo "::error::Falta el secret INTERNAL_CRON_TOKEN en este repositorio. Añádelo en Settings → Secrets and variables → Actions con el MISMO valor que tiene el Hub en su variable de entorno INTERNAL_CRON_TOKEN."
+            exit 1
+          fi
+          echo "Llamando a ${BASE}/api/v1/internal/reminders"
           response=$(curl -sS -o /tmp/body -w "%{http_code}" \
             -X POST \
-            -H "Authorization: Bearer ${{ secrets.INTERNAL_CRON_TOKEN }}" \
+            -H "Authorization: Bearer ${INTERNAL_CRON_TOKEN}" \
             -H "Content-Type: application/json" \
-            "${{ secrets.HUB_BASE_URL }}/api/v1/internal/reminders")
+            "${BASE}/api/v1/internal/reminders")
           echo "HTTP $response"
           cat /tmp/body
           if [ "$response" != "200" ]; then
-            echo "::error::Endpoint devolvió $response"
+            echo "::error::El endpoint devolvió $response (revisa que INTERNAL_CRON_TOKEN coincida con el del Hub)."
             exit 1
           fi
