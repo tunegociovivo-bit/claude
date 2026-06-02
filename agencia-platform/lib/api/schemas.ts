@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { VISUAL_PATTERNS } from "@/lib/editorial/client-meta";
+import { isValidRecurrence } from "@/lib/tasks/recurrence";
 
 const VISUAL_PATTERN_KEYS = VISUAL_PATTERNS.map((p) => p.key) as [string, ...string[]];
 
@@ -207,8 +208,13 @@ export const taskCreateSchema = z.object({
     .array(z.object({ id: z.string(), text: z.string(), done: z.boolean(), urgent: z.boolean().optional() }))
     .optional()
     .nullable(),
-  // Recurrencia: relanza la tarea (Sonia) cada periodo. Ver lib/tasks/recurrence.
-  recurrence: z.enum(["none", "daily", "every_2_days", "weekly", "biweekly", "monthly"]).optional()
+  // Recurrencia: relanza la tarea (Sonia) cada periodo. Se valida contra la
+  // lista única de lib/tasks/recurrence (isValidRecurrence) para no
+  // desincronizarse cuando se añaden cadencias nuevas (cada 2 meses, año…).
+  recurrence: z
+    .string()
+    .refine(isValidRecurrence, { message: "recurrence no válida" })
+    .optional()
 });
 
 export const documentCreateSchema = z.object({
