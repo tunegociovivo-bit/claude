@@ -573,16 +573,16 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
   {
     name: "create_subtask",
     description:
-      "Crea una SUBTAREA hija de la tarea actual. Útil para partir trabajos grandes en pasos asignables a personas distintas. La subtarea queda en el MISMO proyecto que la padre. Si pasas assigneeIds, se asignan al crear. Devuelve el id de la nueva tarea.",
+      "Crea una SUBTAREA hija de la tarea actual. Útil para partir trabajos grandes en lotes. La subtarea queda en el MISMO proyecto que la padre. Si pasas assigneeIds, se asignan al crear.\n\nPara DECOMPONER una tarea grande/abierta que tú misma debes ejecutar (p.ej. investigación por países), pasa runWithSonia:true: la subtarea se ejecutará automáticamente por ti con su PROPIO presupuesto de pasos. Solo funciona si la tarea actual es de primer nivel (una subtarea no puede encadenar más auto-ejecuciones, para evitar bucles). Devuelve subtaskId y autoRun (si se lanzó).",
     input_schema: {
       type: "object",
       properties: {
-        title: { type: "string", description: "Título corto, accionable. Ej: 'Preparar borrador del informe Q4'." },
-        description: { type: "string", description: "Detalle opcional de qué hay que hacer." },
+        title: { type: "string", description: "Título corto, accionable. Ej: 'Directorios — Alemania'." },
+        description: { type: "string", description: "Detalle de qué hay que hacer (incluye aquí el método y lo ya probado para no repetir)." },
         assigneeIds: {
           type: "array",
           items: { type: "string" },
-          description: "Users a asignar a la subtarea (de get_team_members). Opcional."
+          description: "Users a asignar a la subtarea (de get_team_members). Opcional. No lo uses si pasas runWithSonia:true."
         },
         priority: {
           type: "string",
@@ -592,6 +592,10 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
         dueDateIso: {
           type: "string",
           description: "Fecha límite en ISO 8601 (opcional). Ej: '2026-05-31'."
+        },
+        runWithSonia: {
+          type: "boolean",
+          description: "Si true, Sonia ejecuta la subtarea automáticamente (con presupuesto propio). Úsalo para decomponer tareas grandes que debes hacer tú. Solo surte efecto desde una tarea de primer nivel."
         }
       },
       required: ["title"],
@@ -3868,7 +3872,7 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
     if (title.length > 500) return { error: "title demasiado largo (>500)" };
     const parent = await prisma.task.findFirst({
       where: { id: ctx.taskId, workspaceId: ctx.workspaceId },
-      select: { projectId: true, clientId: true }
+      select: { projectId: true, clientId: true, parentId: true }
     });
     if (!parent) return { error: "Tarea padre no encontrada" };
 
@@ -3922,10 +3926,49 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
         }))
       }).catch(() => {});
     }
+    // Auto-ejecución por Sonia (decomposición de tareas grandes): si se pide
+    // runWithSonia, lanzamos un AiAgentRun para que Sonia trabaje la subtarea
+    // con su PROPIO presupuesto de pasos. GUARDA ANTI-BUCLE: solo si la tarea
+    // padre es de PRIMER NIVEL (sin parentId). Así una tarea grande puede
+    // repartirse en subtareas auto-ejecutables (una por país/lote), pero esas
+    // subtareas NO pueden, a su vez, generar más auto-ejecuciones → árbol
+    // acotado a 1 nivel, sin riesgo de expansión infinita. El gasto sigue
+    // topado por el budget mensual del workspace/cliente (budget.ts).
+    let autoRun = false;
+    if (input?.runWithSonia === true) {
+      if (parent.parentId) {
+        autoRun = false; // ya es una subtarea: no encadenar más auto-runs
+      } else {
+        try {
+          const ws = await prisma.workspace.findUnique({
+            where: { id: ctx.workspaceId },
+            select: { settings: true }
+          });
+          const aiCfg = (ws?.settings as any)?.aiAgent;
+          if (aiCfg?.userId && aiCfg?.inboxProjectId) {
+            const run = await prisma.aiAgentRun.create({
+              data: {
+                workspaceId: ctx.workspaceId,
+                taskId: subtask.id,
+                requesterId: aiCfg.userId,
+                status: "PENDING"
+              }
+            });
+            const { processRunInBackground } = await import("@/lib/ai/nv-ia/process-run");
+            processRunInBackground(run.id);
+            autoRun = true;
+          }
+        } catch (e: any) {
+          console.warn("[create_subtask] no se pudo auto-ejecutar:", e?.message ?? e);
+        }
+      }
+    }
+
     return {
       ok: true,
       subtaskId: subtask.id,
-      assignedCount: assigneeIds.length
+      assignedCount: assigneeIds.length,
+      autoRun
     };
   },
 
