@@ -143,7 +143,17 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
   // ────────────────────────────────────────────────────────────────
   // @ts-expect-error — Anthropic SDK type es Tool con input_schema, pero
   // los server tools solo necesitan {type, name}. SDK lo acepta en runtime.
-  { type: "web_search_20260209", name: "web_search" },
+  //
+  // allowed_callers: ["direct"] es OBLIGATORIO para modelos que NO soportan
+  // "programmatic tool calling" (p.ej. claude-haiku-4-5-20251001). Sin esto
+  // Anthropic devuelve 400:
+  //   "'claude-haiku-4-5-20251001' does not support programmatic tool calling.
+  //    The following tools have `allowed_callers` that require it: web_search.
+  //    Explicitly set `allowed_callers=[\"direct\"]` on these tools, or use a
+  //    model that supports programmatic tool calling."
+  // El valor "direct" significa que solo el modelo principal puede invocar
+  // la tool (no sub-agentes), que es exactamente nuestro caso.
+  { type: "web_search_20260209", name: "web_search", allowed_callers: ["direct"] },
   // code_execution DESACTIVADO temporalmente. El server tool requiere
   // threading de container_id entre turnos (la respuesta incluye un
   // container_id que hay que devolver en la siguiente messages.create),
