@@ -16,7 +16,8 @@ import { encryptSecret, decryptSecret } from "@/lib/ai/crypto";
 export const dynamic = "force-dynamic";
 
 const DEFAULT_REPO = "tunegociovivo-bit/claude";
-const DEFAULT_BRANCH = "claude/internal-project-platform-ZezvX";
+// Debe coincidir con la rama que Railway despliega (ver lib/github/repo.ts).
+const DEFAULT_BRANCH = "claude/wordpress-ai-review-plugin-bdSLe";
 
 export const GET = withApi({ scope: "admin" }, async (_req, { api }) => {
   const ws = await prisma.workspace.findUnique({
