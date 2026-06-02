@@ -15,7 +15,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
-import { sendPushToBubuiCustomer, isBubuiPushEnabled } from "@/lib/bubui/push";
+import { notifyBubuiCustomer } from "@/lib/bubui/notify";
 import { isEmailEnabled } from "@/lib/integrations/email";
 import { sendOfferExpiringEmail } from "@/lib/bubui/email";
 
@@ -26,7 +26,10 @@ export async function GET(req: NextRequest) {
   if (!process.env.CRON_SECRET || auth !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
-  const pushOn = isBubuiPushEnabled();
+  // El push se intenta SIEMPRE: notifyBubuiCustomer envía a web (no-op si no
+  // hay VAPID) y a móvil (no-op si no hay token). Antes esto se gateaba con
+  // isBubuiPushEnabled() (solo web), dejando el push móvil sin disparar.
+  const pushOn = true;
   const emailOn = isEmailEnabled();
   if (!pushOn && !emailOn) {
     return NextResponse.json({ ok: false, reason: "no_channel_configured" });
@@ -61,7 +64,7 @@ export async function GET(req: NextRequest) {
           offers.length === 1
             ? `Tu cupón en ${first.business.name} (${first.discountPct}%) caduca hoy. ¡Úsalo antes!`
             : `Tienes ${offers.length} cupones que caducan hoy. Échales un ojo.`;
-        await sendPushToBubuiCustomer(customerId, {
+        await notifyBubuiCustomer(customerId, {
           title: "⏰ Caducan hoy",
           body,
           link: "/bubui/app",
@@ -96,7 +99,7 @@ export async function GET(req: NextRequest) {
           offers.length === 1
             ? `Tu cupón en ${offers[0].business.name} caduca mañana. No te olvides.`
             : `Tienes ${offers.length} cupones que caducan mañana.`;
-        await sendPushToBubuiCustomer(customerId, {
+        await notifyBubuiCustomer(customerId, {
           title: "🔔 Mañana caducan",
           body,
           link: "/bubui/app",

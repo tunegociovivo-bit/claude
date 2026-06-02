@@ -10,6 +10,14 @@ import { renderTemplate } from "./template-engine";
 import { aiRewriteMessage } from "./ai-vary";
 import { normalizePhone, sendText, getWahaConfig, checkNumberExists } from "./waha";
 
+/**
+ * Estados que cuentan como "ya enviado" para los topes anti-baneo. Cuando el
+ * webhook de WAHA confirma la entrega, un mensaje "sent" pasa a "delivered" o
+ * "read"; deben seguir contando o el pacing creería que se envió de menos y
+ * dispararía ráfagas (justo lo que provoca baneos).
+ */
+export const SENT_STATUSES = ["sent", "delivered", "read"];
+
 export type LeadsSendSettings = {
   sendEnabled: boolean;
   sendDelayMinSec: number;
@@ -231,7 +239,7 @@ export async function countSentToday(workspaceId: string): Promise<number> {
   const dayStart = madridWallToDate(mp.year, mp.month, mp.day, 0, 0);
   const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
   return prisma.leadMessage.count({
-    where: { workspaceId, status: "sent", sentAt: { gte: dayStart, lt: dayEnd } }
+    where: { workspaceId, status: { in: SENT_STATUSES }, sentAt: { gte: dayStart, lt: dayEnd } }
   });
 }
 
@@ -239,7 +247,7 @@ export async function countSentToday(workspaceId: string): Promise<number> {
 export async function countSentInWindow(workspaceId: string, minutes: number): Promise<number> {
   const since = new Date(Date.now() - minutes * 60_000);
   return prisma.leadMessage.count({
-    where: { workspaceId, status: "sent", sentAt: { gte: since } }
+    where: { workspaceId, status: { in: SENT_STATUSES }, sentAt: { gte: since } }
   });
 }
 
@@ -252,7 +260,7 @@ export async function countNewConversationsToday(workspaceId: string): Promise<n
   const dayStart = madridWallToDate(mp.year, mp.month, mp.day, 0, 0);
   const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
   const sentTodayPhones = await prisma.leadMessage.findMany({
-    where: { workspaceId, status: "sent", sentAt: { gte: dayStart, lt: dayEnd } },
+    where: { workspaceId, status: { in: SENT_STATUSES }, sentAt: { gte: dayStart, lt: dayEnd } },
     select: { phoneNormalized: true },
     distinct: ["phoneNormalized"]
   });
@@ -264,7 +272,7 @@ export async function countNewConversationsToday(workspaceId: string): Promise<n
     const prior = await prisma.leadMessage.findFirst({
       where: {
         workspaceId,
-        status: "sent",
+        status: { in: SENT_STATUSES },
         phoneNormalized: p.phoneNormalized,
         sentAt: { lt: dayStart }
       },
@@ -467,7 +475,7 @@ export async function processQueueTick(workspaceId: string): Promise<{
   // 4) Cadencia mínima desde el último envío real: aunque haya varios
   //    mensajes vencidos en cola, respeta el delay mínimo entre envíos.
   const lastSent = await prisma.leadMessage.findFirst({
-    where: { workspaceId, status: "sent", sentAt: { not: null } },
+    where: { workspaceId, status: { in: SENT_STATUSES }, sentAt: { not: null } },
     orderBy: { sentAt: "desc" },
     select: { sentAt: true }
   });
@@ -500,7 +508,7 @@ export async function processQueueTick(workspaceId: string): Promise<{
         workspaceId,
         phoneNormalized: msg.phoneNormalized,
         id: { not: msg.id },
-        status: "sent",
+        status: { in: SENT_STATUSES },
         sentAt: { gte: cutoff }
       },
       select: { sentAt: true }
@@ -526,7 +534,7 @@ export async function processQueueTick(workspaceId: string): Promise<{
       workspaceId,
       phoneNormalized: msg.phoneNormalized,
       id: { not: msg.id },
-      status: "sent"
+      status: { in: SENT_STATUSES }
     },
     select: { id: true }
   });

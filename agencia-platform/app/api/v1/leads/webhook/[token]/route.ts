@@ -15,6 +15,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { ingestInbox } from "@/lib/leads/inbox";
+import { extractWahaMessageId } from "@/lib/leads/waha";
 
 export async function POST(req: NextRequest, { params }: { params: { token: string } }) {
   const workspaces = await prisma.workspace.findMany();
@@ -54,6 +55,54 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
       }
     })
     .catch((e) => console.warn("[leads webhook] no se pudo persistir lastHit:", e?.message ?? e));
+
+  // ── Recibos de entrega (ACK) de WAHA ────────────────────────────────────
+  // WAHA emite `message.ack` con el estado de NUESTROS envíos:
+  //   ack -1 ERROR · 0 PENDING · 1 SERVER · 2 DEVICE(entregado) · 3 READ · 4 PLAYED
+  // Lo usamos para confirmar entrega real (o detectar que NO se entregó) y
+  // dejar de depender del "200 OK" del envío. Se procesa ANTES del guard
+  // fromMe porque los acks son, por definición, de mensajes nuestros.
+  const isAck =
+    body?.event === "message.ack" ||
+    typeof body?.payload?.ack === "number" ||
+    typeof body?.payload?.ackName === "string";
+  if (isAck) {
+    const ackId = extractWahaMessageId(body?.payload ?? body);
+    const ackNum: number | null =
+      typeof body?.payload?.ack === "number" ? body.payload.ack : null;
+    const ackName: string = String(body?.payload?.ackName ?? "").toUpperCase();
+    if (!ackId) {
+      return NextResponse.json({ ok: true, ignored: "ack_sin_id" });
+    }
+    try {
+      if (ackName === "ERROR" || ackNum === -1) {
+        // WhatsApp no pudo entregar → marcar failed (solo si no consta ya
+        // entregado/leído). Esto destapa el envío fantasma con NOWEB.
+        await prisma.leadMessage.updateMany({
+          where: {
+            workspaceId: ws.id,
+            externalMessageId: ackId,
+            status: { in: ["sent", "sending", "queued"] }
+          },
+          data: { status: "failed", lastError: "WhatsApp devolvió ACK ERROR (no entregado)" }
+        });
+      } else if (ackName === "READ" || ackName === "PLAYED" || (ackNum ?? 0) >= 3) {
+        await prisma.leadMessage.updateMany({
+          where: { workspaceId: ws.id, externalMessageId: ackId, status: { in: ["sent", "delivered"] } },
+          data: { status: "read" }
+        });
+      } else if (ackName === "DEVICE" || ackNum === 2) {
+        await prisma.leadMessage.updateMany({
+          where: { workspaceId: ws.id, externalMessageId: ackId, status: "sent" },
+          data: { status: "delivered" }
+        });
+      }
+      // ack 0/1 (PENDING/SERVER): nada que hacer, ya está en "sent".
+    } catch (e: any) {
+      console.warn("[leads webhook] ack update error:", e?.message ?? e);
+    }
+    return NextResponse.json({ ok: true, ack: ackName || ackNum });
+  }
 
   // WAHA: ignorar mensajes fromMe (echo de los nuestros)
   const fromMe =

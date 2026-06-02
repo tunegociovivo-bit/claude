@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
+import { SENT_STATUSES } from "@/lib/leads/send-queue";
 
 export const GET = withApi({ scope: "*" }, async (req, { api }) => {
   const url = new URL(req.url);
@@ -47,8 +48,9 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
       longitude: true,
       _count: {
         select: {
-          // Solo mensajes que SALIERON de verdad por WhatsApp.
-          messages: { where: { status: "sent" } }
+          // Solo mensajes que SALIERON de verdad por WhatsApp (incluye los
+          // confirmados como entregados/leídos por el webhook de WAHA).
+          messages: { where: { status: { in: SENT_STATUSES } } }
         }
       },
       // Próximo mensaje encolado pendiente de salir (para mostrar la hora

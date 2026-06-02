@@ -2317,6 +2317,9 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
   const [error, setError] = useState<string | null>(null);
   const [wahaTesting, setWahaTesting] = useState(false);
   const [wahaTest, setWahaTest] = useState<any>(null);
+  const [testSendPhone, setTestSendPhone] = useState("");
+  const [testSending, setTestSending] = useState(false);
+  const [testSendResult, setTestSendResult] = useState<any>(null);
   const [reconnecting, setReconnecting] = useState(false);
   const [webhookSetting, setWebhookSetting] = useState(false);
   const [webhookSetupResult, setWebhookSetupResult] = useState<{ ok: boolean; url?: string; error?: string } | null>(null);
@@ -2385,6 +2388,22 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
       setWahaTest({ ok: false, message: `No se pudo lanzar el test: ${e?.message ?? e}` });
     }
     setWahaTesting(false);
+  }
+  async function sendTestWa() {
+    if (!testSendPhone.trim()) return;
+    setTestSending(true);
+    setTestSendResult(null);
+    try {
+      const r = await fetch("/api/v1/leads/waha-test-send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone: testSendPhone })
+      });
+      setTestSendResult(await r.json());
+    } catch (e: any) {
+      setTestSendResult({ ok: false, message: `No se pudo enviar: ${e?.message ?? e}` });
+    }
+    setTestSending(false);
   }
   async function setupWebhook() {
     setWebhookSetting(true);
@@ -2542,6 +2561,45 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
                 )}
               </div>
             )}
+            {/* Envío de prueba: manda un WhatsApp real a un número tuyo para
+                confirmar que la entrega funciona (y no solo el "200 OK"). */}
+            <div className="rounded-lg border border-slate-200 bg-slate-50 p-2.5 space-y-2">
+              <div className="text-[11px] font-medium text-slate-600">🧪 Enviar WhatsApp de prueba (a un número tuyo)</div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <input
+                  type="tel"
+                  value={testSendPhone}
+                  onChange={(e) => setTestSendPhone(e.target.value)}
+                  placeholder="Ej: +34 600 11 22 33"
+                  className="flex-1 min-w-[180px] px-2.5 py-1.5 rounded-lg border text-xs"
+                />
+                <button
+                  type="button"
+                  onClick={sendTestWa}
+                  disabled={testSending || !testSendPhone.trim()}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border bg-white hover:bg-slate-50 text-xs font-medium disabled:opacity-50"
+                >
+                  {testSending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                  Enviar prueba
+                </button>
+              </div>
+              <p className="text-[11px] text-slate-400">
+                Manda un mensaje real por la misma vía que las campañas. Si llega a tu teléfono, el envío funciona; si el panel dice OK pero no llega, la sesión no está entregando de verdad.
+              </p>
+              {testSendResult && (
+                <div className={`text-xs rounded-lg border p-2.5 ${testSendResult.ok ? "bg-emerald-50 border-emerald-200 text-emerald-800" : "bg-rose-50 border-rose-200 text-rose-800"}`}>
+                  <div className="font-medium">{testSendResult.ok ? "✓ Petición aceptada" : "✗ No enviado"}</div>
+                  <div className="mt-0.5 break-all">{testSendResult.message}</div>
+                  {testSendResult.ok && (
+                    <div className="mt-1 text-[11px] opacity-80">
+                      {testSendResult.messageId
+                        ? `ID de mensaje: ${testSendResult.messageId} — abre ese chat en tu WhatsApp para confirmar la entrega.`
+                        : "⚠️ WAHA respondió OK pero SIN ID de mensaje: la sesión NO está entregando (falso positivo)."}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
             {(reconnecting || (wahaTest && !wahaTest.ok && wahaTest.code !== "not_configured" && wahaTest.code !== "unreachable")) && (
               <div className="rounded-lg border border-amber-200 bg-amber-50 p-2.5 space-y-2">
                 <div className="flex items-center gap-2 flex-wrap">
