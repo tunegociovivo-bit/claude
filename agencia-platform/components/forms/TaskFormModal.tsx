@@ -125,6 +125,10 @@ export default function TaskFormModal({
   const [dueDate, setDueDate] = useState<string>("");
   const [dueTime, setDueTime] = useState<string>("");
   const [recurrence, setRecurrence] = useState<string>("none");
+  // Frecuencia REALMENTE guardada en BD (distinta del desplegable si el user
+  // la cambió pero aún no ha guardado). El control de pausar/reanudar opera
+  // sobre lo guardado, así que solo se muestra si esto != "none".
+  const [savedRecurrence, setSavedRecurrence] = useState<string>("none");
   // Próxima ejecución de la recurrencia. null + recurrence != "none" = PAUSADA.
   const [recurrenceNextAt, setRecurrenceNextAt] = useState<string | null>(null);
   const [recurrenceToggling, setRecurrenceToggling] = useState(false);
@@ -382,6 +386,7 @@ export default function TaskFormModal({
       setDueTime(currentTask.dueAllDay === false && currentTask.dueTime ? currentTask.dueTime : "");
       setNotifyDueRules(Array.isArray(currentTask.notifyDueRules) ? currentTask.notifyDueRules : null);
       setRecurrence((currentTask as any).recurrence ?? "none");
+      setSavedRecurrence((currentTask as any).recurrence ?? "none");
       setRecurrenceNextAt((currentTask as any).recurrenceNextAt ?? null);
       // Fetch detalle: descripción + subtareas + comentarios + plantilla.
       // no-store: el estado de recurrencia (pausada/activa) debe venir
@@ -413,7 +418,10 @@ export default function TaskFormModal({
           if (data.customData && typeof data.customData === "object") {
             setCustomData(data.customData);
           }
-          if (typeof data.recurrence === "string") setRecurrence(data.recurrence);
+          if (typeof data.recurrence === "string") {
+            setRecurrence(data.recurrence);
+            setSavedRecurrence(data.recurrence);
+          }
           if ("recurrenceNextAt" in data) setRecurrenceNextAt(data.recurrenceNextAt ?? null);
         });
       fetch(`/api/v1/tasks/${currentTask.id}/comments`)
@@ -431,6 +439,7 @@ export default function TaskFormModal({
       setDueTime("");
       setNotifyDueRules(null);
       setRecurrence("none");
+      setSavedRecurrence("none");
       setRecurrenceNextAt(null);
       setComments([]);
       setSubtasks([]);
@@ -1386,7 +1395,12 @@ export default function TaskFormModal({
                 Si la tarea es de Sonia, se relanzará sola con esta frecuencia (a partir de la fecha/hora de entrega, o desde ahora si no hay fecha). No tendrás que volver a lanzarla.
               </p>
             )}
-            {currentTask?.id && recurrence !== "none" && (
+            {recurrence !== savedRecurrence && (
+              <p className="mt-1 text-[10px] text-amber-600 font-medium">
+                Has cambiado la frecuencia. Guarda la tarea para aplicarla{recurrence === "none" ? " (dejará de repetirse)" : ""}.
+              </p>
+            )}
+            {currentTask?.id && savedRecurrence !== "none" && recurrence === savedRecurrence && (
               <div className="mt-2 flex items-center justify-between gap-2 rounded-md border border-violet-200 bg-violet-50/60 px-2 py-1.5">
                 <span className="text-[11px] text-violet-800 min-w-0 truncate">
                   {recurrenceNextAt
