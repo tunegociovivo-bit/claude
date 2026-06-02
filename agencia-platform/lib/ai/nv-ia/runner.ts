@@ -1310,39 +1310,69 @@ export async function executeAgentRun(opts: {
       //  (b) El modelo terminó sin add_comment ni mark_complete — eso sí
       //      es un fallo real (olvidó cerrar). Lo marcamos REQUIRES_HUMAN.
       if (resp.stop_reason === "end_turn") {
-        // ¿Hubo al menos un add_comment exitoso durante este run?
-        const lastSuccessfulComment = [...log]
-          .reverse()
-          .find(
-            (s) =>
-              s.type === "tool_use" &&
-              (s as any).tool === "add_comment"
-          ) as any;
-        const commentHadError =
-          lastSuccessfulComment &&
-          log.some(
-            (s) =>
-              s.type === "tool_result" &&
-              (s as any).toolUseId === lastSuccessfulComment.toolUseId &&
-              (s as any).isError === true
-          );
-        const sentComment = !!lastSuccessfulComment && !commentHadError;
+        // Tools cuya ejecución EXITOSA es un cierre/avance LEGÍTIMO del run
+        // aunque el modelo no llame a mark_complete. Si Sonia hizo algo de
+        // esto y terminó su turno, es el flujo NORMAL, no un bug:
+        //   - add_comment: dejó respuesta/pregunta al user (espera humano).
+        //   - create_subtask: descompuso la tarea en subtareas accionables
+        //     (cada una sigue su propio ciclo — típico en tareas grandes con
+        //     runWithSonia). Antes esto se marcaba como "error: sin
+        //     mark_complete" y disparaba un bucle de self-heal infinito.
+        //   - assign_task: delegó en una persona del equipo.
+        //   - draft_*: dejó borradores esperando aprobación.
+        //   - close_deal / update_task_status: cerró un ciclo de negociación
+        //     o cambió el estado deliberadamente.
+        const CLOSURE_TOOLS = new Set([
+          "add_comment",
+          "create_subtask",
+          "assign_task",
+          "close_deal",
+          "update_task_status"
+        ]);
+        const isClosureTool = (n: string) => CLOSURE_TOOLS.has(n) || n.startsWith("draft_");
 
-        if (sentComment) {
-          // Caso (a): Sonia dejó un comentario y terminó. Tratamos como
-          // SUCCEEDED — el run cumplió su ciclo dejando una respuesta al
-          // user. El próximo trigger (respuesta del user) abrirá otro run.
-          const body = String(
-            (lastSuccessfulComment.input as any)?.body ?? ""
+        const lastClosure = [...log].reverse().find((s) => {
+          if (s.type !== "tool_use") return false;
+          const name = (s as any).tool as string;
+          if (!isClosureTool(name)) return false;
+          // Que esa llamada no haya devuelto error.
+          const failed = log.some(
+            (r) =>
+              r.type === "tool_result" &&
+              (r as any).toolUseId === (s as any).toolUseId &&
+              (r as any).isError === true
           );
-          const inferredSummary =
-            body.trim().length > 0
-              ? `Comentario dejado en la tarea (esperando respuesta del user): ${body.slice(0, 240)}${body.length > 240 ? "…" : ""}`
-              : "Comentario dejado en la tarea (esperando respuesta del user).";
+          return !failed;
+        }) as any;
+
+        if (lastClosure) {
+          // Caso legítimo: Sonia avanzó/cerró con una tool válida y terminó.
+          // SUCCEEDED — el run cumplió su ciclo. El siguiente trigger
+          // (respuesta del user, ejecución de las subtareas) seguirá solo.
+          const name = (lastClosure as any).tool as string;
+          let inferredSummary: string;
+          if (name === "add_comment") {
+            const body = String((lastClosure.input as any)?.body ?? "");
+            inferredSummary =
+              body.trim().length > 0
+                ? `Comentario dejado en la tarea (esperando respuesta del user): ${body.slice(0, 240)}${body.length > 240 ? "…" : ""}`
+                : "Comentario dejado en la tarea (esperando respuesta del user).";
+          } else if (name === "create_subtask") {
+            const nSub = log.filter(
+              (s) => s.type === "tool_use" && (s as any).tool === "create_subtask"
+            ).length;
+            inferredSummary = `Tarea descompuesta en ${nSub} subtarea(s) accionable(s); cada una sigue su propio ciclo.`;
+          } else if (name === "assign_task") {
+            inferredSummary = "Tarea delegada a un miembro del equipo.";
+          } else if (name.startsWith("draft_")) {
+            inferredSummary = "Borrador(es) dejado(s) en la tarea, esperando aprobación.";
+          } else {
+            inferredSummary = "Ciclo de la tarea cerrado con una acción válida.";
+          }
           log.push({
             type: "stop",
             ts: nowIso(),
-            reason: "end_turn_with_comment_awaiting_user",
+            reason: "end_turn_valid_closure",
             summary: inferredSummary
           });
           return {
@@ -1356,7 +1386,7 @@ export async function executeAgentRun(opts: {
           };
         }
 
-        // Caso (b): terminó sin haber dejado nada — bug real.
+        // Caso (b): terminó sin haber dejado NADA accionable — bug real.
         log.push({
           type: "stop",
           ts: nowIso(),
