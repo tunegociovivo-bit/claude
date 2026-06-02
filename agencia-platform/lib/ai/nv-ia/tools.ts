@@ -143,7 +143,12 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
   // ────────────────────────────────────────────────────────────────
   // @ts-expect-error — Anthropic SDK type es Tool con input_schema, pero
   // los server tools solo necesitan {type, name}. SDK lo acepta en runtime.
-  { type: "web_search_20260209", name: "web_search" },
+  // allowed_callers:["direct"] → la tool solo se invoca por llamada DIRECTA
+  // del modelo (tool use normal), NO programáticamente (code execution). Sin
+  // esto, web_search exige "programmatic tool calling", que modelos como
+  // Haiku 4.5 NO soportan → 400 invalid_request_error y el run revienta antes
+  // de buscar nada. Como code_execution está desactivado, no perdemos nada.
+  { type: "web_search_20260209", name: "web_search", allowed_callers: ["direct"] },
   // code_execution DESACTIVADO temporalmente. El server tool requiere
   // threading de container_id entre turnos (la respuesta incluye un
   // container_id que hay que devolver en la siguiente messages.create),
