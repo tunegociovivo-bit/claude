@@ -1297,52 +1297,94 @@ export async function executeAgentRun(opts: {
       // Si terminó sin más tool calls — pero NO llamó a mark_complete,
       // hay dos sub-casos legítimos que distinguir:
       //
-      //  (a) El modelo dejó al menos un add_comment con una PREGUNTA
-      //      al user (típicamente porque le falta info: privacyPolicyUrl,
-      //      pageId, criterio, etc.). El propio SYSTEM_PROMPT le indica
-      //      explícitamente que en ese caso "termina sin mark_complete"
-      //      y espere la respuesta humana — el run se reactivará cuando
-      //      el user responda. Marcar REQUIRES_HUMAN con error técnico
-      //      engañoso ("La IA terminó sin mark_complete") es incorrecto
-      //      y rompe la UX: el user ve un error rojo cuando en realidad
-      //      es Sonia esperándole.
+      //  (a) El modelo dejó al menos una tool de CIERRE/ESPERA exitosa
+      //      (add_comment, create_subtask, escalate_to_claude,
+      //      request_user_approval, delegate_to_human, schedule_followup).
+      //      Todas son finales legítimos según el SYSTEM_PROMPT —
+      //      especialmente create_subtask con runWithSonia:true, que es
+      //      LA forma recomendada de cerrar tareas grandes/abiertas
+      //      ("directorios fuera de España", investigaciones multi-país,
+      //      listas largas). Marcar REQUIRES_HUMAN con "La IA terminó
+      //      sin mark_complete" en estos casos es incorrecto y rompe
+      //      la UX: el user ve error rojo cuando Sonia hizo justo lo
+      //      que el prompt le indica.
       //
-      //  (b) El modelo terminó sin add_comment ni mark_complete — eso sí
-      //      es un fallo real (olvidó cerrar). Lo marcamos REQUIRES_HUMAN.
+      //  (b) El modelo terminó sin ninguna de esas tools — eso sí es un
+      //      fallo real (olvidó cerrar). Lo marcamos REQUIRES_HUMAN.
       if (resp.stop_reason === "end_turn") {
-        // ¿Hubo al menos un add_comment exitoso durante este run?
-        const lastSuccessfulComment = [...log]
+        // Tools que cuentan como "cierre legítimo" sin mark_complete.
+        const CLOSING_TOOLS = new Set([
+          "add_comment",
+          "create_subtask",
+          "escalate_to_claude",
+          "request_user_approval",
+          "delegate_to_human",
+          "schedule_followup"
+        ]);
+        // Última tool_use de cierre exitosa durante este run.
+        const lastClosingToolUse = [...log]
           .reverse()
           .find(
             (s) =>
               s.type === "tool_use" &&
-              (s as any).tool === "add_comment"
+              CLOSING_TOOLS.has((s as any).tool)
           ) as any;
-        const commentHadError =
-          lastSuccessfulComment &&
+        const closingHadError =
+          lastClosingToolUse &&
           log.some(
             (s) =>
               s.type === "tool_result" &&
-              (s as any).toolUseId === lastSuccessfulComment.toolUseId &&
+              (s as any).toolUseId === lastClosingToolUse.toolUseId &&
               (s as any).isError === true
           );
-        const sentComment = !!lastSuccessfulComment && !commentHadError;
+        const sentClosingAction = !!lastClosingToolUse && !closingHadError;
 
-        if (sentComment) {
-          // Caso (a): Sonia dejó un comentario y terminó. Tratamos como
-          // SUCCEEDED — el run cumplió su ciclo dejando una respuesta al
-          // user. El próximo trigger (respuesta del user) abrirá otro run.
-          const body = String(
-            (lastSuccessfulComment.input as any)?.body ?? ""
-          );
-          const inferredSummary =
-            body.trim().length > 0
-              ? `Comentario dejado en la tarea (esperando respuesta del user): ${body.slice(0, 240)}${body.length > 240 ? "…" : ""}`
-              : "Comentario dejado en la tarea (esperando respuesta del user).";
+        if (sentClosingAction) {
+          // Caso (a): Sonia ejecutó una acción de cierre legítima y
+          // terminó. Tratamos como SUCCEEDED — el run cumplió su ciclo.
+          // El próximo trigger (respuesta del user / ejecución de la
+          // subtarea / aprobación) abrirá otro run si procede.
+          const toolName = String(lastClosingToolUse.tool ?? "acción");
+          const input = (lastClosingToolUse.input as any) ?? {};
+          let inferredSummary: string;
+          if (toolName === "add_comment") {
+            const body = String(input?.body ?? "");
+            inferredSummary =
+              body.trim().length > 0
+                ? `Comentario dejado en la tarea (esperando respuesta del user): ${body.slice(0, 240)}${body.length > 240 ? "…" : ""}`
+                : "Comentario dejado en la tarea (esperando respuesta del user).";
+          } else if (toolName === "create_subtask") {
+            const title = String(input?.title ?? "").trim();
+            inferredSummary = title
+              ? `Tarea partida en subtareas (última: "${title.slice(0, 160)}"${title.length > 160 ? "…" : ""}).`
+              : "Tarea partida en subtareas para procesar por lotes.";
+          } else if (toolName === "escalate_to_claude") {
+            const reason = String(input?.reason ?? "").trim();
+            inferredSummary = reason
+              ? `Escalado a Claude Code: ${reason.slice(0, 240)}${reason.length > 240 ? "…" : ""}`
+              : "Escalado a Claude Code para revisión técnica.";
+          } else if (toolName === "request_user_approval") {
+            const q = String(input?.question ?? input?.actionSummary ?? "").trim();
+            inferredSummary = q
+              ? `Aprobación solicitada al user: ${q.slice(0, 240)}${q.length > 240 ? "…" : ""}`
+              : "Aprobación solicitada al user (run en pausa).";
+          } else if (toolName === "delegate_to_human") {
+            const t = String(input?.title ?? "").trim();
+            inferredSummary = t
+              ? `Delegado a humano: ${t.slice(0, 200)}${t.length > 200 ? "…" : ""}`
+              : "Tarea delegada a otro miembro del equipo.";
+          } else if (toolName === "schedule_followup") {
+            const t = String(input?.title ?? "").trim();
+            inferredSummary = t
+              ? `Seguimiento programado: ${t.slice(0, 200)}${t.length > 200 ? "…" : ""}`
+              : "Seguimiento programado para más adelante.";
+          } else {
+            inferredSummary = `Acción de cierre ejecutada (${toolName}).`;
+          }
           log.push({
             type: "stop",
             ts: nowIso(),
-            reason: "end_turn_with_comment_awaiting_user",
+            reason: "end_turn_with_closing_action",
             summary: inferredSummary
           });
           return {
