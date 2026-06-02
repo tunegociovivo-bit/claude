@@ -13,7 +13,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
-import { sendPushToBubuiCustomer, isBubuiPushEnabled } from "@/lib/bubui/push";
+import { notifyBubuiCustomer } from "@/lib/bubui/notify";
 import { isEmailEnabled } from "@/lib/integrations/email";
 
 export const dynamic = "force-dynamic";
@@ -51,7 +51,8 @@ export async function GET(req: NextRequest) {
   let created = 0;
   let pushSent = 0;
   let emailSent = 0;
-  const pushOn = isBubuiPushEnabled();
+  // Push siempre: notifyBubuiCustomer cubre web (no-op sin VAPID) + móvil.
+  const pushOn = true;
   const emailOn = isEmailEnabled();
 
   for (const b of paidBiz) {
@@ -90,7 +91,7 @@ export async function GET(req: NextRequest) {
       const msg = b.birthdayMessage?.trim()
         || `Te invitamos a celebrarlo con un ${pct}% en ${b.name}. Tienes 7 días para canjearlo.`;
       if (pushOn) {
-        await sendPushToBubuiCustomer(c.id, {
+        await notifyBubuiCustomer(c.id, {
           title: `🎂 ${greet}`,
           body: `Tu cupón de ${pct}% en ${b.name} ya está activo.`,
           link: "/bubui/app",

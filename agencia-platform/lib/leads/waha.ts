@@ -47,6 +47,23 @@ export async function getWahaConfig(workspaceId: string): Promise<WahaConfig> {
 }
 
 /**
+ * Extrae el ID de mensaje de la respuesta de WAHA de forma robusta. El motor
+ * NOWEB lo devuelve a veces como string serializado ("true_...@c.us_XXX") y
+ * otras como objeto { _serialized, id, ... }; WEBJS varía también. Devuelve ""
+ * si no hay ninguno — señal de que el envío NO se materializó (sesión caída /
+ * número no alcanzado), que el llamante debe tratar como FALLO y nunca marcar
+ * "sent". Este es el origen del bug de "sent" fantasma con NOWEB.
+ */
+export function extractWahaMessageId(data: any): string {
+  if (!data) return "";
+  const cand = data.id ?? data.key?.id ?? data._data?.id ?? data.messageId ?? null;
+  if (!cand) return "";
+  if (typeof cand === "string") return cand;
+  if (typeof cand === "object") return String(cand._serialized ?? cand.id ?? "");
+  return String(cand);
+}
+
+/**
  * Normaliza un teléfono al formato E.164 sin "+" (que WAHA pide).
  * Ej: "+34 666 12 34 56" → "34666123456"
  */
@@ -66,7 +83,7 @@ export async function sendText(opts: {
   phoneNormalized: string;
   text: string;
   session?: string;
-}): Promise<{ messageId: string }> {
+}): Promise<{ messageId: string; raw?: any }> {
   if ((await getWhatsappProvider(opts.workspaceId)) === "evolution") {
     const { evoSendText } = await import("./evolution");
     return evoSendText(opts);
@@ -89,8 +106,19 @@ export async function sendText(opts: {
     const txt = await resp.text();
     throw new Error(`WAHA sendText ${resp.status}: ${txt.slice(0, 200)}`);
   }
-  const data = await resp.json();
-  return { messageId: String(data?.id ?? data?.key?.id ?? "") };
+  const data = await resp.json().catch(() => null);
+  const messageId = extractWahaMessageId(data);
+  if (!messageId) {
+    // 200 OK pero sin ID → el envío no se materializó (típico de una sesión
+    // NOWEB que responde pero no entrega). Lo tratamos como fallo para que la
+    // cola reintente y NO se marque "sent" en falso.
+    throw new Error(
+      `WAHA aceptó la petición (HTTP ${resp.status}) pero no devolvió ID de mensaje. ` +
+        `Suele indicar que la sesión no está realmente operativa o que el número no recibió el mensaje. ` +
+        `Respuesta: ${JSON.stringify(data ?? {}).slice(0, 200)}`
+    );
+  }
+  return { messageId, raw: data };
 }
 
 /**
@@ -107,7 +135,7 @@ export async function sendVoice(opts: {
   mimetype?: string; // mimetype de ORIGEN, default audio/mpeg
   filename?: string;
   session?: string;
-}): Promise<{ messageId: string }> {
+}): Promise<{ messageId: string; raw?: any }> {
   if ((await getWhatsappProvider(opts.workspaceId)) === "evolution") {
     const { evoSendVoice } = await import("./evolution");
     return evoSendVoice({ workspaceId: opts.workspaceId, phoneNormalized: opts.phoneNormalized, audio: opts.audio });
@@ -149,8 +177,14 @@ export async function sendVoice(opts: {
     const txt = await resp.text();
     throw new Error(`WAHA sendVoice ${resp.status}: ${txt.slice(0, 200)}`);
   }
-  const data = await resp.json();
-  return { messageId: String(data?.id ?? data?.key?.id ?? "") };
+  const data = await resp.json().catch(() => null);
+  const messageId = extractWahaMessageId(data);
+  if (!messageId) {
+    throw new Error(
+      `WAHA sendVoice aceptó la petición pero no devolvió ID de mensaje. Respuesta: ${JSON.stringify(data ?? {}).slice(0, 200)}`
+    );
+  }
+  return { messageId, raw: data };
 }
 
 export async function getSession(opts: { workspaceId: string; session?: string }): Promise<any> {

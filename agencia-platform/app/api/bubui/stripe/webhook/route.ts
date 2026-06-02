@@ -171,24 +171,25 @@ async function sendBubuiPushAd(adId: string): Promise<void> {
   if (!ad) return;
 
   const { haversineMeters } = await import("@/lib/bubui/core");
-  const { sendPushToBubuiCustomer, isBubuiPushEnabled } = await import("@/lib/bubui/push");
-  if (!isBubuiPushEnabled()) {
-    await prisma.bubuiPushAd.update({ where: { id: ad.id }, data: { status: "done" } });
-    return;
-  }
+  const { notifyBubuiCustomer } = await import("@/lib/bubui/notify");
 
-  // Candidatos: clientes con suscripción push y última ubicación reciente.
-  const subs = await prisma.bubuiPushSubscription.findMany({
-    select: { customerId: true },
-    distinct: ["customerId"]
-  });
+  // Candidatos: clientes con CUALQUIER canal push (web PWA o token móvil) y
+  // última ubicación reciente. Antes solo se miraban las suscripciones web,
+  // dejando fuera a los usuarios de la app móvil.
+  const [webSubs, mobileSubs] = await Promise.all([
+    prisma.bubuiPushSubscription.findMany({ select: { customerId: true }, distinct: ["customerId"] }),
+    prisma.bubuiMobilePushToken.findMany({ select: { customerId: true }, distinct: ["customerId"] })
+  ]);
+  const candidateIds = Array.from(
+    new Set([...webSubs.map((s) => s.customerId), ...mobileSubs.map((s) => s.customerId)])
+  );
   let sent = 0;
-  for (const s of subs) {
-    const c = await prisma.bubuiCustomer.findUnique({ where: { id: s.customerId } });
+  for (const customerId of candidateIds) {
+    const c = await prisma.bubuiCustomer.findUnique({ where: { id: customerId } });
     if (!c?.lastLat || !c?.lastLng) continue;
     const d = haversineMeters(c.lastLat, c.lastLng, ad.centerLat, ad.centerLng);
     if (d > ad.radiusKm * 1000) continue;
-    await sendPushToBubuiCustomer(c.id, {
+    await notifyBubuiCustomer(c.id, {
       title: ad.title,
       body: ad.body,
       link: `/bubui/app`,

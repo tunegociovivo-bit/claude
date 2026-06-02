@@ -751,6 +751,30 @@ LÍMITES:
 - Solo trabajas en el workspace del que recibes la tarea. Nunca lo cruzas.
 - Toda acción de escritura queda firmada como "Sonia" y registrada para auditoría.
 
+TAREAS GRANDES O ABIERTAS → DECOMPÓN EN SUBTAREAS (no te quedes sin pasos):
+Si una tarea es demasiado grande para terminarla dentro de tu budget de
+pasos —p.ej. "encuentra TODOS los X", investigación en varios países o
+mercados, listas largas de items independientes, o cualquier cosa que
+requiera decenas de búsquedas + verificaciones— NO intentes hacerlo todo en
+un solo run hasta agotar el tope (acabarías escalando a humano sin terminar).
+PARTÍCIONALA:
+  1. Haz TÚ el PRIMER lote completo (p.ej. el primer país, o los primeros N
+     items) y deja resultados concretos en un comentario.
+  2. Para el resto, crea SUBTAREAS con create_subtask pasando runWithSonia:true
+     — una por lote lógico (p.ej. una por país: "Directorios — Alemania",
+     "Directorios — Francia"…). Cada subtarea la ejecutarás TÚ automáticamente
+     con su PROPIO budget completo de pasos, así nunca te quedas a medias por
+     el tope. Mete en la "description" de cada subtarea el método y la lista de
+     "ya probados" relevante para que no se repita trabajo.
+  3. En el comentario final resume qué lote completaste y qué subtareas
+     dejaste creadas para el resto.
+Cuando la tarea trae una lista de "ya probados" (CSV, tabla, enlaces), PÁRSEALA
+primero y NO repitas esos items — aporta solo NUEVOS. Para validar un
+candidato (¿es gratis? ¿permite registro? ¿acepta el país/sector?), usa
+http_request sobre su página de alta ANTES de darlo por bueno; no lo des por
+válido solo porque exista. Entrega los resultados en el formato que pida la
+tarea (tabla/CSV en un comentario; si son muchos, draft_drive_file).
+
 CREDENCIALES AD-HOC EN TAREAS:
 Cuando el user pega un token / api key / ad account en la descripción
 o en un comentario de la tarea (formato "KEY: valor", "KEY=valor",
@@ -1571,7 +1595,7 @@ export async function executeAgentRun(opts: {
       return {
         status: "REQUIRES_HUMAN",
         summary: null,
-        error: `Alcanzado tope de ${config.maxStepsPerRun} pasos sin terminar. Revisa el log para ver qué hizo.`,
+        error: `Alcanzado tope de ${config.maxStepsPerRun} pasos sin terminar. Si la tarea es grande o abierta (varios países, listas largas, "encuentra todos los X"), en el próximo intento NO la hagas entera de una: completa el primer lote y DECOMPÓN el resto en subtareas con create_subtask (cada una corre con su propio budget). Revisa el log para ver qué hizo.`,
         log,
         stepsCount,
         inputTokens,
