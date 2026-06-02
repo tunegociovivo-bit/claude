@@ -383,8 +383,10 @@ export default function TaskFormModal({
       setNotifyDueRules(Array.isArray(currentTask.notifyDueRules) ? currentTask.notifyDueRules : null);
       setRecurrence((currentTask as any).recurrence ?? "none");
       setRecurrenceNextAt((currentTask as any).recurrenceNextAt ?? null);
-      // Fetch detalle: descripción + subtareas + comentarios + plantilla
-      fetch(`/api/v1/tasks/${currentTask.id}`)
+      // Fetch detalle: descripción + subtareas + comentarios + plantilla.
+      // no-store: el estado de recurrencia (pausada/activa) debe venir
+      // siempre fresco del servidor, nunca de caché del navegador.
+      fetch(`/api/v1/tasks/${currentTask.id}`, { cache: "no-store" })
         .then((r) => (r.ok ? r.json() : null))
         .then((data) => {
           if (!data) return;
@@ -1404,12 +1406,21 @@ export default function TaskFormModal({
                       const res = await fetch(`/api/v1/tasks/${currentTask.id}/recurrence`, {
                         method: "POST",
                         headers: { "Content-Type": "application/json" },
+                        cache: "no-store",
                         body: JSON.stringify({ action: recurrenceNextAt ? "pause" : "resume" })
                       });
-                      if (res.ok) {
-                        const d = await res.json();
+                      const d = await res.json().catch(() => null);
+                      if (res.ok && d) {
                         setRecurrenceNextAt(d.recurrenceNextAt ?? null);
+                      } else {
+                        alert(
+                          `No se pudo cambiar la recurrencia: ${
+                            d?.error?.message ?? d?.message ?? `error ${res.status}`
+                          }`
+                        );
                       }
+                    } catch (e: any) {
+                      alert(`No se pudo cambiar la recurrencia: ${e?.message ?? e}`);
                     } finally {
                       setRecurrenceToggling(false);
                     }

@@ -9,7 +9,10 @@ export const RECURRENCE_OPTIONS = [
   { value: "every_2_days", label: "Cada 2 días" },
   { value: "weekly", label: "Cada semana" },
   { value: "biweekly", label: "Cada 2 semanas" },
-  { value: "monthly", label: "Cada mes" }
+  { value: "monthly", label: "Cada mes" },
+  { value: "every_2_months", label: "Cada 2 meses" },
+  { value: "every_6_months", label: "Cada 6 meses" },
+  { value: "yearly", label: "Cada año" }
 ] as const;
 
 export type Recurrence = (typeof RECURRENCE_OPTIONS)[number]["value"];
@@ -34,6 +37,18 @@ function advance(date: Date, recurrence: Recurrence): Date {
       return new Date(d.getTime() + 14 * DAY_MS);
     case "monthly": {
       d.setMonth(d.getMonth() + 1);
+      return d;
+    }
+    case "every_2_months": {
+      d.setMonth(d.getMonth() + 2);
+      return d;
+    }
+    case "every_6_months": {
+      d.setMonth(d.getMonth() + 6);
+      return d;
+    }
+    case "yearly": {
+      d.setFullYear(d.getFullYear() + 1);
       return d;
     }
     default:
