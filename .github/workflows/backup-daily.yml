@@ -23,13 +23,13 @@ jobs:
             echo "::error::Falta el secret INTERNAL_CRON_TOKEN en este repositorio (mismo valor que en el Hub)."
             exit 1
           fi
-          echo "Llamando a ${BASE}/api/v1/admin/backups"
+          echo "Llamando a ${BASE}/api/v1/internal/backup-cron"
           response=$(curl -sS -o /tmp/body -w "%{http_code}" \
             -X POST \
             -H "Authorization: Bearer ${INTERNAL_CRON_TOKEN}" \
             -H "X-Cron-Trigger: 1" \
             -H "Content-Type: application/json" \
-            "${BASE}/api/v1/admin/backups")
+            "${BASE}/api/v1/internal/backup-cron")
           echo "HTTP $response"
           cat /tmp/body
           if [ "$response" != "200" ]; then
