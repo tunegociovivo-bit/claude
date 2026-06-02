@@ -1310,39 +1310,79 @@ export async function executeAgentRun(opts: {
       //  (b) El modelo terminó sin add_comment ni mark_complete — eso sí
       //      es un fallo real (olvidó cerrar). Lo marcamos REQUIRES_HUMAN.
       if (resp.stop_reason === "end_turn") {
-        // ¿Hubo al menos un add_comment exitoso durante este run?
-        const lastSuccessfulComment = [...log]
+        // ¿Hubo al menos UNA tool exitosa que constituya "trabajo dejado"
+        // durante este run? Antes solo se aceptaba add_comment, pero el
+        // SYSTEM_PROMPT enseña muchas otras tools de cierre legítimo sin
+        // mark_complete: create_subtask (para partir tareas grandes en
+        // lotes con runWithSonia), escalate_to_claude (bloqueo técnico),
+        // request_user_approval (espera OK humano), delegate_to_human,
+        // attach_file_to_task / attach_report_to_task (entrega), y los
+        // draft_* (dejan un borrador pendiente de aprobación).
+        //
+        // Si Sonia hizo cualquiera de estas Y terminó, NO es un error —
+        // es un cierre válido. Marcar REQUIRES_HUMAN con "terminó sin
+        // mark_complete" confunde al user (ve error rojo cuando en
+        // realidad ella dejó trabajo entregable / preguntas).
+        const CLOSURE_TOOLS = new Set([
+          "add_comment",
+          "create_subtask",
+          "escalate_to_claude",
+          "request_user_approval",
+          "delegate_to_human",
+          "attach_file_to_task",
+          "attach_report_to_task",
+          "draft_email",
+          "draft_whatsapp",
+          "draft_whatsapp_voice",
+          "draft_editorial_post",
+          "draft_calendar_event",
+          "draft_drive_file",
+          "draft_gmb_post",
+          "draft_holded_invoice",
+          "draft_holded_quote",
+          "draft_stripe_payment_link",
+          "draft_phone_call"
+        ]);
+        const lastSuccessfulClosure = [...log]
           .reverse()
           .find(
             (s) =>
               s.type === "tool_use" &&
-              (s as any).tool === "add_comment"
+              CLOSURE_TOOLS.has(String((s as any).tool ?? ""))
           ) as any;
-        const commentHadError =
-          lastSuccessfulComment &&
+        const closureHadError =
+          lastSuccessfulClosure &&
           log.some(
             (s) =>
               s.type === "tool_result" &&
-              (s as any).toolUseId === lastSuccessfulComment.toolUseId &&
+              (s as any).toolUseId === lastSuccessfulClosure.toolUseId &&
               (s as any).isError === true
           );
-        const sentComment = !!lastSuccessfulComment && !commentHadError;
+        const sentClosure = !!lastSuccessfulClosure && !closureHadError;
 
-        if (sentComment) {
-          // Caso (a): Sonia dejó un comentario y terminó. Tratamos como
-          // SUCCEEDED — el run cumplió su ciclo dejando una respuesta al
-          // user. El próximo trigger (respuesta del user) abrirá otro run.
-          const body = String(
-            (lastSuccessfulComment.input as any)?.body ?? ""
-          );
-          const inferredSummary =
-            body.trim().length > 0
-              ? `Comentario dejado en la tarea (esperando respuesta del user): ${body.slice(0, 240)}${body.length > 240 ? "…" : ""}`
-              : "Comentario dejado en la tarea (esperando respuesta del user).";
+        if (sentClosure) {
+          // Caso (a): Sonia dejó "algo" entregable y terminó. Tratamos
+          // como SUCCEEDED — el run cumplió su ciclo. El próximo trigger
+          // (respuesta del user, aprobación de draft, etc.) abrirá otro
+          // run si hace falta.
+          const closureTool = String((lastSuccessfulClosure as any).tool ?? "");
+          const input = (lastSuccessfulClosure.input as any) ?? {};
+          // Para add_comment usamos el body como resumen; para el resto
+          // describimos brevemente qué tool fue la última.
+          let inferredSummary: string;
+          if (closureTool === "add_comment") {
+            const body = String(input.body ?? "");
+            inferredSummary =
+              body.trim().length > 0
+                ? `Comentario dejado en la tarea (esperando respuesta del user): ${body.slice(0, 240)}${body.length > 240 ? "…" : ""}`
+                : "Comentario dejado en la tarea (esperando respuesta del user).";
+          } else {
+            inferredSummary = `Run cerrado tras ${closureTool} — trabajo entregado / pendiente de continuación humana.`;
+          }
           log.push({
             type: "stop",
             ts: nowIso(),
-            reason: "end_turn_with_comment_awaiting_user",
+            reason: "end_turn_with_closure_awaiting_user",
             summary: inferredSummary
           });
           return {
