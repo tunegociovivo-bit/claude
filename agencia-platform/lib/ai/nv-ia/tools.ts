@@ -1455,9 +1455,27 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
     }
   },
   {
+    name: "extract_images",
+    description:
+      "Extrae las URLs de imágenes de una página a partir de su HTML ESTÁTICO (un simple fetch, SIN navegador headless). Es la forma correcta de sacar imágenes de fichas de producto de proveedores (PIM tipo Plytix, catálogos, marcapl.com, etc.): aunque la web 'parezca' que carga las imágenes por JavaScript, casi siempre las URLs YA están en el HTML (en <img>, og:image o atributos data-* URL-encoded) y esta tool las recupera. NO necesitas web_scrape_dynamic ni Browserless para esto.\n\nFiltra automáticamente iconos, logos, banderas, sellos y badges. Si pasas 'match' (la referencia o SKU del producto, ej '288PKFMIXYFA'), devuelve en 'matched' SOLO las imágenes cuyo nombre de archivo contenga ese texto — úsalas como imágenes del producto.\n\nDevuelve { matched, images, ogImage, count }. Si 'matched' trae resultados, usa esas; si no, valora 'images'. Pasa esas URLs directamente a woocommerce_create_product.images. Solo si devuelve count:0 (HTML realmente vacío/SPA) recurre a web_scrape_dynamic.",
+    input_schema: {
+      type: "object",
+      properties: {
+        url: { type: "string", description: "URL de la página (https://...)." },
+        match: {
+          type: "string",
+          description: "Opcional. Referencia/SKU/texto para filtrar las imágenes del producto concreto (ej '288PKFMIXYFA')."
+        },
+        timeoutMs: { type: "number", description: "Timeout en ms (3000-30000). Default 20000." }
+      },
+      required: ["url"],
+      additionalProperties: false
+    }
+  },
+  {
     name: "woocommerce_create_product",
     description:
-      "Crea un producto en una tienda WooCommerce (WordPress) vía su REST API (POST /wp-json/wc/v3/products). Por defecto lo crea como BORRADOR (status='draft') para que alguien lo revise antes de publicar — NO publiques salvo que el user lo pida explícitamente.\n\nFLUJO típico para subir un producto desde la URL de un proveedor:\n  1) Lee la página del producto con web_scrape_dynamic (o http_request si el HTML es estático) y EXTRAE: las URLs de las imágenes en alta resolución (.jpg/.png), la descripción técnica (composición, normativas EN ISO, tejido…), etc.\n  2) Llama a esta tool con name, sku, regular_price, description (HTML limpio con lo extraído), categories (IDs), images (URLs) y brand (proveedor).\n\nCREDENCIALES: hay DOS formas de autenticar y la tool acepta ambas (las guardadas en el workspace, o las que el user pegó en la tarea):\n  (a) Application Password de WordPress — usuario/email + una clave de 6 grupos de 4 (formato 'xxxx xxxx xxxx xxxx xxxx xxxx'). Pásalas en wpUser + wpAppPassword. ES LA MÁS FIABLE: úsala si la tarea trae un 'correo'/'usuario' + una clave con ese formato (suele venir como 'api rest: ...').\n  (b) WooCommerce REST API — consumer key (ck_...) + consumer secret (cs_...). Pásalas en consumerKey + consumerSecret.\nEn ambos casos pasa también storeUrl (ej 'https://2m2.es') si no está guardada. Si una opción da 401 'cannot_view/cannot_create', prueba la otra. Las credenciales se detectan y guardan solas para reutilizarlas.\n\nIMÁGENES: se pasan como URLs y WooCommerce las descarga e importa al crear el producto. Si la tienda rechaza la descarga remota, la tool devolverá error y debes avisarlo.",
+      "Crea un producto en una tienda WooCommerce (WordPress) vía su REST API (POST /wp-json/wc/v3/products). Por defecto lo crea como BORRADOR (status='draft') para que alguien lo revise antes de publicar — NO publiques salvo que el user lo pida explícitamente.\n\nFLUJO típico para subir un producto desde la URL de un proveedor:\n  1) IMÁGENES → llama a extract_images(url, match=referencia/SKU). Devuelve las URLs ya listas (NO necesitas Browserless: las webs de proveedor casi siempre traen las imágenes en el HTML estático). Usa el array 'matched'.\n  2) DESCRIPCIÓN TÉCNICA → con http_request lee el HTML y extrae composición, normativas EN ISO, tejido, etc. (móntalo como HTML limpio).\n  3) Llama a esta tool con name, sku, regular_price, description, categories (IDs), images (las URLs de extract_images) y brand (proveedor).\n\nNUNCA pares ni preguntes 'no puedo sacar las imágenes / falta Browserless': prueba SIEMPRE extract_images primero.\n\nCREDENCIALES: hay DOS formas de autenticar y la tool acepta ambas (las guardadas en el workspace, o las que el user pegó en la tarea):\n  (a) Application Password de WordPress — usuario/email + una clave de 6 grupos de 4 (formato 'xxxx xxxx xxxx xxxx xxxx xxxx'). Pásalas en wpUser + wpAppPassword. ES LA MÁS FIABLE: úsala si la tarea trae un 'correo'/'usuario' + una clave con ese formato (suele venir como 'api rest: ...').\n  (b) WooCommerce REST API — consumer key (ck_...) + consumer secret (cs_...). Pásalas en consumerKey + consumerSecret.\nEn ambos casos pasa también storeUrl (ej 'https://2m2.es') si no está guardada. Si una opción da 401 'cannot_view/cannot_create', prueba la otra. Las credenciales se detectan y guardan solas para reutilizarlas.\n\nIMÁGENES: se pasan como URLs y WooCommerce las descarga e importa al crear el producto. Si la tienda rechaza la descarga remota, la tool devolverá error y debes avisarlo.",
     input_schema: {
       type: "object",
       properties: {
@@ -5326,6 +5344,21 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
       return res;
     } catch (e: any) {
       return { error: `web_scrape_dynamic: ${e?.message ?? e}` };
+    }
+  },
+
+  async extract_images(input, ctx) {
+    try {
+      const url = String(input?.url ?? "").trim();
+      if (!url) return { error: "url requerida" };
+      const { extractImages } = await import("@/lib/scrape/images");
+      const res = await extractImages(url, {
+        match: input?.match ? String(input.match) : undefined,
+        timeoutMs: input?.timeoutMs ? Number(input.timeoutMs) : undefined
+      });
+      return res;
+    } catch (e: any) {
+      return { error: `extract_images: ${e?.message ?? e}` };
     }
   },
 
