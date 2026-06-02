@@ -17,10 +17,23 @@
 import { prisma } from "@/lib/db/prisma";
 import { decryptSecret } from "@/lib/ai/crypto";
 
+export type WooAuth =
+  | { kind: "wp_app"; user: string; appPassword: string }
+  | { kind: "wc_keys"; consumerKey: string; consumerSecret: string };
+
 export type WooConfig = {
   storeUrl: string;
-  consumerKey: string;
-  consumerSecret: string;
+  auth: WooAuth;
+};
+
+export type WooCreds = {
+  storeUrl?: string;
+  consumerKey?: string;
+  consumerSecret?: string;
+  /** WordPress user/email + Application Password. Alternativa a ck/cs que
+   *  funciona en hosts donde las ck/cs dan 401 o no tienen permiso. */
+  wpUser?: string;
+  wpAppPassword?: string;
 };
 
 /** Asegura https:// y se queda con el origin (la REST API de WooCommerce vive
@@ -42,15 +55,18 @@ export async function resolveWooConfig(opts: {
   workspaceId: string;
   clientId?: string | null;
   adhoc?: Record<string, string>;
-  override?: { storeUrl?: string; consumerKey?: string; consumerSecret?: string };
+  override?: WooCreds;
 }): Promise<WooConfig> {
   const ov = opts.override ?? {};
   const ad = opts.adhoc ?? {};
   let storeUrl = (ov.storeUrl || ad.WOOCOMMERCE_STORE_URL || "").trim();
   let consumerKey = (ov.consumerKey || ad.WOOCOMMERCE_CONSUMER_KEY || "").trim();
   let consumerSecret = (ov.consumerSecret || ad.WOOCOMMERCE_CONSUMER_SECRET || "").trim();
+  let wpUser = (ov.wpUser || ad.WOOCOMMERCE_WP_USER || "").trim();
+  let wpAppPassword = (ov.wpAppPassword || ad.WOOCOMMERCE_WP_APP_PASSWORD || "").trim();
 
-  if (!storeUrl || !consumerKey || !consumerSecret) {
+  const haveAuth = (consumerKey && consumerSecret) || (wpUser && wpAppPassword);
+  if (!storeUrl || !haveAuth) {
     // Fallback a config cifrada por cliente → workspace.
     let cfg: any = null;
     if (opts.clientId) {
@@ -76,21 +92,35 @@ export async function resolveWooConfig(opts: {
         (cfg.consumerSecretEnc
           ? decryptSecret(cfg.consumerSecretEnc) || ""
           : String(cfg.consumerSecret || "")).trim();
+      wpUser = wpUser || String(cfg.wpUser || "").trim();
+      wpAppPassword =
+        wpAppPassword ||
+        (cfg.wpAppPasswordEnc ? decryptSecret(cfg.wpAppPasswordEnc) || "" : String(cfg.wpAppPassword || "")).trim();
     }
   }
 
-  if (!storeUrl || !consumerKey || !consumerSecret) {
+  if (!storeUrl) {
     throw new Error(
-      "WooCommerce sin credenciales. Necesito la URL de la tienda + consumer key (ck_...) + consumer secret (cs_...). " +
-        "Pásalas en la tarea (ej: 'WOOCOMMERCE_STORE_URL=https://2m2.es', 'clave cliente: ck_...', 'clave secreta: cs_...') " +
-        "o pásalas en storeUrl/consumerKey/consumerSecret. Una vez pegadas se guardan cifradas y se reutilizan."
+      "WooCommerce sin URL de tienda. Pásala en storeUrl o en la tarea (ej 'WOOCOMMERCE_STORE_URL=https://2m2.es')."
     );
   }
-  return {
-    storeUrl: normalizeStoreUrl(storeUrl),
-    consumerKey,
-    consumerSecret
-  };
+
+  // Preferimos la Application Password de WordPress: es más fiable porque
+  // funciona aunque el host bloquee/ignore las ck/cs (caso real en 2m2.es).
+  // Si no hay app-password, usamos consumer key/secret (por query-string).
+  let auth: WooAuth;
+  if (wpUser && wpAppPassword) {
+    auth = { kind: "wp_app", user: wpUser, appPassword: wpAppPassword };
+  } else if (consumerKey && consumerSecret) {
+    auth = { kind: "wc_keys", consumerKey, consumerSecret };
+  } else {
+    throw new Error(
+      "WooCommerce sin credenciales válidas. Da UNA de estas opciones (se guardan cifradas y se reutilizan):\n" +
+        " (a) Application Password de WordPress: wpUser (usuario o email) + wpAppPassword (formato 'xxxx xxxx xxxx xxxx xxxx xxxx').\n" +
+        " (b) WooCommerce REST API: consumerKey (ck_...) + consumerSecret (cs_...)."
+    );
+  }
+  return { storeUrl: normalizeStoreUrl(storeUrl), auth };
 }
 
 async function wcFetch<T = any>(
@@ -99,25 +129,32 @@ async function wcFetch<T = any>(
   init: RequestInit = {},
   timeoutMs = 30000
 ): Promise<T> {
-  const auth = Buffer.from(`${cfg.consumerKey}:${cfg.consumerSecret}`).toString("base64");
   const base = cfg.storeUrl.replace(/\/+$/, "");
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    Accept: "application/json",
+    ...((init.headers as Record<string, string>) ?? {})
+  };
+  let url = `${base}/wp-json/wc/v3${path}`;
+  if (cfg.auth.kind === "wp_app") {
+    const tok = Buffer.from(`${cfg.auth.user}:${cfg.auth.appPassword}`).toString("base64");
+    headers.Authorization = `Basic ${tok}`;
+  } else {
+    // ck/cs por query-string: más compatible que Basic (muchos hosts Apache
+    // eliminan la cabecera Authorization → 401).
+    const sep = url.includes("?") ? "&" : "?";
+    url += `${sep}consumer_key=${encodeURIComponent(cfg.auth.consumerKey)}&consumer_secret=${encodeURIComponent(
+      cfg.auth.consumerSecret
+    )}`;
+  }
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
-    const resp = await fetch(`${base}/wp-json/wc/v3${path}`, {
-      ...init,
-      signal: ctrl.signal,
-      headers: {
-        Authorization: `Basic ${auth}`,
-        "Content-Type": "application/json",
-        Accept: "application/json",
-        ...(init.headers ?? {})
-      }
-    });
+    const resp = await fetch(url, { ...init, signal: ctrl.signal, headers });
     const txt = await resp.text();
     if (!resp.ok) {
-      // 404 suele significar URL de tienda mal (WordPress en subdirectorio,
-      // o la REST API desactivada). 401 = ck/cs incorrectos o sin permisos.
+      // 404 = URL de tienda mal (WP en subdirectorio o REST desactivada).
+      // 401 = credenciales incorrectas o sin permiso para esa acción.
       throw new Error(`WooCommerce ${resp.status} en ${path}: ${txt.slice(0, 400)}`);
     }
     return (txt ? JSON.parse(txt) : {}) as T;
@@ -137,7 +174,7 @@ export async function wcCreateProduct(opts: {
   workspaceId: string;
   clientId?: string | null;
   adhoc?: Record<string, string>;
-  override?: { storeUrl?: string; consumerKey?: string; consumerSecret?: string };
+  override?: WooCreds;
   name: string;
   type?: string;
   status?: "draft" | "publish" | "pending" | "private";
@@ -209,7 +246,7 @@ export async function wcListCategories(opts: {
   workspaceId: string;
   clientId?: string | null;
   adhoc?: Record<string, string>;
-  override?: { storeUrl?: string; consumerKey?: string; consumerSecret?: string };
+  override?: WooCreds;
   search?: string;
 }): Promise<Array<{ id: number; name: string; slug: string; parent: number; count: number }>> {
   const cfg = await resolveWooConfig(opts);

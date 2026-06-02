@@ -1457,7 +1457,7 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
   {
     name: "woocommerce_create_product",
     description:
-      "Crea un producto en una tienda WooCommerce (WordPress) vía su REST API (POST /wp-json/wc/v3/products). Por defecto lo crea como BORRADOR (status='draft') para que alguien lo revise antes de publicar — NO publiques salvo que el user lo pida explícitamente.\n\nFLUJO típico para subir un producto desde la URL de un proveedor:\n  1) Lee la página del producto con web_scrape_dynamic (o http_request si el HTML es estático) y EXTRAE: las URLs de las imágenes en alta resolución (.jpg/.png), la descripción técnica (composición, normativas EN ISO, tejido…), etc.\n  2) Llama a esta tool con name, sku, regular_price, description (HTML limpio con lo extraído), categories (IDs), images (URLs) y brand (proveedor).\n\nCREDENCIALES: usa las de WooCommerce ya configuradas/guardadas en el workspace, o las que el user pegó en la tarea (consumer key ck_..., consumer secret cs_..., y la URL de la tienda — se detectan y guardan solas). Si el user las dio solo para esta tarea puedes pasarlas en storeUrl/consumerKey/consumerSecret.\n\nIMÁGENES: se pasan como URLs y WooCommerce las descarga e importa al crear el producto. Si la tienda rechaza la descarga remota, la tool devolverá error y debes avisarlo.",
+      "Crea un producto en una tienda WooCommerce (WordPress) vía su REST API (POST /wp-json/wc/v3/products). Por defecto lo crea como BORRADOR (status='draft') para que alguien lo revise antes de publicar — NO publiques salvo que el user lo pida explícitamente.\n\nFLUJO típico para subir un producto desde la URL de un proveedor:\n  1) Lee la página del producto con web_scrape_dynamic (o http_request si el HTML es estático) y EXTRAE: las URLs de las imágenes en alta resolución (.jpg/.png), la descripción técnica (composición, normativas EN ISO, tejido…), etc.\n  2) Llama a esta tool con name, sku, regular_price, description (HTML limpio con lo extraído), categories (IDs), images (URLs) y brand (proveedor).\n\nCREDENCIALES: hay DOS formas de autenticar y la tool acepta ambas (las guardadas en el workspace, o las que el user pegó en la tarea):\n  (a) Application Password de WordPress — usuario/email + una clave de 6 grupos de 4 (formato 'xxxx xxxx xxxx xxxx xxxx xxxx'). Pásalas en wpUser + wpAppPassword. ES LA MÁS FIABLE: úsala si la tarea trae un 'correo'/'usuario' + una clave con ese formato (suele venir como 'api rest: ...').\n  (b) WooCommerce REST API — consumer key (ck_...) + consumer secret (cs_...). Pásalas en consumerKey + consumerSecret.\nEn ambos casos pasa también storeUrl (ej 'https://2m2.es') si no está guardada. Si una opción da 401 'cannot_view/cannot_create', prueba la otra. Las credenciales se detectan y guardan solas para reutilizarlas.\n\nIMÁGENES: se pasan como URLs y WooCommerce las descarga e importa al crear el producto. Si la tienda rechaza la descarga remota, la tool devolverá error y debes avisarlo.",
     input_schema: {
       type: "object",
       properties: {
@@ -1494,8 +1494,10 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
           type: "string",
           description: "URL de la tienda (ej 'https://2m2.es'). Solo si no está guardada en el workspace ni la pegó el user."
         },
-        consumerKey: { type: "string", description: "WooCommerce consumer key (ck_...). Solo si no está guardada." },
-        consumerSecret: { type: "string", description: "WooCommerce consumer secret (cs_...). Solo si no está guardada." }
+        consumerKey: { type: "string", description: "WooCommerce consumer key (ck_...). Opción (b). Solo si no está guardada." },
+        consumerSecret: { type: "string", description: "WooCommerce consumer secret (cs_...). Opción (b). Solo si no está guardada." },
+        wpUser: { type: "string", description: "Usuario o email de WordPress. Opción (a), junto con wpAppPassword." },
+        wpAppPassword: { type: "string", description: "Application Password de WordPress (6 grupos de 4, ej 'dQtn VVYc oJg3 9O08 QDCU iugT'). Opción (a). La más fiable." }
       },
       required: ["name"],
       additionalProperties: false
@@ -1511,7 +1513,9 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
         search: { type: "string", description: "Filtro por nombre (opcional)." },
         storeUrl: { type: "string", description: "URL de la tienda si no está guardada." },
         consumerKey: { type: "string", description: "Consumer key (ck_...) si no está guardada." },
-        consumerSecret: { type: "string", description: "Consumer secret (cs_...) si no está guardada." }
+        consumerSecret: { type: "string", description: "Consumer secret (cs_...) si no está guardada." },
+        wpUser: { type: "string", description: "Usuario/email de WordPress (con wpAppPassword) como alternativa a ck/cs." },
+        wpAppPassword: { type: "string", description: "Application Password de WordPress (6 grupos de 4)." }
       },
       additionalProperties: false
     }
@@ -5331,7 +5335,9 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
       const override = {
         storeUrl: input?.storeUrl ? String(input.storeUrl) : undefined,
         consumerKey: input?.consumerKey ? String(input.consumerKey) : undefined,
-        consumerSecret: input?.consumerSecret ? String(input.consumerSecret) : undefined
+        consumerSecret: input?.consumerSecret ? String(input.consumerSecret) : undefined,
+        wpUser: input?.wpUser ? String(input.wpUser) : undefined,
+        wpAppPassword: input?.wpAppPassword ? String(input.wpAppPassword) : undefined
       };
       const categories = Array.isArray(input?.categories)
         ? input.categories.map((c: any) =>
@@ -5375,7 +5381,9 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
         override: {
           storeUrl: input?.storeUrl ? String(input.storeUrl) : undefined,
           consumerKey: input?.consumerKey ? String(input.consumerKey) : undefined,
-          consumerSecret: input?.consumerSecret ? String(input.consumerSecret) : undefined
+          consumerSecret: input?.consumerSecret ? String(input.consumerSecret) : undefined,
+          wpUser: input?.wpUser ? String(input.wpUser) : undefined,
+          wpAppPassword: input?.wpAppPassword ? String(input.wpAppPassword) : undefined
         },
         search: input?.search ? String(input.search) : undefined
       });

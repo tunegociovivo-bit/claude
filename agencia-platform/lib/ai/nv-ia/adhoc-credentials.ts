@@ -232,6 +232,23 @@ function detectByValue(text: string): Record<string, string> {
     out.WOOCOMMERCE_CONSUMER_SECRET = m[1];
   }
 
+  // WordPress Application Password — 6 grupos de 4 alfanuméricos separados por
+  // espacio (ej "dQtn VVYc oJg3 9O08 QDCU iugT"). Es la auth de la REST API de
+  // WP/WooCommerce y suele venir etiquetada como "api rest:". Última gana.
+  const WP_APP_RE = /\b([A-Za-z0-9]{4}(?: [A-Za-z0-9]{4}){5})\b/g;
+  let foundWpApp = false;
+  while ((m = WP_APP_RE.exec(text)) !== null) {
+    out.WOOCOMMERCE_WP_APP_PASSWORD = m[1];
+    foundWpApp = true;
+  }
+  // Si hay app-password, el usuario WP suele ser un email/usuario en el mismo
+  // bloque de "Accesos". Capturamos el primer email como usuario (solo cuando
+  // hay app-password, para no recoger emails sueltos de otras tareas).
+  if (foundWpApp && !out.WOOCOMMERCE_WP_USER) {
+    const email = text.match(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/);
+    if (email) out.WOOCOMMERCE_WP_USER = email[0];
+  }
+
   return out;
 }
 
