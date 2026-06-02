@@ -82,6 +82,21 @@ export const PATCH = withApi({ scope: "tasks:write" }, async (req, { params, api
         })
       : null;
 
+  // Recurrencia: solo recalculamos recurrenceNextAt si la CADENCIA cambia.
+  // Si llega la misma `recurrence` (el form la reenvía siempre al guardar),
+  // dejamos recurrenceNextAt intacto para NO des-pausar una recurrencia que
+  // el usuario haya pausado (pausa = recurrenceNextAt:null con la cadencia
+  // conservada).
+  const prevRecurrence =
+    data.recurrence !== undefined
+      ? await prisma.task.findUnique({
+          where: { id: params.id },
+          select: { recurrence: true } as any
+        })
+      : null;
+  const recurrenceChanged =
+    data.recurrence !== undefined && data.recurrence !== ((prevRecurrence as any)?.recurrence ?? "none");
+
   const result = await prisma.$transaction(async (tx) => {
     const upd = await tx.task.updateMany({
       where: { id: params.id, workspaceId: api.workspaceId },
@@ -91,7 +106,7 @@ export const PATCH = withApi({ scope: "tasks:write" }, async (req, { params, api
         dueDate: dueDate ? new Date(dueDate) : undefined,
         ...(typeof dueAllDay === "boolean" ? { dueAllDay } : {}),
         ...(notifyDueRules !== undefined ? { notifyDueRules: notifyDueRules as any } : {}),
-        ...(data.recurrence !== undefined
+        ...(recurrenceChanged
           ? {
               recurrenceNextAt:
                 data.recurrence === "none"

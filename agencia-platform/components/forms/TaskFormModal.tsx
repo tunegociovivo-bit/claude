@@ -125,6 +125,9 @@ export default function TaskFormModal({
   const [dueDate, setDueDate] = useState<string>("");
   const [dueTime, setDueTime] = useState<string>("");
   const [recurrence, setRecurrence] = useState<string>("none");
+  // Próxima ejecución de la recurrencia. null + recurrence != "none" = PAUSADA.
+  const [recurrenceNextAt, setRecurrenceNextAt] = useState<string | null>(null);
+  const [recurrenceToggling, setRecurrenceToggling] = useState(false);
   // Reglas de notificación. null = "usar defaults del backend".
   // Array (incluido []) = preferencia explícita del usuario.
   const [notifyDueRules, setNotifyDueRules] = useState<string[] | null>(null);
@@ -379,6 +382,7 @@ export default function TaskFormModal({
       setDueTime(currentTask.dueAllDay === false && currentTask.dueTime ? currentTask.dueTime : "");
       setNotifyDueRules(Array.isArray(currentTask.notifyDueRules) ? currentTask.notifyDueRules : null);
       setRecurrence((currentTask as any).recurrence ?? "none");
+      setRecurrenceNextAt((currentTask as any).recurrenceNextAt ?? null);
       // Fetch detalle: descripción + subtareas + comentarios + plantilla
       fetch(`/api/v1/tasks/${currentTask.id}`)
         .then((r) => (r.ok ? r.json() : null))
@@ -408,6 +412,7 @@ export default function TaskFormModal({
             setCustomData(data.customData);
           }
           if (typeof data.recurrence === "string") setRecurrence(data.recurrence);
+          if ("recurrenceNextAt" in data) setRecurrenceNextAt(data.recurrenceNextAt ?? null);
         });
       fetch(`/api/v1/tasks/${currentTask.id}/comments`)
         .then((r) => (r.ok ? r.json() : { items: [] }))
@@ -424,6 +429,7 @@ export default function TaskFormModal({
       setDueTime("");
       setNotifyDueRules(null);
       setRecurrence("none");
+      setRecurrenceNextAt(null);
       setComments([]);
       setSubtasks([]);
     }
@@ -1377,6 +1383,53 @@ export default function TaskFormModal({
               <p className="mt-1 text-[10px] text-slate-500">
                 Si la tarea es de Sonia, se relanzará sola con esta frecuencia (a partir de la fecha/hora de entrega, o desde ahora si no hay fecha). No tendrás que volver a lanzarla.
               </p>
+            )}
+            {currentTask?.id && recurrence !== "none" && (
+              <div className="mt-2 flex items-center justify-between gap-2 rounded-md border border-violet-200 bg-violet-50/60 px-2 py-1.5">
+                <span className="text-[11px] text-violet-800 min-w-0 truncate">
+                  {recurrenceNextAt
+                    ? `🔁 Activa · próxima: ${new Date(recurrenceNextAt).toLocaleString("es-ES", {
+                        dateStyle: "short",
+                        timeStyle: "short"
+                      })}`
+                    : "⏸ Recurrencia en pausa"}
+                </span>
+                <button
+                  type="button"
+                  disabled={recurrenceToggling}
+                  onClick={async () => {
+                    if (!currentTask?.id) return;
+                    setRecurrenceToggling(true);
+                    try {
+                      const res = await fetch(`/api/v1/tasks/${currentTask.id}/recurrence`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ action: recurrenceNextAt ? "pause" : "resume" })
+                      });
+                      if (res.ok) {
+                        const d = await res.json();
+                        setRecurrenceNextAt(d.recurrenceNextAt ?? null);
+                      }
+                    } finally {
+                      setRecurrenceToggling(false);
+                    }
+                  }}
+                  className={
+                    "shrink-0 text-[11px] font-semibold px-2 py-1 rounded-md border transition " +
+                    (recurrenceNextAt
+                      ? "border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100"
+                      : "border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100") +
+                    (recurrenceToggling ? " opacity-60 cursor-not-allowed" : "")
+                  }
+                  title={
+                    recurrenceNextAt
+                      ? "Pausar la recurrencia (la cadencia se conserva; Sonia no la relanzará)"
+                      : "Reanudar la recurrencia"
+                  }
+                >
+                  {recurrenceToggling ? "…" : recurrenceNextAt ? "Pausar" : "Reanudar"}
+                </button>
+              </div>
             )}
           </SidebarField>
 

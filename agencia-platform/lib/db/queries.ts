@@ -99,6 +99,11 @@ export type UiTask = (typeof mockTasks)[number] & {
   /** Tareas flash (minitareas) que se muestran en la tarjeta del kanban.
    *  `urgent` resalta el ítem en rojo en la tarjeta del tablón. */
   flashTasks?: { id: string; text: string; done: boolean; urgent?: boolean }[];
+  /** Recurrencia: none|daily|every_2_days|weekly|biweekly|monthly. */
+  recurrence?: string;
+  /** Próxima ejecución programada (ISO). Si recurrence != "none" y esto es
+   *  null, la recurrencia está PAUSADA (el cron solo dispara con fecha <= now). */
+  recurrenceNextAt?: string | null;
 };
 export type UiProject = (typeof mockProjects)[number];
 export type UiEvent = (typeof mockEvents)[number];
@@ -311,7 +316,11 @@ export async function getTasksForUi(): Promise<UiTask[]> {
         notifyDueRules: (r as any).notifyDueRules ?? null,
         order: (r as any).order ?? 0,
         coverImage: coverByTask.get(r.id),
-        flashTasks: Array.isArray((r as any).flashTasks) ? ((r as any).flashTasks as any[]) : []
+        flashTasks: Array.isArray((r as any).flashTasks) ? ((r as any).flashTasks as any[]) : [],
+        recurrence: (r as any).recurrence ?? "none",
+        recurrenceNextAt: (r as any).recurrenceNextAt
+          ? ((r as any).recurrenceNextAt as Date).toISOString()
+          : null
       };
     });
   }, mockTasks);
