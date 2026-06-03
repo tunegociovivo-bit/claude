@@ -11,7 +11,7 @@ import { Mapa } from "./src/screens/Mapa";
 import { Cuenta } from "./src/screens/Cuenta";
 import { Afiliados } from "./src/screens/Afiliados";
 import { Scan } from "./src/screens/Scan";
-import { Negocio, type NegocioParam } from "./src/screens/Negocio";
+import { Negocio, type NegocioParam } from "./src/screens/Negocio";h
 import { CheckSession } from "./src/lib/session";
 import { ErrorBoundary } from "./src/components/ErrorBoundary";
 import { useAppFonts, applyPoppinsToTextDefaults } from "./src/lib/fonts";
@@ -84,9 +84,9 @@ function AppInner() {
                                 <Stack.Screen name="Afiliados" component={Afiliados} options={{ animation: "slide_from_right" }} />
                                 <Stack.Screen name="Scan" component={Scan} options={{ animation: "slide_from_bottom" }} />
                                 <Stack.Screen name="Negocio" component={Negocio} options={{ animation: "slide_from_right" }} />
-                      </Stack.Navigator>Stack.Navigator>
-              </NavigationContainer>NavigationContainer>
-        </ErrorBoundary>ErrorBoundary>
+                      </Stack.Navigator>
+              </NavigationContainer>
+        </ErrorBoundary>
       );
 }
 
@@ -95,7 +95,7 @@ export default function App() {
           <SafeAreaProvider>
                 <ThemeProvider>
                         <AppInner />
-                </ThemeProvider>ThemeProvider>
-          </SafeAreaProvider>SafeAreaProvider>
+                </ThemeProvider>
+          </SafeAreaProvider>
         );
-}</ErrorBoundary>
+}
