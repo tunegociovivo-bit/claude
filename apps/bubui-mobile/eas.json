@@ -31,6 +31,11 @@
     }
   },
   "submit": {
-    "production": {}
+    "production": {
+      "ios": {
+        "ascAppId": "REEMPLAZA_CON_EL_APPLE_ID_NUMERICO_DE_LA_APP",
+        "appleTeamId": "REEMPLAZA_CON_TU_APPLE_TEAM_ID"
+      }
+    }
   }
 }

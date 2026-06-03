@@ -1,0 +1,85 @@
+name: Build Bubui (iOS → TestFlight)
+
+# Compila la app iOS en la NUBE de EAS y la sube a TestFlight, sin Mac y sin
+# tener que meter el 2FA de Apple a mano. La firma se gestiona con una
+# App Store Connect API Key (en vez del login interactivo de Apple).
+#
+# Uso: pestaña Actions → "Build Bubui (iOS → TestFlight)" → Run workflow.
+#
+# ┌── SECRETOS NECESARIOS (Settings → Secrets and variables → Actions → New secret)
+# │  Solo tú puedes generarlos; salen de tus cuentas de Expo y Apple:
+# │
+# │  EXPO_TOKEN              Token de acceso de Expo.
+# │                         expo.dev → tu avatar → Access tokens → Create token.
+# │  ASC_API_KEY_P8         Contenido COMPLETO del fichero .p8 de la API Key
+# │                         (ábrelo con un editor y pega todo, incluidas las
+# │                          líneas -----BEGIN/END PRIVATE KEY-----).
+# │  ASC_API_KEY_ID         "Key ID" de esa API Key.
+# │  ASC_API_KEY_ISSUER_ID  "Issuer ID" de App Store Connect.
+# │  APPLE_TEAM_ID          Tu Apple Developer Team ID (Membership details).
+# │  APPLE_TEAM_TYPE        (opcional) COMPANY_OR_ORGANIZATION | INDIVIDUAL | IN_HOUSE
+# │                         Por defecto COMPANY_OR_ORGANIZATION.
+# └──
+#   La API Key se crea en: App Store Connect → Users and Access → Integrations
+#   → App Store Connect API → Team Keys → (+). Rol: App Manager o Admin.
+#
+#   Además, para que el ENVÍO a TestFlight funcione, rellena en
+#   apps/bubui-mobile/eas.json el campo submit.production.ios.ascAppId con el
+#   "Apple ID" numérico de la app (App Store Connect → tu app → App Information).
+#   Mientras esté sin rellenar, deja "Subir a TestFlight" en false: solo compila.
+
+on:
+  workflow_dispatch:
+    inputs:
+      submit:
+        description: "Subir a TestFlight tras compilar (requiere ascAppId en eas.json)"
+        type: boolean
+        default: false
+
+jobs:
+  ios:
+    runs-on: ubuntu-latest # el build ocurre en la nube de EAS; el runner solo orquesta
+    defaults:
+      run:
+        working-directory: apps/bubui-mobile
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: apps/bubui-mobile/package-lock.json
+
+      - name: Setup EAS
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Write App Store Connect API key
+        env:
+          ASC_API_KEY_P8: ${{ secrets.ASC_API_KEY_P8 }}
+        run: printf '%s' "$ASC_API_KEY_P8" > "$RUNNER_TEMP/asc-api-key.p8"
+
+      - name: Build iOS (EAS cloud)
+        env:
+          EXPO_ASC_API_KEY_PATH: ${{ runner.temp }}/asc-api-key.p8
+          EXPO_ASC_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          EXPO_ASC_ISSUER_ID: ${{ secrets.ASC_API_KEY_ISSUER_ID }}
+          EXPO_APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          EXPO_APPLE_TEAM_TYPE: ${{ secrets.APPLE_TEAM_TYPE || 'COMPANY_OR_ORGANIZATION' }}
+        run: eas build --platform ios --profile production --non-interactive --wait
+
+      - name: Submit to TestFlight
+        if: ${{ inputs.submit }}
+        env:
+          EXPO_ASC_API_KEY_PATH: ${{ runner.temp }}/asc-api-key.p8
+          EXPO_ASC_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          EXPO_ASC_ISSUER_ID: ${{ secrets.ASC_API_KEY_ISSUER_ID }}
+        run: eas submit --platform ios --latest --non-interactive
