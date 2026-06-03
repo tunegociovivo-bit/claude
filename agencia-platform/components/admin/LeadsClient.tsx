@@ -1309,6 +1309,38 @@ function QueueTable({ loading, items, onChanged }: { loading: boolean; items: Qu
       onChanged();
     }
   }
+  async function retryFailed() {
+    const failedCount = items.filter((m) => m.status === "failed").length;
+    if (
+      !confirm(
+        `¿Reintentar ${failedCount} mensaje(s) fallido(s)? Se vuelven a encolar y se re-habilitan los leads que se descartaron por "Número sin WhatsApp".`
+      )
+    )
+      return;
+    setProcessing(true);
+    setTickResult(null);
+    try {
+      const r = await fetch("/api/v1/leads/queue/retry-failed", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}"
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        setTickResult({ kind: "error", text: d?.message ?? `Error HTTP ${r.status}` });
+      } else {
+        setTickResult({
+          kind: "ok",
+          text: `✓ ${d.requeued ?? 0} mensaje(s) re-encolado(s), ${d.leadsReset ?? 0} lead(s) re-habilitado(s). Pulsa "Procesar siguiente" para enviarlos.`
+        });
+      }
+    } catch (e: any) {
+      setTickResult({ kind: "error", text: e?.message ?? "Error de red" });
+    } finally {
+      setProcessing(false);
+      onChanged();
+    }
+  }
   async function sendNow(id: string) {
     if (!confirm("¿Enviar ESTE mensaje ahora mismo? Se salta la ventana horaria y el delay anti-spam.")) return;
     setSendingNowId(id);
@@ -1382,6 +1414,17 @@ function QueueTable({ loading, items, onChanged }: { loading: boolean; items: Qu
           {processing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
           Procesar siguiente
         </button>
+        {items.some((m) => m.status === "failed") && (
+          <button
+            onClick={retryFailed}
+            disabled={processing}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-amber-200 bg-amber-50 hover:bg-amber-100 text-amber-700 text-xs disabled:opacity-50"
+            title='Re-encola los mensajes fallidos y re-habilita los leads descartados por "Número sin WhatsApp"'
+          >
+            {processing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+            Reintentar fallidos
+          </button>
+        )}
         {selected.size > 0 && (
           <button
             onClick={removeSelected}
