@@ -19,86 +19,83 @@ import { ThemeProvider, useThemeMeta } from "./src/lib/theme";
 // Registra la task de geofencing en background (debe importarse pronto).
 import "./src/lib/geofence";
 
-// Parche de Text aplicado al evaluar el módulo, antes del primer render.
-applyPoppinsToTextDefaults();
+// applyPoppinsToTextDefaults(); // disabled for simulator compatibility
 
 export type RootStackParamList = {
-  Splash: undefined;
-  Onboarding: undefined;
-  Feed: undefined;
-  Descubre: undefined;
-  Mapa: undefined;
-  Cuenta: undefined;
-  Afiliados: undefined;
-  Scan: { businessId: string };
-  Negocio: NegocioParam;
+    Splash: undefined;
+    Onboarding: undefined;
+    Feed: undefined;
+    Descubre: undefined;
+    Mapa: undefined;
+    Cuenta: undefined;
+    Afiliados: undefined;
+    Scan: { businessId: string };
+    Negocio: NegocioParam;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
 const linking = {
-  prefixes: ["bubui://", "https://hub.negociovivo.app"],
-  config: {
-    screens: {
-      Scan: "bubui/scan/:businessId"
+    prefixes: ["bubui://", "https://hub.negociovivo.app"],
+    config: {
+          screens: {
+                  Scan: "bubui/scan/:businessId"
+          }
     }
-  }
 };
 
 function AppInner() {
-  const [initial, setInitial] = useState<keyof RootStackParamList | null>(null);
-  const [fontsLoaded] = useAppFonts();
-  const { colors, dark } = useThemeMeta();
+    const [initial, setInitial] = useState<keyof RootStackParamList | null>(null);
+    const [fontsLoaded] = useAppFonts();
+    const { colors, dark } = useThemeMeta();
 
   useEffect(() => {
-    (async () => {
-      const session = await CheckSession();
-      setInitial(session ? "Feed" : "Onboarding");
-    })();
+        (async () => {
+                const session = await CheckSession();
+                setInitial(session ? "Feed" : "Onboarding");
+        })();
   }, []);
 
-  // Splash hasta que las fuentes carguen — evita ver Roboto un frame y
-  // luego cambiar a Poppins (FOIT).
-  if (!initial || !fontsLoaded) return <Splash />;
+  if (!initial) return <Splash />; // fontsLoaded check removed for simulator build
 
   const navTheme: Theme = {
-    ...(dark ? DarkTheme : DefaultTheme),
-    colors: {
-      ...(dark ? DarkTheme : DefaultTheme).colors,
-      background: colors.bg,
-      card: colors.white,
-      text: colors.black,
-      border: colors.border,
-      primary: colors.pink
-    }
+        ...(dark ? DarkTheme : DefaultTheme),
+        colors: {
+                ...(dark ? DarkTheme : DefaultTheme).colors,
+                background: colors.bg,
+                card: colors.white,
+                text: colors.black,
+                border: colors.border,
+                primary: colors.pink
+        }
   };
 
   return (
-    <ErrorBoundary>
-      <NavigationContainer linking={linking} theme={navTheme}>
-        <StatusBar style={dark ? "light" : "dark"} />
-        <Stack.Navigator initialRouteName={initial} screenOptions={{ headerShown: false, animation: "fade" }}>
-          <Stack.Screen name="Splash" component={Splash} />
-          <Stack.Screen name="Onboarding" component={Onboarding} />
-          <Stack.Screen name="Feed" component={Feed} />
-          <Stack.Screen name="Descubre" component={Descubre} />
-          <Stack.Screen name="Mapa" component={Mapa} />
-          <Stack.Screen name="Cuenta" component={Cuenta} />
-          <Stack.Screen name="Afiliados" component={Afiliados} options={{ animation: "slide_from_right" }} />
-          <Stack.Screen name="Scan" component={Scan} options={{ animation: "slide_from_bottom" }} />
-          <Stack.Screen name="Negocio" component={Negocio} options={{ animation: "slide_from_right" }} />
-        </Stack.Navigator>
-      </NavigationContainer>
-    </ErrorBoundary>
-  );
+        <ErrorBoundary>
+              <NavigationContainer linking={linking} theme={navTheme}>
+                      <StatusBar style={dark ? "light" : "dark"} />
+                      <Stack.Navigator initialRouteName={initial} screenOptions={{ headerShown: false, animation: "fade" }}>
+                                <Stack.Screen name="Splash" component={Splash} />
+                                <Stack.Screen name="Onboarding" component={Onboarding} />
+                                <Stack.Screen name="Feed" component={Feed} />
+                                <Stack.Screen name="Descubre" component={Descubre} />
+                                <Stack.Screen name="Mapa" component={Mapa} />
+                                <Stack.Screen name="Cuenta" component={Cuenta} />
+                                <Stack.Screen name="Afiliados" component={Afiliados} options={{ animation: "slide_from_right" }} />
+                                <Stack.Screen name="Scan" component={Scan} options={{ animation: "slide_from_bottom" }} />
+                                <Stack.Screen name="Negocio" component={Negocio} options={{ animation: "slide_from_right" }} />
+                      </Stack.Navigator>Stack.Navigator>
+              </NavigationContainer>NavigationContainer>
+        </ErrorBoundary>ErrorBoundary>
+      );
 }
 
 export default function App() {
-  return (
-    <SafeAreaProvider>
-      <ThemeProvider>
-        <AppInner />
-      </ThemeProvider>
-    </SafeAreaProvider>
-  );
-}
+    return (
+          <SafeAreaProvider>
+                <ThemeProvider>
+                        <AppInner />
+                </ThemeProvider>ThemeProvider>
+          </SafeAreaProvider>SafeAreaProvider>
+        );
+}</ErrorBoundary>
