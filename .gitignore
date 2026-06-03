@@ -1,12 +1,12 @@
 # Dependencies
 node_modules/
-package.json
-package-lock.json
 
 # Sólo el package.json/lock ACCIDENTAL de la raíz del repo (ancla "/").
 # OJO: sin la barra inicial el patrón matchea package.json en CUALQUIER
 # subcarpeta y rompe `railway up` (excluye agencia-platform/package.json
-# del build context → "COPY package.json: not found") y EAS Build.
+# del build context → "COPY package.json: not found") y EAS Build (excluye
+# apps/bubui-mobile/package.json del archivo subido → "package.json does
+# not exist"). Por eso SOLO van anclados a la raíz.
 /package.json
 /package-lock.json
 
