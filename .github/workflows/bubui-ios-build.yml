@@ -96,7 +96,7 @@ jobs:
           EXPO_ASC_ISSUER_ID: ${{ secrets.ASC_API_KEY_ISSUER_ID }}
           EXPO_APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           EXPO_APPLE_TEAM_TYPE: ${{ secrets.APPLE_TEAM_TYPE || 'COMPANY_OR_ORGANIZATION' }}
-        run: eas build --platform ios --profile production --non-interactive --wait
+        run: eas build --platform ios --profile production --non-interactive --wait --clear-credentials
 
       - name: Submit to TestFlight
         if: ${{ inputs.target == 'testflight' && inputs.submit }}
