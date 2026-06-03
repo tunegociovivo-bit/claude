@@ -33,8 +33,8 @@
   "submit": {
     "production": {
       "ios": {
-        "ascAppId": "REEMPLAZA_CON_EL_APPLE_ID_NUMERICO_DE_LA_APP",
-        "appleTeamId": "REEMPLAZA_CON_TU_APPLE_TEAM_ID"
+        "ascAppId": "6776224976",
+        "appleTeamId": "9J97GC5NCG"
       }
     }
   }
