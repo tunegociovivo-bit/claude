@@ -592,7 +592,16 @@ export async function sendMessageById(
         phone: msg.phoneNormalized,
         session: msg.instanceName ?? cfg.session
       });
-      if (exists === false) {
+      // El pre-check de WhatsApp (WAHA contacts/check-exists) da FALSOS
+      // NEGATIVOS con algunos motores (NOWEB, o contactos aún sin
+      // sincronizar): devuelve numberExists:false para móviles que SÍ tienen
+      // WhatsApp, lo que descartaba campañas enteras. Solo tratamos el
+      // "false" como definitivo en números que NO parecen móvil español
+      // (fijos 9xx/8xx, que rara vez tienen WhatsApp). En móviles ES (6xx/7xx)
+      // dejamos que el ENVÍO real decida — si no tiene WhatsApp, sendText
+      // fallará y se marcará con el error real.
+      const isEsMobile = /^34[67]\d{8}$/.test(msg.phoneNormalized);
+      if (exists === false && !isEsMobile) {
         await prisma.leadMessage.update({
           where: { id: msg.id },
           data: { status: "failed", lastError: "Número sin WhatsApp" }
