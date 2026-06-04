@@ -52,6 +52,7 @@ export const api = {
     email: string;
     birthDate: string;
     gender: string;
+    postalCode?: string;
     firstBusinessId?: string;
   }) =>
     call("/api/bubui/customer/verify-otp", {

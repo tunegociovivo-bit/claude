@@ -27,6 +27,7 @@ const schema = z.object({
   email: z.string().email(),
   birthDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Fecha inválida"),
   gender: z.enum(["female", "male", "other", "prefer_not"]),
+  postalCode: z.string().regex(/^\d{5}$/, "Código postal inválido").optional(),
   firstBusinessId: z.string().optional(),
   ref: z.string().max(12).optional()
 });
@@ -64,7 +65,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: { code: "bad_code", message: "Código incorrecto o caducado. Pide uno nuevo." } }, { status: 401 });
   }
 
-  const profile = { name: d.name, email: d.email, birthDate: d.birthDate, gender: d.gender };
+  const profile = { name: d.name, email: d.email, birthDate: d.birthDate, gender: d.gender, postalCode: d.postalCode };
 
   // 1) ¿Existe ya por teléfono? -> login/actualización.
   const byPhone = await prisma.bubuiCustomer.findUnique({ where: { phone } });

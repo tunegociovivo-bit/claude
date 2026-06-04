@@ -3429,6 +3429,7 @@ model BubuiCustomer {
   name            String?
   gender          String?  // male | female | other
   birthDate       String?  // YYYY-MM-DD
+  postalCode      String?  // CP de residencia (5 dígitos) — ofertas cerca de casa
   // Token push (Expo / FCM / APNs).
   pushToken       String?
   // Token de sesión opaco para autenticar las llamadas de la app a los

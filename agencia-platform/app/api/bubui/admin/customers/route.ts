@@ -22,6 +22,7 @@ export async function GET(req: Request) {
       email: true,
       birthDate: true,
       gender: true,
+      postalCode: true,
       lastLat: true,
       lastLng: true,
       lastLocationAt: true,

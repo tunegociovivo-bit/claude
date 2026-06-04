@@ -279,7 +279,7 @@ function UsersPanel() {
       <table className="w-full text-[13px]" style={{ borderCollapse: "collapse" }}>
         <thead>
           <tr>
-            {["Nombre", "Teléfono", "Email", "Sexo", "Nacim.", "Ahorrado", "Compras", "Nivel", "Versión", "Ubicación", "Alta"].map((h) => (
+            {["Nombre", "Teléfono", "Email", "Sexo", "Nacim.", "CP", "Ahorrado", "Compras", "Nivel", "Versión", "Ubicación", "Alta"].map((h) => (
               <th key={h} className="text-left p-2 border-b-2 border-black/10 whitespace-nowrap text-black/55">{h}</th>
             ))}
           </tr>
@@ -292,6 +292,7 @@ function UsersPanel() {
               <td className="p-2 border-b border-black/5 whitespace-nowrap">{c.email ?? "—"}</td>
               <td className="p-2 border-b border-black/5 whitespace-nowrap">{c.gender ?? "—"}</td>
               <td className="p-2 border-b border-black/5 whitespace-nowrap">{c.birthDate ?? "—"}</td>
+              <td className="p-2 border-b border-black/5 whitespace-nowrap">{c.postalCode ?? "—"}</td>
               <td className="p-2 border-b border-black/5 whitespace-nowrap">{(c.totalSaved ?? 0).toFixed(2)} €</td>
               <td className="p-2 border-b border-black/5 whitespace-nowrap">{c.totalPurchases}</td>
               <td className="p-2 border-b border-black/5 whitespace-nowrap">{c.ambassadorLevel}</td>

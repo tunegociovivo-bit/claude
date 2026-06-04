@@ -220,6 +220,7 @@ function Signup({ onDone, refCode }: { onDone: (c: Customer) => void; refCode?: 
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
+  const [postalCode, setPostalCode] = useState("");
   const [birthDate, setBirthDate] = useState("");
   const [gender, setGender] = useState("");
   const [code, setCode] = useState("");
@@ -267,6 +268,7 @@ function Signup({ onDone, refCode }: { onDone: (c: Customer) => void; refCode?: 
     e.preventDefault();
     if (!name.trim()) { setError("Pon tu nombre"); return; }
     if (!email.trim()) { setError("El email es obligatorio"); return; }
+    if (!/^\d{5}$/.test(postalCode)) { setError("Indica tu código postal (5 dígitos)"); return; }
     if (!birthDate) { setError("Indica tu fecha de nacimiento"); return; }
     if (!gender) { setError("Indica tu sexo"); return; }
     setBusy(true);
@@ -293,7 +295,7 @@ function Signup({ onDone, refCode }: { onDone: (c: Customer) => void; refCode?: 
       const r = await fetch("/api/bubui/customer/verify-otp", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone, code, name, email, birthDate, gender, ref: refCode || undefined })
+        body: JSON.stringify({ phone, code, name, email, birthDate, gender, postalCode, ref: refCode || undefined })
       });
       const j = await r.json();
       if (!r.ok) { setError(j?.error?.message ?? `Error ${r.status}`); return; }
@@ -403,6 +405,15 @@ function Signup({ onDone, refCode }: { onDone: (c: Customer) => void; refCode?: 
             placeholder="Email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
+            required
+            className="bubui-input"
+          />
+          <input
+            type="text"
+            inputMode="numeric"
+            placeholder="Código postal"
+            value={postalCode}
+            onChange={(e) => setPostalCode(e.target.value.replace(/[^0-9]/g, "").slice(0, 5))}
             required
             className="bubui-input"
           />

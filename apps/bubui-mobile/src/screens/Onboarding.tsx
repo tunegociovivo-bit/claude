@@ -81,6 +81,7 @@ export function Onboarding() {
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
+  const [postalCode, setPostalCode] = useState("");
   const [birthDate, setBirthDate] = useState("");
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [gender, setGender] = useState("");
@@ -126,6 +127,7 @@ export function Onboarding() {
     if (!name.trim()) { Alert.alert("Pon tu nombre"); return; }
     if (phone.trim().length < 6) { Alert.alert("Teléfono inválido"); return; }
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.trim())) { Alert.alert("Email inválido"); return; }
+    if (!/^\d{5}$/.test(postalCode.trim())) { Alert.alert("Código postal", "Indica tu código postal (5 dígitos)"); return; }
     if (!/^\d{4}-\d{2}-\d{2}$/.test(birthDate.trim())) { Alert.alert("Fecha", "Usa el formato AAAA-MM-DD"); return; }
     if (!gender) { Alert.alert("Indica tu sexo"); return; }
     setBusy(true);
@@ -148,7 +150,8 @@ export function Onboarding() {
         name: name.trim(),
         email: email.trim(),
         birthDate: birthDate.trim(),
-        gender
+        gender,
+        postalCode: postalCode.trim()
       });
       try { await Location.requestForegroundPermissionsAsync(); } catch {}
       try { await Notifications.requestPermissionsAsync(); } catch {}
@@ -398,6 +401,15 @@ export function Onboarding() {
             onChangeText={setEmail}
             keyboardType="email-address"
             autoCapitalize="none"
+          />
+          <TextInput
+            style={styles.input}
+            placeholder="Código postal"
+            placeholderTextColor={c.grayLight}
+            value={postalCode}
+            onChangeText={(t) => setPostalCode(t.replace(/[^0-9]/g, "").slice(0, 5))}
+            keyboardType="number-pad"
+            maxLength={5}
           />
           <TouchableOpacity
             style={styles.input}
