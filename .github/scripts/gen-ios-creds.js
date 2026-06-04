@@ -39,11 +39,11 @@ function generateJWT() {
 }
 
 // HTTP request helper
-function apiRequest(method, path, body, jwt) {
+function apiRequest(method, urlPath, body, jwt) {
   return new Promise((resolve, reject) => {
     const options = {
       hostname: 'api.appstoreconnect.apple.com',
-      path: path,
+      path: urlPath,
       method: method,
       headers: {
         'Authorization': 'Bearer ' + jwt,
@@ -54,8 +54,12 @@ function apiRequest(method, path, body, jwt) {
       let data = '';
       res.on('data', (chunk) => data += chunk);
       res.on('end', () => {
-        try { resolve(JSON.parse(data)); }
-        catch (e) { reject(new Error('Parse error: ' + data.substring(0, 200))); }
+        if (res.statusCode === 204 || data.trim() === '') {
+          resolve({ status: res.statusCode });
+        } else {
+          try { resolve(JSON.parse(data)); }
+          catch (e) { reject(new Error('Parse error: ' + data.substring(0, 200))); }
+        }
       });
     });
     req.on('error', reject);
@@ -69,12 +73,27 @@ async function main() {
   const jwt = generateJWT();
   console.log('JWT generated for key:', ASC_KEY_ID);
 
+  // Step 0: Revoke all existing iOS Distribution certificates
+  console.log('Checking for existing distribution certificates...');
+  const existingCerts = await apiRequest('GET', '/v1/certificates?filter[certificateType]=IOS_DISTRIBUTION&limit=10', null, jwt);
+  if (existingCerts.data && existingCerts.data.length > 0) {
+    console.log('Found', existingCerts.data.length, 'existing certificate(s), revoking...');
+    for (const cert of existingCerts.data) {
+      console.log('Revoking cert ID:', cert.id);
+      const delResult = await apiRequest('DELETE', '/v1/certificates/' + cert.id, null, jwt);
+      console.log('Revoked, status:', delResult.status);
+    }
+    console.log('All existing certificates revoked.');
+  } else {
+    console.log('No existing distribution certificates found.');
+  }
+
   // Step 1: Generate private key and CSR using openssl
   console.log('Generating private key and CSR...');
   const keyPath = path.join(CREDS_DIR, 'dist.key');
   const csrPath = path.join(CREDS_DIR, 'dist.csr');
-  execSync(`openssl genrsa -out ${keyPath} 2048`);
-  execSync(`openssl req -new -key ${keyPath} -out ${csrPath} -subj '/CN=iPhone Distribution/O=Negocio Vivo/C=ES'`);
+  execSync('openssl genrsa -out ' + keyPath + ' 2048');
+  execSync('openssl req -new -key ' + keyPath + ' -out ' + csrPath + ' -subj \'/CN=iPhone Distribution/O=Negocio Vivo/C=ES\'');
   const csrContent = fs.readFileSync(csrPath, 'utf8')
     .replace('-----BEGIN CERTIFICATE REQUEST-----', '')
     .replace('-----END CERTIFICATE REQUEST-----', '')
@@ -109,20 +128,20 @@ async function main() {
 
   // Convert .cer to .pem
   const pemPath = path.join(CREDS_DIR, 'dist.pem');
-  execSync(`openssl x509 -inform DER -in ${cerPath} -out ${pemPath}`);
+  execSync('openssl x509 -inform DER -in ' + cerPath + ' -out ' + pemPath);
 
   // Create .p12
   const p12Path = path.join(CREDS_DIR, 'cert.p12');
   try {
-    execSync(`openssl pkcs12 -export -in ${pemPath} -inkey ${keyPath} -out ${p12Path} -passout pass:${CERT_PASSWORD} -legacy`);
+    execSync('openssl pkcs12 -export -in ' + pemPath + ' -inkey ' + keyPath + ' -out ' + p12Path + ' -passout pass:' + CERT_PASSWORD + ' -legacy');
   } catch (e) {
-    execSync(`openssl pkcs12 -export -in ${pemPath} -inkey ${keyPath} -out ${p12Path} -passout pass:${CERT_PASSWORD}`);
+    execSync('openssl pkcs12 -export -in ' + pemPath + ' -inkey ' + keyPath + ' -out ' + p12Path + ' -passout pass:' + CERT_PASSWORD);
   }
   console.log('P12 created, size:', fs.statSync(p12Path).size);
 
   // Step 3: Get Bundle ID resource ID
   console.log('Getting bundle ID resource...');
-  const bundleResp = await apiRequest('GET', `/v1/bundleIds?filter[identifier]=${BUNDLE_ID}&filter[platform]=IOS`, null, jwt);
+  const bundleResp = await apiRequest('GET', '/v1/bundleIds?filter[identifier]=' + BUNDLE_ID + '&filter[platform]=IOS', null, jwt);
   if (!bundleResp.data || bundleResp.data.length === 0) {
     console.error('Bundle ID not found:', BUNDLE_ID);
     process.exit(1);
