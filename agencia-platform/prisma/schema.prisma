@@ -3435,6 +3435,13 @@ model BubuiCustomer {
   // endpoints /customer/[id]/*, /offers y /scan. Se emite/renueva al verificar
   // el OTP y al hacer login. null en cuentas antiguas hasta el próximo login.
   apiToken        String?
+  // Versión de la app instalada (la reporta la app móvil en cada apertura del
+  // feed). appBuild = versionCode (Android) / buildNumber (iOS), p. ej. "1015".
+  // Sirve para saber qué build tiene cada usuario al hacer pruebas.
+  appVersion      String?  // p. ej. "1.0.0"
+  appBuild        String?  // p. ej. "1015"
+  appPlatform     String?  // ios | android
+  lastSeenAt      DateTime? // última vez que la app llamó al backend
   // Última ubicación (para feed + push geo).
   lastLat         Float?
   lastLng         Float?

@@ -228,7 +228,7 @@ function UsersPanel() {
       <table className="w-full text-[13px]" style={{ borderCollapse: "collapse" }}>
         <thead>
           <tr>
-            {["Nombre", "Teléfono", "Email", "Sexo", "Nacim.", "Ahorrado", "Compras", "Nivel", "Ubicación", "Alta"].map((h) => (
+            {["Nombre", "Teléfono", "Email", "Sexo", "Nacim.", "Ahorrado", "Compras", "Nivel", "Versión", "Ubicación", "Alta"].map((h) => (
               <th key={h} className="text-left p-2 border-b-2 border-black/10 whitespace-nowrap text-black/55">{h}</th>
             ))}
           </tr>
@@ -244,6 +244,17 @@ function UsersPanel() {
               <td className="p-2 border-b border-black/5 whitespace-nowrap">{(c.totalSaved ?? 0).toFixed(2)} €</td>
               <td className="p-2 border-b border-black/5 whitespace-nowrap">{c.totalPurchases}</td>
               <td className="p-2 border-b border-black/5 whitespace-nowrap">{c.ambassadorLevel}</td>
+              <td
+                className="p-2 border-b border-black/5 whitespace-nowrap"
+                title={c.lastSeenAt ? `Última conexión: ${new Date(c.lastSeenAt).toLocaleString("es-ES")}` : "Sin datos de versión todavía"}
+              >
+                {c.appBuild ? (
+                  <span className="font-medium">
+                    {c.appBuild}
+                    {c.appPlatform ? <span className="text-black/45"> · {c.appPlatform}</span> : null}
+                  </span>
+                ) : "—"}
+              </td>
               <td className="p-2 border-b border-black/5 whitespace-nowrap">
                 {c.lastLat != null && c.lastLng != null ? (
                   <a href={`https://www.google.com/maps?q=${c.lastLat},${c.lastLng}`} target="_blank" rel="noreferrer" className="text-pink-600">ver</a>

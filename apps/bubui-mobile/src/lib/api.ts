@@ -1,9 +1,16 @@
 /** Cliente HTTP minimal apuntando al backend del Hub. */
 
 import Constants from "expo-constants";
+import { Platform } from "react-native";
 
 export const API_BASE: string =
   (Constants.expoConfig?.extra as any)?.apiBaseUrl ?? "https://hub.negociovivo.app";
+
+// Versión de la app instalada — se envía al backend para saber qué build tiene
+// cada usuario (panel admin). appBuild = versionCode (Android) / buildNumber (iOS).
+const _cfg = Constants.expoConfig as any;
+const APP_VERSION: string = _cfg?.version ?? "";
+const APP_BUILD: string = String(_cfg?.android?.versionCode ?? _cfg?.ios?.buildNumber ?? "");
 
 // Token de sesión del cliente. Lo fija session.ts al iniciar/guardar sesión.
 // Se envía como `Authorization: Bearer <customerId>:<token>` en cada llamada.
@@ -61,6 +68,10 @@ export const api = {
     url.searchParams.set("customerId", customerId);
     if (lat != null) url.searchParams.set("lat", String(lat));
     if (lng != null) url.searchParams.set("lng", String(lng));
+    // Reporta la versión instalada (para el panel admin).
+    if (APP_VERSION) url.searchParams.set("appVersion", APP_VERSION);
+    if (APP_BUILD) url.searchParams.set("appBuild", APP_BUILD);
+    url.searchParams.set("appPlatform", Platform.OS);
     return fetch(url.toString(), { headers: authHeaders() }).then(async (r) => {
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       return r.json();
