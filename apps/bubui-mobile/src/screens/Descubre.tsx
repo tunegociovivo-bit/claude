@@ -43,7 +43,9 @@ export function Descubre() {
       if (raw) setFavs(JSON.parse(raw));
       let lat: number | undefined, lng: number | undefined;
       try {
-        const { status } = await Location.getForegroundPermissionsAsync();
+        // Volvemos a pedir el permiso si quedó "sin decidir" (ver Feed): así la
+        // ubicación se refresca aunque el usuario eligiera "Solo esta vez".
+        const { status } = await Location.requestForegroundPermissionsAsync();
         if (status === "granted") {
           const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
           lat = loc.coords.latitude; lng = loc.coords.longitude;

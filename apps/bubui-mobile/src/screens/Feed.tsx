@@ -92,7 +92,11 @@ export function Feed() {
       let lat: number | undefined;
       let lng: number | undefined;
       try {
-        const { status } = await Location.getForegroundPermissionsAsync();
+        // requestForeground… (no getForeground…): si el permiso quedó "sin
+        // decidir" (p. ej. el usuario eligió "Solo esta vez"), lo vuelve a
+        // pedir para poder refrescar su ubicación. Si ya está concedido o
+        // denegado, devuelve el estado al instante sin mostrar diálogo.
+        const { status } = await Location.requestForegroundPermissionsAsync();
         if (status === "granted") {
           const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
           lat = loc.coords.latitude;
