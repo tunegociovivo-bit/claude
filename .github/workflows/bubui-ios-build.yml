@@ -1,14 +1,8 @@
 name: Build Bubui (iOS → TestFlight)
 
-# Compila la app iOS en la NUBE de EAS. Dos modos (elige al lanzar):
-#
 # Para "testflight" hace falta:
-#   EXPO_TOKEN
-#   ASC_API_KEY_P8, ASC_API_KEY_ID, ASC_API_KEY_ISSUER_ID
-#   APPLE_TEAM_ID
-#   IOS_DIST_CERT_P12  (base64 del .p12 con password bubui2026)
-#   IOS_PROV_PROFILE   (base64 del .mobileprovision)
-#   DIST_CERT_PASSWORD (password del p12, valor: bubui2026)
+#   EXPO_TOKEN, ASC_API_KEY_P8, ASC_API_KEY_ID, ASC_API_KEY_ISSUER_ID
+#   APPLE_TEAM_ID, IOS_DIST_CERT_P12, IOS_PROV_PROFILE, DIST_CERT_PASSWORD
 
 on:
   workflow_dispatch:
@@ -21,7 +15,7 @@ on:
           - simulator
         default: testflight
       submit:
-        description: "Subir a TestFlight tras compilar (solo aplica a 'testflight' y requiere ascAppId)"
+        description: "Subir a TestFlight tras compilar"
         type: boolean
         default: false
 
@@ -51,13 +45,10 @@ jobs:
       - name: Install deps
         run: npm ci
 
-      # ── Modo simulador ──
       - name: Build iOS para SIMULADOR (EAS cloud)
         if: ${{ inputs.target == 'simulator' }}
-        run: |
-          eas build --platform ios --profile ios-simulator --non-interactive --wait
+        run: eas build --platform ios --profile ios-simulator --non-interactive --wait
 
-      # ── Modo TestFlight / App Store ──
       - name: Write App Store Connect API key
         if: ${{ inputs.target == 'testflight' }}
         env:
@@ -72,25 +63,18 @@ jobs:
           DIST_CERT_PASSWORD: ${{ secrets.DIST_CERT_PASSWORD }}
         run: |
           mkdir -p "$RUNNER_TEMP/ios-creds"
-          echo "$IOS_DIST_CERT_P12" | base64 -d > "$RUNNER_TEMP/ios-creds/dist-cert.p12"
-          echo "$IOS_PROV_PROFILE" | base64 -d > "$RUNNER_TEMP/ios-creds/bubui.mobileprovision"
+          printf '%s' "$IOS_DIST_CERT_P12" | base64 -d > "$RUNNER_TEMP/ios-creds/dist-cert.p12"
+          printf '%s' "$IOS_PROV_PROFILE" | base64 -d > "$RUNNER_TEMP/ios-creds/bubui.mobileprovision"
           CERT_PATH="$RUNNER_TEMP/ios-creds/dist-cert.p12"
           PROV_PATH="$RUNNER_TEMP/ios-creds/bubui.mobileprovision"
-          cat > credentials.json <<CREDS_EOF
-          {
-            "ios": {
-              "com.negociovivo.bubui": {
-                "distributionCertificate": {
-                  "path": "$CERT_PATH",
-                  "password": "$DIST_CERT_PASSWORD"
-                },
-                "provisioningProfilePath": "$PROV_PATH"
-              }
-            }
-          }
-          CREDS_EOF
-          echo "credentials.json created:"
+          printf '{"ios":{"com.negociovivo.bubui":{"distributionCertificate":{"path":"%s","password":"%s"},"provisioningProfilePath":"%s"}}}' "$CERT_PATH" "$DIST_CERT_PASSWORD" "$PROV_PATH" > credentials.json
+          echo "=== credentials.json ==="
           cat credentials.json
+          echo ""
+          echo "=== p12 size ==="
+          wc -c "$CERT_PATH"
+          echo "=== mobileprovision size ==="
+          wc -c "$PROV_PATH"
 
       - name: Build iOS firmado (EAS cloud)
         if: ${{ inputs.target == 'testflight' }}
@@ -99,7 +83,7 @@ jobs:
           EXPO_ASC_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
           EXPO_ASC_ISSUER_ID: ${{ secrets.ASC_API_KEY_ISSUER_ID }}
           EXPO_APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          EXPO_APPLE_TEAM_TYPE: ${{ secrets.APPLE_TEAM_TYPE || 'COMPANY_OR_ORGANIZATION' }}
+          EXPO_APPLE_TEAM_TYPE: COMPANY_OR_ORGANIZATION
         run: eas build --platform ios --profile production --non-interactive --wait
 
       - name: Submit to TestFlight
