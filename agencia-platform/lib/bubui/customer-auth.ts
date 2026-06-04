@@ -38,18 +38,24 @@ function safeEqual(a: string, b: string): boolean {
 
 /**
  * ¿La petición está autenticada como `customerId`? Ver nota de despliegue arriba.
- * Hace una única lectura del cliente (apiToken). Devuelve false si no existe.
+ *
+ * - Si se presenta un token (cabecera Authorization), DEBE ser válido para este
+ *   cliente. Así protegemos a quien ya envía token (la app móvil) frente a
+ *   tokens falsos o de otro cliente — sin importar el modo.
+ * - Si NO se presenta token: en modo estricto se bloquea; en modo lazy (por
+ *   defecto) se permite, para no romper a los clientes que todavía no envían
+ *   token durante la transición (la PWA web y las apps móviles antiguas).
  */
 export async function customerAuthOk(req: Request, customerId: string | null | undefined): Promise<boolean> {
   if (!customerId) return false;
-  const c = await prisma.bubuiCustomer.findUnique({ where: { id: customerId }, select: { apiToken: true } });
-  if (!c) return false;
   const auth = parseAuth(req.headers.get("authorization"));
-  if (c.apiToken) {
-    // Cliente con app actualizada → token obligatorio y correcto.
-    return !!auth && auth.customerId === customerId && safeEqual(c.apiToken, auth.secret);
+
+  if (auth) {
+    if (auth.customerId !== customerId) return false;
+    const c = await prisma.bubuiCustomer.findUnique({ where: { id: customerId }, select: { apiToken: true } });
+    return !!c?.apiToken && safeEqual(c.apiToken, auth.secret);
   }
-  // Cliente todavía sin token (sesión antigua).
-  if (process.env.BUBUI_REQUIRE_CUSTOMER_TOKEN === "true") return false;
-  return true; // modo lazy: no bloquear durante la transición
+
+  // Sin token presentado.
+  return process.env.BUBUI_REQUIRE_CUSTOMER_TOKEN !== "true";
 }

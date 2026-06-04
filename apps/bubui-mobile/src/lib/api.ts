@@ -88,7 +88,7 @@ export const api = {
     const fd = new FormData();
     fd.append("customerId", customerId);
     fd.append("file", { uri, name: "ticket.jpg", type: "image/jpeg" } as any);
-    return fetch(`${API_BASE}/api/bubui/scan/read-ticket`, { method: "POST", body: fd }).then(async (r) => {
+    return fetch(`${API_BASE}/api/bubui/scan/read-ticket`, { method: "POST", body: fd, headers: authHeaders() }).then(async (r) => {
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j?.error?.message ?? `HTTP ${r.status}`);
       return j as { amount: number | null; currency: string; confidence: number; ticketUrl: string | null };
