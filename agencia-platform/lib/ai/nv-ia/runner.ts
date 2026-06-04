@@ -1310,39 +1310,54 @@ export async function executeAgentRun(opts: {
       //  (b) El modelo terminó sin add_comment ni mark_complete — eso sí
       //      es un fallo real (olvidó cerrar). Lo marcamos REQUIRES_HUMAN.
       if (resp.stop_reason === "end_turn") {
-        // ¿Hubo al menos un add_comment exitoso durante este run?
-        const lastSuccessfulComment = [...log]
+        // Tools que justifican legítimamente que Sonia termine SIN llamar
+        // a mark_complete. El propio SYSTEM_PROMPT le indica que en estos
+        // casos termine y espere — el run se reactivará por otro trigger
+        // (respuesta del user, aprobación del draft, etc.).
+        const TERMINAL_TOOLS = new Set([
+          "add_comment",
+          "escalate_to_claude",
+          "request_user_approval",
+          "delegate_to_human",
+          "schedule_followup"
+        ]);
+        const isTerminalTool = (name: string) =>
+          TERMINAL_TOOLS.has(name) || name.startsWith("draft_");
+
+        // Buscamos la última tool terminal exitosa (sin tool_result.isError).
+        const lastTerminalToolUse = [...log]
           .reverse()
           .find(
             (s) =>
               s.type === "tool_use" &&
-              (s as any).tool === "add_comment"
+              typeof (s as any).tool === "string" &&
+              isTerminalTool((s as any).tool)
           ) as any;
-        const commentHadError =
-          lastSuccessfulComment &&
+        const terminalHadError =
+          lastTerminalToolUse &&
           log.some(
             (s) =>
               s.type === "tool_result" &&
-              (s as any).toolUseId === lastSuccessfulComment.toolUseId &&
+              (s as any).toolUseId === lastTerminalToolUse.toolUseId &&
               (s as any).isError === true
           );
-        const sentComment = !!lastSuccessfulComment && !commentHadError;
+        const leftValidExit = !!lastTerminalToolUse && !terminalHadError;
 
-        if (sentComment) {
-          // Caso (a): Sonia dejó un comentario y terminó. Tratamos como
-          // SUCCEEDED — el run cumplió su ciclo dejando una respuesta al
-          // user. El próximo trigger (respuesta del user) abrirá otro run.
-          const body = String(
-            (lastSuccessfulComment.input as any)?.body ?? ""
-          );
+        if (leftValidExit) {
+          // Caso (a): Sonia dejó respuesta/draft/escalación y terminó.
+          // Tratamos como SUCCEEDED — el run cumplió su ciclo. El próximo
+          // trigger abrirá otro run.
+          const toolName = String((lastTerminalToolUse as any).tool);
+          const inp = (lastTerminalToolUse.input as any) ?? {};
+          const body = String(inp.body ?? inp.question ?? inp.reason ?? inp.title ?? "");
           const inferredSummary =
             body.trim().length > 0
-              ? `Comentario dejado en la tarea (esperando respuesta del user): ${body.slice(0, 240)}${body.length > 240 ? "…" : ""}`
-              : "Comentario dejado en la tarea (esperando respuesta del user).";
+              ? `Sonia terminó dejando ${toolName} (esperando respuesta del user): ${body.slice(0, 240)}${body.length > 240 ? "…" : ""}`
+              : `Sonia terminó dejando ${toolName} (esperando respuesta del user).`;
           log.push({
             type: "stop",
             ts: nowIso(),
-            reason: "end_turn_with_comment_awaiting_user",
+            reason: "end_turn_with_terminal_tool_awaiting_user",
             summary: inferredSummary
           });
           return {
@@ -1356,13 +1371,60 @@ export async function executeAgentRun(opts: {
           };
         }
 
-        // Caso (b): terminó sin haber dejado nada — bug real.
+        // Caso (b): terminó SIN tool terminal. Antes esto se devolvía como
+        // REQUIRES_HUMAN dejando el texto del modelo huérfano en el log
+        // (invisible para el user). Si el modelo dejó al menos un bloque
+        // de texto en el turn final, lo publicamos como add_comment
+        // automático — así el trabajo de Sonia (web_search, análisis, etc.)
+        // queda visible en la tarea. Marcamos REQUIRES_HUMAN igual para
+        // que el admin sepa que el cierre no fue limpio, pero al menos el
+        // user ve la respuesta.
+        const finalText = resp.content
+          .filter((b: any) => b.type === "text" && typeof b.text === "string")
+          .map((b: any) => b.text.trim())
+          .filter((t: string) => t.length > 0)
+          .join("\n\n")
+          .trim();
+
+        let publishedAsComment = false;
+        if (finalText.length > 0) {
+          try {
+            await TOOL_EXECUTORS.add_comment({ body: finalText }, ctx);
+            publishedAsComment = true;
+            log.push({
+              type: "info",
+              ts: nowIso(),
+              text: "Texto final del modelo publicado como add_comment automático (fallback de end_turn sin tool terminal)."
+            });
+          } catch (e) {
+            console.warn(
+              "[sonia] fallback add_comment falló:",
+              (e as Error).message
+            );
+          }
+        }
+
         log.push({
           type: "stop",
           ts: nowIso(),
           reason: "end_turn_sin_mark_complete",
           summary: undefined
         });
+        if (publishedAsComment) {
+          // Texto rescatado y publicado → SUCCEEDED. El user lo ve en la
+          // tarea y puede reaccionar; no es un fallo técnico que merezca
+          // alertar al admin.
+          const inferredSummary = `Sonia terminó sin mark_complete; su texto final se publicó como comentario: ${finalText.slice(0, 240)}${finalText.length > 240 ? "…" : ""}`;
+          return {
+            status: "SUCCEEDED",
+            summary: inferredSummary,
+            error: null,
+            log,
+            stepsCount,
+            inputTokens,
+            outputTokens
+          };
+        }
         return {
           status: "REQUIRES_HUMAN",
           summary: null,
