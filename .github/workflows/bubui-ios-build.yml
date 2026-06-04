@@ -69,29 +69,26 @@ jobs:
         env:
           IOS_DIST_CERT_P12: ${{ secrets.IOS_DIST_CERT_P12 }}
           IOS_PROV_PROFILE: ${{ secrets.IOS_PROV_PROFILE }}
+          DIST_CERT_PASSWORD: ${{ secrets.DIST_CERT_PASSWORD }}
         run: |
-          mkdir -p $RUNNER_TEMP/ios-creds
-          echo "$IOS_DIST_CERT_P12" | base64 -d > $RUNNER_TEMP/ios-creds/dist-cert.p12
-          echo "$IOS_PROV_PROFILE" | base64 -d > $RUNNER_TEMP/ios-creds/bubui.mobileprovision
-          cat > credentials.json << 'CREDS_EOF'
+          mkdir -p "$RUNNER_TEMP/ios-creds"
+          echo "$IOS_DIST_CERT_P12" | base64 -d > "$RUNNER_TEMP/ios-creds/dist-cert.p12"
+          echo "$IOS_PROV_PROFILE" | base64 -d > "$RUNNER_TEMP/ios-creds/bubui.mobileprovision"
+          CERT_PATH="$RUNNER_TEMP/ios-creds/dist-cert.p12"
+          PROV_PATH="$RUNNER_TEMP/ios-creds/bubui.mobileprovision"
+          cat > credentials.json <<CREDS_EOF
           {
             "ios": {
               "com.negociovivo.bubui": {
                 "distributionCertificate": {
-                  "path": "__CERT_PATH__",
-                  "password": "__CERT_PASS__"
+                  "path": "$CERT_PATH",
+                  "password": "$DIST_CERT_PASSWORD"
                 },
-                "provisioningProfilePath": "__PROV_PATH__"
+                "provisioningProfilePath": "$PROV_PATH"
               }
             }
           }
           CREDS_EOF
-          CERT_PATH=$RUNNER_TEMP/ios-creds/dist-cert.p12
-          PROV_PATH=$RUNNER_TEMP/ios-creds/bubui.mobileprovision
-          CERT_PASS=${{ secrets.DIST_CERT_PASSWORD }}
-          sed -i "s|__CERT_PATH__|$CERT_PATH|g" credentials.json
-          sed -i "s|__PROV_PATH__|$PROV_PATH|g" credentials.json
-          sed -i "s|__CERT_PASS__|$CERT_PASS|g" credentials.json
           echo "credentials.json created:"
           cat credentials.json
 
