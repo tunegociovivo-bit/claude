@@ -1,8 +1,7 @@
 name: Build Bubui (iOS → TestFlight)
 
-# Para "testflight" hace falta:
-#   EXPO_TOKEN, ASC_API_KEY_P8, ASC_API_KEY_ID, ASC_API_KEY_ISSUER_ID
-#   APPLE_TEAM_ID, IOS_DIST_CERT_P12, IOS_PROV_PROFILE, DIST_CERT_PASSWORD
+# Secretos: EXPO_TOKEN, ASC_API_KEY_P8, ASC_API_KEY_ID, ASC_API_KEY_ISSUER_ID
+#            APPLE_TEAM_ID, IOS_DIST_CERT_P12, IOS_PROV_PROFILE, DIST_CERT_PASSWORD
 
 on:
   workflow_dispatch:
@@ -49,32 +48,39 @@ jobs:
         if: ${{ inputs.target == 'simulator' }}
         run: eas build --platform ios --profile ios-simulator --non-interactive --wait
 
-      - name: Write App Store Connect API key
+      - name: Write ASC API key
         if: ${{ inputs.target == 'testflight' }}
         env:
           ASC_API_KEY_P8: ${{ secrets.ASC_API_KEY_P8 }}
         run: printf '%s' "$ASC_API_KEY_P8" > "$RUNNER_TEMP/asc-api-key.p8"
 
-      - name: Prepare local iOS credentials
+      - name: Prepare iOS credentials
         if: ${{ inputs.target == 'testflight' }}
         env:
           IOS_DIST_CERT_P12: ${{ secrets.IOS_DIST_CERT_P12 }}
           IOS_PROV_PROFILE: ${{ secrets.IOS_PROV_PROFILE }}
           DIST_CERT_PASSWORD: ${{ secrets.DIST_CERT_PASSWORD }}
         run: |
-          mkdir -p "$RUNNER_TEMP/ios-creds"
-          printf '%s' "$IOS_DIST_CERT_P12" | base64 -d > "$RUNNER_TEMP/ios-creds/dist-cert.p12"
-          printf '%s' "$IOS_PROV_PROFILE" | base64 -d > "$RUNNER_TEMP/ios-creds/bubui.mobileprovision"
-          CERT_PATH="$RUNNER_TEMP/ios-creds/dist-cert.p12"
-          PROV_PATH="$RUNNER_TEMP/ios-creds/bubui.mobileprovision"
-          printf '{"ios":{"com.negociovivo.bubui":{"distributionCertificate":{"path":"%s","password":"%s"},"provisioningProfilePath":"%s"}}}' "$CERT_PATH" "$DIST_CERT_PASSWORD" "$PROV_PATH" > credentials.json
-          echo "=== credentials.json ==="
-          cat credentials.json
-          echo ""
-          echo "=== p12 size ==="
-          wc -c "$CERT_PATH"
-          echo "=== mobileprovision size ==="
-          wc -c "$PROV_PATH"
+          D="$RUNNER_TEMP/ios-creds"
+          mkdir -p "$D"
+          printf '%s' "$IOS_DIST_CERT_P12" | base64 -d > "$D/cert.p12"
+          printf '%s' "$IOS_PROV_PROFILE"  | base64 -d > "$D/app.mobileprovision"
+          node -e "
+          const fs = require('fs');
+          const creds = {
+            ios: {
+              distributionCertificate: {
+                path: process.env.D + '/cert.p12',
+                password: process.env.DIST_CERT_PASSWORD
+              },
+              provisioningProfilePath: process.env.D + '/app.mobileprovision'
+            }
+          };
+          fs.writeFileSync('credentials.json', JSON.stringify(creds, null, 2));
+          console.log('credentials.json:', JSON.stringify(creds, null, 2));
+          console.log('cert size:', fs.statSync(process.env.D + '/cert.p12').size);
+          console.log('prov size:', fs.statSync(process.env.D + '/app.mobileprovision').size);
+          "
 
       - name: Build iOS firmado (EAS cloud)
         if: ${{ inputs.target == 'testflight' }}
