@@ -61,25 +61,27 @@ jobs:
           IOS_PROV_PROFILE: ${{ secrets.IOS_PROV_PROFILE }}
           DIST_CERT_PASSWORD: ${{ secrets.DIST_CERT_PASSWORD }}
         run: |
-          D="$RUNNER_TEMP/ios-creds"
-          mkdir -p "$D"
-          printf '%s' "$IOS_DIST_CERT_P12" | base64 -d > "$D/cert.p12"
-          printf '%s' "$IOS_PROV_PROFILE"  | base64 -d > "$D/app.mobileprovision"
+          export CREDS_DIR="$RUNNER_TEMP/ios-creds"
+          mkdir -p "$CREDS_DIR"
+          printf '%s' "$IOS_DIST_CERT_P12" | base64 -d > "$CREDS_DIR/cert.p12"
+          printf '%s' "$IOS_PROV_PROFILE"  | base64 -d > "$CREDS_DIR/app.mobileprovision"
           node -e "
           const fs = require('fs');
+          const d = process.env.CREDS_DIR;
+          const pass = process.env.DIST_CERT_PASSWORD;
           const creds = {
             ios: {
               distributionCertificate: {
-                path: process.env.D + '/cert.p12',
-                password: process.env.DIST_CERT_PASSWORD
+                path: d + '/cert.p12',
+                password: pass
               },
-              provisioningProfilePath: process.env.D + '/app.mobileprovision'
+              provisioningProfilePath: d + '/app.mobileprovision'
             }
           };
           fs.writeFileSync('credentials.json', JSON.stringify(creds, null, 2));
-          console.log('credentials.json:', JSON.stringify(creds, null, 2));
-          console.log('cert size:', fs.statSync(process.env.D + '/cert.p12').size);
-          console.log('prov size:', fs.statSync(process.env.D + '/app.mobileprovision').size);
+          console.log('credentials.json written');
+          console.log('cert size:', fs.statSync(d + '/cert.p12').size);
+          console.log('prov size:', fs.statSync(d + '/app.mobileprovision').size);
           "
 
       - name: Build iOS firmado (EAS cloud)
