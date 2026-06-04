@@ -19,7 +19,10 @@ const BASE = "https://api.github.com";
 // Workspace.settings.integrations.selfHeal.{ repo, branch } si quiere
 // que el agente parchee otro repo.
 const DEFAULT_REPO = "tunegociovivo-bit/claude";
-const DEFAULT_BRANCH = "claude/internal-project-platform-ZezvX";
+// IMPORTANTE: debe ser la rama que Railway despliega de verdad. Si el
+// self-heal apunta a otra, sus PRs se mergean pero NUNCA se despliegan y la
+// tarea entra en bucle (auto-fix → no deploy → mismo error → auto-fix…).
+const DEFAULT_BRANCH = "claude/wordpress-ai-review-plugin-bdSLe";
 
 type SelfHealConfig = {
   token: string;

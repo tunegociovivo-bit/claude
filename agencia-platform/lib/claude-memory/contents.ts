@@ -31,7 +31,7 @@ digital (Negocio Vivo). Reemplaza progresivamente a Asana + Drive
 Stack: Next.js 14 App Router + Prisma + PostgreSQL + Cloudflare R2
 + Redis (opcional) + Resend (email) + Anthropic + OpenAI Whisper +
 TipTap + Tailwind. Hosting: Railway (rama
-claude/internal-project-platform-ZezvX), dominio hub.negociovivo.app.
+claude/wordpress-ai-review-plugin-bdSLe), dominio hub.negociovivo.app.
 `.trim();
 
 export const ARCHITECTURE_NOTES = `
@@ -160,10 +160,10 @@ export const GOTCHAS = `
    en BD). Resuelto con lib/storage/resign.ts en lectura. La
    solución definitiva es STORAGE_PUBLIC_URL en env.
 
-8. **Railway sirve la rama claude/internal-project-platform-ZezvX**.
+8. **Railway sirve la rama claude/wordpress-ai-review-plugin-bdSLe**.
    El dominio hub.negociovivo.app está apuntado a esa rama, NO a
-   main. Si quieres que se aplique a "producción real", merge a
-   main y cambia la rama del servicio.
+   main. El self-heal (lib/github/repo.ts) DEBE apuntar a esta misma
+   rama; si no, sus PRs se mergean pero no se despliegan.
 
 9. **El user prueba importaciones de Asana por partes**
    (1 proyecto, ver que va bien, repetir). No lanzar imports
@@ -415,7 +415,7 @@ export const PENDIENTES = `
   no migrar a guardar s3Key dedicado hasta que sea necesario.
 - El user pidió NO MODIFICAR NADA EN ASANA. Es solo lectura.
 - Tokens NO van al repo. Solo cifrados en BD vía /admin/*.
-- El dominio sirve la rama claude/internal-project-platform-ZezvX,
+- El dominio sirve la rama claude/wordpress-ai-review-plugin-bdSLe,
   no main. Cualquier merge a main debe ser deliberado.
 `.trim();
 

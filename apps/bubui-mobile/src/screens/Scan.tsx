@@ -266,7 +266,11 @@ export function Scan() {
       </TouchableOpacity>
       {!!ticketUrl && <Text style={styles.ticketOk}>✓ Ticket guardado</Text>}
 
-      <TouchableOpacity style={[styles.btn, busy && { opacity: 0.5 }]} onPress={submit} disabled={busy}>
+      <TouchableOpacity
+        style={[styles.btn, (busy || !(Number(amount.replace(",", ".")) > 0)) && { opacity: 0.5 }]}
+        onPress={submit}
+        disabled={busy || !(Number(amount.replace(",", ".")) > 0)}
+      >
         <Text style={styles.btnText}>{busy ? "Enviando…" : "Confirmar"}</Text>
       </TouchableOpacity>
       <TouchableOpacity style={styles.rescan} onPress={rescan} disabled={busy}>

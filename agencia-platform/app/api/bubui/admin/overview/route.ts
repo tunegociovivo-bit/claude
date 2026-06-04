@@ -35,7 +35,8 @@ export async function GET(req: Request) {
     revenue30,
     topByScanning,
     topByCross,
-    plansBreakdown
+    plansBreakdown,
+    appVersionGroups
   ] = await Promise.all([
     prisma.bubuiBusiness.count({ where: whereBiz }),
     prisma.bubuiCustomer.count(),
@@ -88,6 +89,11 @@ export async function GET(req: Request) {
       by: ["plan"],
       _count: { _all: true },
       where: whereBiz
+    }),
+    // Versiones de la app instaladas (global, no depende de ciudad).
+    prisma.bubuiCustomer.groupBy({
+      by: ["appBuild"],
+      _count: { _all: true }
     })
   ]);
 
@@ -124,6 +130,13 @@ export async function GET(req: Request) {
     topByCross: topByCross.map((t) => ({
       business: bizMap.get(t.businessId) ?? { id: t.businessId, name: "?" },
       redeemed: t._count._all
-    }))
+    })),
+    appVersions: appVersionGroups
+      .map((g: any) => ({ build: g.appBuild as string | null, count: g._count._all }))
+      .sort((a, b) => {
+        if (a.build == null) return 1;
+        if (b.build == null) return -1;
+        return Number(b.build) - Number(a.build);
+      })
   });
 }

@@ -6,7 +6,7 @@
  */
 
 import { prisma } from "@/lib/db/prisma";
-import { decryptSecret } from "@/lib/ai/crypto";
+import { decryptSecret, maskSecret } from "@/lib/ai/crypto";
 
 const TEXT_SEARCH_URL = "https://places.googleapis.com/v1/places:searchText";
 const PLACES_BASE = "https://places.googleapis.com/v1/places/";
@@ -40,14 +40,25 @@ const DETAILS_FIELD_MASK = [
   "regularOpeningHours"
 ].join(",");
 
-export async function getGoogleApiKeyForWorkspace(workspaceId: string): Promise<string> {
+/** Resuelve la API key + de DÓNDE sale (para diagnóstico). Prioriza la
+ *  guardada cifrada en ajustes; si no hay (o no descifra), usa la env.
+ *  Hace trim(): un salto de línea o espacio al pegar la clave es causa
+ *  típica de "API key not valid". */
+async function resolveGoogleApiKey(workspaceId: string): Promise<{ key: string; source: string }> {
   const ws = await prisma.workspace.findUnique({ where: { id: workspaceId } });
   const settings: any = ws?.settings ?? {};
   const encrypted: string | undefined = settings?.leads?.googleApiKey;
-  let key: string | null = null;
-  if (encrypted) key = decryptSecret(encrypted);
-  if (!key) key = process.env.GOOGLE_PLACES_API_KEY ?? null;
-  if (!key) throw new Error("No hay API key de Google Places. Configúrala en /admin/leads/settings.");
+  if (encrypted) {
+    const dec = decryptSecret(encrypted)?.trim();
+    if (dec) return { key: dec, source: "Ajustes (/admin/leads/settings)" };
+  }
+  const env = (process.env.GOOGLE_PLACES_API_KEY ?? "").trim();
+  if (env) return { key: env, source: "variable de entorno GOOGLE_PLACES_API_KEY" };
+  throw new Error("No hay API key de Google Places. Configúrala en /admin/leads/settings.");
+}
+
+export async function getGoogleApiKeyForWorkspace(workspaceId: string): Promise<string> {
+  const { key } = await resolveGoogleApiKey(workspaceId);
   return key;
 }
 
@@ -87,7 +98,7 @@ export async function placesTextSearch(opts: {
   languageCode?: string;
   regionCode?: string;
 }): Promise<PlacesResult[]> {
-  const apiKey = await getGoogleApiKeyForWorkspace(opts.workspaceId);
+  const { key: apiKey, source: keySource } = await resolveGoogleApiKey(opts.workspaceId);
   const results: PlacesResult[] = [];
   let pageToken: string | undefined;
   const maxPages = opts.maxPages ?? 3;
@@ -118,7 +129,15 @@ export async function placesTextSearch(opts: {
     });
     if (!resp.ok) {
       const txt = await resp.text();
-      throw new Error(`Places ${resp.status}: ${txt.slice(0, 300)}`);
+      let msg = `Places ${resp.status}: ${txt.slice(0, 300)}`;
+      if (/API_KEY_INVALID|API key not valid/i.test(txt)) {
+        msg +=
+          `\n[Diagnóstico NV] La clave usada (${maskSecret(apiKey)}) viene de: ${keySource}. ` +
+          `Si crees que es correcta, lo más probable es que esa fuente tenga una versión antigua o con un espacio/salto de línea: ` +
+          `vuelve a pegarla y guardar en /admin/leads/settings. ` +
+          `Comprueba también en Google Cloud que la key tenga habilitada "Places API (New)" y que sus restricciones no bloqueen llamadas de servidor (sin restricción de referrer HTTP).`;
+      }
+      throw new Error(msg);
     }
     const data = await resp.json();
     const places = Array.isArray(data?.places) ? data.places : [];

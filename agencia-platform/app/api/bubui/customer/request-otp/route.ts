@@ -8,6 +8,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { toE164, startVerification } from "@/lib/bubui/twilio";
+import { rateLimit } from "@/lib/api/rate-limit";
 
 export const dynamic = "force-dynamic";
 
@@ -21,6 +22,14 @@ export async function POST(req: Request) {
   const phone = toE164(parsed.data.phone);
   if (!phone) {
     return NextResponse.json({ error: { code: "bad_phone", message: "Número de teléfono no válido" } }, { status: 400 });
+  }
+
+  // Anti-spam de SMS (coste Twilio + acoso): máx 2 envíos por minuto y teléfono.
+  if (!rateLimit(`bubui-otp-send:${phone}`, 2).ok) {
+    return NextResponse.json(
+      { error: { code: "rate_limit", message: "Has pedido demasiados códigos. Espera un minuto e inténtalo de nuevo." } },
+      { status: 429 }
+    );
   }
 
   const res = await startVerification(phone);

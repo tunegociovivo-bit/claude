@@ -15,14 +15,12 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.negociovivo.bubui",
+      "config": {
+        "usesNonExemptEncryption": false
+      },
       "infoPlist": {
         "NSCameraUsageDescription": "Bubui necesita la cámara para escanear el QR de los negocios y aplicarte el descuento.",
-        "NSLocationWhenInUseUsageDescription": "Bubui usa tu ubicación para mostrarte los descuentos cerca de ti.",
-        "NSLocationAlwaysAndWhenInUseUsageDescription": "Bubui usa tu ubicación para avisarte de descuentos cuando pases cerca.",
-        "UIBackgroundModes": [
-          "location",
-          "fetch"
-        ]
+        "NSLocationWhenInUseUsageDescription": "Bubui usa tu ubicación para mostrarte los descuentos cerca de ti."
       },
       "associatedDomains": [
         "applinks:hub.negociovivo.app"
@@ -39,10 +37,12 @@
         "CAMERA",
         "ACCESS_COARSE_LOCATION",
         "ACCESS_FINE_LOCATION",
-        "ACCESS_BACKGROUND_LOCATION",
-        "FOREGROUND_SERVICE",
-        "FOREGROUND_SERVICE_LOCATION",
         "POST_NOTIFICATIONS"
+      ],
+      "blockedPermissions": [
+        "android.permission.ACCESS_BACKGROUND_LOCATION",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_LOCATION"
       ],
       "intentFilters": [
         {

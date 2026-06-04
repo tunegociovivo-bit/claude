@@ -1,0 +1,43 @@
+name: Tareas recurrentes de Sonia
+
+# Dispara el cron que relanza las tareas recurrentes de Sonia: escanea las
+# tareas con recurrence != "none" cuyo recurrenceNextAt ya venció, crea su
+# AiAgentRun y avanza al siguiente slot. (El endpoint ya arranca el procesado
+# en background, no hace falta un cron `process` aparte.)
+#
+# Requiere el secret CRON_SECRET en el repo (Settings → Secrets and variables
+# → Actions) con el MISMO valor que la variable de entorno CRON_SECRET del Hub.
+# Opcional: HUB_BASE_URL (por defecto https://hub.negociovivo.app).
+
+on:
+  schedule:
+    - cron: "*/10 * * * *" # cada 10 min
+  workflow_dispatch: # permite dispararlo a mano desde la pestaña Actions
+
+jobs:
+  recurring:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispara el cron de tareas recurrentes
+        env:
+          HUB_BASE_URL: ${{ secrets.HUB_BASE_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -e
+          BASE="${HUB_BASE_URL:-https://hub.negociovivo.app}"
+          BASE="${BASE%/}"
+          if [ -z "${CRON_SECRET:-}" ]; then
+            echo "::error::Falta el secret CRON_SECRET en este repositorio (mismo valor que la env CRON_SECRET del Hub)."
+            exit 1
+          fi
+          echo "Llamando a ${BASE}/api/cron/ai-agent/recurring"
+          response=$(curl -sS -o /tmp/body -w "%{http_code}" \
+            -X GET \
+            -H "Authorization: Bearer ${CRON_SECRET}" \
+            "${BASE}/api/cron/ai-agent/recurring")
+          echo "HTTP $response"
+          cat /tmp/body
+          if [ "$response" != "200" ]; then
+            echo "::error::El endpoint devolvió $response (revisa que CRON_SECRET coincida con el del Hub)."
+            exit 1
+          fi

@@ -16,7 +16,7 @@ export const dynamic = "force-dynamic";
 
 export async function GET(req: Request, { params }: { params: { id: string } }) {
   const id = params.id;
-  if (!businessTokenAllows(req.headers.get("authorization"), id)) {
+  if (!(await businessTokenAllows(req.headers.get("authorization"), id))) {
     return NextResponse.json({ error: { code: "unauthorized", message: "No autorizado" } }, { status: 401 });
   }
   const business = await prisma.bubuiBusiness.findUnique({ where: { id } });
@@ -35,7 +35,9 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
       where: { businessId: id, status: "pending" },
       orderBy: { scannedAt: "desc" },
       take: 50,
-      include: { customer: { select: { id: true, name: true, email: true } } }
+      // Sin email: el negocio solo necesita el nombre para identificar al
+      // cliente antes de confirmar; el email no se expone en compras pendientes.
+      include: { customer: { select: { id: true, name: true } } }
     }),
     prisma.bubuiPurchase.count({
       where: { businessId: id, status: "confirmed", scannedAt: { gte: d7 } }

@@ -13,6 +13,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
+import { randomBytes } from "crypto";
 import { prisma } from "@/lib/db/prisma";
 import { uniqueBusinessSlug, bubuiScanUrl } from "@/lib/bubui/core";
 
@@ -57,9 +58,12 @@ export async function POST(req: Request) {
 
   const slug = await uniqueBusinessSlug(d.name);
   const passwordHash = await bcrypt.hash(d.ownerPassword, 10);
+  // Secreto de sesión: el alta deja al negocio "logueado" en el panel.
+  const secret = randomBytes(24).toString("hex");
 
   const business = await prisma.bubuiBusiness.create({
     data: {
+      apiToken: secret,
       slug,
       name: d.name,
       category: d.category,
@@ -84,6 +88,7 @@ export async function POST(req: Request) {
     {
       ok: true,
       businessId: business.id,
+      token: `${business.id}:${secret}`,
       slug: business.slug,
       scanUrl: bubuiScanUrl(business.id, origin),
       qrPngUrl: `/api/bubui/business/${business.id}/qr.png`,

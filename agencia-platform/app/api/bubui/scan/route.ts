@@ -18,6 +18,7 @@ import {
   recalculateVisibilityScore,
   recalculateAmbassadorLevel
 } from "@/lib/bubui/core";
+import { customerAuthOk } from "@/lib/bubui/customer-auth";
 
 export const dynamic = "force-dynamic";
 
@@ -39,6 +40,10 @@ export async function POST(req: Request) {
   }
   const d = parsed.data;
 
+  if (!(await customerAuthOk(req, d.customerId))) {
+    return NextResponse.json({ error: { code: "unauthorized", message: "No autorizado" } }, { status: 401 });
+  }
+
   const [business, customer] = await Promise.all([
     prisma.bubuiBusiness.findUnique({ where: { id: d.businessId } }),
     prisma.bubuiCustomer.findUnique({ where: { id: d.customerId } })
@@ -46,6 +51,16 @@ export async function POST(req: Request) {
   if (!business) return NextResponse.json({ error: { code: "not_found", message: "Negocio no existe" } }, { status: 404 });
   if (!business.active) return NextResponse.json({ error: { code: "inactive", message: "Negocio inactivo" } }, { status: 409 });
   if (!customer) return NextResponse.json({ error: { code: "not_found", message: "Cliente no existe" } }, { status: 404 });
+
+  // Refresca la última ubicación conocida del cliente (panel admin): el escaneo
+  // es la señal más fiable de dónde está físicamente. Se guarda aunque luego la
+  // compra se rechace por geo (el GPS del móvil sigue siendo su posición real).
+  // Fire-and-forget: no bloquea ni rompe el flujo de escaneo.
+  if (d.scanLat != null && !Number.isNaN(d.scanLat) && d.scanLng != null && !Number.isNaN(d.scanLng)) {
+    prisma.bubuiCustomer
+      .update({ where: { id: d.customerId }, data: { lastLat: d.scanLat, lastLng: d.scanLng, lastLocationAt: new Date() } })
+      .catch(() => {});
+  }
 
   // Rate limit: máx 1 escaneo cliente-negocio cada 12h.
   const recent = await prisma.bubuiPurchase.findFirst({

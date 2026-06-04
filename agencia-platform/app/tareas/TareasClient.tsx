@@ -41,6 +41,7 @@ import type { UiTask, UiProject, UiClient, UiMember } from "@/lib/db/queries";
 import { LayoutGrid, List, Plus, Filter, CalendarDays, FolderPlus, GripVertical, CheckSquare, Square, Settings2, Loader2, Link2, Check, Bot, X, Zap, Pencil } from "lucide-react";
 import clsx from "clsx";
 import { DEFAULT_FILTERS, type TaskFilters } from "@/components/tareas/SavedFiltersBar";
+import { RECURRENCE_OPTIONS } from "@/lib/tasks/recurrence";
 import { useSession } from "next-auth/react";
 
 type KanbanColumn = { id: string; label: string; color: string; order: number; isDone?: boolean };
@@ -2275,34 +2276,61 @@ function TaskCard({
   // purgan jamás — antes con Tailwind+clsx a veces se perdían en
   // build de producción y el indicador no se veía. Borde + sombra +
   // animación CSS propia (sonia-pulse) garantizan visibilidad.
+  // Recurrencia: una tarea recurrente está "siempre en curso", así que la
+  // marcamos en MORADO de forma persistente para que se vea que Sonia la
+  // sigue atendiendo cada periodo. Si la recurrencia está pausada, no se
+  // pinta morada (queda como tarea normal).
+  const isRecurring = !!task.recurrence && task.recurrence !== "none";
+  const recurrencePaused = isRecurring && !task.recurrenceNextAt;
+  const recurringActive = isRecurring && !recurrencePaused;
+  const recurrenceLabel =
+    RECURRENCE_OPTIONS.find((o) => o.value === task.recurrence)?.label ?? task.recurrence;
+
   let soniaStyle: React.CSSProperties = {};
-  if (aiStatus && alarmLevel !== "urgent") {
-    const colors = {
-      working:         { ring: "#7c3aed", glow: "rgba(124,58,237,0.45)", bg: "#f5f3ff" },
-      done_unreviewed: { ring: "#10b981", glow: "rgba(16,185,129,0.45)", bg: "#ecfdf5" },
-      needs_help:      { ring: "#f59e0b", glow: "rgba(245,158,11,0.55)", bg: "#fffbeb" },
-      claude_working:  { ring: "#0ea5e9", glow: "rgba(14,165,233,0.45)", bg: "#f0f9ff" },
-      // ai_replied: CYAN BRILLANTE PARPADEANTE — "Sonia te ha
-      // contestado, no te lo pierdas". Es el más llamativo de todos:
-      // ring grueso + glow intenso + animación más rápida.
-      ai_replied:      { ring: "#06b6d4", glow: "rgba(6,182,212,0.75)", bg: "#ecfeff" },
-      // failed: ROJO INTENSO PARPADEANTE — "Sonia falló, abre la
-      // tarea para ver qué pasó". Tan llamativo como ai_replied.
-      failed:          { ring: "#ef4444", glow: "rgba(239,68,68,0.7)", bg: "#fef2f2" }
-    } as const;
-    const c = colors[aiStatus];
-    // ai_replied y failed parpadean más rápido y con halo mayor
-    // que los demás — son los que más necesitan captar atención.
-    const isUrgentAttention = aiStatus === "ai_replied" || aiStatus === "failed";
-    soniaStyle = {
-      boxShadow: isUrgentAttention
-        ? `0 0 0 4px ${c.ring}, 0 0 28px 8px ${c.glow}`
-        : `0 0 0 3px ${c.ring}, 0 0 18px 4px ${c.glow}`,
-      backgroundColor: c.bg,
-      animation: isUrgentAttention
-        ? "sonia-pulse 0.9s ease-in-out infinite"
-        : "sonia-pulse 1.6s ease-in-out infinite"
-    };
+  if (alarmLevel !== "urgent") {
+    // Estados "en vivo" de Sonia que SÍ mandan sobre el morado de
+    // recurrencia (son transitorios y requieren atención puntual).
+    // done_unreviewed NO entra en recurrentes: una recurrente recién
+    // terminada sigue "en curso" (mañana se relanza), así que se queda
+    // morada en vez de pasar a verde.
+    const liveStates = ["working", "ai_replied", "failed", "needs_help", "claude_working"];
+    const showLive =
+      !!aiStatus && (liveStates.includes(aiStatus) || (aiStatus === "done_unreviewed" && !recurringActive));
+    if (showLive && aiStatus) {
+      const colors = {
+        working:         { ring: "#7c3aed", glow: "rgba(124,58,237,0.45)", bg: "#f5f3ff" },
+        done_unreviewed: { ring: "#10b981", glow: "rgba(16,185,129,0.45)", bg: "#ecfdf5" },
+        needs_help:      { ring: "#f59e0b", glow: "rgba(245,158,11,0.55)", bg: "#fffbeb" },
+        claude_working:  { ring: "#0ea5e9", glow: "rgba(14,165,233,0.45)", bg: "#f0f9ff" },
+        // ai_replied: CYAN BRILLANTE PARPADEANTE — "Sonia te ha
+        // contestado, no te lo pierdas". Es el más llamativo de todos:
+        // ring grueso + glow intenso + animación más rápida.
+        ai_replied:      { ring: "#06b6d4", glow: "rgba(6,182,212,0.75)", bg: "#ecfeff" },
+        // failed: ROJO INTENSO PARPADEANTE — "Sonia falló, abre la
+        // tarea para ver qué pasó". Tan llamativo como ai_replied.
+        failed:          { ring: "#ef4444", glow: "rgba(239,68,68,0.7)", bg: "#fef2f2" }
+      } as const;
+      const c = colors[aiStatus];
+      // ai_replied y failed parpadean más rápido y con halo mayor
+      // que los demás — son los que más necesitan captar atención.
+      const isUrgentAttention = aiStatus === "ai_replied" || aiStatus === "failed";
+      soniaStyle = {
+        boxShadow: isUrgentAttention
+          ? `0 0 0 4px ${c.ring}, 0 0 28px 8px ${c.glow}`
+          : `0 0 0 3px ${c.ring}, 0 0 18px 4px ${c.glow}`,
+        backgroundColor: c.bg,
+        animation: isUrgentAttention
+          ? "sonia-pulse 0.9s ease-in-out infinite"
+          : "sonia-pulse 1.6s ease-in-out infinite"
+      };
+    } else if (recurringActive) {
+      // Morado PERSISTENTE, sin animación: no es "trabajando ahora", es
+      // "tarea recurrente que Sonia atiende cada periodo".
+      soniaStyle = {
+        boxShadow: "0 0 0 3px #7c3aed, 0 0 14px 3px rgba(124,58,237,0.30)",
+        backgroundColor: "#f5f3ff"
+      };
+    }
   }
 
   return (
@@ -2384,6 +2412,25 @@ function TaskCard({
           </span>
         )}
       </div>
+      {isRecurring && (
+        <div className="mb-2">
+          <span
+            className={
+              "inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded " +
+              (recurrencePaused
+                ? "bg-slate-100 text-slate-500 ring-1 ring-slate-200"
+                : "bg-violet-100 text-violet-700 ring-1 ring-violet-200")
+            }
+            title={
+              recurrencePaused
+                ? "Recurrencia en pausa — Sonia no la relanza hasta que la reanudes"
+                : "Tarea recurrente — Sonia la atiende automáticamente cada periodo"
+            }
+          >
+            {recurrencePaused ? "⏸ Recurrente (en pausa)" : `🔁 Recurrente · ${recurrenceLabel}`}
+          </span>
+        </div>
+      )}
       {/* Portada: última imagen adjunta (estilo Asana). */}
       {task.coverImage && (
         <div className="mb-2 rounded-lg overflow-hidden border border-slate-200 bg-slate-50">

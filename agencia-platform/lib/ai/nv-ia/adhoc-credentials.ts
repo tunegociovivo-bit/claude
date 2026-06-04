@@ -91,7 +91,25 @@ const KEY_ALIASES: Record<string, string> = {
   resend_key: "RESEND_KEY",
   resend_api_key: "RESEND_KEY",
   elevenlabs_key: "ELEVENLABS_KEY",
-  elevenlabs_api_key: "ELEVENLABS_KEY"
+  elevenlabs_api_key: "ELEVENLABS_KEY",
+  // WooCommerce (consumer key/secret + URL de la tienda). Cubre las etiquetas
+  // humanas típicas: "clave cliente"/"clave secreta" (como las da WooCommerce
+  // en español), "consumer key", "ck"/"cs", etc.
+  woocommerce_consumer_key: "WOOCOMMERCE_CONSUMER_KEY",
+  woocommerce_ck: "WOOCOMMERCE_CONSUMER_KEY",
+  consumer_key: "WOOCOMMERCE_CONSUMER_KEY",
+  clave_cliente: "WOOCOMMERCE_CONSUMER_KEY",
+  clave_de_cliente: "WOOCOMMERCE_CONSUMER_KEY",
+  woocommerce_consumer_secret: "WOOCOMMERCE_CONSUMER_SECRET",
+  woocommerce_cs: "WOOCOMMERCE_CONSUMER_SECRET",
+  consumer_secret: "WOOCOMMERCE_CONSUMER_SECRET",
+  clave_secreta: "WOOCOMMERCE_CONSUMER_SECRET",
+  clave_de_secreta: "WOOCOMMERCE_CONSUMER_SECRET",
+  woocommerce_store_url: "WOOCOMMERCE_STORE_URL",
+  woocommerce_url: "WOOCOMMERCE_STORE_URL",
+  store_url: "WOOCOMMERCE_STORE_URL",
+  url_tienda: "WOOCOMMERCE_STORE_URL",
+  tienda_url: "WOOCOMMERCE_STORE_URL"
 };
 
 function normalizeKey(rawKey: string): string {
@@ -200,6 +218,35 @@ function detectByValue(text: string): Record<string, string> {
   const RESEND_RE = /\b(re_[A-Za-z0-9_-]{20,100})\b/g;
   while ((m = RESEND_RE.exec(text)) !== null) {
     out.RESEND_KEY = m[1];
+  }
+
+  // WooCommerce consumer key / secret — formato fijo ck_<hex> / cs_<hex>
+  // (40 hex normalmente). Esto las detecta aunque el user no las etiquete,
+  // p.ej. "clave cliente: ck_801d..." o pegadas sueltas. Última gana.
+  const WC_CK_RE = /\b(ck_[0-9a-fA-F]{32,64})\b/g;
+  while ((m = WC_CK_RE.exec(text)) !== null) {
+    out.WOOCOMMERCE_CONSUMER_KEY = m[1];
+  }
+  const WC_CS_RE = /\b(cs_[0-9a-fA-F]{32,64})\b/g;
+  while ((m = WC_CS_RE.exec(text)) !== null) {
+    out.WOOCOMMERCE_CONSUMER_SECRET = m[1];
+  }
+
+  // WordPress Application Password — 6 grupos de 4 alfanuméricos separados por
+  // espacio (ej "dQtn VVYc oJg3 9O08 QDCU iugT"). Es la auth de la REST API de
+  // WP/WooCommerce y suele venir etiquetada como "api rest:". Última gana.
+  const WP_APP_RE = /\b([A-Za-z0-9]{4}(?: [A-Za-z0-9]{4}){5})\b/g;
+  let foundWpApp = false;
+  while ((m = WP_APP_RE.exec(text)) !== null) {
+    out.WOOCOMMERCE_WP_APP_PASSWORD = m[1];
+    foundWpApp = true;
+  }
+  // Si hay app-password, el usuario WP suele ser un email/usuario en el mismo
+  // bloque de "Accesos". Capturamos el primer email como usuario (solo cuando
+  // hay app-password, para no recoger emails sueltos de otras tareas).
+  if (foundWpApp && !out.WOOCOMMERCE_WP_USER) {
+    const email = text.match(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/);
+    if (email) out.WOOCOMMERCE_WP_USER = email[0];
   }
 
   return out;

@@ -4,6 +4,7 @@ import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import * as Location from "expo-location";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { api } from "../lib/api";
+import { CheckSession } from "../lib/session";
 import { Wordmark } from "../components/Wordmark";
 import { BottomNav } from "../components/BottomNav";
 import { FadeIn } from "../components/FadeIn";
@@ -43,13 +44,18 @@ export function Descubre() {
       if (raw) setFavs(JSON.parse(raw));
       let lat: number | undefined, lng: number | undefined;
       try {
-        const { status } = await Location.getForegroundPermissionsAsync();
+        // Volvemos a pedir el permiso si quedó "sin decidir" (ver Feed): así la
+        // ubicación se refresca aunque el usuario eligiera "Solo esta vez".
+        const { status } = await Location.requestForegroundPermissionsAsync();
         if (status === "granted") {
           const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
           lat = loc.coords.latitude; lng = loc.coords.longitude;
         }
       } catch {}
-      const r = await api.discover(lat, lng);
+      // Pasamos el customerId (si hay sesión) para que el backend refresque
+      // también la última ubicación conocida del usuario, no solo el Feed.
+      const session = await CheckSession();
+      const r = await api.discover(lat, lng, session?.customerId);
       setItems(r.items ?? []);
     } finally {
       setLoading(false);

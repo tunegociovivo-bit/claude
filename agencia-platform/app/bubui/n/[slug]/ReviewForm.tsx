@@ -14,6 +14,7 @@
  */
 
 import { useEffect, useState } from "react";
+import { customerAuthHeaders } from "@/app/bubui/lib/customerAuth";
 
 type Props = {
   businessId: string;
@@ -46,7 +47,7 @@ export default function ReviewForm({ businessId, reviewRewardPct = 0, googlePlac
       setLoading(false);
       return;
     }
-    fetch(`/api/bubui/reviews?businessId=${businessId}&customerId=${id}`)
+    fetch(`/api/bubui/reviews?businessId=${businessId}&customerId=${id}`, { headers: customerAuthHeaders() })
       .then((r) => r.json())
       .then((j) => {
         setCanReview(Boolean(j.canReview));
@@ -70,7 +71,7 @@ export default function ReviewForm({ businessId, reviewRewardPct = 0, googlePlac
     try {
       const r = await fetch("/api/bubui/reviews", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...customerAuthHeaders() },
         body: JSON.stringify({ businessId, customerId, rating, comment })
       });
       const j = await r.json();

@@ -14,14 +14,30 @@
         "simulator": false
       }
     },
+    "ios-simulator": {
+      "distribution": "internal",
+      "ios": {
+        "simulator": true
+      }
+    },
     "production": {
       "autoIncrement": true,
       "android": {
         "buildType": "app-bundle"
+      },
+      "ios": {
+        "buildConfiguration": "Release",
+        "credentialsSource": "local",
+        "image": "latest"
       }
     }
   },
   "submit": {
-    "production": {}
+    "production": {
+      "ios": {
+        "ascAppId": "6776224976",
+        "appleTeamId": "9J97GC5NCG"
+      }
+    }
   }
 }

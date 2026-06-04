@@ -15,6 +15,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { Expo } from "expo-server-sdk";
 import { prisma } from "@/lib/db/prisma";
+import { customerAuthOk } from "@/lib/bubui/customer-auth";
 
 export const dynamic = "force-dynamic";
 
@@ -33,6 +34,9 @@ export async function POST(req: Request) {
     );
   }
   const { customerId, token, platform } = parsed.data;
+  if (!(await customerAuthOk(req, customerId))) {
+    return NextResponse.json({ error: { code: "unauthorized", message: "No autorizado" } }, { status: 401 });
+  }
   if (!Expo.isExpoPushToken(token)) {
     return NextResponse.json(
       { error: { code: "invalid_token", message: "Token no válido" } },

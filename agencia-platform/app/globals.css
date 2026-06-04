@@ -2,6 +2,8 @@
 @tailwind components;
 @tailwind utilities;
 
+/* redeploy: refresca el build en producción (sin cambios de estilo) 2026-06-02 */
+
 :root {
   --background: 248 250 252;
   --foreground: 15 23 42;

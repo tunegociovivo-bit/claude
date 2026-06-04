@@ -1,14 +1,31 @@
 /** Cliente HTTP minimal apuntando al backend del Hub. */
 
 import Constants from "expo-constants";
+import { Platform } from "react-native";
 
 export const API_BASE: string =
   (Constants.expoConfig?.extra as any)?.apiBaseUrl ?? "https://hub.negociovivo.app";
 
+// Versión de la app instalada — se envía al backend para saber qué build tiene
+// cada usuario (panel admin). appBuild = versionCode (Android) / buildNumber (iOS).
+const _cfg = Constants.expoConfig as any;
+const APP_VERSION: string = _cfg?.version ?? "";
+const APP_BUILD: string = String(_cfg?.android?.versionCode ?? _cfg?.ios?.buildNumber ?? "");
+
+// Token de sesión del cliente. Lo fija session.ts al iniciar/guardar sesión.
+// Se envía como `Authorization: Bearer <customerId>:<token>` en cada llamada.
+let auth: { customerId: string; token: string } | null = null;
+export function setAuth(a: { customerId: string; token: string } | null): void {
+  auth = a;
+}
+function authHeaders(): Record<string, string> {
+  return auth ? { Authorization: `Bearer ${auth.customerId}:${auth.token}` } : {};
+}
+
 async function call<T = any>(path: string, init: RequestInit = {}): Promise<T> {
   const r = await fetch(`${API_BASE}${path}`, {
     ...init,
-    headers: { "Content-Type": "application/json", ...(init.headers ?? {}) }
+    headers: { "Content-Type": "application/json", ...authHeaders(), ...(init.headers ?? {}) }
   });
   if (!r.ok) {
     const j = await r.json().catch(() => ({}));
@@ -35,6 +52,7 @@ export const api = {
     email: string;
     birthDate: string;
     gender: string;
+    postalCode?: string;
     firstBusinessId?: string;
   }) =>
     call("/api/bubui/customer/verify-otp", {
@@ -42,7 +60,7 @@ export const api = {
       body: JSON.stringify(args)
     }),
   login: (phone: string, code: string) =>
-    call<{ customerId: string; name: string | null; totalSaved: number; totalPurchases: number }>(
+    call<{ customerId: string; name: string | null; totalSaved: number; totalPurchases: number; token: string }>(
       "/api/bubui/customer/login",
       { method: "POST", body: JSON.stringify({ phone, code }) }
     ),
@@ -51,14 +69,25 @@ export const api = {
     url.searchParams.set("customerId", customerId);
     if (lat != null) url.searchParams.set("lat", String(lat));
     if (lng != null) url.searchParams.set("lng", String(lng));
-    return fetch(url.toString()).then((r) => r.json());
+    // Reporta la versión instalada (para el panel admin).
+    if (APP_VERSION) url.searchParams.set("appVersion", APP_VERSION);
+    if (APP_BUILD) url.searchParams.set("appBuild", APP_BUILD);
+    url.searchParams.set("appPlatform", Platform.OS);
+    return fetch(url.toString(), { headers: authHeaders() }).then(async (r) => {
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return r.json();
+    });
   },
-  discover: (lat?: number, lng?: number) => {
+  discover: (lat?: number, lng?: number, customerId?: string) => {
     const url = new URL(`${API_BASE}/api/bubui/discover`);
     url.searchParams.set("limit", "60");
     if (lat != null) url.searchParams.set("lat", String(lat));
     if (lng != null) url.searchParams.set("lng", String(lng));
-    return fetch(url.toString()).then((r) => r.json());
+    if (customerId) url.searchParams.set("customerId", customerId);
+    return fetch(url.toString(), { headers: authHeaders() }).then(async (r) => {
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return r.json();
+    });
   },
   scan: (businessId: string, customerId: string, amount: number, scanLat?: number, scanLng?: number, ticketUrl?: string) =>
     call("/api/bubui/scan", {
@@ -71,7 +100,7 @@ export const api = {
     const fd = new FormData();
     fd.append("customerId", customerId);
     fd.append("file", { uri, name: "ticket.jpg", type: "image/jpeg" } as any);
-    return fetch(`${API_BASE}/api/bubui/scan/read-ticket`, { method: "POST", body: fd }).then(async (r) => {
+    return fetch(`${API_BASE}/api/bubui/scan/read-ticket`, { method: "POST", body: fd, headers: authHeaders() }).then(async (r) => {
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j?.error?.message ?? `HTTP ${r.status}`);
       return j as { amount: number | null; currency: string; confidence: number; ticketUrl: string | null };

@@ -12,6 +12,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { haversineMeters } from "@/lib/bubui/core";
+import { customerAuthOk } from "@/lib/bubui/customer-auth";
 
 export const dynamic = "force-dynamic";
 
@@ -23,13 +24,27 @@ export async function GET(req: Request) {
   if (!customerId) {
     return NextResponse.json({ error: { code: "missing_customer", message: "Falta customerId" } }, { status: 400 });
   }
-
-  // Guarda la última ubicación conocida del cliente (panel admin). No bloquea.
-  if (lat != null && !Number.isNaN(lat) && lng != null && !Number.isNaN(lng)) {
-    prisma.bubuiCustomer
-      .update({ where: { id: customerId }, data: { lastLat: lat, lastLng: lng, lastLocationAt: new Date() } })
-      .catch(() => {});
+  if (!(await customerAuthOk(req, customerId))) {
+    return NextResponse.json({ error: { code: "unauthorized", message: "No autorizado" } }, { status: 401 });
   }
+
+  // Actualiza estado del cliente para el panel admin (no bloquea):
+  //  - versión de la app instalada + última conexión (siempre que la app las
+  //    reporte), para saber qué build tiene cada usuario al hacer pruebas;
+  //  - última ubicación conocida (solo si llegan coordenadas válidas).
+  const appVersion = url.searchParams.get("appVersion") || undefined;
+  const appBuild = url.searchParams.get("appBuild") || undefined;
+  const appPlatform = url.searchParams.get("appPlatform") || undefined;
+  const update: Record<string, unknown> = { lastSeenAt: new Date() };
+  if (appVersion) update.appVersion = appVersion;
+  if (appBuild) update.appBuild = appBuild;
+  if (appPlatform) update.appPlatform = appPlatform;
+  if (lat != null && !Number.isNaN(lat) && lng != null && !Number.isNaN(lng)) {
+    update.lastLat = lat;
+    update.lastLng = lng;
+    update.lastLocationAt = new Date();
+  }
+  prisma.bubuiCustomer.update({ where: { id: customerId }, data: update as any }).catch(() => {});
 
   const now = new Date();
   const offers = await prisma.bubuiOffer.findMany({

@@ -13,6 +13,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db/prisma";
+import { customerAuthOk } from "@/lib/bubui/customer-auth";
 
 export const dynamic = "force-dynamic";
 
@@ -91,6 +92,11 @@ export async function POST(req: Request) {
     );
   }
   const { businessId, customerId, rating, comment } = parsed.data;
+
+  // El cliente solo puede publicar reseñas en su propio nombre.
+  if (!(await customerAuthOk(req, customerId))) {
+    return NextResponse.json({ error: { code: "unauthorized", message: "No autorizado" } }, { status: 401 });
+  }
 
   // Anti-fake: exige al menos una compra confirmada del cliente en el negocio.
   const confirmed = await prisma.bubuiPurchase.count({

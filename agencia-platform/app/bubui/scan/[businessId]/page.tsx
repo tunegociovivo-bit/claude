@@ -16,6 +16,7 @@
 
 import { useEffect, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
+import { customerAuthHeaders } from "@/app/bubui/lib/customerAuth";
 
 const ANDROID_PACKAGE = "com.negociovivo.bubui";
 const PLAY_URL = `https://play.google.com/store/apps/details?id=${ANDROID_PACKAGE}`;
@@ -24,7 +25,7 @@ const PLAY_URL = `https://play.google.com/store/apps/details?id=${ANDROID_PACKAG
 // Mientras esté vacía, en iPhone caemos al flujo web.
 const APPSTORE_URL = process.env.NEXT_PUBLIC_BUBUI_IOS_URL || "";
 
-type Customer = { customerId: string; name?: string; totalSaved: number; totalPurchases: number };
+type Customer = { customerId: string; name?: string; totalSaved: number; totalPurchases: number; token?: string };
 
 export default function ScanPage() {
   const params = useParams() as { businessId: string };
@@ -175,7 +176,7 @@ function WebFlow({ businessId }: { businessId: string }) {
     try {
       const r = await fetch("/api/bubui/scan", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...customerAuthHeaders() },
         body: JSON.stringify({
           businessId,
           customerId: customer.customerId,
@@ -293,6 +294,7 @@ function SignupForm({
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
+  const [postalCode, setPostalCode] = useState("");
   const [birthDate, setBirthDate] = useState("");
   const [gender, setGender] = useState("");
   const [code, setCode] = useState("");
@@ -303,6 +305,7 @@ function SignupForm({
     e.preventDefault();
     if (!name.trim()) { setError("Pon tu nombre"); return; }
     if (!email.trim()) { setError("El email es obligatorio"); return; }
+    if (!/^\d{5}$/.test(postalCode)) { setError("Indica tu código postal (5 dígitos)"); return; }
     if (!birthDate) { setError("Indica tu fecha de nacimiento"); return; }
     if (!gender) { setError("Indica tu sexo"); return; }
     setBusy(true);
@@ -329,11 +332,11 @@ function SignupForm({
       const r = await fetch("/api/bubui/customer/verify-otp", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone, code, name, email, birthDate, gender, firstBusinessId: businessId })
+        body: JSON.stringify({ phone, code, name, email, birthDate, gender, postalCode, firstBusinessId: businessId })
       });
       const j = await r.json();
       if (!r.ok) { setError(j?.error?.message ?? `Error ${r.status}`); return; }
-      onVerified({ customerId: j.customerId, name: j.name, totalSaved: j.totalSaved ?? 0, totalPurchases: j.totalPurchases ?? 0 });
+      onVerified({ customerId: j.customerId, name: j.name, totalSaved: j.totalSaved ?? 0, totalPurchases: j.totalPurchases ?? 0, token: j.token });
     } finally {
       setBusy(false);
     }
@@ -370,6 +373,15 @@ function SignupForm({
             placeholder="Email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
+            required
+            className="bubui-input"
+          />
+          <input
+            type="text"
+            inputMode="numeric"
+            placeholder="Código postal"
+            value={postalCode}
+            onChange={(e) => setPostalCode(e.target.value.replace(/[^0-9]/g, "").slice(0, 5))}
             required
             className="bubui-input"
           />

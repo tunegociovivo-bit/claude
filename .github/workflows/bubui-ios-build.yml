@@ -1,0 +1,77 @@
+name: Build Bubui (iOS → TestFlight)
+
+# Secretos: EXPO_TOKEN, ASC_API_KEY_P8, ASC_API_KEY_ID, ASC_API_KEY_ISSUER_ID
+#            APPLE_TEAM_ID
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Qué compilar"
+        type: choice
+        options:
+          - testflight
+          - simulator
+        default: testflight
+      submit:
+        description: "Subir a TestFlight tras compilar"
+        type: boolean
+        default: false
+
+jobs:
+  ios:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/bubui-mobile
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: apps/bubui-mobile/package-lock.json
+
+      - name: Setup EAS
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Build iOS para SIMULADOR (EAS cloud)
+        if: ${{ inputs.target == 'simulator' }}
+        run: eas build --platform ios --profile ios-simulator --non-interactive --wait
+
+      - name: Write ASC API key
+        if: ${{ inputs.target == 'testflight' }}
+        env:
+          ASC_API_KEY_P8: ${{ secrets.ASC_API_KEY_P8 }}
+        run: |
+          printf '%s' "$ASC_API_KEY_P8" > "$RUNNER_TEMP/asc-api-key.p8"
+          echo "Key file size: $(wc -c < $RUNNER_TEMP/asc-api-key.p8)"
+
+      - name: Generate Apple credentials via ASC API
+        if: ${{ inputs.target == 'testflight' }}
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_API_KEY_ISSUER_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: node ../../.github/scripts/gen-ios-creds.js
+
+      - name: Build iOS firmado (EAS cloud)
+        if: ${{ inputs.target == 'testflight' }}
+        run: eas build --platform ios --profile production --non-interactive --wait
+
+      - name: Submit to TestFlight
+        if: ${{ inputs.target == 'testflight' && inputs.submit }}
+        env:
+          EXPO_ASC_API_KEY_PATH: ${{ runner.temp }}/asc-api-key.p8
+          EXPO_ASC_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          EXPO_ASC_ISSUER_ID: ${{ secrets.ASC_API_KEY_ISSUER_ID }}
+        run: eas submit --platform ios --latest --non-interactive

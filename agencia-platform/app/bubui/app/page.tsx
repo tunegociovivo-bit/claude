@@ -9,6 +9,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
+import { customerAuthHeaders } from "@/app/bubui/lib/customerAuth";
 
 type Customer = {
   customerId: string;
@@ -16,6 +17,7 @@ type Customer = {
   totalSaved: number;
   totalPurchases: number;
   ambassadorLevel?: string;
+  token?: string;
 };
 
 const AMBASSADOR_BADGE: Record<string, { label: string; emoji: string; color: string }> = {
@@ -218,6 +220,7 @@ function Signup({ onDone, refCode }: { onDone: (c: Customer) => void; refCode?: 
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
+  const [postalCode, setPostalCode] = useState("");
   const [birthDate, setBirthDate] = useState("");
   const [gender, setGender] = useState("");
   const [code, setCode] = useState("");
@@ -255,7 +258,7 @@ function Signup({ onDone, refCode }: { onDone: (c: Customer) => void; refCode?: 
       });
       const j = await r.json();
       if (!r.ok) { setError(j?.error?.message ?? `Error ${r.status}`); return; }
-      onDone({ customerId: j.customerId, name: j.name, totalSaved: j.totalSaved ?? 0, totalPurchases: j.totalPurchases ?? 0 });
+      onDone({ customerId: j.customerId, name: j.name, totalSaved: j.totalSaved ?? 0, totalPurchases: j.totalPurchases ?? 0, token: j.token });
     } finally {
       setBusy(false);
     }
@@ -265,6 +268,7 @@ function Signup({ onDone, refCode }: { onDone: (c: Customer) => void; refCode?: 
     e.preventDefault();
     if (!name.trim()) { setError("Pon tu nombre"); return; }
     if (!email.trim()) { setError("El email es obligatorio"); return; }
+    if (!/^\d{5}$/.test(postalCode)) { setError("Indica tu código postal (5 dígitos)"); return; }
     if (!birthDate) { setError("Indica tu fecha de nacimiento"); return; }
     if (!gender) { setError("Indica tu sexo"); return; }
     setBusy(true);
@@ -291,11 +295,11 @@ function Signup({ onDone, refCode }: { onDone: (c: Customer) => void; refCode?: 
       const r = await fetch("/api/bubui/customer/verify-otp", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone, code, name, email, birthDate, gender, ref: refCode || undefined })
+        body: JSON.stringify({ phone, code, name, email, birthDate, gender, postalCode, ref: refCode || undefined })
       });
       const j = await r.json();
       if (!r.ok) { setError(j?.error?.message ?? `Error ${r.status}`); return; }
-      onDone({ customerId: j.customerId, name: j.name, totalSaved: j.totalSaved ?? 0, totalPurchases: j.totalPurchases ?? 0 });
+      onDone({ customerId: j.customerId, name: j.name, totalSaved: j.totalSaved ?? 0, totalPurchases: j.totalPurchases ?? 0, token: j.token });
     } finally {
       setBusy(false);
     }
@@ -404,6 +408,15 @@ function Signup({ onDone, refCode }: { onDone: (c: Customer) => void; refCode?: 
             required
             className="bubui-input"
           />
+          <input
+            type="text"
+            inputMode="numeric"
+            placeholder="Código postal"
+            value={postalCode}
+            onChange={(e) => setPostalCode(e.target.value.replace(/[^0-9]/g, "").slice(0, 5))}
+            required
+            className="bubui-input"
+          />
           <label className="block text-xs font-semibold text-black/55">
             Fecha de nacimiento
             <input
@@ -509,7 +522,7 @@ function OffersFeed({ customer, coords }: { customer: Customer; coords: { lat: n
   async function getRefCode(): Promise<string | null> {
     if (refCodeRef.current) return refCodeRef.current;
     try {
-      const r = await fetch(`/api/bubui/customer/${customer.customerId}/referral`);
+      const r = await fetch(`/api/bubui/customer/${customer.customerId}/referral`, { headers: customerAuthHeaders() });
       if (r.ok) {
         const j = await r.json();
         if (j.code) {
@@ -569,9 +582,9 @@ function OffersFeed({ customer, coords }: { customer: Customer; coords: { lat: n
       }
       try {
         const [offersRes, profileRes, loyaltyRes] = await Promise.all([
-          fetch(url.toString()),
-          fetch(`/api/bubui/customer/${customer.customerId}`),
-          fetch(`/api/bubui/customer/${customer.customerId}/loyalty`)
+          fetch(url.toString(), { headers: customerAuthHeaders() }),
+          fetch(`/api/bubui/customer/${customer.customerId}`, { headers: customerAuthHeaders() }),
+          fetch(`/api/bubui/customer/${customer.customerId}/loyalty`, { headers: customerAuthHeaders() })
         ]);
         if (offersRes.ok) setOffers((await offersRes.json()).items ?? []);
         if (loyaltyRes.ok) setLoyalty((await loyaltyRes.json()).items ?? []);

@@ -24,7 +24,7 @@ import {
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request, { params }: { params: { id: string } }) {
-  if (!businessTokenAllows(req.headers.get("authorization"), params.id)) {
+  if (!(await businessTokenAllows(req.headers.get("authorization"), params.id))) {
     return NextResponse.json({ error: { code: "unauthorized" } }, { status: 401 });
   }
   const business = await prisma.bubuiBusiness.findUnique({
@@ -69,7 +69,7 @@ const patchSchema = z.object({
 });
 
 export async function PATCH(req: Request, { params }: { params: { id: string } }) {
-  if (!businessTokenAllows(req.headers.get("authorization"), params.id)) {
+  if (!(await businessTokenAllows(req.headers.get("authorization"), params.id))) {
     return NextResponse.json({ error: { code: "unauthorized" } }, { status: 401 });
   }
   const parsed = patchSchema.safeParse(await req.json().catch(() => null));

@@ -32,7 +32,10 @@ export async function POST(req: Request) {
   if (!ok) {
     return NextResponse.json({ error: { code: "invalid_credentials", message: "Email o contraseña no válidos" } }, { status: 401 });
   }
-  const token = `${business.id}:${randomBytes(16).toString("hex")}`;
+  // Emite y PERSISTE el secreto de sesión para poder validarlo después.
+  const secret = randomBytes(24).toString("hex");
+  await prisma.bubuiBusiness.update({ where: { id: business.id }, data: { apiToken: secret } });
+  const token = `${business.id}:${secret}`;
   return NextResponse.json({
     ok: true,
     businessId: business.id,

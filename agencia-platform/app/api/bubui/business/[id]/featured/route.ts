@@ -16,7 +16,7 @@ export const dynamic = "force-dynamic";
 const schema = z.object({ featured: z.boolean() });
 
 export async function POST(req: Request, { params }: { params: { id: string } }) {
-  if (!businessTokenAllows(req.headers.get("authorization"), params.id)) {
+  if (!(await businessTokenAllows(req.headers.get("authorization"), params.id))) {
     return NextResponse.json({ error: { code: "unauthorized" } }, { status: 401 });
   }
   const parsed = schema.safeParse(await req.json().catch(() => null));

@@ -598,7 +598,7 @@ PRINCIPIOS:
 1. SIEMPRE empieza llamando a get_task_context.
 2. Si la tarea menciona "el documento", "el brief", "el PDF que adjunté" o similar, usa list_task_files + read_file_content para leerlo ANTES de hacer nada más. No le pidas al humano que te lo pase si ya está adjunto.
 3. Antes de redactar nada nuevo, considera usar search_knowledge para ver si ya hay contexto previo (decisiones, comunicaciones, criterios). No reinventes la rueda — pero no abuses: si tienes contexto suficiente, ahorra el lookup.
-4. Si la solicitud es ambigua o te falta información crítica, usa add_comment para preguntar y termina (sin mark_complete). El humano responderá; el run se reactivará en otra iteración.
+4. AUTONOMÍA POR DEFECTO: tu sesgo es RESOLVER y ENTREGAR, no preguntar. Solo usa add_comment para preguntar (y terminar sin mark_complete) si te falta algo IMPRESCINDIBLE que NO puedes inferir ni resolver con criterio profesional — típicamente una credencial/acceso o un dato concreto que solo tiene el user. Preferencias, alcance, formato, "gratis vs pago", qué ciudades, etc. NO se preguntan: decides tú y lo dejas anotado. (Ver bloque AUTONOMÍA más abajo.)
 5. Las acciones IRREVERSIBLES (mandar email/WhatsApp, publicar post, crear evento de calendario) SIEMPRE pasan por draft_*. Tú dejas el borrador listo; el humano da el OK final. NUNCA prometas en un comentario que "ya he enviado" o "ya he programado" — solo lo has redactado.
 6. Si la tarea requiere acciones que ni tus tools ni un draft cubren (modificar facturas, mover archivos en Drive, ejecutar código), descríbelo en add_comment con precisión y termina sin mark_complete.
 7. **NUNCA cierres con mark_complete diciendo "no tengo tool para X" o "el sistema no soporta Y" — eso es una LIMITACIÓN del sistema y debe ir por escalate_to_claude.** mark_complete es para tareas TERMINADAS con éxito. Si te falta capacidad técnica, escala — así el sistema mejora y la próxima vez podrás. Si te falta INFORMACIÓN del user (criterio, decisión, dato concreto), eso sí va con add_comment + termina sin mark_complete (no es escalación, es esperar respuesta humana).
@@ -612,6 +612,34 @@ PRINCIPIOS:
    **REGLA DE TRANSPARENCIA — siempre que un error vaya a impedir terminar la tarea, el comentario que dejes al user (vía add_comment, escalate_to_claude o el mensaje final) DEBE incluir el "error" literal devuelto por la tool, no una versión genérica.** El user necesita ver el motivo concreto ("OAuthException: token expired", "campaign 123 not found", "leads_retrieval scope missing", etc.) para poder actuar o reportarlo. Frases tipo "ha habido un error" o "no he podido completar la tarea" sin más son insuficientes y se consideran un fallo del agente.
 7. Sé eficiente: cada tool call cuesta tiempo y dinero. No llames a search_knowledge para preguntas triviales que ya tienes claras del contexto.
 8. En el resumen final menciona EXPLÍCITAMENTE cuántos drafts dejaste pendientes (ej: "He redactado 2 emails que esperan tu aprobación en /admin/nv-ia/drafts").
+
+AUTONOMÍA — RESUELVE SOLA, NO REBOTES LA TAREA (CRÍTICO):
+David quiere autonomía 100%: que intentes resolver TODOS los problemas que te
+encuentres SIN recurrir al equipo. Tu salida por defecto es ENTREGAR el trabajo
+tomando decisiones profesionales razonables y dejándolas anotadas — NO devolver
+la tarea con una lista de preguntas.
+
+Antes de escribir cualquier pregunta al user, pásala por este filtro:
+"¿Puedo resolver esto yo con un criterio sensato y seguir?" Si sí → HAZLO.
+
+NO preguntes (decide tú y anota el supuesto):
+- Preferencias asumibles: gratis vs pago (prioriza gratis y marca [PAGO] el resto),
+  qué ciudades (usa las principales del encargo), formato de entrega (el más útil).
+- "Fuentes internas" o listas curadas que puedes construir tú con web_search +
+  http_request + extract_images. Si una búsqueda devuelve resultados genéricos,
+  REFINA la query (añade "add your business", "list your business", "submit
+  listing", el sector y el país) y vuelve a buscar — no te rindas a la primera.
+- Permiso para continuar ("¿quieres que siga?", "¿procedo así?") → sí, sigue.
+- Validaciones de alcance que ya están implícitas en la descripción.
+
+SOLO puedes parar sin entregar si:
+- Falta una CREDENCIAL/acceso real que no tienes ni puedes obtener → add_comment.
+- La acción es irreversible y de alto impacto → va por draft_*, no por pregunta.
+- Las instrucciones se CONTRADICEN entre sí y no hay forma de inferir la correcta.
+- Es una LIMITACIÓN técnica del sistema → escalate_to_claude (no add_comment).
+
+Regla de oro: entregar el 90% con notas de tus supuestos SIEMPRE es mejor que
+entregar 0% con preguntas. Si dudas entre preguntar y hacer, HAZ y explica.
 
 CUÁNDO USAR SUB-AGENTES (spawn_subagent):
 Solo cuando la tarea tiene piezas CLARAMENTE separables y al menos una es compleja por sí sola. Ejemplos buenos:
@@ -665,6 +693,23 @@ tu preocupación EN PARALELO. La decisión final es del user.
 Sólo NO ejecutes si la orden es imposible (falta token, API caducada,
 recurso inexistente) o destructiva sin reversa (borrar BD entera).
 En esos casos explica QUÉ falta para poder hacerla.
+
+ALCANCE / NEGOCIOS PARA ADULTOS (no rechaces marketing legítimo):
+Los negocios LEGALES del sector adulto (masaje erótico/tántrico, tiendas
+eróticas, ocio para adultos, creadores de contenido para adultos…) son
+clientes válidos de la agencia. El trabajo de marketing/SEO para ellos
+—alta en directorios, citaciones, fichas, copys, campañas— es LEGÍTIMO.
+NO lo rechaces por moral ni por "términos de servicio" genéricos: ejecútalo
+como cualquier otro encargo, sin sermones.
+
+Tu freno ético se reserva para lo REALMENTE ilícito (menores, trata o
+explotación, contenido no consentido) — eso sí se rechaza siempre. Para un
+servicio legal para adultos, el único matiz es JURISDICCIONAL: si el servicio
+es ilegal en un país concreto (p.ej. servicios sexuales en Emiratos, Egipto),
+no lo des por válido para ESE país — exclúyelo o márcalo con una nota — pero
+SIGUE ADELANTE con el resto de la tarea. Nunca pares la tarea entera ni pidas
+"aclaración" por escrúpulo cuando el negocio es legal: entrega el trabajo y,
+si procede, deja la salvedad jurisdiccional en el resumen.
 
 NUNCA DECLARES "PASO MANUAL PENDIENTE" SIN HABERLO INTENTADO POR API.
 David quiere autonomía 100%. Antes de decir "necesitas hacer X manualmente
@@ -1310,39 +1355,69 @@ export async function executeAgentRun(opts: {
       //  (b) El modelo terminó sin add_comment ni mark_complete — eso sí
       //      es un fallo real (olvidó cerrar). Lo marcamos REQUIRES_HUMAN.
       if (resp.stop_reason === "end_turn") {
-        // ¿Hubo al menos un add_comment exitoso durante este run?
-        const lastSuccessfulComment = [...log]
-          .reverse()
-          .find(
-            (s) =>
-              s.type === "tool_use" &&
-              (s as any).tool === "add_comment"
-          ) as any;
-        const commentHadError =
-          lastSuccessfulComment &&
-          log.some(
-            (s) =>
-              s.type === "tool_result" &&
-              (s as any).toolUseId === lastSuccessfulComment.toolUseId &&
-              (s as any).isError === true
-          );
-        const sentComment = !!lastSuccessfulComment && !commentHadError;
+        // Tools cuya ejecución EXITOSA es un cierre/avance LEGÍTIMO del run
+        // aunque el modelo no llame a mark_complete. Si Sonia hizo algo de
+        // esto y terminó su turno, es el flujo NORMAL, no un bug:
+        //   - add_comment: dejó respuesta/pregunta al user (espera humano).
+        //   - create_subtask: descompuso la tarea en subtareas accionables
+        //     (cada una sigue su propio ciclo — típico en tareas grandes con
+        //     runWithSonia). Antes esto se marcaba como "error: sin
+        //     mark_complete" y disparaba un bucle de self-heal infinito.
+        //   - assign_task: delegó en una persona del equipo.
+        //   - draft_*: dejó borradores esperando aprobación.
+        //   - close_deal / update_task_status: cerró un ciclo de negociación
+        //     o cambió el estado deliberadamente.
+        const CLOSURE_TOOLS = new Set([
+          "add_comment",
+          "create_subtask",
+          "assign_task",
+          "close_deal",
+          "update_task_status"
+        ]);
+        const isClosureTool = (n: string) => CLOSURE_TOOLS.has(n) || n.startsWith("draft_");
 
-        if (sentComment) {
-          // Caso (a): Sonia dejó un comentario y terminó. Tratamos como
-          // SUCCEEDED — el run cumplió su ciclo dejando una respuesta al
-          // user. El próximo trigger (respuesta del user) abrirá otro run.
-          const body = String(
-            (lastSuccessfulComment.input as any)?.body ?? ""
+        const lastClosure = [...log].reverse().find((s) => {
+          if (s.type !== "tool_use") return false;
+          const name = (s as any).tool as string;
+          if (!isClosureTool(name)) return false;
+          // Que esa llamada no haya devuelto error.
+          const failed = log.some(
+            (r) =>
+              r.type === "tool_result" &&
+              (r as any).toolUseId === (s as any).toolUseId &&
+              (r as any).isError === true
           );
-          const inferredSummary =
-            body.trim().length > 0
-              ? `Comentario dejado en la tarea (esperando respuesta del user): ${body.slice(0, 240)}${body.length > 240 ? "…" : ""}`
-              : "Comentario dejado en la tarea (esperando respuesta del user).";
+          return !failed;
+        }) as any;
+
+        if (lastClosure) {
+          // Caso legítimo: Sonia avanzó/cerró con una tool válida y terminó.
+          // SUCCEEDED — el run cumplió su ciclo. El siguiente trigger
+          // (respuesta del user, ejecución de las subtareas) seguirá solo.
+          const name = (lastClosure as any).tool as string;
+          let inferredSummary: string;
+          if (name === "add_comment") {
+            const body = String((lastClosure.input as any)?.body ?? "");
+            inferredSummary =
+              body.trim().length > 0
+                ? `Comentario dejado en la tarea (esperando respuesta del user): ${body.slice(0, 240)}${body.length > 240 ? "…" : ""}`
+                : "Comentario dejado en la tarea (esperando respuesta del user).";
+          } else if (name === "create_subtask") {
+            const nSub = log.filter(
+              (s) => s.type === "tool_use" && (s as any).tool === "create_subtask"
+            ).length;
+            inferredSummary = `Tarea descompuesta en ${nSub} subtarea(s) accionable(s); cada una sigue su propio ciclo.`;
+          } else if (name === "assign_task") {
+            inferredSummary = "Tarea delegada a un miembro del equipo.";
+          } else if (name.startsWith("draft_")) {
+            inferredSummary = "Borrador(es) dejado(s) en la tarea, esperando aprobación.";
+          } else {
+            inferredSummary = "Ciclo de la tarea cerrado con una acción válida.";
+          }
           log.push({
             type: "stop",
             ts: nowIso(),
-            reason: "end_turn_with_comment_awaiting_user",
+            reason: "end_turn_valid_closure",
             summary: inferredSummary
           });
           return {
@@ -1356,7 +1431,7 @@ export async function executeAgentRun(opts: {
           };
         }
 
-        // Caso (b): terminó sin haber dejado nada — bug real.
+        // Caso (b): terminó sin haber dejado NADA accionable — bug real.
         log.push({
           type: "stop",
           ts: nowIso(),

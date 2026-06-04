@@ -1455,6 +1455,90 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
     }
   },
   {
+    name: "extract_images",
+    description:
+      "Extrae las URLs de imágenes de una página a partir de su HTML ESTÁTICO (un simple fetch, SIN navegador headless). Es la forma correcta de sacar imágenes de fichas de producto de proveedores (PIM tipo Plytix, catálogos, marcapl.com, etc.): aunque la web 'parezca' que carga las imágenes por JavaScript, casi siempre las URLs YA están en el HTML (en <img>, og:image o atributos data-* URL-encoded) y esta tool las recupera. NO necesitas web_scrape_dynamic ni Browserless para esto.\n\nFiltra automáticamente iconos, logos, banderas, sellos y badges. Si pasas 'match' (la referencia o SKU del producto, ej '288PKFMIXYFA'), devuelve en 'matched' SOLO las imágenes cuyo nombre de archivo contenga ese texto — úsalas como imágenes del producto.\n\nDevuelve { matched, images, ogImage, count }. Si 'matched' trae resultados, usa esas; si no, valora 'images'. Pasa esas URLs directamente a woocommerce_create_product.images. Solo si devuelve count:0 (HTML realmente vacío/SPA) recurre a web_scrape_dynamic.",
+    input_schema: {
+      type: "object",
+      properties: {
+        url: { type: "string", description: "URL de la página (https://...)." },
+        match: {
+          type: "string",
+          description: "Opcional. Referencia/SKU/texto para filtrar las imágenes del producto concreto (ej '288PKFMIXYFA')."
+        },
+        timeoutMs: { type: "number", description: "Timeout en ms (3000-30000). Default 20000." }
+      },
+      required: ["url"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "woocommerce_create_product",
+    description:
+      "Crea un producto en una tienda WooCommerce (WordPress) vía su REST API (POST /wp-json/wc/v3/products). Por defecto lo crea como BORRADOR (status='draft') para que alguien lo revise antes de publicar — NO publiques salvo que el user lo pida explícitamente.\n\nFLUJO típico para subir un producto desde la URL de un proveedor:\n  1) IMÁGENES → llama a extract_images(url, match=referencia/SKU). Devuelve las URLs ya listas (NO necesitas Browserless: las webs de proveedor casi siempre traen las imágenes en el HTML estático). Usa el array 'matched'.\n  2) DESCRIPCIÓN TÉCNICA → con http_request lee el HTML y extrae composición, normativas EN ISO, tejido, etc. (móntalo como HTML limpio).\n  3) Llama a esta tool con name, sku, regular_price, description, categories (IDs), images (las URLs de extract_images) y brand (proveedor).\n\nNUNCA pares ni preguntes 'no puedo sacar las imágenes / falta Browserless': prueba SIEMPRE extract_images primero.\n\nCREDENCIALES: hay DOS formas de autenticar y la tool acepta ambas (las guardadas en el workspace, o las que el user pegó en la tarea):\n  (a) Application Password de WordPress — usuario/email + una clave de 6 grupos de 4 (formato 'xxxx xxxx xxxx xxxx xxxx xxxx'). Pásalas en wpUser + wpAppPassword. ES LA MÁS FIABLE: úsala si la tarea trae un 'correo'/'usuario' + una clave con ese formato (suele venir como 'api rest: ...').\n  (b) WooCommerce REST API — consumer key (ck_...) + consumer secret (cs_...). Pásalas en consumerKey + consumerSecret.\nEn ambos casos pasa también storeUrl (ej 'https://2m2.es') si no está guardada. Si una opción da 401 'cannot_view/cannot_create', prueba la otra. Las credenciales se detectan y guardan solas para reutilizarlas.\n\nIMÁGENES: se pasan como URLs y WooCommerce las descarga e importa al crear el producto. Si la tienda rechaza la descarga remota, la tool devolverá error y debes avisarlo.",
+    input_schema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Nombre del producto." },
+        sku: { type: "string", description: "Referencia/SKU única. Ej 'MAR_288PFMIXNFA'." },
+        regular_price: {
+          type: "string",
+          description: "Precio regular como string. Acepta coma o punto ('34,95' o '34.95'); se normaliza a punto."
+        },
+        description: {
+          type: "string",
+          description: "Descripción larga en HTML limpio (composición, normativas, tejido, usos…)."
+        },
+        short_description: { type: "string", description: "Descripción corta opcional (HTML)." },
+        status: {
+          type: "string",
+          enum: ["draft", "publish", "pending", "private"],
+          description: "Estado. Default 'draft' (borrador). NO uses 'publish' salvo que el user lo pida."
+        },
+        type: { type: "string", description: "Tipo de producto WooCommerce. Default 'simple'." },
+        categories: {
+          type: "array",
+          description:
+            "Categorías. Acepta IDs numéricos como string (ej ['115','109']) o nombres (ej ['Parkas Alta Visibilidad']). Si das nombres y no existen, WooCommerce los rechaza — usa woocommerce_list_categories para obtener los IDs.",
+          items: { type: "string" }
+        },
+        images: {
+          type: "array",
+          description: "URLs completas de las imágenes (la primera es la principal). WooCommerce las descarga e importa.",
+          items: { type: "string" }
+        },
+        brand: { type: "string", description: "Proveedor/marca. Se añade como atributo 'Proveedor'. Ej 'MARCA'." },
+        storeUrl: {
+          type: "string",
+          description: "URL de la tienda (ej 'https://2m2.es'). Solo si no está guardada en el workspace ni la pegó el user."
+        },
+        consumerKey: { type: "string", description: "WooCommerce consumer key (ck_...). Opción (b). Solo si no está guardada." },
+        consumerSecret: { type: "string", description: "WooCommerce consumer secret (cs_...). Opción (b). Solo si no está guardada." },
+        wpUser: { type: "string", description: "Usuario o email de WordPress. Opción (a), junto con wpAppPassword." },
+        wpAppPassword: { type: "string", description: "Application Password de WordPress (6 grupos de 4, ej 'dQtn VVYc oJg3 9O08 QDCU iugT'). Opción (a). La más fiable." }
+      },
+      required: ["name"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "woocommerce_list_categories",
+    description:
+      "Lista las categorías de productos de la tienda WooCommerce (id, nombre, slug, parent, count). Úsalo para mapear nombres de categoría a sus IDs antes de crear productos con woocommerce_create_product. Mismas credenciales que esa tool.",
+    input_schema: {
+      type: "object",
+      properties: {
+        search: { type: "string", description: "Filtro por nombre (opcional)." },
+        storeUrl: { type: "string", description: "URL de la tienda si no está guardada." },
+        consumerKey: { type: "string", description: "Consumer key (ck_...) si no está guardada." },
+        consumerSecret: { type: "string", description: "Consumer secret (cs_...) si no está guardada." },
+        wpUser: { type: "string", description: "Usuario/email de WordPress (con wpAppPassword) como alternativa a ck/cs." },
+        wpAppPassword: { type: "string", description: "Application Password de WordPress (6 grupos de 4)." }
+      },
+      additionalProperties: false
+    }
+  },
+  {
     name: "analyze_image_deep",
     description:
       "Análisis profundo de UNA imagen con vision IA + schema estructurado. Devuelve JSON con: paleta hex exacta (3-8 colores), color dominante, objetos identificados con confianza, materiales visibles, dimensiones estimadas si hay referencias de escala, vibe/mood, sugerencias accionables, encaje con brandBrief, **textsFound (OCR — TODOS los textos visibles transcritos literalmente)** y **composition (layout: regla de tercios, centrado, full-bleed…)**.\n\nÚSALO para:\n- Anuncios publicitarios de referencia que pega el cliente → con textsFound extraes claim+CTA+USPs y los puedes replicar en generate_meta_ad_creative.\n- Fichas de producto (Reva muebles → dimensiones + materiales; Champiso setas → tipo + cocción).\n- Validar que una imagen encaja con la marca antes de publicar.\n- Extraer paleta exacta del catálogo del cliente para alimentar generate_brand_image.\n\nCoste ~\\$0.02 por análisis (vision Sonnet). Para análisis superficial usa view_attachment o get_task_context que ya leen imágenes adjuntas.",
@@ -5260,6 +5344,85 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
       return res;
     } catch (e: any) {
       return { error: `web_scrape_dynamic: ${e?.message ?? e}` };
+    }
+  },
+
+  async extract_images(input, ctx) {
+    try {
+      const url = String(input?.url ?? "").trim();
+      if (!url) return { error: "url requerida" };
+      const { extractImages } = await import("@/lib/scrape/images");
+      const res = await extractImages(url, {
+        match: input?.match ? String(input.match) : undefined,
+        timeoutMs: input?.timeoutMs ? Number(input.timeoutMs) : undefined
+      });
+      return res;
+    } catch (e: any) {
+      return { error: `extract_images: ${e?.message ?? e}` };
+    }
+  },
+
+  async woocommerce_create_product(input, ctx) {
+    try {
+      const { wcCreateProduct } = await import("@/lib/integrations/woocommerce");
+      const override = {
+        storeUrl: input?.storeUrl ? String(input.storeUrl) : undefined,
+        consumerKey: input?.consumerKey ? String(input.consumerKey) : undefined,
+        consumerSecret: input?.consumerSecret ? String(input.consumerSecret) : undefined,
+        wpUser: input?.wpUser ? String(input.wpUser) : undefined,
+        wpAppPassword: input?.wpAppPassword ? String(input.wpAppPassword) : undefined
+      };
+      const categories = Array.isArray(input?.categories)
+        ? input.categories.map((c: any) =>
+            typeof c === "string" && /^\d+$/.test(c.trim()) ? Number(c.trim()) : c
+          )
+        : undefined;
+      const images = Array.isArray(input?.images)
+        ? input.images.map((s: any) => String(s)).filter(Boolean)
+        : undefined;
+      const res = await wcCreateProduct({
+        workspaceId: ctx.workspaceId,
+        adhoc: ctx.adhocCredentials,
+        override,
+        name: String(input?.name ?? ""),
+        type: input?.type ? String(input.type) : undefined,
+        status: input?.status,
+        sku: input?.sku ? String(input.sku) : undefined,
+        regularPrice: input?.regular_price != null ? String(input.regular_price) : undefined,
+        description: input?.description ? String(input.description) : undefined,
+        shortDescription: input?.short_description ? String(input.short_description) : undefined,
+        categories,
+        images,
+        brand: input?.brand ? String(input.brand) : undefined
+      });
+      return {
+        ok: true,
+        product: res,
+        message: `Producto creado como ${res.status} (id ${res.id}, sku ${res.sku || "—"}). ${res.permalink}`
+      };
+    } catch (e: any) {
+      return { error: `woocommerce_create_product: ${e?.message ?? e}` };
+    }
+  },
+
+  async woocommerce_list_categories(input, ctx) {
+    try {
+      const { wcListCategories } = await import("@/lib/integrations/woocommerce");
+      const cats = await wcListCategories({
+        workspaceId: ctx.workspaceId,
+        adhoc: ctx.adhocCredentials,
+        override: {
+          storeUrl: input?.storeUrl ? String(input.storeUrl) : undefined,
+          consumerKey: input?.consumerKey ? String(input.consumerKey) : undefined,
+          consumerSecret: input?.consumerSecret ? String(input.consumerSecret) : undefined,
+          wpUser: input?.wpUser ? String(input.wpUser) : undefined,
+          wpAppPassword: input?.wpAppPassword ? String(input.wpAppPassword) : undefined
+        },
+        search: input?.search ? String(input.search) : undefined
+      });
+      return { ok: true, count: cats.length, categories: cats };
+    } catch (e: any) {
+      return { error: `woocommerce_list_categories: ${e?.message ?? e}` };
     }
   },
 

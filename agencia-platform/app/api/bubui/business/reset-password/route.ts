@@ -40,12 +40,14 @@ export async function POST(req: Request) {
   }
 
   const passwordHash = await bcrypt.hash(password, 10);
+  const secret = randomBytes(24).toString("hex");
   await prisma.bubuiBusiness.update({
     where: { id: business.id },
-    data: { ownerPasswordHash: passwordHash, ownerResetTokenHash: null, ownerResetExpiresAt: null }
+    // apiToken: persiste el secreto de sesión para poder validar el token.
+    data: { ownerPasswordHash: passwordHash, ownerResetTokenHash: null, ownerResetExpiresAt: null, apiToken: secret }
   });
 
-  const sessionToken = `${business.id}:${randomBytes(16).toString("hex")}`;
+  const sessionToken = `${business.id}:${secret}`;
   return NextResponse.json({
     ok: true,
     businessId: business.id,

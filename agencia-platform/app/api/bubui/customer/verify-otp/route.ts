@@ -15,6 +15,8 @@ import { z } from "zod";
 import { prisma } from "@/lib/db/prisma";
 import { toE164, checkVerification } from "@/lib/bubui/twilio";
 import { ensureReferralCode, applyReferral } from "@/lib/bubui/referral";
+import { issueCustomerToken } from "@/lib/bubui/customer-auth";
+import { rateLimit } from "@/lib/api/rate-limit";
 
 export const dynamic = "force-dynamic";
 
@@ -25,13 +27,16 @@ const schema = z.object({
   email: z.string().email(),
   birthDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Fecha inválida"),
   gender: z.enum(["female", "male", "other", "prefer_not"]),
+  postalCode: z.string().regex(/^\d{5}$/, "Código postal inválido").optional(),
   firstBusinessId: z.string().optional(),
   ref: z.string().max(12).optional()
 });
 
-function sessionFrom(c: { id: string; name: string | null; totalSaved: number; totalPurchases: number }, reused: boolean, status = 200) {
+async function sessionFrom(c: { id: string; name: string | null; totalSaved: number; totalPurchases: number }, reused: boolean, status = 200) {
+  // Emite/renueva el token de sesión y lo devuelve para que la app lo guarde.
+  const token = await issueCustomerToken(c.id);
   return NextResponse.json(
-    { ok: true, reused, customerId: c.id, name: c.name, totalSaved: c.totalSaved, totalPurchases: c.totalPurchases },
+    { ok: true, reused, customerId: c.id, name: c.name, totalSaved: c.totalSaved, totalPurchases: c.totalPurchases, token },
     { status }
   );
 }
@@ -47,6 +52,11 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: { code: "bad_phone", message: "Número de teléfono no válido" } }, { status: 400 });
   }
 
+  // Anti fuerza bruta: máx 6 intentos de código por minuto y teléfono.
+  if (!rateLimit(`bubui-otp-check:${phone}`, 6).ok) {
+    return NextResponse.json({ error: { code: "rate_limit", message: "Demasiados intentos. Espera un minuto." } }, { status: 429 });
+  }
+
   const check = await checkVerification(phone, d.code);
   if (!check.configured) {
     return NextResponse.json({ error: { code: "sms_not_configured", message: "La verificación por SMS aún no está activada en el servidor." } }, { status: 503 });
@@ -55,7 +65,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: { code: "bad_code", message: "Código incorrecto o caducado. Pide uno nuevo." } }, { status: 401 });
   }
 
-  const profile = { name: d.name, email: d.email, birthDate: d.birthDate, gender: d.gender };
+  const profile = { name: d.name, email: d.email, birthDate: d.birthDate, gender: d.gender, postalCode: d.postalCode };
 
   // 1) ¿Existe ya por teléfono? -> login/actualización.
   const byPhone = await prisma.bubuiCustomer.findUnique({ where: { phone } });

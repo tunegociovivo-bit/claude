@@ -27,7 +27,11 @@ const schema = z.object({
   title: z.string().min(1).max(120),
   body: z.string().min(1).max(300),
   link: z.string().max(2000).optional().default(""),
-  image: z.string().max(2000).optional().default("")
+  image: z.string().max(2000).optional().default(""),
+  // Audiencia: si llega una lista de customerIds, solo se envía a esos
+  // (el panel ya la filtra por CP/edad/sexo/gustos/selección). Si no llega o
+  // va vacía, se envía a TODOS los suscritos (comportamiento anterior).
+  customerIds: z.array(z.string()).optional()
 });
 
 export async function POST(req: Request) {
@@ -40,13 +44,19 @@ export async function POST(req: Request) {
   }
   const { title, body, link } = parsed.data;
   const image = parsed.data.image?.trim() || undefined;
+  // Audiencia objetivo (si se especifica). Set vacío/undefined = todos.
+  const targetIds =
+    parsed.data.customerIds && parsed.data.customerIds.length > 0
+      ? new Set(parsed.data.customerIds)
+      : null;
+  const whereCustomer = targetIds ? { customerId: { in: Array.from(targetIds) } } : undefined;
 
   // ── Canal 1: Web Push (PWA) ────────────────────────────────────────
   let webRecipients = 0;
   let webSent = 0;
   let webRemoved = 0;
   if (isBubuiPushEnabled()) {
-    const subs = await prisma.bubuiPushSubscription.findMany({ select: { customerId: true } });
+    const subs = await prisma.bubuiPushSubscription.findMany({ where: whereCustomer, select: { customerId: true } });
     const customerIds = Array.from(new Set(subs.map((s) => s.customerId)));
     for (const id of customerIds) {
       const r = await sendPushToBubuiCustomer(id, {
@@ -64,6 +74,7 @@ export async function POST(req: Request) {
 
   // ── Canal 2: Mobile Push (Expo) ────────────────────────────────────
   const mobileRows = await prisma.bubuiMobilePushToken.findMany({
+    where: whereCustomer,
     select: { customerId: true, token: true }
   });
   const mobileRecipients = new Set(mobileRows.map((r) => r.customerId)).size;

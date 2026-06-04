@@ -11,6 +11,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db/prisma";
 import { sendPosterDeliveryRequestEmail } from "@/lib/bubui/email";
+import { businessTokenAllows } from "@/lib/bubui/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -21,6 +22,9 @@ const schema = z.object({
 });
 
 export async function POST(req: Request, { params }: { params: { id: string } }) {
+  if (!(await businessTokenAllows(req.headers.get("authorization"), params.id))) {
+    return NextResponse.json({ error: { code: "unauthorized", message: "No autorizado" } }, { status: 401 });
+  }
   const parsed = schema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) {
     return NextResponse.json(

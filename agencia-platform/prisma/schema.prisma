@@ -3394,6 +3394,9 @@ model BubuiBusiness {
   // Recuperación de contraseña: hash del token de un solo uso + caducidad.
   ownerResetTokenHash String?
   ownerResetExpiresAt DateTime?
+  // Secreto de sesión del panel: se compara con el `<id>:<secret>` que envía
+  // el panel. Se emite/renueva en el login. null hasta el próximo login.
+  apiToken      String?
   // Status.
   active        Boolean  @default(true)
   // Destacado en Descubre (ordenación preferente).
@@ -3426,8 +3429,20 @@ model BubuiCustomer {
   name            String?
   gender          String?  // male | female | other
   birthDate       String?  // YYYY-MM-DD
+  postalCode      String?  // CP de residencia (5 dígitos) — ofertas cerca de casa
   // Token push (Expo / FCM / APNs).
   pushToken       String?
+  // Token de sesión opaco para autenticar las llamadas de la app a los
+  // endpoints /customer/[id]/*, /offers y /scan. Se emite/renueva al verificar
+  // el OTP y al hacer login. null en cuentas antiguas hasta el próximo login.
+  apiToken        String?
+  // Versión de la app instalada (la reporta la app móvil en cada apertura del
+  // feed). appBuild = versionCode (Android) / buildNumber (iOS), p. ej. "1015".
+  // Sirve para saber qué build tiene cada usuario al hacer pruebas.
+  appVersion      String?  // p. ej. "1.0.0"
+  appBuild        String?  // p. ej. "1015"
+  appPlatform     String?  // ios | android
+  lastSeenAt      DateTime? // última vez que la app llamó al backend
   // Última ubicación (para feed + push geo).
   lastLat         Float?
   lastLng         Float?
