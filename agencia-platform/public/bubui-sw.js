@@ -1,7 +1,7 @@
 /**
  * Service worker de Bubui PWA. Escucha 'push' y muestra la notificación.
  *
- * Payload esperado (JSON): { title, body, link?, tag?, icon? }
+ * Payload esperado (JSON): { title, body, link?, tag?, icon?, image? }
  */
 
 self.addEventListener("install", (event) => {
@@ -25,6 +25,9 @@ self.addEventListener("push", (event) => {
     icon: data.icon || "/bubui-icon-192.png",
     badge: "/bubui-badge-72.png",
     tag: data.tag,
+    // `image` muestra una foto grande en la notificación; al tocarla (o tocar
+    // la notificación) se abre el enlace de la oferta gestionado más abajo.
+    image: data.image || undefined,
     data: { link: data.link || "/bubui/app" },
     vibrate: [80, 40, 80]
   };

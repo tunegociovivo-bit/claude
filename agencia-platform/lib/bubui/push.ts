@@ -35,6 +35,8 @@ export async function sendPushToBubuiCustomer(
     link?: string;
     tag?: string;
     icon?: string;
+    /** URL de imagen grande mostrada en la notificación (rich push). */
+    image?: string;
   }
 ): Promise<{ sent: number; removed: number }> {
   if (!isBubuiPushEnabled()) return { sent: 0, removed: 0 };

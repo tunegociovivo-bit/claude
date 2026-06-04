@@ -34,6 +34,8 @@ export type MobilePushPayload = {
   title: string;
   body: string;
   link?: string;
+  /** URL pública de una imagen a mostrar en la notificación (rich push). */
+  image?: string;
   /** Cualquier extra que la app móvil quiera leer al abrir la notif. */
   data?: Record<string, any>;
 };
@@ -49,13 +51,18 @@ export async function sendMobilePush(
   const valid = tokens.filter((t) => Expo.isExpoPushToken(t));
   if (valid.length === 0) return { sent: 0, removed: 0, errors: 0 };
 
+  const image = payload.image?.trim() || undefined;
   const messages: ExpoPushMessage[] = valid.map((to) => ({
     to,
     sound: "default",
     title: payload.title,
     body: payload.body,
-    data: { link: payload.link ?? null, ...(payload.data ?? {}) },
-    channelId: "default"
+    // `image` también viaja en data para que la app pueda renderizarla en
+    // primer plano; `richContent.image` la muestra en la propia notificación
+    // del sistema (BigPicture en Android, attachment en iOS).
+    data: { link: payload.link ?? null, image: image ?? null, ...(payload.data ?? {}) },
+    channelId: "default",
+    ...(image ? { richContent: { image }, mutableContent: true } : {})
   }));
 
   const expo = getExpo();

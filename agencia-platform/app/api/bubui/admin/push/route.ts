@@ -8,7 +8,7 @@
  * Auth: sesión NextAuth con rol ADMIN.
  *
  * Body:
- *   { title, body, link? }
+ *   { title, body, link?, image? }
  *
  * Devuelve un resumen agregado y por canal.
  */
@@ -27,6 +27,7 @@ const schema = z.object({
   title: z.string().min(1).max(120),
   body: z.string().min(1).max(300),
   link: z.string().max(2000).optional().default(""),
+  image: z.string().max(2000).optional().default(""),
   // Audiencia: si llega una lista de customerIds, solo se envía a esos
   // (el panel ya la filtra por CP/edad/sexo/gustos/selección). Si no llega o
   // va vacía, se envía a TODOS los suscritos (comportamiento anterior).
@@ -42,6 +43,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: { code: "validation" } }, { status: 400 });
   }
   const { title, body, link } = parsed.data;
+  const image = parsed.data.image?.trim() || undefined;
   // Audiencia objetivo (si se especifica). Set vacío/undefined = todos.
   const targetIds =
     parsed.data.customerIds && parsed.data.customerIds.length > 0
@@ -61,6 +63,7 @@ export async function POST(req: Request) {
         title,
         body,
         link: link || undefined,
+        image,
         tag: "ad-" + Date.now()
       });
       if (r.sent > 0) webRecipients++;
@@ -77,7 +80,7 @@ export async function POST(req: Request) {
   const mobileRecipients = new Set(mobileRows.map((r) => r.customerId)).size;
   const mobileResult = await sendMobilePush(
     mobileRows.map((r) => r.token),
-    { title, body, link: link || undefined }
+    { title, body, link: link || undefined, image }
   );
 
   const totalRecipients = webRecipients + mobileRecipients;

@@ -527,6 +527,9 @@ function PushPanel() {
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [link, setLink] = useState("");
+  const [image, setImage] = useState("");
+  const [uploading, setUploading] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
   const [stats, setStats] = useState<{
@@ -550,6 +553,32 @@ function PushPanel() {
     adminFetch("/api/bubui/admin/push/stats").then(setStats).catch(() => {});
     adminFetch("/api/bubui/admin/customers").then((d) => setUsers(d.customers)).catch(() => {});
   }, []);
+
+  async function onPickImage(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (file) e.target.value = ""; // permite re-subir el mismo archivo
+    if (!file) return;
+    setMsg("");
+    setUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      // Reutilizamos el endpoint de subida del banner (devuelve URL pública).
+      const r = await fetch("/api/bubui/admin/banner/upload", { method: "POST", body: fd });
+      if (r.status === 401) {
+        window.location.href = "/login?callbackUrl=/bubui/admin";
+        return;
+      }
+      const j: any = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j?.error?.message || j?.error?.code || `HTTP ${r.status}`);
+      setImage(j.url);
+      setMsg("Imagen lista ✓");
+    } catch (err) {
+      setMsg("Error al subir: " + String(err));
+    } finally {
+      setUploading(false);
+    }
+  }
 
   const allCats = Array.from(new Set((users ?? []).flatMap((u) => u.categories ?? []))).sort();
   const postalList = fPostal.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean);
@@ -594,7 +623,7 @@ function PushPanel() {
     setBusy(true);
     setMsg("");
     try {
-      const payload: any = { title, body, link };
+      const payload: any = { title, body, link, image };
       if (mode !== "all" && audienceIds) payload.customerIds = audienceIds;
       const r = await adminFetch("/api/bubui/admin/push", { method: "POST", body: JSON.stringify(payload) });
       const w = r?.channels?.web;
@@ -603,7 +632,8 @@ function PushPanel() {
       if (w) parts.push(`Web ${w.sent}/${w.recipients}`);
       if (m) parts.push(`Móvil ${m.sent}/${m.recipients}`);
       setMsg(`Enviado · ${parts.join(" · ")}${r.removed ? ` · ${r.removed} muertos limpiados` : ""}`);
-      setTitle(""); setBody(""); setLink("");
+      setTitle(""); setBody(""); setLink(""); setImage("");
+      // refresca stats
       adminFetch("/api/bubui/admin/push/stats").then(setStats).catch(() => {});
     } catch (e) {
       setMsg("Error: " + String(e));
@@ -718,8 +748,25 @@ function PushPanel() {
       <input className="bubui-input mb-3 mt-1" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Ej: ¡Ofertas nuevas cerca de ti!" maxLength={120} />
       <label className="text-xs font-bold uppercase tracking-wide text-black/55">Mensaje</label>
       <textarea className="bubui-input mb-3 mt-1" value={body} onChange={(e) => setBody(e.target.value)} placeholder="Cuerpo de la notificación" maxLength={300} rows={3} />
-      <label className="text-xs font-bold uppercase tracking-wide text-black/55">Enlace al tocar (opcional)</label>
-      <input className="bubui-input mb-3 mt-1" value={link} onChange={(e) => setLink(e.target.value)} placeholder="https://…" />
+      <label className="text-xs font-bold uppercase tracking-wide text-black/55">Enlace de la oferta al tocar (opcional)</label>
+      <input className="bubui-input mb-1 mt-1" value={link} onChange={(e) => setLink(e.target.value)} placeholder="https://…/bubui/n/mi-negocio" />
+      <p className="text-[11px] text-black/45 mb-3">Al tocar la notificación (o la imagen) se abre este enlace.</p>
+
+      <label className="text-xs font-bold uppercase tracking-wide text-black/55">Imagen (opcional)</label>
+      <p className="text-[11px] text-black/45 mt-1 mb-2">Se muestra grande dentro de la notificación. Recomendado horizontal (ej. 1024×512).</p>
+      <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp,image/gif" className="hidden" onChange={onPickImage} />
+      <div className="flex flex-wrap items-center gap-2 mb-2">
+        <button type="button" onClick={() => fileRef.current?.click()} disabled={uploading} className="bubui-btn disabled:opacity-50">
+          {uploading ? "Subiendo…" : "📷 Subir imagen"}
+        </button>
+        {image && (
+          <button type="button" onClick={() => setImage("")} className="text-[12px] text-black/55 underline">
+            Quitar
+          </button>
+        )}
+      </div>
+      <input className="bubui-input mb-3 mt-1" value={image} onChange={(e) => setImage(e.target.value)} placeholder="https://…/imagen.png" />
+      {image ? <img src={image} alt="preview" className="rounded-xl max-w-[320px] w-full mb-3 border border-black/10" /> : null}
 
       <div className="flex items-center gap-3 flex-wrap">
         <button onClick={send} disabled={busy} className="bubui-btn" style={busy ? { opacity: 0.5 } : undefined}>

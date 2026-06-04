@@ -12,11 +12,61 @@
  */
 
 import Constants from "expo-constants";
-import { Platform } from "react-native";
+import { Platform, Linking } from "react-native";
 import * as Notifications from "expo-notifications";
-import { api } from "./api";
+import { api, API_BASE } from "./api";
 
 let lastRegisteredToken: { customerId: string; token: string } | null = null;
+
+// Muestra las notificaciones aunque la app esté en primer plano (banner +
+// sonido). Sin esto, un push recibido con la app abierta pasa desapercibido.
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge: false
+  })
+});
+
+/** Normaliza el enlace de la oferta a una URL abrible. */
+function resolveLink(link: unknown): string | null {
+  if (typeof link !== "string" || !link.trim()) return null;
+  const l = link.trim();
+  if (/^https?:\/\//i.test(l) || /^[a-z][a-z0-9+.-]*:/i.test(l)) return l;
+  // Ruta relativa (p.ej. "/bubui/n/...") → la resolvemos contra el Hub.
+  return `${API_BASE}${l.startsWith("/") ? "" : "/"}${l}`;
+}
+
+function openNotificationLink(response: Notifications.NotificationResponse | null) {
+  const data = response?.notification?.request?.content?.data as
+    | { link?: unknown }
+    | undefined;
+  const url = resolveLink(data?.link);
+  if (url) Linking.openURL(url).catch(() => {});
+}
+
+let tapHandlerReady = false;
+
+/**
+ * Engancha la apertura de la oferta al tocar la notificación (incluida su
+ * imagen). Cubre dos casos:
+ *   - App en segundo plano/primer plano → addNotificationResponseReceived.
+ *   - App arrancada en frío desde la notificación → getLastNotificationResponse.
+ *
+ * Devuelve una función de limpieza para el listener.
+ */
+export function setupNotificationTapHandler(): () => void {
+  // El listener puede registrarse varias veces sin efectos adversos, pero la
+  // apertura en frío solo debe dispararse una vez.
+  const sub = Notifications.addNotificationResponseReceivedListener(openNotificationLink);
+  if (!tapHandlerReady) {
+    tapHandlerReady = true;
+    Notifications.getLastNotificationResponseAsync()
+      .then(openNotificationLink)
+      .catch(() => {});
+  }
+  return () => sub.remove();
+}
 
 export async function registerExpoPushForCustomer(customerId: string): Promise<void> {
   try {
