@@ -13,6 +13,7 @@ import { Afiliados } from "./src/screens/Afiliados";
 import { Scan } from "./src/screens/Scan";
 import { Negocio, type NegocioParam } from "./src/screens/Negocio";
 import { CheckSession } from "./src/lib/session";
+import { setupNotificationTapHandler } from "./src/lib/push";
 import { ErrorBoundary } from "./src/components/ErrorBoundary";
 import { useAppFonts, applyPoppinsToTextDefaults } from "./src/lib/fonts";
 import { ThemeProvider, useThemeMeta } from "./src/lib/theme";
@@ -56,6 +57,9 @@ function AppInner() {
       setInitial(session ? "Feed" : "Onboarding");
     })();
   }, []);
+
+  // Al tocar una notificación push (o su imagen) se abre el enlace de la oferta.
+  useEffect(() => setupNotificationTapHandler(), []);
 
   // Splash hasta que las fuentes carguen — evita ver Roboto un frame y
   // luego cambiar a Poppins (FOIT).

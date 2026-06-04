@@ -8,7 +8,7 @@
  * Auth: sesión NextAuth con rol ADMIN.
  *
  * Body:
- *   { title, body, link? }
+ *   { title, body, link?, image? }
  *
  * Devuelve un resumen agregado y por canal.
  */
@@ -26,7 +26,8 @@ export const maxDuration = 60;
 const schema = z.object({
   title: z.string().min(1).max(120),
   body: z.string().min(1).max(300),
-  link: z.string().max(2000).optional().default("")
+  link: z.string().max(2000).optional().default(""),
+  image: z.string().max(2000).optional().default("")
 });
 
 export async function POST(req: Request) {
@@ -38,6 +39,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: { code: "validation" } }, { status: 400 });
   }
   const { title, body, link } = parsed.data;
+  const image = parsed.data.image?.trim() || undefined;
 
   // ── Canal 1: Web Push (PWA) ────────────────────────────────────────
   let webRecipients = 0;
@@ -51,6 +53,7 @@ export async function POST(req: Request) {
         title,
         body,
         link: link || undefined,
+        image,
         tag: "ad-" + Date.now()
       });
       if (r.sent > 0) webRecipients++;
@@ -66,7 +69,7 @@ export async function POST(req: Request) {
   const mobileRecipients = new Set(mobileRows.map((r) => r.customerId)).size;
   const mobileResult = await sendMobilePush(
     mobileRows.map((r) => r.token),
-    { title, body, link: link || undefined }
+    { title, body, link: link || undefined, image }
   );
 
   const totalRecipients = webRecipients + mobileRecipients;
