@@ -62,7 +62,7 @@ jobs:
           ASC_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_API_KEY_ISSUER_ID }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: node .github/scripts/gen-ios-creds.js
+        run: node ../../.github/scripts/gen-ios-creds.js
 
       - name: Build iOS firmado (EAS cloud)
         if: ${{ inputs.target == 'testflight' }}
