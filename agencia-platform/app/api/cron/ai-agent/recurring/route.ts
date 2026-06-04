@@ -11,6 +11,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { loadAgentConfig } from "@/lib/ai/nv-ia/runner";
+import { processRunInBackground } from "@/lib/ai/nv-ia/process-run";
 import { computeRecurrenceNext, isValidRecurrence } from "@/lib/tasks/recurrence";
 
 export const dynamic = "force-dynamic";
@@ -72,7 +73,7 @@ export async function GET(req: NextRequest) {
     });
     if (inFlight) continue;
 
-    await prisma.aiAgentRun.create({
+    const run = await prisma.aiAgentRun.create({
       data: {
         workspaceId: t.workspaceId,
         taskId: t.id,
@@ -81,6 +82,9 @@ export async function GET(req: NextRequest) {
         triggerContext: "Tarea recurrente: relanzada automáticamente por su programación."
       }
     });
+    // Arranca el procesado en background ya (igual que al crear una tarea de
+    // Sonia a mano), sin depender de un cron `process` aparte.
+    processRunInBackground(run.id);
     triggered++;
   }
 
