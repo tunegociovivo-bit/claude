@@ -12,60 +12,100 @@
  */
 
 import Constants from "expo-constants";
-import { Platform, Linking } from "react-native";
+import { Platform } from "react-native";
 import * as Notifications from "expo-notifications";
-import { api, API_BASE } from "./api";
+import { api } from "./api";
+import { openLink } from "./links";
+import {
+  displayRichNotification,
+  setupRichTapHandler,
+  registerRichNotifications
+} from "./rich-notifications";
 
 let lastRegisteredToken: { customerId: string; token: string } | null = null;
 
-// Muestra las notificaciones aunque la app esté en primer plano (banner +
-// sonido). Sin esto, un push recibido con la app abierta pasa desapercibido.
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: true,
-    shouldSetBadge: false
-  })
-});
-
-/** Normaliza el enlace de la oferta a una URL abrible. */
-function resolveLink(link: unknown): string | null {
-  if (typeof link !== "string" || !link.trim()) return null;
-  const l = link.trim();
-  if (/^https?:\/\//i.test(l) || /^[a-z][a-z0-9+.-]*:/i.test(l)) return l;
-  // Ruta relativa (p.ej. "/bubui/n/...") → la resolvemos contra el Hub.
-  return `${API_BASE}${l.startsWith("/") ? "" : "/"}${l}`;
+/**
+ * Extrae la URL de imagen del payload de la notificación, si la trae.
+ * Solo en Android: en iOS mostrar la imagen requiere una Notification Service
+ * Extension en el build, así que ahí dejamos el comportamiento por defecto.
+ */
+function imageOf(notification: Notifications.Notification): string | undefined {
+  if (Platform.OS !== "android") return undefined;
+  const data = notification.request?.content?.data as { image?: unknown } | undefined;
+  const img = data?.image;
+  return typeof img === "string" && img.trim() ? img.trim() : undefined;
 }
+
+// Presentación de notificaciones recibidas con la app en primer plano.
+// Sin imagen: que Expo muestre el banner de texto (comportamiento de siempre).
+// Con imagen: la suprimimos para mostrar en su lugar la versión "rich" con
+// foto grande vía Notifee (ver `addNotificationReceivedListener` abajo).
+Notifications.setNotificationHandler({
+  handleNotification: async (notification) => {
+    const hasImage = !!imageOf(notification);
+    return {
+      shouldShowAlert: !hasImage,
+      shouldPlaySound: true,
+      shouldSetBadge: false
+    };
+  }
+});
 
 function openNotificationLink(response: Notifications.NotificationResponse | null) {
   const data = response?.notification?.request?.content?.data as
     | { link?: unknown }
     | undefined;
-  const url = resolveLink(data?.link);
-  if (url) Linking.openURL(url).catch(() => {});
+  openLink(data?.link);
 }
 
 let tapHandlerReady = false;
 
 /**
  * Engancha la apertura de la oferta al tocar la notificación (incluida su
- * imagen). Cubre dos casos:
- *   - App en segundo plano/primer plano → addNotificationResponseReceived.
- *   - App arrancada en frío desde la notificación → getLastNotificationResponse.
+ * imagen) y el pintado de las notificaciones con imagen en primer plano.
+ * Cubre estos casos:
+ *   - Toque con la app en segundo/primer plano → addNotificationResponseReceived
+ *     (notifs de Expo) + setupRichTapHandler (notifs de Notifee).
+ *   - App arrancada en frío desde la notificación → getLastNotificationResponse
+ *     y getInitialNotification (dentro de setupRichTapHandler).
+ *   - Push con imagen recibido en primer plano → addNotificationReceived, que
+ *     lo muestra con foto grande vía Notifee.
  *
- * Devuelve una función de limpieza para el listener.
+ * Devuelve una función de limpieza para los listeners.
  */
 export function setupNotificationTapHandler(): () => void {
   // El listener puede registrarse varias veces sin efectos adversos, pero la
   // apertura en frío solo debe dispararse una vez.
-  const sub = Notifications.addNotificationResponseReceivedListener(openNotificationLink);
+  const tapSub = Notifications.addNotificationResponseReceivedListener(openNotificationLink);
+
+  // Con la app en primer plano, los push con imagen se muestran con Notifee
+  // (foto grande). Los de solo texto los sigue mostrando Expo (handler arriba).
+  const recvSub = Notifications.addNotificationReceivedListener((notification) => {
+    const image = imageOf(notification);
+    if (!image) return;
+    const content = notification.request?.content;
+    const data = content?.data as { link?: unknown } | undefined;
+    displayRichNotification({
+      title: content?.title ?? null,
+      body: content?.body ?? null,
+      image,
+      link: typeof data?.link === "string" ? data.link : null
+    }).catch(() => {});
+  });
+
+  const cleanupRichTap = setupRichTapHandler();
+
   if (!tapHandlerReady) {
     tapHandlerReady = true;
     Notifications.getLastNotificationResponseAsync()
       .then(openNotificationLink)
       .catch(() => {});
   }
-  return () => sub.remove();
+  return () => {
+    tapSub.remove();
+    recvSub.remove();
+    cleanupRichTap();
+  };
 }
 
 export async function registerExpoPushForCustomer(customerId: string): Promise<void> {
@@ -83,6 +123,10 @@ export async function registerExpoPushForCustomer(customerId: string): Promise<v
         lightColor: "#EC4899"
       });
     }
+
+    // Registra la task de fondo y el canal de Notifee para las notificaciones
+    // con imagen (no-op en Expo Go o si Notifee no está disponible).
+    await registerRichNotifications();
 
     const perm = await Notifications.getPermissionsAsync();
     let status = perm.status;

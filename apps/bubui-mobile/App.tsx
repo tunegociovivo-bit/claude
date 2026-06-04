@@ -19,6 +19,9 @@ import { useAppFonts, applyPoppinsToTextDefaults } from "./src/lib/fonts";
 import { ThemeProvider, useThemeMeta } from "./src/lib/theme";
 // Registra la task de geofencing en background (debe importarse pronto).
 import "./src/lib/geofence";
+// Define la background task de notificaciones con imagen (Notifee). Debe
+// importarse pronto para que quede registrada en el arranque en frío.
+import "./src/lib/rich-notifications";
 
 // applyPoppinsToTextDefaults(); // disabled for simulator compatibility
 
