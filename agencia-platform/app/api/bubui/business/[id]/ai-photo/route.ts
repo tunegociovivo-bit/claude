@@ -31,7 +31,7 @@ const schema = z.object({
 });
 
 export async function POST(req: Request, { params }: { params: { id: string } }) {
-  if (!businessTokenAllows(req.headers.get("authorization"), params.id)) {
+  if (!(await businessTokenAllows(req.headers.get("authorization"), params.id))) {
     return NextResponse.json({ error: { code: "unauthorized" } }, { status: 401 });
   }
   if (!isPhotoAiEnabled()) {

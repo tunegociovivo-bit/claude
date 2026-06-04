@@ -20,7 +20,7 @@ export const dynamic = "force-dynamic";
 
 export async function GET(req: Request, { params }: { params: { id: string } }) {
   const id = params.id;
-  if (!businessTokenAllows(req.headers.get("authorization"), id)) {
+  if (!(await businessTokenAllows(req.headers.get("authorization"), id))) {
     return NextResponse.json({ error: { code: "unauthorized", message: "No autorizado" } }, { status: 401 });
   }
   const business = await prisma.bubuiBusiness.findUnique({ where: { id } });

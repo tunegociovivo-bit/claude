@@ -3394,6 +3394,9 @@ model BubuiBusiness {
   // Recuperación de contraseña: hash del token de un solo uso + caducidad.
   ownerResetTokenHash String?
   ownerResetExpiresAt DateTime?
+  // Secreto de sesión del panel: se compara con el `<id>:<secret>` que envía
+  // el panel. Se emite/renueva en el login. null hasta el próximo login.
+  apiToken      String?
   // Status.
   active        Boolean  @default(true)
   // Destacado en Descubre (ordenación preferente).

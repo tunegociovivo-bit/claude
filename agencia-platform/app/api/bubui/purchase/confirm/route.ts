@@ -37,7 +37,7 @@ export async function POST(req: Request) {
   }
   const d = parsed.data;
 
-  if (!businessTokenAllows(req.headers.get("authorization"), d.businessId)) {
+  if (!(await businessTokenAllows(req.headers.get("authorization"), d.businessId))) {
     return NextResponse.json({ error: { code: "unauthorized", message: "No autorizado" } }, { status: 401 });
   }
 

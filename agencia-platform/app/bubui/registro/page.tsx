@@ -30,7 +30,7 @@ export default function RegistroNegocio() {
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<{ businessId: string; qrPngUrl: string; scanUrl: string } | null>(null);
+  const [result, setResult] = useState<{ businessId: string; token: string; qrPngUrl: string; scanUrl: string } | null>(null);
   // Negocio que refirió a este (llega vía ?ref=<businessId> en el enlace de
   // referido B2B). Se envía al signup para acreditarle la referencia.
   const [referrerBusinessId, setReferrerBusinessId] = useState<string | null>(null);
@@ -79,6 +79,7 @@ export default function RegistroNegocio() {
         </div>
         <PosterStep
           businessId={result.businessId}
+          token={result.token}
           qrPngUrl={result.qrPngUrl}
           scanUrl={result.scanUrl}
           defaultAddress={form.address}
@@ -217,12 +218,14 @@ export default function RegistroNegocio() {
 // llevemos gratis al local. Damos las dos opciones para facilitar el alta.
 function PosterStep({
   businessId,
+  token,
   qrPngUrl,
   scanUrl,
   defaultAddress,
   defaultPhone
 }: {
   businessId: string;
+  token: string;
   qrPngUrl: string;
   scanUrl: string;
   defaultAddress: string;
@@ -242,7 +245,7 @@ function PosterStep({
     return (
       <div className="space-y-4">
         <button onClick={() => setMode("choose")} className="text-sm text-pink-600 hover:underline">‹ Volver a las opciones</button>
-        <DeliveryForm businessId={businessId} defaultAddress={defaultAddress} defaultPhone={defaultPhone} />
+        <DeliveryForm businessId={businessId} token={token} defaultAddress={defaultAddress} defaultPhone={defaultPhone} />
       </div>
     );
   }
@@ -303,10 +306,12 @@ function OptionCard({
 
 function DeliveryForm({
   businessId,
+  token,
   defaultAddress,
   defaultPhone
 }: {
   businessId: string;
+  token: string;
   defaultAddress: string;
   defaultPhone: string;
 }) {
@@ -330,7 +335,7 @@ function DeliveryForm({
     try {
       const r = await fetch(`/api/bubui/business/${businessId}/request-poster`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ address, phone: phone || undefined, note: note || undefined })
       });
       const j = await r.json();

@@ -24,7 +24,7 @@ const schema = z.object({ resume: z.boolean().optional() });
 
 export async function POST(req: Request, { params }: { params: { id: string } }) {
   const businessId = params.id;
-  if (!businessTokenAllows(req.headers.get("authorization"), businessId)) {
+  if (!(await businessTokenAllows(req.headers.get("authorization"), businessId))) {
     return NextResponse.json({ error: { code: "unauthorized", message: "No autorizado" } }, { status: 401 });
   }
   if (!isBubuiStripeEnabled()) {
