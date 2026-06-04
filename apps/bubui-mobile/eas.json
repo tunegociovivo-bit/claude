@@ -27,6 +27,7 @@
       },
       "ios": {
         "buildConfiguration": "Release",
+        "credentialsSource": "local",
         "image": "latest"
       }
     }
