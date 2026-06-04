@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { View, Text, FlatList, RefreshControl, TouchableOpacity, StyleSheet, Animated, Easing, Image, Dimensions, Linking } from "react-native";
+import { View, Text, FlatList, RefreshControl, TouchableOpacity, StyleSheet, Animated, Easing, Image, Dimensions, Linking, AppState } from "react-native";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import * as Location from "expo-location";
 import { CheckSession, type Customer } from "../lib/session";
@@ -126,6 +126,18 @@ export function Feed() {
   }, [nav]);
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
+
+  // Refresca al volver de segundo plano (desbloquear el móvil / volver a la
+  // app): useFocusEffect NO se dispara en ese caso, así que sin esto la
+  // ubicación se quedaría congelada mientras el usuario está fuera con la app
+  // abierta. (Con la app CERRADA no se puede actualizar: quitamos la ubicación
+  // en segundo plano para cumplir con Google Play.)
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (s) => {
+      if (s === "active") load();
+    });
+    return () => sub.remove();
+  }, [load]);
 
   const header = (
     <View>
