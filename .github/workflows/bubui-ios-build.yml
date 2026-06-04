@@ -1,7 +1,7 @@
 name: Build Bubui (iOS → TestFlight)
 
 # Secretos: EXPO_TOKEN, ASC_API_KEY_P8, ASC_API_KEY_ID, ASC_API_KEY_ISSUER_ID
-#            APPLE_TEAM_ID, IOS_DIST_CERT_P12, IOS_PROV_PROFILE, DIST_CERT_PASSWORD
+#            APPLE_TEAM_ID
 
 on:
   workflow_dispatch:
@@ -53,34 +53,6 @@ jobs:
         env:
           ASC_API_KEY_P8: ${{ secrets.ASC_API_KEY_P8 }}
         run: printf '%s' "$ASC_API_KEY_P8" > "$RUNNER_TEMP/asc-api-key.p8"
-
-      - name: Prepare iOS credentials
-        if: ${{ inputs.target == 'testflight' }}
-        env:
-          IOS_DIST_CERT_P12: ${{ secrets.IOS_DIST_CERT_P12 }}
-          IOS_PROV_PROFILE: ${{ secrets.IOS_PROV_PROFILE }}
-          DIST_CERT_PASSWORD: ${{ secrets.DIST_CERT_PASSWORD }}
-        run: |
-          mkdir -p ios-creds
-          printf '%s' "$IOS_DIST_CERT_P12" | base64 -d > ios-creds/cert.p12
-          printf '%s' "$IOS_PROV_PROFILE"  | base64 -d > ios-creds/app.mobileprovision
-          node -e "
-          const fs = require('fs');
-          const pass = process.env.DIST_CERT_PASSWORD;
-          const creds = {
-            ios: {
-              distributionCertificate: {
-                path: 'ios-creds/cert.p12',
-                password: pass
-              },
-              provisioningProfilePath: 'ios-creds/app.mobileprovision'
-            }
-          };
-          fs.writeFileSync('credentials.json', JSON.stringify(creds, null, 2));
-          console.log('credentials.json:', JSON.stringify(creds, null, 2));
-          console.log('cert size:', fs.statSync('ios-creds/cert.p12').size);
-          console.log('prov size:', fs.statSync('ios-creds/app.mobileprovision').size);
-          "
 
       - name: Build iOS firmado (EAS cloud)
         if: ${{ inputs.target == 'testflight' }}
