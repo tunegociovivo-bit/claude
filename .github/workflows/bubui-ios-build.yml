@@ -61,12 +61,9 @@ jobs:
           IOS_PROV_PROFILE: ${{ secrets.IOS_PROV_PROFILE }}
           DIST_CERT_PASSWORD: ${{ secrets.DIST_CERT_PASSWORD }}
         run: |
-          # Write cert files INSIDE the project dir (they'll be included in EAS archive)
-          printf '%s' "$IOS_DIST_CERT_P12" | base64 -d > ios-creds/cert.p12
           mkdir -p ios-creds
           printf '%s' "$IOS_DIST_CERT_P12" | base64 -d > ios-creds/cert.p12
           printf '%s' "$IOS_PROV_PROFILE"  | base64 -d > ios-creds/app.mobileprovision
-          # Write credentials.json with RELATIVE paths (relative to project root)
           node -e "
           const fs = require('fs');
           const pass = process.env.DIST_CERT_PASSWORD;
