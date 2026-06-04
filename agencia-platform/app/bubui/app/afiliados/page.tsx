@@ -6,6 +6,7 @@
  */
 
 import { useEffect, useState } from "react";
+import { customerAuthHeaders } from "@/app/bubui/lib/customerAuth";
 
 type Milestone = { n: number; reward: string; unlocked: boolean };
 type Friend = { initial: string; verified: boolean; joinedAt: string };
@@ -51,7 +52,7 @@ export default function AfiliadosPage() {
     if (!id) { setNoSession(true); setLoading(false); return; }
     (async () => {
       try {
-        const r = await fetch(`/api/bubui/customer/${id}/referral`);
+        const r = await fetch(`/api/bubui/customer/${id}/referral`, { headers: customerAuthHeaders() });
         if (r.ok) {
           const d: RefData = await r.json();
           setData(d);
