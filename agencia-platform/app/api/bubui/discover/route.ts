@@ -22,6 +22,16 @@ export async function GET(req: Request) {
   const lng = url.searchParams.has("lng") ? Number(url.searchParams.get("lng")) : null;
   const limit = Math.min(60, Math.max(1, Number(url.searchParams.get("limit") ?? 24)));
 
+  // Sigue siendo público (customerId opcional). Pero si el usuario tiene sesión
+  // y manda coords, aprovechamos para refrescar su última ubicación conocida
+  // (panel admin), igual que en /offers. Fire-and-forget: no bloquea.
+  const customerId = url.searchParams.get("customerId");
+  if (customerId && lat != null && !Number.isNaN(lat) && lng != null && !Number.isNaN(lng)) {
+    prisma.bubuiCustomer
+      .update({ where: { id: customerId }, data: { lastLat: lat, lastLng: lng, lastLocationAt: new Date() } })
+      .catch(() => {});
+  }
+
   const businesses = await prisma.bubuiBusiness.findMany({
     where: { active: true },
     select: {

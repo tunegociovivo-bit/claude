@@ -47,6 +47,16 @@ export async function POST(req: Request) {
   if (!business.active) return NextResponse.json({ error: { code: "inactive", message: "Negocio inactivo" } }, { status: 409 });
   if (!customer) return NextResponse.json({ error: { code: "not_found", message: "Cliente no existe" } }, { status: 404 });
 
+  // Refresca la última ubicación conocida del cliente (panel admin): el escaneo
+  // es la señal más fiable de dónde está físicamente. Se guarda aunque luego la
+  // compra se rechace por geo (el GPS del móvil sigue siendo su posición real).
+  // Fire-and-forget: no bloquea ni rompe el flujo de escaneo.
+  if (d.scanLat != null && !Number.isNaN(d.scanLat) && d.scanLng != null && !Number.isNaN(d.scanLng)) {
+    prisma.bubuiCustomer
+      .update({ where: { id: d.customerId }, data: { lastLat: d.scanLat, lastLng: d.scanLng, lastLocationAt: new Date() } })
+      .catch(() => {});
+  }
+
   // Rate limit: máx 1 escaneo cliente-negocio cada 12h.
   const recent = await prisma.bubuiPurchase.findFirst({
     where: {

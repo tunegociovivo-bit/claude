@@ -4,6 +4,7 @@ import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import * as Location from "expo-location";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { api } from "../lib/api";
+import { CheckSession } from "../lib/session";
 import { Wordmark } from "../components/Wordmark";
 import { BottomNav } from "../components/BottomNav";
 import { FadeIn } from "../components/FadeIn";
@@ -51,7 +52,10 @@ export function Descubre() {
           lat = loc.coords.latitude; lng = loc.coords.longitude;
         }
       } catch {}
-      const r = await api.discover(lat, lng);
+      // Pasamos el customerId (si hay sesión) para que el backend refresque
+      // también la última ubicación conocida del usuario, no solo el Feed.
+      const session = await CheckSession();
+      const r = await api.discover(lat, lng, session?.customerId);
       setItems(r.items ?? []);
     } finally {
       setLoading(false);

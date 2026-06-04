@@ -53,11 +53,12 @@ export const api = {
     if (lng != null) url.searchParams.set("lng", String(lng));
     return fetch(url.toString()).then((r) => r.json());
   },
-  discover: (lat?: number, lng?: number) => {
+  discover: (lat?: number, lng?: number, customerId?: string) => {
     const url = new URL(`${API_BASE}/api/bubui/discover`);
     url.searchParams.set("limit", "60");
     if (lat != null) url.searchParams.set("lat", String(lat));
     if (lng != null) url.searchParams.set("lng", String(lng));
+    if (customerId) url.searchParams.set("customerId", customerId);
     return fetch(url.toString()).then((r) => r.json());
   },
   scan: (businessId: string, customerId: string, amount: number, scanLat?: number, scanLng?: number, ticketUrl?: string) =>
