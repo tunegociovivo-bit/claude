@@ -61,27 +61,28 @@ jobs:
           IOS_PROV_PROFILE: ${{ secrets.IOS_PROV_PROFILE }}
           DIST_CERT_PASSWORD: ${{ secrets.DIST_CERT_PASSWORD }}
         run: |
-          export CREDS_DIR="$RUNNER_TEMP/ios-creds"
-          mkdir -p "$CREDS_DIR"
-          printf '%s' "$IOS_DIST_CERT_P12" | base64 -d > "$CREDS_DIR/cert.p12"
-          printf '%s' "$IOS_PROV_PROFILE"  | base64 -d > "$CREDS_DIR/app.mobileprovision"
+          # Write cert files INSIDE the project dir (they'll be included in EAS archive)
+          printf '%s' "$IOS_DIST_CERT_P12" | base64 -d > ios-creds/cert.p12
+          mkdir -p ios-creds
+          printf '%s' "$IOS_DIST_CERT_P12" | base64 -d > ios-creds/cert.p12
+          printf '%s' "$IOS_PROV_PROFILE"  | base64 -d > ios-creds/app.mobileprovision
+          # Write credentials.json with RELATIVE paths (relative to project root)
           node -e "
           const fs = require('fs');
-          const d = process.env.CREDS_DIR;
           const pass = process.env.DIST_CERT_PASSWORD;
           const creds = {
             ios: {
               distributionCertificate: {
-                path: d + '/cert.p12',
+                path: 'ios-creds/cert.p12',
                 password: pass
               },
-              provisioningProfilePath: d + '/app.mobileprovision'
+              provisioningProfilePath: 'ios-creds/app.mobileprovision'
             }
           };
           fs.writeFileSync('credentials.json', JSON.stringify(creds, null, 2));
-          console.log('credentials.json written');
-          console.log('cert size:', fs.statSync(d + '/cert.p12').size);
-          console.log('prov size:', fs.statSync(d + '/app.mobileprovision').size);
+          console.log('credentials.json:', JSON.stringify(creds, null, 2));
+          console.log('cert size:', fs.statSync('ios-creds/cert.p12').size);
+          console.log('prov size:', fs.statSync('ios-creds/app.mobileprovision').size);
           "
 
       - name: Build iOS firmado (EAS cloud)
