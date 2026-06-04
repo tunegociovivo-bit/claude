@@ -65,10 +65,7 @@ jobs:
           EXPO_APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           EXPO_APPLE_TEAM_TYPE: COMPANY_OR_ORGANIZATION
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: |
-          echo "ASC Key ID: $EXPO_ASC_KEY_ID"
-          echo "Team ID: $EXPO_APPLE_TEAM_ID"
-          eas build --platform ios --profile production --non-interactive --wait
+        run: eas build --platform ios --profile production --non-interactive --wait --clear-credentials
 
       - name: Submit to TestFlight
         if: ${{ inputs.target == 'testflight' && inputs.submit }}
