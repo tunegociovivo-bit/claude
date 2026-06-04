@@ -2,35 +2,13 @@ name: Build Bubui (iOS → TestFlight)
 
 # Compila la app iOS en la NUBE de EAS. Dos modos (elige al lanzar):
 #
-#  • testflight → build firmado para pruebas reales / App Store y, opcional,
-#                 subida automática a TestFlight. Sin Mac ni 2FA: la firma se
-#                 gestiona con una App Store Connect API Key.
-#  • simulator  → build para SIMULADOR de iPhone. NO necesita firma de Apple
-#                 (ni la API Key), solo EXPO_TOKEN. Sirve para sacar capturas
-#                 de pantalla subiendo el .app a https://appetize.io y correrlo
-#                 en un iPhone simulado dentro del navegador.
-#
-# Uso: pestaña Actions → "Build Bubui (iOS → TestFlight)" → Run workflow →
-#      elige "target" (y si quieres subir a TestFlight).
-#
-# ┌── SECRETOS (Settings → Secrets and variables → Actions → New secret)
-# │  Para "simulator" basta con:
-# │     EXPO_TOKEN            expo.dev → tu avatar → Access Tokens → Create token.
-# │
-# │  Para "testflight" hacen falta además (los genera el dueño en sus cuentas):
-# │     ASC_API_KEY_P8        Contenido COMPLETO del .p8 de la API Key
-# │                           (incluidas las líneas BEGIN/END PRIVATE KEY).
-# │     ASC_API_KEY_ID        "Key ID" de esa API Key.
-# │     ASC_API_KEY_ISSUER_ID "Issuer ID" de App Store Connect.
-# │     APPLE_TEAM_ID         Apple Developer → Membership → Team ID.
-# │     APPLE_TEAM_TYPE       (opcional) COMPANY_OR_ORGANIZATION | INDIVIDUAL | IN_HOUSE
-# └──
-#   La API Key se crea en: App Store Connect → Users and Access → Integrations
-#   → App Store Connect API → Team Keys → (+). Rol: App Manager o Admin.
-#
-#   Para subir a TestFlight (submit = true) rellena también, en
-#   apps/bubui-mobile/eas.json, submit.production.ios.ascAppId con el "Apple ID"
-#   numérico de la app (App Store Connect → tu app → App Information).
+# Para "testflight" hace falta:
+#   EXPO_TOKEN
+#   ASC_API_KEY_P8, ASC_API_KEY_ID, ASC_API_KEY_ISSUER_ID
+#   APPLE_TEAM_ID
+#   IOS_DIST_CERT_P12  (base64 del .p12 con password bubui2026)
+#   IOS_PROV_PROFILE   (base64 del .mobileprovision)
+#   DIST_CERT_PASSWORD (password del p12, valor: bubui2026)
 
 on:
   workflow_dispatch:
@@ -49,7 +27,7 @@ on:
 
 jobs:
   ios:
-    runs-on: ubuntu-latest # el build ocurre en la nube de EAS; el runner solo orquesta
+    runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: apps/bubui-mobile
@@ -73,20 +51,49 @@ jobs:
       - name: Install deps
         run: npm ci
 
-      # ── Modo simulador: para capturas en Appetize. Solo EXPO_TOKEN. ──
+      # ── Modo simulador ──
       - name: Build iOS para SIMULADOR (EAS cloud)
         if: ${{ inputs.target == 'simulator' }}
         run: |
-          echo "Compilando build de simulador. Al terminar, descarga el .app"
-          echo "desde el enlace del build (expo.dev) y súbelo a https://appetize.io"
           eas build --platform ios --profile ios-simulator --non-interactive --wait
 
-      # ── Modo TestFlight / App Store: build firmado con API Key de Apple. ──
+      # ── Modo TestFlight / App Store ──
       - name: Write App Store Connect API key
         if: ${{ inputs.target == 'testflight' }}
         env:
           ASC_API_KEY_P8: ${{ secrets.ASC_API_KEY_P8 }}
         run: printf '%s' "$ASC_API_KEY_P8" > "$RUNNER_TEMP/asc-api-key.p8"
+
+      - name: Prepare local iOS credentials
+        if: ${{ inputs.target == 'testflight' }}
+        env:
+          IOS_DIST_CERT_P12: ${{ secrets.IOS_DIST_CERT_P12 }}
+          IOS_PROV_PROFILE: ${{ secrets.IOS_PROV_PROFILE }}
+        run: |
+          mkdir -p $RUNNER_TEMP/ios-creds
+          echo "$IOS_DIST_CERT_P12" | base64 -d > $RUNNER_TEMP/ios-creds/dist-cert.p12
+          echo "$IOS_PROV_PROFILE" | base64 -d > $RUNNER_TEMP/ios-creds/bubui.mobileprovision
+          cat > credentials.json << 'CREDS_EOF'
+          {
+            "ios": {
+              "com.negociovivo.bubui": {
+                "distributionCertificate": {
+                  "path": "__CERT_PATH__",
+                  "password": "__CERT_PASS__"
+                },
+                "provisioningProfilePath": "__PROV_PATH__"
+              }
+            }
+          }
+          CREDS_EOF
+          CERT_PATH=$RUNNER_TEMP/ios-creds/dist-cert.p12
+          PROV_PATH=$RUNNER_TEMP/ios-creds/bubui.mobileprovision
+          CERT_PASS=${{ secrets.DIST_CERT_PASSWORD }}
+          sed -i "s|__CERT_PATH__|$CERT_PATH|g" credentials.json
+          sed -i "s|__PROV_PATH__|$PROV_PATH|g" credentials.json
+          sed -i "s|__CERT_PASS__|$CERT_PASS|g" credentials.json
+          echo "credentials.json created:"
+          cat credentials.json
 
       - name: Build iOS firmado (EAS cloud)
         if: ${{ inputs.target == 'testflight' }}
