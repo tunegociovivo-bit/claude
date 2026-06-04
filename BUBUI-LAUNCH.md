@@ -91,25 +91,38 @@ El workflow tiene dos modos (input `target`):
 
 | Variable | Valor | Para qué |
 |---|---|---|
-| `BUBUI_REQUIRE_CUSTOMER_TOKEN` | `true` | ⚠️ **Ver abajo.** Exige token de cliente SIEMPRE (modo estricto). |
+| `BUBUI_REQUIRE_CUSTOMER_TOKEN` | `true` | ⚠️ **Ver abajo.** Exige token de CLIENTE siempre (modo estricto). |
+| `BUBUI_REQUIRE_BUSINESS_TOKEN` | `true` | ⚠️ **Ver abajo.** Exige token de NEGOCIO siempre (modo estricto). |
 | `DATABASE_URL` | *(ya configurada)* | Postgres |
 | Twilio (`TWILIO_*`) | *(ya configuradas)* | Verificación SMS/OTP |
 
 ### ⚠️ Paso de seguridad pendiente (importante)
-Se añadió **autenticación por token** a los endpoints de cliente (antes
-cualquiera podía leer datos de otro usuario pasando su `customerId`). Está en
-**modo "lazy"** para no romper a los testers durante la transición:
+Se añadió **autenticación por token real** a dos áreas que estaban abiertas:
+- **Cliente**: antes cualquiera podía leer datos de otro usuario pasando su
+  `customerId`. Ya envían token la **app móvil** (build 1015+) y la **PWA web**.
+- **Negocio**: antes el token del panel solo comprobaba el prefijo `businessId`
+  (falsificable, y el `businessId` va en el QR). Ahora valida un secreto real.
 
-1. **Ahora**: el backend deja pasar a clientes sin token (apps viejas siguen
-   funcionando) y protege a los que ya entran con la app nueva (build 1015+).
-2. **Cuando TODOS los testers tengan el build 1015 instalado** → pon en Railway:
+Ambas están en **modo "lazy"** para no romper nada durante la transición: los
+clientes/negocios sin token aún pasan; los que entran con la versión nueva
+quedan protegidos.
+
+**Para cerrar los agujeros del todo (modo estricto):**
+1. **Cliente** — cuando todos los testers tengan el **build 1015** y los
+   usuarios de la PWA hayan recargado, pon en Railway:
    ```
    BUBUI_REQUIRE_CUSTOMER_TOKEN=true
    ```
-   Esto activa el **modo estricto** (token obligatorio siempre) y cierra el
-   agujero del todo. Es solo cambiar la variable; no hay que tocar código.
+2. **Negocio** — cuando los dueños hayan **vuelto a iniciar sesión** en el panel
+   (eso renueva su token), pon:
+   ```
+   BUBUI_REQUIRE_BUSINESS_TOKEN=true
+   ```
+Son solo variables de entorno; no hay que tocar código. Si se activan antes de
+tiempo, quien no haya renovado token recibirá 401 y tendrá que re-loguear.
 
-- [ ] Activar `BUBUI_REQUIRE_CUSTOMER_TOKEN=true` tras actualizar a los testers.
+- [ ] Activar `BUBUI_REQUIRE_CUSTOMER_TOKEN=true` tras actualizar testers + PWA.
+- [ ] Activar `BUBUI_REQUIRE_BUSINESS_TOKEN=true` tras re-login de los negocios.
 
 ---
 
