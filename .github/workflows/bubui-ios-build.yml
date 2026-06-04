@@ -52,7 +52,9 @@ jobs:
         if: ${{ inputs.target == 'testflight' }}
         env:
           ASC_API_KEY_P8: ${{ secrets.ASC_API_KEY_P8 }}
-        run: printf '%s' "$ASC_API_KEY_P8" > "$RUNNER_TEMP/asc-api-key.p8"
+        run: |
+          printf '%s' "$ASC_API_KEY_P8" > "$RUNNER_TEMP/asc-api-key.p8"
+          echo "Key file size: $(wc -c < $RUNNER_TEMP/asc-api-key.p8)"
 
       - name: Build iOS firmado (EAS cloud)
         if: ${{ inputs.target == 'testflight' }}
@@ -62,7 +64,11 @@ jobs:
           EXPO_ASC_ISSUER_ID: ${{ secrets.ASC_API_KEY_ISSUER_ID }}
           EXPO_APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           EXPO_APPLE_TEAM_TYPE: COMPANY_OR_ORGANIZATION
-        run: eas build --platform ios --profile production --non-interactive --wait
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          echo "ASC Key ID: $EXPO_ASC_KEY_ID"
+          echo "Team ID: $EXPO_APPLE_TEAM_ID"
+          eas build --platform ios --profile production --non-interactive --wait
 
       - name: Submit to TestFlight
         if: ${{ inputs.target == 'testflight' && inputs.submit }}
