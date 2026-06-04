@@ -512,6 +512,17 @@ function BannerPanel() {
 }
 
 // ---------- Push promocional ----------
+function ageFromBirth(birthDate?: string | null): number | null {
+  if (!birthDate) return null;
+  const d = new Date(birthDate);
+  if (isNaN(d.getTime())) return null;
+  const now = new Date();
+  let a = now.getFullYear() - d.getFullYear();
+  const m = now.getMonth() - d.getMonth();
+  if (m < 0 || (m === 0 && now.getDate() < d.getDate())) a--;
+  return a;
+}
+
 function PushPanel() {
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
@@ -523,18 +534,69 @@ function PushPanel() {
     mobile: { enabled: boolean; devices: number; customers: number; android: number; ios: number };
     totalUniqueCustomers: number;
   } | null>(null);
+  const [users, setUsers] = useState<any[] | null>(null);
+
+  // Audiencia: todos | por filtros | elegir usuarios.
+  const [mode, setMode] = useState<"all" | "filter" | "pick">("all");
+  const [fGender, setFGender] = useState("");
+  const [fAgeMin, setFAgeMin] = useState("");
+  const [fAgeMax, setFAgeMax] = useState("");
+  const [fPostal, setFPostal] = useState("");
+  const [fCats, setFCats] = useState<string[]>([]);
+  const [picked, setPicked] = useState<Record<string, boolean>>({});
+  const [search, setSearch] = useState("");
 
   useEffect(() => {
     adminFetch("/api/bubui/admin/push/stats").then(setStats).catch(() => {});
+    adminFetch("/api/bubui/admin/customers").then((d) => setUsers(d.customers)).catch(() => {});
   }, []);
+
+  const allCats = Array.from(new Set((users ?? []).flatMap((u) => u.categories ?? []))).sort();
+  const postalList = fPostal.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean);
+
+  function matches(u: any): boolean {
+    if (fGender && u.gender !== fGender) return false;
+    const age = ageFromBirth(u.birthDate);
+    if (fAgeMin && (age == null || age < Number(fAgeMin))) return false;
+    if (fAgeMax && (age == null || age > Number(fAgeMax))) return false;
+    if (postalList.length && !postalList.includes(u.postalCode)) return false;
+    if (fCats.length && !((u.categories ?? []) as string[]).some((c) => fCats.includes(c))) return false;
+    return true;
+  }
+
+  const filteredUsers = (users ?? []).filter(matches);
+  const audienceIds: string[] | null =
+    mode === "all"
+      ? null
+      : mode === "filter"
+        ? filteredUsers.map((u) => u.id)
+        : Object.keys(picked).filter((k) => picked[k]);
+  const audienceCount = mode === "all" ? stats?.totalUniqueCustomers ?? null : audienceIds?.length ?? 0;
+
+  // Lista para "elegir usuarios" (con búsqueda por nombre/email/teléfono/CP).
+  const q = search.trim().toLowerCase();
+  const pickList = (users ?? []).filter(
+    (u) => !q || [u.name, u.email, u.phone, u.postalCode].some((v) => (v ?? "").toLowerCase().includes(q))
+  );
+
+  function toggleCat(cat: string) {
+    setFCats((prev) => (prev.includes(cat) ? prev.filter((c) => c !== cat) : [...prev, cat]));
+  }
 
   async function send() {
     if (!title.trim() || !body.trim()) { setMsg("Pon título y mensaje."); return; }
-    if (!confirm("¿Enviar esta notificación a todos los usuarios suscritos?")) return;
+    if (mode !== "all" && (!audienceIds || audienceIds.length === 0)) {
+      setMsg("No hay destinatarios con esos criterios.");
+      return;
+    }
+    const target = mode === "all" ? "TODOS los suscritos" : `${audienceIds!.length} usuario(s) seleccionados`;
+    if (!confirm(`¿Enviar esta notificación a ${target}?`)) return;
     setBusy(true);
     setMsg("");
     try {
-      const r = await adminFetch("/api/bubui/admin/push", { method: "POST", body: JSON.stringify({ title, body, link }) });
+      const payload: any = { title, body, link };
+      if (mode !== "all" && audienceIds) payload.customerIds = audienceIds;
+      const r = await adminFetch("/api/bubui/admin/push", { method: "POST", body: JSON.stringify(payload) });
       const w = r?.channels?.web;
       const m = r?.channels?.mobile;
       const parts: string[] = [];
@@ -542,7 +604,6 @@ function PushPanel() {
       if (m) parts.push(`Móvil ${m.sent}/${m.recipients}`);
       setMsg(`Enviado · ${parts.join(" · ")}${r.removed ? ` · ${r.removed} muertos limpiados` : ""}`);
       setTitle(""); setBody(""); setLink("");
-      // refresca stats
       adminFetch("/api/bubui/admin/push/stats").then(setStats).catch(() => {});
     } catch (e) {
       setMsg("Error: " + String(e));
@@ -550,42 +611,123 @@ function PushPanel() {
       setBusy(false);
     }
   }
+
+  const tabBtn = (k: "all" | "filter" | "pick", label: string) => (
+    <button
+      type="button"
+      onClick={() => setMode(k)}
+      className="px-3 py-1.5 rounded-full text-[13px] font-semibold"
+      style={mode === k ? { background: "#ec1c6e", color: "#fff" } : { background: "#f1f5f9", color: "#334155", cursor: "pointer" }}
+    >
+      {label}
+    </button>
+  );
+
   return (
     <section className="bubui-card p-5 mt-4 max-w-xl">
       <h2 className="text-sm font-bold mb-2">Notificación push promocional</h2>
       <p className="text-[13px] text-black/55 mb-3">
-        Se envía a todos los usuarios suscritos — web (PWA) y app móvil — en una sola operación.
+        Elige a quién le llega: a todos, por filtros (CP, edad, sexo, gustos) o eligiendo usuarios. Las push
+        llegan aunque tengan la app cerrada.
       </p>
       {stats && (
         <div className="flex flex-wrap items-center gap-2 mb-3 text-[11px]">
-          <span className="bubui-chip" style={{ cursor: "default" }}>
-            Web · {stats.web.customers} usuarios · {stats.web.devices} disp.
-          </span>
-          <span className="bubui-chip" style={{ cursor: "default" }}>
-            Móvil · {stats.mobile.customers} usuarios · {stats.mobile.android} Android / {stats.mobile.ios} iOS
-          </span>
-          <span className="bubui-chip" style={{ background: "#FCE7F3", color: "#9D174D", cursor: "default" }}>
-            Total únicos · {stats.totalUniqueCustomers}
-          </span>
+          <span className="bubui-chip" style={{ cursor: "default" }}>Web · {stats.web.customers} · {stats.web.devices} disp.</span>
+          <span className="bubui-chip" style={{ cursor: "default" }}>Móvil · {stats.mobile.customers} · {stats.mobile.android} And / {stats.mobile.ios} iOS</span>
+          <span className="bubui-chip" style={{ background: "#FCE7F3", color: "#9D174D", cursor: "default" }}>Total únicos · {stats.totalUniqueCustomers}</span>
         </div>
       )}
-      {stats && stats.totalUniqueCustomers === 0 && (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 mb-3 text-[12px] text-amber-900">
-          <b>Aún no hay nadie suscrito.</b> Los usuarios de la PWA quedan suscritos al aceptar el permiso de
-          notificaciones del navegador. Los usuarios de la app móvil se suscriben al iniciar sesión, pero la
-          entrega final en Android requiere que la app esté firmada con un proyecto Firebase
-          (google-services.json).
+
+      {/* Selector de audiencia */}
+      <div className="flex items-center gap-2 mb-3">
+        {tabBtn("all", "Todos")}
+        {tabBtn("filter", "Por filtros")}
+        {tabBtn("pick", "Elegir usuarios")}
+      </div>
+
+      {mode === "filter" && (
+        <div className="rounded-xl border border-black/10 p-3 mb-3 space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <label className="text-[12px] text-black/55">Sexo
+              <select className="bubui-input mt-1" value={fGender} onChange={(e) => setFGender(e.target.value)}>
+                <option value="">Cualquiera</option>
+                <option value="female">Mujer</option>
+                <option value="male">Hombre</option>
+                <option value="other">Otro</option>
+                <option value="prefer_not">Sin especificar</option>
+              </select>
+            </label>
+            <label className="text-[12px] text-black/55">Código postal (uno o varios)
+              <input className="bubui-input mt-1" value={fPostal} onChange={(e) => setFPostal(e.target.value)} placeholder="Ej: 28001, 28013" />
+            </label>
+            <label className="text-[12px] text-black/55">Edad mín.
+              <input className="bubui-input mt-1" inputMode="numeric" value={fAgeMin} onChange={(e) => setFAgeMin(e.target.value.replace(/[^0-9]/g, ""))} placeholder="18" />
+            </label>
+            <label className="text-[12px] text-black/55">Edad máx.
+              <input className="bubui-input mt-1" inputMode="numeric" value={fAgeMax} onChange={(e) => setFAgeMax(e.target.value.replace(/[^0-9]/g, ""))} placeholder="65" />
+            </label>
+          </div>
+          <div>
+            <div className="text-[12px] text-black/55 mb-1">Gustos (categorías donde han comprado)</div>
+            {allCats.length === 0 ? (
+              <div className="text-[12px] text-black/40">Aún no hay compras para deducir gustos.</div>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {allCats.map((cat) => (
+                  <button
+                    key={cat}
+                    type="button"
+                    onClick={() => toggleCat(cat)}
+                    className="px-2 py-0.5 rounded-full text-[12px]"
+                    style={fCats.includes(cat) ? { background: "#ec1c6e", color: "#fff" } : { background: "#f1f5f9", color: "#334155", cursor: "pointer" }}
+                  >
+                    {cat}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       )}
+
+      {mode === "pick" && (
+        <div className="rounded-xl border border-black/10 p-3 mb-3">
+          <input className="bubui-input mb-2" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar por nombre, email, teléfono o CP…" />
+          <div className="flex items-center justify-between text-[12px] text-black/55 mb-2">
+            <span>{Object.values(picked).filter(Boolean).length} seleccionados</span>
+            <div className="flex gap-3">
+              <button type="button" className="text-pink-600" onClick={() => setPicked(Object.fromEntries(pickList.map((u) => [u.id, true])))}>Marcar visibles</button>
+              <button type="button" className="text-black/50" onClick={() => setPicked({})}>Limpiar</button>
+            </div>
+          </div>
+          <div className="max-h-64 overflow-y-auto divide-y divide-black/5">
+            {!users ? (
+              <div className="py-3 text-[12px] text-black/40">Cargando usuarios…</div>
+            ) : pickList.map((u) => (
+              <label key={u.id} className="flex items-center gap-2 py-1.5 text-[13px] cursor-pointer">
+                <input type="checkbox" checked={!!picked[u.id]} onChange={(e) => setPicked((p) => ({ ...p, [u.id]: e.target.checked }))} />
+                <span className="font-medium">{u.name ?? "—"}</span>
+                <span className="text-black/45">{u.postalCode ? `· ${u.postalCode}` : ""} {u.phone ? `· ${u.phone}` : ""}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+      )}
+
       <label className="text-xs font-bold uppercase tracking-wide text-black/55">Título</label>
       <input className="bubui-input mb-3 mt-1" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Ej: ¡Ofertas nuevas cerca de ti!" maxLength={120} />
       <label className="text-xs font-bold uppercase tracking-wide text-black/55">Mensaje</label>
       <textarea className="bubui-input mb-3 mt-1" value={body} onChange={(e) => setBody(e.target.value)} placeholder="Cuerpo de la notificación" maxLength={300} rows={3} />
       <label className="text-xs font-bold uppercase tracking-wide text-black/55">Enlace al tocar (opcional)</label>
       <input className="bubui-input mb-3 mt-1" value={link} onChange={(e) => setLink(e.target.value)} placeholder="https://…" />
-      <div className="flex items-center gap-3">
+
+      <div className="flex items-center gap-3 flex-wrap">
         <button onClick={send} disabled={busy} className="bubui-btn" style={busy ? { opacity: 0.5 } : undefined}>
-          {busy ? "Enviando…" : "Enviar a todos"}
+          {busy
+            ? "Enviando…"
+            : mode === "all"
+              ? `Enviar a todos${audienceCount != null ? ` (${audienceCount})` : ""}`
+              : `Enviar a ${audienceCount ?? 0} usuario(s)`}
         </button>
         {msg && <span className="text-sm">{msg}</span>}
       </div>
