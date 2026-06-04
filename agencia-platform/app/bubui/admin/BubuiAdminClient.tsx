@@ -17,6 +17,7 @@ type Overview = {
   plansBreakdown: Array<{ plan: string; count: number }>;
   topByScanning: Array<{ business: any; scans: number }>;
   topByCross: Array<{ business: any; redeemed: number }>;
+  appVersions: Array<{ build: string | null; count: number }>;
 };
 
 type AdminTab = "overview" | "users" | "businesses" | "banner" | "push" | "sections";
@@ -152,6 +153,25 @@ export default function BubuiAdminClient() {
                 ))}
               </div>
             )}
+            {data.appVersions?.length > 0 && (() => {
+              const nums = data.appVersions.map((v) => (v.build ? Number(v.build) : null)).filter((n): n is number => n != null && !Number.isNaN(n));
+              const latest = nums.length ? Math.max(...nums) : null;
+              return (
+                <div className="mt-3 pt-3 border-t border-black/5 flex items-center gap-2 flex-wrap">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-black/45">Versiones app:</span>
+                  {data.appVersions.map((v) => {
+                    const isOld = v.build != null && latest != null && Number(v.build) < latest;
+                    const bg = v.build == null ? "#f1f5f9" : isOld ? "#fef3c7" : "#dcfce7";
+                    return (
+                      <span key={v.build ?? "none"} className="px-2 py-0.5 rounded-full text-[12px] whitespace-nowrap" style={{ background: bg, cursor: "default" }}>
+                        {v.build == null ? "sin reportar" : `build ${v.build}`} · {v.count}
+                        {v.build != null && latest != null && Number(v.build) === latest ? " ✓" : ""}
+                      </span>
+                    );
+                  })}
+                </div>
+              );
+            })()}
           </section>
 
           <section className="bubui-card p-5 bubui-fade-up bubui-fade-up-2">
@@ -222,9 +242,40 @@ function UsersPanel() {
   }, []);
   if (err) return <p className="text-rose-700 text-sm mt-4">{err}</p>;
   if (!rows) return <div className="bubui-skeleton h-40 mt-4" />;
+
+  // Versiones instaladas: distribución + cuál es la más reciente (para avisar
+  // de los que van por detrás al hacer pruebas).
+  const builds = rows
+    .map((c) => (c.appBuild ? parseInt(c.appBuild, 10) : null))
+    .filter((n): n is number => n != null && !Number.isNaN(n));
+  const latestBuild = builds.length ? Math.max(...builds) : null;
+  const dist = new Map<string, number>();
+  for (const c of rows) {
+    const k = c.appBuild ? String(c.appBuild) : "sin reportar";
+    dist.set(k, (dist.get(k) ?? 0) + 1);
+  }
+  const distSorted = [...dist.entries()].sort((a, b) => {
+    if (a[0] === "sin reportar") return 1;
+    if (b[0] === "sin reportar") return -1;
+    return Number(b[0]) - Number(a[0]);
+  });
+
   return (
     <section className="bubui-card p-4 mt-4 overflow-x-auto">
       <h2 className="text-sm font-bold mb-3">Usuarios ({rows.length})</h2>
+      <div className="flex flex-wrap items-center gap-2 mb-4 text-[12px]">
+        <span className="text-black/45">Versiones:</span>
+        {distSorted.map(([build, n]) => {
+          const isOld = build !== "sin reportar" && latestBuild != null && Number(build) < latestBuild;
+          const bg = build === "sin reportar" ? "#f1f5f9" : isOld ? "#fef3c7" : "#dcfce7";
+          return (
+            <span key={build} className="px-2 py-0.5 rounded-full whitespace-nowrap" style={{ background: bg }}>
+              {build === "sin reportar" ? "sin reportar" : `build ${build}`} · {n}
+              {build !== "sin reportar" && latestBuild != null && Number(build) === latestBuild ? " ✓" : ""}
+            </span>
+          );
+        })}
+      </div>
       <table className="w-full text-[13px]" style={{ borderCollapse: "collapse" }}>
         <thead>
           <tr>
@@ -252,6 +303,9 @@ function UsersPanel() {
                   <span className="font-medium">
                     {c.appBuild}
                     {c.appPlatform ? <span className="text-black/45"> · {c.appPlatform}</span> : null}
+                    {latestBuild != null && Number(c.appBuild) < latestBuild ? (
+                      <span className="ml-1 px-1.5 py-0.5 rounded text-[11px]" style={{ background: "#fef3c7", color: "#92400e" }}>⚠ vieja</span>
+                    ) : null}
                   </span>
                 ) : "—"}
               </td>
