@@ -8,6 +8,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { ensureReferralCode, countVerifiedReferrals, rewardLabelFor, parseReward, MILESTONES } from "@/lib/bubui/referral";
+import { customerAuthOk } from "@/lib/bubui/customer-auth";
 
 function displayReward(raw: string): string {
   const { discountPct, label } = parseReward(raw);
@@ -16,7 +17,10 @@ function displayReward(raw: string): string {
 
 export const dynamic = "force-dynamic";
 
-export async function GET(_req: Request, { params }: { params: { id: string } }) {
+export async function GET(req: Request, { params }: { params: { id: string } }) {
+  if (!(await customerAuthOk(req, params.id))) {
+    return NextResponse.json({ error: { code: "unauthorized", message: "No autorizado" } }, { status: 401 });
+  }
   const customer = await prisma.bubuiCustomer.findUnique({
     where: { id: params.id },
     select: { id: true, firstBusinessId: true }

@@ -18,6 +18,7 @@ import {
   recalculateVisibilityScore,
   recalculateAmbassadorLevel
 } from "@/lib/bubui/core";
+import { customerAuthOk } from "@/lib/bubui/customer-auth";
 
 export const dynamic = "force-dynamic";
 
@@ -38,6 +39,10 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: { code: "validation", message: parsed.error.message } }, { status: 400 });
   }
   const d = parsed.data;
+
+  if (!(await customerAuthOk(req, d.customerId))) {
+    return NextResponse.json({ error: { code: "unauthorized", message: "No autorizado" } }, { status: 401 });
+  }
 
   const [business, customer] = await Promise.all([
     prisma.bubuiBusiness.findUnique({ where: { id: d.businessId } }),

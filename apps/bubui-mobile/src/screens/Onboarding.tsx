@@ -110,7 +110,8 @@ export function Onboarding() {
         customerId: r.customerId,
         name: r.name ?? undefined,
         totalSaved: r.totalSaved ?? 0,
-        totalPurchases: r.totalPurchases ?? 0
+        totalPurchases: r.totalPurchases ?? 0,
+        token: r.token
       });
       sfx.tap();
       nav.reset({ index: 0, routes: [{ name: "Feed" }] });
@@ -156,7 +157,8 @@ export function Onboarding() {
         name: r.name,
         email: email.trim() || undefined,
         totalSaved: r.totalSaved ?? 0,
-        totalPurchases: r.totalPurchases ?? 0
+        totalPurchases: r.totalPurchases ?? 0,
+        token: r.token
       });
       sfx.success();
       nav.reset({ index: 0, routes: [{ name: "Feed" }] });

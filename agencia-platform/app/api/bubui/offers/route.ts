@@ -12,6 +12,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { haversineMeters } from "@/lib/bubui/core";
+import { customerAuthOk } from "@/lib/bubui/customer-auth";
 
 export const dynamic = "force-dynamic";
 
@@ -22,6 +23,9 @@ export async function GET(req: Request) {
   const lng = url.searchParams.has("lng") ? Number(url.searchParams.get("lng")) : null;
   if (!customerId) {
     return NextResponse.json({ error: { code: "missing_customer", message: "Falta customerId" } }, { status: 400 });
+  }
+  if (!(await customerAuthOk(req, customerId))) {
+    return NextResponse.json({ error: { code: "unauthorized", message: "No autorizado" } }, { status: 401 });
   }
 
   // Guarda la última ubicación conocida del cliente (panel admin). No bloquea.

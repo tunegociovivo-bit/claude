@@ -3428,6 +3428,10 @@ model BubuiCustomer {
   birthDate       String?  // YYYY-MM-DD
   // Token push (Expo / FCM / APNs).
   pushToken       String?
+  // Token de sesión opaco para autenticar las llamadas de la app a los
+  // endpoints /customer/[id]/*, /offers y /scan. Se emite/renueva al verificar
+  // el OTP y al hacer login. null en cuentas antiguas hasta el próximo login.
+  apiToken        String?
   // Última ubicación (para feed + push geo).
   lastLat         Float?
   lastLng         Float?

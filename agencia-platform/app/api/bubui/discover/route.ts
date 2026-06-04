@@ -13,6 +13,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { haversineMeters } from "@/lib/bubui/core";
 import { getTopBusinessIds } from "@/lib/bubui/topcategory";
+import { customerAuthOk } from "@/lib/bubui/customer-auth";
 
 export const dynamic = "force-dynamic";
 
@@ -27,9 +28,14 @@ export async function GET(req: Request) {
   // (panel admin), igual que en /offers. Fire-and-forget: no bloquea.
   const customerId = url.searchParams.get("customerId");
   if (customerId && lat != null && !Number.isNaN(lat) && lng != null && !Number.isNaN(lng)) {
-    prisma.bubuiCustomer
-      .update({ where: { id: customerId }, data: { lastLat: lat, lastLng: lng, lastLocationAt: new Date() } })
-      .catch(() => {});
+    // Solo si la petición está autenticada como ese cliente (evita que alguien
+    // falsee la ubicación de otro pasando un customerId ajeno). No bloquea los
+    // resultados públicos de discover.
+    if (await customerAuthOk(req, customerId)) {
+      prisma.bubuiCustomer
+        .update({ where: { id: customerId }, data: { lastLat: lat, lastLng: lng, lastLocationAt: new Date() } })
+        .catch(() => {});
+    }
   }
 
   const businesses = await prisma.bubuiBusiness.findMany({

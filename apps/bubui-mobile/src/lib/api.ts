@@ -5,10 +5,20 @@ import Constants from "expo-constants";
 export const API_BASE: string =
   (Constants.expoConfig?.extra as any)?.apiBaseUrl ?? "https://hub.negociovivo.app";
 
+// Token de sesión del cliente. Lo fija session.ts al iniciar/guardar sesión.
+// Se envía como `Authorization: Bearer <customerId>:<token>` en cada llamada.
+let auth: { customerId: string; token: string } | null = null;
+export function setAuth(a: { customerId: string; token: string } | null): void {
+  auth = a;
+}
+function authHeaders(): Record<string, string> {
+  return auth ? { Authorization: `Bearer ${auth.customerId}:${auth.token}` } : {};
+}
+
 async function call<T = any>(path: string, init: RequestInit = {}): Promise<T> {
   const r = await fetch(`${API_BASE}${path}`, {
     ...init,
-    headers: { "Content-Type": "application/json", ...(init.headers ?? {}) }
+    headers: { "Content-Type": "application/json", ...authHeaders(), ...(init.headers ?? {}) }
   });
   if (!r.ok) {
     const j = await r.json().catch(() => ({}));
@@ -42,7 +52,7 @@ export const api = {
       body: JSON.stringify(args)
     }),
   login: (phone: string, code: string) =>
-    call<{ customerId: string; name: string | null; totalSaved: number; totalPurchases: number }>(
+    call<{ customerId: string; name: string | null; totalSaved: number; totalPurchases: number; token: string }>(
       "/api/bubui/customer/login",
       { method: "POST", body: JSON.stringify({ phone, code }) }
     ),
@@ -51,7 +61,10 @@ export const api = {
     url.searchParams.set("customerId", customerId);
     if (lat != null) url.searchParams.set("lat", String(lat));
     if (lng != null) url.searchParams.set("lng", String(lng));
-    return fetch(url.toString()).then((r) => r.json());
+    return fetch(url.toString(), { headers: authHeaders() }).then(async (r) => {
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return r.json();
+    });
   },
   discover: (lat?: number, lng?: number, customerId?: string) => {
     const url = new URL(`${API_BASE}/api/bubui/discover`);
@@ -59,7 +72,10 @@ export const api = {
     if (lat != null) url.searchParams.set("lat", String(lat));
     if (lng != null) url.searchParams.set("lng", String(lng));
     if (customerId) url.searchParams.set("customerId", customerId);
-    return fetch(url.toString()).then((r) => r.json());
+    return fetch(url.toString(), { headers: authHeaders() }).then(async (r) => {
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return r.json();
+    });
   },
   scan: (businessId: string, customerId: string, amount: number, scanLat?: number, scanLng?: number, ticketUrl?: string) =>
     call("/api/bubui/scan", {
