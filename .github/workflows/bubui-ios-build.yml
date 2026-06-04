@@ -56,16 +56,17 @@ jobs:
           printf '%s' "$ASC_API_KEY_P8" > "$RUNNER_TEMP/asc-api-key.p8"
           echo "Key file size: $(wc -c < $RUNNER_TEMP/asc-api-key.p8)"
 
-      - name: Build iOS firmado (EAS cloud)
+      - name: Generate Apple credentials via ASC API
         if: ${{ inputs.target == 'testflight' }}
         env:
-          EXPO_ASC_API_KEY_PATH: ${{ runner.temp }}/asc-api-key.p8
-          EXPO_ASC_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
-          EXPO_ASC_ISSUER_ID: ${{ secrets.ASC_API_KEY_ISSUER_ID }}
-          EXPO_APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          EXPO_APPLE_TEAM_TYPE: COMPANY_OR_ORGANIZATION
+          ASC_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_API_KEY_ISSUER_ID }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: eas build --platform ios --profile production --non-interactive --wait --clear-credentials
+        run: node .github/scripts/gen-ios-creds.js
+
+      - name: Build iOS firmado (EAS cloud)
+        if: ${{ inputs.target == 'testflight' }}
+        run: eas build --platform ios --profile production --non-interactive --wait
 
       - name: Submit to TestFlight
         if: ${{ inputs.target == 'testflight' && inputs.submit }}
