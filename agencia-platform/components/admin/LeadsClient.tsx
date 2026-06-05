@@ -10,6 +10,20 @@ import { municipalitiesForProvince } from "@/lib/leads/spain-municipalities";
 // Para saber si el keyword actual coincide con un tipo del desplegable (y
 // reflejarlo seleccionado) sin recalcular el array en cada render.
 const ALL_BUSINESS_TYPES_SET = new Set(ALL_BUSINESS_TYPES);
+
+// Clasifica un teléfono español: móvil (6xx/7xx) → WhatsApp; fijo (8xx/9xx) →
+// para llamar. El resto ("other"/"none") no se considera contactable.
+type PhoneKind = "mobile" | "landline" | "other" | "none";
+function phoneKind(phone: string | null | undefined): PhoneKind {
+  if (!phone) return "none";
+  let n = phone.replace(/[^\d]/g, "");
+  if (n.startsWith("0034")) n = n.slice(4);
+  else if (n.startsWith("34") && n.length > 9) n = n.slice(2);
+  const d = n[0];
+  if (d === "6" || d === "7") return "mobile";
+  if (d === "8" || d === "9") return "landline";
+  return "other";
+}
 import {
   Loader2, Plus, Search, Inbox, ListChecks, BarChart3, MessageCircle,
   Settings as SettingsIcon, Ban, GitBranch, Send, RefreshCw, Download, Play, Pause, Trash2, Pencil, Zap
@@ -107,6 +121,7 @@ export default function LeadsClient() {
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [urgencyFilter, setUrgencyFilter] = useState("ALL");
   const [searchIdFilter, setSearchIdFilter] = useState("ALL");
+  const [phoneFilter, setPhoneFilter] = useState<"ALL" | "mobile" | "landline">("ALL");
   const [searchQ, setSearchQ] = useState("");
   const [newSearchOpen, setNewSearchOpen] = useState(false);
   const [newTemplateOpen, setNewTemplateOpen] = useState(false);
@@ -259,6 +274,16 @@ export default function LeadsClient() {
               <option value="descartar">Descartar</option>
             </select>
             <select
+              value={phoneFilter}
+              onChange={(e) => setPhoneFilter(e.target.value as "ALL" | "mobile" | "landline")}
+              className="px-3 py-2 rounded-lg border bg-white text-sm"
+              title="Filtrar por tipo de teléfono"
+            >
+              <option value="ALL">Móvil y fijo</option>
+              <option value="mobile">📱 Solo móviles (WhatsApp)</option>
+              <option value="landline">📞 Solo fijos (para llamar)</option>
+            </select>
+            <select
               value={searchIdFilter}
               onChange={(e) => setSearchIdFilter(e.target.value)}
               className="px-3 py-2 rounded-lg border bg-white text-sm max-w-[260px]"
@@ -281,7 +306,15 @@ export default function LeadsClient() {
               CSV
             </a>
           </div>
-          <LeadsTable loading={loading} items={leads} onChanged={load} />
+          <LeadsTable
+            loading={loading}
+            items={
+              phoneFilter === "ALL"
+                ? leads
+                : leads.filter((l) => phoneKind(l.phone) === phoneFilter)
+            }
+            onChanged={load}
+          />
         </>
       )}
 
@@ -642,7 +675,10 @@ function LeadsTable({ loading, items, onChanged }: { loading: boolean; items: Le
   if (loading) return <Loading />;
   if (items.length === 0) return <Empty msg="Sin leads. Crea una búsqueda para captar." />;
 
-  const canContact = (l: Lead) => !!l.phone && !["excluded", "discarded"].includes(l.contactStatus);
+  // Contactable por WhatsApp = solo móviles (6xx/7xx). Los fijos se gestionan
+  // aparte ("para llamar"), no se encolan para WhatsApp.
+  const canContact = (l: Lead) =>
+    phoneKind(l.phone) === "mobile" && !["excluded", "discarded"].includes(l.contactStatus);
   const contactable = items.filter(canContact);
   const allSelected = contactable.length > 0 && contactable.every((l) => selected.has(l.id));
 
@@ -740,7 +776,26 @@ function LeadsTable({ loading, items, onChanged }: { loading: boolean; items: Le
                     </button>
                   </td>
                   <td className="px-3 py-2 text-slate-600">{l.province ?? "—"}</td>
-                  <td className="px-3 py-2 font-mono text-xs">{l.phone ?? "—"}</td>
+                  <td className="px-3 py-2 font-mono text-xs whitespace-nowrap">
+                    {l.phone ? (
+                      (() => {
+                        const kind = phoneKind(l.phone);
+                        return (
+                          <span className="inline-flex items-center gap-1">
+                            <a href={`tel:${l.phone.replace(/\s/g, "")}`} className="hover:underline">{l.phone}</a>
+                            {kind === "mobile" && <span title="Móvil (WhatsApp)">📱</span>}
+                            {kind === "landline" && (
+                              <span className="text-[10px] px-1 rounded bg-amber-100 text-amber-700" title="Fijo: contactar por llamada">
+                                Fijo
+                              </span>
+                            )}
+                          </span>
+                        );
+                      })()
+                    ) : (
+                      "—"
+                    )}
+                  </td>
                   <td className="px-3 py-2 text-slate-700">{l.position ?? "—"}</td>
                   <td className="px-3 py-2">{l.rating != null ? `★ ${l.rating}` : "—"} <span className="text-[10px] text-slate-500">({l.reviewsCount})</span></td>
                   <td className="px-3 py-2 font-semibold">{l.score ?? "—"}</td>
