@@ -24,6 +24,13 @@ function phoneKind(phone: string | null | undefined): PhoneKind {
   if (d === "8" || d === "9") return "landline";
   return "other";
 }
+
+// "Dolor ahora": negocio establecido (suficientes reseñas) con reputación baja
+// → tiene un problema reputacional VIVO, encaje perfecto con el pitch GMB. Es
+// más fuerte que un simple rating bajo de una ficha con 2 reseñas.
+function isPainNow(l: { rating: number | null; reviewsCount: number }): boolean {
+  return l.rating != null && l.rating <= 3.8 && (l.reviewsCount ?? 0) >= 10;
+}
 import {
   Loader2, Plus, Search, Inbox, ListChecks, BarChart3, MessageCircle,
   Settings as SettingsIcon, Ban, GitBranch, Send, RefreshCw, Download, Play, Pause, Trash2, Pencil, Zap
@@ -122,6 +129,7 @@ export default function LeadsClient() {
   const [urgencyFilter, setUrgencyFilter] = useState("ALL");
   const [searchIdFilter, setSearchIdFilter] = useState("ALL");
   const [phoneFilter, setPhoneFilter] = useState<"ALL" | "mobile" | "landline">("ALL");
+  const [painOnly, setPainOnly] = useState(false);
   const [searchQ, setSearchQ] = useState("");
   const [newSearchOpen, setNewSearchOpen] = useState(false);
   const [newTemplateOpen, setNewTemplateOpen] = useState(false);
@@ -283,6 +291,14 @@ export default function LeadsClient() {
               <option value="mobile">📱 Solo móviles (WhatsApp)</option>
               <option value="landline">📞 Solo fijos (para llamar)</option>
             </select>
+            <button
+              type="button"
+              onClick={() => setPainOnly((v) => !v)}
+              title="Negocios con problema de reputación VIVO (rating ≤3,8 y ≥10 reseñas)"
+              className={`px-3 py-2 rounded-lg border text-sm font-medium ${painOnly ? "bg-rose-600 text-white border-rose-600" : "bg-white hover:bg-slate-50"}`}
+            >
+              🔥 Dolor ahora
+            </button>
             <select
               value={searchIdFilter}
               onChange={(e) => setSearchIdFilter(e.target.value)}
@@ -308,11 +324,11 @@ export default function LeadsClient() {
           </div>
           <LeadsTable
             loading={loading}
-            items={
-              phoneFilter === "ALL"
-                ? leads
-                : leads.filter((l) => phoneKind(l.phone) === phoneFilter)
-            }
+            items={leads.filter(
+              (l) =>
+                (phoneFilter === "ALL" || phoneKind(l.phone) === phoneFilter) &&
+                (!painOnly || isPainNow(l))
+            )}
             onChanged={load}
           />
         </>
@@ -797,7 +813,10 @@ function LeadsTable({ loading, items, onChanged }: { loading: boolean; items: Le
                     )}
                   </td>
                   <td className="px-3 py-2 text-slate-700">{l.position ?? "—"}</td>
-                  <td className="px-3 py-2">{l.rating != null ? `★ ${l.rating}` : "—"} <span className="text-[10px] text-slate-500">({l.reviewsCount})</span></td>
+                  <td className="px-3 py-2 whitespace-nowrap">
+                    {l.rating != null ? `★ ${l.rating}` : "—"} <span className="text-[10px] text-slate-500">({l.reviewsCount})</span>
+                    {isPainNow(l) && <span className="ml-1" title="Dolor ahora: problema de reputación vivo">🔥</span>}
+                  </td>
                   <td className="px-3 py-2 font-semibold">{l.score ?? "—"}</td>
                   <td className="px-3 py-2">
                     {l.urgency && (
