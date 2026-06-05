@@ -54,6 +54,11 @@ export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
     recoveryMode: !!s.recoveryMode,
     recoverySince: s.recoverySince ?? null,
     recoveryDurationDays: s.recoveryDurationDays ?? 14,
+    warmupEnabled: s.warmupEnabled ?? true,
+    warmupDays: s.warmupDays ?? 21,
+    warmupStartCap: s.warmupStartCap ?? 10,
+    autoRecoveryEnabled: s.autoRecoveryEnabled ?? true,
+    dailyJitterPct: s.dailyJitterPct ?? 0.15,
     sendEnabled: s.sendEnabled ?? true,
     sendPaused: s.sendPaused ?? false,
     sendWindowStart: s.sendWindowStart ?? "09:00",
@@ -103,6 +108,11 @@ const schema = z.object({
   maxNewChatsPerDay: z.number().int().min(1).max(500).optional(),
   recoveryMode: z.boolean().optional(),
   recoveryDurationDays: z.number().int().min(1).max(60).optional(),
+  warmupEnabled: z.boolean().optional(),
+  warmupDays: z.number().int().min(1).max(120).optional(),
+  warmupStartCap: z.number().int().min(1).max(1000).optional(),
+  autoRecoveryEnabled: z.boolean().optional(),
+  dailyJitterPct: z.number().min(0).max(0.5).optional(),
   rotateWebhookToken: z.boolean().optional()
 });
 
@@ -161,7 +171,12 @@ export const PATCH = withApi({ scope: "*" }, async (req, { api }) => {
     "maxPerHour",
     "minCoolDownDaysPerRecipient",
     "maxNewChatsPerDay",
-    "recoveryDurationDays"
+    "recoveryDurationDays",
+    "warmupEnabled",
+    "warmupDays",
+    "warmupStartCap",
+    "autoRecoveryEnabled",
+    "dailyJitterPct"
   ] as const) {
     if (parsed.data[k] !== undefined) s[k] = parsed.data[k];
   }

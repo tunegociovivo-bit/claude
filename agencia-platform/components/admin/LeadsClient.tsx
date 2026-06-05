@@ -2636,7 +2636,16 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
       dailyLimit: s.dailyLimit,
       enableVariations: s.enableVariations,
       validateWaBeforeSend: s.validateWaBeforeSend,
-      maxAttempts: s.maxAttempts
+      maxAttempts: s.maxAttempts,
+      maxPerHour: s.maxPerHour,
+      minCoolDownDaysPerRecipient: s.minCoolDownDaysPerRecipient,
+      maxNewChatsPerDay: s.maxNewChatsPerDay,
+      recoveryDurationDays: s.recoveryDurationDays,
+      warmupEnabled: s.warmupEnabled,
+      warmupDays: s.warmupDays,
+      warmupStartCap: s.warmupStartCap,
+      autoRecoveryEnabled: s.autoRecoveryEnabled,
+      dailyJitterPct: s.dailyJitterPct
     };
     if (googleKey) body.googleApiKey = googleKey;
     if (wahaKey) body.wahaApiKey = wahaKey;
@@ -2958,6 +2967,57 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
             <label title="Cap de NUEVAS conversaciones por día. Meta vigila este número más que el total.">
               Max nuevas convos/día
               <input type="number" value={s.maxNewChatsPerDay ?? 25} onChange={(e) => setField("maxNewChatsPerDay", Number(e.target.value))} className="w-full px-2 py-1 rounded border" />
+            </label>
+          </div>
+          <div className="mt-3 p-3 rounded-lg border bg-emerald-50/40 border-emerald-200 space-y-2">
+            <label className="flex items-start gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={s.warmupEnabled ?? true}
+                onChange={(e) => setField("warmupEnabled", e.target.checked)}
+                className="mt-0.5 accent-emerald-600"
+              />
+              <div className="flex-1 text-xs text-emerald-900">
+                <strong className="block text-sm">🔥 Calentamiento de número nuevo (warmup)</strong>
+                <p className="mt-1">
+                  El tope diario sube en rampa durante los primeros días en vez de empezar al máximo
+                  (clave para no quemar un número nuevo). La edad del número se calcula desde el primer envío.
+                </p>
+              </div>
+            </label>
+            {(s.warmupEnabled ?? true) && (
+              <div className="grid grid-cols-2 gap-2 text-xs pl-6">
+                <label>Días de rampa
+                  <input type="number" value={s.warmupDays ?? 21} onChange={(e) => setField("warmupDays", Number(e.target.value))} className="w-full px-2 py-1 rounded border" />
+                </label>
+                <label>Tope del primer día
+                  <input type="number" value={s.warmupStartCap ?? 10} onChange={(e) => setField("warmupStartCap", Number(e.target.value))} className="w-full px-2 py-1 rounded border" />
+                </label>
+              </div>
+            )}
+            <label className="flex items-start gap-2 cursor-pointer pt-1 border-t border-emerald-200">
+              <input
+                type="checkbox"
+                checked={s.autoRecoveryEnabled ?? true}
+                onChange={(e) => setField("autoRecoveryEnabled", e.target.checked)}
+                className="mt-0.5 accent-emerald-600"
+              />
+              <div className="flex-1 text-xs text-emerald-900">
+                <strong className="block text-sm">🛟 Auto-recuperación ante pico de fallos</strong>
+                <p className="mt-1">
+                  Si muchos envíos seguidos fallan (señal típica de restricción), activa solo el modo
+                  recuperación para frenar y proteger el número.
+                </p>
+              </div>
+            </label>
+            <label className="flex items-center justify-between gap-2 text-xs pt-1 border-t border-emerald-200" title="Varía el tope diario un % aleatorio cada día para que el volumen no sea idéntico (patrón de bot).">
+              <span className="text-emerald-900">Variación diaria del tope (jitter %)</span>
+              <input
+                type="number"
+                value={Math.round((s.dailyJitterPct ?? 0.15) * 100)}
+                onChange={(e) => setField("dailyJitterPct", Math.max(0, Math.min(50, Number(e.target.value))) / 100)}
+                className="w-20 px-2 py-1 rounded border"
+              />
             </label>
           </div>
           <div className={
