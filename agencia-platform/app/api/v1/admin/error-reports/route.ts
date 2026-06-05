@@ -13,7 +13,9 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
   await requireAdmin(api.workspaceId, api.userId);
   const url = new URL(req.url);
   const status = url.searchParams.get("status") ?? undefined;
-  const where: any = {};
+  // Solo los reportes de SU workspace (o los huérfanos, sin workspace). Antes
+  // listaba los de TODOS los workspaces, filtrando ids de otros inquilinos.
+  const where: any = { OR: [{ workspaceId: api.workspaceId }, { workspaceId: null }] };
   if (status) where.status = status;
   const items = await prisma.errorReport.findMany({
     where,

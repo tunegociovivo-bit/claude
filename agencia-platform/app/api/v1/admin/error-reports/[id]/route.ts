@@ -16,9 +16,18 @@ const patchSchema = z.object({
   resolutionCommit: z.string().max(64).optional()
 });
 
+// Un error report pertenece al workspace que lo generó (o a ninguno, si se
+// reportó sin sesión). Un admin solo puede tocar los de SU workspace o los
+// huérfanos — nunca los de otro workspace.
+function ownScope(workspaceId: string) {
+  return { OR: [{ workspaceId }, { workspaceId: null }] };
+}
+
 export const GET = withApi({ scope: "*" }, async (_req, { params, api }) => {
   await requireAdmin(api.workspaceId, api.userId);
-  const item = await prisma.errorReport.findUnique({ where: { id: params.id } });
+  const item = await prisma.errorReport.findFirst({
+    where: { id: params.id, ...ownScope(api.workspaceId) }
+  });
   if (!item) throw new ApiError(404, "not_found", "Error report no encontrado");
   return NextResponse.json(item);
 });
@@ -35,12 +44,22 @@ export const PATCH = withApi({ scope: "*" }, async (req, { params, api }) => {
   if (data.status === "RESOLVED" || data.status === "DISMISSED") {
     data.resolvedAt = new Date();
   }
-  const updated = await prisma.errorReport.update({ where: { id: params.id }, data });
-  return NextResponse.json(updated);
+  const updated = await prisma.errorReport.updateMany({
+    where: { id: params.id, ...ownScope(api.workspaceId) },
+    data
+  });
+  if (updated.count === 0) throw new ApiError(404, "not_found", "Error report no encontrado");
+  const item = await prisma.errorReport.findFirst({
+    where: { id: params.id, ...ownScope(api.workspaceId) }
+  });
+  return NextResponse.json(item);
 });
 
 export const DELETE = withApi({ scope: "*" }, async (_req, { params, api }) => {
   await requireAdmin(api.workspaceId, api.userId);
-  await prisma.errorReport.delete({ where: { id: params.id } });
+  const del = await prisma.errorReport.deleteMany({
+    where: { id: params.id, ...ownScope(api.workspaceId) }
+  });
+  if (del.count === 0) throw new ApiError(404, "not_found", "Error report no encontrado");
   return NextResponse.json({ ok: true });
 });
