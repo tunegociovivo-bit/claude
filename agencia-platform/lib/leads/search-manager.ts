@@ -13,6 +13,7 @@ import { placesTextSearch, type PlacesResult } from "./google-places";
 import { scoreLead } from "./scorer";
 import { SPAIN_PROVINCES, findProvince } from "./spain-provinces";
 import { municipalitiesForProvince } from "./spain-municipalities";
+import { expandKeyword } from "./synonyms";
 import { classifyLeadsRelevance, type RelevanceVerdict } from "./relevance";
 import { collectFromSource, type LeadSourceKey } from "./sources";
 
@@ -164,14 +165,28 @@ export async function processSearchBatch(opts: {
         where: { id: search.id },
         data: { currentProvince: prov.area }
       });
-      const query = `${search.keyword} en ${prov.area}`.trim();
-      let results = await placesTextSearch({
-        workspaceId: opts.workspaceId,
-        query,
-        lat: prov.lat || undefined,
-        lng: prov.lng || undefined,
-        province: prov.provinceTag
-      });
+      // Sinónimos del nicho (opt-in): lanzamos una consulta por variante y
+      // fusionamos deduplicando por placeId, para cubrir fichas que aparecen
+      // bajo otra denominación ("dentista" vs "clínica dental").
+      const variants = (search as any).sourceConfig?.useSynonyms
+        ? expandKeyword(search.keyword, 3)
+        : [search.keyword];
+      let results: PlacesResult[] = [];
+      const seenPlace = new Set<string>();
+      for (const kw of variants) {
+        const part = await placesTextSearch({
+          workspaceId: opts.workspaceId,
+          query: `${kw} en ${prov.area}`.trim(),
+          lat: prov.lat || undefined,
+          lng: prov.lng || undefined,
+          province: prov.provinceTag
+        });
+        for (const r of part) {
+          if (r.placeId && seenPlace.has(r.placeId)) continue;
+          if (r.placeId) seenPlace.add(r.placeId);
+          results.push(r);
+        }
+      }
       // Filtro de "reseñas bajas" (mejora propuesta — leads urgentes con
       // problema reputacional, encaje perfecto con el pitch GMB). Activado
       // desde NewSearchModal con el checkbox "Solo negocios con reseñas

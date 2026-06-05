@@ -2251,6 +2251,7 @@ function NewSearchModal({ open, onClose, onSaved }: { open: boolean; onClose: ()
   const [municipality, setMunicipality] = useState("");
   const [skipExisting, setSkipExisting] = useState(false);
   const [lowRatingOnly, setLowRatingOnly] = useState(false);
+  const [useSynonyms, setUseSynonyms] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const sourceMeta = LEAD_SOURCES.find((s) => s.key === source) ?? LEAD_SOURCES[0];
@@ -2265,6 +2266,7 @@ function NewSearchModal({ open, onClose, onSaved }: { open: boolean; onClose: ()
     setMunicipality("");
     setSkipExisting(false);
     setLowRatingOnly(false);
+    setUseSynonyms(false);
     setError(null);
     setSaving(false);
   }, [open]);
@@ -2297,8 +2299,11 @@ function NewSearchModal({ open, onClose, onSaved }: { open: boolean; onClose: ()
         skipExisting,
         source,
         sourceConfig:
-          source === "places" && lowRatingOnly
-            ? { lowRatingOnly: true, maxRating: 3.5, minReviewsCount: 5 }
+          source === "places" && (lowRatingOnly || useSynonyms)
+            ? {
+                ...(lowRatingOnly ? { lowRatingOnly: true, maxRating: 3.5, minReviewsCount: 5 } : {}),
+                ...(useSynonyms ? { useSynonyms: true } : {})
+              }
             : undefined
       })
     });
@@ -2461,6 +2466,23 @@ function NewSearchModal({ open, onClose, onSaved }: { open: boolean; onClose: ()
             </p>
           </div>
         </label>
+        {source === "places" && (
+          <label className="flex items-start gap-2 p-2 rounded-md border bg-slate-50/60 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={useSynonyms}
+              onChange={(e) => setUseSynonyms(e.target.checked)}
+              className="mt-0.5 accent-brand-600"
+            />
+            <div className="flex-1">
+              <span className="text-xs font-medium text-slate-800">🔁 Buscar también sinónimos del nicho</span>
+              <p className="text-[11px] text-slate-500">
+                Lanza la búsqueda también con variantes ("dentista" → "clínica dental", "odontólogo").
+                Más resultados, pero multiplica el coste de la API de Google.
+              </p>
+            </div>
+          </label>
+        )}
         {source === "places" && (
           <label className="flex items-start gap-2 p-2 rounded-md border border-rose-200 bg-rose-50/40 cursor-pointer">
             <input
