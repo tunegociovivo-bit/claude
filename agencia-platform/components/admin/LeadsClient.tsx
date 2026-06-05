@@ -2855,6 +2855,8 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
   const [googleKey, setGoogleKey] = useState("");
   const [wahaKey, setWahaKey] = useState("");
   const [evoKey, setEvoKey] = useState("");
+  const [health, setHealth] = useState<any[] | null>(null);
+  const [loadingHealth, setLoadingHealth] = useState(false);
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<Date | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -2935,6 +2937,17 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
   }
   function removeChannel(i: number) {
     setField("channels", (s.channels ?? []).filter((_: any, idx: number) => idx !== i));
+  }
+  async function loadHealth() {
+    setLoadingHealth(true);
+    try {
+      const r = await fetch("/api/v1/leads/channels-health");
+      const j = await r.json().catch(() => ({}));
+      setHealth(j.items ?? []);
+    } catch {
+      setHealth([]);
+    }
+    setLoadingHealth(false);
   }
   function stopPoll() {
     if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
@@ -3137,6 +3150,52 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
                   ))}
                 </div>
               )}
+              <div className="mt-2">
+                <button
+                  type="button"
+                  onClick={loadHealth}
+                  disabled={loadingHealth}
+                  className="inline-flex items-center gap-1.5 px-2 py-1 rounded border bg-white hover:bg-slate-50 text-xs disabled:opacity-50"
+                >
+                  {loadingHealth && <Loader2 className="h-3 w-3 animate-spin" />}
+                  Ver salud de los números
+                </button>
+                {health && (
+                  <div className="mt-2 overflow-x-auto">
+                    {health.length === 0 ? (
+                      <p className="text-[11px] text-slate-400 italic">Sin datos de envío todavía.</p>
+                    ) : (
+                      <table className="w-full text-[11px]">
+                        <thead className="text-slate-500">
+                          <tr className="text-left">
+                            <th className="py-1 pr-2">Número</th>
+                            <th className="py-1 pr-2">Hoy</th>
+                            <th className="py-1 pr-2">7d ok</th>
+                            <th className="py-1 pr-2">Leídos 7d</th>
+                            <th className="py-1 pr-2">Fallos 7d</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {health.map((h, i) => {
+                            const burning = h.sent7 > 0 && h.failed7 / (h.sent7 + h.failed7) > 0.3;
+                            return (
+                              <tr key={i} className="border-t">
+                                <td className="py-1 pr-2 font-mono">{h.label ? `${h.label} (${h.name ?? "—"})` : h.name ?? "Por defecto"}</td>
+                                <td className="py-1 pr-2">{h.sentToday}</td>
+                                <td className="py-1 pr-2">{h.sent7}</td>
+                                <td className="py-1 pr-2">{h.read7}</td>
+                                <td className={"py-1 pr-2 " + (burning ? "text-rose-600 font-semibold" : "")}>
+                                  {h.failed7}{burning ? " ⚠" : ""}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
             <div className="text-[11px] text-slate-500 break-all">
               Webhook URL: <code>{typeof window !== "undefined" ? window.location.origin : ""}/api/v1/leads/webhook/{s.webhookToken}</code>
