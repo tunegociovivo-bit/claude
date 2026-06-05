@@ -1791,6 +1791,7 @@ function SequencesView() {
   const [items, setItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
+  const [reactivateOpen, setReactivateOpen] = useState(false);
 
   function load() {
     setLoading(true);
@@ -1809,13 +1810,23 @@ function SequencesView() {
         <p className="text-xs text-slate-500">
           Secuencias de seguimiento (drip): cada paso se envía tras un retraso. Se detienen solas si el lead responde.
         </p>
-        <button
-          onClick={() => setCreateOpen(true)}
-          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium"
-        >
-          <Plus className="h-4 w-4" />
-          Nueva secuencia
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setReactivateOpen(true)}
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border bg-white hover:bg-slate-50 text-sm font-medium"
+            title="Enrola en una secuencia a los leads contactados hace tiempo que no llegaron a cliente"
+          >
+            <RefreshCw className="h-4 w-4" />
+            Reactivar leads fríos
+          </button>
+          <button
+            onClick={() => setCreateOpen(true)}
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium"
+          >
+            <Plus className="h-4 w-4" />
+            Nueva secuencia
+          </button>
+        </div>
       </div>
 
       {loading ? (
@@ -1851,7 +1862,93 @@ function SequencesView() {
       )}
 
       <NewSequenceModal open={createOpen} onClose={() => setCreateOpen(false)} onSaved={() => { setCreateOpen(false); load(); }} />
+      <ReactivateModal open={reactivateOpen} onClose={() => setReactivateOpen(false)} sequences={items} />
     </div>
+  );
+}
+
+/** Reactivación de leads fríos: enrola en una secuencia los leads contactados
+ *  hace tiempo que no llegaron a cliente. */
+function ReactivateModal({
+  open,
+  onClose,
+  sequences
+}: {
+  open: boolean;
+  onClose: () => void;
+  sequences: any[];
+}) {
+  const [sequenceId, setSequenceId] = useState("");
+  const [days, setDays] = useState(60);
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<{ total: number; enrolled: number; failed: number } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    if (open) {
+      setResult(null);
+      setError(null);
+      setSequenceId(sequences[0]?.id ?? "");
+    }
+  }, [open, sequences]);
+
+  async function run() {
+    if (!sequenceId) { setError("Elige una secuencia."); return; }
+    setBusy(true);
+    setError(null);
+    setResult(null);
+    try {
+      const r = await fetch("/api/v1/leads/sequences/reactivate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sequenceId, olderThanDays: days })
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j.ok) setError(j?.error?.message ?? `Error ${r.status}`);
+      else setResult({ total: j.total, enrolled: j.enrolled, failed: j.failed });
+    } catch (e: any) {
+      setError(e?.message ?? "Error de red");
+    }
+    setBusy(false);
+  }
+
+  return (
+    <Modal open={open} onClose={onClose} title="Reactivar leads fríos" size="sm" footer={
+      <>
+        <button onClick={onClose} className="px-3 py-2 rounded-lg text-sm border bg-white hover:bg-slate-50">Cerrar</button>
+        <button onClick={run} disabled={busy || !sequenceId} className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium disabled:opacity-50">
+          {busy && <Loader2 className="h-4 w-4 animate-spin" />}
+          Reactivar
+        </button>
+      </>
+    }>
+      <div className="space-y-3">
+        <p className="text-xs text-slate-500">
+          Enrola en la secuencia elegida a los leads <strong>contactados o que respondieron</strong> hace más de los días indicados y que <strong>no llegaron a cliente</strong> (excluye bajas). Ideal para recuperar los "ahora no".
+        </p>
+        <div>
+          <label className="block text-xs font-medium text-slate-700 mb-1">Secuencia</label>
+          {sequences.length === 0 ? (
+            <p className="text-sm text-amber-700">No hay secuencias. Crea una primero.</p>
+          ) : (
+            <select value={sequenceId} onChange={(e) => setSequenceId(e.target.value)} className="w-full px-3 py-2 rounded-lg border bg-white text-sm">
+              {sequences.map((s) => (
+                <option key={s.id} value={s.id}>{s.name}</option>
+              ))}
+            </select>
+          )}
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-slate-700 mb-1">Contactados hace más de (días)</label>
+          <input type="number" min={1} max={365} value={days} onChange={(e) => setDays(Number(e.target.value) || 60)} className="w-full px-3 py-2 rounded-lg border bg-white text-sm" />
+        </div>
+        {result && (
+          <div className="text-xs rounded-lg border p-2.5 bg-emerald-50 border-emerald-200 text-emerald-800">
+            ✓ {result.enrolled} lead(s) reactivado(s){result.failed > 0 ? ` · ${result.failed} omitido(s) (ya en secuencia o excluidos)` : ""}.
+          </div>
+        )}
+        {error && <p className="text-xs text-rose-600">{error}</p>}
+      </div>
+    </Modal>
   );
 }
 
