@@ -10,6 +10,9 @@ import { z } from "zod";
 import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
+import { auditFromReq } from "@/lib/audit/log";
+import { dispatchWebhook } from "@/lib/webhooks/dispatch";
+import { deleteEntityIndex } from "@/lib/search/embeddings";
 
 const baseSchema = z.object({
   ids: z.array(z.string().min(1)).min(1).max(500),
@@ -34,8 +37,32 @@ export const POST = withApi({ scope: "tasks:write" }, async (req, { api }) => {
   }
 
   if (action === "delete") {
-    // ondelete cascade en Comment / TaskAssignee / subtareas
-    const r = await prisma.task.deleteMany({ where: { id: { in: ids }, workspaceId: api.workspaceId } });
+    // Soft-delete: marcamos deletedAt en vez de borrar físicamente. Antes esto
+    // hacía `deleteMany` (borrado FÍSICO) que NO pasaba por la papelera y, por
+    // el `onDelete: Cascade` de las subtareas, arrastraba subtareas que el
+    // usuario no había seleccionado. Ahora va a la papelera (recuperable 30
+    // días) y no toca las subtareas, igual que el borrado individual.
+    const before = await prisma.task.findMany({
+      where: { id: { in: ids }, workspaceId: api.workspaceId, deletedAt: null } as any,
+      select: { id: true, title: true, status: true, projectId: true, clientId: true }
+    });
+    const r = await prisma.task.updateMany({
+      where: { id: { in: ids }, workspaceId: api.workspaceId, deletedAt: null } as any,
+      data: { deletedAt: new Date(), deletedById: api.userId ?? undefined } as any
+    });
+    // Quitamos del índice de búsqueda y dejamos auditoría/webhook, como el
+    // borrado individual.
+    for (const t of before) {
+      void deleteEntityIndex("TASK", t.id).catch(() => {});
+      void auditFromReq(req, api, {
+        action: "task.delete",
+        targetType: "TASK",
+        targetId: t.id,
+        before: { title: t.title, status: t.status, projectId: t.projectId, clientId: t.clientId },
+        meta: { soft: true, bulk: true }
+      });
+      void dispatchWebhook(api.workspaceId, "task.deleted", { id: t.id, title: t.title });
+    }
     return NextResponse.json({ ok: true, affected: r.count });
   }
 
