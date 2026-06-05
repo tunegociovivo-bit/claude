@@ -246,6 +246,46 @@ export async function evoConnect(workspaceId: string): Promise<{
   }
 }
 
+/**
+ * Registra el webhook de mensajes entrantes en Evolution para que reenvíe los
+ * mensajes a nuestro endpoint. Sin esto, la pestaña Inbox no recibe nada
+ * cuando el proveedor activo es Evolution (a diferencia de WAHA, que tenía
+ * auto-setup). Tolerante a v1 y v2 (cambia la forma del body).
+ *
+ * Evolution: POST /webhook/set/{instance}
+ *   v2: { webhook: { enabled, url, byEvents, base64, events: ["MESSAGES_UPSERT"] } }
+ *   v1: { url, enabled, webhook_by_events, events: ["MESSAGES_UPSERT"] }
+ */
+export async function evoSetWebhook(opts: {
+  workspaceId: string;
+  url: string;
+}): Promise<{ ok: boolean; instance: string; error?: string }> {
+  const cfg = await getEvolutionConfig(opts.workspaceId);
+  const endpoint = `${cfg.baseUrl}/webhook/set/${encodeURIComponent(cfg.instance)}`;
+  const events = ["MESSAGES_UPSERT"];
+  const bodies = [
+    { webhook: { enabled: true, url: opts.url, byEvents: false, base64: false, events } }, // v2
+    { url: opts.url, enabled: true, webhook_by_events: false, events } // v1
+  ];
+  let lastErr = "";
+  for (const body of bodies) {
+    try {
+      const resp = await fetch(endpoint, {
+        method: "POST",
+        headers: headers(cfg.apiKey),
+        body: JSON.stringify(body)
+      });
+      if (resp.ok) return { ok: true, instance: cfg.instance };
+      lastErr = `${resp.status}: ${(await resp.text().catch(() => "")).slice(0, 200)}`;
+      if (resp.status !== 400) break; // solo reintenta el otro shape si fue validación
+    } catch (e: any) {
+      lastErr = e?.message ?? String(e);
+      break;
+    }
+  }
+  return { ok: false, instance: cfg.instance, error: lastErr };
+}
+
 /** Comprueba si un número tiene WhatsApp. null = desconocido (no descartar). */
 export async function evoCheckNumber(opts: { workspaceId: string; phone: string }): Promise<boolean | null> {
   let cfg: EvolutionConfig;

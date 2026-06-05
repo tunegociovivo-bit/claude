@@ -121,13 +121,26 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
     body?.message?.from ??
     body?.sender ??
     "";
-  const messageBody =
+  // El cuerpo del mensaje llega en rutas distintas según proveedor/motor:
+  //  - WAHA v2: payload.body
+  //  - Evolution/Baileys: data.message.{conversation | extendedTextMessage.text
+  //    | imageMessage.caption | ...}, a veces envuelto en ephemeralMessage.
+  const m: any = body?.data?.message ?? body?.message ?? {};
+  const messageBody: string =
     body?.payload?.body ?? // WAHA v2
     body?.body ??
     body?.text ??
-    body?.message?.body ??
-    body?.data?.message?.text?.body ??
-    body?.data?.message?.conversation ??
+    (typeof body?.message?.body === "string" ? body.message.body : undefined) ??
+    m?.conversation ??
+    m?.extendedTextMessage?.text ??
+    m?.text?.body ??
+    m?.ephemeralMessage?.message?.conversation ??
+    m?.ephemeralMessage?.message?.extendedTextMessage?.text ??
+    m?.imageMessage?.caption ??
+    m?.videoMessage?.caption ??
+    m?.documentMessage?.caption ??
+    m?.buttonsResponseMessage?.selectedDisplayText ??
+    m?.listResponseMessage?.title ??
     "";
   const externalMessageId =
     body?.payload?.id ?? body?.data?.key?.id ?? body?.id ?? null;

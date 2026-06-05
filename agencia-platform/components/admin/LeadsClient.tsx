@@ -2590,7 +2590,14 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
     setWebhookSetting(true);
     setWebhookSetupResult(null);
     try {
-      const r = await fetch("/api/v1/leads/waha-webhook-setup", { method: "POST" });
+      // Llama al setup del proveedor activo: Evolution o WAHA. Antes solo
+      // existía el de WAHA, así que con Evolution el webhook nunca se
+      // registraba y el Inbox no recibía mensajes.
+      const endpoint =
+        s.whatsappProvider === "evolution"
+          ? "/api/v1/leads/evolution-webhook-setup"
+          : "/api/v1/leads/waha-webhook-setup";
+      const r = await fetch(endpoint, { method: "POST" });
       const j = await r.json();
       if (!r.ok || !j.ok) {
         setWebhookSetupResult({ ok: false, error: j?.error?.message ?? j?.message ?? `Error ${r.status}` });
@@ -2717,17 +2724,17 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
                 onClick={setupWebhook}
                 disabled={webhookSetting}
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-brand-200 bg-brand-50 hover:bg-brand-100 text-brand-700 text-xs font-medium disabled:opacity-50"
-                title="Configura el webhook de WAHA para que esta app reciba los mensajes entrantes en el Inbox"
+                title="Configura el webhook del proveedor para que esta app reciba los mensajes entrantes en el Inbox"
               >
                 {webhookSetting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-                Configurar webhook en WAHA
+                Configurar webhook en {s.whatsappProvider === "evolution" ? "Evolution" : "WAHA"}
               </button>
               <span className="text-[11px] text-slate-400">Comprueba la sesión y, si los leads responden pero no aparecen en Inbox, pulsa "Configurar webhook".</span>
             </div>
             {webhookSetupResult && (
               <div className={`text-xs rounded-lg border p-2.5 ${webhookSetupResult.ok ? "bg-emerald-50 border-emerald-200 text-emerald-800" : "bg-rose-50 border-rose-200 text-rose-800"}`}>
                 {webhookSetupResult.ok
-                  ? `✓ Webhook configurado en WAHA (${webhookSetupResult.url}). A partir de ahora los mensajes entrantes llegarán al Inbox.`
+                  ? `✓ Webhook configurado en ${s.whatsappProvider === "evolution" ? "Evolution" : "WAHA"} (${webhookSetupResult.url}). A partir de ahora los mensajes entrantes llegarán al Inbox.`
                   : `✗ ${webhookSetupResult.error ?? "No se pudo configurar"}`}
               </div>
             )}
