@@ -8,6 +8,9 @@ import { startSearch } from "@/lib/leads/search-manager";
 const createSchema = z.object({
   keyword: z.string().min(2).max(120),
   location: z.string().max(120).optional().default(""),
+  // Municipio concreto (opcional). Si llega, se busca a fondo solo ahí. Si no
+  // llega y `location` es una provincia, se iteran TODOS sus municipios.
+  municipality: z.string().max(120).optional(),
   scope: z.enum(["custom", "spain"]).default("custom"),
   source: z
     .enum(["places", "borme", "trustpilot", "doctoralia", "idealista", "fotocasa", "linkedin"])
@@ -52,6 +55,7 @@ export const POST = withApi({ scope: "*" }, async (req, { api }) => {
     userId: api.userId,
     keyword: parsed.data.keyword,
     location: parsed.data.location,
+    municipality: parsed.data.municipality,
     scope: parsed.data.scope,
     source: parsed.data.source,
     skipExisting: parsed.data.skipExisting,

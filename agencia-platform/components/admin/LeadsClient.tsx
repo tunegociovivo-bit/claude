@@ -3,6 +3,13 @@
 import { useEffect, useRef, useState } from "react";
 import PageHeader from "@/components/PageHeader";
 import Modal from "@/components/ui/Modal";
+import { BUSINESS_TYPE_GROUPS, ALL_BUSINESS_TYPES } from "@/lib/leads/business-types";
+import { PROVINCE_NAMES } from "@/lib/leads/spain-provinces";
+import { municipalitiesForProvince } from "@/lib/leads/spain-municipalities";
+
+// Para saber si el keyword actual coincide con un tipo del desplegable (y
+// reflejarlo seleccionado) sin recalcular el array en cada render.
+const ALL_BUSINESS_TYPES_SET = new Set(ALL_BUSINESS_TYPES);
 import {
   Loader2, Plus, Search, Inbox, ListChecks, BarChart3, MessageCircle,
   Settings as SettingsIcon, Ban, GitBranch, Send, RefreshCw, Download, Play, Pause, Trash2, Pencil, Zap
@@ -2131,17 +2138,22 @@ function NewSearchModal({ open, onClose, onSaved }: { open: boolean; onClose: ()
   const [keyword, setKeyword] = useState("");
   const [location, setLocation] = useState("");
   const [scope, setScope] = useState<"custom" | "spain">("custom");
+  const [province, setProvince] = useState("");
+  const [municipality, setMunicipality] = useState("");
   const [skipExisting, setSkipExisting] = useState(false);
   const [lowRatingOnly, setLowRatingOnly] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const sourceMeta = LEAD_SOURCES.find((s) => s.key === source) ?? LEAD_SOURCES[0];
+  const municipios = province ? municipalitiesForProvince(province) : [];
   useEffect(() => {
     if (!open) return;
     setSource("places");
     setKeyword("");
     setLocation("");
     setScope("custom");
+    setProvince("");
+    setMunicipality("");
     setSkipExisting(false);
     setLowRatingOnly(false);
     setError(null);
@@ -2168,6 +2180,11 @@ function NewSearchModal({ open, onClose, onSaved }: { open: boolean; onClose: ()
         keyword,
         location,
         scope,
+        // Si se elige un municipio concreto, se busca a fondo solo ahí. Si se
+        // elige solo provincia (municipio vacío), el backend itera TODOS sus
+        // municipios (modo máximo volumen) para multiplicar resultados.
+        municipality:
+          source === "places" && scope === "custom" && municipality ? municipality : undefined,
         skipExisting,
         source,
         sourceConfig:
@@ -2216,12 +2233,29 @@ function NewSearchModal({ open, onClose, onSaved }: { open: boolean; onClose: ()
             {sourceMeta.help}
           </p>
         </div>
-        <input
-          value={keyword}
-          onChange={(e) => setKeyword(e.target.value)}
-          placeholder={source === "borme" ? "Sector / palabra clave (filtra empresas del BORME)" : "Keyword (ej: plomero, dentista, abogado)"}
-          className="w-full px-3 py-2 rounded-lg border bg-white text-sm"
-        />
+        <div>
+          <label className="block text-xs font-medium text-slate-700 mb-1">Tipo de negocio</label>
+          <select
+            value={ALL_BUSINESS_TYPES_SET.has(keyword) ? keyword : ""}
+            onChange={(e) => setKeyword(e.target.value)}
+            className="w-full px-3 py-2 rounded-lg border bg-white text-sm"
+          >
+            <option value="">— Elige un tipo de negocio o escríbelo abajo —</option>
+            {BUSINESS_TYPE_GROUPS.map((g) => (
+              <optgroup key={g.group} label={g.group}>
+                {g.types.map((t) => (
+                  <option key={t} value={t}>{t}</option>
+                ))}
+              </optgroup>
+            ))}
+          </select>
+          <input
+            value={keyword}
+            onChange={(e) => setKeyword(e.target.value)}
+            placeholder={source === "borme" ? "Sector / palabra clave (filtra empresas del BORME)" : "…o escribe la palabra clave (ej: plomero, dentista, abogado)"}
+            className="w-full mt-2 px-3 py-2 rounded-lg border bg-white text-sm"
+          />
+        </div>
         <div>
           <label className="block text-xs font-medium text-slate-700 mb-1">
             {source === "borme" ? "Días hacia atrás" : "Alcance"}
@@ -2241,15 +2275,64 @@ function NewSearchModal({ open, onClose, onSaved }: { open: boolean; onClose: ()
             </label>
           </div>
         </div>
-        {(source === "places" ? scope === "custom" : true) && (
+        {source === "places" && scope === "custom" && (
+          <div className="space-y-2">
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">Provincia</label>
+                <select
+                  value={PROVINCE_NAMES.includes(location) ? location : ""}
+                  onChange={(e) => {
+                    const p = e.target.value;
+                    setProvince(p);
+                    setMunicipality("");
+                    setLocation(p);
+                  }}
+                  className="w-full px-3 py-2 rounded-lg border bg-white text-sm"
+                >
+                  <option value="">— Elige provincia —</option>
+                  {PROVINCE_NAMES.map((p) => (
+                    <option key={p} value={p}>{p}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">Municipio</label>
+                <select
+                  value={municipality}
+                  onChange={(e) => setMunicipality(e.target.value)}
+                  disabled={!province || municipios.length === 0}
+                  className="w-full px-3 py-2 rounded-lg border bg-white text-sm disabled:bg-slate-100 disabled:text-slate-400"
+                >
+                  <option value="">Todos los municipios (máximo volumen)</option>
+                  {municipios.map((m) => (
+                    <option key={m} value={m}>{m}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <input
+              value={location}
+              onChange={(e) => {
+                setLocation(e.target.value);
+                setProvince("");
+                setMunicipality("");
+              }}
+              placeholder="…o escribe la provincia / localidad a mano (ej: Málaga)"
+              className="w-full px-3 py-2 rounded-lg border bg-white text-sm"
+            />
+            {province && !municipality && (
+              <p className="text-[11px] text-emerald-700">
+                Se buscarán los <strong>{municipios.length} municipios</strong> de {province} (máximo volumen → muchos más leads).
+              </p>
+            )}
+          </div>
+        )}
+        {source === "borme" && (
           <input
             value={location}
             onChange={(e) => setLocation(e.target.value)}
-            placeholder={
-              source === "borme"
-                ? "Provincia (opcional, filtra registro mercantil)"
-                : "Provincia o localidad (ej: Málaga, Madrid)"
-            }
+            placeholder="Provincia (opcional, filtra registro mercantil)"
             className="w-full px-3 py-2 rounded-lg border bg-white text-sm"
           />
         )}
