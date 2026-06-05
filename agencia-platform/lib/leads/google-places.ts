@@ -29,6 +29,7 @@ const TEXT_FIELD_MASK = [
   "places.websiteUri",
   "places.nationalPhoneNumber",
   "places.internationalPhoneNumber",
+  "places.photos",
   "nextPageToken"
 ].join(",");
 
@@ -206,6 +207,34 @@ function parsePriceLevel(v: any): number | null {
     if (map[v] !== undefined) return map[v];
   }
   return null;
+}
+
+/**
+ * Descarga la primera foto de un place (Places Photo Media) y la devuelve como
+ * data URL base64, para incrustarla en el mockup (Satori) sin exponer la API
+ * key. `photoName` es el campo `places.photos[].name`. Best-effort: null si
+ * falla o no hay foto.
+ */
+export async function getPlacePhotoDataUrl(opts: {
+  workspaceId: string;
+  photoName: string;
+  maxPx?: number;
+}): Promise<string | null> {
+  if (!opts.photoName) return null;
+  try {
+    const apiKey = await getGoogleApiKeyForWorkspace(opts.workspaceId);
+    const px = opts.maxPx ?? 600;
+    const url = `${"https://places.googleapis.com/v1/"}${opts.photoName}/media?maxWidthPx=${px}&maxHeightPx=${px}&key=${apiKey}`;
+    const resp = await fetch(url); // sigue el redirect a la imagen real
+    if (!resp.ok) return null;
+    const ct = resp.headers.get("content-type") ?? "image/jpeg";
+    if (!ct.startsWith("image/")) return null;
+    const buf = Buffer.from(await resp.arrayBuffer());
+    if (buf.length === 0 || buf.length > 3_000_000) return null; // sanidad
+    return `data:${ct};base64,${buf.toString("base64")}`;
+  } catch {
+    return null;
+  }
 }
 
 /**

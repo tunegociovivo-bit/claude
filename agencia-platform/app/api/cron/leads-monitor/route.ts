@@ -10,7 +10,7 @@
 
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
-import { placesTextSearch } from "@/lib/leads/google-places";
+import { placesTextSearch, placeDetails } from "@/lib/leads/google-places";
 import { findProvince } from "@/lib/leads/spain-provinces";
 
 export const dynamic = "force-dynamic";
@@ -106,13 +106,27 @@ export async function GET(req: Request) {
         ) {
           // Caída de rating → lead caliente (encaje perfecto con el pitch).
           const note = `📉 Rating bajó de ${existing.rating} a ${r.rating} (monitorización).`;
+          // Bajamos las reseñas para dejar lista la negativa real ({{resena_negativa}}).
+          let reviewData: any = {};
+          try {
+            const details = await placeDetails({ workspaceId: s.workspaceId, placeId: r.placeId });
+            reviewData = {
+              reviewsJson: details.reviews ?? [],
+              positivePct: details.positivePct,
+              negativePct: details.negativePct,
+              neutralPct: details.neutralPct
+            };
+          } catch {
+            /* best-effort: sin reseñas, igual marcamos el drop */
+          }
           await prisma.lead.update({
             where: { id: existing.id },
             data: {
               rating: r.rating,
               reviewsCount: r.userRatingCount,
               urgency: "critica",
-              notes: existing.notes ? `${note}\n${existing.notes}` : note
+              notes: existing.notes ? `${note}\n${existing.notes}` : note,
+              ...reviewData
             }
           });
           drops++;

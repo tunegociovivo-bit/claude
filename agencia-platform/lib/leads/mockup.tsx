@@ -63,8 +63,9 @@ function Card({
   );
 }
 
-/** Construye el ImageResponse (PNG 1080x1080) del mockup. */
-export function buildMockupImage(lead: MockupLead): ImageResponse {
+/** Construye el ImageResponse (PNG 1080x1080) del mockup. `photoDataUrl` es la
+ *  foto real del negocio (data URL) si se ha podido obtener. */
+export function buildMockupImage(lead: MockupLead, photoDataUrl?: string | null): ImageResponse {
   const ratingNow = lead.rating ?? 3.2;
   const reviewsNow = lead.reviewsCount ?? 0;
   const ratingAfter = Math.max(4.6, Math.min(5, ratingNow + 1));
@@ -84,9 +85,20 @@ export function buildMockupImage(lead: MockupLead): ImageResponse {
           fontFamily: "sans-serif"
         }}
       >
-        <div style={{ display: "flex", flexDirection: "column", marginBottom: 24 }}>
-          <div style={{ fontSize: 40, fontWeight: 800, color: "#ffffff" }}>{lead.name}</div>
-          <div style={{ fontSize: 24, color: "#94a3b8", marginTop: 4 }}>{subtitle}</div>
+        <div style={{ display: "flex", alignItems: "center", marginBottom: 24 }}>
+          {photoDataUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={photoDataUrl}
+              width={120}
+              height={120}
+              style={{ width: 120, height: 120, borderRadius: 16, objectFit: "cover", marginRight: 20 }}
+            />
+          ) : null}
+          <div style={{ display: "flex", flexDirection: "column" }}>
+            <div style={{ fontSize: 40, fontWeight: 800, color: "#ffffff" }}>{lead.name}</div>
+            <div style={{ fontSize: 24, color: "#94a3b8", marginTop: 4 }}>{subtitle}</div>
+          </div>
         </div>
         <div style={{ display: "flex", flex: 1, gap: 24 }}>
           <Card
@@ -123,8 +135,8 @@ export function buildMockupImage(lead: MockupLead): ImageResponse {
 }
 
 /** Devuelve el PNG del mockup como Buffer (para enviarlo por WhatsApp). */
-export async function renderMockupPng(lead: MockupLead): Promise<Buffer> {
-  const img = buildMockupImage(lead);
+export async function renderMockupPng(lead: MockupLead, photoDataUrl?: string | null): Promise<Buffer> {
+  const img = buildMockupImage(lead, photoDataUrl);
   const ab = await img.arrayBuffer();
   return Buffer.from(ab);
 }

@@ -14,6 +14,7 @@ import { ApiError } from "@/lib/api/auth";
 import { normalizePhone, sendImage } from "@/lib/leads/waha";
 import { pickEnqueueChannel } from "@/lib/leads/channels";
 import { renderMockupPng } from "@/lib/leads/mockup";
+import { getPlacePhotoDataUrl } from "@/lib/leads/google-places";
 
 const schema = z.object({ caption: z.string().max(1000).optional() });
 
@@ -36,7 +37,8 @@ export const POST = withApi({ scope: "*" }, async (req, { params, api }) => {
       reviewsCount: true,
       phone: true,
       internationalPhone: true,
-      contactStatus: true
+      contactStatus: true,
+      rawData: true
     }
   });
   if (!lead) throw new ApiError(404, "not_found", "Lead no encontrado");
@@ -56,8 +58,12 @@ export const POST = withApi({ scope: "*" }, async (req, { params, api }) => {
   });
   if (optout) throw new ApiError(409, "opted_out", "Este lead pidió no recibir mensajes");
 
-  // Generar el PNG y enviarlo (multi-número: elige canal).
-  const png = await renderMockupPng(lead);
+  // Generar el PNG (con la foto real del negocio si está disponible) y enviarlo.
+  const photoName = (lead.rawData as any)?.photos?.[0]?.name as string | undefined;
+  const photoDataUrl = photoName
+    ? await getPlacePhotoDataUrl({ workspaceId: api.workspaceId, photoName })
+    : null;
+  const png = await renderMockupPng(lead, photoDataUrl);
   const session = (await pickEnqueueChannel(api.workspaceId)) ?? undefined;
 
   let messageId = "";
