@@ -2874,7 +2874,8 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
       warmupDays: s.warmupDays,
       warmupStartCap: s.warmupStartCap,
       autoRecoveryEnabled: s.autoRecoveryEnabled,
-      dailyJitterPct: s.dailyJitterPct
+      dailyJitterPct: s.dailyJitterPct,
+      channels: Array.isArray(s.channels) ? s.channels : []
     };
     if (googleKey) body.googleApiKey = googleKey;
     if (wahaKey) body.wahaApiKey = wahaKey;
@@ -2889,6 +2890,14 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
     setSavedAt(new Date());
   }
   function setField(k: string, v: any) { setS({ ...s, [k]: v }); }
+  function updateChannel(i: number, patch: any) {
+    const arr = [...(s.channels ?? [])];
+    arr[i] = { ...arr[i], ...patch };
+    setField("channels", arr);
+  }
+  function removeChannel(i: number) {
+    setField("channels", (s.channels ?? []).filter((_: any, idx: number) => idx !== i));
+  }
   function stopPoll() {
     if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
   }
@@ -3038,6 +3047,58 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
                 className="w-full px-3 py-2 rounded-lg border bg-white text-sm"
               />
               <p className="text-[11px] text-slate-500 mt-1">Te llega un WhatsApp inmediato cuando la IA clasifica una respuesta como interesada. Déjalo vacío para no recibir avisos.</p>
+            </div>
+            <div className="mt-2 rounded-lg border bg-slate-50/60 p-3">
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-xs font-semibold text-slate-700">📲 Multi-número (reparto de envíos)</label>
+                <button
+                  type="button"
+                  onClick={() => setField("channels", [...(s.channels ?? []), { name: "", label: "", dailyLimit: 50, active: true }])}
+                  className="text-xs px-2 py-1 rounded border bg-white hover:bg-slate-50"
+                >
+                  + Añadir número
+                </button>
+              </div>
+              <p className="text-[11px] text-slate-500 mb-2">
+                Reparte los envíos entre varias {s.whatsappProvider === "evolution" ? "instancias" : "sesiones"} de WhatsApp (más volumen sin quemar un número). Con 0 ó 1 número se usa el de arriba. Cada número escanea su propio WhatsApp en {s.whatsappProvider === "evolution" ? "Evolution" : "WAHA"} con ese nombre.
+              </p>
+              {(s.channels ?? []).length === 0 ? (
+                <p className="text-[11px] text-slate-400 italic">Sin números extra.</p>
+              ) : (
+                <div className="space-y-1.5">
+                  {(s.channels ?? []).map((c: any, i: number) => (
+                    <div key={i} className="flex items-center gap-1.5">
+                      <input
+                        value={c.name ?? ""}
+                        onChange={(e) => updateChannel(i, { name: e.target.value })}
+                        placeholder={s.whatsappProvider === "evolution" ? "instancia" : "sesión"}
+                        className="flex-1 min-w-0 px-2 py-1 rounded border bg-white text-xs font-mono"
+                      />
+                      <input
+                        value={c.label ?? ""}
+                        onChange={(e) => updateChannel(i, { label: e.target.value })}
+                        placeholder="etiqueta (opcional)"
+                        className="flex-1 min-w-0 px-2 py-1 rounded border bg-white text-xs"
+                      />
+                      <input
+                        type="number"
+                        value={c.dailyLimit ?? 50}
+                        onChange={(e) => updateChannel(i, { dailyLimit: Number(e.target.value) || 50 })}
+                        title="Tope diario de este número"
+                        className="w-16 px-2 py-1 rounded border bg-white text-xs"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => removeChannel(i)}
+                        className="px-2 py-1 rounded border bg-white hover:bg-rose-50 text-rose-600 text-xs"
+                        title="Quitar"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
             <div className="text-[11px] text-slate-500 break-all">
               Webhook URL: <code>{typeof window !== "undefined" ? window.location.origin : ""}/api/v1/leads/webhook/{s.webhookToken}</code>

@@ -64,9 +64,12 @@ export async function evoSendText(opts: {
   workspaceId: string;
   phoneNormalized: string;
   text: string;
+  /** Instancia concreta (multi-número). Si no, la de la config. */
+  session?: string;
 }): Promise<{ messageId: string }> {
   const cfg = await getEvolutionConfig(opts.workspaceId);
-  const url = `${cfg.baseUrl}/message/sendText/${encodeURIComponent(cfg.instance)}`;
+  const instance = opts.session?.trim() || cfg.instance;
+  const url = `${cfg.baseUrl}/message/sendText/${encodeURIComponent(instance)}`;
   const bodies = [
     { number: opts.phoneNormalized, text: opts.text },
     { number: opts.phoneNormalized, textMessage: { text: opts.text } }
@@ -92,9 +95,12 @@ export async function evoSendVoice(opts: {
   workspaceId: string;
   phoneNormalized: string;
   audio: Buffer;
+  /** Instancia concreta (multi-número). Si no, la de la config. */
+  session?: string;
 }): Promise<{ messageId: string }> {
   const cfg = await getEvolutionConfig(opts.workspaceId);
-  const url = `${cfg.baseUrl}/message/sendWhatsAppAudio/${encodeURIComponent(cfg.instance)}`;
+  const instance = opts.session?.trim() || cfg.instance;
+  const url = `${cfg.baseUrl}/message/sendWhatsAppAudio/${encodeURIComponent(instance)}`;
   const b64 = opts.audio.toString("base64");
   const bodies = [
     { number: opts.phoneNormalized, audio: b64 },

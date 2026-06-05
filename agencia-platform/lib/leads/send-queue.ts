@@ -9,6 +9,7 @@ import { prisma } from "@/lib/db/prisma";
 import { renderTemplate } from "./template-engine";
 import { aiRewriteMessage } from "./ai-vary";
 import { normalizePhone, sendText, getWahaConfig, checkNumberExists } from "./waha";
+import { pickEnqueueChannel } from "./channels";
 
 /**
  * Estados que cuentan como "ya enviado" para los topes anti-baneo. Cuando el
@@ -519,6 +520,11 @@ export async function enqueueMessage(opts: {
     settings
   });
 
+  // Multi-número: reparte el envío entre los números configurados (null si no
+  // hay multi-número → comportamiento por defecto). El bucle de envío ya
+  // respeta msg.instanceName.
+  const channel = await pickEnqueueChannel(opts.workspaceId);
+
   const msg = await prisma.leadMessage.create({
     data: {
       workspaceId: opts.workspaceId,
@@ -528,7 +534,8 @@ export async function enqueueMessage(opts: {
       channel: "whatsapp",
       phoneNormalized: phone,
       status: "queued",
-      scheduledAt
+      scheduledAt,
+      instanceName: channel ?? undefined
     }
   });
 
@@ -728,7 +735,10 @@ export async function sendMessageById(
       workspaceId,
       phoneNormalized: msg.phoneNormalized,
       text: msg.renderedMessage,
-      session: msg.instanceName ?? cfg.session
+      // Solo forzamos sesión/instancia si el mensaje tiene canal asignado
+      // (multi-número). Si no, cada proveedor usa su propia por defecto
+      // (WAHA → su sesión; Evolution → su instancia).
+      session: msg.instanceName ?? undefined
     });
     await prisma.leadMessage.update({
       where: { id: msg.id },
