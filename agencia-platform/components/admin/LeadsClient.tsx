@@ -942,6 +942,28 @@ function LeadDetailModal({
     setEnriching(false);
   }
 
+  const [sendingMockup, setSendingMockup] = useState(false);
+  const [mockupMsg, setMockupMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  useEffect(() => {
+    setMockupMsg(null);
+  }, [leadId]);
+
+  async function sendMockup() {
+    if (!leadId) return;
+    if (!confirm("¿Enviar el mockup de su ficha por WhatsApp a este lead?")) return;
+    setSendingMockup(true);
+    setMockupMsg(null);
+    try {
+      const r = await fetch(`/api/v1/leads/${leadId}/send-mockup`, { method: "POST" });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j.ok) setMockupMsg({ ok: false, text: j?.error?.message ?? `Error ${r.status}` });
+      else setMockupMsg({ ok: true, text: "Mockup enviado por WhatsApp." });
+    } catch (e: any) {
+      setMockupMsg({ ok: false, text: e?.message ?? "Error de red" });
+    }
+    setSendingMockup(false);
+  }
+
   async function convertToClient() {
     if (!leadId) return;
     setConverting(true);
@@ -1038,6 +1060,22 @@ function LeadDetailModal({
             >
               🖼️ Ver mockup de su ficha
             </a>
+            <button
+              type="button"
+              onClick={sendMockup}
+              disabled={sendingMockup}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 text-xs font-medium disabled:opacity-50"
+              title="Genera el mockup y lo envía como imagen por WhatsApp a este lead"
+            >
+              {sendingMockup && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+              📤 Enviar mockup por WhatsApp
+            </button>
+            {mockupMsg && (
+              <span className={`text-xs ${mockupMsg.ok ? "text-emerald-700" : "text-rose-600"}`}>
+                {mockupMsg.ok ? "✓ " : "✗ "}
+                {mockupMsg.text}
+              </span>
+            )}
           </div>
           {reviewInfo && (
             <div className={`text-xs px-3 py-2 rounded-md border ${reviewInfo.ok ? "bg-amber-50 border-amber-200 text-amber-800" : "bg-rose-50 border-rose-200 text-rose-700"}`}>

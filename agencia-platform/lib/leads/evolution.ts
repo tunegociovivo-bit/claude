@@ -119,6 +119,44 @@ export async function evoSendVoice(opts: {
   throw new Error(`Evolution sendWhatsAppAudio ${lastErr}`);
 }
 
+/** Envía una IMAGEN (base64) con caption opcional. Tolerante a v1/v2. */
+export async function evoSendImage(opts: {
+  workspaceId: string;
+  phoneNormalized: string;
+  imageBase64: string;
+  caption?: string;
+  filename?: string;
+  session?: string;
+}): Promise<{ messageId: string }> {
+  const cfg = await getEvolutionConfig(opts.workspaceId);
+  const instance = opts.session?.trim() || cfg.instance;
+  const url = `${cfg.baseUrl}/message/sendMedia/${encodeURIComponent(instance)}`;
+  const bodies = [
+    {
+      number: opts.phoneNormalized,
+      mediatype: "image",
+      media: opts.imageBase64,
+      caption: opts.caption ?? "",
+      fileName: opts.filename ?? "mockup.png"
+    }, // v2
+    {
+      number: opts.phoneNormalized,
+      mediaMessage: { mediatype: "image", media: opts.imageBase64, caption: opts.caption ?? "" }
+    } // v1
+  ];
+  let lastErr = "";
+  for (const body of bodies) {
+    const resp = await fetch(url, { method: "POST", headers: headers(cfg.apiKey), body: JSON.stringify(body) });
+    if (resp.ok) {
+      const data: any = await resp.json().catch(() => ({}));
+      return { messageId: String(data?.key?.id ?? data?.id ?? data?.message?.key?.id ?? "") };
+    }
+    lastErr = `${resp.status}: ${(await resp.text().catch(() => "")).slice(0, 200)}`;
+    if (resp.status !== 400) break;
+  }
+  throw new Error(`Evolution sendMedia ${lastErr}`);
+}
+
 /** Estado de conexión de la instancia. "open" = vinculada/operativa. */
 export async function evoConnectionState(workspaceId: string): Promise<{
   reachable: boolean;
