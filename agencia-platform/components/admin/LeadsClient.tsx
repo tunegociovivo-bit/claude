@@ -912,6 +912,35 @@ function LeadDetailModal({
     setConvertMsg(null);
   }, [leadId]);
 
+  const [enriching, setEnriching] = useState(false);
+  const [reviewInfo, setReviewInfo] = useState<{ ok: boolean; text: string } | null>(null);
+  useEffect(() => {
+    setReviewInfo(null);
+  }, [leadId]);
+
+  async function enrichReviews() {
+    if (!leadId) return;
+    setEnriching(true);
+    setReviewInfo(null);
+    try {
+      const r = await fetch(`/api/v1/leads/${leadId}/enrich-reviews`, { method: "POST" });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j.ok) {
+        setReviewInfo({ ok: false, text: j?.error?.message ?? `Error ${r.status}` });
+      } else if (j.negative) {
+        setReviewInfo({
+          ok: true,
+          text: `Reseña negativa de ${j.negative.rating}★${j.negative.author ? ` (${j.negative.author})` : ""}: "${j.negative.text.slice(0, 160)}". Usa {{resena_negativa}} en la plantilla.`
+        });
+      } else {
+        setReviewInfo({ ok: true, text: `Reseñas guardadas (${j.reviewsCount}). No hay reseña negativa con texto para citar.` });
+      }
+    } catch (e: any) {
+      setReviewInfo({ ok: false, text: e?.message ?? "Error de red" });
+    }
+    setEnriching(false);
+  }
+
   async function convertToClient() {
     if (!leadId) return;
     setConverting(true);
@@ -989,7 +1018,22 @@ function LeadDetailModal({
                 )}
               </span>
             )}
+            <button
+              type="button"
+              onClick={enrichReviews}
+              disabled={enriching}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border bg-white hover:bg-slate-50 text-xs font-medium disabled:opacity-50"
+              title="Baja las reseñas de Google y habilita citar una reseña negativa real en el mensaje ({{resena_negativa}})"
+            >
+              {enriching && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+              📝 Traer reseñas de Google
+            </button>
           </div>
+          {reviewInfo && (
+            <div className={`text-xs px-3 py-2 rounded-md border ${reviewInfo.ok ? "bg-amber-50 border-amber-200 text-amber-800" : "bg-rose-50 border-rose-200 text-rose-700"}`}>
+              {reviewInfo.text}
+            </div>
+          )}
           <div>
             <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">
               Conversación ({timeline.length} mensaje{timeline.length === 1 ? "" : "s"})
