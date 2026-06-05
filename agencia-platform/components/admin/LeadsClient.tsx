@@ -906,6 +906,33 @@ function LeadDetailModal({
 
   const lead = data?.lead;
   const timeline = data?.timeline ?? [];
+  const [converting, setConverting] = useState(false);
+  const [convertMsg, setConvertMsg] = useState<{ ok: boolean; text: string; clientId?: string } | null>(null);
+  useEffect(() => {
+    setConvertMsg(null);
+  }, [leadId]);
+
+  async function convertToClient() {
+    if (!leadId) return;
+    setConverting(true);
+    setConvertMsg(null);
+    try {
+      const r = await fetch(`/api/v1/leads/${leadId}/convert-to-client`, { method: "POST" });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j.ok) {
+        setConvertMsg({ ok: false, text: j?.error?.message ?? `Error ${r.status}` });
+      } else {
+        setConvertMsg({
+          ok: true,
+          text: j.created ? "Cliente creado en el Hub." : "Este lead ya era cliente.",
+          clientId: j.clientId
+        });
+      }
+    } catch (e: any) {
+      setConvertMsg({ ok: false, text: e?.message ?? "Error de red" });
+    }
+    setConverting(false);
+  }
 
   return (
     <Modal open={open} onClose={onClose} title={lead?.name ?? "Lead"} size="xl">
@@ -933,6 +960,36 @@ function LeadDetailModal({
           {lead.notes && (
             <div className="text-xs px-3 py-2 rounded-md bg-slate-50 border text-slate-700">{lead.notes}</div>
           )}
+          <div className="flex items-center gap-2 flex-wrap">
+            {lead.convertedClientId ? (
+              <a
+                href="/clientes"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700 text-xs font-medium hover:bg-emerald-100"
+              >
+                ✓ Ya es cliente del Hub — ver clientes ↗
+              </a>
+            ) : (
+              <button
+                type="button"
+                onClick={convertToClient}
+                disabled={converting}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-xs font-medium disabled:opacity-50"
+                title="Crea un cliente del Hub con los datos de este negocio y marca el lead como cliente"
+              >
+                {converting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                🤝 Convertir en cliente
+              </button>
+            )}
+            {convertMsg && (
+              <span className={`text-xs ${convertMsg.ok ? "text-emerald-700" : "text-rose-600"}`}>
+                {convertMsg.ok ? "✓ " : "✗ "}
+                {convertMsg.text}
+                {convertMsg.ok && convertMsg.clientId && (
+                  <a href="/clientes" className="ml-1 underline">Ver clientes ↗</a>
+                )}
+              </span>
+            )}
+          </div>
           <div>
             <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">
               Conversación ({timeline.length} mensaje{timeline.length === 1 ? "" : "s"})

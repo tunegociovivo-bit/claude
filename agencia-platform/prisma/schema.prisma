@@ -950,6 +950,9 @@ model Lead {
   // Estado del contacto
   contactStatus       String    @default("pending") // pending|contacted|responded|client|excluded|discarded
   notes               String?   @db.Text
+  // Si el lead se convirtió en cliente del Hub, su id (para enlazar y evitar
+  // duplicar al pulsar "Convertir en cliente" más de una vez).
+  convertedClientId   String?
   legacyWpId          Int?      @unique
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
