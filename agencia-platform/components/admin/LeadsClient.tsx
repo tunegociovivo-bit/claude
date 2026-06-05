@@ -1028,6 +1028,15 @@ function LeadDetailModal({
               {enriching && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
               📝 Traer reseñas de Google
             </button>
+            <a
+              href={`/api/v1/leads/${leadId}/mockup`}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border bg-white hover:bg-slate-50 text-xs font-medium"
+              title="Imagen antes/después de su ficha de Google para adjuntar en el mensaje"
+            >
+              🖼️ Ver mockup de su ficha
+            </a>
           </div>
           {reviewInfo && (
             <div className={`text-xs px-3 py-2 rounded-md border ${reviewInfo.ok ? "bg-amber-50 border-amber-200 text-amber-800" : "bg-rose-50 border-rose-200 text-rose-700"}`}>
