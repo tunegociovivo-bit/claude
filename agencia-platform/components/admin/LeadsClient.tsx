@@ -2136,6 +2136,60 @@ function AnalyticsView({ data, loading }: { data: any; loading: boolean }) {
           )}
         </div>
       </div>
+      {/* Conversión por nicho y por provincia */}
+      <div className="grid md:grid-cols-2 gap-4">
+        <ConversionTable title="Conversión por nicho" colLabel="Nicho" rows={data.convNiche ?? []} />
+        <ConversionTable title="Conversión por provincia" colLabel="Provincia" rows={data.convProvince ?? []} />
+      </div>
+    </div>
+  );
+}
+
+function ConversionTable({
+  title,
+  colLabel,
+  rows
+}: {
+  title: string;
+  colLabel: string;
+  rows: any[];
+}) {
+  return (
+    <div>
+      <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">{title}</h3>
+      <div className="bg-white rounded-lg border overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead className="bg-slate-50 text-slate-500">
+            <tr>
+              <th className="px-2 py-2 text-left font-medium">{colLabel}</th>
+              <th className="px-2 py-2 text-right font-medium" title="Leads captados">Leads</th>
+              <th className="px-2 py-2 text-right font-medium" title="Contactados (o más avanzados)">Contact.</th>
+              <th className="px-2 py-2 text-right font-medium" title="% que respondió sobre contactados">Resp.</th>
+              <th className="px-2 py-2 text-right font-medium" title="% que se hizo cliente sobre contactados">Clientes</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y">
+            {rows.map((r) => (
+              <tr key={r.key}>
+                <td className="px-2 py-1.5 max-w-[160px] truncate font-medium" title={r.key}>{r.key}</td>
+                <td className="px-2 py-1.5 text-right">{r.total}</td>
+                <td className="px-2 py-1.5 text-right">{r.contacted}</td>
+                <td className="px-2 py-1.5 text-right">{r.responseRate}%</td>
+                <td className="px-2 py-1.5 text-right">
+                  <span className={r.clientRate > 0 ? "font-semibold text-emerald-700" : "text-slate-400"}>
+                    {r.client} ({r.clientRate}%)
+                  </span>
+                </td>
+              </tr>
+            ))}
+            {rows.length === 0 && (
+              <tr>
+                <td colSpan={5} className="px-2 py-3 text-center text-slate-500">Sin datos todavía</td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

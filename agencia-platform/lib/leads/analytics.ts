@@ -112,3 +112,86 @@ export async function topProvinces(workspaceId: string, limit = 10) {
   });
   return rows.map((r) => ({ province: r.province ?? "—", count: r._count }));
 }
+
+export type ConversionRow = {
+  key: string;
+  total: number;
+  contacted: number; // contactados o más avanzados (contacted+responded+client)
+  responded: number; // respondieron o más (responded+client)
+  client: number;
+  responseRate: number; // % respondidos / contactados
+  clientRate: number; // % clientes / contactados
+};
+
+/** Convierte un acumulado por estado en métricas de embudo acumulativas. */
+function finalizeConversion(
+  agg: Map<string, { total: number; contacted: number; responded: number; client: number }>,
+  limit: number
+): ConversionRow[] {
+  const out: ConversionRow[] = [];
+  for (const [key, a] of agg) {
+    const contactedPlus = a.contacted + a.responded + a.client;
+    const respondedPlus = a.responded + a.client;
+    out.push({
+      key,
+      total: a.total,
+      contacted: contactedPlus,
+      responded: respondedPlus,
+      client: a.client,
+      responseRate: contactedPlus ? Math.round((respondedPlus / contactedPlus) * 1000) / 10 : 0,
+      clientRate: contactedPlus ? Math.round((a.client / contactedPlus) * 1000) / 10 : 0
+    });
+  }
+  out.sort((x, y) => y.total - x.total);
+  return out.slice(0, limit);
+}
+
+function addStatus(
+  agg: Map<string, { total: number; contacted: number; responded: number; client: number }>,
+  key: string,
+  status: string,
+  count: number
+) {
+  const a = agg.get(key) ?? { total: 0, contacted: 0, responded: 0, client: 0 };
+  a.total += count;
+  if (status === "contacted") a.contacted += count;
+  else if (status === "responded") a.responded += count;
+  else if (status === "client") a.client += count;
+  agg.set(key, a);
+}
+
+/** Conversión por NICHO (keyword de la búsqueda de la que salió el lead). */
+export async function conversionByNiche(workspaceId: string, limit = 20): Promise<ConversionRow[]> {
+  const grouped = await prisma.lead.groupBy({
+    by: ["searchId", "contactStatus"],
+    where: { workspaceId },
+    _count: true
+  });
+  const searchIds = Array.from(
+    new Set(grouped.map((g) => g.searchId).filter((x): x is string => !!x))
+  );
+  const searches = searchIds.length
+    ? await prisma.leadSearch.findMany({ where: { id: { in: searchIds } }, select: { id: true, keyword: true } })
+    : [];
+  const kwById = new Map(searches.map((s) => [s.id, s.keyword]));
+  const agg = new Map<string, { total: number; contacted: number; responded: number; client: number }>();
+  for (const g of grouped) {
+    const kw = (g.searchId ? kwById.get(g.searchId) : null) ?? "Sin nicho";
+    addStatus(agg, kw, g.contactStatus, g._count);
+  }
+  return finalizeConversion(agg, limit);
+}
+
+/** Conversión por PROVINCIA. */
+export async function conversionByProvince(workspaceId: string, limit = 20): Promise<ConversionRow[]> {
+  const grouped = await prisma.lead.groupBy({
+    by: ["province", "contactStatus"],
+    where: { workspaceId },
+    _count: true
+  });
+  const agg = new Map<string, { total: number; contacted: number; responded: number; client: number }>();
+  for (const g of grouped) {
+    addStatus(agg, g.province ?? "—", g.contactStatus, g._count);
+  }
+  return finalizeConversion(agg, limit);
+}
