@@ -897,6 +897,11 @@ model LeadSearch {
   sourceConfig       Json?
   skipExisting       Boolean   @default(false)
   leadsSkipped       Int       @default(0)
+  // Monitorización continua: si true, el cron leads-monitor revisa
+  // periódicamente esta búsqueda para detectar negocios nuevos y caídas de
+  // rating, marcando esos leads como calientes.
+  monitored          Boolean   @default(false)
+  lastMonitoredAt    DateTime?
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @default(now()) @updatedAt
 
@@ -904,6 +909,7 @@ model LeadSearch {
   leads     Lead[]
 
   @@index([workspaceId, status])
+  @@index([monitored])
 }
 
 model Lead {

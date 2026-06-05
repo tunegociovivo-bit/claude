@@ -65,6 +65,7 @@ type SearchRow = {
   currentProvince: string | null;
   totalResults: number;
   errorMessage?: string | null;
+  monitored?: boolean;
   createdAt: string;
   _count?: { leads: number };
 };
@@ -1312,6 +1313,14 @@ function SearchesTable({ loading, items, onChanged }: { loading: boolean; items:
     await fetch(`/api/v1/leads/searches/${id}/process`, { method: "POST" });
     onChanged();
   }
+  async function toggleMonitor(id: string, monitored: boolean) {
+    await fetch(`/api/v1/leads/searches/${id}/monitor`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ monitored })
+    });
+    onChanged();
+  }
   /** Encadena llamadas a /process hasta que la búsqueda quede COMPLETED o FAILED.
    *  Útil para escaneos de toda España: el usuario pulsa una vez y se procesan
    *  los 52 batches automáticamente. */
@@ -1411,6 +1420,19 @@ function SearchesTable({ loading, items, onChanged }: { loading: boolean; items:
                       )}
                     </>
                   )}
+                  <button
+                    onClick={() => toggleMonitor(s.id, !s.monitored)}
+                    className={
+                      "ml-1 inline-flex items-center gap-1 px-2 py-1 rounded border text-xs " +
+                      (s.monitored
+                        ? "bg-emerald-50 hover:bg-emerald-100 border-emerald-200 text-emerald-700"
+                        : "bg-white hover:bg-slate-50")
+                    }
+                    title="Monitorización continua: detecta negocios nuevos y caídas de rating en esta búsqueda"
+                  >
+                    <RefreshCw className="h-3 w-3" />
+                    {s.monitored ? "Monitorizando" : "Monitorizar"}
+                  </button>
                   <a
                     href={`/api/v1/leads/export?searchId=${s.id}`}
                     className="ml-1 inline-flex items-center gap-1 px-2 py-1 rounded border bg-white hover:bg-slate-50 text-xs"
