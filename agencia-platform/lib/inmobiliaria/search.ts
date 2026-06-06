@@ -20,10 +20,14 @@ import { portalsByKeys, type Portal } from "./portals";
 // estándar del workspace para mantener consistencia con el resto de la app.
 const RESEARCH_MODEL = DEFAULT_MODEL;
 
+export type OccupancyFilter = "any" | "occupied" | "free";
+
 export type SearchParams = {
   location: string;
   propertyType?: string;
   objective?: string; // alquiler | reventa | vivienda
+  /** Estado de ocupación buscado: indiferente, con okupas dentro, o libre/desocupada */
+  occupancy?: OccupancyFilter;
   minPrice?: number;
   maxPrice?: number;
   minSurface?: number;
@@ -80,6 +84,19 @@ function buildResearchPrompt(params: SearchParams, portals: Portal[]): string {
   lines.push(`- Ubicación / zona: ${params.location}`);
   if (params.propertyType) lines.push(`- Tipo de inmueble: ${params.propertyType}`);
   if (params.objective) lines.push(`- Objetivo de la inversión: ${params.objective}`);
+  if (params.occupancy === "occupied") {
+    lines.push(
+      "- Estado de ocupación: BUSCA SOLO viviendas OCUPADAS (con okupas/inquilinos dentro). Son habituales en Trial3 y otros portales: suelen tener gran descuento pero mayor riesgo (desahucio, posesión no garantizada). Descarta las que estén libres."
+    );
+  } else if (params.occupancy === "free") {
+    lines.push(
+      "- Estado de ocupación: BUSCA SOLO viviendas LIBRES / desocupadas (posesión inmediata, sin okupas ni inquilinos). Descarta las que estén ocupadas."
+    );
+  } else {
+    lines.push(
+      "- Estado de ocupación: indiferente. Incluye tanto viviendas libres como ocupadas, indicando claramente en cada una si está ocupada o no."
+    );
+  }
   if (params.minPrice) lines.push(`- Precio mínimo: ${params.minPrice} €`);
   if (params.maxPrice) lines.push(`- Precio máximo: ${params.maxPrice} €`);
   if (params.minSurface) lines.push(`- Superficie mínima: ${params.minSurface} m²`);
@@ -268,8 +285,20 @@ async function analyzeListings(
   ].join("\n");
 
   const objective = params.objective ? `Objetivo del inversor: ${params.objective}.` : "";
+  let occupancyLine = "";
+  if (params.occupancy === "occupied") {
+    occupancyLine =
+      "El inversor BUSCA EXPRESAMENTE viviendas OCUPADAS (con okupas/inquilinos dentro) como estrategia de gran descuento. Devuelve ÚNICAMENTE propiedades ocupadas (occupied=true). NO penalices el score solo por estar ocupada: valora el descuento frente al riesgo real (coste y plazo de desalojo, posesión no garantizada, cargas) y refléjalo en pros/cons.";
+  } else if (params.occupancy === "free") {
+    occupancyLine =
+      "El inversor SOLO quiere viviendas LIBRES / desocupadas (posesión inmediata). Devuelve ÚNICAMENTE propiedades libres (occupied=false) y descarta las ocupadas.";
+  } else {
+    occupancyLine =
+      "Estado de ocupación indiferente: incluye libres y ocupadas. Penaliza el score de las ocupadas salvo que el descuento lo compense claramente, e indica el estado en occupied.";
+  }
   const user = [
     `Criterios del inversor — Zona: ${params.location}. ${params.propertyType ? `Tipo: ${params.propertyType}. ` : ""}${objective}`,
+    occupancyLine,
     params.onlyOpportunities
       ? "Devuelve únicamente las propiedades con veredicto OPORTUNIDAD o INTERESANTE, ordenadas de mayor a menor score."
       : "Ordena las propiedades de mayor a menor score.",
@@ -291,6 +320,12 @@ async function analyzeListings(
   });
 
   let opps = Array.isArray(data.opportunities) ? data.opportunities : [];
+  // Filtro duro por estado de ocupación (red de seguridad sobre el prompt).
+  if (params.occupancy === "occupied") {
+    opps = opps.filter((o) => o.occupied === true);
+  } else if (params.occupancy === "free") {
+    opps = opps.filter((o) => o.occupied === false);
+  }
   if (params.onlyOpportunities) {
     opps = opps.filter((o) => o.verdict !== "DESCARTAR");
   }
