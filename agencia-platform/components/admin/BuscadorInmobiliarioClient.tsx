@@ -49,6 +49,13 @@ type SearchResult = {
 const PROPERTY_TYPES = ["Cualquiera", "Piso", "Casa / Chalet", "Ático", "Local", "Garaje", "Suelo"];
 const OBJECTIVES = ["Alquiler", "Reventa", "Vivienda habitual"];
 
+type Occupancy = "any" | "free" | "occupied";
+const OCCUPANCY_OPTIONS: { id: Occupancy; label: string; hint: string }[] = [
+  { id: "any", label: "Indiferente", hint: "Libres y ocupadas" },
+  { id: "free", label: "Libre", hint: "Posesión inmediata" },
+  { id: "occupied", label: "Con okupas", hint: "Ocupada · más descuento, más riesgo" }
+];
+
 function eur(n: number | null | undefined): string {
   if (n === null || n === undefined || Number.isNaN(n)) return "—";
   return new Intl.NumberFormat("es-ES", { maximumFractionDigits: 0 }).format(n) + " €";
@@ -84,6 +91,7 @@ export default function BuscadorInmobiliarioClient() {
   const [location, setLocation] = useState("");
   const [propertyType, setPropertyType] = useState(PROPERTY_TYPES[0]);
   const [objective, setObjective] = useState(OBJECTIVES[0]);
+  const [occupancy, setOccupancy] = useState<Occupancy>("any");
   const [minPrice, setMinPrice] = useState("");
   const [maxPrice, setMaxPrice] = useState("");
   const [minSurface, setMinSurface] = useState("");
@@ -122,6 +130,7 @@ export default function BuscadorInmobiliarioClient() {
           location: location.trim(),
           propertyType: propertyType === "Cualquiera" ? undefined : propertyType,
           objective,
+          occupancy,
           minPrice: minPrice ? Number(minPrice) : undefined,
           maxPrice: maxPrice ? Number(maxPrice) : undefined,
           minSurface: minSurface ? Number(minSurface) : undefined,
@@ -187,6 +196,31 @@ export default function BuscadorInmobiliarioClient() {
                 ))}
               </select>
             </div>
+          </div>
+
+          <div>
+            <label className="text-xs font-medium text-slate-700">Estado de ocupación</label>
+            <div className="mt-1 grid grid-cols-3 gap-1">
+              {OCCUPANCY_OPTIONS.map((o) => (
+                <button
+                  key={o.id}
+                  type="button"
+                  onClick={() => setOccupancy(o.id)}
+                  title={o.hint}
+                  className={clsx(
+                    "px-2 py-1.5 text-xs rounded-md border text-center leading-tight",
+                    occupancy === o.id
+                      ? "bg-brand-600 text-white border-brand-600"
+                      : "bg-white text-slate-600 hover:bg-slate-50"
+                  )}
+                >
+                  {o.label}
+                </button>
+              ))}
+            </div>
+            <p className="mt-1 text-[11px] text-slate-400">
+              {OCCUPANCY_OPTIONS.find((o) => o.id === occupancy)?.hint}
+            </p>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
