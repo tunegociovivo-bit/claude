@@ -26,7 +26,8 @@ import {
   Trash2,
   Sunrise,
   Receipt,
-  MapPin
+  MapPin,
+  Building2
 } from "lucide-react";
 
 // Áreas de la plataforma Bubui accesibles desde "Otros Proyectos".
@@ -522,6 +523,26 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}
                 );
               })}
             </div>
+
+            {/* Buscador Inmobiliario (activos de banca) */}
+            <Link
+              onClick={onNavigate}
+              href="/admin/buscador-inmobiliario"
+              className={clsx(
+                "mt-1 flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition-colors",
+                pathname.startsWith("/admin/buscador-inmobiliario")
+                  ? "bg-brand-600/25 text-white font-medium"
+                  : "text-slate-300 hover:bg-slate-800 hover:text-white"
+              )}
+            >
+              <span
+                className="h-4 w-4 rounded-[5px] shrink-0 grid place-items-center text-white"
+                style={{ background: "linear-gradient(135deg,#2E7D5B,#1B4D3E)" }}
+              >
+                <Building2 className="h-2.5 w-2.5" />
+              </span>
+              <span className="font-semibold">Buscador inmobiliario</span>
+            </Link>
           </div>
         )}
       </nav>
