@@ -897,6 +897,11 @@ model LeadSearch {
   sourceConfig       Json?
   skipExisting       Boolean   @default(false)
   leadsSkipped       Int       @default(0)
+  // Monitorización continua: si true, el cron leads-monitor revisa
+  // periódicamente esta búsqueda para detectar negocios nuevos y caídas de
+  // rating, marcando esos leads como calientes.
+  monitored          Boolean   @default(false)
+  lastMonitoredAt    DateTime?
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @default(now()) @updatedAt
 
@@ -904,6 +909,7 @@ model LeadSearch {
   leads     Lead[]
 
   @@index([workspaceId, status])
+  @@index([monitored])
 }
 
 model Lead {
@@ -950,6 +956,9 @@ model Lead {
   // Estado del contacto
   contactStatus       String    @default("pending") // pending|contacted|responded|client|excluded|discarded
   notes               String?   @db.Text
+  // Si el lead se convirtió en cliente del Hub, su id (para enlazar y evitar
+  // duplicar al pulsar "Convertir en cliente" más de una vez).
+  convertedClientId   String?
   legacyWpId          Int?      @unique
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt

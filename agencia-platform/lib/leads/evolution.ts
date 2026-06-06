@@ -64,9 +64,12 @@ export async function evoSendText(opts: {
   workspaceId: string;
   phoneNormalized: string;
   text: string;
+  /** Instancia concreta (multi-número). Si no, la de la config. */
+  session?: string;
 }): Promise<{ messageId: string }> {
   const cfg = await getEvolutionConfig(opts.workspaceId);
-  const url = `${cfg.baseUrl}/message/sendText/${encodeURIComponent(cfg.instance)}`;
+  const instance = opts.session?.trim() || cfg.instance;
+  const url = `${cfg.baseUrl}/message/sendText/${encodeURIComponent(instance)}`;
   const bodies = [
     { number: opts.phoneNormalized, text: opts.text },
     { number: opts.phoneNormalized, textMessage: { text: opts.text } }
@@ -92,9 +95,12 @@ export async function evoSendVoice(opts: {
   workspaceId: string;
   phoneNormalized: string;
   audio: Buffer;
+  /** Instancia concreta (multi-número). Si no, la de la config. */
+  session?: string;
 }): Promise<{ messageId: string }> {
   const cfg = await getEvolutionConfig(opts.workspaceId);
-  const url = `${cfg.baseUrl}/message/sendWhatsAppAudio/${encodeURIComponent(cfg.instance)}`;
+  const instance = opts.session?.trim() || cfg.instance;
+  const url = `${cfg.baseUrl}/message/sendWhatsAppAudio/${encodeURIComponent(instance)}`;
   const b64 = opts.audio.toString("base64");
   const bodies = [
     { number: opts.phoneNormalized, audio: b64 },
@@ -111,6 +117,44 @@ export async function evoSendVoice(opts: {
     if (resp.status !== 400) break;
   }
   throw new Error(`Evolution sendWhatsAppAudio ${lastErr}`);
+}
+
+/** Envía una IMAGEN (base64) con caption opcional. Tolerante a v1/v2. */
+export async function evoSendImage(opts: {
+  workspaceId: string;
+  phoneNormalized: string;
+  imageBase64: string;
+  caption?: string;
+  filename?: string;
+  session?: string;
+}): Promise<{ messageId: string }> {
+  const cfg = await getEvolutionConfig(opts.workspaceId);
+  const instance = opts.session?.trim() || cfg.instance;
+  const url = `${cfg.baseUrl}/message/sendMedia/${encodeURIComponent(instance)}`;
+  const bodies = [
+    {
+      number: opts.phoneNormalized,
+      mediatype: "image",
+      media: opts.imageBase64,
+      caption: opts.caption ?? "",
+      fileName: opts.filename ?? "mockup.png"
+    }, // v2
+    {
+      number: opts.phoneNormalized,
+      mediaMessage: { mediatype: "image", media: opts.imageBase64, caption: opts.caption ?? "" }
+    } // v1
+  ];
+  let lastErr = "";
+  for (const body of bodies) {
+    const resp = await fetch(url, { method: "POST", headers: headers(cfg.apiKey), body: JSON.stringify(body) });
+    if (resp.ok) {
+      const data: any = await resp.json().catch(() => ({}));
+      return { messageId: String(data?.key?.id ?? data?.id ?? data?.message?.key?.id ?? "") };
+    }
+    lastErr = `${resp.status}: ${(await resp.text().catch(() => "")).slice(0, 200)}`;
+    if (resp.status !== 400) break;
+  }
+  throw new Error(`Evolution sendMedia ${lastErr}`);
 }
 
 /** Estado de conexión de la instancia. "open" = vinculada/operativa. */
@@ -244,6 +288,46 @@ export async function evoConnect(workspaceId: string): Promise<{
   } catch (e: any) {
     return { ok: false, base64: null, error: e?.message ?? "error de red" };
   }
+}
+
+/**
+ * Registra el webhook de mensajes entrantes en Evolution para que reenvíe los
+ * mensajes a nuestro endpoint. Sin esto, la pestaña Inbox no recibe nada
+ * cuando el proveedor activo es Evolution (a diferencia de WAHA, que tenía
+ * auto-setup). Tolerante a v1 y v2 (cambia la forma del body).
+ *
+ * Evolution: POST /webhook/set/{instance}
+ *   v2: { webhook: { enabled, url, byEvents, base64, events: ["MESSAGES_UPSERT"] } }
+ *   v1: { url, enabled, webhook_by_events, events: ["MESSAGES_UPSERT"] }
+ */
+export async function evoSetWebhook(opts: {
+  workspaceId: string;
+  url: string;
+}): Promise<{ ok: boolean; instance: string; error?: string }> {
+  const cfg = await getEvolutionConfig(opts.workspaceId);
+  const endpoint = `${cfg.baseUrl}/webhook/set/${encodeURIComponent(cfg.instance)}`;
+  const events = ["MESSAGES_UPSERT"];
+  const bodies = [
+    { webhook: { enabled: true, url: opts.url, byEvents: false, base64: false, events } }, // v2
+    { url: opts.url, enabled: true, webhook_by_events: false, events } // v1
+  ];
+  let lastErr = "";
+  for (const body of bodies) {
+    try {
+      const resp = await fetch(endpoint, {
+        method: "POST",
+        headers: headers(cfg.apiKey),
+        body: JSON.stringify(body)
+      });
+      if (resp.ok) return { ok: true, instance: cfg.instance };
+      lastErr = `${resp.status}: ${(await resp.text().catch(() => "")).slice(0, 200)}`;
+      if (resp.status !== 400) break; // solo reintenta el otro shape si fue validación
+    } catch (e: any) {
+      lastErr = e?.message ?? String(e);
+      break;
+    }
+  }
+  return { ok: false, instance: cfg.instance, error: lastErr };
 }
 
 /** Comprueba si un número tiene WhatsApp. null = desconocido (no descartar). */

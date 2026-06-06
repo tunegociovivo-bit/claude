@@ -122,6 +122,49 @@ export async function sendText(opts: {
 }
 
 /**
+ * Envía una IMAGEN (PNG/JPG en base64) con caption opcional. Se usa para el
+ * mockup de la ficha de Google. Enruta a Evolution si es el proveedor activo.
+ */
+export async function sendImage(opts: {
+  workspaceId: string;
+  phoneNormalized: string;
+  imageBase64: string;
+  caption?: string;
+  filename?: string;
+  session?: string;
+}): Promise<{ messageId: string; raw?: any }> {
+  if ((await getWhatsappProvider(opts.workspaceId)) === "evolution") {
+    const { evoSendImage } = await import("./evolution");
+    return evoSendImage(opts);
+  }
+  const cfg = await getWahaConfig(opts.workspaceId);
+  const chatId = `${opts.phoneNormalized}@c.us`;
+  const resp = await fetch(`${cfg.baseUrl}/api/sendImage`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Api-Key": cfg.apiKey },
+    body: JSON.stringify({
+      session: opts.session ?? cfg.session,
+      chatId,
+      file: { mimetype: "image/png", filename: opts.filename ?? "mockup.png", data: opts.imageBase64 },
+      caption: opts.caption ?? ""
+    })
+  });
+  if (!resp.ok) {
+    const txt = await resp.text();
+    throw new Error(`WAHA sendImage ${resp.status}: ${txt.slice(0, 200)}`);
+  }
+  const data = await resp.json().catch(() => null);
+  const messageId = extractWahaMessageId(data);
+  if (!messageId) {
+    throw new Error(
+      `WAHA aceptó sendImage (HTTP ${resp.status}) pero no devolvió ID de mensaje. ` +
+        `Suele indicar que la sesión no está operativa. Respuesta: ${JSON.stringify(data ?? {}).slice(0, 200)}`
+    );
+  }
+  return { messageId, raw: data };
+}
+
+/**
  * Envía una NOTA DE VOZ (PTT) por WhatsApp. WhatsApp solo acepta audio en
  * OGG/Opus; ElevenLabs nos da MP3, así que lo transcodificamos a Opus en
  * NUESTRO servidor (ffmpeg-static) y lo mandamos ya listo con convert:false.

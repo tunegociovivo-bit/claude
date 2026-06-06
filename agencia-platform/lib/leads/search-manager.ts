@@ -12,6 +12,8 @@ import { prisma } from "@/lib/db/prisma";
 import { placesTextSearch, type PlacesResult } from "./google-places";
 import { scoreLead } from "./scorer";
 import { SPAIN_PROVINCES, findProvince } from "./spain-provinces";
+import { municipalitiesForProvince } from "./spain-municipalities";
+import { expandKeyword } from "./synonyms";
 import { classifyLeadsRelevance, type RelevanceVerdict } from "./relevance";
 import { collectFromSource, type LeadSourceKey } from "./sources";
 
@@ -20,6 +22,8 @@ export async function startSearch(opts: {
   userId?: string | null;
   keyword: string;
   location: string;
+  /** Municipio concreto: si llega, búsqueda a fondo solo en él. */
+  municipality?: string;
   scope: "custom" | "spain";
   source?: LeadSourceKey; // default "places"
   /** Si true, leads con placeId ya presente en otras búsquedas del workspace
@@ -30,23 +34,50 @@ export async function startSearch(opts: {
   sourceConfig?: Record<string, any>;
 }): Promise<{ searchId: string; totalProvinces: number }> {
   const source: LeadSourceKey = opts.source ?? "places";
-  // Para fuentes que NO son places no iteramos provincias; va en 1 batch.
-  const totalProvinces = source === "places" ? (opts.scope === "spain" ? SPAIN_PROVINCES.length : 1) : 1;
+  const location = opts.location.trim();
+  const municipality = opts.municipality?.trim() || "";
+  const province = findProvince(location); // location es una provincia conocida?
+
+  // Config de troceado (se guarda en sourceConfig para no migrar el schema):
+  //   - municipality → busca a fondo solo ese municipio (1 "target").
+  //   - tileMunicipalities → itera TODOS los municipios de la provincia
+  //     (modo "máximo volumen"): cada municipio es un target del batch.
+  const tiling: Record<string, any> = {};
+  let totalTargets = 1;
+  if (source === "places") {
+    if (opts.scope === "spain") {
+      totalTargets = SPAIN_PROVINCES.length;
+    } else if (municipality) {
+      tiling.municipality = municipality;
+      tiling.tileProvince = province?.name ?? location;
+      totalTargets = 1;
+    } else if (province) {
+      const munis = municipalitiesForProvince(province.name);
+      if (munis.length > 0) {
+        tiling.tileMunicipalities = true;
+        tiling.tileProvince = province.name;
+        totalTargets = munis.length;
+      }
+    }
+  }
+
   const search = await prisma.leadSearch.create({
     data: {
       workspaceId: opts.workspaceId,
       keyword: opts.keyword.trim(),
-      location: opts.location.trim() || (opts.scope === "spain" ? "Toda España" : ""),
+      location:
+        (municipality ? `${municipality} (${tiling.tileProvince})` : location) ||
+        (opts.scope === "spain" ? "Toda España" : ""),
       scope: opts.scope,
       source,
-      totalProvinces,
+      totalProvinces: totalTargets,
       processedProvinces: 0,
       status: "PENDING",
       skipExisting: !!opts.skipExisting,
-      sourceConfig: opts.sourceConfig ?? undefined
+      sourceConfig: { ...(opts.sourceConfig ?? {}), ...tiling }
     } as any
   });
-  return { searchId: search.id, totalProvinces };
+  return { searchId: search.id, totalProvinces: totalTargets };
 }
 
 /**
@@ -80,12 +111,48 @@ export async function processSearchBatch(opts: {
     return processNonPlacesBatch({ workspaceId: opts.workspaceId, search });
   }
 
-  const targets =
-    search.scope === "spain"
-      ? SPAIN_PROVINCES.slice(search.processedProvinces, search.processedProvinces + (opts.batchSize ?? 5))
-      : findProvince(search.location)
-        ? [findProvince(search.location)!]
-        : [{ name: search.location, capital: search.location, lat: 0, lng: 0, ccaa: "" }];
+  // Cada "target" es un área de búsqueda: nombre para el textQuery de Places,
+  // provincia para etiquetar el lead, y coords opcionales para el locationBias.
+  type Target = { area: string; provinceTag: string; lat?: number; lng?: number };
+  const cfg: any = (search as any).sourceConfig ?? {};
+  const batchSize = opts.batchSize ?? 5;
+  const from = search.processedProvinces;
+  let targets: Target[];
+  if (search.scope === "spain") {
+    targets = SPAIN_PROVINCES.slice(from, from + batchSize).map((p) => ({
+      area: p.name,
+      provinceTag: p.name,
+      lat: p.lat,
+      lng: p.lng
+    }));
+  } else if (cfg.municipality) {
+    // Municipio concreto → búsqueda a fondo solo ahí (1 target).
+    const prov = findProvince(cfg.tileProvince ?? search.location);
+    targets = [
+      {
+        area: `${cfg.municipality}, ${cfg.tileProvince ?? search.location}`,
+        provinceTag: cfg.tileProvince ?? search.location,
+        lat: prov?.lat,
+        lng: prov?.lng
+      }
+    ];
+  } else if (cfg.tileMunicipalities && cfg.tileProvince) {
+    // Máximo volumen → un target por municipio de la provincia.
+    const prov = findProvince(cfg.tileProvince);
+    const munis = municipalitiesForProvince(cfg.tileProvince);
+    targets = munis.slice(from, from + batchSize).map((m) => ({
+      area: `${m}, ${cfg.tileProvince}`,
+      provinceTag: cfg.tileProvince,
+      lat: prov?.lat,
+      lng: prov?.lng
+    }));
+  } else {
+    // Texto libre (no es una provincia reconocida): una sola consulta.
+    const prov = findProvince(search.location);
+    targets = prov
+      ? [{ area: prov.name, provinceTag: prov.name, lat: prov.lat, lng: prov.lng }]
+      : [{ area: search.location, provinceTag: search.location }];
+  }
 
   let leadsInserted = 0;
   let leadsSkipped = 0;
@@ -96,16 +163,30 @@ export async function processSearchBatch(opts: {
     try {
       await prisma.leadSearch.update({
         where: { id: search.id },
-        data: { currentProvince: prov.name }
+        data: { currentProvince: prov.area }
       });
-      const query = `${search.keyword} en ${prov.name}`.trim();
-      let results = await placesTextSearch({
-        workspaceId: opts.workspaceId,
-        query,
-        lat: prov.lat || undefined,
-        lng: prov.lng || undefined,
-        province: prov.name
-      });
+      // Sinónimos del nicho (opt-in): lanzamos una consulta por variante y
+      // fusionamos deduplicando por placeId, para cubrir fichas que aparecen
+      // bajo otra denominación ("dentista" vs "clínica dental").
+      const variants = (search as any).sourceConfig?.useSynonyms
+        ? expandKeyword(search.keyword, 3)
+        : [search.keyword];
+      let results: PlacesResult[] = [];
+      const seenPlace = new Set<string>();
+      for (const kw of variants) {
+        const part = await placesTextSearch({
+          workspaceId: opts.workspaceId,
+          query: `${kw} en ${prov.area}`.trim(),
+          lat: prov.lat || undefined,
+          lng: prov.lng || undefined,
+          province: prov.provinceTag
+        });
+        for (const r of part) {
+          if (r.placeId && seenPlace.has(r.placeId)) continue;
+          if (r.placeId) seenPlace.add(r.placeId);
+          results.push(r);
+        }
+      }
       // Filtro de "reseñas bajas" (mejora propuesta — leads urgentes con
       // problema reputacional, encaje perfecto con el pitch GMB). Activado
       // desde NewSearchModal con el checkbox "Solo negocios con reseñas
@@ -129,7 +210,7 @@ export async function processSearchBatch(opts: {
       const verdicts = await classifyLeadsRelevance({
         workspaceId: opts.workspaceId,
         keyword: search.keyword,
-        location: prov.name,
+        location: prov.provinceTag,
         leads: valid.map((r) => ({
           placeId: r.placeId!,
           name: r.name,
@@ -146,7 +227,7 @@ export async function processSearchBatch(opts: {
           const upsertOut = await upsertLead({
             workspaceId: opts.workspaceId,
             searchId: search.id,
-            province: prov.name,
+            province: prov.provinceTag,
             position: position++,
             r,
             aiRelevance: v ?? null,
@@ -160,7 +241,7 @@ export async function processSearchBatch(opts: {
       }
     } catch (e: any) {
       const msg = e?.message ?? String(e);
-      console.error(`[search-manager] provincia ${prov.name} fallo:`, msg);
+      console.error(`[search-manager] área ${prov.area} fallo:`, msg);
       // Recordamos el último error para mostrarlo en la UI si el batch
       // acaba sin haber insertado ningún lead. Sin esto, el usuario veía
       // "COMPLETED · 0 leads" sin pista de por qué (caso típico: API key

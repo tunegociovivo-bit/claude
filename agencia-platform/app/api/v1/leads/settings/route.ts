@@ -54,6 +54,11 @@ export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
     recoveryMode: !!s.recoveryMode,
     recoverySince: s.recoverySince ?? null,
     recoveryDurationDays: s.recoveryDurationDays ?? 14,
+    warmupEnabled: s.warmupEnabled ?? true,
+    warmupDays: s.warmupDays ?? 21,
+    warmupStartCap: s.warmupStartCap ?? 10,
+    autoRecoveryEnabled: s.autoRecoveryEnabled ?? true,
+    dailyJitterPct: s.dailyJitterPct ?? 0.15,
     sendEnabled: s.sendEnabled ?? true,
     sendPaused: s.sendPaused ?? false,
     sendWindowStart: s.sendWindowStart ?? "09:00",
@@ -65,6 +70,7 @@ export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
     enableVariations: s.enableVariations ?? true,
     validateWaBeforeSend: s.validateWaBeforeSend ?? true,
     maxAttempts: s.maxAttempts ?? 3,
+    channels: Array.isArray(s.channels) ? s.channels : [],
     webhookToken: s.webhookToken
   });
 });
@@ -103,7 +109,24 @@ const schema = z.object({
   maxNewChatsPerDay: z.number().int().min(1).max(500).optional(),
   recoveryMode: z.boolean().optional(),
   recoveryDurationDays: z.number().int().min(1).max(60).optional(),
-  rotateWebhookToken: z.boolean().optional()
+  warmupEnabled: z.boolean().optional(),
+  warmupDays: z.number().int().min(1).max(120).optional(),
+  warmupStartCap: z.number().int().min(1).max(1000).optional(),
+  autoRecoveryEnabled: z.boolean().optional(),
+  dailyJitterPct: z.number().min(0).max(0.5).optional(),
+  rotateWebhookToken: z.boolean().optional(),
+  // Multi-número de WhatsApp: lista de sesiones/instancias para repartir envíos.
+  channels: z
+    .array(
+      z.object({
+        name: z.string().min(1).max(60),
+        label: z.string().max(60).optional(),
+        dailyLimit: z.number().int().min(1).max(1000).optional(),
+        active: z.boolean().optional()
+      })
+    )
+    .max(20)
+    .optional()
 });
 
 export const PATCH = withApi({ scope: "*" }, async (req, { api }) => {
@@ -161,7 +184,13 @@ export const PATCH = withApi({ scope: "*" }, async (req, { api }) => {
     "maxPerHour",
     "minCoolDownDaysPerRecipient",
     "maxNewChatsPerDay",
-    "recoveryDurationDays"
+    "recoveryDurationDays",
+    "warmupEnabled",
+    "warmupDays",
+    "warmupStartCap",
+    "autoRecoveryEnabled",
+    "dailyJitterPct",
+    "channels"
   ] as const) {
     if (parsed.data[k] !== undefined) s[k] = parsed.data[k];
   }

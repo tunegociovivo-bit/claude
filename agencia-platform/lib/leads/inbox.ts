@@ -100,6 +100,86 @@ Devuelve JSON con la categoría, confidence 0-1 y una razón breve.`;
  * Ingiere un mensaje WAHA entrante. Crea LeadInboxMessage, clasifica,
  * dispara acciones (opt-out, parar secuencia).
  */
+/** Últimos `n` dígitos de un teléfono (ignora espacios, +, etc.). "" si pocos. */
+function digitsTail(phone: string, n: number): string {
+  const d = String(phone).replace(/\D/g, "");
+  return d.length >= n ? d.slice(-n) : "";
+}
+
+/**
+ * Crea una TAREA de seguimiento en el tablero cuando un lead se muestra
+ * interesado, para que no se pierda y haya un recordatorio (dueDate → el cron
+ * de notificaciones avisa). Idempotente: no duplica si ya hay una tarea
+ * abierta para ese lead. Fire-and-forget; nunca rompe el webhook.
+ */
+async function createLeadFollowupTask(opts: {
+  workspaceId: string;
+  leadId: string | null;
+  leadName?: string | null;
+  phone: string;
+  text: string;
+}): Promise<void> {
+  try {
+    // Evitar duplicados: si ya hay una tarea de seguimiento abierta para este
+    // lead, no creamos otra.
+    if (opts.leadId) {
+      const existing = await prisma.task.findFirst({
+        where: {
+          workspaceId: opts.workspaceId,
+          deletedAt: null,
+          status: { not: "DONE" },
+          customData: { path: ["leadId"], equals: opts.leadId }
+        } as any,
+        select: { id: true }
+      });
+      if (existing) return;
+    }
+
+    // Proyecto contenedor (find-or-create).
+    let project = await prisma.project.findFirst({
+      where: { workspaceId: opts.workspaceId, name: "Seguimiento de leads", deletedAt: null },
+      select: { id: true, clientId: true }
+    });
+    if (!project) {
+      project = await prisma.project.create({
+        data: {
+          workspaceId: opts.workspaceId,
+          name: "Seguimiento de leads",
+          emoji: "🎯",
+          color: "bg-rose-500"
+        },
+        select: { id: true, clientId: true }
+      });
+    }
+
+    const admins = await prisma.membership.findMany({
+      where: { workspaceId: opts.workspaceId, role: "ADMIN" },
+      select: { userId: true }
+    });
+    const due = new Date(Date.now() + 2 * 60 * 60 * 1000); // recordatorio en 2h
+
+    await prisma.task.create({
+      data: {
+        workspaceId: opts.workspaceId,
+        projectId: project.id,
+        clientId: project.clientId ?? null,
+        title: `🔥 Seguir lead interesado: ${opts.leadName ?? opts.phone}`,
+        description: `El lead respondió interesado por WhatsApp.\n\nTeléfono: ${opts.phone}\nMensaje: "${opts.text.slice(0, 500)}"`,
+        status: "TODO",
+        priority: "HIGH",
+        dueDate: due,
+        dueAllDay: false,
+        customData: { leadId: opts.leadId ?? null, source: "lead_interested" },
+        ...(admins.length
+          ? { assignees: { create: admins.map((a) => ({ userId: a.userId })) } }
+          : {})
+      } as any
+    });
+  } catch (e: any) {
+    console.warn("[inbox followup-task]:", e?.message ?? e);
+  }
+}
+
 export async function ingestInbox(opts: {
   workspaceId: string;
   fromPhone: string; // como llegue del webhook (puede traer @c.us)
@@ -123,12 +203,20 @@ export async function ingestInbox(opts: {
   let leadId = lead?.lead?.id ?? null;
   let leadName = lead?.lead?.name;
   if (!leadId) {
+    // Los teléfonos de Google Places suelen llevar espacios ("666 11 22 33"),
+    // así que `contains` con el número E.164 fallaba. Probamos varias formas y,
+    // si no, comparamos los últimos 9 dígitos contra los leads ya contactados
+    // (los únicos que pueden estar respondiendo).
+    const national = digitsTail(phoneNormalized, 9);
     const l = await prisma.lead.findFirst({
       where: {
         workspaceId: opts.workspaceId,
         OR: [
           { phone: { contains: rawPhone } },
-          { internationalPhone: { contains: rawPhone } }
+          { internationalPhone: { contains: rawPhone } },
+          ...(national
+            ? [{ phone: { contains: national } }, { internationalPhone: { contains: national } }]
+            : [])
         ]
       },
       select: { id: true, name: true, contactStatus: true }
@@ -136,6 +224,19 @@ export async function ingestInbox(opts: {
     if (l) {
       leadId = l.id;
       leadName = l.name;
+    } else if (national) {
+      const candidates = await prisma.lead.findMany({
+        where: { workspaceId: opts.workspaceId, contactStatus: { in: ["contacted", "responded"] } },
+        select: { id: true, name: true, phone: true, internationalPhone: true },
+        take: 5000
+      });
+      const hit = candidates.find(
+        (c) => digitsTail(c.internationalPhone ?? c.phone ?? "", 9) === national
+      );
+      if (hit) {
+        leadId = hit.id;
+        leadName = hit.name;
+      }
     }
   }
 
@@ -197,6 +298,18 @@ export async function ingestInbox(opts: {
         where: { leadId, status: "active" },
         data: { status: "stopped", stoppedReason: "respuesta_recibida", completedAt: new Date() }
       });
+    }
+
+    // Crear tarea de seguimiento (con recordatorio) cuando hay interés real,
+    // para gestionarlo desde el tablero y que no se pierda ningún interesado.
+    if (classified.classification === "interested") {
+      void createLeadFollowupTask({
+        workspaceId: opts.workspaceId,
+        leadId,
+        leadName,
+        phone: phoneNormalized,
+        text: opts.text
+      }).catch(() => {});
     }
 
     // Fase 10 Sonia: si está activada la entrada por WhatsApp, le

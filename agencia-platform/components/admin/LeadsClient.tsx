@@ -3,6 +3,34 @@
 import { useEffect, useRef, useState } from "react";
 import PageHeader from "@/components/PageHeader";
 import Modal from "@/components/ui/Modal";
+import { BUSINESS_TYPE_GROUPS, ALL_BUSINESS_TYPES } from "@/lib/leads/business-types";
+import { PROVINCE_NAMES } from "@/lib/leads/spain-provinces";
+import { municipalitiesForProvince } from "@/lib/leads/spain-municipalities";
+
+// Para saber si el keyword actual coincide con un tipo del desplegable (y
+// reflejarlo seleccionado) sin recalcular el array en cada render.
+const ALL_BUSINESS_TYPES_SET = new Set(ALL_BUSINESS_TYPES);
+
+// Clasifica un teléfono español: móvil (6xx/7xx) → WhatsApp; fijo (8xx/9xx) →
+// para llamar. El resto ("other"/"none") no se considera contactable.
+type PhoneKind = "mobile" | "landline" | "other" | "none";
+function phoneKind(phone: string | null | undefined): PhoneKind {
+  if (!phone) return "none";
+  let n = phone.replace(/[^\d]/g, "");
+  if (n.startsWith("0034")) n = n.slice(4);
+  else if (n.startsWith("34") && n.length > 9) n = n.slice(2);
+  const d = n[0];
+  if (d === "6" || d === "7") return "mobile";
+  if (d === "8" || d === "9") return "landline";
+  return "other";
+}
+
+// "Dolor ahora": negocio establecido (suficientes reseñas) con reputación baja
+// → tiene un problema reputacional VIVO, encaje perfecto con el pitch GMB. Es
+// más fuerte que un simple rating bajo de una ficha con 2 reseñas.
+function isPainNow(l: { rating: number | null; reviewsCount: number }): boolean {
+  return l.rating != null && l.rating <= 3.8 && (l.reviewsCount ?? 0) >= 10;
+}
 import {
   Loader2, Plus, Search, Inbox, ListChecks, BarChart3, MessageCircle,
   Settings as SettingsIcon, Ban, GitBranch, Send, RefreshCw, Download, Play, Pause, Trash2, Pencil, Zap
@@ -37,6 +65,7 @@ type SearchRow = {
   currentProvince: string | null;
   totalResults: number;
   errorMessage?: string | null;
+  monitored?: boolean;
   createdAt: string;
   _count?: { leads: number };
 };
@@ -100,6 +129,8 @@ export default function LeadsClient() {
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [urgencyFilter, setUrgencyFilter] = useState("ALL");
   const [searchIdFilter, setSearchIdFilter] = useState("ALL");
+  const [phoneFilter, setPhoneFilter] = useState<"ALL" | "mobile" | "landline">("ALL");
+  const [painOnly, setPainOnly] = useState(false);
   const [searchQ, setSearchQ] = useState("");
   const [newSearchOpen, setNewSearchOpen] = useState(false);
   const [newTemplateOpen, setNewTemplateOpen] = useState(false);
@@ -252,6 +283,24 @@ export default function LeadsClient() {
               <option value="descartar">Descartar</option>
             </select>
             <select
+              value={phoneFilter}
+              onChange={(e) => setPhoneFilter(e.target.value as "ALL" | "mobile" | "landline")}
+              className="px-3 py-2 rounded-lg border bg-white text-sm"
+              title="Filtrar por tipo de teléfono"
+            >
+              <option value="ALL">Móvil y fijo</option>
+              <option value="mobile">📱 Solo móviles (WhatsApp)</option>
+              <option value="landline">📞 Solo fijos (para llamar)</option>
+            </select>
+            <button
+              type="button"
+              onClick={() => setPainOnly((v) => !v)}
+              title="Negocios con problema de reputación VIVO (rating ≤3,8 y ≥10 reseñas)"
+              className={`px-3 py-2 rounded-lg border text-sm font-medium ${painOnly ? "bg-rose-600 text-white border-rose-600" : "bg-white hover:bg-slate-50"}`}
+            >
+              🔥 Dolor ahora
+            </button>
+            <select
               value={searchIdFilter}
               onChange={(e) => setSearchIdFilter(e.target.value)}
               className="px-3 py-2 rounded-lg border bg-white text-sm max-w-[260px]"
@@ -274,7 +323,15 @@ export default function LeadsClient() {
               CSV
             </a>
           </div>
-          <LeadsTable loading={loading} items={leads} onChanged={load} />
+          <LeadsTable
+            loading={loading}
+            items={leads.filter(
+              (l) =>
+                (phoneFilter === "ALL" || phoneKind(l.phone) === phoneFilter) &&
+                (!painOnly || isPainNow(l))
+            )}
+            onChanged={load}
+          />
         </>
       )}
 
@@ -635,7 +692,10 @@ function LeadsTable({ loading, items, onChanged }: { loading: boolean; items: Le
   if (loading) return <Loading />;
   if (items.length === 0) return <Empty msg="Sin leads. Crea una búsqueda para captar." />;
 
-  const canContact = (l: Lead) => !!l.phone && !["excluded", "discarded"].includes(l.contactStatus);
+  // Contactable por WhatsApp = solo móviles (6xx/7xx). Los fijos se gestionan
+  // aparte ("para llamar"), no se encolan para WhatsApp.
+  const canContact = (l: Lead) =>
+    phoneKind(l.phone) === "mobile" && !["excluded", "discarded"].includes(l.contactStatus);
   const contactable = items.filter(canContact);
   const allSelected = contactable.length > 0 && contactable.every((l) => selected.has(l.id));
 
@@ -733,9 +793,31 @@ function LeadsTable({ loading, items, onChanged }: { loading: boolean; items: Le
                     </button>
                   </td>
                   <td className="px-3 py-2 text-slate-600">{l.province ?? "—"}</td>
-                  <td className="px-3 py-2 font-mono text-xs">{l.phone ?? "—"}</td>
+                  <td className="px-3 py-2 font-mono text-xs whitespace-nowrap">
+                    {l.phone ? (
+                      (() => {
+                        const kind = phoneKind(l.phone);
+                        return (
+                          <span className="inline-flex items-center gap-1">
+                            <a href={`tel:${l.phone.replace(/\s/g, "")}`} className="hover:underline">{l.phone}</a>
+                            {kind === "mobile" && <span title="Móvil (WhatsApp)">📱</span>}
+                            {kind === "landline" && (
+                              <span className="text-[10px] px-1 rounded bg-amber-100 text-amber-700" title="Fijo: contactar por llamada">
+                                Fijo
+                              </span>
+                            )}
+                          </span>
+                        );
+                      })()
+                    ) : (
+                      "—"
+                    )}
+                  </td>
                   <td className="px-3 py-2 text-slate-700">{l.position ?? "—"}</td>
-                  <td className="px-3 py-2">{l.rating != null ? `★ ${l.rating}` : "—"} <span className="text-[10px] text-slate-500">({l.reviewsCount})</span></td>
+                  <td className="px-3 py-2 whitespace-nowrap">
+                    {l.rating != null ? `★ ${l.rating}` : "—"} <span className="text-[10px] text-slate-500">({l.reviewsCount})</span>
+                    {isPainNow(l) && <span className="ml-1" title="Dolor ahora: problema de reputación vivo">🔥</span>}
+                  </td>
                   <td className="px-3 py-2 font-semibold">{l.score ?? "—"}</td>
                   <td className="px-3 py-2">
                     {l.urgency && (
@@ -825,6 +907,84 @@ function LeadDetailModal({
 
   const lead = data?.lead;
   const timeline = data?.timeline ?? [];
+  const [converting, setConverting] = useState(false);
+  const [convertMsg, setConvertMsg] = useState<{ ok: boolean; text: string; clientId?: string } | null>(null);
+  useEffect(() => {
+    setConvertMsg(null);
+  }, [leadId]);
+
+  const [enriching, setEnriching] = useState(false);
+  const [reviewInfo, setReviewInfo] = useState<{ ok: boolean; text: string } | null>(null);
+  useEffect(() => {
+    setReviewInfo(null);
+  }, [leadId]);
+
+  async function enrichReviews() {
+    if (!leadId) return;
+    setEnriching(true);
+    setReviewInfo(null);
+    try {
+      const r = await fetch(`/api/v1/leads/${leadId}/enrich-reviews`, { method: "POST" });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j.ok) {
+        setReviewInfo({ ok: false, text: j?.error?.message ?? `Error ${r.status}` });
+      } else if (j.negative) {
+        setReviewInfo({
+          ok: true,
+          text: `Reseña negativa de ${j.negative.rating}★${j.negative.author ? ` (${j.negative.author})` : ""}: "${j.negative.text.slice(0, 160)}". Usa {{resena_negativa}} en la plantilla.`
+        });
+      } else {
+        setReviewInfo({ ok: true, text: `Reseñas guardadas (${j.reviewsCount}). No hay reseña negativa con texto para citar.` });
+      }
+    } catch (e: any) {
+      setReviewInfo({ ok: false, text: e?.message ?? "Error de red" });
+    }
+    setEnriching(false);
+  }
+
+  const [sendingMockup, setSendingMockup] = useState(false);
+  const [mockupMsg, setMockupMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  useEffect(() => {
+    setMockupMsg(null);
+  }, [leadId]);
+
+  async function sendMockup() {
+    if (!leadId) return;
+    if (!confirm("¿Enviar el mockup de su ficha por WhatsApp a este lead?")) return;
+    setSendingMockup(true);
+    setMockupMsg(null);
+    try {
+      const r = await fetch(`/api/v1/leads/${leadId}/send-mockup`, { method: "POST" });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j.ok) setMockupMsg({ ok: false, text: j?.error?.message ?? `Error ${r.status}` });
+      else setMockupMsg({ ok: true, text: "Mockup enviado por WhatsApp." });
+    } catch (e: any) {
+      setMockupMsg({ ok: false, text: e?.message ?? "Error de red" });
+    }
+    setSendingMockup(false);
+  }
+
+  async function convertToClient() {
+    if (!leadId) return;
+    setConverting(true);
+    setConvertMsg(null);
+    try {
+      const r = await fetch(`/api/v1/leads/${leadId}/convert-to-client`, { method: "POST" });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j.ok) {
+        setConvertMsg({ ok: false, text: j?.error?.message ?? `Error ${r.status}` });
+      } else {
+        setConvertMsg({
+          ok: true,
+          text: j.created ? "Cliente creado en el Hub." : "Este lead ya era cliente.",
+          clientId: j.clientId
+        });
+      }
+    } catch (e: any) {
+      setConvertMsg({ ok: false, text: e?.message ?? "Error de red" });
+    }
+    setConverting(false);
+  }
 
   return (
     <Modal open={open} onClose={onClose} title={lead?.name ?? "Lead"} size="xl">
@@ -851,6 +1011,76 @@ function LeadDetailModal({
           )}
           {lead.notes && (
             <div className="text-xs px-3 py-2 rounded-md bg-slate-50 border text-slate-700">{lead.notes}</div>
+          )}
+          <div className="flex items-center gap-2 flex-wrap">
+            {lead.convertedClientId ? (
+              <a
+                href="/clientes"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700 text-xs font-medium hover:bg-emerald-100"
+              >
+                ✓ Ya es cliente del Hub — ver clientes ↗
+              </a>
+            ) : (
+              <button
+                type="button"
+                onClick={convertToClient}
+                disabled={converting}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-xs font-medium disabled:opacity-50"
+                title="Crea un cliente del Hub con los datos de este negocio y marca el lead como cliente"
+              >
+                {converting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                🤝 Convertir en cliente
+              </button>
+            )}
+            {convertMsg && (
+              <span className={`text-xs ${convertMsg.ok ? "text-emerald-700" : "text-rose-600"}`}>
+                {convertMsg.ok ? "✓ " : "✗ "}
+                {convertMsg.text}
+                {convertMsg.ok && convertMsg.clientId && (
+                  <a href="/clientes" className="ml-1 underline">Ver clientes ↗</a>
+                )}
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={enrichReviews}
+              disabled={enriching}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border bg-white hover:bg-slate-50 text-xs font-medium disabled:opacity-50"
+              title="Baja las reseñas de Google y habilita citar una reseña negativa real en el mensaje ({{resena_negativa}})"
+            >
+              {enriching && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+              📝 Traer reseñas de Google
+            </button>
+            <a
+              href={`/api/v1/leads/${leadId}/mockup`}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border bg-white hover:bg-slate-50 text-xs font-medium"
+              title="Imagen antes/después de su ficha de Google para adjuntar en el mensaje"
+            >
+              🖼️ Ver mockup de su ficha
+            </a>
+            <button
+              type="button"
+              onClick={sendMockup}
+              disabled={sendingMockup}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 text-xs font-medium disabled:opacity-50"
+              title="Genera el mockup y lo envía como imagen por WhatsApp a este lead"
+            >
+              {sendingMockup && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+              📤 Enviar mockup por WhatsApp
+            </button>
+            {mockupMsg && (
+              <span className={`text-xs ${mockupMsg.ok ? "text-emerald-700" : "text-rose-600"}`}>
+                {mockupMsg.ok ? "✓ " : "✗ "}
+                {mockupMsg.text}
+              </span>
+            )}
+          </div>
+          {reviewInfo && (
+            <div className={`text-xs px-3 py-2 rounded-md border ${reviewInfo.ok ? "bg-amber-50 border-amber-200 text-amber-800" : "bg-rose-50 border-rose-200 text-rose-700"}`}>
+              {reviewInfo.text}
+            </div>
           )}
           <div>
             <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">
@@ -1121,6 +1351,14 @@ function SearchesTable({ loading, items, onChanged }: { loading: boolean; items:
     await fetch(`/api/v1/leads/searches/${id}/process`, { method: "POST" });
     onChanged();
   }
+  async function toggleMonitor(id: string, monitored: boolean) {
+    await fetch(`/api/v1/leads/searches/${id}/monitor`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ monitored })
+    });
+    onChanged();
+  }
   /** Encadena llamadas a /process hasta que la búsqueda quede COMPLETED o FAILED.
    *  Útil para escaneos de toda España: el usuario pulsa una vez y se procesan
    *  los 52 batches automáticamente. */
@@ -1220,6 +1458,19 @@ function SearchesTable({ loading, items, onChanged }: { loading: boolean; items:
                       )}
                     </>
                   )}
+                  <button
+                    onClick={() => toggleMonitor(s.id, !s.monitored)}
+                    className={
+                      "ml-1 inline-flex items-center gap-1 px-2 py-1 rounded border text-xs " +
+                      (s.monitored
+                        ? "bg-emerald-50 hover:bg-emerald-100 border-emerald-200 text-emerald-700"
+                        : "bg-white hover:bg-slate-50")
+                    }
+                    title="Monitorización continua: detecta negocios nuevos y caídas de rating en esta búsqueda"
+                  >
+                    <RefreshCw className="h-3 w-3" />
+                    {s.monitored ? "Monitorizando" : "Monitorizar"}
+                  </button>
                   <a
                     href={`/api/v1/leads/export?searchId=${s.id}`}
                     className="ml-1 inline-flex items-center gap-1 px-2 py-1 rounded border bg-white hover:bg-slate-50 text-xs"
@@ -1653,6 +1904,7 @@ function SequencesView() {
   const [items, setItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
+  const [reactivateOpen, setReactivateOpen] = useState(false);
 
   function load() {
     setLoading(true);
@@ -1671,13 +1923,23 @@ function SequencesView() {
         <p className="text-xs text-slate-500">
           Secuencias de seguimiento (drip): cada paso se envía tras un retraso. Se detienen solas si el lead responde.
         </p>
-        <button
-          onClick={() => setCreateOpen(true)}
-          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium"
-        >
-          <Plus className="h-4 w-4" />
-          Nueva secuencia
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setReactivateOpen(true)}
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border bg-white hover:bg-slate-50 text-sm font-medium"
+            title="Enrola en una secuencia a los leads contactados hace tiempo que no llegaron a cliente"
+          >
+            <RefreshCw className="h-4 w-4" />
+            Reactivar leads fríos
+          </button>
+          <button
+            onClick={() => setCreateOpen(true)}
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium"
+          >
+            <Plus className="h-4 w-4" />
+            Nueva secuencia
+          </button>
+        </div>
       </div>
 
       {loading ? (
@@ -1713,7 +1975,93 @@ function SequencesView() {
       )}
 
       <NewSequenceModal open={createOpen} onClose={() => setCreateOpen(false)} onSaved={() => { setCreateOpen(false); load(); }} />
+      <ReactivateModal open={reactivateOpen} onClose={() => setReactivateOpen(false)} sequences={items} />
     </div>
+  );
+}
+
+/** Reactivación de leads fríos: enrola en una secuencia los leads contactados
+ *  hace tiempo que no llegaron a cliente. */
+function ReactivateModal({
+  open,
+  onClose,
+  sequences
+}: {
+  open: boolean;
+  onClose: () => void;
+  sequences: any[];
+}) {
+  const [sequenceId, setSequenceId] = useState("");
+  const [days, setDays] = useState(60);
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<{ total: number; enrolled: number; failed: number } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    if (open) {
+      setResult(null);
+      setError(null);
+      setSequenceId(sequences[0]?.id ?? "");
+    }
+  }, [open, sequences]);
+
+  async function run() {
+    if (!sequenceId) { setError("Elige una secuencia."); return; }
+    setBusy(true);
+    setError(null);
+    setResult(null);
+    try {
+      const r = await fetch("/api/v1/leads/sequences/reactivate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sequenceId, olderThanDays: days })
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j.ok) setError(j?.error?.message ?? `Error ${r.status}`);
+      else setResult({ total: j.total, enrolled: j.enrolled, failed: j.failed });
+    } catch (e: any) {
+      setError(e?.message ?? "Error de red");
+    }
+    setBusy(false);
+  }
+
+  return (
+    <Modal open={open} onClose={onClose} title="Reactivar leads fríos" size="sm" footer={
+      <>
+        <button onClick={onClose} className="px-3 py-2 rounded-lg text-sm border bg-white hover:bg-slate-50">Cerrar</button>
+        <button onClick={run} disabled={busy || !sequenceId} className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium disabled:opacity-50">
+          {busy && <Loader2 className="h-4 w-4 animate-spin" />}
+          Reactivar
+        </button>
+      </>
+    }>
+      <div className="space-y-3">
+        <p className="text-xs text-slate-500">
+          Enrola en la secuencia elegida a los leads <strong>contactados o que respondieron</strong> hace más de los días indicados y que <strong>no llegaron a cliente</strong> (excluye bajas). Ideal para recuperar los "ahora no".
+        </p>
+        <div>
+          <label className="block text-xs font-medium text-slate-700 mb-1">Secuencia</label>
+          {sequences.length === 0 ? (
+            <p className="text-sm text-amber-700">No hay secuencias. Crea una primero.</p>
+          ) : (
+            <select value={sequenceId} onChange={(e) => setSequenceId(e.target.value)} className="w-full px-3 py-2 rounded-lg border bg-white text-sm">
+              {sequences.map((s) => (
+                <option key={s.id} value={s.id}>{s.name}</option>
+              ))}
+            </select>
+          )}
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-slate-700 mb-1">Contactados hace más de (días)</label>
+          <input type="number" min={1} max={365} value={days} onChange={(e) => setDays(Number(e.target.value) || 60)} className="w-full px-3 py-2 rounded-lg border bg-white text-sm" />
+        </div>
+        {result && (
+          <div className="text-xs rounded-lg border p-2.5 bg-emerald-50 border-emerald-200 text-emerald-800">
+            ✓ {result.enrolled} lead(s) reactivado(s){result.failed > 0 ? ` · ${result.failed} omitido(s) (ya en secuencia o excluidos)` : ""}.
+          </div>
+        )}
+        {error && <p className="text-xs text-rose-600">{error}</p>}
+      </div>
+    </Modal>
   );
 }
 
@@ -2074,6 +2422,60 @@ function AnalyticsView({ data, loading }: { data: any; loading: boolean }) {
           )}
         </div>
       </div>
+      {/* Conversión por nicho y por provincia */}
+      <div className="grid md:grid-cols-2 gap-4">
+        <ConversionTable title="Conversión por nicho" colLabel="Nicho" rows={data.convNiche ?? []} />
+        <ConversionTable title="Conversión por provincia" colLabel="Provincia" rows={data.convProvince ?? []} />
+      </div>
+    </div>
+  );
+}
+
+function ConversionTable({
+  title,
+  colLabel,
+  rows
+}: {
+  title: string;
+  colLabel: string;
+  rows: any[];
+}) {
+  return (
+    <div>
+      <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">{title}</h3>
+      <div className="bg-white rounded-lg border overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead className="bg-slate-50 text-slate-500">
+            <tr>
+              <th className="px-2 py-2 text-left font-medium">{colLabel}</th>
+              <th className="px-2 py-2 text-right font-medium" title="Leads captados">Leads</th>
+              <th className="px-2 py-2 text-right font-medium" title="Contactados (o más avanzados)">Contact.</th>
+              <th className="px-2 py-2 text-right font-medium" title="% que respondió sobre contactados">Resp.</th>
+              <th className="px-2 py-2 text-right font-medium" title="% que se hizo cliente sobre contactados">Clientes</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y">
+            {rows.map((r) => (
+              <tr key={r.key}>
+                <td className="px-2 py-1.5 max-w-[160px] truncate font-medium" title={r.key}>{r.key}</td>
+                <td className="px-2 py-1.5 text-right">{r.total}</td>
+                <td className="px-2 py-1.5 text-right">{r.contacted}</td>
+                <td className="px-2 py-1.5 text-right">{r.responseRate}%</td>
+                <td className="px-2 py-1.5 text-right">
+                  <span className={r.clientRate > 0 ? "font-semibold text-emerald-700" : "text-slate-400"}>
+                    {r.client} ({r.clientRate}%)
+                  </span>
+                </td>
+              </tr>
+            ))}
+            {rows.length === 0 && (
+              <tr>
+                <td colSpan={5} className="px-2 py-3 text-center text-slate-500">Sin datos todavía</td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
@@ -2131,19 +2533,26 @@ function NewSearchModal({ open, onClose, onSaved }: { open: boolean; onClose: ()
   const [keyword, setKeyword] = useState("");
   const [location, setLocation] = useState("");
   const [scope, setScope] = useState<"custom" | "spain">("custom");
+  const [province, setProvince] = useState("");
+  const [municipality, setMunicipality] = useState("");
   const [skipExisting, setSkipExisting] = useState(false);
   const [lowRatingOnly, setLowRatingOnly] = useState(false);
+  const [useSynonyms, setUseSynonyms] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const sourceMeta = LEAD_SOURCES.find((s) => s.key === source) ?? LEAD_SOURCES[0];
+  const municipios = province ? municipalitiesForProvince(province) : [];
   useEffect(() => {
     if (!open) return;
     setSource("places");
     setKeyword("");
     setLocation("");
     setScope("custom");
+    setProvince("");
+    setMunicipality("");
     setSkipExisting(false);
     setLowRatingOnly(false);
+    setUseSynonyms(false);
     setError(null);
     setSaving(false);
   }, [open]);
@@ -2168,11 +2577,19 @@ function NewSearchModal({ open, onClose, onSaved }: { open: boolean; onClose: ()
         keyword,
         location,
         scope,
+        // Si se elige un municipio concreto, se busca a fondo solo ahí. Si se
+        // elige solo provincia (municipio vacío), el backend itera TODOS sus
+        // municipios (modo máximo volumen) para multiplicar resultados.
+        municipality:
+          source === "places" && scope === "custom" && municipality ? municipality : undefined,
         skipExisting,
         source,
         sourceConfig:
-          source === "places" && lowRatingOnly
-            ? { lowRatingOnly: true, maxRating: 3.5, minReviewsCount: 5 }
+          source === "places" && (lowRatingOnly || useSynonyms)
+            ? {
+                ...(lowRatingOnly ? { lowRatingOnly: true, maxRating: 3.5, minReviewsCount: 5 } : {}),
+                ...(useSynonyms ? { useSynonyms: true } : {})
+              }
             : undefined
       })
     });
@@ -2216,12 +2633,29 @@ function NewSearchModal({ open, onClose, onSaved }: { open: boolean; onClose: ()
             {sourceMeta.help}
           </p>
         </div>
-        <input
-          value={keyword}
-          onChange={(e) => setKeyword(e.target.value)}
-          placeholder={source === "borme" ? "Sector / palabra clave (filtra empresas del BORME)" : "Keyword (ej: plomero, dentista, abogado)"}
-          className="w-full px-3 py-2 rounded-lg border bg-white text-sm"
-        />
+        <div>
+          <label className="block text-xs font-medium text-slate-700 mb-1">Tipo de negocio</label>
+          <select
+            value={ALL_BUSINESS_TYPES_SET.has(keyword) ? keyword : ""}
+            onChange={(e) => setKeyword(e.target.value)}
+            className="w-full px-3 py-2 rounded-lg border bg-white text-sm"
+          >
+            <option value="">— Elige un tipo de negocio o escríbelo abajo —</option>
+            {BUSINESS_TYPE_GROUPS.map((g) => (
+              <optgroup key={g.group} label={g.group}>
+                {g.types.map((t) => (
+                  <option key={t} value={t}>{t}</option>
+                ))}
+              </optgroup>
+            ))}
+          </select>
+          <input
+            value={keyword}
+            onChange={(e) => setKeyword(e.target.value)}
+            placeholder={source === "borme" ? "Sector / palabra clave (filtra empresas del BORME)" : "…o escribe la palabra clave (ej: plomero, dentista, abogado)"}
+            className="w-full mt-2 px-3 py-2 rounded-lg border bg-white text-sm"
+          />
+        </div>
         <div>
           <label className="block text-xs font-medium text-slate-700 mb-1">
             {source === "borme" ? "Días hacia atrás" : "Alcance"}
@@ -2241,15 +2675,64 @@ function NewSearchModal({ open, onClose, onSaved }: { open: boolean; onClose: ()
             </label>
           </div>
         </div>
-        {(source === "places" ? scope === "custom" : true) && (
+        {source === "places" && scope === "custom" && (
+          <div className="space-y-2">
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">Provincia</label>
+                <select
+                  value={PROVINCE_NAMES.includes(location) ? location : ""}
+                  onChange={(e) => {
+                    const p = e.target.value;
+                    setProvince(p);
+                    setMunicipality("");
+                    setLocation(p);
+                  }}
+                  className="w-full px-3 py-2 rounded-lg border bg-white text-sm"
+                >
+                  <option value="">— Elige provincia —</option>
+                  {PROVINCE_NAMES.map((p) => (
+                    <option key={p} value={p}>{p}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">Municipio</label>
+                <select
+                  value={municipality}
+                  onChange={(e) => setMunicipality(e.target.value)}
+                  disabled={!province || municipios.length === 0}
+                  className="w-full px-3 py-2 rounded-lg border bg-white text-sm disabled:bg-slate-100 disabled:text-slate-400"
+                >
+                  <option value="">Todos los municipios (máximo volumen)</option>
+                  {municipios.map((m) => (
+                    <option key={m} value={m}>{m}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <input
+              value={location}
+              onChange={(e) => {
+                setLocation(e.target.value);
+                setProvince("");
+                setMunicipality("");
+              }}
+              placeholder="…o escribe la provincia / localidad a mano (ej: Málaga)"
+              className="w-full px-3 py-2 rounded-lg border bg-white text-sm"
+            />
+            {province && !municipality && (
+              <p className="text-[11px] text-emerald-700">
+                Se buscarán los <strong>{municipios.length} municipios</strong> de {province} (máximo volumen → muchos más leads).
+              </p>
+            )}
+          </div>
+        )}
+        {source === "borme" && (
           <input
             value={location}
             onChange={(e) => setLocation(e.target.value)}
-            placeholder={
-              source === "borme"
-                ? "Provincia (opcional, filtra registro mercantil)"
-                : "Provincia o localidad (ej: Málaga, Madrid)"
-            }
+            placeholder="Provincia (opcional, filtra registro mercantil)"
             className="w-full px-3 py-2 rounded-lg border bg-white text-sm"
           />
         )}
@@ -2269,6 +2752,23 @@ function NewSearchModal({ open, onClose, onSaved }: { open: boolean; onClose: ()
             </p>
           </div>
         </label>
+        {source === "places" && (
+          <label className="flex items-start gap-2 p-2 rounded-md border bg-slate-50/60 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={useSynonyms}
+              onChange={(e) => setUseSynonyms(e.target.checked)}
+              className="mt-0.5 accent-brand-600"
+            />
+            <div className="flex-1">
+              <span className="text-xs font-medium text-slate-800">🔁 Buscar también sinónimos del nicho</span>
+              <p className="text-[11px] text-slate-500">
+                Lanza la búsqueda también con variantes ("dentista" → "clínica dental", "odontólogo").
+                Más resultados, pero multiplica el coste de la API de Google.
+              </p>
+            </div>
+          </label>
+        )}
         {source === "places" && (
           <label className="flex items-start gap-2 p-2 rounded-md border border-rose-200 bg-rose-50/40 cursor-pointer">
             <input
@@ -2355,6 +2855,8 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
   const [googleKey, setGoogleKey] = useState("");
   const [wahaKey, setWahaKey] = useState("");
   const [evoKey, setEvoKey] = useState("");
+  const [health, setHealth] = useState<any[] | null>(null);
+  const [loadingHealth, setLoadingHealth] = useState(false);
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<Date | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -2403,7 +2905,17 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
       dailyLimit: s.dailyLimit,
       enableVariations: s.enableVariations,
       validateWaBeforeSend: s.validateWaBeforeSend,
-      maxAttempts: s.maxAttempts
+      maxAttempts: s.maxAttempts,
+      maxPerHour: s.maxPerHour,
+      minCoolDownDaysPerRecipient: s.minCoolDownDaysPerRecipient,
+      maxNewChatsPerDay: s.maxNewChatsPerDay,
+      recoveryDurationDays: s.recoveryDurationDays,
+      warmupEnabled: s.warmupEnabled,
+      warmupDays: s.warmupDays,
+      warmupStartCap: s.warmupStartCap,
+      autoRecoveryEnabled: s.autoRecoveryEnabled,
+      dailyJitterPct: s.dailyJitterPct,
+      channels: Array.isArray(s.channels) ? s.channels : []
     };
     if (googleKey) body.googleApiKey = googleKey;
     if (wahaKey) body.wahaApiKey = wahaKey;
@@ -2418,6 +2930,25 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
     setSavedAt(new Date());
   }
   function setField(k: string, v: any) { setS({ ...s, [k]: v }); }
+  function updateChannel(i: number, patch: any) {
+    const arr = [...(s.channels ?? [])];
+    arr[i] = { ...arr[i], ...patch };
+    setField("channels", arr);
+  }
+  function removeChannel(i: number) {
+    setField("channels", (s.channels ?? []).filter((_: any, idx: number) => idx !== i));
+  }
+  async function loadHealth() {
+    setLoadingHealth(true);
+    try {
+      const r = await fetch("/api/v1/leads/channels-health");
+      const j = await r.json().catch(() => ({}));
+      setHealth(j.items ?? []);
+    } catch {
+      setHealth([]);
+    }
+    setLoadingHealth(false);
+  }
   function stopPoll() {
     if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
   }
@@ -2452,7 +2983,14 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
     setWebhookSetting(true);
     setWebhookSetupResult(null);
     try {
-      const r = await fetch("/api/v1/leads/waha-webhook-setup", { method: "POST" });
+      // Llama al setup del proveedor activo: Evolution o WAHA. Antes solo
+      // existía el de WAHA, así que con Evolution el webhook nunca se
+      // registraba y el Inbox no recibía mensajes.
+      const endpoint =
+        s.whatsappProvider === "evolution"
+          ? "/api/v1/leads/evolution-webhook-setup"
+          : "/api/v1/leads/waha-webhook-setup";
+      const r = await fetch(endpoint, { method: "POST" });
       const j = await r.json();
       if (!r.ok || !j.ok) {
         setWebhookSetupResult({ ok: false, error: j?.error?.message ?? j?.message ?? `Error ${r.status}` });
@@ -2561,6 +3099,104 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
               />
               <p className="text-[11px] text-slate-500 mt-1">Te llega un WhatsApp inmediato cuando la IA clasifica una respuesta como interesada. Déjalo vacío para no recibir avisos.</p>
             </div>
+            <div className="mt-2 rounded-lg border bg-slate-50/60 p-3">
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-xs font-semibold text-slate-700">📲 Multi-número (reparto de envíos)</label>
+                <button
+                  type="button"
+                  onClick={() => setField("channels", [...(s.channels ?? []), { name: "", label: "", dailyLimit: 50, active: true }])}
+                  className="text-xs px-2 py-1 rounded border bg-white hover:bg-slate-50"
+                >
+                  + Añadir número
+                </button>
+              </div>
+              <p className="text-[11px] text-slate-500 mb-2">
+                Reparte los envíos entre varias {s.whatsappProvider === "evolution" ? "instancias" : "sesiones"} de WhatsApp (más volumen sin quemar un número). Con 0 ó 1 número se usa el de arriba. Cada número escanea su propio WhatsApp en {s.whatsappProvider === "evolution" ? "Evolution" : "WAHA"} con ese nombre.
+              </p>
+              {(s.channels ?? []).length === 0 ? (
+                <p className="text-[11px] text-slate-400 italic">Sin números extra.</p>
+              ) : (
+                <div className="space-y-1.5">
+                  {(s.channels ?? []).map((c: any, i: number) => (
+                    <div key={i} className="flex items-center gap-1.5">
+                      <input
+                        value={c.name ?? ""}
+                        onChange={(e) => updateChannel(i, { name: e.target.value })}
+                        placeholder={s.whatsappProvider === "evolution" ? "instancia" : "sesión"}
+                        className="flex-1 min-w-0 px-2 py-1 rounded border bg-white text-xs font-mono"
+                      />
+                      <input
+                        value={c.label ?? ""}
+                        onChange={(e) => updateChannel(i, { label: e.target.value })}
+                        placeholder="etiqueta (opcional)"
+                        className="flex-1 min-w-0 px-2 py-1 rounded border bg-white text-xs"
+                      />
+                      <input
+                        type="number"
+                        value={c.dailyLimit ?? 50}
+                        onChange={(e) => updateChannel(i, { dailyLimit: Number(e.target.value) || 50 })}
+                        title="Tope diario de este número"
+                        className="w-16 px-2 py-1 rounded border bg-white text-xs"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => removeChannel(i)}
+                        className="px-2 py-1 rounded border bg-white hover:bg-rose-50 text-rose-600 text-xs"
+                        title="Quitar"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div className="mt-2">
+                <button
+                  type="button"
+                  onClick={loadHealth}
+                  disabled={loadingHealth}
+                  className="inline-flex items-center gap-1.5 px-2 py-1 rounded border bg-white hover:bg-slate-50 text-xs disabled:opacity-50"
+                >
+                  {loadingHealth && <Loader2 className="h-3 w-3 animate-spin" />}
+                  Ver salud de los números
+                </button>
+                {health && (
+                  <div className="mt-2 overflow-x-auto">
+                    {health.length === 0 ? (
+                      <p className="text-[11px] text-slate-400 italic">Sin datos de envío todavía.</p>
+                    ) : (
+                      <table className="w-full text-[11px]">
+                        <thead className="text-slate-500">
+                          <tr className="text-left">
+                            <th className="py-1 pr-2">Número</th>
+                            <th className="py-1 pr-2">Hoy</th>
+                            <th className="py-1 pr-2">7d ok</th>
+                            <th className="py-1 pr-2">Leídos 7d</th>
+                            <th className="py-1 pr-2">Fallos 7d</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {health.map((h, i) => {
+                            const burning = h.sent7 > 0 && h.failed7 / (h.sent7 + h.failed7) > 0.3;
+                            return (
+                              <tr key={i} className="border-t">
+                                <td className="py-1 pr-2 font-mono">{h.label ? `${h.label} (${h.name ?? "—"})` : h.name ?? "Por defecto"}</td>
+                                <td className="py-1 pr-2">{h.sentToday}</td>
+                                <td className="py-1 pr-2">{h.sent7}</td>
+                                <td className="py-1 pr-2">{h.read7}</td>
+                                <td className={"py-1 pr-2 " + (burning ? "text-rose-600 font-semibold" : "")}>
+                                  {h.failed7}{burning ? " ⚠" : ""}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
             <div className="text-[11px] text-slate-500 break-all">
               Webhook URL: <code>{typeof window !== "undefined" ? window.location.origin : ""}/api/v1/leads/webhook/{s.webhookToken}</code>
             </div>
@@ -2579,17 +3215,17 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
                 onClick={setupWebhook}
                 disabled={webhookSetting}
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-brand-200 bg-brand-50 hover:bg-brand-100 text-brand-700 text-xs font-medium disabled:opacity-50"
-                title="Configura el webhook de WAHA para que esta app reciba los mensajes entrantes en el Inbox"
+                title="Configura el webhook del proveedor para que esta app reciba los mensajes entrantes en el Inbox"
               >
                 {webhookSetting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-                Configurar webhook en WAHA
+                Configurar webhook en {s.whatsappProvider === "evolution" ? "Evolution" : "WAHA"}
               </button>
               <span className="text-[11px] text-slate-400">Comprueba la sesión y, si los leads responden pero no aparecen en Inbox, pulsa "Configurar webhook".</span>
             </div>
             {webhookSetupResult && (
               <div className={`text-xs rounded-lg border p-2.5 ${webhookSetupResult.ok ? "bg-emerald-50 border-emerald-200 text-emerald-800" : "bg-rose-50 border-rose-200 text-rose-800"}`}>
                 {webhookSetupResult.ok
-                  ? `✓ Webhook configurado en WAHA (${webhookSetupResult.url}). A partir de ahora los mensajes entrantes llegarán al Inbox.`
+                  ? `✓ Webhook configurado en ${s.whatsappProvider === "evolution" ? "Evolution" : "WAHA"} (${webhookSetupResult.url}). A partir de ahora los mensajes entrantes llegarán al Inbox.`
                   : `✗ ${webhookSetupResult.error ?? "No se pudo configurar"}`}
               </div>
             )}
@@ -2718,6 +3354,57 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
             <label title="Cap de NUEVAS conversaciones por día. Meta vigila este número más que el total.">
               Max nuevas convos/día
               <input type="number" value={s.maxNewChatsPerDay ?? 25} onChange={(e) => setField("maxNewChatsPerDay", Number(e.target.value))} className="w-full px-2 py-1 rounded border" />
+            </label>
+          </div>
+          <div className="mt-3 p-3 rounded-lg border bg-emerald-50/40 border-emerald-200 space-y-2">
+            <label className="flex items-start gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={s.warmupEnabled ?? true}
+                onChange={(e) => setField("warmupEnabled", e.target.checked)}
+                className="mt-0.5 accent-emerald-600"
+              />
+              <div className="flex-1 text-xs text-emerald-900">
+                <strong className="block text-sm">🔥 Calentamiento de número nuevo (warmup)</strong>
+                <p className="mt-1">
+                  El tope diario sube en rampa durante los primeros días en vez de empezar al máximo
+                  (clave para no quemar un número nuevo). La edad del número se calcula desde el primer envío.
+                </p>
+              </div>
+            </label>
+            {(s.warmupEnabled ?? true) && (
+              <div className="grid grid-cols-2 gap-2 text-xs pl-6">
+                <label>Días de rampa
+                  <input type="number" value={s.warmupDays ?? 21} onChange={(e) => setField("warmupDays", Number(e.target.value))} className="w-full px-2 py-1 rounded border" />
+                </label>
+                <label>Tope del primer día
+                  <input type="number" value={s.warmupStartCap ?? 10} onChange={(e) => setField("warmupStartCap", Number(e.target.value))} className="w-full px-2 py-1 rounded border" />
+                </label>
+              </div>
+            )}
+            <label className="flex items-start gap-2 cursor-pointer pt-1 border-t border-emerald-200">
+              <input
+                type="checkbox"
+                checked={s.autoRecoveryEnabled ?? true}
+                onChange={(e) => setField("autoRecoveryEnabled", e.target.checked)}
+                className="mt-0.5 accent-emerald-600"
+              />
+              <div className="flex-1 text-xs text-emerald-900">
+                <strong className="block text-sm">🛟 Auto-recuperación ante pico de fallos</strong>
+                <p className="mt-1">
+                  Si muchos envíos seguidos fallan (señal típica de restricción), activa solo el modo
+                  recuperación para frenar y proteger el número.
+                </p>
+              </div>
+            </label>
+            <label className="flex items-center justify-between gap-2 text-xs pt-1 border-t border-emerald-200" title="Varía el tope diario un % aleatorio cada día para que el volumen no sea idéntico (patrón de bot).">
+              <span className="text-emerald-900">Variación diaria del tope (jitter %)</span>
+              <input
+                type="number"
+                value={Math.round((s.dailyJitterPct ?? 0.15) * 100)}
+                onChange={(e) => setField("dailyJitterPct", Math.max(0, Math.min(50, Number(e.target.value))) / 100)}
+                className="w-20 px-2 py-1 rounded border"
+              />
             </label>
           </div>
           <div className={

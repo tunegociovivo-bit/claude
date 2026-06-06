@@ -54,6 +54,11 @@ async function main() {
     if (CRON_SECRET) await hit("GET", "/api/cron/sonia-briefing", CRON_SECRET);
     else console.warn("[cron-tick] CRON_SECRET no definido — salto briefing");
   }
+
+  // Monitorización continua de leads. El endpoint trae un guard interno
+  // (solo revisa búsquedas vencidas cada ~6 h), así que es seguro llamarlo
+  // en cada tick.
+  if (CRON_SECRET) await hit("GET", "/api/cron/leads-monitor", CRON_SECRET);
 }
 
 main();

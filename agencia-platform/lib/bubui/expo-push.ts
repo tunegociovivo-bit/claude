@@ -62,7 +62,11 @@ export async function sendMobilePush(
     // del sistema (BigPicture en Android, attachment en iOS).
     data: { link: payload.link ?? null, image: image ?? null, ...(payload.data ?? {}) },
     channelId: "default",
-    ...(image ? { richContent: { image }, mutableContent: true } : {})
+    // Con imagen pedimos prioridad alta para que la app pueda despertar su
+    // background task (Notifee) y pintar la foto grande aunque esté cerrada.
+    ...(image
+      ? { richContent: { image }, mutableContent: true, priority: "high" as const }
+      : {})
   }));
 
   const expo = getExpo();

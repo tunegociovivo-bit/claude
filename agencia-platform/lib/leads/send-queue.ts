@@ -9,6 +9,7 @@ import { prisma } from "@/lib/db/prisma";
 import { renderTemplate } from "./template-engine";
 import { aiRewriteMessage } from "./ai-vary";
 import { normalizePhone, sendText, getWahaConfig, checkNumberExists } from "./waha";
+import { pickEnqueueChannel } from "./channels";
 
 /**
  * Estados que cuentan como "ya enviado" para los topes anti-baneo. Cuando el
@@ -48,6 +49,23 @@ export type LeadsSendSettings = {
   recoveryMode: boolean;
   recoverySince: string | null; // ISO date
   recoveryDurationDays: number;
+  // ── WARMUP (calentamiento de número nuevo) ──
+  /** Si true, el tope diario crece poco a poco durante los primeros días de
+   *  uso del número, en vez de empezar mandando al máximo (lo que banea
+   *  números nuevos). */
+  warmupEnabled: boolean;
+  /** Días que dura la rampa hasta llegar al dailyLimit configurado. */
+  warmupDays: number;
+  /** Tope del primer día. */
+  warmupStartCap: number;
+  // ── AUTO-RECUPERACIÓN ──
+  /** Si detecta un pico de fallos de envío (señal típica de restricción),
+   *  activa solo el modo recuperación automáticamente. */
+  autoRecoveryEnabled: boolean;
+  // ── JITTER ──
+  /** Reduce el tope diario un % aleatorio (0–pct) distinto cada día, para que
+   *  el volumen no sea idéntico a diario (patrón que delata un bot). */
+  dailyJitterPct: number;
 };
 
 const DEFAULTS: LeadsSendSettings = {
@@ -68,7 +86,12 @@ const DEFAULTS: LeadsSendSettings = {
   maxNewChatsPerDay: 25,
   recoveryMode: false,
   recoverySince: null,
-  recoveryDurationDays: 14
+  recoveryDurationDays: 14,
+  warmupEnabled: true,
+  warmupDays: 21,
+  warmupStartCap: 10,
+  autoRecoveryEnabled: true,
+  dailyJitterPct: 0.15
 };
 
 /** Límites endurecidos durante el modo recuperación. Se aplican encima de
@@ -103,7 +126,12 @@ export async function getSendSettings(workspaceId: string): Promise<LeadsSendSet
     maxNewChatsPerDay: s.maxNewChatsPerDay ?? DEFAULTS.maxNewChatsPerDay,
     recoveryMode: s.recoveryMode ?? DEFAULTS.recoveryMode,
     recoverySince: s.recoverySince ?? DEFAULTS.recoverySince,
-    recoveryDurationDays: s.recoveryDurationDays ?? DEFAULTS.recoveryDurationDays
+    recoveryDurationDays: s.recoveryDurationDays ?? DEFAULTS.recoveryDurationDays,
+    warmupEnabled: s.warmupEnabled ?? DEFAULTS.warmupEnabled,
+    warmupDays: s.warmupDays ?? DEFAULTS.warmupDays,
+    warmupStartCap: s.warmupStartCap ?? DEFAULTS.warmupStartCap,
+    autoRecoveryEnabled: s.autoRecoveryEnabled ?? DEFAULTS.autoRecoveryEnabled,
+    dailyJitterPct: s.dailyJitterPct ?? DEFAULTS.dailyJitterPct
   };
 
   // Auto-desactiva recoveryMode al pasar el plazo (recoveryDurationDays
@@ -142,7 +170,75 @@ export async function getSendSettings(workspaceId: string): Promise<LeadsSendSet
     );
   }
 
+  // WARMUP: durante los primeros días de vida del número, el tope diario sube
+  // en rampa desde warmupStartCap hasta el dailyLimit configurado. La "edad"
+  // del número se aproxima por el primer mensaje enviado del workspace.
+  if (base.warmupEnabled) {
+    const cap = await computeWarmupCap(workspaceId, base);
+    base.dailyLimit = Math.min(base.dailyLimit, cap);
+  }
+
+  // JITTER: resta un % aleatorio (determinístico por día de Madrid) al tope
+  // diario, para que el volumen no sea idéntico cada día.
+  if (base.dailyJitterPct > 0) {
+    const mp = getMadridParts(new Date());
+    const seed = mp.year * 10000 + mp.month * 100 + mp.day;
+    const frac = ((seed * 9301 + 49297) % 233280) / 233280; // 0..1 estable por día
+    const reduction = base.dailyLimit * base.dailyJitterPct * frac;
+    base.dailyLimit = Math.max(1, Math.round(base.dailyLimit - reduction));
+  }
+
   return base;
+}
+
+/** Tope diario efectivo según el "calentamiento" del número. */
+async function computeWarmupCap(workspaceId: string, settings: LeadsSendSettings): Promise<number> {
+  const first = await prisma.leadMessage.findFirst({
+    where: { workspaceId, status: { in: SENT_STATUSES }, sentAt: { not: null } },
+    orderBy: { sentAt: "asc" },
+    select: { sentAt: true }
+  });
+  if (!first?.sentAt) return settings.warmupStartCap; // aún no se ha enviado nada
+  const dayIndex = Math.floor((Date.now() - first.sentAt.getTime()) / 86_400_000) + 1;
+  if (dayIndex >= settings.warmupDays) return settings.dailyLimit;
+  const ramp =
+    settings.warmupStartCap +
+    ((settings.dailyLimit - settings.warmupStartCap) * (dayIndex - 1)) /
+      Math.max(1, settings.warmupDays - 1);
+  return Math.max(settings.warmupStartCap, Math.min(settings.dailyLimit, Math.round(ramp)));
+}
+
+/** Activa el modo recuperación persistiéndolo en settings. */
+async function enableRecoveryMode(workspaceId: string): Promise<void> {
+  const ws = await prisma.workspace.findUnique({ where: { id: workspaceId } });
+  const settings: any = ws?.settings ?? {};
+  settings.leads = settings.leads ?? {};
+  settings.leads.recoveryMode = true;
+  settings.leads.recoverySince = new Date().toISOString();
+  await prisma.workspace.update({ where: { id: workspaceId }, data: { settings } }).catch(() => {});
+}
+
+/**
+ * Detecta un posible bloqueo/restricción del número por un pico de fallos y
+ * activa el modo recuperación automáticamente. Heurística sin migración: si
+ * de los últimos mensajes procesados una proporción alta acabó en "failed",
+ * algo va mal (número limitado, sesión caída, IP marcada).
+ */
+async function maybeAutoRecover(workspaceId: string, settings: LeadsSendSettings): Promise<boolean> {
+  if (!settings.autoRecoveryEnabled || settings.recoveryMode) return false;
+  const recent = await prisma.leadMessage.findMany({
+    where: { workspaceId, status: { in: [...SENT_STATUSES, "failed"] } },
+    orderBy: { createdAt: "desc" },
+    take: 12,
+    select: { status: true }
+  });
+  if (recent.length < 8) return false;
+  const failed = recent.filter((m) => m.status === "failed").length;
+  if (failed >= Math.ceil(recent.length * 0.5)) {
+    await enableRecoveryMode(workspaceId);
+    return true;
+  }
+  return false;
 }
 
 function parseHM(hm: string): { h: number; m: number } {
@@ -424,6 +520,11 @@ export async function enqueueMessage(opts: {
     settings
   });
 
+  // Multi-número: reparte el envío entre los números configurados (null si no
+  // hay multi-número → comportamiento por defecto). El bucle de envío ya
+  // respeta msg.instanceName.
+  const channel = await pickEnqueueChannel(opts.workspaceId);
+
   const msg = await prisma.leadMessage.create({
     data: {
       workspaceId: opts.workspaceId,
@@ -433,7 +534,8 @@ export async function enqueueMessage(opts: {
       channel: "whatsapp",
       phoneNormalized: phone,
       status: "queued",
-      scheduledAt
+      scheduledAt,
+      instanceName: channel ?? undefined
     }
   });
 
@@ -452,6 +554,12 @@ export async function processQueueTick(workspaceId: string): Promise<{
   const settings = await getSendSettings(workspaceId);
   if (!settings.sendEnabled || settings.sendPaused) {
     return { processed: false, error: "queue_paused" };
+  }
+
+  // ANTI-BANEO: si hay un pico de fallos, activa el modo recuperación solo y
+  // salta este tick (el siguiente ya aplicará los límites endurecidos).
+  if (await maybeAutoRecover(workspaceId, settings)) {
+    return { processed: false, error: "auto_recovery_triggered" };
   }
 
   // ANTI-BANEO en el momento de enviar (red de seguridad además del
@@ -627,7 +735,10 @@ export async function sendMessageById(
       workspaceId,
       phoneNormalized: msg.phoneNormalized,
       text: msg.renderedMessage,
-      session: msg.instanceName ?? cfg.session
+      // Solo forzamos sesión/instancia si el mensaje tiene canal asignado
+      // (multi-número). Si no, cada proveedor usa su propia por defecto
+      // (WAHA → su sesión; Evolution → su instancia).
+      session: msg.instanceName ?? undefined
     });
     await prisma.leadMessage.update({
       where: { id: msg.id },

@@ -51,7 +51,7 @@ export default function BulkActionBar({
       if (action === "assign") params = { assigneeIds, mode: assignMode };
 
       if (action === "delete") {
-        if (!confirm(`¿Eliminar ${count} tareas? No se puede deshacer.`)) {
+        if (!confirm(`¿Enviar ${count} tareas a la papelera? Podrás recuperarlas desde Papelera durante 30 días.`)) {
           setRunning(false);
           return;
         }

@@ -6,6 +6,7 @@
  */
 
 import { prisma } from "@/lib/db/prisma";
+import { pickNegativeReview, clip } from "./reviews";
 
 export const SUPPORTED_PLACEHOLDERS = [
   "nombre_negocio",
@@ -26,7 +27,11 @@ export const SUPPORTED_PLACEHOLDERS = [
   "competidores_lista",
   "score",
   "urgencia",
-  "opener_ia"
+  "opener_ia",
+  // Reseña negativa real (requiere enriquecer el lead con Place Details).
+  "resena_negativa",
+  "resena_negativa_fecha",
+  "resena_negativa_autor"
 ];
 
 function starsFor(rating: number | null): string {
@@ -89,7 +94,15 @@ export async function renderTemplate(opts: {
     competidores_lista: competitorNames.slice(0, 3).join(", "),
     score: lead.score != null ? String(lead.score) : "",
     urgencia: lead.urgency ?? "",
-    opener_ia: lead.aiOpener ?? ""
+    opener_ia: lead.aiOpener ?? "",
+    ...(() => {
+      const neg = pickNegativeReview(lead.reviewsJson);
+      return {
+        resena_negativa: neg ? `"${clip(neg.text, 220)}"` : "",
+        resena_negativa_fecha: neg?.when ?? "",
+        resena_negativa_autor: neg?.author ?? ""
+      };
+    })()
   };
 
   let out = opts.body;
