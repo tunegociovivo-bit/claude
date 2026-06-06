@@ -19,7 +19,7 @@ const searchSchema = z.object({
   maxPrice: z.number().int().positive().optional(),
   minSurface: z.number().int().positive().optional(),
   portals: z.array(z.enum(PORTAL_KEYS as [string, ...string[]])).optional(),
-  maxResults: z.number().int().min(1).max(30).optional(),
+  maxResults: z.number().int().min(1).max(150).optional(),
   onlyOpportunities: z.boolean().optional()
 });
 
@@ -53,7 +53,7 @@ export const POST = withApi({ scope: "ai", rate: "ai" }, async (req, { api }) =>
       maxPrice: parsed.data.maxPrice,
       minSurface: parsed.data.minSurface,
       portals: parsed.data.portals ?? [],
-      maxResults: parsed.data.maxResults ?? 12,
+      maxResults: parsed.data.maxResults ?? 80,
       onlyOpportunities: parsed.data.onlyOpportunities ?? false
     });
     return NextResponse.json(result);

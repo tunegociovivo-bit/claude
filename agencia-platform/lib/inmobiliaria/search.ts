@@ -103,9 +103,9 @@ function buildResearchPrompt(params: SearchParams, portals: Portal[]): string {
   lines.push("");
   lines.push("INSTRUCCIONES:");
   lines.push(
-    `1. Haz varias búsquedas web acotadas a los portales anteriores (usa site: con sus dominios: ${portals
-      .map((p) => p.domain)
-      .join(", ")}) para encontrar propiedades concretas que cumplan los criterios.`
+    "1. Haz TODAS las búsquedas web que necesites, acotadas a los portales anteriores (usa site: con sus dominios: " +
+      portals.map((p) => p.domain).join(", ") +
+      "), paginando y probando varios términos (calle, barrio, distrito, tipo) para encontrar el MÁXIMO número de propiedades que cumplan los criterios."
   );
   lines.push(
     "2. Para CADA propiedad encontrada recopila: portal de origen, título/referencia, tipo, ubicación exacta, precio de venta, superficie (m²), enlace directo a la ficha, y si la vivienda está OCUPADA (frecuente en Trial3)."
@@ -114,10 +114,10 @@ function buildResearchPrompt(params: SearchParams, portals: Portal[]): string {
     "3. Busca también el precio medio de mercado por m² de la zona (idealista/fotocasa/INE) y un alquiler mensual de referencia, para poder estimar descuento sobre mercado y rentabilidad."
   );
   lines.push(
-    `4. Reúne al menos ${params.maxResults ?? 12} propiedades candidatas si las hay (incluye también opciones dudosas; en la siguiente fase se filtrarán).`
+    "4. Reúne TODAS las propiedades que encuentres que cumplan los criterios; NO te limites a un número fijo: intenta llegar a 30-50 o más si existen. Incluye también opciones dudosas; en la siguiente fase se filtrarán."
   );
   lines.push(
-    "5. Devuelve un informe detallado en texto con TODAS las propiedades encontradas y sus datos, además del contexto de precios de la zona. Incluye SIEMPRE el enlace real de cada ficha. No inventes propiedades ni enlaces: si no encuentras datos suficientes, indícalo."
+    "5. Devuelve un informe detallado en texto con TODAS las propiedades encontradas (una por una, sin omitir ninguna) y sus datos, además del contexto de precios de la zona. Incluye SIEMPRE el enlace real de cada ficha. No inventes propiedades ni enlaces: si no encuentras datos suficientes de alguna, indícalo igualmente."
   );
   return lines.join("\n");
 }
@@ -134,7 +134,7 @@ async function researchListings(
   const WEB_SEARCH_TOOL: any = {
     type: "web_search_20250305",
     name: "web_search",
-    max_uses: 12,
+    max_uses: 25,
     allowed_domains: allowedDomains.concat([
       "idealista.com",
       "fotocasa.es",
@@ -155,7 +155,7 @@ async function researchListings(
     try {
       return await client.messages.create({
         model: RESEARCH_MODEL,
-        max_tokens: 8000,
+        max_tokens: 12000,
         tools: tools as any,
         messages
       });
@@ -165,7 +165,7 @@ async function researchListings(
         webSearchEnabled = false;
         return await client.messages.create({
           model: RESEARCH_MODEL,
-          max_tokens: 8000,
+          max_tokens: 12000,
           messages
         });
       }
@@ -174,7 +174,7 @@ async function researchListings(
   }
 
   let finalText = "";
-  for (let i = 0; i < 8; i++) {
+  for (let i = 0; i < 14; i++) {
     const resp: any = await create();
     totalIn += resp.usage?.input_tokens ?? 0;
     totalOut += resp.usage?.output_tokens ?? 0;
@@ -281,6 +281,7 @@ async function analyzeListings(
     "Veredicto: 'OPORTUNIDAD' (score ≥ 70, inversión muy atractiva), 'INTERESANTE' (score 50-69), 'DESCARTAR' (score < 50).",
     "Penaliza con fuerza las viviendas ocupadas salvo que el descuento lo compense claramente. Sé riguroso y realista: no infles los scores.",
     "No inventes propiedades: usa SOLO las que aparecen en la investigación, con sus enlaces reales. Calcula price_m2, discount_pct (% bajo mercado) y gross_yield (rentabilidad bruta anual = alquiler_anual / precio * 100) cuando haya datos; si no, deja null.",
+    "IMPORTANTE: evalúa y devuelve TODAS las propiedades que aparezcan en la investigación, sin omitir ni recortar ninguna (pueden ser 30, 40 o más). Para que quepan todas, sé CONCISO: máximo 3 pros y 3 cons (frases muy breves) y un 'reasoning' de 1-2 frases por propiedad.",
     "Responde SIEMPRE en español."
   ].join("\n");
 
@@ -300,8 +301,8 @@ async function analyzeListings(
     `Criterios del inversor — Zona: ${params.location}. ${params.propertyType ? `Tipo: ${params.propertyType}. ` : ""}${objective}`,
     occupancyLine,
     params.onlyOpportunities
-      ? "Devuelve únicamente las propiedades con veredicto OPORTUNIDAD o INTERESANTE, ordenadas de mayor a menor score."
-      : "Ordena las propiedades de mayor a menor score.",
+      ? "Evalúa TODAS las propiedades de la investigación y devuelve TODAS las que tengan veredicto OPORTUNIDAD o INTERESANTE (no recortes la lista), ordenadas de más a menos interesante (mayor a menor score)."
+      : "Evalúa y devuelve TODAS las propiedades de la investigación, sin omitir ninguna, ordenadas de más a menos interesante (mayor a menor score).",
     "",
     "INVESTIGACIÓN RECOPILADA:",
     research || "(sin resultados)"
@@ -316,7 +317,7 @@ async function analyzeListings(
     system,
     user,
     schema: OPPORTUNITY_SCHEMA,
-    maxTokens: 8000
+    maxTokens: 16000
   });
 
   let opps = Array.isArray(data.opportunities) ? data.opportunities : [];
