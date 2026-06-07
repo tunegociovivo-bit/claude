@@ -11,7 +11,8 @@ import {
   MapPin,
   TrendingUp,
   AlertTriangle,
-  CheckCircle2
+  CheckCircle2,
+  Star
 } from "lucide-react";
 
 type Portal = { key: string; label: string; bank: string; url: string; note: string | null };
@@ -67,6 +68,28 @@ function verdictColor(v: string): string {
   return "rose";
 }
 
+// ── Favoritos (persistidos en el navegador) ──────────────────────────────
+const FAVS_KEY = "inmob_favoritos";
+type FavItem = { id: string; savedAt: number; o: Opportunity };
+
+function favId(o: Opportunity): string {
+  return (o.url || "").trim() || `${o.title}__${o.location}__${o.price}`;
+}
+function loadFavs(): FavItem[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = JSON.parse(localStorage.getItem(FAVS_KEY) || "[]");
+    return Array.isArray(raw) ? raw : [];
+  } catch {
+    return [];
+  }
+}
+function persistFavs(favs: FavItem[]) {
+  try {
+    localStorage.setItem(FAVS_KEY, JSON.stringify(favs));
+  } catch {}
+}
+
 function ScoreBadge({ score, verdict }: { score: number; verdict: string }) {
   const c = verdictColor(verdict);
   return (
@@ -101,7 +124,11 @@ export default function BuscadorInmobiliarioClient() {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<SearchResult | null>(null);
 
+  const [view, setView] = useState<"results" | "favs">("results");
+  const [favs, setFavs] = useState<FavItem[]>([]);
+
   useEffect(() => {
+    setFavs(loadFavs());
     fetch("/api/v1/admin/buscador-inmobiliario")
       .then((r) => (r.ok ? r.json() : { portals: [] }))
       .then((d) => {
@@ -110,6 +137,19 @@ export default function BuscadorInmobiliarioClient() {
       })
       .catch(() => {});
   }, []);
+
+  function toggleFav(o: Opportunity) {
+    setFavs((prev) => {
+      const id = favId(o);
+      const exists = prev.some((f) => f.id === id);
+      const next = exists
+        ? prev.filter((f) => f.id !== id)
+        : [{ id, savedAt: Date.now(), o }, ...prev];
+      persistFavs(next);
+      return next;
+    });
+  }
+  const isFav = (o: Opportunity) => favs.some((f) => f.id === favId(o));
 
   function togglePortal(key: string) {
     setSelectedPortals((prev) =>
@@ -303,61 +343,119 @@ export default function BuscadorInmobiliarioClient() {
           </p>
         </div>
 
-        {/* Resultados */}
+        {/* Resultados / Favoritos */}
         <div className="lg:col-span-8 space-y-4">
-          {busy && (
-            <div className="bg-white rounded-xl border p-8 text-sm text-slate-500 flex items-center gap-3">
-              <Loader2 className="h-5 w-5 animate-spin text-brand-600" />
-              Rastreando portales y evaluando oportunidades de inversión…
-            </div>
-          )}
+          {/* Conmutador */}
+          <div className="flex items-center gap-1 bg-slate-100 rounded-lg p-1 w-fit">
+            <button
+              type="button"
+              onClick={() => setView("results")}
+              className={clsx(
+                "px-3 py-1.5 text-xs font-medium rounded-md",
+                view === "results" ? "bg-white shadow-sm text-slate-800" : "text-slate-500 hover:text-slate-700"
+              )}
+            >
+              Resultados
+            </button>
+            <button
+              type="button"
+              onClick={() => setView("favs")}
+              className={clsx(
+                "px-3 py-1.5 text-xs font-medium rounded-md inline-flex items-center gap-1.5",
+                view === "favs" ? "bg-white shadow-sm text-slate-800" : "text-slate-500 hover:text-slate-700"
+              )}
+            >
+              <Star className="h-3.5 w-3.5" fill={favs.length ? "currentColor" : "none"} />
+              Favoritos{favs.length ? ` (${favs.length})` : ""}
+            </button>
+          </div>
 
-          {error && (
-            <div className="bg-rose-50 border border-rose-200 rounded-xl p-4 text-sm text-rose-700 flex items-start gap-2">
-              <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
-              {error}
-            </div>
-          )}
-
-          {!busy && !error && !result && (
-            <div className="bg-white rounded-xl border p-10 text-center text-slate-400">
-              <Building2 className="h-10 w-10 mx-auto mb-3 text-slate-300" />
-              <p className="text-sm">
-                Introduce una zona y pulsa <span className="font-medium">Buscar oportunidades</span>.
-              </p>
-            </div>
-          )}
-
-          {result && (
+          {view === "favs" ? (
+            favs.length === 0 ? (
+              <div className="bg-white rounded-xl border p-10 text-center text-slate-400">
+                <Star className="h-10 w-10 mx-auto mb-3 text-slate-300" />
+                <p className="text-sm">
+                  Aún no has guardado favoritos. Pulsa la <span className="font-medium">estrella</span> en
+                  cualquier propiedad para guardarla aquí.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div className="text-xs text-slate-500">
+                  {favs.length} {favs.length === 1 ? "favorito guardado" : "favoritos guardados"}
+                </div>
+                {favs.map((f) => (
+                  <OpportunityCard
+                    key={f.id}
+                    o={f.o}
+                    fav={true}
+                    onToggleFav={() => toggleFav(f.o)}
+                  />
+                ))}
+              </div>
+            )
+          ) : (
             <>
-              {result.summary && (
-                <div className="bg-slate-50 border rounded-xl p-4">
-                  <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">
-                    Resumen del análisis
-                  </div>
-                  <p className="text-sm text-slate-700 whitespace-pre-wrap">{result.summary}</p>
+              {busy && (
+                <div className="bg-white rounded-xl border p-8 text-sm text-slate-500 flex items-center gap-3">
+                  <Loader2 className="h-5 w-5 animate-spin text-brand-600" />
+                  Rastreando portales y evaluando oportunidades de inversión…
                 </div>
               )}
 
-              {result.opportunities.length === 0 ? (
-                <div className="bg-white rounded-xl border p-8 text-center text-slate-500 text-sm">
-                  No se encontraron propiedades que encajen con los criterios en los portales seleccionados.
-                  {result.notes && <p className="mt-2 text-xs text-slate-400">{result.notes}</p>}
+              {error && (
+                <div className="bg-rose-50 border border-rose-200 rounded-xl p-4 text-sm text-rose-700 flex items-start gap-2">
+                  <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+                  {error}
                 </div>
-              ) : (
-                <div className="space-y-3">
-                  <div className="text-xs text-slate-500">
-                    {result.opportunities.length} propiedad
-                    {result.opportunities.length !== 1 ? "es" : ""} analizada
-                    {result.opportunities.length !== 1 ? "s" : ""}
-                  </div>
-                  {result.opportunities.map((o, i) => (
-                    <OpportunityCard key={i} o={o} />
-                  ))}
-                  {result.notes && (
-                    <p className="text-[11px] text-slate-400 px-1">{result.notes}</p>
+              )}
+
+              {!busy && !error && !result && (
+                <div className="bg-white rounded-xl border p-10 text-center text-slate-400">
+                  <Building2 className="h-10 w-10 mx-auto mb-3 text-slate-300" />
+                  <p className="text-sm">
+                    Introduce una zona y pulsa <span className="font-medium">Buscar oportunidades</span>.
+                  </p>
+                </div>
+              )}
+
+              {result && (
+                <>
+                  {result.summary && (
+                    <div className="bg-slate-50 border rounded-xl p-4">
+                      <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">
+                        Resumen del análisis
+                      </div>
+                      <p className="text-sm text-slate-700 whitespace-pre-wrap">{result.summary}</p>
+                    </div>
                   )}
-                </div>
+
+                  {result.opportunities.length === 0 ? (
+                    <div className="bg-white rounded-xl border p-8 text-center text-slate-500 text-sm">
+                      No se encontraron propiedades que encajen con los criterios en los portales seleccionados.
+                      {result.notes && <p className="mt-2 text-xs text-slate-400">{result.notes}</p>}
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      <div className="text-xs text-slate-500">
+                        {result.opportunities.length} propiedad
+                        {result.opportunities.length !== 1 ? "es" : ""} analizada
+                        {result.opportunities.length !== 1 ? "s" : ""}
+                      </div>
+                      {result.opportunities.map((o, i) => (
+                        <OpportunityCard
+                          key={i}
+                          o={o}
+                          fav={isFav(o)}
+                          onToggleFav={() => toggleFav(o)}
+                        />
+                      ))}
+                      {result.notes && (
+                        <p className="text-[11px] text-slate-400 px-1">{result.notes}</p>
+                      )}
+                    </div>
+                  )}
+                </>
               )}
             </>
           )}
@@ -367,7 +465,15 @@ export default function BuscadorInmobiliarioClient() {
   );
 }
 
-function OpportunityCard({ o }: { o: Opportunity }) {
+function OpportunityCard({
+  o,
+  fav,
+  onToggleFav
+}: {
+  o: Opportunity;
+  fav?: boolean;
+  onToggleFav?: () => void;
+}) {
   const c = verdictColor(o.verdict);
   return (
     <div className="bg-white rounded-xl border p-4">
@@ -393,8 +499,36 @@ function OpportunityCard({ o }: { o: Opportunity }) {
                 Ocupada
               </span>
             )}
+            {onToggleFav && (
+              <button
+                type="button"
+                onClick={onToggleFav}
+                title={fav ? "Quitar de favoritos" : "Guardar en favoritos"}
+                className={clsx(
+                  "ml-auto inline-flex items-center gap-1 text-[11px] font-medium px-2 py-1 rounded-md border",
+                  fav
+                    ? "border-amber-300 bg-amber-50 text-amber-700"
+                    : "border-slate-200 text-slate-500 hover:bg-slate-50"
+                )}
+              >
+                <Star className="h-3.5 w-3.5" fill={fav ? "currentColor" : "none"} />
+                {fav ? "Guardada" : "Guardar"}
+              </button>
+            )}
           </div>
-          <h3 className="mt-1 text-sm font-semibold text-slate-800 truncate">{o.title}</h3>
+          {o.url ? (
+            <a
+              href={o.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-1 block text-sm font-semibold text-brand-700 hover:underline truncate"
+              title={o.title}
+            >
+              {o.title}
+            </a>
+          ) : (
+            <h3 className="mt-1 text-sm font-semibold text-slate-800 truncate">{o.title}</h3>
+          )}
           <div className="text-xs text-slate-500 flex items-center gap-1 mt-0.5">
             <MapPin className="h-3 w-3" /> {o.location} · {o.property_type}
           </div>
@@ -416,15 +550,17 @@ function OpportunityCard({ o }: { o: Opportunity }) {
               positive={o.gross_yield != null && o.gross_yield >= 6}
             />
             <div className="flex items-end">
-              {o.url && (
+              {o.url ? (
                 <a
                   href={o.url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 text-brand-600 hover:text-brand-700 font-medium"
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-brand-600 hover:bg-brand-700 text-white font-medium"
                 >
-                  Ver ficha <ExternalLink className="h-3 w-3" />
+                  Ver oferta <ExternalLink className="h-3 w-3" />
                 </a>
+              ) : (
+                <span className="text-slate-400">Sin enlace</span>
               )}
             </div>
           </div>
