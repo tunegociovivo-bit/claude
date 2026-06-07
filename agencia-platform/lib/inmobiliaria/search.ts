@@ -111,6 +111,9 @@ function buildResearchPrompt(params: SearchParams, portals: Portal[]): string {
     "2. Para CADA propiedad encontrada recopila: portal de origen, título/referencia, tipo, ubicación exacta, precio de venta, superficie (m²), enlace directo a la ficha, y si la vivienda está OCUPADA (frecuente en Trial3)."
   );
   lines.push(
+    "2b. ENLACE: el enlace de cada propiedad debe ser la URL EXACTA de su ficha individual (la página de ESA vivienda concreta, que normalmente lleva su referencia o ID en la URL). NO valen: la home del portal, una página de resultados/listado, una búsqueda, ni una URL de paginación. Para conseguir el enlace correcto, ABRE con web_fetch las páginas de listado/resultados y extrae el enlace directo a la ficha de cada vivienda. Si para alguna no logras el enlace directo a su ficha, deja su enlace VACÍO (no pongas uno genérico)."
+  );
+  lines.push(
     "3. Busca también el precio medio de mercado por m² de la zona (idealista/fotocasa/INE) y un alquiler mensual de referencia, para poder estimar descuento sobre mercado y rentabilidad."
   );
   lines.push(
@@ -130,44 +133,48 @@ async function researchListings(
   portals: Portal[]
 ): Promise<string> {
   const client = await getAnthropicForWorkspace(workspaceId);
-  const allowedDomains = portals.map((p) => p.domain);
-  const WEB_SEARCH_TOOL: any = {
-    type: "web_search_20250305",
-    name: "web_search",
-    max_uses: 25,
-    allowed_domains: allowedDomains.concat([
-      "idealista.com",
-      "fotocasa.es",
-      "ine.es"
-    ])
-  };
+  const allowedDomains = portals.map((p) => p.domain).concat(["idealista.com", "fotocasa.es", "ine.es"]);
+
+  // Estrategias de herramientas, de mejor a más compatible:
+  //  0) búsqueda web + web_fetch (generación nueva): permite ABRIR los
+  //     listados y extraer el enlace directo de cada ficha.
+  //  1) solo búsqueda web (generación probada).
+  //  2) sin herramientas (último recurso si la cuenta no las admite).
+  const TOOL_SETS: any[][] = [
+    [
+      { type: "web_search_20260209", name: "web_search", max_uses: 25, allowed_domains: allowedDomains },
+      { type: "web_fetch_20260209", name: "web_fetch", max_uses: 20, allowed_domains: allowedDomains }
+    ],
+    [{ type: "web_search_20250305", name: "web_search", max_uses: 25, allowed_domains: allowedDomains }],
+    []
+  ];
+  let toolSetIdx = 0;
 
   const messages: any[] = [
     { role: "user", content: buildResearchPrompt(params, portals) }
   ];
 
-  let webSearchEnabled = true;
   let totalIn = 0;
   let totalOut = 0;
 
-  async function create() {
-    const tools = webSearchEnabled ? [WEB_SEARCH_TOOL] : [];
+  async function create(): Promise<any> {
     try {
       return await client.messages.create({
         model: RESEARCH_MODEL,
         max_tokens: 12000,
-        tools: tools as any,
+        tools: TOOL_SETS[toolSetIdx] as any,
         messages
       });
     } catch (e: any) {
       const msg = String(e?.message ?? e);
-      if (webSearchEnabled && /web.?search|web_search_2025|allowed_domains/i.test(msg)) {
-        webSearchEnabled = false;
-        return await client.messages.create({
-          model: RESEARCH_MODEL,
-          max_tokens: 12000,
-          messages
-        });
+      // Si la cuenta/modelo no admite ese conjunto de herramientas, baja al
+      // siguiente (solo en la primera llamada, antes de cualquier pause_turn).
+      if (
+        toolSetIdx < TOOL_SETS.length - 1 &&
+        /web.?search|web.?fetch|web_search_20|web_fetch_20|allowed_domains|tool/i.test(msg)
+      ) {
+        toolSetIdx++;
+        return create();
       }
       throw e;
     }
@@ -268,6 +275,48 @@ const OPPORTUNITY_SCHEMA = {
   required: ["summary", "notes", "opportunities"]
 };
 
+/**
+ * Devuelve la URL solo si parece la ficha de una propiedad concreta.
+ * Vacía las URLs que son claramente la home, un listado/búsqueda o una
+ * página de paginación del portal (para no enviar al usuario a la página
+ * equivocada). Conservador: ante la duda, mantiene la URL.
+ */
+function cleanOfferUrl(raw: string | null | undefined): string {
+  const s = (raw || "").trim();
+  if (!s) return "";
+  let url: URL;
+  try {
+    url = new URL(s);
+  } catch {
+    return "";
+  }
+  const path = url.pathname.replace(/\/+$/, "").toLowerCase();
+  // Home del portal (sin ruta).
+  if (path === "") return "";
+  // Parámetros de paginación / búsqueda.
+  const qs = url.search.toLowerCase();
+  if (/[?&](page|pagina|pag|p|start|offset|q|query|busqueda|search)=/.test(qs)) return "";
+  // Rutas que terminan en una sección de listado genérica (no una ficha).
+  const listingTails = [
+    "/venta",
+    "/comprar",
+    "/alquiler",
+    "/inmuebles",
+    "/viviendas",
+    "/propiedades",
+    "/resultados",
+    "/resultado",
+    "/buscador",
+    "/buscar",
+    "/search",
+    "/oportunidades",
+    "/inmuebles-en-venta",
+    "/listado"
+  ];
+  if (listingTails.some((t) => path.endsWith(t))) return "";
+  return s;
+}
+
 /** Fase 2: estructurar y puntuar las oportunidades. */
 async function analyzeListings(
   workspaceId: string,
@@ -282,6 +331,7 @@ async function analyzeListings(
     "Penaliza con fuerza las viviendas ocupadas salvo que el descuento lo compense claramente. Sé riguroso y realista: no infles los scores.",
     "No inventes propiedades: usa SOLO las que aparecen en la investigación, con sus enlaces reales. Calcula price_m2, discount_pct (% bajo mercado) y gross_yield (rentabilidad bruta anual = alquiler_anual / precio * 100) cuando haya datos; si no, deja null.",
     "IMPORTANTE: evalúa y devuelve TODAS las propiedades que aparezcan en la investigación, sin omitir ni recortar ninguna (pueden ser 30, 40 o más). Para que quepan todas, sé CONCISO: máximo 3 pros y 3 cons (frases muy breves) y un 'reasoning' de 1-2 frases por propiedad.",
+    "URL: el campo url SOLO debe contener el enlace DIRECTO a la ficha individual de esa propiedad concreta (con su ID/referencia). Si en la investigación solo hay para esa propiedad un enlace de listado, búsqueda, paginación o la home del portal, deja url como cadena vacía (\"\"). Nunca uses una URL genérica o de resultados.",
     "Responde SIEMPRE en español."
   ].join("\n");
 
@@ -321,6 +371,10 @@ async function analyzeListings(
   });
 
   let opps = Array.isArray(data.opportunities) ? data.opportunities : [];
+  // Saneo de enlaces: si la URL es claramente de listado/búsqueda/paginación
+  // o la home del portal (no la ficha concreta), la vaciamos para que la UI
+  // muestre "Sin enlace" en vez de llevar a una página equivocada.
+  opps = opps.map((o) => ({ ...o, url: cleanOfferUrl(o.url) }));
   // Filtro duro por estado de ocupación (red de seguridad sobre el prompt).
   if (params.occupancy === "occupied") {
     opps = opps.filter((o) => o.occupied === true);
