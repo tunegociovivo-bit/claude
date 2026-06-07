@@ -90,6 +90,25 @@ function persistFavs(favs: FavItem[]) {
   } catch {}
 }
 
+// Normaliza para búsqueda local: minúsculas y sin acentos.
+function norm(s: string): string {
+  return (s || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "");
+}
+function matchesQuery(o: Opportunity, q: string): boolean {
+  if (!q.trim()) return true;
+  const hay = norm(
+    [o.title, o.location, o.property_type, o.portal_label, o.bank, o.verdict].join(" ")
+  );
+  // Todas las palabras del término deben aparecer.
+  return norm(q)
+    .split(/\s+/)
+    .filter(Boolean)
+    .every((w) => hay.includes(w));
+}
+
 function ScoreBadge({ score, verdict }: { score: number; verdict: string }) {
   const c = verdictColor(verdict);
   return (
@@ -126,6 +145,7 @@ export default function BuscadorInmobiliarioClient() {
 
   const [view, setView] = useState<"results" | "favs">("results");
   const [favs, setFavs] = useState<FavItem[]>([]);
+  const [query, setQuery] = useState("");
 
   useEffect(() => {
     setFavs(loadFavs());
@@ -189,6 +209,10 @@ export default function BuscadorInmobiliarioClient() {
       setBusy(false);
     }
   }
+
+  // Filtrado local rápido por el buscador de la sección.
+  const filteredFavs = favs.filter((f) => matchesQuery(f.o, query));
+  const filteredResults = result ? result.opportunities.filter((o) => matchesQuery(o, query)) : [];
 
   return (
     <div className="max-w-6xl mx-auto">
@@ -370,6 +394,34 @@ export default function BuscadorInmobiliarioClient() {
             </button>
           </div>
 
+          {/* Buscador local de la sección */}
+          {((view === "favs" && favs.length > 0) ||
+            (view === "results" && result && result.opportunities.length > 0)) && (
+            <div className="relative">
+              <Search className="h-4 w-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder={
+                  view === "favs"
+                    ? "Filtrar favoritos por calle, zona, portal…"
+                    : "Filtrar resultados por calle, zona, portal…"
+                }
+                className="w-full pl-9 pr-9 py-2 rounded-lg border text-sm"
+              />
+              {query && (
+                <button
+                  type="button"
+                  onClick={() => setQuery("")}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-lg leading-none px-1"
+                  title="Limpiar"
+                >
+                  ×
+                </button>
+              )}
+            </div>
+          )}
+
           {view === "favs" ? (
             favs.length === 0 ? (
               <div className="bg-white rounded-xl border p-10 text-center text-slate-400">
@@ -379,12 +431,18 @@ export default function BuscadorInmobiliarioClient() {
                   cualquier propiedad para guardarla aquí.
                 </p>
               </div>
+            ) : filteredFavs.length === 0 ? (
+              <div className="bg-white rounded-xl border p-8 text-center text-slate-500 text-sm">
+                Ningún favorito coincide con “{query}”.
+              </div>
             ) : (
               <div className="space-y-3">
                 <div className="text-xs text-slate-500">
-                  {favs.length} {favs.length === 1 ? "favorito guardado" : "favoritos guardados"}
+                  {query
+                    ? `${filteredFavs.length} de ${favs.length} favoritos`
+                    : `${favs.length} ${favs.length === 1 ? "favorito guardado" : "favoritos guardados"}`}
                 </div>
-                {favs.map((f) => (
+                {filteredFavs.map((f) => (
                   <OpportunityCard
                     key={f.id}
                     o={f.o}
@@ -435,14 +493,20 @@ export default function BuscadorInmobiliarioClient() {
                       No se encontraron propiedades que encajen con los criterios en los portales seleccionados.
                       {result.notes && <p className="mt-2 text-xs text-slate-400">{result.notes}</p>}
                     </div>
+                  ) : filteredResults.length === 0 ? (
+                    <div className="bg-white rounded-xl border p-8 text-center text-slate-500 text-sm">
+                      Ninguna propiedad coincide con “{query}”.
+                    </div>
                   ) : (
                     <div className="space-y-3">
                       <div className="text-xs text-slate-500">
-                        {result.opportunities.length} propiedad
-                        {result.opportunities.length !== 1 ? "es" : ""} analizada
-                        {result.opportunities.length !== 1 ? "s" : ""}
+                        {query
+                          ? `${filteredResults.length} de ${result.opportunities.length} propiedades`
+                          : `${result.opportunities.length} ${
+                              result.opportunities.length !== 1 ? "propiedades analizadas" : "propiedad analizada"
+                            }`}
                       </div>
-                      {result.opportunities.map((o, i) => (
+                      {filteredResults.map((o, i) => (
                         <OpportunityCard
                           key={i}
                           o={o}
