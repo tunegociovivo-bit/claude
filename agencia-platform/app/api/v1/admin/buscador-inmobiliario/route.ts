@@ -58,7 +58,12 @@ export const POST = withApi({ scope: "ai", rate: "ai" }, async (req, { api }) =>
     });
     return NextResponse.json(result);
   } catch (e) {
+    if (e instanceof ApiError) throw e;
     if (e instanceof AIDisabledError) throw new ApiError(503, "ai_disabled", e.message);
-    throw e;
+    // Surface the real reason (Anthropic/timeout/parse) instead of an opaque
+    // "Error interno" so el usuario y los logs vean qué ha fallado.
+    const detail = String((e as any)?.error?.message ?? (e as any)?.message ?? e).slice(0, 300);
+    console.error("[buscador-inmobiliario] búsqueda fallida:", detail);
+    throw new ApiError(502, "search_failed", `No se pudo completar la búsqueda: ${detail}`);
   }
 });

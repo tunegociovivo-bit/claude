@@ -111,7 +111,7 @@ function buildResearchPrompt(params: SearchParams, portals: Portal[]): string {
     "2. Para CADA propiedad encontrada recopila: portal de origen, título/referencia, tipo, ubicación exacta, precio de venta, superficie (m²), enlace directo a la ficha, y si la vivienda está OCUPADA (frecuente en Trial3)."
   );
   lines.push(
-    "2b. ENLACE: el enlace de cada propiedad debe ser la URL EXACTA de su ficha individual (la página de ESA vivienda concreta, que normalmente lleva su referencia o ID en la URL). NO valen: la home del portal, una página de resultados/listado, una búsqueda, ni una URL de paginación. Para conseguir el enlace correcto, ABRE con web_fetch las páginas de listado/resultados y extrae el enlace directo a la ficha de cada vivienda. Si para alguna no logras el enlace directo a su ficha, deja su enlace VACÍO (no pongas uno genérico)."
+    "2b. ENLACE: el enlace de cada propiedad debe ser la URL EXACTA de su ficha individual (la página de ESA vivienda concreta, que normalmente lleva su referencia o ID en la URL). NO valen: la home del portal, una página de resultados/listado, una búsqueda, ni una URL de paginación. Usa la URL concreta de la ficha que aparezca en los resultados de búsqueda. Si para alguna propiedad no dispones del enlace directo a su ficha, deja su enlace VACÍO (no pongas uno genérico)."
   );
   lines.push(
     "3. Busca también el precio medio de mercado por m² de la zona (idealista/fotocasa/INE) y un alquiler mensual de referencia, para poder estimar descuento sobre mercado y rentabilidad."
@@ -135,53 +135,50 @@ async function researchListings(
   const client = await getAnthropicForWorkspace(workspaceId);
   const allowedDomains = portals.map((p) => p.domain).concat(["idealista.com", "fotocasa.es", "ine.es"]);
 
-  // Estrategias de herramientas, de mejor a más compatible:
-  //  0) búsqueda web + web_fetch (generación nueva): permite ABRIR los
-  //     listados y extraer el enlace directo de cada ficha.
-  //  1) solo búsqueda web (generación probada).
-  //  2) sin herramientas (último recurso si la cuenta no las admite).
-  const TOOL_SETS: any[][] = [
-    [
-      { type: "web_search_20260209", name: "web_search", max_uses: 25, allowed_domains: allowedDomains },
-      { type: "web_fetch_20260209", name: "web_fetch", max_uses: 20, allowed_domains: allowedDomains }
-    ],
-    [{ type: "web_search_20250305", name: "web_search", max_uses: 25, allowed_domains: allowedDomains }],
-    []
-  ];
-  let toolSetIdx = 0;
+  // Solo búsqueda web (generación probada). No usamos web_fetch: abrir las
+  // páginas completas es lento y hacía que la petición superara el tiempo
+  // límite del servidor (timeout → "Error en la búsqueda"). Para acotar el
+  // enlace a la ficha nos apoyamos en el prompt + saneo de URLs.
+  const WEB_SEARCH_TOOL: any = {
+    type: "web_search_20250305",
+    name: "web_search",
+    max_uses: 12,
+    allowed_domains: allowedDomains
+  };
 
   const messages: any[] = [
     { role: "user", content: buildResearchPrompt(params, portals) }
   ];
 
+  let webSearchEnabled = true;
   let totalIn = 0;
   let totalOut = 0;
 
   async function create(): Promise<any> {
+    const tools = webSearchEnabled ? [WEB_SEARCH_TOOL] : [];
     try {
       return await client.messages.create({
         model: RESEARCH_MODEL,
         max_tokens: 12000,
-        tools: TOOL_SETS[toolSetIdx] as any,
+        tools: tools as any,
         messages
       });
     } catch (e: any) {
       const msg = String(e?.message ?? e);
-      // Si la cuenta/modelo no admite ese conjunto de herramientas, baja al
-      // siguiente (solo en la primera llamada, antes de cualquier pause_turn).
-      if (
-        toolSetIdx < TOOL_SETS.length - 1 &&
-        /web.?search|web.?fetch|web_search_20|web_fetch_20|allowed_domains|tool/i.test(msg)
-      ) {
-        toolSetIdx++;
-        return create();
+      if (webSearchEnabled && /web.?search|web_search_20|allowed_domains|tool/i.test(msg)) {
+        webSearchEnabled = false;
+        return await client.messages.create({
+          model: RESEARCH_MODEL,
+          max_tokens: 12000,
+          messages
+        });
       }
       throw e;
     }
   }
 
   let finalText = "";
-  for (let i = 0; i < 14; i++) {
+  for (let i = 0; i < 10; i++) {
     const resp: any = await create();
     totalIn += resp.usage?.input_tokens ?? 0;
     totalOut += resp.usage?.output_tokens ?? 0;
@@ -358,17 +355,35 @@ async function analyzeListings(
     research || "(sin resultados)"
   ].join("\n");
 
-  const data = await completeJson<{
-    summary: string;
-    notes: string;
-    opportunities: Opportunity[];
-  }>({
-    workspaceId,
-    system,
-    user,
-    schema: OPPORTUNITY_SCHEMA,
-    maxTokens: 16000
-  });
+  type AnalysisData = { summary: string; notes: string; opportunities: Opportunity[] };
+  let data: AnalysisData;
+  try {
+    data = await completeJson<AnalysisData>({
+      workspaceId,
+      system,
+      user,
+      schema: OPPORTUNITY_SCHEMA,
+      maxTokens: 12000
+    });
+  } catch (e: any) {
+    // Si la respuesta se cortó por longitud (muchas propiedades) o el JSON
+    // vino mal, reintentamos UNA vez pidiendo máxima brevedad para que quepan
+    // todas, en vez de devolver un error al usuario.
+    const msg = String(e?.message ?? e);
+    if (/truncad|max_tokens|JSON|Unterminated|inválido/i.test(msg)) {
+      data = await completeJson<AnalysisData>({
+        workspaceId,
+        system:
+          system +
+          "\nSÉ AÚN MÁS BREVE: máximo 2 pros y 2 cons de 3-4 palabras y un 'reasoning' de una sola frase corta, para que TODAS las propiedades quepan en la respuesta sin cortarse.",
+        user,
+        schema: OPPORTUNITY_SCHEMA,
+        maxTokens: 12000
+      });
+    } else {
+      throw e;
+    }
+  }
 
   let opps = Array.isArray(data.opportunities) ? data.opportunities : [];
   // Saneo de enlaces: si la URL es claramente de listado/búsqueda/paginación
