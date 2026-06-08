@@ -11,6 +11,8 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
   const searchId = url.searchParams.get("searchId") ?? undefined;
   const search = url.searchParams.get("search") ?? undefined;
   const limit = Math.min(Number(url.searchParams.get("limit") ?? 200), 500);
+  // Paginación: offset para ir trayendo páginas sucesivas ("Cargar más").
+  const offset = Math.max(Number(url.searchParams.get("offset") ?? 0), 0);
 
   const where: any = { workspaceId: api.workspaceId };
   if (status) where.contactStatus = status;
@@ -26,9 +28,25 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
     ];
   }
 
+  // Modo "idsOnly": devuelve TODOS los leads que cumplen el filtro (sin
+  // paginar) pero solo con los campos mínimos. Lo usa el botón "Seleccionar
+  // todos" de la tabla para marcar de un clic los leads de todas las páginas.
+  if (url.searchParams.get("idsOnly") === "1") {
+    const rows = await prisma.lead.findMany({
+      where,
+      orderBy: [{ score: "desc" }, { createdAt: "desc" }],
+      select: { id: true, phone: true, contactStatus: true, rating: true, reviewsCount: true }
+    });
+    return NextResponse.json({ items: rows, total: rows.length });
+  }
+
+  // Total real de leads que cumplen el filtro (para el contador "X de Y" y
+  // para saber si quedan más páginas por cargar en la tabla).
+  const total = await prisma.lead.count({ where });
   const items = await prisma.lead.findMany({
     where,
     orderBy: [{ score: "desc" }, { createdAt: "desc" }],
+    skip: offset,
     take: limit,
     select: {
       id: true,
@@ -73,5 +91,5 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
       nextScheduledAt: next?.scheduledAt ?? null
     };
   });
-  return NextResponse.json({ items: flat });
+  return NextResponse.json({ items: flat, total });
 });
