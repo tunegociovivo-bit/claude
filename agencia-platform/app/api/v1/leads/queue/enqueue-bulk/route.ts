@@ -20,7 +20,10 @@ import { ApiError } from "@/lib/api/auth";
 import { enqueueMessage } from "@/lib/leads/send-queue";
 
 const schema = z.object({
-  leadIds: z.array(z.string().min(1)).min(1).max(500),
+  // Hasta 2000 para poder lanzar una campaña sobre "todos" los seleccionados.
+  // El envío real va espaciado y limitado por día (anti-baneo) en send-queue,
+  // así que encolar muchos no los dispara en ráfaga.
+  leadIds: z.array(z.string().min(1)).min(1).max(2000),
   templateId: z.string().min(1).nullable().optional()
 });
 

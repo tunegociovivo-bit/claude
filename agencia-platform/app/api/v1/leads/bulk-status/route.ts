@@ -16,7 +16,9 @@ import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 
 const schema = z.object({
-  leadIds: z.array(z.string().min(1)).min(1).max(500),
+  // Hasta 5000 para permitir "Seleccionar todos" sobre búsquedas grandes
+  // (p. ej. un sector en toda España). Es un updateMany, así que es barato.
+  leadIds: z.array(z.string().min(1)).min(1).max(5000),
   contactStatus: z.enum(["excluded", "discarded", "pending"]),
   reason: z.string().max(200).optional()
 });

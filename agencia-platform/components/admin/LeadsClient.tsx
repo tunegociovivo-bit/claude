@@ -54,6 +54,15 @@ type Lead = {
   nextScheduledAt: string | null;
 };
 
+// Forma reducida que devuelve la API en modo idsOnly (para "Seleccionar todos").
+type MinimalLead = {
+  id: string;
+  phone: string | null;
+  contactStatus: string;
+  rating: number | null;
+  reviewsCount: number;
+};
+
 type SearchRow = {
   id: string;
   keyword: string;
@@ -98,6 +107,11 @@ type QueueRow = {
 
 type Tab = "leads" | "searches" | "queue" | "inbox" | "sequences" | "templates" | "exclusions" | "analytics" | "map" | "settings";
 
+// Tamaño de página de la tabla de leads. Una búsqueda "Toda España" puede
+// devolver más de mil leads; se cargan de LEADS_PAGE en LEADS_PAGE con el
+// botón "Cargar más" para no traerlos todos de golpe.
+const LEADS_PAGE = 200;
+
 const CONTACT_STATUSES = [
   { value: "pending", label: "Pendiente", color: "bg-slate-100 text-slate-700 border-slate-200" },
   { value: "contacted", label: "Contactado", color: "bg-sky-100 text-sky-800 border-sky-200" },
@@ -119,6 +133,10 @@ export default function LeadsClient() {
   const [tab, setTab] = useState<Tab>("leads");
   const [recoveryInfo, setRecoveryInfo] = useState<{ active: boolean; since: string | null; days: number } | null>(null);
   const [leads, setLeads] = useState<Lead[]>([]);
+  // Total real de leads que cumplen el filtro en BD (la tabla carga por
+  // páginas de LEADS_PAGE; el contador "X de Y" usa este total).
+  const [leadsTotal, setLeadsTotal] = useState(0);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [searches, setSearches] = useState<SearchRow[]>([]);
   const [queue, setQueue] = useState<QueueRow[]>([]);
   const [templates, setTemplates] = useState<Template[]>([]);
@@ -136,20 +154,62 @@ export default function LeadsClient() {
   const [newTemplateOpen, setNewTemplateOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
+  // Parámetros de filtro de leads compartidos por la carga inicial y por
+  // "Cargar más", para que ambas pidan exactamente el mismo subconjunto.
+  function leadFilterParams() {
+    const q = new URLSearchParams();
+    if (statusFilter !== "ALL") q.set("contactStatus", statusFilter);
+    if (urgencyFilter !== "ALL") q.set("urgency", urgencyFilter);
+    if (searchIdFilter !== "ALL") q.set("searchId", searchIdFilter);
+    if (searchQ) q.set("search", searchQ);
+    return q;
+  }
+
+  // Trae la siguiente página de leads y la añade a la tabla (sin recargar las
+  // ya visibles). El offset es el nº de leads ya cargados desde el servidor.
+  async function loadMoreLeads() {
+    setLoadingMore(true);
+    try {
+      const q = leadFilterParams();
+      q.set("limit", String(LEADS_PAGE));
+      q.set("offset", String(leads.length));
+      const r = await fetch(`/api/v1/leads?${q.toString()}`);
+      if (r.ok) {
+        const d = await r.json();
+        setLeads((prev) => [...prev, ...(d.items ?? [])]);
+        setLeadsTotal(d.total ?? leadsTotal);
+      }
+    } finally {
+      setLoadingMore(false);
+    }
+  }
+
+  // Trae TODOS los leads del filtro actual (solo campos mínimos) para poder
+  // seleccionarlos de un clic sin pasar página por página.
+  async function fetchAllMatchingLeads(): Promise<MinimalLead[]> {
+    const q = leadFilterParams();
+    q.set("idsOnly", "1");
+    const r = await fetch(`/api/v1/leads?${q.toString()}`);
+    if (!r.ok) return [];
+    return ((await r.json()).items ?? []) as MinimalLead[];
+  }
+
   async function load() {
     setLoading(true);
     try {
       if (tab === "leads") {
-        const q = new URLSearchParams();
-        if (statusFilter !== "ALL") q.set("contactStatus", statusFilter);
-        if (urgencyFilter !== "ALL") q.set("urgency", urgencyFilter);
-        if (searchIdFilter !== "ALL") q.set("searchId", searchIdFilter);
-        if (searchQ) q.set("search", searchQ);
+        const q = leadFilterParams();
+        q.set("limit", String(LEADS_PAGE));
+        q.set("offset", "0");
         const [leadsRes, searchesRes] = await Promise.all([
           fetch(`/api/v1/leads?${q.toString()}`),
           fetch("/api/v1/leads/searches")
         ]);
-        if (leadsRes.ok) setLeads((await leadsRes.json()).items ?? []);
+        if (leadsRes.ok) {
+          const d = await leadsRes.json();
+          setLeads(d.items ?? []);
+          setLeadsTotal(d.total ?? (d.items?.length ?? 0));
+        }
         if (searchesRes.ok) setSearches((await searchesRes.json()).items ?? []);
       } else if (tab === "searches") {
         const r = await fetch("/api/v1/leads/searches");
@@ -330,8 +390,32 @@ export default function LeadsClient() {
                 (phoneFilter === "ALL" || phoneKind(l.phone) === phoneFilter) &&
                 (!painOnly || isPainNow(l))
             )}
+            totalMatching={leadsTotal}
+            loadedCount={leads.length}
+            phoneFilter={phoneFilter}
+            painOnly={painOnly}
+            fetchAllMatching={fetchAllMatchingLeads}
+            resetKey={`${statusFilter}|${urgencyFilter}|${searchIdFilter}|${searchQ}|${phoneFilter}|${painOnly}`}
             onChanged={load}
           />
+          {!loading && leadsTotal > 0 && (
+            <div className="flex items-center justify-center gap-3 py-3 text-sm text-slate-500">
+              <span>
+                Mostrando {leads.length} de {leadsTotal} lead{leadsTotal === 1 ? "" : "s"}
+                {(phoneFilter !== "ALL" || painOnly) && " (antes de filtros de móvil/dolor)"}
+              </span>
+              {leads.length < leadsTotal && (
+                <button
+                  onClick={loadMoreLeads}
+                  disabled={loadingMore}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border bg-white hover:bg-slate-50 text-sm font-medium disabled:opacity-50"
+                >
+                  {loadingMore ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                  Cargar más
+                </button>
+              )}
+            </div>
+          )}
         </>
       )}
 
@@ -673,33 +757,82 @@ function DraggableTabs({ tab, setTab }: { tab: Tab; setTab: (t: Tab) => void }) 
 
 // ============ LEADS ============
 
-function LeadsTable({ loading, items, onChanged }: { loading: boolean; items: Lead[]; onChanged: () => void }) {
+function LeadsTable({
+  loading,
+  items,
+  totalMatching,
+  loadedCount,
+  phoneFilter,
+  painOnly,
+  fetchAllMatching,
+  resetKey,
+  onChanged
+}: {
+  loading: boolean;
+  items: Lead[];
+  totalMatching: number;
+  loadedCount: number;
+  phoneFilter: "ALL" | "mobile" | "landline";
+  painOnly: boolean;
+  fetchAllMatching: () => Promise<MinimalLead[]>;
+  resetKey: string;
+  onChanged: () => void;
+}) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  // true cuando la selección abarca TODOS los leads del filtro (todas las
+  // páginas), no solo los visibles. Se apaga en cuanto el usuario toca algo.
+  const [allMatchingSelected, setAllMatchingSelected] = useState(false);
+  const [selectingAll, setSelectingAll] = useState(false);
   const [enqueueOpen, setEnqueueOpen] = useState(false);
   const [enrollOpen, setEnrollOpen] = useState(false);
   const [detailLeadId, setDetailLeadId] = useState<string | null>(null);
 
-  // Al refrescar/filtrar, descarta de la selección los leads que ya no salen.
+  // Al cambiar los filtros, limpia la selección (no al solo cargar más páginas).
   useEffect(() => {
-    setSelected((prev) => {
-      const ids = new Set(items.map((l) => l.id));
-      const next = new Set<string>();
-      prev.forEach((id) => ids.has(id) && next.add(id));
-      return next;
-    });
-  }, [items]);
+    setSelected(new Set());
+    setAllMatchingSelected(false);
+  }, [resetKey]);
+
+  // Contactable por WhatsApp = solo móviles (6xx/7xx) no excluidos/descartados.
+  // Acepta tanto el lead completo como la forma reducida de "Seleccionar todos".
+  const canContact = (l: { phone: string | null; contactStatus: string }) =>
+    phoneKind(l.phone) === "mobile" && !["excluded", "discarded"].includes(l.contactStatus);
+
+  function clearSelection() {
+    setSelected(new Set());
+    setAllMatchingSelected(false);
+  }
+
+  // Selecciona de un clic TODOS los contactables del filtro (todas las páginas).
+  async function selectAllMatching() {
+    setSelectingAll(true);
+    try {
+      const rows = await fetchAllMatching();
+      const ids = rows
+        .filter(
+          (r) =>
+            (phoneFilter === "ALL" || phoneKind(r.phone) === phoneFilter) &&
+            (!painOnly || isPainNow(r)) &&
+            canContact(r)
+        )
+        .map((r) => r.id);
+      setSelected(new Set(ids));
+      setAllMatchingSelected(true);
+    } finally {
+      setSelectingAll(false);
+    }
+  }
 
   if (loading) return <Loading />;
   if (items.length === 0) return <Empty msg="Sin leads. Crea una búsqueda para captar." />;
 
-  // Contactable por WhatsApp = solo móviles (6xx/7xx). Los fijos se gestionan
-  // aparte ("para llamar"), no se encolan para WhatsApp.
-  const canContact = (l: Lead) =>
-    phoneKind(l.phone) === "mobile" && !["excluded", "discarded"].includes(l.contactStatus);
   const contactable = items.filter(canContact);
   const allSelected = contactable.length > 0 && contactable.every((l) => selected.has(l.id));
+  // Hay más leads en el filtro de los que están cargados en la tabla.
+  const hasMoreMatching = loadedCount < totalMatching;
 
   function toggle(id: string) {
+    setAllMatchingSelected(false);
     setSelected((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
@@ -708,20 +841,38 @@ function LeadsTable({ loading, items, onChanged }: { loading: boolean; items: Le
     });
   }
   function toggleAll() {
+    setAllMatchingSelected(false);
     setSelected(allSelected ? new Set() : new Set(contactable.map((l) => l.id)));
   }
 
   return (
     <div className="space-y-2">
+      {/* Prompt estilo Gmail: cuando ya están marcados todos los contactables
+          visibles y hay más en otras páginas, ofrece seleccionarlos todos. */}
+      {!allMatchingSelected && allSelected && hasMoreMatching && (
+        <div className="flex flex-wrap items-center justify-center gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-sm text-amber-900">
+          <span>Seleccionados los {selected.size} contactables de esta vista.</span>
+          <button
+            onClick={selectAllMatching}
+            disabled={selectingAll}
+            className="inline-flex items-center gap-1.5 font-semibold underline hover:no-underline disabled:opacity-50"
+          >
+            {selectingAll && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+            Seleccionar todos los contactables del filtro ({totalMatching})
+          </button>
+        </div>
+      )}
       {selected.size > 0 && (
         <div className="flex flex-wrap items-center justify-between gap-2 bg-brand-50 border border-brand-200 rounded-lg px-3 py-2">
-          <span className="text-sm text-brand-800 font-medium">{selected.size} lead(s) seleccionados</span>
+          <span className="text-sm text-brand-800 font-medium">
+            {selected.size} lead(s) seleccionados{allMatchingSelected ? " · todo el filtro" : ""}
+          </span>
           <div className="flex flex-wrap items-center gap-2">
-            <button onClick={() => setSelected(new Set())} className="text-xs text-slate-600 hover:underline">
+            <button onClick={clearSelection} className="text-xs text-slate-600 hover:underline">
               Quitar selección
             </button>
-            <BulkStatusButton ids={Array.from(selected)} status="excluded" label="Excluir" onDone={onChanged} />
-            <BulkStatusButton ids={Array.from(selected)} status="discarded" label="Descartar" onDone={onChanged} />
+            <BulkStatusButton ids={Array.from(selected)} status="excluded" label="Excluir" onDone={() => { clearSelection(); onChanged(); }} />
+            <BulkStatusButton ids={Array.from(selected)} status="discarded" label="Descartar" onDone={() => { clearSelection(); onChanged(); }} />
             <a
               href={`/api/v1/leads/export?ids=${Array.from(selected).join(",")}`}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border bg-white hover:bg-slate-50 text-sm"
@@ -862,7 +1013,7 @@ function LeadsTable({ loading, items, onChanged }: { loading: boolean; items: Le
         leadIds={Array.from(selected)}
         onDone={() => {
           setEnqueueOpen(false);
-          setSelected(new Set());
+          clearSelection();
           onChanged();
         }}
       />
@@ -872,7 +1023,7 @@ function LeadsTable({ loading, items, onChanged }: { loading: boolean; items: Le
         leadIds={Array.from(selected)}
         onDone={() => {
           setEnrollOpen(false);
-          setSelected(new Set());
+          clearSelection();
           onChanged();
         }}
       />
