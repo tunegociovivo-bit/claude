@@ -71,6 +71,12 @@ import {
 import { signedDownloadUrl } from "@/lib/storage/r2";
 import { completeVision } from "@/lib/ai/anthropic";
 import { listDriveFiles } from "@/lib/integrations/google-drive";
+import {
+  getSpreadsheetInfo,
+  readRange as sheetsReadRange,
+  appendRows as sheetsAppendRows,
+  updateRange as sheetsUpdateRange
+} from "@/lib/integrations/google-sheets";
 import { uploadAttachmentForTask } from "@/lib/files/sonia-upload";
 import { markdownToHtmlBody, wrapAsReportHtml } from "@/lib/files/markdown-html";
 import type { AiAgentConfig } from "./types";
@@ -408,6 +414,84 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
         fileId: { type: "string", description: "ID del archivo en Drive (de list_drive_files)." }
       },
       required: ["fileId"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "sheets_get_info",
+    description:
+      "Devuelve el título de una Google Sheet y sus pestañas (con nº de filas/columnas). Úsalo ANTES de leer/escribir para saber qué pestañas y rangos existen. La hoja debe estar compartida con el email del service account configurado.",
+    input_schema: {
+      type: "object",
+      properties: {
+        spreadsheet: {
+          type: "string",
+          description: "ID de la hoja o su URL completa (docs.google.com/spreadsheets/d/...)."
+        }
+      },
+      required: ["spreadsheet"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "sheets_read_range",
+    description:
+      "Lee un rango de una Google Sheet en notación A1 (ej 'Hoja1!A1:D50'). Devuelve las filas como array de arrays. La hoja debe estar compartida con el service account.",
+    input_schema: {
+      type: "object",
+      properties: {
+        spreadsheet: { type: "string", description: "ID o URL de la Google Sheet." },
+        range: {
+          type: "string",
+          description: "Rango A1, ej 'Hoja1!A1:D50' o solo 'Hoja1' para toda la pestaña."
+        }
+      },
+      required: ["spreadsheet", "range"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "sheets_append_rows",
+    description:
+      "AÑADE filas al final de una tabla en una Google Sheet (no pisa datos existentes). Usa esto para registrar/acumular información. La hoja debe estar compartida con el service account (permiso Editor).",
+    input_schema: {
+      type: "object",
+      properties: {
+        spreadsheet: { type: "string", description: "ID o URL de la Google Sheet." },
+        range: {
+          type: "string",
+          description:
+            "Pestaña o rango ancla donde añadir, ej 'Hoja1' o 'Hoja1!A1'. Google detecta la tabla y añade debajo."
+        },
+        rows: {
+          type: "array",
+          description: "Filas a añadir. Cada fila es un array de celdas (texto o número).",
+          items: { type: "array", items: { type: ["string", "number", "boolean", "null"] } }
+        }
+      },
+      required: ["spreadsheet", "range", "rows"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "sheets_update_range",
+    description:
+      "SOBRESCRIBE un rango concreto de una Google Sheet con los valores dados (pisa lo que hubiera en ese rango). Usa esto para corregir/actualizar celdas concretas. La hoja debe estar compartida con el service account (Editor).",
+    input_schema: {
+      type: "object",
+      properties: {
+        spreadsheet: { type: "string", description: "ID o URL de la Google Sheet." },
+        range: {
+          type: "string",
+          description: "Rango A1 exacto a sobrescribir, ej 'Hoja1!A2:C2'."
+        },
+        rows: {
+          type: "array",
+          description: "Valores a escribir. Cada fila es un array de celdas.",
+          items: { type: "array", items: { type: ["string", "number", "boolean", "null"] } }
+        }
+      },
+      required: ["spreadsheet", "range", "rows"],
       additionalProperties: false
     }
   },
@@ -3801,6 +3885,78 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
       truncated: result.truncated,
       text: result.text
     };
+  },
+
+  async sheets_get_info(input, ctx) {
+    const spreadsheet = String(input?.spreadsheet ?? "").trim();
+    if (!spreadsheet) return { error: "spreadsheet vacío (ID o URL de la Google Sheet)" };
+    try {
+      const info = await getSpreadsheetInfo({ workspaceId: ctx.workspaceId, spreadsheetId: spreadsheet });
+      return { ok: true, ...info };
+    } catch (e: any) {
+      return { error: e?.message ?? String(e) };
+    }
+  },
+
+  async sheets_read_range(input, ctx) {
+    const spreadsheet = String(input?.spreadsheet ?? "").trim();
+    const range = String(input?.range ?? "").trim();
+    if (!spreadsheet) return { error: "spreadsheet vacío" };
+    if (!range) return { error: "range vacío (ej 'Hoja1!A1:D50')" };
+    try {
+      const values = await sheetsReadRange({
+        workspaceId: ctx.workspaceId,
+        spreadsheetId: spreadsheet,
+        range
+      });
+      return { ok: true, rowCount: values.length, values };
+    } catch (e: any) {
+      return { error: e?.message ?? String(e) };
+    }
+  },
+
+  async sheets_append_rows(input, ctx) {
+    const spreadsheet = String(input?.spreadsheet ?? "").trim();
+    const range = String(input?.range ?? "").trim();
+    const rows = input?.rows;
+    if (!spreadsheet) return { error: "spreadsheet vacío" };
+    if (!range) return { error: "range vacío (pestaña o ancla, ej 'Hoja1')" };
+    if (!Array.isArray(rows) || rows.length === 0 || !Array.isArray(rows[0])) {
+      return { error: "rows debe ser un array de filas (array de arrays). Ej [[\"a\",\"b\"],[\"c\",\"d\"]]" };
+    }
+    try {
+      const r = await sheetsAppendRows({
+        workspaceId: ctx.workspaceId,
+        spreadsheetId: spreadsheet,
+        range,
+        rows
+      });
+      return { ok: true, ...r };
+    } catch (e: any) {
+      return { error: e?.message ?? String(e) };
+    }
+  },
+
+  async sheets_update_range(input, ctx) {
+    const spreadsheet = String(input?.spreadsheet ?? "").trim();
+    const range = String(input?.range ?? "").trim();
+    const rows = input?.rows;
+    if (!spreadsheet) return { error: "spreadsheet vacío" };
+    if (!range) return { error: "range vacío (rango A1 exacto, ej 'Hoja1!A2:C2')" };
+    if (!Array.isArray(rows) || rows.length === 0 || !Array.isArray(rows[0])) {
+      return { error: "rows debe ser un array de filas (array de arrays)" };
+    }
+    try {
+      const r = await sheetsUpdateRange({
+        workspaceId: ctx.workspaceId,
+        spreadsheetId: spreadsheet,
+        range,
+        rows
+      });
+      return { ok: true, ...r };
+    } catch (e: any) {
+      return { error: e?.message ?? String(e) };
+    }
   },
 
   async get_client_memory(input, ctx) {

@@ -139,6 +139,7 @@ Lectura:
 - analyze_image: analiza una IMAGEN adjunta (PNG/JPEG/GIF/WebP) — mockup, screenshot, logo, infografía. Devuelve descripción y texto visible. Opcionalmente pasa una pregunta concreta.
 - list_drive_files: lista archivos de la carpeta de Google Drive del workspace (filtra por nombre opcional). Solo ves los archivos dentro de la carpeta configurada.
 - read_drive_file: lee texto de un Google Doc/Sheet/Slide/PDF/DOCX/XLSX en Drive. Pasa fileId de list_drive_files.
+- sheets_get_info / sheets_read_range / sheets_append_rows / sheets_update_range: leer y ESCRIBIR en Google Sheets (por ID o URL de la hoja). append añade filas al final sin pisar; update sobrescribe un rango concreto. Llama antes a sheets_get_info para ver las pestañas. La hoja debe estar compartida (Editor) con el email del service account; si da 403/404, dilo al user para que la comparta.
 - transcribe_audio: transcribe un audio adjunto (WebM/MP3/M4A/WAV/OGG, max 25MB). Útil para notas de voz de clientes o reuniones grabadas. Devuelve texto.
 - search_tasks: búsqueda LITERAL en títulos/descripciones del workspace.
 - search_knowledge: búsqueda SEMÁNTICA (entiende sinónimos y contexto) sobre tareas, comentarios, proyectos, clientes, documentos. Para responder "¿qué dijimos sobre X?".
@@ -1431,7 +1432,65 @@ export async function executeAgentRun(opts: {
           };
         }
 
-        // Caso (b): terminó sin haber dejado NADA accionable — bug real.
+        // Caso (b): terminó sin tool de cierre. ANTES esto era siempre
+        // REQUIRES_HUMAN con un error técnico → mostraba un error rojo y
+        // disparaba el self-heal aunque Sonia hubiera dejado una explicación
+        // perfectamente útil en su mensaje final (típico cuando la tarea pide
+        // algo para lo que no tiene herramienta, o cuando explica/pregunta sin
+        // recordar llamar a add_comment).
+        //
+        // AHORA: si el modelo dejó un TEXTO final, lo rescatamos guardándolo
+        // como comentario en la tarea y cerramos en SUCCEEDED con error=null
+        // (mismo tratamiento que un add_comment legítimo). Al ir con error=null
+        // NO entra en el self-heal (que filtra por error != null), así que el
+        // user ve la respuesta de Sonia en vez de un error rojo + auto-fix.
+        // Solo si NO hay texto NI acción lo marcamos como fallo real.
+        const finalText = resp.content
+          .filter((b: any) => b?.type === "text")
+          .map((b: any) => String(b?.text ?? ""))
+          .join("\n")
+          .trim();
+
+        if (finalText) {
+          try {
+            const bodyText = finalText.slice(0, 8000);
+            await prisma.comment.create({
+              data: {
+                workspaceId,
+                authorId: config.userId,
+                targetType: "TASK",
+                targetId: taskId,
+                body: bodyText,
+                bodyJson: {
+                  type: "doc",
+                  content: [{ type: "paragraph", content: [{ type: "text", text: bodyText }] }]
+                }
+              }
+            });
+          } catch {
+            // Si falla guardar el comentario no rompemos el cierre del run.
+          }
+          const inferredSummary =
+            `Sonia respondió sin cerrar con mark_complete; su mensaje se guardó como comentario: ` +
+            `${finalText.slice(0, 220)}${finalText.length > 220 ? "…" : ""}`;
+          log.push({
+            type: "stop",
+            ts: nowIso(),
+            reason: "end_turn_text_salvaged",
+            summary: inferredSummary
+          });
+          return {
+            status: "SUCCEEDED",
+            summary: inferredSummary,
+            error: null,
+            log,
+            stepsCount,
+            inputTokens,
+            outputTokens
+          };
+        }
+
+        // Sin texto NI acción: fallo real (olvidó cerrar del todo).
         log.push({
           type: "stop",
           ts: nowIso(),

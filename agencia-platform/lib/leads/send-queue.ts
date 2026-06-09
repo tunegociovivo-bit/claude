@@ -543,8 +543,92 @@ export async function enqueueMessage(opts: {
 }
 
 /**
- * Procesa 1 mensaje pendiente. Pensado para correr cada minuto por un cron.
+ * Re-pagina (reprograma) los mensajes en cola distribuyéndolos de nuevo a
+ * partir de `from` (por defecto, ahora), respetando ventana horaria, fines de
+ * semana, tope diario y el mismo espaciado anti-baneo que el alta normal.
+ *
+ * Caso de uso: una búsqueda nueva encola sus mensajes ENCADENADOS tras el
+ * último ya programado, así que si había backlog quedan a varios días vista
+ * ("no se envía nada hasta el día 15"). Esto los adelanta para empezar ya.
+ *
+ * Si se pasan `ids`, solo re-pagina esos; si no, TODOS los queued del
+ * workspace. Procesa en orden cronológico actual para preservar prioridades.
  */
+export async function repaceQueue(opts: {
+  workspaceId: string;
+  ids?: string[];
+  from?: Date;
+}): Promise<{ updated: number; firstAt: Date | null; lastAt: Date | null }> {
+  const settings = await getSendSettings(opts.workspaceId);
+
+  const where: any = { workspaceId: opts.workspaceId, status: "queued" };
+  if (opts.ids && opts.ids.length) where.id = { in: opts.ids };
+
+  const msgs = await prisma.leadMessage.findMany({
+    where,
+    orderBy: [{ scheduledAt: "asc" }, { createdAt: "asc" }],
+    select: { id: true }
+  });
+  if (msgs.length === 0) return { updated: 0, firstAt: null, lastAt: null };
+
+  // Apartamos temporalmente los mensajes a re-paginar (scheduledAt = null) para
+  // que computeNextSlot NO los cuente en su posición vieja (futura) al aplicar
+  // el tope diario. Sus cupos se reconstruyen a medida que les asignamos slot.
+  await prisma.leadMessage.updateMany({
+    where: { id: { in: msgs.map((m) => m.id) }, workspaceId: opts.workspaceId },
+    data: { scheduledAt: null }
+  });
+
+  const baseMs = Math.max(Date.now(), opts.from?.getTime() ?? Date.now());
+  let prevAssigned = new Date(baseMs);
+  let isFirst = true;
+  let firstAt: Date | null = null;
+  let lastAt: Date | null = null;
+  let updated = 0;
+
+  for (const m of msgs) {
+    const gapSec =
+      settings.sendDelayMinSec +
+      Math.random() * Math.max(0, settings.sendDelayMaxSec - settings.sendDelayMinSec);
+    const desired = isFirst ? new Date(baseMs) : new Date(prevAssigned.getTime() + gapSec * 1000);
+    const slot = await computeNextSlot({ workspaceId: opts.workspaceId, desired, settings });
+    await prisma.leadMessage.update({
+      where: { id: m.id },
+      data: { scheduledAt: slot }
+    });
+    prevAssigned = slot;
+    if (!firstAt) firstAt = slot;
+    lastAt = slot;
+    isFirst = false;
+    updated++;
+  }
+
+  return { updated, firstAt, lastAt };
+}
+
+/**
+ * Reprograma UN mensaje concreto a la fecha exacta indicada (sin re-paginar el
+ * resto). Para ajustes finos manuales desde la UI.
+ */
+export async function rescheduleMessage(opts: {
+  workspaceId: string;
+  id: string;
+  scheduledAt: Date;
+}): Promise<{ id: string; scheduledAt: Date }> {
+  const msg = await prisma.leadMessage.findFirst({
+    where: { id: opts.id, workspaceId: opts.workspaceId },
+    select: { id: true, status: true }
+  });
+  if (!msg) throw new Error("Mensaje no encontrado");
+  if (msg.status !== "queued") {
+    throw new Error(`Solo se puede reprogramar un mensaje en cola (estado actual: ${msg.status})`);
+  }
+  await prisma.leadMessage.update({
+    where: { id: opts.id },
+    data: { scheduledAt: opts.scheduledAt }
+  });
+  return { id: opts.id, scheduledAt: opts.scheduledAt };
+}
 export async function processQueueTick(workspaceId: string): Promise<{
   processed: boolean;
   messageId?: string;

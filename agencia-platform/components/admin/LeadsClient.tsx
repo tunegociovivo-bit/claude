@@ -33,7 +33,7 @@ function isPainNow(l: { rating: number | null; reviewsCount: number }): boolean 
 }
 import {
   Loader2, Plus, Search, Inbox, ListChecks, BarChart3, MessageCircle,
-  Settings as SettingsIcon, Ban, GitBranch, Send, RefreshCw, Download, Play, Pause, Trash2, Pencil, Zap
+  Settings as SettingsIcon, Ban, GitBranch, Send, RefreshCw, Download, Play, Pause, Trash2, Pencil, Zap, CalendarClock
 } from "lucide-react";
 
 type Lead = {
@@ -1648,6 +1648,14 @@ function QueueTable({ loading, items, onChanged }: { loading: boolean; items: Qu
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const [sendingNowId, setSendingNowId] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  // Reprogramado masivo (re-paginado de la cola)
+  const [repaceOpen, setRepaceOpen] = useState(false);
+  const [repaceFrom, setRepaceFrom] = useState("");
+  const [repacing, setRepacing] = useState(false);
+  // Edición de fecha de una fila concreta
+  const [editingDateId, setEditingDateId] = useState<string | null>(null);
+  const [editDateVal, setEditDateVal] = useState("");
+  const [savingDateId, setSavingDateId] = useState<string | null>(null);
 
   // Al refrescar, descarta de la selección los que ya no salen.
   useEffect(() => {
@@ -1804,6 +1812,88 @@ function QueueTable({ loading, items, onChanged }: { loading: boolean; items: Qu
     }
   }
 
+  // Convierte un valor <input type="datetime-local"> (hora local) a ISO.
+  function localInputToIso(v: string): string | null {
+    if (!v) return null;
+    const d = new Date(v);
+    return isNaN(d.getTime()) ? null : d.toISOString();
+  }
+  // Da el valor para un <input datetime-local> a partir de una fecha (hora local).
+  function toLocalInput(d: Date): string {
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  }
+
+  function openRepace() {
+    setRepaceFrom(toLocalInput(new Date()));
+    setRepaceOpen(true);
+  }
+  async function doRepace() {
+    const iso = localInputToIso(repaceFrom);
+    const ids = Array.from(selected);
+    const scope = ids.length > 0 ? `${ids.length} seleccionado(s)` : "TODA la cola pendiente";
+    if (!confirm(`¿Reprogramar ${scope} a partir de ${repaceFrom || "ahora"}? Se respeta la ventana horaria, el tope diario y el espaciado anti-baneo.`)) return;
+    setRepacing(true);
+    setTickResult(null);
+    try {
+      const r = await fetch("/api/v1/leads/queue/reschedule", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          from: iso ?? undefined,
+          ids: ids.length > 0 ? ids : undefined
+        })
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        setTickResult({ kind: "error", text: d?.message ?? `Error HTTP ${r.status}` });
+      } else {
+        const first = d?.firstAt ? new Date(d.firstAt).toLocaleString("es-ES") : "—";
+        const last = d?.lastAt ? new Date(d.lastAt).toLocaleString("es-ES") : "—";
+        setTickResult({
+          kind: "ok",
+          text: `✓ ${d?.updated ?? 0} mensaje(s) reprogramado(s). Primero: ${first} · Último: ${last}.`
+        });
+        setRepaceOpen(false);
+        setSelected(new Set());
+      }
+    } catch (e: any) {
+      setTickResult({ kind: "error", text: e?.message ?? "Error de red" });
+    } finally {
+      setRepacing(false);
+      onChanged();
+    }
+  }
+
+  function startEditDate(m: QueueRow) {
+    setEditingDateId(m.id);
+    setEditDateVal(m.scheduledAt ? toLocalInput(new Date(m.scheduledAt)) : toLocalInput(new Date()));
+  }
+  async function saveEditDate(id: string) {
+    const iso = localInputToIso(editDateVal);
+    if (!iso) {
+      alert("Fecha inválida.");
+      return;
+    }
+    setSavingDateId(id);
+    try {
+      const r = await fetch(`/api/v1/leads/queue/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ scheduledAt: iso })
+      });
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        alert(j?.message ?? "No se pudo reprogramar.");
+      } else {
+        setEditingDateId(null);
+      }
+      onChanged();
+    } finally {
+      setSavingDateId(null);
+    }
+  }
+
   if (loading) return <Loading />;
   return (
     <div className="space-y-3">
@@ -1816,6 +1906,17 @@ function QueueTable({ loading, items, onChanged }: { loading: boolean; items: Qu
           {processing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
           Procesar siguiente
         </button>
+        {items.some((m) => m.status === "queued") && (
+          <button
+            onClick={openRepace}
+            disabled={repacing}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs disabled:opacity-50"
+            title="Redistribuye los mensajes en cola a partir de una fecha (por defecto, ahora), respetando ventana horaria y anti-baneo. Útil cuando la cola no empieza a enviar hasta dentro de varios días."
+          >
+            {repacing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CalendarClock className="h-3.5 w-3.5" />}
+            Reprogramar {selected.size > 0 ? `${selected.size} sel.` : "cola"}
+          </button>
+        )}
         {items.some((m) => m.status === "failed") && (
           <button
             onClick={retryFailed}
@@ -1839,6 +1940,34 @@ function QueueTable({ loading, items, onChanged }: { loading: boolean; items: Qu
         )}
         <span className="text-xs text-slate-500">{items.length} mensajes en cola/historial</span>
       </div>
+      {repaceOpen && (
+        <div className="flex flex-wrap items-center gap-2 rounded-md border border-indigo-200 bg-indigo-50/60 px-3 py-2.5">
+          <span className="text-xs text-indigo-800">
+            Reprogramar {selected.size > 0 ? `${selected.size} seleccionado(s)` : "toda la cola"} a partir de:
+          </span>
+          <input
+            type="datetime-local"
+            value={repaceFrom}
+            onChange={(e) => setRepaceFrom(e.target.value)}
+            className="text-xs border border-indigo-200 rounded px-2 py-1 bg-white"
+          />
+          <button
+            onClick={doRepace}
+            disabled={repacing}
+            className="inline-flex items-center gap-1.5 px-3 py-1 rounded-md bg-indigo-600 hover:bg-indigo-700 text-white text-xs disabled:opacity-50"
+          >
+            {repacing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+            Aplicar
+          </button>
+          <button
+            onClick={() => setRepaceOpen(false)}
+            disabled={repacing}
+            className="text-xs text-slate-500 hover:text-slate-700 px-2 py-1"
+          >
+            Cancelar
+          </button>
+        </div>
+      )}
       {tickResult && (
         <div
           className={
@@ -1895,7 +2024,42 @@ function QueueTable({ loading, items, onChanged }: { loading: boolean; items: Qu
                     <td className="px-3 py-2 font-mono text-xs">{m.phoneNormalized}</td>
                     <td className="px-3 py-2 text-xs max-w-md truncate" title={m.renderedMessage}>{m.renderedMessage}</td>
                     <td className="px-3 py-2 text-xs">
-                      {m.scheduledAt ? new Date(m.scheduledAt).toLocaleString("es-ES") : "—"}
+                      {editingDateId === m.id ? (
+                        <span className="inline-flex items-center gap-1">
+                          <input
+                            type="datetime-local"
+                            value={editDateVal}
+                            onChange={(e) => setEditDateVal(e.target.value)}
+                            className="text-xs border rounded px-1.5 py-1"
+                          />
+                          <button
+                            onClick={() => saveEditDate(m.id)}
+                            disabled={savingDateId === m.id}
+                            className="text-xs text-indigo-600 hover:text-indigo-800 disabled:opacity-50"
+                          >
+                            {savingDateId === m.id ? "…" : "Guardar"}
+                          </button>
+                          <button
+                            onClick={() => setEditingDateId(null)}
+                            className="text-xs text-slate-400 hover:text-slate-600"
+                          >
+                            ✕
+                          </button>
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1.5">
+                          {m.scheduledAt ? new Date(m.scheduledAt).toLocaleString("es-ES") : "—"}
+                          {m.status === "queued" && (
+                            <button
+                              onClick={() => startEditDate(m)}
+                              className="text-slate-300 hover:text-indigo-600"
+                              title="Editar fecha de envío"
+                            >
+                              <Pencil className="h-3 w-3" />
+                            </button>
+                          )}
+                        </span>
+                      )}
                     </td>
                     <td className="px-3 py-2 text-xs">{m.status}</td>
                     <td className="px-3 py-2 text-xs">{m.sendAttempts}{m.lastError && ` ⚠ ${m.lastError.slice(0, 40)}`}</td>

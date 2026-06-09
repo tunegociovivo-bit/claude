@@ -67,6 +67,13 @@ export async function GET() {
         description: "Crear una tarea nueva",
         url: "/tareas?new=1",
         icons: [{ src: "/icon-192.png", sizes: "192x192", type: "image/png" }]
+      },
+      {
+        name: "Próximas reuniones",
+        short_name: "Reuniones",
+        description: "Tus próximas tareas con fecha, de un vistazo",
+        url: "/widget",
+        icons: [{ src: "/icon-192.png", sizes: "192x192", type: "image/png" }]
       }
     ]
   };
