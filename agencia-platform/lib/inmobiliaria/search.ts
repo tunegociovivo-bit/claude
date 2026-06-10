@@ -317,6 +317,60 @@ function cleanOfferUrl(raw: string | null | undefined): string {
   return s;
 }
 
+/**
+ * Verifica una URL de ficha con una petición HTTP rápida (timeout corto).
+ * Devuelve false si: error de red/timeout, status >= 400, o si tras seguir
+ * redirecciones acaba en la home del portal (señal de que la ficha ya no
+ * existe). Conservador hacia "no verificada": si no podemos confirmar que
+ * abre, mejor caer al enlace de respaldo "Buscar en el portal".
+ */
+async function verifyOfferUrl(u: string): Promise<boolean> {
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 4500);
+    const res = await fetch(u, {
+      method: "GET",
+      redirect: "follow",
+      signal: ctrl.signal,
+      headers: {
+        "user-agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+        accept: "text/html"
+      }
+    });
+    clearTimeout(timer);
+    try {
+      await res.body?.cancel();
+    } catch {}
+    if (!res.ok) return false;
+    const orig = new URL(u);
+    const final = new URL(res.url || u);
+    const origPath = orig.pathname.replace(/\/+$/, "");
+    const finalPath = final.pathname.replace(/\/+$/, "");
+    // Redirigida a la home (sin ruta) aunque la original sí tenía ruta.
+    if (finalPath === "" && origPath !== "") return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Verifica en paralelo (con límite de concurrencia) las URLs de las
+ *  oportunidades; vacía las que no se confirmen para que la UI use el
+ *  enlace de respaldo. */
+async function verifyOpportunityUrls(opps: Opportunity[]): Promise<Opportunity[]> {
+  const idxs = opps.map((o, i) => (o.url ? i : -1)).filter((i) => i >= 0);
+  const CONCURRENCY = 8;
+  for (let i = 0; i < idxs.length; i += CONCURRENCY) {
+    const batch = idxs.slice(i, i + CONCURRENCY);
+    const oks = await Promise.all(batch.map((idx) => verifyOfferUrl(opps[idx].url)));
+    batch.forEach((idx, k) => {
+      if (!oks[k]) opps[idx] = { ...opps[idx], url: "" };
+    });
+  }
+  return opps;
+}
+
 /** Fase 2: estructurar y puntuar las oportunidades. */
 async function analyzeListings(
   workspaceId: string,
@@ -407,6 +461,9 @@ async function analyzeListings(
     return "https://www.google.com/search?q=" + encodeURIComponent(q.trim());
   };
   opps = opps.map((o) => ({ ...o, url: cleanOfferUrl(o.url), searchUrl: buildSearchUrl(o) }));
+  // Verificación HTTP: vacía las URLs que dan 404 o redirigen a la home
+  // (deep-links inventados / fichas caducadas) → se usará "Buscar en el portal".
+  opps = await verifyOpportunityUrls(opps);
   // Filtro duro por estado de ocupación (red de seguridad sobre el prompt).
   if (params.occupancy === "occupied") {
     opps = opps.filter((o) => o.occupied === true);
