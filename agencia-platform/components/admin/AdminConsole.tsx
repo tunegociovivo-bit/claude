@@ -39,7 +39,8 @@ import {
   ShieldCheck,
   Bell,
   Volume2,
-  Wrench
+  Wrench,
+  Sheet
 } from "lucide-react";
 
 type AdminCard = {
@@ -301,6 +302,13 @@ const SECTIONS: AdminSection[] = [
         description:
           "Cada miembro conecta su cuenta en /perfil. Bidireccional: tus eventos viajan en ambas direcciones.",
         icon: Calendar
+      },
+      {
+        href: "/admin/integrations/google-sheets",
+        title: "Google Sheets (gspread)",
+        description:
+          "Pega el service_account.json para que Sonia pueda leer y escribir en hojas de cálculo. Comparte cada hoja con el email del service account (Editor).",
+        icon: Sheet
       },
       {
         href: "/admin/extension",
