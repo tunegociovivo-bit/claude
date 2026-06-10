@@ -38,6 +38,7 @@ type Opportunity = {
   pros: string[];
   cons: string[];
   reasoning: string;
+  searchUrl?: string;
 };
 
 type SearchResult = {
@@ -580,13 +581,13 @@ function OpportunityCard({
               </button>
             )}
           </div>
-          {o.url ? (
+          {o.url || o.searchUrl ? (
             <a
-              href={o.url}
+              href={o.url || o.searchUrl}
               target="_blank"
               rel="noopener noreferrer"
               className="mt-1 block text-sm font-semibold text-brand-700 hover:underline truncate"
-              title={o.title}
+              title={o.url ? o.title : `${o.title} (búsqueda en el portal)`}
             >
               {o.title}
             </a>
@@ -622,6 +623,16 @@ function OpportunityCard({
                   className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-brand-600 hover:bg-brand-700 text-white font-medium"
                 >
                   Ver oferta <ExternalLink className="h-3 w-3" />
+                </a>
+              ) : o.searchUrl ? (
+                <a
+                  href={o.searchUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title="No tenemos el enlace directo; abre una búsqueda en el portal para encontrar esta propiedad"
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-brand-300 text-brand-700 hover:bg-brand-50 font-medium"
+                >
+                  Buscar en el portal <ExternalLink className="h-3 w-3" />
                 </a>
               ) : (
                 <span className="text-slate-400">Sin enlace</span>
