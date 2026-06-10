@@ -14,7 +14,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db/prisma";
-import { toE164, checkVerification } from "@/lib/bubui/twilio";
+import { toE164, checkVerification, isReviewPhone } from "@/lib/bubui/twilio";
 import { issueCustomerToken } from "@/lib/bubui/customer-auth";
 import { rateLimit } from "@/lib/api/rate-limit";
 
@@ -63,7 +63,17 @@ export async function POST(req: Request) {
     );
   }
 
-  const c = await prisma.bubuiCustomer.findUnique({ where: { phone } });
+  let c = await prisma.bubuiCustomer.findUnique({ where: { phone } });
+  // Cuenta de revisión (App Store / Play): si aún no existe, la provisionamos
+  // al vuelo para que el revisor pueda entrar solo con teléfono + código.
+  if (!c && isReviewPhone(phone)) {
+    const reviewEmail = process.env.BUBUI_REVIEW_EMAIL || "appreview@bubui.app";
+    c = await prisma.bubuiCustomer.upsert({
+      where: { email: reviewEmail },
+      update: { phone, phoneVerified: true },
+      create: { phone, phoneVerified: true, email: reviewEmail, name: "App Review", gender: "other" }
+    });
+  }
   if (!c) {
     return NextResponse.json(
       { error: { code: "not_registered", message: "No hay ninguna cuenta con ese número. Date de alta primero." } },

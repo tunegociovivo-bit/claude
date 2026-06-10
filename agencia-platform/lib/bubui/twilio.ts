@@ -25,6 +25,30 @@ export function twilioConfigured(): boolean {
 }
 
 /**
+ * Cuenta de REVISIÓN (App Store / Play). Permite a los revisores iniciar sesión
+ * sin recibir un SMS real: un teléfono + código fijos configurados por env (NO
+ * en el código) que se entregan a la tienda en "Información para el equipo de
+ * revisión".
+ *
+ *   BUBUI_REVIEW_PHONE  (p. ej. +34600000000)
+ *   BUBUI_REVIEW_CODE   (p. ej. "424242")
+ *
+ * Si no están definidas, el bypass queda desactivado (comportamiento normal).
+ */
+function reviewCreds(): { phone: string; code: string } | null {
+  const phone = process.env.BUBUI_REVIEW_PHONE;
+  const code = process.env.BUBUI_REVIEW_CODE;
+  if (!phone || !code) return null;
+  return { phone: toE164(phone) ?? phone, code };
+}
+
+/** ¿Es el teléfono de la cuenta de revisión? (recibe E.164 ya normalizado) */
+export function isReviewPhone(phoneE164: string): boolean {
+  const r = reviewCreds();
+  return !!r && r.phone === phoneE164;
+}
+
+/**
  * Normaliza un teléfono a E.164. Por defecto España (+34).
  * Acepta: +34600111222 · 0034600111222 · 600 11 12 22 · 600111222.
  */
@@ -47,6 +71,8 @@ type StartResult =
   | { configured: true; ok: false; error: string };
 
 export async function startVerification(phoneE164: string): Promise<StartResult> {
+  // Cuenta de revisión: no enviamos SMS, simulamos envío correcto.
+  if (isReviewPhone(phoneE164)) return { configured: true, ok: true };
   const c = creds();
   if (!c) return { configured: false };
   const body = new URLSearchParams({ To: phoneE164, Channel: "sms" });
@@ -67,6 +93,9 @@ type CheckResult =
   | { configured: true; approved: boolean; error?: string };
 
 export async function checkVerification(phoneE164: string, code: string): Promise<CheckResult> {
+  // Cuenta de revisión: aprobamos solo con el código fijo configurado.
+  const rev = reviewCreds();
+  if (rev && rev.phone === phoneE164) return { configured: true, approved: code === rev.code };
   const c = creds();
   if (!c) return { configured: false };
   const body = new URLSearchParams({ To: phoneE164, Code: code });

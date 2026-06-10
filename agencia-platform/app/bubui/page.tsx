@@ -105,6 +105,16 @@ export default function BubuiHome() {
         <Stat big="4 días" label="Caducidad de cupones" />
         <Stat big="∞" label="Negocios que puedes traer" />
       </section>
+
+      {/* Footer con soporte y legal (visible para usuarios y para App Store) */}
+      <footer className="mt-20 border-t pt-8 pb-4 text-sm text-black/60">
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+          <Link href="/bubui/soporte" className="text-pink-600 font-semibold">Soporte y ayuda</Link>
+          <Link href="/bubui/privacidad" className="text-pink-600 font-semibold">Privacidad</Link>
+          <a href="mailto:hola@bubui.app" className="text-pink-600 font-semibold">hola@bubui.app</a>
+        </div>
+        <p className="mt-3 text-black/40">© {new Date().getFullYear()} Bubui · NegocioVivo, Benalmádena (Málaga)</p>
+      </footer>
     </main>
   );
 }
