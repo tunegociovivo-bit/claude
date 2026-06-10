@@ -221,6 +221,18 @@ export function Onboarding() {
           </Text>
         </TouchableOpacity>
 
+        {/* Explorar sin registrarse: ver negocios y ofertas del mapa sin cuenta.
+            El registro solo se pide al canjear/escanear o guardar (Apple 5.1.1). */}
+        <TouchableOpacity
+          style={styles.loginLink}
+          onPress={() => { sfx.tap(); nav.reset({ index: 0, routes: [{ name: "Feed" }] }); }}
+          activeOpacity={0.7}
+        >
+          <Text style={styles.loginLinkText}>
+            Solo quiero <Text style={styles.loginLinkStrong}>echar un vistazo</Text>
+          </Text>
+        </TouchableOpacity>
+
         {/* CTA secundaria: alta de negocio */}
         <View style={styles.bizRow}>
           <View style={styles.divider} />

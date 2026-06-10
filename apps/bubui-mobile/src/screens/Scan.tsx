@@ -51,12 +51,20 @@ export function Scan() {
   }, [done, pop]);
   const popScale = pop.interpolate({ inputRange: [0, 1], outputRange: [0.6, 1] });
 
+  // Escanear/canjear requiere cuenta (Apple 5.1.1: el invitado puede explorar,
+  // pero para recibir descuentos debe registrarse). Si no hay sesión, lo
+  // mandamos al onboarding antes de pedir permiso de cámara.
   useEffect(() => {
     (async () => {
+      const session = await CheckSession();
+      if (!session) {
+        nav.reset({ index: 0, routes: [{ name: "Onboarding" }] });
+        return;
+      }
       const { status } = await Camera.requestCameraPermissionsAsync();
       setHasPermission(status === "granted");
     })();
-  }, []);
+  }, [nav]);
 
   // Cierra la pantalla de escaneo volviendo al stack anterior (o al Feed).
   function close() {
