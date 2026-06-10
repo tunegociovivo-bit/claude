@@ -57,6 +57,9 @@ export type Opportunity = {
   pros: string[];
   cons: string[];
   reasoning: string;
+  /** Enlace de respaldo (búsqueda en el portal) cuando no hay URL directa
+   *  verificada de la ficha. Lo calcula el servidor, no la IA. */
+  searchUrl?: string;
 };
 
 export type SearchResult = {
@@ -386,10 +389,24 @@ async function analyzeListings(
   }
 
   let opps = Array.isArray(data.opportunities) ? data.opportunities : [];
-  // Saneo de enlaces: si la URL es claramente de listado/búsqueda/paginación
-  // o la home del portal (no la ficha concreta), la vaciamos para que la UI
-  // muestre "Sin enlace" en vez de llevar a una página equivocada.
-  opps = opps.map((o) => ({ ...o, url: cleanOfferUrl(o.url) }));
+  // Saneo de enlaces + enlace de respaldo:
+  //  - url: si es claramente listado/búsqueda/paginación/home, la vaciamos.
+  //  - searchUrl: SIEMPRE generamos una búsqueda en el portal (Google
+  //    site:dominio "título" zona) para que el usuario pueda llegar a la
+  //    ficha aunque no tengamos su URL directa verificada.
+  const domainByKey = new Map(portals.map((p) => [p.key.toLowerCase(), p.domain]));
+  const domainByLabel = new Map(portals.map((p) => [p.label.toLowerCase(), p.domain]));
+  const buildSearchUrl = (o: Opportunity): string => {
+    const domain =
+      domainByKey.get((o.portal || "").toLowerCase()) ||
+      domainByLabel.get((o.portal_label || "").toLowerCase()) ||
+      domainByLabel.get((o.portal || "").toLowerCase()) ||
+      "";
+    const terms = [o.title, o.location].filter(Boolean).join(" ").replace(/\s+/g, " ").trim();
+    const q = (domain ? `site:${domain} ` : `${o.portal_label || ""} `) + terms;
+    return "https://www.google.com/search?q=" + encodeURIComponent(q.trim());
+  };
+  opps = opps.map((o) => ({ ...o, url: cleanOfferUrl(o.url), searchUrl: buildSearchUrl(o) }));
   // Filtro duro por estado de ocupación (red de seguridad sobre el prompt).
   if (params.occupancy === "occupied") {
     opps = opps.filter((o) => o.occupied === true);
