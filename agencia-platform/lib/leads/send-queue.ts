@@ -19,6 +19,14 @@ import { pickEnqueueChannel } from "./channels";
  */
 export const SENT_STATUSES = ["sent", "delivered", "read"];
 
+/**
+ * Estados que cuentan como "ya enviado" para los topes anti-baneo. Cuando el
+ * webhook de WAHA confirma la entrega, un mensaje "sent" pasa a "delivered" o
+ * "read"; deben seguir contando o el pacing creería que se envió de menos y
+ * dispararía ráfagas (justo lo que provoca baneos).
+ */
+export const SENT_STATUSES = ["sent", "delivered", "read"];
+
 export type LeadsSendSettings = {
   sendEnabled: boolean;
   sendDelayMinSec: number;
