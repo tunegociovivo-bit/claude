@@ -5,6 +5,11 @@ import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { FEATURES } from "@/lib/features";
+import { ADMIN_SECTIONS, ADMIN_CARDS } from "@/lib/admin-catalog";
+
+const SECTION_IDS = new Set(ADMIN_SECTIONS.map((s) => s.id));
+// Solo se pueden conceder tarjetas NO adminOnly (las sensibles quedan fuera).
+const GRANTABLE_HREFS = new Set(ADMIN_CARDS.filter((c) => !c.adminOnly).map((c) => c.href));
 
 const updateSchema = z.object({
   name: z.string().min(1).optional(),
@@ -14,7 +19,16 @@ const updateSchema = z.object({
   image: z.string().url().nullable().optional(),
   role: z.enum(["ADMIN", "MEMBER", "GUEST"]).optional(),
   // null = se aplican los defaults del rol. Array = sólo esas features.
-  features: z.array(z.enum(FEATURES as unknown as [string, ...string[]])).nullable().optional()
+  features: z.array(z.enum(FEATURES as unknown as [string, ...string[]])).nullable().optional(),
+  // Acceso granular al panel admin. null = sin acceso. Se validan ids/hrefs
+  // contra el catálogo y se descartan las tarjetas adminOnly (no concedibles).
+  adminGrants: z
+    .object({
+      sections: z.array(z.string()).default([]),
+      cards: z.array(z.string()).default([])
+    })
+    .nullable()
+    .optional()
 });
 
 async function requireAdminInWorkspace(workspaceId: string, userId: string) {
@@ -30,12 +44,27 @@ export const PATCH = withApi({ scope: "*" }, async (req, { params, api }) => {
   const parsed = updateSchema.safeParse(body);
   if (!parsed.success) throw new ApiError(400, "validation_error", parsed.error.message);
 
-  const { name, email, password, role, phone, image, features } = parsed.data;
+  const { name, email, password, role, phone, image, features, adminGrants } = parsed.data;
 
   const member = await prisma.membership.findFirst({
     where: { workspaceId: api.workspaceId, userId: params.id }
   });
   if (!member) throw new ApiError(404, "not_found", "Usuario no es miembro del workspace");
+
+  // Saneamos adminGrants: solo ids de sección válidas y hrefs concedibles.
+  let cleanGrants: { sections: string[]; cards: string[] } | null | undefined = undefined;
+  if (adminGrants !== undefined) {
+    if (adminGrants === null) {
+      cleanGrants = null;
+    } else {
+      cleanGrants = {
+        sections: [...new Set(adminGrants.sections.filter((s) => SECTION_IDS.has(s)))],
+        cards: [...new Set(adminGrants.cards.filter((h) => GRANTABLE_HREFS.has(h)))]
+      };
+      // Si queda vacío, lo guardamos como null (sin acceso) para mantenerlo limpio.
+      if (cleanGrants.sections.length === 0 && cleanGrants.cards.length === 0) cleanGrants = null;
+    }
+  }
 
   const userUpdate: any = {};
   if (name !== undefined) userUpdate.name = name;
@@ -50,6 +79,7 @@ export const PATCH = withApi({ scope: "*" }, async (req, { params, api }) => {
   const membershipUpdate: any = {};
   if (role) membershipUpdate.role = role;
   if (features !== undefined) membershipUpdate.features = features; // array | null
+  if (cleanGrants !== undefined) membershipUpdate.adminGrants = cleanGrants; // {sections,cards} | null
   if (Object.keys(membershipUpdate).length > 0) {
     await prisma.membership.update({ where: { id: member.id }, data: membershipUpdate });
   }

@@ -496,23 +496,44 @@ const ACCENT_TO_ACTIVE: Record<string, string> = {
   rose: "bg-rose-50 text-rose-800"
 };
 
-export default function AdminConsole() {
+export default function AdminConsole({
+  accessibleHrefs = null
+}: {
+  /** null = acceso total (ADMIN): se muestran todas las tarjetas.
+   *  Array = solo se muestran las tarjetas con href incluido (miembro con
+   *  acceso parcial concedido). */
+  accessibleHrefs?: string[] | null;
+}) {
   const [activeId, setActiveId] = useState<string>(SECTIONS[0].id);
   const [query, setQuery] = useState("");
+
+  // Secciones filtradas por lo que el usuario puede ver. Las secciones que se
+  // quedan sin tarjetas visibles desaparecen del menú.
+  const sections = useMemo(() => {
+    if (!accessibleHrefs) return SECTIONS;
+    const allowed = new Set(accessibleHrefs);
+    return SECTIONS.map((s) => ({ ...s, cards: s.cards.filter((c) => allowed.has(c.href)) })).filter(
+      (s) => s.cards.length > 0
+    );
+  }, [accessibleHrefs]);
 
   const q = query.trim().toLowerCase();
   const searchResults = useMemo(() => {
     if (!q) return null;
     const out: AdminCard[] = [];
-    for (const s of SECTIONS) {
+    for (const s of sections) {
       for (const c of s.cards) {
         if (c.title.toLowerCase().includes(q) || c.description.toLowerCase().includes(q)) out.push(c);
       }
     }
     return out;
-  }, [q]);
+  }, [q, sections]);
 
-  const active = SECTIONS.find((s) => s.id === activeId) ?? SECTIONS[0];
+  if (sections.length === 0) {
+    return <p className="text-sm text-slate-400">No tienes ninguna sección de administración asignada.</p>;
+  }
+
+  const active = sections.find((s) => s.id === activeId) ?? sections[0];
 
   return (
     <div>
@@ -535,7 +556,7 @@ export default function AdminConsole() {
             onChange={(e) => setActiveId(e.target.value)}
             className="w-full px-3 py-2 rounded-lg border bg-white text-sm"
           >
-            {SECTIONS.map((s) => (
+            {sections.map((s) => (
               <option key={s.id} value={s.id}>
                 {s.title} ({s.cards.length})
               </option>
@@ -551,7 +572,7 @@ export default function AdminConsole() {
             Secciones
           </div>
           <div className="space-y-0.5">
-            {SECTIONS.map((s) => {
+            {sections.map((s) => {
               const Icon = s.icon;
               const isActive = !q && s.id === activeId;
               return (

@@ -126,7 +126,13 @@ export async function middleware(req: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  return NextResponse.next();
+  // Exponemos la ruta como header de la request para que los Server
+  // Components (p. ej. app/admin/layout.tsx) puedan saber qué página se está
+  // sirviendo y aplicar autorización por ruta. Next.js no da el pathname a los
+  // layouts de otra forma.
+  const requestHeaders = new Headers(req.headers);
+  requestHeaders.set("x-pathname", pathname);
+  return NextResponse.next({ request: { headers: requestHeaders } });
 }
 
 export const config = {
