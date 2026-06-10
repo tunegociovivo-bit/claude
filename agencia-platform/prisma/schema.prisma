@@ -449,6 +449,12 @@ model Membership {
   // estándar, Guest sólo lectura). Array = sólo las herramientas listadas.
   // Se ignora para ADMIN (siempre tiene todo).
   features    Json?
+  // adminGrants: acceso GRANULAR al panel de administración para usuarios
+  // que NO son ADMIN. Forma: { sections: string[], cards: string[] } con las
+  // ids de sección y los hrefs de tarjeta de lib/admin-catalog.ts. null/ausente
+  // = sin acceso al panel admin. Se ignora para ADMIN (siempre ve todo). Las
+  // tarjetas marcadas adminOnly nunca se conceden por esta vía.
+  adminGrants Json?
   joinedAt    DateTime  @default(now())
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)

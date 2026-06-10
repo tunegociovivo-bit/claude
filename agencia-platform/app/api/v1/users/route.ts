@@ -32,6 +32,7 @@ export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
     role: m.role, // rol dentro del workspace
     globalRole: m.user.role,
     features: (m as any).features ?? null,
+    adminGrants: (m as any).adminGrants ?? null,
     membershipId: m.id,
     joinedAt: m.joinedAt
   }));

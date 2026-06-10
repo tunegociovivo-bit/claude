@@ -6,6 +6,12 @@ import Modal from "@/components/ui/Modal";
 import { Plus, Loader2, Trash2, Edit2, Shield, ShieldCheck, ChevronDown, ChevronRight, Check, X as XIcon } from "lucide-react";
 import ImageUpload from "@/components/ui/ImageUpload";
 import { FEATURES, FEATURE_LABEL, FEATURE_DESCRIPTION, defaultFeaturesForRole, type Feature } from "@/lib/features";
+import {
+  ADMIN_SECTIONS,
+  grantableCardsBySection,
+  sectionIsGrantable,
+  normalizeAdminGrants
+} from "@/lib/admin-catalog";
 
 type Member = {
   id: string;
@@ -14,6 +20,7 @@ type Member = {
   image: string | null;
   role: "ADMIN" | "MEMBER" | "GUEST";
   features?: string[] | null;
+  adminGrants?: { sections?: string[]; cards?: string[] } | null;
   joinedAt: string;
 };
 
@@ -534,6 +541,11 @@ function UserFormModal({
   // "custom" = lista explícita marcada por el admin.
   const [featuresMode, setFeaturesMode] = useState<"default" | "custom">("default");
   const [customFeatures, setCustomFeatures] = useState<Feature[]>([]);
+  // Acceso al panel de administración (solo edición + no-admin). Conjunto de
+  // ids de sección concedidas + hrefs de tarjeta sueltas concedidas.
+  const [grantSections, setGrantSections] = useState<Set<string>>(new Set());
+  const [grantCards, setGrantCards] = useState<Set<string>>(new Set());
+  const [expandedSection, setExpandedSection] = useState<string | null>(null);
   // Acceso por proyecto (solo edición + no-admin). Lo cargamos asíncronamente
   // al abrir el modal con el user existente. allowedProjectIds = los que el
   // admin tiene marcados ahora mismo en la UI; al guardar, mandamos esa lista
@@ -565,6 +577,9 @@ function UserFormModal({
         setFeaturesMode("default");
         setCustomFeatures(defaultFeaturesForRole(member.role));
       }
+      const g = normalizeAdminGrants(member.adminGrants);
+      setGrantSections(new Set(g.sections));
+      setGrantCards(new Set(g.cards));
     } else {
       setName("");
       setEmail("");
@@ -574,7 +589,10 @@ function UserFormModal({
       setRole("MEMBER");
       setFeaturesMode("default");
       setCustomFeatures(defaultFeaturesForRole("MEMBER"));
+      setGrantSections(new Set());
+      setGrantCards(new Set());
     }
+    setExpandedSection(null);
     // Reset proyectos al cambiar de modal
     setProjects([]);
     setAllowedProjectIds(new Set());
@@ -621,6 +639,33 @@ function UserFormModal({
     setCustomFeatures((arr) => (arr.includes(f) ? arr.filter((x) => x !== f) : [...arr, f]));
   }
 
+  function toggleGrantSection(sectionId: string) {
+    setGrantSections((s) => {
+      const next = new Set(s);
+      if (next.has(sectionId)) next.delete(sectionId);
+      else {
+        next.add(sectionId);
+        // Al conceder la sección entera, limpiamos las tarjetas sueltas de esa
+        // sección (quedan cubiertas) para no guardar redundancias.
+        setGrantCards((cards) => {
+          const nc = new Set(cards);
+          for (const c of grantableCardsBySection(sectionId)) nc.delete(c.href);
+          return nc;
+        });
+      }
+      return next;
+    });
+  }
+
+  function toggleGrantCard(href: string) {
+    setGrantCards((s) => {
+      const next = new Set(s);
+      if (next.has(href)) next.delete(href);
+      else next.add(href);
+      return next;
+    });
+  }
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
@@ -639,6 +684,14 @@ function UserFormModal({
       if (role === "ADMIN") payload.features = null;
       else if (featuresMode === "default") payload.features = null;
       else payload.features = customFeatures;
+      // Acceso al panel admin: ADMIN ve todo (null). Para el resto, mandamos
+      // las secciones/tarjetas concedidas (null si no hay ninguna).
+      if (role === "ADMIN") payload.adminGrants = null;
+      else {
+        const sections = [...grantSections];
+        const cards = [...grantCards];
+        payload.adminGrants = sections.length || cards.length ? { sections, cards } : null;
+      }
     }
 
     const r = await fetch(url, {
@@ -863,6 +916,94 @@ function UserFormModal({
           <p className="text-[11px] text-slate-500 italic">
             Los administradores siempre tienen acceso a todas las herramientas y a las opciones de gestión del workspace.
           </p>
+        )}
+
+        {/* Acceso al panel de ADMINISTRACIÓN: solo edición + no-admin. Concede
+            secciones enteras o tarjetas sueltas del panel /admin. Las tarjetas
+            sensibles (usuarios, bóveda, API keys, auditoría…) nunca se ofrecen. */}
+        {isEdit && role !== "ADMIN" && (
+          <div className="border rounded-lg p-3 bg-violet-50/40 border-violet-200">
+            <div className="mb-2">
+              <div className="text-xs font-semibold text-slate-700">Acceso al panel de administración</div>
+              <div className="text-[11px] text-slate-500">
+                Da acceso a secciones o tarjetas concretas del panel <span className="font-mono">/admin</span>. Marca
+                una sección entera, o despliégala para elegir tarjetas sueltas. Por defecto, sin acceso.
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              {ADMIN_SECTIONS.filter((s) => sectionIsGrantable(s.id)).map((s) => {
+                const cards = grantableCardsBySection(s.id);
+                const sectionOn = grantSections.has(s.id);
+                const expanded = expandedSection === s.id;
+                const cardOnCount = sectionOn
+                  ? cards.length
+                  : cards.filter((c) => grantCards.has(c.href)).length;
+                return (
+                  <div key={s.id} className="rounded border bg-white">
+                    <div className="flex items-center gap-2 px-2 py-1.5">
+                      <input
+                        type="checkbox"
+                        checked={sectionOn}
+                        onChange={() => toggleGrantSection(s.id)}
+                        className="accent-violet-600"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setExpandedSection(expanded ? null : s.id)}
+                        className="flex-1 flex items-center justify-between gap-2 text-left min-w-0"
+                      >
+                        <span className="text-xs font-medium text-slate-800 truncate">{s.title}</span>
+                        <span className="flex items-center gap-1.5 shrink-0">
+                          {cardOnCount > 0 && (
+                            <span className="text-[10px] text-violet-700 bg-violet-100 rounded px-1.5 py-0.5">
+                              {sectionOn ? "Sección" : `${cardOnCount}/${cards.length}`}
+                            </span>
+                          )}
+                          {expanded ? (
+                            <ChevronDown className="h-3.5 w-3.5 text-slate-400" />
+                          ) : (
+                            <ChevronRight className="h-3.5 w-3.5 text-slate-400" />
+                          )}
+                        </span>
+                      </button>
+                    </div>
+                    {expanded && (
+                      <div className="border-t px-2 py-1.5 grid grid-cols-1 sm:grid-cols-2 gap-1">
+                        {cards.map((c) => {
+                          const covered = sectionOn;
+                          const checked = covered || grantCards.has(c.href);
+                          return (
+                            <label
+                              key={c.href}
+                              className={
+                                "flex items-center gap-2 px-1.5 py-1 rounded text-[11px] " +
+                                (covered ? "opacity-60 cursor-not-allowed" : "cursor-pointer hover:bg-slate-50")
+                              }
+                            >
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                disabled={covered}
+                                onChange={() => toggleGrantCard(c.href)}
+                                className="accent-violet-600"
+                              />
+                              <span className="truncate text-slate-700">{c.title}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            {grantSections.size === 0 && grantCards.size === 0 && (
+              <p className="mt-2 text-[11px] text-slate-500">
+                Sin acceso al panel de administración (no verá <span className="font-mono">/admin</span>).
+              </p>
+            )}
+          </div>
         )}
 
         {/* Acceso por proyecto: solo en edición + no-admin. ADMIN ven todo

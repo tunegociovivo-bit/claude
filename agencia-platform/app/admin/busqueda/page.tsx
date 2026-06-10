@@ -1,19 +1,15 @@
 import { redirect } from "next/navigation";
-import { getServerSession } from "next-auth";
-import { authOptions, getSessionWorkspaceId } from "@/lib/auth";
+import { getSessionWorkspaceId } from "@/lib/auth";
 import { prisma } from "@/lib/db/prisma";
 import PageHeader from "@/components/PageHeader";
 import BusquedaClient from "@/components/admin/BusquedaClient";
 
 export const dynamic = "force-dynamic";
 
+// Acceso gobernado por app/admin/layout.tsx.
 export default async function BusquedaPage() {
-  const session = await getServerSession(authOptions);
-  const userId = (session?.user as any)?.id as string | undefined;
   const workspaceId = await getSessionWorkspaceId();
-  if (!userId || !workspaceId) redirect("/login");
-  const me = await prisma.membership.findFirst({ where: { userId, workspaceId } });
-  if (!me || me.role !== "ADMIN") redirect("/");
+  if (!workspaceId) redirect("/login");
 
   // Estado actual del índice: cuántos vectores hay por tipo.
   const grouped = await prisma.searchEmbedding.groupBy({
