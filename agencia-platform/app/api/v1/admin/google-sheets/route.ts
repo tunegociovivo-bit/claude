@@ -17,11 +17,12 @@ import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { encryptSecret, decryptSecret } from "@/lib/ai/crypto";
 import { testSheetsConnection } from "@/lib/integrations/google-sheets";
+import { requireAdminCardAccess } from "@/lib/api/admin-access";
 
-async function requireAdmin(workspaceId: string, userId: string | undefined) {
-  if (!userId) throw new ApiError(401, "no_user", "Sesión requerida");
-  const me = await prisma.membership.findFirst({ where: { workspaceId, userId } });
-  if (!me || me.role !== "ADMIN") throw new ApiError(403, "forbidden", "Solo admins");
+const CARD_HREF = "/admin/integrations/google-sheets";
+
+async function requireAccess(workspaceId: string, userId: string | undefined) {
+  await requireAdminCardAccess(workspaceId, userId, CARD_HREF);
 }
 
 function emailFromEncrypted(enc?: string): string | null {
@@ -35,7 +36,7 @@ function emailFromEncrypted(enc?: string): string | null {
 }
 
 export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
-  await requireAdmin(api.workspaceId, api.userId);
+  await requireAccess(api.workspaceId, api.userId);
   const ws = await prisma.workspace.findUnique({ where: { id: api.workspaceId } });
   const integrations: any = (ws?.settings as any)?.integrations ?? {};
   const ownEnc = integrations?.googleSheets?.serviceAccountJsonEncrypted;
@@ -55,7 +56,7 @@ const patchSchema = z.object({
 });
 
 export const PATCH = withApi({ scope: "*" }, async (req, { api }) => {
-  await requireAdmin(api.workspaceId, api.userId);
+  await requireAccess(api.workspaceId, api.userId);
   const body = await req.json().catch(() => null);
   const parsed = patchSchema.safeParse(body);
   if (!parsed.success) throw new ApiError(400, "validation_error", parsed.error.message);
@@ -93,7 +94,7 @@ const postSchema = z.object({
 });
 
 export const POST = withApi({ scope: "*" }, async (req, { api }) => {
-  await requireAdmin(api.workspaceId, api.userId);
+  await requireAccess(api.workspaceId, api.userId);
   const body = await req.json().catch(() => null);
   const parsed = postSchema.safeParse(body);
   if (!parsed.success) throw new ApiError(400, "validation_error", parsed.error.message);
