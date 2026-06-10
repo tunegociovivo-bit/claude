@@ -57,6 +57,8 @@ export type Opportunity = {
   pros: string[];
   cons: string[];
   reasoning: string;
+  /** Teléfono de contacto extraído de la ficha (si está disponible). */
+  phone?: string;
   /** Enlace de respaldo (búsqueda en el portal) cuando no hay URL directa
    *  verificada de la ficha. Lo calcula el servidor, no la IA. */
   searchUrl?: string;
@@ -317,17 +319,30 @@ function cleanOfferUrl(raw: string | null | undefined): string {
   return s;
 }
 
+/** Convierte HTML a texto plano compacto (quita scripts/estilos/etiquetas). */
+function htmlToText(html: string): string {
+  return html
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&euro;/gi, "€")
+    .replace(/&[a-z]+;/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 /**
- * Verifica una URL de ficha con una petición HTTP rápida (timeout corto).
- * Devuelve false si: error de red/timeout, status >= 400, o si tras seguir
- * redirecciones acaba en la home del portal (señal de que la ficha ya no
- * existe). Conservador hacia "no verificada": si no podemos confirmar que
- * abre, mejor caer al enlace de respaldo "Buscar en el portal".
+ * Descarga la ficha (petición HTTP rápida con timeout). Devuelve ok=false
+ * si: error/timeout, status >= 400, o si tras redirecciones acaba en la
+ * home del portal (ficha inexistente → deep-link inventado). Si ok, devuelve
+ * también el texto de la página para extraer datos reales (precio, teléfono…).
  */
-async function verifyOfferUrl(u: string): Promise<boolean> {
+async function fetchOfferPage(u: string): Promise<{ ok: boolean; text: string }> {
   try {
     const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 4500);
+    const timer = setTimeout(() => ctrl.abort(), 6000);
     const res = await fetch(u, {
       method: "GET",
       redirect: "follow",
@@ -338,35 +353,110 @@ async function verifyOfferUrl(u: string): Promise<boolean> {
         accept: "text/html"
       }
     });
-    clearTimeout(timer);
-    try {
-      await res.body?.cancel();
-    } catch {}
-    if (!res.ok) return false;
+    if (!res.ok) {
+      clearTimeout(timer);
+      try { await res.body?.cancel(); } catch {}
+      return { ok: false, text: "" };
+    }
     const orig = new URL(u);
     const final = new URL(res.url || u);
-    const origPath = orig.pathname.replace(/\/+$/, "");
-    const finalPath = final.pathname.replace(/\/+$/, "");
-    // Redirigida a la home (sin ruta) aunque la original sí tenía ruta.
-    if (finalPath === "" && origPath !== "") return false;
-    return true;
+    if (final.pathname.replace(/\/+$/, "") === "" && orig.pathname.replace(/\/+$/, "") !== "") {
+      clearTimeout(timer);
+      try { await res.body?.cancel(); } catch {}
+      return { ok: false, text: "" };
+    }
+    const raw = await res.text();
+    clearTimeout(timer);
+    return { ok: true, text: htmlToText(raw).slice(0, 3500) };
   } catch {
-    return false;
+    return { ok: false, text: "" };
   }
 }
 
-/** Verifica en paralelo (con límite de concurrencia) las URLs de las
- *  oportunidades; vacía las que no se confirmen para que la UI use el
- *  enlace de respaldo. */
-async function verifyOpportunityUrls(opps: Opportunity[]): Promise<Opportunity[]> {
+/** Verifica en paralelo las URLs y recoge el texto de las fichas válidas.
+ *  Las no verificadas se vacían (la UI usará "Buscar en el portal"). */
+async function verifyAndCollectPages(
+  opps: Opportunity[]
+): Promise<{ opps: Opportunity[]; pages: Map<number, string> }> {
   const idxs = opps.map((o, i) => (o.url ? i : -1)).filter((i) => i >= 0);
-  const CONCURRENCY = 8;
+  const pages = new Map<number, string>();
+  const CONCURRENCY = 6;
   for (let i = 0; i < idxs.length; i += CONCURRENCY) {
     const batch = idxs.slice(i, i + CONCURRENCY);
-    const oks = await Promise.all(batch.map((idx) => verifyOfferUrl(opps[idx].url)));
+    const results = await Promise.all(batch.map((idx) => fetchOfferPage(opps[idx].url)));
     batch.forEach((idx, k) => {
-      if (!oks[k]) opps[idx] = { ...opps[idx], url: "" };
+      if (!results[k].ok) opps[idx] = { ...opps[idx], url: "" };
+      else if (results[k].text) pages.set(idx, results[k].text);
     });
+  }
+  return { opps, pages };
+}
+
+const ENRICH_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    items: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          index: { type: "number" },
+          price: { anyOf: [{ type: "number" }, { type: "null" }] },
+          phone: { anyOf: [{ type: "string" }, { type: "null" }] },
+          surface: { anyOf: [{ type: "number" }, { type: "null" }] },
+          address: { anyOf: [{ type: "string" }, { type: "null" }] }
+        },
+        required: ["index", "price", "phone", "surface", "address"]
+      }
+    }
+  },
+  required: ["items"]
+};
+
+/** Extrae datos reales (precio, teléfono, superficie, dirección) del texto
+ *  de las fichas verificadas con UNA sola llamada, y los fusiona. */
+async function enrichFromPages(
+  workspaceId: string,
+  opps: Opportunity[],
+  pages: Map<number, string>
+): Promise<Opportunity[]> {
+  if (pages.size === 0) return opps;
+  const blocks = [...pages.entries()].map(
+    ([idx, text]) => `### FICHA ${idx}\nURL: ${opps[idx].url}\nTEXTO:\n${text}`
+  );
+  let extracted: { items: Array<{ index: number; price: number | null; phone: string | null; surface: number | null; address: string | null }> };
+  try {
+    extracted = await completeJson({
+      workspaceId,
+      system:
+        "Extraes datos de fichas inmobiliarias a partir del texto real de su página web. Para cada ficha devuelve el PRECIO de venta actual en euros (el precio de venta del inmueble; si hay precio rebajado/actual y otro tachado, usa el ACTUAL), el TELÉFONO de contacto, la SUPERFICIE en m² y la DIRECCIÓN/ubicación. Usa null si un dato no aparece. No inventes nada. Responde solo con el JSON del schema.",
+      user: blocks.join("\n\n").slice(0, 40000),
+      schema: ENRICH_SCHEMA,
+      maxTokens: 3000
+    });
+  } catch {
+    return opps; // si la extracción falla, seguimos con los datos de la IA
+  }
+  for (const it of extracted.items ?? []) {
+    const o = opps[it.index];
+    if (!o) continue;
+    const next = { ...o };
+    if (typeof it.price === "number" && it.price > 0) next.price = it.price;
+    if (it.phone && it.phone.trim()) next.phone = it.phone.trim();
+    if (typeof it.surface === "number" && it.surface > 0 && !next.surface) next.surface = it.surface;
+    if (it.address && it.address.trim() && (!next.location || next.location.length < 4))
+      next.location = it.address.trim();
+    // Recalcular métricas derivadas con el precio real.
+    if (next.price > 0) {
+      if (next.surface && next.surface > 0) next.price_m2 = Math.round(next.price / next.surface);
+      if (next.estimated_market_price && next.estimated_market_price > 0)
+        next.discount_pct = Math.round((1 - next.price / next.estimated_market_price) * 100);
+      if (next.estimated_rent && next.estimated_rent > 0)
+        next.gross_yield = Math.round(((next.estimated_rent * 12) / next.price) * 1000) / 10;
+    }
+    opps[it.index] = next;
   }
   return opps;
 }
@@ -461,9 +551,13 @@ async function analyzeListings(
     return "https://www.google.com/search?q=" + encodeURIComponent(q.trim());
   };
   opps = opps.map((o) => ({ ...o, url: cleanOfferUrl(o.url), searchUrl: buildSearchUrl(o) }));
-  // Verificación HTTP: vacía las URLs que dan 404 o redirigen a la home
-  // (deep-links inventados / fichas caducadas) → se usará "Buscar en el portal".
-  opps = await verifyOpportunityUrls(opps);
+  // Verificación HTTP + recogida del texto de las fichas válidas. Las URLs
+  // que dan 404 o redirigen a la home se vacían (→ "Buscar en el portal").
+  const verified = await verifyAndCollectPages(opps);
+  opps = verified.opps;
+  // Enriquecimiento: extrae precio/teléfono/superficie reales de las fichas
+  // verificadas y recalcula €/m², descuento y rentabilidad.
+  opps = await enrichFromPages(workspaceId, opps, verified.pages);
   // Filtro duro por estado de ocupación (red de seguridad sobre el prompt).
   if (params.occupancy === "occupied") {
     opps = opps.filter((o) => o.occupied === true);
