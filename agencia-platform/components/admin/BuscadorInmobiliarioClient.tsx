@@ -12,7 +12,8 @@ import {
   TrendingUp,
   AlertTriangle,
   CheckCircle2,
-  Star
+  Star,
+  Phone
 } from "lucide-react";
 
 type Portal = { key: string; label: string; bank: string; url: string; note: string | null };
@@ -38,6 +39,7 @@ type Opportunity = {
   pros: string[];
   cons: string[];
   reasoning: string;
+  phone?: string;
   searchUrl?: string;
 };
 
@@ -594,8 +596,16 @@ function OpportunityCard({
           ) : (
             <h3 className="mt-1 text-sm font-semibold text-slate-800 truncate">{o.title}</h3>
           )}
-          <div className="text-xs text-slate-500 flex items-center gap-1 mt-0.5">
+          <div className="text-xs text-slate-500 flex items-center gap-1 mt-0.5 flex-wrap">
             <MapPin className="h-3 w-3" /> {o.location} · {o.property_type}
+            {o.phone && (
+              <a
+                href={`tel:${o.phone.replace(/\s+/g, "")}`}
+                className="ml-2 inline-flex items-center gap-1 text-brand-700 hover:underline"
+              >
+                <Phone className="h-3 w-3" /> {o.phone}
+              </a>
+            )}
           </div>
 
           <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
