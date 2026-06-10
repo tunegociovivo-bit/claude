@@ -47,6 +47,8 @@ export function Feed() {
   const c = useTheme();
   const styles = makeStyles(c);
   const [customer, setCustomer] = useState<Customer | null>(null);
+  // Invitado = sin sesión. Entra desde el onboarding ("explorar sin cuenta").
+  const [guest, setGuest] = useState(false);
   const [offers, setOffers] = useState<Offer[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [banner, setBanner] = useState<{ imageUrl?: string; link?: string; active: boolean } | null>(null);
@@ -80,15 +82,10 @@ export function Feed() {
     setRefreshing(true);
     try {
       const c = await CheckSession();
-      if (!c) {
-        nav.reset({ index: 0, routes: [{ name: "Onboarding" }] });
-        return;
-      }
       setCustomer(c);
+      setGuest(!c);
       // Banner gestionable desde admin: se refresca en cada foco / pull-to-refresh.
       api.banner().then(setBanner).catch(() => {});
-      // Registramos el token de push en background — no bloquea la carga.
-      registerExpoPushForCustomer(c.customerId).catch(() => {});
       let lat: number | undefined;
       let lng: number | undefined;
       try {
@@ -103,22 +100,48 @@ export function Feed() {
           lng = loc.coords.longitude;
         }
       } catch {}
-      try {
-        const r = await api.offers(c.customerId, lat, lng);
-        const items: Offer[] = r.items ?? [];
-        setOffers(items);
-        // Geocercas alrededor de los negocios con cupón activo (background).
-        startBubuiGeofencing(
-          items.map((o) => ({
-            id: o.business.id,
-            name: o.business.name,
-            latitude: o.business.latitude,
-            longitude: o.business.longitude,
-            discountPct: o.discountPct
-          }))
-        ).catch(() => {});
-      } catch {
-        setOffers([]);
+      if (c) {
+        // Usuario registrado: sus cupones personalizados + push + geocercas.
+        registerExpoPushForCustomer(c.customerId).catch(() => {});
+        try {
+          const r = await api.offers(c.customerId, lat, lng);
+          const items: Offer[] = r.items ?? [];
+          setOffers(items);
+          // Geocercas alrededor de los negocios con cupón activo (background).
+          startBubuiGeofencing(
+            items.map((o) => ({
+              id: o.business.id,
+              name: o.business.name,
+              latitude: o.business.latitude,
+              longitude: o.business.longitude,
+              discountPct: o.discountPct
+            }))
+          ).catch(() => {});
+        } catch {
+          setOffers([]);
+        }
+      } else {
+        // Invitado (sin cuenta): solo contenido público — catálogo de negocios
+        // (los destacados por el admin van primero) + banner. Sin ofertas
+        // personalizadas, push ni geocercas. Para escanear/canjear hay que
+        // registrarse (las pantallas Scan/Cuenta/Afiliados ya lo exigen).
+        try {
+          const r = await api.discover(lat, lng);
+          const items: Offer[] = (r.items ?? []).map((b: any) => ({
+            offerId: b.id,
+            business: {
+              id: b.id, slug: b.slug, name: b.name, category: b.category, city: b.city,
+              latitude: b.latitude, longitude: b.longitude, logoUrl: b.logoUrl, brandColor: b.brandColor
+            },
+            discountPct: b.defaultDiscountPct ?? 0,
+            rewardLabel: null,
+            hoursLeft: 0,
+            distanceM: b.distanceM ?? null
+          }));
+          setOffers(items);
+        } catch {
+          setOffers([]);
+        }
       }
     } finally {
       setRefreshing(false);
@@ -145,23 +168,40 @@ export function Feed() {
         <Wordmark size={26} />
       </FadeIn>
 
-      {/* Has ahorrado + cupón */}
-      <FadeIn replayOnFocus delay={stagger(1)} style={styles.savedCard}>
-        <View>
-          <Text style={styles.savedLabel}>HAS AHORRADO</Text>
-          <CountUp value={customer?.totalSaved ?? 0} decimals={2} suffix=" €" style={styles.savedAmount} />
-        </View>
-        <Text style={{ fontSize: 38 }}>🎟️</Text>
-      </FadeIn>
+      {guest ? (
+        /* Invitado: tarjeta de registro en lugar de stats + escanear. */
+        <FadeIn replayOnFocus delay={stagger(1)}>
+          <View style={styles.guestCard}>
+            <Text style={styles.guestTitle}>Estás explorando como invitado</Text>
+            <Text style={styles.guestText}>
+              Crea tu cuenta gratis para escanear, canjear ofertas y ganar premios en tu barrio.
+            </Text>
+            <Bouncy style={styles.guestCta} onPress={() => { sfx.tap(); nav.navigate("Onboarding"); }}>
+              <Text style={styles.guestCtaText}>Crear cuenta gratis</Text>
+            </Bouncy>
+          </View>
+        </FadeIn>
+      ) : (
+        <>
+          {/* Has ahorrado + cupón */}
+          <FadeIn replayOnFocus delay={stagger(1)} style={styles.savedCard}>
+            <View>
+              <Text style={styles.savedLabel}>HAS AHORRADO</Text>
+              <CountUp value={customer?.totalSaved ?? 0} decimals={2} suffix=" €" style={styles.savedAmount} />
+            </View>
+            <Text style={{ fontSize: 38 }}>🎟️</Text>
+          </FadeIn>
 
-      {/* Botón escanear con animación (pulso + rebote al pulsar) */}
-      <FadeIn replayOnFocus delay={stagger(2)}>
-        <Animated.View style={{ transform: [{ scale }], marginBottom: 20 }}>
-          <Bouncy style={styles.cta} onPress={() => { sfx.tap(); nav.navigate("Scan", { businessId: "" }); }}>
-            <Text style={styles.ctaText}>⛶  Escanear QR de un negocio</Text>
-          </Bouncy>
-        </Animated.View>
-      </FadeIn>
+          {/* Botón escanear con animación (pulso + rebote al pulsar) */}
+          <FadeIn replayOnFocus delay={stagger(2)}>
+            <Animated.View style={{ transform: [{ scale }], marginBottom: 20 }}>
+              <Bouncy style={styles.cta} onPress={() => { sfx.tap(); nav.navigate("Scan", { businessId: "" }); }}>
+                <Text style={styles.ctaText}>⛶  Escanear QR de un negocio</Text>
+              </Bouncy>
+            </Animated.View>
+          </FadeIn>
+        </>
+      )}
 
       {/* Banner promocional: remoto (gestionado desde admin) o tarjeta por defecto */}
       <FadeIn replayOnFocus delay={stagger(3)}>
@@ -190,7 +230,7 @@ export function Feed() {
       </FadeIn>
 
       <FadeIn replayOnFocus delay={stagger(4)}>
-        <Text style={styles.section}>Tus cupones activos ({offers.length})</Text>
+        <Text style={styles.section}>{guest ? "Negocios y ofertas cerca de ti" : `Tus cupones activos (${offers.length})`}</Text>
       </FadeIn>
     </View>
   );
@@ -206,8 +246,12 @@ export function Feed() {
         ListEmptyComponent={
           <View style={styles.emptyWrap}>
             <Image source={require("../../assets/ill-ruta.png")} style={styles.emptyIll} resizeMode="contain" />
-            <Text style={styles.emptyTitle}>Aún no tienes cupones</Text>
-            <Text style={styles.emptyText}>Escanea el QR de un negocio Bubui y empieza a ahorrar en tu barrio.</Text>
+            <Text style={styles.emptyTitle}>{guest ? "Aún no hay negocios cerca" : "Aún no tienes cupones"}</Text>
+            <Text style={styles.emptyText}>
+              {guest
+                ? "Prueba a moverte por el mapa o vuelve más tarde: la red crece cada semana."
+                : "Escanea el QR de un negocio Bubui y empieza a ahorrar en tu barrio."}
+            </Text>
           </View>
         }
         renderItem={({ item, index }) => (
@@ -234,7 +278,9 @@ export function Feed() {
                     {item.distanceM != null && ` · ${item.distanceM > 1000 ? `${(item.distanceM / 1000).toFixed(1)} km` : `${item.distanceM} m`}`}
                   </Text>
                 </View>
-                <Text style={[styles.exp, item.hoursLeft < 24 && styles.expUrgent]}>⏰ {item.hoursLeft}h</Text>
+                {item.hoursLeft > 0 && (
+                  <Text style={[styles.exp, item.hoursLeft < 24 && styles.expUrgent]}>⏰ {item.hoursLeft}h</Text>
+                )}
               </View>
             </Bouncy>
           </FadeIn>
@@ -250,6 +296,11 @@ const makeStyles = (c: Palette) =>
     root: { flex: 1, backgroundColor: c.bg },
     header: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 14 },
     savedCard: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", backgroundColor: c.white, borderRadius: radius.xl, borderWidth: 1, borderColor: c.border, padding: 18, marginBottom: 16, ...shadow.card },
+    guestCard: { backgroundColor: c.white, borderRadius: radius.xl, borderWidth: 1, borderColor: c.border, padding: 18, marginBottom: 20, ...shadow.card },
+    guestTitle: { fontSize: 16, fontWeight: "800", color: c.black, marginBottom: 4 },
+    guestText: { fontSize: 13, color: c.grayLight, lineHeight: 19, marginBottom: 14 },
+    guestCta: { backgroundColor: c.pink, borderRadius: radius.lg, paddingVertical: 13, alignItems: "center" },
+    guestCtaText: { color: c.white, fontWeight: "800", fontSize: 15 },
     savedLabel: { fontSize: 10, fontWeight: "800", letterSpacing: 1, color: c.grayLight },
     savedAmount: { fontSize: 36, fontWeight: "900", color: c.pink, letterSpacing: -1 },
     cta: { backgroundColor: c.pink, borderRadius: radius.pill, paddingVertical: 16, alignItems: "center", ...shadow.btn },
