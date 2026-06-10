@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from "react";
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ScrollView, Platform, Image, FlatList, Dimensions, Linking, Animated, Easing } from "react-native";
+import { useState } from "react";
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ScrollView, Platform, Image, Linking } from "react-native";
 import { Bouncy } from "../components/Bouncy";
 import { sfx } from "../lib/sound";
 import { useNavigation } from "@react-navigation/native";
@@ -10,6 +10,8 @@ import { api } from "../lib/api";
 import { saveSession } from "../lib/session";
 import { Wordmark } from "../components/Wordmark";
 import { useTheme, type Palette, radius, shadow } from "../lib/theme";
+import { Video, ResizeMode } from "expo-av";
+import { onboardingVideoSource } from "../lib/onboardingVideo";
 
 function fmtDate(d: Date): string {
   const p = (n: number) => String(n).padStart(2, "0");
@@ -20,63 +22,21 @@ function fmtDateHuman(iso: string): string {
   return `${d}/${m}/${y}`;
 }
 
-// Pantallas de bienvenida — diseño del mockup oficial. El título lleva
-// una parte rosa al final; la ilustración 3D va centrada.
-type Slide = {
-  image: any;
-  titleStart: string; // parte en negro
-  titleEnd: string;   // parte en rosa
-  subtitle: string;
-  cta: string;
-};
-const SLIDES: Slide[] = [
-  {
-    image: require("../../assets/ill-tienda.png"),
-    titleStart: "Desbloquea grandes descuentos, sorteos y productos gratis",
-    titleEnd: "cerca de ti",
-    subtitle: "Ahorra en comercios locales\ncada vez que compras.",
-    cta: "Empezar ahora"
-  },
-  {
-    image: require("../../assets/ill-scan.png"),
-    titleStart: "Escanea el QR de caja y",
-    titleEnd: "desbloquea premios",
-    subtitle: "Descuentos, sorteos y productos gratis\ncada vez que compras.",
-    cta: "Siguiente"
-  },
-  {
-    image: require("../../assets/ill-ruta.png"),
-    titleStart: "Cuanto más compras local,",
-    titleEnd: "más ganas",
-    subtitle: "Más descuentos, más sorteos\ny más productos gratis para ti.",
-    cta: "Empezar ahora"
-  }
-];
+// Pantalla de bienvenida: un único vídeo de presentación que explica cómo usar
+// la app (sustituye al antiguo carrusel de 3 ilustraciones). Tras el vídeo, el
+// CTA lleva a elegir tipo de alta. INTRO_STEP_COUNT = nº de pantallas de intro
+// previas a "elegir tipo" (ahora 1). Los pasos posteriores se anclan a él.
+const INTRO_STEP_COUNT = 1;
 
 export function Onboarding() {
   const nav = useNavigation<any>();
   const c = useTheme();
   const styles = makeStyles(c);
-  // Flotación suave y continua de las ilustraciones (sensación "viva").
-  const float = useRef(new Animated.Value(0)).current;
-  useEffect(() => {
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(float, { toValue: 1, duration: 1800, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-        Animated.timing(float, { toValue: 0, duration: 1800, easing: Easing.inOut(Easing.ease), useNativeDriver: true })
-      ])
-    );
-    loop.start();
-    return () => loop.stop();
-  }, [float]);
-  const floatY = float.interpolate({ inputRange: [0, 1], outputRange: [0, -10] });
-  // Flujo: 0..2 = slides (carrusel) → 3 = pantalla "elige tipo" → 4 = signup cliente
-  //        5 = login (solo teléfono + OTP)
+  // Flujo: 0 = vídeo de intro → 1 = pantalla "elige tipo" → 2 = signup cliente
+  //        3 = login (solo teléfono + OTP)
   const [step, setStep] = useState(0);
-  const [slideIndex, setSlideIndex] = useState(0);
   const [bodyW, setBodyW] = useState(0);
   const [bodyH, setBodyH] = useState(0);
-  const listRef = useRef<FlatList>(null);
   const [otpStep, setOtpStep] = useState<"form" | "code">("form");
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
@@ -172,19 +132,13 @@ export function Onboarding() {
     }
   }
 
-  // Slides de intro: carrusel deslizable (swipe), tocando la imagen o con el botón.
-  if (step < SLIDES.length) {
-    const goSignup = () => setStep(SLIDES.length);
-    const advance = () => {
+  // Intro: vídeo de presentación que explica cómo usar la app.
+  if (step < INTRO_STEP_COUNT) {
+    const goSignup = () => {
       sfx.tap();
-      if (slideIndex < SLIDES.length - 1) {
-        const next = slideIndex + 1;
-        setSlideIndex(next);
-        listRef.current?.scrollToOffset({ offset: next * bodyW, animated: true });
-      } else {
-        goSignup();
-      }
+      setStep(INTRO_STEP_COUNT);
     };
+    const videoSource = onboardingVideoSource();
     return (
       <View style={styles.root}>
         <View style={styles.brandRow}>
@@ -199,40 +153,26 @@ export function Onboarding() {
           }}
         >
           {bodyW > 0 && bodyH > 0 && (
-            <FlatList
-              ref={listRef}
-              data={SLIDES}
-              horizontal
-              pagingEnabled
-              showsHorizontalScrollIndicator={false}
-              keyExtractor={(_, i) => String(i)}
-              style={{ width: bodyW, height: bodyH }}
-              getItemLayout={(_, i) => ({ length: bodyW, offset: bodyW * i, index: i })}
-              onMomentumScrollEnd={(e) => setSlideIndex(Math.round(e.nativeEvent.contentOffset.x / bodyW))}
-              renderItem={({ item }) => (
-                <View style={{ width: bodyW, height: bodyH, alignItems: "center" }}>
-                  <Text style={styles.slideTitle}>
-                    {item.titleStart}{"\n"}
-                    <Text style={styles.slideTitleAccent}>{item.titleEnd}</Text>
-                  </Text>
-                  <Text style={styles.slideSubtitle}>{item.subtitle}</Text>
-                  <Animated.View style={[styles.slideIllustrationWrap, { transform: [{ translateY: floatY }] }]}>
-                    <Image source={item.image} style={styles.slideIllustration} resizeMode="contain" />
-                  </Animated.View>
-                </View>
-              )}
-            />
+            videoSource ? (
+              <Video
+                source={videoSource}
+                style={{ width: bodyW, height: bodyH, borderRadius: radius.lg, backgroundColor: "#000" }}
+                resizeMode={ResizeMode.CONTAIN}
+                useNativeControls
+                shouldPlay
+                isLooping={false}
+              />
+            ) : (
+              <View style={{ width: bodyW, height: bodyH, alignItems: "center", justifyContent: "center" }}>
+                <Text style={styles.slideSubtitle}>El vídeo de presentación se está preparando.</Text>
+              </View>
+            )
           )}
         </View>
 
         <View style={styles.footer}>
-          <View style={styles.dots}>
-            {SLIDES.map((_, i) => (
-              <View key={i} style={[styles.dot, i === slideIndex && styles.dotActive]} />
-            ))}
-          </View>
-          <Bouncy style={styles.ctaBtn} onPress={advance}>
-            <Text style={styles.ctaBtnText}>{SLIDES[slideIndex].cta}</Text>
+          <Bouncy style={styles.ctaBtn} onPress={goSignup}>
+            <Text style={styles.ctaBtnText}>Empezar ahora</Text>
             <View style={styles.ctaArrowCircle}>
               <Text style={styles.ctaArrow}>→</Text>
             </View>
@@ -243,7 +183,7 @@ export function Onboarding() {
   }
 
   // Pantalla intermedia: elegir entre alta de cliente o alta de negocio
-  if (step === SLIDES.length) {
+  if (step === INTRO_STEP_COUNT) {
     return (
       <View style={styles.chooseRoot}>
         <View style={styles.chooseHeader}>
@@ -254,7 +194,7 @@ export function Onboarding() {
         {/* CTA principal: tarjeta hero para alta de cliente */}
         <TouchableOpacity
           style={styles.heroCard}
-          onPress={() => setStep(SLIDES.length + 1)}
+          onPress={() => setStep(INTRO_STEP_COUNT + 1)}
           activeOpacity={0.92}
         >
           <View style={styles.heroIconWrap}>
@@ -273,7 +213,7 @@ export function Onboarding() {
         {/* Link discreto a iniciar sesión (para quien ya tiene cuenta) */}
         <TouchableOpacity
           style={styles.loginLink}
-          onPress={() => { setStep(SLIDES.length + 2); setLoginStep("phone"); setPhone(""); setCode(""); }}
+          onPress={() => { setStep(INTRO_STEP_COUNT + 2); setLoginStep("phone"); setPhone(""); setCode(""); }}
           activeOpacity={0.7}
         >
           <Text style={styles.loginLinkText}>
@@ -299,7 +239,7 @@ export function Onboarding() {
   }
 
   // Pantalla de inicio de sesión (sólo teléfono + OTP)
-  if (step === SLIDES.length + 2) {
+  if (step === INTRO_STEP_COUNT + 2) {
     return (
       <ScrollView contentContainerStyle={styles.signupRoot}>
         <View style={{ alignItems: "center" }}>
@@ -329,7 +269,7 @@ export function Onboarding() {
             >
               <Text style={styles.btnText}>{busy ? "Enviando…" : "Enviar código SMS"}</Text>
             </TouchableOpacity>
-            <TouchableOpacity onPress={() => setStep(SLIDES.length)}>
+            <TouchableOpacity onPress={() => setStep(INTRO_STEP_COUNT)}>
               <Text style={{ color: c.gray, fontSize: 12, textAlign: "center" }}>← Volver</Text>
             </TouchableOpacity>
           </View>
