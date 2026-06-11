@@ -2,14 +2,14 @@ import { useCallback, useState } from "react";
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Linking } from "react-native";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { CheckSession, type Customer } from "../lib/session";
+import { CheckSession, saveSession, type Customer } from "../lib/session";
 import { Wordmark } from "../components/Wordmark";
 import { BottomNav } from "../components/BottomNav";
 import { FadeIn } from "../components/FadeIn";
 import { Bouncy } from "../components/Bouncy";
 import { CountUp } from "../components/CountUp";
 import { stagger } from "../lib/anim";
-import { API_BASE } from "../lib/api";
+import { api, API_BASE } from "../lib/api";
 import { useTheme, type Palette, radius, shadow } from "../lib/theme";
 
 export function Cuenta() {
@@ -26,6 +26,16 @@ export function Cuenta() {
         // Invitado (sin sesión): llevar directamente a la pantalla de registro.
         if (!s) { nav.reset({ index: 0, routes: [{ name: "Onboarding", params: { start: "register" } }] }); return; }
         setCustomer(s);
+        // Stats vivas (ahorro/compras se actualizan cuando el negocio
+        // confirma): pinta la caché al instante y refresca en segundo plano.
+        api
+          .customerSummary(s.customerId)
+          .then(async (live) => {
+            const updated = { ...s, name: live.name ?? s.name, totalSaved: live.totalSaved, totalPurchases: live.totalPurchases };
+            setCustomer(updated);
+            await saveSession(updated).catch(() => {});
+          })
+          .catch(() => {});
       })();
     }, [nav])
   );

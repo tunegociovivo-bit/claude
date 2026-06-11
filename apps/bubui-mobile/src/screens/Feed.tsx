@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { View, Text, FlatList, RefreshControl, TouchableOpacity, StyleSheet, Animated, Easing, Image, Dimensions, Linking, AppState } from "react-native";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import { getCurrentLatLng } from "../lib/location";
-import { CheckSession, type Customer } from "../lib/session";
+import { CheckSession, saveSession, type Customer } from "../lib/session";
 import { api } from "../lib/api";
 import { Wordmark } from "../components/Wordmark";
 import { BottomNav } from "../components/BottomNav";
@@ -84,6 +84,19 @@ export function Feed() {
       const c = await CheckSession();
       setCustomer(c);
       setGuest(!c);
+      if (c) {
+        // Stats vivas: el "Has ahorrado" de la sesión local se queda obsoleto
+        // en cuanto el negocio confirma una compra. Refresco en segundo plano
+        // (pinta el valor cacheado al instante y lo actualiza al llegar).
+        api
+          .customerSummary(c.customerId)
+          .then(async (s) => {
+            const updated = { ...c, name: s.name ?? c.name, totalSaved: s.totalSaved, totalPurchases: s.totalPurchases };
+            setCustomer(updated);
+            await saveSession(updated).catch(() => {});
+          })
+          .catch(() => {});
+      }
       // Banner gestionable desde admin: se refresca en cada foco / pull-to-refresh.
       api.banner().then(setBanner).catch(() => {});
       // Permiso pedido como máximo una vez por sesión (ver lib/location.ts:

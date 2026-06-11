@@ -116,6 +116,7 @@ export default function BubuiAdminClient() {
           <SectionsPanel />
           <AiBannerPolicyPanel />
           <QrPosterPanel />
+          <TeamNotifyPanel />
         </>
       )}
 
@@ -1118,6 +1119,138 @@ function QrPosterPanel() {
           </p>
         </div>
       )}
+    </section>
+  );
+}
+
+/** Destinos de las notificaciones internas del equipo (solicitudes de
+ *  cartel, etc.): varios emails + un WhatsApp, editables sin deploy. */
+function TeamNotifyPanel() {
+  const [emails, setEmails] = useState<string[] | null>(null);
+  const [whatsapp, setWhatsapp] = useState("");
+  const [newEmail, setNewEmail] = useState("");
+  const [err, setErr] = useState("");
+  const [msg, setMsg] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
+
+  useEffect(() => {
+    adminFetch("/api/bubui/admin/notifications")
+      .then((d) => {
+        setEmails(d.config.emails);
+        setWhatsapp(d.config.whatsapp ?? "");
+      })
+      .catch((e) => setErr(String(e)));
+  }, []);
+
+  async function save(nextEmails: string[], nextWhatsapp: string) {
+    setSaving(true);
+    setErr("");
+    setMsg("");
+    try {
+      const d = await adminFetch("/api/bubui/admin/notifications", {
+        method: "PATCH",
+        body: JSON.stringify({ emails: nextEmails, whatsapp: nextWhatsapp.trim() || null })
+      });
+      setEmails(d.config.emails);
+      setWhatsapp(d.config.whatsapp ?? "");
+      setMsg("Guardado ✓");
+    } catch (e) {
+      setErr(String(e));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function addEmail() {
+    const e = newEmail.trim();
+    if (!/.+@.+\..+/.test(e)) { setErr("Email no válido."); return; }
+    if (emails?.includes(e)) { setNewEmail(""); return; }
+    const next = [...(emails ?? []), e];
+    setNewEmail("");
+    void save(next, whatsapp);
+  }
+
+  function removeEmail(e: string) {
+    const next = (emails ?? []).filter((x) => x !== e);
+    if (next.length === 0) { setErr("Debe quedar al menos un email."); return; }
+    void save(next, whatsapp);
+  }
+
+  async function sendTest() {
+    setTesting(true);
+    setErr("");
+    setMsg("");
+    try {
+      const d = await adminFetch("/api/bubui/admin/notifications", { method: "POST" });
+      setMsg(`Prueba enviada: ${d.result.email} email(s)${d.result.whatsapp ? " + WhatsApp ✓" : " (WhatsApp no salió)"}`);
+    } catch (e) {
+      setErr(String(e));
+    } finally {
+      setTesting(false);
+    }
+  }
+
+  if (emails === null && !err) return <div className="bubui-skeleton h-32 mt-4" />;
+
+  return (
+    <section className="bubui-card p-4 mt-4 space-y-3">
+      <div>
+        <h2 className="text-sm font-bold">🔔 Notificaciones del equipo</h2>
+        <p className="text-xs text-black/50 mt-1">
+          A dónde llegan los avisos internos (solicitudes de cartel QR, etc.). Puedes añadir varios
+          emails y un número de WhatsApp.
+        </p>
+      </div>
+      {err && <p className="text-rose-700 text-xs">{err}</p>}
+      {msg && <p className="text-emerald-700 text-xs font-semibold">{msg}</p>}
+
+      <div className="space-y-1.5">
+        <p className="text-xs font-semibold">Emails</p>
+        {(emails ?? []).map((e) => (
+          <div key={e} className="flex items-center justify-between gap-2 rounded-lg bg-pink-50/50 px-3 py-1.5">
+            <span className="text-[13px]">{e}</span>
+            <button onClick={() => removeEmail(e)} disabled={saving} className="text-xs text-black/40 hover:text-rose-600">
+              Quitar
+            </button>
+          </div>
+        ))}
+        <div className="flex gap-2">
+          <input
+            value={newEmail}
+            onChange={(e) => setNewEmail(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") addEmail(); }}
+            placeholder="otro@email.com"
+            className="flex-1 px-2 py-1.5 border rounded bg-white text-sm"
+          />
+          <button onClick={addEmail} disabled={saving} className="px-3 py-1.5 rounded-full text-xs font-bold bg-pink-600 text-white hover:bg-pink-700 disabled:opacity-50">
+            Añadir
+          </button>
+        </div>
+      </div>
+
+      <div className="space-y-1.5">
+        <p className="text-xs font-semibold">WhatsApp (vía tu sesión de WhatsApp del Hub)</p>
+        <div className="flex gap-2">
+          <input
+            value={whatsapp}
+            onChange={(e) => setWhatsapp(e.target.value)}
+            placeholder="680167881"
+            className="flex-1 px-2 py-1.5 border rounded bg-white text-sm"
+          />
+          <button
+            onClick={() => void save(emails ?? [], whatsapp)}
+            disabled={saving}
+            className="px-3 py-1.5 rounded-full text-xs font-bold bg-pink-600 text-white hover:bg-pink-700 disabled:opacity-50"
+          >
+            {saving ? "Guardando…" : "Guardar"}
+          </button>
+        </div>
+      </div>
+
+      <button onClick={sendTest} disabled={testing} className="text-xs font-bold border-2 border-pink-600 text-pink-700 rounded-full px-3 py-1.5 hover:bg-pink-50 disabled:opacity-50">
+        {testing ? "Enviando…" : "📨 Enviar notificación de prueba"}
+      </button>
     </section>
   );
 }

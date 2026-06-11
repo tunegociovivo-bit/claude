@@ -24,8 +24,13 @@ export type QrPosterConfig = {
   qr: { x: number; y: number; w: number; h: number };
 };
 
-/** Zona del QR medida sobre la plantilla oficial. */
-const DEFAULT_QR_AREA = { x: 0.515, y: 0.329, w: 0.458, h: 0.312 };
+/** Zona del QR (tarjeta blanca nueva). Más estrecha que la tarjeta de muestra
+ *  de la plantilla para dejar aire con el borde derecho del póster. */
+const DEFAULT_QR_AREA = { x: 0.515, y: 0.329, w: 0.425, h: 0.311 };
+/** Hasta dónde llega la tarjeta de muestra ORIGINAL de la plantilla (borde
+ *  derecho, en fracción). La franja entre la tarjeta nueva y este límite se
+ *  tapa clonando el fondo de la propia plantilla. */
+const ORIGINAL_CARD_RIGHT = 0.978;
 
 export async function getQrPosterConfig(): Promise<QrPosterConfig | null> {
   const row = await prisma.bubuiSetting.findUnique({ where: { key: KEY } });
@@ -34,15 +39,18 @@ export async function getQrPosterConfig(): Promise<QrPosterConfig | null> {
     const v = JSON.parse(row.value);
     if (!v?.url) return null;
     const f = (n: any, d: number) => (typeof n === "number" && n > 0 && n < 1 ? n : d);
-    return {
-      url: String(v.url),
-      qr: {
-        x: f(v?.qr?.x, DEFAULT_QR_AREA.x),
-        y: f(v?.qr?.y, DEFAULT_QR_AREA.y),
-        w: f(v?.qr?.w, DEFAULT_QR_AREA.w),
-        h: f(v?.qr?.h, DEFAULT_QR_AREA.h)
-      }
+    let qr = {
+      x: f(v?.qr?.x, DEFAULT_QR_AREA.x),
+      y: f(v?.qr?.y, DEFAULT_QR_AREA.y),
+      w: f(v?.qr?.w, DEFAULT_QR_AREA.w),
+      h: f(v?.qr?.h, DEFAULT_QR_AREA.h)
     };
+    // Migración: configs guardadas con los defaults antiguos (tarjeta hasta
+    // el borde) pasan a usar los nuevos (con aire a la derecha).
+    if (Math.abs(qr.w - 0.458) < 1e-6 && Math.abs(qr.x - 0.515) < 1e-6) {
+      qr = { ...DEFAULT_QR_AREA };
+    }
+    return { url: String(v.url), qr };
   } catch {
     return null;
   }
@@ -92,6 +100,28 @@ export async function composeQrPoster(opts: {
     h: Math.round(opts.config.qr.h * H)
   };
 
+  const composites: sharp.OverlayOptions[] = [];
+
+  // Si la tarjeta nueva es más estrecha que la de muestra de la plantilla,
+  // la franja sobrante de la tarjeta original quedaría visible. La tapamos
+  // clonando una columna del fondo de la plantilla (justo a la derecha de la
+  // tarjeta) estirada sobre la franja → se funde con el degradado sin costura.
+  const coverRight = Math.round(ORIGINAL_CARD_RIGHT * W);
+  const newRight = area.x + area.w;
+  if (coverRight > newRight + 2) {
+    const stripX = newRight - 2; // pequeño solape con la tarjeta nueva
+    const stripW = coverRight - stripX;
+    const stripY = Math.max(0, area.y - Math.round(H * 0.006));
+    const stripH = Math.min(H - stripY, area.h + Math.round(H * 0.012));
+    const sampleX = Math.min(W - 5, coverRight + Math.round(W * 0.006));
+    const bgColumn = await sharp(tplBuf)
+      .extract({ left: sampleX, top: stripY, width: 4, height: stripH })
+      .resize(stripW, stripH, { fit: "fill" })
+      .png()
+      .toBuffer();
+    composites.push({ input: bgColumn, left: stripX, top: stripY });
+  }
+
   // Tarjeta blanca redondeada que tapa por completo el QR de muestra.
   const radius = Math.round(Math.min(area.w, area.h) * 0.09);
   const cardSvg = Buffer.from(
@@ -110,15 +140,14 @@ export async function composeQrPoster(opts: {
   });
   const qrResized = await sharp(qrPng).resize(qrSide, qrSide, { fit: "contain" }).png().toBuffer();
 
-  return sharp(tplBuf)
-    .composite([
-      { input: cardSvg, left: area.x, top: area.y },
-      {
-        input: qrResized,
-        left: area.x + Math.round((area.w - qrSide) / 2),
-        top: area.y + Math.round((area.h - qrSide) / 2)
-      }
-    ])
-    .png()
-    .toBuffer();
+  composites.push(
+    { input: cardSvg, left: area.x, top: area.y },
+    {
+      input: qrResized,
+      left: area.x + Math.round((area.w - qrSide) / 2),
+      top: area.y + Math.round((area.h - qrSide) / 2)
+    }
+  );
+
+  return sharp(tplBuf).composite(composites).png().toBuffer();
 }

@@ -64,6 +64,17 @@ export const api = {
       "/api/bubui/customer/login",
       { method: "POST", body: JSON.stringify({ phone, code }) }
     ),
+  // Stats vivas del cliente (total ahorrado, compras…). El total guardado en
+  // la sesión local se queda obsoleto en cuanto el negocio confirma una
+  // compra; esto lo refresca.
+  customerSummary: (customerId: string) =>
+    call<{
+      customerId: string;
+      name: string | null;
+      totalSaved: number;
+      totalPurchases: number;
+      activeOffers: number;
+    }>(`/api/bubui/customer/${customerId}`),
   offers: (customerId: string, lat?: number, lng?: number) => {
     const url = new URL(`${API_BASE}/api/bubui/offers`);
     url.searchParams.set("customerId", customerId);
