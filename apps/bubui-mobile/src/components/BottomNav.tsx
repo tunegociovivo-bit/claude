@@ -23,7 +23,12 @@ const TABS: { route: string; label: string; icon: IconName; iconOn: IconName; ga
 // devuelve los flags `sections`, p. ej. versión antigua del backend).
 const MIN_BUSINESSES = 10;
 type Sections = { discover: boolean; mapa: boolean };
+// Caché con TTL corto: el valor cacheado evita el "salto" de pestañas al
+// cambiar de pantalla, pero se refresca para que los cambios del admin
+// (forzar Descubre/Mapa) lleguen sin tener que matar la app.
+const SECTIONS_TTL_MS = 60_000;
 let cachedSections: Sections | null = null;
+let cachedAt = 0;
 
 export function BottomNav({ active }: { active: string }) {
   const nav = useNavigation<any>();
@@ -33,7 +38,8 @@ export function BottomNav({ active }: { active: string }) {
   const [sections, setSections] = useState<Sections>(cachedSections ?? { discover: false, mapa: false });
 
   useEffect(() => {
-    if (cachedSections !== null) return;
+    if (cachedSections !== null && Date.now() - cachedAt < SECTIONS_TTL_MS) return;
+    let alive = true;
     api
       .stats()
       .then((s) => {
@@ -41,9 +47,11 @@ export function BottomNav({ active }: { active: string }) {
         // Backend antiguo: cae al umbral de comercios.
         const fallback = (s?.businesses ?? 0) >= MIN_BUSINESSES;
         cachedSections = s?.sections ?? { discover: fallback, mapa: fallback };
-        setSections(cachedSections);
+        cachedAt = Date.now();
+        if (alive) setSections(cachedSections);
       })
       .catch(() => {});
+    return () => { alive = false; };
   }, []);
 
   const tabs = TABS.filter((t) => !t.gate || sections[t.gate]);
