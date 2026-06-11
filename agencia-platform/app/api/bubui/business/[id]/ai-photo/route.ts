@@ -14,7 +14,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db/prisma";
 import { businessTokenAllows } from "@/lib/bubui/auth";
 import { isPaidPlan } from "@/lib/bubui/plan";
-import { generateBusinessHeroImage, isPhotoAiEnabled } from "@/lib/bubui/photo";
+import { generateBusinessHeroImage, isPhotoAiEnabledAsync } from "@/lib/bubui/photo";
 import {
   isStorageEnabled,
   uploadBuffer,
@@ -34,9 +34,9 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   if (!(await businessTokenAllows(req.headers.get("authorization"), params.id))) {
     return NextResponse.json({ error: { code: "unauthorized" } }, { status: 401 });
   }
-  if (!isPhotoAiEnabled()) {
+  if (!(await isPhotoAiEnabledAsync())) {
     return NextResponse.json(
-      { error: { code: "ai_off", message: "Foto IA no configurada (falta OPENAI_API_KEY)." } },
+      { error: { code: "ai_off", message: "Foto IA no configurada: añade la API key de OpenAI en el Hub (Admin → IA) o como OPENAI_API_KEY." } },
       { status: 503 }
     );
   }
