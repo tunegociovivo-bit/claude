@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { View, Text, FlatList, TextInput, TouchableOpacity, StyleSheet, RefreshControl, Image } from "react-native";
 import { useFocusEffect, useNavigation } from "@react-navigation/native";
-import * as Location from "expo-location";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { getCurrentLatLng } from "../lib/location";
 import { api } from "../lib/api";
 import { CheckSession } from "../lib/session";
 import { Wordmark } from "../components/Wordmark";
@@ -42,16 +42,9 @@ export function Descubre() {
     try {
       const raw = await AsyncStorage.getItem(FAVS_KEY);
       if (raw) setFavs(JSON.parse(raw));
-      let lat: number | undefined, lng: number | undefined;
-      try {
-        // Volvemos a pedir el permiso si quedó "sin decidir" (ver Feed): así la
-        // ubicación se refresca aunque el usuario eligiera "Solo esta vez".
-        const { status } = await Location.requestForegroundPermissionsAsync();
-        if (status === "granted") {
-          const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-          lat = loc.coords.latitude; lng = loc.coords.longitude;
-        }
-      } catch {}
+      // Permiso pedido como máximo una vez por sesión (ver lib/location.ts:
+      // pedirlo en cada load provocaba un bucle de diálogos en MIUI).
+      const { lat, lng } = await getCurrentLatLng();
       // Pasamos el customerId (si hay sesión) para que el backend refresque
       // también la última ubicación conocida del usuario, no solo el Feed.
       const session = await CheckSession();

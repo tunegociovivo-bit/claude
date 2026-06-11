@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { View, Text, FlatList, RefreshControl, TouchableOpacity, StyleSheet, Animated, Easing, Image, Dimensions, Linking, AppState } from "react-native";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
-import * as Location from "expo-location";
+import { getCurrentLatLng } from "../lib/location";
 import { CheckSession, type Customer } from "../lib/session";
 import { api } from "../lib/api";
 import { Wordmark } from "../components/Wordmark";
@@ -86,20 +86,10 @@ export function Feed() {
       setGuest(!c);
       // Banner gestionable desde admin: se refresca en cada foco / pull-to-refresh.
       api.banner().then(setBanner).catch(() => {});
-      let lat: number | undefined;
-      let lng: number | undefined;
-      try {
-        // requestForeground… (no getForeground…): si el permiso quedó "sin
-        // decidir" (p. ej. el usuario eligió "Solo esta vez"), lo vuelve a
-        // pedir para poder refrescar su ubicación. Si ya está concedido o
-        // denegado, devuelve el estado al instante sin mostrar diálogo.
-        const { status } = await Location.requestForegroundPermissionsAsync();
-        if (status === "granted") {
-          const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-          lat = loc.coords.latitude;
-          lng = loc.coords.longitude;
-        }
-      } catch {}
+      // Permiso pedido como máximo una vez por sesión (ver lib/location.ts:
+      // pedirlo en cada load provocaba un bucle de diálogos en MIUI y dejaba
+      // colgada la petición de cámara de Scan).
+      const { lat, lng } = await getCurrentLatLng();
       if (c) {
         // Usuario registrado: sus cupones personalizados + push + geocercas.
         registerExpoPushForCustomer(c.customerId).catch(() => {});
@@ -157,10 +147,13 @@ export function Feed() {
   // en segundo plano para cumplir con Google Play.)
   useEffect(() => {
     const sub = AppState.addEventListener("change", (s) => {
-      if (s === "active") load();
+      // Solo si el Feed está enfocado: este listener sigue vivo con el Feed
+      // montado debajo de otras pantallas (p. ej. Scan) y recargar ahí compite
+      // con ellas (además del bucle con los diálogos de permisos).
+      if (s === "active" && nav.isFocused()) load();
     });
     return () => sub.remove();
-  }, [load]);
+  }, [load, nav]);
 
   const header = (
     <View>
