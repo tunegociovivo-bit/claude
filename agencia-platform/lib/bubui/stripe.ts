@@ -128,6 +128,38 @@ export async function createPushAdCheckout(opts: {
   return { url: data.url, sessionId: data.id };
 }
 
+/** Crea Checkout Session de pago único (1€) para una edición extra del
+ *  Banner IA. Al confirmar el pago, el webhook concede 1 crédito
+ *  (aiBannerCredits) al negocio. */
+export async function createAiBannerCheckout(opts: {
+  customerId: string;
+  businessId: string;
+  successUrl: string;
+  cancelUrl: string;
+  priceEur?: number;
+}): Promise<{ url: string; sessionId: string }> {
+  const eur = opts.priceEur ?? 1;
+  const body = new URLSearchParams();
+  body.set("mode", "payment");
+  body.set("customer", opts.customerId);
+  body.set("line_items[0][price_data][currency]", "eur");
+  body.set("line_items[0][price_data][unit_amount]", String(Math.round(eur * 100)));
+  body.set("line_items[0][price_data][product_data][name]", "Bubui · Edición extra de Banner IA");
+  body.set("line_items[0][quantity]", "1");
+  body.set("success_url", opts.successUrl);
+  body.set("cancel_url", opts.cancelUrl);
+  body.set("metadata[bubui_business_id]", opts.businessId);
+  body.set("metadata[bubui_kind]", "ai_banner");
+  body.set("payment_intent_data[metadata][bubui_business_id]", opts.businessId);
+  body.set("payment_intent_data[metadata][bubui_kind]", "ai_banner");
+  const data = await stripeFetch<any>("/checkout/sessions", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body
+  });
+  return { url: data.url, sessionId: data.id };
+}
+
 /** Programa la cancelación de una suscripción al final del periodo ya
  *  pagado (cancel_at_period_end=true). El negocio conserva el plan hasta
  *  entonces. Devuelve la fecha de fin de periodo (cancel_at). */

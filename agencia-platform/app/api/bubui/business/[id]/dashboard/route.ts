@@ -11,6 +11,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { businessTokenAllows } from "@/lib/bubui/auth";
+import { getAiBannerPolicy } from "@/lib/bubui/ai-banner-settings";
 
 export const dynamic = "force-dynamic";
 
@@ -113,7 +114,26 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
       referralEnabled: business.referralEnabled,
       referralReward1: business.referralReward1,
       referralReward3: business.referralReward3,
-      referralReward5: business.referralReward5
+      referralReward5: business.referralReward5,
+      // Perfil editable (inicializa el formulario "Editar perfil").
+      description: business.description,
+      address: business.address,
+      latitude: business.latitude,
+      longitude: business.longitude,
+      logoUrl: business.logoUrl,
+      brandColor: business.brandColor,
+      purchaseMode: business.purchaseMode,
+      reviewRewardPct: business.reviewRewardPct,
+      googlePlaceId: business.googlePlaceId,
+      // Entrega de la pegatina/cartel QR (CTA "te la llevamos gratis").
+      posterDeliveryRequestedAt: business.posterDeliveryRequestedAt,
+      posterDeliveredAt: business.posterDeliveredAt,
+      // Banner IA: cuántas generaciones lleva (0 = la primera es gratis),
+      // créditos de pago disponibles (1€ cada uno) y si el admin lo tiene
+      // limitado a planes de pago.
+      aiBannerUsed: business.aiBannerUsed,
+      aiBannerCredits: business.aiBannerCredits,
+      aiBannerPaidOnly: (await getAiBannerPolicy()) === "paid"
     },
     notifications: notifications.map((n) => ({ id: n.id, message: n.message, createdAt: n.createdAt })),
     pending: pending.map((p) => ({

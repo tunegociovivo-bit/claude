@@ -41,6 +41,17 @@ export type MobilePushPayload = {
 };
 
 /**
+ * Devuelve una URL de imagen apta para la notificación del sistema (FCM/APNs).
+ * FCM no muestra imágenes grandes; si la imagen la sirve nuestro endpoint
+ * (/api/bubui/banner-image/<id>), añadimos `?w=1024` para obtener una versión
+ * JPEG ligera. Para URLs externas (bucket R2, etc.) la dejamos tal cual.
+ */
+function pushSafeImageUrl(url: string): string {
+  if (!/\/api\/bubui\/banner-image\//.test(url)) return url;
+  return url + (url.includes("?") ? "&" : "?") + "w=1024";
+}
+
+/**
  * Envía un push a todos los tokens dados. Limpia automáticamente los
  * tokens que Expo marca como inválidos (DeviceNotRegistered).
  */
@@ -52,20 +63,26 @@ export async function sendMobilePush(
   if (valid.length === 0) return { sent: 0, removed: 0, errors: 0 };
 
   const image = payload.image?.trim() || undefined;
+  // FCM descarta en silencio las imágenes grandes (>~1MB) de las
+  // notificaciones, dejando solo el texto. Si la imagen la servimos nosotros
+  // (/api/bubui/banner-image/<id>), pedimos una variante ligera (?w=1024) para
+  // `richContent.image` (lo que pinta el sistema). En `data.image` dejamos la
+  // ORIGINAL: la usa Notifee en primer plano y no tiene ese límite de tamaño.
+  const pushImage = image ? pushSafeImageUrl(image) : undefined;
   const messages: ExpoPushMessage[] = valid.map((to) => ({
     to,
     sound: "default",
     title: payload.title,
     body: payload.body,
-    // `image` también viaja en data para que la app pueda renderizarla en
-    // primer plano; `richContent.image` la muestra en la propia notificación
-    // del sistema (BigPicture en Android, attachment en iOS).
+    // `image` (original) viaja en data para el render en primer plano (Notifee);
+    // `richContent.image` (ligera) la muestra el propio sistema (BigPicture en
+    // Android, attachment en iOS).
     data: { link: payload.link ?? null, image: image ?? null, ...(payload.data ?? {}) },
     channelId: "default",
     // Con imagen pedimos prioridad alta para que la app pueda despertar su
     // background task (Notifee) y pintar la foto grande aunque esté cerrada.
-    ...(image
-      ? { richContent: { image }, mutableContent: true, priority: "high" as const }
+    ...(pushImage
+      ? { richContent: { image: pushImage }, mutableContent: true, priority: "high" as const }
       : {})
   }));
 
