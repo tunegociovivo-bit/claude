@@ -1,20 +1,21 @@
 /**
  * Fuente del vídeo de presentación del onboarding (pre-registro).
  *
- * Se sirve por streaming desde el backend, en una ruta PÚBLICA (sin login,
- * porque el onboarding es previo al registro):
- *   <API_BASE>/bubui/onboarding-intro.mp4
- * El archivo vive en agencia-platform/public/bubui/onboarding-intro.mp4 y se
- * publica al desplegar el backend (Railway).
+ * El vídeo va EMPAQUETADO en el binario mediante require(), para que se
+ * reproduzca de inmediato y de forma fiable, sin depender de la red ni del
+ * backend: el onboarding es lo primero que ve el usuario (antes de
+ * registrarse) y hacer streaming en ese punto dejaba la reproducción en negro.
  *
- * Si en el futuro se quiere empaquetar en el binario (offline), colocar el
- * .mp4 en apps/bubui-mobile/assets/ y usar require() en su lugar.
+ * El archivo vive en apps/bubui-mobile/assets/onboarding-intro.mp4.
+ * (La copia pública en agencia-platform/public/bubui/onboarding-intro.mp4 se
+ * mantiene para la versión web.)
  */
-import { API_BASE } from "./api";
+import type { AVPlaybackSource } from "expo-av";
 
-export const ONBOARDING_VIDEO_URL = `${API_BASE}/bubui/onboarding-intro.mp4`;
+// require() incrusta el asset en la app a través de Metro.
+const ONBOARDING_VIDEO: AVPlaybackSource = require("../../assets/onboarding-intro.mp4");
 
-/** Devuelve la fuente para <Video source={...} /> o null si no hay vídeo. */
-export function onboardingVideoSource(): { uri: string } | null {
-  return ONBOARDING_VIDEO_URL ? { uri: ONBOARDING_VIDEO_URL } : null;
+/** Devuelve la fuente para <Video source={...} />. */
+export function onboardingVideoSource(): AVPlaybackSource {
+  return ONBOARDING_VIDEO;
 }

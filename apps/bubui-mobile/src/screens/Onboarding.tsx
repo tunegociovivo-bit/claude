@@ -158,7 +158,6 @@ export function Onboarding() {
                 source={videoSource}
                 style={{ width: bodyW, height: bodyH, borderRadius: radius.lg, backgroundColor: "#000" }}
                 resizeMode={ResizeMode.CONTAIN}
-                useNativeControls
                 shouldPlay
                 isLooping={false}
               />
