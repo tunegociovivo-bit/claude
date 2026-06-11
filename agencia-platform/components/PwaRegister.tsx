@@ -59,6 +59,27 @@ export default function PwaRegister() {
   // estorbar (el user que quiera instalar lo hace al entrar; el resto
   // no quiere el botón ahí permanentemente).
   const [withinInstallWindow, setWithinInstallWindow] = useState(true);
+  // Embebido dentro de una app nativa (WebView, p. ej. la pestaña Mapa de la
+  // app Bubui): ahí NO ofrecemos "Instalar app" (ya está instalada como app
+  // nativa y duplicaría controles). Detección por el bridge de
+  // react-native-webview, el user-agent de Android System WebView, el
+  // parámetro ?embed=1 o la clase bubui-embedded.
+  const [embedded, setEmbedded] = useState(false);
+
+  useEffect(() => {
+    try {
+      const ua = navigator.userAgent || "";
+      const emb =
+        !!(window as unknown as { ReactNativeWebView?: unknown }).ReactNativeWebView ||
+        /; wv\)/.test(ua) ||
+        new URLSearchParams(window.location.search).has("embed") ||
+        sessionStorage.getItem("bubuiEmbed") === "1" ||
+        document.body.classList.contains("bubui-embedded");
+      setEmbedded(emb);
+    } catch {
+      // no-op
+    }
+  }, []);
 
   useEffect(() => {
     const t = setTimeout(() => setWithinInstallWindow(false), 10_000);
@@ -176,13 +197,14 @@ export default function PwaRegister() {
   // cargar — en escritorio no tiene sentido (instalar PWA en desktop
   // no aporta para este uso) y permanentemente molesta.
   const isMobile = platform === "android" || platform === "ios";
-  const showNative = !!installPrompt && !installed && isMobile && withinInstallWindow;
+  const showNative = !!installPrompt && !installed && isMobile && withinInstallWindow && !embedded;
   const showManual =
     !installPrompt &&
     !installed &&
     !dismissedManual &&
     isMobile &&
-    withinInstallWindow;
+    withinInstallWindow &&
+    !embedded;
 
   return (
     <>
