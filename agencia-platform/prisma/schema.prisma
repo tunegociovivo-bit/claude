@@ -3388,7 +3388,7 @@ model BubuiBusiness {
   visibilityScore Int @default(50)
   scoreUpdatedAt  DateTime?
   // Modelo de validación de compra.
-  purchaseMode  String   @default("double_confirm") // double_confirm | express
+  purchaseMode  String   @default("express") // express | double_confirm
   // Suscripción.
   plan          String   @default("free") // free | pro | premium
   // Email + contraseña hash del dueño (auth simple v1; iremos a oauth en v2).
@@ -3639,6 +3639,15 @@ model BubuiSetting {
   key       String   @id
   value     String   @db.Text
   updatedAt DateTime @default(now()) @updatedAt
+}
+
+/// Idempotencia de webhooks de Stripe: el id del evento se guarda al
+/// procesarlo. Si Stripe reintenta la entrega del mismo evento, se ignora
+/// (evita, p. ej., conceder dos créditos de Banner IA por un solo pago).
+model BubuiProcessedWebhook {
+  @@map("BipiProcessedWebhook")
+  id          String   @id // event.id de Stripe
+  processedAt DateTime @default(now())
 }
 
 /// Imagen subida y servida desde la propia BD (sin bucket externo). Se usa

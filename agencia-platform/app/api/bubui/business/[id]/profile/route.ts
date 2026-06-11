@@ -14,33 +14,42 @@ import { prisma } from "@/lib/db/prisma";
 
 export const dynamic = "force-dynamic";
 
-const schema = z.object({
-  description: z.string().max(500).optional(),
-  address: z.string().max(200).optional(),
-  latitude: z.number().min(-90).max(90).optional(),
-  longitude: z.number().min(-180).max(180).optional(),
-  logoUrl: z.string().url().optional().nullable(),
-  brandColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional().nullable(),
-  defaultDiscountPct: z.number().int().min(3).max(30).optional(),
-  crossDiscountPct: z.number().int().min(3).max(30).optional(),
-  purchaseMode: z.enum(["double_confirm", "express"]).optional(),
-  referralEnabled: z.boolean().optional(),
-  referralReward1: z.string().max(60).optional().nullable(),
-  referralReward3: z.string().max(60).optional().nullable(),
-  referralReward5: z.string().max(60).optional().nullable(),
-  reviewRewardPct: z.number().int().min(0).max(30).optional(),
-  googlePlaceId: z.string().trim().max(200).optional().nullable(),
-  loyaltyEnabled: z.boolean().optional(),
-  loyaltyGoal: z.number().int().min(2).max(20).optional(),
-  loyaltyRewardPct: z.number().int().min(0).max(90).optional(),
-  loyaltyRewardLabel: z.string().trim().max(60).optional().nullable(),
-  birthdayEnabled: z.boolean().optional(),
-  birthdayDiscountPct: z.number().int().min(3).max(50).optional(),
-  birthdayMessage: z.string().trim().max(300).optional().nullable(),
-  wheelEnabled: z.boolean().optional(),
-  wheelMinPct: z.number().int().min(0).max(90).optional(),
-  wheelMaxPct: z.number().int().min(0).max(90).optional()
-});
+// Tope global de descuento por compra (protege el margen del negocio).
+const MAX_DISCOUNT_PCT = 50;
+
+const schema = z
+  .object({
+    description: z.string().max(500).optional(),
+    address: z.string().max(200).optional(),
+    latitude: z.number().min(-90).max(90).optional(),
+    longitude: z.number().min(-180).max(180).optional(),
+    logoUrl: z.string().url().optional().nullable(),
+    brandColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional().nullable(),
+    defaultDiscountPct: z.number().int().min(3).max(MAX_DISCOUNT_PCT).optional(),
+    crossDiscountPct: z.number().int().min(3).max(MAX_DISCOUNT_PCT).optional(),
+    purchaseMode: z.enum(["double_confirm", "express"]).optional(),
+    referralEnabled: z.boolean().optional(),
+    referralReward1: z.string().max(60).optional().nullable(),
+    referralReward3: z.string().max(60).optional().nullable(),
+    referralReward5: z.string().max(60).optional().nullable(),
+    reviewRewardPct: z.number().int().min(0).max(MAX_DISCOUNT_PCT).optional(),
+    googlePlaceId: z.string().trim().max(200).optional().nullable(),
+    loyaltyEnabled: z.boolean().optional(),
+    loyaltyGoal: z.number().int().min(2).max(20).optional(),
+    loyaltyRewardPct: z.number().int().min(0).max(MAX_DISCOUNT_PCT).optional(),
+    loyaltyRewardLabel: z.string().trim().max(60).optional().nullable(),
+    birthdayEnabled: z.boolean().optional(),
+    birthdayDiscountPct: z.number().int().min(3).max(MAX_DISCOUNT_PCT).optional(),
+    birthdayMessage: z.string().trim().max(300).optional().nullable(),
+    wheelEnabled: z.boolean().optional(),
+    wheelMinPct: z.number().int().min(0).max(MAX_DISCOUNT_PCT).optional(),
+    wheelMaxPct: z.number().int().min(0).max(MAX_DISCOUNT_PCT).optional()
+  })
+  // La ruleta no puede tener el mínimo por encima del máximo.
+  .refine(
+    (d) => d.wheelMinPct == null || d.wheelMaxPct == null || d.wheelMinPct <= d.wheelMaxPct,
+    { message: "El mínimo de la ruleta no puede ser mayor que el máximo", path: ["wheelMinPct"] }
+  );
 
 function tokenAllows(token: string | null, businessId: string): boolean {
   if (!token) return false;

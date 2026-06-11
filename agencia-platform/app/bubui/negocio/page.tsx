@@ -1703,7 +1703,7 @@ function ProfileEditor({ business, token, onSaved }: { business: any; token: str
     brandColor: business.brandColor ?? "#FDF2E1",
     defaultDiscountPct: business.defaultDiscountPct ?? 5,
     crossDiscountPct: business.crossDiscountPct ?? 8,
-    purchaseMode: business.purchaseMode ?? "double_confirm",
+    purchaseMode: business.purchaseMode ?? "express",
     reviewRewardPct: business.reviewRewardPct ?? 0,
     googlePlaceId: business.googlePlaceId ?? ""
   });
@@ -1881,17 +1881,6 @@ function ProfileEditor({ business, token, onSaved }: { business: any; token: str
             onChange={(e) => setForm({ ...form, brandColor: e.target.value })}
             className="w-full h-9 border rounded bg-white"
           />
-        </label>
-        <label>
-          <span className="block font-medium mb-1">Modo de compra</span>
-          <select
-            value={form.purchaseMode}
-            onChange={(e) => setForm({ ...form, purchaseMode: e.target.value })}
-            className="w-full px-2 py-1.5 border rounded bg-white"
-          >
-            <option value="double_confirm">Doble confirmación (anti-fraude)</option>
-            <option value="express">Express (sin confirmar)</option>
-          </select>
         </label>
         <label>
           <span className="block font-medium mb-1">% descuento al escanear</span>

@@ -51,6 +51,8 @@ export function Feed() {
   const [guest, setGuest] = useState(false);
   const [offers, setOffers] = useState<Offer[]>([]);
   const [refreshing, setRefreshing] = useState(false);
+  // Aviso de fallo de red (la carga del catálogo/ofertas no respondió).
+  const [netError, setNetError] = useState(false);
   const [banner, setBanner] = useState<{ imageUrl?: string; link?: string; active: boolean } | null>(null);
   // Alto real del banner según la proporción de la imagen (para no recortarla).
   const [bannerH, setBannerH] = useState<number>(BANNER_H_FALLBACK);
@@ -110,6 +112,7 @@ export function Feed() {
           const r = await api.offers(c.customerId, lat, lng);
           const items: Offer[] = r.items ?? [];
           setOffers(items);
+          setNetError(false);
           // Geocercas alrededor de los negocios con cupón activo (background).
           startBubuiGeofencing(
             items.map((o) => ({
@@ -121,7 +124,8 @@ export function Feed() {
             }))
           ).catch(() => {});
         } catch {
-          setOffers([]);
+          // No borramos lo ya cargado: mostramos aviso de red y dejamos reintentar.
+          setNetError(true);
         }
       } else {
         // Invitado (sin cuenta): solo contenido público — catálogo de negocios
@@ -142,8 +146,9 @@ export function Feed() {
             distanceM: b.distanceM ?? null
           }));
           setOffers(items);
+          setNetError(false);
         } catch {
-          setOffers([]);
+          setNetError(true);
         }
       }
     } finally {
@@ -173,6 +178,14 @@ export function Feed() {
       <FadeIn replayOnFocus style={styles.header}>
         <Wordmark size={26} />
       </FadeIn>
+
+      {netError && (
+        <TouchableOpacity style={styles.netError} onPress={load} activeOpacity={0.85}>
+          <Text style={styles.netErrorText}>
+            Sin conexión o el servidor no responde. Toca para reintentar.
+          </Text>
+        </TouchableOpacity>
+      )}
 
       {guest ? (
         /* Invitado: tarjeta de registro en lugar de stats + escanear. */
@@ -301,6 +314,8 @@ const makeStyles = (c: Palette) =>
   StyleSheet.create({
     root: { flex: 1, backgroundColor: c.bg },
     header: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 14 },
+    netError: { backgroundColor: "#FEF3C7", borderColor: "#FCD34D", borderWidth: 1, borderRadius: radius.md, padding: 12, marginBottom: 14 },
+    netErrorText: { color: "#92400E", fontSize: 13, fontWeight: "700", textAlign: "center" },
     savedCard: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", backgroundColor: c.white, borderRadius: radius.xl, borderWidth: 1, borderColor: c.border, padding: 18, marginBottom: 16, ...shadow.card },
     guestCard: { backgroundColor: c.white, borderRadius: radius.xl, borderWidth: 1, borderColor: c.border, padding: 18, marginBottom: 20, ...shadow.card },
     guestTitle: { fontSize: 16, fontWeight: "800", color: c.black, marginBottom: 4 },
