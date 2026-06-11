@@ -139,9 +139,10 @@ export async function sendPasswordResetEmail(opts: {
 
 /**
  * Aviso interno al equipo cuando un negocio pide que le llevemos el cartel
- * impreso a su local. Best-effort: requiere RESEND_API_KEY y la env
- * BUBUI_TEAM_EMAIL (a quién avisar). Si falta, no hace nada (la solicitud
- * sigue viéndose en el panel admin → Comercios → Carteles por entregar).
+ * impreso a su local. Va por TODOS los canales del equipo configurados en el
+ * admin (emails + WhatsApp, ver lib/bubui/team-notify). Best-effort: la
+ * solicitud siempre queda en el panel admin → Comercios → Carteles por
+ * entregar aunque ningún canal esté operativo.
  */
 export async function sendPosterDeliveryRequestEmail(opts: {
   businessName: string;
@@ -149,8 +150,6 @@ export async function sendPosterDeliveryRequestEmail(opts: {
   phone?: string | null;
   note?: string | null;
 }): Promise<void> {
-  const to = process.env.BUBUI_TEAM_EMAIL;
-  if (!to || !isEmailEnabled()) return;
   const html = shell(
     "🚚 Cartel por entregar",
     `<p style="margin:0 0 12px">El negocio <b>${opts.businessName}</b> ha pedido que le llevemos el cartel impreso a su local.</p>
@@ -160,8 +159,8 @@ export async function sendPosterDeliveryRequestEmail(opts: {
      <p style="margin:16px 0 0;font-size:13px;color:#888">También en el panel: Bubui admin → Comercios → Carteles por entregar.</p>`
   );
   try {
-    await sendEmail({
-      to,
+    const { notifyTeam } = await import("./team-notify");
+    await notifyTeam({
       subject: `🚚 Cartel por entregar — ${opts.businessName}`,
       html,
       text: `${opts.businessName} pide entrega de cartel. Dirección: ${opts.address}${
