@@ -1,8 +1,9 @@
-import { useState } from "react";
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ScrollView, Platform, Image, Linking } from "react-native";
+import { useState, useEffect, useRef } from "react";
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ScrollView, Platform, Image, Linking, Animated, Easing } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Bouncy } from "../components/Bouncy";
 import { sfx } from "../lib/sound";
-import { useNavigation } from "@react-navigation/native";
+import { useNavigation, useRoute } from "@react-navigation/native";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import * as Location from "expo-location";
 import * as Notifications from "expo-notifications";
@@ -30,11 +31,27 @@ const INTRO_STEP_COUNT = 1;
 
 export function Onboarding() {
   const nav = useNavigation<any>();
+  const route = useRoute<any>();
+  const insets = useSafeAreaInsets();
   const c = useTheme();
   const styles = makeStyles(c);
   // Flujo: 0 = vídeo de intro → 1 = pantalla "elige tipo" → 2 = signup cliente
   //        3 = login (solo teléfono + OTP)
-  const [step, setStep] = useState(0);
+  // Si se entra con `start: "register"` (p. ej. invitado pulsando "Cuenta"),
+  // saltamos el vídeo y vamos directos a la pantalla de registro.
+  const [step, setStep] = useState(route.params?.start === "register" ? INTRO_STEP_COUNT : 0);
+  // Animación de "latido" para llamar la atención sobre el CTA "Empezar ahora".
+  const ctaPulse = useRef(new Animated.Value(1)).current;
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(ctaPulse, { toValue: 1.06, duration: 850, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+        Animated.timing(ctaPulse, { toValue: 1, duration: 850, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [ctaPulse]);
   const [bodyW, setBodyW] = useState(0);
   const [bodyH, setBodyH] = useState(0);
   const [otpStep, setOtpStep] = useState<"form" | "code">("form");
@@ -140,13 +157,13 @@ export function Onboarding() {
     };
     const videoSource = onboardingVideoSource();
     return (
-      <View style={styles.root}>
+      <View style={[styles.root, { paddingBottom: Math.max(insets.bottom, 16) + 16 }]}>
         <View style={styles.brandRow}>
           <Wordmark size={56} />
         </View>
 
         <View
-          style={styles.slideBody}
+          style={[styles.slideBody, { marginBottom: 22 }]}
           onLayout={(e) => {
             setBodyW(e.nativeEvent.layout.width);
             setBodyH(e.nativeEvent.layout.height);
@@ -154,13 +171,21 @@ export function Onboarding() {
         >
           {bodyW > 0 && bodyH > 0 && (
             videoSource ? (
-              <Video
-                source={videoSource}
-                style={{ width: bodyW, height: bodyH, borderRadius: radius.lg, backgroundColor: "#000" }}
-                resizeMode={ResizeMode.CONTAIN}
-                shouldPlay
-                isLooping={false}
-              />
+              // Wrapper con esquinas redondeadas + overflow hidden para recortar
+              // el vídeo (COVER llena el marco sin franjas negras).
+              <View style={{ width: bodyW, height: bodyH, borderRadius: radius.lg, overflow: "hidden", backgroundColor: c.bg }}>
+                <Video
+                  source={videoSource}
+                  style={{ width: bodyW, height: bodyH }}
+                  resizeMode={ResizeMode.COVER}
+                  shouldPlay
+                  isLooping={false}
+                  onPlaybackStatusUpdate={(st) => {
+                    // Al terminar el vídeo, llevar directo a la pantalla de registro.
+                    if ("didJustFinish" in st && st.didJustFinish) setStep(INTRO_STEP_COUNT);
+                  }}
+                />
+              </View>
             ) : (
               <View style={{ width: bodyW, height: bodyH, alignItems: "center", justifyContent: "center" }}>
                 <Text style={styles.slideSubtitle}>El vídeo de presentación se está preparando.</Text>
@@ -170,12 +195,14 @@ export function Onboarding() {
         </View>
 
         <View style={styles.footer}>
-          <Bouncy style={styles.ctaBtn} onPress={goSignup}>
-            <Text style={styles.ctaBtnText}>Empezar ahora</Text>
-            <View style={styles.ctaArrowCircle}>
-              <Text style={styles.ctaArrow}>→</Text>
-            </View>
-          </Bouncy>
+          <Animated.View style={{ transform: [{ scale: ctaPulse }] }}>
+            <Bouncy style={styles.ctaBtn} onPress={goSignup}>
+              <Text style={styles.ctaBtnText}>Empezar ahora</Text>
+              <View style={styles.ctaArrowCircle}>
+                <Text style={styles.ctaArrow}>→</Text>
+              </View>
+            </Bouncy>
+          </Animated.View>
         </View>
       </View>
     );

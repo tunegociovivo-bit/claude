@@ -23,7 +23,8 @@ export function Cuenta() {
     useCallback(() => {
       (async () => {
         const s = await CheckSession();
-        if (!s) { nav.reset({ index: 0, routes: [{ name: "Onboarding" }] }); return; }
+        // Invitado (sin sesión): llevar directamente a la pantalla de registro.
+        if (!s) { nav.reset({ index: 0, routes: [{ name: "Onboarding", params: { start: "register" } }] }); return; }
         setCustomer(s);
       })();
     }, [nav])

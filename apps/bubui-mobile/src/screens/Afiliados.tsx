@@ -16,12 +16,15 @@ export function Afiliados() {
   const styles = makeStyles(c);
   const [data, setData] = useState<Referral | null>(null);
   const [loading, setLoading] = useState(true);
+  const [guest, setGuest] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const s = await CheckSession();
-      if (!s) { nav.reset({ index: 0, routes: [{ name: "Onboarding" }] }); return; }
+      // Invitado (sin sesión): puede compartir la app igualmente (sin recompensas).
+      if (!s) { setGuest(true); setData(null); return; }
+      setGuest(false);
       try {
         const r = await api.referral(s.customerId);
         setData(r);
@@ -31,12 +34,13 @@ export function Afiliados() {
     } finally {
       setLoading(false);
     }
-  }, [nav]);
+  }, []);
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
-  const link = data ? `${API_BASE}/bubui/r/${data.code}` : "";
-  const shareText = `¡Únete a Bubui y llévate descuentos en negocios del barrio! 🎁 ${link}`;
+  // Invitado comparte un enlace genérico de la app; con sesión, su enlace de referido.
+  const link = data ? `${API_BASE}/bubui/r/${data.code}` : "https://bubui.app";
+  const shareText = `¡Descubre Bubui y llévate descuentos en negocios del barrio! 🎁 ${link}`;
 
   async function share() {
     if (!link) return;
@@ -67,6 +71,38 @@ export function Afiliados() {
 
         {loading ? (
           <ActivityIndicator color={c.pink} size="large" style={{ marginTop: 24 }} />
+        ) : guest ? (
+          <>
+            {/* Modo invitado: compartir la app sin recompensas + CTA a registro */}
+            <View style={styles.progressCard}>
+              <Text style={styles.progressTitle}>Comparte Bubui con tus amigos</Text>
+              <Text style={styles.progressSub}>Envíales la app para que también ahorren en los negocios del barrio.</Text>
+            </View>
+
+            <TouchableOpacity style={styles.waBtn} onPress={shareWhatsApp} activeOpacity={0.9}>
+              <Text style={styles.waBtnText}>Compartir por WhatsApp</Text>
+            </TouchableOpacity>
+            <View style={styles.secRow}>
+              <TouchableOpacity style={styles.secBtn} onPress={share}>
+                <Text style={styles.secText}>↗ Compartir</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.secBtn} onPress={copy}>
+                <Text style={styles.secText}>⧉ Copiar enlace</Text>
+              </TouchableOpacity>
+            </View>
+
+            <TouchableOpacity
+              style={styles.registerCta}
+              onPress={() => nav.reset({ index: 0, routes: [{ name: "Onboarding", params: { start: "register" } }] })}
+              activeOpacity={0.9}
+            >
+              <Text style={styles.registerCtaText}>Crea tu cuenta y gana recompensas por cada amigo</Text>
+            </TouchableOpacity>
+
+            <Text style={styles.legal}>
+              Regístrate gratis para desbloquear un megadescuento cuando tus amigos se unan.
+            </Text>
+          </>
         ) : (
           <>
             {/* Progreso: huecos de amigos verificados */}
@@ -154,5 +190,7 @@ const makeStyles = (c: Palette) =>
     secRow: { flexDirection: "row", gap: 10, marginTop: 12 },
     secBtn: { flex: 1, paddingVertical: 14, alignItems: "center", borderRadius: radius.md, borderWidth: 1, borderColor: c.border, backgroundColor: c.white },
     secText: { fontSize: 14, fontWeight: "800", color: c.black },
+    registerCta: { marginTop: 16, backgroundColor: c.white, borderRadius: radius.pill, paddingVertical: 16, paddingHorizontal: 16, alignItems: "center", borderWidth: 1.5, borderColor: c.pink, ...shadow.card },
+    registerCtaText: { color: c.pink, fontSize: 15, fontWeight: "800", textAlign: "center" },
     legal: { fontSize: 12, color: c.grayLight, textAlign: "center", marginTop: 18, lineHeight: 17 }
   });
