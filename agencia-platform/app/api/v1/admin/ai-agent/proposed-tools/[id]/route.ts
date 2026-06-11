@@ -19,8 +19,9 @@ export const PATCH = withApi({ scope: "*" }, async (req, { params, api }) => {
   const parsed = reviewSchema.safeParse(body);
   if (!parsed.success) throw new ApiError(400, "validation_error", parsed.error.message);
 
-  const updated = await prisma.aiProposedTool.update({
-    where: { id: params.id },
+  // Filtra por workspace (evita modificar herramientas de otro tenant).
+  const res = await prisma.aiProposedTool.updateMany({
+    where: { id: params.id, workspaceId: api.workspaceId },
     data: {
       status: parsed.data.status,
       reviewedById: api.userId,
@@ -28,6 +29,10 @@ export const PATCH = withApi({ scope: "*" }, async (req, { params, api }) => {
       reviewerNote: parsed.data.note ?? null,
       implementationRef: parsed.data.implementationRef ?? null
     }
+  });
+  if (res.count === 0) throw new ApiError(404, "not_found", "Herramienta no encontrada");
+  const updated = await prisma.aiProposedTool.findFirst({
+    where: { id: params.id, workspaceId: api.workspaceId }
   });
   return NextResponse.json({ ok: true, item: updated });
 });

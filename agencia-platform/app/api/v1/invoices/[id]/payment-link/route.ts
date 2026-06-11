@@ -14,6 +14,12 @@ export const POST = withApi({ scope: "*", rate: "admin" }, async (_req, { api, p
   if (!inv) throw new ApiError(404, "not_found", "Factura no encontrada");
   if (inv.totalCents <= 0) throw new ApiError(400, "empty_total", "La factura no tiene importe a cobrar");
 
+  // Idempotencia: si ya hay un link de pago, devolvemos ese (un reintento de
+  // red no debe crear varios links de Stripe para la misma factura).
+  if (inv.stripePaymentLinkUrl) {
+    return NextResponse.json({ url: inv.stripePaymentLinkUrl, reused: true });
+  }
+
   const label = TYPE_LABEL[inv.type as InvoiceType] ?? "Factura";
   const productName = `${label} ${inv.number ?? ""}`.trim();
 

@@ -22,9 +22,14 @@ export const PATCH = withApi({ scope: "*" }, async (req, { params, api }) => {
   const body = await req.json().catch(() => null);
   const parsed = patchSchema.safeParse(body);
   if (!parsed.success) throw new ApiError(400, "validation_error", parsed.error.message);
-  const updated = await prisma.pricingService.update({
-    where: { id: params.id },
+  // Filtra por workspace (evita editar tarifas de otro tenant).
+  const res = await prisma.pricingService.updateMany({
+    where: { id: params.id, workspaceId: api.workspaceId },
     data: parsed.data as any
+  });
+  if (res.count === 0) throw new ApiError(404, "not_found", "Servicio no encontrado");
+  const updated = await prisma.pricingService.findFirst({
+    where: { id: params.id, workspaceId: api.workspaceId }
   });
   return NextResponse.json({ ok: true, item: updated });
 });
