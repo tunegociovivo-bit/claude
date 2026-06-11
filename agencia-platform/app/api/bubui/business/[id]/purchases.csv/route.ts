@@ -10,6 +10,7 @@
 
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
+import { businessTokenAllows } from "@/lib/bubui/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -23,9 +24,9 @@ function csvEscape(v: any): string {
 }
 
 export async function GET(req: Request, { params }: { params: { id: string } }) {
-  const auth = req.headers.get("authorization");
-  const m = /^Bearer\s+([\w-]+):/.exec(auth ?? "");
-  if (!m || m[1] !== params.id) {
+  // Valida el secreto del token contra el apiToken del negocio (antes solo se
+  // comprobaba el businessId del token, sin el secreto → bastaba conocer el id).
+  if (!(await businessTokenAllows(req.headers.get("authorization"), params.id))) {
     return NextResponse.json({ error: { code: "unauthorized" } }, { status: 401 });
   }
   const url = new URL(req.url);

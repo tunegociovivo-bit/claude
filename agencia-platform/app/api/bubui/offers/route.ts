@@ -39,7 +39,13 @@ export async function GET(req: Request) {
   if (appVersion) update.appVersion = appVersion;
   if (appBuild) update.appBuild = appBuild;
   if (appPlatform) update.appPlatform = appPlatform;
-  if (lat != null && !Number.isNaN(lat) && lng != null && !Number.isNaN(lng)) {
+  // Validamos rango geográfico real: un GPS erróneo (lat 361, etc.) no debe
+  // corromper la última ubicación (rompería distancias/geofencing).
+  if (
+    lat != null && lng != null &&
+    Number.isFinite(lat) && Number.isFinite(lng) &&
+    lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180
+  ) {
     update.lastLat = lat;
     update.lastLng = lng;
     update.lastLocationAt = new Date();

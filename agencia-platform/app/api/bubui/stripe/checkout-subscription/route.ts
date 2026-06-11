@@ -10,6 +10,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db/prisma";
+import { businessTokenAllows } from "@/lib/bubui/auth";
 import {
   isBubuiStripeEnabled,
   getOrCreateBubuiCustomer,
@@ -33,6 +34,10 @@ export async function POST(req: Request) {
   const parsed = schema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) {
     return NextResponse.json({ error: { code: "validation", message: parsed.error.message } }, { status: 400 });
+  }
+  // Solo el propio negocio (token válido) puede iniciar su checkout.
+  if (!(await businessTokenAllows(req.headers.get("authorization"), parsed.data.businessId))) {
+    return NextResponse.json({ error: { code: "unauthorized" } }, { status: 401 });
   }
   const business = await prisma.bubuiBusiness.findUnique({ where: { id: parsed.data.businessId } });
   if (!business) {

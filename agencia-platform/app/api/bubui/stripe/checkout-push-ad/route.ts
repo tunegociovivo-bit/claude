@@ -15,6 +15,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db/prisma";
+import { businessTokenAllows } from "@/lib/bubui/auth";
 import {
   isBubuiStripeEnabled,
   getOrCreateBubuiCustomer,
@@ -44,6 +45,10 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: { code: "validation", message: parsed.error.message } }, { status: 400 });
   }
   const d = parsed.data;
+  // Solo el propio negocio (token válido) puede crear/pagar su anuncio.
+  if (!(await businessTokenAllows(req.headers.get("authorization"), d.businessId))) {
+    return NextResponse.json({ error: { code: "unauthorized" } }, { status: 401 });
+  }
   const business = await prisma.bubuiBusiness.findUnique({ where: { id: d.businessId } });
   if (!business) {
     return NextResponse.json({ error: { code: "not_found" } }, { status: 404 });
