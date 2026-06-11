@@ -73,7 +73,7 @@ export default function InstallPrompt() {
   if (!visible) return null;
 
   return (
-    <div className="fixed inset-x-0 bottom-0 z-[60] px-3 pb-3 pointer-events-none">
+    <div className="bubui-install-prompt fixed inset-x-0 bottom-0 z-[60] px-3 pb-3 pointer-events-none">
       <div className="max-w-md mx-auto pointer-events-auto bubui-card p-4 flex items-center gap-3 shadow-xl">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src="/bubui/icon-192.png" alt="Bubui" className="w-11 h-11 rounded-xl shrink-0" />

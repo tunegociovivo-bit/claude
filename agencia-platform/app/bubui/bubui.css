@@ -328,10 +328,12 @@
 }
 .bubui-bottom-nav a.active { color: #EC4899; font-weight: 700; }
 
-/* Embebido en la app nativa (WebView): ocultamos la cabecera, el footer
-   y la barra inferior web para no duplicar la navegación nativa. */
+/* Embebido en la app nativa (WebView): ocultamos la cabecera, el footer,
+   la barra inferior web y el aviso de instalar la PWA para no duplicar la
+   navegación nativa. */
 body.bubui-embedded .bubui-bg > header,
 body.bubui-embedded .bubui-bg > footer,
+body.bubui-embedded .bubui-install-prompt,
 body.bubui-embedded .bubui-bottom-nav { display: none !important; }
 
 /* Embebido en la app nativa (WebView): ocultamos la cabecera, el footer
