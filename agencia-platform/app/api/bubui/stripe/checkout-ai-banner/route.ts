@@ -14,6 +14,8 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db/prisma";
 import { businessTokenAllows } from "@/lib/bubui/auth";
+import { isPaidPlan } from "@/lib/bubui/plan";
+import { getAiBannerPolicy } from "@/lib/bubui/ai-banner-settings";
 import {
   isBubuiStripeEnabled,
   getOrCreateBubuiCustomer,
@@ -41,6 +43,15 @@ export async function POST(req: Request) {
   }
   const business = await prisma.bubuiBusiness.findUnique({ where: { id: businessId } });
   if (!business) return NextResponse.json({ error: { code: "not_found" } }, { status: 404 });
+
+  // Política configurable por el admin: si está limitado a planes de pago,
+  // un negocio free no puede ni comprar créditos.
+  if ((await getAiBannerPolicy()) === "paid" && !isPaidPlan(business.plan)) {
+    return NextResponse.json(
+      { error: { code: "plan_required", message: "El Banner IA está disponible solo para planes Pro o Premium." } },
+      { status: 402 }
+    );
+  }
 
   try {
     const customer = await getOrCreateBubuiCustomer({

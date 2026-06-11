@@ -21,6 +21,8 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { businessTokenAllows } from "@/lib/bubui/auth";
+import { isPaidPlan } from "@/lib/bubui/plan";
+import { getAiBannerPolicy } from "@/lib/bubui/ai-banner-settings";
 import { generateBusinessBanner, isPhotoAiEnabled } from "@/lib/bubui/photo";
 import { isStorageEnabled, uploadBuffer, signedDownloadUrl } from "@/lib/storage/r2";
 
@@ -43,9 +45,17 @@ export async function POST(req: Request, { params }: { params: { id: string } })
 
   const business = await prisma.bubuiBusiness.findUnique({
     where: { id: params.id },
-    select: { name: true, category: true, aiBannerUsed: true, aiBannerCredits: true }
+    select: { name: true, category: true, plan: true, aiBannerUsed: true, aiBannerCredits: true }
   });
   if (!business) return NextResponse.json({ error: { code: "not_found" } }, { status: 404 });
+
+  // ── Política de acceso por plan (configurable por el admin) ──
+  if ((await getAiBannerPolicy()) === "paid" && !isPaidPlan(business.plan)) {
+    return NextResponse.json(
+      { error: { code: "plan_required", message: "El Banner IA está disponible solo para planes Pro o Premium." } },
+      { status: 402 }
+    );
+  }
 
   // ── Política de uso: gratis la primera, luego crédito de pago ──
   const free = business.aiBannerUsed === 0;

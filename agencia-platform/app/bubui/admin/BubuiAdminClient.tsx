@@ -111,7 +111,12 @@ export default function BubuiAdminClient() {
       {tab === "businesses" && <BusinessesPanel />}
       {tab === "banner" && <BannerPanel />}
       {tab === "push" && <PushPanel />}
-      {tab === "sections" && <SectionsPanel />}
+      {tab === "sections" && (
+        <>
+          <SectionsPanel />
+          <AiBannerPolicyPanel />
+        </>
+      )}
 
       {tab === "overview" && (
       <>
@@ -915,6 +920,84 @@ function SectionsPanel() {
           </div>
         </div>
       ))}
+    </section>
+  );
+}
+
+/** Política de acceso al Banner IA del panel de negocios: abierto a todos
+ *  los planes o limitado a Pro/Premium. Cambia al instante, sin deploy. */
+function AiBannerPolicyPanel() {
+  const [policy, setPolicy] = useState<"all" | "paid" | null>(null);
+  const [err, setErr] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    adminFetch("/api/bubui/admin/ai-banner")
+      .then((d) => setPolicy(d.policy))
+      .catch((e) => setErr(String(e)));
+  }, []);
+
+  async function save(next: "all" | "paid") {
+    setSaving(true);
+    setErr("");
+    try {
+      const d = await adminFetch("/api/bubui/admin/ai-banner", {
+        method: "PATCH",
+        body: JSON.stringify({ policy: next })
+      });
+      setPolicy(d.policy);
+    } catch (e) {
+      setErr(String(e));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (err) return <p className="text-rose-700 text-sm mt-4">{err}</p>;
+  if (!policy) return <div className="bubui-skeleton h-24 mt-4" />;
+
+  return (
+    <section className="bubui-card p-4 mt-4 space-y-4">
+      <div>
+        <h2 className="text-sm font-bold">🖼️ Banner IA (panel de negocios)</h2>
+        <p className="text-xs text-black/50 mt-1">
+          El comercio sube una foto de su escaparate y la IA genera su banner de portada
+          (1 gratis, luego 1€/edición). Aquí decides quién puede usarlo.
+        </p>
+      </div>
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-pink-50/50 px-3 py-3">
+        <div>
+          <div className="font-semibold text-sm">Disponible para</div>
+          <div className="text-[12px] text-black/50">
+            Estado actual:{" "}
+            <b className={policy === "all" ? "text-emerald-600" : "text-amber-600"}>
+              {policy === "all" ? "Todos los planes" : "Solo planes de pago (Pro/Premium)"}
+            </b>
+          </div>
+        </div>
+        <div className="flex gap-1.5">
+          {(
+            [
+              { v: "all" as const, label: "Todos los planes" },
+              { v: "paid" as const, label: "Solo planes de pago" }
+            ]
+          ).map((o) => (
+            <button
+              key={o.v}
+              disabled={saving}
+              onClick={() => save(o.v)}
+              className="px-3 py-1.5 rounded-full text-xs font-bold border disabled:opacity-50"
+              style={
+                policy === o.v
+                  ? { background: "#ec1c6e", color: "#fff", borderColor: "#ec1c6e" }
+                  : { background: "#fff", borderColor: "rgba(0,0,0,0.12)", cursor: "pointer" }
+              }
+            >
+              {o.label}
+            </button>
+          ))}
+        </div>
+      </div>
     </section>
   );
 }

@@ -835,6 +835,10 @@ function AiPhotoStudio({ business, token, onSaved }: { business: any; token: str
   const credits: number = business.aiBannerCredits ?? 0;
   const isFree = used === 0;
   const canGenerateNow = isFree || credits > 0;
+  // El admin puede limitar el Banner IA a planes de pago (gate también en API).
+  const paidOnly: boolean = business.aiBannerPaidOnly ?? false;
+  const isPaid = business.plan === "pro" || business.plan === "premium";
+  const planBlocked = paidOnly && !isPaid;
 
   function pickFile(f: File | null) {
     setFile(f);
@@ -932,7 +936,12 @@ function AiPhotoStudio({ business, token, onSaved }: { business: any; token: str
         </h3>
         <span className="text-xs text-black/55">{open ? "Cerrar" : "Abrir"}</span>
       </button>
-      {open && (
+      {open && planBlocked && (
+        <p className="text-xs text-rose-700 font-semibold">
+          El Banner IA está disponible solo para planes Pro o Premium. Mejora tu plan para usarlo.
+        </p>
+      )}
+      {open && !planBlocked && (
         <>
           {/* Aviso destacado de cómo funciona y el coste */}
           <div className="text-xs rounded-lg border border-pink-200 bg-pink-50/70 p-3 space-y-1">

@@ -11,6 +11,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { businessTokenAllows } from "@/lib/bubui/auth";
+import { getAiBannerPolicy } from "@/lib/bubui/ai-banner-settings";
 
 export const dynamic = "force-dynamic";
 
@@ -127,10 +128,12 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
       // Entrega de la pegatina/cartel QR (CTA "te la llevamos gratis").
       posterDeliveryRequestedAt: business.posterDeliveryRequestedAt,
       posterDeliveredAt: business.posterDeliveredAt,
-      // Banner IA: cuántas generaciones lleva (0 = la primera es gratis) y
-      // créditos de pago disponibles (1€ cada uno).
+      // Banner IA: cuántas generaciones lleva (0 = la primera es gratis),
+      // créditos de pago disponibles (1€ cada uno) y si el admin lo tiene
+      // limitado a planes de pago.
       aiBannerUsed: business.aiBannerUsed,
-      aiBannerCredits: business.aiBannerCredits
+      aiBannerCredits: business.aiBannerCredits,
+      aiBannerPaidOnly: (await getAiBannerPolicy()) === "paid"
     },
     notifications: notifications.map((n) => ({ id: n.id, message: n.message, createdAt: n.createdAt })),
     pending: pending.map((p) => ({
