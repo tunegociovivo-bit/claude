@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, Alert, Image, Animated } from "react-native";
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, Alert, Image, Animated, Linking } from "react-native";
 import { CameraView, Camera } from "expo-camera";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Location from "expo-location";
@@ -61,8 +61,15 @@ export function Scan() {
         nav.reset({ index: 0, routes: [{ name: "Onboarding" }] });
         return;
       }
-      const { status } = await Camera.requestCameraPermissionsAsync();
-      setHasPermission(status === "granted");
+      try {
+        const { status } = await Camera.requestCameraPermissionsAsync();
+        setHasPermission(status === "granted");
+      } catch {
+        // Nunca dejar la pantalla en "Pidiendo permiso…": si la petición
+        // falla (p. ej. otra petición de permiso en curso), mostrar el estado
+        // de denegado con su botón de reintentar.
+        setHasPermission(false);
+      }
     })();
   }, [nav]);
 
@@ -160,7 +167,24 @@ export function Scan() {
       <View style={[styles.center, { padding: 24 }]}>
         <Image source={require("../../assets/ill-scan.png")} style={styles.permIll} resizeMode="contain" />
         <Text style={styles.bigTitle}>Necesitamos la cámara</Text>
-        <Text style={styles.muted}>Para escanear el QR del negocio y aplicarte el descuento. Actívala en los ajustes del teléfono.</Text>
+        <Text style={styles.muted}>Para escanear el QR del negocio y aplicarte el descuento.</Text>
+        <TouchableOpacity
+          style={styles.btn}
+          activeOpacity={0.85}
+          onPress={async () => {
+            try {
+              const { status, canAskAgain } = await Camera.requestCameraPermissionsAsync();
+              if (status === "granted") { setHasPermission(true); return; }
+              // Denegado de forma permanente: solo se puede activar en Ajustes.
+              if (!canAskAgain) Linking.openSettings().catch(() => {});
+            } catch {}
+          }}
+        >
+          <Text style={styles.btnText}>Permitir cámara</Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={close} activeOpacity={0.7} style={{ marginTop: 16 }}>
+          <Text style={styles.muted}>Volver</Text>
+        </TouchableOpacity>
       </View>
     );
   }
