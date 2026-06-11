@@ -115,6 +115,7 @@ export default function BubuiAdminClient() {
         <>
           <SectionsPanel />
           <AiBannerPolicyPanel />
+          <QrPosterPanel />
         </>
       )}
 
@@ -374,6 +375,14 @@ function BusinessesPanel() {
                 {b.posterDeliveryNote ? <p className="text-[12px] text-black/50 italic">“{b.posterDeliveryNote}”</p> : null}
               </div>
               <div className="flex items-center gap-2">
+                <a
+                  href={`/api/bubui/business/${b.id}/poster.png`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-[12px] font-bold border-2 border-pink-600 text-pink-700 rounded-full px-3 py-1 hover:bg-pink-50"
+                >
+                  🖨️ Imprimir cartel
+                </a>
                 {b.posterDeliveryAddress && (
                   <a
                     href={`https://www.google.com/maps?q=${encodeURIComponent(b.posterDeliveryAddress)}`}
@@ -401,7 +410,7 @@ function BusinessesPanel() {
       <table className="w-full text-[13px]" style={{ borderCollapse: "collapse" }}>
         <thead>
           <tr>
-            {["Destacar", "Nombre", "Categoría", "Ciudad", "Dueño", "Teléfono", "Plan", "Ofertas", "Compras", "Activo", "Ubicación"].map((h) => (
+            {["Destacar", "Nombre", "Categoría", "Ciudad", "Dueño", "Teléfono", "Plan", "Ofertas", "Compras", "Activo", "Ubicación", "Cartel"].map((h) => (
               <th key={h} className="text-left p-2 border-b-2 border-black/10 whitespace-nowrap text-black/55">{h}</th>
             ))}
           </tr>
@@ -425,6 +434,9 @@ function BusinessesPanel() {
                 {b.latitude != null && b.longitude != null ? (
                   <a href={`https://www.google.com/maps?q=${b.latitude},${b.longitude}`} target="_blank" rel="noreferrer" className="text-pink-600">ver</a>
                 ) : "—"}
+              </td>
+              <td className="p-2 border-b border-black/5 whitespace-nowrap">
+                <a href={`/api/bubui/business/${b.id}/poster.png`} target="_blank" rel="noreferrer" className="text-pink-600" title="Imprimir cartel QR">🖨️</a>
               </td>
             </tr>
           ))}
@@ -998,6 +1010,114 @@ function AiBannerPolicyPanel() {
           ))}
         </div>
       </div>
+    </section>
+  );
+}
+
+/** Plantilla del cartel QR de marca: el mismo póster para todos los
+ *  comercios, con el QR de cada uno compuesto encima. El admin la sube una
+ *  vez; cada negocio descarga su cartel listo para imprimir. */
+function QrPosterPanel() {
+  const [config, setConfig] = useState<{ url: string } | null | undefined>(undefined);
+  const [err, setErr] = useState("");
+  const [msg, setMsg] = useState("");
+  const [uploading, setUploading] = useState(false);
+
+  useEffect(() => {
+    adminFetch("/api/bubui/admin/qr-poster")
+      .then((d) => setConfig(d.config))
+      .catch((e) => setErr(String(e)));
+  }, []);
+
+  async function uploadTemplate(file: File) {
+    setUploading(true);
+    setErr("");
+    setMsg("");
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const r = await fetch("/api/bubui/admin/banner/upload", { method: "POST", body: fd });
+      if (r.status === 401) {
+        window.location.href = "/login?callbackUrl=/bubui/admin";
+        return;
+      }
+      const j: any = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j?.error?.message || j?.error?.code || `HTTP ${r.status}`);
+      const d = await adminFetch("/api/bubui/admin/qr-poster", {
+        method: "PATCH",
+        body: JSON.stringify({ url: j.url })
+      });
+      setConfig(d.config);
+      setMsg("Plantilla guardada ✓ — los carteles de TODOS los comercios ya la usan.");
+    } catch (e) {
+      setErr(String(e));
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function disable() {
+    setErr("");
+    setMsg("");
+    try {
+      const d = await adminFetch("/api/bubui/admin/qr-poster", {
+        method: "PATCH",
+        body: JSON.stringify({ url: null })
+      });
+      setConfig(d.config);
+      setMsg("Plantilla desactivada — vuelve el cartel generado clásico.");
+    } catch (e) {
+      setErr(String(e));
+    }
+  }
+
+  if (config === undefined && !err) return <div className="bubui-skeleton h-24 mt-4" />;
+
+  return (
+    <section className="bubui-card p-4 mt-4 space-y-3">
+      <div>
+        <h2 className="text-sm font-bold">🪧 Cartel QR de marca (todos los comercios)</h2>
+        <p className="text-xs text-black/50 mt-1">
+          Sube la plantilla oficial del cartel (el póster de Bubui con el QR de muestra). El sistema
+          colocará automáticamente el <b>QR real de cada comercio</b> sobre la tarjeta blanca: cada
+          negocio descarga su cartel listo para imprimir desde su panel, y tú puedes imprimirlo desde
+          aquí cuando te pidan llevárselo.
+        </p>
+      </div>
+      {err && <p className="text-rose-700 text-xs">{err}</p>}
+      {msg && <p className="text-emerald-700 text-xs font-semibold">{msg}</p>}
+      <div className="flex items-center gap-2 flex-wrap">
+        <label className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-bold cursor-pointer ${uploading ? "bg-pink-200 text-pink-500" : "bg-pink-600 text-white hover:bg-pink-700"}`}>
+          {uploading ? "Subiendo…" : config ? "📤 Sustituir plantilla" : "📤 Subir plantilla"}
+          <input
+            type="file"
+            accept="image/png,image/jpeg,image/webp"
+            className="hidden"
+            disabled={uploading}
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              e.target.value = "";
+              if (f) void uploadTemplate(f);
+            }}
+          />
+        </label>
+        {config && (
+          <button onClick={disable} className="text-xs text-black/50 hover:text-rose-600 underline">
+            Desactivar plantilla
+          </button>
+        )}
+      </div>
+      {config && (
+        <div className="flex items-start gap-3">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={config.url} alt="Plantilla del cartel" className="w-36 rounded-lg border" />
+          <p className="text-[11px] text-black/45">
+            Estado: <b className="text-emerald-600">activa</b>. El QR de cada negocio se coloca sobre
+            la tarjeta blanca de la plantilla. Para imprimir el cartel de un comercio concreto, usa el
+            botón 🖨️ de su fila en la pestaña <b>Comercios</b>.
+          </p>
+        </div>
+      )}
     </section>
   );
 }

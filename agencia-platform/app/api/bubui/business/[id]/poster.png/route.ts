@@ -18,6 +18,7 @@ import { NextResponse } from "next/server";
 import sharp from "sharp";
 import { prisma } from "@/lib/db/prisma";
 import { generateBusinessQrPng, bubuiScanUrl } from "@/lib/bubui/core";
+import { getQrPosterConfig, composeQrPoster } from "@/lib/bubui/qr-poster";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -61,6 +62,27 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
   if (!business) return new NextResponse("Not found", { status: 404 });
 
   const baseUrl = new URL(req.url).origin;
+
+  // ── Plantilla oficial (si el admin la subió): mismo cartel de marca para
+  //    todos los comercios, con SU QR compuesto encima. Tiene prioridad
+  //    sobre el cartel generado por estilos. ──
+  try {
+    const tplConfig = await getQrPosterConfig();
+    if (tplConfig) {
+      const png = await composeQrPoster({ config: tplConfig, businessId: business.id, baseUrl });
+      return new NextResponse(new Uint8Array(png), {
+        status: 200,
+        headers: {
+          "Content-Type": "image/png",
+          "Content-Disposition": `inline; filename="bubui-cartel-${business.slug}.png"`,
+          "Cache-Control": "private, max-age=300"
+        }
+      });
+    }
+  } catch (e: any) {
+    // Si la plantilla falla (URL caída…), caemos al cartel generado clásico.
+    console.warn("[bubui poster template]", e?.message ?? e);
+  }
 
   // 1) QR del negocio
   const qrPng = await generateBusinessQrPng({ businessId: business.id, baseUrl, size: 520 });

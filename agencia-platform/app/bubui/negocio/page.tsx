@@ -290,7 +290,15 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
           <h3 className="font-semibold text-sm">Tu QR</h3>
           <p className="text-xs text-slate-600 mb-2">Imprímelo y ponlo en la caja. Cada escaneo sube tu karma y te hace más visible.</p>
           <div className="flex items-center gap-2 flex-wrap">
-            <a href={b.qrPngUrl} download className="text-sm text-pink-600 hover:underline">Descargar PNG</a>
+            <a
+              href={`/api/bubui/business/${b.id}/poster.png`}
+              target="_blank"
+              rel="noreferrer"
+              className="text-sm font-bold text-pink-700 border-2 border-pink-600 rounded-full px-3 py-1 hover:bg-pink-50"
+            >
+              🖨️ Descargar cartel para imprimir
+            </a>
+            <a href={b.qrPngUrl} download className="text-sm text-pink-600 hover:underline">Solo el QR (PNG)</a>
             <span className="text-slate-400">·</span>
             <CsvDownloadButton businessId={b.id} token={session.token} />
           </div>
