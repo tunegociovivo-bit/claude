@@ -116,10 +116,12 @@ export async function registerExpoPushForCustomer(customerId: string): Promise<v
     }
 
     // Android necesita un canal por defecto para mostrar notificaciones.
+    // Importancia HIGH (igual que el canal de Notifee): con DEFAULT algunos
+    // fabricantes degradan la notificación (sin heads-up).
     if (Platform.OS === "android") {
       await Notifications.setNotificationChannelAsync("default", {
         name: "Bubui",
-        importance: Notifications.AndroidImportance.DEFAULT,
+        importance: Notifications.AndroidImportance.HIGH,
         lightColor: "#EC4899"
       });
     }
