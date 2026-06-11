@@ -3416,6 +3416,11 @@ model BubuiBusiness {
   active        Boolean  @default(true)
   // Destacado en Descubre (ordenación preferente).
   featured      Boolean  @default(false)
+  // Banner IA (foto del escaparate → banner con el nombre del negocio).
+  // La PRIMERA generación es gratis; cada edición extra cuesta 1€ y concede
+  // 1 crédito (aiBannerCredits) al confirmar el pago en Stripe.
+  aiBannerUsed    Int @default(0)
+  aiBannerCredits Int @default(0)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 

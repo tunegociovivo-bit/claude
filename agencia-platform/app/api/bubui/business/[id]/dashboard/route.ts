@@ -126,7 +126,11 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
       googlePlaceId: business.googlePlaceId,
       // Entrega de la pegatina/cartel QR (CTA "te la llevamos gratis").
       posterDeliveryRequestedAt: business.posterDeliveryRequestedAt,
-      posterDeliveredAt: business.posterDeliveredAt
+      posterDeliveredAt: business.posterDeliveredAt,
+      // Banner IA: cuántas generaciones lleva (0 = la primera es gratis) y
+      // créditos de pago disponibles (1€ cada uno).
+      aiBannerUsed: business.aiBannerUsed,
+      aiBannerCredits: business.aiBannerCredits
     },
     notifications: notifications.map((n) => ({ id: n.id, message: n.message, createdAt: n.createdAt })),
     pending: pending.map((p) => ({

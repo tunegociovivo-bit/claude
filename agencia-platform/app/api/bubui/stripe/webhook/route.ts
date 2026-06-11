@@ -106,6 +106,15 @@ async function handleCheckoutCompleted(session: any): Promise<void> {
     return;
   }
 
+  // Edición extra de Banner IA → concede 1 crédito al negocio.
+  if (kind === "ai_banner") {
+    await prisma.bubuiBusiness.update({
+      where: { id: businessId },
+      data: { aiBannerCredits: { increment: 1 } }
+    });
+    return;
+  }
+
   // Subscription → ya nos llegará customer.subscription.created. No hacemos
   // nada aquí.
 }
