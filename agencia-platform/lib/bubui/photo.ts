@@ -14,6 +14,30 @@ export function isPhotoAiEnabled(): boolean {
   return Boolean(process.env.OPENAI_API_KEY);
 }
 
+/**
+ * Resuelve la API key de OpenAI como el resto del Hub:
+ *   1. process.env.OPENAI_API_KEY
+ *   2. Workspace.settings.ai.openaiApiKey (cifrada, bóveda del Hub —
+ *      es donde están las claves en producción).
+ */
+async function resolveOpenAiKey(): Promise<string | null> {
+  if (process.env.OPENAI_API_KEY) return process.env.OPENAI_API_KEY;
+  try {
+    const { prisma } = await import("@/lib/db/prisma");
+    const ws = await prisma.workspace.findFirst({ orderBy: { createdAt: "asc" }, select: { id: true } });
+    if (!ws) return null;
+    const { getOpenAiKeyForWorkspace } = await import("@/lib/ai/openai");
+    return await getOpenAiKeyForWorkspace(ws.id);
+  } catch {
+    return null;
+  }
+}
+
+/** Como isPhotoAiEnabled, pero mirando también la bóveda del Hub. */
+export async function isPhotoAiEnabledAsync(): Promise<boolean> {
+  return Boolean(await resolveOpenAiKey());
+}
+
 export async function generateBusinessHeroImage(opts: {
   /** Negocio: nombre + categoría → contexto del prompt del dueño. */
   businessName: string;
@@ -23,8 +47,8 @@ export async function generateBusinessHeroImage(opts: {
   /** 16:9 portada vs cuadrado para el logo. */
   aspect?: "wide" | "square";
 }): Promise<{ pngBase64: string }> {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) throw new Error("OPENAI_API_KEY no configurada");
+  const apiKey = await resolveOpenAiKey();
+  if (!apiKey) throw new Error("API key de OpenAI no configurada (ni env ni bóveda del Hub)");
 
   const size = opts.aspect === "square" ? "1024x1024" : "1536x1024";
   // Prompt curado para evitar las trampas más habituales (texto basura,
@@ -80,8 +104,8 @@ export async function generateBusinessBanner(opts: {
   imageBuffer: Buffer;
   mimeType: string;
 }): Promise<{ pngBase64: string }> {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) throw new Error("OPENAI_API_KEY no configurada");
+  const apiKey = await resolveOpenAiKey();
+  if (!apiKey) throw new Error("API key de OpenAI no configurada (ni env ni bóveda del Hub)");
 
   const name = opts.businessName.trim().slice(0, 60);
   // Prompt curado (versión mejorada del orientativo del cliente). En inglés

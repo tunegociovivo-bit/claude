@@ -23,7 +23,7 @@ import { prisma } from "@/lib/db/prisma";
 import { businessTokenAllows } from "@/lib/bubui/auth";
 import { isPaidPlan } from "@/lib/bubui/plan";
 import { getAiBannerPolicy } from "@/lib/bubui/ai-banner-settings";
-import { generateBusinessBanner, isPhotoAiEnabled } from "@/lib/bubui/photo";
+import { generateBusinessBanner, isPhotoAiEnabledAsync } from "@/lib/bubui/photo";
 import { isStorageEnabled, uploadBuffer, signedDownloadUrl } from "@/lib/storage/r2";
 
 export const dynamic = "force-dynamic";
@@ -36,9 +36,9 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   if (!(await businessTokenAllows(req.headers.get("authorization"), params.id))) {
     return NextResponse.json({ error: { code: "unauthorized" } }, { status: 401 });
   }
-  if (!isPhotoAiEnabled()) {
+  if (!(await isPhotoAiEnabledAsync())) {
     return NextResponse.json(
-      { error: { code: "ai_off", message: "Banner IA no configurado (falta OPENAI_API_KEY)." } },
+      { error: { code: "ai_off", message: "Banner IA no configurado: añade la API key de OpenAI en el Hub (Admin → IA) o como OPENAI_API_KEY." } },
       { status: 503 }
     );
   }
