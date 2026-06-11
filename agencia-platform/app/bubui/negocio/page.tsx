@@ -294,6 +294,8 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
             <span className="text-slate-400">·</span>
             <CsvDownloadButton businessId={b.id} token={session.token} />
           </div>
+          {/* Pedir la pegatina QR impresa: se la llevamos gratis al local. */}
+          <StickerRequest business={b} token={session.token} onChanged={load} />
         </div>
       </section>
 
@@ -1472,6 +1474,108 @@ function ShareWidget({ slug, name, discountPct }: { slug: string; name: string; 
   );
 }
 
+/** CTA muy llamativo para pedir la pegatina/cartel QR GRATIS: el equipo se
+ *  la lleva al local sin coste. Usa POST /request-poster (avisa por email al
+ *  equipo y aparece en el admin como "cartel por entregar"). */
+function StickerRequest({ business, token, onChanged }: { business: any; token: string; onChanged: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [address, setAddress] = useState<string>(business.address ?? "");
+  const [phone, setPhone] = useState("");
+  const [note, setNote] = useState("");
+  const [sending, setSending] = useState(false);
+  const [sent, setSent] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const requested = sent || (!!business.posterDeliveryRequestedAt && !business.posterDeliveredAt);
+  if (requested) {
+    return (
+      <div className="mt-3 inline-flex items-center gap-2 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-3 py-1.5">
+        ✅ Pegatina solicitada — te la llevaremos GRATIS a tu local.
+      </div>
+    );
+  }
+
+  async function send() {
+    if (!address.trim()) {
+      setError("Indica la dirección de entrega.");
+      return;
+    }
+    setSending(true);
+    setError(null);
+    try {
+      const r = await fetch(`/api/bubui/business/${business.id}/request-poster`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ address: address.trim(), phone: phone.trim() || null, note: note.trim() || null })
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        setError(j?.error?.message ?? `Error ${r.status}`);
+        return;
+      }
+      setSent(true);
+      onChanged();
+    } finally {
+      setSending(false);
+    }
+  }
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="bubui-sticker-btn mt-3 inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-pink-600 to-fuchsia-500 text-white text-sm font-extrabold px-5 py-3 shadow-lg"
+      >
+        <span className="text-lg" aria-hidden>🎁</span>
+        ¡Pide tu pegatina QR GRATIS!
+        <span className="font-semibold opacity-90">Te la llevamos al local</span>
+      </button>
+    );
+  }
+
+  return (
+    <div className="mt-3 border-2 border-pink-200 bg-pink-50/60 rounded-xl p-4 space-y-2">
+      <p className="text-sm font-bold">🎁 Pegatina QR gratis a domicilio</p>
+      <p className="text-xs text-slate-600">
+        Te llevamos la pegatina con tu QR impresa al local, sin coste. Confirma la dirección:
+      </p>
+      <input
+        value={address}
+        onChange={(e) => setAddress(e.target.value)}
+        placeholder="Dirección del local"
+        className="w-full px-2 py-1.5 border rounded bg-white text-sm"
+      />
+      <input
+        value={phone}
+        onChange={(e) => setPhone(e.target.value)}
+        placeholder="Teléfono de contacto (opcional)"
+        className="w-full px-2 py-1.5 border rounded bg-white text-sm"
+      />
+      <input
+        value={note}
+        onChange={(e) => setNote(e.target.value)}
+        placeholder="Horario o nota para la entrega (opcional)"
+        className="w-full px-2 py-1.5 border rounded bg-white text-sm"
+      />
+      {error && <p className="text-xs text-red-600 font-semibold">{error}</p>}
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={send}
+          disabled={sending}
+          className="px-4 py-2 rounded-full bg-pink-600 hover:bg-pink-700 text-white text-sm font-bold disabled:opacity-60"
+        >
+          {sending ? "Enviando…" : "Pedir mi pegatina gratis"}
+        </button>
+        <button type="button" onClick={() => setOpen(false)} className="text-xs text-slate-500 hover:underline">
+          Cancelar
+        </button>
+      </div>
+    </div>
+  );
+}
+
 /** Editor de perfil del negocio. Permite cambiar descripción, dirección,
  *  geo coords, logo URL, brand color y los % de descuento. Lo que se
  *  cambie aquí impacta la página pública (/bubui/n/<slug>) y el cartel. */
@@ -1491,7 +1595,34 @@ function ProfileEditor({ business, token, onSaved }: { business: any; token: str
     googlePlaceId: business.googlePlaceId ?? ""
   });
   const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [status, setStatus] = useState<{ kind: "ok" | "err"; msg: string } | null>(null);
+
+  /** Sube la foto de portada y deja su URL en el campo (falta Guardar). */
+  async function uploadCover(file: File) {
+    setUploading(true);
+    setStatus(null);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const r = await fetch(`/api/bubui/business/${business.id}/upload-photo`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        body: fd
+      });
+      const j = await r.json();
+      if (!r.ok) {
+        setStatus({ kind: "err", msg: j?.error?.message ?? `Error ${r.status}` });
+        return;
+      }
+      setForm((f: typeof form) => ({ ...f, logoUrl: j.url }));
+      setStatus({ kind: "ok", msg: "Foto subida. Pulsa «Guardar cambios» para aplicarla." });
+    } catch {
+      setStatus({ kind: "err", msg: "No se pudo subir la foto. Reintenta." });
+    } finally {
+      setUploading(false);
+    }
+  }
 
   async function save() {
     setSaving(true);
@@ -1566,13 +1697,40 @@ function ProfileEditor({ business, token, onSaved }: { business: any; token: str
           />
         </label>
         <label>
-          <span className="block font-medium mb-1">URL del logo</span>
-          <input
-            value={form.logoUrl}
-            onChange={(e) => setForm({ ...form, logoUrl: e.target.value })}
-            placeholder="https://…"
-            className="w-full px-2 py-1.5 border rounded bg-white"
-          />
+          <span className="block font-medium mb-1">Imagen de portada / logo</span>
+          <div className="flex items-center gap-2">
+            <input
+              value={form.logoUrl}
+              onChange={(e) => setForm({ ...form, logoUrl: e.target.value })}
+              placeholder="https://… (o sube una foto)"
+              className="flex-1 min-w-0 px-2 py-1.5 border rounded bg-white"
+            />
+            <label
+              className={`shrink-0 inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-bold cursor-pointer transition ${
+                uploading ? "bg-pink-200 text-pink-500" : "bg-pink-600 text-white hover:bg-pink-700"
+              }`}
+            >
+              {uploading ? "Subiendo…" : "📷 Subir foto"}
+              <input
+                type="file"
+                accept="image/png,image/jpeg,image/webp,image/gif"
+                className="hidden"
+                disabled={uploading}
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  e.target.value = "";
+                  if (f) void uploadCover(f);
+                }}
+              />
+            </label>
+          </div>
+          {form.logoUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={form.logoUrl} alt="Portada" className="mt-2 w-full max-h-36 object-cover rounded border" />
+          ) : null}
+          <span className="block text-[11px] text-black/50 mt-1">
+            Se muestra como portada de tu ficha pública. Recuerda pulsar «Guardar cambios».
+          </span>
         </label>
         <label className="sm:col-span-2">
           <span className="block font-medium mb-1">Dirección</span>

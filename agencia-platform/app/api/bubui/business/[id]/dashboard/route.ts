@@ -113,7 +113,20 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
       referralEnabled: business.referralEnabled,
       referralReward1: business.referralReward1,
       referralReward3: business.referralReward3,
-      referralReward5: business.referralReward5
+      referralReward5: business.referralReward5,
+      // Perfil editable (inicializa el formulario "Editar perfil").
+      description: business.description,
+      address: business.address,
+      latitude: business.latitude,
+      longitude: business.longitude,
+      logoUrl: business.logoUrl,
+      brandColor: business.brandColor,
+      purchaseMode: business.purchaseMode,
+      reviewRewardPct: business.reviewRewardPct,
+      googlePlaceId: business.googlePlaceId,
+      // Entrega de la pegatina/cartel QR (CTA "te la llevamos gratis").
+      posterDeliveryRequestedAt: business.posterDeliveryRequestedAt,
+      posterDeliveredAt: business.posterDeliveredAt
     },
     notifications: notifications.map((n) => ({ id: n.id, message: n.message, createdAt: n.createdAt })),
     pending: pending.map((p) => ({
