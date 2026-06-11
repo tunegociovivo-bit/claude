@@ -191,21 +191,35 @@ export function Scan() {
 
   if (done) {
     const rejected = done.status === "rejected";
+    const pending = done.status === "pending";
+    const emoji = rejected ? "❌" : pending ? "⏳" : "🎉";
+    const title = rejected
+      ? "Escaneo no válido"
+      : pending
+      ? "¡Compra registrada!"
+      : "¡Ahorro aplicado!";
     return (
       <View style={[styles.center, { padding: 24 }]}>
-        {!rejected && <Confetti ref={confetti} />}
+        {!rejected && !pending && <Confetti ref={confetti} />}
         <Animated.Text style={{ fontSize: 64, transform: rejected ? undefined : [{ scale: popScale }] }}>
-          {rejected ? "❌" : "🎉"}
+          {emoji}
         </Animated.Text>
         <FadeIn delay={140} dy={10} style={{ alignItems: "center", gap: 12 }}>
-          <Text style={styles.bigTitle}>{rejected ? "Escaneo no válido" : "¡Ahorro aplicado!"}</Text>
+          <Text style={styles.bigTitle}>{title}</Text>
           <Text style={styles.muted}>
             {rejected
               ? done.rejectionReason
+              : pending
+              ? `El negocio tiene que confirmar tu compra. En cuanto la valide, tu ${done.discountPct}% de descuento se sumará a "Has ahorrado".`
               : `Te has llevado un ${done.discountPct}% en esta compra${done.offersUnlocked ? ` y has desbloqueado ${done.offersUnlocked} cupones cerca` : ""}.`}
           </Text>
+          {pending && (
+            <Text style={[styles.muted, { fontSize: 12 }]}>
+              Lo verás reflejado automáticamente; no hace falta volver a escanear.
+            </Text>
+          )}
           <Bouncy style={styles.btn} onPress={() => nav.reset({ index: 0, routes: [{ name: "Feed" }] })}>
-            <Text style={styles.btnText}>Ver mi ahorro</Text>
+            <Text style={styles.btnText}>{pending ? "Entendido" : "Ver mi ahorro"}</Text>
           </Bouncy>
         </FadeIn>
       </View>
