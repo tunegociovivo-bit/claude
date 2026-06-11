@@ -100,13 +100,26 @@ export const api = {
       return r.json();
     });
   },
-  scan: (businessId: string, customerId: string, amount: number, scanLat?: number, scanLng?: number, ticketUrl?: string) =>
+  scan: (
+    businessId: string,
+    customerId: string,
+    amount: number,
+    scanLat?: number,
+    scanLng?: number,
+    ticketUrl?: string,
+    ticketScanId?: string
+  ) =>
     call("/api/bubui/scan", {
       method: "POST",
-      body: JSON.stringify({ businessId, customerId, amount, scanLat, scanLng, ticketUrl })
+      body: JSON.stringify({ businessId, customerId, amount, scanLat, scanLng, ticketUrl, ticketScanId })
     }),
-  /** Sube la foto de un ticket; la IA devuelve el importe total leído + la URL
-   *  donde quedó guardado el ticket. Multipart, sin Content-Type manual. */
+  /** Info pública del negocio (tras escanear el QR): si exige foto del ticket. */
+  businessPublic: (businessId: string) =>
+    call<{ id: string; name: string; slug: string; category: string; requireTicket: boolean }>(
+      `/api/bubui/business/${businessId}/public`
+    ),
+  /** Sube la foto de un ticket; la IA devuelve el importe total leído, la URL
+   *  donde quedó guardado y un ticketScanId (importe de confianza para el scan). */
   readTicket: (customerId: string, uri: string) => {
     const fd = new FormData();
     fd.append("customerId", customerId);
@@ -114,7 +127,7 @@ export const api = {
     return fetch(`${API_BASE}/api/bubui/scan/read-ticket`, { method: "POST", body: fd, headers: authHeaders() }).then(async (r) => {
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j?.error?.message ?? `HTTP ${r.status}`);
-      return j as { amount: number | null; currency: string; confidence: number; ticketUrl: string | null };
+      return j as { amount: number | null; currency: string; confidence: number; ticketUrl: string | null; ticketScanId: string | null };
     });
   },
   referral: (customerId: string) =>

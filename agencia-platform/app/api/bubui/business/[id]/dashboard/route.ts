@@ -123,6 +123,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
       logoUrl: business.logoUrl,
       brandColor: business.brandColor,
       purchaseMode: business.purchaseMode,
+      requireTicket: business.requireTicket,
       reviewRewardPct: business.reviewRewardPct,
       googlePlaceId: business.googlePlaceId,
       // Entrega de la pegatina/cartel QR (CTA "te la llevamos gratis").

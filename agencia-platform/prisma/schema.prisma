@@ -3389,6 +3389,10 @@ model BubuiBusiness {
   scoreUpdatedAt  DateTime?
   // Modelo de validación de compra.
   purchaseMode  String   @default("express") // express | double_confirm
+  // Anti-fraude: si está activo, el cliente DEBE fotografiar el ticket y el
+  // importe lo lee la IA (no se teclea libremente). El importe se toma del
+  // servidor (BubuiTicketScan), no del cliente.
+  requireTicket Boolean  @default(false)
   // Suscripción.
   plan          String   @default("free") // free | pro | premium
   // Email + contraseña hash del dueño (auth simple v1; iremos a oauth en v2).
@@ -3648,6 +3652,25 @@ model BubuiProcessedWebhook {
   @@map("BipiProcessedWebhook")
   id          String   @id // event.id de Stripe
   processedAt DateTime @default(now())
+}
+
+/// Anti-fraude por ticket: cuando el cliente fotografía el ticket, la IA lee
+/// el importe y se guarda aquí ligado a la imagen. El escaneo (scan) usa ESTE
+/// importe (no el que teclee el cliente) y marca el registro como usado
+/// (un ticket = una compra). Caduca a los 30 min si no se usa.
+model BubuiTicketScan {
+  @@map("BipiTicketScan")
+  id               String   @id @default(cuid())
+  customerId       String
+  businessId       String?
+  amount           Float? // null si la IA no pudo leerlo
+  currency         String   @default("EUR")
+  confidence       Float    @default(0)
+  ticketUrl        String   @db.Text
+  usedByPurchaseId String? // null hasta consumirse en un scan
+  createdAt        DateTime @default(now())
+
+  @@index([customerId])
 }
 
 /// Imagen subida y servida desde la propia BD (sin bucket externo). Se usa

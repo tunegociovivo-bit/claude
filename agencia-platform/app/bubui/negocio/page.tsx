@@ -1704,6 +1704,7 @@ function ProfileEditor({ business, token, onSaved }: { business: any; token: str
     defaultDiscountPct: business.defaultDiscountPct ?? 5,
     crossDiscountPct: business.crossDiscountPct ?? 8,
     purchaseMode: business.purchaseMode ?? "express",
+    requireTicket: business.requireTicket ?? false,
     reviewRewardPct: business.reviewRewardPct ?? 0,
     googlePlaceId: business.googlePlaceId ?? ""
   });
@@ -1751,6 +1752,7 @@ function ProfileEditor({ business, token, onSaved }: { business: any; token: str
       if (Number(form.defaultDiscountPct) !== business.defaultDiscountPct) payload.defaultDiscountPct = Number(form.defaultDiscountPct);
       if (Number(form.crossDiscountPct) !== business.crossDiscountPct) payload.crossDiscountPct = Number(form.crossDiscountPct);
       if (form.purchaseMode !== business.purchaseMode) payload.purchaseMode = form.purchaseMode;
+      if (form.requireTicket !== (business.requireTicket ?? false)) payload.requireTicket = form.requireTicket;
       if (Number(form.reviewRewardPct) !== (business.reviewRewardPct ?? 0)) payload.reviewRewardPct = Number(form.reviewRewardPct);
       if ((form.googlePlaceId || null) !== (business.googlePlaceId || null)) payload.googlePlaceId = form.googlePlaceId.trim() || null;
       if (Object.keys(payload).length === 0) {
@@ -1881,6 +1883,19 @@ function ProfileEditor({ business, token, onSaved }: { business: any; token: str
             onChange={(e) => setForm({ ...form, brandColor: e.target.value })}
             className="w-full h-9 border rounded bg-white"
           />
+        </label>
+        <label className="sm:col-span-2 flex items-start gap-2 rounded-lg border border-pink-200 bg-pink-50/60 p-3">
+          <input
+            type="checkbox"
+            checked={!!form.requireTicket}
+            onChange={(e) => setForm({ ...form, requireTicket: e.target.checked })}
+            className="mt-0.5"
+          />
+          <span className="text-xs">
+            <b>Requerir foto del ticket (anti-fraude).</b> El cliente tendrá que fotografiar el ticket
+            al escanear y el importe lo lee la IA automáticamente (no se teclea). Evita que se inflen
+            importes. Si la IA no puede leerlo, el cliente lo escribe pero el ticket queda guardado.
+          </span>
         </label>
         <label>
           <span className="block font-medium mb-1">% descuento al escanear</span>

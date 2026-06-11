@@ -28,7 +28,10 @@ const schema = z.object({
   amount: z.number().positive().max(10000),
   scanLat: z.number().optional(),
   scanLng: z.number().optional(),
-  ticketUrl: z.string().url().max(2000).optional()
+  ticketUrl: z.string().url().max(2000).optional(),
+  // Anti-fraude: id del ticket leído por la IA (read-ticket). Si el negocio
+  // exige ticket, es obligatorio y el importe se toma de ese registro.
+  ticketScanId: z.string().optional()
 });
 
 const MAX_DISTANCE_METERS = 200;
@@ -51,6 +54,28 @@ export async function POST(req: Request) {
   if (!business) return NextResponse.json({ error: { code: "not_found", message: "Negocio no existe" } }, { status: 404 });
   if (!business.active) return NextResponse.json({ error: { code: "inactive", message: "Negocio inactivo" } }, { status: 409 });
   if (!customer) return NextResponse.json({ error: { code: "not_found", message: "Cliente no existe" } }, { status: 404 });
+
+  // ── Anti-fraude por ticket: el importe de confianza viene del OCR guardado
+  //    (BubuiTicketScan), no del que teclee el cliente. Un ticket = una compra.
+  let amount = d.amount;
+  let ticketUrl = d.ticketUrl;
+  let ticketScan: { id: string; amount: number | null; ticketUrl: string } | null = null;
+  if (d.ticketScanId) {
+    const ts = await prisma.bubuiTicketScan.findUnique({ where: { id: d.ticketScanId } });
+    const fresh = ts && ts.createdAt > new Date(Date.now() - 30 * 60 * 1000);
+    const mine = ts && (ts.customerId === d.customerId || ts.customerId === "anon");
+    if (ts && fresh && mine && ts.usedByPurchaseId == null) {
+      ticketScan = { id: ts.id, amount: ts.amount, ticketUrl: ts.ticketUrl };
+      ticketUrl = ts.ticketUrl;
+      if (ts.amount != null) amount = ts.amount; // importe de confianza (servidor)
+    }
+  }
+  if (business.requireTicket && !ticketScan) {
+    return NextResponse.json(
+      { error: { code: "ticket_required", message: "Este negocio requiere la foto del ticket para validar el importe." } },
+      { status: 400 }
+    );
+  }
 
   // Refresca la última ubicación conocida del cliente (panel admin): el escaneo
   // es la señal más fiable de dónde está físicamente. Se guarda aunque luego la
@@ -105,7 +130,7 @@ export async function POST(req: Request) {
   } else {
     discountPct = business.defaultDiscountPct;
   }
-  const discountAmount = Math.round(d.amount * discountPct) / 100;
+  const discountAmount = Math.round(amount * discountPct) / 100;
 
   // Geo-check anti-fraude.
   let scanDistanceM: number | undefined;
@@ -126,7 +151,7 @@ export async function POST(req: Request) {
     data: {
       customerId: d.customerId,
       businessId: d.businessId,
-      amount: d.amount,
+      amount,
       discountPct,
       discountAmount,
       status: autoReject ? "rejected" : "confirmed",
@@ -141,12 +166,17 @@ export async function POST(req: Request) {
     }
   });
 
-  // Guarda la foto del ticket por separado y tolerante a fallo: si la columna
-  // `ticketUrl` aún no existe en la DB (db push pendiente), el escaneo no se
-  // rompe — solo no se persiste el ticket.
-  if (d.ticketUrl) {
+  // Guarda la foto del ticket. Tolerante a fallo: si la columna `ticketUrl`
+  // aún no existe en la DB (db push pendiente), el escaneo no se rompe.
+  if (ticketUrl) {
     await prisma.bubuiPurchase
-      .update({ where: { id: purchase.id }, data: { ticketUrl: d.ticketUrl } })
+      .update({ where: { id: purchase.id }, data: { ticketUrl } })
+      .catch(() => {});
+  }
+  // Marca el ticket como usado (un ticket = una compra, no reutilizable).
+  if (ticketScan) {
+    await prisma.bubuiTicketScan
+      .update({ where: { id: ticketScan.id }, data: { usedByPurchaseId: purchase.id, businessId: d.businessId } })
       .catch(() => {});
   }
 

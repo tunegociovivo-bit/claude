@@ -28,6 +28,7 @@ const schema = z
     defaultDiscountPct: z.number().int().min(3).max(MAX_DISCOUNT_PCT).optional(),
     crossDiscountPct: z.number().int().min(3).max(MAX_DISCOUNT_PCT).optional(),
     purchaseMode: z.enum(["double_confirm", "express"]).optional(),
+    requireTicket: z.boolean().optional(),
     referralEnabled: z.boolean().optional(),
     referralReward1: z.string().max(60).optional().nullable(),
     referralReward3: z.string().max(60).optional().nullable(),
