@@ -2216,6 +2216,7 @@ type Conversation = {
   status: string; // pending | followup | resolved
   archived: boolean;
   followupAt: string | null;
+  aiScore: number | null;
   lastBody: string;
   lastAt: string;
   lastDirection: string;
@@ -2282,7 +2283,7 @@ function InboxChat({
   const [fUnread, setFUnread] = useState(false);
   const [fStatus, setFStatus] = useState<string>("all"); // all|pending|followup|resolved
   const [showArchived, setShowArchived] = useState(false);
-  const [sortBy, setSortBy] = useState<"priority" | "recent" | "unread">("priority");
+  const [sortBy, setSortBy] = useState<"hot" | "priority" | "recent" | "unread">("hot");
   const [thread, setThread] = useState<ThreadItem[]>([]);
   const [threadMeta, setThreadMeta] = useState<{
     leadName: string | null;
@@ -2296,9 +2297,12 @@ function InboxChat({
     archived: boolean;
     followupAt: string | null;
     leadId: string | null;
+    aiScore: number | null;
+    aiScoreReason: string | null;
+    aiDraft: string | null;
     replyChannel: string | null;
     optedOut: boolean;
-  }>({ leadName: null, leadPhone: null, realPhone: null, isLid: false, displayName: null, note: null, priority: "none", status: "pending", archived: false, followupAt: null, leadId: null, replyChannel: null, optedOut: false });
+  }>({ leadName: null, leadPhone: null, realPhone: null, isLid: false, displayName: null, note: null, priority: "none", status: "pending", archived: false, followupAt: null, leadId: null, aiScore: null, aiScoreReason: null, aiDraft: null, replyChannel: null, optedOut: false });
   const [noteDraft, setNoteDraft] = useState("");
   const [savingMeta, setSavingMeta] = useState(false);
   const [draft, setDraft] = useState("");
@@ -2335,6 +2339,9 @@ function InboxChat({
       archived: !!d.archived,
       followupAt: d.followupAt ?? null,
       leadId: d.lead?.id ?? null,
+      aiScore: d.aiScore ?? null,
+      aiScoreReason: d.aiScoreReason ?? null,
+      aiDraft: d.aiDraft ?? null,
       replyChannel: d.replyChannel ?? null,
       optedOut: !!d.optedOut
     });
@@ -2481,6 +2488,7 @@ function InboxChat({
       return true;
     })
     .sort((a, b) => {
+      if (sortBy === "hot") return (b.aiScore ?? -1) - (a.aiScore ?? -1) || new Date(b.lastAt).getTime() - new Date(a.lastAt).getTime();
       if (sortBy === "recent") return new Date(b.lastAt).getTime() - new Date(a.lastAt).getTime();
       if (sortBy === "unread") return b.unread - a.unread || new Date(b.lastAt).getTime() - new Date(a.lastAt).getTime();
       // priority (por defecto): alta primero, luego reciente
@@ -2538,6 +2546,7 @@ function InboxChat({
               className="text-[11px] px-1.5 py-1 rounded border bg-white"
               title="Ordenar"
             >
+              <option value="hot">🔥 Más calientes (IA)</option>
               <option value="priority">↕ Prioridad</option>
               <option value="recent">↕ Recientes</option>
               <option value="unread">↕ No leídos</option>
@@ -2596,8 +2605,18 @@ function InboxChat({
                 <span className="text-sm font-semibold text-slate-800 truncate">
                   {c.leadName || c.displayName || c.phone}
                 </span>
-                <span className="text-[10px] text-slate-400 shrink-0">
-                  {c.followupAt ? "🔔 " : ""}{new Date(c.lastAt).toLocaleDateString("es-ES", { day: "2-digit", month: "2-digit" })}
+                <span className="flex items-center gap-1 shrink-0">
+                  {c.aiScore != null && (
+                    <span
+                      className={`text-[10px] font-bold px-1 rounded ${c.aiScore >= 70 ? "bg-rose-100 text-rose-700" : c.aiScore >= 40 ? "bg-amber-100 text-amber-700" : "bg-slate-100 text-slate-500"}`}
+                      title="Probabilidad de cierre (IA)"
+                    >
+                      {c.aiScore >= 70 ? "🔥" : ""}{c.aiScore}
+                    </span>
+                  )}
+                  <span className="text-[10px] text-slate-400">
+                    {c.followupAt ? "🔔 " : ""}{new Date(c.lastAt).toLocaleDateString("es-ES", { day: "2-digit", month: "2-digit" })}
+                  </span>
                 </span>
               </div>
               <div className="text-[10px] font-mono text-slate-400 truncate">📞 {shownPhone(c)}</div>
@@ -2800,6 +2819,20 @@ function InboxChat({
             )}
             <div className="border-t p-3 bg-white">
               {sendErr && <div className="text-xs text-rose-600 mb-1.5">✗ {sendErr}</div>}
+              {threadMeta.aiDraft && draft.trim() === "" && (
+                <div className="mb-2 rounded-lg border border-violet-200 bg-violet-50 p-2 text-[12px]">
+                  <div className="text-violet-700 font-semibold mb-1">
+                    ✨ Borrador IA listo{threadMeta.aiScore != null ? ` · ${threadMeta.aiScore}/100 de cierre` : ""}
+                  </div>
+                  <div className="text-slate-700 whitespace-pre-wrap">{threadMeta.aiDraft}</div>
+                  <button
+                    onClick={() => setDraft(threadMeta.aiDraft ?? "")}
+                    className="mt-1.5 text-[11px] px-2 py-0.5 rounded bg-violet-600 text-white hover:bg-violet-700"
+                  >
+                    Usar este borrador
+                  </button>
+                </div>
+              )}
               <div className="flex items-end gap-2">
                 <div className="flex-1">
                   <button

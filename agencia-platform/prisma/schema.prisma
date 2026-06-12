@@ -1166,6 +1166,12 @@ model LeadConversationMeta {
   followupAt  DateTime?
   followupNote String?
   followupNotifiedAt DateTime?
+  // Análisis IA de la conversación: probabilidad de cierre (0-100), su motivo
+  // y un borrador de respuesta listo. Se recalcula al entrar un mensaje.
+  aiScore     Int?
+  aiScoreReason String?
+  aiDraft     String?  @db.Text
+  aiAt        DateTime?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
