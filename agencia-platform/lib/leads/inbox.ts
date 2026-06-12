@@ -415,6 +415,15 @@ export async function ingestInbox(opts: {
     })();
   }
 
+  // Co-piloto IA: puntúa la conversación (prob. de cierre) y deja un borrador
+  // de respuesta listo. Solo en mensajes que merecen seguimiento (no bajas /
+  // auto-replies). Fire-and-forget: no bloquea el webhook ni cuesta en off-topic.
+  if (useIA && ["interested", "objection", "info_request", "positive_no"].includes(classified.classification)) {
+    void import("./inbox-ai")
+      .then((m) => m.analyzeConversation(opts.workspaceId, phoneNormalized))
+      .catch((e) => console.warn("[inbox-ai]", e?.message ?? e));
+  }
+
   // Acciones según clasificación
   if (classified.classification === "opt_out") {
     await prisma.leadOptout.upsert({

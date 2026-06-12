@@ -114,6 +114,9 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
     archived: convMeta?.archived ?? false,
     followupAt: convMeta?.followupAt ? convMeta.followupAt.toISOString() : null,
     followupNote: convMeta?.followupNote ?? null,
+    aiScore: convMeta?.aiScore ?? null,
+    aiScoreReason: convMeta?.aiScoreReason ?? null,
+    aiDraft: convMeta?.aiDraft ?? null,
     replyChannel: lastIn?.instanceName ?? null,
     optedOut: !!optout,
     items
