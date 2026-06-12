@@ -89,7 +89,13 @@ export async function sendText(opts: {
     return evoSendText(opts);
   }
   const cfg = await getWahaConfig(opts.workspaceId);
-  const chatId = `${opts.phoneNormalized}@c.us`;
+  // Si nos pasan el chatId completo (con @c.us / @lid / @g.us), se usa TAL CUAL
+  // — imprescindible para responder a usuarios con LID (id privado de
+  // WhatsApp), donde reconstruir `${num}@c.us` no enruta. Si es solo número,
+  // se asume @c.us.
+  const chatId = String(opts.phoneNormalized).includes("@")
+    ? String(opts.phoneNormalized)
+    : `${opts.phoneNormalized}@c.us`;
   const resp = await fetch(`${cfg.baseUrl}/api/sendText`, {
     method: "POST",
     headers: {

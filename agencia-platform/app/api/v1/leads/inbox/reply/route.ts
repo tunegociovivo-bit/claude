@@ -37,17 +37,28 @@ export const POST = withApi({ scope: "*" }, async (req, { api }) => {
       OR: [{ phoneNormalized: phone }, { fromPhone: phone }]
     },
     orderBy: { receivedAt: "desc" },
-    select: { instanceName: true, leadId: true }
+    select: { instanceName: true, leadId: true, fromPhone: true, meta: true }
   });
   if (!lastIn) {
     throw new ApiError(404, "no_conversation", "No hay conversación entrante con ese teléfono.");
   }
 
+  // chatId al que responder: el ORIGINAL del último entrante (con su sufijo
+  // @c.us/@lid). Para usuarios con LID, reconstruir `${num}@c.us` no enruta;
+  // hay que devolver al mismo chatId que mandó WAHA. Prioridad:
+  // meta.payload.from (chatId completo) → fromPhone → el teléfono normalizado.
+  const meta: any = lastIn.meta ?? {};
+  const originalChatId: string =
+    (typeof meta?.payload?.from === "string" && meta.payload.from) ||
+    (typeof meta?.from === "string" && meta.from) ||
+    (lastIn.fromPhone && String(lastIn.fromPhone).includes("@") ? String(lastIn.fromPhone) : "") ||
+    phone;
+
   let externalMessageId: string | null = null;
   try {
     const out = await sendText({
       workspaceId: api.workspaceId,
-      phoneNormalized: phone,
+      phoneNormalized: originalChatId,
       text,
       session: lastIn.instanceName ?? undefined
     });

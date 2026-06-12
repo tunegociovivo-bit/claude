@@ -194,6 +194,23 @@ export async function ingestInbox(opts: {
   const rawPhone = String(opts.fromPhone).replace(/@.*$/, "");
   const phoneNormalized = normalizePhone(rawPhone, countryCode) ?? rawPhone;
 
+  // Dedupe: WAHA emite el MISMO mensaje en dos eventos (message y message.any)
+  // con idéntico payload.id, lo que duplicaba cada entrante en el Inbox. Si ya
+  // tenemos ese externalMessageId, no lo volvemos a guardar.
+  if (opts.externalMessageId) {
+    const dup = await prisma.leadInboxMessage.findFirst({
+      where: {
+        workspaceId: opts.workspaceId,
+        direction: "in",
+        externalMessageId: String(opts.externalMessageId)
+      },
+      select: { id: true, leadId: true }
+    });
+    if (dup) {
+      return { messageId: dup.id, classification: "off_topic", leadId: dup.leadId ?? null };
+    }
+  }
+
   // Buscar lead por mensaje saliente previo, luego por phone
   let lead = await prisma.leadMessage.findFirst({
     where: { workspaceId: opts.workspaceId, phoneNormalized },
