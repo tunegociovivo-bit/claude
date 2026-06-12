@@ -1,0 +1,19 @@
+name: Bubui · cupón de cumpleaños
+# Corre una vez al día (07:00 UTC ≈ 09:00 España). Para cada negocio con
+# birthdayEnabled crea un cupón de cumpleaños a sus clientes de la casa y
+# avisa por push/email. Dedupe por "bday:YYYY:<negocio>" → un cupón por
+# año, así que es seguro ejecutarlo de más.
+on:
+  schedule:
+    - cron: "0 7 * * *"
+  workflow_dispatch: # permite disparar a mano desde GitHub UI
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping endpoint cron
+        run: |
+          curl -fsSL -X GET \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            https://hub.negociovivo.app/api/cron/bubui-birthday

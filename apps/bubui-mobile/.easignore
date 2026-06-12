@@ -1,5 +1,2 @@
-# Forzar a EAS a regenerar las carpetas nativas con prebuild (CNG) a partir
-# de app.json y los config plugins, en vez de usar el android/ parcial que
-# queda trackeado en el repo. Las credenciales de firma las gestiona EAS.
-android/
-ios/
+# Las carpetas nativas android/ e ios/ están trackeadas en el repo.
+# EAS las usa directamente sin prebuild CNG.

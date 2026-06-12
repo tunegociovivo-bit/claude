@@ -1,43 +1,46 @@
 {
-  "cli": {
-    "version": ">= 5.0.0",
-    "appVersionSource": "remote"
-  },
-  "build": {
-    "preview": {
-      "distribution": "internal",
-      "autoIncrement": true,
-      "android": {
-        "buildType": "apk"
-      },
-      "ios": {
-        "simulator": false
-      }
+    "cli": {
+          "version": ">= 5.0.0",
+          "appVersionSource": "remote"
     },
-    "ios-simulator": {
-      "distribution": "internal",
-      "ios": {
-        "simulator": true
-      }
+    "build": {
+          "preview": {
+                  "distribution": "internal",
+                  "autoIncrement": true,
+                  "prebuildCommand": "npx expo prebuild --clean",
+                  "android": {
+                            "buildType": "apk"
+                  },
+                  "ios": {
+                            "simulator": false
+                  }
+          },
+          "ios-simulator": {
+                  "distribution": "internal",
+                  "prebuildCommand": "npx expo prebuild --clean",
+                  "ios": {
+                            "simulator": true
+                  }
+          },
+          "production": {
+                  "autoIncrement": true,
+                  "prebuildCommand": "npx expo prebuild --clean",
+                  "android": {
+                            "buildType": "app-bundle"
+                  },
+                  "ios": {
+                            "buildConfiguration": "Release",
+                            "credentialsSource": "remote",
+                            "image": "latest"
+                  }
+          }
     },
-    "production": {
-      "autoIncrement": true,
-      "android": {
-        "buildType": "app-bundle"
-      },
-      "ios": {
-        "buildConfiguration": "Release",
-        "credentialsSource": "remote",
-        "image": "latest"
-      }
+    "submit": {
+          "production": {
+                  "ios": {
+                            "ascAppId": "6776224976",
+                            "appleTeamId": "9J97GC5NCG"
+                  }
+          }
     }
-  },
-  "submit": {
-    "production": {
-      "ios": {
-        "ascAppId": "6776224976",
-        "appleTeamId": "9J97GC5NCG"
-      }
-    }
-  }
 }

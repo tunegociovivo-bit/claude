@@ -1,0 +1,19 @@
+name: Bubui · avisos de cupones por caducar
+# Corre cada hora. El endpoint avisa por push/email a los clientes con
+# cupones que caducan en las próximas 24h (y urgente si caducan hoy).
+# Dedupe vía BubuiPushLog (no repite el mismo aviso en <12h), así que es
+# seguro ejecutarlo de más.
+on:
+  schedule:
+    - cron: "0 * * * *"
+  workflow_dispatch: # permite disparar a mano desde GitHub UI
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping endpoint cron
+        run: |
+          curl -fsSL -X GET \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            https://hub.negociovivo.app/api/cron/bubui-offers-expiring
