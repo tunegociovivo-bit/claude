@@ -142,6 +142,18 @@ export default function LeadsClient() {
   const [queue, setQueue] = useState<QueueRow[]>([]);
   const [templates, setTemplates] = useState<Template[]>([]);
   const [inbox, setInbox] = useState<InboxRow[]>([]);
+  // Badge de la pestaña WhatsApp: nº de mensajes entrantes sin leer.
+  const [inboxUnread, setInboxUnread] = useState(0);
+  useEffect(() => {
+    const tick = () =>
+      fetch("/api/v1/leads/inbox/conversations?countOnly=1")
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => { if (d) setInboxUnread(d.totalUnread ?? 0); })
+        .catch(() => {});
+    tick();
+    const i = setInterval(tick, 30_000);
+    return () => clearInterval(i);
+  }, []);
   const [inboxDiag, setInboxDiag] = useState<{ webhookLastHit: string | null; webhookLastEvent: string | null; webhookLastDecision?: string | null; webhookLastFrom?: string | null; webhookLastBody?: string | null; webhookLastKeys?: string | null; webhookLastMsgAt?: string | null; webhookLastMsgDecision?: string | null; webhookLastMsgEvent?: string | null; webhookLastMsgFrom?: string | null; webhookLastMsgBody?: string | null; webhookLastMsgPayloadKeys?: string | null; webhookMe?: string | null; webhookSession?: string | null }>({ webhookLastHit: null, webhookLastEvent: null });
   const [analytics, setAnalytics] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -308,7 +320,7 @@ export default function LeadsClient() {
           </div>
         );
       })()}
-      <DraggableTabs tab={tab} setTab={setTab} />
+      <DraggableTabs tab={tab} setTab={setTab} inboxUnread={inboxUnread} />
 
       {/* Contenido por tab */}
       {tab === "leads" && (
@@ -685,7 +697,7 @@ const LEADS_TAB_DEFS: { key: Tab; label: string; icon: React.ReactNode }[] = [
 ];
 const LEADS_TAB_ORDER_KEY = "leads.tabOrder";
 
-function DraggableTabs({ tab, setTab }: { tab: Tab; setTab: (t: Tab) => void }) {
+function DraggableTabs({ tab, setTab, inboxUnread = 0 }: { tab: Tab; setTab: (t: Tab) => void; inboxUnread?: number }) {
   const allKeys = LEADS_TAB_DEFS.map((t) => t.key);
   const [order, setOrder] = useState<Tab[]>(allKeys);
   const [dragKey, setDragKey] = useState<Tab | null>(null);
@@ -750,7 +762,27 @@ function DraggableTabs({ tab, setTab }: { tab: Tab; setTab: (t: Tab) => void }) 
             className={dragKey === key ? "opacity-50" : ""}
             title="Arrástrame para reordenar"
           >
-            <TabBtn icon={def.icon} label={def.label} active={active} onClick={() => setTab(key)} />
+            {key === "inbox" ? (
+              <button
+                onClick={() => setTab(key)}
+                className={`relative inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-bold transition-colors ${
+                  active
+                    ? "bg-emerald-600 text-white shadow-sm"
+                    : "bg-emerald-50 text-emerald-700 border border-emerald-300 hover:bg-emerald-100"
+                }`}
+                title="Inbox WhatsApp — todas las conversaciones de todos tus números"
+              >
+                <MessageCircle className="h-3.5 w-3.5" />
+                WhatsApp
+                {inboxUnread > 0 && (
+                  <span className="ml-0.5 bg-rose-500 text-white text-[10px] font-bold rounded-full min-w-[17px] h-[17px] px-1 inline-flex items-center justify-center">
+                    {inboxUnread > 99 ? "99+" : inboxUnread}
+                  </span>
+                )}
+              </button>
+            ) : (
+              <TabBtn icon={def.icon} label={def.label} active={active} onClick={() => setTab(key)} />
+            )}
           </div>
         );
       })}
@@ -2175,12 +2207,22 @@ type Conversation = {
   phone: string;
   leadId: string | null;
   leadName: string | null;
+  leadPhone: string | null;
+  displayName: string | null;
+  note: string | null;
+  priority: string; // alta | media | baja | none
   lastBody: string;
   lastAt: string;
   lastDirection: string;
   unread: number;
   instanceName: string | null;
   classification: string | null;
+};
+
+const PRIORITY_CHIP: Record<string, { label: string; cls: string }> = {
+  alta: { label: "🔴 Alta", cls: "bg-rose-50 text-rose-700 border-rose-200" },
+  media: { label: "🟡 Media", cls: "bg-amber-50 text-amber-700 border-amber-200" },
+  baja: { label: "⚪ Baja", cls: "bg-slate-50 text-slate-600 border-slate-200" }
 };
 
 type ThreadItem = {
@@ -2217,7 +2259,17 @@ function InboxChat({
   const [convsLoaded, setConvsLoaded] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
   const [thread, setThread] = useState<ThreadItem[]>([]);
-  const [threadMeta, setThreadMeta] = useState<{ leadName: string | null; replyChannel: string | null; optedOut: boolean }>({ leadName: null, replyChannel: null, optedOut: false });
+  const [threadMeta, setThreadMeta] = useState<{
+    leadName: string | null;
+    leadPhone: string | null;
+    displayName: string | null;
+    note: string | null;
+    priority: string;
+    replyChannel: string | null;
+    optedOut: boolean;
+  }>({ leadName: null, leadPhone: null, displayName: null, note: null, priority: "none", replyChannel: null, optedOut: false });
+  const [noteDraft, setNoteDraft] = useState("");
+  const [savingMeta, setSavingMeta] = useState(false);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [sendErr, setSendErr] = useState<string | null>(null);
@@ -2239,7 +2291,16 @@ function InboxChat({
     if (!r.ok) return;
     const d = await r.json();
     setThread(d.items ?? []);
-    setThreadMeta({ leadName: d.lead?.name ?? null, replyChannel: d.replyChannel ?? null, optedOut: !!d.optedOut });
+    setThreadMeta({
+      leadName: d.lead?.name ?? null,
+      leadPhone: d.lead?.phone ?? null,
+      displayName: d.displayName ?? null,
+      note: d.note ?? null,
+      priority: d.priority ?? "none",
+      replyChannel: d.replyChannel ?? null,
+      optedOut: !!d.optedOut
+    });
+    setNoteDraft(d.note ?? "");
     // Al abrir, los no-leídos de esa conversación quedan vistos.
     setConvs((prev) => prev.map((c) => (c.phone === phone ? { ...c, unread: 0 } : c)));
   }
@@ -2289,6 +2350,29 @@ function InboxChat({
     }
   }
 
+  async function saveMeta(patch: { note?: string | null; priority?: string }) {
+    if (!selected) return;
+    setSavingMeta(true);
+    try {
+      const r = await fetch("/api/v1/leads/inbox/conversation-meta", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone: selected, ...patch })
+      });
+      if (r.ok) {
+        const d = await r.json();
+        setThreadMeta((m) => ({ ...m, note: d.note ?? null, priority: d.priority ?? "none" }));
+        setConvs((prev) =>
+          prev.map((c) =>
+            c.phone === selected ? { ...c, note: d.note ?? null, priority: d.priority ?? "none" } : c
+          )
+        );
+      }
+    } finally {
+      setSavingMeta(false);
+    }
+  }
+
   if (loading && !convsLoaded) return <Loading />;
 
   if (convsLoaded && convs.length === 0) {
@@ -2313,12 +2397,15 @@ function InboxChat({
             >
               <div className="flex items-center justify-between gap-2">
                 <span className="text-sm font-semibold text-slate-800 truncate">
-                  {c.leadName || c.phone}
+                  {c.leadName || c.displayName || c.phone}
                 </span>
                 <span className="text-[10px] text-slate-400 shrink-0">
                   {new Date(c.lastAt).toLocaleDateString("es-ES", { day: "2-digit", month: "2-digit" })}
                 </span>
               </div>
+              {(c.leadName || c.displayName) && (
+                <div className="text-[10px] font-mono text-slate-400 truncate">📞 {c.leadPhone || c.phone}</div>
+              )}
               <div className="flex items-center justify-between gap-2 mt-0.5">
                 <span className="text-xs text-slate-500 truncate">
                   {c.lastDirection === "out" ? "Tú: " : ""}
@@ -2330,8 +2417,14 @@ function InboxChat({
                   </span>
                 )}
               </div>
-              <div className="flex items-center gap-1.5 mt-1">
+              <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                {PRIORITY_CHIP[c.priority] && (
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded border font-semibold ${PRIORITY_CHIP[c.priority].cls}`}>
+                    {PRIORITY_CHIP[c.priority].label}
+                  </span>
+                )}
                 {chip && <span className={`text-[10px] px-1.5 py-0.5 rounded border ${chip.cls}`}>{chip.label}</span>}
+                {c.note && <span className="text-[10px] text-slate-400" title={c.note}>📝</span>}
                 {c.instanceName && (
                   <span className="text-[10px] px-1.5 py-0.5 rounded border bg-slate-50 text-slate-500 border-slate-200">
                     📱 {c.instanceName}
@@ -2351,20 +2444,53 @@ function InboxChat({
           </div>
         ) : (
           <>
-            <div className="px-4 py-2.5 border-b bg-slate-50 flex items-center gap-2">
-              <button onClick={() => setSelected(null)} className="md:hidden text-slate-500 text-sm">‹</button>
-              <div className="flex-1 min-w-0">
-                <div className="text-sm font-semibold text-slate-800 truncate">{threadMeta.leadName || sel.phone}</div>
-                <div className="text-[11px] text-slate-500">
-                  {sel.phone}
-                  {threadMeta.replyChannel ? ` · respondes por: ${threadMeta.replyChannel}` : " · respondes por: número principal"}
+            <div className="px-4 py-2.5 border-b bg-slate-50 space-y-1.5">
+              <div className="flex items-center gap-2">
+                <button onClick={() => setSelected(null)} className="md:hidden text-slate-500 text-sm">‹</button>
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-semibold text-slate-800 truncate">
+                    {threadMeta.leadName || threadMeta.displayName || sel.phone}
+                  </div>
+                  <div className="text-[11px] text-slate-500 truncate">
+                    📞 {threadMeta.leadPhone || sel.phone}
+                    {threadMeta.replyChannel ? ` · respondes por: ${threadMeta.replyChannel}` : " · respondes por: número principal"}
+                  </div>
+                </div>
+                {/* Prioridad: a quién atender antes */}
+                <div className="flex items-center gap-1 shrink-0">
+                  {(["alta", "media", "baja"] as const).map((pr) => (
+                    <button
+                      key={pr}
+                      onClick={() => void saveMeta({ priority: threadMeta.priority === pr ? "none" : pr })}
+                      disabled={savingMeta}
+                      title={`Prioridad ${pr}`}
+                      className={`text-[11px] px-2 py-1 rounded-md border font-semibold disabled:opacity-50 ${
+                        threadMeta.priority === pr
+                          ? PRIORITY_CHIP[pr].cls + " ring-1 ring-current"
+                          : "bg-white text-slate-400 border-slate-200 hover:bg-slate-50"
+                      }`}
+                    >
+                      {pr === "alta" ? "🔴" : pr === "media" ? "🟡" : "⚪"} {pr}
+                    </button>
+                  ))}
                 </div>
               </div>
-              {sel.leadId && (
-                <a href={`#lead-${sel.leadId}`} className="text-[11px] text-brand-700 hover:underline shrink-0">
-                  Ver lead ↗
-                </a>
-              )}
+              {/* Nota de la conversación */}
+              <div className="flex items-center gap-2">
+                <input
+                  value={noteDraft}
+                  onChange={(e) => setNoteDraft(e.target.value)}
+                  onBlur={() => {
+                    if (noteDraft !== (threadMeta.note ?? "")) void saveMeta({ note: noteDraft });
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                  }}
+                  placeholder="📝 Nota: quién es, qué quiere, cuándo seguir…"
+                  className="flex-1 text-[12px] px-2 py-1 rounded-md border bg-white"
+                />
+                {savingMeta && <Loader2 className="h-3 w-3 animate-spin text-slate-400" />}
+              </div>
             </div>
             <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2 bg-[#f6f4f0]">
               {thread.map((m) => (

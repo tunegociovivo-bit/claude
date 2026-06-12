@@ -18,12 +18,12 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
   const phone = new URL(req.url).searchParams.get("phone")?.trim();
   if (!phone) throw new ApiError(400, "validation_error", "Falta ?phone=");
 
-  const [inboxMsgs, campaignMsgs, optout] = await Promise.all([
+  const [inboxMsgs, campaignMsgs, optout, convMeta] = await Promise.all([
     prisma.leadInboxMessage.findMany({
       where: { workspaceId: api.workspaceId, OR: [{ phoneNormalized: phone }, { fromPhone: phone }] },
       orderBy: { receivedAt: "asc" },
       take: 500,
-      include: { lead: { select: { id: true, name: true } } }
+      include: { lead: { select: { id: true, name: true, phone: true } } }
     }),
     prisma.leadMessage.findMany({
       where: {
@@ -38,6 +38,9 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
     prisma.leadOptout.findUnique({
       where: { workspaceId_phone: { workspaceId: api.workspaceId, phone } },
       select: { id: true }
+    }),
+    prisma.leadConversationMeta.findUnique({
+      where: { workspaceId_phone: { workspaceId: api.workspaceId, phone } }
     })
   ]);
 
@@ -87,7 +90,10 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
 
   return NextResponse.json({
     phone,
-    lead: lead ? { id: lead.id, name: lead.name } : null,
+    lead: lead ? { id: lead.id, name: lead.name, phone: (lead as any).phone ?? null } : null,
+    displayName: convMeta?.displayName ?? null,
+    note: convMeta?.note ?? null,
+    priority: convMeta?.priority ?? "none",
     replyChannel: lastIn?.instanceName ?? null,
     optedOut: !!optout,
     items
