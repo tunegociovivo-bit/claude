@@ -1157,6 +1157,9 @@ model LeadConversationMeta {
   priority    String   @default("none") // alta | media | baja | none
   status      String   @default("pending") // pending | followup | resolved
   archived    Boolean  @default(false)
+  // Teléfono real resuelto desde WAHA cuando el contacto llega como LID (id
+  // privado de WhatsApp). null = no resuelto / oculto.
+  realPhone   String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 

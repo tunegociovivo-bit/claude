@@ -72,7 +72,7 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
       const meta = metaByPhone.get(phone);
       c = {
         phone,
-        realPhone: looksLikePhone(phone) ? phone : null,
+        realPhone: meta?.realPhone ?? (looksLikePhone(phone) ? phone : null),
         isLid: false,
         leadId: m.lead?.id ?? null,
         leadName: m.lead?.name ?? null,

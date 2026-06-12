@@ -91,7 +91,7 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
 
   // Identidad real: número real si WAHA lo manda en algún entrante; si el
   // contacto es un LID, marcamos que el teléfono está oculto.
-  let realPhone: string | null = looksLikePhone(phone) ? phone : null;
+  let realPhone: string | null = convMeta?.realPhone ?? (looksLikePhone(phone) ? phone : null);
   let isLid = false;
   for (const m of inboxMsgs) {
     if (m.direction !== "in") continue;

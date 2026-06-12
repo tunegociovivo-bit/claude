@@ -318,3 +318,55 @@ export async function checkNumbers(opts: {
   }
   return out;
 }
+
+/**
+ * Resuelve un LID (id privado de WhatsApp, p.ej. "110350...@lid") al teléfono
+ * real (@c.us → dígitos). WAHA Plus (motor NOWEB) expone el mapeo; probamos
+ * varias rutas conocidas y parseamos con flexibilidad. Best-effort: devuelve
+ * null si la versión de WAHA no lo soporta o no hay mapeo.
+ */
+export async function resolveLidToPhone(opts: {
+  workspaceId: string;
+  lid: string; // con o sin @lid
+  session?: string;
+}): Promise<string | null> {
+  if ((await getWhatsappProvider(opts.workspaceId)) !== "waha") return null;
+  let cfg: WahaConfig;
+  try {
+    cfg = await getWahaConfig(opts.workspaceId);
+  } catch {
+    return null;
+  }
+  const session = opts.session ?? cfg.session;
+  const lidId = opts.lid.includes("@") ? opts.lid : `${opts.lid}@lid`;
+  const lidNum = lidId.replace(/@.*$/, "");
+  const headers = { "X-Api-Key": cfg.apiKey, Accept: "application/json" };
+  const urls = [
+    `${cfg.baseUrl}/api/${encodeURIComponent(session)}/lids/${encodeURIComponent(lidId)}`,
+    `${cfg.baseUrl}/api/${encodeURIComponent(session)}/lids/${encodeURIComponent(lidNum)}`,
+    `${cfg.baseUrl}/api/lids/${encodeURIComponent(lidId)}?session=${encodeURIComponent(session)}`
+  ];
+  for (const url of urls) {
+    try {
+      const resp = await fetch(url, { headers, signal: AbortSignal.timeout(7000) });
+      if (!resp.ok) continue;
+      const j: any = await resp.json().catch(() => null);
+      // Posibles formas: { pn: "34..@c.us" } | { phoneNumber } | { id } | "34..@c.us"
+      const raw =
+        (typeof j === "string" ? j : null) ??
+        j?.pn ??
+        j?.phoneNumber ??
+        j?.phone ??
+        j?.jid ??
+        j?.id ??
+        null;
+      if (typeof raw === "string") {
+        const digits = raw.replace(/@.*$/, "").replace(/\D/g, "");
+        if (digits.length >= 8 && digits.length <= 15 && !/@lid$/i.test(raw)) return digits;
+      }
+    } catch {
+      // siguiente candidato
+    }
+  }
+  return null;
+}
