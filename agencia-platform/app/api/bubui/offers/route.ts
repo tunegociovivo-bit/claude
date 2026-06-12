@@ -81,9 +81,18 @@ export async function GET(req: Request) {
   });
 
   // Si hay ofertas-reto bloqueadas, calculamos cuántos amigos verificados
-  // tiene ya el cliente (una sola query) para mostrar el progreso del reto.
+  // tiene ya el cliente y sus iniciales (para el reto VISIBLE: caritas con la
+  // inicial de cada amigo que ya cuenta + huecos por rellenar).
   const hasLocked = offers.some((o) => !o.active);
   const verifiedNow = hasLocked ? await countVerifiedReferrals(customerId) : 0;
+  const verifiedFriends = hasLocked
+    ? await prisma.bubuiCustomer.findMany({
+        where: { referredById: customerId, phoneVerified: true },
+        orderBy: { createdAt: "desc" },
+        select: { name: true }
+      })
+    : [];
+  const friendInitials = verifiedFriends.map((f) => (f.name?.trim()?.[0] || "?").toUpperCase());
 
   const enriched = offers.map((o) => {
     let distanceM: number | null = null;
@@ -94,6 +103,8 @@ export async function GET(req: Request) {
     }
     const hoursLeft = Math.max(0, (o.expiresAt.getTime() - now.getTime()) / (60 * 60 * 1000));
     const locked = !o.active;
+    const left = locked ? sharesLeft(o, verifiedNow) : 0;
+    const have = locked ? Math.max(0, o.unlockShares - left) : 0;
     return {
       offerId: o.id,
       business: o.business,
@@ -106,7 +117,9 @@ export async function GET(req: Request) {
       // Oferta-reto viral: bloqueada hasta conseguir amigos.
       locked,
       friendsNeeded: locked ? o.unlockShares : 0,
-      sharesLeft: locked ? sharesLeft(o, verifiedNow) : 0
+      sharesLeft: left,
+      // Reto visible: iniciales de los amigos que ya cuentan para ESTE reto.
+      friendsJoined: locked ? friendInitials.slice(0, have) : []
     };
   });
 

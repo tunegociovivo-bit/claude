@@ -37,6 +37,7 @@ type Offer = {
   locked?: boolean;
   friendsNeeded?: number;
   sharesLeft?: number;
+  friendsJoined?: string[]; // iniciales de los amigos que ya cuentan
 };
 
 const SCREEN_W = Dimensions.get("window").width;
@@ -296,6 +297,22 @@ export function Feed() {
                     ? `Tráete ${item.sharesLeft} amig${item.sharesLeft === 1 ? "o" : "os"} más a Bubui para activarla.`
                     : "¡Ya casi! Comparte para activarla."}
                 </Text>
+                {/* Reto visible: una carita por amigo que ya cuenta + huecos */}
+                {!!item.friendsNeeded && item.friendsNeeded > 0 && (
+                  <View style={styles.slotsRow}>
+                    {Array.from({ length: item.friendsNeeded }).map((_, i) => {
+                      const initial = item.friendsJoined?.[i];
+                      const filled = !!initial;
+                      return (
+                        <View key={i} style={[styles.slot, filled ? styles.slotFilled : styles.slotEmpty]}>
+                          <Text style={filled ? styles.slotInitial : styles.slotPlus}>
+                            {filled ? initial : "+"}
+                          </Text>
+                        </View>
+                      );
+                    })}
+                  </View>
+                )}
                 <Bouncy
                   style={styles.challengeBtn}
                   onPress={() => {
@@ -384,7 +401,13 @@ const makeStyles = (c: Palette) =>
     challengeLock: { fontSize: 26 },
     challengeBiz: { fontSize: 15, fontWeight: "900", color: c.black },
     challengeReward: { fontSize: 13, fontWeight: "800", color: c.pink },
-    challengeMsg: { fontSize: 13, color: c.black, marginTop: 8, marginBottom: 12 },
+    challengeMsg: { fontSize: 13, color: c.black, marginTop: 8, marginBottom: 10 },
+    slotsRow: { flexDirection: "row", gap: 8, marginBottom: 12, flexWrap: "wrap" },
+    slot: { width: 34, height: 34, borderRadius: 17, alignItems: "center", justifyContent: "center" },
+    slotFilled: { backgroundColor: c.pink },
+    slotEmpty: { borderWidth: 2, borderColor: c.pink, borderStyle: "dashed", backgroundColor: "transparent" },
+    slotInitial: { color: c.onAccent, fontSize: 15, fontWeight: "900" },
+    slotPlus: { color: c.pink, fontSize: 18, fontWeight: "900" },
     challengeBtn: { backgroundColor: c.pink, borderRadius: radius.pill, paddingVertical: 13, alignItems: "center", ...shadow.btn },
     challengeBtnText: { color: c.onAccent, fontSize: 15, fontWeight: "800" },
     photo: { height: 130, backgroundColor: c.pinkSoft, justifyContent: "flex-start", alignItems: "flex-end" },

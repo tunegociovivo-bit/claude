@@ -451,6 +451,16 @@ function RankingCard({ businessId, token }: { businessId: string; token: string 
           ))}
         </ul>
       )}
+      {r.customers > 0 && (
+        <a
+          href={`/api/bubui/business/${businessId}/top-badge.png`}
+          target="_blank"
+          rel="noreferrer"
+          className="mt-3 inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold"
+        >
+          📲 Compartir mi posición (imagen para Instagram/WhatsApp)
+        </a>
+      )}
     </section>
   );
 }

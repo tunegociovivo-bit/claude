@@ -76,3 +76,36 @@ export async function getBusinessRanking(businessId: string): Promise<{
     top: ranking.slice(0, 5)
   };
 }
+
+/**
+ * Posición del negocio DENTRO de su ciudad este mes ("Top en tu zona"). Base
+ * de la imagen compartible. Si el negocio no tiene ciudad, cae al ranking
+ * global.
+ */
+export async function getBusinessCityRanking(businessId: string): Promise<{
+  city: string | null;
+  position: number | null;
+  total: number;
+  customers: number;
+} | null> {
+  const business = await prisma.bubuiBusiness.findUnique({
+    where: { id: businessId },
+    select: { city: true }
+  });
+  if (!business) return null;
+  const ranking = await getMonthlyRanking();
+  const scoped = business.city
+    ? ranking.filter((r) => r.city === business.city)
+    : ranking;
+  // Re-posicionar dentro del subconjunto (la posición global no sirve por ciudad).
+  const reranked = scoped
+    .slice()
+    .sort((a, b) => b.customers - a.customers || a.name.localeCompare(b.name));
+  const idx = reranked.findIndex((r) => r.businessId === businessId);
+  return {
+    city: business.city,
+    position: idx >= 0 ? idx + 1 : null,
+    total: reranked.length,
+    customers: idx >= 0 ? reranked[idx].customers : 0
+  };
+}
