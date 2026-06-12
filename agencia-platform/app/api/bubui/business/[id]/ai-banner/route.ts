@@ -114,9 +114,22 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     });
     pngBase64 = out.pngBase64;
   } catch (e: any) {
-    console.error("[bubui ai-banner]", e?.message ?? e);
+    const detail = String(e?.message ?? e);
+    console.error("[bubui ai-banner]", detail);
+    // Pista accionable (sin filtrar secretos); el mensaje de OpenAI ya viene
+    // recortado desde generateBusinessBanner.
+    let hint = "No se pudo generar el banner. Inténtalo de nuevo.";
+    if (/api key|401|invalid_api_key/i.test(detail)) {
+      hint = "El Banner IA no está bien configurado (API key de OpenAI). Avísanos.";
+    } else if (/must be verified|verify|access|unsupported|model/i.test(detail)) {
+      hint = "El modelo de imagen no está disponible para esta cuenta de OpenAI. Avísanos para activarlo.";
+    } else if (/billing|quota|insufficient|429/i.test(detail)) {
+      hint = "Límite temporal del servicio de imágenes. Prueba de nuevo en unos minutos.";
+    } else if (/timeout|aborted/i.test(detail)) {
+      hint = "La generación tardó demasiado. Prueba con una foto más ligera.";
+    }
     return NextResponse.json(
-      { error: { code: "generation_failed", message: "No se pudo generar el banner. Inténtalo de nuevo." } },
+      { error: { code: "generation_failed", message: hint, detail: detail.slice(0, 300) } },
       { status: 502 }
     );
   }

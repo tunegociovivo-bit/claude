@@ -90,9 +90,9 @@ export async function generateBusinessHeroImage(opts: {
 /**
  * Banner IA a partir de la FOTO DEL ESCAPARATE del negocio.
  *
- * Image-to-image con OpenAI /v1/images/edits (gpt-image-2): mejora la foto
+ * Image-to-image con OpenAI /v1/images/edits (gpt-image-1): mejora la foto
  * real y le compone el NOMBRE del comercio en el centro. A diferencia del
- * generador de hero por texto, aquí SÍ queremos texto en la imagen (gpt-image-2
+ * generador de hero por texto, aquí SÍ queremos texto en la imagen (gpt-image-1
  * rinde bien con tipografía), pero solo el nombre del negocio.
  *
  * Devuelve un PNG en base64.
@@ -136,31 +136,39 @@ export async function generateBusinessBanner(opts: {
   }
 
   const ext = inputType === "image/jpeg" ? "jpg" : inputType === "image/webp" ? "webp" : "png";
-  const form = new FormData();
-  form.append("model", "gpt-image-2");
-  form.append("prompt", prompt);
-  form.append("size", "1536x1024");
-  form.append("quality", "high");
-  form.append("n", "1");
-  form.append("image", new Blob([new Uint8Array(inputBuf)], { type: inputType }), `escaparate.${ext}`);
+  const buildForm = (model: string) => {
+    const form = new FormData();
+    form.append("model", model);
+    form.append("prompt", prompt);
+    form.append("size", "1536x1024");
+    form.append("quality", "high");
+    form.append("n", "1");
+    form.append("image", new Blob([new Uint8Array(inputBuf)], { type: inputType }), `escaparate.${ext}`);
+    return form;
+  };
 
+  // gpt-image-1 es el modelo probado; si la cuenta tuviera otro catálogo y
+  // OpenAI rechazara el modelo, probamos el alternativo antes de rendirnos.
+  const MODELS = ["gpt-image-1", "gpt-image-2"];
   let resp: Response | null = null;
   let lastErr = "";
-  for (let attempt = 1; attempt <= 3; attempt++) {
-    const r = await fetch("https://api.openai.com/v1/images/edits", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${apiKey}` },
-      body: form,
-      signal: AbortSignal.timeout(180000)
-    });
-    if (r.ok) { resp = r; break; }
-    if (r.status < 500 || attempt === 3) {
-      lastErr = (await r.text().catch(() => "")).slice(0, 300);
-      throw new Error(`OpenAI images/edits ${r.status}: ${lastErr}`);
+  outer: for (const model of MODELS) {
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      const r = await fetch("https://api.openai.com/v1/images/edits", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${apiKey}` },
+        body: buildForm(model),
+        signal: AbortSignal.timeout(180000)
+      });
+      if (r.ok) { resp = r; break outer; }
+      lastErr = `OpenAI images/edits ${r.status}: ${(await r.text().catch(() => "")).slice(0, 300)}`;
+      // Modelo desconocido para esta cuenta → prueba el siguiente modelo.
+      if (r.status < 500 && /model/i.test(lastErr) && model !== MODELS[MODELS.length - 1]) continue outer;
+      if (r.status < 500 || attempt === 3) throw new Error(lastErr);
+      await new Promise((res) => setTimeout(res, attempt === 1 ? 4000 : 10000));
     }
-    await new Promise((res) => setTimeout(res, attempt === 1 ? 4000 : 10000));
   }
-  if (!resp) throw new Error(`OpenAI images/edits sin respuesta. ${lastErr}`);
+  if (!resp) throw new Error(lastErr || "OpenAI images/edits sin respuesta.");
   const j = await resp.json();
   const b64 = j?.data?.[0]?.b64_json as string | undefined;
   if (!b64) throw new Error("OpenAI no devolvió imagen");
