@@ -12,6 +12,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { placesTextSearch, placeDetails } from "@/lib/leads/google-places";
 import { findProvince } from "@/lib/leads/spain-provinces";
+import { cronAuthOk } from "@/lib/cron-auth";
 
 export const dynamic = "force-dynamic";
 
@@ -20,10 +21,7 @@ const DROP_THRESHOLD = 0.2; // bajada de rating que consideramos relevante
 const RECHECK_HOURS = 6; // no revisar la misma búsqueda más de cada 6 h
 
 async function authorize(req: Request): Promise<boolean> {
-  const secret = process.env.CRON_SECRET;
-  if (!secret) return false;
-  if (req.headers.get("authorization") === `Bearer ${secret}`) return true;
-  return new URL(req.url).searchParams.get("secret") === secret;
+  return cronAuthOk(req);
 }
 
 export async function GET(req: Request) {

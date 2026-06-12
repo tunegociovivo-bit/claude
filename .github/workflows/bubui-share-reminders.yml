@@ -15,5 +15,5 @@ jobs:
       - name: Ping endpoint cron
         run: |
           curl -fsSL -X GET \
-            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            -H "Authorization: Bearer ${{ secrets.INTERNAL_CRON_TOKEN || secrets.CRON_SECRET }}" \
             https://hub.negociovivo.app/api/cron/bubui-share-reminders

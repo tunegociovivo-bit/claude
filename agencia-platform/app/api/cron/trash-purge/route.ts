@@ -9,17 +9,12 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { RETENTION_DAYS } from "@/lib/trash";
+import { cronAuthOk } from "@/lib/cron-auth";
 
 export const dynamic = "force-dynamic";
 
 async function authorize(req: Request): Promise<boolean> {
-  const secret = process.env.CRON_SECRET;
-  if (!secret) return false;
-  const header = req.headers.get("authorization") ?? "";
-  if (header === `Bearer ${secret}`) return true;
-  const url = new URL(req.url);
-  if (url.searchParams.get("secret") === secret) return true;
-  return false;
+  return cronAuthOk(req);
 }
 
 export async function GET(req: Request) {

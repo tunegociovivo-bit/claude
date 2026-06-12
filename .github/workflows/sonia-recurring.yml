@@ -21,7 +21,7 @@ jobs:
       - name: Dispara el cron de tareas recurrentes
         env:
           HUB_BASE_URL: ${{ secrets.HUB_BASE_URL }}
-          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          CRON_SECRET: ${{ secrets.INTERNAL_CRON_TOKEN || secrets.CRON_SECRET }}
         run: |
           set -e
           BASE="${HUB_BASE_URL:-https://hub.negociovivo.app}"

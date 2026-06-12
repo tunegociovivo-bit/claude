@@ -8,6 +8,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { runGmbSearch } from "@/lib/integrations/gmb-buscador";
+import { cronAuthOk } from "@/lib/cron-auth";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -19,8 +20,7 @@ const INTERVAL_MS: Record<string, number> = {
 };
 
 export async function POST(req: NextRequest) {
-  const secret = process.env.CRON_SECRET;
-  if (!secret || req.headers.get("x-cron-secret") !== secret) {
+  if (!cronAuthOk(req)) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
   const searches = await prisma.gmbSearch.findMany({ where: { schedule: { not: "none" } } });

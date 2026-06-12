@@ -12,17 +12,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import type { WorkflowStep } from "@/lib/ai/nv-ia/workflows";
+import { cronAuthOk } from "@/lib/cron-auth";
 
 export const dynamic = "force-dynamic";
 
 function authed(req: NextRequest): boolean {
-  const secret = process.env.CRON_SECRET;
-  if (!secret) return false;
-  const header = req.headers.get("authorization") ?? "";
-  if (header === `Bearer ${secret}`) return true;
-  const url = new URL(req.url);
-  if (url.searchParams.get("secret") === secret) return true;
-  return false;
+  return cronAuthOk(req);
 }
 
 export async function GET(req: NextRequest) {

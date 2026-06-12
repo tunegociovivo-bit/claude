@@ -16,6 +16,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { notifyBubuiCustomer } from "@/lib/bubui/notify";
 import { googleReviewUrl } from "@/lib/bubui/share-offer";
+import { cronAuthOk } from "@/lib/cron-auth";
 
 export const dynamic = "force-dynamic";
 
@@ -23,8 +24,7 @@ const DELAY_MIN = 10;
 const WINDOW_MIN = 25; // no avisar de compras más viejas que esto
 
 export async function GET(req: NextRequest) {
-  const auth = req.headers.get("authorization") ?? "";
-  if (!process.env.CRON_SECRET || auth !== `Bearer ${process.env.CRON_SECRET}`) {
+  if (!cronAuthOk(req)) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 

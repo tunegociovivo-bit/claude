@@ -21,6 +21,7 @@ import { prisma } from "@/lib/db/prisma";
 import { notifyBubuiCustomer } from "@/lib/bubui/notify";
 import { countVerifiedReferrals } from "@/lib/bubui/referral";
 import { sharesLeft } from "@/lib/bubui/share-offer";
+import { cronAuthOk } from "@/lib/cron-auth";
 
 export const dynamic = "force-dynamic";
 
@@ -29,8 +30,7 @@ const COOLDOWN_MS = 48 * 60 * 60 * 1000; // luego, máx. uno cada 48h
 const MAX_PER_OFFER = 3;
 
 export async function GET(req: NextRequest) {
-  const auth = req.headers.get("authorization") ?? "";
-  if (!process.env.CRON_SECRET || auth !== `Bearer ${process.env.CRON_SECRET}`) {
+  if (!cronAuthOk(req)) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 

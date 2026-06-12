@@ -20,14 +20,14 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
+import { cronAuthOk } from "@/lib/cron-auth";
 
 const DOWN_THRESHOLD_MS = 30 * 60 * 1000;
 
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
-  const auth = req.headers.get("authorization") ?? "";
-  if (!process.env.CRON_SECRET || auth !== `Bearer ${process.env.CRON_SECRET}`) {
+  if (!cronAuthOk(req)) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
