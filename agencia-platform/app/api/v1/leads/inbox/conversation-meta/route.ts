@@ -22,15 +22,18 @@ const schema = z.object({
   archived: z.boolean().optional(),
   // Recordatorio: ISO string o null para quitarlo. followupNote opcional.
   followupAt: z.string().datetime().nullable().optional(),
-  followupNote: z.string().max(300).nullable().optional()
+  followupNote: z.string().max(300).nullable().optional(),
+  // Desactivar el auto-piloto de seguimiento para esta conversación.
+  autoFollowupOff: z.boolean().optional()
 });
 
 export const PATCH = withApi({ scope: "*" }, async (req, { api }) => {
   const parsed = schema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) throw new ApiError(400, "validation_error", parsed.error.message);
-  const { phone, note, displayName, priority, status, archived, followupAt, followupNote } = parsed.data;
+  const { phone, note, displayName, priority, status, archived, followupAt, followupNote, autoFollowupOff } = parsed.data;
 
   const data: any = {};
+  if (autoFollowupOff !== undefined) data.autoFollowupOff = autoFollowupOff;
   if (note !== undefined) data.note = note?.trim() ? note.trim() : null;
   if (displayName !== undefined) data.displayName = displayName?.trim() ? displayName.trim() : null;
   if (priority !== undefined) data.priority = priority;
@@ -55,6 +58,7 @@ export const PATCH = withApi({ scope: "*" }, async (req, { api }) => {
     status: meta.status,
     archived: meta.archived,
     followupAt: meta.followupAt ? meta.followupAt.toISOString() : null,
-    followupNote: meta.followupNote
+    followupNote: meta.followupNote,
+    autoFollowupOff: meta.autoFollowupOff
   });
 });

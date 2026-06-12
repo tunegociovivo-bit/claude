@@ -117,6 +117,10 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
     aiScore: convMeta?.aiScore ?? null,
     aiScoreReason: convMeta?.aiScoreReason ?? null,
     aiDraft: convMeta?.aiDraft ?? null,
+    aiCallNow: convMeta?.aiCallNow ?? false,
+    aiCallScript: convMeta?.aiCallScript ?? null,
+    autoFollowupStep: convMeta?.autoFollowupStep ?? 0,
+    autoFollowupOff: convMeta?.autoFollowupOff ?? false,
     replyChannel: lastIn?.instanceName ?? null,
     optedOut: !!optout,
     items

@@ -424,6 +424,18 @@ export async function ingestInbox(opts: {
       .catch((e) => console.warn("[inbox-ai]", e?.message ?? e));
   }
 
+  // Auto-piloto: el lead ha vuelto a escribir → reinicia la escalera de
+  // follow-ups (step 0) para que, si se vuelve a enfriar, empiece de nuevo
+  // desde 24h en vez de seguir en una cadencia avanzada.
+  if (classified.classification !== "opt_out") {
+    void prisma.leadConversationMeta
+      .updateMany({
+        where: { workspaceId: opts.workspaceId, phone: phoneNormalized, autoFollowupStep: { gt: 0 } },
+        data: { autoFollowupStep: 0 }
+      })
+      .catch(() => {});
+  }
+
   // Acciones según clasificación
   if (classified.classification === "opt_out") {
     await prisma.leadOptout.upsert({
