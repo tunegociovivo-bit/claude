@@ -35,6 +35,11 @@ const schema = z
     referralReward5: z.string().max(60).optional().nullable(),
     reviewRewardPct: z.number().int().min(0).max(MAX_DISCOUNT_PCT).optional(),
     googlePlaceId: z.string().trim().max(200).optional().nullable(),
+    reviewPushEnabled: z.boolean().optional(),
+    // Oferta-reto viral (compártela con N amigos para activarla).
+    shareOfferPct: z.number().int().min(0).max(MAX_DISCOUNT_PCT).optional(),
+    shareOfferFriends: z.number().int().min(1).max(20).optional(),
+    shareOfferLabel: z.string().trim().max(60).optional().nullable(),
     loyaltyEnabled: z.boolean().optional(),
     loyaltyGoal: z.number().int().min(2).max(20).optional(),
     loyaltyRewardPct: z.number().int().min(0).max(MAX_DISCOUNT_PCT).optional(),
@@ -72,6 +77,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   if (data.googlePlaceId === "") data.googlePlaceId = null;
   if (data.loyaltyRewardLabel === "") data.loyaltyRewardLabel = null;
   if (data.birthdayMessage === "") data.birthdayMessage = null;
+  if (data.shareOfferLabel === "") data.shareOfferLabel = null;
   // Garantía: ruleta min <= max.
   if (data.wheelMinPct != null && data.wheelMaxPct != null && data.wheelMinPct > data.wheelMaxPct) {
     return NextResponse.json(

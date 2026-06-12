@@ -3346,6 +3346,16 @@ model BubuiBusiness {
   // tras dejar una reseña — abre el formulario de reseñas de Google con
   // este local pre-seleccionado.
   googlePlaceId      String?
+  // ── Crecimiento viral + reseñas ──────────────────────────────────
+  // Oferta-reto: tras escanear el ticket, al cliente se le crea una oferta
+  // MAYOR (shareOfferPct), bloqueada, que solo se activa cuando comparte
+  // Bubui y consigue `shareOfferFriends` amigos nuevos verificados. 0 = off.
+  shareOfferPct      Int     @default(0)
+  shareOfferFriends  Int     @default(5)
+  shareOfferLabel    String? // etiqueta no-% opcional (ej. "Postre gratis")
+  // Solicitud de reseña en Google: push automático ~10 min tras escanear,
+  // llevando al cliente a dejar reseña en Google (requiere googlePlaceId).
+  reviewPushEnabled  Boolean @default(true)
   // Tarjeta de fidelidad (sellos digitales). Cada compra confirmada del
   // cliente suma 1 sello; al completar `loyaltyGoal` sellos se desbloquea
   // automáticamente un cupón con loyaltyRewardPct (o loyaltyRewardLabel) y
@@ -3519,6 +3529,9 @@ model BubuiPurchase {
   ticketUrl       String?
   scannedAt       DateTime @default(now())
   confirmedAt     DateTime?
+  // Cuándo se envió el push de "déjanos una reseña en Google" (~10 min tras
+  // escanear). null = pendiente de enviar; lo procesa el cron review-requests.
+  reviewPushedAt  DateTime?
 
   customer BubuiCustomer @relation(fields: [customerId], references: [id], onDelete: Cascade)
   business BubuiBusiness @relation(fields: [businessId], references: [id], onDelete: Cascade)
@@ -3526,6 +3539,7 @@ model BubuiPurchase {
   @@index([businessId, status])
   @@index([customerId])
   @@index([scannedAt])
+  @@index([status, reviewPushedAt])
 }
 
 /// Oferta desbloqueada para un cliente concreto en un negocio concreto.
@@ -3544,8 +3558,15 @@ model BubuiOffer {
   // Etiqueta de premio no porcentual (ej. "Tapa gratis"). Si está, la UI
   // la muestra en vez del %.
   rewardLabel     String?
-  // Origen de la oferta: "cross" (cupón cruzado) | "referral" | "referral_welcome".
+  // Origen de la oferta: "cross" (cupón cruzado) | "referral" | "referral_welcome"
+  //  | "review_reward" | "share_challenge" (oferta-reto viral).
   source          String?  @default("cross")
+  // Oferta-reto viral: si active=false la oferta está BLOQUEADA y no se puede
+  // canjear hasta conseguir `unlockShares` amigos verificados nuevos por
+  // encima de `unlockBaseline` (los que el cliente ya tenía al crearse).
+  active          Boolean  @default(true)
+  unlockShares    Int      @default(0)
+  unlockBaseline  Int      @default(0)
   expiresAt       DateTime
   redeemed        Boolean  @default(false)
   redeemedAt      DateTime?

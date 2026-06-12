@@ -126,6 +126,10 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
       requireTicket: business.requireTicket,
       reviewRewardPct: business.reviewRewardPct,
       googlePlaceId: business.googlePlaceId,
+      reviewPushEnabled: business.reviewPushEnabled,
+      shareOfferPct: business.shareOfferPct,
+      shareOfferFriends: business.shareOfferFriends,
+      shareOfferLabel: business.shareOfferLabel,
       // Entrega de la pegatina/cartel QR (CTA "te la llevamos gratis").
       posterDeliveryRequestedAt: business.posterDeliveryRequestedAt,
       posterDeliveredAt: business.posterDeliveredAt,

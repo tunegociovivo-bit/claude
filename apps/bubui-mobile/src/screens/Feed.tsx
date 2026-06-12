@@ -4,6 +4,7 @@ import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import { getCurrentLatLng } from "../lib/location";
 import { CheckSession, saveSession, type Customer } from "../lib/session";
 import { api } from "../lib/api";
+import { shareReferralForOffer } from "../lib/share-referral";
 import { Wordmark } from "../components/Wordmark";
 import { BottomNav } from "../components/BottomNav";
 import { FadeIn } from "../components/FadeIn";
@@ -32,6 +33,10 @@ type Offer = {
   rewardLabel?: string | null;
   hoursLeft: number;
   distanceM: number | null;
+  // Oferta-reto viral: bloqueada hasta traer amigos.
+  locked?: boolean;
+  friendsNeeded?: number;
+  sharesLeft?: number;
 };
 
 const SCREEN_W = Dimensions.get("window").width;
@@ -274,6 +279,41 @@ export function Feed() {
           </View>
         }
         renderItem={({ item, index }) => (
+          item.locked ? (
+            <FadeIn delay={Math.min(index, 6) * 50} dy={18}>
+              <View style={styles.challengeCard}>
+                <View style={styles.challengeTop}>
+                  <Text style={styles.challengeLock}>🔒</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.challengeBiz} numberOfLines={1}>{item.business.name}</Text>
+                    <Text style={styles.challengeReward}>
+                      {item.rewardLabel ? item.rewardLabel : `${item.discountPct}% de descuento`} · oferta especial
+                    </Text>
+                  </View>
+                </View>
+                <Text style={styles.challengeMsg}>
+                  {item.sharesLeft && item.sharesLeft > 0
+                    ? `Tráete ${item.sharesLeft} amig${item.sharesLeft === 1 ? "o" : "os"} más a Bubui para activarla.`
+                    : "¡Ya casi! Comparte para activarla."}
+                </Text>
+                <Bouncy
+                  style={styles.challengeBtn}
+                  onPress={() => {
+                    sfx.tap();
+                    if (customer?.customerId) {
+                      void shareReferralForOffer(customer.customerId, {
+                        businessName: item.business.name,
+                        prize: item.rewardLabel ?? `${item.discountPct}%`,
+                        friendsLeft: item.sharesLeft ?? null
+                      });
+                    }
+                  }}
+                >
+                  <Text style={styles.challengeBtnText}>📲 Compartir y activar</Text>
+                </Bouncy>
+              </View>
+            </FadeIn>
+          ) : (
           <FadeIn delay={Math.min(index, 6) * 50} dy={18}>
             <Bouncy
               style={styles.card}
@@ -303,6 +343,7 @@ export function Feed() {
               </View>
             </Bouncy>
           </FadeIn>
+          )
         )}
       />
       <BottomNav active="Feed" />
@@ -337,6 +378,15 @@ const makeStyles = (c: Palette) =>
     promoSub: { fontSize: 12, color: c.gray, marginTop: 3, lineHeight: 16 },
     section: { fontSize: 12, fontWeight: "800", color: c.gray, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 10 },
     card: { backgroundColor: c.white, borderRadius: radius.lg, marginBottom: 12, overflow: "hidden", borderWidth: 1, borderColor: c.border, ...shadow.card },
+    // Oferta-reto viral (bloqueada): destaca para empujar a compartir.
+    challengeCard: { backgroundColor: c.pinkSoft, borderRadius: radius.lg, marginBottom: 12, borderWidth: 2, borderColor: c.pink, padding: 14, ...shadow.card },
+    challengeTop: { flexDirection: "row", alignItems: "center", gap: 10 },
+    challengeLock: { fontSize: 26 },
+    challengeBiz: { fontSize: 15, fontWeight: "900", color: c.black },
+    challengeReward: { fontSize: 13, fontWeight: "800", color: c.pink },
+    challengeMsg: { fontSize: 13, color: c.black, marginTop: 8, marginBottom: 12 },
+    challengeBtn: { backgroundColor: c.pink, borderRadius: radius.pill, paddingVertical: 13, alignItems: "center", ...shadow.btn },
+    challengeBtnText: { color: c.onAccent, fontSize: 15, fontWeight: "800" },
     photo: { height: 130, backgroundColor: c.pinkSoft, justifyContent: "flex-start", alignItems: "flex-end" },
     photoImg: { ...StyleSheet.absoluteFillObject, width: "100%", height: "100%" },
     tag: { margin: 12, backgroundColor: c.pink, borderRadius: radius.pill, paddingHorizontal: 12, paddingVertical: 6 },

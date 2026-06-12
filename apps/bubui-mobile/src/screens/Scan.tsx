@@ -6,6 +6,7 @@ import * as Location from "expo-location";
 import { useNavigation, useRoute, type RouteProp } from "@react-navigation/native";
 import { CheckSession } from "../lib/session";
 import { api } from "../lib/api";
+import { shareReferralForOffer } from "../lib/share-referral";
 import { FadeIn } from "../components/FadeIn";
 import { Bouncy } from "../components/Bouncy";
 import { Confetti, type ConfettiHandle } from "../components/Confetti";
@@ -28,6 +29,8 @@ export function Scan() {
   const [amount, setAmount] = useState("");
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState<any>(null);
+  // customerId de la sesión, para compartir la oferta-reto desde el éxito.
+  const [scanCustomerId, setScanCustomerId] = useState<string | undefined>(undefined);
   const [torch, setTorch] = useState(false);
   // Captura de ticket: "ticketCam" muestra la cámara para fotografiar el
   // ticket; "reading" mientras la IA lo procesa. ticketUrl = ticket guardado.
@@ -158,6 +161,7 @@ export function Scan() {
       nav.reset({ index: 0, routes: [{ name: "Onboarding" }] });
       return;
     }
+    setScanCustomerId(session.customerId);
     setBusy(true);
     try {
       let lat: number | undefined;
@@ -239,6 +243,34 @@ export function Scan() {
             <Text style={[styles.muted, { fontSize: 12 }]}>
               Lo verás reflejado automáticamente; no hace falta volver a escanear.
             </Text>
+          )}
+          {!rejected && done.shareOffer && (
+            <View style={styles.challengeBox}>
+              <Text style={styles.challengeTitle}>
+                🎁 ¡Oferta especial desbloqueable!
+              </Text>
+              <Text style={styles.challengeText}>
+                Te hemos guardado{" "}
+                <Text style={styles.challengeStrong}>
+                  {done.shareOffer.label ? done.shareOffer.label : `un ${done.shareOffer.discountPct}%`}
+                </Text>{" "}
+                en {done.business?.name ?? "este negocio"}. Tráete {done.shareOffer.friends} amigos a
+                Bubui para activarla.
+              </Text>
+              <TouchableOpacity
+                style={styles.challengeShare}
+                onPress={() => {
+                  sfx.tap();
+                  void shareReferralForOffer(scanCustomerId ?? "", {
+                    businessName: done.business?.name,
+                    prize: done.shareOffer.label ?? `${done.shareOffer.discountPct}%`,
+                    friendsLeft: done.shareOffer.friends
+                  });
+                }}
+              >
+                <Text style={styles.challengeShareText}>📲 Compartir con mis amigos</Text>
+              </TouchableOpacity>
+            </View>
           )}
           <Bouncy style={styles.btn} onPress={() => nav.reset({ index: 0, routes: [{ name: "Feed" }] })}>
             <Text style={styles.btnText}>{pending ? "Entendido" : "Ver mi ahorro"}</Text>
@@ -390,6 +422,13 @@ const makeStyles = (c: Palette) =>
     ticketBtnPrimary: { backgroundColor: c.pink, borderColor: c.pink },
     ticketBtnPrimaryText: { color: c.onAccent },
     ticketOk: { marginTop: 8, color: c.green, fontSize: 13, fontWeight: "800" },
+    // Oferta-reto viral en la pantalla de éxito.
+    challengeBox: { marginTop: 20, marginHorizontal: 8, padding: 16, borderRadius: radius.lg, borderWidth: 2, borderColor: c.pink, backgroundColor: c.pinkWash },
+    challengeTitle: { fontSize: 16, fontWeight: "900", color: c.pinkDeep, textAlign: "center" },
+    challengeText: { fontSize: 13, color: c.black, textAlign: "center", marginTop: 6, lineHeight: 19 },
+    challengeStrong: { fontWeight: "900", color: c.pinkDeep },
+    challengeShare: { marginTop: 12, backgroundColor: c.pink, borderRadius: radius.pill, paddingVertical: 13, alignItems: "center", ...shadow.btn },
+    challengeShareText: { color: c.onAccent, fontSize: 15, fontWeight: "800" },
     ticketFrame: { position: "absolute", top: "16%", left: "10%", width: "80%", height: "56%", borderColor: "#FFF", borderWidth: 3, borderRadius: 18, borderStyle: "dashed" },
     shutter: { alignSelf: "center", marginTop: 16, backgroundColor: c.pink, borderRadius: radius.pill, paddingVertical: 14, paddingHorizontal: 36, ...shadow.btn },
     shutterText: { color: c.onAccent, fontSize: 16, fontWeight: "900" }

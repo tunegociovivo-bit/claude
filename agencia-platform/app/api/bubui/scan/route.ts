@@ -19,6 +19,7 @@ import {
   recalculateAmbassadorLevel
 } from "@/lib/bubui/core";
 import { customerAuthOk } from "@/lib/bubui/customer-auth";
+import { createShareChallengeOffer } from "@/lib/bubui/share-offer";
 
 export const dynamic = "force-dynamic";
 
@@ -109,7 +110,8 @@ export async function POST(req: Request) {
       customerId: d.customerId,
       businessId: d.businessId,
       expiresAt: { gt: now },
-      redeemed: false
+      redeemed: false,
+      active: true // las ofertas-reto bloqueadas no se aplican hasta desbloquearse
     },
     orderBy: { discountPct: "desc" }
   });
@@ -214,6 +216,22 @@ export async function POST(req: Request) {
     }
   }
 
+  // Oferta-reto viral: tras escanear, se le crea una oferta MAYOR bloqueada
+  // que se activa al conseguir N amigos verificados (motor de expansión).
+  let shareOffer: Awaited<ReturnType<typeof createShareChallengeOffer>> = null;
+  if (!autoReject) {
+    shareOffer = await createShareChallengeOffer({
+      customerId: d.customerId,
+      business: {
+        id: business.id,
+        shareOfferPct: business.shareOfferPct,
+        shareOfferFriends: business.shareOfferFriends,
+        shareOfferLabel: business.shareOfferLabel
+      },
+      purchaseId: purchase.id
+    }).catch(() => null);
+  }
+
   return NextResponse.json({
     ok: true,
     purchaseId: purchase.id,
@@ -224,6 +242,15 @@ export async function POST(req: Request) {
     business: { id: business.id, name: business.name, category: business.category },
     rejectionReason: purchase.rejectionReason,
     offerRedeemed: !!activeOffer,
-    wheelSpin
+    wheelSpin,
+    // Para que la app muestre el reto "compártela con N amigos para activarla".
+    shareOffer: shareOffer
+      ? {
+          discountPct: shareOffer.discountPct,
+          label: shareOffer.label,
+          friends: shareOffer.friends,
+          expiresAt: shareOffer.expiresAt
+        }
+      : null
   });
 }

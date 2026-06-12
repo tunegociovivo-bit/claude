@@ -13,6 +13,8 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { haversineMeters } from "@/lib/bubui/core";
 import { customerAuthOk } from "@/lib/bubui/customer-auth";
+import { countVerifiedReferrals } from "@/lib/bubui/referral";
+import { sharesLeft } from "@/lib/bubui/share-offer";
 
 export const dynamic = "force-dynamic";
 
@@ -78,6 +80,11 @@ export async function GET(req: Request) {
     }
   });
 
+  // Si hay ofertas-reto bloqueadas, calculamos cuántos amigos verificados
+  // tiene ya el cliente (una sola query) para mostrar el progreso del reto.
+  const hasLocked = offers.some((o) => !o.active);
+  const verifiedNow = hasLocked ? await countVerifiedReferrals(customerId) : 0;
+
   const enriched = offers.map((o) => {
     let distanceM: number | null = null;
     if (lat != null && lng != null && o.business.latitude != null && o.business.longitude != null) {
@@ -86,6 +93,7 @@ export async function GET(req: Request) {
       );
     }
     const hoursLeft = Math.max(0, (o.expiresAt.getTime() - now.getTime()) / (60 * 60 * 1000));
+    const locked = !o.active;
     return {
       offerId: o.id,
       business: o.business,
@@ -94,13 +102,19 @@ export async function GET(req: Request) {
       source: o.source,
       expiresAt: o.expiresAt,
       hoursLeft: Math.round(hoursLeft),
-      distanceM
+      distanceM,
+      // Oferta-reto viral: bloqueada hasta conseguir amigos.
+      locked,
+      friendsNeeded: locked ? o.unlockShares : 0,
+      sharesLeft: locked ? sharesLeft(o, verifiedNow) : 0
     };
   });
 
-  // Re-orden: primero las que están a punto de caducar (<24h), luego por
-  // distancia, luego por score.
+  // Re-orden: primero las ofertas-reto bloqueadas (son el gancho viral, "X
+  // amigos para activar tu Y%"), luego las que caducan pronto (<24h), luego
+  // por distancia y score.
   enriched.sort((a, b) => {
+    if (a.locked !== b.locked) return a.locked ? -1 : 1;
     const aUrgent = a.hoursLeft < 24 ? 0 : 1;
     const bUrgent = b.hoursLeft < 24 ? 0 : 1;
     if (aUrgent !== bUrgent) return aUrgent - bUrgent;

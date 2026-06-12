@@ -153,4 +153,10 @@ export async function applyReferral(friendId: string, code: string): Promise<voi
       }
     }
   }
+
+  // Oferta-reto viral: este nuevo amigo puede haber completado el reto de
+  // alguna oferta bloqueada del referidor → se activa y se le avisa por push.
+  await import("./share-offer")
+    .then((m) => m.unlockShareChallengeOffers(referrer.id))
+    .catch(() => {});
 }
