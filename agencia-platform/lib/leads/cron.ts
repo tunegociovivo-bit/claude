@@ -13,6 +13,7 @@ import { prisma } from "@/lib/db/prisma";
 import { processSearchBatch } from "@/lib/leads/search-manager";
 import { processQueueTick } from "@/lib/leads/send-queue";
 import { processSequencesTick } from "@/lib/leads/sequences";
+import { processBroadcastTick } from "@/lib/leads/broadcast";
 
 export async function runLeadsCronAllWorkspaces(): Promise<any[]> {
   const workspaces = await prisma.workspace.findMany({ select: { id: true } });
@@ -47,6 +48,13 @@ export async function runLeadsCronAllWorkspaces(): Promise<any[]> {
       wsReport.sequences = await processSequencesTick({ workspaceId: ws.id, batchSize: 20 });
     } catch (e: any) {
       wsReport.sequencesError = e?.message ?? String(e);
+    }
+
+    // 4. Tick de difusión segmentada (1 destinatario, mismo anti-baneo).
+    try {
+      wsReport.broadcast = await processBroadcastTick(ws.id);
+    } catch (e: any) {
+      wsReport.broadcastError = e?.message ?? String(e);
     }
 
     report.push(wsReport);
