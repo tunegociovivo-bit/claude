@@ -1,9 +1,13 @@
 /**
- * GET /api/v1/leads/waha-qr
+ * GET /api/v1/leads/waha-qr[?session=<canal>]
  *
  * Proxy de la imagen del QR de WAHA para vincular el teléfono, añadiendo la
- * X-Api-Key en el servidor (no se expone al navegador). Solo sirve cuando la
- * sesión está en SCAN_QR_CODE. Solo admins.
+ * X-Api-Key en el servidor (no se expone al navegador). Solo admins.
+ *
+ * Multi-número: con ?session=<nombre> devuelve el QR de ESE canal (debe estar
+ * dado de alta en Ajustes → números). Si la sesión/instancia no existe aún en
+ * WAHA/Evolution, se crea y arranca al vuelo — conectar un número nuevo es
+ * "añadir en Ajustes + escanear su QR", sin tocar el servidor.
  */
 
 import { NextResponse } from "next/server";
@@ -19,12 +23,25 @@ async function requireAdmin(workspaceId: string, userId: string | undefined) {
   if (!me || me.role !== "ADMIN") throw new ApiError(403, "forbidden", "Solo admins");
 }
 
-export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
+export const GET = withApi({ scope: "*" }, async (req, { api }) => {
   await requireAdmin(api.workspaceId, api.userId);
+
+  // Canal concreto (multi-número): solo nombres dados de alta en Ajustes.
+  const requested = new URL(req.url).searchParams.get("session")?.trim() || null;
+  if (requested) {
+    const { getLeadChannels } = await import("@/lib/leads/channels");
+    const channels = await getLeadChannels(api.workspaceId);
+    if (!channels.some((c) => c.name === requested)) {
+      return NextResponse.json(
+        { ok: false, message: `El número "${requested}" no está en Ajustes. Añádelo y guarda antes de conectar.` },
+        { status: 400 }
+      );
+    }
+  }
 
   // Evolution: el QR viene como data URL base64 en /instance/connect.
   if ((await getWhatsappProvider(api.workspaceId)) === "evolution") {
-    const r = await evoConnect(api.workspaceId);
+    const r = await evoConnect(api.workspaceId, requested ?? undefined);
     if (!r.ok || !r.base64) {
       return NextResponse.json(
         {
@@ -53,32 +70,54 @@ export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
     return NextResponse.json({ ok: false, message: e?.message ?? "WAHA no configurado." }, { status: 400 });
   }
 
-  const s = encodeURIComponent(cfg.session);
+  const sessionName = requested ?? cfg.session;
+  const s = encodeURIComponent(sessionName);
   const headers = { "X-Api-Key": cfg.apiKey, Accept: "image/png" };
   const candidates = [
     `${cfg.baseUrl}/api/${s}/auth/qr?format=image`,
     `${cfg.baseUrl}/api/sessions/${s}/auth/qr?format=image`
   ];
 
-  for (const url of candidates) {
-    let resp: Response;
-    try {
-      resp = await fetch(url, { headers });
-    } catch {
-      continue;
+  async function tryQr(): Promise<NextResponse | null> {
+    for (const url of candidates) {
+      let resp: Response;
+      try {
+        resp = await fetch(url, { headers });
+      } catch {
+        continue;
+      }
+      const ct = resp.headers.get("content-type") ?? "";
+      if (resp.ok && ct.startsWith("image/")) {
+        const buf = Buffer.from(await resp.arrayBuffer());
+        return new NextResponse(new Uint8Array(buf), {
+          status: 200,
+          headers: { "Content-Type": ct, "Cache-Control": "no-store" }
+        });
+      }
     }
-    const ct = resp.headers.get("content-type") ?? "";
-    if (resp.ok && ct.startsWith("image/")) {
-      const buf = Buffer.from(await resp.arrayBuffer());
-      return new NextResponse(new Uint8Array(buf), {
-        status: 200,
-        headers: { "Content-Type": ct, "Cache-Control": "no-store" }
-      });
-    }
+    return null;
   }
 
+  let img = await tryQr();
+  if (!img) {
+    // La sesión puede no existir todavía (número nuevo): créala/arráncala y
+    // reintenta el QR un par de veces (WAHA lo genera async).
+    const jsonHeaders = { "X-Api-Key": cfg.apiKey, "Content-Type": "application/json" };
+    await fetch(`${cfg.baseUrl}/api/sessions`, {
+      method: "POST",
+      headers: jsonHeaders,
+      body: JSON.stringify({ name: sessionName, start: true })
+    }).catch(() => {});
+    await fetch(`${cfg.baseUrl}/api/sessions/${s}/start`, { method: "POST", headers: jsonHeaders }).catch(() => {});
+    for (let i = 0; i < 3 && !img; i++) {
+      await new Promise((r) => setTimeout(r, 1500));
+      img = await tryQr();
+    }
+  }
+  if (img) return img;
+
   return NextResponse.json(
-    { ok: false, message: "QR no disponible. La sesión no está esperando escaneo (reinicia primero)." },
+    { ok: false, message: "QR no disponible aún. Espera unos segundos y pulsa de nuevo (o reinicia la sesión)." },
     { status: 409 }
   );
 });

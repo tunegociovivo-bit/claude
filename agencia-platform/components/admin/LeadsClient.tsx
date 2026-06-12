@@ -421,7 +421,7 @@ export default function LeadsClient() {
 
       {tab === "searches" && <SearchesTable loading={loading} items={searches} onChanged={load} />}
       {tab === "queue" && <QueueTable loading={loading} items={queue} onChanged={load} />}
-      {tab === "inbox" && <InboxList loading={loading} items={inbox} diagnostics={inboxDiag} />}
+      {tab === "inbox" && <InboxChat loading={loading} diagnostics={inboxDiag} />}
       {tab === "sequences" && <SequencesView />}
       {tab === "templates" && <TemplatesTable loading={loading} items={templates} onChanged={load} />}
       {tab === "exclusions" && <ExclusionsView />}
@@ -2166,6 +2166,261 @@ function QueueTable({ loading, items, onChanged }: { loading: boolean; items: Qu
 
 // ============ INBOX ============
 
+// ============ INBOX MULTI-WHATSAPP (estilo WhatsApp Web) ============
+
+type Conversation = {
+  phone: string;
+  leadId: string | null;
+  leadName: string | null;
+  lastBody: string;
+  lastAt: string;
+  lastDirection: string;
+  unread: number;
+  instanceName: string | null;
+  classification: string | null;
+};
+
+type ThreadItem = {
+  id: string;
+  direction: "in" | "out";
+  body: string;
+  at: string;
+  instanceName: string | null;
+  kind: "inbox" | "campaign";
+  classification?: string | null;
+};
+
+const CLASS_CHIP: Record<string, { label: string; cls: string }> = {
+  interested: { label: "🔥 Interesado", cls: "bg-emerald-50 text-emerald-700 border-emerald-200" },
+  info_request: { label: "❓ Pide info", cls: "bg-sky-50 text-sky-700 border-sky-200" },
+  objection: { label: "🤔 Objeción", cls: "bg-amber-50 text-amber-700 border-amber-200" },
+  opt_out: { label: "🚫 Baja", cls: "bg-rose-50 text-rose-700 border-rose-200" },
+  positive_no: { label: "🙂 No por ahora", cls: "bg-slate-50 text-slate-600 border-slate-200" },
+  auto_reply: { label: "🤖 Auto", cls: "bg-slate-50 text-slate-500 border-slate-200" },
+  off_topic: { label: "💬 Otro tema", cls: "bg-slate-50 text-slate-500 border-slate-200" }
+};
+
+/** Bandeja de conversaciones multi-número: todas las respuestas de todos los
+ *  WhatsApp en una pantalla, con hilo y caja para responder DESDE el Hub
+ *  (la respuesta sale por el mismo número al que escribió el lead). */
+function InboxChat({
+  loading,
+  diagnostics
+}: {
+  loading: boolean;
+  diagnostics: { webhookLastHit: string | null; webhookLastEvent: string | null };
+}) {
+  const [convs, setConvs] = useState<Conversation[]>([]);
+  const [convsLoaded, setConvsLoaded] = useState(false);
+  const [selected, setSelected] = useState<string | null>(null);
+  const [thread, setThread] = useState<ThreadItem[]>([]);
+  const [threadMeta, setThreadMeta] = useState<{ leadName: string | null; replyChannel: string | null; optedOut: boolean }>({ leadName: null, replyChannel: null, optedOut: false });
+  const [draft, setDraft] = useState("");
+  const [sending, setSending] = useState(false);
+  const [sendErr, setSendErr] = useState<string | null>(null);
+  const bottomRef = useRef<HTMLDivElement>(null);
+
+  async function loadConvs() {
+    try {
+      const r = await fetch("/api/v1/leads/inbox/conversations");
+      if (r.ok) {
+        const d = await r.json();
+        setConvs(d.items ?? []);
+      }
+    } finally {
+      setConvsLoaded(true);
+    }
+  }
+  async function loadThread(phone: string) {
+    const r = await fetch(`/api/v1/leads/inbox/conversation?phone=${encodeURIComponent(phone)}`);
+    if (!r.ok) return;
+    const d = await r.json();
+    setThread(d.items ?? []);
+    setThreadMeta({ leadName: d.lead?.name ?? null, replyChannel: d.replyChannel ?? null, optedOut: !!d.optedOut });
+    // Al abrir, los no-leídos de esa conversación quedan vistos.
+    setConvs((prev) => prev.map((c) => (c.phone === phone ? { ...c, unread: 0 } : c)));
+  }
+
+  // Carga + refresco suave (las respuestas de leads llegan en cualquier momento).
+  useEffect(() => {
+    loadConvs();
+    const i = setInterval(loadConvs, 12_000);
+    return () => clearInterval(i);
+  }, []);
+  useEffect(() => {
+    if (!selected) return;
+    loadThread(selected);
+    const i = setInterval(() => loadThread(selected), 8_000);
+    return () => clearInterval(i);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected]);
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [thread.length, selected]);
+
+  async function send() {
+    const text = draft.trim();
+    if (!text || !selected || sending) return;
+    setSending(true);
+    setSendErr(null);
+    try {
+      const r = await fetch("/api/v1/leads/inbox/reply", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone: selected, text })
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d?.error?.message ?? `HTTP ${r.status}`);
+      setDraft("");
+      setThread((prev) => [
+        ...prev,
+        { id: d.id ?? `tmp-${Date.now()}`, direction: "out", body: text, at: d.at ?? new Date().toISOString(), instanceName: d.instanceName ?? null, kind: "inbox" }
+      ]);
+      setConvs((prev) =>
+        prev.map((c) => (c.phone === selected ? { ...c, lastBody: text, lastDirection: "out", lastAt: new Date().toISOString() } : c))
+      );
+    } catch (e: any) {
+      setSendErr(e?.message ?? "No se pudo enviar");
+    } finally {
+      setSending(false);
+    }
+  }
+
+  if (loading && !convsLoaded) return <Loading />;
+
+  if (convsLoaded && convs.length === 0) {
+    // Sin conversaciones: reutiliza el diagnóstico del webhook (clave para
+    // detectar que WAHA no está reenviando los mensajes entrantes).
+    return <InboxList loading={false} items={[]} diagnostics={diagnostics} />;
+  }
+
+  const sel = convs.find((c) => c.phone === selected) ?? null;
+
+  return (
+    <div className="bg-white rounded-xl border overflow-hidden grid grid-cols-1 md:grid-cols-[320px_1fr]" style={{ height: "72vh" }}>
+      {/* Lista de conversaciones */}
+      <div className={`border-r overflow-y-auto ${selected ? "hidden md:block" : ""}`}>
+        {convs.map((c) => {
+          const chip = c.classification ? CLASS_CHIP[c.classification] : null;
+          return (
+            <button
+              key={c.phone}
+              onClick={() => setSelected(c.phone)}
+              className={`w-full text-left px-3 py-2.5 border-b hover:bg-slate-50 ${selected === c.phone ? "bg-brand-50" : ""}`}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-sm font-semibold text-slate-800 truncate">
+                  {c.leadName || c.phone}
+                </span>
+                <span className="text-[10px] text-slate-400 shrink-0">
+                  {new Date(c.lastAt).toLocaleDateString("es-ES", { day: "2-digit", month: "2-digit" })}
+                </span>
+              </div>
+              <div className="flex items-center justify-between gap-2 mt-0.5">
+                <span className="text-xs text-slate-500 truncate">
+                  {c.lastDirection === "out" ? "Tú: " : ""}
+                  {c.lastBody}
+                </span>
+                {c.unread > 0 && (
+                  <span className="shrink-0 bg-emerald-500 text-white text-[10px] font-bold rounded-full min-w-[18px] h-[18px] px-1 flex items-center justify-center">
+                    {c.unread}
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-1.5 mt-1">
+                {chip && <span className={`text-[10px] px-1.5 py-0.5 rounded border ${chip.cls}`}>{chip.label}</span>}
+                {c.instanceName && (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded border bg-slate-50 text-slate-500 border-slate-200">
+                    📱 {c.instanceName}
+                  </span>
+                )}
+              </div>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Hilo */}
+      <div className={`flex flex-col min-h-0 ${selected ? "" : "hidden md:flex"}`}>
+        {!sel ? (
+          <div className="flex-1 flex items-center justify-center text-sm text-slate-400">
+            Elige una conversación para verla y responder
+          </div>
+        ) : (
+          <>
+            <div className="px-4 py-2.5 border-b bg-slate-50 flex items-center gap-2">
+              <button onClick={() => setSelected(null)} className="md:hidden text-slate-500 text-sm">‹</button>
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-semibold text-slate-800 truncate">{threadMeta.leadName || sel.phone}</div>
+                <div className="text-[11px] text-slate-500">
+                  {sel.phone}
+                  {threadMeta.replyChannel ? ` · respondes por: ${threadMeta.replyChannel}` : " · respondes por: número principal"}
+                </div>
+              </div>
+              {sel.leadId && (
+                <a href={`#lead-${sel.leadId}`} className="text-[11px] text-brand-700 hover:underline shrink-0">
+                  Ver lead ↗
+                </a>
+              )}
+            </div>
+            <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2 bg-[#f6f4f0]">
+              {thread.map((m) => (
+                <div key={m.id} className={`flex ${m.direction === "out" ? "justify-end" : "justify-start"}`}>
+                  <div
+                    className={`max-w-[78%] rounded-xl px-3 py-2 text-sm whitespace-pre-wrap shadow-sm ${
+                      m.direction === "out" ? "bg-emerald-100 text-slate-800" : "bg-white text-slate-800"
+                    }`}
+                  >
+                    {m.kind === "campaign" && (
+                      <div className="text-[10px] text-slate-400 mb-0.5">📣 campaña</div>
+                    )}
+                    {m.body}
+                    <div className="text-[10px] text-slate-400 text-right mt-1">
+                      {new Date(m.at).toLocaleString("es-ES", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
+                    </div>
+                  </div>
+                </div>
+              ))}
+              <div ref={bottomRef} />
+            </div>
+            {threadMeta.optedOut && (
+              <div className="px-4 py-1.5 text-[11px] bg-rose-50 text-rose-700 border-t border-rose-200">
+                ⚠️ Este teléfono pidió no recibir mensajes (opt-out). Responde solo si él retomó la conversación.
+              </div>
+            )}
+            <div className="border-t p-3 bg-white">
+              {sendErr && <div className="text-xs text-rose-600 mb-1.5">✗ {sendErr}</div>}
+              <div className="flex items-end gap-2">
+                <textarea
+                  value={draft}
+                  onChange={(e) => setDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault();
+                      void send();
+                    }
+                  }}
+                  rows={2}
+                  placeholder="Escribe tu respuesta… (Enter para enviar, Shift+Enter salto de línea)"
+                  className="flex-1 px-3 py-2 rounded-lg border text-sm resize-none"
+                />
+                <button
+                  onClick={() => void send()}
+                  disabled={sending || !draft.trim()}
+                  className="px-4 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold disabled:opacity-50 inline-flex items-center gap-1.5"
+                >
+                  {sending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                  Enviar
+                </button>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function InboxList({
   loading,
   items,
@@ -3318,6 +3573,12 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
     setSavedAt(new Date());
   }
   function setField(k: string, v: any) { setS({ ...s, [k]: v }); }
+  // Conectar un número concreto: muestra su QR (la sesión/instancia se crea
+  // sola en el servidor si no existe). channelQr = nombre del canal abierto.
+  const [channelQr, setChannelQr] = useState<string | null>(null);
+  const [channelQrErr, setChannelQrErr] = useState<string | null>(null);
+  const [channelQrNonce, setChannelQrNonce] = useState(0);
+
   function updateChannel(i: number, patch: any) {
     const arr = [...(s.channels ?? [])];
     arr[i] = { ...arr[i], ...patch };
@@ -3528,6 +3789,20 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
                       />
                       <button
                         type="button"
+                        onClick={() => {
+                          if (!c.name?.trim()) return;
+                          setChannelQrErr(null);
+                          setChannelQrNonce((n) => n + 1);
+                          setChannelQr(channelQr === c.name ? null : c.name);
+                        }}
+                        disabled={!c.name?.trim()}
+                        className="px-2 py-1 rounded border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-xs disabled:opacity-40"
+                        title="Conectar este número: escanea su QR con el móvil de la SIM (solo una vez). Guarda los ajustes antes."
+                      >
+                        📷 Conectar
+                      </button>
+                      <button
+                        type="button"
                         onClick={() => removeChannel(i)}
                         className="px-2 py-1 rounded border bg-white hover:bg-rose-50 text-rose-600 text-xs"
                         title="Quitar"
@@ -3536,6 +3811,50 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
                       </button>
                     </div>
                   ))}
+                </div>
+              )}
+              {channelQr && (
+                <div className="mt-2 rounded-lg border border-emerald-200 bg-emerald-50/60 p-3 text-center">
+                  <p className="text-xs font-semibold text-emerald-800 mb-2">
+                    Vincular el número "{channelQr}" — abre WhatsApp en el móvil de esa SIM →
+                    Dispositivos vinculados → Vincular dispositivo, y escanea:
+                  </p>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={`/api/v1/leads/waha-qr?session=${encodeURIComponent(channelQr)}&n=${channelQrNonce}`}
+                    alt={`QR para vincular ${channelQr}`}
+                    className="mx-auto w-52 h-52 bg-white rounded border"
+                    onError={async () => {
+                      try {
+                        const r = await fetch(`/api/v1/leads/waha-qr?session=${encodeURIComponent(channelQr)}&n=${channelQrNonce}`);
+                        const j = await r.json().catch(() => null);
+                        setChannelQrErr(j?.message ?? "QR no disponible aún; guarda los ajustes y pulsa Actualizar.");
+                      } catch {
+                        setChannelQrErr("QR no disponible aún; guarda los ajustes y pulsa Actualizar.");
+                      }
+                    }}
+                  />
+                  {channelQrErr && <p className="text-[11px] text-amber-700 mt-1.5">{channelQrErr}</p>}
+                  <div className="mt-2 flex items-center justify-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => { setChannelQrErr(null); setChannelQrNonce((n) => n + 1); }}
+                      className="px-2.5 py-1 rounded border bg-white hover:bg-slate-50 text-xs"
+                    >
+                      🔄 Actualizar QR
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setChannelQr(null)}
+                      className="px-2.5 py-1 rounded border bg-white hover:bg-slate-50 text-xs"
+                    >
+                      Cerrar
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-slate-500 mt-2">
+                    Una vez vinculado, el número envía desde el servidor: la SIM puede quedarse guardada
+                    (conecta su móvil a internet al menos una vez cada ~14 días para que no caduque).
+                  </p>
                 </div>
               )}
               <div className="mt-2">

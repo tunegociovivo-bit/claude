@@ -192,7 +192,10 @@ export async function evoConnectionState(workspaceId: string): Promise<{
 
 /** Inicia/recupera la conexión y devuelve el QR (base64 data URL) para vincular.
  *  Si la instancia aún no existe en el servidor Evolution, la crea (v2). */
-export async function evoConnect(workspaceId: string): Promise<{
+export async function evoConnect(
+  workspaceId: string,
+  instanceOverride?: string
+): Promise<{
   ok: boolean;
   base64: string | null;
   pairingCode?: string | null;
@@ -206,6 +209,8 @@ export async function evoConnect(workspaceId: string): Promise<{
   } catch (e: any) {
     return { ok: false, base64: null, error: e?.message ?? "no configurado" };
   }
+  // Multi-número: conectar una instancia concreta (se crea si no existe).
+  if (instanceOverride?.trim()) cfg = { ...cfg, instance: instanceOverride.trim() };
   const inst = encodeURIComponent(cfg.instance);
   const pick = (d: any) => ({
     base64: (d?.base64 ?? d?.qrcode?.base64 ?? null) as string | null,
