@@ -47,7 +47,11 @@ export const POST = withApi({ scope: "*" }, async (req, { api }) => {
 
   const webhookPayload = {
     url,
-    events: ["message", "message.any"],
+    // OJO: NO suscribir "message.any" — WAHA entrega el mismo entrante por
+    // "message" Y "message.any" (duplicaba cada mensaje en el Inbox, y al
+    // llegar en paralelo el dedupe por id no alcanza). "message" cubre todos
+    // los entrantes; "message.ack" da los recibos de entrega de los envíos.
+    events: ["message", "message.ack"],
     hmac: null,
     retries: null,
     customHeaders: null
