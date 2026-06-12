@@ -77,6 +77,53 @@ export async function getBusinessRanking(businessId: string): Promise<{
   };
 }
 
+export type AmbassadorRow = { position: number; initial: string; referrals: number; isMe: boolean };
+
+/**
+ * Ranking de clientes EMBAJADORES de un negocio: los clientes "de la casa"
+ * (firstBusinessId == businessId) ordenados por amigos verificados que han
+ * traído. Gamifica a los clientes para que inviten. Devuelve el top + la
+ * posición del cliente `meId` (aunque esté fuera del top).
+ */
+export async function getAmbassadorRanking(
+  businessId: string,
+  meId?: string,
+  topN = 5
+): Promise<{ top: AmbassadorRow[]; myPosition: number | null; myReferrals: number; total: number }> {
+  // Amigos verificados agrupados por quién los trajo.
+  const grouped = await prisma.bubuiCustomer.groupBy({
+    by: ["referredById"],
+    where: { phoneVerified: true, referredById: { not: null } },
+    _count: { _all: true }
+  });
+  const countByReferrer = new Map<string, number>();
+  for (const g of grouped) if (g.referredById) countByReferrer.set(g.referredById, g._count._all);
+
+  // Clientes "de la casa" de este negocio (potenciales embajadores).
+  const houseCustomers = await prisma.bubuiCustomer.findMany({
+    where: { firstBusinessId: businessId },
+    select: { id: true, name: true }
+  });
+
+  const ranked = houseCustomers
+    .map((c) => ({ id: c.id, initial: (c.name?.trim()?.[0] || "?").toUpperCase(), referrals: countByReferrer.get(c.id) ?? 0 }))
+    .filter((c) => c.referrals > 0)
+    .sort((a, b) => b.referrals - a.referrals);
+
+  const myIdx = meId ? ranked.findIndex((c) => c.id === meId) : -1;
+  return {
+    top: ranked.slice(0, topN).map((c, i) => ({
+      position: i + 1,
+      initial: c.initial,
+      referrals: c.referrals,
+      isMe: !!meId && c.id === meId
+    })),
+    myPosition: myIdx >= 0 ? myIdx + 1 : null,
+    myReferrals: myIdx >= 0 ? ranked[myIdx].referrals : meId ? (countByReferrer.get(meId) ?? 0) : 0,
+    total: ranked.length
+  };
+}
+
 /**
  * Posición del negocio DENTRO de su ciudad este mes ("Top en tu zona"). Base
  * de la imagen compartible. Si el negocio no tiene ciudad, cae al ranking

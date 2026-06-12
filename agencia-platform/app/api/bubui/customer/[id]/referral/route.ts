@@ -8,6 +8,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { ensureReferralCode, countVerifiedReferrals, rewardLabelFor, parseReward, MILESTONES } from "@/lib/bubui/referral";
+import { getAmbassadorRanking } from "@/lib/bubui/ranking";
 import { customerAuthOk } from "@/lib/bubui/customer-auth";
 
 function displayReward(raw: string): string {
@@ -54,6 +55,11 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
     select: { name: true, phoneVerified: true, createdAt: true }
   });
 
+  // Ranking de embajadores del negocio de origen (pica a competir invitando).
+  const ambassadors = customer.firstBusinessId
+    ? await getAmbassadorRanking(customer.firstBusinessId, customer.id).catch(() => null)
+    : null;
+
   return NextResponse.json({
     code,
     verifiedReferrals: count,
@@ -65,6 +71,14 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
       initial: (f.name?.trim()?.[0] || "?").toUpperCase(),
       verified: f.phoneVerified,
       joinedAt: f.createdAt
-    }))
+    })),
+    ambassadors: ambassadors
+      ? {
+          myPosition: ambassadors.myPosition,
+          myReferrals: ambassadors.myReferrals,
+          total: ambassadors.total,
+          top: ambassadors.top
+        }
+      : null
   });
 }

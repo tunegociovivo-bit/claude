@@ -139,6 +139,12 @@ export const api = {
       milestones: { n: number; reward: string; unlocked: boolean }[];
       nextMilestone: number | null;
       friends: { initial: string; verified: boolean; joinedAt: string }[];
+      ambassadors: {
+        myPosition: number | null;
+        myReferrals: number;
+        total: number;
+        top: { position: number; initial: string; referrals: number; isMe: boolean }[];
+      } | null;
     }>(`/api/bubui/customer/${customerId}/referral`),
   vapidPublic: () => call("/api/bubui/push/vapid-public"),
   banner: () => call<{ active: boolean; imageUrl?: string; link?: string }>("/api/bubui/banner"),
