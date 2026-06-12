@@ -37,24 +37,31 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
     return NextResponse.json({ error: { code: "bad_json", message: "Payload inválido" } }, { status: 400 });
   }
 
-  // Marcador "el webhook está vivo": al menos UN evento ha llegado. Lo usamos
-  // en la UI de Inbox/Ajustes para indicar si WAHA está realmente apuntando
-  // aquí. Guardamos también el último evento bruto truncado para diagnosis.
-  void prisma.workspace
-    .update({
-      where: { id: ws.id },
-      data: {
-        settings: {
-          ...((ws.settings as any) ?? {}),
-          leads: {
-            ...(((ws.settings as any) ?? {}).leads ?? {}),
-            webhookLastHit: new Date().toISOString(),
-            webhookLastEvent: String(body?.event ?? body?.type ?? "unknown")
+  // Persiste el estado del webhook (vivo + última decisión) para diagnóstico
+  // en la UI. `decision` explica por qué un evento NO acabó en el Inbox
+  // (from_me, missing_fields, ack…) o que sí (ingested). Incluimos preview del
+  // remitente y del texto para ver el shape real del payload.
+  function note(decision: string, extra?: { from?: string; text?: string }) {
+    void prisma.workspace
+      .update({
+        where: { id: ws!.id },
+        data: {
+          settings: {
+            ...((ws!.settings as any) ?? {}),
+            leads: {
+              ...(((ws!.settings as any) ?? {}).leads ?? {}),
+              webhookLastHit: new Date().toISOString(),
+              webhookLastEvent: String(body?.event ?? body?.type ?? "unknown"),
+              webhookLastDecision: decision,
+              webhookLastFrom: (extra?.from ?? "").slice(0, 40) || null,
+              webhookLastBody: (extra?.text ?? "").slice(0, 80) || null,
+              webhookLastKeys: Object.keys(body ?? {}).slice(0, 12).join(",")
+            }
           }
         }
-      }
-    })
-    .catch((e) => console.warn("[leads webhook] no se pudo persistir lastHit:", e?.message ?? e));
+      })
+      .catch((e) => console.warn("[leads webhook] no se pudo persistir lastHit:", e?.message ?? e));
+  }
 
   // ── Recibos de entrega (ACK) de WAHA ────────────────────────────────────
   // WAHA emite `message.ack` con el estado de NUESTROS envíos:
@@ -101,6 +108,7 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
     } catch (e: any) {
       console.warn("[leads webhook] ack update error:", e?.message ?? e);
     }
+    note(`ack:${ackName || ackNum}`);
     return NextResponse.json({ ok: true, ack: ackName || ackNum });
   }
 
@@ -110,6 +118,7 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
     body?.data?.key?.fromMe === true ||
     body?.message?.fromMe === true;
   if (fromMe) {
+    note("from_me");
     return NextResponse.json({ ok: true, ignored: "from_me" });
   }
 
@@ -125,9 +134,11 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
   //  - WAHA v2: payload.body
   //  - Evolution/Baileys: data.message.{conversation | extendedTextMessage.text
   //    | imageMessage.caption | ...}, a veces envuelto en ephemeralMessage.
-  const m: any = body?.data?.message ?? body?.message ?? {};
+  const m: any = body?.data?.message ?? body?.message ?? body?.payload?._data?.message ?? {};
   const messageBody: string =
     body?.payload?.body ?? // WAHA v2
+    body?.payload?.text ?? // algunos motores WAHA
+    body?.payload?._data?.body ?? // WAHA NOWEB/WEBJS (texto en _data)
     body?.body ??
     body?.text ??
     (typeof body?.message?.body === "string" ? body.message.body : undefined) ??
@@ -147,6 +158,7 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
   const instanceName = body?.session ?? body?.instance ?? null;
 
   if (!fromPhone || typeof messageBody !== "string" || !messageBody.trim()) {
+    note("missing_fields", { from: String(fromPhone ?? ""), text: String(messageBody ?? "") });
     return NextResponse.json({ ok: true, ignored: "missing_fields" });
   }
 
@@ -159,9 +171,11 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
       instanceName: instanceName ? String(instanceName) : null,
       meta: body
     });
+    note("ingested", { from: String(fromPhone), text: messageBody });
     return NextResponse.json({ ok: true, messageId: out.messageId, classification: out.classification });
   } catch (e: any) {
     console.error("[leads webhook] ingest error:", e);
+    note(`ingest_error:${(e?.message ?? String(e)).slice(0, 60)}`, { from: String(fromPhone), text: messageBody });
     return NextResponse.json({ ok: false, error: e?.message ?? String(e) }, { status: 500 });
   }
 }

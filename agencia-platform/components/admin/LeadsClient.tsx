@@ -142,7 +142,7 @@ export default function LeadsClient() {
   const [queue, setQueue] = useState<QueueRow[]>([]);
   const [templates, setTemplates] = useState<Template[]>([]);
   const [inbox, setInbox] = useState<InboxRow[]>([]);
-  const [inboxDiag, setInboxDiag] = useState<{ webhookLastHit: string | null; webhookLastEvent: string | null }>({ webhookLastHit: null, webhookLastEvent: null });
+  const [inboxDiag, setInboxDiag] = useState<{ webhookLastHit: string | null; webhookLastEvent: string | null; webhookLastDecision?: string | null; webhookLastFrom?: string | null; webhookLastBody?: string | null; webhookLastKeys?: string | null }>({ webhookLastHit: null, webhookLastEvent: null });
   const [analytics, setAnalytics] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState("ALL");
@@ -2211,7 +2211,7 @@ function InboxChat({
   diagnostics
 }: {
   loading: boolean;
-  diagnostics: { webhookLastHit: string | null; webhookLastEvent: string | null };
+  diagnostics: { webhookLastHit: string | null; webhookLastEvent: string | null; webhookLastDecision?: string | null; webhookLastFrom?: string | null; webhookLastBody?: string | null; webhookLastKeys?: string | null };
 }) {
   const [convs, setConvs] = useState<Conversation[]>([]);
   const [convsLoaded, setConvsLoaded] = useState(false);
@@ -2470,7 +2470,7 @@ function InboxList({
 }: {
   loading: boolean;
   items: InboxRow[];
-  diagnostics: { webhookLastHit: string | null; webhookLastEvent: string | null };
+  diagnostics: { webhookLastHit: string | null; webhookLastEvent: string | null; webhookLastDecision?: string | null; webhookLastFrom?: string | null; webhookLastBody?: string | null; webhookLastKeys?: string | null };
 }) {
   if (loading) return <Loading />;
   if (items.length === 0) {
@@ -2482,10 +2482,23 @@ function InboxList({
         {hit ? (
           <div className="text-xs space-y-1 bg-emerald-50 border border-emerald-200 rounded-md p-2.5 text-emerald-800">
             <div>✅ WAHA SÍ está enviando eventos: último recibido hace {minSinceHit} min ({hit.toLocaleString("es-ES")}).</div>
-            <div>Tipo del último evento: <code>{diagnostics.webhookLastEvent ?? "—"}</code>.</div>
+            <div>Tipo del último evento: <code>{diagnostics.webhookLastEvent ?? "—"}</code></div>
+            {diagnostics.webhookLastDecision && (
+              <div className="mt-1 rounded bg-white/70 border border-emerald-200 p-2 font-mono text-[11px] space-y-0.5">
+                <div>decisión: <strong>{diagnostics.webhookLastDecision}</strong></div>
+                {diagnostics.webhookLastFrom && <div>de: {diagnostics.webhookLastFrom}</div>}
+                {diagnostics.webhookLastBody && <div>texto: {diagnostics.webhookLastBody}</div>}
+                {diagnostics.webhookLastKeys && <div>campos: {diagnostics.webhookLastKeys}</div>}
+              </div>
+            )}
             <div className="mt-1">
-              Si llegan eventos pero no aparecen mensajes, lo más probable es que ese evento NO era de tipo
-              "message" (puede ser un ack/typing/status). Pide al lead que escriba un mensaje de texto nuevo y vuelve.
+              {diagnostics.webhookLastDecision === "from_me"
+                ? 'El último evento era un mensaje TUYO/echo de campaña (fromMe), por eso no entra en el Inbox. Pide a un lead (o escríbete desde OTRO teléfono) un mensaje de texto nuevo.'
+                : diagnostics.webhookLastDecision === "missing_fields"
+                  ? "Llegó un evento de mensaje pero no se reconoció el texto/remitente con este motor de WAHA. Pásame esta caja (campos:) y ajusto el parseo."
+                  : diagnostics.webhookLastDecision === "ingested"
+                    ? "¡El último mensaje SÍ se guardó! Si no lo ves, pulsa Recargar."
+                    : 'Si llegan eventos pero no aparecen mensajes, suele ser un ack/typing/status. Pide un mensaje de texto nuevo y vuelve.'}
             </div>
           </div>
         ) : (
