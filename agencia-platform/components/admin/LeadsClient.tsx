@@ -2266,6 +2266,12 @@ function InboxChat({
   const [convs, setConvs] = useState<Conversation[]>([]);
   const [convsLoaded, setConvsLoaded] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
+  // Filtros y orden de la lista (clave para no ahogarse con volumen).
+  const [search, setSearch] = useState("");
+  const [fPriority, setFPriority] = useState<string>("all"); // all|alta|media|baja
+  const [fClass, setFClass] = useState<string>("all"); // all|interested|info_request|objection|opt_out
+  const [fUnread, setFUnread] = useState(false);
+  const [sortBy, setSortBy] = useState<"priority" | "recent" | "unread">("priority");
   const [thread, setThread] = useState<ThreadItem[]>([]);
   const [threadMeta, setThreadMeta] = useState<{
     leadName: string | null;
@@ -2397,11 +2403,96 @@ function InboxChat({
 
   const sel = convs.find((c) => c.phone === selected) ?? null;
 
+  // Aplica búsqueda + filtros + orden a la lista (no toca el servidor).
+  const PR_RANK: Record<string, number> = { alta: 0, media: 1, baja: 2, none: 3 };
+  const visibleConvs = convs
+    .filter((c) => {
+      if (fPriority !== "all" && c.priority !== fPriority) return false;
+      if (fClass !== "all" && c.classification !== fClass) return false;
+      if (fUnread && c.unread === 0) return false;
+      if (search.trim()) {
+        const q = search.toLowerCase();
+        const hay = `${c.leadName ?? ""} ${c.displayName ?? ""} ${c.phone} ${c.realPhone ?? ""} ${c.leadPhone ?? ""} ${c.note ?? ""} ${c.lastBody}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    })
+    .sort((a, b) => {
+      if (sortBy === "recent") return new Date(b.lastAt).getTime() - new Date(a.lastAt).getTime();
+      if (sortBy === "unread") return b.unread - a.unread || new Date(b.lastAt).getTime() - new Date(a.lastAt).getTime();
+      // priority (por defecto): alta primero, luego reciente
+      return (PR_RANK[a.priority] ?? 3) - (PR_RANK[b.priority] ?? 3) || new Date(b.lastAt).getTime() - new Date(a.lastAt).getTime();
+    });
+  const activeFilters = (fPriority !== "all" ? 1 : 0) + (fClass !== "all" ? 1 : 0) + (fUnread ? 1 : 0) + (search.trim() ? 1 : 0);
+
   return (
     <div className="bg-white rounded-xl border overflow-hidden grid grid-cols-1 md:grid-cols-[320px_1fr]" style={{ height: "72vh" }}>
       {/* Lista de conversaciones */}
       <div className={`border-r overflow-y-auto ${selected ? "hidden md:block" : ""}`}>
-        {convs.map((c) => {
+        {/* Barra de búsqueda + filtros + orden */}
+        <div className="sticky top-0 z-10 bg-white border-b p-2 space-y-1.5">
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="🔎 Buscar nombre, teléfono, nota…"
+            className="w-full text-xs px-2.5 py-1.5 rounded-md border bg-slate-50"
+          />
+          <div className="flex items-center gap-1 flex-wrap">
+            {/* Prioridad */}
+            {([["all", "Todas"], ["alta", "🔴"], ["media", "🟡"], ["baja", "⚪"]] as const).map(([v, lbl]) => (
+              <button
+                key={v}
+                onClick={() => setFPriority(v)}
+                className={`text-[11px] px-1.5 py-0.5 rounded border ${fPriority === v ? "bg-brand-600 text-white border-brand-600" : "bg-white text-slate-500 border-slate-200 hover:bg-slate-50"}`}
+              >
+                {lbl}
+              </button>
+            ))}
+            <span className="w-px h-4 bg-slate-200 mx-0.5" />
+            <button
+              onClick={() => setFUnread((v) => !v)}
+              className={`text-[11px] px-1.5 py-0.5 rounded border ${fUnread ? "bg-emerald-600 text-white border-emerald-600" : "bg-white text-slate-500 border-slate-200 hover:bg-slate-50"}`}
+            >
+              ● No leídos
+            </button>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <select
+              value={fClass}
+              onChange={(e) => setFClass(e.target.value)}
+              className="flex-1 text-[11px] px-1.5 py-1 rounded border bg-white"
+            >
+              <option value="all">Todas las etiquetas IA</option>
+              <option value="interested">🔥 Interesado</option>
+              <option value="info_request">❓ Pide info</option>
+              <option value="objection">🤔 Objeción</option>
+              <option value="positive_no">🙂 No por ahora</option>
+              <option value="opt_out">🚫 Baja</option>
+            </select>
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as any)}
+              className="text-[11px] px-1.5 py-1 rounded border bg-white"
+              title="Ordenar"
+            >
+              <option value="priority">↕ Prioridad</option>
+              <option value="recent">↕ Recientes</option>
+              <option value="unread">↕ No leídos</option>
+            </select>
+          </div>
+          {activeFilters > 0 && (
+            <button
+              onClick={() => { setSearch(""); setFPriority("all"); setFClass("all"); setFUnread(false); }}
+              className="text-[11px] text-rose-600 hover:underline"
+            >
+              ✕ Quitar filtros ({visibleConvs.length} de {convs.length})
+            </button>
+          )}
+        </div>
+        {visibleConvs.length === 0 && (
+          <div className="p-4 text-xs text-slate-400 text-center">Ninguna conversación con esos filtros.</div>
+        )}
+        {visibleConvs.map((c) => {
           const chip = c.classification ? CLASS_CHIP[c.classification] : null;
           // Color de TODA la tarjeta según la prioridad (alta=rojo, media=ámbar,
           // baja=gris) para ver de un vistazo a quién atender. Borde izquierdo
