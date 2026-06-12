@@ -105,7 +105,8 @@ async function openGithubIssueAsync(report: { id: string; message: string; stack
   const repo = process.env.GITHUB_REPO_FOR_ERRORS; // formato "owner/repo"
   if (!token || !repo) return;
 
-  const session = process.env.CLAUDE_CODE_SESSION_URL ?? "https://claude.ai/code/session_0176NZVYVByJWdJ3qvH85bnb";
+  // Sin fallback hardcodeado: si no está configurada, no se enlaza sesión.
+  const session = process.env.CLAUDE_CODE_SESSION_URL ?? null;
   const title = `[auto] ${report.source}: ${report.message.slice(0, 80)}`;
   const body = [
     `**ErrorReport ID:** \`${report.id}\``,
@@ -119,7 +120,7 @@ async function openGithubIssueAsync(report: { id: string; message: string; stack
     "```",
     report.stack ? "## Stack\n```\n" + report.stack + "\n```" : "",
     "",
-    `🤖 Reportado automáticamente. Sesión de soporte: ${session}`,
+    session ? `🤖 Reportado automáticamente. Sesión de soporte: ${session}` : "🤖 Reportado automáticamente.",
     `Para cerrar, incluye en el commit: \`closes ErrorReport#${report.id}\``
   ]
     .filter(Boolean)

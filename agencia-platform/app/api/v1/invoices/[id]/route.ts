@@ -5,6 +5,7 @@ import { ApiError } from "@/lib/api/auth";
 import { requireAdmin } from "@/lib/api/admin";
 import { invoiceUpdateSchema } from "@/lib/api/schemas";
 import { buildInvoiceData } from "@/lib/invoicing/persist";
+import { canTransition, STATUS_LABEL, type InvoiceStatus, type InvoiceType } from "@/lib/invoicing/core";
 
 async function getOwned(workspaceId: string, id: string) {
   const inv = await prisma.invoice.findFirst({ where: { id, workspaceId, deletedAt: null } });
@@ -34,6 +35,20 @@ export const PATCH = withApi({ scope: "*", rate: "admin" }, async (req, { api, p
   const body = await req.json().catch(() => null);
   const parsed = invoiceUpdateSchema.safeParse(body);
   if (!parsed.success) throw new ApiError(400, "validation_error", parsed.error.message);
+
+  // Máquina de estados por tipo: evita incoherencias (un presupuesto "pagado",
+  // resucitar una anulada, saltar de borrador a pagada, etc.).
+  if (parsed.data.status && parsed.data.status !== current.status) {
+    const from = current.status as InvoiceStatus;
+    const to = parsed.data.status as InvoiceStatus;
+    if (!canTransition((parsed.data.type ?? current.type) as InvoiceType, from, to)) {
+      throw new ApiError(
+        400,
+        "invalid_transition",
+        `No se puede pasar de "${STATUS_LABEL[from] ?? from}" a "${STATUS_LABEL[to] ?? to}" en este tipo de documento.`
+      );
+    }
+  }
 
   const alreadyIssued = !!current.number && current.status !== "DRAFT";
   if (alreadyIssued) {
