@@ -3224,7 +3224,10 @@ function TemplateModal({ open, onClose, onSaved, template }: { open: boolean; on
     }>
       <div className="space-y-3">
         <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Nombre" className="w-full px-3 py-2 rounded-lg border bg-white text-sm" />
-        <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={8} placeholder="Mensaje. Placeholders disponibles: {{nombre_negocio}}, {{provincia}}, {{rating}}, {{competidor_top}}, {{opener_ia}}, ..." className="w-full px-3 py-2 rounded-lg border bg-white text-sm font-mono" />
+        <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={8} placeholder="Mensaje. Placeholders disponibles: {{nombre_negocio}}, {{provincia}}, {{rating}}, {{competidor_top}}, {{opener_ia}}, {{demo_bubui}}, ..." className="w-full px-3 py-2 rounded-lg border bg-white text-sm font-mono" />
+        <p className="text-[11px] text-slate-500">
+          💡 <code>{"{{demo_bubui}}"}</code> inserta el enlace a una demo personalizada de cómo se vería ese negocio en Bubui — ideal para captar con un envío.
+        </p>
         <label className="flex items-center gap-2 text-xs cursor-pointer">
           <input type="checkbox" checked={isDefault} onChange={(e) => setIsDefault(e.target.checked)} className="accent-brand-600" />
           Marcar como default (entra en pool de rotación)

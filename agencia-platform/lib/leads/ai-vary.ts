@@ -45,13 +45,17 @@ export async function aiRewriteMessage(opts: {
       maxTokens: 600,
       feature: "leads.ai_vary"
     });
-    const cleaned = cleanLlmOutput(out);
+    let cleaned = cleanLlmOutput(out);
     // Sanity check: si la salida es absurdamente corta o no contiene el
     // nombre del negocio del original (heurística simple), caemos al
     // determinístico para no enviar algo roto.
     if (cleaned.length < 60) {
       return varyMessage(opts.base, opts.seed);
     }
+    // Blindaje de enlaces: si el original llevaba una URL concreta (p. ej. la
+    // demo de Bubui {{demo_bubui}}) y el reescritor la alteró o la perdió, la
+    // restauramos tal cual — un enlace roto inutiliza el mensaje.
+    cleaned = preserveUrls(opts.base, cleaned);
     return cleaned;
   } catch (e) {
     if (e instanceof AIDisabledError) {
@@ -60,6 +64,17 @@ export async function aiRewriteMessage(opts: {
     console.error("[leads.ai_vary] fallback determinístico:", (e as any)?.message ?? e);
     return varyMessage(opts.base, opts.seed);
   }
+}
+
+/** Garantiza que toda URL del mensaje original siga presente (y sin alterar)
+ *  en el reescrito. Si falta alguna, la añade en su propia línea al final. */
+function preserveUrls(original: string, rewritten: string): string {
+  const urls = original.match(/https?:\/\/[^\s)]+/gi) ?? [];
+  let out = rewritten;
+  for (const url of urls) {
+    if (!out.includes(url)) out = `${out.trim()}\n\n${url}`;
+  }
+  return out;
 }
 
 /** Quita comillas envolventes, prefijos "Aquí tienes:", bloques de código,

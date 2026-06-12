@@ -28,6 +28,8 @@ export const SUPPORTED_PLACEHOLDERS = [
   "score",
   "urgencia",
   "opener_ia",
+  // Enlace a la demo pública de cómo se vería SU negocio en Bubui.
+  "demo_bubui",
   // Reseña negativa real (requiere enriquecer el lead con Place Details).
   "resena_negativa",
   "resena_negativa_fecha",
@@ -95,6 +97,8 @@ export async function renderTemplate(opts: {
     score: lead.score != null ? String(lead.score) : "",
     urgencia: lead.urgency ?? "",
     opener_ia: lead.aiOpener ?? "",
+    // Enlace a la demo personalizada del negocio en Bubui (captación viral).
+    demo_bubui: `${process.env.NEXT_PUBLIC_APP_URL || "https://hub.negociovivo.app"}/bubui/demo/${lead.id}`,
     ...(() => {
       const neg = pickNegativeReview(lead.reviewsJson);
       return {
