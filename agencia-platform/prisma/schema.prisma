@@ -219,6 +219,7 @@ model Workspace {
   leadMessages              LeadMessage[]
   leadExclusions            LeadExclusion[]
   leadOptouts               LeadOptout[]
+  leadConversationMetas     LeadConversationMeta[]
   externalCalendars         UserExternalCalendar[]
   vacationDays              VacationDay[]
   teamMessages              TeamMessage[]
@@ -1141,6 +1142,25 @@ model LeadExclusion {
 
   @@index([workspaceId])
   @@index([workspaceId, matchType])
+}
+
+/// Metadatos de una CONVERSACIÓN del inbox multi-WhatsApp (clave: teléfono
+/// normalizado). displayName = pushName de WhatsApp capturado del webhook
+/// (clave para reconocer contactos con LID, donde no hay teléfono legible);
+/// note y priority los pone el usuario para organizar a quién atender antes.
+model LeadConversationMeta {
+  id          String   @id @default(cuid())
+  workspaceId String
+  phone       String // phoneNormalized de la conversación
+  displayName String?
+  note        String?  @db.Text
+  priority    String   @default("none") // alta | media | baja | none
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, phone])
 }
 
 model LeadOptout {

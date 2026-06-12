@@ -299,6 +299,24 @@ export async function ingestInbox(opts: {
     }
   });
 
+  // Nombre de perfil de WhatsApp (pushName) → metadatos de la conversación.
+  // Es la clave para reconocer contactos con LID (sin teléfono legible).
+  const pushName: string | null =
+    opts.meta?.payload?.pushName ??
+    opts.meta?.payload?._data?.notifyName ??
+    opts.meta?.payload?.notifyName ??
+    opts.meta?.pushName ??
+    null;
+  if (pushName && String(pushName).trim()) {
+    void prisma.leadConversationMeta
+      .upsert({
+        where: { workspaceId_phone: { workspaceId: opts.workspaceId, phone: phoneNormalized } },
+        create: { workspaceId: opts.workspaceId, phone: phoneNormalized, displayName: String(pushName).slice(0, 80) },
+        update: { displayName: String(pushName).slice(0, 80) }
+      })
+      .catch(() => {});
+  }
+
   // Acciones según clasificación
   if (classified.classification === "opt_out") {
     await prisma.leadOptout.upsert({
