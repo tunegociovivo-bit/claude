@@ -388,8 +388,80 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
         )}
       </section>
 
+      <RankingCard businessId={b.id} token={session.token} />
+
       <BusinessReferralPanel businessId={b.id} token={session.token} />
     </main>
+  );
+}
+
+/** Ranking mensual: pica al dueño a competir por el "destacado gratis"
+ *  mostrando su posición y el podio en vivo. */
+function RankingCard({ businessId, token }: { businessId: string; token: string }) {
+  const [r, setR] = useState<{
+    position: number | null;
+    total: number;
+    customers: number;
+    top: { position: number; name: string; city: string | null; customers: number; isMe: boolean }[];
+  } | null>(null);
+
+  useEffect(() => {
+    fetch(`/api/bubui/business/${businessId}/ranking`, { headers: { Authorization: `Bearer ${token}` } })
+      .then((res) => (res.ok ? res.json() : null))
+      .then(setR)
+      .catch(() => {});
+  }, [businessId, token]);
+
+  if (!r) return null;
+  const leading = r.position === 1;
+  const monthName = new Date().toLocaleDateString("es-ES", { month: "long" });
+
+  return (
+    <section className="bg-white rounded-2xl border-2 border-amber-200 p-4 mt-4">
+      <h3 className="font-bold text-sm flex items-center gap-2">🏆 Ranking de {monthName}</h3>
+      <p className="text-xs text-slate-600 mt-1">
+        El negocio que más clientes traiga este mes aparece <b>destacado gratis</b> en Descubre.
+      </p>
+      <div className="mt-3 flex items-end gap-3">
+        <div className="text-3xl font-black text-amber-600">{r.position ? `#${r.position}` : "—"}</div>
+        <div className="text-xs text-slate-600 pb-1">
+          {r.position
+            ? leading
+              ? `¡Vas líder con ${r.customers} clientes! 🔥`
+              : `${r.customers} cliente${r.customers === 1 ? "" : "s"} este mes · de ${r.total} negocios`
+            : "Aún sin clientes este mes — ¡reparte tu QR!"}
+        </div>
+      </div>
+      {r.top.length > 0 && (
+        <ul className="mt-3 space-y-1">
+          {r.top.map((t) => (
+            <li
+              key={t.position}
+              className={`flex items-center justify-between text-xs px-2.5 py-1.5 rounded-lg ${
+                t.isMe ? "bg-amber-50 border border-amber-200 font-semibold" : "bg-slate-50"
+              }`}
+            >
+              <span className="truncate">
+                {t.position === 1 ? "🥇" : t.position === 2 ? "🥈" : t.position === 3 ? "🥉" : `${t.position}.`}{" "}
+                {t.name}
+                {t.isMe ? " (tú)" : ""}
+              </span>
+              <span className="text-slate-500 shrink-0 ml-2">{t.customers}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {r.customers > 0 && (
+        <a
+          href={`/api/bubui/business/${businessId}/top-badge.png`}
+          target="_blank"
+          rel="noreferrer"
+          className="mt-3 inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold"
+        >
+          📲 Compartir mi posición (imagen para Instagram/WhatsApp)
+        </a>
+      )}
+    </section>
   );
 }
 
@@ -1703,9 +1775,14 @@ function ProfileEditor({ business, token, onSaved }: { business: any; token: str
     brandColor: business.brandColor ?? "#FDF2E1",
     defaultDiscountPct: business.defaultDiscountPct ?? 5,
     crossDiscountPct: business.crossDiscountPct ?? 8,
-    purchaseMode: business.purchaseMode ?? "double_confirm",
+    purchaseMode: business.purchaseMode ?? "express",
+    requireTicket: business.requireTicket ?? false,
     reviewRewardPct: business.reviewRewardPct ?? 0,
-    googlePlaceId: business.googlePlaceId ?? ""
+    googlePlaceId: business.googlePlaceId ?? "",
+    reviewPushEnabled: business.reviewPushEnabled ?? true,
+    shareOfferPct: business.shareOfferPct ?? 0,
+    shareOfferFriends: business.shareOfferFriends ?? 5,
+    shareOfferLabel: business.shareOfferLabel ?? ""
   });
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -1751,8 +1828,13 @@ function ProfileEditor({ business, token, onSaved }: { business: any; token: str
       if (Number(form.defaultDiscountPct) !== business.defaultDiscountPct) payload.defaultDiscountPct = Number(form.defaultDiscountPct);
       if (Number(form.crossDiscountPct) !== business.crossDiscountPct) payload.crossDiscountPct = Number(form.crossDiscountPct);
       if (form.purchaseMode !== business.purchaseMode) payload.purchaseMode = form.purchaseMode;
+      if (form.requireTicket !== (business.requireTicket ?? false)) payload.requireTicket = form.requireTicket;
       if (Number(form.reviewRewardPct) !== (business.reviewRewardPct ?? 0)) payload.reviewRewardPct = Number(form.reviewRewardPct);
       if ((form.googlePlaceId || null) !== (business.googlePlaceId || null)) payload.googlePlaceId = form.googlePlaceId.trim() || null;
+      if (form.reviewPushEnabled !== (business.reviewPushEnabled ?? true)) payload.reviewPushEnabled = form.reviewPushEnabled;
+      if (Number(form.shareOfferPct) !== (business.shareOfferPct ?? 0)) payload.shareOfferPct = Number(form.shareOfferPct);
+      if (Number(form.shareOfferFriends) !== (business.shareOfferFriends ?? 5)) payload.shareOfferFriends = Number(form.shareOfferFriends);
+      if ((form.shareOfferLabel || null) !== (business.shareOfferLabel || null)) payload.shareOfferLabel = form.shareOfferLabel.trim() || null;
       if (Object.keys(payload).length === 0) {
         setStatus({ kind: "ok", msg: "Sin cambios." });
         return;
@@ -1882,16 +1964,18 @@ function ProfileEditor({ business, token, onSaved }: { business: any; token: str
             className="w-full h-9 border rounded bg-white"
           />
         </label>
-        <label>
-          <span className="block font-medium mb-1">Modo de compra</span>
-          <select
-            value={form.purchaseMode}
-            onChange={(e) => setForm({ ...form, purchaseMode: e.target.value })}
-            className="w-full px-2 py-1.5 border rounded bg-white"
-          >
-            <option value="double_confirm">Doble confirmación (anti-fraude)</option>
-            <option value="express">Express (sin confirmar)</option>
-          </select>
+        <label className="sm:col-span-2 flex items-start gap-2 rounded-lg border border-pink-200 bg-pink-50/60 p-3">
+          <input
+            type="checkbox"
+            checked={!!form.requireTicket}
+            onChange={(e) => setForm({ ...form, requireTicket: e.target.checked })}
+            className="mt-0.5"
+          />
+          <span className="text-xs">
+            <b>Requerir foto del ticket (anti-fraude).</b> El cliente tendrá que fotografiar el ticket
+            al escanear y el importe lo lee la IA automáticamente (no se teclea). Evita que se inflen
+            importes. Si la IA no puede leerlo, el cliente lo escribe pero el ticket queda guardado.
+          </span>
         </label>
         <label>
           <span className="block font-medium mb-1">% descuento al escanear</span>
@@ -1942,6 +2026,64 @@ function ProfileEditor({ business, token, onSaved }: { business: any; token: str
             </a>.
           </span>
         </label>
+        <label className="sm:col-span-2 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50/60 p-3">
+          <input
+            type="checkbox"
+            checked={!!form.reviewPushEnabled}
+            onChange={(e) => setForm({ ...form, reviewPushEnabled: e.target.checked })}
+            className="mt-0.5"
+          />
+          <span className="text-xs">
+            <b>Pedir reseña en Google automáticamente.</b> ~10 min después de que un cliente
+            escanee su ticket, recibe un push invitándole a dejarte 5★ en Google. Requiere el
+            Place ID de arriba. (Si pones "% extra por dejar reseña", se le ofrece como premio.)
+          </span>
+        </label>
+      </div>
+
+      {/* ── Oferta-reto viral: compártela con N amigos para activarla ── */}
+      <div className="mt-2 rounded-lg border-2 border-pink-300 bg-pink-50/60 p-3">
+        <div className="text-sm font-bold text-pink-700">🚀 Oferta-reto (crecimiento viral)</div>
+        <p className="text-[11px] text-slate-600 mt-0.5 mb-2">
+          Tras escanear el ticket, al cliente le aparece una oferta MAYOR pero bloqueada: para
+          activarla tiene que traer a {form.shareOfferFriends || 5} amigos a Bubui. Es la forma
+          de que tu negocio se llene de clientes nuevos. Pon 0% para desactivarla.
+        </p>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
+          <label>
+            <span className="block font-medium mb-1">% de la oferta-reto</span>
+            <input
+              type="number"
+              min={0}
+              max={50}
+              value={form.shareOfferPct}
+              onChange={(e) => setForm({ ...form, shareOfferPct: Number(e.target.value) })}
+              className="w-full px-2 py-1.5 border rounded bg-white"
+            />
+            <span className="block text-[10px] text-slate-500 mt-0.5">Mayor que tu descuento normal. 0 = off</span>
+          </label>
+          <label>
+            <span className="block font-medium mb-1">Amigos para activarla</span>
+            <input
+              type="number"
+              min={1}
+              max={20}
+              value={form.shareOfferFriends}
+              onChange={(e) => setForm({ ...form, shareOfferFriends: Number(e.target.value) })}
+              className="w-full px-2 py-1.5 border rounded bg-white"
+            />
+          </label>
+          <label>
+            <span className="block font-medium mb-1">Premio (texto, opcional)</span>
+            <input
+              value={form.shareOfferLabel}
+              onChange={(e) => setForm({ ...form, shareOfferLabel: e.target.value })}
+              placeholder="Ej. Postre gratis"
+              className="w-full px-2 py-1.5 border rounded bg-white"
+            />
+            <span className="block text-[10px] text-slate-500 mt-0.5">Si lo rellenas, se muestra en vez del %</span>
+          </label>
+        </div>
       </div>
       <p className="text-[11px] text-slate-500">
         Consejo: si no sabes lat/lng, búscalo en Google Maps (clic derecho → coordenadas). Sin coordenadas no se puede activar el geofencing ni el anti-fraude.

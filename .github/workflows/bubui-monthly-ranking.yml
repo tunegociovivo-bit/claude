@@ -1,0 +1,17 @@
+name: Bubui · premio ranking mensual
+# Corre cada día a las 06:10. Solo actúa el día 1 (premia al negocio que más
+# clientes trajo el mes anterior con "destacado" en Descubre). Idempotente.
+on:
+  schedule:
+    - cron: "10 6 * * *"
+  workflow_dispatch:
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping endpoint cron
+        run: |
+          curl -fsSL --retry 4 --retry-delay 30 --retry-all-errors -X GET \
+            -H "Authorization: Bearer ${{ secrets.INTERNAL_CRON_TOKEN || secrets.CRON_SECRET }}" \
+            https://hub.negociovivo.app/api/cron/bubui-monthly-ranking

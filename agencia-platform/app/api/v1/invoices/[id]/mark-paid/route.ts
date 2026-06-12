@@ -13,6 +13,10 @@ export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api, pa
 
   const body = await req.json().catch(() => ({}));
   const paid = body?.paid !== false; // por defecto marca como pagada
+  // Un presupuesto/proforma no se "paga" (su ciclo es ACCEPTED/REJECTED).
+  if (paid && (inv.type === "PRESUPUESTO" || inv.type === "PROFORMA")) {
+    throw new ApiError(400, "invalid_state", "Un presupuesto o proforma no puede marcarse como pagado.");
+  }
   const data: any = paid
     ? { status: "PAID", paidAt: new Date(), paidCents: inv.totalCents }
     : { status: inv.number ? "ISSUED" : "DRAFT", paidAt: null, paidCents: 0 };

@@ -14,6 +14,6 @@ jobs:
     steps:
       - name: Ping endpoint cron
         run: |
-          curl -fsSL -X GET \
-            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+          curl -fsSL --retry 4 --retry-delay 30 --retry-all-errors -X GET \
+            -H "Authorization: Bearer ${{ secrets.INTERNAL_CRON_TOKEN || secrets.CRON_SECRET }}" \
             https://hub.negociovivo.app/api/cron/bubui-offers-expiring

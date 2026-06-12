@@ -14,16 +14,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { listPendingAbTests, metaAdsEvaluateAbTest } from "@/lib/meta/ab-testing";
+import { cronAuthOk } from "@/lib/cron-auth";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 function authed(req: NextRequest): boolean {
-  const secret = process.env.CRON_SECRET;
-  if (!secret) return false;
-  const header = req.headers.get("authorization") ?? "";
-  if (header === `Bearer ${secret}`) return true;
-  return new URL(req.url).searchParams.get("secret") === secret;
+  return cronAuthOk(req);
 }
 
 export async function GET(req: NextRequest) {

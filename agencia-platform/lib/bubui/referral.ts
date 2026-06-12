@@ -68,6 +68,27 @@ export async function countVerifiedReferrals(referrerId: string): Promise<number
 }
 
 /**
+ * Datos de una invitación por código (para el preview rico del enlace
+ * /bubui/r/<code> en WhatsApp): el negocio de origen y el % de bienvenida que
+ * se llevará el amigo. null si el código no existe o no tiene negocio.
+ */
+export async function getReferralInvite(
+  code: string
+): Promise<{ businessName: string; city: string | null; welcomePct: number } | null> {
+  const referrer = await prisma.bubuiCustomer.findUnique({
+    where: { referralCode: code.toUpperCase() },
+    select: { firstBusinessId: true }
+  });
+  if (!referrer?.firstBusinessId) return null;
+  const business = await prisma.bubuiBusiness.findUnique({
+    where: { id: referrer.firstBusinessId },
+    select: { name: true, city: true, defaultDiscountPct: true, active: true }
+  });
+  if (!business || !business.active) return null;
+  return { businessName: business.name, city: business.city, welcomePct: business.defaultDiscountPct };
+}
+
+/**
  * Vincula un amigo recién verificado a su referidor (por código) y aplica
  * recompensas: cupón de bienvenida al amigo + cupones de hito al referidor.
  * Es idempotente (no duplica premios).
@@ -153,4 +174,10 @@ export async function applyReferral(friendId: string, code: string): Promise<voi
       }
     }
   }
+
+  // Oferta-reto viral: este nuevo amigo puede haber completado el reto de
+  // alguna oferta bloqueada del referidor → se activa y se le avisa por push.
+  await import("./share-offer")
+    .then((m) => m.unlockShareChallengeOffers(referrer.id))
+    .catch(() => {});
 }

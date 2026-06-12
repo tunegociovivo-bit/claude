@@ -23,16 +23,13 @@ import {
   type CredentialCheck
 } from "@/lib/credentials/validate";
 import { notifyHumanOutsideHub } from "@/lib/notifications/multi-channel";
+import { cronAuthOk } from "@/lib/cron-auth";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 function authed(req: NextRequest): boolean {
-  const secret = process.env.CRON_SECRET;
-  if (!secret) return false;
-  const header = req.headers.get("authorization") ?? "";
-  if (header === `Bearer ${secret}`) return true;
-  return new URL(req.url).searchParams.get("secret") === secret;
+  return cronAuthOk(req);
 }
 
 export async function GET(req: NextRequest) {

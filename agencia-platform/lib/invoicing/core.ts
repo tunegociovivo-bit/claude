@@ -140,3 +140,106 @@ export const STATUS_LABEL: Record<string, string> = {
   ACCEPTED: "Aceptado",
   REJECTED: "Rechazado"
 };
+
+// ──────────────────────────────────────────────────────────────────
+// Máquina de estados por tipo: qué estados puede usar cada tipo de
+// documento y qué transiciones son legales. Evita incoherencias como un
+// presupuesto "pagado" o resucitar una factura anulada.
+// ──────────────────────────────────────────────────────────────────
+
+const QUOTE_TYPES: InvoiceType[] = ["PRESUPUESTO", "PROFORMA"];
+
+export function statusesForType(type: InvoiceType): InvoiceStatus[] {
+  return QUOTE_TYPES.includes(type)
+    ? ["DRAFT", "SENT", "ACCEPTED", "REJECTED", "CANCELLED"]
+    : ["DRAFT", "ISSUED", "PAID", "CANCELLED"];
+}
+
+const TRANSITIONS: Record<InvoiceStatus, InvoiceStatus[]> = {
+  DRAFT: ["ISSUED", "SENT", "CANCELLED"],
+  ISSUED: ["PAID", "CANCELLED"],
+  PAID: ["ISSUED"], // deshacer un "pagada" por error sí se permite
+  SENT: ["ACCEPTED", "REJECTED", "CANCELLED"],
+  ACCEPTED: ["SENT"], // deshacer aceptación por error
+  REJECTED: ["SENT"],
+  CANCELLED: [] // una anulada no resucita (se emite rectificativa)
+};
+
+/** ¿Es legal pasar de `from` a `to` para un documento de tipo `type`? */
+export function canTransition(type: InvoiceType, from: InvoiceStatus, to: InvoiceStatus): boolean {
+  if (from === to) return true;
+  const valid = statusesForType(type);
+  if (!valid.includes(to)) return false;
+  return (TRANSITIONS[from] ?? []).includes(to);
+}
+
+// ──────────────────────────────────────────────────────────────────
+// Validadores fiscales/bancarios (España): IBAN (mod-97 ISO 13616) y
+// NIF/NIE/CIF con dígito de control. Se usan al guardar emisores para
+// que Facturae/SEPA no salgan con datos inválidos.
+// ──────────────────────────────────────────────────────────────────
+
+/** Valida un IBAN (cualquier país) con el checksum mod-97. */
+export function isValidIban(raw: string): boolean {
+  const iban = raw.replace(/\s+/g, "").toUpperCase();
+  if (!/^[A-Z]{2}\d{2}[A-Z0-9]{10,30}$/.test(iban)) return false;
+  // Mueve los 4 primeros caracteres al final y convierte letras a números
+  // (A=10..Z=35); el resto módulo 97 debe ser 1. Se calcula incremental
+  // para no desbordar Number.
+  const rearranged = iban.slice(4) + iban.slice(0, 4);
+  let rem = 0;
+  for (const ch of rearranged) {
+    const v = ch >= "0" && ch <= "9" ? ch : String(ch.charCodeAt(0) - 55);
+    for (const d of v) rem = (rem * 10 + (d.charCodeAt(0) - 48)) % 97;
+  }
+  return rem === 1;
+}
+
+/** Valida NIF (DNI con letra), NIE o CIF español con dígito de control. */
+export function isValidSpanishTaxId(raw: string): boolean {
+  const v = raw.replace(/[\s-]/g, "").toUpperCase();
+  const letters = "TRWAGMYFPDXBNJZSQVHLCKE";
+  // NIF: 8 dígitos + letra de control.
+  if (/^\d{8}[A-Z]$/.test(v)) return v[8] === letters[Number(v.slice(0, 8)) % 23];
+  // NIE: X/Y/Z + 7 dígitos + letra (X→0, Y→1, Z→2).
+  if (/^[XYZ]\d{7}[A-Z]$/.test(v)) {
+    const n = Number({ X: "0", Y: "1", Z: "2" }[v[0] as "X" | "Y" | "Z"] + v.slice(1, 8));
+    return v[8] === letters[n % 23];
+  }
+  // CIF: letra de organización + 7 dígitos + control (dígito o letra).
+  if (/^[ABCDEFGHJKLMNPQRSUVW]\d{7}[0-9A-J]$/.test(v)) {
+    const digits = v.slice(1, 8);
+    let sum = 0;
+    for (let i = 0; i < 7; i++) {
+      const d = Number(digits[i]);
+      if (i % 2 === 0) {
+        const dbl = d * 2;
+        sum += dbl > 9 ? dbl - 9 : dbl;
+      } else sum += d;
+    }
+    const control = (10 - (sum % 10)) % 10;
+    const asLetter = "JABCDEFGHI"[control];
+    // Según la letra inicial el control es número, letra o cualquiera.
+    if ("PQRSNW".includes(v[0])) return v[8] === asLetter;
+    if ("ABEH".includes(v[0])) return v[8] === String(control);
+    return v[8] === String(control) || v[8] === asLetter;
+  }
+  return false;
+}
+
+/** Valida los datos fiscales/bancarios de un emisor. Devuelve el mensaje de
+ *  error o null si todo es válido. El NIF/CIF solo se valida para España. */
+export function issuerValidationError(data: {
+  taxId?: string | null;
+  iban?: string | null;
+  countryCode?: string | null;
+}): string | null {
+  const country = (data.countryCode ?? "ESP").toUpperCase();
+  if (data.taxId && (country === "ESP" || country === "ES") && !isValidSpanishTaxId(data.taxId)) {
+    return `El NIF/CIF "${data.taxId}" no es válido (dígito de control incorrecto).`;
+  }
+  if (data.iban && !isValidIban(data.iban)) {
+    return `El IBAN "${data.iban}" no es válido (checksum incorrecto).`;
+  }
+  return null;
+}

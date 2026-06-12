@@ -8,6 +8,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { getGmbConfig } from "@/lib/integrations/gmb-hub";
+import { cronAuthOk } from "@/lib/cron-auth";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -17,8 +18,7 @@ function esc(s: string): string {
 }
 
 export async function POST(req: NextRequest) {
-  const secret = process.env.CRON_SECRET;
-  if (!secret || req.headers.get("x-cron-secret") !== secret) {
+  if (!cronAuthOk(req)) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
   const monthYear = new Date().toISOString().slice(0, 7);

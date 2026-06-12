@@ -4,6 +4,7 @@ import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import { getCurrentLatLng } from "../lib/location";
 import { CheckSession, saveSession, type Customer } from "../lib/session";
 import { api } from "../lib/api";
+import { shareReferralForOffer } from "../lib/share-referral";
 import { Wordmark } from "../components/Wordmark";
 import { BottomNav } from "../components/BottomNav";
 import { FadeIn } from "../components/FadeIn";
@@ -32,6 +33,11 @@ type Offer = {
   rewardLabel?: string | null;
   hoursLeft: number;
   distanceM: number | null;
+  // Oferta-reto viral: bloqueada hasta traer amigos.
+  locked?: boolean;
+  friendsNeeded?: number;
+  sharesLeft?: number;
+  friendsJoined?: string[]; // iniciales de los amigos que ya cuentan
 };
 
 const SCREEN_W = Dimensions.get("window").width;
@@ -51,6 +57,8 @@ export function Feed() {
   const [guest, setGuest] = useState(false);
   const [offers, setOffers] = useState<Offer[]>([]);
   const [refreshing, setRefreshing] = useState(false);
+  // Aviso de fallo de red (la carga del catálogo/ofertas no respondió).
+  const [netError, setNetError] = useState(false);
   const [banner, setBanner] = useState<{ imageUrl?: string; link?: string; active: boolean } | null>(null);
   // Alto real del banner según la proporción de la imagen (para no recortarla).
   const [bannerH, setBannerH] = useState<number>(BANNER_H_FALLBACK);
@@ -110,6 +118,7 @@ export function Feed() {
           const r = await api.offers(c.customerId, lat, lng);
           const items: Offer[] = r.items ?? [];
           setOffers(items);
+          setNetError(false);
           // Geocercas alrededor de los negocios con cupón activo (background).
           startBubuiGeofencing(
             items.map((o) => ({
@@ -121,7 +130,8 @@ export function Feed() {
             }))
           ).catch(() => {});
         } catch {
-          setOffers([]);
+          // No borramos lo ya cargado: mostramos aviso de red y dejamos reintentar.
+          setNetError(true);
         }
       } else {
         // Invitado (sin cuenta): solo contenido público — catálogo de negocios
@@ -142,8 +152,9 @@ export function Feed() {
             distanceM: b.distanceM ?? null
           }));
           setOffers(items);
+          setNetError(false);
         } catch {
-          setOffers([]);
+          setNetError(true);
         }
       }
     } finally {
@@ -173,6 +184,14 @@ export function Feed() {
       <FadeIn replayOnFocus style={styles.header}>
         <Wordmark size={26} />
       </FadeIn>
+
+      {netError && (
+        <TouchableOpacity style={styles.netError} onPress={load} activeOpacity={0.85}>
+          <Text style={styles.netErrorText}>
+            Sin conexión o el servidor no responde. Toca para reintentar.
+          </Text>
+        </TouchableOpacity>
+      )}
 
       {guest ? (
         /* Invitado: tarjeta de registro en lugar de stats + escanear. */
@@ -261,6 +280,57 @@ export function Feed() {
           </View>
         }
         renderItem={({ item, index }) => (
+          item.locked ? (
+            <FadeIn delay={Math.min(index, 6) * 50} dy={18}>
+              <View style={styles.challengeCard}>
+                <View style={styles.challengeTop}>
+                  <Text style={styles.challengeLock}>🔒</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.challengeBiz} numberOfLines={1}>{item.business.name}</Text>
+                    <Text style={styles.challengeReward}>
+                      {item.rewardLabel ? item.rewardLabel : `${item.discountPct}% de descuento`} · oferta especial
+                    </Text>
+                  </View>
+                </View>
+                <Text style={styles.challengeMsg}>
+                  {item.sharesLeft && item.sharesLeft > 0
+                    ? `Tráete ${item.sharesLeft} amig${item.sharesLeft === 1 ? "o" : "os"} más a Bubui para activarla.`
+                    : "¡Ya casi! Comparte para activarla."}
+                </Text>
+                {/* Reto visible: una carita por amigo que ya cuenta + huecos */}
+                {!!item.friendsNeeded && item.friendsNeeded > 0 && (
+                  <View style={styles.slotsRow}>
+                    {Array.from({ length: item.friendsNeeded }).map((_, i) => {
+                      const initial = item.friendsJoined?.[i];
+                      const filled = !!initial;
+                      return (
+                        <View key={i} style={[styles.slot, filled ? styles.slotFilled : styles.slotEmpty]}>
+                          <Text style={filled ? styles.slotInitial : styles.slotPlus}>
+                            {filled ? initial : "+"}
+                          </Text>
+                        </View>
+                      );
+                    })}
+                  </View>
+                )}
+                <Bouncy
+                  style={styles.challengeBtn}
+                  onPress={() => {
+                    sfx.tap();
+                    if (customer?.customerId) {
+                      void shareReferralForOffer(customer.customerId, {
+                        businessName: item.business.name,
+                        prize: item.rewardLabel ?? `${item.discountPct}%`,
+                        friendsLeft: item.sharesLeft ?? null
+                      });
+                    }
+                  }}
+                >
+                  <Text style={styles.challengeBtnText}>📲 Compartir y activar</Text>
+                </Bouncy>
+              </View>
+            </FadeIn>
+          ) : (
           <FadeIn delay={Math.min(index, 6) * 50} dy={18}>
             <Bouncy
               style={styles.card}
@@ -290,6 +360,7 @@ export function Feed() {
               </View>
             </Bouncy>
           </FadeIn>
+          )
         )}
       />
       <BottomNav active="Feed" />
@@ -301,6 +372,8 @@ const makeStyles = (c: Palette) =>
   StyleSheet.create({
     root: { flex: 1, backgroundColor: c.bg },
     header: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 14 },
+    netError: { backgroundColor: "#FEF3C7", borderColor: "#FCD34D", borderWidth: 1, borderRadius: radius.md, padding: 12, marginBottom: 14 },
+    netErrorText: { color: "#92400E", fontSize: 13, fontWeight: "700", textAlign: "center" },
     savedCard: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", backgroundColor: c.white, borderRadius: radius.xl, borderWidth: 1, borderColor: c.border, padding: 18, marginBottom: 16, ...shadow.card },
     guestCard: { backgroundColor: c.white, borderRadius: radius.xl, borderWidth: 1, borderColor: c.border, padding: 18, marginBottom: 20, ...shadow.card },
     guestTitle: { fontSize: 16, fontWeight: "800", color: c.black, marginBottom: 4 },
@@ -322,6 +395,21 @@ const makeStyles = (c: Palette) =>
     promoSub: { fontSize: 12, color: c.gray, marginTop: 3, lineHeight: 16 },
     section: { fontSize: 12, fontWeight: "800", color: c.gray, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 10 },
     card: { backgroundColor: c.white, borderRadius: radius.lg, marginBottom: 12, overflow: "hidden", borderWidth: 1, borderColor: c.border, ...shadow.card },
+    // Oferta-reto viral (bloqueada): destaca para empujar a compartir.
+    challengeCard: { backgroundColor: c.pinkSoft, borderRadius: radius.lg, marginBottom: 12, borderWidth: 2, borderColor: c.pink, padding: 14, ...shadow.card },
+    challengeTop: { flexDirection: "row", alignItems: "center", gap: 10 },
+    challengeLock: { fontSize: 26 },
+    challengeBiz: { fontSize: 15, fontWeight: "900", color: c.black },
+    challengeReward: { fontSize: 13, fontWeight: "800", color: c.pink },
+    challengeMsg: { fontSize: 13, color: c.black, marginTop: 8, marginBottom: 10 },
+    slotsRow: { flexDirection: "row", gap: 8, marginBottom: 12, flexWrap: "wrap" },
+    slot: { width: 34, height: 34, borderRadius: 17, alignItems: "center", justifyContent: "center" },
+    slotFilled: { backgroundColor: c.pink },
+    slotEmpty: { borderWidth: 2, borderColor: c.pink, borderStyle: "dashed", backgroundColor: "transparent" },
+    slotInitial: { color: c.onAccent, fontSize: 15, fontWeight: "900" },
+    slotPlus: { color: c.pink, fontSize: 18, fontWeight: "900" },
+    challengeBtn: { backgroundColor: c.pink, borderRadius: radius.pill, paddingVertical: 13, alignItems: "center", ...shadow.btn },
+    challengeBtnText: { color: c.onAccent, fontSize: 15, fontWeight: "800" },
     photo: { height: 130, backgroundColor: c.pinkSoft, justifyContent: "flex-start", alignItems: "flex-end" },
     photoImg: { ...StyleSheet.absoluteFillObject, width: "100%", height: "100%" },
     tag: { margin: 12, backgroundColor: c.pink, borderRadius: radius.pill, paddingHorizontal: 12, paddingVertical: 6 },

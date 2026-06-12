@@ -43,7 +43,10 @@ const linking = {
     prefixes: ["bubui://", "https://hub.negociovivo.app"],
     config: {
           screens: {
-                  Scan: "bubui/scan/:businessId"
+                  Scan: "bubui/scan/:businessId",
+                  // bubui://offers — los pushes de ofertas (reto desbloqueado,
+                  // recordatorios) aterrizan en el Feed, donde están los cupones.
+                  Feed: "offers"
           }
     }
 };

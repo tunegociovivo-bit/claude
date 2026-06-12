@@ -1095,9 +1095,31 @@ function LeadDetailModal({
 
   const [sendingMockup, setSendingMockup] = useState(false);
   const [mockupMsg, setMockupMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  // Pitch Bubui: mensaje de WhatsApp que vende Bubui a este negocio con una
+  // demo personalizada (lead → captación product-led).
+  const [pitching, setPitching] = useState(false);
+  const [pitch, setPitch] = useState<{ message: string; demoUrl: string } | null>(null);
+  const [pitchErr, setPitchErr] = useState<string | null>(null);
   useEffect(() => {
     setMockupMsg(null);
+    setPitch(null);
+    setPitchErr(null);
   }, [leadId]);
+
+  async function generateBubuiPitch() {
+    setPitching(true);
+    setPitchErr(null);
+    try {
+      const r = await fetch(`/api/v1/leads/${leadId}/bubui-pitch`, { method: "POST" });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d?.error?.message ?? `HTTP ${r.status}`);
+      setPitch({ message: d.message, demoUrl: d.demoUrl });
+    } catch (e: any) {
+      setPitchErr(e?.message ?? "No se pudo generar el pitch");
+    } finally {
+      setPitching(false);
+    }
+  }
 
   async function sendMockup() {
     if (!leadId) return;
@@ -1227,7 +1249,55 @@ function LeadDetailModal({
                 {mockupMsg.text}
               </span>
             )}
+            <button
+              type="button"
+              onClick={generateBubuiPitch}
+              disabled={pitching}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-pink-300 bg-pink-50 text-pink-700 hover:bg-pink-100 text-xs font-medium disabled:opacity-50"
+              title="Genera un WhatsApp que vende Bubui a este negocio con una demo personalizada"
+            >
+              {pitching && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+              🚀 Pitch Bubui
+            </button>
           </div>
+          {pitchErr && <div className="text-xs text-rose-600">✗ {pitchErr}</div>}
+          {pitch && (
+            <div className="rounded-lg border border-pink-200 bg-pink-50/60 p-3 space-y-2">
+              <textarea
+                readOnly
+                value={pitch.message}
+                rows={7}
+                className="w-full text-xs rounded-md border bg-white p-2 font-mono leading-snug"
+              />
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => { void navigator.clipboard?.writeText(pitch.message); }}
+                  className="px-3 py-1.5 rounded-lg bg-pink-600 hover:bg-pink-700 text-white text-xs font-medium"
+                >
+                  📋 Copiar mensaje
+                </button>
+                <a
+                  href={pitch.demoUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="px-3 py-1.5 rounded-lg border bg-white hover:bg-slate-50 text-xs font-medium"
+                >
+                  👁️ Ver demo del negocio ↗
+                </a>
+                {lead?.phone && (
+                  <a
+                    href={`https://wa.me/${String(lead.phone).replace(/[^\d]/g, "")}?text=${encodeURIComponent(pitch.message)}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="px-3 py-1.5 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 text-xs font-medium"
+                  >
+                    💬 Abrir en WhatsApp
+                  </a>
+                )}
+              </div>
+            </div>
+          )}
           {reviewInfo && (
             <div className={`text-xs px-3 py-2 rounded-md border ${reviewInfo.ok ? "bg-amber-50 border-amber-200 text-amber-800" : "bg-rose-50 border-rose-200 text-rose-700"}`}>
               {reviewInfo.text}
@@ -3154,7 +3224,10 @@ function TemplateModal({ open, onClose, onSaved, template }: { open: boolean; on
     }>
       <div className="space-y-3">
         <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Nombre" className="w-full px-3 py-2 rounded-lg border bg-white text-sm" />
-        <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={8} placeholder="Mensaje. Placeholders disponibles: {{nombre_negocio}}, {{provincia}}, {{rating}}, {{competidor_top}}, {{opener_ia}}, ..." className="w-full px-3 py-2 rounded-lg border bg-white text-sm font-mono" />
+        <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={8} placeholder="Mensaje. Placeholders disponibles: {{nombre_negocio}}, {{provincia}}, {{rating}}, {{competidor_top}}, {{opener_ia}}, {{demo_bubui}}, ..." className="w-full px-3 py-2 rounded-lg border bg-white text-sm font-mono" />
+        <p className="text-[11px] text-slate-500">
+          💡 <code>{"{{demo_bubui}}"}</code> inserta el enlace a una demo personalizada de cómo se vería ese negocio en Bubui — ideal para captar con un envío.
+        </p>
         <label className="flex items-center gap-2 text-xs cursor-pointer">
           <input type="checkbox" checked={isDefault} onChange={(e) => setIsDefault(e.target.checked)} className="accent-brand-600" />
           Marcar como default (entra en pool de rotación)

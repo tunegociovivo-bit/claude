@@ -53,11 +53,13 @@ export async function GET(req: Request) {
       brandColor: true,
       defaultDiscountPct: true,
       visibilityScore: true,
-      featured: true
+      featured: true,
+      featuredUntil: true
     },
     orderBy: { visibilityScore: "desc" },
     take: 200
   });
+  const nowTs = Date.now();
 
   // "Top en categoría" — ranking ganado por ciudad. Anotamos cada negocio.
   // Cogemos las ciudades únicas de los resultados para no consultar todas.
@@ -71,11 +73,13 @@ export async function GET(req: Request) {
       lat != null && lng != null && b.latitude != null && b.longitude != null
         ? Math.round(haversineMeters(lat, lng, b.latitude, b.longitude))
         : null;
-    return { ...b, distanceM, topInCategory: topIds.has(b.id) };
+    // Destacado efectivo = el del admin O el premio del ranking mensual vigente.
+    const featured = b.featured || (b.featuredUntil != null && b.featuredUntil.getTime() > nowTs);
+    return { ...b, featured, distanceM, topInCategory: topIds.has(b.id) };
   });
 
   const sorted = withDistance.sort((a, b) => {
-    // Los destacados (admin) van siempre primero.
+    // Los destacados (admin o premio del ranking) van siempre primero.
     if (a.featured !== b.featured) return a.featured ? -1 : 1;
     if (a.distanceM != null && b.distanceM != null) return a.distanceM - b.distanceM;
     if (a.distanceM != null) return -1;

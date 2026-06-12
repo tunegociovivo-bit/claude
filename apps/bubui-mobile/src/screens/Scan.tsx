@@ -6,6 +6,7 @@ import * as Location from "expo-location";
 import { useNavigation, useRoute, type RouteProp } from "@react-navigation/native";
 import { CheckSession } from "../lib/session";
 import { api } from "../lib/api";
+import { shareReferralForOffer } from "../lib/share-referral";
 import { FadeIn } from "../components/FadeIn";
 import { Bouncy } from "../components/Bouncy";
 import { Confetti, type ConfettiHandle } from "../components/Confetti";
@@ -28,11 +29,17 @@ export function Scan() {
   const [amount, setAmount] = useState("");
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState<any>(null);
+  // customerId de la sesión, para compartir la oferta-reto desde el éxito.
+  const [scanCustomerId, setScanCustomerId] = useState<string | undefined>(undefined);
   const [torch, setTorch] = useState(false);
   // Captura de ticket: "ticketCam" muestra la cámara para fotografiar el
   // ticket; "reading" mientras la IA lo procesa. ticketUrl = ticket guardado.
   const [ticketMode, setTicketMode] = useState<"off" | "cam" | "reading">("off");
   const [ticketUrl, setTicketUrl] = useState<string | undefined>(undefined);
+  // Importe de confianza leído del ticket por la IA (lo usa el backend).
+  const [ticketScanId, setTicketScanId] = useState<string | undefined>(undefined);
+  // ¿El negocio exige foto del ticket (anti-fraude)? Se consulta al fijar el id.
+  const [requireTicket, setRequireTicket] = useState(false);
   const ticketCamRef = useRef<CameraView>(null);
   // onBarcodeScanned se dispara muchas veces por segundo; el lock evita
   // procesar el mismo frame N veces (y Alerts en bucle con un QR no válido).
@@ -73,6 +80,16 @@ export function Scan() {
     })();
   }, [nav]);
 
+  // Al fijar el negocio (por QR o param), consulta si exige foto del ticket.
+  useEffect(() => {
+    let alive = true;
+    if (!businessId) { setRequireTicket(false); return; }
+    api.businessPublic(businessId)
+      .then((b) => { if (alive) setRequireTicket(!!b.requireTicket); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [businessId]);
+
   // Cierra la pantalla de escaneo volviendo al stack anterior (o al Feed).
   function close() {
     if (nav.canGoBack()) nav.goBack();
@@ -83,6 +100,8 @@ export function Scan() {
   function rescan() {
     lock.current = false;
     setAmount("");
+    setTicketUrl(undefined);
+    setTicketScanId(undefined);
     setBusinessId("");
   }
 
@@ -111,6 +130,7 @@ export function Scan() {
       const session = await CheckSession();
       const r = await api.readTicket(session?.customerId ?? "anon", photo.uri);
       if (r.ticketUrl) setTicketUrl(r.ticketUrl);
+      if (r.ticketScanId) setTicketScanId(r.ticketScanId);
       if (r.amount != null) {
         setAmount(String(r.amount).replace(".", ","));
         setTicketMode("off");
@@ -126,6 +146,11 @@ export function Scan() {
 
   async function submit() {
     sfx.tap();
+    // Anti-fraude: si el negocio exige ticket, no se puede enviar sin él.
+    if (requireTicket && !ticketScanId) {
+      Alert.alert("Falta el ticket", "Este negocio necesita la foto del ticket para validar el importe. Pulsa «Escanear ticket».");
+      return;
+    }
     const value = Number(amount.replace(",", "."));
     if (!value || value <= 0) {
       Alert.alert("Importe inválido");
@@ -136,6 +161,7 @@ export function Scan() {
       nav.reset({ index: 0, routes: [{ name: "Onboarding" }] });
       return;
     }
+    setScanCustomerId(session.customerId);
     setBusy(true);
     try {
       let lat: number | undefined;
@@ -145,7 +171,7 @@ export function Scan() {
         lat = loc.coords.latitude;
         lng = loc.coords.longitude;
       } catch {}
-      const r = await api.scan(businessId, session.customerId, value, lat, lng, ticketUrl);
+      const r = await api.scan(businessId, session.customerId, value, lat, lng, ticketUrl, ticketScanId);
       setDone(r);
     } catch (e: any) {
       Alert.alert("Error", e?.message ?? "No se pudo enviar el escaneo");
@@ -218,6 +244,34 @@ export function Scan() {
               Lo verás reflejado automáticamente; no hace falta volver a escanear.
             </Text>
           )}
+          {!rejected && done.shareOffer && (
+            <View style={styles.challengeBox}>
+              <Text style={styles.challengeTitle}>
+                🎁 ¡Oferta especial desbloqueable!
+              </Text>
+              <Text style={styles.challengeText}>
+                Te hemos guardado{" "}
+                <Text style={styles.challengeStrong}>
+                  {done.shareOffer.label ? done.shareOffer.label : `un ${done.shareOffer.discountPct}%`}
+                </Text>{" "}
+                en {done.business?.name ?? "este negocio"}. Tráete {done.shareOffer.friends} amigos a
+                Bubui para activarla.
+              </Text>
+              <TouchableOpacity
+                style={styles.challengeShare}
+                onPress={() => {
+                  sfx.tap();
+                  void shareReferralForOffer(scanCustomerId ?? "", {
+                    businessName: done.business?.name,
+                    prize: done.shareOffer.label ?? `${done.shareOffer.discountPct}%`,
+                    friendsLeft: done.shareOffer.friends
+                  });
+                }}
+              >
+                <Text style={styles.challengeShareText}>📲 Compartir con mis amigos</Text>
+              </TouchableOpacity>
+            </View>
+          )}
           <Bouncy style={styles.btn} onPress={() => nav.reset({ index: 0, routes: [{ name: "Feed" }] })}>
             <Text style={styles.btnText}>{pending ? "Entendido" : "Ver mi ahorro"}</Text>
           </Bouncy>
@@ -284,6 +338,10 @@ export function Scan() {
     );
   }
 
+  // En modo anti-fraude, el importe se bloquea hasta tener el ticket leído.
+  const amountEditable = !requireTicket || !!ticketScanId;
+  const numericOk = Number(amount.replace(",", ".")) > 0;
+  const canSubmit = !busy && numericOk && (!requireTicket || !!ticketScanId);
   return (
     <View style={styles.amountRoot}>
       <TouchableOpacity style={[styles.backRow, { top: insets.top + 8 }]} onPress={close} hitSlop={8}>
@@ -291,31 +349,42 @@ export function Scan() {
       </TouchableOpacity>
       <Text style={styles.bigTitle}>¿Cuánto has pagado?</Text>
       <Text style={[styles.muted, { marginBottom: 24 }]}>
-        Introduce el importe del ticket. El negocio confirma y te aplican el descuento.
+        {requireTicket
+          ? "Este negocio valida el importe con tu ticket: fotografíalo y lo leemos automáticamente."
+          : "Introduce el importe del ticket. El negocio confirma y te aplican el descuento."}
       </Text>
       <View style={{ flexDirection: "row", alignItems: "flex-end", justifyContent: "center" }}>
         <TextInput
-          style={styles.bigInput}
+          style={[styles.bigInput, !amountEditable && { opacity: 0.4 }]}
           keyboardType="decimal-pad"
           placeholder="0,00"
           placeholderTextColor={c.grayLight}
           value={amount}
           onChangeText={setAmount}
-          autoFocus
+          editable={amountEditable}
+          autoFocus={!requireTicket}
         />
         <Text style={styles.bigSymbol}>€</Text>
       </View>
 
-      {/* Escanear ticket con IA en vez de teclear */}
-      <TouchableOpacity style={styles.ticketBtn} onPress={() => setTicketMode("cam")} disabled={busy}>
-        <Text style={styles.ticketBtnText}>📷  Escanear ticket y rellenar solo</Text>
+      {/* Escanear ticket con IA (obligatorio si el negocio lo exige) */}
+      <TouchableOpacity
+        style={[styles.ticketBtn, requireTicket && !ticketScanId && styles.ticketBtnPrimary]}
+        onPress={() => setTicketMode("cam")}
+        disabled={busy}
+      >
+        <Text style={[styles.ticketBtnText, requireTicket && !ticketScanId && styles.ticketBtnPrimaryText]}>
+          {requireTicket && !ticketScanId
+            ? "📷  Fotografiar el ticket (obligatorio)"
+            : "📷  Escanear ticket y rellenar solo"}
+        </Text>
       </TouchableOpacity>
       {!!ticketUrl && <Text style={styles.ticketOk}>✓ Ticket guardado</Text>}
 
       <TouchableOpacity
-        style={[styles.btn, (busy || !(Number(amount.replace(",", ".")) > 0)) && { opacity: 0.5 }]}
+        style={[styles.btn, !canSubmit && { opacity: 0.5 }]}
         onPress={submit}
-        disabled={busy || !(Number(amount.replace(",", ".")) > 0)}
+        disabled={!canSubmit}
       >
         <Text style={styles.btnText}>{busy ? "Enviando…" : "Confirmar"}</Text>
       </TouchableOpacity>
@@ -350,7 +419,16 @@ const makeStyles = (c: Palette) =>
     rescanText: { color: c.pink, fontSize: 14, fontWeight: "800" },
     ticketBtn: { marginTop: 22, flexDirection: "row", alignItems: "center", justifyContent: "center", paddingVertical: 14, paddingHorizontal: 20, borderRadius: radius.pill, borderWidth: 2, borderColor: c.pink, backgroundColor: c.pinkWash },
     ticketBtnText: { color: c.pinkDeep, fontSize: 15, fontWeight: "800" },
+    ticketBtnPrimary: { backgroundColor: c.pink, borderColor: c.pink },
+    ticketBtnPrimaryText: { color: c.onAccent },
     ticketOk: { marginTop: 8, color: c.green, fontSize: 13, fontWeight: "800" },
+    // Oferta-reto viral en la pantalla de éxito.
+    challengeBox: { marginTop: 20, marginHorizontal: 8, padding: 16, borderRadius: radius.lg, borderWidth: 2, borderColor: c.pink, backgroundColor: c.pinkWash },
+    challengeTitle: { fontSize: 16, fontWeight: "900", color: c.pinkDeep, textAlign: "center" },
+    challengeText: { fontSize: 13, color: c.black, textAlign: "center", marginTop: 6, lineHeight: 19 },
+    challengeStrong: { fontWeight: "900", color: c.pinkDeep },
+    challengeShare: { marginTop: 12, backgroundColor: c.pink, borderRadius: radius.pill, paddingVertical: 13, alignItems: "center", ...shadow.btn },
+    challengeShareText: { color: c.onAccent, fontSize: 15, fontWeight: "800" },
     ticketFrame: { position: "absolute", top: "16%", left: "10%", width: "80%", height: "56%", borderColor: "#FFF", borderWidth: 3, borderRadius: 18, borderStyle: "dashed" },
     shutter: { alignSelf: "center", marginTop: 16, backgroundColor: c.pink, borderRadius: radius.pill, paddingVertical: 14, paddingHorizontal: 36, ...shadow.btn },
     shutterText: { color: c.onAccent, fontSize: 16, fontWeight: "900" }

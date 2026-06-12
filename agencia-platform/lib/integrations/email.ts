@@ -60,25 +60,42 @@ export async function sendEmail(opts: {
   if (!isEmailEnabled()) {
     throw new Error("Email no configurado. Define RESEND_API_KEY.");
   }
-  const resp = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      from: getFromAddress(),
-      to: Array.isArray(opts.to) ? opts.to : [opts.to],
-      subject: opts.subject,
-      html: opts.html,
-      text: opts.text
-    })
+  const payload = JSON.stringify({
+    from: getFromAddress(),
+    to: Array.isArray(opts.to) ? opts.to : [opts.to],
+    subject: opts.subject,
+    html: opts.html,
+    text: opts.text
   });
-  if (!resp.ok) {
-    const body = await resp.text().catch(() => "");
-    throw new Error(`Resend ${resp.status}: ${body.slice(0, 200)}`);
+  // Reintentos con backoff ante fallos transitorios (429 rate limit, 5xx,
+  // timeouts de red). Los 4xx deterministas (400/401/403/422) no se reintentan.
+  let lastErr = "";
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const resp = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+          "Content-Type": "application/json"
+        },
+        body: payload,
+        signal: AbortSignal.timeout(15000)
+      });
+      if (resp.ok) return resp.json();
+      const body = await resp.text().catch(() => "");
+      lastErr = `Resend ${resp.status}: ${body.slice(0, 200)}`;
+      const retryable = resp.status === 429 || resp.status >= 500;
+      if (!retryable || attempt === 3) throw new Error(lastErr);
+    } catch (e: any) {
+      lastErr = e?.message ?? String(e);
+      if (attempt === 3) {
+        console.warn("[email] fallo tras 3 intentos:", lastErr);
+        throw new Error(lastErr);
+      }
+    }
+    await new Promise((r) => setTimeout(r, attempt === 1 ? 800 : 2500));
   }
-  return resp.json();
+  throw new Error(lastErr || "Resend: error desconocido");
 }
 
 /**

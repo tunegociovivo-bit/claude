@@ -15,7 +15,7 @@ export const expenseSchema = z.object({
   currency: z.enum(CURRENCIES).default("EUR"),
   paymentMethod: z.enum(PAYMENT_METHODS).default("TRANSFER"),
   status: z.enum(EXPENSE_STATUS).default("PAID"),
-  baseCents: z.number().int(),
+  baseCents: z.number().int().min(0).max(1_000_000_000),
   taxRate: z.number().min(0).max(100).default(21),
   deductible: z.boolean().default(true),
   notes: z.string().max(5000).nullish(),

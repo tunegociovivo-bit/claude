@@ -9,7 +9,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
-import { getLeadChannels } from "@/lib/leads/channels";
+import { getLeadChannels, getChannelHealth } from "@/lib/leads/channels";
 
 const SENT_OK = ["sent", "delivered", "read"];
 
@@ -35,7 +35,15 @@ export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
 
   const items = [];
   for (const c of channels) {
-    items.push({ name: c.name, label: c.label ?? null, active: c.active !== false, ...(await statsFor(c.name)) });
+    // Estado de salud usado por el reparto/rotación (healthy|degraded|quarantined).
+    const health = await getChannelHealth(api.workspaceId, c.name);
+    items.push({
+      name: c.name,
+      label: c.label ?? null,
+      active: c.active !== false,
+      health: health.status,
+      ...(await statsFor(c.name))
+    });
   }
   // Bucket por defecto (mensajes sin número asignado).
   const def = await statsFor(null);

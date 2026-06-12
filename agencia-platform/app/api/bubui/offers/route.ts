@@ -13,6 +13,8 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { haversineMeters } from "@/lib/bubui/core";
 import { customerAuthOk } from "@/lib/bubui/customer-auth";
+import { countVerifiedReferrals } from "@/lib/bubui/referral";
+import { sharesLeft } from "@/lib/bubui/share-offer";
 
 export const dynamic = "force-dynamic";
 
@@ -39,7 +41,13 @@ export async function GET(req: Request) {
   if (appVersion) update.appVersion = appVersion;
   if (appBuild) update.appBuild = appBuild;
   if (appPlatform) update.appPlatform = appPlatform;
-  if (lat != null && !Number.isNaN(lat) && lng != null && !Number.isNaN(lng)) {
+  // Validamos rango geográfico real: un GPS erróneo (lat 361, etc.) no debe
+  // corromper la última ubicación (rompería distancias/geofencing).
+  if (
+    lat != null && lng != null &&
+    Number.isFinite(lat) && Number.isFinite(lng) &&
+    lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180
+  ) {
     update.lastLat = lat;
     update.lastLng = lng;
     update.lastLocationAt = new Date();
@@ -72,6 +80,20 @@ export async function GET(req: Request) {
     }
   });
 
+  // Si hay ofertas-reto bloqueadas, calculamos cuántos amigos verificados
+  // tiene ya el cliente y sus iniciales (para el reto VISIBLE: caritas con la
+  // inicial de cada amigo que ya cuenta + huecos por rellenar).
+  const hasLocked = offers.some((o) => !o.active);
+  const verifiedNow = hasLocked ? await countVerifiedReferrals(customerId) : 0;
+  const verifiedFriends = hasLocked
+    ? await prisma.bubuiCustomer.findMany({
+        where: { referredById: customerId, phoneVerified: true },
+        orderBy: { createdAt: "desc" },
+        select: { name: true }
+      })
+    : [];
+  const friendInitials = verifiedFriends.map((f) => (f.name?.trim()?.[0] || "?").toUpperCase());
+
   const enriched = offers.map((o) => {
     let distanceM: number | null = null;
     if (lat != null && lng != null && o.business.latitude != null && o.business.longitude != null) {
@@ -80,6 +102,9 @@ export async function GET(req: Request) {
       );
     }
     const hoursLeft = Math.max(0, (o.expiresAt.getTime() - now.getTime()) / (60 * 60 * 1000));
+    const locked = !o.active;
+    const left = locked ? sharesLeft(o, verifiedNow) : 0;
+    const have = locked ? Math.max(0, o.unlockShares - left) : 0;
     return {
       offerId: o.id,
       business: o.business,
@@ -88,13 +113,21 @@ export async function GET(req: Request) {
       source: o.source,
       expiresAt: o.expiresAt,
       hoursLeft: Math.round(hoursLeft),
-      distanceM
+      distanceM,
+      // Oferta-reto viral: bloqueada hasta conseguir amigos.
+      locked,
+      friendsNeeded: locked ? o.unlockShares : 0,
+      sharesLeft: left,
+      // Reto visible: iniciales de los amigos que ya cuentan para ESTE reto.
+      friendsJoined: locked ? friendInitials.slice(0, have) : []
     };
   });
 
-  // Re-orden: primero las que están a punto de caducar (<24h), luego por
-  // distancia, luego por score.
+  // Re-orden: primero las ofertas-reto bloqueadas (son el gancho viral, "X
+  // amigos para activar tu Y%"), luego las que caducan pronto (<24h), luego
+  // por distancia y score.
   enriched.sort((a, b) => {
+    if (a.locked !== b.locked) return a.locked ? -1 : 1;
     const aUrgent = a.hoursLeft < 24 ? 0 : 1;
     const bUrgent = b.hoursLeft < 24 ? 0 : 1;
     if (aUrgent !== bUrgent) return aUrgent - bUrgent;

@@ -15,6 +15,7 @@
  */
 
 import { NextResponse } from "next/server";
+import { prisma } from "@/lib/db/prisma";
 import { isStorageEnabled, uploadBuffer, signedDownloadUrl } from "@/lib/storage/r2";
 
 export const dynamic = "force-dynamic";
@@ -103,5 +104,25 @@ export async function POST(req: Request) {
     // La IA falló: devolvemos el ticket guardado igualmente, sin importe.
   }
 
-  return NextResponse.json({ amount, currency, confidence, ticketUrl });
+  // Persistimos el resultado del OCR ligado a la imagen. El scan usará ESTE
+  // importe (no el que teclee el cliente) cuando el negocio exija ticket, y
+  // marcará el registro como usado (un ticket = una compra).
+  let ticketScanId: string | null = null;
+  try {
+    const row = await prisma.bubuiTicketScan.create({
+      data: {
+        customerId: safeCustomer === "anon" ? "anon" : customerId,
+        amount,
+        currency,
+        confidence,
+        ticketUrl
+      },
+      select: { id: true }
+    });
+    ticketScanId = row.id;
+  } catch (e: any) {
+    console.warn("[bubui read-ticket persist]", e?.message ?? e);
+  }
+
+  return NextResponse.json({ amount, currency, confidence, ticketUrl, ticketScanId });
 }

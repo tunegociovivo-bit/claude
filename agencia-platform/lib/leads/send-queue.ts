@@ -9,7 +9,7 @@ import { prisma } from "@/lib/db/prisma";
 import { renderTemplate } from "./template-engine";
 import { aiRewriteMessage } from "./ai-vary";
 import { normalizePhone, sendText, getWahaConfig, checkNumberExists } from "./waha";
-import { pickEnqueueChannel } from "./channels";
+import { pickEnqueueChannel, reassignIfQuarantined } from "./channels";
 
 /**
  * Estados que cuentan como "ya enviado" para los topes anti-baneo. Cuando el
@@ -361,22 +361,23 @@ export async function countNewConversationsToday(workspaceId: string): Promise<n
     distinct: ["phoneNormalized"]
   });
   if (sentTodayPhones.length === 0) return 0;
-  // Para cada teléfono que recibió hoy, comprobamos si hay un envío
-  // anterior. Si no hay anterior, cuenta como nueva conversación.
-  let count = 0;
-  for (const p of sentTodayPhones) {
-    const prior = await prisma.leadMessage.findFirst({
-      where: {
-        workspaceId,
-        status: { in: SENT_STATUSES },
-        phoneNormalized: p.phoneNormalized,
-        sentAt: { lt: dayStart }
-      },
-      select: { id: true }
-    });
-    if (!prior) count++;
-  }
-  return count;
+  // Una sola query: de esos teléfonos, ¿cuáles ya habían recibido un envío
+  // antes de hoy? Los que NO, son conversaciones nuevas. (Antes era una query
+  // por teléfono — N+1 — y con cientos de envíos podía agotar el tiempo del
+  // tick y saltarse el límite anti-baneo.)
+  const phones = sentTodayPhones.map((p) => p.phoneNormalized);
+  const priorPhones = await prisma.leadMessage.findMany({
+    where: {
+      workspaceId,
+      status: { in: SENT_STATUSES },
+      phoneNormalized: { in: phones },
+      sentAt: { lt: dayStart }
+    },
+    select: { phoneNormalized: true },
+    distinct: ["phoneNormalized"]
+  });
+  const hadPrior = new Set(priorPhones.map((p) => p.phoneNormalized));
+  return phones.filter((p) => !hadPrior.has(p)).length;
 }
 
 /**
@@ -732,7 +733,12 @@ export async function processQueueTick(workspaceId: string): Promise<{
   });
   const isNewConversation = !earlierToThisPhone;
   if (isNewConversation) {
-    const newChatsToday = await countNewConversationsToday(workspaceId);
+    // Si la cuenta fallara (DB saturada), asumimos el peor caso (límite
+    // alcanzado): mejor retrasar un envío que saltarse el límite anti-baneo.
+    const newChatsToday = await countNewConversationsToday(workspaceId).catch((e) => {
+      console.error("[send-queue] countNewConversationsToday falló, aplico límite por seguridad:", e?.message ?? e);
+      return Number.MAX_SAFE_INTEGER;
+    });
     if (newChatsToday >= settings.maxNewChatsPerDay) {
       // Reprograma este mensaje al primer slot de mañana en ventana.
       const tomorrowSlot = await computeNextSlot({
@@ -775,6 +781,19 @@ export async function sendMessageById(
     where: { id: msg.id },
     data: { status: "sending", sendAttempts: msg.sendAttempts + 1 }
   });
+
+  // Rotación por salud: si el número asignado está en cuarentena (quemado o
+  // sesión caída), el mensaje sale por otro canal sano en vez de quemarse.
+  try {
+    const alt = await reassignIfQuarantined(workspaceId, msg.instanceName);
+    if (alt) {
+      console.warn(`[send-queue] canal "${msg.instanceName}" en cuarentena; mensaje ${msg.id} reasignado a "${alt}"`);
+      msg.instanceName = alt;
+      await prisma.leadMessage.update({ where: { id: msg.id }, data: { instanceName: alt } });
+    }
+  } catch {
+    // La salud es best-effort: si falla, se envía por el canal original.
+  }
 
   try {
     const cfg = await getWahaConfig(workspaceId);

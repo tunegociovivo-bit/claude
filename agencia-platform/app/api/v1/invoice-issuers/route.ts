@@ -4,6 +4,7 @@ import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { requireAdmin } from "@/lib/api/admin";
 import { invoiceIssuerSchema } from "@/lib/api/schemas";
+import { issuerValidationError } from "@/lib/invoicing/core";
 
 export const GET = withApi({ scope: "*", rate: "admin" }, async (_req, { api }) => {
   await requireAdmin(api);
@@ -19,6 +20,9 @@ export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api }) 
   const body = await req.json().catch(() => null);
   const parsed = invoiceIssuerSchema.safeParse(body);
   if (!parsed.success) throw new ApiError(400, "validation_error", parsed.error.message);
+  // NIF/CIF y IBAN con dígito de control válido (evita Facturae/SEPA inválidos).
+  const fiscalErr = issuerValidationError(parsed.data);
+  if (fiscalErr) throw new ApiError(400, "validation_error", fiscalErr);
 
   const count = await prisma.invoiceIssuer.count({
     where: { workspaceId: api.workspaceId, deletedAt: null }

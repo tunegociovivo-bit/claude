@@ -37,6 +37,18 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "bad_json" }, { status: 400 });
   }
 
+  // Idempotencia: Stripe puede reentregar el mismo evento. Reclamamos su id;
+  // si ya estaba procesado, no hacemos nada (evita doble crédito de Banner IA,
+  // doble activación, etc.). Si el procesado falla, liberamos el id para que
+  // Stripe reintente.
+  if (event?.id) {
+    try {
+      await prisma.bubuiProcessedWebhook.create({ data: { id: String(event.id) } });
+    } catch {
+      return NextResponse.json({ ok: true, duplicate: true });
+    }
+  }
+
   try {
     switch (event.type) {
       case "checkout.session.completed": {
@@ -72,6 +84,10 @@ export async function POST(req: Request) {
     }
   } catch (e: any) {
     console.error("[bubui stripe webhook]", event?.type, e?.message ?? e);
+    // Liberamos el id reclamado para que el reintento de Stripe reprocese.
+    if (event?.id) {
+      await prisma.bubuiProcessedWebhook.delete({ where: { id: String(event.id) } }).catch(() => {});
+    }
     return NextResponse.json({ ok: false, error: e?.message ?? "internal" }, { status: 500 });
   }
 

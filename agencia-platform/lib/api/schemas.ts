@@ -238,8 +238,10 @@ export const eventCreateSchema = z.object({
 // ──────────────────────────────────────────────────────────────────
 const invoiceLineSchema = z.object({
   description: z.string().min(1),
-  quantity: z.number(),
-  unitPriceCents: z.number().int(),
+  // Se acotan los rangos para evitar desbordamientos contables. Se permiten
+  // negativos: las facturas RECTIFICATIVAS (abonos) los necesitan.
+  quantity: z.number().finite().min(-1_000_000).max(1_000_000),
+  unitPriceCents: z.number().int().min(-100_000_000_00).max(100_000_000_00),
   taxRate: z.number().min(0).max(100).default(21),
   discountPct: z.number().min(0).max(100).optional()
 });

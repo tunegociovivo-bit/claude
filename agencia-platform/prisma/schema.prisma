@@ -3346,6 +3346,16 @@ model BubuiBusiness {
   // tras dejar una reseña — abre el formulario de reseñas de Google con
   // este local pre-seleccionado.
   googlePlaceId      String?
+  // ── Crecimiento viral + reseñas ──────────────────────────────────
+  // Oferta-reto: tras escanear el ticket, al cliente se le crea una oferta
+  // MAYOR (shareOfferPct), bloqueada, que solo se activa cuando comparte
+  // Bubui y consigue `shareOfferFriends` amigos nuevos verificados. 0 = off.
+  shareOfferPct      Int     @default(0)
+  shareOfferFriends  Int     @default(5)
+  shareOfferLabel    String? // etiqueta no-% opcional (ej. "Postre gratis")
+  // Solicitud de reseña en Google: push automático ~10 min tras escanear,
+  // llevando al cliente a dejar reseña en Google (requiere googlePlaceId).
+  reviewPushEnabled  Boolean @default(true)
   // Tarjeta de fidelidad (sellos digitales). Cada compra confirmada del
   // cliente suma 1 sello; al completar `loyaltyGoal` sellos se desbloquea
   // automáticamente un cupón con loyaltyRewardPct (o loyaltyRewardLabel) y
@@ -3388,7 +3398,11 @@ model BubuiBusiness {
   visibilityScore Int @default(50)
   scoreUpdatedAt  DateTime?
   // Modelo de validación de compra.
-  purchaseMode  String   @default("double_confirm") // double_confirm | express
+  purchaseMode  String   @default("express") // express | double_confirm
+  // Anti-fraude: si está activo, el cliente DEBE fotografiar el ticket y el
+  // importe lo lee la IA (no se teclea libremente). El importe se toma del
+  // servidor (BubuiTicketScan), no del cliente.
+  requireTicket Boolean  @default(false)
   // Suscripción.
   plan          String   @default("free") // free | pro | premium
   // Email + contraseña hash del dueño (auth simple v1; iremos a oauth en v2).
@@ -3416,6 +3430,9 @@ model BubuiBusiness {
   active        Boolean  @default(true)
   // Destacado en Descubre (ordenación preferente).
   featured      Boolean  @default(false)
+  // Destacado TEMPORAL: premio del ranking mensual (negocio que más clientes
+  // trajo). Mientras featuredUntil > now, cuenta como destacado en Descubre.
+  featuredUntil DateTime?
   // Banner IA (foto del escaparate → banner con el nombre del negocio).
   // La PRIMERA generación es gratis; cada edición extra cuesta 1€ y concede
   // 1 crédito (aiBannerCredits) al confirmar el pago en Stripe.
@@ -3515,6 +3532,9 @@ model BubuiPurchase {
   ticketUrl       String?
   scannedAt       DateTime @default(now())
   confirmedAt     DateTime?
+  // Cuándo se envió el push de "déjanos una reseña en Google" (~10 min tras
+  // escanear). null = pendiente de enviar; lo procesa el cron review-requests.
+  reviewPushedAt  DateTime?
 
   customer BubuiCustomer @relation(fields: [customerId], references: [id], onDelete: Cascade)
   business BubuiBusiness @relation(fields: [businessId], references: [id], onDelete: Cascade)
@@ -3522,6 +3542,7 @@ model BubuiPurchase {
   @@index([businessId, status])
   @@index([customerId])
   @@index([scannedAt])
+  @@index([status, reviewPushedAt])
 }
 
 /// Oferta desbloqueada para un cliente concreto en un negocio concreto.
@@ -3540,8 +3561,15 @@ model BubuiOffer {
   // Etiqueta de premio no porcentual (ej. "Tapa gratis"). Si está, la UI
   // la muestra en vez del %.
   rewardLabel     String?
-  // Origen de la oferta: "cross" (cupón cruzado) | "referral" | "referral_welcome".
+  // Origen de la oferta: "cross" (cupón cruzado) | "referral" | "referral_welcome"
+  //  | "review_reward" | "share_challenge" (oferta-reto viral).
   source          String?  @default("cross")
+  // Oferta-reto viral: si active=false la oferta está BLOQUEADA y no se puede
+  // canjear hasta conseguir `unlockShares` amigos verificados nuevos por
+  // encima de `unlockBaseline` (los que el cliente ya tenía al crearse).
+  active          Boolean  @default(true)
+  unlockShares    Int      @default(0)
+  unlockBaseline  Int      @default(0)
   expiresAt       DateTime
   redeemed        Boolean  @default(false)
   redeemedAt      DateTime?
@@ -3639,6 +3667,47 @@ model BubuiSetting {
   key       String   @id
   value     String   @db.Text
   updatedAt DateTime @default(now()) @updatedAt
+}
+
+/// Idempotencia de webhooks de Stripe: el id del evento se guarda al
+/// procesarlo. Si Stripe reintenta la entrega del mismo evento, se ignora
+/// (evita, p. ej., conceder dos créditos de Banner IA por un solo pago).
+model BubuiProcessedWebhook {
+  @@map("BipiProcessedWebhook")
+  id          String   @id // event.id de Stripe
+  processedAt DateTime @default(now())
+}
+
+/// Latido de los crons: cada vez que un endpoint de cron se ejecuta con auth
+/// válida registra aquí su `lastRunAt`. El watchdog (health-watchdog) compara
+/// con la cadencia esperada (catálogo en lib/cron-monitor) y avisa si un cron
+/// lleva "mudo" más de lo previsto — así un fallo silencioso (como el del
+/// CRON_SECRET desparejado) salta en horas, no en semanas. `alertedAt` evita
+/// repetir el aviso del mismo incidente.
+model CronHeartbeat {
+  name      String   @id // p.ej. "ai-agent/recurring"
+  lastRunAt DateTime @default(now())
+  runs      Int      @default(0)
+  alertedAt DateTime?
+}
+
+/// Anti-fraude por ticket: cuando el cliente fotografía el ticket, la IA lee
+/// el importe y se guarda aquí ligado a la imagen. El escaneo (scan) usa ESTE
+/// importe (no el que teclee el cliente) y marca el registro como usado
+/// (un ticket = una compra). Caduca a los 30 min si no se usa.
+model BubuiTicketScan {
+  @@map("BipiTicketScan")
+  id               String   @id @default(cuid())
+  customerId       String
+  businessId       String?
+  amount           Float? // null si la IA no pudo leerlo
+  currency         String   @default("EUR")
+  confidence       Float    @default(0)
+  ticketUrl        String   @db.Text
+  usedByPurchaseId String? // null hasta consumirse en un scan
+  createdAt        DateTime @default(now())
+
+  @@index([customerId])
 }
 
 /// Imagen subida y servida desde la propia BD (sin bucket externo). Se usa

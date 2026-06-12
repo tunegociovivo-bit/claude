@@ -141,6 +141,32 @@ export function Afiliados() {
               </View>
             )}
 
+            {/* Ranking de embajadores del negocio (pica a competir) */}
+            {!!data?.ambassadors && data.ambassadors.total > 0 && (
+              <View style={styles.ambCard}>
+                <Text style={styles.ambTitle}>🏅 Embajadores de {data.originBusiness ?? "tu negocio"}</Text>
+                <Text style={styles.ambSub}>
+                  {data.ambassadors.myPosition
+                    ? data.ambassadors.myPosition === 1
+                      ? "¡Eres el embajador nº1! 👑 Sigue invitando para mantenerte."
+                      : `Vas en el puesto #${data.ambassadors.myPosition} de ${data.ambassadors.total}. ¡Invita más para subir!`
+                    : "Invita a un amigo y entra en el ranking de embajadores."}
+                </Text>
+                {data.ambassadors.top.map((a) => (
+                  <View key={a.position} style={[styles.ambRow, a.isMe && styles.ambRowMe]}>
+                    <Text style={styles.ambPos}>
+                      {a.position === 1 ? "🥇" : a.position === 2 ? "🥈" : a.position === 3 ? "🥉" : `${a.position}.`}
+                    </Text>
+                    <View style={styles.ambAvatar}>
+                      <Text style={styles.ambAvatarText}>{a.initial}</Text>
+                    </View>
+                    <Text style={styles.ambName}>{a.isMe ? "Tú" : `Amigo ${a.initial}`}</Text>
+                    <Text style={styles.ambCount}>{a.referrals} 👥</Text>
+                  </View>
+                ))}
+              </View>
+            )}
+
             {/* Compartir */}
             <TouchableOpacity style={styles.waBtn} onPress={shareWhatsApp} activeOpacity={0.9}>
               <Text style={styles.waBtnText}>Compartir por WhatsApp</Text>
@@ -178,6 +204,16 @@ const makeStyles = (c: Palette) =>
     slotText: { fontSize: 15, fontWeight: "800", color: c.grayLight },
     slotTextOn: { color: c.onAccent },
     progressSub: { fontSize: 13, color: c.gray, marginTop: 12, textAlign: "center" },
+    ambCard: { marginTop: 16, backgroundColor: c.white, borderRadius: radius.xl, borderWidth: 2, borderColor: c.pinkSoft, padding: 16 },
+    ambTitle: { fontSize: 15, fontWeight: "900", color: c.black },
+    ambSub: { fontSize: 12, color: c.gray, marginTop: 4, marginBottom: 10 },
+    ambRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 6 },
+    ambRowMe: { backgroundColor: c.pinkSoft, borderRadius: radius.md, paddingHorizontal: 8 },
+    ambPos: { width: 26, fontSize: 15, fontWeight: "900", color: c.gray },
+    ambAvatar: { width: 30, height: 30, borderRadius: 15, backgroundColor: c.pink, alignItems: "center", justifyContent: "center" },
+    ambAvatarText: { color: c.onAccent, fontWeight: "900", fontSize: 14 },
+    ambName: { flex: 1, fontSize: 14, fontWeight: "700", color: c.black },
+    ambCount: { fontSize: 13, fontWeight: "800", color: c.pink },
     milestones: { marginTop: 14, gap: 8 },
     milestoneRow: { flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: c.white, borderRadius: radius.md, borderWidth: 1, borderColor: c.border, padding: 12 },
     milestoneBadge: { width: 30, height: 30, borderRadius: 15, backgroundColor: c.pinkSoft, alignItems: "center", justifyContent: "center" },
