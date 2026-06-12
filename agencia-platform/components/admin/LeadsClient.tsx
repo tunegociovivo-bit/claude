@@ -2205,6 +2205,8 @@ function QueueTable({ loading, items, onChanged }: { loading: boolean; items: Qu
 
 type Conversation = {
   phone: string;
+  realPhone: string | null;
+  isLid: boolean;
   leadId: string | null;
   leadName: string | null;
   leadPhone: string | null;
@@ -2218,6 +2220,12 @@ type Conversation = {
   instanceName: string | null;
   classification: string | null;
 };
+
+/** Qué teléfono mostrar: el del lead vinculado, el real que mande WAHA, o un
+ *  aviso si WhatsApp lo oculta (LID). Nunca el id privado feo. */
+function shownPhone(c: { leadPhone?: string | null; realPhone?: string | null; isLid?: boolean; phone: string }): string {
+  return c.leadPhone || c.realPhone || (c.isLid ? "nº oculto por WhatsApp" : c.phone);
+}
 
 const PRIORITY_CHIP: Record<string, { label: string; cls: string }> = {
   alta: { label: "🔴 Alta", cls: "bg-rose-50 text-rose-700 border-rose-200" },
@@ -2262,12 +2270,14 @@ function InboxChat({
   const [threadMeta, setThreadMeta] = useState<{
     leadName: string | null;
     leadPhone: string | null;
+    realPhone: string | null;
+    isLid: boolean;
     displayName: string | null;
     note: string | null;
     priority: string;
     replyChannel: string | null;
     optedOut: boolean;
-  }>({ leadName: null, leadPhone: null, displayName: null, note: null, priority: "none", replyChannel: null, optedOut: false });
+  }>({ leadName: null, leadPhone: null, realPhone: null, isLid: false, displayName: null, note: null, priority: "none", replyChannel: null, optedOut: false });
   const [noteDraft, setNoteDraft] = useState("");
   const [savingMeta, setSavingMeta] = useState(false);
   const [draft, setDraft] = useState("");
@@ -2294,6 +2304,8 @@ function InboxChat({
     setThreadMeta({
       leadName: d.lead?.name ?? null,
       leadPhone: d.lead?.phone ?? null,
+      realPhone: d.realPhone ?? null,
+      isLid: !!d.isLid,
       displayName: d.displayName ?? null,
       note: d.note ?? null,
       priority: d.priority ?? "none",
@@ -2391,11 +2403,22 @@ function InboxChat({
       <div className={`border-r overflow-y-auto ${selected ? "hidden md:block" : ""}`}>
         {convs.map((c) => {
           const chip = c.classification ? CLASS_CHIP[c.classification] : null;
+          // Color de TODA la tarjeta según la prioridad (alta=rojo, media=ámbar,
+          // baja=gris) para ver de un vistazo a quién atender. Borde izquierdo
+          // grueso + fondo tenue; la seleccionada se intensifica.
+          const prCard: Record<string, { base: string; sel: string }> = {
+            alta: { base: "border-l-4 border-l-rose-500 bg-rose-50/60", sel: "bg-rose-100" },
+            media: { base: "border-l-4 border-l-amber-500 bg-amber-50/60", sel: "bg-amber-100" },
+            baja: { base: "border-l-4 border-l-slate-400 bg-slate-50", sel: "bg-slate-100" },
+            none: { base: "", sel: "bg-brand-50" }
+          };
+          const pc = prCard[c.priority] ?? prCard.none;
+          const selectedCls = selected === c.phone ? pc.sel : pc.base;
           return (
             <button
               key={c.phone}
               onClick={() => setSelected(c.phone)}
-              className={`w-full text-left px-3 py-2.5 border-b hover:bg-slate-50 ${selected === c.phone ? "bg-brand-50" : ""}`}
+              className={`w-full text-left px-3 py-2.5 border-b hover:brightness-95 transition ${selectedCls}`}
             >
               <div className="flex items-center justify-between gap-2">
                 <span className="text-sm font-semibold text-slate-800 truncate">
@@ -2405,9 +2428,7 @@ function InboxChat({
                   {new Date(c.lastAt).toLocaleDateString("es-ES", { day: "2-digit", month: "2-digit" })}
                 </span>
               </div>
-              {(c.leadName || c.displayName) && (
-                <div className="text-[10px] font-mono text-slate-400 truncate">📞 {c.leadPhone || c.phone}</div>
-              )}
+              <div className="text-[10px] font-mono text-slate-400 truncate">📞 {shownPhone(c)}</div>
               <div className="flex items-center justify-between gap-2 mt-0.5">
                 <span className="text-xs text-slate-500 truncate">
                   {c.lastDirection === "out" ? "Tú: " : ""}
@@ -2425,11 +2446,8 @@ function InboxChat({
                 </div>
               )}
               <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-                {PRIORITY_CHIP[c.priority] && (
-                  <span className={`text-[10px] px-1.5 py-0.5 rounded border font-semibold ${PRIORITY_CHIP[c.priority].cls}`}>
-                    {PRIORITY_CHIP[c.priority].label}
-                  </span>
-                )}
+                {/* La prioridad ya se ve por el color del cuadro; aquí solo la
+                    clasificación IA y el número. */}
                 {chip && <span className={`text-[10px] px-1.5 py-0.5 rounded border ${chip.cls}`}>{chip.label}</span>}
                 {c.instanceName && (
                   <span className="text-[10px] px-1.5 py-0.5 rounded border bg-slate-50 text-slate-500 border-slate-200">
@@ -2471,7 +2489,7 @@ function InboxChat({
                     </button>
                   </div>
                   <div className="text-[11px] text-slate-500 truncate">
-                    📞 {threadMeta.leadPhone || sel.phone}
+                    📞 {shownPhone({ ...threadMeta, phone: sel.phone })}
                     {threadMeta.replyChannel ? ` · respondes por: ${threadMeta.replyChannel}` : " · respondes por: número principal"}
                   </div>
                 </div>

@@ -9,6 +9,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
+import { realPhoneFromMeta, isLidFromMeta, looksLikePhone } from "@/lib/leads/lid";
 
 export const dynamic = "force-dynamic";
 
@@ -36,6 +37,8 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
 
   type Conv = {
     phone: string;
+    realPhone: string | null;
+    isLid: boolean;
     leadId: string | null;
     leadName: string | null;
     leadPhone: string | null;
@@ -57,6 +60,8 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
       const meta = metaByPhone.get(phone);
       c = {
         phone,
+        realPhone: looksLikePhone(phone) ? phone : null,
+        isLid: false,
         leadId: m.lead?.id ?? null,
         leadName: m.lead?.name ?? null,
         leadPhone: m.lead?.phone ?? null,
@@ -71,6 +76,13 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
         classification: null
       };
       byPhone.set(phone, c);
+    }
+    // Identidad real: del mensaje entrante sacamos el número real (si WAHA lo
+    // manda) y si el contacto es un LID (número oculto por WhatsApp).
+    if (m.direction === "in" && !c.realPhone) {
+      const rp = realPhoneFromMeta(m.meta);
+      if (rp) c.realPhone = rp;
+      if (isLidFromMeta(m.meta)) c.isLid = true;
     }
     // msgs viene desc → el primero por teléfono ya es el último mensaje.
     if (!c.leadId && m.lead) {
