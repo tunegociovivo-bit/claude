@@ -21,7 +21,11 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
     items,
     diagnostics: {
       webhookLastHit: leadsCfg.webhookLastHit ?? null,
-      webhookLastEvent: leadsCfg.webhookLastEvent ?? null
+      webhookLastEvent: leadsCfg.webhookLastEvent ?? null,
+      webhookLastDecision: leadsCfg.webhookLastDecision ?? null,
+      webhookLastFrom: leadsCfg.webhookLastFrom ?? null,
+      webhookLastBody: leadsCfg.webhookLastBody ?? null,
+      webhookLastKeys: leadsCfg.webhookLastKeys ?? null
     }
   });
 });
