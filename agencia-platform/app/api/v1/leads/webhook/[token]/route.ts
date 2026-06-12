@@ -80,10 +80,18 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
   // Lo usamos para confirmar entrega real (o detectar que NO se entregó) y
   // dejar de depender del "200 OK" del envío. Se procesa ANTES del guard
   // fromMe porque los acks son, por definición, de mensajes nuestros.
+  // OJO: WAHA incluye `ack`/`ackName` TAMBIÉN dentro del payload de los
+  // mensajes normales (es el estado actual del mensaje), así que detectar
+  // acks solo por esos campos se TRAGABA los mensajes entrantes (event:
+  // "message" → clasificado como ack → nunca llegaba al Inbox). Un ack lo es
+  // por su EVENTO; los campos sueltos solo cuentan en formatos legacy sin
+  // evento de mensaje.
+  const eventName = String(body?.event ?? "");
   const isAck =
-    body?.event === "message.ack" ||
-    typeof body?.payload?.ack === "number" ||
-    typeof body?.payload?.ackName === "string";
+    eventName === "message.ack" ||
+    (eventName !== "message" &&
+      eventName !== "message.any" &&
+      (typeof body?.payload?.ack === "number" || typeof body?.payload?.ackName === "string"));
   if (isAck) {
     const ackId = extractWahaMessageId(body?.payload ?? body);
     const ackNum: number | null =
