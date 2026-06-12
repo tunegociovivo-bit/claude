@@ -9,7 +9,7 @@ import { prisma } from "@/lib/db/prisma";
 import { renderTemplate } from "./template-engine";
 import { aiRewriteMessage } from "./ai-vary";
 import { normalizePhone, sendText, getWahaConfig, checkNumberExists } from "./waha";
-import { pickEnqueueChannel } from "./channels";
+import { pickEnqueueChannel, reassignIfQuarantined } from "./channels";
 
 /**
  * Estados que cuentan como "ya enviado" para los topes anti-baneo. Cuando el
@@ -781,6 +781,19 @@ export async function sendMessageById(
     where: { id: msg.id },
     data: { status: "sending", sendAttempts: msg.sendAttempts + 1 }
   });
+
+  // Rotación por salud: si el número asignado está en cuarentena (quemado o
+  // sesión caída), el mensaje sale por otro canal sano en vez de quemarse.
+  try {
+    const alt = await reassignIfQuarantined(workspaceId, msg.instanceName);
+    if (alt) {
+      console.warn(`[send-queue] canal "${msg.instanceName}" en cuarentena; mensaje ${msg.id} reasignado a "${alt}"`);
+      msg.instanceName = alt;
+      await prisma.leadMessage.update({ where: { id: msg.id }, data: { instanceName: alt } });
+    }
+  } catch {
+    // La salud es best-effort: si falla, se envía por el canal original.
+  }
 
   try {
     const cfg = await getWahaConfig(workspaceId);

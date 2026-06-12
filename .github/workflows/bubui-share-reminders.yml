@@ -1,0 +1,19 @@
+name: Bubui · recordatorio de oferta-reto a medias
+# Corre cada hora. Empuja a los clientes con una oferta-reto bloqueada a
+# terminar de invitar amigos ("te faltan N para tu premio"). Anti-spam: máx.
+# 1 push/cliente cada 48h y 3 por oferta (dedupe vía BubuiPushLog), así que
+# es seguro ejecutarlo de más.
+on:
+  schedule:
+    - cron: "30 * * * *"
+  workflow_dispatch: # permite disparar a mano desde GitHub UI
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping endpoint cron
+        run: |
+          curl -fsSL -X GET \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            https://hub.negociovivo.app/api/cron/bubui-share-reminders

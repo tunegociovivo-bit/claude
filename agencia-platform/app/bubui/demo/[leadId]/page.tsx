@@ -20,9 +20,14 @@ function stars(rating: number | null): string {
 export default async function BubuiDemoPage({ params }: { params: { leadId: string } }) {
   const lead = await prisma.lead.findUnique({
     where: { id: params.leadId },
-    select: { name: true, province: true, category: true, rating: true, reviewsCount: true }
+    select: { name: true, province: true, category: true, rating: true, reviewsCount: true, rawData: true }
   });
   if (!lead) notFound();
+
+  // Foto real del local (Google Places) servida vía proxy propio — la demo
+  // se ve "suya de verdad". Si no hay foto, degradado de marca.
+  const hasPhoto = Boolean((lead.rawData as any)?.photos?.[0]?.name);
+  const photoUrl = hasPhoto ? `/api/bubui/demo-photo/${params.leadId}` : null;
 
   const name = lead.name;
   const rating = lead.rating ?? null;
@@ -43,10 +48,20 @@ export default async function BubuiDemoPage({ params }: { params: { leadId: stri
         )}
       </div>
 
-      {/* Tarjeta de oferta tipo Bubui (mock con su marca) */}
+      {/* Tarjeta de oferta tipo Bubui (mock con su marca y su foto real) */}
       <div className="mt-7 rounded-3xl border border-black/10 bg-white shadow-sm overflow-hidden">
-        <div className="h-28 bg-gradient-to-br from-pink-400 to-pink-600 flex items-end justify-end p-3">
-          <span className="bg-white/95 text-pink-700 font-black text-sm rounded-full px-3 py-1">-{demoOfferPct}%</span>
+        <div className="relative h-40 bg-gradient-to-br from-pink-400 to-pink-600">
+          {photoUrl && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={photoUrl}
+              alt={`Foto de ${name}`}
+              className="absolute inset-0 h-full w-full object-cover"
+            />
+          )}
+          <span className="absolute bottom-3 right-3 bg-white/95 text-pink-700 font-black text-sm rounded-full px-3 py-1 shadow">
+            -{demoOfferPct}%
+          </span>
         </div>
         <div className="p-4">
           <p className="font-extrabold text-black">{name}</p>
