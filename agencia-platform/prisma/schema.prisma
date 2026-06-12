@@ -1155,6 +1155,8 @@ model LeadConversationMeta {
   displayName String?
   note        String?  @db.Text
   priority    String   @default("none") // alta | media | baja | none
+  status      String   @default("pending") // pending | followup | resolved
+  archived    Boolean  @default(false)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 

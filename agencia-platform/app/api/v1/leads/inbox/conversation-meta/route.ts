@@ -17,23 +17,34 @@ const schema = z.object({
   phone: z.string().min(5).max(40),
   note: z.string().max(2000).nullable().optional(),
   displayName: z.string().max(80).nullable().optional(),
-  priority: z.enum(["alta", "media", "baja", "none"]).optional()
+  priority: z.enum(["alta", "media", "baja", "none"]).optional(),
+  status: z.enum(["pending", "followup", "resolved"]).optional(),
+  archived: z.boolean().optional()
 });
 
 export const PATCH = withApi({ scope: "*" }, async (req, { api }) => {
   const parsed = schema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) throw new ApiError(400, "validation_error", parsed.error.message);
-  const { phone, note, displayName, priority } = parsed.data;
+  const { phone, note, displayName, priority, status, archived } = parsed.data;
 
   const data: any = {};
   if (note !== undefined) data.note = note?.trim() ? note.trim() : null;
   if (displayName !== undefined) data.displayName = displayName?.trim() ? displayName.trim() : null;
   if (priority !== undefined) data.priority = priority;
+  if (status !== undefined) data.status = status;
+  if (archived !== undefined) data.archived = archived;
 
   const meta = await prisma.leadConversationMeta.upsert({
     where: { workspaceId_phone: { workspaceId: api.workspaceId, phone } },
     create: { workspaceId: api.workspaceId, phone, ...data },
     update: data
   });
-  return NextResponse.json({ ok: true, note: meta.note, displayName: meta.displayName, priority: meta.priority });
+  return NextResponse.json({
+    ok: true,
+    note: meta.note,
+    displayName: meta.displayName,
+    priority: meta.priority,
+    status: meta.status,
+    archived: meta.archived
+  });
 });

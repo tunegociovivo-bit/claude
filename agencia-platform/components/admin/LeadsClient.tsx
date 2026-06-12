@@ -2213,6 +2213,8 @@ type Conversation = {
   displayName: string | null;
   note: string | null;
   priority: string; // alta | media | baja | none
+  status: string; // pending | followup | resolved
+  archived: boolean;
   lastBody: string;
   lastAt: string;
   lastDirection: string;
@@ -2226,6 +2228,12 @@ type Conversation = {
 function shownPhone(c: { leadPhone?: string | null; realPhone?: string | null; isLid?: boolean; phone: string }): string {
   return c.leadPhone || c.realPhone || (c.isLid ? "nº oculto por WhatsApp" : c.phone);
 }
+
+const STATUS_CHIP: Record<string, { label: string; cls: string }> = {
+  pending: { label: "🕘 Pendiente", cls: "bg-sky-50 text-sky-700 border-sky-200" },
+  followup: { label: "📌 Seguimiento", cls: "bg-violet-50 text-violet-700 border-violet-200" },
+  resolved: { label: "✅ Resuelto", cls: "bg-emerald-50 text-emerald-700 border-emerald-200" }
+};
 
 const PRIORITY_CHIP: Record<string, { label: string; cls: string }> = {
   alta: { label: "🔴 Alta", cls: "bg-rose-50 text-rose-700 border-rose-200" },
@@ -2271,6 +2279,8 @@ function InboxChat({
   const [fPriority, setFPriority] = useState<string>("all"); // all|alta|media|baja
   const [fClass, setFClass] = useState<string>("all"); // all|interested|info_request|objection|opt_out
   const [fUnread, setFUnread] = useState(false);
+  const [fStatus, setFStatus] = useState<string>("all"); // all|pending|followup|resolved
+  const [showArchived, setShowArchived] = useState(false);
   const [sortBy, setSortBy] = useState<"priority" | "recent" | "unread">("priority");
   const [thread, setThread] = useState<ThreadItem[]>([]);
   const [threadMeta, setThreadMeta] = useState<{
@@ -2281,9 +2291,11 @@ function InboxChat({
     displayName: string | null;
     note: string | null;
     priority: string;
+    status: string;
+    archived: boolean;
     replyChannel: string | null;
     optedOut: boolean;
-  }>({ leadName: null, leadPhone: null, realPhone: null, isLid: false, displayName: null, note: null, priority: "none", replyChannel: null, optedOut: false });
+  }>({ leadName: null, leadPhone: null, realPhone: null, isLid: false, displayName: null, note: null, priority: "none", status: "pending", archived: false, replyChannel: null, optedOut: false });
   const [noteDraft, setNoteDraft] = useState("");
   const [savingMeta, setSavingMeta] = useState(false);
   const [draft, setDraft] = useState("");
@@ -2315,6 +2327,8 @@ function InboxChat({
       displayName: d.displayName ?? null,
       note: d.note ?? null,
       priority: d.priority ?? "none",
+      status: d.status ?? "pending",
+      archived: !!d.archived,
       replyChannel: d.replyChannel ?? null,
       optedOut: !!d.optedOut
     });
@@ -2368,7 +2382,7 @@ function InboxChat({
     }
   }
 
-  async function saveMeta(patch: { note?: string | null; priority?: string; displayName?: string | null }) {
+  async function saveMeta(patch: { note?: string | null; priority?: string; displayName?: string | null; status?: string; archived?: boolean }) {
     if (!selected) return;
     setSavingMeta(true);
     try {
@@ -2379,14 +2393,15 @@ function InboxChat({
       });
       if (r.ok) {
         const d = await r.json();
-        setThreadMeta((m) => ({ ...m, note: d.note ?? null, priority: d.priority ?? "none", displayName: d.displayName ?? null }));
+        setThreadMeta((m) => ({ ...m, note: d.note ?? null, priority: d.priority ?? "none", displayName: d.displayName ?? null, status: d.status ?? "pending", archived: !!d.archived }));
         setConvs((prev) =>
           prev.map((c) =>
             c.phone === selected
-              ? { ...c, note: d.note ?? null, priority: d.priority ?? "none", displayName: d.displayName ?? null }
+              ? { ...c, note: d.note ?? null, priority: d.priority ?? "none", displayName: d.displayName ?? null, status: d.status ?? "pending", archived: !!d.archived }
               : c
           )
         );
+        if (patch.archived === true && selected) setSelected(null);
       }
     } finally {
       setSavingMeta(false);
@@ -2407,7 +2422,9 @@ function InboxChat({
   const PR_RANK: Record<string, number> = { alta: 0, media: 1, baja: 2, none: 3 };
   const visibleConvs = convs
     .filter((c) => {
+      if (c.archived !== showArchived) return false; // por defecto oculta archivadas
       if (fPriority !== "all" && c.priority !== fPriority) return false;
+      if (fStatus !== "all" && c.status !== fStatus) return false;
       if (fClass !== "all" && c.classification !== fClass) return false;
       if (fUnread && c.unread === 0) return false;
       if (search.trim()) {
@@ -2423,7 +2440,7 @@ function InboxChat({
       // priority (por defecto): alta primero, luego reciente
       return (PR_RANK[a.priority] ?? 3) - (PR_RANK[b.priority] ?? 3) || new Date(b.lastAt).getTime() - new Date(a.lastAt).getTime();
     });
-  const activeFilters = (fPriority !== "all" ? 1 : 0) + (fClass !== "all" ? 1 : 0) + (fUnread ? 1 : 0) + (search.trim() ? 1 : 0);
+  const activeFilters = (fPriority !== "all" ? 1 : 0) + (fStatus !== "all" ? 1 : 0) + (fClass !== "all" ? 1 : 0) + (fUnread ? 1 : 0) + (search.trim() ? 1 : 0);
 
   return (
     <div className="bg-white rounded-xl border overflow-hidden grid grid-cols-1 md:grid-cols-[320px_1fr]" style={{ height: "72vh" }}>
@@ -2479,6 +2496,24 @@ function InboxChat({
               <option value="recent">↕ Recientes</option>
               <option value="unread">↕ No leídos</option>
             </select>
+          </div>
+          <div className="flex items-center gap-1 flex-wrap">
+            {([["all", "Estado"], ["pending", "🕘"], ["followup", "📌"], ["resolved", "✅"]] as const).map(([v, lbl]) => (
+              <button
+                key={v}
+                onClick={() => setFStatus(v)}
+                className={`text-[11px] px-1.5 py-0.5 rounded border ${fStatus === v ? "bg-brand-600 text-white border-brand-600" : "bg-white text-slate-500 border-slate-200 hover:bg-slate-50"}`}
+              >
+                {lbl}
+              </button>
+            ))}
+            <span className="w-px h-4 bg-slate-200 mx-0.5" />
+            <button
+              onClick={() => setShowArchived((v) => !v)}
+              className={`text-[11px] px-1.5 py-0.5 rounded border ${showArchived ? "bg-slate-700 text-white border-slate-700" : "bg-white text-slate-500 border-slate-200 hover:bg-slate-50"}`}
+            >
+              🗄️ {showArchived ? "Viendo archivadas" : "Archivadas"}
+            </button>
           </div>
           {activeFilters > 0 && (
             <button
@@ -2539,6 +2574,9 @@ function InboxChat({
               <div className="flex items-center gap-1.5 mt-1 flex-wrap">
                 {/* La prioridad ya se ve por el color del cuadro; aquí solo la
                     clasificación IA y el número. */}
+                {c.status && c.status !== "pending" && STATUS_CHIP[c.status] && (
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded border ${STATUS_CHIP[c.status].cls}`}>{STATUS_CHIP[c.status].label}</span>
+                )}
                 {chip && <span className={`text-[10px] px-1.5 py-0.5 rounded border ${chip.cls}`}>{chip.label}</span>}
                 {c.instanceName && (
                   <span className="text-[10px] px-1.5 py-0.5 rounded border bg-slate-50 text-slate-500 border-slate-200">
@@ -2602,6 +2640,32 @@ function InboxChat({
                     </button>
                   ))}
                 </div>
+              </div>
+              {/* Estado + archivar */}
+              <div className="flex items-center gap-1.5 flex-wrap">
+                {(["pending", "followup", "resolved"] as const).map((st) => (
+                  <button
+                    key={st}
+                    onClick={() => void saveMeta({ status: st })}
+                    disabled={savingMeta}
+                    className={`text-[11px] px-2 py-0.5 rounded-md border font-medium disabled:opacity-50 ${
+                      threadMeta.status === st
+                        ? STATUS_CHIP[st].cls + " ring-1 ring-current"
+                        : "bg-white text-slate-400 border-slate-200 hover:bg-slate-50"
+                    }`}
+                  >
+                    {STATUS_CHIP[st].label}
+                  </button>
+                ))}
+                <span className="flex-1" />
+                <button
+                  onClick={() => void saveMeta({ archived: !threadMeta.archived })}
+                  disabled={savingMeta}
+                  className="text-[11px] px-2 py-0.5 rounded-md border bg-white text-slate-500 border-slate-200 hover:bg-slate-50 disabled:opacity-50"
+                  title={threadMeta.archived ? "Sacar del archivo" : "Archivar (sale de la bandeja)"}
+                >
+                  {threadMeta.archived ? "📤 Desarchivar" : "🗄️ Archivar"}
+                </button>
               </div>
               {/* Nota de la conversación */}
               <div className="flex items-center gap-2">
