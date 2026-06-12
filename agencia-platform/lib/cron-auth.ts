@@ -10,6 +10,10 @@
  *
  * Formatos admitidos: `Authorization: Bearer <token>`, cabecera
  * `x-cron-secret: <token>` (la usan los crons de GMB) o `?secret=<token>`.
+ *
+ * Efecto secundario: en cada hit autenticado graba el "latido" del cron
+ * (CronHeartbeat) para que el watchdog detecte crons mudos. Es fire-and-forget
+ * y nunca bloquea ni rompe el cron.
  */
 export function cronAuthOk(req: Request): boolean {
   const accepted = [process.env.INTERNAL_CRON_TOKEN, process.env.CRON_SECRET].filter(
@@ -18,11 +22,23 @@ export function cronAuthOk(req: Request): boolean {
   if (accepted.length === 0) return false;
   const header = req.headers.get("authorization") ?? "";
   const xCron = req.headers.get("x-cron-secret") ?? "";
+  let pathname = "";
   let qs = "";
   try {
-    qs = new URL(req.url).searchParams.get("secret") ?? "";
+    const url = new URL(req.url);
+    pathname = url.pathname;
+    qs = url.searchParams.get("secret") ?? "";
   } catch {
     // URL inválida: seguimos solo con cabeceras
   }
-  return accepted.some((s) => header === `Bearer ${s}` || xCron === s || (qs !== "" && qs === s));
+  const ok = accepted.some((s) => header === `Bearer ${s}` || xCron === s || (qs !== "" && qs === s));
+  if (ok && pathname) {
+    void import("./cron-monitor")
+      .then((m) => {
+        const name = m.cronNameFromPath(pathname);
+        if (name && m.CRON_CATALOG[name]) return m.recordCronRun(name);
+      })
+      .catch(() => {});
+  }
+  return ok;
 }

@@ -27,11 +27,32 @@ type Platform = {
   recovery?: string;
 };
 
+type CronHealth = {
+  name: string;
+  label: string;
+  status: "ok" | "stale" | "never";
+  lastRunAt: string | null;
+  minutesSince: number | null;
+  maxStaleMin: number;
+};
+
+type WhatsappHealth = { name: string; label: string | null; status: string };
+
 type Data = {
   platforms: Platform[];
+  crons?: CronHealth[];
+  whatsapp?: WhatsappHealth[];
   codeBackup: { provider: string; repo: string; url: string; note: string };
   dbBackup: { lastAt: string | null; sizeBytes: number | null; manageUrl: string };
 };
+
+function fmtAgo(min: number | null): string {
+  if (min == null) return "nunca";
+  if (min < 60) return `hace ${min} min`;
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  return m ? `hace ${h}h ${m}min` : `hace ${h}h`;
+}
 
 export default function InfraestructuraClient() {
   const [data, setData] = useState<Data | null>(null);
@@ -106,6 +127,77 @@ export default function InfraestructuraClient() {
               </Link>
             </div>
           </div>
+
+          {/* Estado del sistema: crons + WhatsApp */}
+          {data.crons && data.crons.length > 0 && (
+            <div className="bg-white rounded-xl border overflow-hidden">
+              <div className="px-5 py-3 border-b bg-slate-50 flex items-center justify-between">
+                <h2 className="font-semibold text-sm text-slate-800">Estado de los crons</h2>
+                {(() => {
+                  const bad = data.crons.filter((c) => c.status !== "ok").length;
+                  return bad > 0 ? (
+                    <span className="text-xs font-semibold text-rose-700 bg-rose-50 border border-rose-200 rounded-full px-2.5 py-0.5">
+                      {bad} con problemas
+                    </span>
+                  ) : (
+                    <span className="text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-2.5 py-0.5">
+                      Todo al día
+                    </span>
+                  );
+                })()}
+              </div>
+              <ul className="divide-y">
+                {data.crons
+                  .slice()
+                  .sort((a, b) => (a.status === "ok" ? 1 : 0) - (b.status === "ok" ? 1 : 0))
+                  .map((c) => {
+                    const color =
+                      c.status === "ok" ? "bg-emerald-500" : c.status === "stale" ? "bg-rose-500" : "bg-slate-400";
+                    return (
+                      <li key={c.name} className="px-5 py-2.5 flex items-center gap-3 text-sm">
+                        <span className={`h-2.5 w-2.5 rounded-full ${color} shrink-0`} />
+                        <span className="flex-1 text-slate-800">{c.label}</span>
+                        <span
+                          className={`text-xs ${c.status === "ok" ? "text-slate-500" : "text-rose-600 font-medium"}`}
+                        >
+                          {c.status === "never" ? "nunca se ha ejecutado" : `última: ${fmtAgo(c.minutesSince)}`}
+                        </span>
+                      </li>
+                    );
+                  })}
+              </ul>
+              <p className="px-5 py-2 text-[11px] text-slate-500 border-t bg-slate-50/50">
+                El vigilante avisa por email (OPS_ALERT_EMAIL) si un cron se queda mudo más de lo previsto.
+              </p>
+            </div>
+          )}
+
+          {data.whatsapp && data.whatsapp.length > 0 && (
+            <div className="bg-white rounded-xl border overflow-hidden">
+              <div className="px-5 py-3 border-b bg-slate-50">
+                <h2 className="font-semibold text-sm text-slate-800">Números de WhatsApp (NV Leads)</h2>
+              </div>
+              <ul className="divide-y">
+                {data.whatsapp.map((w) => {
+                  const color =
+                    w.status === "healthy"
+                      ? "bg-emerald-500"
+                      : w.status === "degraded"
+                        ? "bg-amber-500"
+                        : "bg-rose-500";
+                  const label =
+                    w.status === "healthy" ? "sano" : w.status === "degraded" ? "degradado" : "en cuarentena";
+                  return (
+                    <li key={w.name} className="px-5 py-2.5 flex items-center gap-3 text-sm">
+                      <span className={`h-2.5 w-2.5 rounded-full ${color} shrink-0`} />
+                      <span className="flex-1 text-slate-800">{w.label || w.name}</span>
+                      <span className="text-xs text-slate-500">{label}</span>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          )}
 
           {/* Tabla de plataformas */}
           <div className="bg-white rounded-xl border overflow-hidden">

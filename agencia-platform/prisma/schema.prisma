@@ -3675,6 +3675,19 @@ model BubuiProcessedWebhook {
   processedAt DateTime @default(now())
 }
 
+/// Latido de los crons: cada vez que un endpoint de cron se ejecuta con auth
+/// válida registra aquí su `lastRunAt`. El watchdog (health-watchdog) compara
+/// con la cadencia esperada (catálogo en lib/cron-monitor) y avisa si un cron
+/// lleva "mudo" más de lo previsto — así un fallo silencioso (como el del
+/// CRON_SECRET desparejado) salta en horas, no en semanas. `alertedAt` evita
+/// repetir el aviso del mismo incidente.
+model CronHeartbeat {
+  name      String   @id // p.ej. "ai-agent/recurring"
+  lastRunAt DateTime @default(now())
+  runs      Int      @default(0)
+  alertedAt DateTime?
+}
+
 /// Anti-fraude por ticket: cuando el cliente fotografía el ticket, la IA lee
 /// el importe y se guarda aquí ligado a la imagen. El escaneo (scan) usa ESTE
 /// importe (no el que teclee el cliente) y marca el registro como usado

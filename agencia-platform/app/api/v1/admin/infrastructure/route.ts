@@ -15,6 +15,8 @@ import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { validateWorkspaceCredentials } from "@/lib/credentials/validate";
+import { getCronsHealth } from "@/lib/cron-monitor";
+import { getLeadChannels, getChannelsHealthMap } from "@/lib/leads/channels";
 
 export const dynamic = "force-dynamic";
 
@@ -208,8 +210,24 @@ export const GET = withApi({ scope: "admin" }, async (_req, { api }) => {
     }
   ];
 
+  // Salud de los crons (global): detecta los que llevan "mudos" más de lo
+  // esperado. Es lo que habría avisado del CRON_SECRET desparejado.
+  const crons = await getCronsHealth().catch(() => []);
+
+  // Salud de los números de WhatsApp de este workspace (multi-número).
+  let whatsapp: { name: string; label: string | null; status: string }[] = [];
+  try {
+    const channels = await getLeadChannels(api.workspaceId);
+    const map = await getChannelsHealthMap(api.workspaceId, channels);
+    whatsapp = channels.map((c) => ({ name: c.name, label: c.label ?? null, status: map.get(c.name) ?? "healthy" }));
+  } catch {
+    whatsapp = [];
+  }
+
   return NextResponse.json({
     platforms,
+    crons,
+    whatsapp,
     codeBackup: {
       provider: "GitHub",
       repo: githubRepo,
