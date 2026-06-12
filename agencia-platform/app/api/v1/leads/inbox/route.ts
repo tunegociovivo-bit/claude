@@ -25,7 +25,14 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
       webhookLastDecision: leadsCfg.webhookLastDecision ?? null,
       webhookLastFrom: leadsCfg.webhookLastFrom ?? null,
       webhookLastBody: leadsCfg.webhookLastBody ?? null,
-      webhookLastKeys: leadsCfg.webhookLastKeys ?? null
+      webhookLastKeys: leadsCfg.webhookLastKeys ?? null,
+      // Último evento de MENSAJE (no ack) — el que importa para depurar.
+      webhookLastMsgAt: leadsCfg.webhookLastMsgAt ?? null,
+      webhookLastMsgDecision: leadsCfg.webhookLastMsgDecision ?? null,
+      webhookLastMsgEvent: leadsCfg.webhookLastMsgEvent ?? null,
+      webhookLastMsgFrom: leadsCfg.webhookLastMsgFrom ?? null,
+      webhookLastMsgBody: leadsCfg.webhookLastMsgBody ?? null,
+      webhookLastMsgPayloadKeys: leadsCfg.webhookLastMsgPayloadKeys ?? null
     }
   });
 });
