@@ -2215,6 +2215,7 @@ type Conversation = {
   priority: string; // alta | media | baja | none
   status: string; // pending | followup | resolved
   archived: boolean;
+  followupAt: string | null;
   lastBody: string;
   lastAt: string;
   lastDirection: string;
@@ -2293,9 +2294,11 @@ function InboxChat({
     priority: string;
     status: string;
     archived: boolean;
+    followupAt: string | null;
+    leadId: string | null;
     replyChannel: string | null;
     optedOut: boolean;
-  }>({ leadName: null, leadPhone: null, realPhone: null, isLid: false, displayName: null, note: null, priority: "none", status: "pending", archived: false, replyChannel: null, optedOut: false });
+  }>({ leadName: null, leadPhone: null, realPhone: null, isLid: false, displayName: null, note: null, priority: "none", status: "pending", archived: false, followupAt: null, leadId: null, replyChannel: null, optedOut: false });
   const [noteDraft, setNoteDraft] = useState("");
   const [savingMeta, setSavingMeta] = useState(false);
   const [draft, setDraft] = useState("");
@@ -2330,6 +2333,8 @@ function InboxChat({
       priority: d.priority ?? "none",
       status: d.status ?? "pending",
       archived: !!d.archived,
+      followupAt: d.followupAt ?? null,
+      leadId: d.lead?.id ?? null,
       replyChannel: d.replyChannel ?? null,
       optedOut: !!d.optedOut
     });
@@ -2403,7 +2408,27 @@ function InboxChat({
     }
   }
 
-  async function saveMeta(patch: { note?: string | null; priority?: string; displayName?: string | null; status?: string; archived?: boolean }) {
+  const [sendingExtra, setSendingExtra] = useState<string | null>(null);
+  async function sendExtra(kind: "demo" | "mockup") {
+    if (!selected || sendingExtra) return;
+    setSendingExtra(kind);
+    setSendErr(null);
+    try {
+      const ep = kind === "demo" ? "/api/v1/leads/inbox/send-demo"
+        : `/api/v1/leads/${threadMeta.leadId}/send-mockup`;
+      const body = kind === "demo" ? JSON.stringify({ phone: selected }) : JSON.stringify({});
+      const r = await fetch(ep, { method: "POST", headers: { "Content-Type": "application/json" }, body });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d?.error?.message ?? `HTTP ${r.status}`);
+      await loadThread(selected);
+    } catch (e: any) {
+      setSendErr(e?.message ?? "No se pudo enviar");
+    } finally {
+      setSendingExtra(null);
+    }
+  }
+
+  async function saveMeta(patch: { note?: string | null; priority?: string; displayName?: string | null; status?: string; archived?: boolean; followupAt?: string | null; followupNote?: string | null }) {
     if (!selected) return;
     setSavingMeta(true);
     try {
@@ -2414,11 +2439,11 @@ function InboxChat({
       });
       if (r.ok) {
         const d = await r.json();
-        setThreadMeta((m) => ({ ...m, note: d.note ?? null, priority: d.priority ?? "none", displayName: d.displayName ?? null, status: d.status ?? "pending", archived: !!d.archived }));
+        setThreadMeta((m) => ({ ...m, note: d.note ?? null, priority: d.priority ?? "none", displayName: d.displayName ?? null, status: d.status ?? "pending", archived: !!d.archived, followupAt: d.followupAt ?? m.followupAt }));
         setConvs((prev) =>
           prev.map((c) =>
             c.phone === selected
-              ? { ...c, note: d.note ?? null, priority: d.priority ?? "none", displayName: d.displayName ?? null, status: d.status ?? "pending", archived: !!d.archived }
+              ? { ...c, note: d.note ?? null, priority: d.priority ?? "none", displayName: d.displayName ?? null, status: d.status ?? "pending", archived: !!d.archived, followupAt: d.followupAt ?? c.followupAt }
               : c
           )
         );
@@ -2572,7 +2597,7 @@ function InboxChat({
                   {c.leadName || c.displayName || c.phone}
                 </span>
                 <span className="text-[10px] text-slate-400 shrink-0">
-                  {new Date(c.lastAt).toLocaleDateString("es-ES", { day: "2-digit", month: "2-digit" })}
+                  {c.followupAt ? "🔔 " : ""}{new Date(c.lastAt).toLocaleDateString("es-ES", { day: "2-digit", month: "2-digit" })}
                 </span>
               </div>
               <div className="text-[10px] font-mono text-slate-400 truncate">📞 {shownPhone(c)}</div>
@@ -2703,6 +2728,49 @@ function InboxChat({
                   className="flex-1 text-[12px] px-2 py-1 rounded-md border bg-white"
                 />
                 {savingMeta && <Loader2 className="h-3 w-3 animate-spin text-slate-400" />}
+              </div>
+              {/* Recordatorio de seguimiento + acciones rápidas */}
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="text-[11px] text-slate-500">⏰</span>
+                {([["2h", 2 / 24], ["Mañana", 1], ["2 días", 2], ["1 sem", 7]] as const).map(([lbl, days]) => (
+                  <button
+                    key={lbl}
+                    onClick={() => {
+                      const d = new Date(Date.now() + (days as number) * 86400000);
+                      void saveMeta({ followupAt: d.toISOString() });
+                    }}
+                    disabled={savingMeta}
+                    className="text-[11px] px-2 py-0.5 rounded-md border bg-white text-slate-600 border-slate-200 hover:bg-slate-50 disabled:opacity-50"
+                    title="Ponme un recordatorio para seguir con este lead"
+                  >
+                    {lbl}
+                  </button>
+                ))}
+                {threadMeta.followupAt && (
+                  <span className="text-[11px] text-violet-700 bg-violet-50 border border-violet-200 rounded px-1.5 py-0.5">
+                    🔔 {new Date(threadMeta.followupAt).toLocaleString("es-ES", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
+                    <button onClick={() => void saveMeta({ followupAt: null })} className="ml-1 text-rose-500">✕</button>
+                  </span>
+                )}
+                {threadMeta.leadId && (
+                  <>
+                    <span className="flex-1" />
+                    <button
+                      onClick={() => void sendExtra("demo")}
+                      disabled={!!sendingExtra}
+                      className="text-[11px] px-2 py-0.5 rounded-md border border-pink-300 bg-pink-50 text-pink-700 hover:bg-pink-100 disabled:opacity-50"
+                    >
+                      {sendingExtra === "demo" ? "…" : "🔗 Enviar demo Bubui"}
+                    </button>
+                    <button
+                      onClick={() => void sendExtra("mockup")}
+                      disabled={!!sendingExtra}
+                      className="text-[11px] px-2 py-0.5 rounded-md border bg-white text-slate-600 border-slate-200 hover:bg-slate-50 disabled:opacity-50"
+                    >
+                      {sendingExtra === "mockup" ? "…" : "🖼️ Enviar mockup"}
+                    </button>
+                  </>
+                )}
               </div>
             </div>
             <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2 bg-[#f6f4f0]">
