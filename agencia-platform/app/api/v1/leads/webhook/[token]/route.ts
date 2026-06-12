@@ -131,14 +131,25 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
     return NextResponse.json({ ok: true, ack: ackName || ackNum });
   }
 
-  const fromPhone =
-    body?.payload?.from ?? // WAHA v2
-    body?.from ??
-    body?.data?.key?.remoteJid ??
-    body?.data?.from ??
-    body?.message?.from ??
-    body?.sender ??
-    "";
+  // Teléfono / chatId del remitente. Con el nuevo sistema LID de WhatsApp,
+  // `payload.from` puede ser un id privado (…@lid) sin teléfono legible. Si en
+  // el payload hay un número real (…@c.us) en otro campo, lo preferimos para
+  // mostrar; el chatId original (para responder) se conserva en meta.
+  const fromCandidates = [
+    body?.payload?.from,
+    body?.payload?.author,
+    body?.payload?.participant,
+    body?.payload?._data?.author,
+    body?.payload?._data?.from,
+    body?.payload?._data?.id?.remote,
+    body?.from,
+    body?.data?.key?.remoteJid,
+    body?.data?.from,
+    body?.message?.from,
+    body?.sender
+  ].filter((x): x is string => typeof x === "string" && x.length > 0);
+  const realPhone = fromCandidates.find((c) => /@c\.us$/i.test(c) || /^\+?\d{6,15}@/.test(c) || /^\+?\d{6,15}$/.test(c));
+  const fromPhone = realPhone ?? fromCandidates[0] ?? "";
 
   // WAHA: ignorar mensajes fromMe (echo de los nuestros)
   const fromMe =

@@ -299,6 +299,32 @@ export async function ingestInbox(opts: {
     }
   });
 
+  // Dedupe a prueba de carrera: WAHA puede entregar el mismo mensaje por dos
+  // eventos a la vez, y ambos pasan el pre-check antes de que ninguno haya
+  // insertado. Tras insertar, si hay más de una fila con el mismo
+  // externalMessageId, nos quedamos con la MÁS ANTIGUA y borramos el resto
+  // (determinista → cada request borra lo mismo, sin condición de carrera).
+  if (opts.externalMessageId) {
+    const sameId = await prisma.leadInboxMessage.findMany({
+      where: {
+        workspaceId: opts.workspaceId,
+        direction: "in",
+        externalMessageId: String(opts.externalMessageId)
+      },
+      orderBy: [{ receivedAt: "asc" }, { id: "asc" }],
+      select: { id: true }
+    });
+    if (sameId.length > 1) {
+      const keepId = sameId[0].id;
+      await prisma.leadInboxMessage
+        .deleteMany({ where: { id: { in: sameId.slice(1).map((r) => r.id) } } })
+        .catch(() => {});
+      if (keepId !== msg.id) {
+        return { messageId: keepId, classification: classified.classification, leadId };
+      }
+    }
+  }
+
   // Nombre de perfil de WhatsApp (pushName) → metadatos de la conversación.
   // Es la clave para reconocer contactos con LID (sin teléfono legible).
   const pushName: string | null =
