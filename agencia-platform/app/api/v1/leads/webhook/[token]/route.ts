@@ -43,13 +43,18 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
   // entrante que estamos intentando depurar.
   function note(decision: string, extra?: { from?: string; text?: string; isMessage?: boolean }) {
     const leadsPrev = (((ws!.settings as any) ?? {}).leads ?? {});
+    // Número WAHA conectado (envelope WAHA trae `me: { id, pushName }`). Sirve
+    // para confirmar a qué número hay que escribirle.
+    const meId = body?.me?.id ?? body?.me ?? body?.payload?.me?.id ?? null;
     const common = {
       webhookLastHit: new Date().toISOString(),
       webhookLastEvent: String(body?.event ?? body?.type ?? "unknown"),
       webhookLastDecision: decision,
       webhookLastFrom: (extra?.from ?? "").slice(0, 40) || null,
       webhookLastBody: (extra?.text ?? "").slice(0, 80) || null,
-      webhookLastKeys: Object.keys(body ?? {}).slice(0, 12).join(",")
+      webhookLastKeys: Object.keys(body ?? {}).slice(0, 12).join(","),
+      webhookMe: meId ? String(meId).slice(0, 40) : (leadsPrev.webhookMe ?? null),
+      webhookSession: body?.session ? String(body.session).slice(0, 40) : (leadsPrev.webhookSession ?? null)
     };
     const msg = extra?.isMessage
       ? {
