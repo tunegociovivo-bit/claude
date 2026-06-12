@@ -2421,6 +2421,45 @@ function InboxChat({
   );
 }
 
+/** Configura el webhook entrante (WAHA o Evolution) sin pasar por Ajustes.
+ *  Detecta el proveedor por los settings y llama al endpoint correcto. */
+function InlineWebhookButton() {
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<{ ok: boolean; msg: string } | null>(null);
+  async function run() {
+    setBusy(true);
+    setResult(null);
+    try {
+      const sr = await fetch("/api/v1/leads/settings");
+      const s = sr.ok ? await sr.json() : {};
+      const provider = s?.whatsappProvider === "evolution" ? "evolution" : "waha";
+      const ep = provider === "evolution" ? "/api/v1/leads/evolution-webhook-setup" : "/api/v1/leads/waha-webhook-setup";
+      const r = await fetch(ep, { method: "POST" });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d?.error?.message ?? `HTTP ${r.status}`);
+      setResult({ ok: true, msg: `✓ Webhook configurado (${d.url ?? provider}). Ahora las respuestas llegarán al Inbox.` });
+    } catch (e: any) {
+      setResult({ ok: false, msg: `✗ ${e?.message ?? "No se pudo configurar"}` });
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <div className="space-y-1.5">
+      <button
+        type="button"
+        onClick={run}
+        disabled={busy}
+        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold disabled:opacity-50"
+      >
+        {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+        Configurar webhook ahora
+      </button>
+      {result && <div className={result.ok ? "text-emerald-700" : "text-rose-700"}>{result.msg}</div>}
+    </div>
+  );
+}
+
 function InboxList({
   loading,
   items,
@@ -2447,12 +2486,17 @@ function InboxList({
             </div>
           </div>
         ) : (
-          <div className="text-xs space-y-1 bg-rose-50 border border-rose-200 rounded-md p-2.5 text-rose-800">
-            <div>❌ WAHA aún no ha enviado NINGÚN webhook a este Hub.</div>
+          <div className="text-xs space-y-2 bg-rose-50 border border-rose-200 rounded-md p-2.5 text-rose-800">
+            <div>❌ WhatsApp aún no ha enviado NINGÚN webhook a este Hub.</div>
             <div>
-              Pulsa <strong>"Configurar webhook en WAHA"</strong> en Ajustes (arriba a la derecha) para que WAHA empiece a
-              reenviarnos los mensajes entrantes. Si ya lo hiciste, comprueba que la sesión WAHA está
-              en estado <code>WORKING</code> con "Probar conexión".
+              Que tus campañas <strong>envíen</strong> funciona aparte; para <strong>recibir</strong> las respuestas
+              aquí hay que decirle a WAHA/Evolution que te las reenvíe. Pulsa el botón (no hace falta entrar en Ajustes):
+            </div>
+            <InlineWebhookButton />
+            <div className="text-[11px] text-rose-600">
+              Tras configurarlo, las respuestas aparecen <strong>en cuanto un lead te escriba</strong> (las anteriores no
+              se importan). Si tu número está en estado <code>WORKING</code> y aun así no llega, escríbete tú mismo desde
+              otro teléfono al número de la campaña para probar.
             </div>
           </div>
         )}
@@ -3514,10 +3558,23 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
   const [qrNonce, setQrNonce] = useState(0);
   const [qrError, setQrError] = useState<string | null>(null);
   const pollRef = useRef<any>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  function loadSettings() {
+    setLoadError(null);
+    fetch("/api/v1/leads/settings")
+      .then(async (r) => {
+        if (r.ok) return r.json();
+        const d = await r.json().catch(() => ({}));
+        throw new Error(d?.error?.message ?? `No se pudieron cargar los ajustes (HTTP ${r.status})`);
+      })
+      .then(setS)
+      .catch((e) => setLoadError(e?.message ?? "Error al cargar los ajustes"));
+  }
   useEffect(() => {
     if (!open) return;
     setGoogleKey(""); setWahaKey(""); setEvoKey(""); setError(null); setSavedAt(null);
-    fetch("/api/v1/leads/settings").then((r) => r.ok ? r.json() : null).then(setS);
+    setS(null);
+    loadSettings();
   }, [open]);
   useEffect(() => {
     if (!open) {
@@ -3526,7 +3583,21 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
     }
     return () => { if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; } };
   }, [open]);
-  if (!s) return <Modal open={open} onClose={onClose} title="Ajustes leads" size="lg"><Loading /></Modal>;
+  if (!s)
+    return (
+      <Modal open={open} onClose={onClose} title="Ajustes leads" size="lg">
+        {loadError ? (
+          <div className="p-4 text-sm space-y-3">
+            <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-rose-700">✗ {loadError}</div>
+            <button onClick={loadSettings} className="px-3 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-xs font-medium">
+              Reintentar
+            </button>
+          </div>
+        ) : (
+          <Loading />
+        )}
+      </Modal>
+    );
   async function save() {
     setSaving(true);
     setError(null);
