@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import PageHeader from "@/components/PageHeader";
 import Modal from "@/components/ui/Modal";
+import { SectionBoundary } from "@/components/admin/SectionBoundary";
 import { BUSINESS_TYPE_GROUPS, ALL_BUSINESS_TYPES } from "@/lib/leads/business-types";
 import { PROVINCE_NAMES } from "@/lib/leads/spain-provinces";
 import { municipalitiesForProvince } from "@/lib/leads/spain-municipalities";
@@ -430,7 +431,9 @@ export default function LeadsClient() {
 
       <NewSearchModal open={newSearchOpen} onClose={() => setNewSearchOpen(false)} onSaved={load} />
       <TemplateModal open={newTemplateOpen} template={null} onClose={() => setNewTemplateOpen(false)} onSaved={load} />
-      <LeadsSettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      <SectionBoundary label="Ajustes">
+        <LeadsSettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      </SectionBoundary>
     </div>
   );
 }
