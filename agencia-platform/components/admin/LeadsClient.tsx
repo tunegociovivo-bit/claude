@@ -3562,6 +3562,13 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
   const [qrError, setQrError] = useState<string | null>(null);
   const pollRef = useRef<any>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  // Conectar un número concreto: muestra su QR (la sesión/instancia se crea
+  // sola en el servidor si no existe). channelQr = nombre del canal abierto.
+  // OJO: declarado AQUÍ (antes de cualquier return) para no romper el orden de
+  // hooks — estaba más abajo y provocaba React error #310 al cargar Ajustes.
+  const [channelQr, setChannelQr] = useState<string | null>(null);
+  const [channelQrErr, setChannelQrErr] = useState<string | null>(null);
+  const [channelQrNonce, setChannelQrNonce] = useState(0);
   function loadSettings() {
     setLoadError(null);
     fetch("/api/v1/leads/settings")
@@ -3647,11 +3654,6 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
     setSavedAt(new Date());
   }
   function setField(k: string, v: any) { setS({ ...s, [k]: v }); }
-  // Conectar un número concreto: muestra su QR (la sesión/instancia se crea
-  // sola en el servidor si no existe). channelQr = nombre del canal abierto.
-  const [channelQr, setChannelQr] = useState<string | null>(null);
-  const [channelQrErr, setChannelQrErr] = useState<string | null>(null);
-  const [channelQrNonce, setChannelQrNonce] = useState(0);
 
   function updateChannel(i: number, patch: any) {
     const arr = [...(s.channels ?? [])];
