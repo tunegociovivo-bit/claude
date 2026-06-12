@@ -24,7 +24,8 @@ export const CRON_CATALOG: Record<string, { label: string; maxStaleMin: number }
   reindex: { label: "Reindexado de búsqueda", maxStaleMin: 26 * 60 },
   "sonia-briefing": { label: "Briefing diario de Sonia", maxStaleMin: 26 * 60 },
   "trash-purge": { label: "Purga de papelera", maxStaleMin: 26 * 60 },
-  "health-watchdog": { label: "Vigilante de crons", maxStaleMin: 90 }
+  "health-watchdog": { label: "Vigilante de crons", maxStaleMin: 90 },
+  "bubui-monthly-ranking": { label: "Bubui · premio ranking mensual", maxStaleMin: 26 * 60 }
 };
 
 /** Deriva el nombre de cron a partir del path de la request. */

@@ -3430,6 +3430,9 @@ model BubuiBusiness {
   active        Boolean  @default(true)
   // Destacado en Descubre (ordenación preferente).
   featured      Boolean  @default(false)
+  // Destacado TEMPORAL: premio del ranking mensual (negocio que más clientes
+  // trajo). Mientras featuredUntil > now, cuenta como destacado en Descubre.
+  featuredUntil DateTime?
   // Banner IA (foto del escaparate → banner con el nombre del negocio).
   // La PRIMERA generación es gratis; cada edición extra cuesta 1€ y concede
   // 1 crédito (aiBannerCredits) al confirmar el pago en Stripe.

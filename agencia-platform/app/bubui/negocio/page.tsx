@@ -388,8 +388,70 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
         )}
       </section>
 
+      <RankingCard businessId={b.id} token={session.token} />
+
       <BusinessReferralPanel businessId={b.id} token={session.token} />
     </main>
+  );
+}
+
+/** Ranking mensual: pica al dueño a competir por el "destacado gratis"
+ *  mostrando su posición y el podio en vivo. */
+function RankingCard({ businessId, token }: { businessId: string; token: string }) {
+  const [r, setR] = useState<{
+    position: number | null;
+    total: number;
+    customers: number;
+    top: { position: number; name: string; city: string | null; customers: number; isMe: boolean }[];
+  } | null>(null);
+
+  useEffect(() => {
+    fetch(`/api/bubui/business/${businessId}/ranking`, { headers: { Authorization: `Bearer ${token}` } })
+      .then((res) => (res.ok ? res.json() : null))
+      .then(setR)
+      .catch(() => {});
+  }, [businessId, token]);
+
+  if (!r) return null;
+  const leading = r.position === 1;
+  const monthName = new Date().toLocaleDateString("es-ES", { month: "long" });
+
+  return (
+    <section className="bg-white rounded-2xl border-2 border-amber-200 p-4 mt-4">
+      <h3 className="font-bold text-sm flex items-center gap-2">🏆 Ranking de {monthName}</h3>
+      <p className="text-xs text-slate-600 mt-1">
+        El negocio que más clientes traiga este mes aparece <b>destacado gratis</b> en Descubre.
+      </p>
+      <div className="mt-3 flex items-end gap-3">
+        <div className="text-3xl font-black text-amber-600">{r.position ? `#${r.position}` : "—"}</div>
+        <div className="text-xs text-slate-600 pb-1">
+          {r.position
+            ? leading
+              ? `¡Vas líder con ${r.customers} clientes! 🔥`
+              : `${r.customers} cliente${r.customers === 1 ? "" : "s"} este mes · de ${r.total} negocios`
+            : "Aún sin clientes este mes — ¡reparte tu QR!"}
+        </div>
+      </div>
+      {r.top.length > 0 && (
+        <ul className="mt-3 space-y-1">
+          {r.top.map((t) => (
+            <li
+              key={t.position}
+              className={`flex items-center justify-between text-xs px-2.5 py-1.5 rounded-lg ${
+                t.isMe ? "bg-amber-50 border border-amber-200 font-semibold" : "bg-slate-50"
+              }`}
+            >
+              <span className="truncate">
+                {t.position === 1 ? "🥇" : t.position === 2 ? "🥈" : t.position === 3 ? "🥉" : `${t.position}.`}{" "}
+                {t.name}
+                {t.isMe ? " (tú)" : ""}
+              </span>
+              <span className="text-slate-500 shrink-0 ml-2">{t.customers}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }
 
