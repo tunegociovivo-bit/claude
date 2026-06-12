@@ -112,6 +112,8 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
     priority: convMeta?.priority ?? "none",
     status: convMeta?.status ?? "pending",
     archived: convMeta?.archived ?? false,
+    followupAt: convMeta?.followupAt ? convMeta.followupAt.toISOString() : null,
+    followupNote: convMeta?.followupNote ?? null,
     replyChannel: lastIn?.instanceName ?? null,
     optedOut: !!optout,
     items

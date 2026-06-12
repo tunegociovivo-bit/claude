@@ -19,13 +19,16 @@ const schema = z.object({
   displayName: z.string().max(80).nullable().optional(),
   priority: z.enum(["alta", "media", "baja", "none"]).optional(),
   status: z.enum(["pending", "followup", "resolved"]).optional(),
-  archived: z.boolean().optional()
+  archived: z.boolean().optional(),
+  // Recordatorio: ISO string o null para quitarlo. followupNote opcional.
+  followupAt: z.string().datetime().nullable().optional(),
+  followupNote: z.string().max(300).nullable().optional()
 });
 
 export const PATCH = withApi({ scope: "*" }, async (req, { api }) => {
   const parsed = schema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) throw new ApiError(400, "validation_error", parsed.error.message);
-  const { phone, note, displayName, priority, status, archived } = parsed.data;
+  const { phone, note, displayName, priority, status, archived, followupAt, followupNote } = parsed.data;
 
   const data: any = {};
   if (note !== undefined) data.note = note?.trim() ? note.trim() : null;
@@ -33,6 +36,11 @@ export const PATCH = withApi({ scope: "*" }, async (req, { api }) => {
   if (priority !== undefined) data.priority = priority;
   if (status !== undefined) data.status = status;
   if (archived !== undefined) data.archived = archived;
+  if (followupAt !== undefined) {
+    data.followupAt = followupAt ? new Date(followupAt) : null;
+    data.followupNotifiedAt = null; // nuevo recordatorio → rearma el aviso
+  }
+  if (followupNote !== undefined) data.followupNote = followupNote?.trim() ? followupNote.trim() : null;
 
   const meta = await prisma.leadConversationMeta.upsert({
     where: { workspaceId_phone: { workspaceId: api.workspaceId, phone } },
@@ -45,6 +53,8 @@ export const PATCH = withApi({ scope: "*" }, async (req, { api }) => {
     displayName: meta.displayName,
     priority: meta.priority,
     status: meta.status,
-    archived: meta.archived
+    archived: meta.archived,
+    followupAt: meta.followupAt ? meta.followupAt.toISOString() : null,
+    followupNote: meta.followupNote
   });
 });

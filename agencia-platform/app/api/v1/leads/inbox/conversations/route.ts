@@ -57,6 +57,7 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
     priority: string;
     status: string;
     archived: boolean;
+    followupAt: string | null;
     lastBody: string;
     lastAt: Date;
     lastDirection: string;
@@ -82,6 +83,7 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
         priority: meta?.priority ?? "none",
         status: meta?.status ?? "pending",
         archived: meta?.archived ?? false,
+        followupAt: meta?.followupAt ? meta.followupAt.toISOString() : null,
         lastBody: m.body,
         lastAt: m.receivedAt,
         lastDirection: m.direction,
