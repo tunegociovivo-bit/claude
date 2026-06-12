@@ -2284,6 +2284,7 @@ function InboxChat({
   const [fStatus, setFStatus] = useState<string>("all"); // all|pending|followup|resolved
   const [showArchived, setShowArchived] = useState(false);
   const [sortBy, setSortBy] = useState<"hot" | "priority" | "recent" | "unread">("hot");
+  const [showBroadcast, setShowBroadcast] = useState(false);
   const [thread, setThread] = useState<ThreadItem[]>([]);
   const [threadMeta, setThreadMeta] = useState<{
     leadName: string | null;
@@ -2578,6 +2579,15 @@ function InboxChat({
               ✕ Quitar filtros ({visibleConvs.length} de {convs.length})
             </button>
           )}
+          {/* Difusión: envía un mensaje al SEGMENTO actual (los filtros de
+              clasificación/estado/prioridad activos), espaciado anti-baneo. */}
+          <button
+            onClick={() => setShowBroadcast(true)}
+            className="w-full text-[11px] font-medium px-2 py-1.5 rounded-md border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+            title="Enviar un mensaje a varias conversaciones a la vez (espaciado para no quemar el número)"
+          >
+            📣 Difusión a este segmento
+          </button>
         </div>
         {visibleConvs.length === 0 && (
           <div className="p-4 text-xs text-slate-400 text-center">Ninguna conversación con esos filtros.</div>
@@ -2869,6 +2879,164 @@ function InboxChat({
             </div>
           </>
         )}
+      </div>
+      {showBroadcast && (
+        <BroadcastModal
+          onClose={() => setShowBroadcast(false)}
+          onSent={() => { setShowBroadcast(false); loadConvs(); }}
+          segment={{
+            classifications: fClass !== "all" ? [fClass] : undefined,
+            statuses: fStatus !== "all" ? [fStatus] : undefined,
+            priorities: fPriority !== "all" ? [fPriority] : undefined,
+            includeArchived: showArchived
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * Difusión segmentada: escribe un mensaje y se envía a todas las conversaciones
+ * del segmento (los filtros activos), ESPACIADO para no quemar el número.
+ * Muestra previsualización de a cuántos llegará y las últimas difusiones.
+ */
+function BroadcastModal({
+  onClose,
+  onSent,
+  segment
+}: {
+  onClose: () => void;
+  onSent: () => void;
+  segment: { classifications?: string[]; statuses?: string[]; priorities?: string[]; includeArchived?: boolean };
+}) {
+  const [text, setText] = useState("");
+  const [count, setCount] = useState<number | null>(null);
+  const [sending, setSending] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [done, setDone] = useState<{ total: number; lastAt: string | null } | null>(null);
+  const [history, setHistory] = useState<{ id: string; body: string; total: number; sentCount: number; failedCount: number; pending: number; status: string; createdAt: string }[]>([]);
+
+  async function loadPreview() {
+    try {
+      const r = await fetch("/api/v1/leads/inbox/broadcast", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ preview: true, segment })
+      });
+      const d = await r.json().catch(() => ({}));
+      if (r.ok) setCount(d.count ?? 0);
+    } catch {}
+  }
+  async function loadHistory() {
+    try {
+      const r = await fetch("/api/v1/leads/inbox/broadcast");
+      if (r.ok) setHistory((await r.json()).items ?? []);
+    } catch {}
+  }
+  useEffect(() => { loadPreview(); loadHistory(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
+
+  async function send() {
+    const body = text.trim();
+    if (!body || sending) return;
+    setSending(true);
+    setErr(null);
+    try {
+      const r = await fetch("/api/v1/leads/inbox/broadcast", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: body, segment })
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d?.error?.message ?? `HTTP ${r.status}`);
+      setDone({ total: d.total ?? 0, lastAt: d.lastAt ?? null });
+      setText("");
+      loadHistory();
+      onSent();
+    } catch (e: any) {
+      setErr(e?.message ?? "No se pudo enviar la difusión.");
+    } finally {
+      setSending(false);
+    }
+  }
+
+  const segLabels: string[] = [];
+  if (segment.classifications?.length) segLabels.push(`etiqueta: ${segment.classifications.join(", ")}`);
+  if (segment.statuses?.length) segLabels.push(`estado: ${segment.statuses.join(", ")}`);
+  if (segment.priorities?.length) segLabels.push(`prioridad: ${segment.priorities.join(", ")}`);
+  if (segment.includeArchived) segLabels.push("incluye archivadas");
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-xl border shadow-xl w-full max-w-lg max-h-[88vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        <div className="px-4 py-3 border-b flex items-center justify-between">
+          <strong className="text-sm">📣 Difusión segmentada</strong>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-700">✕</button>
+        </div>
+        <div className="p-4 space-y-3">
+          <div className="text-xs text-slate-600 bg-slate-50 border rounded-lg p-2.5">
+            Se enviará a <strong>{count == null ? "…" : count}</strong> conversación{count === 1 ? "" : "es"}
+            {segLabels.length > 0 ? <> del segmento <span className="text-slate-500">({segLabels.join(" · ")})</span></> : <> (todas las conversaciones activas)</>}.
+            <div className="mt-1 text-[11px] text-slate-500">
+              Los envíos van <strong>espaciados automáticamente</strong> (anti-baneo): respetan tu ventana horaria, la
+              cadencia mínima y el tope por hora. No se enviará a quien pidió la baja.
+            </div>
+          </div>
+
+          {done ? (
+            <div className="text-sm bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg p-3">
+              ✅ Difusión programada a <strong>{done.total}</strong> contactos.
+              {done.lastAt && <> El último saldrá aprox. el <strong>{new Date(done.lastAt).toLocaleString("es-ES", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</strong>.</>}
+              <div className="mt-1 text-[11px]">Se irán enviando solos en segundo plano. Puedes cerrar esta ventana.</div>
+            </div>
+          ) : (
+            <>
+              <textarea
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+                rows={4}
+                placeholder="Escribe el mensaje… Usa {{nombre}} para personalizar con el nombre del contacto."
+                className="w-full px-3 py-2 rounded-lg border text-sm resize-none"
+              />
+              <div className="text-[11px] text-slate-400">
+                💡 Cada mensaje se envía al chat existente del contacto. Tip: <code className="bg-slate-100 px-1 rounded">{"{{nombre}}"}</code> se sustituye por su nombre.
+              </div>
+              {err && <div className="text-xs text-rose-600">{err}</div>}
+              <div className="flex items-center justify-end gap-2">
+                <button onClick={onClose} className="px-3 py-2 rounded-lg border text-sm text-slate-600 hover:bg-slate-50">Cancelar</button>
+                <button
+                  onClick={() => void send()}
+                  disabled={sending || !text.trim() || (count ?? 0) === 0}
+                  className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold disabled:opacity-50 inline-flex items-center gap-1.5"
+                >
+                  {sending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                  Enviar a {count ?? 0}
+                </button>
+              </div>
+            </>
+          )}
+
+          {history.length > 0 && (
+            <div className="pt-2 border-t">
+              <div className="text-[11px] font-semibold text-slate-500 mb-1.5">Últimas difusiones</div>
+              <div className="space-y-1.5">
+                {history.map((h) => (
+                  <div key={h.id} className="text-[11px] text-slate-600 bg-slate-50 border rounded p-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="truncate">{h.body}</span>
+                      <span className={`shrink-0 px-1.5 rounded ${h.status === "done" ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>
+                        {h.status === "done" ? "✓ Enviada" : "⏳ Enviando"}
+                      </span>
+                    </div>
+                    <div className="mt-0.5 text-slate-400">
+                      {h.sentCount}/{h.total} enviados{h.failedCount > 0 ? ` · ${h.failedCount} fallidos` : ""}{h.pending > 0 ? ` · ${h.pending} en cola` : ""}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

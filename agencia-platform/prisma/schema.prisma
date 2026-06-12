@@ -220,6 +220,8 @@ model Workspace {
   leadExclusions            LeadExclusion[]
   leadOptouts               LeadOptout[]
   leadConversationMetas     LeadConversationMeta[]
+  leadBroadcasts            LeadBroadcast[]
+  leadBroadcastRecipients   LeadBroadcastRecipient[]
   externalCalendars         UserExternalCalendar[]
   vacationDays              VacationDay[]
   teamMessages              TeamMessage[]
@@ -1178,6 +1180,53 @@ model LeadConversationMeta {
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@unique([workspaceId, phone])
+}
+
+/// Difusión segmentada: un mensaje que se envía a un segmento de
+/// conversaciones existentes del inbox (filtradas por clasificación, estado o
+/// prioridad). El envío va ESPACIADO (anti-baneo) — cada destinatario tiene su
+/// scheduledAt encadenado y el cron entrega de uno en uno respetando la
+/// ventana horaria y la cadencia mínima.
+model LeadBroadcast {
+  id          String   @id @default(cuid())
+  workspaceId String
+  body        String   @db.Text
+  segment     Json? // filtros aplicados (classifications/statuses/priorities)
+  total       Int      @default(0)
+  sentCount   Int      @default(0)
+  failedCount Int      @default(0)
+  status      String   @default("running") // running | done | paused
+  createdBy   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace  Workspace                 @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  recipients LeadBroadcastRecipient[]
+
+  @@index([workspaceId, status])
+}
+
+model LeadBroadcastRecipient {
+  id                String    @id @default(cuid())
+  workspaceId       String
+  broadcastId       String
+  phone             String // phoneNormalized de la conversación
+  chatId            String? // chatId original para responder (LID-aware)
+  instanceName      String?
+  leadId            String?
+  body              String    @db.Text // texto ya personalizado para este contacto
+  status            String    @default("queued") // queued | sent | failed | skipped
+  scheduledAt       DateTime
+  sentAt            DateTime?
+  externalMessageId String?
+  error             String?
+  createdAt         DateTime  @default(now())
+
+  workspace Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  broadcast LeadBroadcast @relation(fields: [broadcastId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, status, scheduledAt])
+  @@index([broadcastId])
 }
 
 model LeadOptout {
