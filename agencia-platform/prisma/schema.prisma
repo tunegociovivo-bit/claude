@@ -1174,6 +1174,17 @@ model LeadConversationMeta {
   aiScoreReason String?
   aiDraft     String?  @db.Text
   aiAt        DateTime?
+  // Momento de comprar: la IA detecta alta intención (pregunta precio/cuándo,
+  // urgencia) y marca aiCallNow=true con un guion de cierre por teléfono.
+  aiCallNow   Boolean  @default(false)
+  aiCallScript String? @db.Text
+  // Auto-piloto de seguimiento: si un lead caliente se queda en silencio tras
+  // nuestra última respuesta, la IA envía sola un follow-up con cadencia
+  // decreciente (24h, 72h, 7d). step = nudges enviados; se reinicia a 0 cuando
+  // el lead vuelve a escribir. autoFollowupOff lo desactiva para esta convo.
+  autoFollowupStep   Int       @default(0)
+  autoFollowupLastAt DateTime?
+  autoFollowupOff    Boolean   @default(false)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 

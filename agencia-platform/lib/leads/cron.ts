@@ -14,6 +14,7 @@ import { processSearchBatch } from "@/lib/leads/search-manager";
 import { processQueueTick } from "@/lib/leads/send-queue";
 import { processSequencesTick } from "@/lib/leads/sequences";
 import { processBroadcastTick } from "@/lib/leads/broadcast";
+import { processAutoFollowupTick } from "@/lib/leads/auto-followup";
 
 export async function runLeadsCronAllWorkspaces(): Promise<any[]> {
   const workspaces = await prisma.workspace.findMany({ select: { id: true } });
@@ -55,6 +56,13 @@ export async function runLeadsCronAllWorkspaces(): Promise<any[]> {
       wsReport.broadcast = await processBroadcastTick(ws.id);
     } catch (e: any) {
       wsReport.broadcastError = e?.message ?? String(e);
+    }
+
+    // 5. Auto-piloto de seguimiento (1 nudge IA a un lead caliente en silencio).
+    try {
+      wsReport.autoFollowup = await processAutoFollowupTick(ws.id);
+    } catch (e: any) {
+      wsReport.autoFollowupError = e?.message ?? String(e);
     }
 
     report.push(wsReport);

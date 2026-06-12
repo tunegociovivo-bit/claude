@@ -2217,6 +2217,7 @@ type Conversation = {
   archived: boolean;
   followupAt: string | null;
   aiScore: number | null;
+  aiCallNow: boolean;
   lastBody: string;
   lastAt: string;
   lastDirection: string;
@@ -2301,9 +2302,13 @@ function InboxChat({
     aiScore: number | null;
     aiScoreReason: string | null;
     aiDraft: string | null;
+    aiCallNow: boolean;
+    aiCallScript: string | null;
+    autoFollowupStep: number;
+    autoFollowupOff: boolean;
     replyChannel: string | null;
     optedOut: boolean;
-  }>({ leadName: null, leadPhone: null, realPhone: null, isLid: false, displayName: null, note: null, priority: "none", status: "pending", archived: false, followupAt: null, leadId: null, aiScore: null, aiScoreReason: null, aiDraft: null, replyChannel: null, optedOut: false });
+  }>({ leadName: null, leadPhone: null, realPhone: null, isLid: false, displayName: null, note: null, priority: "none", status: "pending", archived: false, followupAt: null, leadId: null, aiScore: null, aiScoreReason: null, aiDraft: null, aiCallNow: false, aiCallScript: null, autoFollowupStep: 0, autoFollowupOff: false, replyChannel: null, optedOut: false });
   const [noteDraft, setNoteDraft] = useState("");
   const [savingMeta, setSavingMeta] = useState(false);
   const [draft, setDraft] = useState("");
@@ -2343,6 +2348,10 @@ function InboxChat({
       aiScore: d.aiScore ?? null,
       aiScoreReason: d.aiScoreReason ?? null,
       aiDraft: d.aiDraft ?? null,
+      aiCallNow: !!d.aiCallNow,
+      aiCallScript: d.aiCallScript ?? null,
+      autoFollowupStep: d.autoFollowupStep ?? 0,
+      autoFollowupOff: !!d.autoFollowupOff,
       replyChannel: d.replyChannel ?? null,
       optedOut: !!d.optedOut
     });
@@ -2436,7 +2445,7 @@ function InboxChat({
     }
   }
 
-  async function saveMeta(patch: { note?: string | null; priority?: string; displayName?: string | null; status?: string; archived?: boolean; followupAt?: string | null; followupNote?: string | null }) {
+  async function saveMeta(patch: { note?: string | null; priority?: string; displayName?: string | null; status?: string; archived?: boolean; followupAt?: string | null; followupNote?: string | null; autoFollowupOff?: boolean }) {
     if (!selected) return;
     setSavingMeta(true);
     try {
@@ -2447,7 +2456,7 @@ function InboxChat({
       });
       if (r.ok) {
         const d = await r.json();
-        setThreadMeta((m) => ({ ...m, note: d.note ?? null, priority: d.priority ?? "none", displayName: d.displayName ?? null, status: d.status ?? "pending", archived: !!d.archived, followupAt: d.followupAt ?? m.followupAt }));
+        setThreadMeta((m) => ({ ...m, note: d.note ?? null, priority: d.priority ?? "none", displayName: d.displayName ?? null, status: d.status ?? "pending", archived: !!d.archived, followupAt: d.followupAt ?? m.followupAt, autoFollowupOff: d.autoFollowupOff ?? m.autoFollowupOff }));
         setConvs((prev) =>
           prev.map((c) =>
             c.phone === selected
@@ -2616,6 +2625,11 @@ function InboxChat({
                   {c.leadName || c.displayName || c.phone}
                 </span>
                 <span className="flex items-center gap-1 shrink-0">
+                  {c.aiCallNow && (
+                    <span className="text-[10px] font-bold px-1 rounded bg-rose-600 text-white animate-pulse" title="Momento de comprar: llámale ya">
+                      📞 YA
+                    </span>
+                  )}
                   {c.aiScore != null && (
                     <span
                       className={`text-[10px] font-bold px-1 rounded ${c.aiScore >= 70 ? "bg-rose-100 text-rose-700" : c.aiScore >= 40 ? "bg-amber-100 text-amber-700" : "bg-slate-100 text-slate-500"}`}
@@ -2799,6 +2813,45 @@ function InboxChat({
                       {sendingExtra === "mockup" ? "…" : "🖼️ Enviar mockup"}
                     </button>
                   </>
+                )}
+              </div>
+              {/* Momento de comprar: alerta + guion de cierre por teléfono */}
+              {threadMeta.aiCallNow && (
+                <div className="rounded-lg border border-rose-300 bg-rose-50 p-2.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <strong className="text-[12px] text-rose-700">📞 Momento de comprar — llámale ya</strong>
+                    {(threadMeta.leadPhone || threadMeta.realPhone) && (
+                      <a
+                        href={`tel:${threadMeta.leadPhone || threadMeta.realPhone}`}
+                        className="text-[11px] font-semibold px-2.5 py-1 rounded-md bg-rose-600 text-white hover:bg-rose-700 shrink-0"
+                      >
+                        📞 Llamar {threadMeta.leadPhone || threadMeta.realPhone}
+                      </a>
+                    )}
+                  </div>
+                  {threadMeta.aiCallScript && (
+                    <div className="mt-1.5 text-[11px] text-slate-700 whitespace-pre-wrap leading-snug border-t border-rose-200 pt-1.5">
+                      <span className="text-rose-600 font-medium">Guion: </span>{threadMeta.aiCallScript}
+                    </div>
+                  )}
+                </div>
+              )}
+              {/* Auto-piloto de seguimiento por conversación */}
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <button
+                  onClick={() => void saveMeta({ autoFollowupOff: !threadMeta.autoFollowupOff })}
+                  disabled={savingMeta}
+                  className={`text-[11px] px-2 py-0.5 rounded-md border font-medium disabled:opacity-50 ${
+                    threadMeta.autoFollowupOff
+                      ? "bg-white text-slate-400 border-slate-200 hover:bg-slate-50"
+                      : "bg-indigo-50 text-indigo-700 border-indigo-200"
+                  }`}
+                  title="Si el lead se enfría, la IA le manda follow-ups solos (24h, 72h, 7d). Requiere activar el auto-piloto en Ajustes."
+                >
+                  🤖 Auto-seguimiento {threadMeta.autoFollowupOff ? "OFF" : "ON"}
+                </button>
+                {threadMeta.autoFollowupStep > 0 && (
+                  <span className="text-[10px] text-slate-400">· {threadMeta.autoFollowupStep}/3 toques enviados</span>
                 )}
               </div>
             </div>
@@ -4495,6 +4548,22 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
                 placeholder="¡Hola {{nombre}}! Gracias por escribir 🙌 Te atiendo enseguida."
                 className="mt-1.5 w-full px-3 py-2 rounded-lg border bg-white text-sm disabled:opacity-50"
               />
+            </div>
+            <div className="mt-2 rounded-lg border bg-indigo-50/50 p-3">
+              <label className="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={!!s.autoFollowupEnabled}
+                  onChange={(e) => setField("autoFollowupEnabled", e.target.checked)}
+                  className="accent-indigo-600"
+                />
+                🤖 Auto-piloto de seguimiento (ningún lead caliente se enfría)
+              </label>
+              <p className="text-[11px] text-slate-500 mt-1">
+                Si un lead caliente se queda en silencio tras tu última respuesta, la IA le manda sola un follow-up suave
+                con cadencia decreciente (24h → 72h → 7 días, máx 3 toques). Se detiene en cuanto el lead responde o pide
+                baja, respeta tu ventana horaria y el anti-baneo. Puedes desactivarlo por conversación desde su chat.
+              </p>
             </div>
             <div className="mt-2 rounded-lg border bg-slate-50/60 p-3">
               <div className="flex items-center justify-between mb-1.5">
