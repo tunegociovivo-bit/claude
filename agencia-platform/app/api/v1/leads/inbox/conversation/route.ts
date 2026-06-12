@@ -11,6 +11,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
+import { realPhoneFromMeta, isLidFromMeta, looksLikePhone } from "@/lib/leads/lid";
 
 export const dynamic = "force-dynamic";
 
@@ -88,8 +89,23 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
     })
     .catch(() => {});
 
+  // Identidad real: número real si WAHA lo manda en algún entrante; si el
+  // contacto es un LID, marcamos que el teléfono está oculto.
+  let realPhone: string | null = looksLikePhone(phone) ? phone : null;
+  let isLid = false;
+  for (const m of inboxMsgs) {
+    if (m.direction !== "in") continue;
+    if (!realPhone) {
+      const rp = realPhoneFromMeta(m.meta);
+      if (rp) realPhone = rp;
+    }
+    if (isLidFromMeta(m.meta)) isLid = true;
+  }
+
   return NextResponse.json({
     phone,
+    realPhone,
+    isLid,
     lead: lead ? { id: lead.id, name: lead.name, phone: (lead as any).phone ?? null } : null,
     displayName: convMeta?.displayName ?? null,
     note: convMeta?.note ?? null,
