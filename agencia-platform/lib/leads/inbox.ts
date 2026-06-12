@@ -343,6 +343,31 @@ export async function ingestInbox(opts: {
       .catch(() => {});
   }
 
+  // Si el contacto llega como LID (número oculto), intentamos resolver el
+  // teléfono real preguntándoselo a WAHA y lo guardamos en la conversación.
+  const fromJid: string = opts.meta?.payload?.from ?? opts.meta?.from ?? "";
+  if (/@lid$/i.test(fromJid)) {
+    void (async () => {
+      try {
+        const { resolveLidToPhone } = await import("./waha");
+        const real = await resolveLidToPhone({
+          workspaceId: opts.workspaceId,
+          lid: fromJid,
+          session: opts.instanceName ?? undefined
+        });
+        if (real) {
+          await prisma.leadConversationMeta.upsert({
+            where: { workspaceId_phone: { workspaceId: opts.workspaceId, phone: phoneNormalized } },
+            create: { workspaceId: opts.workspaceId, phone: phoneNormalized, realPhone: real },
+            update: { realPhone: real }
+          });
+        }
+      } catch {
+        // WAHA no soporta la resolución → se queda en "nº oculto".
+      }
+    })();
+  }
+
   // Acciones según clasificación
   if (classified.classification === "opt_out") {
     await prisma.leadOptout.upsert({
