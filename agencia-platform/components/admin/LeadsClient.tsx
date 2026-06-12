@@ -2301,6 +2301,7 @@ function InboxChat({
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [sendErr, setSendErr] = useState<string | null>(null);
+  const [suggesting, setSuggesting] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   async function loadConvs() {
@@ -2379,6 +2380,26 @@ function InboxChat({
       setSendErr(e?.message ?? "No se pudo enviar");
     } finally {
       setSending(false);
+    }
+  }
+
+  async function suggestReply() {
+    if (!selected || suggesting) return;
+    setSuggesting(true);
+    setSendErr(null);
+    try {
+      const r = await fetch("/api/v1/leads/inbox/suggest-reply", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone: selected })
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d?.error?.message ?? `HTTP ${r.status}`);
+      if (d.suggestion) setDraft(d.suggestion);
+    } catch (e: any) {
+      setSendErr(e?.message ?? "No se pudo sugerir respuesta");
+    } finally {
+      setSuggesting(false);
     }
   }
 
@@ -2712,19 +2733,29 @@ function InboxChat({
             <div className="border-t p-3 bg-white">
               {sendErr && <div className="text-xs text-rose-600 mb-1.5">✗ {sendErr}</div>}
               <div className="flex items-end gap-2">
-                <textarea
-                  value={draft}
-                  onChange={(e) => setDraft(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && !e.shiftKey) {
-                      e.preventDefault();
-                      void send();
-                    }
-                  }}
-                  rows={2}
-                  placeholder="Escribe tu respuesta… (Enter para enviar, Shift+Enter salto de línea)"
-                  className="flex-1 px-3 py-2 rounded-lg border text-sm resize-none"
-                />
+                <div className="flex-1">
+                  <button
+                    onClick={() => void suggestReply()}
+                    disabled={suggesting}
+                    className="mb-1 inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded-md border border-violet-300 bg-violet-50 text-violet-700 hover:bg-violet-100 disabled:opacity-50"
+                    title="Que la IA proponga la respuesta según el hilo y el lead"
+                  >
+                    {suggesting ? <Loader2 className="h-3 w-3 animate-spin" /> : "✨"} Sugerir respuesta IA
+                  </button>
+                  <textarea
+                    value={draft}
+                    onChange={(e) => setDraft(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && !e.shiftKey) {
+                        e.preventDefault();
+                        void send();
+                      }
+                    }}
+                    rows={2}
+                    placeholder="Escribe tu respuesta… (Enter para enviar, Shift+Enter salto de línea)"
+                    className="w-full px-3 py-2 rounded-lg border text-sm resize-none"
+                  />
+                </div>
                 <button
                   onClick={() => void send()}
                   disabled={sending || !draft.trim()}
@@ -4172,6 +4203,29 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
                 className="w-full px-3 py-2 rounded-lg border bg-white text-sm"
               />
               <p className="text-[11px] text-slate-500 mt-1">Te llega un WhatsApp inmediato cuando la IA clasifica una respuesta como interesada. Déjalo vacío para no recibir avisos.</p>
+            </div>
+            <div className="mt-2 rounded-lg border bg-emerald-50/50 p-3">
+              <label className="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={!!s.autoReplyEnabled}
+                  onChange={(e) => setField("autoReplyEnabled", e.target.checked)}
+                  className="accent-emerald-600"
+                />
+                🤖 Auto-respuesta al primer mensaje de un lead
+              </label>
+              <p className="text-[11px] text-slate-500 mt-1">
+                Cuando un lead te escribe por primera vez, se le manda este WhatsApp al instante (capta el momento aunque
+                no estés). Solo se envía UNA vez por contacto y nunca a quien pide baja. Usa <code>{"{{nombre}}"}</code> para su nombre.
+              </p>
+              <textarea
+                value={s.autoReplyText ?? ""}
+                onChange={(e) => setField("autoReplyText", e.target.value)}
+                rows={2}
+                disabled={!s.autoReplyEnabled}
+                placeholder="¡Hola {{nombre}}! Gracias por escribir 🙌 Te atiendo enseguida."
+                className="mt-1.5 w-full px-3 py-2 rounded-lg border bg-white text-sm disabled:opacity-50"
+              />
             </div>
             <div className="mt-2 rounded-lg border bg-slate-50/60 p-3">
               <div className="flex items-center justify-between mb-1.5">

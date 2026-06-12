@@ -368,6 +368,53 @@ export async function ingestInbox(opts: {
     })();
   }
 
+  // Auto-respuesta al PRIMER mensaje de un teléfono (capta el momento caliente
+  // aunque no estés). Solo si está activada, no es una baja, y no le hemos
+  // escrito antes desde el inbox. Fire-and-forget.
+  if (classified.classification !== "opt_out" && classified.classification !== "auto_reply") {
+    void (async () => {
+      try {
+        const leads: any = (ws?.settings as any)?.leads ?? {};
+        if (!leads.autoReplyEnabled) return;
+        const text = String(leads.autoReplyText ?? "").trim();
+        if (!text) return;
+        // ¿Es el primer contacto? (un solo entrante de este teléfono = este)
+        const inboundCount = await prisma.leadInboxMessage.count({
+          where: { workspaceId: opts.workspaceId, phoneNormalized, direction: "in" }
+        });
+        const alreadyReplied = await prisma.leadInboxMessage.count({
+          where: { workspaceId: opts.workspaceId, phoneNormalized, direction: "out" }
+        });
+        if (inboundCount > 1 || alreadyReplied > 0) return;
+        const personalized = text.replace(/\{\{\s*nombre\s*\}\}/gi, leadName ?? "");
+        const { sendText } = await import("./waha");
+        const replyTo = opts.fromPhone && String(opts.fromPhone).includes("@") ? String(opts.fromPhone) : phoneNormalized;
+        const out = await sendText({
+          workspaceId: opts.workspaceId,
+          phoneNormalized: replyTo,
+          text: personalized,
+          session: opts.instanceName ?? undefined
+        });
+        await prisma.leadInboxMessage.create({
+          data: {
+            workspaceId: opts.workspaceId,
+            leadId,
+            fromPhone: rawPhone,
+            phoneNormalized,
+            channel: "whatsapp",
+            direction: "out",
+            body: personalized,
+            read: true,
+            externalMessageId: out.messageId ?? null,
+            instanceName: opts.instanceName ?? null
+          }
+        });
+      } catch (e: any) {
+        console.warn("[inbox auto-reply]", e?.message ?? e);
+      }
+    })();
+  }
+
   // Acciones según clasificación
   if (classified.classification === "opt_out") {
     await prisma.leadOptout.upsert({
