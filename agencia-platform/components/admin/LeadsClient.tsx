@@ -2350,7 +2350,7 @@ function InboxChat({
     }
   }
 
-  async function saveMeta(patch: { note?: string | null; priority?: string }) {
+  async function saveMeta(patch: { note?: string | null; priority?: string; displayName?: string | null }) {
     if (!selected) return;
     setSavingMeta(true);
     try {
@@ -2361,10 +2361,12 @@ function InboxChat({
       });
       if (r.ok) {
         const d = await r.json();
-        setThreadMeta((m) => ({ ...m, note: d.note ?? null, priority: d.priority ?? "none" }));
+        setThreadMeta((m) => ({ ...m, note: d.note ?? null, priority: d.priority ?? "none", displayName: d.displayName ?? null }));
         setConvs((prev) =>
           prev.map((c) =>
-            c.phone === selected ? { ...c, note: d.note ?? null, priority: d.priority ?? "none" } : c
+            c.phone === selected
+              ? { ...c, note: d.note ?? null, priority: d.priority ?? "none", displayName: d.displayName ?? null }
+              : c
           )
         );
       }
@@ -2417,6 +2419,11 @@ function InboxChat({
                   </span>
                 )}
               </div>
+              {c.note && (
+                <div className="mt-1 text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded px-1.5 py-1 leading-snug">
+                  📝 {c.note}
+                </div>
+              )}
               <div className="flex items-center gap-1.5 mt-1 flex-wrap">
                 {PRIORITY_CHIP[c.priority] && (
                   <span className={`text-[10px] px-1.5 py-0.5 rounded border font-semibold ${PRIORITY_CHIP[c.priority].cls}`}>
@@ -2424,7 +2431,6 @@ function InboxChat({
                   </span>
                 )}
                 {chip && <span className={`text-[10px] px-1.5 py-0.5 rounded border ${chip.cls}`}>{chip.label}</span>}
-                {c.note && <span className="text-[10px] text-slate-400" title={c.note}>📝</span>}
                 {c.instanceName && (
                   <span className="text-[10px] px-1.5 py-0.5 rounded border bg-slate-50 text-slate-500 border-slate-200">
                     📱 {c.instanceName}
@@ -2448,8 +2454,21 @@ function InboxChat({
               <div className="flex items-center gap-2">
                 <button onClick={() => setSelected(null)} className="md:hidden text-slate-500 text-sm">‹</button>
                 <div className="flex-1 min-w-0">
-                  <div className="text-sm font-semibold text-slate-800 truncate">
-                    {threadMeta.leadName || threadMeta.displayName || sel.phone}
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-sm font-semibold text-slate-800 truncate">
+                      {threadMeta.leadName || threadMeta.displayName || sel.phone}
+                    </span>
+                    <button
+                      onClick={() => {
+                        const cur = threadMeta.displayName ?? "";
+                        const next = window.prompt("Nombre para esta conversación (quién es):", cur);
+                        if (next !== null) void saveMeta({ displayName: next });
+                      }}
+                      title="Poner/editar nombre del contacto"
+                      className="text-[11px] text-slate-400 hover:text-brand-600 shrink-0"
+                    >
+                      ✏️
+                    </button>
                   </div>
                   <div className="text-[11px] text-slate-500 truncate">
                     📞 {threadMeta.leadPhone || sel.phone}
