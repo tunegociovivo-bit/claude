@@ -14,11 +14,21 @@ import { realPhoneFromMeta, isLidFromMeta, looksLikePhone } from "@/lib/leads/li
 export const dynamic = "force-dynamic";
 
 export const GET = withApi({ scope: "*" }, async (req, { api }) => {
-  // Modo ligero para el badge de la pestaña: solo el nº de no-leídos.
+  // Modo ligero para el badge de la pestaña: nº de no-leídos en conversaciones
+  // NO archivadas (las archivadas no deben hacer parpadear la pestaña).
   if (new URL(req.url).searchParams.get("countOnly") === "1") {
-    const totalUnread = await prisma.leadInboxMessage.count({
-      where: { workspaceId: api.workspaceId, direction: "in", read: false }
-    });
+    const [unreadMsgs, archived] = await Promise.all([
+      prisma.leadInboxMessage.findMany({
+        where: { workspaceId: api.workspaceId, direction: "in", read: false },
+        select: { phoneNormalized: true, fromPhone: true }
+      }),
+      prisma.leadConversationMeta.findMany({
+        where: { workspaceId: api.workspaceId, archived: true },
+        select: { phone: true }
+      })
+    ]);
+    const archivedSet = new Set(archived.map((a) => a.phone));
+    const totalUnread = unreadMsgs.filter((m) => !archivedSet.has(m.phoneNormalized ?? m.fromPhone)).length;
     return NextResponse.json({ totalUnread });
   }
 
@@ -45,6 +55,8 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
     displayName: string | null;
     note: string | null;
     priority: string;
+    status: string;
+    archived: boolean;
     lastBody: string;
     lastAt: Date;
     lastDirection: string;
@@ -68,6 +80,8 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
         displayName: meta?.displayName ?? null,
         note: meta?.note ?? null,
         priority: meta?.priority ?? "none",
+        status: meta?.status ?? "pending",
+        archived: meta?.archived ?? false,
         lastBody: m.body,
         lastAt: m.receivedAt,
         lastDirection: m.direction,
