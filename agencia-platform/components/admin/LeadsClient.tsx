@@ -142,7 +142,7 @@ export default function LeadsClient() {
   const [queue, setQueue] = useState<QueueRow[]>([]);
   const [templates, setTemplates] = useState<Template[]>([]);
   const [inbox, setInbox] = useState<InboxRow[]>([]);
-  const [inboxDiag, setInboxDiag] = useState<{ webhookLastHit: string | null; webhookLastEvent: string | null; webhookLastDecision?: string | null; webhookLastFrom?: string | null; webhookLastBody?: string | null; webhookLastKeys?: string | null; webhookLastMsgAt?: string | null; webhookLastMsgDecision?: string | null; webhookLastMsgEvent?: string | null; webhookLastMsgFrom?: string | null; webhookLastMsgBody?: string | null; webhookLastMsgPayloadKeys?: string | null }>({ webhookLastHit: null, webhookLastEvent: null });
+  const [inboxDiag, setInboxDiag] = useState<{ webhookLastHit: string | null; webhookLastEvent: string | null; webhookLastDecision?: string | null; webhookLastFrom?: string | null; webhookLastBody?: string | null; webhookLastKeys?: string | null; webhookLastMsgAt?: string | null; webhookLastMsgDecision?: string | null; webhookLastMsgEvent?: string | null; webhookLastMsgFrom?: string | null; webhookLastMsgBody?: string | null; webhookLastMsgPayloadKeys?: string | null; webhookMe?: string | null; webhookSession?: string | null }>({ webhookLastHit: null, webhookLastEvent: null });
   const [analytics, setAnalytics] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState("ALL");
@@ -2211,7 +2211,7 @@ function InboxChat({
   diagnostics
 }: {
   loading: boolean;
-  diagnostics: { webhookLastHit: string | null; webhookLastEvent: string | null; webhookLastDecision?: string | null; webhookLastFrom?: string | null; webhookLastBody?: string | null; webhookLastKeys?: string | null; webhookLastMsgAt?: string | null; webhookLastMsgDecision?: string | null; webhookLastMsgEvent?: string | null; webhookLastMsgFrom?: string | null; webhookLastMsgBody?: string | null; webhookLastMsgPayloadKeys?: string | null };
+  diagnostics: { webhookLastHit: string | null; webhookLastEvent: string | null; webhookLastDecision?: string | null; webhookLastFrom?: string | null; webhookLastBody?: string | null; webhookLastKeys?: string | null; webhookLastMsgAt?: string | null; webhookLastMsgDecision?: string | null; webhookLastMsgEvent?: string | null; webhookLastMsgFrom?: string | null; webhookLastMsgBody?: string | null; webhookLastMsgPayloadKeys?: string | null; webhookMe?: string | null; webhookSession?: string | null };
 }) {
   const [convs, setConvs] = useState<Conversation[]>([]);
   const [convsLoaded, setConvsLoaded] = useState(false);
@@ -2470,7 +2470,7 @@ function InboxList({
 }: {
   loading: boolean;
   items: InboxRow[];
-  diagnostics: { webhookLastHit: string | null; webhookLastEvent: string | null; webhookLastDecision?: string | null; webhookLastFrom?: string | null; webhookLastBody?: string | null; webhookLastKeys?: string | null; webhookLastMsgAt?: string | null; webhookLastMsgDecision?: string | null; webhookLastMsgEvent?: string | null; webhookLastMsgFrom?: string | null; webhookLastMsgBody?: string | null; webhookLastMsgPayloadKeys?: string | null };
+  diagnostics: { webhookLastHit: string | null; webhookLastEvent: string | null; webhookLastDecision?: string | null; webhookLastFrom?: string | null; webhookLastBody?: string | null; webhookLastKeys?: string | null; webhookLastMsgAt?: string | null; webhookLastMsgDecision?: string | null; webhookLastMsgEvent?: string | null; webhookLastMsgFrom?: string | null; webhookLastMsgBody?: string | null; webhookLastMsgPayloadKeys?: string | null; webhookMe?: string | null; webhookSession?: string | null };
 }) {
   if (loading) return <Loading />;
   if (items.length === 0) {
@@ -2492,9 +2492,19 @@ function InboxList({
                 {diagnostics.webhookLastMsgPayloadKeys && <div>payload: {diagnostics.webhookLastMsgPayloadKeys}</div>}
               </div>
             ) : (
-              <div className="mt-1 rounded bg-amber-50 border border-amber-200 p-2 text-[11px] text-amber-800">
-                Solo han llegado <strong>acks/recibos de tus campañas</strong>; ningún mensaje ENTRANTE aún.
-                Escribe al número de WAHA desde otro teléfono y recarga.
+              <div className="mt-1 rounded bg-amber-50 border border-amber-200 p-2 text-[11px] text-amber-800 space-y-1">
+                <div>Solo han llegado <strong>acks/recibos de tus campañas</strong>; ningún mensaje ENTRANTE aún.</div>
+                {diagnostics.webhookMe && (
+                  <div className="font-mono">
+                    📱 Número WAHA conectado: <strong>{diagnostics.webhookMe.replace(/@.*$/, "")}</strong>
+                    {diagnostics.webhookSession ? ` · sesión: ${diagnostics.webhookSession}` : ""}
+                  </div>
+                )}
+                <div>
+                  Escribe <strong>exactamente a ese número</strong> desde otro teléfono. Si es el correcto y aun así no
+                  entra, el webhook de WAHA no está suscrito a los mensajes entrantes → pulsa de nuevo
+                  <strong> Configurar webhook ahora</strong> (reinicia la suscripción).
+                </div>
               </div>
             )}
             <div className="mt-1">

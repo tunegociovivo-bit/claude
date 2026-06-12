@@ -32,7 +32,9 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
       webhookLastMsgEvent: leadsCfg.webhookLastMsgEvent ?? null,
       webhookLastMsgFrom: leadsCfg.webhookLastMsgFrom ?? null,
       webhookLastMsgBody: leadsCfg.webhookLastMsgBody ?? null,
-      webhookLastMsgPayloadKeys: leadsCfg.webhookLastMsgPayloadKeys ?? null
+      webhookLastMsgPayloadKeys: leadsCfg.webhookLastMsgPayloadKeys ?? null,
+      webhookMe: leadsCfg.webhookMe ?? null,
+      webhookSession: leadsCfg.webhookSession ?? null
     }
   });
 });
