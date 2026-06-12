@@ -955,6 +955,11 @@ model Lead {
   score               Int? // 0-100
   urgency             String? // critica | alta | media | baja | descartar
   scoreBreakdown      Json?
+  // Ticket score: VALOR estimado del lead (sector premium, ya hace anuncios,
+  // precio €€€, tamaño). Distinto del score de "dolor ahora". Para priorizar
+  // captación de ticket alto.
+  ticketScore         Int? // 0-100
+  ticketTier          String? // premium | alto | medio | bajo
   // IA
   aiOpener            String?   @db.Text
   aiOpenerGeneratedAt DateTime?
@@ -984,6 +989,7 @@ model Lead {
   @@index([workspaceId, urgency])
   @@index([searchId])
   @@index([score])
+  @@index([workspaceId, ticketScore])
 }
 
 // Cola de envío de mensajes (saliente). Cron procesa items con

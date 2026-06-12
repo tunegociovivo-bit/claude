@@ -9,16 +9,28 @@
  */
 
 import type { PlacesResult } from "../google-places";
+import { prisma } from "@/lib/db/prisma";
 import { collectBorme } from "./borme";
+import { collectMetaAds } from "./meta-ads";
 
 export type LeadSourceKey =
   | "places"
   | "borme"
+  | "meta_ads"
   | "trustpilot"
   | "doctoralia"
   | "idealista"
   | "fotocasa"
   | "linkedin";
+
+/** Token de Meta para la Ad Library: env primero, si no, Ajustes del workspace. */
+async function metaAdsToken(workspaceId: string): Promise<string | null> {
+  const env = process.env.META_ADS_TOKEN || process.env.META_AD_LIBRARY_TOKEN;
+  if (env) return env;
+  const ws = await prisma.workspace.findUnique({ where: { id: workspaceId }, select: { settings: true } });
+  const t = (ws?.settings as any)?.leads?.metaAdsToken;
+  return typeof t === "string" && t.trim() ? t.trim() : null;
+}
 
 export type CollectorContext = {
   workspaceId: string;
@@ -50,8 +62,19 @@ export async function collectFromSource(
         // En BORME usamos scope como atajo: custom=1 día, spain=últimos 7.
         daysBack: ctx.scope === "spain" ? 7 : 1,
         // Si el usuario indicó "location" (p. ej. "Barcelona"), filtramos.
-        provinceFilter: ctx.location?.trim() || undefined
+        provinceFilter: ctx.location?.trim() || undefined,
+        // Keyword "ticket alto" / "premium" / "valor" → solo sectores de alto valor.
+        highValueOnly: /\b(alto|premium|ticket|valor)\b/i.test(ctx.keyword ?? "")
       });
+    case "meta_ads": {
+      const token = await metaAdsToken(ctx.workspaceId);
+      if (!token) {
+        throw new Error(
+          "Meta Ad Library necesita un token. Configura META_ADS_TOKEN (un app token APPID|APPSECRET sirve) o settings.leads.metaAdsToken."
+        );
+      }
+      return collectMetaAds({ keyword: ctx.keyword, location: ctx.location, token });
+    }
     case "places":
       // El motor places vive en search-manager por razones históricas.
       throw new Error("places no usa collectFromSource — ve directamente a google-places.ts");
@@ -66,7 +89,13 @@ export const LEAD_SOURCE_META: Record<LeadSourceKey, { label: string; status: "r
     label: "BORME (constituciones)",
     status: "ready",
     help:
-      "Sociedades recién constituidas en España. Captación a empresas día-1 sin web ni GMB."
+      "Sociedades recién constituidas en España. Captación a empresas día-1 sin web ni GMB. Tip: pon keyword \"ticket alto\" para filtrar solo sectores premium (dental, abogados, inmobiliaria, reformas…)."
+  },
+  meta_ads: {
+    label: "Meta Ad Library (ya anuncian)",
+    status: "ready",
+    help:
+      "Negocios que YA pagan anuncios en Facebook/Instagram por tu sector → ticket alto y abiertos a marketing. Requiere META_ADS_TOKEN. El teléfono se enriquece después con Google Places."
   },
   trustpilot: {
     label: "Trustpilot (reseñas bajas)",

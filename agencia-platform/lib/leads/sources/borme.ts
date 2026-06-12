@@ -12,6 +12,7 @@
  */
 
 import type { PlacesResult } from "../google-places";
+import { detectSector } from "../ticket-score";
 
 /** Mapea "REGISTRO MERCANTIL DE BARCELONA" → "Barcelona". */
 function provinceFromRegistro(name: string): string {
@@ -89,6 +90,10 @@ function arr<T = any>(x: any): T[] {
 export async function collectBorme(opts: {
   daysBack?: number;
   provinceFilter?: string;
+  /** Si true, solo devuelve sociedades cuyo nombre delata un sector de alto
+   *  valor (clínica dental, abogados, inmobiliaria, reformas…). Capta ticket
+   *  alto desde el día 1, antes de que tengan proveedor de marketing. */
+  highValueOnly?: boolean;
 }): Promise<PlacesResult[]> {
   const daysBack = Math.max(1, Math.min(opts.daysBack ?? 1, 30));
   const out: PlacesResult[] = [];
@@ -129,15 +134,22 @@ export async function collectBorme(opts: {
       ) {
         continue;
       }
+      const cleanName = cleanCompanyName(it.titulo);
+      // Sector de alto valor detectado por el nombre de la sociedad (el objeto
+      // social va en el PDF, pero el nombre casi siempre delata la actividad:
+      // "Clínica Dental X SL", "Reformas Y SL", "Inmobiliaria Z SL").
+      const sector = detectSector({ name: cleanName });
+      if (opts.highValueOnly && !sector) continue;
+
       // PlaceId pseudo-único para que upsertLead deduplique entre días
       // y entre rebusquedas: "borme:<identificador>".
       out.push({
         placeId: `borme:${it.identificador}`,
-        name: cleanCompanyName(it.titulo),
+        name: cleanName,
         formattedAddress: null,
         province: it.provincia,
         types: ["borme.constitucion"],
-        category: "Sociedad recién constituida",
+        category: sector ? sector.label : "Sociedad recién constituida",
         latitude: null,
         longitude: null,
         rating: null,
@@ -148,7 +160,7 @@ export async function collectBorme(opts: {
         website: null,
         phone: null,
         internationalPhone: null,
-        rawData: { source: "borme", boeDate: isoDate, identificador: it.identificador, urlPdf: it.urlPdf ?? null }
+        rawData: { source: "borme", boeDate: isoDate, identificador: it.identificador, urlPdf: it.urlPdf ?? null, sector: sector?.key ?? null }
       });
     }
   }
