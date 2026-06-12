@@ -48,6 +48,8 @@ type Lead = {
   position: number | null;
   score: number | null;
   urgency: string | null;
+  ticketScore: number | null;
+  ticketTier: string | null;
   contactStatus: string;
   aiOpener: string | null;
   hasWhatsapp: boolean;
@@ -162,6 +164,7 @@ export default function LeadsClient() {
   const [searchIdFilter, setSearchIdFilter] = useState("ALL");
   const [phoneFilter, setPhoneFilter] = useState<"ALL" | "mobile" | "landline">("ALL");
   const [painOnly, setPainOnly] = useState(false);
+  const [ticketSort, setTicketSort] = useState(false);
   const [searchQ, setSearchQ] = useState("");
   const [newSearchOpen, setNewSearchOpen] = useState(false);
   const [newTemplateOpen, setNewTemplateOpen] = useState(false);
@@ -175,6 +178,7 @@ export default function LeadsClient() {
     if (urgencyFilter !== "ALL") q.set("urgency", urgencyFilter);
     if (searchIdFilter !== "ALL") q.set("searchId", searchIdFilter);
     if (searchQ) q.set("search", searchQ);
+    if (ticketSort) q.set("sort", "ticket");
     return q;
   }
 
@@ -252,7 +256,7 @@ export default function LeadsClient() {
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, statusFilter, urgencyFilter, searchIdFilter, searchQ]);
+  }, [tab, statusFilter, urgencyFilter, searchIdFilter, searchQ, ticketSort]);
 
   // Carga el estado del modo recuperación una vez para el banner anti-baneo.
   useEffect(() => {
@@ -372,6 +376,14 @@ export default function LeadsClient() {
               className={`px-3 py-2 rounded-lg border text-sm font-medium ${painOnly ? "bg-rose-600 text-white border-rose-600" : "bg-white hover:bg-slate-50"}`}
             >
               🔥 Dolor ahora
+            </button>
+            <button
+              type="button"
+              onClick={() => setTicketSort((v) => !v)}
+              title="Ordenar por valor del cliente: sector premium, ya hace anuncios, precio €€€, tamaño"
+              className={`px-3 py-2 rounded-lg border text-sm font-medium ${ticketSort ? "bg-violet-600 text-white border-violet-600" : "bg-white hover:bg-slate-50"}`}
+            >
+              💎 Ticket alto
             </button>
             <select
               value={searchIdFilter}
@@ -1008,6 +1020,14 @@ function LeadsTable({
                   <td className="px-3 py-2">
                     {l.urgency && (
                       <span className={`inline-block px-2 py-0.5 rounded text-[10px] border ${urg}`}>{l.urgency}</span>
+                    )}
+                    {(l.ticketTier === "premium" || l.ticketTier === "alto") && (
+                      <span
+                        className={`ml-1 inline-block px-1.5 py-0.5 rounded text-[10px] border ${l.ticketTier === "premium" ? "bg-violet-100 text-violet-700 border-violet-200" : "bg-indigo-50 text-indigo-700 border-indigo-200"}`}
+                        title={`Ticket ${l.ticketTier} (valor ${l.ticketScore ?? "?"}/100)`}
+                      >
+                        💎 {l.ticketTier}
+                      </span>
                     )}
                   </td>
                   <td className="px-3 py-2 text-center">{l.hasWhatsapp ? "✓" : "—"}</td>

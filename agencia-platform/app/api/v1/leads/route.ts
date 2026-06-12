@@ -10,6 +10,13 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
   const province = url.searchParams.get("province") ?? undefined;
   const searchId = url.searchParams.get("searchId") ?? undefined;
   const search = url.searchParams.get("search") ?? undefined;
+  const ticketTier = url.searchParams.get("ticketTier") ?? undefined;
+  // sort=ticket → prioriza captación de ticket alto; por defecto, "dolor ahora".
+  const sort = url.searchParams.get("sort") ?? undefined;
+  const orderBy: any =
+    sort === "ticket"
+      ? [{ ticketScore: "desc" }, { score: "desc" }, { createdAt: "desc" }]
+      : [{ score: "desc" }, { createdAt: "desc" }];
   const limit = Math.min(Number(url.searchParams.get("limit") ?? 200), 500);
   // Paginación: offset para ir trayendo páginas sucesivas ("Cargar más").
   const offset = Math.max(Number(url.searchParams.get("offset") ?? 0), 0);
@@ -19,6 +26,7 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
   if (urgency) where.urgency = urgency;
   if (province) where.province = province;
   if (searchId) where.searchId = searchId;
+  if (ticketTier) where.ticketTier = ticketTier;
   if (search) {
     where.OR = [
       { name: { contains: search, mode: "insensitive" } },
@@ -34,7 +42,7 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
   if (url.searchParams.get("idsOnly") === "1") {
     const rows = await prisma.lead.findMany({
       where,
-      orderBy: [{ score: "desc" }, { createdAt: "desc" }],
+      orderBy,
       select: { id: true, phone: true, contactStatus: true, rating: true, reviewsCount: true }
     });
     return NextResponse.json({ items: rows, total: rows.length });
@@ -45,7 +53,7 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
   const total = await prisma.lead.count({ where });
   const items = await prisma.lead.findMany({
     where,
-    orderBy: [{ score: "desc" }, { createdAt: "desc" }],
+    orderBy,
     skip: offset,
     take: limit,
     select: {
@@ -59,6 +67,8 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
       position: true,
       score: true,
       urgency: true,
+      ticketScore: true,
+      ticketTier: true,
       contactStatus: true,
       aiOpener: true,
       hasWhatsapp: true,

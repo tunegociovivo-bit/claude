@@ -11,6 +11,7 @@
 import { prisma } from "@/lib/db/prisma";
 import { placesTextSearch, type PlacesResult } from "./google-places";
 import { scoreLead } from "./scorer";
+import { scoreTicket } from "./ticket-score";
 import { SPAIN_PROVINCES, findProvince } from "./spain-provinces";
 import { municipalitiesForProvince } from "./spain-municipalities";
 import { expandKeyword } from "./synonyms";
@@ -416,6 +417,18 @@ async function upsertLead(opts: {
     website: r.website
   });
 
+  // Ticket score: valor estimado del lead (sector premium, ya hace anuncios,
+  // precio €€€, tamaño). Para priorizar la captación de ticket alto.
+  const ticket = scoreTicket({
+    name: r.name,
+    category: r.category,
+    types: r.types,
+    priceLevel: r.priceLevel,
+    reviewsCount: r.userRatingCount,
+    website: r.website,
+    runsAds: !!(r.rawData as any)?.runsAds
+  });
+
   // Check de exclusión por nombre (lista negra manual del usuario).
   const exclusions = await prisma.leadExclusion.findMany({
     where: { workspaceId: opts.workspaceId, matchType: "name" }
@@ -466,6 +479,8 @@ async function upsertLead(opts: {
     score: score.score,
     urgency: score.urgency,
     scoreBreakdown: score.breakdown,
+    ticketScore: ticket.ticketScore,
+    ticketTier: ticket.ticketTier,
     contactStatus: excluded ? "excluded" : "pending",
     notes: excluded ? `Excluido: ${exclusionReason}` : null
   };
