@@ -14,6 +14,7 @@ import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { evoSetWebhook } from "@/lib/leads/evolution";
+import { publicBaseUrl } from "@/lib/public-url";
 
 async function requireAdmin(workspaceId: string, userId: string | undefined) {
   if (!userId) throw new ApiError(401, "no_user", "Sesión requerida");
@@ -31,7 +32,7 @@ export const POST = withApi({ scope: "*" }, async (req, { api }) => {
     throw new ApiError(400, "no_token", "Falta webhookToken en settings.leads — abre Ajustes una vez para generarlo.");
   }
 
-  const baseUrl: string = s.publicBaseUrl ?? new URL(req.url).origin;
+  const baseUrl = publicBaseUrl(req, s.publicBaseUrl);
   const url = `${baseUrl.replace(/\/+$/, "")}/api/v1/leads/webhook/${token}`;
 
   let out;

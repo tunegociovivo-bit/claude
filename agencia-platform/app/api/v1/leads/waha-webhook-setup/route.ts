@@ -16,6 +16,7 @@ import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { getWahaConfig, type WahaConfig } from "@/lib/leads/waha";
+import { publicBaseUrl } from "@/lib/public-url";
 
 async function requireAdmin(workspaceId: string, userId: string | undefined) {
   if (!userId) throw new ApiError(401, "no_user", "Sesión requerida");
@@ -38,11 +39,10 @@ export const POST = withApi({ scope: "*" }, async (req, { api }) => {
     throw new ApiError(400, "not_configured", e?.message ?? "WAHA no configurado.");
   }
 
-  // Origen al que apuntar el webhook. Preferimos el host de la propia request
-  // (así funciona en local, staging y prod sin tocar env). Permitimos override
-  // por settings.leads.publicBaseUrl para casos raros (deploy detrás de proxy).
-  const baseUrl: string =
-    s.publicBaseUrl ?? new URL(req.url).origin;
+  // URL PÚBLICA del Hub (detrás del proxy, req.url da el host interno del
+  // contenedor y el webhook quedaría inalcanzable). Override por
+  // settings.leads.publicBaseUrl si hiciera falta.
+  const baseUrl = publicBaseUrl(req, s.publicBaseUrl);
   const url = `${baseUrl.replace(/\/+$/, "")}/api/v1/leads/webhook/${token}`;
 
   const webhookPayload = {
