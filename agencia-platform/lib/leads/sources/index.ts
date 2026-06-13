@@ -14,6 +14,7 @@ import { decryptSecret } from "@/lib/ai/crypto";
 import { collectBorme } from "./borme";
 import { collectMetaAds } from "./meta-ads";
 import { scrapeDirectory } from "./scrape";
+import { detectSector } from "../ticket-score";
 
 export type LeadSourceKey =
   | "places"
@@ -86,15 +87,20 @@ export async function collectFromSource(
       // Keyword "directivos"/"cargos"/"administradores" → mina los nombramientos
       // del Registro Mercantil para captar al DIRECTIVO por su nombre.
       const cargosMode = /\b(directiv|cargos?|administrador|consejero|nombramiento)/i.test(kw);
+      // Si el keyword nombra un sector (p.ej. "clínica dental"), filtramos el
+      // BORME a ese sector — si no, traería TODAS las constituciones del día.
+      const sectorFilter = detectSector({ name: kw })?.key;
       return collectBorme({
-        // En BORME usamos scope como atajo: custom=1 día, spain=últimos 7.
-        daysBack: ctx.scope === "spain" ? 7 : 1,
+        // `daysBack` = nº de DÍAS PUBLICADOS a reunir (cruza findes/festivos).
+        // custom=4 días hábiles recientes; spain=8 (más muestra para sectores).
+        daysBack: ctx.scope === "spain" ? 8 : 4,
         // Si el usuario indicó "location" (p. ej. "Barcelona"), filtramos.
         provinceFilter: ctx.location?.trim() || undefined,
         // Keyword "ticket alto" / "premium" / "valor" → solo sectores de alto valor.
         highValueOnly: /\b(alto|premium|ticket|valor)\b/i.test(kw),
         minCapital,
-        mode: cargosMode ? "cargos" : "constituciones"
+        mode: cargosMode ? "cargos" : "constituciones",
+        sectorFilter
       });
     }
     case "meta_ads": {

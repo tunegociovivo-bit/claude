@@ -1,29 +1,29 @@
 /**
- * Collector de leads desde el BORME (Boletín Oficial del Registro
- * Mercantil). Cada día se publican las CONSTITUCIONES de sociedades en
- * España — son negocios que en su día 1 no tienen ni web, ni GMB, ni nada.
- * Mina de leads infrautilizada para captación.
+ * Collector de leads desde el BORME (Boletín Oficial del Registro Mercantil).
+ * Cada día se publican las CONSTITUCIONES y NOMBRAMIENTOS de sociedades en
+ * España. Mina de leads infrautilizada para captación.
  *
- * Fuente: API pública del BOE (sin clave, gratis).
- *   https://www.boe.es/datosabiertos/api/borme/sumario/<YYYYMMDD>
+ * Formato real (API pública del BOE, sin clave):
+ *   - Sumario: /datosabiertos/api/borme/sumario/<YYYYMMDD> → data.sumario.diario[]
+ *     .seccion (código "A": Empresarios. Actos inscritos) .item[]: UN item por
+ *     PROVINCIA (titulo = provincia, url_xml = XML de actos de esa provincia).
+ *   - XML de provincia: <texto> con pares <p class="articulo">Nº - EMPRESA SL.</p>
+ *     <p class="parrafo">acto (Constitución / Nombramientos / ...) con capital,
+ *     objeto social y cargos</p>.
  *
- * Devuelve PlacesResult[] para ser compatible con el resto del pipeline
- * (AI relevance + upsertLead + scoring) sin cambios.
+ * Devuelve PlacesResult[] para encajar con el pipeline (AI relevance + upsert).
  */
 
 import type { PlacesResult } from "../google-places";
 import { detectSector } from "../ticket-score";
 
-/** Mapea "REGISTRO MERCANTIL DE BARCELONA" → "Barcelona". */
-function provinceFromRegistro(name: string): string {
-  return String(name ?? "")
-    .replace(/registro mercantil( central)? de\s+/i, "")
-    .replace(/^\s+|\s+$/g, "")
-    .replace(/\b\w/g, (c) => c.toUpperCase());
+/** minúsculas + sin acentos, para comparar provincias y textos sin fallar por
+ *  tildes ("Málaga" vs "MALAGA"). */
+function normTxt(s: string): string {
+  return String(s ?? "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim();
 }
 
 function isoFromYmd(ymd: string): string {
-  // YYYYMMDD → YYYY-MM-DD; si llega ya formateado, lo devuelve tal cual.
   if (/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return ymd;
   if (/^\d{8}$/.test(ymd)) return `${ymd.slice(0, 4)}-${ymd.slice(4, 6)}-${ymd.slice(6, 8)}`;
   return ymd;
@@ -36,66 +36,43 @@ function ymdFromDate(d: Date): string {
   return `${y}${m}${day}`;
 }
 
-/** Walker tolerante sobre el JSON del sumario BORME — el formato cambia
- *  entre días (puede venir como array o objeto). Devuelve los items del
- *  epígrafe pedido: "constituci"(ones) o "nombramiento"(s). */
-function extractItems(
-  json: any,
-  which: "constituci" | "nombramiento" = "constituci"
-): Array<{ titulo: string; provincia: string; identificador: string; urlPdf?: string }> {
-  const out: Array<{ titulo: string; provincia: string; identificador: string; urlPdf?: string }> = [];
-
-  const sumario = json?.data?.sumario ?? json?.sumario ?? json;
-  const diarios = arr(sumario?.diario);
-  for (const diario of diarios) {
-    const secciones = arr(diario?.seccion);
-    for (const seccion of secciones) {
-      // II = ANUNCIOS Y AVISOS LEGALES; A = empresarios.
-      const departamentos = arr(seccion?.departamento);
-      for (const dep of departamentos) {
-        const provincia = provinceFromRegistro(dep?.nombre ?? dep?.codigo ?? "");
-        const epigrafes = arr(dep?.epigrafe);
-        for (const ep of epigrafes) {
-          const nombre = String(ep?.nombre ?? "").toLowerCase();
-          if (!nombre.includes(which)) continue;
-          const items = arr(ep?.item);
-          for (const it of items) {
-            const titulo = String(it?.titulo ?? "").trim();
-            if (!titulo) continue;
-            out.push({
-              titulo,
-              provincia: provincia || "—",
-              identificador: String(it?.identificador ?? `borme-${Math.random().toString(36).slice(2, 9)}`),
-              urlPdf: it?.url_pdf ?? it?.urlPdf ?? undefined
-            });
-          }
-        }
-      }
-    }
-  }
-  return out;
-}
-
 function arr<T = any>(x: any): T[] {
   if (Array.isArray(x)) return x;
   if (x == null) return [];
   return [x];
 }
 
-/**
- * Trae los items del BORME para un rango de días hacia atrás.
- *
- * @param daysBack Cuántos días hacia atrás incluir (1 = solo hoy).
- *                 Saltamos sábados/domingos: el BORME no se publica en finde.
- * @param provinceFilter Si se pasa, filtra a los items cuyo nombre de provincia
- *                       contenga este texto (case-insensitive).
- */
-/**
- * Descarga el anuncio individual del BORME (XML legacy del BOE) y extrae
- * capital social y objeto social. El sumario solo trae el nombre; el detalle
- * permite filtrar por capital y afinar el sector con el objeto social.
- */
+/** Items de PROVINCIA del sumario (sección A: Empresarios. Actos inscritos). */
+function extractProvinceItems(json: any): Array<{ provincia: string; identificador: string; urlXml: string }> {
+  const out: Array<{ provincia: string; identificador: string; urlXml: string }> = [];
+  const sumario = json?.data?.sumario ?? json?.sumario ?? json;
+  for (const diario of arr(sumario?.diario)) {
+    for (const sec of arr(diario?.seccion)) {
+      if (String(sec?.codigo ?? "").toUpperCase() !== "A") continue;
+      for (const it of arr(sec?.item)) {
+        const provincia = String(it?.titulo ?? "").trim();
+        const id = String(it?.identificador ?? "");
+        const urlXml =
+          (typeof it?.url_xml === "string" && it.url_xml) ||
+          (id ? `https://www.boe.es/diario_borme/xml.php?id=${id}` : "");
+        if (!provincia || !urlXml) continue;
+        out.push({ provincia, identificador: id, urlXml });
+      }
+    }
+  }
+  return out;
+}
+
+const ENTITIES: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " " };
+function decodeEntities(s: string): string {
+  return s
+    .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16)))
+    .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(parseInt(d, 10)))
+    .replace(/&([a-z]+);/gi, (m, n) => ENTITIES[n.toLowerCase()] ?? m);
+}
+
 export type BormeCargo = { role: string; name: string };
+export type BormeAct = { regNum: string | null; company: string; text: string };
 
 /** Roles de cargo que publica el BORME (abreviaturas oficiales del registro). */
 const CARGO_ROLES: Array<[RegExp, string]> = [
@@ -112,60 +89,71 @@ const CARGO_ROLES: Array<[RegExp, string]> = [
   [/Liquidador/i, "Liquidador"]
 ];
 
-/** Pasa "GARCIA PEREZ JUAN" → "Juan García Pérez" (heurística: el último token
- *  suele ser el nombre en el BORME, que lista APELLIDOS NOMBRE). */
+/** "GARCIA PEREZ JUAN" → "Garcia Perez Juan" (Title Case conservador). */
 function titleCaseName(raw: string): string {
   const clean = raw.trim().replace(/\s+/g, " ").replace(/[.;]+$/, "");
   if (!clean) return "";
-  const tc = clean
-    .toLowerCase()
-    .replace(/(^|\s|-)([\wáéíóúñç])/g, (_, s, c) => s + c.toUpperCase());
-  return tc;
+  return clean.toLowerCase().replace(/(^|\s|-)([\wáéíóúñç])/g, (_, s, c) => s + c.toUpperCase());
 }
 
-/** Extrae los cargos (rol + nombre) del texto de un anuncio de nombramientos. */
+/** Extrae los cargos (rol + nombre) del texto de un acto de nombramientos. */
 function parseCargos(texto: string): BormeCargo[] {
   const out: BormeCargo[] = [];
   const seg = texto.match(/Nombramientos\.?\s*(.+?)(?:Datos registrales|Objeto social|$)/i)?.[1] ?? texto;
-  // Pares "Rol: NOMBRE EN MAYÚSCULAS" separados por "." o ";".
   const re = /([A-Za-zÁÉÍÓÚÑ.\s]{3,30}?):\s*([A-ZÁÉÍÓÚÑ][A-ZÁÉÍÓÚÑ'\-\s]{4,60})(?=[.;]|$)/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(seg))) {
-    const roleRaw = m[1].trim();
-    const name = m[2].trim();
-    const role = CARGO_ROLES.find(([rx]) => rx.test(roleRaw))?.[1];
+    const role = CARGO_ROLES.find(([rx]) => rx.test(m![1].trim()))?.[1];
     if (!role) continue;
-    if (out.some((c) => c.name === name && c.role === role)) continue;
+    const name = m[2].trim();
+    if (out.some((c) => c.name.toUpperCase() === name && c.role === role)) continue;
     out.push({ role, name: titleCaseName(name) });
     if (out.length >= 6) break;
   }
   return out;
 }
 
-async function fetchBormeDetail(identificador: string): Promise<{ capital: number | null; objeto: string | null; cargos: BormeCargo[] }> {
+function parseCapital(texto: string): number | null {
+  const m = texto.match(/Capital[^:]*:\s*([\d.]+(?:,\d+)?)\s*Euro/i);
+  if (!m) return null;
+  const v = parseInt(m[1].replace(/\./g, "").replace(/,\d+$/, ""), 10);
+  return Number.isFinite(v) ? v : null;
+}
+
+function parseObjeto(texto: string): string | null {
+  const m = texto.match(/Objeto social[^:]*:\s*(.+?)(?:Domicilio|Capital|Datos registrales|$)/i);
+  return m ? m[1].trim().slice(0, 300) : null;
+}
+
+/** Descarga el XML de actos de una provincia y devuelve los pares empresa+acto. */
+async function fetchProvinceActs(urlXml: string): Promise<BormeAct[]> {
   try {
-    const resp = await fetch(`https://www.boe.es/diario_borme/xml.php?id=${encodeURIComponent(identificador)}`, {
-      headers: { Accept: "application/xml" },
-      signal: AbortSignal.timeout(10000)
-    });
-    if (!resp.ok) return { capital: null, objeto: null, cargos: [] };
+    const resp = await fetch(urlXml, { headers: { Accept: "application/xml" }, signal: AbortSignal.timeout(12000) });
+    if (!resp.ok) return [];
     const xml = await resp.text();
-    const texto = xml.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
-    // "Capital: 3.100,00 Euros" → 3100.  Formato español (miles ., decimales ,).
-    let capital: number | null = null;
-    const mCap = texto.match(/Capital[^:]*:\s*([\d.]+(?:,\d+)?)\s*Euro/i);
-    if (mCap) {
-      const num = mCap[1].replace(/\./g, "").replace(/,\d+$/, "");
-      const v = parseInt(num, 10);
-      if (Number.isFinite(v)) capital = v;
+    const blocks = [...xml.matchAll(/<p[^>]*class="(articulo|parrafo)"[^>]*>([\s\S]*?)<\/p>/gi)];
+    const acts: BormeAct[] = [];
+    let cur: { regNum: string | null; company: string; parts: string[] } | null = null;
+    const flush = () => {
+      if (cur && cur.company) acts.push({ regNum: cur.regNum, company: cur.company, text: cur.parts.join(" ").trim() });
+    };
+    for (const b of blocks) {
+      const kind = b[1].toLowerCase();
+      const text = decodeEntities(b[2].replace(/<[^>]+>/g, " ")).replace(/\s+/g, " ").trim();
+      if (kind === "articulo") {
+        flush();
+        const m = text.match(/^(\d+)\s*-\s*(.+?)\.?$/);
+        cur = m
+          ? { regNum: m[1], company: m[2].trim(), parts: [] }
+          : { regNum: null, company: text.replace(/\.$/, "").trim(), parts: [] };
+      } else if (cur) {
+        cur.parts.push(text);
+      }
     }
-    let objeto: string | null = null;
-    const mObj = texto.match(/Objeto social[^:]*:\s*(.+?)(?:Domicilio|Capital|Datos registrales|$)/i);
-    if (mObj) objeto = mObj[1].trim().slice(0, 300);
-    const cargos = parseCargos(texto);
-    return { capital, objeto, cargos };
+    flush();
+    return acts;
   } catch {
-    return { capital: null, objeto: null, cargos: [] };
+    return [];
   }
 }
 
@@ -183,38 +171,40 @@ async function mapPool<T, R>(items: T[], concurrency: number, fn: (x: T) => Prom
   return out;
 }
 
+/** Límite de XML de provincia a bajar por búsqueda (coste/latencia). */
+const MAX_PROVINCE_FETCH = 60;
+/** Tope de leads devueltos (controla el coste del clasificador IA posterior). */
+const MAX_RESULTS = 500;
+
 export async function collectBorme(opts: {
   daysBack?: number;
   provinceFilter?: string;
-  /** Si true, solo devuelve sociedades cuyo nombre/objeto delata un sector de
-   *  alto valor (clínica dental, abogados, inmobiliaria, reformas…). Capta
-   *  ticket alto desde el día 1, antes de que tengan proveedor de marketing. */
+  /** Solo sociedades de un sector de alto valor (clínica dental, abogados…). */
   highValueOnly?: boolean;
-  /** Capital social mínimo (€) para incluir la sociedad. Requiere bajar el
-   *  detalle de cada anuncio (más lento, acotado). */
+  /** Capital social mínimo (€). */
   minCapital?: number;
-  /** "cargos" → en vez de constituciones, mina los NOMBRAMIENTOS de cargos
-   *  (administradores, consejeros…) para captar al DIRECTIVO por su nombre
-   *  (dato público y oficial del Registro Mercantil). */
+  /** "cargos" → mina los NOMBRAMIENTOS para captar al directivo por su nombre. */
   mode?: "constituciones" | "cargos";
+  /** Key de sector concreto (p.ej. "dental") para filtrar. */
+  sectorFilter?: string;
 }): Promise<PlacesResult[]> {
   const mode = opts.mode ?? "constituciones";
-  const epigrafe = mode === "cargos" ? "nombramiento" : "constituci";
-  const daysBack = Math.max(1, Math.min(opts.daysBack ?? 1, 30));
+  // `daysBack` = nº de días PUBLICADOS a reunir. El BORME no publica findes ni
+  // festivos, así que escaneamos hacia atrás hasta reunir esos días (sin esto,
+  // una búsqueda en sábado miraba solo el sábado → 0 resultados).
+  const wantDays = Math.max(1, Math.min(opts.daysBack ?? 1, 30));
+  const maxScan = wantDays + 12;
   const today = new Date();
+  const provFilter = opts.provinceFilter ? normTxt(opts.provinceFilter) : null;
 
-  // 1) Recolecta los items crudos (constituciones) de todos los días pedidos.
-  type Raw = { titulo: string; provincia: string; identificador: string; urlPdf?: string; isoDate: string };
-  const raw: Raw[] = [];
-  const seenId = new Set<string>();
-
-  for (let d = 0; d < daysBack; d++) {
+  // 1) Reúne los items de provincia de los días publicados más recientes.
+  type Prov = { provincia: string; identificador: string; urlXml: string; isoDate: string };
+  const provItems: Prov[] = [];
+  let fetched = 0;
+  for (let d = 0; d < maxScan && fetched < wantDays; d++) {
     const date = new Date(today.getTime() - d * 86_400_000);
-    // BORME no publica fines de semana (sábado=6, domingo=0).
-    if (date.getUTCDay() === 0 || date.getUTCDay() === 6) continue;
+    if (date.getUTCDay() === 0 || date.getUTCDay() === 6) continue; // findes
     const ymd = ymdFromDate(date);
-    const isoDate = isoFromYmd(ymd);
-
     let json: any;
     try {
       const resp = await fetch(`https://www.boe.es/datosabiertos/api/borme/sumario/${ymd}`, {
@@ -223,97 +213,93 @@ export async function collectBorme(opts: {
       });
       if (!resp.ok) {
         if (resp.status !== 404) console.warn(`[borme] sumario ${ymd}: HTTP ${resp.status}`);
-        continue;
+        continue; // 404 = festivo: no cuenta como día publicado
       }
       json = await resp.json();
     } catch (e: any) {
       console.warn(`[borme] error red sumario ${ymd}:`, e?.message ?? e);
       continue;
     }
-
-    for (const it of extractItems(json, epigrafe)) {
-      if (opts.provinceFilter && !it.provincia.toLowerCase().includes(opts.provinceFilter.toLowerCase())) continue;
-      if (seenId.has(it.identificador)) continue;
-      seenId.add(it.identificador);
-      raw.push({ ...it, isoDate });
+    fetched++;
+    const isoDate = isoFromYmd(ymd);
+    for (const it of extractProvinceItems(json)) {
+      if (provFilter && !normTxt(it.provincia).includes(provFilter)) continue;
+      provItems.push({ ...it, isoDate });
     }
   }
 
-  // 2) ¿Hace falta el detalle del anuncio? En modo "cargos" SIEMPRE (es donde
-  //    están los nombres). En constituciones, solo si se filtra por capital.
-  const needDetail = mode === "cargos" || opts.minCapital != null;
-  const detailCap = mode === "cargos" ? 120 : 150;
-  const details = new Map<string, { capital: number | null; objeto: string | null; cargos: BormeCargo[] }>();
-  if (needDetail) {
-    const targets = raw.slice(0, detailCap);
-    const res = await mapPool(targets, 6, (it) => fetchBormeDetail(it.identificador));
-    targets.forEach((it, idx) => details.set(it.identificador, res[idx]));
-  }
+  // 2) Baja el XML de actos de cada provincia (acotado) en paralelo.
+  const targets = provItems.slice(0, MAX_PROVINCE_FETCH);
+  const actsByProvince = await mapPool(targets, 5, (p) => fetchProvinceActs(p.urlXml));
 
-  // 3) Construye los leads aplicando filtros (sector y/o capital).
+  // 3) Construye los leads a partir de los actos del tipo pedido.
   const out: PlacesResult[] = [];
-  for (const it of raw) {
-    const cleanName = cleanCompanyName(it.titulo);
-    const det = details.get(it.identificador) ?? { capital: null, objeto: null, cargos: [] };
-    // El objeto social (cuando hay detalle) afina mucho la detección de sector.
-    const sector = detectSector({ name: cleanName, category: det.objeto });
+  const seen = new Set<string>();
+  const actRe = mode === "cargos" ? /Nombramientos/i : /Constituci[oó]n/i;
 
-    if (opts.highValueOnly && !sector) continue;
-    if (opts.minCapital != null) {
-      // Si pedimos capital mínimo pero no pudimos verificarlo, descartamos.
-      if (det.capital == null || det.capital < opts.minCapital) continue;
+  for (let i = 0; i < targets.length && out.length < MAX_RESULTS; i++) {
+    const prov = targets[i];
+    for (const act of actsByProvince[i]) {
+      if (!actRe.test(act.text)) continue;
+      const cleanName = cleanCompanyName(act.company);
+      if (!cleanName) continue;
+      const objeto = parseObjeto(act.text);
+      const capital = parseCapital(act.text);
+      const cargos = mode === "cargos" ? parseCargos(act.text) : [];
+      const sector = detectSector({ name: cleanName, category: objeto });
+
+      if (opts.sectorFilter && sector?.key !== opts.sectorFilter) continue;
+      if (opts.highValueOnly && !sector) continue;
+      if (opts.minCapital != null && (capital == null || capital < opts.minCapital)) continue;
+      if (mode === "cargos" && cargos.length === 0) continue;
+
+      const placeId = `borme:${prov.identificador}:${act.regNum ?? normTxt(cleanName).replace(/\s+/g, "-").slice(0, 40)}`;
+      if (seen.has(placeId)) continue;
+      seen.add(placeId);
+
+      const primary = cargos[0];
+      out.push({
+        placeId,
+        name: cleanName,
+        formattedAddress: null,
+        province: prov.provincia,
+        types: [mode === "cargos" ? "borme.nombramiento" : "borme.constitucion"],
+        category: sector ? sector.label : mode === "cargos" ? "Empresa (cargo nombrado)" : "Sociedad recién constituida",
+        latitude: null,
+        longitude: null,
+        rating: null,
+        userRatingCount: 0,
+        priceLevel: null,
+        businessStatus: "OPERATIONAL",
+        gmbUrl: `https://www.boe.es/diario_borme/xml.php?id=${prov.identificador}`,
+        website: null,
+        phone: null,
+        internationalPhone: null,
+        rawData: {
+          source: "borme",
+          boeDate: prov.isoDate,
+          identificador: prov.identificador,
+          sector: sector?.key ?? null,
+          capital,
+          objeto,
+          directors: cargos,
+          directorName: primary?.name ?? null,
+          directorRole: primary?.role ?? null
+        }
+      });
+      if (out.length >= MAX_RESULTS) break;
     }
-    // En modo cargos, solo nos interesan los anuncios de los que sacamos algún
-    // directivo con nombre (lo demás es ruido sin contacto).
-    if (mode === "cargos" && det.cargos.length === 0) continue;
-
-    const primary = det.cargos[0];
-    out.push({
-      placeId: `borme:${it.identificador}`,
-      name: cleanName,
-      formattedAddress: null,
-      province: it.provincia,
-      types: [mode === "cargos" ? "borme.nombramiento" : "borme.constitucion"],
-      category: sector ? sector.label : mode === "cargos" ? "Empresa (cargo nombrado)" : "Sociedad recién constituida",
-      latitude: null,
-      longitude: null,
-      rating: null,
-      userRatingCount: 0,
-      priceLevel: null,
-      businessStatus: "OPERATIONAL",
-      gmbUrl: it.urlPdf ?? null,
-      website: null,
-      phone: null,
-      internationalPhone: null,
-      rawData: {
-        source: "borme",
-        boeDate: it.isoDate,
-        identificador: it.identificador,
-        urlPdf: it.urlPdf ?? null,
-        sector: sector?.key ?? null,
-        capital: det.capital,
-        objeto: det.objeto,
-        // Directivos nombrados (dato público del Registro Mercantil).
-        directors: det.cargos,
-        directorName: primary?.name ?? null,
-        directorRole: primary?.role ?? null
-      }
-    });
   }
 
   return out;
 }
 
-/** Limpia el título BORME: quita puntos finales, normaliza mayúsculas
+/** Limpia el nombre BORME: quita punto final y normaliza mayúsculas
  *  conservando siglas. "TANTRA RIDDIM SL." → "Tantra Riddim SL". */
 function cleanCompanyName(s: string): string {
   let n = s.trim().replace(/\.$/, "").trim();
-  // Si está TODO en mayúsculas, paso a Title Case dejando siglas comunes.
-  const SIGLAS = /\b(SL|SLU|SA|SAU|SLP|SLNE|SCP|SC|CB|SCS|SCM|UTE|AIE|GIE|SRL|SRC)\b/g;
   if (/^[A-ZÁÉÍÓÚÑÇ0-9\s\.\-&,'"]+$/.test(n)) {
-    n = n
-      .toLowerCase()
-      .replace(/(^|\s)([\wáéíóúñç])/g, (_, sp, c) => sp + c.toUpperCase());
+    n = n.toLowerCase().replace(/(^|\s)([\wáéíóúñç])/g, (_, sp, c) => sp + c.toUpperCase());
     n = n.replace(/\b(Sl|Slu|Sa|Sau|Slp|Slne|Scp|Sc|Cb|Scs|Scm|Ute|Aie|Gie|Srl|Src)\b/g, (m) => m.toUpperCase());
   }
   return n;
