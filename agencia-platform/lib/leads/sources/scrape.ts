@@ -78,10 +78,9 @@ export type ScrapeSource = {
   defaultCategory: string;
 };
 
-export async function scrapeDirectory(source: ScrapeSource, keyword: string, location: string): Promise<PlacesResult[]> {
-  const apiKey = process.env.SCRAPFLY_API_KEY;
+export async function scrapeDirectory(source: ScrapeSource, keyword: string, location: string, apiKey: string): Promise<PlacesResult[]> {
   if (!apiKey) {
-    throw new Error(`Esta fuente necesita un scraper. Configura SCRAPFLY_API_KEY para activarla.`);
+    throw new Error(`Esta fuente necesita un scraper. Configura la API key de Scrapfly en Ajustes para activarla.`);
   }
   const url = source.buildUrl(keyword.trim(), location.trim());
   const html = await scrapflyFetch(url, apiKey);

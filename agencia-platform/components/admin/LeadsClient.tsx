@@ -3916,6 +3916,7 @@ function Empty({ msg }: { msg: string }) { return <div className="bg-white round
 type LeadSourceKey =
   | "places"
   | "borme"
+  | "meta_ads"
   | "trustpilot"
   | "doctoralia"
   | "idealista"
@@ -3929,11 +3930,12 @@ const LEAD_SOURCES: Array<{
   help: string;
 }> = [
   { key: "places", label: "Google Places", status: "ready", help: "Negocios listados en Google Maps." },
-  { key: "borme", label: "BORME (constituciones)", status: "ready", help: "Sociedades recién constituidas en España (día 1, sin web ni GMB)." },
+  { key: "borme", label: "BORME (constituciones)", status: "ready", help: "Sociedades recién constituidas (día 1, sin web ni GMB). Keyword \"ticket alto\" = solo sectores premium; \"capital\" = filtra por capital social." },
+  { key: "meta_ads", label: "Meta Ad Library (ya anuncian)", status: "ready", help: "Negocios que YA pagan anuncios en Facebook/Instagram → ticket alto. Requiere el token de Meta en Ajustes. El teléfono se enriquece con Google Places." },
+  { key: "doctoralia", label: "Doctoralia (clínicas)", status: "ready", help: "Médicos, dentistas, fisios. Requiere API key de Scrapfly en Ajustes. El teléfono se enriquece con Google Places." },
+  { key: "idealista", label: "Idealista (inmobiliarias)", status: "ready", help: "Inmobiliarias y promotoras. Requiere API key de Scrapfly en Ajustes." },
+  { key: "fotocasa", label: "Fotocasa (inmobiliarias)", status: "ready", help: "Inmobiliarias listadas en Fotocasa. Requiere API key de Scrapfly en Ajustes." },
   { key: "trustpilot", label: "Trustpilot (reseñas bajas)", status: "stub", help: "Próximamente — falta configurar scraper." },
-  { key: "doctoralia", label: "Doctoralia", status: "stub", help: "Próximamente — falta configurar scraper." },
-  { key: "idealista", label: "Idealista", status: "stub", help: "Próximamente — falta API key." },
-  { key: "fotocasa", label: "Fotocasa", status: "stub", help: "Próximamente — falta scraper." },
   { key: "linkedin", label: "LinkedIn", status: "stub", help: "Próximamente — falta integración PhantomBuster/Apollo." }
 ];
 
@@ -4267,6 +4269,8 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
   const [googleKey, setGoogleKey] = useState("");
   const [wahaKey, setWahaKey] = useState("");
   const [evoKey, setEvoKey] = useState("");
+  const [metaAdsKey, setMetaAdsKey] = useState("");
+  const [scrapflyKey, setScrapflyKey] = useState("");
   const [health, setHealth] = useState<any[] | null>(null);
   const [loadingHealth, setLoadingHealth] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -4304,7 +4308,7 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
   }
   useEffect(() => {
     if (!open) return;
-    setGoogleKey(""); setWahaKey(""); setEvoKey(""); setError(null); setSavedAt(null);
+    setGoogleKey(""); setWahaKey(""); setEvoKey(""); setMetaAdsKey(""); setScrapflyKey(""); setError(null); setSavedAt(null);
     setS(null);
     loadSettings();
   }, [open]);
@@ -4366,6 +4370,8 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
     if (googleKey) body.googleApiKey = googleKey;
     if (wahaKey) body.wahaApiKey = wahaKey;
     if (evoKey) body.evolutionApiKey = evoKey;
+    if (metaAdsKey) body.metaAdsToken = metaAdsKey;
+    if (scrapflyKey) body.scrapflyApiKey = scrapflyKey;
     const r = await fetch("/api/v1/leads/settings", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     setSaving(false);
     if (!r.ok) {
@@ -4492,6 +4498,37 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
           <h3 className="text-sm font-semibold mb-2">🌐 Google Places API</h3>
           <input type="password" value={googleKey} onChange={(e) => setGoogleKey(e.target.value)} placeholder={s.googleConfigured ? "•••• (configurada, deja vacío para no cambiar)" : "AIza..."} className="w-full px-3 py-2 rounded-lg border bg-white text-sm font-mono" />
           <p className="mt-1 text-[11px] text-slate-500">Se cifra con AES-256-GCM. Requiere Places API habilitada.</p>
+        </section>
+        <section>
+          <h3 className="text-sm font-semibold mb-2">💎 Fuentes premium de captación</h3>
+          <div className="space-y-2">
+            <div>
+              <label className="block text-xs font-medium text-slate-700 mb-1">
+                Token de Meta Ad Library {s.metaAdsConfigured && <span className="text-emerald-600">· configurado ✓</span>}
+              </label>
+              <input
+                type="password"
+                value={metaAdsKey}
+                onChange={(e) => setMetaAdsKey(e.target.value)}
+                placeholder={s.metaAdsConfigured ? "•••• (configurado, deja vacío para no cambiar)" : "APPID|APPSECRET o un user token de Meta"}
+                className="w-full px-3 py-2 rounded-lg border bg-white text-sm font-mono"
+              />
+              <p className="mt-1 text-[11px] text-slate-500">Activa la fuente <strong>Meta Ad Library</strong> (negocios que ya anuncian). Un app token <code>APPID|APPSECRET</code> sirve. Se cifra.</p>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-700 mb-1">
+                API key de Scrapfly {s.scrapflyConfigured && <span className="text-emerald-600">· configurada ✓</span>}
+              </label>
+              <input
+                type="password"
+                value={scrapflyKey}
+                onChange={(e) => setScrapflyKey(e.target.value)}
+                placeholder={s.scrapflyConfigured ? "•••• (configurada, deja vacío para no cambiar)" : "scp-live-..."}
+                className="w-full px-3 py-2 rounded-lg border bg-white text-sm font-mono"
+              />
+              <p className="mt-1 text-[11px] text-slate-500">Activa las fuentes <strong>Doctoralia, Idealista y Fotocasa</strong>. Se cifra.</p>
+            </div>
+          </div>
         </section>
         <section>
           <h3 className="text-sm font-semibold mb-2">📱 WhatsApp</h3>
