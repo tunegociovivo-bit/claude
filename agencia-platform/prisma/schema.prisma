@@ -3558,6 +3558,11 @@ model BubuiBusiness {
   mesaActReview Boolean @default(true)  // reseña en Google
   mesaActPhoto  Boolean @default(true)  // foto del plato (UGC)
   mesaActFollow Boolean @default(false) // seguir en redes
+  // Regalo de PRÓXIMA visita (alternativa/extra al % por completar los pasos):
+  // texto libre, ej. "1 bebida gratis", "1 café gratis". Si está, al completar
+  // los pasos extra (compartir/reseña) cada comensal recibe un cupón canjeable
+  // la próxima vez. Vacío = solo % de descuento.
+  mesaPerkLabel String?
   // Programa de afiliados: recompensas por hitos de amigos traídos.
   referralEnabled Boolean @default(true)
   referralReward1 String? // recompensa al traer 1 amigo
