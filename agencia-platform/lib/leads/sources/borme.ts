@@ -87,17 +87,69 @@ function arr<T = any>(x: any): T[] {
  * @param provinceFilter Si se pasa, filtra a los items cuyo nombre de provincia
  *                       contenga este texto (case-insensitive).
  */
+/**
+ * Descarga el anuncio individual del BORME (XML legacy del BOE) y extrae
+ * capital social y objeto social. El sumario solo trae el nombre; el detalle
+ * permite filtrar por capital y afinar el sector con el objeto social.
+ */
+async function fetchBormeDetail(identificador: string): Promise<{ capital: number | null; objeto: string | null }> {
+  try {
+    const resp = await fetch(`https://www.boe.es/diario_borme/xml.php?id=${encodeURIComponent(identificador)}`, {
+      headers: { Accept: "application/xml" },
+      signal: AbortSignal.timeout(10000)
+    });
+    if (!resp.ok) return { capital: null, objeto: null };
+    const xml = await resp.text();
+    const texto = xml.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+    // "Capital: 3.100,00 Euros" → 3100.  Formato español (miles ., decimales ,).
+    let capital: number | null = null;
+    const mCap = texto.match(/Capital[^:]*:\s*([\d.]+(?:,\d+)?)\s*Euro/i);
+    if (mCap) {
+      const num = mCap[1].replace(/\./g, "").replace(/,\d+$/, "");
+      const v = parseInt(num, 10);
+      if (Number.isFinite(v)) capital = v;
+    }
+    let objeto: string | null = null;
+    const mObj = texto.match(/Objeto social[^:]*:\s*(.+?)(?:Domicilio|Capital|Datos registrales|$)/i);
+    if (mObj) objeto = mObj[1].trim().slice(0, 300);
+    return { capital, objeto };
+  } catch {
+    return { capital: null, objeto: null };
+  }
+}
+
+/** Ejecuta `fn` sobre `items` con concurrencia limitada (pool). */
+async function mapPool<T, R>(items: T[], concurrency: number, fn: (x: T) => Promise<R>): Promise<R[]> {
+  const out: R[] = new Array(items.length);
+  let i = 0;
+  async function worker() {
+    while (i < items.length) {
+      const idx = i++;
+      out[idx] = await fn(items[idx]);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, worker));
+  return out;
+}
+
 export async function collectBorme(opts: {
   daysBack?: number;
   provinceFilter?: string;
-  /** Si true, solo devuelve sociedades cuyo nombre delata un sector de alto
-   *  valor (clínica dental, abogados, inmobiliaria, reformas…). Capta ticket
-   *  alto desde el día 1, antes de que tengan proveedor de marketing. */
+  /** Si true, solo devuelve sociedades cuyo nombre/objeto delata un sector de
+   *  alto valor (clínica dental, abogados, inmobiliaria, reformas…). Capta
+   *  ticket alto desde el día 1, antes de que tengan proveedor de marketing. */
   highValueOnly?: boolean;
+  /** Capital social mínimo (€) para incluir la sociedad. Requiere bajar el
+   *  detalle de cada anuncio (más lento, acotado). */
+  minCapital?: number;
 }): Promise<PlacesResult[]> {
   const daysBack = Math.max(1, Math.min(opts.daysBack ?? 1, 30));
-  const out: PlacesResult[] = [];
   const today = new Date();
+
+  // 1) Recolecta los items crudos (constituciones) de todos los días pedidos.
+  type Raw = { titulo: string; provincia: string; identificador: string; urlPdf?: string; isoDate: string };
+  const raw: Raw[] = [];
+  const seenId = new Set<string>();
 
   for (let d = 0; d < daysBack; d++) {
     const date = new Date(today.getTime() - d * 86_400_000);
@@ -110,14 +162,10 @@ export async function collectBorme(opts: {
     try {
       const resp = await fetch(`https://www.boe.es/datosabiertos/api/borme/sumario/${ymd}`, {
         headers: { Accept: "application/json" },
-        // El BOE es rápido en general; 12s holgado.
         signal: AbortSignal.timeout(12000)
       });
       if (!resp.ok) {
-        // 404 es normal en festivos: lo saltamos sin ruido.
-        if (resp.status !== 404) {
-          console.warn(`[borme] sumario ${ymd}: HTTP ${resp.status}`);
-        }
+        if (resp.status !== 404) console.warn(`[borme] sumario ${ymd}: HTTP ${resp.status}`);
         continue;
       }
       json = await resp.json();
@@ -126,53 +174,69 @@ export async function collectBorme(opts: {
       continue;
     }
 
-    const items = extractItems(json);
-    for (const it of items) {
-      if (
-        opts.provinceFilter &&
-        !it.provincia.toLowerCase().includes(opts.provinceFilter.toLowerCase())
-      ) {
-        continue;
-      }
-      const cleanName = cleanCompanyName(it.titulo);
-      // Sector de alto valor detectado por el nombre de la sociedad (el objeto
-      // social va en el PDF, pero el nombre casi siempre delata la actividad:
-      // "Clínica Dental X SL", "Reformas Y SL", "Inmobiliaria Z SL").
-      const sector = detectSector({ name: cleanName });
-      if (opts.highValueOnly && !sector) continue;
-
-      // PlaceId pseudo-único para que upsertLead deduplique entre días
-      // y entre rebusquedas: "borme:<identificador>".
-      out.push({
-        placeId: `borme:${it.identificador}`,
-        name: cleanName,
-        formattedAddress: null,
-        province: it.provincia,
-        types: ["borme.constitucion"],
-        category: sector ? sector.label : "Sociedad recién constituida",
-        latitude: null,
-        longitude: null,
-        rating: null,
-        userRatingCount: 0,
-        priceLevel: null,
-        businessStatus: "OPERATIONAL",
-        gmbUrl: it.urlPdf ?? null,
-        website: null,
-        phone: null,
-        internationalPhone: null,
-        rawData: { source: "borme", boeDate: isoDate, identificador: it.identificador, urlPdf: it.urlPdf ?? null, sector: sector?.key ?? null }
-      });
+    for (const it of extractItems(json)) {
+      if (opts.provinceFilter && !it.provincia.toLowerCase().includes(opts.provinceFilter.toLowerCase())) continue;
+      if (seenId.has(it.identificador)) continue;
+      seenId.add(it.identificador);
+      raw.push({ ...it, isoDate });
     }
   }
 
-  // Dedup por placeId (puede aparecer la misma empresa en varios días si
-  // hay rectificación posterior).
-  const seen = new Set<string>();
-  return out.filter((r) => {
-    if (seen.has(r.placeId)) return false;
-    seen.add(r.placeId);
-    return true;
-  });
+  // 2) ¿Hace falta el detalle del anuncio? Solo si se filtra por capital social
+  //    (el sumario no lo trae). Acotado por coste/latencia.
+  const needDetail = opts.minCapital != null;
+  const detailCap = 150;
+  const details = new Map<string, { capital: number | null; objeto: string | null }>();
+  if (needDetail) {
+    const targets = raw.slice(0, detailCap);
+    const res = await mapPool(targets, 6, (it) => fetchBormeDetail(it.identificador));
+    targets.forEach((it, idx) => details.set(it.identificador, res[idx]));
+  }
+
+  // 3) Construye los leads aplicando filtros (sector y/o capital).
+  const out: PlacesResult[] = [];
+  for (const it of raw) {
+    const cleanName = cleanCompanyName(it.titulo);
+    const det = details.get(it.identificador) ?? { capital: null, objeto: null };
+    // El objeto social (cuando hay detalle) afina mucho la detección de sector.
+    const sector = detectSector({ name: cleanName, category: det.objeto });
+
+    if (opts.highValueOnly && !sector) continue;
+    if (opts.minCapital != null) {
+      // Si pedimos capital mínimo pero no pudimos verificarlo, descartamos.
+      if (det.capital == null || det.capital < opts.minCapital) continue;
+    }
+
+    out.push({
+      placeId: `borme:${it.identificador}`,
+      name: cleanName,
+      formattedAddress: null,
+      province: it.provincia,
+      types: ["borme.constitucion"],
+      category: sector ? sector.label : "Sociedad recién constituida",
+      latitude: null,
+      longitude: null,
+      rating: null,
+      userRatingCount: 0,
+      priceLevel: null,
+      businessStatus: "OPERATIONAL",
+      gmbUrl: it.urlPdf ?? null,
+      website: null,
+      phone: null,
+      internationalPhone: null,
+      rawData: {
+        source: "borme",
+        boeDate: it.isoDate,
+        identificador: it.identificador,
+        urlPdf: it.urlPdf ?? null,
+        sector: sector?.key ?? null,
+        capital: det.capital,
+        objeto: det.objeto
+      }
+    });
+  }
+
+  return out;
 }
 
 /** Limpia el título BORME: quita puntos finales, normaliza mayúsculas
