@@ -1,0 +1,679 @@
+<!DOCTYPE html>
+<html lang="es" class="scroll-smooth">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Roman Trainer — Entrenador Personal | Transforma tu cuerpo y tu mente</title>
+  <meta name="description" content="Roman Trainer, entrenador personal. Programas de entrenamiento presencial y online, nutrición y seguimiento real. Resultados que se ven, hábitos que duran." />
+
+  <!-- ============================================================
+       FUENTES (Bebas Neue display + Source Sans 3 body)
+       ============================================================ -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Source+Sans+3:wght@300;400;500;600;700;900&display=swap" rel="stylesheet" />
+
+  <!-- ============================================================
+       TAILWIND (CDN). Para producción se puede compilar.
+       ============================================================ -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            volt: '#C2FF1E',      // acento energía (editable)
+            'volt-soft': '#A5DB12',
+            ink: '#000000',       // fondo
+            surface: '#0C0C0C',   // tarjetas
+            'surface-2': '#141414',
+            line: '#222222',
+          },
+          fontFamily: {
+            display: ['"Bebas Neue"', 'sans-serif'],
+            body: ['"Source Sans 3"', 'sans-serif'],
+          },
+        },
+      },
+    };
+  </script>
+
+  <style>
+    :root { --volt: #C2FF1E; }
+    html { background: #000; }
+    body { font-family: 'Source Sans 3', sans-serif; }
+
+    .font-display { letter-spacing: 0.01em; }
+
+    /* Titulares gigantes responsivos */
+    .display-xl { font-size: clamp(3.5rem, 13vw, 13rem); line-height: 0.86; letter-spacing: -0.01em; }
+    .display-lg { font-size: clamp(2.5rem, 7vw, 6rem);  line-height: 0.9; }
+
+    /* Texto contorneado (outline) para profundidad */
+    .text-outline {
+      color: transparent;
+      -webkit-text-stroke: 1.5px rgba(255,255,255,0.35);
+    }
+
+    /* Grano sutil sobre el negro */
+    .grain::before {
+      content: ""; position: fixed; inset: 0; z-index: 1; pointer-events: none;
+      opacity: 0.035; mix-blend-mode: overlay;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    }
+
+    /* Marquee */
+    .marquee { display: flex; width: max-content; animation: marquee 26s linear infinite; }
+    @keyframes marquee { to { transform: translateX(-50%); } }
+
+    /* Scroll reveal */
+    .reveal { opacity: 0; transform: translateY(28px); transition: opacity .7s ease, transform .7s cubic-bezier(.16,1,.3,1); }
+    .reveal.in { opacity: 1; transform: none; }
+
+    /* Glow del acento */
+    .volt-glow { box-shadow: 0 0 0 1px rgba(194,255,30,.25), 0 12px 40px -12px rgba(194,255,30,.45); }
+
+    /* Placeholder de medios */
+    .media-ph {
+      position: relative; background:
+        repeating-linear-gradient(45deg, #0e0e0e 0 14px, #121212 14px 28px);
+      border: 1px dashed #2c2c2c;
+    }
+    .media-ph .tag {
+      position: absolute; inset: 0; display: flex; flex-direction: column; gap: .25rem;
+      align-items: center; justify-content: center; color: #6b6b6b; text-align: center;
+      font-size: .8rem; letter-spacing: .12em; text-transform: uppercase;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .marquee { animation: none; }
+      .reveal { opacity: 1; transform: none; transition: none; }
+      html { scroll-behavior: auto; }
+    }
+  </style>
+</head>
+
+<body class="bg-ink text-white antialiased grain selection:bg-volt selection:text-black overflow-x-hidden">
+
+  <!-- ============================================================
+       NAV (flotante)
+       ============================================================ -->
+  <header id="nav" class="fixed top-3 left-3 right-3 z-50 transition-all duration-300">
+    <div class="mx-auto max-w-7xl">
+      <nav class="flex items-center justify-between rounded-2xl border border-white/10 bg-black/40 backdrop-blur-md px-4 py-3 sm:px-6">
+        <!-- LOGO (placeholder) -->
+        <a href="#hero" class="flex items-center gap-3 group" aria-label="Roman Trainer inicio">
+          <span class="grid h-9 w-9 place-items-center rounded-lg border border-volt/40 bg-volt/10 text-volt font-display text-2xl leading-none">R</span>
+          <span class="font-display text-2xl tracking-wide leading-none">ROMAN<span class="text-volt">.</span></span>
+          <!-- Sustituye el bloque de arriba por: <img src="assets/logo.svg" alt="Roman Trainer" class="h-9 w-auto"> -->
+        </a>
+
+        <ul class="hidden items-center gap-8 text-sm font-medium text-white/70 lg:flex">
+          <li><a href="#sobre" class="hover:text-volt transition-colors">Sobre Roman</a></li>
+          <li><a href="#servicios" class="hover:text-volt transition-colors">Servicios</a></li>
+          <li><a href="#metodo" class="hover:text-volt transition-colors">Método</a></li>
+          <li><a href="#resultados" class="hover:text-volt transition-colors">Resultados</a></li>
+          <li><a href="#planes" class="hover:text-volt transition-colors">Planes</a></li>
+        </ul>
+
+        <a href="#contacto" class="hidden sm:inline-flex items-center gap-2 rounded-full bg-volt px-5 py-2.5 text-sm font-bold text-black transition-transform duration-200 hover:scale-[1.03] cursor-pointer">
+          Empezar ahora
+          <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M13 6l6 6-6 6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </a>
+
+        <!-- Botón menú móvil -->
+        <button id="menuBtn" class="lg:hidden grid h-10 w-10 place-items-center rounded-lg border border-white/10 text-white cursor-pointer" aria-label="Abrir menú" aria-expanded="false">
+          <svg class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M4 12h16M4 17h16" stroke-linecap="round"/></svg>
+        </button>
+      </nav>
+
+      <!-- Menú móvil -->
+      <div id="mobileMenu" class="lg:hidden hidden mt-2 rounded-2xl border border-white/10 bg-black/80 backdrop-blur-md p-4">
+        <ul class="flex flex-col gap-1 text-white/80">
+          <li><a href="#sobre" class="block rounded-lg px-4 py-3 hover:bg-white/5 hover:text-volt transition-colors">Sobre Roman</a></li>
+          <li><a href="#servicios" class="block rounded-lg px-4 py-3 hover:bg-white/5 hover:text-volt transition-colors">Servicios</a></li>
+          <li><a href="#metodo" class="block rounded-lg px-4 py-3 hover:bg-white/5 hover:text-volt transition-colors">Método</a></li>
+          <li><a href="#resultados" class="block rounded-lg px-4 py-3 hover:bg-white/5 hover:text-volt transition-colors">Resultados</a></li>
+          <li><a href="#planes" class="block rounded-lg px-4 py-3 hover:bg-white/5 hover:text-volt transition-colors">Planes</a></li>
+          <li class="pt-2"><a href="#contacto" class="block rounded-full bg-volt px-4 py-3 text-center font-bold text-black">Empezar ahora</a></li>
+        </ul>
+      </div>
+    </div>
+  </header>
+
+  <!-- ============================================================
+       HERO
+       ============================================================ -->
+  <section id="hero" class="relative min-h-[100svh] flex items-end overflow-hidden">
+    <!-- VÍDEO / IMAGEN DE FONDO (placeholder) -->
+    <div class="absolute inset-0 z-0 media-ph">
+      <div class="tag">
+        <svg class="h-8 w-8 mb-1" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m10 8 6 4-6 4V8Z"/><rect x="3" y="4" width="18" height="16" rx="3"/></svg>
+        Vídeo / imagen hero
+        <span class="text-[10px] tracking-[.2em]">1920×1080 · assets/hero.mp4</span>
+      </div>
+      <!-- Reemplaza este div por:
+        <video class="h-full w-full object-cover" autoplay muted loop playsinline poster="assets/hero-poster.jpg">
+          <source src="assets/hero.mp4" type="video/mp4">
+        </video>
+      -->
+    </div>
+    <!-- Degradados para legibilidad -->
+    <div class="absolute inset-0 z-10 bg-gradient-to-t from-black via-black/70 to-black/30"></div>
+    <div class="absolute inset-0 z-10 bg-gradient-to-r from-black/80 to-transparent"></div>
+
+    <div class="relative z-20 mx-auto w-full max-w-7xl px-5 pb-16 pt-32 sm:pb-24">
+      <p class="reveal mb-5 inline-flex items-center gap-2 rounded-full border border-volt/30 bg-volt/10 px-4 py-1.5 text-xs font-semibold uppercase tracking-[.2em] text-volt">
+        <span class="h-1.5 w-1.5 rounded-full bg-volt animate-pulse"></span>
+        Entrenador personal · Presencial & Online
+      </p>
+
+      <h1 class="reveal font-display display-xl uppercase">
+        Convierte tu<br>
+        <span class="text-volt">cuerpo</span> en tu mejor<br>
+        <span class="text-outline">proyecto</span>
+      </h1>
+
+      <p class="reveal mt-6 max-w-xl text-lg text-white/70 sm:text-xl">
+        Soy <strong class="text-white">Roman</strong>. Entreno a personas reales para conseguir
+        resultados reales: fuerza, definición y hábitos que duran toda la vida.
+        Sin atajos. Con método.
+      </p>
+
+      <div class="reveal mt-9 flex flex-col gap-3 sm:flex-row sm:items-center">
+        <a href="#contacto" class="inline-flex items-center justify-center gap-2 rounded-full bg-volt px-8 py-4 text-base font-bold text-black volt-glow transition-transform duration-200 hover:scale-[1.03] cursor-pointer">
+          Reserva tu sesión gratis
+          <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M13 6l6 6-6 6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </a>
+        <a href="#resultados" class="inline-flex items-center justify-center gap-2 rounded-full border border-white/20 bg-white/5 px-8 py-4 text-base font-semibold text-white backdrop-blur-sm transition-colors duration-200 hover:border-volt hover:text-volt cursor-pointer">
+          Ver transformaciones
+        </a>
+      </div>
+    </div>
+
+    <!-- Indicador de scroll -->
+    <div class="absolute bottom-6 left-1/2 z-20 -translate-x-1/2 hidden sm:flex flex-col items-center gap-2 text-white/40">
+      <span class="text-[10px] uppercase tracking-[.3em]">Scroll</span>
+      <span class="h-10 w-px bg-gradient-to-b from-white/40 to-transparent"></span>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       MARQUEE
+       ============================================================ -->
+  <div class="border-y border-line bg-volt py-3 text-black overflow-hidden">
+    <div class="marquee gap-8 text-sm font-bold uppercase tracking-[.25em]">
+      <!-- duplicado para loop continuo -->
+      <span aria-hidden="true" class="flex gap-8">
+        <span>Fuerza</span><span>•</span><span>Hipertrofia</span><span>•</span><span>Pérdida de grasa</span><span>•</span><span>Nutrición</span><span>•</span><span>Movilidad</span><span>•</span><span>Hábitos</span><span>•</span><span>Disciplina</span><span>•</span>
+      </span>
+      <span aria-hidden="true" class="flex gap-8">
+        <span>Fuerza</span><span>•</span><span>Hipertrofia</span><span>•</span><span>Pérdida de grasa</span><span>•</span><span>Nutrición</span><span>•</span><span>Movilidad</span><span>•</span><span>Hábitos</span><span>•</span><span>Disciplina</span><span>•</span>
+      </span>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       STATS
+       ============================================================ -->
+  <section class="border-b border-line bg-surface">
+    <div class="mx-auto grid max-w-7xl grid-cols-2 gap-px bg-line lg:grid-cols-4">
+      <div class="reveal bg-surface p-8 text-center sm:p-10">
+        <p class="font-display text-5xl text-volt sm:text-6xl" data-count="350" data-suffix="+">0</p>
+        <p class="mt-2 text-sm uppercase tracking-widest text-white/50">Clientes entrenados</p>
+      </div>
+      <div class="reveal bg-surface p-8 text-center sm:p-10">
+        <p class="font-display text-5xl text-volt sm:text-6xl" data-count="10" data-suffix=" años">0</p>
+        <p class="mt-2 text-sm uppercase tracking-widest text-white/50">De experiencia</p>
+      </div>
+      <div class="reveal bg-surface p-8 text-center sm:p-10">
+        <p class="font-display text-5xl text-volt sm:text-6xl" data-count="15000" data-suffix="+">0</p>
+        <p class="mt-2 text-sm uppercase tracking-widest text-white/50">Sesiones impartidas</p>
+      </div>
+      <div class="reveal bg-surface p-8 text-center sm:p-10">
+        <p class="font-display text-5xl text-volt sm:text-6xl" data-count="98" data-suffix="%">0</p>
+        <p class="mt-2 text-sm uppercase tracking-widest text-white/50">Logran su objetivo</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       SOBRE ROMAN
+       ============================================================ -->
+  <section id="sobre" class="mx-auto max-w-7xl px-5 py-24 sm:py-32">
+    <div class="grid items-center gap-12 lg:grid-cols-2 lg:gap-16">
+      <!-- IMAGEN (placeholder) -->
+      <div class="reveal media-ph aspect-[4/5] rounded-3xl overflow-hidden">
+        <div class="tag">
+          <svg class="h-8 w-8 mb-1" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="9" cy="9" r="2"/><path d="m21 15-5-5L5 21"/></svg>
+          Foto de Roman
+          <span class="text-[10px] tracking-[.2em]">retrato vertical · assets/roman.jpg</span>
+        </div>
+      </div>
+
+      <div class="reveal">
+        <p class="mb-4 text-sm font-semibold uppercase tracking-[.25em] text-volt">Sobre mí</p>
+        <h2 class="font-display display-lg uppercase">No vendo<br>milagros.<br><span class="text-volt">Construyo resultados.</span></h2>
+        <p class="mt-6 text-lg leading-relaxed text-white/70">
+          Llevo más de una década ayudando a personas a transformar su físico y, sobre todo,
+          su relación con el ejercicio. Mi enfoque combina ciencia del entrenamiento,
+          nutrición sostenible y un acompañamiento cercano para que nunca entrenes solo.
+        </p>
+        <ul class="mt-8 space-y-4">
+          <li class="flex items-start gap-3">
+            <span class="mt-1 grid h-6 w-6 shrink-0 place-items-center rounded-full bg-volt text-black">
+              <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 13l4 4L19 7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </span>
+            <span class="text-white/80"><strong class="text-white">Planes 100% personalizados</strong> según tu nivel, objetivos y tiempo disponible.</span>
+          </li>
+          <li class="flex items-start gap-3">
+            <span class="mt-1 grid h-6 w-6 shrink-0 place-items-center rounded-full bg-volt text-black">
+              <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 13l4 4L19 7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </span>
+            <span class="text-white/80"><strong class="text-white">Seguimiento constante</strong> por app, mensajería y revisiones periódicas.</span>
+          </li>
+          <li class="flex items-start gap-3">
+            <span class="mt-1 grid h-6 w-6 shrink-0 place-items-center rounded-full bg-volt text-black">
+              <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 13l4 4L19 7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </span>
+            <span class="text-white/80"><strong class="text-white">Resultados medibles</strong> con métricas reales, no promesas vacías.</span>
+          </li>
+        </ul>
+        <a href="#contacto" class="mt-9 inline-flex items-center gap-2 font-bold text-volt hover:gap-3 transition-all cursor-pointer">
+          Hablemos de tu objetivo
+          <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M13 6l6 6-6 6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       SERVICIOS
+       ============================================================ -->
+  <section id="servicios" class="border-y border-line bg-surface py-24 sm:py-32">
+    <div class="mx-auto max-w-7xl px-5">
+      <div class="reveal mb-14 max-w-2xl">
+        <p class="mb-4 text-sm font-semibold uppercase tracking-[.25em] text-volt">Servicios</p>
+        <h2 class="font-display display-lg uppercase">Entrena como<br>tú necesitas</h2>
+      </div>
+
+      <div class="grid gap-5 md:grid-cols-2 lg:grid-cols-3">
+        <!-- Card 1 -->
+        <article class="reveal group rounded-3xl border border-line bg-surface-2 p-8 transition-colors duration-300 hover:border-volt/50">
+          <span class="grid h-14 w-14 place-items-center rounded-2xl bg-volt/10 text-volt transition-colors group-hover:bg-volt group-hover:text-black">
+            <svg class="h-7 w-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6.5 6.5 17.5 17.5M4 9l2-2m12 12 2-2M8 4 4 8m12 12 4-4M14.5 9.5l-5 5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </span>
+          <h3 class="mt-6 font-display text-3xl uppercase">Entrenamiento personal</h3>
+          <p class="mt-3 text-white/60">Sesiones presenciales 1 a 1, corrigiendo cada repetición para máximos resultados y cero lesiones.</p>
+        </article>
+        <!-- Card 2 -->
+        <article class="reveal group rounded-3xl border border-line bg-surface-2 p-8 transition-colors duration-300 hover:border-volt/50">
+          <span class="grid h-14 w-14 place-items-center rounded-2xl bg-volt/10 text-volt transition-colors group-hover:bg-volt group-hover:text-black">
+            <svg class="h-7 w-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="2" width="14" height="20" rx="3"/><path d="M11 18h2" stroke-linecap="round"/></svg>
+          </span>
+          <h3 class="mt-6 font-display text-3xl uppercase">Coaching online</h3>
+          <p class="mt-3 text-white/60">Tu plan en una app, vídeos de técnica y seguimiento semanal estés donde estés.</p>
+        </article>
+        <!-- Card 3 -->
+        <article class="reveal group rounded-3xl border border-line bg-surface-2 p-8 transition-colors duration-300 hover:border-volt/50">
+          <span class="grid h-14 w-14 place-items-center rounded-2xl bg-volt/10 text-volt transition-colors group-hover:bg-volt group-hover:text-black">
+            <svg class="h-7 w-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s-7-4.35-7-10a4 4 0 0 1 7-2.65A4 4 0 0 1 19 11c0 5.65-7 10-7 10Z" stroke-linejoin="round"/></svg>
+          </span>
+          <h3 class="mt-6 font-display text-3xl uppercase">Nutrición</h3>
+          <p class="mt-3 text-white/60">Pautas flexibles y sostenibles adaptadas a tu vida, sin dietas imposibles.</p>
+        </article>
+        <!-- Card 4 -->
+        <article class="reveal group rounded-3xl border border-line bg-surface-2 p-8 transition-colors duration-300 hover:border-volt/50">
+          <span class="grid h-14 w-14 place-items-center rounded-2xl bg-volt/10 text-volt transition-colors group-hover:bg-volt group-hover:text-black">
+            <svg class="h-7 w-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </span>
+          <h3 class="mt-6 font-display text-3xl uppercase">Recomposición</h3>
+          <p class="mt-3 text-white/60">Pierde grasa y gana músculo a la vez con planes diseñados para tu metabolismo.</p>
+        </article>
+        <!-- Card 5 -->
+        <article class="reveal group rounded-3xl border border-line bg-surface-2 p-8 transition-colors duration-300 hover:border-volt/50">
+          <span class="grid h-14 w-14 place-items-center rounded-2xl bg-volt/10 text-volt transition-colors group-hover:bg-volt group-hover:text-black">
+            <svg class="h-7 w-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20v-6m0 6h16M4 14l5-5 4 3 7-7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </span>
+          <h3 class="mt-6 font-display text-3xl uppercase">Rendimiento</h3>
+          <p class="mt-3 text-white/60">Lleva tu fuerza, resistencia y movilidad al siguiente nivel con periodización pro.</p>
+        </article>
+        <!-- Card 6 (CTA) -->
+        <article class="reveal group flex flex-col justify-between rounded-3xl bg-volt p-8 text-black">
+          <div>
+            <h3 class="font-display text-3xl uppercase">¿No sabes por dónde empezar?</h3>
+            <p class="mt-3 font-medium text-black/70">Cuéntame tu objetivo y diseño el camino contigo en una sesión de valoración gratuita.</p>
+          </div>
+          <a href="#contacto" class="mt-6 inline-flex w-fit items-center gap-2 rounded-full bg-black px-6 py-3 font-bold text-volt transition-transform duration-200 hover:scale-[1.03] cursor-pointer">
+            Reservar valoración
+            <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M13 6l6 6-6 6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </a>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       MÉTODO
+       ============================================================ -->
+  <section id="metodo" class="mx-auto max-w-7xl px-5 py-24 sm:py-32">
+    <div class="reveal mb-14 max-w-2xl">
+      <p class="mb-4 text-sm font-semibold uppercase tracking-[.25em] text-volt">El método</p>
+      <h2 class="font-display display-lg uppercase">4 pasos hacia<br>tu transformación</h2>
+    </div>
+
+    <div class="grid gap-5 md:grid-cols-2 lg:grid-cols-4">
+      <div class="reveal rounded-3xl border border-line p-8">
+        <span class="font-display text-6xl text-volt/30">01</span>
+        <h3 class="mt-4 font-display text-2xl uppercase">Valoración</h3>
+        <p class="mt-2 text-white/60">Analizamos tu punto de partida, historial y objetivos reales.</p>
+      </div>
+      <div class="reveal rounded-3xl border border-line p-8">
+        <span class="font-display text-6xl text-volt/30">02</span>
+        <h3 class="mt-4 font-display text-2xl uppercase">Plan a medida</h3>
+        <p class="mt-2 text-white/60">Diseño tu programa de entrenamiento y nutrición personalizado.</p>
+      </div>
+      <div class="reveal rounded-3xl border border-line p-8">
+        <span class="font-display text-6xl text-volt/30">03</span>
+        <h3 class="mt-4 font-display text-2xl uppercase">Ejecución</h3>
+        <p class="mt-2 text-white/60">Entrenamos con técnica perfecta y ajustes constantes.</p>
+      </div>
+      <div class="reveal rounded-3xl border border-line p-8">
+        <span class="font-display text-6xl text-volt/30">04</span>
+        <h3 class="mt-4 font-display text-2xl uppercase">Resultados</h3>
+        <p class="mt-2 text-white/60">Medimos, celebramos y subimos el listón. Para siempre.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       RESULTADOS / TRANSFORMACIONES (galería placeholder)
+       ============================================================ -->
+  <section id="resultados" class="border-y border-line bg-surface py-24 sm:py-32">
+    <div class="mx-auto max-w-7xl px-5">
+      <div class="reveal mb-14 flex flex-wrap items-end justify-between gap-6">
+        <div class="max-w-2xl">
+          <p class="mb-4 text-sm font-semibold uppercase tracking-[.25em] text-volt">Resultados</p>
+          <h2 class="font-display display-lg uppercase">Transformaciones<br>reales</h2>
+        </div>
+        <p class="max-w-sm text-white/60">Cada cuerpo cuenta una historia de esfuerzo. Estas son algunas de las personas que confiaron en el proceso.</p>
+      </div>
+
+      <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <!-- 6 placeholders de imagen -->
+        <div class="reveal media-ph aspect-[4/5] rounded-2xl"><div class="tag">Antes / Después<br><span class="text-[10px] tracking-[.2em]">assets/transform-1.jpg</span></div></div>
+        <div class="reveal media-ph aspect-[4/5] rounded-2xl"><div class="tag">Antes / Después<br><span class="text-[10px] tracking-[.2em]">assets/transform-2.jpg</span></div></div>
+        <div class="reveal media-ph aspect-[4/5] rounded-2xl"><div class="tag">Antes / Después<br><span class="text-[10px] tracking-[.2em]">assets/transform-3.jpg</span></div></div>
+        <div class="reveal media-ph aspect-[4/5] rounded-2xl"><div class="tag">Antes / Después<br><span class="text-[10px] tracking-[.2em]">assets/transform-4.jpg</span></div></div>
+        <div class="reveal media-ph aspect-[4/5] rounded-2xl"><div class="tag">Antes / Después<br><span class="text-[10px] tracking-[.2em]">assets/transform-5.jpg</span></div></div>
+        <div class="reveal media-ph aspect-[4/5] rounded-2xl"><div class="tag">Antes / Después<br><span class="text-[10px] tracking-[.2em]">assets/transform-6.jpg</span></div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       TESTIMONIOS
+       ============================================================ -->
+  <section class="mx-auto max-w-7xl px-5 py-24 sm:py-32">
+    <div class="reveal mb-14 max-w-2xl">
+      <p class="mb-4 text-sm font-semibold uppercase tracking-[.25em] text-volt">Testimonios</p>
+      <h2 class="font-display display-lg uppercase">Lo que dicen<br>mis clientes</h2>
+    </div>
+
+    <div class="grid gap-5 md:grid-cols-3">
+      <figure class="reveal rounded-3xl border border-line bg-surface p-8">
+        <div class="mb-4 flex gap-1 text-volt" aria-label="5 de 5 estrellas">
+          <svg class="h-5 w-5" viewBox="0 0 24 24" fill="currentColor"><path d="m12 2 3 6.5 7 .9-5 4.8 1.3 7L12 18l-6.6 3.2L6.7 14l-5-4.8 7-.9L12 2Z"/></svg>
+          <svg class="h-5 w-5" viewBox="0 0 24 24" fill="currentColor"><path d="m12 2 3 6.5 7 .9-5 4.8 1.3 7L12 18l-6.6 3.2L6.7 14l-5-4.8 7-.9L12 2Z"/></svg>
+          <svg class="h-5 w-5" viewBox="0 0 24 24" fill="currentColor"><path d="m12 2 3 6.5 7 .9-5 4.8 1.3 7L12 18l-6.6 3.2L6.7 14l-5-4.8 7-.9L12 2Z"/></svg>
+          <svg class="h-5 w-5" viewBox="0 0 24 24" fill="currentColor"><path d="m12 2 3 6.5 7 .9-5 4.8 1.3 7L12 18l-6.6 3.2L6.7 14l-5-4.8 7-.9L12 2Z"/></svg>
+          <svg class="h-5 w-5" viewBox="0 0 24 24" fill="currentColor"><path d="m12 2 3 6.5 7 .9-5 4.8 1.3 7L12 18l-6.6 3.2L6.7 14l-5-4.8 7-.9L12 2Z"/></svg>
+        </div>
+        <blockquote class="text-white/80">"En 4 meses cambié por completo. Roman no solo me puso en forma, me enseñó a entrenar de verdad."</blockquote>
+        <figcaption class="mt-6 flex items-center gap-3">
+          <span class="media-ph grid h-11 w-11 place-items-center rounded-full text-[9px] text-white/40">FOTO</span>
+          <span><span class="block font-semibold text-white">Cliente Uno</span><span class="block text-sm text-white/50">-12 kg de grasa</span></span>
+        </figcaption>
+      </figure>
+
+      <figure class="reveal rounded-3xl border border-line bg-surface p-8">
+        <div class="mb-4 flex gap-1 text-volt" aria-label="5 de 5 estrellas">
+          <svg class="h-5 w-5" viewBox="0 0 24 24" fill="currentColor"><path d="m12 2 3 6.5 7 .9-5 4.8 1.3 7L12 18l-6.6 3.2L6.7 14l-5-4.8 7-.9L12 2Z"/></svg>
+          <svg class="h-5 w-5" viewBox="0 0 24 24" fill="currentColor"><path d="m12 2 3 6.5 7 .9-5 4.8 1.3 7L12 18l-6.6 3.2L6.7 14l-5-4.8 7-.9L12 2Z"/></svg>
+          <svg class="h-5 w-5" viewBox="0 0 24 24" fill="currentColor"><path d="m12 2 3 6.5 7 .9-5 4.8 1.3 7L12 18l-6.6 3.2L6.7 14l-5-4.8 7-.9L12 2Z"/></svg>
+          <svg class="h-5 w-5" viewBox="0 0 24 24" fill="currentColor"><path d="m12 2 3 6.5 7 .9-5 4.8 1.3 7L12 18l-6.6 3.2L6.7 14l-5-4.8 7-.9L12 2Z"/></svg>
+          <svg class="h-5 w-5" viewBox="0 0 24 24" fill="currentColor"><path d="m12 2 3 6.5 7 .9-5 4.8 1.3 7L12 18l-6.6 3.2L6.7 14l-5-4.8 7-.9L12 2Z"/></svg>
+        </div>
+        <blockquote class="text-white/80">"Profesional, exigente y cercano. Por fin un plan que se adapta a mi horario y que puedo mantener."</blockquote>
+        <figcaption class="mt-6 flex items-center gap-3">
+          <span class="media-ph grid h-11 w-11 place-items-center rounded-full text-[9px] text-white/40">FOTO</span>
+          <span><span class="block font-semibold text-white">Cliente Dos</span><span class="block text-sm text-white/50">+8 kg de músculo</span></span>
+        </figcaption>
+      </figure>
+
+      <figure class="reveal rounded-3xl border border-line bg-surface p-8">
+        <div class="mb-4 flex gap-1 text-volt" aria-label="5 de 5 estrellas">
+          <svg class="h-5 w-5" viewBox="0 0 24 24" fill="currentColor"><path d="m12 2 3 6.5 7 .9-5 4.8 1.3 7L12 18l-6.6 3.2L6.7 14l-5-4.8 7-.9L12 2Z"/></svg>
+          <svg class="h-5 w-5" viewBox="0 0 24 24" fill="currentColor"><path d="m12 2 3 6.5 7 .9-5 4.8 1.3 7L12 18l-6.6 3.2L6.7 14l-5-4.8 7-.9L12 2Z"/></svg>
+          <svg class="h-5 w-5" viewBox="0 0 24 24" fill="currentColor"><path d="m12 2 3 6.5 7 .9-5 4.8 1.3 7L12 18l-6.6 3.2L6.7 14l-5-4.8 7-.9L12 2Z"/></svg>
+          <svg class="h-5 w-5" viewBox="0 0 24 24" fill="currentColor"><path d="m12 2 3 6.5 7 .9-5 4.8 1.3 7L12 18l-6.6 3.2L6.7 14l-5-4.8 7-.9L12 2Z"/></svg>
+          <svg class="h-5 w-5" viewBox="0 0 24 24" fill="currentColor"><path d="m12 2 3 6.5 7 .9-5 4.8 1.3 7L12 18l-6.6 3.2L6.7 14l-5-4.8 7-.9L12 2Z"/></svg>
+        </div>
+        <blockquote class="text-white/80">"Recuperé la confianza en mí. Lo mejor que he hecho por mi salud en años."</blockquote>
+        <figcaption class="mt-6 flex items-center gap-3">
+          <span class="media-ph grid h-11 w-11 place-items-center rounded-full text-[9px] text-white/40">FOTO</span>
+          <span><span class="block font-semibold text-white">Cliente Tres</span><span class="block text-sm text-white/50">Hábitos para siempre</span></span>
+        </figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       PLANES
+       ============================================================ -->
+  <section id="planes" class="border-y border-line bg-surface py-24 sm:py-32">
+    <div class="mx-auto max-w-7xl px-5">
+      <div class="reveal mb-14 max-w-2xl">
+        <p class="mb-4 text-sm font-semibold uppercase tracking-[.25em] text-volt">Planes</p>
+        <h2 class="font-display display-lg uppercase">Elige tu nivel<br>de compromiso</h2>
+      </div>
+
+      <div class="grid gap-5 lg:grid-cols-3">
+        <!-- Plan 1 -->
+        <div class="reveal flex flex-col rounded-3xl border border-line bg-surface-2 p-8">
+          <h3 class="font-display text-3xl uppercase">Online</h3>
+          <p class="mt-2 text-white/60">Para quienes se gestionan solos con un buen plan.</p>
+          <p class="mt-6 font-display text-6xl">€XX<span class="text-lg text-white/40">/mes</span></p>
+          <ul class="mt-6 space-y-3 text-white/70">
+            <li class="flex gap-2"><span class="text-volt">✓</span> Plan de entrenamiento mensual</li>
+            <li class="flex gap-2"><span class="text-volt">✓</span> Pautas de nutrición</li>
+            <li class="flex gap-2"><span class="text-volt">✓</span> Soporte por mensajería</li>
+          </ul>
+          <a href="#contacto" class="mt-8 inline-flex justify-center rounded-full border border-white/20 px-6 py-3 font-semibold transition-colors hover:border-volt hover:text-volt cursor-pointer">Empezar</a>
+        </div>
+
+        <!-- Plan 2 (destacado) -->
+        <div class="reveal relative flex flex-col rounded-3xl border-2 border-volt bg-surface-2 p-8 volt-glow">
+          <span class="absolute -top-3 left-8 rounded-full bg-volt px-3 py-1 text-xs font-bold uppercase tracking-wider text-black">Más popular</span>
+          <h3 class="font-display text-3xl uppercase text-volt">Premium</h3>
+          <p class="mt-2 text-white/60">El equilibrio perfecto entre autonomía y acompañamiento.</p>
+          <p class="mt-6 font-display text-6xl">€XX<span class="text-lg text-white/40">/mes</span></p>
+          <ul class="mt-6 space-y-3 text-white/70">
+            <li class="flex gap-2"><span class="text-volt">✓</span> Todo lo del plan Online</li>
+            <li class="flex gap-2"><span class="text-volt">✓</span> Videollamada quincenal</li>
+            <li class="flex gap-2"><span class="text-volt">✓</span> Ajustes semanales del plan</li>
+            <li class="flex gap-2"><span class="text-volt">✓</span> Revisión de técnica por vídeo</li>
+          </ul>
+          <a href="#contacto" class="mt-8 inline-flex justify-center rounded-full bg-volt px-6 py-3 font-bold text-black transition-transform duration-200 hover:scale-[1.03] cursor-pointer">Quiero este</a>
+        </div>
+
+        <!-- Plan 3 -->
+        <div class="reveal flex flex-col rounded-3xl border border-line bg-surface-2 p-8">
+          <h3 class="font-display text-3xl uppercase">Presencial</h3>
+          <p class="mt-2 text-white/60">Máximo resultado entrenando codo con codo.</p>
+          <p class="mt-6 font-display text-6xl">€XX<span class="text-lg text-white/40">/mes</span></p>
+          <ul class="mt-6 space-y-3 text-white/70">
+            <li class="flex gap-2"><span class="text-volt">✓</span> Sesiones 1 a 1 presenciales</li>
+            <li class="flex gap-2"><span class="text-volt">✓</span> Plan integral entreno + nutrición</li>
+            <li class="flex gap-2"><span class="text-volt">✓</span> Seguimiento total y prioritario</li>
+          </ul>
+          <a href="#contacto" class="mt-8 inline-flex justify-center rounded-full border border-white/20 px-6 py-3 font-semibold transition-colors hover:border-volt hover:text-volt cursor-pointer">Empezar</a>
+        </div>
+      </div>
+      <p class="reveal mt-6 text-center text-sm text-white/40">* Precios orientativos — se concretan tras la sesión de valoración.</p>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       CTA FINAL / CONTACTO
+       ============================================================ -->
+  <section id="contacto" class="relative overflow-hidden py-24 sm:py-32">
+    <div class="absolute inset-0 -z-0 bg-gradient-to-br from-volt/10 via-transparent to-transparent"></div>
+    <div class="relative z-10 mx-auto max-w-5xl px-5">
+      <div class="reveal rounded-[2rem] border border-line bg-surface p-8 sm:p-14">
+        <div class="grid gap-10 lg:grid-cols-2">
+          <div>
+            <h2 class="font-display display-lg uppercase">¿Listo para<br><span class="text-volt">empezar?</span></h2>
+            <p class="mt-5 text-lg text-white/70">Reserva tu sesión de valoración gratuita. Sin compromiso. Solo tú, tu objetivo y un plan para conseguirlo.</p>
+            <div class="mt-8 space-y-4 text-white/70">
+              <a href="https://wa.me/0000000000" class="flex items-center gap-3 hover:text-volt transition-colors cursor-pointer">
+                <span class="grid h-10 w-10 place-items-center rounded-full bg-volt/10 text-volt">
+                  <svg class="h-5 w-5" viewBox="0 0 24 24" fill="currentColor"><path d="M.057 24l1.687-6.163a11.867 11.867 0 0 1-1.587-5.946C.16 5.335 5.495 0 12.05 0a11.82 11.82 0 0 1 8.413 3.488 11.82 11.82 0 0 1 3.48 8.414c-.003 6.557-5.338 11.892-11.893 11.892a11.9 11.9 0 0 1-5.688-1.448L.057 24zM6.597 20.13c1.676.995 3.276 1.591 5.392 1.592 5.448 0 9.886-4.434 9.889-9.885.002-5.462-4.415-9.89-9.881-9.892-5.452 0-9.887 4.434-9.889 9.884a9.86 9.86 0 0 0 1.51 5.26l-.999 3.648 3.978-.607zm11.387-5.464c-.074-.124-.272-.198-.57-.347-.297-.149-1.758-.868-2.031-.967-.272-.099-.47-.149-.669.149-.198.297-.768.967-.941 1.165-.173.198-.347.223-.644.074-.297-.149-1.255-.462-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.297-.347.446-.521.151-.172.2-.296.3-.495.099-.198.05-.372-.025-.521-.075-.148-.669-1.612-.916-2.207-.242-.579-.487-.501-.669-.51l-.57-.01c-.198 0-.52.074-.792.372s-1.04 1.016-1.04 2.479 1.065 2.876 1.213 3.074c.149.198 2.095 3.2 5.076 4.487.709.306 1.263.489 1.694.626.712.226 1.36.194 1.872.118.571-.085 1.758-.719 2.006-1.413.248-.695.248-1.29.173-1.414z"/></svg>
+                </span>
+                WhatsApp
+              </a>
+              <a href="mailto:hola@romantrainer.com" class="flex items-center gap-3 hover:text-volt transition-colors cursor-pointer">
+                <span class="grid h-10 w-10 place-items-center rounded-full bg-volt/10 text-volt">
+                  <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </span>
+                hola@romantrainer.com
+              </a>
+            </div>
+          </div>
+
+          <!-- Formulario -->
+          <form class="space-y-4" onsubmit="event.preventDefault(); this.reset(); alert('¡Gracias! Roman te contactará pronto.');">
+            <div>
+              <label for="nombre" class="mb-1.5 block text-sm font-medium text-white/70">Nombre</label>
+              <input id="nombre" name="nombre" type="text" required class="w-full rounded-xl border border-line bg-ink px-4 py-3 text-white placeholder-white/30 outline-none transition-colors focus:border-volt" placeholder="Tu nombre" />
+            </div>
+            <div>
+              <label for="email" class="mb-1.5 block text-sm font-medium text-white/70">Email</label>
+              <input id="email" name="email" type="email" required class="w-full rounded-xl border border-line bg-ink px-4 py-3 text-white placeholder-white/30 outline-none transition-colors focus:border-volt" placeholder="tu@email.com" />
+            </div>
+            <div>
+              <label for="objetivo" class="mb-1.5 block text-sm font-medium text-white/70">Tu objetivo</label>
+              <textarea id="objetivo" name="objetivo" rows="3" class="w-full rounded-xl border border-line bg-ink px-4 py-3 text-white placeholder-white/30 outline-none transition-colors focus:border-volt" placeholder="Cuéntame qué quieres conseguir"></textarea>
+            </div>
+            <button type="submit" class="inline-flex w-full items-center justify-center gap-2 rounded-full bg-volt px-6 py-4 font-bold text-black transition-transform duration-200 hover:scale-[1.02] cursor-pointer">
+              Enviar y reservar valoración
+              <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M13 6l6 6-6 6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+            <p class="text-center text-xs text-white/40">Al enviar aceptas ser contactado por Roman Trainer. Tus datos no se comparten con terceros.</p>
+          </form>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       FOOTER
+       ============================================================ -->
+  <footer class="border-t border-line bg-ink">
+    <div class="mx-auto max-w-7xl px-5 py-14">
+      <div class="flex flex-col items-start justify-between gap-10 lg:flex-row">
+        <div>
+          <a href="#hero" class="flex items-center gap-3">
+            <span class="grid h-9 w-9 place-items-center rounded-lg border border-volt/40 bg-volt/10 text-volt font-display text-2xl leading-none">R</span>
+            <span class="font-display text-2xl tracking-wide">ROMAN<span class="text-volt">.</span></span>
+          </a>
+          <p class="mt-4 max-w-xs text-white/50">Entrenador personal. Resultados que se ven, hábitos que duran.</p>
+        </div>
+
+        <div class="flex flex-wrap gap-12">
+          <div>
+            <p class="mb-3 text-sm font-semibold uppercase tracking-widest text-white/40">Navegación</p>
+            <ul class="space-y-2 text-white/70">
+              <li><a href="#sobre" class="hover:text-volt transition-colors">Sobre Roman</a></li>
+              <li><a href="#servicios" class="hover:text-volt transition-colors">Servicios</a></li>
+              <li><a href="#planes" class="hover:text-volt transition-colors">Planes</a></li>
+              <li><a href="#contacto" class="hover:text-volt transition-colors">Contacto</a></li>
+            </ul>
+          </div>
+          <div>
+            <p class="mb-3 text-sm font-semibold uppercase tracking-widest text-white/40">Sígueme</p>
+            <div class="flex gap-3">
+              <a href="#" aria-label="Instagram" class="grid h-10 w-10 place-items-center rounded-full border border-line text-white/70 transition-colors hover:border-volt hover:text-volt cursor-pointer">
+                <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r="1" fill="currentColor" stroke="none"/></svg>
+              </a>
+              <a href="#" aria-label="TikTok" class="grid h-10 w-10 place-items-center rounded-full border border-line text-white/70 transition-colors hover:border-volt hover:text-volt cursor-pointer">
+                <svg class="h-5 w-5" viewBox="0 0 24 24" fill="currentColor"><path d="M16.6 5.82A4.28 4.28 0 0 1 15.54 3h-3.09v12.4a2.59 2.59 0 1 1-2.59-2.59c.27 0 .53.04.78.12V9.79a5.96 5.96 0 0 0-.78-.05A5.69 5.69 0 1 0 15.54 15.4V9.01a7.34 7.34 0 0 0 4.3 1.38V7.3a4.28 4.28 0 0 1-3.24-1.48z"/></svg>
+              </a>
+              <a href="#" aria-label="YouTube" class="grid h-10 w-10 place-items-center rounded-full border border-line text-white/70 transition-colors hover:border-volt hover:text-volt cursor-pointer">
+                <svg class="h-5 w-5" viewBox="0 0 24 24" fill="currentColor"><path d="M23.5 6.2a3 3 0 0 0-2.12-2.12C19.5 3.55 12 3.55 12 3.55s-7.5 0-9.38.53A3 3 0 0 0 .5 6.2 31.3 31.3 0 0 0 0 12a31.3 31.3 0 0 0 .5 5.8 3 3 0 0 0 2.12 2.12c1.88.53 9.38.53 9.38.53s7.5 0 9.38-.53a3 3 0 0 0 2.12-2.12A31.3 31.3 0 0 0 24 12a31.3 31.3 0 0 0-.5-5.8zM9.6 15.6V8.4l6.2 3.6-6.2 3.6z"/></svg>
+              </a>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="mt-12 flex flex-col items-center justify-between gap-3 border-t border-line pt-6 text-sm text-white/40 sm:flex-row">
+        <p>© <span id="year"></span> Roman Trainer. Todos los derechos reservados.</p>
+        <p>Diseño profesional · Listo para tu marca</p>
+      </div>
+    </div>
+  </footer>
+
+  <!-- ============================================================
+       JS — menú móvil, nav scroll, reveal, contadores
+       ============================================================ -->
+  <script>
+    // Año footer
+    document.getElementById('year').textContent = new Date().getFullYear();
+
+    // Menú móvil
+    const menuBtn = document.getElementById('menuBtn');
+    const mobileMenu = document.getElementById('mobileMenu');
+    menuBtn.addEventListener('click', () => {
+      const open = mobileMenu.classList.toggle('hidden') === false;
+      menuBtn.setAttribute('aria-expanded', String(open));
+    });
+    mobileMenu.querySelectorAll('a').forEach(a => a.addEventListener('click', () => {
+      mobileMenu.classList.add('hidden');
+      menuBtn.setAttribute('aria-expanded', 'false');
+    }));
+
+    // Nav: sombra/compresión al hacer scroll
+    const nav = document.getElementById('nav');
+    const onScroll = () => nav.classList.toggle('top-0', window.scrollY > 40);
+    window.addEventListener('scroll', onScroll, { passive: true });
+
+    // Scroll reveal
+    const io = new IntersectionObserver((entries) => {
+      entries.forEach(e => { if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); } });
+    }, { threshold: 0.12 });
+    document.querySelectorAll('.reveal').forEach(el => io.observe(el));
+
+    // Contadores animados
+    const prefersReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const formatNum = (n) => n.toLocaleString('es-ES');
+    const animateCount = (el) => {
+      const target = parseInt(el.dataset.count, 10);
+      const suffix = el.dataset.suffix || '';
+      if (prefersReduced) { el.textContent = formatNum(target) + suffix; return; }
+      const dur = 1600; const start = performance.now();
+      const step = (now) => {
+        const p = Math.min((now - start) / dur, 1);
+        const eased = 1 - Math.pow(1 - p, 3);
+        el.textContent = formatNum(Math.floor(eased * target)) + suffix;
+        if (p < 1) requestAnimationFrame(step);
+      };
+      requestAnimationFrame(step);
+    };
+    const countIO = new IntersectionObserver((entries) => {
+      entries.forEach(e => { if (e.isIntersecting) { animateCount(e.target); countIO.unobserve(e.target); } });
+    }, { threshold: 0.5 });
+    document.querySelectorAll('[data-count]').forEach(el => countIO.observe(el));
+  </script>
+</body>
+</html>
