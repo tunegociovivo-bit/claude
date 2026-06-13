@@ -17,6 +17,7 @@ export type AutofillDraft = {
   facebookUrl: string | null;
   tiktokUrl: string | null;
   trustpilotUrl: string | null;
+  tripadvisorUrl: string | null;
   phone: string | null;
   address: string | null;
   sources: Record<string, string>; // campo → "places" | "web" | "ia"
@@ -63,10 +64,12 @@ async function scrapeSocialLinks(website: string): Promise<Record<string, string
     const fb = grab(/https?:\/\/(www\.)?facebook\.com\/[A-Za-z0-9_.\-\/]+/i);
     const tt = grab(/https?:\/\/(www\.)?tiktok\.com\/@[A-Za-z0-9_.\/]+/i);
     const tp = grab(/https?:\/\/(www\.)?(es\.)?trustpilot\.com\/review\/[A-Za-z0-9_.\-\/]+/i);
+    const ta = grab(/https?:\/\/(www\.)?tripadvisor\.[a-z.]+\/[A-Za-z0-9_.\-\/]+/i);
     if (ig) out.instagramUrl = ig;
     if (fb) out.facebookUrl = fb;
     if (tt) out.tiktokUrl = tt;
     if (tp) out.trustpilotUrl = tp;
+    if (ta) out.tripadvisorUrl = ta;
   } catch {}
   return out;
 }
@@ -82,9 +85,10 @@ const SCHEMA = {
     instagramUrl: { type: ["string", "null"] },
     facebookUrl: { type: ["string", "null"] },
     tiktokUrl: { type: ["string", "null"] },
-    trustpilotUrl: { type: ["string", "null"] }
+    trustpilotUrl: { type: ["string", "null"] },
+    tripadvisorUrl: { type: ["string", "null"] }
   },
-  required: ["instagramUrl", "facebookUrl", "tiktokUrl", "trustpilotUrl"]
+  required: ["instagramUrl", "facebookUrl", "tiktokUrl", "trustpilotUrl", "tripadvisorUrl"]
 };
 
 export async function autofillBusinessProfile(input: {
@@ -136,6 +140,7 @@ export async function autofillBusinessProfile(input: {
     facebookUrl: pick("facebookUrl"),
     tiktokUrl: pick("tiktokUrl"),
     trustpilotUrl: pick("trustpilotUrl"),
+    tripadvisorUrl: pick("tripadvisorUrl"),
     phone: places?.phone ?? null,
     address: places?.address ?? input.address ?? null,
     sources

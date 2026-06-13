@@ -41,6 +41,8 @@ const schema = z
     facebookUrl: z.string().trim().max(300).optional().nullable(),
     tiktokUrl: z.string().trim().max(300).optional().nullable(),
     trustpilotUrl: z.string().trim().max(300).optional().nullable(),
+    tripadvisorUrl: z.string().trim().max(300).optional().nullable(),
+    mesaReviewPlatform: z.enum(["google", "tripadvisor", "trustpilot", "instagram"]).optional(),
     reviewPushEnabled: z.boolean().optional(),
     // Oferta-reto viral (compártela con N amigos para activarla).
     shareOfferPct: z.number().int().min(0).max(MAX_DISCOUNT_PCT).optional(),
@@ -99,7 +101,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   // Normaliza strings vacíos a null para limpiar el dato.
   const data = { ...parsed.data };
   if (data.googlePlaceId === "") data.googlePlaceId = null;
-  for (const k of ["instagramUrl", "facebookUrl", "tiktokUrl", "trustpilotUrl"] as const) {
+  for (const k of ["instagramUrl", "facebookUrl", "tiktokUrl", "trustpilotUrl", "tripadvisorUrl"] as const) {
     if ((data as any)[k] === "") (data as any)[k] = null;
   }
   if (data.loyaltyRewardLabel === "") data.loyaltyRewardLabel = null;
