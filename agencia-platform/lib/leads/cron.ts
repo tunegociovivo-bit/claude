@@ -15,6 +15,7 @@ import { processQueueTick } from "@/lib/leads/send-queue";
 import { processSequencesTick } from "@/lib/leads/sequences";
 import { processBroadcastTick } from "@/lib/leads/broadcast";
 import { processAutoFollowupTick } from "@/lib/leads/auto-followup";
+import { processExecOutreachTick } from "@/lib/leads/exec-outreach";
 
 export async function runLeadsCronAllWorkspaces(): Promise<any[]> {
   const workspaces = await prisma.workspace.findMany({ select: { id: true } });
@@ -63,6 +64,13 @@ export async function runLeadsCronAllWorkspaces(): Promise<any[]> {
       wsReport.autoFollowup = await processAutoFollowupTick(ws.id);
     } catch (e: any) {
       wsReport.autoFollowupError = e?.message ?? String(e);
+    }
+
+    // 6. Secuencia multicanal a directivos (1 paso por tick).
+    try {
+      wsReport.execOutreach = await processExecOutreachTick(ws.id);
+    } catch (e: any) {
+      wsReport.execOutreachError = e?.message ?? String(e);
     }
 
     report.push(wsReport);

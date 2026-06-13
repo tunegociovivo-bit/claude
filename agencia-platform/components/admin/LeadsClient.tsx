@@ -1174,7 +1174,13 @@ function LeadDetailModal({
     setPitchErr(null);
     setDm(null);
     setDmErr(null);
+    setExecEmail("");
+    setExecStatus(null);
   }, [leadId]);
+
+  const [execEmail, setExecEmail] = useState("");
+  const [execStatus, setExecStatus] = useState<string | null>(null);
+  const [execBusy, setExecBusy] = useState(false);
 
   async function loadDecisionMaker() {
     setDmLoading(true);
@@ -1184,10 +1190,35 @@ function LeadDetailModal({
       const d = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(d?.error?.message ?? `HTTP ${r.status}`);
       setDm(d);
+      // Pre-rellena con el mejor email disponible (verificado > encontrado > patrón).
+      const best = d.verifiedEmails?.find((v: any) => v.status === "valid")?.email
+        || d.found?.find((p: any) => p.email)?.email
+        || d.verifiedEmails?.[0]?.email
+        || d.emailGuesses?.[0]
+        || "";
+      setExecEmail((cur) => cur || best);
     } catch (e: any) {
       setDmErr(e?.message ?? "No se pudo generar el kit");
     } finally {
       setDmLoading(false);
+    }
+  }
+
+  async function startExecSequence() {
+    setExecBusy(true);
+    try {
+      const r = await fetch(`/api/v1/leads/${leadId}/exec-outreach`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: execEmail.trim() || undefined, directorName: dm?.directors?.[0]?.name || dm?.found?.[0]?.name })
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d?.error?.message ?? `HTTP ${r.status}`);
+      setExecStatus("active");
+    } catch (e: any) {
+      setExecStatus(`error: ${e?.message ?? "no se pudo iniciar"}`);
+    } finally {
+      setExecBusy(false);
     }
   }
 
@@ -1441,6 +1472,29 @@ function LeadDetailModal({
                   </button>
                 </div>
               )}
+              <div className="border-t border-indigo-200 pt-2 space-y-1.5">
+                <span className="font-semibold text-indigo-800">📨 Secuencia multicanal (email → LinkedIn → llamada → email)</span>
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <input
+                    value={execEmail}
+                    onChange={(e) => setExecEmail(e.target.value)}
+                    placeholder="email del directivo (para los pasos de email)"
+                    className="flex-1 min-w-[180px] text-[11px] px-2 py-1 rounded border bg-white font-mono"
+                  />
+                  <button
+                    type="button"
+                    onClick={startExecSequence}
+                    disabled={execBusy || execStatus === "active"}
+                    className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium disabled:opacity-50"
+                  >
+                    {execBusy ? "…" : execStatus === "active" ? "✓ En marcha" : "Iniciar secuencia"}
+                  </button>
+                </div>
+                {execStatus && execStatus !== "active" && <div className="text-[11px] text-rose-600">✗ {execStatus}</div>}
+                {execStatus === "active" && (
+                  <p className="text-[11px] text-emerald-700">Secuencia iniciada. Los emails se envían solos (con pie de baja); LinkedIn y llamada te llegan como recordatorio.</p>
+                )}
+              </div>
               <p className="text-[10px] text-slate-500 border-t border-indigo-200 pt-1">{dm.disclaimer}</p>
             </div>
           )}
