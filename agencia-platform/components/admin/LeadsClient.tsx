@@ -1155,11 +1155,39 @@ function LeadDetailModal({
   const [pitching, setPitching] = useState(false);
   const [pitch, setPitch] = useState<{ message: string; demoUrl: string } | null>(null);
   const [pitchErr, setPitchErr] = useState<string | null>(null);
+  // Kit directivo: contactar al máximo responsable por la vía profesional.
+  const [dmLoading, setDmLoading] = useState(false);
+  const [dmErr, setDmErr] = useState<string | null>(null);
+  const [dm, setDm] = useState<{
+    domain: string | null;
+    directors: { role: string; name: string }[];
+    emailGuesses: string[];
+    linkedinUrl: string;
+    opener: string | null;
+    disclaimer: string;
+  } | null>(null);
   useEffect(() => {
     setMockupMsg(null);
     setPitch(null);
     setPitchErr(null);
+    setDm(null);
+    setDmErr(null);
   }, [leadId]);
+
+  async function loadDecisionMaker() {
+    setDmLoading(true);
+    setDmErr(null);
+    try {
+      const r = await fetch(`/api/v1/leads/${leadId}/decision-maker`, { method: "POST" });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d?.error?.message ?? `HTTP ${r.status}`);
+      setDm(d);
+    } catch (e: any) {
+      setDmErr(e?.message ?? "No se pudo generar el kit");
+    } finally {
+      setDmLoading(false);
+    }
+  }
 
   async function generateBubuiPitch() {
     setPitching(true);
@@ -1314,7 +1342,71 @@ function LeadDetailModal({
               {pitching && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
               🚀 Pitch Bubui
             </button>
+            <button
+              type="button"
+              onClick={loadDecisionMaker}
+              disabled={dmLoading}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-indigo-300 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 text-xs font-medium disabled:opacity-50"
+              title="Cómo llegar al directivo: cargos (BORME), correos corporativos probables, LinkedIn y primer mensaje ejecutivo"
+            >
+              {dmLoading && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+              🎯 Kit directivo
+            </button>
           </div>
+          {dmErr && <div className="text-xs text-rose-600">✗ {dmErr}</div>}
+          {dm && (
+            <div className="rounded-lg border border-indigo-200 bg-indigo-50/60 p-3 space-y-2 text-xs">
+              {dm.directors.length > 0 ? (
+                <div>
+                  <span className="font-semibold text-indigo-800">Directivos (BORME):</span>
+                  <ul className="mt-0.5 space-y-0.5">
+                    {dm.directors.map((d, i) => (
+                      <li key={i} className="text-slate-700">• {d.role}: <strong>{d.name}</strong></li>
+                    ))}
+                  </ul>
+                </div>
+              ) : (
+                <div className="text-slate-500">Sin cargo nominal en BORME. Dirígete al máximo responsable.</div>
+              )}
+              {dm.emailGuesses.length > 0 && (
+                <div>
+                  <span className="font-semibold text-indigo-800">Correos probables{dm.domain ? ` (@${dm.domain})` : ""}:</span>
+                  <div className="mt-0.5 flex flex-wrap gap-1">
+                    {dm.emailGuesses.map((e) => (
+                      <button
+                        key={e}
+                        type="button"
+                        onClick={() => { void navigator.clipboard?.writeText(e); }}
+                        className="px-1.5 py-0.5 rounded border bg-white hover:bg-slate-50 font-mono text-[11px]"
+                        title="Copiar"
+                      >
+                        {e}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              <div>
+                <a href={dm.linkedinUrl} target="_blank" rel="noreferrer" className="text-indigo-700 hover:underline font-medium">
+                  🔗 Buscar a la persona en LinkedIn
+                </a>
+              </div>
+              {dm.opener && (
+                <div className="space-y-1">
+                  <span className="font-semibold text-indigo-800">Primer mensaje (ejecutivo):</span>
+                  <textarea readOnly value={dm.opener} rows={6} className="w-full rounded-md border bg-white p-2 font-mono leading-snug" />
+                  <button
+                    type="button"
+                    onClick={() => { void navigator.clipboard?.writeText(dm.opener ?? ""); }}
+                    className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium"
+                  >
+                    📋 Copiar mensaje
+                  </button>
+                </div>
+              )}
+              <p className="text-[10px] text-slate-500 border-t border-indigo-200 pt-1">{dm.disclaimer}</p>
+            </div>
+          )}
           {pitchErr && <div className="text-xs text-rose-600">✗ {pitchErr}</div>}
           {pitch && (
             <div className="rounded-lg border border-pink-200 bg-pink-50/60 p-3 space-y-2">
