@@ -3512,6 +3512,26 @@ model BubuiBusiness {
   wheelEnabled       Boolean @default(false)
   wheelMinPct        Int     @default(3)
   wheelMaxPct        Int     @default(20)
+  // ── MESA COLECTIVA (restauración): descuento de grupo viral ──────────
+  // El anfitrión escanea el QR del local y la app le muestra un QR de mesa;
+  // el resto de comensales lo escanean para unirse (ventana mesaJoinWindowMin).
+  // El descuento base se aplica si hay >= mesaMinDiners. Sube si TODOS comparten
+  // (mesaShareBonusPct, cada uno con mesaShareFriends amigos nuevos) y si TODOS
+  // dejan reseña en Google (mesaReviewBonusPct, vía enlace, sin condicionar a
+  // que sea positiva). El bonus se entrega como cupón de PRÓXIMA visita con
+  // mesaNextVisitDays de caducidad (recurrencia). Todo configurable aquí.
+  mesaEnabled        Boolean @default(false)
+  mesaBasePct        Int     @default(20)
+  mesaMinDiners      Int     @default(4)
+  mesaShareBonusPct  Int     @default(5)
+  mesaShareFriends   Int     @default(3)
+  mesaReviewBonusPct Int     @default(5)
+  mesaMaxPct         Int     @default(35) // tope de seguridad
+  mesaJoinWindowMin  Int     @default(20) // minutos para unirse a la mesa
+  mesaNextVisitDays  Int     @default(15) // caducidad del cupón próxima visita
+  // true = los bonus (compartir/reseña) se aplican a la cuenta de ESTA visita;
+  // false (def) = se guardan como cupón de próxima visita (recurrencia).
+  mesaBonusOnThisVisit Boolean @default(false)
   // Programa de afiliados: recompensas por hitos de amigos traídos.
   referralEnabled Boolean @default(true)
   referralReward1 String? // recompensa al traer 1 amigo
@@ -3587,6 +3607,7 @@ model BubuiBusiness {
   reviews        BubuiReview[]
   sponsoredSlots BubuiSponsoredSlot[]
   bannerCampaigns BubuiBannerCampaign[]
+  tableSessions  BubuiTableSession[]
 
   @@index([city, active])
   @@index([referrerId])
@@ -3892,6 +3913,55 @@ model BubuiReview {
 
   @@unique([customerId, businessId])
   @@index([businessId, createdAt])
+}
+
+/// Mesa Colectiva: una mesa de un restaurante que activa un descuento de grupo
+/// viral. El anfitrión la crea y su app muestra un QR de mesa; los demás
+/// comensales lo escanean para unirse (ventana de unión). El % sube si todos
+/// comparten Bubui y/o dejan reseña en Google. El dueño la verifica desde su
+/// panel y la canjea. status: open → verified → redeemed | expired.
+model BubuiTableSession {
+  @@map("BipiTableSession")
+  id           String    @id @default(cuid())
+  businessId   String
+  code         String    // código corto de unión (único entre sesiones abiertas)
+  tableLabel   String?   // nº/nombre de mesa
+  captainId    String?   // BubuiCustomer que la creó
+  status       String    @default("open") // open | verified | redeemed | expired
+  basePct      Int       @default(0) // snapshot de config al crear
+  shareBonusPct Int      @default(0)
+  reviewBonusPct Int     @default(0)
+  maxPct       Int       @default(35)
+  minDiners    Int       @default(4)
+  shareFriends Int       @default(3)
+  finalPct     Int?      // % aplicado al canjear
+  expiresAt    DateTime  // fin de la ventana de unión
+  verifiedAt   DateTime?
+  redeemedAt   DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  business     BubuiBusiness          @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  participants BubuiTableParticipant[]
+
+  @@index([businessId, status])
+  @@index([code, status])
+}
+
+model BubuiTableParticipant {
+  @@map("BipiTableParticipant")
+  id          String   @id @default(cuid())
+  sessionId   String
+  customerId  String
+  sharedCount Int      @default(0)
+  sharedDone  Boolean  @default(false) // alcanzó shareFriends amigos nuevos
+  reviewDone  Boolean  @default(false) // pasó por el enlace de reseña de Google
+  joinedAt    DateTime @default(now())
+
+  session  BubuiTableSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, customerId])
+  @@index([sessionId])
 }
 
 /// Slot patrocinado: anuncio "hero" del feed del cliente durante una
