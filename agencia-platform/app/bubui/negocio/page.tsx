@@ -171,6 +171,7 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
   const [loading, setLoading] = useState(true);
   const [loadErr, setLoadErr] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<string | null>(null);
+  const [tab, setTab] = useState<"inicio" | "nicho" | "fidelizar" | "crecer" | "ajustes">("inicio");
 
   // `silent` evita el flash de "Cargando…" en los refrescos automáticos:
   // solo la primera carga (sin datos aún) muestra el estado de carga.
@@ -241,8 +242,23 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
   const b = data.business;
   const m = data.metrics;
 
+  const niche =
+    b.businessType === "restaurante"
+      ? { icon: "🍽️", label: "Mesa", desc: "Configura y gestiona tu Mesa Colectiva (descuento de grupo viral)." }
+      : b.businessType === "comercio_producto"
+        ? { icon: "🛍️", label: "Catálogo", desc: "Gestiona los productos que ven tus clientes en tu ficha." }
+        : { icon: "📅", label: "Citas", desc: "Tus servicios y las reservas que piden tus clientes." };
+  const tabs = [
+    { key: "inicio" as const, icon: "🏠", label: "Inicio", desc: "Tu día a día: ventas, compras por confirmar y novedades." },
+    { key: "nicho" as const, icon: niche.icon, label: niche.label, desc: niche.desc },
+    { key: "fidelizar" as const, icon: "🎁", label: "Fidelizar", desc: "Haz que vuelvan: sellos, sorteos, cumpleaños y recompensas." },
+    { key: "crecer" as const, icon: "📣", label: "Crecer", desc: "Trae clientes nuevos: comparte, destácate, anúnciate y mide." },
+    { key: "ajustes" as const, icon: "⚙️", label: "Ajustes", desc: "Tu ficha, fotos, QR, tipo de negocio y plan." }
+  ];
+  const cur = tabs.find((t) => t.key === tab) ?? tabs[0];
+
   return (
-    <main className="max-w-4xl mx-auto px-4 py-8 space-y-6">
+    <main className="max-w-4xl mx-auto px-4 py-6 space-y-5">
       <div className="flex items-center justify-between bubui-fade-up">
         <div>
           <h1 className="text-2xl font-black tracking-tight">{b.name}</h1>
@@ -253,7 +269,23 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
         <button onClick={onLogout} className="text-xs text-black/45 hover:text-black/70">Cerrar sesión</button>
       </div>
 
-      {/* Avisos (ej. cliente alcanzó 5 referidos) */}
+      {/* Barra de pestañas — scroll horizontal en móvil, pegada arriba */}
+      <nav className="sticky top-0 z-20 -mx-4 px-4 py-2 bg-white/90 backdrop-blur border-b flex gap-1.5 overflow-x-auto">
+        {tabs.map((t) => (
+          <button
+            key={t.key}
+            onClick={() => setTab(t.key)}
+            className={`shrink-0 text-xs font-bold px-3 py-1.5 rounded-full border transition ${
+              tab === t.key ? "bg-pink-600 text-white border-pink-600" : "bg-white text-black/55 border-black/10 hover:bg-black/5"
+            }`}
+          >
+            {t.icon} {t.label}
+          </button>
+        ))}
+      </nav>
+      <p className="text-xs text-black/55 -mt-2">{cur.desc}</p>
+
+      {/* Avisos (ej. cliente alcanzó 5 referidos) — siempre visibles */}
       {Array.isArray(data.notifications) && data.notifications.length > 0 && (
         <section className="rounded-2xl border-2 border-pink-300 bg-pink-50 p-4 bubui-fade-up">
           <div className="flex items-center justify-between mb-2">
@@ -282,166 +314,175 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
         </section>
       )}
 
-      {/* Resumen — tarjeta oscura con gráfica de ventas + métricas */}
-      <section className="bubui-fade-up bubui-fade-up-1 space-y-3">
-        <div className="rounded-2xl p-5 text-white" style={{ background: "linear-gradient(160deg,#1A1A1A,#0A0A0A)" }}>
-          <div className="flex items-start justify-between">
-            <div>
-              <div className="text-[11px] uppercase tracking-wider text-white/50 font-bold">Ventas Bubui · 30 días</div>
-              <div className="text-4xl font-black mt-1">
-                {(m.revenue30 ?? 0).toLocaleString("es-ES", { maximumFractionDigits: 0 })} €
-              </div>
-            </div>
-            {typeof m.deltas?.scans7 === "number" && (
-              <div className={"text-xs font-bold px-2 py-1 rounded-full " + (m.deltas.scans7 >= 0 ? "bg-emerald-500/20 text-emerald-300" : "bg-rose-500/20 text-rose-300")}>
-                {m.deltas.scans7 >= 0 ? "↗" : "↘"} {Math.abs(m.deltas.scans7)}% escaneos 7d
-              </div>
-            )}
-          </div>
-          <SalesChart data={m.dailyRevenue ?? []} />
-        </div>
-
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-          <MetricCard label="Ventas 30d" value={m.scans30} sub="confirmadas" />
-          <MetricCard label="Nuevos clientes" value={m.newCustomers30 ?? 0} sub="30 días" />
-          <MetricCard label="Ticket medio" value={`${(m.ticketMedio ?? 0).toFixed(2)} €`} />
-          <MetricCard label="Escaneos 7d" value={m.scans7} />
-        </div>
-      </section>
-
-      {/* QR descargable */}
-      <section className="bg-white border rounded-xl p-5 shadow-sm flex items-start gap-4">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={b.qrPngUrl} alt="QR" className="w-32 h-32 border rounded" />
-        <div className="flex-1">
-          <h3 className="font-semibold text-sm">Tu QR</h3>
-          <p className="text-xs text-slate-600 mb-2">Imprímelo y ponlo en la caja. Cada escaneo sube tu karma y te hace más visible.</p>
-          <div className="flex items-center gap-2 flex-wrap">
-            <a
-              href={`/api/bubui/business/${b.id}/poster.png`}
-              target="_blank"
-              rel="noreferrer"
-              className="text-sm font-bold text-pink-700 border-2 border-pink-600 rounded-full px-3 py-1 hover:bg-pink-50"
-            >
-              🖨️ Descargar cartel para imprimir
-            </a>
-            <a href={b.qrPngUrl} download className="text-sm text-pink-600 hover:underline">Solo el QR (PNG)</a>
-            <span className="text-slate-400">·</span>
-            <CsvDownloadButton businessId={b.id} token={session.token} />
-          </div>
-          {/* Pedir la pegatina QR impresa: se la llevamos gratis al local. */}
-          <StickerRequest business={b} token={session.token} onChanged={load} />
-        </div>
-      </section>
-
-      {/* Comparte tu página pública */}
-      <ShareWidget slug={b.slug} name={b.name} discountPct={b.defaultDiscountPct} />
-
-      {/* Plan + Upgrade */}
-      <PlanCard business={b} token={session.token} onChanged={load} />
-
-      {/* Tipo de negocio → panel por nicho */}
-      <BusinessTypeSelect business={b} token={session.token} onSaved={load} />
-
-      {/* Editar perfil */}
-      <ProfileEditor business={b} token={session.token} onSaved={load} />
-
-      <AiPhotoStudio business={b} token={session.token} onSaved={load} />
-
-      {/* Programa de afiliados — lo financia el negocio */}
-      <ReferralConfig business={b} token={session.token} onSaved={load} />
-
-      <LoyaltyConfig business={b} token={session.token} onSaved={load} />
-
-      {/* Catálogo — solo comercios de producto */}
-      {b.businessType === "comercio_producto" && (
-        <ProductCatalog businessId={b.id} token={session.token} />
-      )}
-
-      {/* Reservas/citas — solo servicios */}
-      {b.businessType === "servicios" && (
+      {/* ───────────── PESTAÑA: INICIO ───────────── */}
+      {tab === "inicio" && (
         <>
-          <BookingsPanel businessId={b.id} token={session.token} />
-          <ServicesConfig business={b} token={session.token} onSaved={load} />
-        </>
-      )}
-
-      {/* Mesa Colectiva — solo restaurantes */}
-      {b.businessType === "restaurante" && (
-        <>
-          <MesaTablesPanel businessId={b.id} token={session.token} />
-          <MesaConfig business={b} token={session.token} onSaved={load} />
-        </>
-      )}
-
-      <EngagementConfig business={b} token={session.token} onSaved={load} />
-
-      <PromotionPanel business={b} token={session.token} onChanged={load} />
-
-      <PremiumAnalytics businessId={b.id} token={session.token} plan={b.plan} />
-
-      {/* Cruces — la mina de datos */}
-      <CrossShopperPanel businessId={b.id} token={session.token} />
-
-      {/* Crear Push del Día */}
-      <PushAdForm businessId={b.id} businessName={b.name} />
-
-
-      {/* Pendientes — estilo tabla compacta como en el mockup */}
-      <section className="bubui-card p-5">
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="font-bold text-sm">Últimas transacciones · pendientes</h3>
-          <span className="text-xs text-black/50">{data.pending.length}</span>
-        </div>
-        {data.pending.length === 0 ? (
-          <div className="py-6 text-center text-sm text-black/55">
-            Sin compras pendientes. Cuando un cliente escanee, aparecerá aquí.
-          </div>
-        ) : (
-          <div className="bubui-table">
-            {data.pending.map((p: any) => {
-              const initial = (p.customer.name ?? p.customer.email ?? "?").charAt(0).toUpperCase();
-              return (
-                <div key={p.id} className="row">
-                  <div className="left min-w-0">
-                    <div className="avatar">{initial}</div>
-                    <div className="min-w-0">
-                      <div className="name truncate">
-                        {p.customer.name ?? p.customer.email}
-                        {p.offerRedeemed && <span className="ml-1.5 text-[10px] font-bold text-pink-600">🎟 CRUZADO</span>}
-                      </div>
-                      <div className="sub">
-                        {new Date(p.scannedAt).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })} · {p.discountPct}% off
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <div className="amount mr-2">{p.amount.toFixed(2)} €</div>
-                    <button
-                      onClick={() => act(p.id, "reject")}
-                      disabled={confirming === p.id}
-                      className="px-3 py-1.5 rounded-full border border-black/15 bg-white hover:bg-black/5 text-xs font-semibold disabled:opacity-50"
-                    >
-                      Rechazar
-                    </button>
-                    <button
-                      onClick={() => act(p.id, "confirm")}
-                      disabled={confirming === p.id}
-                      className="px-3 py-1.5 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold disabled:opacity-50"
-                    >
-                      Confirmar
-                    </button>
+          {/* Resumen — tarjeta oscura con gráfica de ventas + métricas */}
+          <section className="bubui-fade-up bubui-fade-up-1 space-y-3">
+            <div className="rounded-2xl p-5 text-white" style={{ background: "linear-gradient(160deg,#1A1A1A,#0A0A0A)" }}>
+              <div className="flex items-start justify-between">
+                <div>
+                  <div className="text-[11px] uppercase tracking-wider text-white/50 font-bold">Ventas Bubui · 30 días</div>
+                  <div className="text-4xl font-black mt-1">
+                    {(m.revenue30 ?? 0).toLocaleString("es-ES", { maximumFractionDigits: 0 })} €
                   </div>
                 </div>
-              );
-            })}
-          </div>
-        )}
-      </section>
+                {typeof m.deltas?.scans7 === "number" && (
+                  <div className={"text-xs font-bold px-2 py-1 rounded-full " + (m.deltas.scans7 >= 0 ? "bg-emerald-500/20 text-emerald-300" : "bg-rose-500/20 text-rose-300")}>
+                    {m.deltas.scans7 >= 0 ? "↗" : "↘"} {Math.abs(m.deltas.scans7)}% escaneos 7d
+                  </div>
+                )}
+              </div>
+              <SalesChart data={m.dailyRevenue ?? []} />
+            </div>
 
-      <RankingCard businessId={b.id} token={session.token} />
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              <MetricCard label="Ventas 30d" value={m.scans30} sub="confirmadas" />
+              <MetricCard label="Nuevos clientes" value={m.newCustomers30 ?? 0} sub="30 días" />
+              <MetricCard label="Ticket medio" value={`${(m.ticketMedio ?? 0).toFixed(2)} €`} />
+              <MetricCard label="Escaneos 7d" value={m.scans7} />
+            </div>
+          </section>
 
-      <BusinessReferralPanel businessId={b.id} token={session.token} />
+          {/* Pendientes — compras a confirmar */}
+          <section className="bubui-card p-5">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="font-bold text-sm">Compras por confirmar</h3>
+              <span className="text-xs text-black/50">{data.pending.length}</span>
+            </div>
+            {data.pending.length === 0 ? (
+              <div className="py-6 text-center text-sm text-black/55">
+                Sin compras pendientes. Cuando un cliente escanee, aparecerá aquí.
+              </div>
+            ) : (
+              <div className="bubui-table">
+                {data.pending.map((p: any) => {
+                  const initial = (p.customer.name ?? p.customer.email ?? "?").charAt(0).toUpperCase();
+                  return (
+                    <div key={p.id} className="row">
+                      <div className="left min-w-0">
+                        <div className="avatar">{initial}</div>
+                        <div className="min-w-0">
+                          <div className="name truncate">
+                            {p.customer.name ?? p.customer.email}
+                            {p.offerRedeemed && <span className="ml-1.5 text-[10px] font-bold text-pink-600">🎟 CRUZADO</span>}
+                          </div>
+                          <div className="sub">
+                            {new Date(p.scannedAt).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })} · {p.discountPct}% off
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="amount mr-2">{p.amount.toFixed(2)} €</div>
+                        <button
+                          onClick={() => act(p.id, "reject")}
+                          disabled={confirming === p.id}
+                          className="px-3 py-1.5 rounded-full border border-black/15 bg-white hover:bg-black/5 text-xs font-semibold disabled:opacity-50"
+                        >
+                          Rechazar
+                        </button>
+                        <button
+                          onClick={() => act(p.id, "confirm")}
+                          disabled={confirming === p.id}
+                          className="px-3 py-1.5 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold disabled:opacity-50"
+                        >
+                          Confirmar
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+
+          <RankingCard businessId={b.id} token={session.token} />
+        </>
+      )}
+
+      {/* ───────────── PESTAÑA: MI NICHO ───────────── */}
+      {tab === "nicho" && (
+        <>
+          {b.businessType === "comercio_producto" && <ProductCatalog businessId={b.id} token={session.token} />}
+          {b.businessType === "servicios" && (
+            <>
+              <BookingsPanel businessId={b.id} token={session.token} />
+              <ServicesConfig business={b} token={session.token} onSaved={load} />
+            </>
+          )}
+          {b.businessType === "restaurante" && (
+            <>
+              <MesaTablesPanel businessId={b.id} token={session.token} />
+              <MesaConfig business={b} token={session.token} onSaved={load} />
+            </>
+          )}
+        </>
+      )}
+
+      {/* ───────────── PESTAÑA: FIDELIZAR ───────────── */}
+      {tab === "fidelizar" && (
+        <>
+          <LoyaltyConfig business={b} token={session.token} onSaved={load} />
+          <EngagementConfig business={b} token={session.token} onSaved={load} />
+          {/* Programa de afiliados — lo financia el negocio */}
+          <ReferralConfig business={b} token={session.token} onSaved={load} />
+        </>
+      )}
+
+      {/* ───────────── PESTAÑA: CRECER ───────────── */}
+      {tab === "crecer" && (
+        <>
+          {/* Comparte tu página pública */}
+          <ShareWidget slug={b.slug} name={b.name} discountPct={b.defaultDiscountPct} />
+          <PromotionPanel business={b} token={session.token} onChanged={load} />
+          {/* Crear Push del Día */}
+          <PushAdForm businessId={b.id} businessName={b.name} />
+          {/* Referidos B2B (traer otros negocios) */}
+          <BusinessReferralPanel businessId={b.id} token={session.token} />
+          <PremiumAnalytics businessId={b.id} token={session.token} plan={b.plan} />
+          {/* Cruces — la mina de datos */}
+          <CrossShopperPanel businessId={b.id} token={session.token} />
+        </>
+      )}
+
+      {/* ───────────── PESTAÑA: AJUSTES ───────────── */}
+      {tab === "ajustes" && (
+        <>
+          {/* Tipo de negocio → panel por nicho */}
+          <BusinessTypeSelect business={b} token={session.token} onSaved={load} />
+          {/* Editar perfil */}
+          <ProfileEditor business={b} token={session.token} onSaved={load} />
+          <AiPhotoStudio business={b} token={session.token} onSaved={load} />
+
+          {/* QR + cartel + CSV */}
+          <section className="bg-white border rounded-xl p-5 shadow-sm flex items-start gap-4">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={b.qrPngUrl} alt="QR" className="w-32 h-32 border rounded" />
+            <div className="flex-1">
+              <h3 className="font-semibold text-sm">Tu QR</h3>
+              <p className="text-xs text-slate-600 mb-2">Imprímelo y ponlo en la caja. Cada escaneo sube tu karma y te hace más visible.</p>
+              <div className="flex items-center gap-2 flex-wrap">
+                <a
+                  href={`/api/bubui/business/${b.id}/poster.png`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-sm font-bold text-pink-700 border-2 border-pink-600 rounded-full px-3 py-1 hover:bg-pink-50"
+                >
+                  🖨️ Descargar cartel para imprimir
+                </a>
+                <a href={b.qrPngUrl} download className="text-sm text-pink-600 hover:underline">Solo el QR (PNG)</a>
+                <span className="text-slate-400">·</span>
+                <CsvDownloadButton businessId={b.id} token={session.token} />
+              </div>
+              {/* Pedir la pegatina QR impresa: se la llevamos gratis al local. */}
+              <StickerRequest business={b} token={session.token} onChanged={load} />
+            </div>
+          </section>
+
+          {/* Plan + Upgrade */}
+          <PlanCard business={b} token={session.token} onChanged={load} />
+        </>
+      )}
     </main>
   );
 }
