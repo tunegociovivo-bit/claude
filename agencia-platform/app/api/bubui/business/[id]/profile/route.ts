@@ -60,7 +60,14 @@ const schema = z
     mesaMaxPct: z.number().int().min(0).max(MAX_DISCOUNT_PCT).optional(),
     mesaJoinWindowMin: z.number().int().min(5).max(180).optional(),
     mesaNextVisitDays: z.number().int().min(1).max(120).optional(),
-    mesaBonusOnThisVisit: z.boolean().optional()
+    mesaBonusOnThisVisit: z.boolean().optional(),
+    mesaVeteranMustContribute: z.boolean().optional(),
+    mesaVeteranShareFriends: z.number().int().min(1).max(10).optional(),
+    mesaAutoAdjust: z.boolean().optional(),
+    mesaActShare: z.boolean().optional(),
+    mesaActReview: z.boolean().optional(),
+    mesaActPhoto: z.boolean().optional(),
+    mesaActFollow: z.boolean().optional()
   })
   // La ruleta no puede tener el mínimo por encima del máximo.
   .refine(
