@@ -37,9 +37,15 @@ export async function POST(req: Request, { params }: { params: { id: string; ses
   const days = session.business.mesaNextVisitDays ?? 15;
   const expiresAt = new Date(Date.now() + days * 86_400_000);
 
-  // Cupón de próxima visita para cada comensal (recurrencia).
+  // Regalo de próxima visita (ej. "1 bebida gratis"): se gana si la mesa
+  // completó los pasos extra que se piden por push (compartir/reseña).
+  const perk = (session.business.mesaPerkLabel || "").trim();
+  const perkEarned = !!perk && (state.everyoneShared || state.everyoneReviewed);
+
+  // Cupón de próxima visita para cada comensal (recurrencia): % diferido y/o
+  // el regalo. Se crea si hay algo que entregar.
   let coupons = 0;
-  if (nextVisitPct > 0) {
+  if (nextVisitPct > 0 || perkEarned) {
     const parts = await prisma.bubuiTableParticipant.findMany({ where: { sessionId: session.id }, select: { customerId: true } });
     for (const p of parts) {
       await prisma.bubuiOffer
@@ -50,11 +56,12 @@ export async function POST(req: Request, { params }: { params: { id: string; ses
             businessId: params.id,
             triggerBusinessId: `mesa:${session.id}`,
             discountPct: nextVisitPct,
+            rewardLabel: perkEarned ? perk : null,
             source: "mesa",
             active: true,
             expiresAt
           },
-          update: { discountPct: nextVisitPct, expiresAt, active: true }
+          update: { discountPct: nextVisitPct, rewardLabel: perkEarned ? perk : null, expiresAt, active: true }
         })
         .then(() => { coupons++; })
         .catch(() => {});
@@ -72,7 +79,8 @@ export async function POST(req: Request, { params }: { params: { id: string; ses
     payNow: state.euros?.payNow ?? null,
     savedNow: state.euros?.savedNow ?? null,
     nextVisitPct,
+    perk: perkEarned ? perk : null,
     couponsCreated: coupons,
-    nextVisitExpiresAt: nextVisitPct > 0 ? expiresAt.toISOString() : null
+    nextVisitExpiresAt: nextVisitPct > 0 || perkEarned ? expiresAt.toISOString() : null
   });
 }

@@ -33,7 +33,8 @@ export async function GET(req: Request, { params }: { params: { code: string } }
       googlePlaceId: s.business.googlePlaceId,
       reviewPlatform: s.business.mesaReviewPlatform || "google",
       reviewPlatformLabel: mesaReviewPlatformLabel(s.business),
-      reviewUrl: mesaReviewUrl(s.business)
+      reviewUrl: mesaReviewUrl(s.business),
+      perkLabel: (s.business.mesaPerkLabel || "").trim() || null
     },
     expiresAt: s.expiresAt.toISOString(),
     state
