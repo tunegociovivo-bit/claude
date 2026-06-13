@@ -3532,6 +3532,17 @@ model BubuiBusiness {
   // true = los bonus (compartir/reseña) se aplican a la cuenta de ESTA visita;
   // false (def) = se guardan como cupón de próxima visita (recurrencia).
   mesaBonusOnThisVisit Boolean @default(false)
+  // Valor neto-nuevo: el comensal NUEVO aporta instalándose; el VETERANO (ya
+  // tenía la app) debe completar una acción del menú para que su parte cuente.
+  // Evita regalar descuento sin recibir nada cuando la zona ya está saturada.
+  mesaVeteranMustContribute Boolean @default(true)
+  mesaVeteranShareFriends   Int     @default(1) // amigos si elige "compartir"
+  mesaAutoAdjust            Boolean @default(true) // sube exigencia con la saturación
+  // Menú de acciones que el comercio acepta como aporte del veterano.
+  mesaActShare  Boolean @default(true)  // invitar amigos
+  mesaActReview Boolean @default(true)  // reseña en Google
+  mesaActPhoto  Boolean @default(true)  // foto del plato (UGC)
+  mesaActFollow Boolean @default(false) // seguir en redes
   // Programa de afiliados: recompensas por hitos de amigos traídos.
   referralEnabled Boolean @default(true)
   referralReward1 String? // recompensa al traer 1 amigo
@@ -3953,6 +3964,9 @@ model BubuiTableParticipant {
   id          String   @id @default(cuid())
   sessionId   String
   customerId  String
+  isNewUser   Boolean  @default(false) // se instaló la app al unirse a esta mesa
+  contributed Boolean  @default(false) // veterano que completó una acción del menú
+  contributionType String? // share | review | photo | follow
   sharedCount Int      @default(0)
   sharedDone  Boolean  @default(false) // alcanzó shareFriends amigos nuevos
   reviewDone  Boolean  @default(false) // pasó por el enlace de reseña de Google

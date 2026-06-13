@@ -17,9 +17,18 @@ export type MesaConfig = {
   /** true = los bonus (compartir/reseña) se aplican a ESTA cuenta; false (def)
    *  = se guardan como cupón de PRÓXIMA visita (recurrencia). */
   bonusOnThisVisit?: boolean;
+  /** Si true, un comensal que YA tenía la app (veterano) debe completar una
+   *  acción de aporte para que su parte cuente (el nuevo aporta instalándose).
+   *  Evita regalar descuento sin recibir valor neto-nuevo cuando la zona ya
+   *  está saturada de usuarios. */
+  veteranMustContribute?: boolean;
 };
 
 export type MesaParticipant = {
+  /** Se instaló la app al unirse a esta mesa (su instalación ya es el aporte). */
+  isNewUser: boolean;
+  /** Veterano que completó una acción del menú (compartir/reseña/foto/seguir). */
+  contributed: boolean;
   sharedCount: number;
   sharedDone: boolean;
   reviewDone: boolean;
@@ -42,6 +51,11 @@ export type MesaState = {
   maxPotentialPct: number;
   diners: number;
   quorum: boolean;
+  /** Todos han aportado valor neto-nuevo (nuevos por instalar, veteranos por
+   *  su acción). Si false, el descuento base está BLOQUEADO. */
+  everyonePaidEntry: boolean;
+  /** Cuántos veteranos faltan por aportar (para el aviso "falta que X aporte"). */
+  pendingContributors: number;
   everyoneShared: boolean;
   everyoneReviewed: boolean;
   steps: MesaStep[];
@@ -80,7 +94,14 @@ export function computeMesa(
   const everyoneShared = diners > 0 && participants.every((p) => p.sharedDone || p.sharedCount >= cfg.shareFriends);
   const everyoneReviewed = diners > 0 && participants.every((p) => p.reviewDone);
 
-  const basePct = quorum ? cfg.basePct : 0;
+  // Valor neto-nuevo: el nuevo aporta instalándose; el veterano, con su acción.
+  // Si veteranMustContribute=false, todos cuentan por estar presentes.
+  const paidEntry = (p: MesaParticipant) => p.isNewUser || !cfg.veteranMustContribute || p.contributed;
+  const everyonePaidEntry = diners > 0 && participants.every(paidEntry);
+  const pendingContributors = participants.filter((p) => !paidEntry(p)).length;
+
+  // El descuento base solo se DESBLOQUEA si hay quórum Y todos han aportado.
+  const basePct = quorum && everyonePaidEntry ? cfg.basePct : 0;
   const sharePct = everyoneShared ? cfg.shareBonusPct : 0;
   const reviewPct = everyoneReviewed ? cfg.reviewBonusPct : 0;
 
@@ -98,10 +119,14 @@ export function computeMesa(
   const allSteps: MesaStep[] = [
     {
       key: "quorum",
-      label: quorum ? `Sois ${diners} en la mesa` : `Sed ${cfg.minDiners}+ en la mesa`,
+      label: !quorum
+        ? `Sed ${cfg.minDiners}+ en la mesa`
+        : !everyonePaidEntry
+          ? `Falta que ${pendingContributors} aporte${pendingContributors === 1 ? "" : "n"} (compartir/reseña/foto)`
+          : `Sois ${diners} y todos habéis aportado`,
       pct: cfg.basePct,
       euros: ticketAmount ? eur(ticketAmount, cfg.basePct) : 0,
-      done: quorum
+      done: quorum && everyonePaidEntry
     },
     {
       key: "share",
@@ -135,7 +160,19 @@ export function computeMesa(
     };
   }
 
-  return { pctNow, pctNextVisit, maxPotentialPct, diners, quorum, everyoneShared, everyoneReviewed, steps, euros };
+  return { pctNow, pctNextVisit, maxPotentialPct, diners, quorum, everyonePaidEntry, pendingContributors, everyoneShared, everyoneReviewed, steps, euros };
+}
+
+/**
+ * Auto-ajuste por saturación: cuanto mayor es la proporción de VETERANOS en la
+ * mesa (zona ya penetrada), más amigos se exige a cada veterano. Cuando casi
+ * todos son nuevos, no aprieta (queremos instalaciones). Se usa al crear la
+ * sesión para fijar el umbral efectivo.
+ */
+export function effectiveVeteranShareFriends(base: number, veteranRatio: number): number {
+  if (veteranRatio >= 0.8) return base + 2;
+  if (veteranRatio >= 0.5) return base + 1;
+  return base;
 }
 
 /** Código corto legible para unirse a la mesa (sin caracteres ambiguos). */
