@@ -3489,6 +3489,12 @@ model BubuiBusiness {
   // tras dejar una reseña — abre el formulario de reseñas de Google con
   // este local pre-seleccionado.
   googlePlaceId      String?
+  // Redes y reseñas del negocio (autocompletadas por IA al darse de alta y
+  // verificadas por el dueño). Para enlazarlas en su ficha y para reseñas.
+  instagramUrl       String?
+  facebookUrl        String?
+  tiktokUrl          String?
+  trustpilotUrl      String?
   // ── Crecimiento viral + reseñas ──────────────────────────────────
   // Oferta-reto: tras escanear el ticket, al cliente se le crea una oferta
   // MAYOR (shareOfferPct), bloqueada, que solo se activa cuando comparte
