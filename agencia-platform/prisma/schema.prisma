@@ -3622,6 +3622,7 @@ model BubuiBusiness {
   sponsoredSlots BubuiSponsoredSlot[]
   bannerCampaigns BubuiBannerCampaign[]
   tableSessions  BubuiTableSession[]
+  products       BubuiProduct[]
 
   @@index([city, active])
   @@index([referrerId])
@@ -3979,6 +3980,27 @@ model BubuiTableParticipant {
 
   @@unique([sessionId, customerId])
   @@index([sessionId])
+}
+
+/// Catálogo de productos de un comercio (nicho comercio_producto). Se muestra
+/// en su página pública de Bubui; el comercio lo gestiona desde su panel.
+model BubuiProduct {
+  @@map("BipiProduct")
+  id          String   @id @default(cuid())
+  businessId  String
+  name        String
+  description String?  @db.Text
+  priceEur    Float?
+  imageUrl    String?
+  stock       Int? // null = sin control de stock
+  active      Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  business BubuiBusiness @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId, active])
 }
 
 /// Slot patrocinado: anuncio "hero" del feed del cliente durante una

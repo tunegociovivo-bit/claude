@@ -65,6 +65,7 @@ async function getBusiness(slug: string) {
       slug: true,
       name: true,
       category: true,
+      businessType: true,
       description: true,
       city: true,
       province: true,
@@ -125,6 +126,17 @@ export default async function BusinessPublicPage({ params }: { params: { slug: s
   });
 
   const reviews = await getReviews(business.id);
+
+  // Catálogo (comercios de producto): productos activos para mostrar en la ficha.
+  const products =
+    (business as any).businessType === "comercio_producto"
+      ? await prisma.bubuiProduct.findMany({
+          where: { businessId: business.id, active: true },
+          orderBy: [{ sortOrder: "asc" }, { createdAt: "desc" }],
+          take: 60,
+          select: { id: true, name: true, description: true, priceEur: true, imageUrl: true }
+        })
+      : [];
 
   const topPosition = await getTopPosition({
     businessId: business.id,
@@ -257,6 +269,28 @@ export default async function BusinessPublicPage({ params }: { params: { slug: s
             <p className="text-black/75 whitespace-pre-wrap leading-relaxed text-sm">
               {business.description}
             </p>
+          </div>
+        )}
+
+        {/* Catálogo de productos (comercios de producto) */}
+        {products.length > 0 && (
+          <div className="px-6 sm:px-8 pt-6">
+            <div className="text-xs font-bold uppercase tracking-wider text-black/45 mb-2">Catálogo</div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              {products.map((p) => (
+                <div key={p.id} className="rounded-xl border overflow-hidden bg-white">
+                  {p.imageUrl && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={p.imageUrl} alt={p.name} className="w-full h-28 object-cover" />
+                  )}
+                  <div className="p-2">
+                    <div className="text-sm font-semibold leading-tight">{p.name}</div>
+                    {p.description && <div className="text-[11px] text-black/55 mt-0.5 line-clamp-2">{p.description}</div>}
+                    {p.priceEur != null && <div className="text-sm font-black text-pink-600 mt-1">{p.priceEur}€</div>}
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         )}
 
