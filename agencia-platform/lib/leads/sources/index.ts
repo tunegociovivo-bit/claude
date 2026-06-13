@@ -12,6 +12,7 @@ import type { PlacesResult } from "../google-places";
 import { prisma } from "@/lib/db/prisma";
 import { collectBorme } from "./borme";
 import { collectMetaAds } from "./meta-ads";
+import { scrapeDirectory } from "./scrape";
 
 export type LeadSourceKey =
   | "places"
@@ -57,15 +58,26 @@ export async function collectFromSource(
   ctx: CollectorContext
 ): Promise<PlacesResult[]> {
   switch (source) {
-    case "borme":
+    case "borme": {
+      // Keyword "capital" o "capital 60000" → filtra por capital social mínimo
+      // (baja el detalle de cada anuncio). Default 30.000 € si no se indica nº.
+      const kw = ctx.keyword ?? "";
+      let minCapital: number | undefined;
+      if (/\bcapital\b/i.test(kw)) {
+        const m = kw.match(/\bcapital\D*([\d.]{4,})/i);
+        minCapital = m ? parseInt(m[1].replace(/\./g, ""), 10) : 30000;
+        if (!Number.isFinite(minCapital)) minCapital = 30000;
+      }
       return collectBorme({
         // En BORME usamos scope como atajo: custom=1 día, spain=últimos 7.
         daysBack: ctx.scope === "spain" ? 7 : 1,
         // Si el usuario indicó "location" (p. ej. "Barcelona"), filtramos.
         provinceFilter: ctx.location?.trim() || undefined,
         // Keyword "ticket alto" / "premium" / "valor" → solo sectores de alto valor.
-        highValueOnly: /\b(alto|premium|ticket|valor)\b/i.test(ctx.keyword ?? "")
+        highValueOnly: /\b(alto|premium|ticket|valor)\b/i.test(kw),
+        minCapital
       });
+    }
     case "meta_ads": {
       const token = await metaAdsToken(ctx.workspaceId);
       if (!token) {
@@ -73,14 +85,102 @@ export async function collectFromSource(
           "Meta Ad Library necesita un token. Configura META_ADS_TOKEN (un app token APPID|APPSECRET sirve) o settings.leads.metaAdsToken."
         );
       }
-      return collectMetaAds({ keyword: ctx.keyword, location: ctx.location, token });
+      return collectMetaAds({ keyword: ctx.keyword, location: ctx.location, token, workspaceId: ctx.workspaceId });
     }
+    case "doctoralia":
+      return enrichMissingPhones(
+        ctx.workspaceId,
+        await scrapeDirectory(
+          {
+            idPrefix: "doctoralia",
+            defaultCategory: "Clínica / profesional sanitario",
+            buildUrl: (kw, loc) => `https://www.doctoralia.es/buscar?q=${encodeURIComponent(kw)}&loc=${encodeURIComponent(loc)}`
+          },
+          ctx.keyword,
+          ctx.location || "España"
+        )
+      );
+    case "idealista":
+      return enrichMissingPhones(
+        ctx.workspaceId,
+        await scrapeDirectory(
+          {
+            idPrefix: "idealista",
+            defaultCategory: "Inmobiliaria / promotora",
+            buildUrl: (kw, loc) =>
+              `https://www.idealista.com/buscar/venta-viviendas/${encodeURIComponent(slug(loc || "espana"))}/?q=${encodeURIComponent(kw)}`
+          },
+          ctx.keyword,
+          ctx.location || "España"
+        )
+      );
+    case "fotocasa":
+      return enrichMissingPhones(
+        ctx.workspaceId,
+        await scrapeDirectory(
+          {
+            idPrefix: "fotocasa",
+            defaultCategory: "Inmobiliaria / promotora",
+            buildUrl: (kw, loc) =>
+              `https://www.fotocasa.es/es/comprar/viviendas/${encodeURIComponent(slug(loc || "espana"))}/todas-las-zonas/l?q=${encodeURIComponent(kw)}`
+          },
+          ctx.keyword,
+          ctx.location || "España"
+        )
+      );
     case "places":
       // El motor places vive en search-manager por razones históricas.
       throw new Error("places no usa collectFromSource — ve directamente a google-places.ts");
     default:
       throw new Error(STUB_MSG[source] ?? `Fuente desconocida: ${source}`);
   }
+}
+
+/** Slug simple para URLs de directorio ("A Coruña" → "a-coruna"). */
+function slug(s: string): string {
+  return s
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+/**
+ * Rellena el teléfono de los leads que llegan sin él (típico de directorios y
+ * Meta Ads) cruzándolos con Google Places por nombre + zona. Best-effort y
+ * acotado por coste; los que no tengan key de Places o match se quedan igual.
+ */
+async function enrichMissingPhones(workspaceId: string, leads: PlacesResult[], max = 40): Promise<PlacesResult[]> {
+  const { placesTextSearch } = await import("../google-places");
+  const targets = leads.filter((l) => !l.phone).slice(0, max);
+  for (const lead of targets) {
+    try {
+      const hits = await placesTextSearch({
+        workspaceId,
+        query: `${lead.name} ${lead.province ?? "España"}`,
+        maxPages: 1,
+        pageSize: 1,
+        province: lead.province ?? undefined
+      });
+      const g = hits[0];
+      if (!g) continue;
+      lead.placeId = g.placeId; // dedup con leads de Places
+      lead.phone = g.phone ?? lead.phone;
+      lead.internationalPhone = g.internationalPhone ?? lead.internationalPhone;
+      lead.website = lead.website ?? g.website;
+      lead.formattedAddress = lead.formattedAddress ?? g.formattedAddress;
+      lead.latitude = lead.latitude ?? g.latitude;
+      lead.longitude = lead.longitude ?? g.longitude;
+      lead.rating = lead.rating ?? g.rating;
+      if (!lead.userRatingCount) lead.userRatingCount = g.userRatingCount;
+      lead.priceLevel = lead.priceLevel ?? g.priceLevel;
+      (lead.rawData as any).enrichedFromPlaces = true;
+    } catch {
+      // sin key/ match → se queda sin teléfono
+    }
+  }
+  return leads;
 }
 
 export const LEAD_SOURCE_META: Record<LeadSourceKey, { label: string; status: "ready" | "stub"; help: string }> = {
@@ -103,19 +203,19 @@ export const LEAD_SOURCE_META: Record<LeadSourceKey, { label: string; status: "r
     help: "Negocios con reseñas <3,5 → leads urgentes. Pendiente: configurar scraper."
   },
   doctoralia: {
-    label: "Doctoralia",
-    status: "stub",
-    help: "Médicos, dentistas, fisios. Pendiente: configurar scraper."
+    label: "Doctoralia (clínicas)",
+    status: "ready",
+    help: "Médicos, dentistas, fisios (ticket alto). Requiere SCRAPFLY_API_KEY. El teléfono se enriquece con Google Places."
   },
   idealista: {
-    label: "Idealista",
-    status: "stub",
-    help: "Inmobiliarias listadas en Idealista. Pendiente: acuerdo de API."
+    label: "Idealista (inmobiliarias)",
+    status: "ready",
+    help: "Inmobiliarias y promotoras listadas en Idealista. Requiere SCRAPFLY_API_KEY. El teléfono se enriquece con Google Places."
   },
   fotocasa: {
-    label: "Fotocasa",
-    status: "stub",
-    help: "Inmobiliarias listadas en Fotocasa. Pendiente: configurar scraper."
+    label: "Fotocasa (inmobiliarias)",
+    status: "ready",
+    help: "Inmobiliarias listadas en Fotocasa. Requiere SCRAPFLY_API_KEY. El teléfono se enriquece con Google Places."
   },
   linkedin: {
     label: "LinkedIn Sales Navigator",

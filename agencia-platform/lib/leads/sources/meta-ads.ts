@@ -14,6 +14,7 @@
  */
 
 import type { PlacesResult } from "../google-places";
+import { placesTextSearch } from "../google-places";
 import { detectSector } from "../ticket-score";
 
 const GRAPH = "https://graph.facebook.com/v21.0/ads_archive";
@@ -23,6 +24,11 @@ export async function collectMetaAds(opts: {
   location?: string;
   token: string;
   limit?: number;
+  /** Si se pasa, enriquece cada anunciante con Google Places (teléfono, web,
+   *  rating…) para dejarlos listos para contactar por WhatsApp. */
+  workspaceId?: string;
+  /** Máx anunciantes a enriquecer (controla coste de Places). Default 40. */
+  enrichMax?: number;
 }): Promise<PlacesResult[]> {
   const term = opts.keyword?.trim();
   if (!term) throw new Error("Meta Ad Library necesita un término de búsqueda (keyword).");
@@ -98,6 +104,47 @@ export async function collectMetaAds(opts: {
 
   // Los que más anuncios tienen primero (más presupuesto).
   out.sort((a, b) => ((b.rawData as any).activeAds ?? 0) - ((a.rawData as any).activeAds ?? 0));
+
+  // Enriquecimiento: los anunciantes de Meta llegan sin teléfono. Los cruzamos
+  // con Google Places (nombre + zona) para sacar móvil/web/rating y dejarlos
+  // listos para contactar por WhatsApp. Best-effort y acotado por coste.
+  if (opts.workspaceId) {
+    const max = Math.min(opts.enrichMax ?? 40, out.length);
+    for (let i = 0; i < max; i++) {
+      const lead = out[i];
+      try {
+        const hits = await placesTextSearch({
+          workspaceId: opts.workspaceId,
+          query: `${lead.name}${loc ? " " + loc : " España"}`,
+          maxPages: 1,
+          pageSize: 1,
+          province: loc ?? undefined
+        });
+        const g = hits[0];
+        if (!g) continue;
+        // Adoptamos el placeId de Google → deduplica con leads de Places y
+        // marca al negocio existente como anunciante (runsAds) si ya estaba.
+        lead.placeId = g.placeId;
+        lead.phone = g.phone ?? lead.phone;
+        lead.internationalPhone = g.internationalPhone ?? lead.internationalPhone;
+        lead.website = g.website ?? lead.website;
+        lead.formattedAddress = g.formattedAddress ?? lead.formattedAddress;
+        lead.province = g.province ?? lead.province;
+        lead.latitude = g.latitude ?? lead.latitude;
+        lead.longitude = g.longitude ?? lead.longitude;
+        lead.rating = g.rating ?? lead.rating;
+        lead.userRatingCount = g.userRatingCount ?? lead.userRatingCount;
+        lead.priceLevel = g.priceLevel ?? lead.priceLevel;
+        lead.gmbUrl = g.gmbUrl ?? lead.gmbUrl;
+        if (g.category && (lead.category === "Anunciante activo (Meta)" || !lead.category)) lead.category = g.category;
+        (lead.rawData as any).enrichedFromPlaces = true;
+        (lead.rawData as any).googlePlaceId = g.placeId;
+      } catch {
+        // Sin key de Places o sin match → se queda como anunciante sin teléfono.
+      }
+    }
+  }
+
   return out;
 }
 

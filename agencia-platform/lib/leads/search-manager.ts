@@ -221,6 +221,7 @@ export async function processSearchBatch(opts: {
           website: r.website
         }))
       });
+      const multiSet = await computeMultiLocationSet(opts.workspaceId, results);
       let position = 1;
       for (const r of results) {
         try {
@@ -232,7 +233,8 @@ export async function processSearchBatch(opts: {
             position: position++,
             r,
             aiRelevance: v ?? null,
-            skipExisting: search.skipExisting
+            skipExisting: search.skipExisting,
+            multiLocation: multiSet.has((r.name ?? "").trim())
           });
           if (upsertOut?.skipped) leadsSkipped++;
           else leadsInserted++;
@@ -336,6 +338,7 @@ async function processNonPlacesBatch(opts: {
       }))
     });
 
+    const multiSet = await computeMultiLocationSet(opts.workspaceId, results);
     let position = 1;
     for (const r of results) {
       try {
@@ -347,7 +350,8 @@ async function processNonPlacesBatch(opts: {
           position: position++,
           r,
           aiRelevance: v ?? null,
-          skipExisting: search.skipExisting
+          skipExisting: search.skipExisting,
+          multiLocation: multiSet.has((r.name ?? "").trim())
         });
         if (upsertOut?.skipped) leadsSkipped++;
         else leadsInserted++;
@@ -381,6 +385,42 @@ async function processNonPlacesBatch(opts: {
   };
 }
 
+/**
+ * Detecta CADENAS / multi-local: negocios cuyo mismo nombre aparece en varias
+ * fichas (en este batch o ya en la BD del workspace) → más presupuesto, decisión
+ * centralizada = mejor ticket. Una sola query agrupada, sin N+1.
+ */
+async function computeMultiLocationSet(workspaceId: string, results: PlacesResult[]): Promise<Set<string>> {
+  const multi = new Set<string>();
+  const freq = new Map<string, number>();
+  for (const r of results) {
+    const n = (r.name ?? "").trim();
+    if (!n) continue;
+    const c = (freq.get(n) ?? 0) + 1;
+    freq.set(n, c);
+    if (c >= 2) multi.add(n);
+  }
+  const names = Array.from(freq.keys());
+  if (names.length === 0) return multi;
+  const batchPlaceIds = results.map((r) => r.placeId).filter(Boolean) as string[];
+  try {
+    const grouped = await prisma.lead.groupBy({
+      by: ["name"],
+      // Excluimos los placeId de este batch: así solo contamos OTRAS fichas con
+      // el mismo nombre (no el mismo negocio re-encontrado en una re-búsqueda).
+      where: { workspaceId, name: { in: names }, placeId: { notIn: batchPlaceIds } },
+      _count: { name: true }
+    });
+    for (const g of grouped) {
+      // Existe otra ficha distinta con el mismo nombre → cadena multi-local.
+      if ((g._count?.name ?? 0) >= 1) multi.add(g.name);
+    }
+  } catch {
+    // Best-effort: si la query falla, nos quedamos con la detección por batch.
+  }
+  return multi;
+}
+
 async function upsertLead(opts: {
   workspaceId: string;
   searchId: string;
@@ -389,6 +429,7 @@ async function upsertLead(opts: {
   r: PlacesResult;
   aiRelevance: RelevanceVerdict | null;
   skipExisting?: boolean;
+  multiLocation?: boolean;
 }): Promise<{ skipped: boolean } | undefined> {
   const { r } = opts;
   if (!r.placeId) return;
@@ -426,7 +467,8 @@ async function upsertLead(opts: {
     priceLevel: r.priceLevel,
     reviewsCount: r.userRatingCount,
     website: r.website,
-    runsAds: !!(r.rawData as any)?.runsAds
+    runsAds: !!(r.rawData as any)?.runsAds,
+    multiLocation: opts.multiLocation || !!(r.rawData as any)?.multiLocation
   });
 
   // Check de exclusión por nombre (lista negra manual del usuario).
