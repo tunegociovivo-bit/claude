@@ -7,6 +7,7 @@
  */
 import { complete, AIDisabledError } from "@/lib/ai/anthropic";
 import { apolloFindDecisionMakers, hunterFindEmail, hunterVerifyEmail, type ApolloPerson, type EmailVerdict } from "./enrich-contacts";
+import { extractEmailsFromWebsite } from "./email-extract";
 
 export type Director = { role: string; name: string };
 
@@ -18,6 +19,8 @@ export type DecisionMakerKit = {
   found: ApolloPerson[];
   /** Emails verificados/encontrados por Hunter (estado + score). */
   verifiedEmails: EmailVerdict[];
+  /** Emails REALES extraídos de la web del negocio (contacto, aviso legal). */
+  websiteEmails: string[];
   linkedinUrl: string;
   opener: string | null;
   disclaimer: string;
@@ -93,6 +96,12 @@ export async function buildDecisionMakerKit(opts: {
   const directors = (opts.directors ?? []).filter((d) => d?.name);
   const primary = directors[0] ?? null;
 
+  // Emails REALES publicados en la web del negocio (lo que GMB no da).
+  let websiteEmails: string[] = [];
+  if (opts.website) {
+    websiteEmails = await extractEmailsFromWebsite(opts.website).catch(() => []);
+  }
+
   // Apollo: encuentra al decisor real (nombre, cargo, LinkedIn, email) por
   // dominio. Si lo trae, manda sobre el patrón heurístico.
   let found: ApolloPerson[] = [];
@@ -158,6 +167,7 @@ export async function buildDecisionMakerKit(opts: {
     emailGuesses: emailGuesses(domain, primary),
     found,
     verifiedEmails,
+    websiteEmails,
     linkedinUrl,
     opener,
     disclaimer:
