@@ -3463,6 +3463,9 @@ model BubuiBusiness {
   // Tipo de negocio → decide qué secciones ve en su panel (la Mesa Colectiva
   // solo para restaurante; catálogo/stock para comercio_producto; etc.).
   businessType  String   @default("servicios") // restaurante | comercio_producto | servicios
+  // Reservas/citas (nicho servicios): si está activo, los clientes piden cita
+  // desde la ficha pública y el comercio las confirma desde su panel.
+  bookingEnabled Boolean  @default(false)
   description   String?  @db.Text
   // Localización del local (para geofencing + radio de visibilidad).
   address       String?
@@ -3623,6 +3626,8 @@ model BubuiBusiness {
   bannerCampaigns BubuiBannerCampaign[]
   tableSessions  BubuiTableSession[]
   products       BubuiProduct[]
+  services       BubuiService[]
+  bookings       BubuiBooking[]
 
   @@index([city, active])
   @@index([referrerId])
@@ -4001,6 +4006,47 @@ model BubuiProduct {
   business BubuiBusiness @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
   @@index([businessId, active])
+}
+
+/// Servicio que ofrece un comercio del nicho "servicios" (peluquería, clínica,
+/// taller…). El cliente pide cita para uno de ellos.
+model BubuiService {
+  @@map("BipiService")
+  id          String   @id @default(cuid())
+  businessId  String
+  name        String
+  durationMin Int      @default(30)
+  priceEur    Float?
+  active      Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+
+  business BubuiBusiness  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  bookings BubuiBooking[]
+
+  @@index([businessId, active])
+}
+
+/// Cita solicitada por un cliente. v1 por solicitud: el cliente elige fecha/hora
+/// y el comercio confirma o rechaza desde su panel.
+model BubuiBooking {
+  @@map("BipiBooking")
+  id            String    @id @default(cuid())
+  businessId    String
+  serviceId     String?
+  customerId    String?
+  customerName  String
+  customerPhone String
+  startsAt      DateTime
+  notes         String?   @db.Text
+  status        String    @default("pending") // pending | confirmed | cancelled
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  business BubuiBusiness @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  service  BubuiService? @relation(fields: [serviceId], references: [id], onDelete: SetNull)
+
+  @@index([businessId, status, startsAt])
 }
 
 /// Slot patrocinado: anuncio "hero" del feed del cliente durante una

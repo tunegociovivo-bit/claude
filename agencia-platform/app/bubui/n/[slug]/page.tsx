@@ -16,6 +16,7 @@ import { Suspense } from "react";
 import { prisma } from "@/lib/db/prisma";
 import type { Metadata } from "next";
 import ReviewForm from "./ReviewForm";
+import BookingForm from "./BookingForm";
 import RefCapture from "./RefCapture";
 import { getTopPosition } from "@/lib/bubui/topcategory";
 
@@ -66,6 +67,7 @@ async function getBusiness(slug: string) {
       name: true,
       category: true,
       businessType: true,
+      bookingEnabled: true,
       description: true,
       city: true,
       province: true,
@@ -137,6 +139,15 @@ export default async function BusinessPublicPage({ params }: { params: { slug: s
           select: { id: true, name: true, description: true, priceEur: true, imageUrl: true }
         })
       : [];
+
+  // Servicios para el formulario de cita (nicho servicios con reservas on).
+  const services = (business as any).bookingEnabled
+    ? await prisma.bubuiService.findMany({
+        where: { businessId: business.id, active: true },
+        orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+        select: { id: true, name: true, durationMin: true, priceEur: true }
+      })
+    : [];
 
   const topPosition = await getTopPosition({
     businessId: business.id,
@@ -291,6 +302,14 @@ export default async function BusinessPublicPage({ params }: { params: { slug: s
                 </div>
               ))}
             </div>
+          </div>
+        )}
+
+        {/* Pedir cita (comercios de servicios con reservas activas) */}
+        {(business as any).bookingEnabled && (
+          <div className="px-6 sm:px-8 pt-6">
+            <div className="text-xs font-bold uppercase tracking-wider text-black/45 mb-2">Pedir cita</div>
+            <BookingForm businessId={business.id} services={services} />
           </div>
         )}
 

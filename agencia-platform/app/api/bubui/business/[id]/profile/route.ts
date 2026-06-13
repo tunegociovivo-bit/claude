@@ -21,6 +21,7 @@ const schema = z
   .object({
     description: z.string().max(500).optional(),
     businessType: z.enum(["restaurante", "comercio_producto", "servicios"]).optional(),
+    bookingEnabled: z.boolean().optional(),
     address: z.string().max(200).optional(),
     latitude: z.number().min(-90).max(90).optional(),
     longitude: z.number().min(-180).max(180).optional(),

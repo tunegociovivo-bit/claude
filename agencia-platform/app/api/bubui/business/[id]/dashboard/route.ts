@@ -141,6 +141,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
       aiBannerPaidOnly: (await getAiBannerPolicy()) === "paid",
       // Tipo de negocio (panel por nicho) + config de la Mesa Colectiva.
       businessType: business.businessType,
+      bookingEnabled: business.bookingEnabled,
       mesaEnabled: business.mesaEnabled,
       mesaBasePct: business.mesaBasePct,
       mesaMinDiners: business.mesaMinDiners,
