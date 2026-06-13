@@ -3526,7 +3526,7 @@ model BubuiBusiness {
   // dejan reseña en Google (mesaReviewBonusPct, vía enlace, sin condicionar a
   // que sea positiva). El bonus se entrega como cupón de PRÓXIMA visita con
   // mesaNextVisitDays de caducidad (recurrencia). Todo configurable aquí.
-  mesaEnabled        Boolean @default(false)
+  mesaEnabled        Boolean @default(true)
   mesaBasePct        Int     @default(20)
   mesaMinDiners      Int     @default(4)
   mesaShareBonusPct  Int     @default(5)
