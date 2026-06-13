@@ -127,6 +127,37 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
     } catch (e: any) {
       console.warn("[leads webhook] ack update error:", e?.message ?? e);
     }
+    // CHECK DE ORO: el mismo ACK aplica a los mensajes SALIENTES del inbox
+    // (tus respuestas). Guardamos el nivel numérico sin degradar (un READ no
+    // puede volver a DEVICE). Mapea ackName→número cuando no llega ack numérico.
+    try {
+      const lvl =
+        ackNum != null
+          ? ackNum
+          : ackName === "ERROR"
+            ? -1
+            : ackName === "PLAYED"
+              ? 4
+              : ackName === "READ"
+                ? 3
+                : ackName === "DEVICE"
+                  ? 2
+                  : ackName === "SERVER"
+                    ? 1
+                    : 0;
+      await prisma.leadInboxMessage.updateMany({
+        where: {
+          workspaceId: ws.id,
+          direction: "out",
+          externalMessageId: ackId,
+          // No degradar: solo si el nuevo nivel es mayor (o aún no hay ack).
+          OR: [{ ack: null }, { ack: { lt: lvl } }]
+        },
+        data: { ack: lvl, ackAt: new Date() }
+      });
+    } catch (e: any) {
+      console.warn("[leads webhook] ack inbox update error:", e?.message ?? e);
+    }
     note(`ack:${ackName || ackNum}`);
     return NextResponse.json({ ok: true, ack: ackName || ackNum });
   }

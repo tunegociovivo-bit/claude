@@ -54,6 +54,7 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
     kind: "inbox" | "campaign";
     classification?: string | null;
     status?: string;
+    ack?: number | null;
   };
   const items: Item[] = [
     ...inboxMsgs.map((m) => ({
@@ -63,7 +64,9 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
       at: m.receivedAt.toISOString(),
       instanceName: m.instanceName,
       kind: "inbox" as const,
-      classification: m.classification
+      classification: m.classification,
+      // Check de oro: acuse de recibo de WhatsApp para tus respuestas.
+      ack: m.ack
     })),
     ...campaignMsgs.map((m) => ({
       id: m.id,
@@ -72,7 +75,8 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
       at: (m.sentAt ?? new Date(0)).toISOString(),
       instanceName: m.instanceName,
       kind: "campaign" as const,
-      status: m.status
+      status: m.status,
+      ack: m.status === "read" ? 3 : m.status === "delivered" ? 2 : m.status === "sent" ? 1 : null
     }))
   ].sort((a, b) => a.at.localeCompare(b.at));
 
