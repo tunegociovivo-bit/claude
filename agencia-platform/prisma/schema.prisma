@@ -935,6 +935,10 @@ model Lead {
   phone               String?
   internationalPhone  String?
   website             String?
+  // Email de contacto del negocio (extraído de su web / aviso legal). Para
+  // listas de remarketing (subir como Custom Audience a Meta) — interés
+  // legítimo B2B, con opt-out.
+  email               String?
   category            String?
   types               Json?
   latitude            Float?

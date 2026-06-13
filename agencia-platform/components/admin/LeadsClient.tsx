@@ -165,6 +165,7 @@ export default function LeadsClient() {
   const [phoneFilter, setPhoneFilter] = useState<"ALL" | "mobile" | "landline">("ALL");
   const [painOnly, setPainOnly] = useState(false);
   const [ticketSort, setTicketSort] = useState(false);
+  const [extracting, setExtracting] = useState(false);
   const [searchQ, setSearchQ] = useState("");
   const [newSearchOpen, setNewSearchOpen] = useState(false);
   const [newTemplateOpen, setNewTemplateOpen] = useState(false);
@@ -180,6 +181,30 @@ export default function LeadsClient() {
     if (searchQ) q.set("search", searchQ);
     if (ticketSort) q.set("sort", "ticket");
     return q;
+  }
+
+  // Extracción masiva de emails de las webs de los leads del filtro actual.
+  async function bulkExtractEmails() {
+    if (extracting) return;
+    setExtracting(true);
+    try {
+      const body: any = { limit: 100 };
+      if (searchIdFilter !== "ALL") body.searchId = searchIdFilter;
+      const r = await fetch("/api/v1/leads/extract-emails", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body)
+      });
+      const d = await r.json().catch(() => ({}));
+      if (r.ok) {
+        alert(`Emails extraídos: ${d.found} de ${d.scanned} webs revisadas.${d.scanned >= 100 ? "\nVuelve a pulsar para seguir con el resto." : ""}`);
+        load();
+      } else {
+        alert(`Error: ${d?.error?.message ?? r.status}`);
+      }
+    } finally {
+      setExtracting(false);
+    }
   }
 
   // Trae la siguiente página de leads y la añade a la tabla (sin recargar las
@@ -406,6 +431,23 @@ export default function LeadsClient() {
             >
               <Download className="h-4 w-4" />
               CSV
+            </a>
+            <button
+              type="button"
+              onClick={bulkExtractEmails}
+              disabled={extracting}
+              title="Baja la web de cada lead y guarda su email de contacto (para listas de remarketing)"
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border bg-white hover:bg-slate-50 text-sm disabled:opacity-50"
+            >
+              {extracting ? <Loader2 className="h-4 w-4 animate-spin" /> : "✉️"}
+              Extraer emails
+            </button>
+            <a
+              href={`/api/v1/leads/email-list?source=all${searchIdFilter !== "ALL" ? `&searchId=${searchIdFilter}` : ""}`}
+              title="Descarga la lista de emails (leads + clientes) para subir como Custom Audience a Meta"
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 text-sm"
+            >
+              📥 Lista emails
             </a>
           </div>
           <LeadsTable

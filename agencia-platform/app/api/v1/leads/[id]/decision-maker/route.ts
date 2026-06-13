@@ -19,7 +19,7 @@ export const POST = withApi({ scope: "*" }, async (_req, { params, api }) => {
   const [lead, ws] = await Promise.all([
     prisma.lead.findFirst({
       where: { id: params.id, workspaceId: api.workspaceId },
-      select: { id: true, name: true, website: true, province: true, category: true, rawData: true }
+      select: { id: true, name: true, website: true, province: true, category: true, rawData: true, email: true }
     }),
     prisma.workspace.findUnique({ where: { id: api.workspaceId }, select: { settings: true } })
   ]);
@@ -45,6 +45,12 @@ export const POST = withApi({ scope: "*" }, async (_req, { params, api }) => {
     apolloKey,
     hunterKey
   });
+
+  // Guarda el mejor email en el lead (para la lista de remarketing) si no tenía.
+  const bestEmail = kit.websiteEmails[0] ?? kit.found.find((p) => p.email)?.email ?? null;
+  if (bestEmail && !lead.email) {
+    void prisma.lead.update({ where: { id: lead.id }, data: { email: bestEmail } }).catch(() => {});
+  }
 
   return NextResponse.json({ ok: true, ...kit });
 });
