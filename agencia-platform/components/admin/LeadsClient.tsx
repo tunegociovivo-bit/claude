@@ -1162,6 +1162,8 @@ function LeadDetailModal({
     domain: string | null;
     directors: { role: string; name: string }[];
     emailGuesses: string[];
+    found: { name: string; title: string | null; linkedin: string | null; email: string | null }[];
+    verifiedEmails: { email: string; status: string; score: number | null }[];
     linkedinUrl: string;
     opener: string | null;
     disclaimer: string;
@@ -1367,6 +1369,41 @@ function LeadDetailModal({
                 </div>
               ) : (
                 <div className="text-slate-500">Sin cargo nominal en BORME. Dirígete al máximo responsable.</div>
+              )}
+              {dm.found.length > 0 && (
+                <div>
+                  <span className="font-semibold text-emerald-800">✅ Encontrados (Apollo):</span>
+                  <ul className="mt-0.5 space-y-0.5">
+                    {dm.found.map((p, i) => (
+                      <li key={i} className="text-slate-700">
+                        • <strong>{p.name}</strong>{p.title ? ` — ${p.title}` : ""}
+                        {p.email && (
+                          <button type="button" onClick={() => { void navigator.clipboard?.writeText(p.email ?? ""); }} className="ml-1 font-mono text-[11px] text-emerald-700 underline" title="Copiar email">{p.email}</button>
+                        )}
+                        {p.linkedin && <a href={p.linkedin} target="_blank" rel="noreferrer" className="ml-1 text-indigo-700 underline">in</a>}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {dm.verifiedEmails.length > 0 && (
+                <div>
+                  <span className="font-semibold text-indigo-800">Emails verificados (Hunter):</span>
+                  <ul className="mt-0.5 space-y-0.5">
+                    {dm.verifiedEmails.map((v, i) => {
+                      const ok = v.status === "valid" || v.status === "deliverable";
+                      const risky = v.status === "accept_all" || v.status === "webmail" || v.status === "unknown";
+                      return (
+                        <li key={i} className="text-slate-700">
+                          <button type="button" onClick={() => { void navigator.clipboard?.writeText(v.email); }} className="font-mono text-[11px] underline" title="Copiar">{v.email}</button>
+                          <span className={`ml-1 px-1 rounded text-[10px] ${ok ? "bg-emerald-100 text-emerald-700" : risky ? "bg-amber-100 text-amber-700" : "bg-rose-100 text-rose-700"}`}>
+                            {v.status}{v.score != null ? ` ${v.score}` : ""}
+                          </span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
               )}
               {dm.emailGuesses.length > 0 && (
                 <div>
@@ -4363,6 +4400,8 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
   const [evoKey, setEvoKey] = useState("");
   const [metaAdsKey, setMetaAdsKey] = useState("");
   const [scrapflyKey, setScrapflyKey] = useState("");
+  const [hunterKey, setHunterKey] = useState("");
+  const [apolloKey, setApolloKey] = useState("");
   const [health, setHealth] = useState<any[] | null>(null);
   const [loadingHealth, setLoadingHealth] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -4400,7 +4439,7 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
   }
   useEffect(() => {
     if (!open) return;
-    setGoogleKey(""); setWahaKey(""); setEvoKey(""); setMetaAdsKey(""); setScrapflyKey(""); setError(null); setSavedAt(null);
+    setGoogleKey(""); setWahaKey(""); setEvoKey(""); setMetaAdsKey(""); setScrapflyKey(""); setHunterKey(""); setApolloKey(""); setError(null); setSavedAt(null);
     setS(null);
     loadSettings();
   }, [open]);
@@ -4464,6 +4503,8 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
     if (evoKey) body.evolutionApiKey = evoKey;
     if (metaAdsKey) body.metaAdsToken = metaAdsKey;
     if (scrapflyKey) body.scrapflyApiKey = scrapflyKey;
+    if (hunterKey) body.hunterApiKey = hunterKey;
+    if (apolloKey) body.apolloApiKey = apolloKey;
     const r = await fetch("/api/v1/leads/settings", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     setSaving(false);
     if (!r.ok) {
@@ -4619,6 +4660,32 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
                 className="w-full px-3 py-2 rounded-lg border bg-white text-sm font-mono"
               />
               <p className="mt-1 text-[11px] text-slate-500">Activa las fuentes <strong>Doctoralia, Idealista y Fotocasa</strong>. Se cifra.</p>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-700 mb-1">
+                API key de Hunter (verificar emails) {s.hunterConfigured && <span className="text-emerald-600">· configurada ✓</span>}
+              </label>
+              <input
+                type="password"
+                value={hunterKey}
+                onChange={(e) => setHunterKey(e.target.value)}
+                placeholder={s.hunterConfigured ? "•••• (configurada, deja vacío para no cambiar)" : "Hunter.io API key"}
+                className="w-full px-3 py-2 rounded-lg border bg-white text-sm font-mono"
+              />
+              <p className="mt-1 text-[11px] text-slate-500">En el <strong>🎯 Kit directivo</strong>: encuentra y <strong>verifica</strong> el email del directivo antes de enviar. Se cifra.</p>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-700 mb-1">
+                API key de Apollo (encontrar decisor) {s.apolloConfigured && <span className="text-emerald-600">· configurada ✓</span>}
+              </label>
+              <input
+                type="password"
+                value={apolloKey}
+                onChange={(e) => setApolloKey(e.target.value)}
+                placeholder={s.apolloConfigured ? "•••• (configurada, deja vacío para no cambiar)" : "Apollo.io API key"}
+                className="w-full px-3 py-2 rounded-lg border bg-white text-sm font-mono"
+              />
+              <p className="mt-1 text-[11px] text-slate-500">En el <strong>🎯 Kit directivo</strong>: encuentra al decisor (nombre, cargo, LinkedIn, email) por dominio. Se cifra.</p>
             </div>
           </div>
         </section>

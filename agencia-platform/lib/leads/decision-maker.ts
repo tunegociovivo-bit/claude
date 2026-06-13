@@ -6,6 +6,7 @@
  * nivel ejecutivo. NO inventa móviles personales ni datos privados.
  */
 import { complete, AIDisabledError } from "@/lib/ai/anthropic";
+import { apolloFindDecisionMakers, hunterFindEmail, hunterVerifyEmail, type ApolloPerson, type EmailVerdict } from "./enrich-contacts";
 
 export type Director = { role: string; name: string };
 
@@ -13,6 +14,10 @@ export type DecisionMakerKit = {
   domain: string | null;
   directors: Director[];
   emailGuesses: string[];
+  /** Contactos encontrados por Apollo (nombre + cargo + LinkedIn + email). */
+  found: ApolloPerson[];
+  /** Emails verificados/encontrados por Hunter (estado + score). */
+  verifiedEmails: EmailVerdict[];
   linkedinUrl: string;
   opener: string | null;
   disclaimer: string;
@@ -80,10 +85,38 @@ export async function buildDecisionMakerKit(opts: {
   province?: string | null;
   sector?: string | null;
   directors?: Director[];
+  /** API keys opcionales para enriquecer/verificar el contacto. */
+  apolloKey?: string | null;
+  hunterKey?: string | null;
 }): Promise<DecisionMakerKit> {
   const domain = domainFromWebsite(opts.website);
   const directors = (opts.directors ?? []).filter((d) => d?.name);
   const primary = directors[0] ?? null;
+
+  // Apollo: encuentra al decisor real (nombre, cargo, LinkedIn, email) por
+  // dominio. Si lo trae, manda sobre el patrón heurístico.
+  let found: ApolloPerson[] = [];
+  if (opts.apolloKey && domain) {
+    found = await apolloFindDecisionMakers({ domain, apiKey: opts.apolloKey });
+  }
+
+  // Hunter: encuentra el email del directivo (BORME) y verifica candidatos.
+  const verifiedEmails: EmailVerdict[] = [];
+  if (opts.hunterKey && domain) {
+    if (primary?.name) {
+      const tokens = asciiLower(primary.name).split(/[\s-]+/).filter(Boolean);
+      if (tokens.length >= 2) {
+        const found1 = await hunterFindEmail({ domain, firstName: tokens[tokens.length - 1], lastName: tokens[0], apiKey: opts.hunterKey });
+        if (found1) verifiedEmails.push(found1);
+      }
+    }
+    // Verifica también el email que traiga Apollo (si lo hay) para dar confianza.
+    const apolloEmail = found.find((p) => p.email)?.email;
+    if (apolloEmail && !verifiedEmails.some((v) => v.email === apolloEmail)) {
+      const v = await hunterVerifyEmail({ email: apolloEmail, apiKey: opts.hunterKey });
+      if (v) verifiedEmails.push(v);
+    }
+  }
 
   const roleQuery = "gerente director administrador CEO propietario";
   const linkedinUrl =
@@ -91,13 +124,17 @@ export async function buildDecisionMakerKit(opts: {
     encodeURIComponent(`${primary?.name ? primary.name + " " : ""}${opts.company} ${opts.province ?? ""}`.trim()) +
     (primary?.name ? "" : `&keywords=${encodeURIComponent(`${roleQuery} ${opts.company}`)}`);
 
+  // Para el mensaje, el mejor contacto: Apollo (cargo real) > BORME.
+  const bestName = found[0]?.name ?? primary?.name ?? null;
+  const bestRole = found[0]?.title ?? primary?.role ?? null;
+
   let opener: string | null = null;
   try {
     const ctx = [
       `Empresa: ${opts.company}`,
       opts.sector ? `Sector: ${opts.sector}` : null,
       opts.province ? `Zona: ${opts.province}` : null,
-      primary ? `Directivo: ${primary.role} — ${primary.name}` : "Directivo: (desconocido, dirígete al máximo responsable)"
+      bestName ? `Directivo: ${bestRole ?? "Responsable"} — ${bestName}` : "Directivo: (desconocido, dirígete al máximo responsable)"
     ]
       .filter(Boolean)
       .join("\n");
@@ -119,6 +156,8 @@ export async function buildDecisionMakerKit(opts: {
     domain,
     directors,
     emailGuesses: emailGuesses(domain, primary),
+    found,
+    verifiedEmails,
     linkedinUrl,
     opener,
     disclaimer:
