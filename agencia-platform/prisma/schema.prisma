@@ -3460,6 +3460,9 @@ model BubuiBusiness {
   slug          String   @unique
   name          String
   category      String   // peluquería | restaurante | gimnasio | spa | nutrición | ...
+  // Tipo de negocio → decide qué secciones ve en su panel (la Mesa Colectiva
+  // solo para restaurante; catálogo/stock para comercio_producto; etc.).
+  businessType  String   @default("servicios") // restaurante | comercio_producto | servicios
   description   String?  @db.Text
   // Localización del local (para geofencing + radio de visibilidad).
   address       String?
