@@ -10,15 +10,19 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
+import { decryptSecret } from "@/lib/ai/crypto";
 import { buildDecisionMakerKit, type Director } from "@/lib/leads/decision-maker";
 
 export const dynamic = "force-dynamic";
 
 export const POST = withApi({ scope: "*" }, async (_req, { params, api }) => {
-  const lead = await prisma.lead.findFirst({
-    where: { id: params.id, workspaceId: api.workspaceId },
-    select: { id: true, name: true, website: true, province: true, category: true, rawData: true }
-  });
+  const [lead, ws] = await Promise.all([
+    prisma.lead.findFirst({
+      where: { id: params.id, workspaceId: api.workspaceId },
+      select: { id: true, name: true, website: true, province: true, category: true, rawData: true }
+    }),
+    prisma.workspace.findUnique({ where: { id: api.workspaceId }, select: { settings: true } })
+  ]);
   if (!lead) throw new ApiError(404, "not_found", "Lead no encontrado");
 
   const raw: any = lead.rawData ?? {};
@@ -26,13 +30,20 @@ export const POST = withApi({ scope: "*" }, async (_req, { params, api }) => {
     ? raw.directors.filter((d: any) => d?.name).map((d: any) => ({ role: String(d.role ?? "Cargo"), name: String(d.name) }))
     : [];
 
+  // Keys de enriquecimiento: env primero, si no, Ajustes del workspace (cifradas).
+  const leadsCfg: any = (ws?.settings as any)?.leads ?? {};
+  const apolloKey = process.env.APOLLO_API_KEY || (leadsCfg.apolloApiKeyEnc ? decryptSecret(leadsCfg.apolloApiKeyEnc) : null);
+  const hunterKey = process.env.HUNTER_API_KEY || (leadsCfg.hunterApiKeyEnc ? decryptSecret(leadsCfg.hunterApiKeyEnc) : null);
+
   const kit = await buildDecisionMakerKit({
     workspaceId: api.workspaceId,
     company: lead.name,
     website: lead.website,
     province: lead.province,
     sector: lead.category,
-    directors
+    directors,
+    apolloKey,
+    hunterKey
   });
 
   return NextResponse.json({ ok: true, ...kit });

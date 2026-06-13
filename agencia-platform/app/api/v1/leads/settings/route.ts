@@ -52,6 +52,9 @@ export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
     // Fuentes premium de captación.
     metaAdsConfigured: !!(s.metaAdsTokenEnc || s.metaAdsToken || process.env.META_ADS_TOKEN),
     scrapflyConfigured: !!(s.scrapflyApiKeyEnc || process.env.SCRAPFLY_API_KEY),
+    // Enriquecimiento de contacto de directivos.
+    hunterConfigured: !!(s.hunterApiKeyEnc || process.env.HUNTER_API_KEY),
+    apolloConfigured: !!(s.apolloApiKeyEnc || process.env.APOLLO_API_KEY),
     webhookLastHit: s.webhookLastHit ?? null,
     webhookLastEvent: s.webhookLastEvent ?? null,
     maxPerHour: s.maxPerHour ?? 10,
@@ -107,6 +110,10 @@ const schema = z.object({
   clearMetaAdsToken: z.boolean().optional(),
   scrapflyApiKey: z.string().max(200).optional(),
   clearScrapflyApiKey: z.boolean().optional(),
+  hunterApiKey: z.string().max(200).optional(),
+  clearHunterApiKey: z.boolean().optional(),
+  apolloApiKey: z.string().max(200).optional(),
+  clearApolloApiKey: z.boolean().optional(),
   sendEnabled: z.boolean().optional(),
   sendPaused: z.boolean().optional(),
   sendWindowStart: z.string().regex(/^\d{2}:\d{2}$/).optional(),
@@ -189,6 +196,16 @@ export const PATCH = withApi({ scope: "*" }, async (req, { api }) => {
     delete s.scrapflyApiKeyEnc;
   } else if (typeof parsed.data.scrapflyApiKey === "string" && parsed.data.scrapflyApiKey.trim()) {
     s.scrapflyApiKeyEnc = encryptSecret(parsed.data.scrapflyApiKey.trim());
+  }
+  if (parsed.data.clearHunterApiKey) {
+    delete s.hunterApiKeyEnc;
+  } else if (typeof parsed.data.hunterApiKey === "string" && parsed.data.hunterApiKey.trim()) {
+    s.hunterApiKeyEnc = encryptSecret(parsed.data.hunterApiKey.trim());
+  }
+  if (parsed.data.clearApolloApiKey) {
+    delete s.apolloApiKeyEnc;
+  } else if (typeof parsed.data.apolloApiKey === "string" && parsed.data.apolloApiKey.trim()) {
+    s.apolloApiKeyEnc = encryptSecret(parsed.data.apolloApiKey.trim());
   }
   for (const k of [
     "whatsappProvider",
