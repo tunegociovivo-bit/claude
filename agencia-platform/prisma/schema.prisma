@@ -222,6 +222,7 @@ model Workspace {
   leadConversationMetas     LeadConversationMeta[]
   leadBroadcasts            LeadBroadcast[]
   leadBroadcastRecipients   LeadBroadcastRecipient[]
+  leadExecOutreach          LeadExecOutreach[]
   externalCalendars         UserExternalCalendar[]
   vacationDays              VacationDay[]
   teamMessages              TeamMessage[]
@@ -983,6 +984,7 @@ model Lead {
   assignments   LeadSequenceAssignment[]
   inboxMessages LeadInboxMessage[]
   messages      LeadMessage[]
+  execOutreach  LeadExecOutreach[]
 
   @@unique([workspaceId, placeId])
   @@index([workspaceId, contactStatus])
@@ -1244,6 +1246,29 @@ model LeadBroadcastRecipient {
 
   @@index([workspaceId, status, scheduledAt])
   @@index([broadcastId])
+}
+
+/// Secuencia multicanal de contacto a un DIRECTIVO: cadencia email (auto, vía
+/// Resend) + recordatorios de LinkedIn/llamada (manuales, vía notificación).
+/// El motor avanza un paso por tick respetando nextAt. Una por lead.
+model LeadExecOutreach {
+  id           String   @id @default(cuid())
+  workspaceId  String
+  leadId       String
+  email        String? // destinatario corporativo
+  directorName String?
+  step         Int      @default(0)
+  status       String   @default("active") // active | done | stopped
+  nextAt       DateTime @default(now())
+  log          Json? // pasos ejecutados [{at, channel, detail}]
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  lead      Lead      @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, leadId])
+  @@index([workspaceId, status, nextAt])
 }
 
 model LeadOptout {
