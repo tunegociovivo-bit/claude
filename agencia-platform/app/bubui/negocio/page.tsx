@@ -1139,13 +1139,42 @@ function MesaConfig({ business, token, onSaved }: { business: any; token: string
               )}
             </div>
 
+            {/* Pasos y el descuento de cada uno */}
+            <div className="rounded-lg bg-white border p-3 space-y-1.5">
+              <div className="text-[11px] uppercase tracking-wider font-bold text-black/40">Pasos para el descuento máximo</div>
+              <ol className="text-xs text-black/75 space-y-1.5">
+                <li className="flex items-start gap-2">
+                  <span className="bg-emerald-100 text-emerald-700 font-black rounded px-1.5 shrink-0">{v.mesaBasePct}%</span>
+                  <span><b>En el restaurante:</b> juntaos {v.mesaMinDiners}+ y escanead el QR de la mesa. (<b>{eur(v.mesaBasePct)}€</b>)</span>
+                </li>
+                {v.mesaActShare && v.mesaShareBonusPct > 0 && (
+                  <li className="flex items-start gap-2">
+                    <span className="bg-pink-100 text-pink-700 font-black rounded px-1.5 shrink-0">+{v.mesaShareBonusPct}%</span>
+                    <span><b>Compartir la app:</b> cada uno invita a {v.mesaVeteranShareFriends} amigo{v.mesaVeteranShareFriends === 1 ? "" : "s"} a Bubui. (<b>{eur(v.mesaShareBonusPct)}€</b>)</span>
+                  </li>
+                )}
+                {v.mesaActReview && v.mesaReviewBonusPct > 0 && (
+                  <li className="flex items-start gap-2">
+                    <span className="bg-amber-100 text-amber-700 font-black rounded px-1.5 shrink-0">+{v.mesaReviewBonusPct}%</span>
+                    <span><b>Reseña:</b> os dejan una reseña en {platformLabel}. (<b>{eur(v.mesaReviewBonusPct)}€</b>)</span>
+                  </li>
+                )}
+                <li className="text-[11px] text-black/50 pl-1">
+                  {v.mesaBonusOnThisVisit
+                    ? "Los extras se aplican en esta misma cuenta."
+                    : "¿No completan los pasos en el local? Les llega un push para hacerlos y el extra queda como cupón para su PRÓXIMA visita → vuelven."}
+                </li>
+              </ol>
+            </div>
+
             {/* Lo que te aporta a ti */}
-            <div className="rounded-lg bg-white border p-3 space-y-1">
-              <div className="text-[11px] uppercase tracking-wider font-bold text-black/40">Lo que te aporta a ti</div>
+            <div className="rounded-lg bg-emerald-50 border border-emerald-200 p-3 space-y-1">
+              <div className="text-[11px] uppercase tracking-wider font-bold text-emerald-700">💰 Lo que te aporta a ti</div>
               {quorum ? (
-                <ul className="text-xs text-black/70 space-y-0.5">
+                <ul className="text-xs text-black/75 space-y-1">
                   <li>🍽️ Llenas una mesa de <b>{simDiners}</b> (cuenta de {simTicket}€) que quizá no habría venido.</li>
-                  {v.mesaActShare && <li>👥 Hasta <b>{simDiners * v.mesaVeteranShareFriends} clientes nuevos</b> potenciales (si cada uno invita a {v.mesaVeteranShareFriends}).</li>}
+                  <li>📲 Los que no tengan Bubui <b>se la instalan</b> → entran en tu red: verán tus <b>banners</b> y recibirán <b>avisos push cuando pasen cerca</b> para atraerlos de vuelta.</li>
+                  {v.mesaActShare && <li>👥 Hasta <b>{simDiners * v.mesaVeteranShareFriends} clientes nuevos</b> potenciales (si cada uno invita a {v.mesaVeteranShareFriends} para llevarse el descuento).</li>}
                   {v.mesaActReview && <li>⭐ Hasta <b>{simDiners} reseñas</b> nuevas en {platformLabel}.</li>}
                   <li>💸 Te cuesta <b>{eur(pctNow)}€</b> de descuento hoy{pctNext > 0 ? ` (+${eur(pctNext)}€ solo si vuelven)` : ""}.</li>
                 </ul>
