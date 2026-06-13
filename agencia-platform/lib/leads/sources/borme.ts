@@ -37,9 +37,12 @@ function ymdFromDate(d: Date): string {
 }
 
 /** Walker tolerante sobre el JSON del sumario BORME — el formato cambia
- *  entre días (puede venir como array o objeto). Devuelve los items
- *  cuya sección/epígrafe coincide con "Constituciones". */
-function extractItems(json: any): Array<{ titulo: string; provincia: string; identificador: string; urlPdf?: string }> {
+ *  entre días (puede venir como array o objeto). Devuelve los items del
+ *  epígrafe pedido: "constituci"(ones) o "nombramiento"(s). */
+function extractItems(
+  json: any,
+  which: "constituci" | "nombramiento" = "constituci"
+): Array<{ titulo: string; provincia: string; identificador: string; urlPdf?: string }> {
   const out: Array<{ titulo: string; provincia: string; identificador: string; urlPdf?: string }> = [];
 
   const sumario = json?.data?.sumario ?? json?.sumario ?? json;
@@ -54,7 +57,7 @@ function extractItems(json: any): Array<{ titulo: string; provincia: string; ide
         const epigrafes = arr(dep?.epigrafe);
         for (const ep of epigrafes) {
           const nombre = String(ep?.nombre ?? "").toLowerCase();
-          if (!nombre.includes("constituci")) continue;
+          if (!nombre.includes(which)) continue;
           const items = arr(ep?.item);
           for (const it of items) {
             const titulo = String(it?.titulo ?? "").trim();
@@ -92,13 +95,60 @@ function arr<T = any>(x: any): T[] {
  * capital social y objeto social. El sumario solo trae el nombre; el detalle
  * permite filtrar por capital y afinar el sector con el objeto social.
  */
-async function fetchBormeDetail(identificador: string): Promise<{ capital: number | null; objeto: string | null }> {
+export type BormeCargo = { role: string; name: string };
+
+/** Roles de cargo que publica el BORME (abreviaturas oficiales del registro). */
+const CARGO_ROLES: Array<[RegExp, string]> = [
+  [/Adm\.?\s*[ÚU]nico/i, "Administrador único"],
+  [/Adm\.?\s*Solid/i, "Administrador solidario"],
+  [/Adm\.?\s*Mancom/i, "Administrador mancomunado"],
+  [/Cons\.?\s*Deleg/i, "Consejero delegado"],
+  [/Consejero/i, "Consejero"],
+  [/Presidente/i, "Presidente"],
+  [/Vicepresidente/i, "Vicepresidente"],
+  [/Secretario/i, "Secretario"],
+  [/Apoderad/i, "Apoderado"],
+  [/Director\s*General/i, "Director general"],
+  [/Liquidador/i, "Liquidador"]
+];
+
+/** Pasa "GARCIA PEREZ JUAN" → "Juan García Pérez" (heurística: el último token
+ *  suele ser el nombre en el BORME, que lista APELLIDOS NOMBRE). */
+function titleCaseName(raw: string): string {
+  const clean = raw.trim().replace(/\s+/g, " ").replace(/[.;]+$/, "");
+  if (!clean) return "";
+  const tc = clean
+    .toLowerCase()
+    .replace(/(^|\s|-)([\wáéíóúñç])/g, (_, s, c) => s + c.toUpperCase());
+  return tc;
+}
+
+/** Extrae los cargos (rol + nombre) del texto de un anuncio de nombramientos. */
+function parseCargos(texto: string): BormeCargo[] {
+  const out: BormeCargo[] = [];
+  const seg = texto.match(/Nombramientos\.?\s*(.+?)(?:Datos registrales|Objeto social|$)/i)?.[1] ?? texto;
+  // Pares "Rol: NOMBRE EN MAYÚSCULAS" separados por "." o ";".
+  const re = /([A-Za-zÁÉÍÓÚÑ.\s]{3,30}?):\s*([A-ZÁÉÍÓÚÑ][A-ZÁÉÍÓÚÑ'\-\s]{4,60})(?=[.;]|$)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(seg))) {
+    const roleRaw = m[1].trim();
+    const name = m[2].trim();
+    const role = CARGO_ROLES.find(([rx]) => rx.test(roleRaw))?.[1];
+    if (!role) continue;
+    if (out.some((c) => c.name === name && c.role === role)) continue;
+    out.push({ role, name: titleCaseName(name) });
+    if (out.length >= 6) break;
+  }
+  return out;
+}
+
+async function fetchBormeDetail(identificador: string): Promise<{ capital: number | null; objeto: string | null; cargos: BormeCargo[] }> {
   try {
     const resp = await fetch(`https://www.boe.es/diario_borme/xml.php?id=${encodeURIComponent(identificador)}`, {
       headers: { Accept: "application/xml" },
       signal: AbortSignal.timeout(10000)
     });
-    if (!resp.ok) return { capital: null, objeto: null };
+    if (!resp.ok) return { capital: null, objeto: null, cargos: [] };
     const xml = await resp.text();
     const texto = xml.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
     // "Capital: 3.100,00 Euros" → 3100.  Formato español (miles ., decimales ,).
@@ -112,9 +162,10 @@ async function fetchBormeDetail(identificador: string): Promise<{ capital: numbe
     let objeto: string | null = null;
     const mObj = texto.match(/Objeto social[^:]*:\s*(.+?)(?:Domicilio|Capital|Datos registrales|$)/i);
     if (mObj) objeto = mObj[1].trim().slice(0, 300);
-    return { capital, objeto };
+    const cargos = parseCargos(texto);
+    return { capital, objeto, cargos };
   } catch {
-    return { capital: null, objeto: null };
+    return { capital: null, objeto: null, cargos: [] };
   }
 }
 
@@ -142,7 +193,13 @@ export async function collectBorme(opts: {
   /** Capital social mínimo (€) para incluir la sociedad. Requiere bajar el
    *  detalle de cada anuncio (más lento, acotado). */
   minCapital?: number;
+  /** "cargos" → en vez de constituciones, mina los NOMBRAMIENTOS de cargos
+   *  (administradores, consejeros…) para captar al DIRECTIVO por su nombre
+   *  (dato público y oficial del Registro Mercantil). */
+  mode?: "constituciones" | "cargos";
 }): Promise<PlacesResult[]> {
+  const mode = opts.mode ?? "constituciones";
+  const epigrafe = mode === "cargos" ? "nombramiento" : "constituci";
   const daysBack = Math.max(1, Math.min(opts.daysBack ?? 1, 30));
   const today = new Date();
 
@@ -174,7 +231,7 @@ export async function collectBorme(opts: {
       continue;
     }
 
-    for (const it of extractItems(json)) {
+    for (const it of extractItems(json, epigrafe)) {
       if (opts.provinceFilter && !it.provincia.toLowerCase().includes(opts.provinceFilter.toLowerCase())) continue;
       if (seenId.has(it.identificador)) continue;
       seenId.add(it.identificador);
@@ -182,11 +239,11 @@ export async function collectBorme(opts: {
     }
   }
 
-  // 2) ¿Hace falta el detalle del anuncio? Solo si se filtra por capital social
-  //    (el sumario no lo trae). Acotado por coste/latencia.
-  const needDetail = opts.minCapital != null;
-  const detailCap = 150;
-  const details = new Map<string, { capital: number | null; objeto: string | null }>();
+  // 2) ¿Hace falta el detalle del anuncio? En modo "cargos" SIEMPRE (es donde
+  //    están los nombres). En constituciones, solo si se filtra por capital.
+  const needDetail = mode === "cargos" || opts.minCapital != null;
+  const detailCap = mode === "cargos" ? 120 : 150;
+  const details = new Map<string, { capital: number | null; objeto: string | null; cargos: BormeCargo[] }>();
   if (needDetail) {
     const targets = raw.slice(0, detailCap);
     const res = await mapPool(targets, 6, (it) => fetchBormeDetail(it.identificador));
@@ -197,7 +254,7 @@ export async function collectBorme(opts: {
   const out: PlacesResult[] = [];
   for (const it of raw) {
     const cleanName = cleanCompanyName(it.titulo);
-    const det = details.get(it.identificador) ?? { capital: null, objeto: null };
+    const det = details.get(it.identificador) ?? { capital: null, objeto: null, cargos: [] };
     // El objeto social (cuando hay detalle) afina mucho la detección de sector.
     const sector = detectSector({ name: cleanName, category: det.objeto });
 
@@ -206,14 +263,18 @@ export async function collectBorme(opts: {
       // Si pedimos capital mínimo pero no pudimos verificarlo, descartamos.
       if (det.capital == null || det.capital < opts.minCapital) continue;
     }
+    // En modo cargos, solo nos interesan los anuncios de los que sacamos algún
+    // directivo con nombre (lo demás es ruido sin contacto).
+    if (mode === "cargos" && det.cargos.length === 0) continue;
 
+    const primary = det.cargos[0];
     out.push({
       placeId: `borme:${it.identificador}`,
       name: cleanName,
       formattedAddress: null,
       province: it.provincia,
-      types: ["borme.constitucion"],
-      category: sector ? sector.label : "Sociedad recién constituida",
+      types: [mode === "cargos" ? "borme.nombramiento" : "borme.constitucion"],
+      category: sector ? sector.label : mode === "cargos" ? "Empresa (cargo nombrado)" : "Sociedad recién constituida",
       latitude: null,
       longitude: null,
       rating: null,
@@ -231,7 +292,11 @@ export async function collectBorme(opts: {
         urlPdf: it.urlPdf ?? null,
         sector: sector?.key ?? null,
         capital: det.capital,
-        objeto: det.objeto
+        objeto: det.objeto,
+        // Directivos nombrados (dato público del Registro Mercantil).
+        directors: det.cargos,
+        directorName: primary?.name ?? null,
+        directorRole: primary?.role ?? null
       }
     });
   }

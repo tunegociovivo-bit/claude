@@ -524,7 +524,11 @@ async function upsertLead(opts: {
     ticketScore: ticket.ticketScore,
     ticketTier: ticket.ticketTier,
     contactStatus: excluded ? "excluded" : "pending",
-    notes: excluded ? `Excluido: ${exclusionReason}` : null
+    notes: excluded
+      ? `Excluido: ${exclusionReason}`
+      : (r.rawData as any)?.directorName
+        ? `Directivo (BORME): ${(r.rawData as any).directorRole ?? "Cargo"} — ${(r.rawData as any).directorName}`
+        : null
   };
 
   // En re-búsquedas no degradamos el progreso del funnel: si el lead ya está

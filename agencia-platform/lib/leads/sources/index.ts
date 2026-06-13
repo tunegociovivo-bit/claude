@@ -83,6 +83,9 @@ export async function collectFromSource(
         minCapital = m ? parseInt(m[1].replace(/\./g, ""), 10) : 30000;
         if (!Number.isFinite(minCapital)) minCapital = 30000;
       }
+      // Keyword "directivos"/"cargos"/"administradores" → mina los nombramientos
+      // del Registro Mercantil para captar al DIRECTIVO por su nombre.
+      const cargosMode = /\b(directiv|cargos?|administrador|consejero|nombramiento)/i.test(kw);
       return collectBorme({
         // En BORME usamos scope como atajo: custom=1 día, spain=últimos 7.
         daysBack: ctx.scope === "spain" ? 7 : 1,
@@ -90,7 +93,8 @@ export async function collectFromSource(
         provinceFilter: ctx.location?.trim() || undefined,
         // Keyword "ticket alto" / "premium" / "valor" → solo sectores de alto valor.
         highValueOnly: /\b(alto|premium|ticket|valor)\b/i.test(kw),
-        minCapital
+        minCapital,
+        mode: cargosMode ? "cargos" : "constituciones"
       });
     }
     case "meta_ads": {
