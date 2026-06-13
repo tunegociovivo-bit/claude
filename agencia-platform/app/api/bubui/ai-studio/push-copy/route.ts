@@ -19,6 +19,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db/prisma";
+import { hasVivoStudioAccess } from "@/lib/bubui/business-referral";
 
 export const dynamic = "force-dynamic";
 
@@ -63,6 +64,21 @@ export async function POST(req: Request) {
   const business = await prisma.bubuiBusiness.findUnique({ where: { id: parsed.data.businessId } });
   if (!business) {
     return NextResponse.json({ error: { code: "not_found" } }, { status: 404 });
+  }
+
+  // Vivo Studio (copy con IA) es una función premium: plan de pago O 5 comercios
+  // referidos con actividad. El envío del push sigue siendo de pago por uso.
+  const access = await hasVivoStudioAccess(parsed.data.businessId);
+  if (!access.eligible) {
+    return NextResponse.json(
+      {
+        error: {
+          code: "locked",
+          message: `Vivo Studio (copy con IA) está disponible con plan Pro/Premium o trayendo ${access.needed} comercios referidos. Llevas ${access.qualified}.`
+        }
+      },
+      { status: 402 }
+    );
   }
 
   // Si no hay AI configurada, devuelve plantillas estáticas.

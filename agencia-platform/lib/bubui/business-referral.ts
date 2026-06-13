@@ -36,6 +36,19 @@ export async function countQualifiedBusinessReferrals(businessId: string): Promi
 }
 
 /**
+ * ¿El negocio tiene desbloqueadas las funciones "perk" (ej. Vivo Studio, el
+ * copy con IA del Push del Día)? Se desbloquean con plan de pago O trayendo al
+ * menos BUSINESSES_PER_REWARD (5) comercios referidos con actividad real.
+ */
+export async function hasVivoStudioAccess(businessId: string): Promise<{ eligible: boolean; paid: boolean; qualified: number; needed: number }> {
+  const business = await prisma.bubuiBusiness.findUnique({ where: { id: businessId }, select: { plan: true } });
+  const paid = business?.plan === "pro" || business?.plan === "premium";
+  const qualified = await countQualifiedBusinessReferrals(businessId);
+  const eligible = paid || qualified >= BUSINESSES_PER_REWARD;
+  return { eligible, paid, qualified, needed: BUSINESSES_PER_REWARD };
+}
+
+/**
  * Sincroniza las recompensas de banner de un negocio: si por sus referidos
  * cualificados le corresponden más semanas de las ya concedidas, crea las
  * campañas de banner que falten (en cola) e incrementa el contador.

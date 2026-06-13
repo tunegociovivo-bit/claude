@@ -438,7 +438,7 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
           <ShareWidget slug={b.slug} name={b.name} discountPct={b.defaultDiscountPct} />
           <PromotionPanel business={b} token={session.token} onChanged={load} />
           {/* Crear Push del Día */}
-          <PushAdForm businessId={b.id} businessName={b.name} />
+          <PushAdForm businessId={b.id} businessName={b.name} token={session.token} plan={b.plan} />
           {/* Referidos B2B (traer otros negocios) */}
           <BusinessReferralPanel businessId={b.id} token={session.token} />
           <PremiumAnalytics businessId={b.id} token={session.token} plan={b.plan} />
@@ -2994,7 +2994,7 @@ function PlanCard({ business, token, onChanged }: { business: any; token: string
   );
 }
 
-function PushAdForm({ businessId, businessName }: { businessId: string; businessName: string }) {
+function PushAdForm({ businessId, businessName, token, plan }: { businessId: string; businessName: string; token: string; plan: string }) {
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [radiusKm, setRadiusKm] = useState(1);
@@ -3005,11 +3005,31 @@ function PushAdForm({ businessId, businessName }: { businessId: string; business
   const [vibe, setVibe] = useState<"cercano" | "directo" | "premium" | "divertido">("cercano");
   const [variantes, setVariantes] = useState<any[] | null>(null);
   const [generating, setGenerating] = useState(false);
+  const [lockMsg, setLockMsg] = useState<string | null>(null);
+  // Vivo Studio (copy IA) es premium: plan de pago O 5 comercios referidos.
+  const paid = plan === "pro" || plan === "premium";
+  const [referral, setReferral] = useState<{ qualified: number; needed: number } | null>(null);
+  const studioUnlocked = paid || (!!referral && referral.qualified >= referral.needed);
+
+  useEffect(() => {
+    if (paid) return; // los de pago ya lo tienen, no hace falta consultar referidos
+    let cancelled = false;
+    (async () => {
+      const r = await fetch(`/api/bubui/business/${businessId}/business-referral`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (cancelled || !r.ok) return;
+      const j = await r.json();
+      setReferral({ qualified: j.qualifiedReferrals ?? 0, needed: j.businessesPerReward ?? 5 });
+    })();
+    return () => { cancelled = true; };
+  }, [businessId, token, paid]);
 
   async function generateCopy() {
     if (!brief.trim()) return;
     setGenerating(true);
     setVariantes(null);
+    setLockMsg(null);
     try {
       const r = await fetch("/api/bubui/ai-studio/push-copy", {
         method: "POST",
@@ -3017,6 +3037,7 @@ function PushAdForm({ businessId, businessName }: { businessId: string; business
         body: JSON.stringify({ businessId, productOrOffer: brief.trim(), vibe })
       });
       const j = await r.json();
+      if (r.status === 402) { setLockMsg(j?.error?.message ?? "Función premium."); return; }
       if (j.variantes) setVariantes(j.variantes);
     } finally {
       setGenerating(false);
@@ -3067,9 +3088,19 @@ function PushAdForm({ businessId, businessName }: { businessId: string; business
         Envía una notificación push a clientes Bubui cerca de tu local. 24h activa.
       </p>
 
-      {/* AI Studio — copy automático */}
+      {/* AI Studio — copy automático (premium: plan de pago o 5 referidos) */}
       <div className="rounded-lg border border-violet-200 bg-violet-50/40 p-3 space-y-2">
-        <div className="text-[11px] font-semibold text-violet-900">✨ Vivo Studio · copy automático con IA</div>
+        <div className="flex items-center justify-between gap-2">
+          <div className="text-[11px] font-semibold text-violet-900">✨ Vivo Studio · copy automático con IA</div>
+          {!studioUnlocked && <span className="text-[10px] font-semibold text-violet-700 bg-violet-100 rounded-full px-2 py-0.5">🔒 Premium</span>}
+        </div>
+        {!studioUnlocked ? (
+          <div className="text-[11px] text-violet-900/80 leading-snug space-y-1">
+            <p>El redactor con IA está disponible con <b>plan Pro/Premium</b> o trayendo <b>{referral?.needed ?? 5} comercios referidos</b> con actividad.</p>
+            {referral && <p className="text-violet-700">Llevas <b>{referral.qualified}/{referral.needed}</b> comercios referidos. Comparte tu enlace de referido (abajo) para desbloquearlo gratis.</p>}
+          </div>
+        ) : (
+        <>
         <textarea
           value={brief}
           onChange={(e) => setBrief(e.target.value)}
@@ -3093,6 +3124,7 @@ function PushAdForm({ businessId, businessName }: { businessId: string; business
             {generating ? "Generando…" : "Generar 3 variantes"}
           </button>
         </div>
+        {lockMsg && <p className="text-[11px] text-rose-600">{lockMsg}</p>}
         {variantes && (
           <div className="space-y-2 mt-2">
             {variantes.map((v: any, i: number) => (
@@ -3112,6 +3144,8 @@ function PushAdForm({ businessId, businessName }: { businessId: string; business
             ))}
             <p className="text-[10px] text-slate-500">Toca una variante para usarla.</p>
           </div>
+        )}
+        </>
         )}
       </div>
 
