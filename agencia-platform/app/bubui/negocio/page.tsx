@@ -1143,7 +1143,7 @@ function MesaConfig({ business, token, onSaved }: { business: any; token: string
             <div className="rounded-xl border-2 border-emerald-300 bg-gradient-to-b from-emerald-50 to-white p-4 space-y-3 shadow-sm">
               {/* Lo que ve el cliente */}
               <div className="space-y-1">
-                <div className="text-[11px] uppercase tracking-wider font-bold text-black/40">Lo que ve el cliente</div>
+                <div className="text-sm font-black uppercase tracking-wide text-black/55">Lo que ve el cliente</div>
                 {!quorum ? (
                   <p className="text-sm">Sois {simDiners}. <b>Juntaos {v.mesaMinDiners}</b> para activar el descuento de mesa.</p>
                 ) : (
@@ -1167,9 +1167,9 @@ function MesaConfig({ business, token, onSaved }: { business: any; token: string
 
               {/* Lo que ganas tú */}
               <div className="space-y-1">
-                <div className="text-[11px] uppercase tracking-wider font-bold text-emerald-700">💰 Lo que ganas tú</div>
+                <div className="text-sm font-black uppercase tracking-wide text-emerald-700">💰 Lo que ganas tú</div>
                 {quorum ? (
-                  <ul className="text-xs text-black/80 space-y-1">
+                  <ul className="text-sm text-black/80 space-y-1.5 leading-snug">
                     <li>🍽️ Llenas una mesa de <b>{simDiners}</b> (cuenta de {simTicket}€) que quizá no habría venido.</li>
                     <li>📲 Los que no tengan Bubui <b>se la instalan</b> → entran en tu red: verán tus <b>banners</b> y recibirán <b>avisos push cuando pasen cerca</b> para atraerlos de vuelta.</li>
                     {v.mesaActShare && <li>👥 Hasta <b>{simDiners * v.mesaVeteranShareFriends} clientes nuevos</b> que <b>instalan la app y se dan de alta</b> (cada uno invita a {v.mesaVeteranShareFriends} para llevarse el descuento).</li>}
