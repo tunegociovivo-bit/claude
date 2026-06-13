@@ -49,6 +49,9 @@ export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
     autoReplyEnabled: !!s.autoReplyEnabled,
     autoReplyText: s.autoReplyText ?? "¡Hola! Gracias por escribir 🙌 Te atiendo enseguida.",
     autoFollowupEnabled: !!s.autoFollowupEnabled,
+    // Fuentes premium de captación.
+    metaAdsConfigured: !!(s.metaAdsTokenEnc || s.metaAdsToken || process.env.META_ADS_TOKEN),
+    scrapflyConfigured: !!(s.scrapflyApiKeyEnc || process.env.SCRAPFLY_API_KEY),
     webhookLastHit: s.webhookLastHit ?? null,
     webhookLastEvent: s.webhookLastEvent ?? null,
     maxPerHour: s.maxPerHour ?? 10,
@@ -99,6 +102,11 @@ const schema = z.object({
   autoReplyEnabled: z.boolean().optional(),
   autoReplyText: z.string().max(1000).optional(),
   autoFollowupEnabled: z.boolean().optional(),
+  // Fuentes premium: token de Meta Ad Library y API key de Scrapfly (cifrados).
+  metaAdsToken: z.string().max(500).optional(),
+  clearMetaAdsToken: z.boolean().optional(),
+  scrapflyApiKey: z.string().max(200).optional(),
+  clearScrapflyApiKey: z.boolean().optional(),
   sendEnabled: z.boolean().optional(),
   sendPaused: z.boolean().optional(),
   sendWindowStart: z.string().regex(/^\d{2}:\d{2}$/).optional(),
@@ -169,6 +177,18 @@ export const PATCH = withApi({ scope: "*" }, async (req, { api }) => {
     delete s.evolutionApiKey;
   } else if (typeof parsed.data.evolutionApiKey === "string" && parsed.data.evolutionApiKey.trim()) {
     s.evolutionApiKey = encryptSecret(parsed.data.evolutionApiKey.trim());
+  }
+  if (parsed.data.clearMetaAdsToken) {
+    delete s.metaAdsTokenEnc;
+    delete s.metaAdsToken; // limpia también el legacy en texto plano
+  } else if (typeof parsed.data.metaAdsToken === "string" && parsed.data.metaAdsToken.trim()) {
+    s.metaAdsTokenEnc = encryptSecret(parsed.data.metaAdsToken.trim());
+    delete s.metaAdsToken;
+  }
+  if (parsed.data.clearScrapflyApiKey) {
+    delete s.scrapflyApiKeyEnc;
+  } else if (typeof parsed.data.scrapflyApiKey === "string" && parsed.data.scrapflyApiKey.trim()) {
+    s.scrapflyApiKeyEnc = encryptSecret(parsed.data.scrapflyApiKey.trim());
   }
   for (const k of [
     "whatsappProvider",

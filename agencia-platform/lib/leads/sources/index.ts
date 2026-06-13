@@ -10,6 +10,7 @@
 
 import type { PlacesResult } from "../google-places";
 import { prisma } from "@/lib/db/prisma";
+import { decryptSecret } from "@/lib/ai/crypto";
 import { collectBorme } from "./borme";
 import { collectMetaAds } from "./meta-ads";
 import { scrapeDirectory } from "./scrape";
@@ -24,13 +25,27 @@ export type LeadSourceKey =
   | "fotocasa"
   | "linkedin";
 
-/** Token de Meta para la Ad Library: env primero, si no, Ajustes del workspace. */
+/** Token de Meta para la Ad Library: env primero, si no, Ajustes del workspace
+ *  (cifrado metaAdsTokenEnc o, legacy, texto plano metaAdsToken). */
 async function metaAdsToken(workspaceId: string): Promise<string | null> {
   const env = process.env.META_ADS_TOKEN || process.env.META_AD_LIBRARY_TOKEN;
   if (env) return env;
   const ws = await prisma.workspace.findUnique({ where: { id: workspaceId }, select: { settings: true } });
-  const t = (ws?.settings as any)?.leads?.metaAdsToken;
-  return typeof t === "string" && t.trim() ? t.trim() : null;
+  const leads: any = (ws?.settings as any)?.leads ?? {};
+  const dec = leads.metaAdsTokenEnc ? decryptSecret(leads.metaAdsTokenEnc) : null;
+  const plain = typeof leads.metaAdsToken === "string" ? leads.metaAdsToken : null;
+  const t = dec ?? plain;
+  return t && t.trim() ? t.trim() : null;
+}
+
+/** API key de Scrapfly: env primero, si no, Ajustes del workspace (cifrado). */
+async function scrapflyKey(workspaceId: string): Promise<string | null> {
+  const env = process.env.SCRAPFLY_API_KEY;
+  if (env) return env;
+  const ws = await prisma.workspace.findUnique({ where: { id: workspaceId }, select: { settings: true } });
+  const leads: any = (ws?.settings as any)?.leads ?? {};
+  const dec = leads.scrapflyApiKeyEnc ? decryptSecret(leads.scrapflyApiKeyEnc) : null;
+  return dec && dec.trim() ? dec.trim() : null;
 }
 
 export type CollectorContext = {
@@ -87,7 +102,9 @@ export async function collectFromSource(
       }
       return collectMetaAds({ keyword: ctx.keyword, location: ctx.location, token, workspaceId: ctx.workspaceId });
     }
-    case "doctoralia":
+    case "doctoralia": {
+      const key = await scrapflyKey(ctx.workspaceId);
+      if (!key) throw new Error("Doctoralia necesita la API key de Scrapfly. Configúrala en Ajustes de Leads.");
       return enrichMissingPhones(
         ctx.workspaceId,
         await scrapeDirectory(
@@ -97,10 +114,14 @@ export async function collectFromSource(
             buildUrl: (kw, loc) => `https://www.doctoralia.es/buscar?q=${encodeURIComponent(kw)}&loc=${encodeURIComponent(loc)}`
           },
           ctx.keyword,
-          ctx.location || "España"
+          ctx.location || "España",
+          key
         )
       );
-    case "idealista":
+    }
+    case "idealista": {
+      const key = await scrapflyKey(ctx.workspaceId);
+      if (!key) throw new Error("Idealista necesita la API key de Scrapfly. Configúrala en Ajustes de Leads.");
       return enrichMissingPhones(
         ctx.workspaceId,
         await scrapeDirectory(
@@ -111,10 +132,14 @@ export async function collectFromSource(
               `https://www.idealista.com/buscar/venta-viviendas/${encodeURIComponent(slug(loc || "espana"))}/?q=${encodeURIComponent(kw)}`
           },
           ctx.keyword,
-          ctx.location || "España"
+          ctx.location || "España",
+          key
         )
       );
-    case "fotocasa":
+    }
+    case "fotocasa": {
+      const key = await scrapflyKey(ctx.workspaceId);
+      if (!key) throw new Error("Fotocasa necesita la API key de Scrapfly. Configúrala en Ajustes de Leads.");
       return enrichMissingPhones(
         ctx.workspaceId,
         await scrapeDirectory(
@@ -125,9 +150,11 @@ export async function collectFromSource(
               `https://www.fotocasa.es/es/comprar/viviendas/${encodeURIComponent(slug(loc || "espana"))}/todas-las-zonas/l?q=${encodeURIComponent(kw)}`
           },
           ctx.keyword,
-          ctx.location || "España"
+          ctx.location || "España",
+          key
         )
       );
+    }
     case "places":
       // El motor places vive en search-manager por razones históricas.
       throw new Error("places no usa collectFromSource — ve directamente a google-places.ts");
