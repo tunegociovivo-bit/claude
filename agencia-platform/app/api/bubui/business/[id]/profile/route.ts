@@ -75,7 +75,8 @@ const schema = z
     mesaActShare: z.boolean().optional(),
     mesaActReview: z.boolean().optional(),
     mesaActPhoto: z.boolean().optional(),
-    mesaActFollow: z.boolean().optional()
+    mesaActFollow: z.boolean().optional(),
+    mesaPerkLabel: z.string().trim().max(80).optional().nullable()
   })
   // La ruleta no puede tener el mínimo por encima del máximo.
   .refine(
@@ -107,6 +108,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   if (data.loyaltyRewardLabel === "") data.loyaltyRewardLabel = null;
   if (data.birthdayMessage === "") data.birthdayMessage = null;
   if (data.shareOfferLabel === "") data.shareOfferLabel = null;
+  if (data.mesaPerkLabel === "") data.mesaPerkLabel = null;
   // Garantía: ruleta min <= max.
   if (data.wheelMinPct != null && data.wheelMaxPct != null && data.wheelMinPct > data.wheelMaxPct) {
     return NextResponse.json(

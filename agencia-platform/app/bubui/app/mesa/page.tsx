@@ -42,7 +42,7 @@ function MesaInner() {
   const [me] = useState(getCustomer);
   const [activeCode, setActiveCode] = useState(code);
   const [state, setState] = useState<State | null>(null);
-  const [biz, setBiz] = useState<{ name?: string; googlePlaceId?: string | null; reviewPlatform?: string; reviewPlatformLabel?: string; reviewUrl?: string | null }>({});
+  const [biz, setBiz] = useState<{ name?: string; googlePlaceId?: string | null; reviewPlatform?: string; reviewPlatformLabel?: string; reviewUrl?: string | null; perkLabel?: string | null }>({});
   const [ticket, setTicket] = useState<number | null>(ticketParam);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -174,6 +174,9 @@ function MesaInner() {
                     <p className="text-xs font-semibold text-amber-600">⚠️ Os estáis dejando {state.euros?.leftOnTable}€ — completad los pasos de abajo</p>
                   )}
                 </>
+              )}
+              {biz.perkLabel && (
+                <p className="text-sm font-semibold text-amber-700">🎁 {biz.perkLabel} para tu próxima visita al completar los pasos</p>
               )}
               <p className="text-xs text-black/50">{state.diners} en la mesa{!state.everyonePaidEntry ? ` · falta${state.pendingContributors === 1 ? "" : "n"} ${state.pendingContributors} por aportar` : " · ¡todos habéis aportado!"}</p>
             </div>

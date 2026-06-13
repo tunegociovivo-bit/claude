@@ -999,7 +999,8 @@ function MesaConfig({ business, token, onSaved }: { business: any; token: string
     mesaActShare: business.mesaActShare ?? true,
     mesaActReview: business.mesaActReview ?? true,
     mesaActPhoto: business.mesaActPhoto ?? true,
-    mesaActFollow: !!business.mesaActFollow
+    mesaActFollow: !!business.mesaActFollow,
+    mesaPerkLabel: business.mesaPerkLabel ?? ""
   });
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
@@ -1037,6 +1038,7 @@ function MesaConfig({ business, token, onSaved }: { business: any; token: string
   const maxPot = clamp(v.mesaBasePct + v.mesaShareBonusPct + v.mesaReviewBonusPct);
   const eur = (p: number) => Math.round((simTicket * p) / 100 * 100) / 100;
   const platformLabel = PLATFORMS.find((p) => p.value === v.mesaReviewPlatform)?.label ?? "Google";
+  const perk = (v.mesaPerkLabel || "").trim();
 
   async function save() {
     setSaving(true);
@@ -1105,6 +1107,24 @@ function MesaConfig({ business, token, onSaved }: { business: any; token: string
             </div>
           </div>
 
+          {/* Regalo de próxima visita (alternativa/extra al %) */}
+          <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-3 space-y-1">
+            <label className="text-xs block">
+              <span className="block font-semibold mb-1">🎁 Regalo para la próxima visita (opcional)</span>
+              <input
+                type="text"
+                value={v.mesaPerkLabel}
+                onChange={(e) => set("mesaPerkLabel", e.target.value)}
+                placeholder='Ej. "1 bebida gratis", "1 café gratis", "1 bebida con cada plato"'
+                className="w-full px-2 py-1.5 border rounded bg-white"
+                maxLength={80}
+              />
+              <span className="block text-[10px] text-black/50 mt-0.5 leading-tight">
+                Si lo rellenas, al completar los pasos extra (compartir/reseña) cada comensal recibe este regalo como <b>cupón para su próxima visita</b> — el incentivo que les llega por push para volver. Déjalo vacío si solo quieres dar % de descuento.
+              </span>
+            </label>
+          </div>
+
           {/* ── Simulador ── */}
           <div className="rounded-xl border-2 border-pink-200 bg-pink-50/50 p-4 space-y-3">
             <div className="font-bold text-sm">🔮 Simulador</div>
@@ -1136,6 +1156,9 @@ function MesaConfig({ business, token, onSaved }: { business: any; token: string
                     {maxPot > pctNow + pctNext && (
                       <p className="text-[11px] text-amber-600 font-semibold">Hasta {eur(maxPot)}€ ({maxPot}%) si lo completáis todo.</p>
                     )}
+                    {perk && (
+                      <p className="text-xs font-semibold text-amber-700">🎁 + {perk} para vuestra próxima visita al completar los pasos.</p>
+                    )}
                   </>
                 )}
               </div>
@@ -1151,6 +1174,7 @@ function MesaConfig({ business, token, onSaved }: { business: any; token: string
                     <li>📲 Los que no tengan Bubui <b>se la instalan</b> → entran en tu red: verán tus <b>banners</b> y recibirán <b>avisos push cuando pasen cerca</b> para atraerlos de vuelta.</li>
                     {v.mesaActShare && <li>👥 Hasta <b>{simDiners * v.mesaVeteranShareFriends} clientes nuevos</b> que <b>instalan la app y se dan de alta</b> (cada uno invita a {v.mesaVeteranShareFriends} para llevarse el descuento).</li>}
                     {v.mesaActReview && <li>⭐ Hasta <b>{simDiners} reseñas</b> nuevas en {platformLabel}.</li>}
+                    {perk && <li>🎁 Entregas <b>{perk}</b> solo cuando <b>vuelven</b> (cupón de próxima visita) → más recurrencia.</li>}
                     <li>💸 Te cuesta <b>{eur(pctNow)}€</b> de descuento hoy{pctNext > 0 ? ` (+${eur(pctNext)}€ solo si vuelven)` : ""}.</li>
                   </ul>
                 ) : (
@@ -1177,6 +1201,12 @@ function MesaConfig({ business, token, onSaved }: { business: any; token: string
                   <li className="flex items-start gap-2">
                     <span className="bg-amber-100 text-amber-700 font-black rounded px-1.5 shrink-0">+{v.mesaReviewBonusPct}%</span>
                     <span><b>Reseña:</b> os dejan una reseña en {platformLabel}. (<b>{eur(v.mesaReviewBonusPct)}€</b>)</span>
+                  </li>
+                )}
+                {perk && (
+                  <li className="flex items-start gap-2">
+                    <span className="bg-amber-100 text-amber-700 font-black rounded px-1.5 shrink-0">🎁</span>
+                    <span><b>Regalo:</b> al completar los pasos, {perk} como cupón para la <b>próxima visita</b>.</span>
                   </li>
                 )}
                 <li className="text-[11px] text-black/50 pl-1">
