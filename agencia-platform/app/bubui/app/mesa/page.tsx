@@ -42,7 +42,7 @@ function MesaInner() {
   const [me] = useState(getCustomer);
   const [activeCode, setActiveCode] = useState(code);
   const [state, setState] = useState<State | null>(null);
-  const [biz, setBiz] = useState<{ name?: string; googlePlaceId?: string | null }>({});
+  const [biz, setBiz] = useState<{ name?: string; googlePlaceId?: string | null; reviewPlatform?: string; reviewPlatformLabel?: string; reviewUrl?: string | null }>({});
   const [ticket, setTicket] = useState<number | null>(ticketParam);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -106,8 +106,9 @@ function MesaInner() {
 
   async function contribute(type: "share" | "review" | "photo" | "follow") {
     if (!activeCode || !me) return;
-    if (type === "review" && biz.googlePlaceId) {
-      window.open(`https://search.google.com/local/writereview?placeid=${biz.googlePlaceId}`, "_blank");
+    if (type === "review") {
+      const url = biz.reviewUrl || (biz.googlePlaceId ? `https://search.google.com/local/writereview?placeid=${biz.googlePlaceId}` : null);
+      if (url) window.open(url, "_blank");
     }
     setBusy(true);
     try {
@@ -164,13 +165,13 @@ function MesaInner() {
                 </label>
               ) : (
                 <>
-                  <p className="text-3xl font-black text-emerald-600">Te ahorras {state.euros?.savedNow ?? 0}€</p>
+                  <p className="text-3xl font-black text-emerald-600">Os ahorráis {state.euros?.savedNow ?? 0}€</p>
                   <p className="text-xs text-black/60">
                     Pagáis {state.euros?.payNow ?? ticket}€ · {state.pctNow}%
                     {(state.euros?.savedNextVisit ?? 0) > 0 && <> · +{state.euros?.savedNextVisit}€ para la próxima visita</>}
                   </p>
                   {(state.euros?.leftOnTable ?? 0) > 0 && (
-                    <p className="text-xs font-semibold text-amber-600">⚠️ Os estáis dejando {state.euros?.leftOnTable}€ — completad los pasos</p>
+                    <p className="text-xs font-semibold text-amber-600">⚠️ Os estáis dejando {state.euros?.leftOnTable}€ — completad los pasos de abajo</p>
                   )}
                 </>
               )}
@@ -178,24 +179,36 @@ function MesaInner() {
             </div>
           )}
 
-          {/* Checklist de pasos */}
+          {/* Checklist de pasos — mismo desglose que ve el restaurante */}
           {state && (
-            <div className="bubui-card p-4 space-y-1.5">
+            <div className="bubui-card p-4 space-y-2">
+              <p className="text-[11px] uppercase tracking-wider font-bold text-black/40">Pasos para subir el descuento</p>
               {state.steps.map((s) => (
-                <div key={s.key} className="flex items-center justify-between text-sm">
-                  <span>{s.done ? "✅" : "⬜"} {s.label}</span>
-                  <span className="font-semibold text-emerald-600">+{s.euros || s.pct}{s.euros ? "€" : "%"}</span>
+                <div key={s.key} className="flex items-center justify-between gap-2 text-sm">
+                  <span className="flex-1">{s.done ? "✅" : "⬜"} {s.label}</span>
+                  <span className={`font-black shrink-0 ${s.done ? "text-emerald-600" : "text-black/40"}`}>
+                    {s.key === "quorum" ? "" : "+"}{ticket && s.euros ? `${s.euros}€` : `${s.pct}%`}
+                  </span>
                 </div>
               ))}
+              {(state.euros?.savedNextVisit ?? 0) > 0 && (
+                <p className="text-[11px] text-black/45 leading-tight pt-1">
+                  💡 ¿No completáis algún paso ahora? Os llega un aviso y el extra queda como <b>cupón para vuestra próxima visita</b>.
+                </p>
+              )}
             </div>
           )}
 
-          {/* Botones de aporte (veterano) */}
-          <div className="grid grid-cols-2 gap-2">
-            <button onClick={() => contribute("share")} disabled={busy} className="bubui-btn py-2 text-sm">📤 Invitar amigos</button>
-            <button onClick={() => contribute("review")} disabled={busy} className="bubui-btn py-2 text-sm">⭐ Reseña Google</button>
-            <button onClick={() => contribute("photo")} disabled={busy} className="bubui-btn py-2 text-sm">📷 Foto del plato</button>
-            <button onClick={() => contribute("follow")} disabled={busy} className="bubui-btn py-2 text-sm">➕ Seguir</button>
+          {/* Botones de aporte */}
+          <div className="space-y-2">
+            <button onClick={() => contribute("share")} disabled={busy} className="bubui-btn w-full py-2.5 text-sm font-bold">
+              📤 Invitar amigos a Bubui {state?.steps.find((s) => s.key === "share") ? `(+${ticket && state.steps.find((s) => s.key === "share")?.euros ? `${state.steps.find((s) => s.key === "share")?.euros}€` : `${state.steps.find((s) => s.key === "share")?.pct}%`})` : ""}
+            </button>
+            <div className="grid grid-cols-3 gap-2">
+              <button onClick={() => contribute("review")} disabled={busy} className="bubui-btn py-2 text-xs">⭐ Reseña {biz.reviewPlatformLabel || "Google"}</button>
+              <button onClick={() => contribute("photo")} disabled={busy} className="bubui-btn py-2 text-xs">📷 Foto</button>
+              <button onClick={() => contribute("follow")} disabled={busy} className="bubui-btn py-2 text-xs">➕ Seguir</button>
+            </div>
           </div>
         </>
       )}

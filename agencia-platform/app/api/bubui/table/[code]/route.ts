@@ -6,7 +6,7 @@
  */
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
-import { loadTableState } from "@/lib/bubui/table";
+import { loadTableState, mesaReviewUrl, mesaReviewPlatformLabel } from "@/lib/bubui/table";
 
 export const dynamic = "force-dynamic";
 
@@ -27,7 +27,14 @@ export async function GET(req: Request, { params }: { params: { code: string } }
     sessionId: s.id,
     status: s.status,
     tableLabel: s.tableLabel,
-    business: { id: s.business.id, name: s.business.name, googlePlaceId: s.business.googlePlaceId },
+    business: {
+      id: s.business.id,
+      name: s.business.name,
+      googlePlaceId: s.business.googlePlaceId,
+      reviewPlatform: s.business.mesaReviewPlatform || "google",
+      reviewPlatformLabel: mesaReviewPlatformLabel(s.business),
+      reviewUrl: mesaReviewUrl(s.business)
+    },
     expiresAt: s.expiresAt.toISOString(),
     state
   });
