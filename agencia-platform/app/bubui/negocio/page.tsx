@@ -326,6 +326,11 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
 
       <LoyaltyConfig business={b} token={session.token} onSaved={load} />
 
+      {/* Catálogo — solo comercios de producto */}
+      {b.businessType === "comercio_producto" && (
+        <ProductCatalog businessId={b.id} token={session.token} />
+      )}
+
       {/* Mesa Colectiva — solo restaurantes */}
       {b.businessType === "restaurante" && (
         <>
@@ -1004,6 +1009,91 @@ function MesaConfig({ business, token, onSaved }: { business: any; token: string
       <button onClick={save} disabled={saving} className="bubui-btn w-full text-sm py-2">
         {saving ? "Guardando…" : "Guardar Mesa Colectiva"}
       </button>
+    </section>
+  );
+}
+
+/** Catálogo de productos (nicho comercio_producto). */
+function ProductCatalog({ businessId, token }: { businessId: string; token: string }) {
+  const [items, setItems] = useState<any[]>([]);
+  const [form, setForm] = useState({ name: "", priceEur: "", stock: "", description: "", imageUrl: "" });
+  const [busy, setBusy] = useState(false);
+  const headers = { "Content-Type": "application/json", Authorization: `Bearer ${token}` };
+
+  async function load() {
+    const r = await fetch(`/api/bubui/business/${businessId}/products`, { headers: { Authorization: `Bearer ${token}` } });
+    if (r.ok) setItems((await r.json()).items ?? []);
+  }
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function add() {
+    if (!form.name.trim()) return;
+    setBusy(true);
+    try {
+      const r = await fetch(`/api/bubui/business/${businessId}/products`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          name: form.name.trim(),
+          priceEur: form.priceEur ? Number(form.priceEur) : null,
+          stock: form.stock ? Number(form.stock) : null,
+          description: form.description.trim() || null,
+          imageUrl: form.imageUrl.trim() || null
+        })
+      });
+      if (r.ok) { setForm({ name: "", priceEur: "", stock: "", description: "", imageUrl: "" }); load(); }
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function toggle(p: any) {
+    await fetch(`/api/bubui/business/${businessId}/products/${p.id}`, { method: "PATCH", headers, body: JSON.stringify({ active: !p.active }) });
+    load();
+  }
+  async function del(p: any) {
+    if (!confirm(`¿Borrar "${p.name}"?`)) return;
+    await fetch(`/api/bubui/business/${businessId}/products/${p.id}`, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } });
+    load();
+  }
+
+  return (
+    <section className="bubui-card p-5 space-y-3">
+      <div>
+        <h3 className="font-bold text-sm">🛍️ Catálogo de productos</h3>
+        <p className="text-xs text-black/55 mt-0.5">Tus productos aparecen en tu página pública de Bubui.</p>
+      </div>
+      <div className="grid sm:grid-cols-2 gap-2">
+        <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Nombre del producto" className="px-2 py-1.5 border rounded bg-white text-sm" />
+        <div className="grid grid-cols-2 gap-2">
+          <input value={form.priceEur} onChange={(e) => setForm({ ...form, priceEur: e.target.value })} placeholder="Precio €" type="number" className="px-2 py-1.5 border rounded bg-white text-sm" />
+          <input value={form.stock} onChange={(e) => setForm({ ...form, stock: e.target.value })} placeholder="Stock (opcional)" type="number" className="px-2 py-1.5 border rounded bg-white text-sm" />
+        </div>
+        <input value={form.imageUrl} onChange={(e) => setForm({ ...form, imageUrl: e.target.value })} placeholder="URL de la foto (opcional)" className="px-2 py-1.5 border rounded bg-white text-sm sm:col-span-2" />
+        <input value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="Descripción (opcional)" className="px-2 py-1.5 border rounded bg-white text-sm sm:col-span-2" />
+      </div>
+      <button onClick={add} disabled={busy || !form.name.trim()} className="bubui-btn w-full text-sm py-2 disabled:opacity-50">
+        {busy ? "Añadiendo…" : "Añadir producto"}
+      </button>
+      <div className="space-y-1.5">
+        {items.length === 0 && <p className="text-xs text-black/45">Aún no tienes productos.</p>}
+        {items.map((p) => (
+          <div key={p.id} className={`flex items-center gap-2 border rounded-lg p-2 text-sm ${p.active ? "" : "opacity-50"}`}>
+            {p.imageUrl && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={p.imageUrl} alt={p.name} className="w-10 h-10 rounded object-cover" />
+            )}
+            <div className="flex-1 min-w-0">
+              <div className="font-semibold truncate">{p.name}</div>
+              <div className="text-[11px] text-black/55">{p.priceEur != null ? `${p.priceEur}€` : "sin precio"}{p.stock != null ? ` · ${p.stock} uds` : ""}</div>
+            </div>
+            <button onClick={() => toggle(p)} className="text-[11px] px-2 py-1 rounded border">{p.active ? "Ocultar" : "Mostrar"}</button>
+            <button onClick={() => del(p)} className="text-[11px] px-2 py-1 rounded border text-rose-600">Borrar</button>
+          </div>
+        ))}
+      </div>
     </section>
   );
 }
