@@ -283,3 +283,20 @@ export const LEAD_SOURCE_META: Record<LeadSourceKey, { label: string; status: "r
     help: "Leads B2B. Pendiente: integrar PhantomBuster/Apollo."
   }
 };
+
+/**
+ * Fuentes LISTAS para lanzar ya en este workspace (para "atacar con todas").
+ * Incluye las que no necesitan key (places/borme/bdns) y solo añade las que
+ * dependen de credenciales si están configuradas. Excluye stubs.
+ */
+export async function availableSources(
+  workspaceId: string,
+  opts: { hasLocation: boolean }
+): Promise<LeadSourceKey[]> {
+  const out: LeadSourceKey[] = ["borme", "bdns"];
+  if (opts.hasLocation) out.unshift("places"); // places necesita localidad
+  const [meta, scrap] = await Promise.all([metaAdsToken(workspaceId), scrapflyKey(workspaceId)]);
+  if (meta) out.push("meta_ads");
+  if (scrap) out.push("doctoralia", "idealista", "fotocasa");
+  return out;
+}

@@ -4257,13 +4257,7 @@ function NewSearchModal({ open, onClose, onSaved }: { open: boolean; onClose: ()
 
   /** Fuentes a lanzar cuando se elige "todas": places + borme siempre; las
    *  premium solo si tienen su key configurada. */
-  function allSourceKeys(): LeadSourceKey[] {
-    const list: LeadSourceKey[] = ["places", "borme"];
-    if (cfg?.metaAdsConfigured) list.push("meta_ads");
-    if (cfg?.scrapflyConfigured) list.push("doctoralia", "idealista", "fotocasa");
-    return list;
-  }
-  async function createOne(src: LeadSourceKey) {
+  async function createOne(src: LeadSourceKey | "all") {
     return fetch("/api/v1/leads/searches", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -4300,11 +4294,15 @@ function NewSearchModal({ open, onClose, onSaved }: { open: boolean; onClose: ()
     setError(null);
     try {
       if (allSources) {
-        // Una búsqueda por fuente aplicable: ataca el nicho por todos los medios.
-        const keys = allSourceKeys();
-        const results = await Promise.all(keys.map((k) => createOne(k)));
-        const ok = results.filter((r) => r.ok).length;
-        if (ok === 0) { setError("No se pudo crear ninguna búsqueda."); setSaving(false); return; }
+        // El backend crea una búsqueda por cada fuente lista (incluye BDNS y
+        // salta las que no tengan su key configurada).
+        const r = await createOne("all");
+        if (!r.ok) {
+          const j = await r.json().catch(() => ({}));
+          setError(j?.error?.message ?? `Error ${r.status}`);
+          setSaving(false);
+          return;
+        }
       } else {
         const r = await createOne(source);
         if (!r.ok) {
@@ -4354,7 +4352,7 @@ function NewSearchModal({ open, onClose, onSaved }: { open: boolean; onClose: ()
           </select>
           <p className={"text-[11px] mt-1 " + (sourceMeta.status === "stub" ? "text-amber-700" : "text-slate-500")}>
             {allSources
-              ? `Se creará una búsqueda por cada fuente activa: ${allSourceKeys().join(", ")} (las premium solo si tienen su key en Ajustes).`
+              ? "Se creará una búsqueda por cada fuente lista (Places, BORME, BDNS y las premium que tengan su key en Ajustes)."
               : sourceMeta.help}
           </p>
         </div>
