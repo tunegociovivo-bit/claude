@@ -269,21 +269,22 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
         <button onClick={onLogout} className="text-xs text-black/45 hover:text-black/70">Cerrar sesión</button>
       </div>
 
-      {/* Barra de pestañas — scroll horizontal en móvil, pegada arriba */}
-      <nav className="sticky top-0 z-20 -mx-4 px-4 py-2 bg-white/90 backdrop-blur border-b flex gap-1.5 overflow-x-auto">
+      {/* Barra de pestañas — fija (5 columnas), sin scroll, pegada arriba */}
+      <nav className="sticky top-0 z-20 -mx-4 px-2 py-2 bg-white/95 backdrop-blur border-b grid grid-cols-5 gap-1">
         {tabs.map((t) => (
           <button
             key={t.key}
             onClick={() => setTab(t.key)}
-            className={`shrink-0 text-xs font-bold px-3 py-1.5 rounded-full border transition ${
-              tab === t.key ? "bg-pink-600 text-white border-pink-600" : "bg-white text-black/55 border-black/10 hover:bg-black/5"
+            className={`flex flex-col items-center justify-center gap-0.5 py-1.5 rounded-xl text-[10px] font-bold leading-tight transition ${
+              tab === t.key ? "bg-pink-600 text-white" : "text-black/55 hover:bg-black/5"
             }`}
           >
-            {t.icon} {t.label}
+            <span className="text-lg leading-none">{t.icon}</span>
+            <span className="truncate w-full text-center">{t.label}</span>
           </button>
         ))}
       </nav>
-      <p className="text-xs text-black/55 -mt-2">{cur.desc}</p>
+      <p className="text-xs text-black/55 -mt-1">{cur.desc}</p>
 
       {/* Avisos (ej. cliente alcanzó 5 referidos) — siempre visibles */}
       {Array.isArray(data.notifications) && data.notifications.length > 0 && (
@@ -317,6 +318,59 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
       {/* ───────────── PESTAÑA: INICIO ───────────── */}
       {tab === "inicio" && (
         <>
+          {/* Compras por confirmar — LO MÁS USADO: destacado y arriba del todo */}
+          <section className={`rounded-2xl p-4 sm:p-5 ${data.pending.length > 0 ? "border-2 border-emerald-400 bg-emerald-50 shadow-lg shadow-emerald-100" : "bubui-card"}`}>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="font-black text-base flex items-center gap-2">
+                🧾 Compras por confirmar
+                {data.pending.length > 0 && (
+                  <span className="bg-emerald-600 text-white text-xs font-black rounded-full min-w-6 h-6 px-2 grid place-items-center animate-pulse">
+                    {data.pending.length}
+                  </span>
+                )}
+              </h3>
+            </div>
+            {data.pending.length === 0 ? (
+              <div className="py-6 text-center text-sm text-black/55">
+                Todo al día ✅ — cuando un cliente escanee su compra, aparecerá aquí para que la confirmes.
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {data.pending.map((p: any) => {
+                  const initial = (p.customer.name ?? p.customer.email ?? "?").charAt(0).toUpperCase();
+                  return (
+                    <div key={p.id} className="bg-white rounded-xl border border-emerald-200 p-3 flex items-center gap-3">
+                      <div className="w-9 h-9 rounded-full bg-emerald-100 text-emerald-700 grid place-items-center font-black shrink-0">{initial}</div>
+                      <div className="flex-1 min-w-0">
+                        <div className="font-bold truncate text-sm">
+                          {p.customer.name ?? p.customer.email}
+                          {p.offerRedeemed && <span className="ml-1.5 text-[10px] font-bold text-pink-600">🎟 CRUZADO</span>}
+                        </div>
+                        <div className="text-[11px] text-black/55">
+                          {new Date(p.scannedAt).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })} · <strong className="text-emerald-700">{p.amount.toFixed(2)} €</strong> · {p.discountPct}% off
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => act(p.id, "reject")}
+                        disabled={confirming === p.id}
+                        className="px-2.5 py-2 rounded-lg border border-black/15 bg-white hover:bg-black/5 text-xs font-semibold disabled:opacity-50 shrink-0"
+                      >
+                        ✕
+                      </button>
+                      <button
+                        onClick={() => act(p.id, "confirm")}
+                        disabled={confirming === p.id}
+                        className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-black disabled:opacity-50 shrink-0"
+                      >
+                        ✓ Confirmar
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+
           {/* Resumen — tarjeta oscura con gráfica de ventas + métricas */}
           <section className="bubui-fade-up bubui-fade-up-1 space-y-3">
             <div className="rounded-2xl p-5 text-white" style={{ background: "linear-gradient(160deg,#1A1A1A,#0A0A0A)" }}>
@@ -342,58 +396,6 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
               <MetricCard label="Ticket medio" value={`${(m.ticketMedio ?? 0).toFixed(2)} €`} />
               <MetricCard label="Escaneos 7d" value={m.scans7} />
             </div>
-          </section>
-
-          {/* Pendientes — compras a confirmar */}
-          <section className="bubui-card p-5">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="font-bold text-sm">Compras por confirmar</h3>
-              <span className="text-xs text-black/50">{data.pending.length}</span>
-            </div>
-            {data.pending.length === 0 ? (
-              <div className="py-6 text-center text-sm text-black/55">
-                Sin compras pendientes. Cuando un cliente escanee, aparecerá aquí.
-              </div>
-            ) : (
-              <div className="bubui-table">
-                {data.pending.map((p: any) => {
-                  const initial = (p.customer.name ?? p.customer.email ?? "?").charAt(0).toUpperCase();
-                  return (
-                    <div key={p.id} className="row">
-                      <div className="left min-w-0">
-                        <div className="avatar">{initial}</div>
-                        <div className="min-w-0">
-                          <div className="name truncate">
-                            {p.customer.name ?? p.customer.email}
-                            {p.offerRedeemed && <span className="ml-1.5 text-[10px] font-bold text-pink-600">🎟 CRUZADO</span>}
-                          </div>
-                          <div className="sub">
-                            {new Date(p.scannedAt).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })} · {p.discountPct}% off
-                          </div>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <div className="amount mr-2">{p.amount.toFixed(2)} €</div>
-                        <button
-                          onClick={() => act(p.id, "reject")}
-                          disabled={confirming === p.id}
-                          className="px-3 py-1.5 rounded-full border border-black/15 bg-white hover:bg-black/5 text-xs font-semibold disabled:opacity-50"
-                        >
-                          Rechazar
-                        </button>
-                        <button
-                          onClick={() => act(p.id, "confirm")}
-                          disabled={confirming === p.id}
-                          className="px-3 py-1.5 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold disabled:opacity-50"
-                        >
-                          Confirmar
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
           </section>
 
           <RankingCard businessId={b.id} token={session.token} />
