@@ -169,6 +169,7 @@ function LoginForm({ onLogin }: { onLogin: (s: Session) => void }) {
 function Dashboard({ session, onLogout }: { session: Session; onLogout: () => void }) {
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [loadErr, setLoadErr] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<string | null>(null);
 
   // `silent` evita el flash de "Cargando…" en los refrescos automáticos:
@@ -179,7 +180,16 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
       const r = await fetch(`/api/bubui/business/${session.businessId}/dashboard`, {
         headers: { Authorization: `Bearer ${session.token}` }
       });
-      if (r.ok) setData(await r.json());
+      if (r.ok) {
+        setData(await r.json());
+        setLoadErr(null);
+      } else {
+        // No dejamos el panel atascado en "Cargando…": mostramos el error real.
+        const j = await r.json().catch(() => ({}));
+        setLoadErr(r.status === 401 ? "Tu sesión ha caducado. Vuelve a entrar." : `Error ${r.status}: ${j?.error?.message ?? "no se pudo cargar el panel"}`);
+      }
+    } catch {
+      setLoadErr("Sin conexión con el servidor. Reintentando…");
     } finally {
       if (!silent) setLoading(false);
     }
@@ -210,7 +220,24 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
     }
   }
 
-  if (loading || !data) return <main className="max-w-3xl mx-auto px-4 py-12">Cargando…</main>;
+  if (!data) {
+    // Cargando solo si aún no hubo error; si falló, mostramos el motivo + reintento.
+    return (
+      <main className="max-w-3xl mx-auto px-4 py-12 space-y-3">
+        {loading && !loadErr ? (
+          <p>Cargando…</p>
+        ) : (
+          <>
+            <p className="text-sm text-rose-600">{loadErr ?? "No se pudo cargar el panel."}</p>
+            <div className="flex gap-2">
+              <button onClick={() => load()} className="bubui-btn text-sm py-2 px-4">Reintentar</button>
+              <button onClick={onLogout} className="text-sm py-2 px-4 border rounded">Cerrar sesión</button>
+            </div>
+          </>
+        )}
+      </main>
+    );
+  }
   const b = data.business;
   const m = data.metrics;
 
