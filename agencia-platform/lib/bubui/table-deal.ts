@@ -22,6 +22,9 @@ export type MesaConfig = {
    *  Evita regalar descuento sin recibir valor neto-nuevo cuando la zona ya
    *  está saturada de usuarios. */
   veteranMustContribute?: boolean;
+  /** Plataforma de reseña que pide el negocio (Google/Tripadvisor/…) para los
+   *  textos del checklist. */
+  reviewPlatformLabel?: string;
 };
 
 export type MesaParticipant = {
@@ -137,7 +140,7 @@ export function computeMesa(
     },
     {
       key: "review",
-      label: "Todos dejáis reseña en Google",
+      label: `Todos dejáis reseña en ${cfg.reviewPlatformLabel || "Google"}`,
       pct: cfg.reviewBonusPct,
       euros: ticketAmount ? eur(ticketAmount, cfg.reviewBonusPct) : 0,
       done: everyoneReviewed

@@ -16,13 +16,40 @@ export function mesaConfigFromBusiness(b: any, snapshot?: { shareFriends?: numbe
     reviewBonusPct: b.mesaReviewBonusPct ?? 5,
     maxPct: b.mesaMaxPct ?? 35,
     bonusOnThisVisit: !!b.mesaBonusOnThisVisit,
-    veteranMustContribute: b.mesaVeteranMustContribute ?? true
+    veteranMustContribute: b.mesaVeteranMustContribute ?? true,
+    reviewPlatformLabel: mesaReviewPlatformLabel(b)
   };
 }
 
 /** Un cliente es "nuevo" para la red si aún no ha hecho ninguna compra. */
 export function isNewCustomer(c: { totalPurchases?: number | null }): boolean {
   return (c.totalPurchases ?? 0) === 0;
+}
+
+/** Enlace de reseña según la plataforma elegida por el negocio (mesaReviewPlatform). */
+export function mesaReviewUrl(b: any): string | null {
+  const platform = b.mesaReviewPlatform || "google";
+  switch (platform) {
+    case "tripadvisor":
+      return b.tripadvisorUrl || null;
+    case "trustpilot":
+      return b.trustpilotUrl || null;
+    case "instagram":
+      return b.instagramUrl || null;
+    case "google":
+    default:
+      return b.googlePlaceId ? `https://search.google.com/local/writereview?placeid=${b.googlePlaceId}` : null;
+  }
+}
+
+/** Nombre legible de la plataforma de reseña. */
+export function mesaReviewPlatformLabel(b: any): string {
+  switch (b.mesaReviewPlatform || "google") {
+    case "tripadvisor": return "Tripadvisor";
+    case "trustpilot": return "Trustpilot";
+    case "instagram": return "Instagram";
+    default: return "Google";
+  }
 }
 
 /** Acciones de aporte que el comercio acepta del veterano. */
