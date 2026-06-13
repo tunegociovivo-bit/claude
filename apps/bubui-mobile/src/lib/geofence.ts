@@ -11,13 +11,13 @@ import * as TaskManager from "expo-task-manager";
 import * as Notifications from "expo-notifications";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-// Geofencing en segundo plano DESACTIVADO temporalmente: requiere
-// ACCESS_BACKGROUND_LOCATION + servicio en primer plano, permisos que Google
-// Play obliga a declarar y revisar (vídeo demostrativo incluido). Se mantiene
-// el código intacto para reactivarlo al pasar a producción con la declaración
-// hecha: basta poner GEOFENCING_ENABLED = true. La ubicación en PRIMER PLANO
-// (Feed/Descubre/Scan) no se ve afectada y sigue funcionando con normalidad.
-const GEOFENCING_ENABLED = false;
+// Geofencing en segundo plano ACTIVADO. Requiere ACCESS_BACKGROUND_LOCATION +
+// servicio en primer plano (declarados en app.json). En Google Play hay que
+// completar la DECLARACIÓN de uso de ubicación en background (formulario +
+// vídeo demostrativo) y en App Store justificar el permiso "Siempre"; sin esa
+// declaración la subida se rechaza. La ubicación en PRIMER PLANO (Feed/Descubre/
+// Scan) funciona aparte. Para desactivar de nuevo: pon GEOFENCING_ENABLED = false.
+const GEOFENCING_ENABLED = true;
 
 export const GEOFENCE_TASK = "bubui-geofence";
 const META_KEY = "bubui.geofence.meta";

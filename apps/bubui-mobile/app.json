@@ -2,7 +2,7 @@
   "expo": {
     "name": "Bubui",
     "slug": "bipi",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
@@ -20,7 +20,9 @@
       },
       "infoPlist": {
         "NSCameraUsageDescription": "Bubui necesita la cámara para escanear el QR de los negocios y aplicarte el descuento.",
-        "NSLocationWhenInUseUsageDescription": "Bubui usa tu ubicación para mostrarte los descuentos cerca de ti."
+        "NSLocationWhenInUseUsageDescription": "Bubui usa tu ubicación para mostrarte los descuentos cerca de ti.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Bubui usa tu ubicación para avisarte cuando pasas junto a un negocio donde tienes un cupón.",
+        "UIBackgroundModes": ["location", "fetch"]
       },
       "associatedDomains": [
         "applinks:hub.negociovivo.app"
@@ -28,7 +30,7 @@
     },
     "android": {
       "package": "com.negociovivo.bubui",
-      "versionCode": 29,
+      "versionCode": 30,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#FFFFFF"
@@ -37,12 +39,10 @@
         "CAMERA",
         "ACCESS_COARSE_LOCATION",
         "ACCESS_FINE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION",
+        "FOREGROUND_SERVICE",
+        "FOREGROUND_SERVICE_LOCATION",
         "POST_NOTIFICATIONS"
-      ],
-      "blockedPermissions": [
-        "android.permission.ACCESS_BACKGROUND_LOCATION",
-        "android.permission.FOREGROUND_SERVICE",
-        "android.permission.FOREGROUND_SERVICE_LOCATION"
       ],
       "intentFilters": [
         {
