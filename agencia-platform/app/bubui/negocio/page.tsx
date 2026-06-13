@@ -454,6 +454,8 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
           <BusinessTypeSelect business={b} token={session.token} onSaved={load} />
           {/* Editar perfil */}
           <ProfileEditor business={b} token={session.token} onSaved={load} />
+          {/* Redes y reseñas autocompletadas por IA */}
+          <AutofillProfile business={b} token={session.token} onSaved={load} />
           <AiPhotoStudio business={b} token={session.token} onSaved={load} />
 
           {/* QR + cartel + CSV */}
@@ -1295,6 +1297,97 @@ function BookingsPanel({ businessId, token }: { businessId: string; token: strin
           </div>
         </div>
       ))}
+    </section>
+  );
+}
+
+/** Autocompletar redes y reseñas con IA (+ datos reales) y verificar. */
+function AutofillProfile({ business, token, onSaved }: { business: any; token: string; onSaved: () => void }) {
+  const FIELDS = [
+    { key: "googlePlaceId", label: "Google (Place ID para reseñas)", ph: "ChIJ…" },
+    { key: "instagramUrl", label: "Instagram", ph: "https://instagram.com/…" },
+    { key: "facebookUrl", label: "Facebook", ph: "https://facebook.com/…" },
+    { key: "tiktokUrl", label: "TikTok", ph: "https://tiktok.com/@…" },
+    { key: "trustpilotUrl", label: "Trustpilot", ph: "https://trustpilot.com/review/…" }
+  ] as const;
+  const [vals, setVals] = useState<Record<string, string>>(() =>
+    Object.fromEntries(FIELDS.map((f) => [f.key, business[f.key] ?? ""]))
+  );
+  const [sources, setSources] = useState<Record<string, string>>({});
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [status, setStatus] = useState<string | null>(null);
+
+  async function autofill() {
+    setLoading(true);
+    setStatus(null);
+    try {
+      const r = await fetch(`/api/bubui/business/${business.id}/autofill`, { method: "POST", headers: { Authorization: `Bearer ${token}` } });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) { setStatus(d?.error?.message ?? "No se pudo autocompletar."); return; }
+      const dr = d.draft ?? {};
+      setVals((v) => ({
+        ...v,
+        googlePlaceId: dr.googlePlaceId || v.googlePlaceId,
+        instagramUrl: dr.instagramUrl || v.instagramUrl,
+        facebookUrl: dr.facebookUrl || v.facebookUrl,
+        tiktokUrl: dr.tiktokUrl || v.tiktokUrl,
+        trustpilotUrl: dr.trustpilotUrl || v.trustpilotUrl
+      }));
+      setSources(dr.sources ?? {});
+      setStatus("Revisa y corrige lo que haga falta, luego guarda. ✨");
+    } finally {
+      setLoading(false);
+    }
+  }
+  async function save() {
+    setSaving(true);
+    setStatus(null);
+    try {
+      const r = await fetch(`/api/bubui/business/${business.id}/profile`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify(Object.fromEntries(FIELDS.map((f) => [f.key, vals[f.key].trim() || null])))
+      });
+      setStatus(r.ok ? "Guardado ✅" : "Error al guardar.");
+      if (r.ok) onSaved();
+    } finally {
+      setSaving(false);
+    }
+  }
+  const srcLabel: Record<string, string> = { places: "Google", web: "tu web", ia: "IA (verifica)" };
+
+  return (
+    <section className="bubui-card p-5 space-y-3">
+      <div className="flex items-center justify-between gap-2">
+        <div>
+          <h3 className="font-bold text-sm">🔗 Redes y reseñas</h3>
+          <p className="text-xs text-black/55 mt-0.5">La IA las busca por ti a partir de tus datos y tu web. Revísalas y guarda.</p>
+        </div>
+        <button onClick={autofill} disabled={loading} className="bubui-btn text-xs py-2 px-3 shrink-0 disabled:opacity-50">
+          {loading ? "Buscando…" : "✨ Autocompletar con IA"}
+        </button>
+      </div>
+      <div className="space-y-2">
+        {FIELDS.map((f) => (
+          <label key={f.key} className="block text-xs">
+            <span className="font-medium flex items-center gap-1.5">
+              {f.label}
+              {sources[f.key] && <span className="text-[10px] px-1.5 rounded bg-black/5 text-black/50">{srcLabel[sources[f.key]] ?? sources[f.key]}</span>}
+            </span>
+            <input
+              value={vals[f.key]}
+              onChange={(e) => setVals((v) => ({ ...v, [f.key]: e.target.value }))}
+              placeholder={f.ph}
+              className="mt-1 w-full px-2 py-1.5 border rounded bg-white font-mono text-[12px]"
+            />
+          </label>
+        ))}
+      </div>
+      {status && <p className="text-xs text-emerald-700">{status}</p>}
+      <button onClick={save} disabled={saving} className="bubui-btn w-full text-sm py-2 disabled:opacity-50">
+        {saving ? "Guardando…" : "Guardar redes y reseñas"}
+      </button>
     </section>
   );
 }

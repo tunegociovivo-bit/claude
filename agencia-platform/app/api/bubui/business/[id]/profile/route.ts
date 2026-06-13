@@ -37,6 +37,10 @@ const schema = z
     referralReward5: z.string().max(60).optional().nullable(),
     reviewRewardPct: z.number().int().min(0).max(MAX_DISCOUNT_PCT).optional(),
     googlePlaceId: z.string().trim().max(200).optional().nullable(),
+    instagramUrl: z.string().trim().max(300).optional().nullable(),
+    facebookUrl: z.string().trim().max(300).optional().nullable(),
+    tiktokUrl: z.string().trim().max(300).optional().nullable(),
+    trustpilotUrl: z.string().trim().max(300).optional().nullable(),
     reviewPushEnabled: z.boolean().optional(),
     // Oferta-reto viral (compártela con N amigos para activarla).
     shareOfferPct: z.number().int().min(0).max(MAX_DISCOUNT_PCT).optional(),
@@ -95,6 +99,9 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   // Normaliza strings vacíos a null para limpiar el dato.
   const data = { ...parsed.data };
   if (data.googlePlaceId === "") data.googlePlaceId = null;
+  for (const k of ["instagramUrl", "facebookUrl", "tiktokUrl", "trustpilotUrl"] as const) {
+    if ((data as any)[k] === "") (data as any)[k] = null;
+  }
   if (data.loyaltyRewardLabel === "") data.loyaltyRewardLabel = null;
   if (data.birthdayMessage === "") data.birthdayMessage = null;
   if (data.shareOfferLabel === "") data.shareOfferLabel = null;
