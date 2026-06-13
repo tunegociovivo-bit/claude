@@ -4014,6 +4014,30 @@ function AnalyticsView({ data, loading }: { data: any; loading: boolean }) {
           )}
         </div>
       </div>
+      {/* Embudo premium: ticket-tier, fuente y secuencia de directivos */}
+      <div className="grid md:grid-cols-2 gap-4">
+        <ConversionTable title="💎 Conversión por valor (ticket)" colLabel="Tier" rows={data.convTier ?? []} />
+        <ConversionTable title="Conversión por fuente de captación" colLabel="Fuente" rows={data.convSource ?? []} />
+      </div>
+      {data.exec && (
+        <div>
+          <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">🎯 Embudo de directivos (secuencias)</h3>
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+            {([
+              ["Secuencias", data.exec.total, "bg-white"],
+              ["Activas", data.exec.active, "bg-indigo-50 text-indigo-700"],
+              ["Completadas", data.exec.done, "bg-emerald-50 text-emerald-700"],
+              ["Detenidas", data.exec.stopped, "bg-slate-50 text-slate-500"],
+              ["Emails enviados", data.exec.emailsSent, "bg-amber-50 text-amber-700"]
+            ] as const).map(([label, val, cls]) => (
+              <div key={label} className={`rounded-lg border p-3 text-center ${cls}`}>
+                <div className="text-xl font-bold">{val}</div>
+                <div className="text-[11px] text-slate-500">{label}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       {/* Conversión por nicho y por provincia */}
       <div className="grid md:grid-cols-2 gap-4">
         <ConversionTable title="Conversión por nicho" colLabel="Nicho" rows={data.convNiche ?? []} />

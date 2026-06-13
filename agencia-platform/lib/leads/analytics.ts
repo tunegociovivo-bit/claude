@@ -195,3 +195,80 @@ export async function conversionByProvince(workspaceId: string, limit = 20): Pro
   }
   return finalizeConversion(agg, limit);
 }
+
+const TIER_LABEL: Record<string, string> = {
+  premium: "💎 Premium",
+  alto: "Alto",
+  medio: "Medio",
+  bajo: "Bajo"
+};
+
+/** Conversión por TICKET-TIER (valor estimado del cliente). */
+export async function conversionByTicketTier(workspaceId: string): Promise<ConversionRow[]> {
+  const grouped = await prisma.lead.groupBy({
+    by: ["ticketTier", "contactStatus"],
+    where: { workspaceId },
+    _count: true
+  });
+  const agg = new Map<string, { total: number; contacted: number; responded: number; client: number }>();
+  for (const g of grouped) {
+    addStatus(agg, TIER_LABEL[g.ticketTier ?? ""] ?? "Sin clasificar", g.contactStatus, g._count);
+  }
+  // Orden fijo premium→bajo en vez de por volumen.
+  const order = ["💎 Premium", "Alto", "Medio", "Bajo", "Sin clasificar"];
+  return finalizeConversion(agg, 10).sort((a, b) => order.indexOf(a.key) - order.indexOf(b.key));
+}
+
+/** Conversión por FUENTE de captación (places, borme, meta_ads, directorios…). */
+export async function conversionBySource(workspaceId: string): Promise<ConversionRow[]> {
+  const grouped = await prisma.lead.groupBy({
+    by: ["searchId", "contactStatus"],
+    where: { workspaceId },
+    _count: true
+  });
+  const searchIds = Array.from(new Set(grouped.map((g) => g.searchId).filter((x): x is string => !!x)));
+  const searches = searchIds.length
+    ? await prisma.leadSearch.findMany({ where: { id: { in: searchIds } }, select: { id: true, source: true } })
+    : [];
+  const SOURCE_LABEL: Record<string, string> = {
+    places: "Google Places",
+    borme: "BORME",
+    meta_ads: "Meta Ads",
+    doctoralia: "Doctoralia",
+    idealista: "Idealista",
+    fotocasa: "Fotocasa"
+  };
+  const srcById = new Map(searches.map((s) => [s.id, SOURCE_LABEL[(s as any).source ?? "places"] ?? (s as any).source ?? "—"]));
+  const agg = new Map<string, { total: number; contacted: number; responded: number; client: number }>();
+  for (const g of grouped) {
+    const src = (g.searchId ? srcById.get(g.searchId) : null) ?? "Google Places";
+    addStatus(agg, src, g.contactStatus, g._count);
+  }
+  return finalizeConversion(agg, 10);
+}
+
+/** Métricas del embudo de DIRECTIVOS (secuencias multicanal). */
+export async function execOutreachStats(workspaceId: string): Promise<{
+  total: number;
+  active: number;
+  done: number;
+  stopped: number;
+  emailsSent: number;
+}> {
+  const [byStatus, rows] = await Promise.all([
+    prisma.leadExecOutreach.groupBy({ by: ["status"], where: { workspaceId }, _count: true }),
+    prisma.leadExecOutreach.findMany({ where: { workspaceId }, select: { log: true } })
+  ]);
+  const count = (s: string) => byStatus.find((x) => x.status === s)?._count ?? 0;
+  let emailsSent = 0;
+  for (const r of rows) {
+    if (Array.isArray(r.log)) emailsSent += (r.log as any[]).filter((e) => e?.channel === "email").length;
+  }
+  return {
+    total: byStatus.reduce((s, x) => s + x._count, 0),
+    active: count("active"),
+    done: count("done"),
+    stopped: count("stopped"),
+    emailsSent
+  };
+}
