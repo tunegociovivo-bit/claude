@@ -358,6 +358,14 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
         <ProductCatalog businessId={b.id} token={session.token} />
       )}
 
+      {/* Reservas/citas — solo servicios */}
+      {b.businessType === "servicios" && (
+        <>
+          <BookingsPanel businessId={b.id} token={session.token} />
+          <ServicesConfig business={b} token={session.token} onSaved={load} />
+        </>
+      )}
+
       {/* Mesa Colectiva — solo restaurantes */}
       {b.businessType === "restaurante" && (
         <>
@@ -1121,6 +1129,129 @@ function ProductCatalog({ businessId, token }: { businessId: string; token: stri
           </div>
         ))}
       </div>
+    </section>
+  );
+}
+
+/** Reservas: servicios ofertados + activar citas online (nicho servicios). */
+function ServicesConfig({ business, token, onSaved }: { business: any; token: string; onSaved: () => void }) {
+  const [enabled, setEnabled] = useState<boolean>(business.bookingEnabled ?? false);
+  const [items, setItems] = useState<any[]>([]);
+  const [form, setForm] = useState({ name: "", durationMin: "30", priceEur: "" });
+  const [busy, setBusy] = useState(false);
+  const headers = { "Content-Type": "application/json", Authorization: `Bearer ${token}` };
+
+  async function load() {
+    const r = await fetch(`/api/bubui/business/${business.id}/services`, { headers: { Authorization: `Bearer ${token}` } });
+    if (r.ok) setItems((await r.json()).items ?? []);
+  }
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function saveEnabled(next: boolean) {
+    setEnabled(next);
+    await fetch(`/api/bubui/business/${business.id}/profile`, { method: "PATCH", headers, body: JSON.stringify({ bookingEnabled: next }) });
+    onSaved();
+  }
+  async function add() {
+    if (!form.name.trim()) return;
+    setBusy(true);
+    try {
+      const r = await fetch(`/api/bubui/business/${business.id}/services`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ name: form.name.trim(), durationMin: Number(form.durationMin) || 30, priceEur: form.priceEur ? Number(form.priceEur) : null })
+      });
+      if (r.ok) { setForm({ name: "", durationMin: "30", priceEur: "" }); load(); }
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function del(s: any) {
+    if (!confirm(`¿Borrar "${s.name}"?`)) return;
+    await fetch(`/api/bubui/business/${business.id}/services/${s.id}`, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } });
+    load();
+  }
+
+  return (
+    <section className="bubui-card p-5 space-y-3">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="font-bold text-sm">📅 Reservas / Citas</h3>
+          <p className="text-xs text-black/55 mt-0.5">Activa las citas online y define tus servicios. Los clientes piden cita desde tu ficha y tú la confirmas.</p>
+        </div>
+        <label className="flex items-center gap-2 text-xs font-semibold shrink-0">
+          <input type="checkbox" checked={enabled} onChange={(e) => saveEnabled(e.target.checked)} />
+          Activas
+        </label>
+      </div>
+      {enabled && (
+        <>
+          <div className="grid sm:grid-cols-3 gap-2">
+            <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Servicio (ej. Corte)" className="px-2 py-1.5 border rounded bg-white text-sm" />
+            <input value={form.durationMin} onChange={(e) => setForm({ ...form, durationMin: e.target.value })} placeholder="Min" type="number" className="px-2 py-1.5 border rounded bg-white text-sm" />
+            <input value={form.priceEur} onChange={(e) => setForm({ ...form, priceEur: e.target.value })} placeholder="Precio €" type="number" className="px-2 py-1.5 border rounded bg-white text-sm" />
+          </div>
+          <button onClick={add} disabled={busy || !form.name.trim()} className="bubui-btn w-full text-sm py-2 disabled:opacity-50">{busy ? "Añadiendo…" : "Añadir servicio"}</button>
+          <div className="space-y-1.5">
+            {items.length === 0 && <p className="text-xs text-black/45">Aún no tienes servicios.</p>}
+            {items.map((s) => (
+              <div key={s.id} className="flex items-center gap-2 border rounded-lg p-2 text-sm">
+                <div className="flex-1 min-w-0">
+                  <div className="font-semibold truncate">{s.name}</div>
+                  <div className="text-[11px] text-black/55">{s.durationMin} min{s.priceEur != null ? ` · ${s.priceEur}€` : ""}</div>
+                </div>
+                <button onClick={() => del(s)} className="text-[11px] px-2 py-1 rounded border text-rose-600">Borrar</button>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+
+/** Citas recibidas: confirmar o cancelar. */
+function BookingsPanel({ businessId, token }: { businessId: string; token: string }) {
+  const [items, setItems] = useState<any[]>([]);
+  async function load() {
+    const r = await fetch(`/api/bubui/business/${businessId}/bookings`, { headers: { Authorization: `Bearer ${token}` } });
+    if (r.ok) setItems((await r.json()).items ?? []);
+  }
+  useEffect(() => {
+    load();
+    const i = setInterval(load, 15000);
+    return () => clearInterval(i);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  async function setStatus(id: string, status: string) {
+    await fetch(`/api/bubui/business/${businessId}/bookings/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ status })
+    });
+    load();
+  }
+  const pend = items.filter((b) => b.status !== "cancelled");
+  if (pend.length === 0) return null;
+  return (
+    <section className="bubui-card p-5 space-y-2">
+      <h3 className="font-bold text-sm">📅 Citas ({pend.length})</h3>
+      {pend.map((b) => (
+        <div key={b.id} className={`border rounded-lg p-2.5 text-xs space-y-1 ${b.status === "confirmed" ? "border-emerald-300 bg-emerald-50/40" : ""}`}>
+          <div className="flex items-center justify-between">
+            <span className="font-semibold">{b.customerName} · {b.customerPhone}</span>
+            <span className={`px-1.5 py-0.5 rounded ${b.status === "confirmed" ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>{b.status === "confirmed" ? "confirmada" : "pendiente"}</span>
+          </div>
+          <div className="text-black/60">{new Date(b.startsAt).toLocaleString("es-ES")}{b.service ? ` · ${b.service.name}` : ""}{b.notes ? ` · ${b.notes}` : ""}</div>
+          <div className="flex gap-2 pt-0.5">
+            {b.status !== "confirmed" && <button onClick={() => setStatus(b.id, "confirmed")} className="bubui-btn text-[11px] py-1 px-2">Confirmar</button>}
+            <button onClick={() => setStatus(b.id, "cancelled")} className="text-[11px] py-1 px-2 border rounded text-rose-600">Cancelar</button>
+          </div>
+        </div>
+      ))}
     </section>
   );
 }
