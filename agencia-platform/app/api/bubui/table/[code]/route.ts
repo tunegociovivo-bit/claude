@@ -1,0 +1,34 @@
+/**
+ * GET /api/bubui/table/[code]?ticket=200   → estado en vivo de la mesa.
+ * Lo consultan todos los comensales para ver el indicador de ahorro en € y el
+ * checklist. Lectura por código (cualquiera en la mesa lo ve), sin datos
+ * sensibles más allá del agregado.
+ */
+import { NextResponse } from "next/server";
+import { prisma } from "@/lib/db/prisma";
+import { loadTableState } from "@/lib/bubui/table";
+
+export const dynamic = "force-dynamic";
+
+export async function GET(req: Request, { params }: { params: { code: string } }) {
+  const url = new URL(req.url);
+  const ticket = Number(url.searchParams.get("ticket") ?? "") || null;
+  const session = await prisma.bubuiTableSession.findFirst({
+    where: { code: params.code.toUpperCase() },
+    orderBy: { createdAt: "desc" },
+    select: { id: true }
+  });
+  if (!session) return NextResponse.json({ error: { code: "not_found" } }, { status: 404 });
+  const loaded = await loadTableState(session.id, ticket);
+  if (!loaded) return NextResponse.json({ error: { code: "not_found" } }, { status: 404 });
+  const { session: s, state } = loaded;
+  return NextResponse.json({
+    ok: true,
+    sessionId: s.id,
+    status: s.status,
+    tableLabel: s.tableLabel,
+    business: { id: s.business.id, name: s.business.name, googlePlaceId: s.business.googlePlaceId },
+    expiresAt: s.expiresAt.toISOString(),
+    state
+  });
+}
