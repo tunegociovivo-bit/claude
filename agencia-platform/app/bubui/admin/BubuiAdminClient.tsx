@@ -114,6 +114,7 @@ export default function BubuiAdminClient() {
       {tab === "sections" && (
         <>
           <SectionsPanel />
+          <AnunciateButtonPanel />
           <AiBannerPolicyPanel />
           <QrPosterPanel />
           <TeamNotifyPanel />
@@ -939,6 +940,83 @@ function SectionsPanel() {
 
 /** Política de acceso al Banner IA del panel de negocios: abierto a todos
  *  los planes o limitado a Pro/Premium. Cambia al instante, sin deploy. */
+function AnunciateButtonPanel() {
+  const [enabled, setEnabled] = useState<boolean | null>(null);
+  const [err, setErr] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    adminFetch("/api/bubui/anunciate-button")
+      .then((d) => setEnabled(!!d.enabled))
+      .catch((e) => setErr(String(e)));
+  }, []);
+
+  async function save(next: boolean) {
+    setSaving(true);
+    setErr("");
+    try {
+      const d = await adminFetch("/api/bubui/anunciate-button", {
+        method: "PATCH",
+        body: JSON.stringify({ enabled: next })
+      });
+      setEnabled(!!d.enabled);
+    } catch (e) {
+      setErr(String(e));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (err) return <p className="text-rose-700 text-sm mt-4">{err}</p>;
+  if (enabled === null) return <div className="bubui-skeleton h-24 mt-4" />;
+
+  return (
+    <section className="bubui-card p-4 mt-4 space-y-4">
+      <div>
+        <h2 className="text-sm font-bold">📣 Botón flotante «Anúnciate»</h2>
+        <p className="text-xs text-black/50 mt-1">
+          CTA fijo y animado que aparece en cualquier pantalla del panel del comercio
+          y lleva al formulario de anuncios (Push del Día). Aquí lo enciendes o apagas
+          para todos los comercios al instante.
+        </p>
+      </div>
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-pink-50/50 px-3 py-3">
+        <div>
+          <div className="font-semibold text-sm">Estado</div>
+          <div className="text-[12px] text-black/50">
+            Actualmente:{" "}
+            <b className={enabled ? "text-emerald-600" : "text-amber-600"}>
+              {enabled ? "Visible para los comercios" : "Oculto"}
+            </b>
+          </div>
+        </div>
+        <div className="flex gap-1.5">
+          {(
+            [
+              { v: true, label: "Encendido" },
+              { v: false, label: "Apagado" }
+            ]
+          ).map((o) => (
+            <button
+              key={String(o.v)}
+              disabled={saving}
+              onClick={() => save(o.v)}
+              className="px-3 py-1.5 rounded-full text-xs font-bold border disabled:opacity-50"
+              style={
+                enabled === o.v
+                  ? { background: "#ec1c6e", color: "#fff", borderColor: "#ec1c6e" }
+                  : { background: "#fff", borderColor: "rgba(0,0,0,0.12)", cursor: "pointer" }
+              }
+            >
+              {o.label}
+            </button>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function AiBannerPolicyPanel() {
   const [policy, setPolicy] = useState<"all" | "paid" | null>(null);
   const [err, setErr] = useState("");
