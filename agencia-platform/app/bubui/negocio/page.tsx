@@ -450,9 +450,7 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
       {/* ───────────── PESTAÑA: AJUSTES ───────────── */}
       {tab === "ajustes" && (
         <>
-          {/* Tipo de negocio → panel por nicho */}
-          <BusinessTypeSelect business={b} token={session.token} onSaved={load} />
-          {/* Editar perfil */}
+          {/* Editar perfil (incluye el tipo de negocio) */}
           <ProfileEditor business={b} token={session.token} onSaved={load} />
           {/* Redes y reseñas autocompletadas por IA */}
           <AutofillProfile business={b} token={session.token} onSaved={load} />
@@ -1531,39 +1529,6 @@ function AutofillProfile({ business, token, onSaved }: { business: any; token: s
   );
 }
 
-/** Selector de tipo de negocio: decide qué secciones ve el comercio. */
-function BusinessTypeSelect({ business, token, onSaved }: { business: any; token: string; onSaved: () => void }) {
-  const [type, setType] = useState<string>(business.businessType ?? "servicios");
-  const [saving, setSaving] = useState(false);
-  async function save(next: string) {
-    setType(next);
-    setSaving(true);
-    try {
-      const r = await fetch(`/api/bubui/business/${business.id}/profile`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ businessType: next })
-      });
-      if (r.ok) onSaved();
-    } finally {
-      setSaving(false);
-    }
-  }
-  return (
-    <section className="bubui-card p-4 flex items-center justify-between gap-3">
-      <div>
-        <h3 className="font-bold text-sm">🏷️ Tipo de negocio</h3>
-        <p className="text-xs text-black/55 mt-0.5">Personaliza tu panel (la Mesa Colectiva aparece en restaurantes).</p>
-      </div>
-      <select value={type} onChange={(e) => save(e.target.value)} disabled={saving} className="px-2 py-1.5 border rounded bg-white text-sm">
-        <option value="restaurante">Restaurante / hostelería</option>
-        <option value="comercio_producto">Comercio (productos)</option>
-        <option value="servicios">Servicios</option>
-      </select>
-    </section>
-  );
-}
-
 /** Mesas abiertas para verificar y canjear (vista del camarero/dueño). */
 function MesaTablesPanel({ businessId, token }: { businessId: string; token: string }) {
   const [items, setItems] = useState<any[]>([]);
@@ -2515,6 +2480,7 @@ function ProfileEditor({ business, token, onSaved }: { business: any; token: str
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({
     description: business.description ?? "",
+    businessType: business.businessType ?? "servicios",
     address: business.address ?? "",
     latitude: business.latitude ?? "",
     longitude: business.longitude ?? "",
@@ -2567,6 +2533,7 @@ function ProfileEditor({ business, token, onSaved }: { business: any; token: str
     try {
       const payload: any = {};
       if (form.description !== business.description) payload.description = form.description || null;
+      if (form.businessType !== (business.businessType ?? "servicios")) payload.businessType = form.businessType;
       if (form.address !== business.address) payload.address = form.address || null;
       if (form.latitude !== "" && Number(form.latitude) !== business.latitude) payload.latitude = Number(form.latitude);
       if (form.longitude !== "" && Number(form.longitude) !== business.longitude) payload.longitude = Number(form.longitude);
@@ -2609,7 +2576,7 @@ function ProfileEditor({ business, token, onSaved }: { business: any; token: str
         <div>
           <h3 className="font-semibold text-sm">✏️ Editar perfil</h3>
           <p className="text-xs text-slate-600">
-            Logo, descripción, dirección, color de marca y % de descuento.
+            Tipo de negocio, logo, descripción, dirección, color de marca y % de descuento.
           </p>
         </div>
         <button
@@ -2629,6 +2596,21 @@ function ProfileEditor({ business, token, onSaved }: { business: any; token: str
         <button onClick={() => setOpen(false)} className="text-xs text-slate-500 hover:underline">Cerrar</button>
       </div>
       <div className="grid sm:grid-cols-2 gap-2 text-xs">
+        <label>
+          <span className="block font-medium mb-1">🏷️ Tipo de negocio</span>
+          <select
+            value={form.businessType}
+            onChange={(e) => setForm({ ...form, businessType: e.target.value })}
+            className="w-full px-2 py-1.5 border rounded bg-white"
+          >
+            <option value="restaurante">Restaurante / hostelería</option>
+            <option value="comercio_producto">Comercio (productos)</option>
+            <option value="servicios">Servicios</option>
+          </select>
+          <span className="block text-[11px] text-black/50 mt-1">
+            Personaliza tu panel (la Mesa Colectiva aparece en restaurantes).
+          </span>
+        </label>
         <label>
           <span className="block font-medium mb-1">Descripción</span>
           <textarea
