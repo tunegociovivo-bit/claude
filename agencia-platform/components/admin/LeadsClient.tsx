@@ -4196,6 +4196,7 @@ function Empty({ msg }: { msg: string }) { return <div className="bg-white round
 type LeadSourceKey =
   | "places"
   | "borme"
+  | "bdns"
   | "meta_ads"
   | "trustpilot"
   | "doctoralia"
@@ -4211,6 +4212,7 @@ const LEAD_SOURCES: Array<{
 }> = [
   { key: "places", label: "Google Places", status: "ready", help: "Negocios listados en Google Maps." },
   { key: "borme", label: "BORME (constituciones)", status: "ready", help: "Sociedades recién constituidas (día 1, sin web ni GMB). Keyword \"ticket alto\" = solo sectores premium; \"capital\" = filtra por capital social." },
+  { key: "bdns", label: "BDNS (recién subvencionados)", status: "ready", help: "Negocios que acaban de cobrar una subvención → presupuesto fresco. Gratis. Pon un número en el keyword (p.ej. \"20000\") para exigir importe mínimo. Teléfono enriquecido con Places." },
   { key: "meta_ads", label: "Meta Ad Library (ya anuncian)", status: "ready", help: "Negocios que YA pagan anuncios en Facebook/Instagram → ticket alto. Requiere el token de Meta en Ajustes. El teléfono se enriquece con Google Places." },
   { key: "doctoralia", label: "Doctoralia (clínicas)", status: "ready", help: "Médicos, dentistas, fisios. Requiere API key de Scrapfly en Ajustes. El teléfono se enriquece con Google Places." },
   { key: "idealista", label: "Idealista (inmobiliarias)", status: "ready", help: "Inmobiliarias y promotoras. Requiere API key de Scrapfly en Ajustes." },

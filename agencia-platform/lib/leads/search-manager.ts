@@ -324,19 +324,24 @@ async function processNonPlacesBatch(opts: {
     // BORME — el sumario trae TODAS las constituciones del día, no solo
     // las del nicho del usuario).
     const valid = results.filter((r) => !!r.placeId);
-    const verdicts = await classifyLeadsRelevance({
-      workspaceId: opts.workspaceId,
-      keyword: search.keyword,
-      location: search.location || "España",
-      leads: valid.map((r) => ({
-        placeId: r.placeId!,
-        name: r.name,
-        category: r.category,
-        types: r.types,
-        formattedAddress: r.formattedAddress,
-        website: r.website
-      }))
-    });
+    // En BDNS el keyword es un importe mínimo (no un nicho), así que el filtro
+    // de relevancia IA no aplica: marcaría todo como irrelevante. Lo saltamos.
+    const skipRelevance = source === "bdns" || !/[a-záéíóúñ]/i.test(search.keyword ?? "");
+    const verdicts = skipRelevance
+      ? new Map<string, RelevanceVerdict>()
+      : await classifyLeadsRelevance({
+          workspaceId: opts.workspaceId,
+          keyword: search.keyword,
+          location: search.location || "España",
+          leads: valid.map((r) => ({
+            placeId: r.placeId!,
+            name: r.name,
+            category: r.category,
+            types: r.types,
+            formattedAddress: r.formattedAddress,
+            website: r.website
+          }))
+        });
 
     const multiSet = await computeMultiLocationSet(opts.workspaceId, results);
     let position = 1;

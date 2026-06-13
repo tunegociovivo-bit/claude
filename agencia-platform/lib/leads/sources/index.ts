@@ -13,12 +13,14 @@ import { prisma } from "@/lib/db/prisma";
 import { decryptSecret } from "@/lib/ai/crypto";
 import { collectBorme } from "./borme";
 import { collectMetaAds } from "./meta-ads";
+import { collectBdns } from "./bdns";
 import { scrapeDirectory } from "./scrape";
 import { detectSector } from "../ticket-score";
 
 export type LeadSourceKey =
   | "places"
   | "borme"
+  | "bdns"
   | "meta_ads"
   | "trustpilot"
   | "doctoralia"
@@ -102,6 +104,21 @@ export async function collectFromSource(
         mode: cargosMode ? "cargos" : "constituciones",
         sectorFilter
       });
+    }
+    case "bdns": {
+      // Negocios que acaban de cobrar una subvención (presupuesto fresco).
+      // Keyword con un número (p.ej. "20000") → importe mínimo concedido.
+      const kw = ctx.keyword ?? "";
+      const m = kw.match(/(\d[\d.]{3,})/);
+      const minImporte = m ? parseInt(m[1].replace(/\./g, ""), 10) : undefined;
+      return enrichMissingPhones(
+        ctx.workspaceId,
+        await collectBdns({
+          daysBack: ctx.scope === "spain" ? 30 : 14,
+          provinceFilter: ctx.location?.trim() || undefined,
+          minImporte: Number.isFinite(minImporte as number) ? minImporte : undefined
+        })
+      );
     }
     case "meta_ads": {
       const token = await metaAdsToken(ctx.workspaceId);
@@ -227,6 +244,12 @@ export const LEAD_SOURCE_META: Record<LeadSourceKey, { label: string; status: "r
     status: "ready",
     help:
       "Sociedades recién constituidas en España. Captación a empresas día-1 sin web ni GMB. Tip: pon keyword \"ticket alto\" para filtrar solo sectores premium (dental, abogados, inmobiliaria, reformas…)."
+  },
+  bdns: {
+    label: "BDNS (acaban de recibir subvención)",
+    status: "ready",
+    help:
+      "Negocios que acaban de cobrar una subvención pública → presupuesto fresco y ganas de invertir. Fuente pública gratuita. Tip: pon un número en el keyword (p.ej. \"20000\") para exigir un importe mínimo. El teléfono se enriquece con Google Places."
   },
   meta_ads: {
     label: "Meta Ad Library (ya anuncian)",
