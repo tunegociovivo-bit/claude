@@ -133,7 +133,7 @@ export function computeMesa(
     },
     {
       key: "share",
-      label: `Todos compartís Bubui (${cfg.shareFriends} amigos c/u)`,
+      label: `Todos invitáis a ${cfg.shareFriends} amigo${cfg.shareFriends === 1 ? "" : "s"} que instale Bubui y se dé de alta`,
       pct: cfg.shareBonusPct,
       euros: ticketAmount ? eur(ticketAmount, cfg.shareBonusPct) : 0,
       done: everyoneShared

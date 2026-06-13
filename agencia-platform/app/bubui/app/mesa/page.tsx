@@ -204,9 +204,9 @@ function MesaInner() {
             <button onClick={() => contribute("share")} disabled={busy} className="bubui-btn w-full py-2.5 text-sm font-bold">
               📤 Invitar amigos a Bubui {state?.steps.find((s) => s.key === "share") ? `(+${ticket && state.steps.find((s) => s.key === "share")?.euros ? `${state.steps.find((s) => s.key === "share")?.euros}€` : `${state.steps.find((s) => s.key === "share")?.pct}%`})` : ""}
             </button>
-            <div className="grid grid-cols-3 gap-2">
+            <p className="text-[11px] text-black/45 text-center leading-tight -mt-1">Cuenta cuando tu amigo instala la app y se da de alta.</p>
+            <div className="grid grid-cols-2 gap-2">
               <button onClick={() => contribute("review")} disabled={busy} className="bubui-btn py-2 text-xs">⭐ Reseña {biz.reviewPlatformLabel || "Google"}</button>
-              <button onClick={() => contribute("photo")} disabled={busy} className="bubui-btn py-2 text-xs">📷 Foto</button>
               <button onClick={() => contribute("follow")} disabled={busy} className="bubui-btn py-2 text-xs">➕ Seguir</button>
             </div>
           </div>

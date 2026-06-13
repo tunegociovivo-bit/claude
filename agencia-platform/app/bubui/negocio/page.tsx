@@ -1076,9 +1076,9 @@ function MesaConfig({ business, token, onSaved }: { business: any; token: string
             {num("mesaBasePct", "% descuento base", 0, 50, "El que se aplica al juntar el mínimo de comensales.")}
             {num("mesaMinDiners", "Mínimo de comensales", 2, 50, "Cuántos deben escanear el QR de la mesa para activarlo.")}
             {num("mesaMaxPct", "% máximo (tope)", 0, 50, "El descuento nunca pasará de aquí, protege tu margen.")}
-            {num("mesaShareBonusPct", "+% si invitan amigos", 0, 50, "Extra si TODA la mesa comparte Bubui con amigos.")}
+            {num("mesaShareBonusPct", "+% si invitan amigos", 0, 50, `Extra si TODA la mesa invita a ${v.mesaVeteranShareFriends} amigo${v.mesaVeteranShareFriends === 1 ? "" : "s"} c/u. Solo cuenta si el amigo INSTALA la app y se DA DE ALTA.`)}
             {num("mesaReviewBonusPct", `+% si dejan reseña`, 0, 50, `Extra si TODA la mesa te deja una reseña en ${platformLabel}.`)}
-            {num("mesaVeteranShareFriends", "Amigos a invitar (c/u)", 1, 10, "Cuántos amigos nuevos trae cada quien ya tiene Bubui.")}
+            {num("mesaVeteranShareFriends", "Amigos a invitar (c/u)", 1, 10, "Nº de amigos que cada uno debe invitar para el extra. El amigo tiene que instalar Bubui y darse de alta para que cuente.")}
             {num("mesaJoinWindowMin", "Ventana de unión (min)", 5, 180, "Minutos para que se unan tras crear la mesa.")}
             {num("mesaNextVisitDays", "Caducidad del cupón (días)", 1, 120, "Cuánto dura el cupón de la próxima visita.")}
             <label className="text-xs">
@@ -1092,7 +1092,7 @@ function MesaConfig({ business, token, onSaved }: { business: any; token: string
 
           <div className="space-y-2 pt-1">
             {chk("mesaBonusOnThisVisit", "Aplicar el extra en esta misma cuenta", "Si lo desmarcas, el extra se guarda como cupón para su PRÓXIMA visita (vuelven antes).")}
-            {chk("mesaVeteranMustContribute", "Quien ya tiene Bubui debe aportar", "Un cliente nuevo aporta instalándose; quien ya la tiene desbloquea su parte haciendo una acción (invitar/reseña/foto).")}
+            {chk("mesaVeteranMustContribute", "Quien ya tiene Bubui debe aportar", "Un cliente nuevo aporta instalándose; quien ya la tiene desbloquea su parte haciendo una acción (invitar/reseña).")}
             {chk("mesaAutoAdjust", "Auto-ajuste por saturación", "Cuando casi todos ya tienen Bubui, pide algo más (más reseñas/contenido). Recomendado.")}
           </div>
 
@@ -1101,7 +1101,6 @@ function MesaConfig({ business, token, onSaved }: { business: any; token: string
             <div className="grid sm:grid-cols-2 gap-1.5 mt-1">
               {chk("mesaActShare", "Invitar amigos")}
               {chk("mesaActReview", `Reseña en ${platformLabel}`)}
-              {chk("mesaActPhoto", "Foto del plato")}
               {chk("mesaActFollow", "Seguir en redes")}
             </div>
           </div>
@@ -1150,7 +1149,7 @@ function MesaConfig({ business, token, onSaved }: { business: any; token: string
                   <ul className="text-xs text-black/80 space-y-1">
                     <li>🍽️ Llenas una mesa de <b>{simDiners}</b> (cuenta de {simTicket}€) que quizá no habría venido.</li>
                     <li>📲 Los que no tengan Bubui <b>se la instalan</b> → entran en tu red: verán tus <b>banners</b> y recibirán <b>avisos push cuando pasen cerca</b> para atraerlos de vuelta.</li>
-                    {v.mesaActShare && <li>👥 Hasta <b>{simDiners * v.mesaVeteranShareFriends} clientes nuevos</b> potenciales (si cada uno invita a {v.mesaVeteranShareFriends} para llevarse el descuento).</li>}
+                    {v.mesaActShare && <li>👥 Hasta <b>{simDiners * v.mesaVeteranShareFriends} clientes nuevos</b> que <b>instalan la app y se dan de alta</b> (cada uno invita a {v.mesaVeteranShareFriends} para llevarse el descuento).</li>}
                     {v.mesaActReview && <li>⭐ Hasta <b>{simDiners} reseñas</b> nuevas en {platformLabel}.</li>}
                     <li>💸 Te cuesta <b>{eur(pctNow)}€</b> de descuento hoy{pctNext > 0 ? ` (+${eur(pctNext)}€ solo si vuelven)` : ""}.</li>
                   </ul>
@@ -1171,7 +1170,7 @@ function MesaConfig({ business, token, onSaved }: { business: any; token: string
                 {v.mesaActShare && v.mesaShareBonusPct > 0 && (
                   <li className="flex items-start gap-2">
                     <span className="bg-pink-100 text-pink-700 font-black rounded px-1.5 shrink-0">+{v.mesaShareBonusPct}%</span>
-                    <span><b>Compartir la app:</b> cada uno invita a {v.mesaVeteranShareFriends} amigo{v.mesaVeteranShareFriends === 1 ? "" : "s"} a Bubui. (<b>{eur(v.mesaShareBonusPct)}€</b>)</span>
+                    <span><b>Compartir la app:</b> cada uno invita a {v.mesaVeteranShareFriends} amigo{v.mesaVeteranShareFriends === 1 ? "" : "s"} que <b>instale Bubui y se dé de alta</b>. (<b>{eur(v.mesaShareBonusPct)}€</b>)</span>
                   </li>
                 )}
                 {v.mesaActReview && v.mesaReviewBonusPct > 0 && (
