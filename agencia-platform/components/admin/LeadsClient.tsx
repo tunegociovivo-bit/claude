@@ -1164,6 +1164,7 @@ function LeadDetailModal({
     emailGuesses: string[];
     found: { name: string; title: string | null; linkedin: string | null; email: string | null }[];
     verifiedEmails: { email: string; status: string; score: number | null }[];
+    websiteEmails: string[];
     linkedinUrl: string;
     opener: string | null;
     disclaimer: string;
@@ -1190,8 +1191,9 @@ function LeadDetailModal({
       const d = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(d?.error?.message ?? `HTTP ${r.status}`);
       setDm(d);
-      // Pre-rellena con el mejor email disponible (verificado > encontrado > patrón).
-      const best = d.verifiedEmails?.find((v: any) => v.status === "valid")?.email
+      // Pre-rellena con el mejor email disponible (web real > verificado > Apollo > patrón).
+      const best = d.websiteEmails?.[0]
+        || d.verifiedEmails?.find((v: any) => v.status === "valid")?.email
         || d.found?.find((p: any) => p.email)?.email
         || d.verifiedEmails?.[0]?.email
         || d.emailGuesses?.[0]
@@ -1400,6 +1402,24 @@ function LeadDetailModal({
                 </div>
               ) : (
                 <div className="text-slate-500">Sin cargo nominal en BORME. Dirígete al máximo responsable.</div>
+              )}
+              {dm.websiteEmails.length > 0 && (
+                <div>
+                  <span className="font-semibold text-emerald-800">✉️ Emails de la web:</span>
+                  <div className="mt-0.5 flex flex-wrap gap-1">
+                    {dm.websiteEmails.map((e) => (
+                      <button
+                        key={e}
+                        type="button"
+                        onClick={() => { void navigator.clipboard?.writeText(e); }}
+                        className="px-1.5 py-0.5 rounded border bg-emerald-50 text-emerald-700 hover:bg-emerald-100 font-mono text-[11px]"
+                        title="Copiar"
+                      >
+                        {e}
+                      </button>
+                    ))}
+                  </div>
+                </div>
               )}
               {dm.found.length > 0 && (
                 <div>
@@ -4156,6 +4176,8 @@ function NewSearchModal({ open, onClose, onSaved }: { open: boolean; onClose: ()
   const [skipExisting, setSkipExisting] = useState(false);
   const [lowRatingOnly, setLowRatingOnly] = useState(false);
   const [useSynonyms, setUseSynonyms] = useState(false);
+  const [allSources, setAllSources] = useState(false);
+  const [cfg, setCfg] = useState<{ metaAdsConfigured?: boolean; scrapflyConfigured?: boolean } | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const sourceMeta = LEAD_SOURCES.find((s) => s.key === source) ?? LEAD_SOURCES[0];
@@ -4171,39 +4193,34 @@ function NewSearchModal({ open, onClose, onSaved }: { open: boolean; onClose: ()
     setSkipExisting(false);
     setLowRatingOnly(false);
     setUseSynonyms(false);
+    setAllSources(false);
     setError(null);
     setSaving(false);
+    // Para saber qué fuentes premium están activas (con su key).
+    fetch("/api/v1/leads/settings").then((r) => (r.ok ? r.json() : null)).then(setCfg).catch(() => {});
   }, [open]);
-  async function save() {
-    if (!keyword.trim()) { setError("Falta el keyword / nicho a buscar"); return; }
-    // En "places" exigimos localidad. En "borme" la localidad es OPCIONAL
-    // (si se rellena, filtra por provincia; si no, trae toda España).
-    if (source === "places" && scope === "custom" && !location.trim()) {
-      setError("Falta la provincia / localidad");
-      return;
-    }
-    if (sourceMeta.status === "stub") {
-      setError(sourceMeta.help);
-      return;
-    }
-    setSaving(true);
-    setError(null);
-    const r = await fetch("/api/v1/leads/searches", {
+
+  /** Fuentes a lanzar cuando se elige "todas": places + borme siempre; las
+   *  premium solo si tienen su key configurada. */
+  function allSourceKeys(): LeadSourceKey[] {
+    const list: LeadSourceKey[] = ["places", "borme"];
+    if (cfg?.metaAdsConfigured) list.push("meta_ads");
+    if (cfg?.scrapflyConfigured) list.push("doctoralia", "idealista", "fotocasa");
+    return list;
+  }
+  async function createOne(src: LeadSourceKey) {
+    return fetch("/api/v1/leads/searches", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         keyword,
         location,
         scope,
-        // Si se elige un municipio concreto, se busca a fondo solo ahí. Si se
-        // elige solo provincia (municipio vacío), el backend itera TODOS sus
-        // municipios (modo máximo volumen) para multiplicar resultados.
-        municipality:
-          source === "places" && scope === "custom" && municipality ? municipality : undefined,
+        municipality: src === "places" && scope === "custom" && municipality ? municipality : undefined,
         skipExisting,
-        source,
+        source: src,
         sourceConfig:
-          source === "places" && (lowRatingOnly || useSynonyms)
+          src === "places" && (lowRatingOnly || useSynonyms)
             ? {
                 ...(lowRatingOnly ? { lowRatingOnly: true, maxRating: 3.5, minReviewsCount: 5 } : {}),
                 ...(useSynonyms ? { useSynonyms: true } : {})
@@ -4211,11 +4228,39 @@ function NewSearchModal({ open, onClose, onSaved }: { open: boolean; onClose: ()
             : undefined
       })
     });
-    setSaving(false);
-    if (!r.ok) {
-      const j = await r.json().catch(() => ({}));
-      setError(j?.error?.message ?? `Error ${r.status}`);
+  }
+
+  async function save() {
+    if (!keyword.trim()) { setError("Falta el keyword / nicho a buscar"); return; }
+    // places exige localidad en scope custom (también si lanzamos "todas").
+    if ((source === "places" || allSources) && scope === "custom" && !location.trim()) {
+      setError("Falta la provincia / localidad");
       return;
+    }
+    if (!allSources && sourceMeta.status === "stub") {
+      setError(sourceMeta.help);
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      if (allSources) {
+        // Una búsqueda por fuente aplicable: ataca el nicho por todos los medios.
+        const keys = allSourceKeys();
+        const results = await Promise.all(keys.map((k) => createOne(k)));
+        const ok = results.filter((r) => r.ok).length;
+        if (ok === 0) { setError("No se pudo crear ninguna búsqueda."); setSaving(false); return; }
+      } else {
+        const r = await createOne(source);
+        if (!r.ok) {
+          const j = await r.json().catch(() => ({}));
+          setError(j?.error?.message ?? `Error ${r.status}`);
+          setSaving(false);
+          return;
+        }
+      }
+    } finally {
+      setSaving(false);
     }
     onSaved();
     onClose();
@@ -4236,10 +4281,15 @@ function NewSearchModal({ open, onClose, onSaved }: { open: boolean; onClose: ()
         </p>
         <div>
           <label className="block text-xs font-medium text-slate-700 mb-1">Fuente de leads</label>
+          <label className="flex items-center gap-2 mb-1.5 text-xs font-medium text-brand-700 bg-brand-50 border border-brand-200 rounded-lg px-2.5 py-1.5 cursor-pointer">
+            <input type="checkbox" checked={allSources} onChange={(e) => setAllSources(e.target.checked)} className="accent-brand-600" />
+            🌐 Atacar el nicho con TODAS las fuentes a la vez
+          </label>
           <select
             value={source}
             onChange={(e) => setSource(e.target.value as LeadSourceKey)}
-            className="w-full px-3 py-2 rounded-lg border bg-white text-sm"
+            disabled={allSources}
+            className="w-full px-3 py-2 rounded-lg border bg-white text-sm disabled:opacity-50"
           >
             {LEAD_SOURCES.map((src) => (
               <option key={src.key} value={src.key}>
@@ -4248,7 +4298,9 @@ function NewSearchModal({ open, onClose, onSaved }: { open: boolean; onClose: ()
             ))}
           </select>
           <p className={"text-[11px] mt-1 " + (sourceMeta.status === "stub" ? "text-amber-700" : "text-slate-500")}>
-            {sourceMeta.help}
+            {allSources
+              ? `Se creará una búsqueda por cada fuente activa: ${allSourceKeys().join(", ")} (las premium solo si tienen su key en Ajustes).`
+              : sourceMeta.help}
           </p>
         </div>
         <div>
