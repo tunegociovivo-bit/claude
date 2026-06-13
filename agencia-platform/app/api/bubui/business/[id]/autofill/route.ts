@@ -38,7 +38,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   if (body?.apply) {
     const current = await prisma.bubuiBusiness.findUnique({
       where: { id: params.id },
-      select: { googlePlaceId: true, instagramUrl: true, facebookUrl: true, tiktokUrl: true, trustpilotUrl: true }
+      select: { googlePlaceId: true, instagramUrl: true, facebookUrl: true, tiktokUrl: true, trustpilotUrl: true, tripadvisorUrl: true }
     });
     const data: any = {};
     const setIfEmpty = (k: keyof typeof draft & string, cur: string | null) => {
@@ -49,6 +49,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     setIfEmpty("facebookUrl", current?.facebookUrl ?? null);
     setIfEmpty("tiktokUrl", current?.tiktokUrl ?? null);
     setIfEmpty("trustpilotUrl", current?.trustpilotUrl ?? null);
+    setIfEmpty("tripadvisorUrl", current?.tripadvisorUrl ?? null);
     if (Object.keys(data).length) {
       await prisma.bubuiBusiness.update({ where: { id: params.id }, data }).catch(() => {});
     }

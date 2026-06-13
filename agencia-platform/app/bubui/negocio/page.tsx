@@ -547,16 +547,6 @@ function RankingCard({ businessId, token }: { businessId: string; token: string 
           ))}
         </ul>
       )}
-      {r.customers > 0 && (
-        <a
-          href={`/api/bubui/business/${businessId}/top-badge.png`}
-          target="_blank"
-          rel="noreferrer"
-          className="mt-3 inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold"
-        >
-          📲 Compartir mi posición (imagen para Instagram/WhatsApp)
-        </a>
-      )}
     </section>
   );
 }
@@ -998,6 +988,7 @@ function MesaConfig({ business, token, onSaved }: { business: any; token: string
     mesaMinDiners: business.mesaMinDiners ?? 4,
     mesaShareBonusPct: business.mesaShareBonusPct ?? 5,
     mesaReviewBonusPct: business.mesaReviewBonusPct ?? 5,
+    mesaReviewPlatform: business.mesaReviewPlatform ?? "google",
     mesaMaxPct: business.mesaMaxPct ?? 35,
     mesaJoinWindowMin: business.mesaJoinWindowMin ?? 20,
     mesaNextVisitDays: business.mesaNextVisitDays ?? 15,
@@ -1012,19 +1003,40 @@ function MesaConfig({ business, token, onSaved }: { business: any; token: string
   });
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
+  // Simulador: el dueño juega con nº de comensales y ticket para ver el efecto.
+  const [simDiners, setSimDiners] = useState(6);
+  const [simTicket, setSimTicket] = useState(120);
   const set = (k: string, val: any) => setV((s) => ({ ...s, [k]: val }));
-  const num = (k: string, label: string, min: number, max: number) => (
+
+  const PLATFORMS: { value: string; label: string }[] = [
+    { value: "google", label: "Google" },
+    { value: "tripadvisor", label: "Tripadvisor" },
+    { value: "trustpilot", label: "Trustpilot" },
+    { value: "instagram", label: "Instagram" }
+  ];
+  // Campo numérico con ayuda debajo.
+  const num = (k: string, label: string, min: number, max: number, help: string) => (
     <label className="text-xs">
-      <span className="block font-medium mb-1">{label}</span>
+      <span className="block font-semibold mb-1">{label}</span>
       <input type="number" min={min} max={max} value={(v as any)[k]} onChange={(e) => set(k, Number(e.target.value))} className="w-full px-2 py-1.5 border rounded bg-white" />
+      <span className="block text-[10px] text-black/45 mt-0.5 leading-tight">{help}</span>
     </label>
   );
-  const chk = (k: string, label: string) => (
-    <label className="flex items-center gap-2 text-xs font-medium">
-      <input type="checkbox" checked={(v as any)[k]} onChange={(e) => set(k, e.target.checked)} />
-      {label}
+  const chk = (k: string, label: string, help?: string) => (
+    <label className="flex items-start gap-2 text-xs">
+      <input type="checkbox" checked={(v as any)[k]} onChange={(e) => set(k, e.target.checked)} className="mt-0.5" />
+      <span><span className="font-medium">{label}</span>{help && <span className="block text-[10px] text-black/45 leading-tight">{help}</span>}</span>
     </label>
   );
+
+  // Cálculo del simulador (espejo del motor): base con quórum + bonus, con tope.
+  const clamp = (n: number) => Math.max(0, Math.min(v.mesaMaxPct, Math.round(n)));
+  const quorum = simDiners >= v.mesaMinDiners;
+  const pctNow = quorum ? (v.mesaBonusOnThisVisit ? clamp(v.mesaBasePct + v.mesaShareBonusPct + v.mesaReviewBonusPct) : clamp(v.mesaBasePct)) : 0;
+  const pctNext = quorum && !v.mesaBonusOnThisVisit ? clamp(v.mesaShareBonusPct + v.mesaReviewBonusPct) : 0;
+  const maxPot = clamp(v.mesaBasePct + v.mesaShareBonusPct + v.mesaReviewBonusPct);
+  const eur = (p: number) => Math.round((simTicket * p) / 100 * 100) / 100;
+  const platformLabel = PLATFORMS.find((p) => p.value === v.mesaReviewPlatform)?.label ?? "Google";
 
   async function save() {
     setSaving(true);
@@ -1043,13 +1055,14 @@ function MesaConfig({ business, token, onSaved }: { business: any; token: string
   }
 
   return (
-    <section className="bubui-card p-5 space-y-3">
-      <div className="flex items-center justify-between">
+    <section className="bubui-card p-5 space-y-4">
+      <div className="flex items-start justify-between gap-3">
         <div>
           <h3 className="font-bold text-sm">🍽️ Mesa Colectiva</h3>
-          <p className="text-xs text-black/55 mt-0.5">
-            Una mesa escanea un QR de grupo y desbloquea descuento. Cada comensal
-            aporta valor: el nuevo instalándose, el veterano con una acción.
+          <p className="text-xs text-black/60 mt-1 leading-snug">
+            Una mesa de varias personas escanea un <b>QR de grupo</b> y desbloquea un descuento
+            compartido. Cuanto más grande la mesa y más colaboren (invitar amigos, dejar reseña),
+            mayor es el descuento. Así <b>llenas mesas y consigues clientes y reseñas nuevas</b>.
           </p>
         </div>
         <label className="flex items-center gap-2 text-xs font-semibold shrink-0">
@@ -1059,28 +1072,86 @@ function MesaConfig({ business, token, onSaved }: { business: any; token: string
       </div>
       {v.mesaEnabled && (
         <>
-          <div className="grid sm:grid-cols-3 gap-2">
-            {num("mesaBasePct", "% base", 0, 50)}
-            {num("mesaMinDiners", "Mín. comensales", 2, 50)}
-            {num("mesaMaxPct", "% máximo (tope)", 0, 50)}
-            {num("mesaShareBonusPct", "+% si comparten", 0, 50)}
-            {num("mesaReviewBonusPct", "+% si reseñan Google", 0, 50)}
-            {num("mesaVeteranShareFriends", "Amigos por veterano", 1, 10)}
-            {num("mesaJoinWindowMin", "Ventana unión (min)", 5, 180)}
-            {num("mesaNextVisitDays", "Caducidad cupón (días)", 1, 120)}
+          <div className="grid sm:grid-cols-3 gap-3">
+            {num("mesaBasePct", "% descuento base", 0, 50, "El que se aplica al juntar el mínimo de comensales.")}
+            {num("mesaMinDiners", "Mínimo de comensales", 2, 50, "Cuántos deben escanear el QR de la mesa para activarlo.")}
+            {num("mesaMaxPct", "% máximo (tope)", 0, 50, "El descuento nunca pasará de aquí, protege tu margen.")}
+            {num("mesaShareBonusPct", "+% si invitan amigos", 0, 50, "Extra si TODA la mesa comparte Bubui con amigos.")}
+            {num("mesaReviewBonusPct", `+% si dejan reseña`, 0, 50, `Extra si TODA la mesa te deja una reseña en ${platformLabel}.`)}
+            {num("mesaVeteranShareFriends", "Amigos a invitar (c/u)", 1, 10, "Cuántos amigos nuevos trae cada quien ya tiene Bubui.")}
+            {num("mesaJoinWindowMin", "Ventana de unión (min)", 5, 180, "Minutos para que se unan tras crear la mesa.")}
+            {num("mesaNextVisitDays", "Caducidad del cupón (días)", 1, 120, "Cuánto dura el cupón de la próxima visita.")}
+            <label className="text-xs">
+              <span className="block font-semibold mb-1">Reseña en</span>
+              <select value={v.mesaReviewPlatform} onChange={(e) => set("mesaReviewPlatform", e.target.value)} className="w-full px-2 py-1.5 border rounded bg-white">
+                {PLATFORMS.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
+              </select>
+              <span className="block text-[10px] text-black/45 mt-0.5 leading-tight">Dónde piden la reseña (según tu sector).</span>
+            </label>
           </div>
-          <div className="grid sm:grid-cols-2 gap-1.5 pt-1">
-            {chk("mesaBonusOnThisVisit", "Aplicar bonus en esta visita (si no, cupón próxima)")}
-            {chk("mesaVeteranMustContribute", "El veterano debe aportar")}
-            {chk("mesaAutoAdjust", "Auto-ajuste por saturación")}
+
+          <div className="space-y-2 pt-1">
+            {chk("mesaBonusOnThisVisit", "Aplicar el extra en esta misma cuenta", "Si lo desmarcas, el extra se guarda como cupón para su PRÓXIMA visita (vuelven antes).")}
+            {chk("mesaVeteranMustContribute", "Quien ya tiene Bubui debe aportar", "Un cliente nuevo aporta instalándose; quien ya la tiene desbloquea su parte haciendo una acción (invitar/reseña/foto).")}
+            {chk("mesaAutoAdjust", "Auto-ajuste por saturación", "Cuando casi todos ya tienen Bubui, pide algo más (más reseñas/contenido). Recomendado.")}
           </div>
+
           <div className="pt-1">
-            <span className="text-[11px] uppercase tracking-wider font-bold text-black/45">Aportes que acepto del veterano:</span>
+            <span className="text-[11px] uppercase tracking-wider font-bold text-black/45">Acciones que vale hacer (para quien ya tiene Bubui):</span>
             <div className="grid sm:grid-cols-2 gap-1.5 mt-1">
               {chk("mesaActShare", "Invitar amigos")}
-              {chk("mesaActReview", "Reseña en Google")}
+              {chk("mesaActReview", `Reseña en ${platformLabel}`)}
               {chk("mesaActPhoto", "Foto del plato")}
               {chk("mesaActFollow", "Seguir en redes")}
+            </div>
+          </div>
+
+          {/* ── Simulador ── */}
+          <div className="rounded-xl border-2 border-pink-200 bg-pink-50/50 p-4 space-y-3">
+            <div className="font-bold text-sm">🔮 Simulador</div>
+            <div className="grid grid-cols-2 gap-3 text-xs">
+              <label>
+                <span className="block font-semibold mb-1">Comensales en la mesa</span>
+                <input type="number" min={1} max={50} value={simDiners} onChange={(e) => setSimDiners(Number(e.target.value) || 0)} className="w-full px-2 py-1.5 border rounded bg-white" />
+              </label>
+              <label>
+                <span className="block font-semibold mb-1">Importe de la cuenta (€)</span>
+                <input type="number" min={0} value={simTicket} onChange={(e) => setSimTicket(Number(e.target.value) || 0)} className="w-full px-2 py-1.5 border rounded bg-white" />
+              </label>
+            </div>
+
+            {/* Lo que ve el cliente */}
+            <div className="rounded-lg bg-white border p-3 space-y-1">
+              <div className="text-[11px] uppercase tracking-wider font-bold text-black/40">Lo que ve el cliente</div>
+              {!quorum ? (
+                <p className="text-sm">Sois {simDiners}. <b>Juntaos {v.mesaMinDiners}</b> para activar el descuento de mesa.</p>
+              ) : (
+                <>
+                  <p className="text-2xl font-black text-emerald-600">¡Os ahorráis {eur(pctNow)}€!</p>
+                  <p className="text-xs text-black/65">
+                    Mesa de {simDiners} → <b>{pctNow}%</b> ahora (pagáis {Math.round((simTicket - eur(pctNow)) * 100) / 100}€).
+                    {pctNext > 0 && <> Y completad los pasos para <b>+{eur(pctNext)}€</b> en vuestra próxima visita.</>}
+                  </p>
+                  {maxPot > pctNow + pctNext && (
+                    <p className="text-[11px] text-amber-600 font-semibold">Hasta {eur(maxPot)}€ ({maxPot}%) si lo completáis todo.</p>
+                  )}
+                </>
+              )}
+            </div>
+
+            {/* Lo que te aporta a ti */}
+            <div className="rounded-lg bg-white border p-3 space-y-1">
+              <div className="text-[11px] uppercase tracking-wider font-bold text-black/40">Lo que te aporta a ti</div>
+              {quorum ? (
+                <ul className="text-xs text-black/70 space-y-0.5">
+                  <li>🍽️ Llenas una mesa de <b>{simDiners}</b> (cuenta de {simTicket}€) que quizá no habría venido.</li>
+                  {v.mesaActShare && <li>👥 Hasta <b>{simDiners * v.mesaVeteranShareFriends} clientes nuevos</b> potenciales (si cada uno invita a {v.mesaVeteranShareFriends}).</li>}
+                  {v.mesaActReview && <li>⭐ Hasta <b>{simDiners} reseñas</b> nuevas en {platformLabel}.</li>}
+                  <li>💸 Te cuesta <b>{eur(pctNow)}€</b> de descuento hoy{pctNext > 0 ? ` (+${eur(pctNext)}€ solo si vuelven)` : ""}.</li>
+                </ul>
+              ) : (
+                <p className="text-xs text-black/55">Sube el nº de comensales en el simulador para ver el efecto.</p>
+              )}
             </div>
           </div>
         </>
@@ -1303,13 +1374,17 @@ function BookingsPanel({ businessId, token }: { businessId: string; token: strin
 
 /** Autocompletar redes y reseñas con IA (+ datos reales) y verificar. */
 function AutofillProfile({ business, token, onSaved }: { business: any; token: string; onSaved: () => void }) {
-  const FIELDS = [
+  // Tripadvisor solo tiene sentido en restauración/hoteles → según el nicho.
+  const FIELDS: { key: string; label: string; ph: string }[] = [
     { key: "googlePlaceId", label: "Google (Place ID para reseñas)", ph: "ChIJ…" },
     { key: "instagramUrl", label: "Instagram", ph: "https://instagram.com/…" },
     { key: "facebookUrl", label: "Facebook", ph: "https://facebook.com/…" },
     { key: "tiktokUrl", label: "TikTok", ph: "https://tiktok.com/@…" },
-    { key: "trustpilotUrl", label: "Trustpilot", ph: "https://trustpilot.com/review/…" }
-  ] as const;
+    { key: "trustpilotUrl", label: "Trustpilot", ph: "https://trustpilot.com/review/…" },
+    ...(business.businessType === "restaurante"
+      ? [{ key: "tripadvisorUrl", label: "Tripadvisor", ph: "https://tripadvisor.es/…" }]
+      : [])
+  ];
   const [vals, setVals] = useState<Record<string, string>>(() =>
     Object.fromEntries(FIELDS.map((f) => [f.key, business[f.key] ?? ""]))
   );
@@ -1332,7 +1407,8 @@ function AutofillProfile({ business, token, onSaved }: { business: any; token: s
         instagramUrl: dr.instagramUrl || v.instagramUrl,
         facebookUrl: dr.facebookUrl || v.facebookUrl,
         tiktokUrl: dr.tiktokUrl || v.tiktokUrl,
-        trustpilotUrl: dr.trustpilotUrl || v.trustpilotUrl
+        trustpilotUrl: dr.trustpilotUrl || v.trustpilotUrl,
+        tripadvisorUrl: dr.tripadvisorUrl || v.tripadvisorUrl
       }));
       setSources(dr.sources ?? {});
       setStatus("Revisa y corrige lo que haga falta, luego guarda. ✨");
@@ -2634,64 +2710,6 @@ function ProfileEditor({ business, token, onSaved }: { business: any; token: str
             </a>.
           </span>
         </label>
-        <label className="sm:col-span-2 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50/60 p-3">
-          <input
-            type="checkbox"
-            checked={!!form.reviewPushEnabled}
-            onChange={(e) => setForm({ ...form, reviewPushEnabled: e.target.checked })}
-            className="mt-0.5"
-          />
-          <span className="text-xs">
-            <b>Pedir reseña en Google automáticamente.</b> ~10 min después de que un cliente
-            escanee su ticket, recibe un push invitándole a dejarte 5★ en Google. Requiere el
-            Place ID de arriba. (Si pones "% extra por dejar reseña", se le ofrece como premio.)
-          </span>
-        </label>
-      </div>
-
-      {/* ── Oferta-reto viral: compártela con N amigos para activarla ── */}
-      <div className="mt-2 rounded-lg border-2 border-pink-300 bg-pink-50/60 p-3">
-        <div className="text-sm font-bold text-pink-700">🚀 Oferta-reto (crecimiento viral)</div>
-        <p className="text-[11px] text-slate-600 mt-0.5 mb-2">
-          Tras escanear el ticket, al cliente le aparece una oferta MAYOR pero bloqueada: para
-          activarla tiene que traer a {form.shareOfferFriends || 5} amigos a Bubui. Es la forma
-          de que tu negocio se llene de clientes nuevos. Pon 0% para desactivarla.
-        </p>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
-          <label>
-            <span className="block font-medium mb-1">% de la oferta-reto</span>
-            <input
-              type="number"
-              min={0}
-              max={50}
-              value={form.shareOfferPct}
-              onChange={(e) => setForm({ ...form, shareOfferPct: Number(e.target.value) })}
-              className="w-full px-2 py-1.5 border rounded bg-white"
-            />
-            <span className="block text-[10px] text-slate-500 mt-0.5">Mayor que tu descuento normal. 0 = off</span>
-          </label>
-          <label>
-            <span className="block font-medium mb-1">Amigos para activarla</span>
-            <input
-              type="number"
-              min={1}
-              max={20}
-              value={form.shareOfferFriends}
-              onChange={(e) => setForm({ ...form, shareOfferFriends: Number(e.target.value) })}
-              className="w-full px-2 py-1.5 border rounded bg-white"
-            />
-          </label>
-          <label>
-            <span className="block font-medium mb-1">Premio (texto, opcional)</span>
-            <input
-              value={form.shareOfferLabel}
-              onChange={(e) => setForm({ ...form, shareOfferLabel: e.target.value })}
-              placeholder="Ej. Postre gratis"
-              className="w-full px-2 py-1.5 border rounded bg-white"
-            />
-            <span className="block text-[10px] text-slate-500 mt-0.5">Si lo rellenas, se muestra en vez del %</span>
-          </label>
-        </div>
       </div>
       <p className="text-[11px] text-slate-500">
         Consejo: si no sabes lat/lng, búscalo en Google Maps (clic derecho → coordenadas). Sin coordenadas no se puede activar el geofencing ni el anti-fraude.

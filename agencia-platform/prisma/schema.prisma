@@ -3495,6 +3495,7 @@ model BubuiBusiness {
   facebookUrl        String?
   tiktokUrl          String?
   trustpilotUrl      String?
+  tripadvisorUrl     String?
   // ── Crecimiento viral + reseñas ──────────────────────────────────
   // Oferta-reto: tras escanear el ticket, al cliente se le crea una oferta
   // MAYOR (shareOfferPct), bloqueada, que solo se activa cuando comparte
@@ -3538,6 +3539,8 @@ model BubuiBusiness {
   mesaShareBonusPct  Int     @default(5)
   mesaShareFriends   Int     @default(3)
   mesaReviewBonusPct Int     @default(5)
+  // Plataforma de reseña que da el bonus de la Mesa (según el nicho).
+  mesaReviewPlatform String  @default("google") // google | tripadvisor | trustpilot | instagram
   mesaMaxPct         Int     @default(35) // tope de seguridad
   mesaJoinWindowMin  Int     @default(20) // minutos para unirse a la mesa
   mesaNextVisitDays  Int     @default(15) // caducidad del cupón próxima visita
