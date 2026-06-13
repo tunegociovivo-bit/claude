@@ -58,6 +58,13 @@ export default function RegistroNegocio() {
         return;
       }
       setResult(j);
+      // Al terminar el alta: la IA autocompleta redes y reseñas en segundo
+      // plano (Google Places + su web). El dueño las verifica luego en Ajustes.
+      fetch(`/api/bubui/business/${j.businessId}/autofill`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${j.token}` },
+        body: JSON.stringify({ apply: true })
+      }).catch(() => {});
     } catch (e: any) {
       setError(e?.message ?? "Error de red");
     } finally {
@@ -75,6 +82,9 @@ export default function RegistroNegocio() {
           </h1>
           <p className="text-black/60 mt-3 text-sm">
             Tu negocio está dado de alta. ¿Cómo quieres tu cartel con el QR?
+          </p>
+          <p className="text-[12px] text-pink-700 bg-pink-50 border border-pink-200 rounded-lg px-3 py-2 mt-3 inline-block">
+            ✨ Estamos autocompletando tus redes y reseñas con IA. Revísalas en el panel → Ajustes.
           </p>
         </div>
         <PosterStep
