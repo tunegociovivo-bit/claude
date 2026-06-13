@@ -138,7 +138,25 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
       // limitado a planes de pago.
       aiBannerUsed: business.aiBannerUsed,
       aiBannerCredits: business.aiBannerCredits,
-      aiBannerPaidOnly: (await getAiBannerPolicy()) === "paid"
+      aiBannerPaidOnly: (await getAiBannerPolicy()) === "paid",
+      // Tipo de negocio (panel por nicho) + config de la Mesa Colectiva.
+      businessType: business.businessType,
+      mesaEnabled: business.mesaEnabled,
+      mesaBasePct: business.mesaBasePct,
+      mesaMinDiners: business.mesaMinDiners,
+      mesaShareBonusPct: business.mesaShareBonusPct,
+      mesaReviewBonusPct: business.mesaReviewBonusPct,
+      mesaMaxPct: business.mesaMaxPct,
+      mesaJoinWindowMin: business.mesaJoinWindowMin,
+      mesaNextVisitDays: business.mesaNextVisitDays,
+      mesaBonusOnThisVisit: business.mesaBonusOnThisVisit,
+      mesaVeteranMustContribute: business.mesaVeteranMustContribute,
+      mesaVeteranShareFriends: business.mesaVeteranShareFriends,
+      mesaAutoAdjust: business.mesaAutoAdjust,
+      mesaActShare: business.mesaActShare,
+      mesaActReview: business.mesaActReview,
+      mesaActPhoto: business.mesaActPhoto,
+      mesaActFollow: business.mesaActFollow
     },
     notifications: notifications.map((n) => ({ id: n.id, message: n.message, createdAt: n.createdAt })),
     pending: pending.map((p) => ({

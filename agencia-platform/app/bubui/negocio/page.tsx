@@ -313,6 +313,9 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
       {/* Plan + Upgrade */}
       <PlanCard business={b} token={session.token} onChanged={load} />
 
+      {/* Tipo de negocio → panel por nicho */}
+      <BusinessTypeSelect business={b} token={session.token} onSaved={load} />
+
       {/* Editar perfil */}
       <ProfileEditor business={b} token={session.token} onSaved={load} />
 
@@ -322,6 +325,14 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
       <ReferralConfig business={b} token={session.token} onSaved={load} />
 
       <LoyaltyConfig business={b} token={session.token} onSaved={load} />
+
+      {/* Mesa Colectiva — solo restaurantes */}
+      {b.businessType === "restaurante" && (
+        <>
+          <MesaTablesPanel businessId={b.id} token={session.token} />
+          <MesaConfig business={b} token={session.token} onSaved={load} />
+        </>
+      )}
 
       <EngagementConfig business={b} token={session.token} onSaved={load} />
 
@@ -890,6 +901,219 @@ function LoyaltyConfig({ business, token, onSaved }: { business: any; token: str
       <button onClick={save} disabled={saving} className="bubui-btn w-full text-sm py-2">
         {saving ? "Guardando…" : "Guardar fidelidad"}
       </button>
+    </section>
+  );
+}
+
+/** Configuración de la Mesa Colectiva (solo restaurantes). */
+function MesaConfig({ business, token, onSaved }: { business: any; token: string; onSaved: () => void }) {
+  const [v, setV] = useState({
+    mesaEnabled: !!business.mesaEnabled,
+    mesaBasePct: business.mesaBasePct ?? 20,
+    mesaMinDiners: business.mesaMinDiners ?? 4,
+    mesaShareBonusPct: business.mesaShareBonusPct ?? 5,
+    mesaReviewBonusPct: business.mesaReviewBonusPct ?? 5,
+    mesaMaxPct: business.mesaMaxPct ?? 35,
+    mesaJoinWindowMin: business.mesaJoinWindowMin ?? 20,
+    mesaNextVisitDays: business.mesaNextVisitDays ?? 15,
+    mesaBonusOnThisVisit: !!business.mesaBonusOnThisVisit,
+    mesaVeteranMustContribute: business.mesaVeteranMustContribute ?? true,
+    mesaVeteranShareFriends: business.mesaVeteranShareFriends ?? 1,
+    mesaAutoAdjust: business.mesaAutoAdjust ?? true,
+    mesaActShare: business.mesaActShare ?? true,
+    mesaActReview: business.mesaActReview ?? true,
+    mesaActPhoto: business.mesaActPhoto ?? true,
+    mesaActFollow: !!business.mesaActFollow
+  });
+  const [saving, setSaving] = useState(false);
+  const [status, setStatus] = useState<string | null>(null);
+  const set = (k: string, val: any) => setV((s) => ({ ...s, [k]: val }));
+  const num = (k: string, label: string, min: number, max: number) => (
+    <label className="text-xs">
+      <span className="block font-medium mb-1">{label}</span>
+      <input type="number" min={min} max={max} value={(v as any)[k]} onChange={(e) => set(k, Number(e.target.value))} className="w-full px-2 py-1.5 border rounded bg-white" />
+    </label>
+  );
+  const chk = (k: string, label: string) => (
+    <label className="flex items-center gap-2 text-xs font-medium">
+      <input type="checkbox" checked={(v as any)[k]} onChange={(e) => set(k, e.target.checked)} />
+      {label}
+    </label>
+  );
+
+  async function save() {
+    setSaving(true);
+    setStatus(null);
+    try {
+      const r = await fetch(`/api/bubui/business/${business.id}/profile`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify(v)
+      });
+      setStatus(r.ok ? "Guardado." : "Error al guardar.");
+      if (r.ok) onSaved();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <section className="bubui-card p-5 space-y-3">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="font-bold text-sm">🍽️ Mesa Colectiva</h3>
+          <p className="text-xs text-black/55 mt-0.5">
+            Una mesa escanea un QR de grupo y desbloquea descuento. Cada comensal
+            aporta valor: el nuevo instalándose, el veterano con una acción.
+          </p>
+        </div>
+        <label className="flex items-center gap-2 text-xs font-semibold shrink-0">
+          <input type="checkbox" checked={v.mesaEnabled} onChange={(e) => set("mesaEnabled", e.target.checked)} />
+          Activa
+        </label>
+      </div>
+      {v.mesaEnabled && (
+        <>
+          <div className="grid sm:grid-cols-3 gap-2">
+            {num("mesaBasePct", "% base", 0, 50)}
+            {num("mesaMinDiners", "Mín. comensales", 2, 50)}
+            {num("mesaMaxPct", "% máximo (tope)", 0, 50)}
+            {num("mesaShareBonusPct", "+% si comparten", 0, 50)}
+            {num("mesaReviewBonusPct", "+% si reseñan Google", 0, 50)}
+            {num("mesaVeteranShareFriends", "Amigos por veterano", 1, 10)}
+            {num("mesaJoinWindowMin", "Ventana unión (min)", 5, 180)}
+            {num("mesaNextVisitDays", "Caducidad cupón (días)", 1, 120)}
+          </div>
+          <div className="grid sm:grid-cols-2 gap-1.5 pt-1">
+            {chk("mesaBonusOnThisVisit", "Aplicar bonus en esta visita (si no, cupón próxima)")}
+            {chk("mesaVeteranMustContribute", "El veterano debe aportar")}
+            {chk("mesaAutoAdjust", "Auto-ajuste por saturación")}
+          </div>
+          <div className="pt-1">
+            <span className="text-[11px] uppercase tracking-wider font-bold text-black/45">Aportes que acepto del veterano:</span>
+            <div className="grid sm:grid-cols-2 gap-1.5 mt-1">
+              {chk("mesaActShare", "Invitar amigos")}
+              {chk("mesaActReview", "Reseña en Google")}
+              {chk("mesaActPhoto", "Foto del plato")}
+              {chk("mesaActFollow", "Seguir en redes")}
+            </div>
+          </div>
+        </>
+      )}
+      {status && <p className="text-xs text-emerald-700">{status}</p>}
+      <button onClick={save} disabled={saving} className="bubui-btn w-full text-sm py-2">
+        {saving ? "Guardando…" : "Guardar Mesa Colectiva"}
+      </button>
+    </section>
+  );
+}
+
+/** Selector de tipo de negocio: decide qué secciones ve el comercio. */
+function BusinessTypeSelect({ business, token, onSaved }: { business: any; token: string; onSaved: () => void }) {
+  const [type, setType] = useState<string>(business.businessType ?? "servicios");
+  const [saving, setSaving] = useState(false);
+  async function save(next: string) {
+    setType(next);
+    setSaving(true);
+    try {
+      const r = await fetch(`/api/bubui/business/${business.id}/profile`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ businessType: next })
+      });
+      if (r.ok) onSaved();
+    } finally {
+      setSaving(false);
+    }
+  }
+  return (
+    <section className="bubui-card p-4 flex items-center justify-between gap-3">
+      <div>
+        <h3 className="font-bold text-sm">🏷️ Tipo de negocio</h3>
+        <p className="text-xs text-black/55 mt-0.5">Personaliza tu panel (la Mesa Colectiva aparece en restaurantes).</p>
+      </div>
+      <select value={type} onChange={(e) => save(e.target.value)} disabled={saving} className="px-2 py-1.5 border rounded bg-white text-sm">
+        <option value="restaurante">Restaurante / hostelería</option>
+        <option value="comercio_producto">Comercio (productos)</option>
+        <option value="servicios">Servicios</option>
+      </select>
+    </section>
+  );
+}
+
+/** Mesas abiertas para verificar y canjear (vista del camarero/dueño). */
+function MesaTablesPanel({ businessId, token }: { businessId: string; token: string }) {
+  const [items, setItems] = useState<any[]>([]);
+  const [tickets, setTickets] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState<string | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  async function load() {
+    const r = await fetch(`/api/bubui/business/${businessId}/tables`, { headers: { Authorization: `Bearer ${token}` } });
+    if (r.ok) setItems((await r.json()).items ?? []);
+  }
+  useEffect(() => {
+    load();
+    const i = setInterval(load, 8000);
+    return () => clearInterval(i);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function redeem(sessionId: string) {
+    const amount = Number(tickets[sessionId]);
+    if (!amount || amount <= 0) { setMsg("Pon el importe del ticket."); return; }
+    setBusy(sessionId);
+    setMsg(null);
+    try {
+      const r = await fetch(`/api/bubui/business/${businessId}/table/${sessionId}/redeem`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ ticketAmount: amount })
+      });
+      const d = await r.json().catch(() => ({}));
+      if (r.ok) {
+        setMsg(`✓ Aplicado ${d.appliedPct}% (pagan ${d.payNow}€). ${d.nextVisitPct > 0 ? `Cupón próxima visita ${d.nextVisitPct}% a ${d.couponsCreated} comensales.` : ""}`);
+        load();
+      } else {
+        setMsg(d?.error?.message ?? "Error");
+      }
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  if (items.length === 0) return null;
+  return (
+    <section className="bubui-card p-5 space-y-3">
+      <h3 className="font-bold text-sm">🍽️ Mesas activas ({items.length})</h3>
+      {msg && <p className="text-xs text-emerald-700">{msg}</p>}
+      {items.map((t) => (
+        <div key={t.id} className="border rounded-lg p-3 text-xs space-y-1.5">
+          <div className="flex items-center justify-between">
+            <span className="font-semibold">Mesa {t.tableLabel || t.code} · {t.diners} comensales</span>
+            <span className={`px-1.5 py-0.5 rounded ${t.everyonePaidEntry ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>
+              {t.everyonePaidEntry ? `${t.pctNow}% listo` : `Falta ${t.pendingContributors} por aportar`}
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <input
+              type="number"
+              placeholder="Importe ticket €"
+              value={tickets[t.id] ?? ""}
+              onChange={(e) => setTickets((s) => ({ ...s, [t.id]: e.target.value }))}
+              className="flex-1 px-2 py-1.5 border rounded bg-white"
+            />
+            <button
+              onClick={() => redeem(t.id)}
+              disabled={busy === t.id || !t.everyonePaidEntry}
+              className="bubui-btn text-xs py-1.5 px-3 disabled:opacity-50"
+              title={t.everyonePaidEntry ? "Aplicar el descuento" : "Aún faltan aportes en la mesa"}
+            >
+              {busy === t.id ? "…" : "Verificar y aplicar"}
+            </button>
+          </div>
+        </div>
+      ))}
     </section>
   );
 }
