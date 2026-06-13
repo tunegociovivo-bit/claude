@@ -172,6 +172,14 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
   const [loadErr, setLoadErr] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<string | null>(null);
   const [tab, setTab] = useState<"inicio" | "nicho" | "fidelizar" | "crecer" | "ajustes">("inicio");
+  // Botón flotante "Anúnciate" — el admin puede apagarlo desde su panel.
+  const [anunciateOn, setAnunciateOn] = useState(false);
+  useEffect(() => {
+    fetch("/api/bubui/anunciate-button")
+      .then((r) => (r.ok ? r.json() : { enabled: false }))
+      .then((d) => setAnunciateOn(!!d.enabled))
+      .catch(() => {});
+  }, []);
 
   // `silent` evita el flash de "Cargando…" en los refrescos automáticos:
   // solo la primera carga (sin datos aún) muestra el estado de carga.
@@ -484,6 +492,22 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
           {/* Plan + Upgrade */}
           <PlanCard business={b} token={session.token} onChanged={load} />
         </>
+      )}
+
+      {/* Botón flotante "Anúnciate" — fijo y llamativo en cualquier pestaña.
+          Se oculta cuando ya estás en "Crecer" (donde vive el formulario). */}
+      {anunciateOn && tab !== "crecer" && (
+        <button
+          onClick={() => {
+            setTab("crecer");
+            window.scrollTo({ top: 0, behavior: "smooth" });
+          }}
+          aria-label="Anúnciate"
+          className="bubui-anunciate-btn fixed bottom-5 right-5 z-40 inline-flex items-center gap-2 rounded-full pl-4 pr-5 py-3 text-white font-black text-sm shadow-xl"
+        >
+          <span className="text-lg leading-none">📣</span>
+          <span>Anúnciate</span>
+        </button>
       )}
     </main>
   );
