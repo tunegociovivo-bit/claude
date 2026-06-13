@@ -1123,6 +1123,11 @@ model LeadInboxMessage {
   read                     Boolean  @default(false)
   externalMessageId        String?
   instanceName             String?
+  // Acuse de recibo de WhatsApp para los mensajes SALIENTES (lo que envías
+  // desde el inbox): -1 error · 0/1 enviado · 2 entregado al móvil · 3 leído ·
+  // 4 reproducido. Es el "check de oro": prueba objetiva de que llegó.
+  ack                      Int?
+  ackAt                    DateTime?
   // Clasificación IA
   classification           String? // interested|objection|info_request|opt_out|off_topic|positive_no|auto_reply
   classificationConfidence Float?

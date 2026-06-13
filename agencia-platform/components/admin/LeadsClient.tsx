@@ -2517,7 +2517,17 @@ type ThreadItem = {
   instanceName: string | null;
   kind: "inbox" | "campaign";
   classification?: string | null;
+  ack?: number | null;
 };
+
+/** Check de oro: ticks de WhatsApp del acuse de recibo de un mensaje saliente. */
+function AckTicks({ ack }: { ack?: number | null }) {
+  if (ack == null) return null;
+  if (ack < 0) return <span title="No entregado (error)" className="text-rose-500">✗</span>;
+  if (ack >= 3) return <span title="Leído" className="text-sky-500">✓✓</span>;
+  if (ack === 2) return <span title="Entregado al móvil" className="text-slate-500">✓✓</span>;
+  return <span title="Enviado" className="text-slate-400">✓</span>;
+}
 
 const CLASS_CHIP: Record<string, { label: string; cls: string }> = {
   interested: { label: "🔥 Interesado", cls: "bg-emerald-50 text-emerald-700 border-emerald-200" },
@@ -3132,8 +3142,9 @@ function InboxChat({
                       <div className="text-[10px] text-slate-400 mb-0.5">📣 campaña</div>
                     )}
                     {m.body}
-                    <div className="text-[10px] text-slate-400 text-right mt-1">
+                    <div className="text-[10px] text-slate-400 text-right mt-1 flex items-center justify-end gap-1">
                       {new Date(m.at).toLocaleString("es-ES", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
+                      {m.direction === "out" && <AckTicks ack={m.ack} />}
                     </div>
                   </div>
                 </div>
