@@ -30,5 +30,29 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     category: b.category,
     address: b.address
   });
+
+  // Con { apply: true } (al terminar el alta) persiste lo encontrado SIN pisar
+  // lo que el dueño ya tuviera: solo rellena los campos que estén vacíos. El
+  // dueño lo verifica luego en el panel.
+  const body = await req.json().catch(() => ({}));
+  if (body?.apply) {
+    const current = await prisma.bubuiBusiness.findUnique({
+      where: { id: params.id },
+      select: { googlePlaceId: true, instagramUrl: true, facebookUrl: true, tiktokUrl: true, trustpilotUrl: true }
+    });
+    const data: any = {};
+    const setIfEmpty = (k: keyof typeof draft & string, cur: string | null) => {
+      if (!cur && (draft as any)[k]) data[k] = (draft as any)[k];
+    };
+    setIfEmpty("googlePlaceId", current?.googlePlaceId ?? null);
+    setIfEmpty("instagramUrl", current?.instagramUrl ?? null);
+    setIfEmpty("facebookUrl", current?.facebookUrl ?? null);
+    setIfEmpty("tiktokUrl", current?.tiktokUrl ?? null);
+    setIfEmpty("trustpilotUrl", current?.trustpilotUrl ?? null);
+    if (Object.keys(data).length) {
+      await prisma.bubuiBusiness.update({ where: { id: params.id }, data }).catch(() => {});
+    }
+  }
+
   return NextResponse.json({ ok: true, draft });
 }
