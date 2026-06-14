@@ -260,8 +260,8 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
     { key: "inicio" as const, icon: "🏠", label: "Inicio", desc: "Tu día a día: ventas, compras por confirmar y novedades." },
     { key: "nicho" as const, icon: niche.icon, label: niche.label, desc: niche.desc },
     { key: "fidelizar" as const, icon: "🎁", label: "Fidelizar", desc: "Haz que vuelvan: sellos, sorteos, cumpleaños y recompensas." },
-    { key: "crecer" as const, icon: "📣", label: "Crecer", desc: "Trae clientes nuevos: comparte, destácate, anúnciate y mide." },
-    { key: "ajustes" as const, icon: "⚙️", label: "Ajustes", desc: "Tu ficha, fotos, QR, tipo de negocio y plan." }
+    { key: "crecer" as const, icon: "📣", label: "Crecer", desc: "Anúnciate, hazte Pro, destácate y trae clientes nuevos." },
+    { key: "ajustes" as const, icon: "⚙️", label: "Ajustes", desc: "Tu ficha, fotos, QR y tipo de negocio." }
   ];
   const cur = tabs.find((t) => t.key === tab) ?? tabs[0];
 
@@ -432,25 +432,37 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
       {/* ───────────── PESTAÑA: FIDELIZAR ───────────── */}
       {tab === "fidelizar" && (
         <>
-          <LoyaltyConfig business={b} token={session.token} onSaved={load} />
+          {/* Tarjeta de sellos — lo que más hace volver al cliente */}
+          <Highlight label="⭐ Lo más usado">
+            <LoyaltyConfig business={b} token={session.token} onSaved={load} />
+          </Highlight>
           <EngagementConfig business={b} token={session.token} onSaved={load} />
           {/* Programa de afiliados — lo financia el negocio */}
           <ReferralConfig business={b} token={session.token} onSaved={load} />
         </>
       )}
 
-      {/* ───────────── PESTAÑA: CRECER ───────────── */}
+      {/* ───────────── PESTAÑA: CRECER ─────────────
+          Ordenado de más a menos importante; las dos más potentes, resaltadas. */}
       {tab === "crecer" && (
         <>
-          {/* Comparte tu página pública */}
-          <ShareWidget slug={b.slug} name={b.name} discountPct={b.defaultDiscountPct} />
+          {/* 1 · Anúnciate (Push del Día) — la acción estrella */}
+          <Highlight label="⭐ Lo más potente">
+            <PushAdForm businessId={b.id} businessName={b.name} token={session.token} plan={b.plan} />
+          </Highlight>
+          {/* 2 · Hazte Pro / Premium — desbloquea todo */}
+          <Highlight label="💎 Recomendado">
+            <PlanCard business={b} token={session.token} onChanged={load} />
+          </Highlight>
+          {/* 3 · Destácate en la app */}
           <PromotionPanel business={b} token={session.token} onChanged={load} />
-          {/* Crear Push del Día */}
-          <PushAdForm businessId={b.id} businessName={b.name} token={session.token} plan={b.plan} />
-          {/* Referidos B2B (traer otros negocios) */}
+          {/* 4 · Trae otros negocios → semanas de banner gratis */}
           <BusinessReferralPanel businessId={b.id} token={session.token} />
+          {/* 5 · Comparte tu página pública (gratis) */}
+          <ShareWidget slug={b.slug} name={b.name} discountPct={b.defaultDiscountPct} />
+          {/* 6 · Mide tu crecimiento */}
           <PremiumAnalytics businessId={b.id} token={session.token} plan={b.plan} />
-          {/* Cruces — la mina de datos */}
+          {/* 7 · Cruces — la mina de datos */}
           <CrossShopperPanel businessId={b.id} token={session.token} />
         </>
       )}
@@ -488,9 +500,6 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
               <StickerRequest business={b} token={session.token} onChanged={load} />
             </div>
           </section>
-
-          {/* Plan + Upgrade */}
-          <PlanCard business={b} token={session.token} onChanged={load} />
         </>
       )}
 
@@ -503,13 +512,28 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
             window.scrollTo({ top: 0, behavior: "smooth" });
           }}
           aria-label="Anúnciate"
-          className="bubui-anunciate-btn fixed bottom-5 right-5 z-40 inline-flex items-center gap-2 rounded-full pl-4 pr-5 py-3 text-white font-black text-sm shadow-xl"
+          className="bubui-anunciate-btn fixed bottom-5 left-1/2 z-40 inline-flex items-center gap-2 rounded-full pl-4 pr-5 py-3 text-white font-black text-sm shadow-xl"
         >
           <span className="text-lg leading-none">📣</span>
           <span>Anúnciate</span>
         </button>
       )}
     </main>
+  );
+}
+
+/** Marco llamativo para resaltar las secciones más interesantes de cada
+ *  pestaña: anillo degradado + chip. Envuelve cualquier tarjeta. */
+function Highlight({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="relative">
+      <span className="absolute -top-2.5 left-4 z-10 inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-wide text-white bg-gradient-to-r from-pink-600 to-orange-500 rounded-full px-2.5 py-0.5 shadow-md">
+        {label}
+      </span>
+      <div className="rounded-2xl p-[2.5px] bg-gradient-to-br from-pink-500 via-orange-400 to-amber-400 shadow-lg shadow-pink-100">
+        <div className="rounded-[14px] overflow-hidden bg-white">{children}</div>
+      </div>
+    </div>
   );
 }
 

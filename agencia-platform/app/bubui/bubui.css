@@ -492,11 +492,12 @@ body.bipi-embedded .bipi-bottom-nav { display: none !important; }
 /* Botón flotante "Anúnciate": fijo, llamativo, con pulso + halo y un brillo
    que recorre el botón. Aparece sobre cualquier pantalla del panel. */
 @keyframes bubui-anunciate-pulse {
-  0%, 100% { transform: scale(1);    box-shadow: 0 10px 24px rgba(236, 28, 110, 0.45), 0 0 0 0 rgba(236, 28, 110, 0.55); }
-  50%      { transform: scale(1.06); box-shadow: 0 14px 30px rgba(236, 28, 110, 0.55), 0 0 0 16px rgba(236, 28, 110, 0); }
+  0%, 100% { transform: translateX(-50%) scale(1);    box-shadow: 0 10px 24px rgba(236, 28, 110, 0.45), 0 0 0 0 rgba(236, 28, 110, 0.55); }
+  50%      { transform: translateX(-50%) scale(1.06); box-shadow: 0 14px 30px rgba(236, 28, 110, 0.55), 0 0 0 16px rgba(236, 28, 110, 0); }
 }
 .bubui-anunciate-btn {
-  position: relative;
+  /* Centrado horizontal: left-1/2 + translateX(-50%) (la animación lo conserva). */
+  transform: translateX(-50%);
   overflow: hidden;
   background: linear-gradient(110deg, #ec1c6e 0%, #ff5e3a 55%, #ffb800 100%);
   animation: bubui-anunciate-pulse 1.7s ease-in-out infinite;
@@ -517,7 +518,7 @@ body.bipi-embedded .bipi-bottom-nav { display: none !important; }
 }
 .bubui-anunciate-btn:hover { animation-play-state: paused; filter: brightness(1.05); }
 @media (prefers-reduced-motion: reduce) {
-  .bubui-anunciate-btn { animation: none; }
+  .bubui-anunciate-btn { animation: none; transform: translateX(-50%); }
   .bubui-anunciate-btn::after { animation: none; display: none; }
 }
 
