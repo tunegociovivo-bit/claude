@@ -26,7 +26,10 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
       totalSaved: true,
       totalPurchases: true,
       ambassadorLevel: true,
-      firstBusinessId: true
+      firstBusinessId: true,
+      plan: true,
+      planExpiresAt: true,
+      subscriptionCancelAt: true
     }
   });
   if (!c) return NextResponse.json({ error: { code: "not_found" } }, { status: 404 });
@@ -57,6 +60,8 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
       business: { select: { name: true } }
     }
   });
+  // Bubui Plus activo si el plan es "plus" y no ha caducado.
+  const plusActive = c.plan === "plus" && (!c.planExpiresAt || c.planExpiresAt > new Date());
   return NextResponse.json({
     customerId: c.id,
     name: c.name,
@@ -65,6 +70,10 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
     totalPurchases: c.totalPurchases,
     ambassadorLevel: c.ambassadorLevel,
     city,
+    plan: c.plan,
+    plusActive,
+    planExpiresAt: c.planExpiresAt,
+    subscriptionCancelAt: c.subscriptionCancelAt,
     activeOffers,
     savings: purchases.map((p) => ({
       id: p.id,

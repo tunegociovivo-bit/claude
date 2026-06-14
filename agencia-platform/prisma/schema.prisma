@@ -3684,6 +3684,13 @@ model BubuiCustomer {
   totalPurchases  Int      @default(0)
   // Embajador (nivel desbloqueado).
   ambassadorLevel String   @default("none") // none | bronze | silver | gold | founder
+  // Suscripción "Bubui Plus" del usuario (1€/mes, cobro por Stripe en web).
+  // plan: free | plus. planExpiresAt null o futuro = activo; pasado = free.
+  plan          String   @default("free")
+  planExpiresAt DateTime?
+  subscriptionCancelAt DateTime? // fin de periodo si canceló (sigue Plus hasta entonces)
+  bubuiStripeCustomerId     String?
+  bubuiStripeSubscriptionId String?
   // Quien lo refirió (negocio donde escaneó por primera vez).
   firstBusinessId String?
   // Programa de afiliados.

@@ -19,6 +19,7 @@ export function Cuenta() {
   const insets = useSafeAreaInsets();
   const styles = makeStyles(c);
   const [customer, setCustomer] = useState<Customer | null>(null);
+  const [plusActive, setPlusActive] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
@@ -34,6 +35,7 @@ export function Cuenta() {
           .then(async (live) => {
             const updated = { ...s, name: live.name ?? s.name, totalSaved: live.totalSaved, totalPurchases: live.totalPurchases };
             setCustomer(updated);
+            setPlusActive(!!live.plusActive);
             await saveSession(updated).catch(() => {});
           })
           .catch(() => {});
@@ -75,6 +77,22 @@ export function Cuenta() {
               <CountUp value={customer?.totalPurchases ?? 0} decimals={0} style={styles.statValue} />
               <Text style={styles.statLabel}>COMPRAS</Text>
             </View>
+          </FadeIn>
+
+          {/* Bubui Plus — suscripción del usuario (1€/mes) */}
+          <FadeIn replayOnFocus delay={stagger(1)}>
+            <Bouncy style={styles.plus} onPress={() => nav.navigate("Plus")}>
+              <Text style={styles.plusEmoji}>👑</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.plusTitle}>{plusActive ? "Eres Bubui Plus" : "Hazte Bubui Plus"}</Text>
+                <Text style={styles.plusSub}>
+                  {plusActive
+                    ? "Disfrutas de ofertas anticipadas y regalos exclusivos."
+                    : "Mejores ofertas, regalos exclusivos y prioridad por 1€/mes."}
+                </Text>
+              </View>
+              <Text style={styles.plusChev}>›</Text>
+            </Bouncy>
           </FadeIn>
 
           {/* Invita a amigos — acceso destacado al programa de referidos */}
@@ -151,6 +169,11 @@ const makeStyles = (c: Palette) =>
     statEmoji: { fontSize: 22, marginBottom: 6 },
     statValue: { fontSize: 22, fontWeight: "900", color: c.pink, letterSpacing: -0.5 },
     statLabel: { fontSize: 10, fontWeight: "800", letterSpacing: 0.5, color: c.grayLight, marginTop: 3 },
+    plus: { flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: "#231630", borderRadius: radius.lg, padding: 16, marginBottom: 16, ...shadow.card },
+    plusEmoji: { fontSize: 26 },
+    plusTitle: { fontSize: 15, fontWeight: "900", color: "#FFD56A" },
+    plusSub: { fontSize: 12, color: "rgba(255,255,255,0.82)", marginTop: 2, lineHeight: 16 },
+    plusChev: { fontSize: 24, color: "#FFD56A", fontWeight: "900" },
     invite: { flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: c.pinkWash, borderRadius: radius.lg, borderWidth: 1, borderColor: c.pinkSoft, padding: 16, marginBottom: 16 },
     inviteEmoji: { fontSize: 26 },
     inviteTitle: { fontSize: 15, fontWeight: "900", color: c.black },
