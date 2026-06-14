@@ -1,0 +1,369 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Bubui · Película de marca</title>
+<style>
+  :root{
+    --pink:#ff2d7e; --pink2:#ec1c6e; --purple:#7b2ff7; --gold:#ffd56a;
+    --ink:#0c0710;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{height:100%;background:#000;overflow:hidden;cursor:default;
+    font-family:"Poppins",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+  #film{position:fixed;inset:0;background:#0c0710;overflow:hidden}
+
+  /* ---------- scenes ---------- */
+  .scene{position:absolute;inset:0;display:none;align-items:center;justify-content:center;flex-direction:column;text-align:center;padding:7vmin;opacity:0}
+  .scene.on{display:flex;opacity:1}
+  .scene .mesh{position:absolute;inset:-20%;z-index:0;filter:blur(40px);opacity:.9;transform:scale(1)}
+  .scene.on .mesh{animation:meshmove 14s ease-out both}
+  @keyframes meshmove{0%{transform:scale(1.15) translate(2%, -2%)}100%{transform:scale(1.35) translate(-3%, 3%)}}
+  .layer{position:relative;z-index:2;display:flex;flex-direction:column;align-items:center;gap:2.2vmin;max-width:1100px}
+
+  /* enter animations (only while .on) */
+  .scene.on .u{animation:up 1s cubic-bezier(.16,.84,.3,1) both}
+  .scene.on .u2{animation:up 1s .16s cubic-bezier(.16,.84,.3,1) both}
+  .scene.on .u3{animation:up 1s .32s cubic-bezier(.16,.84,.3,1) both}
+  .scene.on .u4{animation:up 1s .48s cubic-bezier(.16,.84,.3,1) both}
+  @keyframes up{from{opacity:0;transform:translateY(46px)}to{opacity:1;transform:none}}
+  .scene.on .pop{animation:pop 1.1s cubic-bezier(.2,1.4,.3,1) both}
+  @keyframes pop{from{opacity:0;transform:scale(.6)}to{opacity:1;transform:scale(1)}}
+  .scene.on .blurin{animation:blurin 1.3s ease both}
+  @keyframes blurin{from{opacity:0;filter:blur(22px);letter-spacing:.3em}to{opacity:1;filter:blur(0);letter-spacing:-.02em}}
+  .scene.on .wipe{animation:wipe 1.1s cubic-bezier(.7,0,.2,1) both}
+  @keyframes wipe{from{clip-path:inset(0 100% 0 0)}to{clip-path:inset(0 0 0 0)}}
+
+  /* typography */
+  .kick{font-size:clamp(.8rem,1.7vmin,1.3rem);font-weight:800;letter-spacing:.45em;text-transform:uppercase;color:rgba(255,255,255,.7)}
+  h1{font-size:clamp(2.4rem,8.5vmin,7rem);font-weight:900;letter-spacing:-.03em;line-height:.98;color:#fff}
+  h2{font-size:clamp(1.6rem,5.6vmin,4.4rem);font-weight:800;letter-spacing:-.02em;line-height:1.05;color:#fff}
+  .grad{background:linear-gradient(100deg,#ff2d7e,#ffd56a 60%,#ff8ac4);-webkit-background-clip:text;background-clip:text;color:transparent}
+  .sub{font-size:clamp(1rem,2.5vmin,1.9rem);color:rgba(255,255,255,.85);font-weight:500;max-width:26ch;line-height:1.4}
+  .tiny{font-size:clamp(.8rem,1.7vmin,1.2rem);color:rgba(255,255,255,.55);font-weight:600;letter-spacing:.04em}
+
+  /* logo wordmark */
+  .wm{font-weight:900;letter-spacing:-.05em;line-height:1;color:#fff;position:relative;display:inline-block}
+  .wm .ch{display:inline-block}
+  .scene.on .wm .ch{animation:chrise .8s cubic-bezier(.2,1.3,.3,1) both}
+  .scene.on .wm .ch:nth-child(1){animation-delay:.05s}
+  .scene.on .wm .ch:nth-child(2){animation-delay:.13s}
+  .scene.on .wm .ch:nth-child(3){animation-delay:.21s}
+  .scene.on .wm .ch:nth-child(4){animation-delay:.29s}
+  .scene.on .wm .ch:nth-child(5){animation-delay:.37s}
+  @keyframes chrise{from{opacity:0;transform:translateY(60px) rotate(8deg)}to{opacity:1;transform:none}}
+  .wm.glow{text-shadow:0 0 40px rgba(255,45,126,.65),0 0 90px rgba(123,47,247,.4)}
+
+  /* free pill */
+  .pill{display:inline-flex;align-items:center;gap:.6em;border-radius:999px;padding:.7em 1.4em;font-weight:800;font-size:clamp(.9rem,2vmin,1.5rem)}
+  .pill.green{background:#16d06a;color:#04210f;box-shadow:0 10px 40px rgba(22,208,106,.4)}
+  .pill.glass{background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.25);color:#fff;backdrop-filter:blur(8px)}
+
+  /* floating money words */
+  .moneyrow{display:flex;flex-wrap:wrap;gap:1.4vmin;justify-content:center}
+  .money{font-weight:900;font-size:clamp(1.1rem,3.4vmin,2.6rem);color:rgba(255,255,255,.22);border:2px solid rgba(255,255,255,.16);border-radius:14px;padding:.4em .8em}
+  .scene.on .money{animation:floaty 3s ease-in-out infinite alternate}
+  .scene.on .money:nth-child(2){animation-delay:.4s}
+  .scene.on .money:nth-child(3){animation-delay:.8s}
+  @keyframes floaty{from{transform:translateY(0)}to{transform:translateY(-14px)}}
+
+  /* phone mockup */
+  .phone{width:min(34vmin,360px);aspect-ratio:9/19.5;border-radius:14% / 6.5%;background:#0a0610;
+    border:.9vmin solid #1c1426;box-shadow:0 40px 120px rgba(255,45,126,.28),inset 0 0 0 1px rgba(255,255,255,.06);
+    position:relative;overflow:hidden}
+  .phone .notch{position:absolute;top:1.6%;left:50%;transform:translateX(-50%);width:34%;height:2.4%;background:#000;border-radius:999px;z-index:5}
+  .screen{position:absolute;inset:0;background:linear-gradient(180deg,#1a0f24,#120a18);display:flex;flex-direction:column;padding:9% 6% 0}
+  .appbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:6%}
+  .appbar .b{font-weight:900;color:#fff;font-size:clamp(.9rem,2.4vmin,1.5rem);letter-spacing:-.04em}
+  .appbar .crown{font-size:clamp(.9rem,2.4vmin,1.4rem)}
+  .promo{height:14%;border-radius:16px;background:linear-gradient(120deg,#ff2d7e,#7b2ff7);margin-bottom:7%;box-shadow:0 8px 24px rgba(255,45,126,.4)}
+  .ocard{display:flex;align-items:center;gap:6%;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.08);border-radius:14px;padding:4.5%;margin-bottom:5%;opacity:0}
+  .scene.on .ocard{animation:cardin .7s cubic-bezier(.16,.84,.3,1) both}
+  .scene.on .ocard:nth-child(1){animation-delay:.5s}
+  .scene.on .ocard:nth-child(2){animation-delay:.75s}
+  .scene.on .ocard:nth-child(3){animation-delay:1s}
+  @keyframes cardin{from{opacity:0;transform:translateY(26px) scale(.96)}to{opacity:1;transform:none}}
+  .ocard .logo{width:22%;aspect-ratio:1;border-radius:50%;background:linear-gradient(135deg,#ffd56a,#ff8ac4);flex:none}
+  .ocard .meta{flex:1;text-align:left}
+  .ocard .meta .n{height:.9vmin;background:rgba(255,255,255,.4);border-radius:3px;width:70%;margin-bottom:1.4vmin}
+  .ocard .meta .n2{height:.8vmin;background:rgba(255,255,255,.18);border-radius:3px;width:45%}
+  .ocard .pct{font-weight:900;color:#ff8ac4;font-size:clamp(.9rem,2.6vmin,1.5rem)}
+  .savebar{margin-top:auto;margin-bottom:6%;background:rgba(255,45,126,.16);border:1px solid rgba(255,45,126,.35);border-radius:14px;padding:4% 5%;text-align:left}
+  .savebar .lab{font-size:clamp(.55rem,1.4vmin,.85rem);color:rgba(255,255,255,.6);font-weight:700;letter-spacing:.12em;text-transform:uppercase}
+  .savebar .amt{font-size:clamp(1.1rem,3.2vmin,2rem);font-weight:900;color:#fff}
+
+  /* flow chips */
+  .flow{display:flex;align-items:center;gap:clamp(8px,1.6vmin,22px);flex-wrap:wrap;justify-content:center}
+  .chip{background:rgba(255,255,255,.08);border:1.5px solid rgba(255,255,255,.28);border-radius:18px;padding:clamp(12px,2vmin,22px) clamp(14px,2.4vmin,30px);font-weight:700;color:#fff;font-size:clamp(.85rem,2vmin,1.5rem);backdrop-filter:blur(6px)}
+  .arr{color:var(--gold);font-size:clamp(1.4rem,3.6vmin,2.6rem);font-weight:900}
+  .scene.on .chip{animation:pop 1s cubic-bezier(.2,1.4,.3,1) both}
+  .scene.on .chip:nth-child(1){animation-delay:.1s}
+  .scene.on .chip:nth-child(3){animation-delay:.45s}
+  .scene.on .chip:nth-child(5){animation-delay:.8s}
+  .scene.on .chip:nth-child(7){animation-delay:1.15s}
+  .scene.on .arr{animation:fadein .6s both}
+  .scene.on .arr:nth-child(2){animation-delay:.35s}
+  .scene.on .arr:nth-child(4){animation-delay:.7s}
+  .scene.on .arr:nth-child(6){animation-delay:1.05s}
+  @keyframes fadein{from{opacity:0}to{opacity:1}}
+
+  /* compare */
+  .cmp{display:grid;grid-template-columns:1fr 1fr;gap:2.4vmin;max-width:980px;width:100%}
+  .col{border-radius:20px;padding:3.2vmin;text-align:left}
+  .col.bad{background:rgba(255,255,255,.04);border:1px dashed rgba(255,255,255,.18)}
+  .col.good{background:linear-gradient(160deg,rgba(255,45,126,.18),rgba(123,47,247,.12));border:1.5px solid var(--pink)}
+  .col h3{font-size:clamp(1rem,2.6vmin,1.7rem);font-weight:800;color:#fff;margin-bottom:1.6vmin}
+  .col.good h3{color:#ff8ac4}
+  .col li{list-style:none;color:rgba(255,255,255,.82);font-size:clamp(.85rem,2vmin,1.3rem);line-height:1.4;padding-left:1.5em;position:relative;margin-bottom:1vmin}
+  .col li::before{content:"";position:absolute;left:0;top:.55em;width:.6em;height:.6em;border-radius:3px}
+  .col.bad li::before{background:rgba(255,255,255,.3)}
+  .col.good li::before{background:var(--pink)}
+
+  /* radar / altavoz */
+  .radar{position:relative;width:min(46vmin,460px);aspect-ratio:1;display:flex;align-items:center;justify-content:center}
+  .ring{position:absolute;border:2px solid rgba(255,45,126,.5);border-radius:50%;inset:40%}
+  .scene.on .ring{animation:ping 2.4s ease-out infinite}
+  .scene.on .ring.r2{animation-delay:.8s}
+  .scene.on .ring.r3{animation-delay:1.6s}
+  @keyframes ping{0%{inset:42%;opacity:.9}100%{inset:0%;opacity:0}}
+  .core{width:24%;aspect-ratio:1;border-radius:50%;background:linear-gradient(135deg,#ff2d7e,#7b2ff7);box-shadow:0 0 50px rgba(255,45,126,.7);display:flex;align-items:center;justify-content:center;font-size:clamp(1.4rem,4vmin,3rem);z-index:2}
+  .pin{position:absolute;font-size:clamp(1.2rem,3.2vmin,2.4rem);opacity:0}
+  .scene.on .pin{animation:pinin .7s cubic-bezier(.2,1.5,.3,1) both}
+  .pin.p1{top:6%;left:14%}.pin.p2{top:12%;right:10%}.pin.p3{bottom:14%;left:8%}.pin.p4{bottom:8%;right:16%}
+  .scene.on .pin.p1{animation-delay:.6s}.scene.on .pin.p2{animation-delay:.9s}
+  .scene.on .pin.p3{animation-delay:1.2s}.scene.on .pin.p4{animation-delay:1.5s}
+  @keyframes pinin{from{opacity:0;transform:scale(.3) translateY(-10px)}to{opacity:1;transform:none}}
+
+  /* overlays: grain + vignette */
+  #vig{position:fixed;inset:0;pointer-events:none;z-index:20;box-shadow:inset 0 0 26vmin rgba(0,0,0,.7)}
+  #grain{position:fixed;inset:-200%;pointer-events:none;z-index:21;opacity:.05;
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='120' height='120'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+    animation:grain 1.2s steps(6) infinite}
+  @keyframes grain{0%{transform:translate(0,0)}100%{transform:translate(-12%,8%)}}
+  #bar{position:fixed;top:0;left:0;height:4px;width:0;background:linear-gradient(90deg,#ffd56a,#ff2d7e,#7b2ff7);z-index:30;box-shadow:0 0 12px rgba(255,45,126,.7)}
+
+  /* start + controls */
+  #start{position:fixed;inset:0;z-index:50;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    background:radial-gradient(circle at 50% 38%,#2a0f3a,#0c0710 70%);color:#fff;cursor:pointer}
+  #start .wm{font-size:clamp(3rem,13vmin,9rem)}
+  #start .play{margin-top:5vmin;width:14vmin;max-width:120px;aspect-ratio:1;border-radius:50%;
+    background:linear-gradient(135deg,#ff2d7e,#7b2ff7);display:flex;align-items:center;justify-content:center;
+    box-shadow:0 20px 60px rgba(255,45,126,.5);animation:breathe 2.4s ease-in-out infinite}
+  @keyframes breathe{0%,100%{transform:scale(1)}50%{transform:scale(1.07)}}
+  #start .play::after{content:"";border-left:4.5vmin solid #fff;border-top:2.7vmin solid transparent;border-bottom:2.7vmin solid transparent;margin-left:1.2vmin}
+  #start .hint{margin-top:4vmin;color:rgba(255,255,255,.6);font-size:1rem;font-weight:600}
+  #replay{position:fixed;bottom:20px;right:20px;z-index:40;display:none;background:rgba(255,255,255,.12);
+    border:1px solid rgba(255,255,255,.3);color:#fff;border-radius:999px;padding:10px 22px;font-weight:800;cursor:pointer;backdrop-filter:blur(8px)}
+  #cap{position:fixed;bottom:6%;left:50%;transform:translateX(-50%);z-index:25;max-width:80%;text-align:center;
+    color:#fff;font-size:clamp(.9rem,2vmin,1.4rem);font-weight:600;opacity:0;transition:opacity .4s}
+  .help{position:fixed;top:14px;right:16px;z-index:40;color:rgba(255,255,255,.45);font-size:.78rem}
+</style>
+</head>
+<body>
+<div id="film">
+
+  <!-- 1 · COLD OPEN / LOGO -->
+  <div class="scene" data-cap="Bubui" data-fx="logo">
+    <div class="mesh" style="background:radial-gradient(40% 50% at 30% 30%,#ff2d7e,transparent),radial-gradient(45% 55% at 75% 70%,#7b2ff7,transparent),#0c0710"></div>
+    <div class="layer">
+      <div class="wm glow blurin" style="font-size:clamp(3.4rem,15vmin,11rem)"><span class="ch">b</span><span class="ch">u</span><span class="ch">b</span><span class="ch">u</span><span class="ch">i</span></div>
+      <div class="sub u3" style="letter-spacing:.2em;text-transform:uppercase;font-size:clamp(.8rem,1.9vmin,1.3rem)">Comercio local · Benalmádena</div>
+    </div>
+  </div>
+
+  <!-- 2 · HOOK -->
+  <div class="scene" data-cap="El comercio local merece algo mejor.">
+    <div class="mesh" style="background:radial-gradient(50% 50% at 70% 30%,#7b2ff7,transparent),radial-gradient(50% 50% at 25% 75%,#ff2d7e,transparent),#0c0710"></div>
+    <div class="layer">
+      <h1 class="u">El comercio de tu barrio<br><span class="grad u2">merece algo mejor.</span></h1>
+    </div>
+  </div>
+
+  <!-- 3 · PROBLEM -->
+  <div class="scene" data-cap="Anunciarse cuesta una fortuna… y a veces no trae ni un cliente.">
+    <div class="mesh" style="background:radial-gradient(50% 50% at 50% 40%,#2a1838,transparent),#0c0710"></div>
+    <div class="layer">
+      <div class="kick u">El problema</div>
+      <h2 class="u2">Anunciarse cuesta <span class="grad">una fortuna</span>.</h2>
+      <div class="moneyrow u3" style="margin-top:1.5vmin">
+        <span class="money">FACEBOOK €€€</span>
+        <span class="money">INSTAGRAM €€€</span>
+        <span class="money">GOOGLE ADS €€€</span>
+      </div>
+      <div class="sub u4" style="max-width:34ch;margin-top:1.5vmin">Y muchas veces no trae <strong style="color:#fff">ni un solo cliente</strong>. Dinero perdido.</div>
+    </div>
+  </div>
+
+  <!-- 4 · TURN -->
+  <div class="scene" data-cap="¿Y si solo invirtieras cuando vendes?">
+    <div class="mesh" style="background:radial-gradient(50% 50% at 50% 50%,#7b2ff7,transparent),#0c0710"></div>
+    <div class="layer">
+      <h1 class="blurin">¿Y si solo "pagaras"<br><span class="grad">cuando vendes?</span></h1>
+    </div>
+  </div>
+
+  <!-- 5 · PROMISE -->
+  <div class="scene" data-cap="No pagas. Solo premias a quien te compra.">
+    <div class="mesh" style="background:radial-gradient(45% 50% at 30% 35%,#ff2d7e,transparent),radial-gradient(45% 55% at 75% 70%,#7b2ff7,transparent),#0c0710"></div>
+    <div class="layer">
+      <div class="wm glow pop" style="font-size:clamp(2.6rem,9vmin,6rem)">bubui</div>
+      <h2 class="u2">No pagas publicidad.<br>Solo das un pequeño <span class="grad">descuento</span>.</h2>
+      <div class="pill green u3"><span>✓</span> GRATIS PARA EL COMERCIO Y EL VECINO</div>
+    </div>
+  </div>
+
+  <!-- 6 · PRODUCT (phone) -->
+  <div class="scene" data-cap="Tus comercios, en el bolsillo de cada vecino.">
+    <div class="mesh" style="background:radial-gradient(45% 50% at 75% 40%,#7b2ff7,transparent),radial-gradient(40% 50% at 20% 70%,#ff2d7e,transparent),#0c0710"></div>
+    <div class="layer" style="flex-direction:row;gap:5vmin;flex-wrap:wrap;justify-content:center">
+      <div class="phone pop">
+        <div class="notch"></div>
+        <div class="screen">
+          <div class="appbar"><span class="b">bubui</span><span class="crown">👑</span></div>
+          <div class="promo"></div>
+          <div class="ocard"><div class="logo"></div><div class="meta"><div class="n"></div><div class="n2"></div></div><div class="pct">-25%</div></div>
+          <div class="ocard"><div class="logo"></div><div class="meta"><div class="n"></div><div class="n2"></div></div><div class="pct">-15%</div></div>
+          <div class="ocard"><div class="logo"></div><div class="meta"><div class="n"></div><div class="n2"></div></div><div class="pct">-30%</div></div>
+          <div class="savebar"><div class="lab">Has ahorrado</div><div class="amt"><span id="save">0</span> €</div></div>
+        </div>
+      </div>
+      <div style="text-align:left;max-width:16ch">
+        <h2 class="u2">Tus comercios,<br>en el <span class="grad">bolsillo</span> de cada vecino.</h2>
+        <div class="sub u3" style="margin-top:2vmin">Descubre, compra y ahorra. Sin fricción.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 7 · CROSS-OFFER -->
+  <div class="scene" data-cap="El dinero circula dentro de Benalmádena.">
+    <div class="mesh" style="background:radial-gradient(50% 50% at 30% 50%,#ff2d7e,transparent),radial-gradient(50% 50% at 75% 50%,#7b2ff7,transparent),#0c0710"></div>
+    <div class="layer">
+      <div class="kick u">La magia</div>
+      <h2 class="u2">Compra en un comercio,<br>te premia en <span class="grad">otro</span>.</h2>
+      <div class="flow" style="margin-top:2vmin">
+        <span class="chip">🥖 Panadería</span>
+        <span class="arr">→</span>
+        <span class="chip">🎁 Desbloquea</span>
+        <span class="arr">→</span>
+        <span class="chip">💇 Peluquería</span>
+      </div>
+      <div class="sub u4" style="margin-top:2.5vmin">El dinero se queda y rota en Benalmádena.</div>
+    </div>
+  </div>
+
+  <!-- 8 · ALTAVOZ / RADAR -->
+  <div class="scene" data-cap="Y atrae clientes de toda la comarca.">
+    <div class="mesh" style="background:radial-gradient(50% 50% at 50% 50%,#5a1a8a,transparent),#0c0710"></div>
+    <div class="layer" style="gap:3vmin">
+      <h2 class="u">Y atrae clientes de<br><span class="grad">otros municipios</span>.</h2>
+      <div class="radar pop">
+        <div class="ring"></div><div class="ring r2"></div><div class="ring r3"></div>
+        <div class="core">🏪</div>
+        <div class="pin p1">📍</div><div class="pin p2">📍</div><div class="pin p3">📍</div><div class="pin p4">📍</div>
+      </div>
+      <div class="sub u4" style="max-width:32ch">Se comparte por WhatsApp; quien pasa cerca recibe tu oferta y entra.</div>
+    </div>
+  </div>
+
+  <!-- 9 · COMPARE -->
+  <div class="scene" data-cap="Anunciarse es una apuesta. Bubui, no.">
+    <div class="mesh" style="background:radial-gradient(50% 50% at 50% 40%,#241634,transparent),#0c0710"></div>
+    <div class="layer">
+      <h2 class="u" style="margin-bottom:1vmin">Anunciarse es una apuesta.<br><span class="grad">Con Bubui, nunca pierdes.</span></h2>
+      <div class="cmp u3">
+        <div class="col bad">
+          <h3>Facebook · Google Ads</h3>
+          <ul><li>Pagas miles por adelantado</li><li>Sin saber si vendrá un cliente</li><li>A veces, ni uno: dinero perdido</li></ul>
+        </div>
+        <div class="col good">
+          <h3>Con Bubui</h3>
+          <ul><li>Cero coste fijo y cero riesgo</li><li>Solo descuentas si hay venta</li><li>A clientes nuevos y recurrentes</li></ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 10 · CLOSE -->
+  <div class="scene" data-cap="Activemos juntos el comercio local de Benalmádena.">
+    <div class="mesh" style="background:radial-gradient(45% 50% at 35% 35%,#ff2d7e,transparent),radial-gradient(45% 55% at 70% 70%,#7b2ff7,transparent),#0c0710"></div>
+    <div class="layer">
+      <div class="wm glow pop" style="font-size:clamp(3rem,11vmin,8rem)">bubui</div>
+      <h2 class="u2">Activemos juntos el<br>comercio local de <span class="grad">Benalmádena</span>.</h2>
+      <div class="pill glass u3">tunegociovivo@gmail.com</div>
+      <div class="tiny u4" style="margin-top:1vmin">Una iniciativa de Negocio Vivo</div>
+    </div>
+  </div>
+
+</div>
+
+<div id="vig"></div>
+<div id="grain"></div>
+<div id="bar"></div>
+<div id="cap"></div>
+<button id="replay">↻ Repetir</button>
+<div class="help">Espacio = pausa · R = repetir · F11 = pantalla completa</div>
+
+<div id="start">
+  <div class="wm glow">bubui</div>
+  <div style="margin-top:2vmin;color:rgba(255,255,255,.7);font-weight:600;letter-spacing:.1em">PELÍCULA DE MARCA · 80 s</div>
+  <div class="play"></div>
+  <div class="hint">Pulsa para reproducir · ponlo a pantalla completa para grabar</div>
+</div>
+
+<script>
+  // Duración por escena (s). Total ~80.
+  const durs=[7,6,9,6,8,11,9,10,9,7];
+  const scenes=[...document.querySelectorAll('.scene')];
+  const bar=document.getElementById('bar');
+  const cap=document.getElementById('cap');
+  const startEl=document.getElementById('start');
+  const replay=document.getElementById('replay');
+  const total=durs.reduce((a,b)=>a+b,0);
+  let idx=-1,t0=0,raf=0,paused=false,pausedAt=0,started=false,saveDone=false;
+
+  const marks=[]; {let a=0; for(const d of durs){a+=d; marks.push(a);}}
+
+  function countSave(){
+    saveDone=true; const el=document.getElementById('save'); if(!el) return;
+    const target=347; const dur=1600; const s=performance.now();
+    (function step(n){
+      const p=Math.min(1,(n-s)/dur); el.textContent=Math.round(target*(1-Math.pow(1-p,3)));
+      if(p<1) requestAnimationFrame(step);
+    })(s);
+  }
+  function showScene(i){
+    scenes.forEach((s,k)=>s.classList.toggle('on',k===i));
+    const c=scenes[i].dataset.cap||''; cap.textContent=c; cap.style.opacity=c?.85:0;
+    if(scenes[i].querySelector('#save')){ const el=document.getElementById('save'); if(el)el.textContent='0'; saveDone=false; setTimeout(()=>{ if(scenes[idx]&&scenes[idx].querySelector('#save')&&!saveDone) countSave(); },600); }
+  }
+  function loop(now){
+    if(paused) return;
+    const e=(now-t0)/1000;
+    bar.style.width=Math.min(100,(e/total)*100)+'%';
+    let cur=marks.findIndex(m=>e<m);
+    if(cur===-1){ finish(); return; }
+    if(cur!==idx){ idx=cur; showScene(idx); }
+    raf=requestAnimationFrame(loop);
+  }
+  function play(){
+    started=true; startEl.style.display='none'; replay.style.display='none';
+    idx=-1; paused=false; t0=performance.now(); raf=requestAnimationFrame(loop);
+  }
+  function finish(){ cancelAnimationFrame(raf); bar.style.width='100%'; replay.style.display='block'; cap.style.opacity=0; }
+  function togglePause(){
+    if(!started) return;
+    if(!paused){ paused=true; pausedAt=performance.now(); cancelAnimationFrame(raf); }
+    else{ paused=false; t0+=performance.now()-pausedAt; raf=requestAnimationFrame(loop); }
+  }
+  startEl.addEventListener('click',play);
+  replay.addEventListener('click',play);
+  document.addEventListener('keydown',e=>{
+    if(e.key===' '){e.preventDefault();togglePause();}
+    if(e.key.toLowerCase()==='r'){play();}
+    if(e.key==='Enter'&&!started){play();}
+  });
+</script>
+</body>
+</html>
