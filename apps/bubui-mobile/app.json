@@ -109,7 +109,13 @@
           "isAndroidForegroundServiceEnabled": true
         }
       ],
-      "expo-notifications",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/notification-icon.png",
+          "color": "#EC4899"
+        }
+      ],
       "expo-font",
       "./plugins/withReleaseSigning",
       "./plugins/withOptionalGoogleServices"
