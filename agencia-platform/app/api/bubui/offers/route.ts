@@ -15,6 +15,7 @@ import { haversineMeters } from "@/lib/bubui/core";
 import { customerAuthOk } from "@/lib/bubui/customer-auth";
 import { countVerifiedReferrals } from "@/lib/bubui/referral";
 import { sharesLeft } from "@/lib/bubui/share-offer";
+import { getPlusEarlyAccessHours, isPlusActive } from "@/lib/bubui/plus";
 
 export const dynamic = "force-dynamic";
 
@@ -55,11 +56,25 @@ export async function GET(req: Request) {
   prisma.bubuiCustomer.update({ where: { id: customerId }, data: update as any }).catch(() => {});
 
   const now = new Date();
+  // Acceso anticipado Plus: si está activado (>0h), quien NO sea Plus ve cada
+  // oferta solo a partir de N horas tras generarse. Los Plus, al instante.
+  const earlyHours = await getPlusEarlyAccessHours();
+  let createdBefore: Date | null = null;
+  if (earlyHours > 0) {
+    const cust = await prisma.bubuiCustomer.findUnique({
+      where: { id: customerId },
+      select: { plan: true, planExpiresAt: true }
+    });
+    if (!isPlusActive(cust)) {
+      createdBefore = new Date(now.getTime() - earlyHours * 3600_000);
+    }
+  }
   const offers = await prisma.bubuiOffer.findMany({
     where: {
       customerId,
       expiresAt: { gt: now },
-      redeemed: false
+      redeemed: false,
+      ...(createdBefore ? { createdAt: { lte: createdBefore } } : {})
     },
     orderBy: { expiresAt: "asc" },
     include: {

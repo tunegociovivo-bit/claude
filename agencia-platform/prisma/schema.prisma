@@ -3873,6 +3873,23 @@ model BubuiSetting {
   updatedAt DateTime @default(now()) @updatedAt
 }
 
+/// Regalo exclusivo para suscriptores "Bubui Plus". Lo gestiona el admin y
+/// solo lo ven (en la app) los usuarios con plan plus activo.
+model BubuiPlusGift {
+  @@map("BipiPlusGift")
+  id          String   @id @default(cuid())
+  title       String
+  description String?  @db.Text
+  imageUrl    String?
+  link        String?  // opcional: a dónde lleva al tocar (canje, web…)
+  order       Int      @default(0) // orden de aparición (asc)
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([active, order])
+}
+
 /// Idempotencia de webhooks de Stripe: el id del evento se guarda al
 /// procesarlo. Si Stripe reintenta la entrega del mismo evento, se ignora
 /// (evita, p. ej., conceder dos créditos de Banner IA por un solo pago).

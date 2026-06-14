@@ -89,6 +89,12 @@ export const api = {
       `/api/bubui/customer/${customerId}/cancel-plus`,
       { method: "POST", body: JSON.stringify({ resume: !!resume }) }
     ),
+  /** Regalos exclusivos del usuario (solo si es Plus). */
+  plusGifts: (customerId: string) =>
+    call<{
+      plusActive: boolean;
+      gifts: { id: string; title: string; description: string | null; imageUrl: string | null; link: string | null }[];
+    }>(`/api/bubui/customer/${customerId}/plus-gifts`),
   offers: (customerId: string, lat?: number, lng?: number) => {
     const url = new URL(`${API_BASE}/api/bubui/offers`);
     url.searchParams.set("customerId", customerId);

@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Linking, Alert } from "react-native";
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Linking, Alert, Image } from "react-native";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -26,6 +26,7 @@ export function Plus() {
   const [plusActive, setPlusActive] = useState(false);
   const [cancelAt, setCancelAt] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [gifts, setGifts] = useState<{ id: string; title: string; description: string | null; imageUrl: string | null; link: string | null }[]>([]);
 
   useFocusEffect(
     useCallback(() => {
@@ -39,6 +40,10 @@ export function Plus() {
             setPlusActive(!!live.plusActive);
             setCancelAt(live.subscriptionCancelAt ?? null);
           })
+          .catch(() => {});
+        api
+          .plusGifts(s.customerId)
+          .then((d) => setGifts(d.plusActive ? d.gifts : []))
           .catch(() => {});
       })();
     }, [nav])
@@ -146,6 +151,33 @@ export function Plus() {
               <Text style={styles.legal}>El pago se realiza de forma segura en bubui.app. Puedes cancelar cuando quieras.</Text>
             </>
           )}
+
+          {plusActive && gifts.length > 0 && (
+            <View style={styles.giftsSection}>
+              <Text style={styles.giftsHeader}>🎁 Tus regalos Plus</Text>
+              {gifts.map((g) => {
+                const Row = (
+                  <View style={styles.gift}>
+                    {g.imageUrl ? (
+                      <Image source={{ uri: g.imageUrl }} style={styles.giftImg} />
+                    ) : (
+                      <View style={styles.giftImgPlaceholder}><Text style={{ fontSize: 22 }}>🎁</Text></View>
+                    )}
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.giftTitle}>{g.title}</Text>
+                      {!!g.description && <Text style={styles.giftSub}>{g.description}</Text>}
+                    </View>
+                    {!!g.link && <Text style={styles.giftChev}>›</Text>}
+                  </View>
+                );
+                return g.link ? (
+                  <TouchableOpacity key={g.id} activeOpacity={0.8} onPress={() => Linking.openURL(g.link!)}>{Row}</TouchableOpacity>
+                ) : (
+                  <View key={g.id}>{Row}</View>
+                );
+              })}
+            </View>
+          )}
         </View>
       </ScrollView>
     </View>
@@ -176,5 +208,13 @@ const makeStyles = (c: Palette) =>
     activeText: { fontSize: 17, fontWeight: "900", color: c.pinkDeep },
     activeSub: { fontSize: 13, color: c.ink, textAlign: "center", marginTop: 6, lineHeight: 18 },
     ghostBtn: { marginTop: 14, paddingVertical: 12, paddingHorizontal: 22, borderRadius: radius.pill, borderWidth: 1, borderColor: c.border, backgroundColor: c.white },
-    ghostBtnText: { fontSize: 13.5, fontWeight: "800", color: c.ink }
+    ghostBtnText: { fontSize: 13.5, fontWeight: "800", color: c.ink },
+    giftsSection: { marginTop: 26 },
+    giftsHeader: { fontSize: 16, fontWeight: "900", color: c.black, marginBottom: 12 },
+    gift: { flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: c.white, borderRadius: radius.lg, borderWidth: 1, borderColor: c.border, padding: 12, marginBottom: 10, ...shadow.card },
+    giftImg: { height: 48, width: 48, borderRadius: 12, backgroundColor: c.bg },
+    giftImgPlaceholder: { height: 48, width: 48, borderRadius: 12, backgroundColor: c.pinkWash, alignItems: "center", justifyContent: "center" },
+    giftTitle: { fontSize: 14.5, fontWeight: "800", color: c.black },
+    giftSub: { fontSize: 12, color: c.gray, marginTop: 2, lineHeight: 16 },
+    giftChev: { fontSize: 22, color: c.pink, fontWeight: "900" }
   });
