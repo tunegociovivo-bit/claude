@@ -11,6 +11,7 @@ import { Mapa } from "./src/screens/Mapa";
 import { Cuenta } from "./src/screens/Cuenta";
 import { Afiliados } from "./src/screens/Afiliados";
 import { Scan } from "./src/screens/Scan";
+import { Plus } from "./src/screens/Plus";
 import { Negocio, type NegocioParam } from "./src/screens/Negocio"
 import { CheckSession } from "./src/lib/session";
 import { setupNotificationTapHandler } from "./src/lib/push";
@@ -34,6 +35,7 @@ export type RootStackParamList = {
     Cuenta: undefined;
     Afiliados: undefined;
     Scan: { businessId: string };
+    Plus: undefined;
     Negocio: NegocioParam;
 };
 
@@ -106,6 +108,7 @@ function AppInner() {
                                 <Stack.Screen name="Cuenta" component={Cuenta} />
                                 <Stack.Screen name="Afiliados" component={Afiliados} options={{ animation: "slide_from_right" }} />
                                 <Stack.Screen name="Scan" component={Scan} options={{ animation: "slide_from_bottom" }} />
+                                <Stack.Screen name="Plus" component={Plus} options={{ animation: "slide_from_bottom" }} />
                                 <Stack.Screen name="Negocio" component={Negocio} options={{ animation: "slide_from_right" }} />
                       </Stack.Navigator>
               </NavigationContainer>

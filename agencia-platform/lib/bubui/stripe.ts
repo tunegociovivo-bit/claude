@@ -96,6 +96,41 @@ export async function createSubscriptionCheckout(opts: {
   return { url: data.url };
 }
 
+/** ¿Está configurado el precio del plan de usuario "Bubui Plus"? */
+export function isBubuiPlusConfigured(): boolean {
+  return Boolean(process.env.BUBUI_STRIPE_SECRET_KEY && process.env.BUBUI_STRIPE_PRICE_PLUS);
+}
+
+/** Crea un Checkout Session de suscripción "Bubui Plus" (1€/mes) para un
+ *  usuario final. El cobro ocurre en la web (Stripe Checkout); la app abre
+ *  la URL devuelta. El webhook activa el plan al confirmarse. */
+export async function createPlusCheckout(opts: {
+  customerId: string; // id de cliente Stripe (cus_…)
+  bubuiCustomerId: string; // id del BubuiCustomer
+  successUrl: string;
+  cancelUrl: string;
+}): Promise<{ url: string }> {
+  const priceId = process.env.BUBUI_STRIPE_PRICE_PLUS;
+  if (!priceId) throw new Error("BUBUI_STRIPE_PRICE_PLUS no configurado");
+  const body = new URLSearchParams();
+  body.set("mode", "subscription");
+  body.set("customer", opts.customerId);
+  body.set("line_items[0][price]", priceId);
+  body.set("line_items[0][quantity]", "1");
+  body.set("success_url", opts.successUrl);
+  body.set("cancel_url", opts.cancelUrl);
+  body.set("metadata[bubui_customer_id]", opts.bubuiCustomerId);
+  body.set("metadata[bubui_kind]", "plus");
+  body.set("subscription_data[metadata][bubui_customer_id]", opts.bubuiCustomerId);
+  body.set("subscription_data[metadata][bubui_kind]", "plus");
+  const data = await stripeFetch<any>("/checkout/sessions", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body
+  });
+  return { url: data.url };
+}
+
 /** Crea Checkout Session de pago único para un "Push del Día". */
 export async function createPushAdCheckout(opts: {
   customerId: string;

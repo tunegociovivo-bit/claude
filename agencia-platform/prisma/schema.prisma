@@ -3684,6 +3684,13 @@ model BubuiCustomer {
   totalPurchases  Int      @default(0)
   // Embajador (nivel desbloqueado).
   ambassadorLevel String   @default("none") // none | bronze | silver | gold | founder
+  // Suscripción "Bubui Plus" del usuario (1€/mes, cobro por Stripe en web).
+  // plan: free | plus. planExpiresAt null o futuro = activo; pasado = free.
+  plan          String   @default("free")
+  planExpiresAt DateTime?
+  subscriptionCancelAt DateTime? // fin de periodo si canceló (sigue Plus hasta entonces)
+  bubuiStripeCustomerId     String?
+  bubuiStripeSubscriptionId String?
   // Quien lo refirió (negocio donde escaneó por primera vez).
   firstBusinessId String?
   // Programa de afiliados.
@@ -3864,6 +3871,23 @@ model BubuiSetting {
   key       String   @id
   value     String   @db.Text
   updatedAt DateTime @default(now()) @updatedAt
+}
+
+/// Regalo exclusivo para suscriptores "Bubui Plus". Lo gestiona el admin y
+/// solo lo ven (en la app) los usuarios con plan plus activo.
+model BubuiPlusGift {
+  @@map("BipiPlusGift")
+  id          String   @id @default(cuid())
+  title       String
+  description String?  @db.Text
+  imageUrl    String?
+  link        String?  // opcional: a dónde lleva al tocar (canje, web…)
+  order       Int      @default(0) // orden de aparición (asc)
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([active, order])
 }
 
 /// Idempotencia de webhooks de Stripe: el id del evento se guarda al
