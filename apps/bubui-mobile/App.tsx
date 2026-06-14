@@ -1,4 +1,4 @@
-import { NavigationContainer, DefaultTheme, DarkTheme, type Theme } from "@react-navigation/native";
+import { NavigationContainer, DefaultTheme, DarkTheme, getStateFromPath, type Theme } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { useEffect, useState } from "react";
 import { StatusBar } from "expo-status-bar";
@@ -40,14 +40,27 @@ export type RootStackParamList = {
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
 const linking = {
-    prefixes: ["bubui://", "https://hub.negociovivo.app"],
+    // Dominio canónico bubui.app (ruta limpia /scan/:id) + esquema propio.
+    // Mantenemos hub.negociovivo.app por compatibilidad con QR impresos antiguos.
+    prefixes: [
+          "bubui://",
+          "https://bubui.app",
+          "https://www.bubui.app",
+          "https://hub.negociovivo.app"
+    ],
     config: {
           screens: {
-                  Scan: "bubui/scan/:businessId",
+                  Scan: "scan/:businessId",
                   // bubui://offers — los pushes de ofertas (reto desbloqueado,
                   // recordatorios) aterrizan en el Feed, donde están los cupones.
                   Feed: "offers"
           }
+    },
+    // Normaliza la ruta antigua/hub `/bubui/scan/:id` a la canónica `/scan/:id`
+    // para que tanto los QR de bubui.app como los de hub abran la pantalla Scan.
+    getStateFromPath: (path: string, options: Parameters<typeof getStateFromPath>[1]) => {
+          const normalized = path.replace(/^\/?bubui\//, "/");
+          return getStateFromPath(normalized, options);
     }
 };
 
