@@ -76,6 +76,7 @@ export const api = {
       activeOffers: number;
       plan?: string;
       plusActive?: boolean;
+      plusEnabled?: boolean;
       planExpiresAt?: string | null;
       subscriptionCancelAt?: string | null;
     }>(`/api/bubui/customer/${customerId}`),

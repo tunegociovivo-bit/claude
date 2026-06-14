@@ -10,6 +10,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { customerAuthOk } from "@/lib/bubui/customer-auth";
+import { getPlusEnabled } from "@/lib/bubui/plus";
 
 export const dynamic = "force-dynamic";
 
@@ -62,6 +63,8 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
   });
   // Bubui Plus activo si el plan es "plus" y no ha caducado.
   const plusActive = c.plan === "plus" && (!c.planExpiresAt || c.planExpiresAt > new Date());
+  // ¿Mostrar el alta de Plus en la app? (interruptor del admin)
+  const plusEnabled = await getPlusEnabled();
   return NextResponse.json({
     customerId: c.id,
     name: c.name,
@@ -72,6 +75,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
     city,
     plan: c.plan,
     plusActive,
+    plusEnabled,
     planExpiresAt: c.planExpiresAt,
     subscriptionCancelAt: c.subscriptionCancelAt,
     activeOffers,

@@ -8,17 +8,26 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { adminTokenOk } from "@/lib/bubui/admin";
-import { getPlusEarlyAccessHours, setPlusEarlyAccessHours } from "@/lib/bubui/plus";
+import {
+  getPlusEarlyAccessHours,
+  setPlusEarlyAccessHours,
+  getPlusEnabled,
+  setPlusEnabled
+} from "@/lib/bubui/plus";
 
 export const dynamic = "force-dynamic";
 
-const schema = z.object({ earlyAccessHours: z.number().int().min(0).max(720) });
+const schema = z.object({
+  earlyAccessHours: z.number().int().min(0).max(720).optional(),
+  enabled: z.boolean().optional()
+});
 
 export async function GET(req: Request) {
   if (!(await adminTokenOk(req))) {
     return NextResponse.json({ error: { code: "unauthorized" } }, { status: 401 });
   }
-  return NextResponse.json({ earlyAccessHours: await getPlusEarlyAccessHours() });
+  const [earlyAccessHours, enabled] = await Promise.all([getPlusEarlyAccessHours(), getPlusEnabled()]);
+  return NextResponse.json({ earlyAccessHours, enabled });
 }
 
 export async function PUT(req: Request) {
@@ -29,5 +38,8 @@ export async function PUT(req: Request) {
   if (!parsed.success) {
     return NextResponse.json({ error: { code: "validation" } }, { status: 400 });
   }
-  return NextResponse.json({ earlyAccessHours: await setPlusEarlyAccessHours(parsed.data.earlyAccessHours) });
+  if (parsed.data.earlyAccessHours !== undefined) await setPlusEarlyAccessHours(parsed.data.earlyAccessHours);
+  if (parsed.data.enabled !== undefined) await setPlusEnabled(parsed.data.enabled);
+  const [earlyAccessHours, enabled] = await Promise.all([getPlusEarlyAccessHours(), getPlusEnabled()]);
+  return NextResponse.json({ earlyAccessHours, enabled });
 }

@@ -20,6 +20,7 @@ export function Cuenta() {
   const styles = makeStyles(c);
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [plusActive, setPlusActive] = useState(false);
+  const [plusEnabled, setPlusEnabled] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
@@ -36,6 +37,7 @@ export function Cuenta() {
             const updated = { ...s, name: live.name ?? s.name, totalSaved: live.totalSaved, totalPurchases: live.totalPurchases };
             setCustomer(updated);
             setPlusActive(!!live.plusActive);
+            setPlusEnabled(!!live.plusEnabled);
             await saveSession(updated).catch(() => {});
           })
           .catch(() => {});
@@ -79,21 +81,24 @@ export function Cuenta() {
             </View>
           </FadeIn>
 
-          {/* Bubui Plus — suscripción del usuario (1€/mes) */}
-          <FadeIn replayOnFocus delay={stagger(1)}>
-            <Bouncy style={styles.plus} onPress={() => nav.navigate("Plus")}>
-              <Text style={styles.plusEmoji}>👑</Text>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.plusTitle}>{plusActive ? "Eres Bubui Plus" : "Hazte Bubui Plus"}</Text>
-                <Text style={styles.plusSub}>
-                  {plusActive
-                    ? "Disfrutas de ofertas anticipadas y regalos exclusivos."
-                    : "Mejores ofertas, regalos exclusivos y prioridad por 1€/mes."}
-                </Text>
-              </View>
-              <Text style={styles.plusChev}>›</Text>
-            </Bouncy>
-          </FadeIn>
+          {/* Bubui Plus — suscripción del usuario (1€/mes). Solo si el admin lo
+              tiene activado, o si el usuario ya es Plus (para ver su estado). */}
+          {(plusEnabled || plusActive) && (
+            <FadeIn replayOnFocus delay={stagger(1)}>
+              <Bouncy style={styles.plus} onPress={() => nav.navigate("Plus")}>
+                <Text style={styles.plusEmoji}>👑</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.plusTitle}>{plusActive ? "Eres Bubui Plus" : "Hazte Bubui Plus"}</Text>
+                  <Text style={styles.plusSub}>
+                    {plusActive
+                      ? "Disfrutas de ofertas anticipadas y regalos exclusivos."
+                      : "Mejores ofertas, regalos exclusivos y prioridad por 1€/mes."}
+                  </Text>
+                </View>
+                <Text style={styles.plusChev}>›</Text>
+              </Bouncy>
+            </FadeIn>
+          )}
 
           {/* Invita a amigos — acceso destacado al programa de referidos */}
           <FadeIn replayOnFocus delay={stagger(2)}>

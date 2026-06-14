@@ -13,6 +13,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { customerAuthOk } from "@/lib/bubui/customer-auth";
 import { isBubuiPlusConfigured, getOrCreateBubuiCustomer, createPlusCheckout } from "@/lib/bubui/stripe";
+import { getPlusEnabled } from "@/lib/bubui/plus";
 
 export const dynamic = "force-dynamic";
 
@@ -21,7 +22,8 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   if (!(await customerAuthOk(req, customerId))) {
     return NextResponse.json({ error: { code: "unauthorized", message: "No autorizado" } }, { status: 401 });
   }
-  if (!isBubuiPlusConfigured()) {
+  // Oculto por el admin (o sin precio configurado) → no se puede dar de alta.
+  if (!isBubuiPlusConfigured() || !(await getPlusEnabled())) {
     return NextResponse.json(
       { error: { code: "plus_disabled", message: "Bubui Plus no está disponible todavía." } },
       { status: 503 }

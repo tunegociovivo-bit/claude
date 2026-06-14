@@ -24,6 +24,7 @@ export function Plus() {
   const styles = makeStyles(c);
   const [customerId, setCustomerId] = useState<string | null>(null);
   const [plusActive, setPlusActive] = useState(false);
+  const [plusEnabled, setPlusEnabled] = useState(false);
   const [cancelAt, setCancelAt] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [gifts, setGifts] = useState<{ id: string; title: string; description: string | null; imageUrl: string | null; link: string | null }[]>([]);
@@ -38,6 +39,7 @@ export function Plus() {
           .customerSummary(s.customerId)
           .then((live) => {
             setPlusActive(!!live.plusActive);
+            setPlusEnabled(!!live.plusEnabled);
             setCancelAt(live.subscriptionCancelAt ?? null);
           })
           .catch(() => {});
@@ -140,7 +142,7 @@ export function Plus() {
                 </TouchableOpacity>
               )}
             </View>
-          ) : (
+          ) : plusEnabled ? (
             <>
               <Text style={styles.price}>1 €<Text style={styles.priceUnit}> /mes</Text></Text>
               <TouchableOpacity style={styles.ctaWrap} onPress={() => { sfx.tap(); subscribe(); }} activeOpacity={0.9} disabled={busy}>
@@ -150,6 +152,11 @@ export function Plus() {
               </TouchableOpacity>
               <Text style={styles.legal}>El pago se realiza de forma segura en bubui.app. Puedes cancelar cuando quieras.</Text>
             </>
+          ) : (
+            <View style={styles.soonBox}>
+              <Text style={styles.soonText}>Muy pronto 🚀</Text>
+              <Text style={styles.soonSub}>Bubui Plus estará disponible en cuanto haya más comercios cerca de ti. ¡Estate atento!</Text>
+            </View>
           )}
 
           {plusActive && gifts.length > 0 && (
@@ -216,5 +223,8 @@ const makeStyles = (c: Palette) =>
     giftImgPlaceholder: { height: 48, width: 48, borderRadius: 12, backgroundColor: c.pinkWash, alignItems: "center", justifyContent: "center" },
     giftTitle: { fontSize: 14.5, fontWeight: "800", color: c.black },
     giftSub: { fontSize: 12, color: c.gray, marginTop: 2, lineHeight: 16 },
-    giftChev: { fontSize: 22, color: c.pink, fontWeight: "900" }
+    giftChev: { fontSize: 22, color: c.pink, fontWeight: "900" },
+    soonBox: { backgroundColor: c.white, borderRadius: radius.lg, borderWidth: 1, borderColor: c.border, padding: 20, marginTop: 14, alignItems: "center", ...shadow.card },
+    soonText: { fontSize: 18, fontWeight: "900", color: c.black },
+    soonSub: { fontSize: 13, color: c.gray, textAlign: "center", marginTop: 6, lineHeight: 19 }
   });

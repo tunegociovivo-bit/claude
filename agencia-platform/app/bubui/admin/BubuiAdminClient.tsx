@@ -540,11 +540,15 @@ function BannerPanel() {
 // ── Bubui Plus: acceso anticipado ───────────────────────────────────────────
 function PlusConfigPanel() {
   const [hours, setHours] = useState("0");
+  const [enabled, setEnabled] = useState(false);
   const [msg, setMsg] = useState("");
 
   useEffect(() => {
     adminFetch("/api/bubui/admin/plus-config")
-      .then((d) => setHours(String(d.earlyAccessHours ?? 0)))
+      .then((d) => {
+        setHours(String(d.earlyAccessHours ?? 0));
+        setEnabled(!!d.enabled);
+      })
       .catch(() => {});
   }, []);
 
@@ -553,9 +557,10 @@ function PlusConfigPanel() {
     try {
       const d = await adminFetch("/api/bubui/admin/plus-config", {
         method: "PUT",
-        body: JSON.stringify({ earlyAccessHours: Math.max(0, parseInt(hours || "0", 10) || 0) })
+        body: JSON.stringify({ earlyAccessHours: Math.max(0, parseInt(hours || "0", 10) || 0), enabled })
       });
       setHours(String(d.earlyAccessHours ?? 0));
+      setEnabled(!!d.enabled);
       setMsg("Guardado ✓");
     } catch (e) {
       setMsg("Error: " + String(e));
@@ -564,13 +569,24 @@ function PlusConfigPanel() {
 
   return (
     <section className="bubui-card p-5 mt-4 max-w-xl">
-      <h2 className="text-sm font-bold mb-2">Acceso anticipado (Plus)</h2>
-      <p className="text-[13px] text-black/55 mb-3">
-        Horas que los suscriptores Plus ven cada oferta <strong>antes</strong> que el resto. Los usuarios sin Plus verán
-        cada oferta solo cuando pasen estas horas desde que se generó. <strong>0 = desactivado</strong> (todos las ven al
-        instante, como ahora).
+      <h2 className="text-sm font-bold mb-2">Bubui Plus</h2>
+
+      <label className="flex items-start gap-2 text-sm mb-1">
+        <input type="checkbox" className="mt-0.5" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
+        <span>
+          <strong>Mostrar el botón de suscripción en la app</strong>
+        </span>
+      </label>
+      <p className="text-[13px] text-black/55 mb-4 ml-6">
+        Si lo desactivas, los usuarios <strong>no verán el alta de Plus</strong> (útil hasta que haya suficientes
+        comercios). Quien ya sea Plus sigue viendo su estado y sus regalos.
       </p>
-      <label className="text-xs font-bold uppercase tracking-wide text-black/55">Ventana de adelanto (horas)</label>
+
+      <h3 className="text-xs font-bold uppercase tracking-wide text-black/55 mb-1">Acceso anticipado</h3>
+      <p className="text-[13px] text-black/55 mb-2">
+        Horas que los suscriptores Plus ven cada oferta <strong>antes</strong> que el resto. <strong>0 = desactivado</strong>{" "}
+        (todos las ven al instante).
+      </p>
       <input
         className="bubui-input mb-3 mt-1 max-w-[160px]"
         inputMode="numeric"
