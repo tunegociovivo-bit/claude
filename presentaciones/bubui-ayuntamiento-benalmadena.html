@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Bubui · Comercio local de Benalmádena</title>
+<style>
+  :root{
+    --pink:#ec1c6e; --pink-deep:#c2155a; --ink:#1a1024; --gray:#5b5566;
+    --bg:#fdf7fb; --wash:#fce7f1; --soft:#f7c6dd; --white:#ffffff; --border:#efe6ee;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    color:var(--ink); background:#2a1830; -webkit-font-smoothing:antialiased;
+  }
+  .deck{height:100vh;width:100vw;overflow:hidden;position:relative}
+  .slide{
+    position:absolute;inset:0;display:none;flex-direction:column;justify-content:center;
+    padding:6vw 8vw; background:var(--bg);
+    animation:fade .35s ease;
+  }
+  .slide.active{display:flex}
+  @keyframes fade{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+  .wordmark{font-weight:900;letter-spacing:-1.5px;color:var(--pink);line-height:1}
+  .kicker{font-size:.85rem;font-weight:800;letter-spacing:2px;text-transform:uppercase;color:var(--pink);margin-bottom:18px}
+  h1{font-size:clamp(2rem,5.2vw,4rem);font-weight:900;letter-spacing:-1.5px;line-height:1.04;margin-bottom:18px}
+  h2{font-size:clamp(1.6rem,3.6vw,2.7rem);font-weight:900;letter-spacing:-1px;line-height:1.08;margin-bottom:22px}
+  p{font-size:clamp(1rem,1.6vw,1.35rem);line-height:1.5;color:var(--gray);max-width:60ch}
+  p.lead{color:var(--ink);font-weight:600}
+  strong{color:var(--ink)}
+  .pink{color:var(--pink)}
+  .grid{display:grid;gap:18px;margin-top:14px}
+  .g2{grid-template-columns:1fr 1fr}
+  .g3{grid-template-columns:repeat(3,1fr)}
+  .card{background:var(--white);border:1px solid var(--border);border-radius:18px;padding:26px;box-shadow:0 10px 30px rgba(180,20,90,.06)}
+  .card .ico{font-size:2rem;margin-bottom:10px}
+  .card h3{font-size:1.15rem;font-weight:900;margin-bottom:8px}
+  .card p{font-size:1rem}
+  .steps{display:flex;gap:18px;margin-top:20px;flex-wrap:wrap}
+  .step{flex:1;min-width:180px;background:var(--white);border:1px solid var(--border);border-radius:18px;padding:24px;position:relative}
+  .step .n{position:absolute;top:-14px;left:24px;height:34px;width:34px;border-radius:50%;background:var(--pink);color:#fff;font-weight:900;display:flex;align-items:center;justify-content:center;font-size:1rem}
+  .step h3{margin:14px 0 6px;font-size:1.1rem;font-weight:900}
+  .step p{font-size:.98rem}
+  ul.bullets{list-style:none;margin-top:10px}
+  ul.bullets li{font-size:clamp(1rem,1.6vw,1.3rem);line-height:1.5;color:var(--gray);padding-left:34px;position:relative;margin-bottom:14px;max-width:62ch}
+  ul.bullets li::before{content:"";position:absolute;left:0;top:.45em;height:14px;width:14px;border-radius:4px;background:var(--pink)}
+  ul.bullets li strong{color:var(--ink)}
+  .flow{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-top:24px}
+  .pill{background:var(--white);border:2px solid var(--soft);border-radius:14px;padding:16px 20px;font-weight:800;color:var(--ink);font-size:1.05rem}
+  .arrow{color:var(--pink);font-size:1.6rem;font-weight:900}
+  .cover{background:linear-gradient(135deg,#ec1c6e,#7b2ff7);color:#fff}
+  .cover *{color:#fff}
+  .cover h1{font-size:clamp(2.4rem,6vw,4.6rem)}
+  .cover p{color:rgba(255,255,255,.92);max-width:50ch}
+  .cover .wordmark{color:#fff}
+  .tag{display:inline-block;background:rgba(255,255,255,.2);border-radius:999px;padding:8px 16px;font-weight:800;font-size:.9rem;margin-bottom:26px}
+  .big-num{font-size:clamp(2.2rem,5vw,3.4rem);font-weight:900;color:var(--pink);letter-spacing:-1px;line-height:1}
+  .stat-row{display:flex;gap:30px;flex-wrap:wrap;margin-top:8px}
+  .stat{background:var(--white);border:1px solid var(--border);border-radius:18px;padding:22px 26px;flex:1;min-width:200px}
+  .stat .lbl{font-size:.95rem;color:var(--gray);font-weight:600;margin-top:6px}
+  .note{font-size:.85rem;color:#9a90a0;margin-top:18px;font-style:italic}
+  .cta{display:inline-block;margin-top:24px;background:#fff;color:var(--pink);font-weight:900;padding:16px 30px;border-radius:999px;font-size:1.1rem}
+  .foot{position:absolute;bottom:22px;left:8vw;right:8vw;display:flex;justify-content:space-between;align-items:center;font-size:.8rem;color:#b9aebd;font-weight:600}
+  .nav{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);display:flex;gap:8px;z-index:50}
+  .dot{height:9px;width:9px;border-radius:50%;background:rgba(255,255,255,.35);border:none;cursor:pointer;padding:0}
+  .dot.on{background:#fff;width:24px;border-radius:6px}
+  .help{position:fixed;top:16px;right:18px;color:rgba(255,255,255,.6);font-size:.78rem;z-index:50}
+  @media print{
+    body{background:#fff}
+    .deck{height:auto;width:auto;overflow:visible}
+    .slide{display:flex!important;position:relative;inset:auto;height:100vh;page-break-after:always;animation:none}
+    .nav,.help{display:none}
+  }
+</style>
+</head>
+<body>
+<div class="help">← → para navegar · imprime para PDF</div>
+<div class="deck">
+
+  <!-- 1 · Portada -->
+  <section class="slide cover active">
+    <div class="tag">Dinamización del comercio local · Benalmádena</div>
+    <div class="wordmark" style="font-size:clamp(3rem,9vw,7rem)">bubui</div>
+    <h1>El comercio de Benalmádena,<br>más vivo que nunca.</h1>
+    <p>La app que hace que cada compra en el municipio premie volver a comprar en el municipio — y que el dinero de los vecinos se quede en Benalmádena.</p>
+    <div class="foot"><span>Una iniciativa de Negocio Vivo</span><span>Propuesta de colaboración · 2026</span></div>
+  </section>
+
+  <!-- 2 · Problema -->
+  <section class="slide">
+    <div class="kicker">El problema</div>
+    <h2>El comercio de barrio<br>está perdiendo la batalla.</h2>
+    <ul class="bullets">
+      <li>Las <strong>grandes superficies y el comercio online</strong> se llevan cada vez más gasto del vecino.</li>
+      <li>El pequeño comercio <strong>no tiene herramientas de fidelización</strong> ni datos para competir.</li>
+      <li>Cada euro que se va fuera es <strong>empleo y vida que se va del municipio</strong>.</li>
+      <li>Las campañas de dinamización tradicionales (folletos, ferias) <strong>no se pueden medir</strong>.</li>
+    </ul>
+  </section>
+
+  <!-- 3 · Oportunidad -->
+  <section class="slide">
+    <div class="kicker">La oportunidad</div>
+    <h2>¿Y si cada compra en Benalmádena<br><span class="pink">premiara</span> comprar otra vez en Benalmádena?</h2>
+    <p class="lead">Esa es la idea de Bubui: convertir el comercio local en una sola red de fidelización compartida, donde el ahorro del vecino y el cliente del comercio se retroalimentan.</p>
+  </section>
+
+  <!-- 4 · Qué es -->
+  <section class="slide">
+    <div class="kicker">Qué es Bubui</div>
+    <h2>Una app gratuita para el vecino.<br>Una máquina de clientes para el comercio.</h2>
+    <div class="grid g2">
+      <div class="card"><div class="ico">📱</div><h3>Para el vecino</h3><p>Descubre los comercios de Benalmádena, ahorra en cada compra y ve cuánto lleva ahorrado. Gratis, para siempre.</p></div>
+      <div class="card"><div class="ico">🏪</div><h3>Para el comercio</h3><p>Atrae clientes nuevos, fideliza a los de siempre y, por primera vez, mide de verdad cuántos clientes le trae cada campaña.</p></div>
+    </div>
+  </section>
+
+  <!-- 5 · Cómo funciona (vecino) -->
+  <section class="slide">
+    <div class="kicker">Cómo funciona · el vecino</div>
+    <h2>Tres pasos. Cero fricción.</h2>
+    <div class="steps">
+      <div class="step"><div class="n">1</div><h3>Descubre</h3><p>Abre Bubui y ve las ofertas de los comercios de su zona, ordenadas por cercanía.</p></div>
+      <div class="step"><div class="n">2</div><h3>Compra y escanea</h3><p>Compra en el comercio y escanea el QR. Su ahorro se registra al instante.</p></div>
+      <div class="step"><div class="n">3</div><h3>Vuelve</h3><p>Desbloquea nuevas ofertas en otros comercios del municipio. Y vuelve.</p></div>
+    </div>
+  </section>
+
+  <!-- 6 · Cómo funciona (comercio) -->
+  <section class="slide">
+    <div class="kicker">Cómo funciona · el comercio</div>
+    <h2>Darse de alta lleva minutos.</h2>
+    <div class="steps">
+      <div class="step"><div class="n">1</div><h3>Se registra</h3><p>El comercio crea su perfil y define su descuento de bienvenida.</p></div>
+      <div class="step"><div class="n">2</div><h3>Coloca su QR</h3><p>Un cartel con su código en el mostrador. Nada de hardware nuevo.</p></div>
+      <div class="step"><div class="n">3</div><h3>Recibe clientes</h3><p>Aparece en la app y empieza a recibir clientes nuevos y recurrentes.</p></div>
+    </div>
+  </section>
+
+  <!-- 7 · Cross-offers -->
+  <section class="slide">
+    <div class="kicker">La magia: el dinero circula dentro del municipio</div>
+    <h2>Compra en un comercio,<br>te premia en <span class="pink">otro</span>.</h2>
+    <p class="lead">El corazón de Bubui. Un cliente que compra en la panadería desbloquea un descuento en la peluquería de al lado. El gasto se queda y rota dentro de Benalmádena.</p>
+    <div class="flow">
+      <span class="pill">🥖 Compra en la panadería</span>
+      <span class="arrow">→</span>
+      <span class="pill">🎁 Desbloquea oferta</span>
+      <span class="arrow">→</span>
+      <span class="pill">💇 Vuelve en la peluquería</span>
+    </div>
+  </section>
+
+  <!-- 8 · Por qué al Ayuntamiento -->
+  <section class="slide">
+    <div class="kicker">Por qué interesa al Ayuntamiento</div>
+    <h2>Una herramienta de ciudad,<br>no solo una app.</h2>
+    <div class="grid g3">
+      <div class="card"><div class="ico">💶</div><h3>Gasto que se queda</h3><p>Más consumo en el comercio local = más actividad y empleo en el municipio.</p></div>
+      <div class="card"><div class="ico">📊</div><h3>Datos reales</h3><p>El pulso del comercio local en tiempo real, para tomar decisiones con cifras.</p></div>
+      <div class="card"><div class="ico">🏛️</div><h3>Marca de ciudad</h3><p>Una iniciativa moderna y medible con el sello del Ayuntamiento de Benalmádena.</p></div>
+      <div class="card"><div class="ico">🤝</div><h3>Apoyo al pequeño</h3><p>Da al comercio pequeño las armas digitales que hoy solo tienen las grandes.</p></div>
+      <div class="card"><div class="ico">📣</div><h3>Campañas medibles</h3><p>Sustituye el folleto que no se mide por acciones con resultados reales.</p></div>
+      <div class="card"><div class="ico">🌱</div><h3>Sostenible</h3><p>Menos desplazamientos a grandes superficies: consumo de proximidad.</p></div>
+    </div>
+  </section>
+
+  <!-- 9 · Dashboard municipio -->
+  <section class="slide">
+    <div class="kicker">El cuadro de mando del municipio</div>
+    <h2>Por primera vez,<br>el comercio local <span class="pink">medido</span>.</h2>
+    <div class="stat-row">
+      <div class="stat"><div class="big-num">+</div><div class="lbl">Comercios activos en la red municipal</div></div>
+      <div class="stat"><div class="big-num">€</div><div class="lbl">Gasto dinamizado en el comercio local</div></div>
+      <div class="stat"><div class="big-num">↺</div><div class="lbl">Clientes recurrentes y zonas más activas</div></div>
+    </div>
+    <p class="note">Siempre con datos agregados y anónimos. Bubui nunca comparte información personal de los vecinos.</p>
+  </section>
+
+  <!-- 10 · Propuesta al Ayuntamiento -->
+  <section class="slide">
+    <div class="kicker">Nuestra propuesta al Ayuntamiento</div>
+    <h2>Un convenio de colaboración.</h2>
+    <ul class="bullets">
+      <li><strong>Co-branding institucional:</strong> Bubui como herramienta oficial de dinamización del comercio de Benalmádena.</li>
+      <li><strong>Coste cero para el pequeño comercio</strong> durante el lanzamiento, con el apoyo del Ayuntamiento y/o patrocinio.</li>
+      <li><strong>Campaña de lanzamiento conjunta:</strong> alta de comercios, cartelería y difusión a los vecinos.</li>
+      <li><strong>Cuadro de mando para el Ayuntamiento</strong> con la evolución del comercio local.</li>
+    </ul>
+  </section>
+
+  <!-- 11 · Asociaciones -->
+  <section class="slide">
+    <div class="kicker">Para las asociaciones de comercio</div>
+    <h2>Vuestros asociados,<br>una sola red que se impulsa entre sí.</h2>
+    <div class="grid g2">
+      <div class="card"><div class="ico">👥</div><h3>Más clientes para todos</h3><p>Cada comercio asociado atrae clientes a los demás vía las ofertas cruzadas.</p></div>
+      <div class="card"><div class="ico">🔁</div><h3>Promoción cruzada</h3><p>Convertís la asociación en una red de fidelización real, no solo en una lista.</p></div>
+      <div class="card"><div class="ico">📈</div><h3>Fidelización medible</h3><p>Cada asociado ve sus clientes nuevos y recurrentes desde su panel.</p></div>
+      <div class="card"><div class="ico">💸</div><h3>Coste muy bajo</h3><p>Una herramienta potente al alcance del comercio de barrio, sin inversión inicial.</p></div>
+    </div>
+  </section>
+
+  <!-- 12 · Piloto -->
+  <section class="slide cover" style="background:linear-gradient(135deg,#7b2ff7,#ec1c6e)">
+    <div class="tag">Ya en marcha</div>
+    <h1>Bubui ya está funcionando<br>en Benalmádena.</h1>
+    <p>No es una idea sobre el papel: la plataforma está construida y operativa, con comercios reales del municipio. Lo que proponemos es escalarlo juntos a todo Benalmádena.</p>
+  </section>
+
+  <!-- 13 · Plan -->
+  <section class="slide">
+    <div class="kicker">Plan de despliegue</div>
+    <h2>De piloto a todo el municipio.</h2>
+    <div class="steps">
+      <div class="step"><div class="n">1</div><h3>Convenio</h3><p>Acuerdo de colaboración y co-branding con el Ayuntamiento y las asociaciones.</p></div>
+      <div class="step"><div class="n">2</div><h3>Alta masiva</h3><p>Campaña para dar de alta a los comercios de las asociaciones de la zona.</p></div>
+      <div class="step"><div class="n">3</div><h3>Lanzamiento</h3><p>Difusión a los vecinos y cartelería en los comercios adheridos.</p></div>
+      <div class="step"><div class="n">4</div><h3>Medición</h3><p>Cuadro de mando e informes periódicos de impacto en el comercio local.</p></div>
+    </div>
+  </section>
+
+  <!-- 14 · CTA -->
+  <section class="slide cover">
+    <div class="wordmark" style="font-size:clamp(2.4rem,7vw,5rem)">bubui</div>
+    <h1>Hagamos de Benalmádena<br>el comercio local del futuro.</h1>
+    <p>Nos encantaría enseñaros la plataforma en una demostración y diseñar juntos el plan de lanzamiento.</p>
+    <a class="cta" href="mailto:tunegociovivo@gmail.com">Hablemos · tunegociovivo@gmail.com</a>
+    <div class="foot"><span>Una iniciativa de Negocio Vivo</span><span>Gracias.</span></div>
+  </section>
+
+</div>
+
+<div class="nav" id="nav"></div>
+<script>
+  const slides=[...document.querySelectorAll('.slide')];
+  const nav=document.getElementById('nav');
+  let i=0;
+  slides.forEach((_,k)=>{const b=document.createElement('button');b.className='dot'+(k===0?' on':'');b.onclick=()=>go(k);nav.appendChild(b)});
+  const dots=[...nav.children];
+  function go(n){i=Math.max(0,Math.min(slides.length-1,n));slides.forEach((s,k)=>s.classList.toggle('active',k===i));dots.forEach((d,k)=>d.classList.toggle('on',k===i))}
+  document.addEventListener('keydown',e=>{
+    if(e.key==='ArrowRight'||e.key===' '||e.key==='PageDown'){go(i+1)}
+    if(e.key==='ArrowLeft'||e.key==='PageUp'){go(i-1)}
+    if(e.key==='Home'){go(0)} if(e.key==='End'){go(slides.length-1)}
+  });
+  document.querySelector('.deck').addEventListener('click',e=>{ if(e.target.closest('a'))return; go(i+1)});
+</script>
+</body>
+</html>
