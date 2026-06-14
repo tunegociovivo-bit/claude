@@ -18,6 +18,7 @@ export type BusinessLite = {
   category: string;
   city?: string | null;
   address?: string | null;
+  phone?: string | null;
   latitude?: number | null;
   longitude?: number | null;
   logoUrl?: string | null;
@@ -50,17 +51,40 @@ export function Negocio() {
   const distance = fmtDistance(b.distanceM);
   const webUrl = `${API_BASE}/bubui/n/${b.slug}`;
 
-  // Abre la app de mapas con coordenadas si las hay, o con la dirección.
+  // Abre la app de mapas en MODO NAVEGACIÓN (turn-by-turn). En Android,
+  // `google.navigation:` arranca la guía por voz directamente; en iOS, Apple
+  // Maps con `daddr` + `dirflg=d` muestra la ruta lista para iniciar.
   function howToGet() {
-    let url: string;
-    if (b.latitude != null && b.longitude != null) {
-      const ll = `${b.latitude},${b.longitude}`;
-      url = Platform.OS === "ios" ? `http://maps.apple.com/?daddr=${ll}` : `geo:${ll}?q=${ll}(${encodeURIComponent(b.name)})`;
-    } else {
-      const q = encodeURIComponent([b.address, b.city, b.name].filter(Boolean).join(", "));
-      url = `https://maps.google.com/?q=${q}`;
-    }
-    Linking.openURL(url).catch(() => Linking.openURL(`https://maps.google.com/?q=${encodeURIComponent(b.name)}`).catch(() => {}));
+    const dest =
+      b.latitude != null && b.longitude != null
+        ? `${b.latitude},${b.longitude}`
+        : encodeURIComponent([b.address, b.city, b.name].filter(Boolean).join(", "));
+    const url = Platform.OS === "ios" ? `http://maps.apple.com/?daddr=${dest}&dirflg=d` : `google.navigation:q=${dest}`;
+    Linking.openURL(url).catch(() =>
+      Linking.openURL(`https://maps.google.com/?q=${encodeURIComponent(b.name)}`).catch(() => {})
+    );
+  }
+
+  // Llamada directa al teléfono público del negocio.
+  function callBusiness() {
+    if (!b.phone) return;
+    Linking.openURL(`tel:${b.phone.replace(/\s+/g, "")}`).catch(() => {});
+  }
+
+  // Comparte el descuento por WhatsApp; si no está instalado, abre la hoja de
+  // compartir del sistema (así funciona para todos).
+  async function shareDiscount() {
+    const pct = discount ? `-${discount}%` : "un descuentazo";
+    const msg = `🎉 ${pct} en ${b.name} con Bubui. ¡Mira! ${webUrl}`;
+    // openURL directo: en iOS abre WhatsApp si está instalado y lanza si no;
+    // en Android evita los problemas de visibilidad de paquetes de canOpenURL.
+    try {
+      await Linking.openURL(`whatsapp://send?text=${encodeURIComponent(msg)}`);
+      return;
+    } catch {}
+    try {
+      await Share.share({ message: msg, url: webUrl });
+    } catch {}
   }
 
   async function share() {
@@ -139,14 +163,26 @@ export function Negocio() {
             </Gradient>
           </TouchableOpacity>
 
-          <View style={styles.secRow}>
-            <TouchableOpacity style={styles.secBtn} onPress={howToGet}>
-              <Text style={styles.secText}>🧭 Cómo llegar</Text>
+          <View style={styles.actionsRow}>
+            <TouchableOpacity style={styles.action} onPress={howToGet} activeOpacity={0.85}>
+              <Ionicons name="navigate" size={22} color={c.pink} />
+              <Text style={styles.actionText}>Cómo llegar</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.secBtn} onPress={() => Linking.openURL(webUrl).catch(() => {})}>
-              <Text style={styles.secText}>ℹ️ Ficha completa</Text>
+            {!!b.phone && (
+              <TouchableOpacity style={styles.action} onPress={callBusiness} activeOpacity={0.85}>
+                <Ionicons name="call" size={22} color={c.pink} />
+                <Text style={styles.actionText}>Llamar</Text>
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity style={styles.action} onPress={shareDiscount} activeOpacity={0.85}>
+              <Ionicons name="logo-whatsapp" size={22} color={c.pink} />
+              <Text style={styles.actionText}>Compartir</Text>
             </TouchableOpacity>
           </View>
+
+          <TouchableOpacity onPress={() => Linking.openURL(webUrl).catch(() => {})} style={{ marginTop: 14 }}>
+            <Text style={styles.fichaLink}>Ver ficha completa ›</Text>
+          </TouchableOpacity>
         </View>
       </ScrollView>
       </FadeIn>
@@ -177,7 +213,8 @@ const makeStyles = (c: Palette) =>
     ctaWrap: { alignSelf: "stretch", marginTop: 26, borderRadius: radius.pill, ...shadow.btn },
     cta: { flexDirection: "row", gap: 8, borderRadius: radius.pill, paddingVertical: 16, alignItems: "center", justifyContent: "center" },
     ctaText: { color: "#fff", fontSize: 16, fontWeight: "800" },
-    secRow: { flexDirection: "row", gap: 10, alignSelf: "stretch", marginTop: 12 },
-    secBtn: { flex: 1, paddingVertical: 14, alignItems: "center", borderRadius: radius.md, borderWidth: 1, borderColor: c.border, backgroundColor: c.white },
-    secText: { fontSize: 14, fontWeight: "800", color: c.black }
+    actionsRow: { flexDirection: "row", gap: 10, alignSelf: "stretch", marginTop: 14 },
+    action: { flex: 1, paddingVertical: 14, alignItems: "center", gap: 6, borderRadius: radius.md, borderWidth: 1, borderColor: c.border, backgroundColor: c.white, ...shadow.card },
+    actionText: { fontSize: 12.5, fontWeight: "800", color: c.ink },
+    fichaLink: { fontSize: 13, fontWeight: "700", color: c.gray, textAlign: "center" }
   });

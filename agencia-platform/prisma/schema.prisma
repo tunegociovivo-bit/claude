@@ -3473,6 +3473,9 @@ model BubuiBusiness {
   province      String   @default("Málaga")
   latitude      Float?
   longitude     Float?
+  // Teléfono PÚBLICO de contacto del negocio (botón "Llamar" en la app).
+  // Distinto de ownerPhone (privado, del titular de la cuenta).
+  phone         String?
   // Branding mínimo.
   logoUrl       String?
   brandColor    String?
