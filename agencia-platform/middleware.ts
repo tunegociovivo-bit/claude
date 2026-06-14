@@ -83,6 +83,7 @@ export async function middleware(req: NextRequest) {
     if (
       pathname.startsWith("/_next") ||
       pathname.startsWith("/api/") ||
+      pathname.startsWith("/.well-known") ||
       pathname === "/bubui-sw.js" ||
       pathname === "/manifest.webmanifest" ||
       pathname === "/robots.txt" ||
