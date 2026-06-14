@@ -23,6 +23,8 @@ const schema = z
     businessType: z.enum(["restaurante", "comercio_producto", "servicios"]).optional(),
     bookingEnabled: z.boolean().optional(),
     address: z.string().max(200).optional(),
+    // Teléfono público de contacto (botón "Llamar" en la app).
+    phone: z.string().trim().max(30).optional().nullable(),
     latitude: z.number().min(-90).max(90).optional(),
     longitude: z.number().min(-180).max(180).optional(),
     logoUrl: z.string().url().optional().nullable(),
@@ -101,6 +103,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   }
   // Normaliza strings vacíos a null para limpiar el dato.
   const data = { ...parsed.data };
+  if (data.phone === "") data.phone = null;
   if (data.googlePlaceId === "") data.googlePlaceId = null;
   for (const k of ["instagramUrl", "facebookUrl", "tiktokUrl", "trustpilotUrl", "tripadvisorUrl"] as const) {
     if ((data as any)[k] === "") (data as any)[k] = null;

@@ -22,7 +22,8 @@
         "NSCameraUsageDescription": "Bubui necesita la cámara para escanear el QR de los negocios y aplicarte el descuento.",
         "NSLocationWhenInUseUsageDescription": "Bubui usa tu ubicación para mostrarte los descuentos cerca de ti.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "Bubui usa tu ubicación para avisarte cuando pasas junto a un negocio donde tienes un cupón.",
-        "UIBackgroundModes": ["location", "fetch"]
+        "UIBackgroundModes": ["location", "fetch"],
+        "LSApplicationQueriesSchemes": ["whatsapp"]
       },
       "associatedDomains": [
         "applinks:bubui.app",

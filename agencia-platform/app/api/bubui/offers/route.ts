@@ -70,6 +70,8 @@ export async function GET(req: Request) {
           name: true,
           category: true,
           city: true,
+          address: true,
+          phone: true,
           latitude: true,
           longitude: true,
           logoUrl: true,

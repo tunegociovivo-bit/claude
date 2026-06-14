@@ -118,6 +118,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
       // Perfil editable (inicializa el formulario "Editar perfil").
       description: business.description,
       address: business.address,
+      phone: business.phone,
       latitude: business.latitude,
       longitude: business.longitude,
       logoUrl: business.logoUrl,

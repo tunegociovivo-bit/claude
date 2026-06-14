@@ -2530,6 +2530,7 @@ function ProfileEditor({ business, token, onSaved }: { business: any; token: str
     description: business.description ?? "",
     businessType: business.businessType ?? "servicios",
     address: business.address ?? "",
+    phone: business.phone ?? "",
     latitude: business.latitude ?? "",
     longitude: business.longitude ?? "",
     logoUrl: business.logoUrl ?? "",
@@ -2583,6 +2584,7 @@ function ProfileEditor({ business, token, onSaved }: { business: any; token: str
       if (form.description !== business.description) payload.description = form.description || null;
       if (form.businessType !== (business.businessType ?? "servicios")) payload.businessType = form.businessType;
       if (form.address !== business.address) payload.address = form.address || null;
+      if (form.phone !== (business.phone ?? "")) payload.phone = form.phone || null;
       if (form.latitude !== "" && Number(form.latitude) !== business.latitude) payload.latitude = Number(form.latitude);
       if (form.longitude !== "" && Number(form.longitude) !== business.longitude) payload.longitude = Number(form.longitude);
       if (form.logoUrl !== business.logoUrl) payload.logoUrl = form.logoUrl || null;
@@ -2711,6 +2713,20 @@ function ProfileEditor({ business, token, onSaved }: { business: any; token: str
             onChange={(e) => setForm({ ...form, address: e.target.value })}
             className="w-full px-2 py-1.5 border rounded bg-white"
           />
+        </label>
+        <label className="sm:col-span-2">
+          <span className="block font-medium mb-1">Teléfono de contacto</span>
+          <input
+            type="tel"
+            inputMode="tel"
+            placeholder="+34 600 000 000"
+            value={form.phone}
+            onChange={(e) => setForm({ ...form, phone: e.target.value })}
+            className="w-full px-2 py-1.5 border rounded bg-white"
+          />
+          <span className="block text-[11px] text-black/50 mt-1">
+            Aparece como botón «Llamar» en la app. Déjalo vacío si no quieres mostrarlo.
+          </span>
         </label>
         <label>
           <span className="block font-medium mb-1">Latitud</span>

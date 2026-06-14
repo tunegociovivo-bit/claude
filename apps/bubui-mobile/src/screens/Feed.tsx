@@ -26,6 +26,8 @@ type Offer = {
     name: string;
     category: string;
     city?: string | null;
+    address?: string | null;
+    phone?: string | null;
     latitude?: number | null;
     longitude?: number | null;
     logoUrl?: string | null;
@@ -160,6 +162,7 @@ export function Feed() {
             offerId: b.id,
             business: {
               id: b.id, slug: b.slug, name: b.name, category: b.category, city: b.city,
+              address: b.address, phone: b.phone,
               latitude: b.latitude, longitude: b.longitude, logoUrl: b.logoUrl, brandColor: b.brandColor
             },
             discountPct: b.defaultDiscountPct ?? 0,

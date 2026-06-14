@@ -47,6 +47,7 @@ export async function GET(req: Request) {
       category: true,
       city: true,
       address: true,
+      phone: true,
       latitude: true,
       longitude: true,
       logoUrl: true,
