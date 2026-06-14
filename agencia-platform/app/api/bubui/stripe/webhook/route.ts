@@ -217,6 +217,7 @@ async function sendBubuiPushAd(adId: string): Promise<void> {
     await notifyBubuiCustomer(c.id, {
       title: ad.title,
       body: ad.body,
+      image: ad.imageUrl ?? undefined,
       link: `/bubui/app`,
       tag: `pushad-${ad.id}`
     });
