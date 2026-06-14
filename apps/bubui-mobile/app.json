@@ -25,6 +25,8 @@
         "UIBackgroundModes": ["location", "fetch"]
       },
       "associatedDomains": [
+        "applinks:bubui.app",
+        "applinks:www.bubui.app",
         "applinks:hub.negociovivo.app"
       ]
     },
@@ -45,6 +47,26 @@
         "POST_NOTIFICATIONS"
       ],
       "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "https",
+              "host": "bubui.app",
+              "pathPrefix": "/scan"
+            },
+            {
+              "scheme": "https",
+              "host": "www.bubui.app",
+              "pathPrefix": "/scan"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
+        },
         {
           "action": "VIEW",
           "autoVerify": true,

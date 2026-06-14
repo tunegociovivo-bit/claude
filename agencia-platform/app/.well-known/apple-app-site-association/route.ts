@@ -23,7 +23,9 @@ export async function GET() {
         {
           appID,
           // Solo las URLs de escaneo abren la app; el resto sigue en web.
-          paths: ["/bubui/scan/*", "/bipi/scan/*"]
+          // En bubui.app el QR codifica /scan/* (limpio); en hub.negociovivo.app
+          // y QRs antiguos, /bubui/scan/* y /bipi/scan/*.
+          paths: ["/scan/*", "/bubui/scan/*", "/bipi/scan/*"]
         }
       ]
     }

@@ -4,7 +4,7 @@ import Constants from "expo-constants";
 import { Platform } from "react-native";
 
 export const API_BASE: string =
-  (Constants.expoConfig?.extra as any)?.apiBaseUrl ?? "https://hub.negociovivo.app";
+  (Constants.expoConfig?.extra as any)?.apiBaseUrl ?? "https://bubui.app";
 
 // Versión de la app instalada — se envía al backend para saber qué build tiene
 // cada usuario (panel admin). appBuild = versionCode (Android) / buildNumber (iOS).
