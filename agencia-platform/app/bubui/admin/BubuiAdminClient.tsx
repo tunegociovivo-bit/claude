@@ -20,7 +20,7 @@ type Overview = {
   appVersions: Array<{ build: string | null; count: number }>;
 };
 
-type AdminTab = "overview" | "users" | "businesses" | "banner" | "push" | "sections";
+type AdminTab = "overview" | "users" | "businesses" | "banner" | "plus" | "push" | "sections";
 
 export default function BubuiAdminClient() {
   const [data, setData] = useState<Overview | null>(null);
@@ -93,6 +93,7 @@ export default function BubuiAdminClient() {
           ["users", "Usuarios"],
           ["businesses", "Comercios"],
           ["banner", "Banner"],
+          ["plus", "Plus"],
           ["push", "Push"],
           ["sections", "Secciones"]
         ] as [AdminTab, string][]).map(([k, label]) => (
@@ -110,6 +111,12 @@ export default function BubuiAdminClient() {
       {tab === "users" && <UsersPanel />}
       {tab === "businesses" && <BusinessesPanel />}
       {tab === "banner" && <BannerPanel />}
+      {tab === "plus" && (
+        <>
+          <PlusConfigPanel />
+          <PlusGiftsPanel />
+        </>
+      )}
       {tab === "push" && <PushPanel />}
       {tab === "sections" && (
         <>
@@ -653,6 +660,175 @@ function BannerPanel() {
         <button onClick={save} className="bubui-btn">Guardar</button>
         {msg && <span className="text-sm">{msg}</span>}
       </div>
+    </section>
+  );
+}
+
+// ── Bubui Plus: acceso anticipado ───────────────────────────────────────────
+function PlusConfigPanel() {
+  const [hours, setHours] = useState("0");
+  const [enabled, setEnabled] = useState(false);
+  const [msg, setMsg] = useState("");
+
+  useEffect(() => {
+    adminFetch("/api/bubui/admin/plus-config")
+      .then((d) => {
+        setHours(String(d.earlyAccessHours ?? 0));
+        setEnabled(!!d.enabled);
+      })
+      .catch(() => {});
+  }, []);
+
+  async function save() {
+    setMsg("");
+    try {
+      const d = await adminFetch("/api/bubui/admin/plus-config", {
+        method: "PUT",
+        body: JSON.stringify({ earlyAccessHours: Math.max(0, parseInt(hours || "0", 10) || 0), enabled })
+      });
+      setHours(String(d.earlyAccessHours ?? 0));
+      setEnabled(!!d.enabled);
+      setMsg("Guardado ✓");
+    } catch (e) {
+      setMsg("Error: " + String(e));
+    }
+  }
+
+  return (
+    <section className="bubui-card p-5 mt-4 max-w-xl">
+      <h2 className="text-sm font-bold mb-2">Bubui Plus</h2>
+
+      <label className="flex items-start gap-2 text-sm mb-1">
+        <input type="checkbox" className="mt-0.5" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
+        <span>
+          <strong>Mostrar el botón de suscripción en la app</strong>
+        </span>
+      </label>
+      <p className="text-[13px] text-black/55 mb-4 ml-6">
+        Si lo desactivas, los usuarios <strong>no verán el alta de Plus</strong> (útil hasta que haya suficientes
+        comercios). Quien ya sea Plus sigue viendo su estado y sus regalos.
+      </p>
+
+      <h3 className="text-xs font-bold uppercase tracking-wide text-black/55 mb-1">Acceso anticipado</h3>
+      <p className="text-[13px] text-black/55 mb-2">
+        Horas que los suscriptores Plus ven cada oferta <strong>antes</strong> que el resto. <strong>0 = desactivado</strong>{" "}
+        (todos las ven al instante).
+      </p>
+      <input
+        className="bubui-input mb-3 mt-1 max-w-[160px]"
+        inputMode="numeric"
+        value={hours}
+        onChange={(e) => setHours(e.target.value.replace(/[^0-9]/g, ""))}
+        placeholder="0"
+      />
+      <div className="flex items-center gap-3">
+        <button onClick={save} className="bubui-btn">Guardar</button>
+        {msg && <span className="text-sm">{msg}</span>}
+      </div>
+    </section>
+  );
+}
+
+// ── Bubui Plus: catálogo de regalos exclusivos ──────────────────────────────
+type AdminGift = { id: string; title: string; description: string | null; imageUrl: string | null; link: string | null; order: number; active: boolean };
+
+function PlusGiftsPanel() {
+  const [gifts, setGifts] = useState<AdminGift[] | null>(null);
+  const [err, setErr] = useState("");
+  const [form, setForm] = useState<{ title: string; description: string; imageUrl: string; link: string; order: string }>(
+    { title: "", description: "", imageUrl: "", link: "", order: "0" }
+  );
+  const [saving, setSaving] = useState(false);
+
+  function load() {
+    adminFetch("/api/bubui/admin/plus-gifts").then((d) => setGifts(d.gifts)).catch((e) => setErr(String(e)));
+  }
+  useEffect(load, []);
+
+  async function add() {
+    if (!form.title.trim()) return;
+    setSaving(true);
+    setErr("");
+    try {
+      await adminFetch("/api/bubui/admin/plus-gifts", {
+        method: "POST",
+        body: JSON.stringify({
+          title: form.title.trim(),
+          description: form.description.trim() || undefined,
+          imageUrl: form.imageUrl.trim() || undefined,
+          link: form.link.trim() || undefined,
+          order: parseInt(form.order || "0", 10) || 0
+        })
+      });
+      setForm({ title: "", description: "", imageUrl: "", link: "", order: "0" });
+      load();
+    } catch (e) {
+      setErr(String(e));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function toggle(g: AdminGift) {
+    try {
+      await adminFetch("/api/bubui/admin/plus-gifts", { method: "PATCH", body: JSON.stringify({ id: g.id, active: !g.active }) });
+      load();
+    } catch (e) {
+      setErr(String(e));
+    }
+  }
+
+  async function remove(g: AdminGift) {
+    if (!confirm(`¿Eliminar "${g.title}"?`)) return;
+    try {
+      await adminFetch(`/api/bubui/admin/plus-gifts?id=${encodeURIComponent(g.id)}`, { method: "DELETE" });
+      load();
+    } catch (e) {
+      setErr(String(e));
+    }
+  }
+
+  return (
+    <section className="bubui-card p-5 mt-4 max-w-xl">
+      <h2 className="text-sm font-bold mb-2">Regalos Plus</h2>
+      <p className="text-[13px] text-black/55 mb-3">
+        Regalos exclusivos que solo ven en la app los suscriptores de Bubui Plus. Aparecen ordenados por el número de
+        orden (menor primero).
+      </p>
+
+      <div className="grid gap-2 mb-3">
+        <input className="bubui-input" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="Título del regalo *" />
+        <input className="bubui-input" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="Descripción (opcional)" />
+        <input className="bubui-input" value={form.imageUrl} onChange={(e) => setForm({ ...form, imageUrl: e.target.value })} placeholder="URL de imagen (opcional)" />
+        <input className="bubui-input" value={form.link} onChange={(e) => setForm({ ...form, link: e.target.value })} placeholder="Enlace al tocar (opcional)" />
+        <input className="bubui-input max-w-[120px]" inputMode="numeric" value={form.order} onChange={(e) => setForm({ ...form, order: e.target.value.replace(/[^0-9]/g, "") })} placeholder="Orden" />
+        <button onClick={add} disabled={saving || !form.title.trim()} className="bubui-btn disabled:opacity-50 w-fit">
+          {saving ? "Añadiendo…" : "Añadir regalo"}
+        </button>
+      </div>
+
+      {err && <div className="text-rose-700 text-sm mb-2">{err}</div>}
+
+      {gifts == null ? (
+        <div className="bubui-skeleton h-16" />
+      ) : gifts.length === 0 ? (
+        <p className="text-sm text-black/45">Todavía no hay regalos.</p>
+      ) : (
+        <ul className="divide-y divide-black/5">
+          {gifts.map((g) => (
+            <li key={g.id} className="py-2 flex items-center gap-3">
+              {g.imageUrl ? <img src={g.imageUrl} alt="" className="h-10 w-10 rounded-lg object-cover border border-black/10" /> : <div className="h-10 w-10 rounded-lg bg-black/5 flex items-center justify-center">🎁</div>}
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-bold truncate">{g.title}</div>
+                {g.description && <div className="text-[12px] text-black/50 truncate">{g.description}</div>}
+                <div className="text-[11px] text-black/40">orden {g.order}{g.active ? "" : " · oculto"}</div>
+              </div>
+              <button onClick={() => toggle(g)} className="bubui-chip" style={{ cursor: "pointer" }}>{g.active ? "Ocultar" : "Activar"}</button>
+              <button onClick={() => remove(g)} className="text-rose-600 text-sm font-semibold">Eliminar</button>
+            </li>
+          ))}
+        </ul>
+      )}
     </section>
   );
 }

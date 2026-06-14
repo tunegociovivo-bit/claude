@@ -136,6 +136,12 @@ async function handleCheckoutCompleted(session: any): Promise<void> {
 }
 
 async function handleSubscriptionUpsert(sub: any): Promise<void> {
+  // Suscripción de USUARIO (Bubui Plus) — se distingue por metadata.
+  const customerId: string | undefined = sub?.metadata?.bubui_customer_id;
+  if (customerId) {
+    await handleCustomerPlusUpsert(sub, customerId);
+    return;
+  }
   const businessId: string | undefined = sub?.metadata?.bubui_business_id;
   const plan: string | undefined = sub?.metadata?.bubui_plan;
   if (!businessId || !plan) return;
@@ -160,6 +166,16 @@ async function handleSubscriptionUpsert(sub: any): Promise<void> {
 }
 
 async function handleSubscriptionDeleted(sub: any): Promise<void> {
+  const customerId: string | undefined = sub?.metadata?.bubui_customer_id;
+  if (customerId) {
+    await prisma.bubuiCustomer
+      .update({
+        where: { id: customerId },
+        data: { plan: "free", bubuiStripeSubscriptionId: null, planExpiresAt: null, subscriptionCancelAt: null }
+      })
+      .catch(() => {});
+    return;
+  }
   const businessId: string | undefined = sub?.metadata?.bubui_business_id;
   if (!businessId) return;
   await prisma.bubuiBusiness.update({
@@ -168,20 +184,46 @@ async function handleSubscriptionDeleted(sub: any): Promise<void> {
   });
 }
 
+/** Activa/actualiza el plan Bubui Plus de un usuario según su suscripción. */
+async function handleCustomerPlusUpsert(sub: any, customerId: string): Promise<void> {
+  const status = sub?.status;
+  const currentPeriodEnd = sub?.current_period_end ? new Date(sub.current_period_end * 1000) : null;
+  const isActive = ["active", "trialing", "past_due"].includes(status);
+  const cancelAt =
+    sub?.cancel_at_period_end && sub?.cancel_at ? new Date(sub.cancel_at * 1000) : null;
+  await prisma.bubuiCustomer
+    .update({
+      where: { id: customerId },
+      data: {
+        plan: isActive ? "plus" : "free",
+        bubuiStripeSubscriptionId: sub.id,
+        planExpiresAt: isActive ? currentPeriodEnd : null,
+        subscriptionCancelAt: isActive ? cancelAt : null
+      }
+    })
+    .catch(() => {});
+}
+
 async function handleInvoicePaid(inv: any): Promise<void> {
-  // Si periodEnd llega aquí, lo refrescamos en el negocio.
+  // Si periodEnd llega aquí, lo refrescamos en el negocio o el usuario.
   const subId = inv?.subscription;
   if (!subId) return;
+  const periodEnd = inv?.lines?.data?.[0]?.period?.end;
+  if (!periodEnd) return;
+  const newExpiry = new Date(periodEnd * 1000);
   const business = await prisma.bubuiBusiness.findFirst({
     where: { bubuiStripeSubscriptionId: subId }
   });
-  if (!business) return;
-  const periodEnd = inv?.lines?.data?.[0]?.period?.end;
-  if (periodEnd) {
-    await prisma.bubuiBusiness.update({
-      where: { id: business.id },
-      data: { planExpiresAt: new Date(periodEnd * 1000) }
-    });
+  if (business) {
+    await prisma.bubuiBusiness.update({ where: { id: business.id }, data: { planExpiresAt: newExpiry } });
+    return;
+  }
+  // Renovación de Bubui Plus (usuario).
+  const customer = await prisma.bubuiCustomer.findFirst({
+    where: { bubuiStripeSubscriptionId: subId }
+  });
+  if (customer) {
+    await prisma.bubuiCustomer.update({ where: { id: customer.id }, data: { planExpiresAt: newExpiry } });
   }
 }
 

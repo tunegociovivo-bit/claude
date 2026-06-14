@@ -80,7 +80,28 @@ export const api = {
       totalSaved: number;
       totalPurchases: number;
       activeOffers: number;
+      plan?: string;
+      plusActive?: boolean;
+      plusEnabled?: boolean;
+      planExpiresAt?: string | null;
+      subscriptionCancelAt?: string | null;
     }>(`/api/bubui/customer/${customerId}`),
+  /** Inicia el checkout de Bubui Plus (1€/mes). Devuelve la URL de Stripe que
+   *  la app abre en el navegador (el cobro ocurre en web). */
+  plusCheckout: (customerId: string) =>
+    call<{ ok: true; url: string }>(`/api/bubui/customer/${customerId}/plus-checkout`, { method: "POST" }),
+  /** Cancela (o reactiva con resume) la suscripción Bubui Plus. */
+  cancelPlus: (customerId: string, resume?: boolean) =>
+    call<{ ok: true; cancelAt?: string | null; resumed?: boolean }>(
+      `/api/bubui/customer/${customerId}/cancel-plus`,
+      { method: "POST", body: JSON.stringify({ resume: !!resume }) }
+    ),
+  /** Regalos exclusivos del usuario (solo si es Plus). */
+  plusGifts: (customerId: string) =>
+    call<{
+      plusActive: boolean;
+      gifts: { id: string; title: string; description: string | null; imageUrl: string | null; link: string | null }[];
+    }>(`/api/bubui/customer/${customerId}/plus-gifts`),
   offers: (customerId: string, lat?: number, lng?: number) => {
     const url = new URL(`${API_BASE}/api/bubui/offers`);
     url.searchParams.set("customerId", customerId);

@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Bubui · Una hoja · Benalmádena</title>
+<style>
+  :root{
+    --pink:#ec1c6e; --ink:#1a1024; --gray:#5b5566; --bg:#fdf7fb;
+    --wash:#fce7f1; --soft:#f7c6dd; --white:#fff; --border:#efe6ee; --green:#16a34a;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;background:#cfc6d4;color:var(--ink);-webkit-font-smoothing:antialiased;padding:18px}
+  .page{
+    width:210mm;min-height:297mm;margin:0 auto;background:var(--bg);
+    padding:14mm 14mm 12mm;box-shadow:0 12px 40px rgba(0,0,0,.18);position:relative
+  }
+  .head{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid var(--pink);padding-bottom:12px;margin-bottom:14px}
+  .wordmark{font-weight:900;letter-spacing:-1.5px;color:var(--pink);font-size:40px;line-height:1}
+  .head h1{font-size:18px;font-weight:900;letter-spacing:-.3px;margin-top:4px;max-width:24ch;line-height:1.2}
+  .free{display:inline-block;background:var(--green);color:#fff;font-weight:900;border-radius:999px;padding:6px 14px;font-size:12px;white-space:nowrap}
+  h2{font-size:13px;font-weight:900;text-transform:uppercase;letter-spacing:1.2px;color:var(--pink);margin:14px 0 8px}
+  p{font-size:13px;line-height:1.5;color:var(--gray)}
+  p strong,li strong{color:var(--ink)}
+  .hero{background:linear-gradient(160deg,#fff,var(--wash));border:2px solid var(--pink);border-radius:14px;padding:16px 18px;margin-bottom:6px}
+  .hero .big{font-size:20px;font-weight:900;color:var(--ink);line-height:1.2;margin-bottom:6px}
+  .hero .big .p{color:var(--pink)}
+  .quote{font-size:14px;font-style:italic;font-weight:700;color:var(--ink);border-left:4px solid var(--pink);padding-left:12px;margin:8px 0}
+  .cols{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  ul{list-style:none}
+  ul li{font-size:12.5px;line-height:1.45;color:var(--gray);padding-left:18px;position:relative;margin-bottom:6px}
+  ul li::before{content:"";position:absolute;left:0;top:.5em;height:8px;width:8px;border-radius:2px;background:var(--pink)}
+  .steps{display:flex;gap:8px;margin-top:4px}
+  .step{flex:1;background:var(--white);border:1px solid var(--border);border-radius:10px;padding:10px}
+  .step b{display:block;color:var(--pink);font-size:11px;font-weight:900}
+  .step span{font-size:11.5px;color:var(--gray);line-height:1.35;display:block;margin-top:2px}
+  .vs{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:4px}
+  .box{border-radius:10px;padding:12px}
+  .box.mut{background:#f4f1f5;border:1px dashed #d9cfd9}
+  .box.hi{background:linear-gradient(160deg,#fff,var(--wash));border:2px solid var(--pink)}
+  .box h3{font-size:12px;font-weight:900;margin-bottom:6px}
+  .box.hi h3{color:var(--pink)}
+  .ask{background:var(--ink);color:#fff;border-radius:14px;padding:16px 18px;margin-top:14px}
+  .ask h2{color:#fff;margin-top:0}
+  .ask ul li{color:rgba(255,255,255,.9)}
+  .ask ul li::before{background:#fff}
+  .ask ul li strong{color:#fff}
+  .foot{display:flex;justify-content:space-between;align-items:center;margin-top:14px;padding-top:10px;border-top:1px solid var(--border);font-size:11px;color:#9a90a0}
+  .foot a{color:var(--pink);font-weight:800;text-decoration:none}
+  @media print{
+    body{background:#fff;padding:0}
+    .page{box-shadow:none;width:auto;min-height:auto;margin:0}
+    @page{size:A4;margin:0}
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <div class="head">
+    <div>
+      <div class="wordmark">bubui</div>
+      <h1>La app gratuita para activar el comercio local de Benalmádena.</h1>
+    </div>
+    <span class="free">GRATIS · COMERCIO Y VECINO</span>
+  </div>
+
+  <div class="hero">
+    <div class="big">No pagas publicidad. Solo das un pequeño <span class="p">descuento</span>.</div>
+    <p>El pequeño comercio <strong>no puede permitirse</strong> una agencia ni Google/Meta Ads (cientos o miles de € al mes). Con Bubui tiene <strong>publicidad local sin coste fijo</strong>: solo ofrece un pequeño descuento al cliente que la app le trae.</p>
+    <div class="quote">"No es lo mismo pagar que ganar un poco menos." Y el descuento sale de una venta que, sin Bubui, quizá ni existiría. Riesgo cero: solo "invierte" cuando entra un cliente real.</div>
+  </div>
+
+  <div class="cols">
+    <div>
+      <h2>Cómo funciona</h2>
+      <div class="steps">
+        <div class="step"><b>1 · Vecino</b><span>Descubre comercios cerca y ahorra en cada compra.</span></div>
+        <div class="step"><b>2 · Compra</b><span>Escanea el QR del comercio. Su ahorro se registra.</span></div>
+        <div class="step"><b>3 · Vuelve</b><span>Desbloquea ofertas en otros comercios del municipio.</span></div>
+      </div>
+      <h2 style="margin-top:14px">El dinero circula en Benalmádena</h2>
+      <p>Comprar en la panadería <strong>desbloquea</strong> un descuento en la peluquería de al lado. El gasto se queda y rota dentro del municipio, comercio a comercio.</p>
+    </div>
+    <div>
+      <h2>Frente a Google / Meta / agencias</h2>
+      <div class="vs">
+        <div class="box mut"><h3>Los grandes</h3><ul><li>Pagas por adelantado</li><li>Caro y complejo</li><li>Gana quien más invierte</li></ul></div>
+        <div class="box hi"><h3>Con Bubui</h3><ul><li>Cero coste fijo</li><li>Pagas con tu margen al vender</li><li>Local y medible</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+  <h2>Por qué interesa al Ayuntamiento</h2>
+  <div class="cols">
+    <ul>
+      <li><strong>Gasto que se queda</strong> en el municipio: más actividad y empleo local.</li>
+      <li><strong>Apoyo al pequeño comercio</strong> frente a las grandes superficies.</li>
+    </ul>
+    <ul>
+      <li><strong>Datos reales</strong> del comercio local (agregados y anónimos).</li>
+      <li><strong>Marca de ciudad</strong>: iniciativa moderna, medible y de proximidad.</li>
+    </ul>
+  </div>
+
+  <div class="ask">
+    <h2>Lo que necesitamos del Ayuntamiento y las asociaciones</h2>
+    <ul>
+      <li><strong>Respaldo institucional:</strong> Bubui como herramienta oficial de dinamización del comercio de Benalmádena.</li>
+      <li><strong>Acceso a los comercios:</strong> presentarla a las asociaciones y a sus asociados.</li>
+      <li><strong>Difusión a los vecinos:</strong> una campaña de lanzamiento conjunta del piloto.</li>
+    </ul>
+  </div>
+
+  <div class="foot">
+    <span>Una iniciativa de <strong>Negocio Vivo</strong> · Bubui ya funciona en Benalmádena</span>
+    <span><a href="mailto:tunegociovivo@gmail.com">tunegociovivo@gmail.com</a></span>
+  </div>
+
+</div>
+</body>
+</html>

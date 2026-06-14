@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Bubui · Vídeo 60s</title>
+<style>
+  :root{--pink:#ec1c6e;--purple:#7b2ff7;--ink:#1a1024;--green:#16a34a}
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{height:100%;background:#000;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  #stage{position:fixed;inset:0;background:#120a18;display:flex;align-items:center;justify-content:center}
+  .scene{position:absolute;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:6vw;color:#fff}
+  .scene.on{display:flex}
+  .scene.on .in{animation:rise .8s cubic-bezier(.2,.7,.2,1) both}
+  .scene.on .in2{animation:rise .8s .18s cubic-bezier(.2,.7,.2,1) both}
+  .scene.on .in3{animation:rise .8s .36s cubic-bezier(.2,.7,.2,1) both}
+  @keyframes rise{from{opacity:0;transform:translateY(34px) scale(.98)}to{opacity:1;transform:none}}
+  @keyframes kb{from{transform:scale(1)}to{transform:scale(1.08)}}
+  .bgwash{position:absolute;inset:0;animation:kb 7s ease-out both;z-index:0}
+  .scene>*{position:relative;z-index:1}
+  .wm{font-weight:900;letter-spacing:-3px;line-height:1;color:#fff}
+  .kick{font-size:clamp(.9rem,2vw,1.4rem);font-weight:800;letter-spacing:3px;text-transform:uppercase;color:rgba(255,255,255,.85);margin-bottom:24px}
+  h1{font-size:clamp(2rem,6.5vw,5.5rem);font-weight:900;letter-spacing:-2px;line-height:1.02}
+  h1 .p{color:#ffd56a}
+  .sub{font-size:clamp(1.1rem,2.6vw,2rem);color:rgba(255,255,255,.92);margin-top:22px;max-width:24ch;font-weight:600;line-height:1.3}
+  .free{display:inline-block;background:#fff;color:var(--green);font-weight:900;border-radius:999px;padding:12px 28px;font-size:clamp(1rem,2.4vw,1.7rem);margin-top:26px}
+  .flow{display:flex;align-items:center;gap:clamp(10px,2vw,26px);flex-wrap:wrap;justify-content:center;margin-top:10px}
+  .pill{background:rgba(255,255,255,.14);border:2px solid rgba(255,255,255,.5);border-radius:18px;padding:clamp(14px,2vw,24px) clamp(16px,2.5vw,32px);font-weight:800;color:#fff;font-size:clamp(1rem,2.2vw,1.7rem)}
+  .arrow{font-size:clamp(1.6rem,4vw,3rem);color:#ffd56a;font-weight:900}
+  .quote{font-size:clamp(1.6rem,4.5vw,3.4rem);font-weight:900;line-height:1.2;max-width:20ch}
+  .small{font-size:clamp(1rem,2.2vw,1.6rem);color:rgba(255,255,255,.85);margin-top:20px;max-width:26ch;line-height:1.4}
+  /* progress + controls */
+  #bar{position:fixed;top:0;left:0;height:6px;width:0;background:linear-gradient(90deg,#ffd56a,#ec1c6e);z-index:30}
+  #cap{position:fixed;bottom:5%;left:50%;transform:translateX(-50%);max-width:80%;text-align:center;color:#fff;font-size:clamp(1rem,2.3vw,1.7rem);font-weight:600;background:rgba(0,0,0,.35);padding:10px 22px;border-radius:14px;z-index:30;backdrop-filter:blur(4px)}
+  #start{position:fixed;inset:0;z-index:40;display:flex;flex-direction:column;align-items:center;justify-content:center;background:radial-gradient(circle at 50% 40%,#3a1e4a,#120a18);color:#fff;cursor:pointer}
+  #start .wm{font-size:clamp(3rem,12vw,9rem);margin-bottom:18px}
+  #start .play{height:92px;width:92px;border-radius:50%;background:var(--pink);display:flex;align-items:center;justify-content:center;margin-top:10px;box-shadow:0 14px 40px rgba(236,28,110,.5)}
+  #start .play::after{content:"";border-left:30px solid #fff;border-top:18px solid transparent;border-bottom:18px solid transparent;margin-left:6px}
+  #start p{color:rgba(255,255,255,.7);margin-top:24px;font-size:1rem}
+  #replay{position:fixed;bottom:18px;right:18px;z-index:40;background:rgba(255,255,255,.15);color:#fff;border:1px solid rgba(255,255,255,.3);border-radius:999px;padding:8px 18px;font-weight:700;cursor:pointer;display:none}
+</style>
+</head>
+<body>
+<div id="bar"></div>
+<div id="stage">
+
+  <!-- S1 -->
+  <div class="scene" data-cap="El comercio local de Benalmádena, más vivo que nunca.">
+    <div class="bgwash" style="background:linear-gradient(135deg,#ec1c6e,#7b2ff7)"></div>
+    <div class="wm in" style="font-size:clamp(3rem,12vw,9rem)">bubui</div>
+    <div class="sub in2">El comercio local de Benalmádena,<br>más vivo que nunca.</div>
+  </div>
+
+  <!-- S2 -->
+  <div class="scene" data-cap="El pequeño comercio no puede pagar publicidad. Bubui sí puede ayudarle.">
+    <div class="bgwash" style="background:linear-gradient(135deg,#2a1830,#4a2350)"></div>
+    <div class="kick in">El problema</div>
+    <h1 class="in2">El pequeño comercio<br>no puede pagar <span class="p">publicidad</span>.</h1>
+    <div class="sub in3">Agencias, Google, Meta… cientos de euros al mes. Inviable para una tienda de barrio.</div>
+  </div>
+
+  <!-- S3 -->
+  <div class="scene" data-cap="Bubui: la app gratuita que le trae clientes al comercio local.">
+    <div class="bgwash" style="background:linear-gradient(135deg,#7b2ff7,#ec1c6e)"></div>
+    <div class="kick in">La solución</div>
+    <h1 class="in2">Una app <span class="p">gratuita</span><br>que le trae clientes.</h1>
+    <div class="free in3">GRATIS · COMERCIO Y VECINO</div>
+  </div>
+
+  <!-- S4 -->
+  <div class="scene" data-cap="El vecino descubre comercios cerca, compra y ahorra en cada compra.">
+    <div class="bgwash" style="background:linear-gradient(135deg,#ec1c6e,#ff7eb3)"></div>
+    <div class="kick in">El vecino</div>
+    <div class="flow in2">
+      <span class="pill">📱 Descubre</span>
+      <span class="arrow">→</span>
+      <span class="pill">🛍️ Compra</span>
+      <span class="arrow">→</span>
+      <span class="pill">💸 Ahorra</span>
+    </div>
+    <div class="sub in3">Los comercios de su zona, en su bolsillo.</div>
+  </div>
+
+  <!-- S5 (estrella) -->
+  <div class="scene" data-cap="La magia: compra en un comercio y te premia en otro. El dinero se queda en Benalmádena.">
+    <div class="bgwash" style="background:linear-gradient(135deg,#5b1a8a,#ec1c6e)"></div>
+    <div class="kick in">El dinero circula en Benalmádena</div>
+    <div class="flow in2">
+      <span class="pill">🥖 Panadería</span>
+      <span class="arrow">→</span>
+      <span class="pill">🎁 Desbloquea</span>
+      <span class="arrow">→</span>
+      <span class="pill">💇 Peluquería</span>
+    </div>
+    <div class="sub in3">Comprar en un comercio premia volver en otro.</div>
+  </div>
+
+  <!-- S6 -->
+  <div class="scene" data-cap="El comercio no paga publicidad: solo da un pequeño descuento. No es pagar, es ganar un poco menos.">
+    <div class="bgwash" style="background:linear-gradient(135deg,#2a1830,#7b2ff7)"></div>
+    <div class="kick in">Para el comercio</div>
+    <div class="quote in2">No pagas.<br>Solo das un pequeño <span style="color:#ffd56a">descuento</span>.</div>
+    <div class="small in3">"No es lo mismo pagar que ganar un poco menos." Riesgo cero.</div>
+  </div>
+
+  <!-- S7 -->
+  <div class="scene" data-cap="Activemos juntos el comercio local de Benalmádena.">
+    <div class="bgwash" style="background:linear-gradient(135deg,#ec1c6e,#7b2ff7)"></div>
+    <div class="wm in" style="font-size:clamp(2.4rem,9vw,6.5rem)">bubui</div>
+    <h1 class="in2" style="font-size:clamp(1.6rem,5vw,4rem);margin-top:14px">Activemos juntos el comercio<br>local de Benalmádena.</h1>
+    <div class="sub in3">tunegociovivo@gmail.com</div>
+  </div>
+
+</div>
+
+<div id="cap"></div>
+<button id="replay">↻ Repetir</button>
+
+<div id="start">
+  <div class="wm">bubui</div>
+  <div style="font-size:clamp(1rem,2.5vw,1.6rem);color:rgba(255,255,255,.85);font-weight:600">Vídeo de presentación · 60 s</div>
+  <div class="play"></div>
+  <p>Pulsa para reproducir · Espacio = pausa</p>
+</div>
+
+<script>
+  // Duración (segundos) de cada escena. Suma = 60.
+  const durs=[6,9,8,9,12,8,8];
+  const scenes=[...document.querySelectorAll('.scene')];
+  const bar=document.getElementById('bar');
+  const cap=document.getElementById('cap');
+  const startEl=document.getElementById('start');
+  const replay=document.getElementById('replay');
+  const total=durs.reduce((a,b)=>a+b,0);
+  let idx=0,t0=0,raf=0,paused=false,pausedAt=0,started=false;
+
+  function showScene(i){
+    scenes.forEach((s,k)=>s.classList.toggle('on',k===i));
+    cap.textContent=scenes[i].dataset.cap||'';
+  }
+  function schedule(){
+    let acc=0; const marks=durs.map(d=>acc+=d); // fin acumulado de cada escena
+    function tick(now){
+      if(paused){return}
+      const elapsed=(now-t0)/1000;
+      bar.style.width=Math.min(100,(elapsed/total)*100)+'%';
+      let cur=marks.findIndex(m=>elapsed<m);
+      if(cur===-1){ finish(); return }
+      if(cur!==idx){ idx=cur; showScene(idx) }
+      raf=requestAnimationFrame(tick);
+    }
+    raf=requestAnimationFrame(tick);
+  }
+  function play(){
+    started=true; startEl.style.display='none'; replay.style.display='none';
+    idx=0; showScene(0); paused=false;
+    t0=performance.now(); schedule();
+  }
+  function finish(){
+    cancelAnimationFrame(raf); bar.style.width='100%';
+    replay.style.display='block';
+  }
+  function togglePause(){
+    if(!started) return;
+    if(!paused){ paused=true; pausedAt=performance.now(); cancelAnimationFrame(raf); }
+    else{ paused=false; t0+=performance.now()-pausedAt; schedule(); }
+  }
+  startEl.addEventListener('click',play);
+  replay.addEventListener('click',play);
+  document.addEventListener('keydown',e=>{ if(e.key===' '){e.preventDefault();togglePause()} if(e.key==='Enter'&&!started){play()} });
+</script>
+</body>
+</html>
