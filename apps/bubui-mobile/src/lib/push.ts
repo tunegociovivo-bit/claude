@@ -26,8 +26,10 @@ let lastRegisteredToken: { customerId: string; token: string } | null = null;
 
 /**
  * Extrae la URL de imagen del payload de la notificación, si la trae.
- * Solo en Android: en iOS mostrar la imagen requiere una Notification Service
- * Extension en el build, así que ahí dejamos el comportamiento por defecto.
+ * Solo en Android se gestiona aquí (Notifee BigPicture). En iOS la imagen la
+ * adjunta a nivel de sistema la Notification Service Extension (ver
+ * plugins/withIosNotificationServiceExtension.js), así que no la suprimimos:
+ * dejamos que el sistema muestre la notificación ya enriquecida.
  */
 function imageOf(notification: Notifications.Notification): string | undefined {
   if (Platform.OS !== "android") return undefined;

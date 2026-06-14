@@ -118,7 +118,8 @@
       ],
       "expo-font",
       "./plugins/withReleaseSigning",
-      "./plugins/withOptionalGoogleServices"
+      "./plugins/withOptionalGoogleServices",
+      "./plugins/withIosNotificationServiceExtension"
     ],
     "extra": {
       "apiBaseUrl": "https://bubui.app",
