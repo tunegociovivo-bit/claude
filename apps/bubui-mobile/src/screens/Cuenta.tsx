@@ -8,9 +8,10 @@ import { BottomNav } from "../components/BottomNav";
 import { FadeIn } from "../components/FadeIn";
 import { Bouncy } from "../components/Bouncy";
 import { CountUp } from "../components/CountUp";
+import { Gradient } from "../components/Gradient";
 import { stagger } from "../lib/anim";
 import { api, API_BASE } from "../lib/api";
-import { useTheme, type Palette, radius, shadow } from "../lib/theme";
+import { useTheme, type Palette, radius, shadow, gradients } from "../lib/theme";
 
 export function Cuenta() {
   const nav = useNavigation<any>();
@@ -41,18 +42,24 @@ export function Cuenta() {
   );
 
   const initial = (customer?.name ?? customer?.email ?? "?").charAt(0).toUpperCase();
+  // Nivel del cliente según compras confirmadas (gamificación ligera).
+  const purchases = customer?.totalPurchases ?? 0;
+  const tier = purchases >= 30 ? "⭐ Miembro Oro" : purchases >= 10 ? "✨ Miembro Plata" : "🌱 Miembro Bronce";
 
   return (
     <View style={styles.root}>
       <ScrollView contentContainerStyle={{ paddingBottom: 30 }}>
-        {/* Cabecera hero rosa con avatar + nombre */}
-        <FadeIn replayOnFocus dy={0} style={[styles.hero, { paddingTop: insets.top + 18 }]}>
-          <Wordmark size={24} />
-          <View style={styles.avatar}>
-            <Text style={styles.avatarText}>{initial}</Text>
-          </View>
-          <Text style={styles.name}>{customer?.name ?? "Cliente Bubui"}</Text>
-          {!!customer?.email && <Text style={styles.sub}>{customer.email}</Text>}
+        {/* Cabecera hero con gradiente de marca, avatar y nivel */}
+        <FadeIn replayOnFocus dy={0}>
+          <Gradient colors={gradients.brand} style={[styles.hero, { paddingTop: insets.top + 18 }]}>
+            <Wordmark size={24} />
+            <View style={styles.avatar}>
+              <Text style={styles.avatarText}>{initial}</Text>
+            </View>
+            <Text style={styles.name}>{customer?.name ?? "Cliente Bubui"}</Text>
+            {!!customer?.email && <Text style={styles.sub}>{customer.email}</Text>}
+            <View style={styles.tier}><Text style={styles.tierText}>{tier}</Text></View>
+          </Gradient>
         </FadeIn>
 
         <View style={styles.body}>
@@ -111,12 +118,19 @@ const makeStyles = (c: Palette) =>
   StyleSheet.create({
     root: { flex: 1, backgroundColor: c.bg },
     hero: {
-      backgroundColor: c.pink,
       alignItems: "center",
       paddingBottom: 56,
       borderBottomLeftRadius: 28,
       borderBottomRightRadius: 28
     },
+    tier: {
+      marginTop: 10,
+      backgroundColor: "rgba(255,255,255,0.22)",
+      borderRadius: radius.pill,
+      paddingHorizontal: 14,
+      paddingVertical: 6
+    },
+    tierText: { color: "#fff", fontWeight: "800", fontSize: 12 },
     avatar: {
       height: 84,
       width: 84,

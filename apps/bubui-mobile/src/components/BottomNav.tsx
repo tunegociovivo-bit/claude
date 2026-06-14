@@ -3,7 +3,10 @@ import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useTheme, type Palette } from "../lib/theme";
+import { useTheme, type Palette, shadow, gradients } from "../lib/theme";
+import { Gradient } from "./Gradient";
+import { Bouncy } from "./Bouncy";
+import { sfx } from "../lib/sound";
 import { api } from "../lib/api";
 
 // Iconos vectoriales (Ionicons): nítidos y coherentes con la marca. Cada tab
@@ -55,38 +58,97 @@ export function BottomNav({ active }: { active: string }) {
   }, []);
 
   const tabs = TABS.filter((t) => !t.gate || sections[t.gate]);
+  // Repartimos las pestañas a ambos lados del FAB central (Escanear). Con los
+  // dos lados a flex:1 el hueco central —y por tanto el FAB— queda centrado
+  // sea cual sea el número de pestañas activas.
+  const half = Math.ceil(tabs.length / 2);
+  const left = tabs.slice(0, half);
+  const right = tabs.slice(half);
+
+  const renderTab = (t: (typeof TABS)[number]) => {
+    const on = t.route === active;
+    return (
+      <TouchableOpacity
+        key={t.route}
+        style={styles.item}
+        onPress={() => { if (!on) nav.navigate(t.route); }}
+        activeOpacity={0.7}
+      >
+        <Ionicons name={on ? t.iconOn : t.icon} size={23} color={on ? c.pink : c.grayLight} />
+        <Text style={[styles.label, on && styles.labelOn]}>{t.label}</Text>
+      </TouchableOpacity>
+    );
+  };
 
   return (
-    <View style={[styles.bar, { paddingBottom: Math.max(insets.bottom, 12) }]}>
-      {tabs.map((t) => {
-        const on = t.route === active;
-        return (
-          <TouchableOpacity
-            key={t.route}
-            style={styles.item}
-            onPress={() => { if (!on) nav.navigate(t.route); }}
-            activeOpacity={0.7}
-          >
-            <Ionicons name={on ? t.iconOn : t.icon} size={24} color={on ? c.pink : c.grayLight} />
-            <Text style={[styles.label, on && styles.labelOn]}>{t.label}</Text>
-          </TouchableOpacity>
-        );
-      })}
+    <View style={[styles.wrap, { paddingBottom: Math.max(insets.bottom, 10) }]}>
+      <View style={styles.bar}>
+        <View style={styles.side}>{left.map(renderTab)}</View>
+        <View style={styles.fabGap} />
+        <View style={styles.side}>{right.map(renderTab)}</View>
+      </View>
+
+      {/* FAB central: la acción estrella (escanear) siempre a un toque. */}
+      <View style={styles.fabHolder} pointerEvents="box-none">
+        <Bouncy
+          scaleTo={0.9}
+          style={styles.fab}
+          onPress={() => { sfx.tap(); nav.navigate("Scan", { businessId: "" }); }}
+        >
+          <Gradient colors={gradients.pink} style={styles.fabInner}>
+            <Ionicons name="scan-outline" size={28} color="#fff" />
+          </Gradient>
+        </Bouncy>
+      </View>
     </View>
   );
 }
 
 const makeStyles = (c: Palette) =>
   StyleSheet.create({
+    wrap: {
+      backgroundColor: c.bg,
+      paddingTop: 6,
+      paddingHorizontal: 12
+    },
     bar: {
       flexDirection: "row",
+      alignItems: "center",
       backgroundColor: c.white,
-      borderTopWidth: 1,
-      borderTopColor: c.border,
-      paddingTop: 10,
-      paddingHorizontal: 8
+      borderRadius: 26,
+      borderWidth: 1,
+      borderColor: c.border,
+      paddingVertical: 12,
+      paddingHorizontal: 6,
+      ...shadow.lg
     },
-    item: { flex: 1, alignItems: "center", gap: 4 },
+    side: { flex: 1, flexDirection: "row", justifyContent: "space-around", alignItems: "center" },
+    item: { alignItems: "center", gap: 4, minWidth: 48 },
+    fabGap: { width: 74 },
     label: { fontSize: 10, color: c.gray, fontWeight: "600" },
-    labelOn: { color: c.pink, fontWeight: "800" }
+    labelOn: { color: c.pink, fontWeight: "800" },
+    fabHolder: {
+      position: "absolute",
+      top: -22,
+      left: 0,
+      right: 0,
+      alignItems: "center",
+      zIndex: 10
+    },
+    fab: {
+      width: 66,
+      height: 66,
+      borderRadius: 33,
+      backgroundColor: c.bg,
+      alignItems: "center",
+      justifyContent: "center",
+      ...shadow.lg
+    },
+    fabInner: {
+      width: 56,
+      height: 56,
+      borderRadius: 28,
+      alignItems: "center",
+      justifyContent: "center"
+    }
   });

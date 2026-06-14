@@ -1,9 +1,11 @@
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, Linking, Share, Platform } from "react-native";
 import { useNavigation, useRoute, type RouteProp } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Ionicons } from "@expo/vector-icons";
 import { API_BASE } from "../lib/api";
 import { FadeIn } from "../components/FadeIn";
-import { useTheme, type Palette, radius, shadow } from "../lib/theme";
+import { Gradient } from "../components/Gradient";
+import { useTheme, type Palette, radius, shadow, gradients } from "../lib/theme";
 import type { RootStackParamList } from "../../App";
 
 /** Negocio mostrado en el detalle. Reúne los campos que devuelven los
@@ -75,8 +77,13 @@ export function Negocio() {
     <View style={styles.root}>
       <FadeIn replayOnFocus dy={0} style={{ flex: 1 }}>
       <ScrollView contentContainerStyle={{ paddingBottom: 32 }}>
-        {/* Hero con color de marca o logo */}
-        <View style={[styles.hero, { backgroundColor: b.brandColor || c.pinkSoft, paddingTop: insets.top + 8 }]}>
+        {/* Hero con color de marca o gradiente */}
+        <View style={[styles.hero, { paddingTop: insets.top + 8 }]}>
+          {b.brandColor ? (
+            <View style={[StyleSheet.absoluteFill, { backgroundColor: b.brandColor }]} />
+          ) : (
+            <Gradient colors={gradients.brand} style={StyleSheet.absoluteFill} />
+          )}
           <TouchableOpacity style={styles.closeBtn} onPress={() => (nav.canGoBack() ? nav.goBack() : nav.navigate("Feed"))} hitSlop={8}>
             <Text style={styles.closeText}>‹</Text>
           </TouchableOpacity>
@@ -125,8 +132,11 @@ export function Negocio() {
           )}
 
           {/* Acciones */}
-          <TouchableOpacity style={styles.cta} onPress={() => nav.navigate("Scan", { businessId: "" })} activeOpacity={0.9}>
-            <Text style={styles.ctaText}>⛶  Escanear QR aquí</Text>
+          <TouchableOpacity style={styles.ctaWrap} onPress={() => nav.navigate("Scan", { businessId: "" })} activeOpacity={0.9}>
+            <Gradient colors={gradients.hero} style={styles.cta}>
+              <Ionicons name="scan-outline" size={18} color="#fff" />
+              <Text style={styles.ctaText}>Escanear QR aquí</Text>
+            </Gradient>
           </TouchableOpacity>
 
           <View style={styles.secRow}>
@@ -164,8 +174,9 @@ const makeStyles = (c: Palette) =>
     infoRow: { flexDirection: "row", alignItems: "center", gap: 8, alignSelf: "stretch", marginTop: 14, paddingHorizontal: 4 },
     infoIcon: { fontSize: 16 },
     infoText: { flex: 1, fontSize: 14, color: c.ink, lineHeight: 20 },
-    cta: { alignSelf: "stretch", marginTop: 26, backgroundColor: c.pink, borderRadius: radius.pill, paddingVertical: 16, alignItems: "center", ...shadow.btn },
-    ctaText: { color: c.onAccent, fontSize: 16, fontWeight: "800" },
+    ctaWrap: { alignSelf: "stretch", marginTop: 26, borderRadius: radius.pill, ...shadow.btn },
+    cta: { flexDirection: "row", gap: 8, borderRadius: radius.pill, paddingVertical: 16, alignItems: "center", justifyContent: "center" },
+    ctaText: { color: "#fff", fontSize: 16, fontWeight: "800" },
     secRow: { flexDirection: "row", gap: 10, alignSelf: "stretch", marginTop: 12 },
     secBtn: { flex: 1, paddingVertical: 14, alignItems: "center", borderRadius: radius.md, borderWidth: 1, borderColor: c.border, backgroundColor: c.white },
     secText: { fontSize: 14, fontWeight: "800", color: c.black }
