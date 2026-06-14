@@ -2,6 +2,12 @@
 
 import Constants from "expo-constants";
 import { Platform } from "react-native";
+import type { BusinessLite } from "../screens/Negocio";
+
+/** Ficha que el banner del Home puede abrir al tocarlo (comercio real o
+ *  promoción interna sintética). Tiene la misma forma que BusinessLite, así
+ *  que se puede navegar directamente a la pantalla Negocio. */
+export type BannerBusiness = BusinessLite;
 
 export const API_BASE: string =
   (Constants.expoConfig?.extra as any)?.apiBaseUrl ?? "https://bubui.app";
@@ -147,7 +153,8 @@ export const api = {
       } | null;
     }>(`/api/bubui/customer/${customerId}/referral`),
   vapidPublic: () => call("/api/bubui/push/vapid-public"),
-  banner: () => call<{ active: boolean; imageUrl?: string; link?: string }>("/api/bubui/banner"),
+  banner: () =>
+    call<{ active: boolean; imageUrl?: string; link?: string; business?: BannerBusiness }>("/api/bubui/banner"),
   stats: () => call<{ businesses: number; sections?: { discover: boolean; mapa: boolean } }>("/api/bubui/stats"),
   registerPushToken: (args: { customerId: string; token: string; platform: "ios" | "android" }) =>
     call<{ ok: true }>("/api/bubui/customer/push-token/register", {

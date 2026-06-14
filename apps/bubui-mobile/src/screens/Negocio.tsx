@@ -29,6 +29,11 @@ export type BusinessLite = {
   topInCategory?: boolean;
   hoursLeft?: number;
   rewardLabel?: string | null;
+  // Promoción interna (banner del Home con info propia, sin comercio real).
+  description?: string | null;
+  ctaLabel?: string | null;
+  ctaLink?: string | null;
+  isPromo?: boolean;
 };
 
 export type NegocioParam = { business: BusinessLite };
@@ -49,7 +54,8 @@ export function Negocio() {
 
   const discount = b.discountPct ?? b.defaultDiscountPct;
   const distance = fmtDistance(b.distanceM);
-  const webUrl = `${API_BASE}/bubui/n/${b.slug}`;
+  // Para promos internas no hay ficha web: usamos su enlace de CTA o la home.
+  const webUrl = b.slug ? `${API_BASE}/bubui/n/${b.slug}` : b.ctaLink || API_BASE;
 
   // Abre la app de mapas en MODO NAVEGACIÓN (turn-by-turn). En Android,
   // `google.navigation:` arranca la guía por voz directamente; en iOS, Apple
@@ -139,6 +145,8 @@ export function Negocio() {
 
           {!!b.rewardLabel && <Text style={styles.reward}>🎁 {b.rewardLabel}</Text>}
 
+          {!!b.description && <Text style={styles.desc}>{b.description}</Text>}
+
           {!!b.address && (
             <View style={styles.infoRow}>
               <Text style={styles.infoIcon}>📍</Text>
@@ -155,19 +163,32 @@ export function Negocio() {
             </View>
           )}
 
-          {/* Acciones */}
-          <TouchableOpacity style={styles.ctaWrap} onPress={() => nav.navigate("Scan", { businessId: "" })} activeOpacity={0.9}>
-            <Gradient colors={gradients.hero} style={styles.cta}>
-              <Ionicons name="scan-outline" size={18} color="#fff" />
-              <Text style={styles.ctaText}>Escanear QR aquí</Text>
-            </Gradient>
-          </TouchableOpacity>
+          {/* CTA principal: promo interna abre su enlace; un comercio invita a
+              escanear su QR en el local. */}
+          {b.isPromo ? (
+            b.ctaLink ? (
+              <TouchableOpacity style={styles.ctaWrap} onPress={() => Linking.openURL(b.ctaLink!).catch(() => {})} activeOpacity={0.9}>
+                <Gradient colors={gradients.hero} style={styles.cta}>
+                  <Text style={styles.ctaText}>{b.ctaLabel || "Ver más"}</Text>
+                </Gradient>
+              </TouchableOpacity>
+            ) : null
+          ) : (
+            <TouchableOpacity style={styles.ctaWrap} onPress={() => nav.navigate("Scan", { businessId: "" })} activeOpacity={0.9}>
+              <Gradient colors={gradients.hero} style={styles.cta}>
+                <Ionicons name="scan-outline" size={18} color="#fff" />
+                <Text style={styles.ctaText}>Escanear QR aquí</Text>
+              </Gradient>
+            </TouchableOpacity>
+          )}
 
           <View style={styles.actionsRow}>
-            <TouchableOpacity style={styles.action} onPress={howToGet} activeOpacity={0.85}>
-              <Ionicons name="navigate" size={22} color={c.pink} />
-              <Text style={styles.actionText}>Cómo llegar</Text>
-            </TouchableOpacity>
+            {!b.isPromo && (
+              <TouchableOpacity style={styles.action} onPress={howToGet} activeOpacity={0.85}>
+                <Ionicons name="navigate" size={22} color={c.pink} />
+                <Text style={styles.actionText}>Cómo llegar</Text>
+              </TouchableOpacity>
+            )}
             {!!b.phone && (
               <TouchableOpacity style={styles.action} onPress={callBusiness} activeOpacity={0.85}>
                 <Ionicons name="call" size={22} color={c.pink} />
@@ -180,9 +201,11 @@ export function Negocio() {
             </TouchableOpacity>
           </View>
 
-          <TouchableOpacity onPress={() => Linking.openURL(webUrl).catch(() => {})} style={{ marginTop: 14 }}>
-            <Text style={styles.fichaLink}>Ver ficha completa ›</Text>
-          </TouchableOpacity>
+          {!b.isPromo && !!b.slug && (
+            <TouchableOpacity onPress={() => Linking.openURL(webUrl).catch(() => {})} style={{ marginTop: 14 }}>
+              <Text style={styles.fichaLink}>Ver ficha completa ›</Text>
+            </TouchableOpacity>
+          )}
         </View>
       </ScrollView>
       </FadeIn>
@@ -207,6 +230,7 @@ const makeStyles = (c: Palette) =>
     badge: { marginTop: 12, backgroundColor: c.pinkWash, borderRadius: radius.pill, paddingHorizontal: 14, paddingVertical: 7, borderWidth: 1, borderColor: c.pinkSoft },
     badgeText: { color: c.pinkDeep, fontWeight: "800", fontSize: 13 },
     reward: { marginTop: 12, fontSize: 15, fontWeight: "700", color: c.ink, textAlign: "center" },
+    desc: { marginTop: 14, fontSize: 14.5, color: c.ink, lineHeight: 21, textAlign: "center" },
     infoRow: { flexDirection: "row", alignItems: "center", gap: 8, alignSelf: "stretch", marginTop: 14, paddingHorizontal: 4 },
     infoIcon: { fontSize: 16 },
     infoText: { flex: 1, fontSize: 14, color: c.ink, lineHeight: 20 },

@@ -19,8 +19,16 @@ export async function GET(req: Request) {
 
 const schema = z.object({
   imageUrl: z.string().max(2000).optional().default(""),
+  active: z.boolean().optional().default(false),
+  kind: z.enum(["link", "business", "promo"]).optional().default("link"),
   link: z.string().max(2000).optional().default(""),
-  active: z.boolean().optional().default(false)
+  businessId: z.string().max(100).optional().default(""),
+  promoTitle: z.string().max(120).optional().default(""),
+  promoCategory: z.string().max(80).optional().default(""),
+  promoDescription: z.string().max(1000).optional().default(""),
+  promoDiscountPct: z.number().int().min(0).max(100).nullable().optional().default(null),
+  promoCtaLabel: z.string().max(60).optional().default(""),
+  promoCtaLink: z.string().max(2000).optional().default("")
 });
 
 export async function PUT(req: Request) {
