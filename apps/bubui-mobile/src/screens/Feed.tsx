@@ -3,7 +3,7 @@ import { View, Text, FlatList, RefreshControl, TouchableOpacity, StyleSheet, Ani
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import { getCurrentLatLng } from "../lib/location";
 import { CheckSession, saveSession, type Customer } from "../lib/session";
-import { api } from "../lib/api";
+import { api, type BannerBusiness } from "../lib/api";
 import { shareReferralForOffer } from "../lib/share-referral";
 import { Ionicons } from "@expo/vector-icons";
 import { Wordmark } from "../components/Wordmark";
@@ -77,7 +77,7 @@ export function Feed() {
   const [refreshing, setRefreshing] = useState(false);
   // Aviso de fallo de red (la carga del catálogo/ofertas no respondió).
   const [netError, setNetError] = useState(false);
-  const [banner, setBanner] = useState<{ imageUrl?: string; link?: string; active: boolean } | null>(null);
+  const [banner, setBanner] = useState<{ imageUrl?: string; link?: string; active: boolean; business?: BannerBusiness } | null>(null);
   // Alto real del banner según la proporción de la imagen (para no recortarla).
   const [bannerH, setBannerH] = useState<number>(BANNER_H_FALLBACK);
   useEffect(() => {
@@ -255,8 +255,13 @@ export function Feed() {
         {banner?.active && banner.imageUrl ? (
           <TouchableOpacity
             style={styles.promoWrap}
-            activeOpacity={banner.link ? 0.9 : 1}
-            onPress={() => { if (banner.link) Linking.openURL(banner.link!).catch(() => {}); }}
+            activeOpacity={banner.business || banner.link ? 0.9 : 1}
+            onPress={() => {
+              // Banner que promociona un comercio o una promo interna → abre su
+              // ficha (misma pantalla que una oferta). Si no, enlace externo.
+              if (banner.business) { sfx.tap(); nav.navigate("Negocio", { business: banner.business }); }
+              else if (banner.link) Linking.openURL(banner.link).catch(() => {});
+            }}
           >
             <Image
               source={{ uri: banner.imageUrl }}

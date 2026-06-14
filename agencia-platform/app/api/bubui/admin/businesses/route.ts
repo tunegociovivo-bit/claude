@@ -50,7 +50,9 @@ const patchSchema = z.object({
   featured: z.boolean().optional(),
   active: z.boolean().optional(),
   // Marca el cartel como entregado (o reabre la entrega con false).
-  posterDelivered: z.boolean().optional()
+  posterDelivered: z.boolean().optional(),
+  // Asignación manual de plan desde admin (free | pro | premium).
+  plan: z.enum(["free", "pro", "premium"]).optional()
 });
 
 export async function PATCH(req: Request) {
@@ -61,15 +63,19 @@ export async function PATCH(req: Request) {
   if (!parsed.success) {
     return NextResponse.json({ error: { code: "validation" } }, { status: 400 });
   }
-  const { id, posterDelivered, featured, active } = parsed.data;
+  const { id, posterDelivered, featured, active, plan } = parsed.data;
   const updated = await prisma.bubuiBusiness.update({
     where: { id },
     data: {
       ...(featured !== undefined ? { featured } : {}),
       ...(active !== undefined ? { active } : {}),
-      ...(posterDelivered !== undefined ? { posterDeliveredAt: posterDelivered ? new Date() : null } : {})
+      ...(posterDelivered !== undefined ? { posterDeliveredAt: posterDelivered ? new Date() : null } : {}),
+      // Plan concedido a mano: no caduca (planExpiresAt = null) y se limpia
+      // cualquier cancelación programada. Si el negocio paga luego por Stripe,
+      // el webhook recalcula el estado a partir de la suscripción real.
+      ...(plan !== undefined ? { plan, planExpiresAt: null, subscriptionCancelAt: null } : {})
     },
-    select: { id: true, featured: true, active: true, posterDeliveredAt: true }
+    select: { id: true, featured: true, active: true, posterDeliveredAt: true, plan: true }
   });
   return NextResponse.json(updated);
 }

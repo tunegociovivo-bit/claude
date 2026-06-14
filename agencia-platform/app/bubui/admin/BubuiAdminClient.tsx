@@ -363,6 +363,14 @@ function BusinessesPanel() {
       setRows((prev) => prev?.map((b) => (b.id === id ? { ...b, posterDeliveredAt: null } : b)) ?? prev);
     }
   }
+  async function setPlan(id: string, plan: string, prevPlan: string) {
+    setRows((prev) => prev?.map((b) => (b.id === id ? { ...b, plan } : b)) ?? prev);
+    try {
+      await adminFetch("/api/bubui/admin/businesses", { method: "PATCH", body: JSON.stringify({ id, plan }) });
+    } catch {
+      setRows((prev) => prev?.map((b) => (b.id === id ? { ...b, plan: prevPlan } : b)) ?? prev);
+    }
+  }
   if (err) return <p className="text-rose-700 text-sm mt-4">{err}</p>;
   if (!rows) return <div className="bubui-skeleton h-40 mt-4" />;
   const pendingPosters = rows.filter((b) => b.posterDeliveryRequestedAt && !b.posterDeliveredAt);
@@ -435,7 +443,18 @@ function BusinessesPanel() {
               <td className="p-2 border-b border-black/5 whitespace-nowrap">{b.city ?? "—"}</td>
               <td className="p-2 border-b border-black/5 whitespace-nowrap">{b.ownerName ?? "—"}</td>
               <td className="p-2 border-b border-black/5 whitespace-nowrap">{b.ownerPhone ?? "—"}</td>
-              <td className="p-2 border-b border-black/5 whitespace-nowrap">{b.plan}</td>
+              <td className="p-2 border-b border-black/5 whitespace-nowrap">
+                <select
+                  value={b.plan ?? "free"}
+                  onChange={(e) => setPlan(b.id, e.target.value, b.plan ?? "free")}
+                  className="border rounded px-1.5 py-1 bg-white text-[12px]"
+                  title="Asignar plan manualmente (no caduca)"
+                >
+                  <option value="free">free</option>
+                  <option value="pro">pro</option>
+                  <option value="premium">premium</option>
+                </select>
+              </td>
               <td className="p-2 border-b border-black/5 whitespace-nowrap">{b._count?.offers ?? 0}</td>
               <td className="p-2 border-b border-black/5 whitespace-nowrap">{b._count?.purchases ?? 0}</td>
               <td className="p-2 border-b border-black/5 whitespace-nowrap">{b.active ? "Sí" : "No"}</td>
@@ -457,13 +476,46 @@ function BusinessesPanel() {
 }
 
 // ---------- Banner del Home ----------
+type BannerState = {
+  imageUrl: string;
+  active: boolean;
+  kind: "link" | "business" | "promo";
+  link: string;
+  businessId: string;
+  promoTitle: string;
+  promoCategory: string;
+  promoDescription: string;
+  promoDiscountPct: number | null;
+  promoCtaLabel: string;
+  promoCtaLink: string;
+};
+
+const EMPTY_BANNER: BannerState = {
+  imageUrl: "",
+  active: false,
+  kind: "link",
+  link: "",
+  businessId: "",
+  promoTitle: "",
+  promoCategory: "",
+  promoDescription: "",
+  promoDiscountPct: null,
+  promoCtaLabel: "",
+  promoCtaLink: ""
+};
+
 function BannerPanel() {
-  const [b, setB] = useState<{ imageUrl: string; link: string; active: boolean }>({ imageUrl: "", link: "", active: false });
+  const [b, setB] = useState<BannerState>(EMPTY_BANNER);
+  const [businesses, setBusinesses] = useState<Array<{ id: string; name: string; city?: string | null }>>([]);
   const [msg, setMsg] = useState("");
   const [uploading, setUploading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
-    adminFetch("/api/bubui/admin/banner").then(setB).catch(() => {});
+    adminFetch("/api/bubui/admin/banner").then((d) => setB({ ...EMPTY_BANNER, ...d })).catch(() => {});
+    // Lista de comercios para el selector cuando el banner promociona uno.
+    adminFetch("/api/bubui/admin/businesses")
+      .then((d) => setBusinesses((d.businesses ?? []).map((x: any) => ({ id: x.id, name: x.name, city: x.city }))))
+      .catch(() => {});
   }, []);
   async function save() {
     setMsg("");
@@ -522,8 +574,83 @@ function BannerPanel() {
 
       <label className="text-xs font-bold uppercase tracking-wide text-black/55">URL de la imagen</label>
       <input className="bubui-input mb-3 mt-1" value={b.imageUrl} onChange={(e) => setB({ ...b, imageUrl: e.target.value })} placeholder="https://…/banner.png" />
-      <label className="text-xs font-bold uppercase tracking-wide text-black/55">Enlace al tocar (opcional)</label>
-      <input className="bubui-input mb-3 mt-1" value={b.link} onChange={(e) => setB({ ...b, link: e.target.value })} placeholder="https://…" />
+      <label className="text-xs font-bold uppercase tracking-wide text-black/55">Al tocar el banner…</label>
+      <select
+        className="bubui-input mb-3 mt-1"
+        value={b.kind}
+        onChange={(e) => setB({ ...b, kind: e.target.value as BannerState["kind"] })}
+      >
+        <option value="link">Abrir un enlace externo</option>
+        <option value="business">Promocionar un comercio (abre su ficha y oferta)</option>
+        <option value="promo">Promoción interna (ficha con info propia)</option>
+      </select>
+
+      {b.kind === "link" && (
+        <>
+          <label className="text-xs font-bold uppercase tracking-wide text-black/55">Enlace al tocar (opcional)</label>
+          <input className="bubui-input mb-3 mt-1" value={b.link} onChange={(e) => setB({ ...b, link: e.target.value })} placeholder="https://…" />
+        </>
+      )}
+
+      {b.kind === "business" && (
+        <>
+          <label className="text-xs font-bold uppercase tracking-wide text-black/55">Comercio a promocionar</label>
+          <select
+            className="bubui-input mb-3 mt-1"
+            value={b.businessId}
+            onChange={(e) => setB({ ...b, businessId: e.target.value })}
+          >
+            <option value="">— Elige un comercio —</option>
+            {businesses.map((x) => (
+              <option key={x.id} value={x.id}>{x.name}{x.city ? ` · ${x.city}` : ""}</option>
+            ))}
+          </select>
+          <p className="text-[12px] text-black/50 mb-3">Al tocar el banner se abrirá la ficha de este comercio con su oferta activa.</p>
+        </>
+      )}
+
+      {b.kind === "promo" && (
+        <div className="mb-3 rounded-xl border border-black/10 p-3 space-y-2 bg-black/[0.02]">
+          <p className="text-[12px] text-black/55">Se mostrará como una ficha de oferta al tocar el banner.</p>
+          <div>
+            <label className="text-xs font-bold uppercase tracking-wide text-black/55">Título</label>
+            <input className="bubui-input mt-1" value={b.promoTitle} onChange={(e) => setB({ ...b, promoTitle: e.target.value })} placeholder="Ej. Sorteo de verano" />
+          </div>
+          <div className="flex gap-2">
+            <div className="flex-1">
+              <label className="text-xs font-bold uppercase tracking-wide text-black/55">Categoría / etiqueta</label>
+              <input className="bubui-input mt-1" value={b.promoCategory} onChange={(e) => setB({ ...b, promoCategory: e.target.value })} placeholder="Promoción Bubui" />
+            </div>
+            <div className="w-28">
+              <label className="text-xs font-bold uppercase tracking-wide text-black/55">Descuento %</label>
+              <input
+                type="number"
+                min={0}
+                max={100}
+                className="bubui-input mt-1"
+                value={b.promoDiscountPct ?? ""}
+                onChange={(e) => setB({ ...b, promoDiscountPct: e.target.value === "" ? null : Number(e.target.value) })}
+                placeholder="—"
+              />
+            </div>
+          </div>
+          <div>
+            <label className="text-xs font-bold uppercase tracking-wide text-black/55">Descripción</label>
+            <textarea className="bubui-input mt-1" rows={3} value={b.promoDescription} onChange={(e) => setB({ ...b, promoDescription: e.target.value })} placeholder="Detalles de la promoción…" />
+          </div>
+          <div className="flex gap-2">
+            <div className="flex-1">
+              <label className="text-xs font-bold uppercase tracking-wide text-black/55">Texto del botón (opcional)</label>
+              <input className="bubui-input mt-1" value={b.promoCtaLabel} onChange={(e) => setB({ ...b, promoCtaLabel: e.target.value })} placeholder="Participar" />
+            </div>
+            <div className="flex-1">
+              <label className="text-xs font-bold uppercase tracking-wide text-black/55">Enlace del botón (opcional)</label>
+              <input className="bubui-input mt-1" value={b.promoCtaLink} onChange={(e) => setB({ ...b, promoCtaLink: e.target.value })} placeholder="https://…" />
+            </div>
+          </div>
+        </div>
+      )}
+
       <label className="flex items-center gap-2 text-sm mb-3">
         <input type="checkbox" checked={b.active} onChange={(e) => setB({ ...b, active: e.target.checked })} />
         Banner activo
