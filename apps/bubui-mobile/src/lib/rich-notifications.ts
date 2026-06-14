@@ -98,6 +98,11 @@ export async function displayRichNotification(payload: RichPayload): Promise<boo
       data: { link: payload.link ?? "" },
       android: {
         channelId: CHANNEL_ID,
+        // Icono monocromo en la barra de estado (lo genera el plugin
+        // expo-notifications como drawable `notification_icon`). Sin esto
+        // Notifee cae al icono de la app y se ve como un cuadrado blanco.
+        smallIcon: "notification_icon",
+        color: "#EC4899",
         largeIcon: image,
         style: { type: _AndroidStyle.BIGPICTURE, picture: image },
         pressAction: { id: "default" }
