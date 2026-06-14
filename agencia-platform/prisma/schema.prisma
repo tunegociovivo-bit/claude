@@ -3782,6 +3782,8 @@ model BubuiPushAd {
   businessId    String
   title         String
   body          String   @db.Text
+  // Imagen grande opcional (rich push) — capta más la atención.
+  imageUrl      String?  @db.Text
   // Radio de envío (km).
   radiusKm      Float    @default(1)
   centerLat     Float

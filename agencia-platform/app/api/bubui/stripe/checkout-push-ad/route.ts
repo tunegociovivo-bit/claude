@@ -30,6 +30,7 @@ const schema = z.object({
   title: z.string().min(3).max(80),
   body: z.string().min(5).max(180),
   radiusKm: z.number().positive().max(10),
+  imageUrl: z.string().url().max(2000).optional().nullable(),
   startsAt: z.string().datetime().optional()
 });
 
@@ -84,6 +85,7 @@ export async function POST(req: Request) {
         businessId: business.id,
         title: d.title,
         body: d.body,
+        imageUrl: d.imageUrl ?? null,
         radiusKm: d.radiusKm,
         centerLat: business.latitude,
         centerLng: business.longitude,

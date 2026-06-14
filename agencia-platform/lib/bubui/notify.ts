@@ -19,6 +19,8 @@ export type BubuiNotifyPayload = {
   link?: string;
   tag?: string;
   icon?: string;
+  /** URL de imagen grande mostrada en la notificación (rich push). */
+  image?: string;
   data?: Record<string, any>;
 };
 
@@ -32,6 +34,7 @@ export async function notifyBubuiCustomer(
       title: payload.title,
       body: payload.body,
       link: payload.link,
+      image: payload.image,
       data: payload.data
     })
   ]);

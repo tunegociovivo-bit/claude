@@ -3027,6 +3027,8 @@ function PlanCard({ business, token, onChanged }: { business: any; token: string
 function PushAdForm({ businessId, businessName, token, plan }: { businessId: string; businessName: string; token: string; plan: string }) {
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
+  const [imageUrl, setImageUrl] = useState("");
+  const [uploadingImg, setUploadingImg] = useState(false);
   const [radiusKm, setRadiusKm] = useState(1);
   const [quote, setQuote] = useState<{ reach: number; priceEur: number } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -3091,6 +3093,26 @@ function PushAdForm({ businessId, businessName, token, plan }: { businessId: str
     return () => { cancelled = true; };
   }, [businessId, radiusKm]);
 
+  async function uploadImage(file: File) {
+    setUploadingImg(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const r = await fetch(`/api/bubui/business/${businessId}/upload-photo`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        body: fd
+      });
+      const j = await r.json();
+      if (r.ok && j.url) setImageUrl(j.url);
+      else alert(j?.error?.message ?? "No se pudo subir la imagen.");
+    } catch {
+      alert("No se pudo subir la imagen. Reintenta.");
+    } finally {
+      setUploadingImg(false);
+    }
+  }
+
   async function pay() {
     if (!title.trim() || !body.trim()) return;
     setBusy(true);
@@ -3098,7 +3120,7 @@ function PushAdForm({ businessId, businessName, token, plan }: { businessId: str
       const r = await fetch("/api/bubui/stripe/checkout-push-ad", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ businessId, title, body, radiusKm })
+        body: JSON.stringify({ businessId, title, body, radiusKm, imageUrl: imageUrl.trim() || null })
       });
       const j = await r.json();
       if (!r.ok || !j.url) {
@@ -3193,8 +3215,54 @@ function PushAdForm({ businessId, businessName, token, plan }: { businessId: str
         className="w-full px-3 py-2 border rounded-lg bg-white text-sm"
       />
 
+      {/* Imagen grande (rich push) — la foto que más llama la atención */}
+      <div className="rounded-lg border border-pink-200 bg-pink-50/40 p-3 space-y-2">
+        <div className="flex items-center justify-between gap-2">
+          <div className="text-[11px] font-semibold text-pink-900">🖼️ Imagen del anuncio <span className="font-normal text-pink-700/70">(opcional, recomendada)</span></div>
+          {imageUrl && (
+            <button type="button" onClick={() => setImageUrl("")} className="text-[10px] font-semibold text-rose-600 hover:underline">
+              Quitar
+            </button>
+          )}
+        </div>
+        {imageUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={imageUrl} alt="Imagen del push" className="w-full max-h-40 object-cover rounded-md border border-black/10" />
+        ) : (
+          <p className="text-[11px] text-pink-900/70 leading-snug">
+            Una foto grande hace que el push destaque mucho más. Se muestra dentro de la notificación.
+          </p>
+        )}
+        <div className="flex items-center gap-2">
+          <input
+            value={imageUrl}
+            onChange={(e) => setImageUrl(e.target.value)}
+            placeholder="https://… (o sube una foto)"
+            className="flex-1 min-w-0 px-2 py-1.5 border rounded text-xs bg-white"
+          />
+          <label
+            className={`shrink-0 inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-bold cursor-pointer transition ${
+              uploadingImg ? "bg-pink-200 text-pink-500" : "bg-pink-600 text-white hover:bg-pink-700"
+            }`}
+          >
+            {uploadingImg ? "Subiendo…" : "📷 Subir"}
+            <input
+              type="file"
+              accept="image/png,image/jpeg,image/webp,image/gif"
+              className="hidden"
+              disabled={uploadingImg}
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                e.target.value = "";
+                if (f) void uploadImage(f);
+              }}
+            />
+          </label>
+        </div>
+      </div>
+
       {/* Preview en vivo del push */}
-      <PushPreview businessName={businessName} title={title} body={body} />
+      <PushPreview businessName={businessName} title={title} body={body} image={imageUrl} />
 
       <div className="flex items-center justify-between text-sm">
         <label className="flex items-center gap-2">
@@ -3226,7 +3294,7 @@ function PushAdForm({ businessId, businessName, token, plan }: { businessId: str
 
 /** Mockup visual del push tal y como lo verá el cliente. Doble vista:
  *  iOS (lockscreen card) + Android (banner top). */
-function PushPreview({ businessName, title, body }: { businessName: string; title: string; body: string }) {
+function PushPreview({ businessName, title, body, image }: { businessName: string; title: string; body: string; image?: string }) {
   const [mode, setMode] = useState<"ios" | "android">("ios");
   const now = new Date();
   const hh = now.getHours().toString().padStart(2, "0");
@@ -3274,6 +3342,10 @@ function PushPreview({ businessName, title, body }: { businessName: string; titl
               <div className="text-[12px] text-black/70 leading-snug line-clamp-2">{displayBody}</div>
             </div>
           </div>
+          {image && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={image} alt="" className="mt-2.5 w-full h-32 object-cover rounded-xl" />
+          )}
         </div>
       ) : (
         <div className="bg-white rounded-lg px-3.5 py-2.5 shadow-sm border border-black/5">
@@ -3284,6 +3356,10 @@ function PushPreview({ businessName, title, body }: { businessName: string; titl
           </div>
           <div className="text-[13px] font-bold text-black">{displayTitle}</div>
           <div className="text-[12px] text-black/70 leading-snug">{displayBody}</div>
+          {image && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={image} alt="" className="mt-2 w-full h-32 object-cover rounded-lg" />
+          )}
         </div>
       )}
 
