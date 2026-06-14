@@ -1,0 +1,379 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Bubui · propuesta de rediseño</title>
+<style>
+  :root{
+    /* ── Bubui 2.0 — sistema de color ───────────────────────────── */
+    --pink:#FF2E88;          /* rosa hero, más vibrante que el #EC4899 */
+    --pink-deep:#D81E6E;
+    --coral:#FF6B5E;         /* acento cálido secundario (energía) */
+    --violet:#7C3AED;        /* acento frío para gradientes/profundidad */
+    --grad-hero:linear-gradient(135deg,#FF2E88 0%,#FF6B5E 100%);
+    --grad-violet:linear-gradient(135deg,#FF2E88 0%,#7C3AED 100%);
+    --ink:#15101A;           /* casi-negro cálido (no #000) */
+    --ink-soft:#5B5563;
+    --muted:#9B95A3;
+    --canvas:#FBF6FA;        /* lienzo cálido off-white (no #FFF plano) */
+    --card:#FFFFFF;
+    --line:rgba(21,16,26,.07);
+    --glass:rgba(255,255,255,.72);
+    --shadow-sm:0 4px 14px rgba(21,16,26,.06);
+    --shadow-md:0 14px 30px rgba(216,30,110,.14);
+    --shadow-lg:0 22px 50px rgba(216,30,110,.22);
+    --r-sm:14px; --r-md:20px; --r-lg:28px; --r-xl:34px;
+    --ease:cubic-bezier(.23,1,.32,1);
+  }
+  *{box-sizing:border-box;margin:0;padding:0;-webkit-font-smoothing:antialiased}
+  body{
+    font-family:-apple-system,'SF Pro Display','Segoe UI',Inter,system-ui,sans-serif;
+    background:
+      radial-gradient(900px 600px at 12% -5%, #FFE3F0 0%, transparent 55%),
+      radial-gradient(800px 600px at 110% 8%, #EBE0FF 0%, transparent 50%),
+      #F3EEF6;
+    color:var(--ink);
+    padding:60px 40px 90px;
+  }
+  .head{max-width:1180px;margin:0 auto 46px}
+  .kick{font-size:13px;font-weight:800;letter-spacing:3px;text-transform:uppercase;
+    background:var(--grad-hero);-webkit-background-clip:text;background-clip:text;color:transparent}
+  .head h1{font-size:46px;font-weight:850;letter-spacing:-1.5px;margin:8px 0 10px}
+  .head p{font-size:18px;color:var(--ink-soft);max-width:720px;line-height:1.5}
+
+  .gallery{display:flex;gap:46px;justify-content:center;flex-wrap:wrap;max-width:1180px;margin:0 auto}
+  .frameWrap{display:flex;flex-direction:column;align-items:center;gap:16px}
+  .frameTitle{font-size:15px;font-weight:800;color:var(--ink)}
+  .frameTitle span{color:var(--muted);font-weight:600}
+
+  /* ── teléfono ─────────────────────────────────────────────────── */
+  .phone{
+    width:340px;height:736px;border-radius:52px;background:#0c0910;
+    padding:11px;box-shadow:var(--shadow-lg),0 0 0 2px rgba(21,16,26,.06);
+    position:relative;
+  }
+  .screen{
+    width:100%;height:100%;border-radius:42px;overflow:hidden;background:var(--canvas);
+    position:relative;display:flex;flex-direction:column;
+  }
+  .notch{position:absolute;top:0;left:50%;transform:translateX(-50%);width:130px;height:30px;
+    background:#0c0910;border-radius:0 0 18px 18px;z-index:40}
+  .statusbar{display:flex;justify-content:space-between;align-items:center;padding:14px 26px 4px;
+    font-size:13px;font-weight:700;color:var(--ink);position:relative;z-index:5}
+
+  .body{flex:1;overflow:hidden;position:relative}
+  .scroll{position:absolute;inset:0;overflow:hidden;padding:6px 18px 96px}
+
+  /* blobs de fondo (profundidad “llamativa”) */
+  .blob{position:absolute;border-radius:50%;filter:blur(46px);opacity:.5;z-index:0;pointer-events:none}
+
+  /* topbar */
+  .topbar{display:flex;align-items:center;justify-content:space-between;padding:6px 2px 16px;position:relative;z-index:2}
+  .logo{display:flex;align-items:center;gap:9px;font-weight:850;font-size:22px;letter-spacing:-.5px}
+  .logo .dot{width:26px;height:26px;border-radius:50%;background:var(--grad-hero);
+    display:grid;place-items:center;box-shadow:0 6px 16px rgba(255,46,136,.5)}
+  .logo .dot i{width:9px;height:9px;border-radius:50%;background:#fff}
+  .bell{width:42px;height:42px;border-radius:50%;background:var(--glass);backdrop-filter:blur(10px);
+    border:1px solid var(--line);display:grid;place-items:center;font-size:18px;box-shadow:var(--shadow-sm)}
+  .bell::after{content:"";position:absolute;width:9px;height:9px;border-radius:50%;background:var(--coral);
+    transform:translate(11px,-11px);border:2px solid #fff}
+
+  /* hero ahorro */
+  .hero{position:relative;z-index:2;border-radius:var(--r-lg);padding:22px 22px 20px;color:#fff;
+    background:var(--grad-violet);box-shadow:var(--shadow-md);overflow:hidden;margin-bottom:18px}
+  .hero .sheen{position:absolute;inset:0;background:radial-gradient(420px 180px at 85% -20%,rgba(255,255,255,.35),transparent 60%)}
+  .hero .lab{font-size:11px;font-weight:800;letter-spacing:1.6px;text-transform:uppercase;opacity:.9}
+  .hero .amt{font-size:52px;font-weight:850;letter-spacing:-2px;line-height:1;margin:6px 0 2px}
+  .hero .amt small{font-size:26px;font-weight:800;opacity:.85}
+  .hero .sub{font-size:13px;opacity:.92;font-weight:600}
+  .hero .ring{position:absolute;right:-30px;bottom:-46px;width:160px;height:160px;border-radius:50%;
+    border:18px solid rgba(255,255,255,.16)}
+  .heroBtn{margin-top:18px;width:100%;border:none;background:#fff;color:var(--pink-deep);
+    border-radius:999px;padding:14px;font-size:14.5px;font-weight:820;position:relative;z-index:2;box-shadow:var(--shadow-sm)}
+  .chips{display:flex;gap:8px;margin-top:16px;position:relative;z-index:2}
+  .chip{background:rgba(255,255,255,.18);backdrop-filter:blur(6px);border:1px solid rgba(255,255,255,.25);
+    border-radius:999px;padding:7px 13px;font-size:12px;font-weight:700;display:flex;gap:6px;align-items:center}
+
+  .secTitle{font-size:13px;font-weight:850;letter-spacing:.4px;color:var(--ink-soft);
+    text-transform:uppercase;margin:6px 4px 12px;display:flex;justify-content:space-between;position:relative;z-index:2}
+  .secTitle a{color:var(--pink);font-weight:800;text-transform:none;font-size:13px;letter-spacing:0}
+
+  /* tarjeta de oferta — hero imagery + glass */
+  .offer{position:relative;z-index:2;border-radius:var(--r-md);overflow:hidden;margin-bottom:16px;
+    background:var(--card);box-shadow:var(--shadow-md);border:1px solid var(--line)}
+  .offer .img{height:160px;position:relative;display:flex;align-items:flex-end;padding:14px}
+  .offer .img.g1{background:linear-gradient(150deg,#FF8A5B,#FF2E88)}
+  .offer .img.g2{background:linear-gradient(150deg,#7C3AED,#FF2E88)}
+  .offer .img.g3{background:linear-gradient(150deg,#22D3A6,#0EA5E9)}
+  .offer .img::after{content:"";position:absolute;inset:0;background:linear-gradient(to top,rgba(8,4,12,.55),transparent 55%)}
+  .badge{position:absolute;top:14px;right:14px;background:#fff;color:var(--pink-deep);font-weight:850;
+    font-size:15px;padding:8px 13px;border-radius:999px;box-shadow:var(--shadow-sm);z-index:2}
+  .glassRow{position:relative;z-index:2;display:flex;gap:8px}
+  .gpill{background:rgba(255,255,255,.22);backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,.3);
+    color:#fff;border-radius:999px;padding:6px 11px;font-size:12px;font-weight:700;display:flex;gap:5px;align-items:center}
+  .offer .meta{padding:14px 16px;display:flex;align-items:center;gap:10px}
+  .av{width:42px;height:42px;border-radius:13px;flex:none;display:grid;place-items:center;color:#fff;font-weight:850;font-size:17px}
+  .offer .name{font-weight:820;font-size:16px;letter-spacing:-.3px}
+  .offer .cat{font-size:12.5px;color:var(--muted);font-weight:600;margin-top:1px}
+  .urgent{margin-left:auto;font-size:12px;font-weight:800;color:var(--pink);background:#FFE6F0;
+    padding:6px 9px;border-radius:10px;white-space:nowrap}
+
+  /* reto viral */
+  .quest{position:relative;z-index:2;border-radius:var(--r-md);padding:18px;margin-bottom:16px;
+    background:linear-gradient(135deg,#FFF0F7,#FFE9F1);border:1.5px solid rgba(255,46,136,.35);box-shadow:var(--shadow-sm)}
+  .quest .qh{display:flex;align-items:center;gap:10px}
+  .qico{width:40px;height:40px;border-radius:12px;background:var(--grad-hero);display:grid;place-items:center;font-size:19px;box-shadow:0 6px 14px rgba(255,46,136,.4)}
+  .quest .qt{font-weight:850;font-size:15px}
+  .quest .qr{font-size:12.5px;color:var(--pink-deep);font-weight:800}
+  .slots{display:flex;gap:8px;margin:14px 0}
+  .slot{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;font-weight:850;font-size:14px}
+  .slot.on{background:var(--grad-hero);color:#fff;box-shadow:0 4px 10px rgba(255,46,136,.4)}
+  .slot.off{border:2px dashed rgba(255,46,136,.5);color:var(--pink)}
+  .qbtn{background:var(--grad-hero);color:#fff;border:none;border-radius:999px;padding:13px;width:100%;
+    font-weight:820;font-size:14.5px;box-shadow:var(--shadow-md)}
+
+  /* ── bottom nav flotante con FAB de escaneo ──────────────────── */
+  .nav{position:absolute;left:14px;right:14px;bottom:14px;height:70px;border-radius:26px;z-index:30;
+    background:var(--glass);backdrop-filter:blur(20px) saturate(150%);border:1px solid rgba(255,255,255,.6);
+    box-shadow:var(--shadow-lg);display:flex;align-items:center;justify-content:space-around;padding:0 14px}
+  .ni{display:flex;flex-direction:column;align-items:center;gap:3px;font-size:10px;font-weight:700;color:var(--muted)}
+  .ni svg{width:24px;height:24px;stroke:var(--muted);fill:none;stroke-width:2}
+  .ni.on{color:var(--pink)}
+  .ni.on svg{stroke:var(--pink)}
+  .fab{position:absolute;left:50%;top:-26px;transform:translateX(-50%);width:66px;height:66px;border-radius:50%;
+    background:var(--grad-hero);display:grid;place-items:center;box-shadow:0 14px 26px rgba(255,46,136,.55);
+    border:5px solid var(--canvas)}
+  .fab svg{width:30px;height:30px;stroke:#fff;fill:none;stroke-width:2.4}
+  .fab .ping{position:absolute;inset:-5px;border-radius:50%;border:3px solid rgba(255,46,136,.45)}
+
+  /* ===== Pantalla SCAN ===== */
+  .scanScreen{background:radial-gradient(120% 80% at 50% 0%,#2A0E22 0%,#0c0910 60%)}
+  .scanTop{padding:18px 22px;color:#fff}
+  .scanTop h2{font-size:22px;font-weight:850;letter-spacing:-.5px}
+  .scanTop p{font-size:13.5px;opacity:.7;margin-top:3px}
+  .viewport{margin:10px 22px;flex:1;border-radius:30px;position:relative;overflow:hidden;
+    background:linear-gradient(160deg,#3a1530,#160a13)}
+  .reticle{position:absolute;left:50%;top:46%;transform:translate(-50%,-50%);width:200px;height:200px;border-radius:34px}
+  .reticle span{position:absolute;width:42px;height:42px;border:4px solid #fff}
+  .reticle .tl{top:0;left:0;border-right:0;border-bottom:0;border-radius:20px 0 0 0}
+  .reticle .tr{top:0;right:0;border-left:0;border-bottom:0;border-radius:0 20px 0 0}
+  .reticle .bl{bottom:0;left:0;border-right:0;border-top:0;border-radius:0 0 0 20px}
+  .reticle .br{bottom:0;right:0;border-left:0;border-top:0;border-radius:0 0 20px 0}
+  .laser{position:absolute;left:8%;right:8%;top:50%;height:3px;border-radius:3px;
+    background:linear-gradient(90deg,transparent,var(--pink),transparent);box-shadow:0 0 16px var(--pink)}
+  .scanHint{position:absolute;bottom:22px;left:0;right:0;text-align:center;color:#fff;font-size:13px;font-weight:600;opacity:.8}
+  .scanCta{margin:0 22px 26px}
+  .scanCta button{width:100%;border:none;border-radius:999px;padding:17px;font-size:16px;font-weight:820;color:#fff;
+    background:var(--grad-hero);box-shadow:0 16px 30px rgba(255,46,136,.5)}
+
+  /* ===== Pantalla CUENTA ===== */
+  .profHero{position:relative;z-index:2;margin-bottom:18px;border-radius:var(--r-lg);padding:24px;color:#fff;
+    background:var(--grad-violet);box-shadow:var(--shadow-md);overflow:hidden;text-align:center}
+  .profHero .sheen{position:absolute;inset:0;background:radial-gradient(360px 160px at 80% -10%,rgba(255,255,255,.3),transparent)}
+  .avatar{width:84px;height:84px;border-radius:50%;margin:0 auto 12px;background:rgba(255,255,255,.2);
+    border:3px solid rgba(255,255,255,.55);display:grid;place-items:center;font-size:34px;font-weight:850;position:relative;z-index:2}
+  .profName{font-size:21px;font-weight:850;position:relative;z-index:2}
+  .profTier{display:inline-flex;gap:6px;align-items:center;margin-top:7px;font-size:12px;font-weight:800;
+    background:rgba(255,255,255,.2);padding:6px 12px;border-radius:999px;position:relative;z-index:2}
+  .stats{display:flex;gap:12px;margin-bottom:18px;position:relative;z-index:2}
+  .stat{flex:1;background:var(--card);border:1px solid var(--line);border-radius:var(--r-md);padding:16px 14px;
+    box-shadow:var(--shadow-sm)}
+  .stat .n{font-size:26px;font-weight:850;letter-spacing:-1px;background:var(--grad-hero);
+    -webkit-background-clip:text;background-clip:text;color:transparent}
+  .stat .l{font-size:11.5px;color:var(--muted);font-weight:700;margin-top:2px}
+  .rows{position:relative;z-index:2;background:var(--card);border:1px solid var(--line);border-radius:var(--r-md);
+    overflow:hidden;box-shadow:var(--shadow-sm)}
+  .row{display:flex;align-items:center;gap:14px;padding:16px 18px;border-bottom:1px solid var(--line)}
+  .row:last-child{border-bottom:none}
+  .row .ri{width:38px;height:38px;border-radius:12px;background:#FFE6F0;display:grid;place-items:center;font-size:18px}
+  .row .rt{font-weight:750;font-size:15px}
+  .row .rc{margin-left:auto;color:var(--muted);font-size:20px}
+
+  /* leyenda sistema */
+  .sys{max-width:1180px;margin:64px auto 0;background:rgba(255,255,255,.6);backdrop-filter:blur(8px);
+    border:1px solid rgba(255,255,255,.7);border-radius:28px;padding:34px 38px;box-shadow:var(--shadow-sm)}
+  .sys h3{font-size:22px;font-weight:850;letter-spacing:-.5px;margin-bottom:20px}
+  .sysGrid{display:flex;gap:40px;flex-wrap:wrap}
+  .swatches{display:flex;gap:14px;flex-wrap:wrap}
+  .sw{text-align:center;font-size:11px;font-weight:700;color:var(--ink-soft)}
+  .sw i{display:block;width:60px;height:60px;border-radius:18px;margin-bottom:8px;box-shadow:var(--shadow-sm)}
+  .principles{flex:1;min-width:300px}
+  .principles li{list-style:none;padding:7px 0 7px 26px;position:relative;font-size:14.5px;color:var(--ink-soft);line-height:1.4}
+  .principles li::before{content:"";position:absolute;left:0;top:13px;width:11px;height:11px;border-radius:50%;background:var(--grad-hero)}
+  .principles b{color:var(--ink);font-weight:800}
+</style>
+</head>
+<body>
+
+<div class="head">
+  <div class="kick">Bubui · propuesta de rediseño</div>
+  <h1>Más profesional, más viva, misma alma rosa.</h1>
+  <p>Mismo flujo y funciones que ya tienes (ahorro, ofertas, reto viral, escaneo, cuenta) con una capa visual de nivel app de producto: profundidad con gradientes y vidrio, jerarquía tipográfica fuerte, foto a sangre en las ofertas y un botón de <b>Escanear</b> flotante que convierte la acción estrella en el centro de la app.</p>
+</div>
+
+<div class="gallery">
+
+  <!-- ============ INICIO ============ -->
+  <div class="frameWrap">
+    <div class="frameTitle">Inicio <span>· ofertas + ahorro</span></div>
+    <div class="phone"><div class="screen">
+      <div class="notch"></div>
+      <div class="statusbar"><span>9:41</span><span>􀙇 􀛨 􀋊</span></div>
+      <div class="body"><div class="scroll">
+        <div class="blob" style="width:240px;height:240px;background:#FFB4D6;left:-60px;top:40px"></div>
+        <div class="blob" style="width:220px;height:220px;background:#C9B8FF;right:-70px;top:280px"></div>
+
+        <div class="topbar">
+          <div class="logo"><span class="dot"><i></i></span>Bubui</div>
+          <div class="bell">🔔</div>
+        </div>
+
+        <div class="hero">
+          <div class="sheen"></div><div class="ring"></div>
+          <div class="lab">Has ahorrado</div>
+          <div class="amt">142€<small></small></div>
+          <div class="sub">en 18 compras con Bubui</div>
+          <button class="heroBtn">⛶&nbsp; Escanear QR de un negocio</button>
+        </div>
+
+        <div class="secTitle"><span>Cerca de ti</span><a>Ver mapa →</a></div>
+
+        <div class="offer">
+          <div class="img g1">
+            <span class="badge">-40%</span>
+            <div class="glassRow"><span class="gpill">📍 280 m</span><span class="gpill">⏰ 3 h</span></div>
+          </div>
+          <div class="meta">
+            <div class="av" style="background:linear-gradient(135deg,#FF6B5E,#FF2E88)">L</div>
+            <div><div class="name">La Toscana</div><div class="cat">Restaurante italiano</div></div>
+            <div class="urgent">¡Acaba hoy!</div>
+          </div>
+        </div>
+
+        <div class="quest">
+          <div class="qh">
+            <div class="qico">🎁</div>
+            <div><div class="qt">Café gratis te espera</div><div class="qr">Trae 2 amigos para desbloquear</div></div>
+          </div>
+          <div class="slots"><span class="slot on">A</span><span class="slot off">+</span><span class="slot off">+</span></div>
+          <button class="qbtn">📲 Compartir y activar</button>
+        </div>
+
+        <div class="offer">
+          <div class="img g2">
+            <span class="badge">2x1</span>
+            <div class="glassRow"><span class="gpill">📍 1,2 km</span></div>
+          </div>
+          <div class="meta">
+            <div class="av" style="background:linear-gradient(135deg,#7C3AED,#FF2E88)">B</div>
+            <div><div class="name">Bloom Coffee</div><div class="cat">Cafetería · brunch</div></div>
+          </div>
+        </div>
+      </div></div>
+
+      <div class="nav">
+        <div class="ni on"><svg viewBox="0 0 24 24"><path d="M3 11l9-8 9 8M5 10v10h5v-6h4v6h5V10"/></svg>Inicio</div>
+        <div class="ni"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M15 9l-2 4-4 2 2-4z"/></svg>Descubre</div>
+        <div style="width:66px"></div>
+        <div class="ni"><svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 10-8 8M12 8v4l3 2"/><path d="M16 4l1 3 3 1-3 1-1 3-1-3-3-1 3-1z"/></svg>Amigos</div>
+        <div class="ni"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>Cuenta</div>
+        <div class="fab"><span class="ping"></span>
+          <svg viewBox="0 0 24 24"><path d="M4 8V5.5A1.5 1.5 0 015.5 4H8M16 4h2.5A1.5 1.5 0 0120 5.5V8M20 16v2.5a1.5 1.5 0 01-1.5 1.5H16M8 20H5.5A1.5 1.5 0 014 18.5V16" stroke-linecap="round"/><rect x="9" y="9" width="6" height="6" rx="1.5"/></svg>
+        </div>
+      </div>
+    </div></div>
+  </div>
+
+  <!-- ============ ESCANEAR ============ -->
+  <div class="frameWrap">
+    <div class="frameTitle">Escanear <span>· acción estrella</span></div>
+    <div class="phone"><div class="screen scanScreen">
+      <div class="notch"></div>
+      <div class="statusbar" style="color:#fff"><span>9:41</span><span>􀙇 􀛨 􀋊</span></div>
+      <div class="scanTop"><h2>Escanea para ahorrar</h2><p>Apunta al QR del local y aplica tu descuento al instante.</p></div>
+      <div class="viewport">
+        <div class="reticle"><span class="tl"></span><span class="tr"></span><span class="bl"></span><span class="br"></span></div>
+        <div class="laser"></div>
+        <div class="scanHint">Buscando código QR…</div>
+      </div>
+      <div class="scanCta"><button>Tengo un ticket · subir foto</button></div>
+    </div></div>
+  </div>
+
+  <!-- ============ CUENTA ============ -->
+  <div class="frameWrap">
+    <div class="frameTitle">Cuenta <span>· perfil + logros</span></div>
+    <div class="phone"><div class="screen">
+      <div class="notch"></div>
+      <div class="statusbar"><span>9:41</span><span>􀙇 􀛨 􀋊</span></div>
+      <div class="body"><div class="scroll">
+        <div class="blob" style="width:240px;height:240px;background:#C9B8FF;right:-70px;top:-30px"></div>
+        <div class="blob" style="width:200px;height:200px;background:#FFB4D6;left:-60px;top:240px"></div>
+
+        <div class="topbar"><div class="logo"><span class="dot"><i></i></span>Cuenta</div><div class="bell">⚙️</div></div>
+
+        <div class="profHero">
+          <div class="sheen"></div>
+          <div class="avatar">S</div>
+          <div class="profName">Sonia M.</div>
+          <div class="profTier">⭐ Miembro Oro · Nivel 4</div>
+        </div>
+
+        <div class="stats">
+          <div class="stat"><div class="n">142€</div><div class="l">Ahorrado</div></div>
+          <div class="stat"><div class="n">18</div><div class="l">Compras</div></div>
+          <div class="stat"><div class="n">6</div><div class="l">Amigos</div></div>
+        </div>
+
+        <div class="rows">
+          <div class="row"><div class="ri">🎟️</div><div class="rt">Mis cupones</div><div class="rc">›</div></div>
+          <div class="row"><div class="ri">❤️</div><div class="rt">Favoritos</div><div class="rc">›</div></div>
+          <div class="row"><div class="ri">👛</div><div class="rt">Historial de ahorro</div><div class="rc">›</div></div>
+          <div class="row"><div class="ri">🎁</div><div class="rt">Invitar y ganar</div><div class="rc">›</div></div>
+          <div class="row"><div class="ri">⚙️</div><div class="rt">Ajustes</div><div class="rc">›</div></div>
+        </div>
+      </div></div>
+
+      <div class="nav">
+        <div class="ni"><svg viewBox="0 0 24 24"><path d="M3 11l9-8 9 8M5 10v10h5v-6h4v6h5V10"/></svg>Inicio</div>
+        <div class="ni"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M15 9l-2 4-4 2 2-4z"/></svg>Descubre</div>
+        <div style="width:66px"></div>
+        <div class="ni"><svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 10-8 8M12 8v4l3 2"/><path d="M16 4l1 3 3 1-3 1-1 3-1-3-3-1 3-1z"/></svg>Amigos</div>
+        <div class="ni on"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>Cuenta</div>
+        <div class="fab"><span class="ping"></span>
+          <svg viewBox="0 0 24 24"><path d="M4 8V5.5A1.5 1.5 0 015.5 4H8M16 4h2.5A1.5 1.5 0 0120 5.5V8M20 16v2.5a1.5 1.5 0 01-1.5 1.5H16M8 20H5.5A1.5 1.5 0 014 18.5V16" stroke-linecap="round"/><rect x="9" y="9" width="6" height="6" rx="1.5"/></svg>
+        </div>
+      </div>
+    </div></div>
+  </div>
+
+</div>
+
+<!-- sistema de diseño -->
+<div class="sys">
+  <h3>Sistema de diseño · qué cambia</h3>
+  <div class="sysGrid">
+    <div>
+      <div class="swatches">
+        <div class="sw"><i style="background:#FF2E88"></i>Pink hero</div>
+        <div class="sw"><i style="background:#FF6B5E"></i>Coral</div>
+        <div class="sw"><i style="background:#7C3AED"></i>Violet</div>
+        <div class="sw"><i style="background:linear-gradient(135deg,#FF2E88,#7C3AED)"></i>Gradiente</div>
+        <div class="sw"><i style="background:#15101A"></i>Ink</div>
+        <div class="sw"><i style="background:#FBF6FA;border:1px solid #eee"></i>Canvas</div>
+      </div>
+    </div>
+    <ul class="principles">
+      <li><b>Gradientes de marca</b> (rosa→violeta/coral) en vez de superficies planas: da profundidad y energía.</li>
+      <li><b>Lienzo cálido</b> #FBF6FA con blobs difuminados, no #FFFFFF plano.</li>
+      <li><b>Foto a sangre + chips de vidrio</b> en cada oferta: más apetecible y “premium”.</li>
+      <li><b>Nav flotante de cristal con FAB de Escanear</b> en el centro: la acción clave siempre a un toque.</li>
+      <li><b>Jerarquía tipográfica</b> fuerte (cifras 52px con tracking negativo, pesos 800–850).</li>
+      <li><b>Microinteracciones</b>: press scale(0.97), stagger al entrar, confeti al canjear, spring en el FAB.</li>
+    </ul>
+  </div>
+</div>
+
+</body>
+</html>

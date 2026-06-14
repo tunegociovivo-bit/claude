@@ -5,14 +5,16 @@ import { getCurrentLatLng } from "../lib/location";
 import { CheckSession, saveSession, type Customer } from "../lib/session";
 import { api } from "../lib/api";
 import { shareReferralForOffer } from "../lib/share-referral";
+import { Ionicons } from "@expo/vector-icons";
 import { Wordmark } from "../components/Wordmark";
 import { BottomNav } from "../components/BottomNav";
 import { FadeIn } from "../components/FadeIn";
 import { Bouncy } from "../components/Bouncy";
 import { CountUp } from "../components/CountUp";
+import { Gradient } from "../components/Gradient";
 import { sfx } from "../lib/sound";
 import { stagger } from "../lib/anim";
-import { useTheme, type Palette, radius, shadow } from "../lib/theme";
+import { useTheme, type Palette, radius, shadow, gradients } from "../lib/theme";
 import { registerExpoPushForCustomer } from "../lib/push";
 import { startBubuiGeofencing } from "../lib/geofence";
 
@@ -47,6 +49,20 @@ const SCREEN_W = Dimensions.get("window").width;
 // se mide, se usa un alto provisional ~2:1.
 const BANNER_W = SCREEN_W;
 const BANNER_H_FALLBACK = Math.round(SCREEN_W * 0.52);
+
+// Gradientes de cabecera para las tarjetas de oferta sin logo: dan variedad
+// y color sin depender de la foto del negocio.
+const OFFER_GRADS: string[][] = [
+  ["#FF8A5B", "#FF2E88"],
+  ["#7C3AED", "#FF2E88"],
+  ["#22D3A6", "#0EA5E9"],
+  ["#FF3D9A", "#FF6B5E"]
+];
+
+function fmtDist(m: number | null | undefined): string | null {
+  if (m == null) return null;
+  return m > 1000 ? `${(m / 1000).toFixed(1)} km` : `${m} m`;
+}
 
 export function Feed() {
   const nav = useNavigation<any>();
@@ -207,25 +223,28 @@ export function Feed() {
           </View>
         </FadeIn>
       ) : (
-        <>
-          {/* Has ahorrado + cupón */}
-          <FadeIn replayOnFocus delay={stagger(1)} style={styles.savedCard}>
-            <View>
-              <Text style={styles.savedLabel}>HAS AHORRADO</Text>
-              <CountUp value={customer?.totalSaved ?? 0} decimals={2} suffix=" €" style={styles.savedAmount} />
+        /* Hero: ahorro acumulado + acción de escanear, en una tarjeta con
+           gradiente de marca (profundidad y energía). */
+        <FadeIn replayOnFocus delay={stagger(1)}>
+          <Gradient colors={gradients.brand} style={styles.hero}>
+            <View style={styles.heroTop}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.heroLabel}>HAS AHORRADO</Text>
+                <CountUp value={customer?.totalSaved ?? 0} decimals={2} suffix=" €" style={styles.heroAmount} />
+                <Text style={styles.heroSub}>
+                  en {customer?.totalPurchases ?? 0} compra{(customer?.totalPurchases ?? 0) === 1 ? "" : "s"} con Bubui
+                </Text>
+              </View>
+              <Text style={styles.heroEmoji}>🎟️</Text>
             </View>
-            <Text style={{ fontSize: 38 }}>🎟️</Text>
-          </FadeIn>
-
-          {/* Botón escanear con animación (pulso + rebote al pulsar) */}
-          <FadeIn replayOnFocus delay={stagger(2)}>
-            <Animated.View style={{ transform: [{ scale }], marginBottom: 20 }}>
-              <Bouncy style={styles.cta} onPress={() => { sfx.tap(); nav.navigate("Scan", { businessId: "" }); }}>
-                <Text style={styles.ctaText}>⛶  Escanear QR de un negocio</Text>
+            <Animated.View style={{ transform: [{ scale }] }}>
+              <Bouncy style={styles.heroBtn} onPress={() => { sfx.tap(); nav.navigate("Scan", { businessId: "" }); }}>
+                <Ionicons name="scan-outline" size={18} color={c.pink} />
+                <Text style={styles.heroBtnText}>Escanear QR de un negocio</Text>
               </Bouncy>
             </Animated.View>
-          </FadeIn>
-        </>
+          </Gradient>
+        </FadeIn>
       )}
 
       {/* Banner promocional: remoto (gestionado desde admin) o tarjeta por defecto */}
@@ -340,22 +359,43 @@ export function Feed() {
                 })
               }
             >
-              <View style={[styles.photo, item.business.brandColor ? { backgroundColor: item.business.brandColor } : null]}>
-                {!!item.business.logoUrl && (
+              <View style={styles.photo}>
+                {item.business.logoUrl ? (
                   <Image source={{ uri: item.business.logoUrl }} style={styles.photoImg} resizeMode="cover" />
+                ) : (
+                  <Gradient
+                    colors={item.business.brandColor ? [item.business.brandColor, item.business.brandColor] : OFFER_GRADS[index % OFFER_GRADS.length]}
+                    style={StyleSheet.absoluteFill}
+                  />
                 )}
-                <View style={styles.tag}><Text style={styles.tagText}>-{item.discountPct}%</Text></View>
+                {/* Velo inferior para que los chips de vidrio se lean sobre
+                    cualquier foto. */}
+                <Gradient colors={gradients.scrim} start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }} style={styles.photoScrim} />
+                {item.discountPct > 0 && (
+                  <View style={styles.badge}><Text style={styles.badgeText}>-{item.discountPct}%</Text></View>
+                )}
+                <View style={styles.pillRow}>
+                  {fmtDist(item.distanceM) && (
+                    <View style={styles.pill}><Text style={styles.pillText}>📍 {fmtDist(item.distanceM)}</Text></View>
+                  )}
+                  {item.hoursLeft > 0 && (
+                    <View style={styles.pill}><Text style={styles.pillText}>⏰ {item.hoursLeft}h</Text></View>
+                  )}
+                </View>
               </View>
               <View style={styles.cardBody}>
+                <View style={[styles.av, { backgroundColor: item.business.brandColor || c.pink }]}>
+                  <Text style={styles.avText}>{(item.business.name || "?").charAt(0).toUpperCase()}</Text>
+                </View>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.bizName} numberOfLines={1}>{item.business.name}</Text>
                   <Text style={styles.bizCat} numberOfLines={1}>
                     {item.business.category}
-                    {item.distanceM != null && ` · ${item.distanceM > 1000 ? `${(item.distanceM / 1000).toFixed(1)} km` : `${item.distanceM} m`}`}
+                    {item.business.city ? ` · ${item.business.city}` : ""}
                   </Text>
                 </View>
-                {item.hoursLeft > 0 && (
-                  <Text style={[styles.exp, item.hoursLeft < 24 && styles.expUrgent]}>⏰ {item.hoursLeft}h</Text>
+                {item.hoursLeft > 0 && item.hoursLeft < 24 && (
+                  <Text style={styles.urgent}>¡Acaba hoy!</Text>
                 )}
               </View>
             </Bouncy>
@@ -374,16 +414,20 @@ const makeStyles = (c: Palette) =>
     header: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 14 },
     netError: { backgroundColor: "#FEF3C7", borderColor: "#FCD34D", borderWidth: 1, borderRadius: radius.md, padding: 12, marginBottom: 14 },
     netErrorText: { color: "#92400E", fontSize: 13, fontWeight: "700", textAlign: "center" },
-    savedCard: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", backgroundColor: c.white, borderRadius: radius.xl, borderWidth: 1, borderColor: c.border, padding: 18, marginBottom: 16, ...shadow.card },
     guestCard: { backgroundColor: c.white, borderRadius: radius.xl, borderWidth: 1, borderColor: c.border, padding: 18, marginBottom: 20, ...shadow.card },
     guestTitle: { fontSize: 16, fontWeight: "800", color: c.black, marginBottom: 4 },
     guestText: { fontSize: 13, color: c.grayLight, lineHeight: 19, marginBottom: 14 },
     guestCta: { backgroundColor: c.pink, borderRadius: radius.lg, paddingVertical: 13, alignItems: "center" },
     guestCtaText: { color: c.white, fontWeight: "800", fontSize: 15 },
-    savedLabel: { fontSize: 10, fontWeight: "800", letterSpacing: 1, color: c.grayLight },
-    savedAmount: { fontSize: 36, fontWeight: "900", color: c.pink, letterSpacing: -1 },
-    cta: { backgroundColor: c.pink, borderRadius: radius.pill, paddingVertical: 16, alignItems: "center", ...shadow.btn },
-    ctaText: { color: c.onAccent, fontSize: 16, fontWeight: "800" },
+    // Hero de ahorro (gradiente de marca)
+    hero: { borderRadius: radius.xl, padding: 20, marginBottom: 20, overflow: "hidden", ...shadow.lg },
+    heroTop: { flexDirection: "row", alignItems: "flex-start", marginBottom: 16 },
+    heroLabel: { fontSize: 11, fontWeight: "800", letterSpacing: 1.4, color: "rgba(255,255,255,0.85)" },
+    heroAmount: { fontSize: 44, fontWeight: "900", color: "#fff", letterSpacing: -1.5, marginTop: 4 },
+    heroSub: { fontSize: 13, fontWeight: "600", color: "rgba(255,255,255,0.92)", marginTop: 3 },
+    heroEmoji: { fontSize: 34, marginLeft: 8 },
+    heroBtn: { flexDirection: "row", gap: 8, alignItems: "center", justifyContent: "center", backgroundColor: "#fff", borderRadius: radius.pill, paddingVertical: 14 },
+    heroBtnText: { color: c.pink, fontWeight: "800", fontSize: 15 },
     // Wrapper a ancho completo: -16 de margen a cada lado para cancelar el
     // padding del FlatList, sombra para que el banner resalte sobre el fondo.
     promoWrap: { width: BANNER_W, marginLeft: -16, marginBottom: 22, ...shadow.card },
@@ -410,15 +454,20 @@ const makeStyles = (c: Palette) =>
     slotPlus: { color: c.pink, fontSize: 18, fontWeight: "900" },
     challengeBtn: { backgroundColor: c.pink, borderRadius: radius.pill, paddingVertical: 13, alignItems: "center", ...shadow.btn },
     challengeBtnText: { color: c.onAccent, fontSize: 15, fontWeight: "800" },
-    photo: { height: 130, backgroundColor: c.pinkSoft, justifyContent: "flex-start", alignItems: "flex-end" },
+    photo: { height: 150, backgroundColor: c.pinkSoft, justifyContent: "flex-end" },
     photoImg: { ...StyleSheet.absoluteFillObject, width: "100%", height: "100%" },
-    tag: { margin: 12, backgroundColor: c.pink, borderRadius: radius.pill, paddingHorizontal: 12, paddingVertical: 6 },
-    tagText: { color: c.onAccent, fontWeight: "900", fontSize: 13 },
-    cardBody: { flexDirection: "row", alignItems: "center", padding: 14, gap: 8 },
+    photoScrim: { position: "absolute", left: 0, right: 0, bottom: 0, height: 90 },
+    badge: { position: "absolute", top: 12, right: 12, backgroundColor: "#fff", borderRadius: radius.pill, paddingHorizontal: 12, paddingVertical: 7, ...shadow.card },
+    badgeText: { color: c.pinkDeep, fontWeight: "900", fontSize: 14 },
+    pillRow: { flexDirection: "row", gap: 8, padding: 12 },
+    pill: { backgroundColor: "rgba(255,255,255,0.92)", borderRadius: radius.pill, paddingHorizontal: 10, paddingVertical: 6 },
+    pillText: { fontSize: 12, fontWeight: "700", color: c.ink },
+    cardBody: { flexDirection: "row", alignItems: "center", padding: 14, gap: 10 },
+    av: { width: 42, height: 42, borderRadius: 13, alignItems: "center", justifyContent: "center" },
+    avText: { color: "#fff", fontWeight: "900", fontSize: 17 },
     bizName: { fontWeight: "800", color: c.black, fontSize: 15 },
     bizCat: { color: c.gray, fontSize: 12, marginTop: 2 },
-    exp: { fontSize: 12, color: c.gray, fontWeight: "700" },
-    expUrgent: { color: c.pink },
+    urgent: { fontSize: 12, fontWeight: "800", color: c.pink, backgroundColor: c.pinkSoft, paddingHorizontal: 9, paddingVertical: 6, borderRadius: 10 },
     emptyWrap: { alignItems: "center", paddingHorizontal: 24, paddingTop: 8 },
     emptyIll: { width: 220, height: 179, marginBottom: 6 },
     emptyTitle: { fontSize: 17, fontWeight: "900", color: c.black, marginBottom: 4 },

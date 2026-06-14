@@ -37,7 +37,7 @@ export const lightColors: Palette = {
   grayLight: "#9CA3AF",
   border: "rgba(0,0,0,0.08)",
   white: "#FFFFFF",
-  bg: "#FFFFFF",
+  bg: "#FCF7FB", // lienzo cálido (no #FFF plano) — da “aire” premium
   green: "#059669",
   onAccent: "#FFFFFF"
 };
@@ -61,6 +61,23 @@ export const darkColors: Palette = {
 /** Fallback estático (claro) para código aún no migrado a `useTheme`. */
 export const colors: Palette = lightColors;
 
+/** Gradientes de marca (Bubui 2.0). Dan profundidad y energía frente a las
+ *  superficies planas. Son vivos en ambos temas, así que no dependen de
+ *  claro/oscuro. Se usan con <Gradient> / expo-linear-gradient. */
+export const gradients = {
+  /** Rosa → coral: superficies “hero” cálidas (ahorro, CTAs destacados). */
+  hero: ["#FF3D9A", "#FF6B5E"] as string[],
+  /** Rosa → violeta: profundidad fría (perfil, banners). */
+  brand: ["#EC4899", "#7C3AED"] as string[],
+  /** Rosa sólido degradado sutil para botones/FAB. */
+  pink: ["#F95FB0", "#DB2777"] as string[],
+  /** Overlay oscuro de abajo→arriba para legibilidad sobre fotos. */
+  scrim: ["transparent", "rgba(8,4,12,0.62)"] as string[]
+};
+
+/** Punto de inicio/fin diagonal por defecto para los gradientes hero. */
+export const gradientDir = { start: { x: 0, y: 0 }, end: { x: 1, y: 1 } };
+
 export const radius = {
   sm: 12,
   md: 16,
@@ -83,6 +100,14 @@ export const shadow = {
     shadowRadius: 14,
     shadowOffset: { width: 0, height: 8 },
     elevation: 4
+  },
+  // Elevación grande para superficies flotantes (nav de cristal, FAB, hero).
+  lg: {
+    shadowColor: "#DB2777",
+    shadowOpacity: 0.22,
+    shadowRadius: 26,
+    shadowOffset: { width: 0, height: 16 },
+    elevation: 12
   }
 };
 
