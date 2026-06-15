@@ -140,8 +140,11 @@ export default async function BusinessPublicPage({ params }: { params: { slug: s
         })
       : [];
 
-  // Servicios para el formulario de cita (nicho servicios con reservas on).
-  const services = (business as any).bookingEnabled
+  // Servicios para el formulario de cita: solo en negocios de tipo "servicios"
+  // con las reservas activadas. (Si cambian el tipo, la cita deja de mostrarse
+  // aunque queden servicios o bookingEnabled de cuando era "servicios".)
+  const showBooking = (business as any).bookingEnabled && (business as any).businessType === "servicios";
+  const services = showBooking
     ? await prisma.bubuiService.findMany({
         where: { businessId: business.id, active: true },
         orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
@@ -305,8 +308,8 @@ export default async function BusinessPublicPage({ params }: { params: { slug: s
           </div>
         )}
 
-        {/* Pedir cita (comercios de servicios con reservas activas) */}
-        {(business as any).bookingEnabled && (
+        {/* Pedir cita (solo negocios de tipo "servicios" con reservas activas) */}
+        {showBooking && (
           <div className="px-6 sm:px-8 pt-6">
             <div className="text-xs font-bold uppercase tracking-wider text-black/45 mb-2">Pedir cita</div>
             <BookingForm businessId={business.id} services={services} />
