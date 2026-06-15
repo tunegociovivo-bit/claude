@@ -20,6 +20,7 @@ import {
 } from "@/lib/bubui/core";
 import { customerAuthOk } from "@/lib/bubui/customer-auth";
 import { createShareChallengeOffer } from "@/lib/bubui/share-offer";
+import { notifyBusinessNewReferredClient } from "@/lib/bubui/referral";
 import { computeWalletApplication, consumeWallet, qualifyAndCreditReferrer } from "@/lib/bubui/wallet";
 
 export const dynamic = "force-dynamic";
@@ -210,6 +211,9 @@ export async function POST(req: Request) {
     // Cualifica al cliente como referido (1ª compra confirmada + tel. verificado):
     // abona % a la hucha de quien lo trajo. Idempotente y fire-and-forget.
     void qualifyAndCreditReferrer(customer).catch(() => {});
+    // Avisa al negocio si es un cliente REFERIDO que viene por 1ª vez a su local
+    // (la señal que el comercio quiere: "Bubui me trae clientes nuevos").
+    void notifyBusinessNewReferredClient({ businessId: d.businessId, customer }).catch(() => {});
     // Registro inmediato del ahorro (sin confirmación del negocio):
     // marca cupón canjeado, suma ahorro al cliente y desbloquea cercanos.
     if (offerApplied && activeOffer) {
