@@ -22,6 +22,10 @@ export type MesaConfig = {
    *  Evita regalar descuento sin recibir valor neto-nuevo cuando la zona ya
    *  está saturada de usuarios. */
   veteranMustContribute?: boolean;
+  /** Primera descarga: si true, un comensal NUEVO (que se instala la app en la
+   *  mesa) debe además completar una acción para que su parte cuente. Por
+   *  defecto (false) la instalación ya es su aporte y desbloquea su parte. */
+  newUserMustContribute?: boolean;
   /** Plataforma de reseña que pide el negocio (Google/Tripadvisor/…) para los
    *  textos del checklist. */
   reviewPlatformLabel?: string;
@@ -98,8 +102,13 @@ export function computeMesa(
   const everyoneReviewed = diners > 0 && participants.every((p) => p.reviewDone);
 
   // Valor neto-nuevo: el nuevo aporta instalándose; el veterano, con su acción.
-  // Si veteranMustContribute=false, todos cuentan por estar presentes.
-  const paidEntry = (p: MesaParticipant) => p.isNewUser || !cfg.veteranMustContribute || p.contributed;
+  // Si veteranMustContribute=false, los veteranos cuentan por estar presentes.
+  // Si newUserMustContribute=true, el nuevo además debe completar una acción
+  // (la primera descarga ya no basta).
+  const paidEntry = (p: MesaParticipant) =>
+    p.isNewUser
+      ? !cfg.newUserMustContribute || p.contributed
+      : !cfg.veteranMustContribute || p.contributed;
   const everyonePaidEntry = diners > 0 && participants.every(paidEntry);
   const pendingContributors = participants.filter((p) => !paidEntry(p)).length;
 

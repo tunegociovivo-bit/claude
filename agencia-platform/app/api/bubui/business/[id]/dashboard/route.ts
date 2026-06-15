@@ -160,13 +160,18 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
       mesaNextVisitDays: business.mesaNextVisitDays,
       mesaBonusOnThisVisit: business.mesaBonusOnThisVisit,
       mesaVeteranMustContribute: business.mesaVeteranMustContribute,
+      mesaNewUserMustContribute: business.mesaNewUserMustContribute,
       mesaVeteranShareFriends: business.mesaVeteranShareFriends,
       mesaAutoAdjust: business.mesaAutoAdjust,
       mesaActShare: business.mesaActShare,
       mesaActReview: business.mesaActReview,
       mesaActPhoto: business.mesaActPhoto,
       mesaActFollow: business.mesaActFollow,
-      mesaPerkLabel: business.mesaPerkLabel
+      mesaPerkLabel: business.mesaPerkLabel,
+      pushOnNewClient: business.pushOnNewClient,
+      pushOnReview: business.pushOnReview,
+      pushOnBooking: business.pushOnBooking,
+      pushOnCoupon: business.pushOnCoupon
     },
     notifications: notifications.map((n) => ({ id: n.id, message: n.message, createdAt: n.createdAt })),
     pending: pending.map((p) => ({

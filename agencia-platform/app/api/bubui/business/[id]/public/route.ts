@@ -12,7 +12,10 @@ export const dynamic = "force-dynamic";
 export async function GET(_req: Request, { params }: { params: { id: string } }) {
   const b = await prisma.bubuiBusiness.findUnique({
     where: { id: params.id },
-    select: { id: true, name: true, slug: true, category: true, active: true, requireTicket: true }
+    select: {
+      id: true, name: true, slug: true, category: true, active: true, requireTicket: true,
+      businessType: true, mesaEnabled: true
+    }
   });
   if (!b || !b.active) {
     return NextResponse.json({ error: { code: "not_found" } }, { status: 404 });
@@ -22,6 +25,9 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
     name: b.name,
     slug: b.slug,
     category: b.category,
-    requireTicket: b.requireTicket
+    requireTicket: b.requireTicket,
+    businessType: b.businessType,
+    // La app ofrece la Mesa Colectiva tras escanear el QR del local si está activa.
+    mesaEnabled: !!b.mesaEnabled
   });
 }

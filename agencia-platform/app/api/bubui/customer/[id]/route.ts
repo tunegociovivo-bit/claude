@@ -11,6 +11,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { customerAuthOk } from "@/lib/bubui/customer-auth";
 import { getPlusEnabled } from "@/lib/bubui/plus";
+import { effectiveWalletPct } from "@/lib/bubui/wallet";
 
 export const dynamic = "force-dynamic";
 
@@ -30,7 +31,10 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
       firstBusinessId: true,
       plan: true,
       planExpiresAt: true,
-      subscriptionCancelAt: true
+      subscriptionCancelAt: true,
+      referralWalletPct: true,
+      referralWalletExpiresAt: true,
+      referralQualifiedCount: true
     }
   });
   if (!c) return NextResponse.json({ error: { code: "not_found" } }, { status: 404 });
@@ -79,6 +83,10 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
     planExpiresAt: c.planExpiresAt,
     subscriptionCancelAt: c.subscriptionCancelAt,
     activeOffers,
+    // Hucha de referidos: % efectivo (0 si caducó), caducidad y nº de amigos cualificados.
+    referralWalletPct: effectiveWalletPct(c),
+    referralWalletExpiresAt: c.referralWalletExpiresAt,
+    referralQualifiedCount: c.referralQualifiedCount,
     savings: purchases.map((p) => ({
       id: p.id,
       discountPct: p.discountPct,

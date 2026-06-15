@@ -14,6 +14,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db/prisma";
 import { customerAuthOk } from "@/lib/bubui/customer-auth";
+import { alertBusiness } from "@/lib/bubui/business-push";
 
 export const dynamic = "force-dynamic";
 
@@ -128,6 +129,15 @@ export async function POST(req: Request) {
   // (customerId, businessId, triggerBusinessId) y prevenir farmeo.
   let reward: { discountPct: number; expiresAt: Date } | null = null;
   if (!existing) {
+    // Aviso de valor al negocio: reseña nueva (panel + push si lo activó).
+    const stars = "★".repeat(rating);
+    const snippet = cleanComment ? `: “${cleanComment.slice(0, 80)}${cleanComment.length > 80 ? "…" : ""}”` : "";
+    void alertBusiness(businessId, {
+      type: "review",
+      message: `⭐ Nueva reseña de ${rating}★ (${stars})${snippet}`,
+      pushTitle: "⭐ Nueva reseña en Bubui",
+      link: "/bubui/negocio"
+    });
     const business = await prisma.bubuiBusiness.findUnique({
       where: { id: businessId },
       select: { reviewRewardPct: true }

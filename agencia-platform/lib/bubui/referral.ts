@@ -68,6 +68,57 @@ export async function countVerifiedReferrals(referrerId: string): Promise<number
 }
 
 /**
+ * Avisa al negocio de que un cliente REFERIDO (lo invitó otro usuario de Bubui)
+ * acaba de venir por PRIMERA vez a su local — la señal de valor que el comercio
+ * quiere ver: "Bubui me está trayendo clientes nuevos". Se llama tras crear una
+ * compra confirmada. Solo dispara en la 1ª compra del cliente en ese negocio.
+ * Crea la notificación del panel y, si hay email configurado, avisa al dueño.
+ * Tolerante a fallos.
+ */
+export async function notifyBusinessNewReferredClient(args: {
+  businessId: string;
+  customer: { id: string; name: string | null; referredById: string | null };
+}): Promise<boolean> {
+  const { businessId, customer } = args;
+  if (!customer.referredById) return false;
+  // ¿Es su PRIMERA compra confirmada en ESTE negocio? (el count incluye la recién
+  // creada, así que 1 = primera vez aquí).
+  const confirmedHere = await prisma.bubuiPurchase.count({
+    where: { customerId: customer.id, businessId, status: "confirmed" }
+  });
+  if (confirmedHere !== 1) return false;
+
+  const who = customer.name?.trim() || "Un cliente";
+  const msg = `🎉 ${who} ha venido por primera vez gracias a Bubui (lo invitó otro cliente). La app te está trayendo clientes nuevos.`;
+  await prisma.bubuiBusinessNotification
+    .create({ data: { businessId, type: "referred_client", message: msg } })
+    .catch(() => {});
+
+  // Push al panel del negocio (si el dueño activó push Y quiere este aviso).
+  void import("./business-push")
+    .then(async (m) => {
+      if (await m.businessWantsPush(businessId, "referred_client")) {
+        await m.sendPushToBubuiBusiness(businessId, { title: "🎉 Cliente nuevo vía Bubui", body: msg, link: "/bubui/negocio", tag: "referred_client" });
+      }
+    })
+    .catch(() => {});
+
+  const biz = await prisma.bubuiBusiness.findUnique({
+    where: { id: businessId },
+    select: { name: true, ownerEmail: true }
+  });
+  if (biz?.ownerEmail && isEmailEnabled()) {
+    sendEmail({
+      to: biz.ownerEmail,
+      subject: `Bubui · Nuevo cliente en ${biz.name} 🎉`,
+      html: `<p>${msg}</p><p>Entra a tu panel Bubui para verlo.</p>`,
+      text: msg
+    }).catch(() => {});
+  }
+  return true;
+}
+
+/**
  * Datos de una invitación por código (para el preview rico del enlace
  * /bubui/r/<code> en WhatsApp): el negocio de origen y el % de bienvenida que
  * se llevará el amigo. null si el código no existe o no tiene negocio.

@@ -3509,6 +3509,13 @@ model BubuiBusiness {
   // Solicitud de reseña en Google: push automático ~10 min tras escanear,
   // llevando al cliente a dejar reseña en Google (requiere googlePlaceId).
   reviewPushEnabled  Boolean @default(true)
+  // Preferencias de PUSH al panel del dueño: de qué eventos quiere que le
+  // avisemos en su dispositivo (el feed "Novedades" del panel siempre los
+  // registra; estos flags solo controlan la notificación push).
+  pushOnNewClient Boolean @default(true) // cliente referido nuevo
+  pushOnReview    Boolean @default(true) // reseña nueva
+  pushOnBooking   Boolean @default(true) // cita/reserva nueva
+  pushOnCoupon    Boolean @default(true) // cupón Bubui canjeado
   // Tarjeta de fidelidad (sellos digitales). Cada compra confirmada del
   // cliente suma 1 sello; al completar `loyaltyGoal` sellos se desbloquea
   // automáticamente un cupón con loyaltyRewardPct (o loyaltyRewardLabel) y
@@ -3554,6 +3561,10 @@ model BubuiBusiness {
   // tenía la app) debe completar una acción del menú para que su parte cuente.
   // Evita regalar descuento sin recibir nada cuando la zona ya está saturada.
   mesaVeteranMustContribute Boolean @default(true)
+  // Primera descarga: false (def) = el comensal NUEVO desbloquea su parte solo
+  // con instalarse/darse de alta; true = aunque sea nuevo, debe completar también
+  // una acción del menú (compartir/reseña) para que su parte cuente.
+  mesaNewUserMustContribute Boolean @default(false)
   mesaVeteranShareFriends   Int     @default(1) // amigos si elige "compartir"
   mesaAutoAdjust            Boolean @default(true) // sube exigencia con la saturación
   // Menú de acciones que el comercio acepta como aporte del veterano.
@@ -3696,6 +3707,17 @@ model BubuiCustomer {
   // Programa de afiliados.
   referralCode    String?  @unique // código corto para su enlace de invitación
   referredById    String?  // cliente que lo invitó
+  // Hucha de referidos: % acumulado que el cliente cobra yendo a comer (solo).
+  // Se abona cuando un amigo traído se CUALIFICA (alta + tel. verificado + 1ª
+  // compra confirmada). Al canjear se aplica hasta el tope por visita del
+  // negocio (mesaMaxPct); el sobrante se queda acumulado. Caducidad global
+  // (referralWalletExpiresAt), se renueva con cada abono.
+  referralWalletPct       Int       @default(0)
+  referralWalletExpiresAt DateTime?
+  referralQualifiedCount  Int       @default(0) // amigos cualificados (histórico)
+  // true cuando ESTE cliente ya ha cualificado a su referidor (idempotencia del
+  // abono: un amigo abona como máximo una vez a quien lo trajo).
+  referralQualified       Boolean   @default(false)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -3764,7 +3786,8 @@ model BubuiOffer {
   // la muestra en vez del %.
   rewardLabel     String?
   // Origen de la oferta: "cross" (cupón cruzado) | "referral" | "referral_welcome"
-  //  | "review_reward" | "share_challenge" (oferta-reto viral).
+  //  | "review_reward" | "share_challenge" (oferta-reto viral) | "mesa" (cupón
+  //  próxima visita de la Mesa Colectiva) | "mesa_followup" (acción no elegida).
   source          String?  @default("cross")
   // Oferta-reto viral: si active=false la oferta está BLOQUEADA y no se puede
   // canjear hasta conseguir `unlockShares` amigos verificados nuevos por
@@ -3848,6 +3871,22 @@ model BubuiPushSubscription {
   createdAt   DateTime @default(now())
 
   @@index([customerId])
+}
+
+/// Suscripción Web Push del PANEL del negocio (PWA). Igual que
+/// BubuiPushSubscription pero keyed por businessId: avisa al dueño en su
+/// dispositivo (ej. "Bubui te ha traído un cliente nuevo").
+model BubuiBusinessPushSubscription {
+  @@map("BipiBusinessPushSubscription")
+  id          String   @id @default(cuid())
+  businessId  String
+  endpoint    String   @unique
+  p256dh      String
+  authKey     String
+  userAgent   String?
+  createdAt   DateTime @default(now())
+
+  @@index([businessId])
 }
 
 /// Token de push para apps móviles nativas (Expo Push Service). El campo
@@ -4022,12 +4061,17 @@ model BubuiTableParticipant {
   sharedCount Int      @default(0)
   sharedDone  Boolean  @default(false) // alcanzó shareFriends amigos nuevos
   reviewDone  Boolean  @default(false) // pasó por el enlace de reseña de Google
+  // Momento del primer aporte (para el push diferido ~1h de la acción no elegida).
+  contributedAt  DateTime?
+  // Marca de que ya se envió el push de la "acción no elegida" (idempotencia).
+  followupPushedAt DateTime?
   joinedAt    DateTime @default(now())
 
   session  BubuiTableSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
   @@unique([sessionId, customerId])
   @@index([sessionId])
+  @@index([contributedAt, followupPushedAt])
 }
 
 /// Catálogo de productos de un comercio (nicho comercio_producto). Se muestra

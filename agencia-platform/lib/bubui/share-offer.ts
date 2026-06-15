@@ -68,6 +68,46 @@ export async function createShareChallengeOffer(args: {
 }
 
 /**
+ * Reto de compartir de la Mesa Colectiva: cuando un comensal "comparte" en la
+ * mesa, además del % de grupo inmediato (que cuenta sin verificar instalaciones),
+ * se le crea una oferta-reto BLOQUEADA con el bonus de compartir. Se activa
+ * cuando sus `friends` amigos se den de alta de verdad — reutiliza todo el motor
+ * de oferta-reto (desbloqueo vía applyReferral + recordatorios del cron). Es el
+ * "+% adicional si tus amigos se instalan" del diseño. Idempotente por
+ * (sesión, comensal). Devuelve true si la creó.
+ */
+export async function createMesaShareChallenge(args: {
+  customerId: string;
+  sessionId: string;
+  business: { id: string; mesaShareBonusPct: number };
+  friends: number;
+}): Promise<boolean> {
+  const { customerId, sessionId, business, friends } = args;
+  const pct = business.mesaShareBonusPct ?? 0;
+  if (pct <= 0) return false;
+  const baseline = await countVerifiedReferrals(customerId);
+  const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 días para activarla
+  try {
+    await prisma.bubuiOffer.create({
+      data: {
+        customerId,
+        businessId: business.id,
+        discountPct: pct,
+        triggerBusinessId: `mesashare:${sessionId}:${customerId}`,
+        source: "share_challenge",
+        active: false,
+        unlockShares: Math.max(1, friends),
+        unlockBaseline: baseline,
+        expiresAt
+      }
+    });
+    return true;
+  } catch {
+    return false; // P2002: ya existe el reto de esta mesa para este comensal
+  }
+}
+
+/**
  * Tras verificarse un amigo, activa las ofertas-reto del referidor cuyo
  * objetivo ya se haya alcanzado y le avisa por push. Devuelve cuántas
  * desbloqueó. Tolerante a fallos (no rompe el flujo de referidos).
