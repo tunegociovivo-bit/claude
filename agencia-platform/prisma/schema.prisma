@@ -3866,6 +3866,22 @@ model BubuiPushSubscription {
   @@index([customerId])
 }
 
+/// Suscripción Web Push del PANEL del negocio (PWA). Igual que
+/// BubuiPushSubscription pero keyed por businessId: avisa al dueño en su
+/// dispositivo (ej. "Bubui te ha traído un cliente nuevo").
+model BubuiBusinessPushSubscription {
+  @@map("BipiBusinessPushSubscription")
+  id          String   @id @default(cuid())
+  businessId  String
+  endpoint    String   @unique
+  p256dh      String
+  authKey     String
+  userAgent   String?
+  createdAt   DateTime @default(now())
+
+  @@index([businessId])
+}
+
 /// Token de push para apps móviles nativas (Expo Push Service). El campo
 /// `token` empieza por `ExponentPushToken[...]` o `ExpoPushToken[...]`.
 /// La entrega final en Android necesita FCM configurado en EAS.
