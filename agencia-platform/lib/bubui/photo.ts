@@ -90,10 +90,11 @@ export async function generateBusinessHeroImage(opts: {
 /**
  * Banner IA a partir de la FOTO DEL ESCAPARATE del negocio.
  *
- * Image-to-image con OpenAI /v1/images/edits (gpt-image-1): mejora la foto
- * real y le compone el NOMBRE del comercio en el centro. A diferencia del
- * generador de hero por texto, aquí SÍ queremos texto en la imagen (gpt-image-1
- * rinde bien con tipografía), pero solo el nombre del negocio.
+ * Image-to-image con OpenAI /v1/images/edits (gpt-image-2, con gpt-image-1 de
+ * respaldo): MEJORA la foto real (iluminación, limpieza, nitidez, color) SIN
+ * recrear la escena, y le compone el NOMBRE del comercio. A diferencia del
+ * generador de hero por texto, aquí SÍ queremos texto en la imagen (los
+ * modelos gpt-image rinden bien con tipografía), pero solo el nombre.
  *
  * Devuelve un PNG en base64.
  */
@@ -108,15 +109,15 @@ export async function generateBusinessBanner(opts: {
   if (!apiKey) throw new Error("API key de OpenAI no configurada (ni env ni bóveda del Hub)");
 
   const name = opts.businessName.trim().slice(0, 60);
-  // Prompt curado (versión mejorada del orientativo del cliente). En inglés
-  // para mayor fidelidad del modelo, con el nombre EXACTO entre comillas.
+  // Prompt de RETOQUE (no recreación). La clave para que respete la foto real
+  // es, además, `input_fidelity: "high"` en la llamada (ver buildForm). Aquí
+  // insistimos en conservar la escena y solo mejorarla + rotular el nombre.
   const prompt = [
-    `Turn the attached photo of this local business storefront into a polished, professional promotional banner for the "Bubui" app (a local-deals app).`,
-    `Keep the real storefront clearly recognizable, but enhance it: tidy up clutter, improve lighting and colors, make it crisp, vivid, warm and inviting, advertising/magazine quality.`,
-    `Add the business name "${name}" as the main headline, centered, large and highly legible, with elegant modern sans-serif typography and strong contrast (use a subtle shadow, gradient scrim or translucent banner behind the text so it reads perfectly over the photo).`,
-    `Spell the name EXACTLY as written, with no typos.`,
-    `You may add a small tasteful subtitle "${opts.category}" beneath the name, but keep it minimal.`,
-    `Horizontal 16:9 banner composition. No watermarks, no QR codes, no invented logos, no extra or gibberish text — ONLY the business name and the optional category.`
+    `This is a real photo of a local business. Enhance and retouch THIS SAME photo — do NOT replace, redraw, reimagine or generate a new scene.`,
+    `Keep the exact same place, objects, layout, perspective and framing as the original. It must still look like the same real photograph, just professionally edited.`,
+    `Improvements only: balance and improve the lighting, lift dark shadows, fix white balance and make colors natural and vivid, increase sharpness and clarity, reduce noise/blur, and clean up small clutter, dust or distractions. Real-estate / magazine retouch quality.`,
+    `Then overlay ONLY the business name "${name}" as a headline, large, clean, elegant modern sans-serif, perfectly legible, with a subtle shadow or a soft translucent scrim behind the text so it reads well over the photo. Spell it EXACTLY as written, no typos.`,
+    `Do NOT add any other text, subtitle, category, slogan, logo, watermark, QR code or graphics. Photorealistic result, horizontal 16:9 composition.`
   ].join(" ");
 
   // Reducimos la imagen de entrada (la foto del móvil puede pesar varios MB)
@@ -142,14 +143,20 @@ export async function generateBusinessBanner(opts: {
     form.append("prompt", prompt);
     form.append("size", "1536x1024");
     form.append("quality", "high");
+    // Clave para MEJORAR la foto en vez de recrearla: máxima fidelidad a la
+    // imagen de entrada (conserva escena, objetos y composición reales). El
+    // parámetro está soportado en gpt-image-1; en gpt-image-2 no lo enviamos
+    // (igual que el calendario editorial) para no arriesgar un 400.
+    if (model === "gpt-image-1") form.append("input_fidelity", "high");
     form.append("n", "1");
     form.append("image", new Blob([new Uint8Array(inputBuf)], { type: inputType }), `escaparate.${ext}`);
     return form;
   };
 
-  // gpt-image-1 es el modelo probado; si la cuenta tuviera otro catálogo y
-  // OpenAI rechazara el modelo, probamos el alternativo antes de rendirnos.
-  const MODELS = ["gpt-image-1", "gpt-image-2"];
+  // gpt-image-2 es el modelo principal (mejor calidad, el mismo que usa el
+  // calendario editorial IA). gpt-image-1 queda de respaldo por si la cuenta
+  // no tuviera acceso a gpt-image-2.
+  const MODELS = ["gpt-image-2", "gpt-image-1"];
   let resp: Response | null = null;
   let lastErr = "";
   outer: for (const model of MODELS) {
