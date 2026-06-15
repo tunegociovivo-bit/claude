@@ -344,12 +344,9 @@ export default async function BusinessPublicPage({ params }: { params: { slug: s
         )}
 
         {/* CTA principal — Canjear oferta */}
-        <div className="px-6 sm:px-8 py-7 mt-6 border-t border-black/5 flex flex-col sm:flex-row gap-3 items-stretch">
-          <a href={`/bubui/scan/${business.id}`} className="bubui-btn flex-1 text-center">
+        <div className="px-6 sm:px-8 py-7 mt-6 border-t border-black/5">
+          <a href={`/bubui/scan/${business.id}`} className="bubui-btn w-full text-center block">
             Canjear oferta · {business.defaultDiscountPct}%
-          </a>
-          <a href="/bubui/app" className="bubui-btn-ghost flex-1 text-center">
-            Abrir Bubui
           </a>
         </div>
       </article>
