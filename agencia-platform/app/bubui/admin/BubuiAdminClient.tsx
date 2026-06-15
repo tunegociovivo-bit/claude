@@ -22,6 +22,22 @@ type Overview = {
 
 type AdminTab = "overview" | "users" | "businesses" | "banner" | "plus" | "push" | "sections";
 
+// Categorías de negocio (mismas del registro). El admin puede reasignar la de
+// cualquier comercio desde la tabla de Comercios.
+const BUBUI_CATEGORIES = [
+  "Restauración",
+  "Peluquería / Barbería",
+  "Estética / Spa",
+  "Gimnasio / Fitness",
+  "Nutrición / Salud",
+  "Tienda de moda",
+  "Tienda de regalos",
+  "Café / Bar",
+  "Joyería",
+  "Floristería",
+  "Otro"
+];
+
 export default function BubuiAdminClient() {
   const [data, setData] = useState<Overview | null>(null);
   const [city, setCity] = useState("");
@@ -371,6 +387,14 @@ function BusinessesPanel() {
       setRows((prev) => prev?.map((b) => (b.id === id ? { ...b, plan: prevPlan } : b)) ?? prev);
     }
   }
+  async function setCategory(id: string, category: string, prevCat: string) {
+    setRows((prev) => prev?.map((b) => (b.id === id ? { ...b, category } : b)) ?? prev);
+    try {
+      await adminFetch("/api/bubui/admin/businesses", { method: "PATCH", body: JSON.stringify({ id, category }) });
+    } catch {
+      setRows((prev) => prev?.map((b) => (b.id === id ? { ...b, category: prevCat } : b)) ?? prev);
+    }
+  }
   if (err) return <p className="text-rose-700 text-sm mt-4">{err}</p>;
   if (!rows) return <div className="bubui-skeleton h-40 mt-4" />;
   const pendingPosters = rows.filter((b) => b.posterDeliveryRequestedAt && !b.posterDeliveredAt);
@@ -439,7 +463,18 @@ function BusinessesPanel() {
                 <input type="checkbox" checked={!!b.featured} onChange={(e) => toggleFeatured(b.id, e.target.checked)} />
               </td>
               <td className="p-2 border-b border-black/5 whitespace-nowrap font-semibold">{b.name}{b.featured ? " ⭐" : ""}</td>
-              <td className="p-2 border-b border-black/5 whitespace-nowrap">{b.category}</td>
+              <td className="p-2 border-b border-black/5 whitespace-nowrap">
+                <select
+                  value={b.category ?? "Otro"}
+                  onChange={(e) => setCategory(b.id, e.target.value, b.category ?? "Otro")}
+                  className="border rounded px-1.5 py-1 bg-white text-[12px]"
+                  title="Categoría del negocio (se muestra en la app)"
+                >
+                  {(BUBUI_CATEGORIES.includes(b.category) ? BUBUI_CATEGORIES : [b.category, ...BUBUI_CATEGORIES]).map((cat) => (
+                    <option key={cat} value={cat}>{cat}</option>
+                  ))}
+                </select>
+              </td>
               <td className="p-2 border-b border-black/5 whitespace-nowrap">{b.city ?? "—"}</td>
               <td className="p-2 border-b border-black/5 whitespace-nowrap">{b.ownerName ?? "—"}</td>
               <td className="p-2 border-b border-black/5 whitespace-nowrap">{b.ownerPhone ?? "—"}</td>
