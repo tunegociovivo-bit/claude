@@ -122,10 +122,15 @@ ligar las altas a la sesión de mesa y un cron del día siguiente.
   (crear como capitán / mostrar QR grupo / unirse), NO aplica 5% directo.
 - Cierre por el dueño → registro para todos (ya existe la base).
 
-### Fase 2 — Retención + viral
-- Push diferido (~1 h): la acción no elegida → cupón próxima visita.
-- Atribución de altas a la mesa + cron del día siguiente con el push
-  "X amigos de alta; si llegan al resto, +Y% para todos".
+### Fase 2 — Retención + viral ✅
+- **Acción no elegida (~1 h)**: cron `bubui-mesa-followup` → a quien solo hizo
+  una acción le manda push con la otra y le guarda cupón de próxima visita
+  (reseña → cupón %; compartir → oferta-reto). Idempotente vía
+  `BubuiTableParticipant.followupPushedAt` (+ `contributedAt`).
+- **Altas reales → bonus**: al compartir en la mesa se crea una **oferta-reto**
+  (`createMesaShareChallenge`) que **reutiliza el motor existente**: se desbloquea
+  sola cuando los amigos se dan de alta (vía `applyReferral`) y el cron
+  `bubui-share-reminders` ya hace el push "te faltan N amigos para tu premio".
 
 ### Fase 3 — Hucha de referidos
 - Migración Gap B.

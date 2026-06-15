@@ -3768,7 +3768,8 @@ model BubuiOffer {
   // la muestra en vez del %.
   rewardLabel     String?
   // Origen de la oferta: "cross" (cupón cruzado) | "referral" | "referral_welcome"
-  //  | "review_reward" | "share_challenge" (oferta-reto viral).
+  //  | "review_reward" | "share_challenge" (oferta-reto viral) | "mesa" (cupón
+  //  próxima visita de la Mesa Colectiva) | "mesa_followup" (acción no elegida).
   source          String?  @default("cross")
   // Oferta-reto viral: si active=false la oferta está BLOQUEADA y no se puede
   // canjear hasta conseguir `unlockShares` amigos verificados nuevos por
@@ -4026,12 +4027,17 @@ model BubuiTableParticipant {
   sharedCount Int      @default(0)
   sharedDone  Boolean  @default(false) // alcanzó shareFriends amigos nuevos
   reviewDone  Boolean  @default(false) // pasó por el enlace de reseña de Google
+  // Momento del primer aporte (para el push diferido ~1h de la acción no elegida).
+  contributedAt  DateTime?
+  // Marca de que ya se envió el push de la "acción no elegida" (idempotencia).
+  followupPushedAt DateTime?
   joinedAt    DateTime @default(now())
 
   session  BubuiTableSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
   @@unique([sessionId, customerId])
   @@index([sessionId])
+  @@index([contributedAt, followupPushedAt])
 }
 
 /// Catálogo de productos de un comercio (nicho comercio_producto). Se muestra

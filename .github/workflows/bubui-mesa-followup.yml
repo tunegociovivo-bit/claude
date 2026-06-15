@@ -1,0 +1,18 @@
+name: Bubui · Mesa Colectiva — acción no elegida (~1h)
+# Corre cada 5 min. ~1h tras el aporte en la mesa, a quien solo hizo una acción
+# (compartir o reseña) le manda un push con la otra y le guarda un cupón para su
+# próxima visita. Idempotente vía BubuiTableParticipant.followupPushedAt.
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch: # permite disparar a mano desde GitHub UI
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping endpoint cron
+        run: |
+          curl -fsSL --retry 4 --retry-delay 30 --retry-all-errors -X GET \
+            -H "Authorization: Bearer ${{ secrets.INTERNAL_CRON_TOKEN || secrets.CRON_SECRET }}" \
+            https://hub.negociovivo.app/api/cron/bubui-mesa-followup
