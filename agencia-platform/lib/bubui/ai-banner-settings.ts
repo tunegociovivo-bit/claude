@@ -26,3 +26,30 @@ export async function setAiBannerPolicy(policy: AiBannerPolicy): Promise<AiBanne
   });
   return policy;
 }
+
+/**
+ * Número de banners IA GRATIS por negocio antes de pagar 1€/edición. El admin
+ * lo cambia desde su panel (útil para pruebas y para regalar generaciones al
+ * principio). Por defecto 1. Se guarda en BubuiSetting.
+ */
+const FREE_KEY = "ai_banner_free_count";
+const FREE_DEFAULT = 1;
+const FREE_MAX = 100;
+
+export async function getAiBannerFreeCount(): Promise<number> {
+  const row = await prisma.bubuiSetting.findUnique({ where: { key: FREE_KEY } });
+  if (!row) return FREE_DEFAULT;
+  const n = Number(row.value);
+  if (!Number.isFinite(n) || n < 0) return FREE_DEFAULT;
+  return Math.min(FREE_MAX, Math.floor(n));
+}
+
+export async function setAiBannerFreeCount(count: number): Promise<number> {
+  const safe = Number.isFinite(count) && count >= 0 ? Math.min(FREE_MAX, Math.floor(count)) : FREE_DEFAULT;
+  await prisma.bubuiSetting.upsert({
+    where: { key: FREE_KEY },
+    create: { key: FREE_KEY, value: String(safe) },
+    update: { value: String(safe) }
+  });
+  return safe;
+}

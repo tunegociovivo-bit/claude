@@ -11,7 +11,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { businessTokenAllows } from "@/lib/bubui/auth";
-import { getAiBannerPolicy } from "@/lib/bubui/ai-banner-settings";
+import { getAiBannerPolicy, getAiBannerFreeCount } from "@/lib/bubui/ai-banner-settings";
 
 export const dynamic = "force-dynamic";
 
@@ -144,6 +144,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
       // limitado a planes de pago.
       aiBannerUsed: business.aiBannerUsed,
       aiBannerCredits: business.aiBannerCredits,
+      aiBannerFreeCount: await getAiBannerFreeCount(),
       aiBannerPaidOnly: (await getAiBannerPolicy()) === "paid",
       // Tipo de negocio (panel por nicho) + config de la Mesa Colectiva.
       businessType: business.businessType,

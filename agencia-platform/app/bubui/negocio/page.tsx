@@ -1669,11 +1669,14 @@ function AiPhotoStudio({ business, token, onSaved }: { business: any; token: str
   const [needsPayment, setNeedsPayment] = useState(false);
   const [saved, setSaved] = useState(false);
 
-  // Estado de uso: 0 generaciones = la primera es GRATIS. Después hace falta
-  // un crédito (1€ cada uno) que se compra por Stripe.
+  // Estado de uso: el admin decide cuántos banners son GRATIS (freeCount).
+  // Mientras used < freeCount es gratis; después hace falta un crédito (1€
+  // cada uno) que se compra por Stripe.
   const used: number = business.aiBannerUsed ?? 0;
   const credits: number = business.aiBannerCredits ?? 0;
-  const isFree = used === 0;
+  const freeCount: number = business.aiBannerFreeCount ?? 1;
+  const remainingFree = Math.max(0, freeCount - used);
+  const isFree = remainingFree > 0;
   const canGenerateNow = isFree || credits > 0;
   // El admin puede limitar el Banner IA a planes de pago (gate también en API).
   const paidOnly: boolean = business.aiBannerPaidOnly ?? false;
@@ -1769,7 +1772,9 @@ function AiPhotoStudio({ business, token, onSaved }: { business: any; token: str
         <h3 className="font-bold text-sm flex items-center gap-2">
           🖼️ Banner IA · Crea tu portada desde una foto
           {isFree ? (
-            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-300">1 GRATIS</span>
+            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-300">
+              {remainingFree} GRATIS
+            </span>
           ) : (
             <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-300">1€/edición</span>
           )}
@@ -1791,12 +1796,19 @@ function AiPhotoStudio({ business, token, onSaved }: { business: any; token: str
               como quieres que aparezca. La IA mejora la foto y le pone tu nombre, lista para portada.
             </p>
             <p className="text-pink-700 font-semibold">
-              ⚠️ Tu <b>primera</b> generación es <b>GRATIS</b>. Si no te convence y quieres otra,
-              cada nueva edición cuesta <b>1€</b>. Elige bien la foto antes de generar.
+              {freeCount > 0 ? (
+                <>
+                  ⚠️ Tienes <b>{remainingFree}</b> de <b>{freeCount}</b> banner(s) <b>GRATIS</b> disponibles.
+                  Cuando los uses, cada nueva edición cuesta <b>1€</b>. Elige bien la foto antes de generar.
+                </>
+              ) : (
+                <>⚠️ Cada banner cuesta <b>1€</b>. Elige bien la foto antes de generar.</>
+              )}
             </p>
             {!isFree && (
               <p className="text-black/60">
-                Ya usaste tu banner gratuito. Créditos disponibles: <b>{credits}</b>.
+                {freeCount > 0 ? <>Ya usaste tus banners gratis. </> : null}
+                Créditos disponibles: <b>{credits}</b>.
               </p>
             )}
           </div>

@@ -22,7 +22,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { businessTokenAllows } from "@/lib/bubui/auth";
 import { isPaidPlan } from "@/lib/bubui/plan";
-import { getAiBannerPolicy } from "@/lib/bubui/ai-banner-settings";
+import { getAiBannerPolicy, getAiBannerFreeCount } from "@/lib/bubui/ai-banner-settings";
 import { generateBusinessBanner, isPhotoAiEnabledAsync } from "@/lib/bubui/photo";
 import { isStorageEnabled, uploadBuffer, signedDownloadUrl } from "@/lib/storage/r2";
 
@@ -57,14 +57,18 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     );
   }
 
-  // ── Política de uso: gratis la primera, luego crédito de pago ──
-  const free = business.aiBannerUsed === 0;
+  // ── Política de uso: N gratis (configurable por el admin), luego crédito ──
+  const freeCount = await getAiBannerFreeCount();
+  const free = business.aiBannerUsed < freeCount;
   if (!free && business.aiBannerCredits <= 0) {
     return NextResponse.json(
       {
         error: {
           code: "payment_required",
-          message: "Ya usaste tu banner IA gratuito. Cada nueva edición cuesta 1€.",
+          message:
+            freeCount > 0
+              ? `Ya usaste tus ${freeCount} banner(s) IA gratis. Cada nueva edición cuesta 1€.`
+              : "Cada banner IA cuesta 1€.",
           needsPayment: true
         }
       },
