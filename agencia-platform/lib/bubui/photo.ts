@@ -109,15 +109,16 @@ export async function generateBusinessBanner(opts: {
   if (!apiKey) throw new Error("API key de OpenAI no configurada (ni env ni bóveda del Hub)");
 
   const name = opts.businessName.trim().slice(0, 60);
-  // Prompt de RETOQUE (no recreación). La clave para que respete la foto real
-  // es, además, `input_fidelity: "high"` en la llamada (ver buildForm). Aquí
-  // insistimos en conservar la escena y solo mejorarla + rotular el nombre.
+  // Prompt: SÍ queremos un banner promocional bonito, pero FIEL a la foto real
+  // del negocio (mismo sitio y elementos, solo mejorados). El ancla de
+  // fidelidad evita que el modelo invente otro local. input_fidelity=high
+  // (gpt-image-1) refuerza esto en la llamada (ver buildForm).
   const prompt = [
-    `This is a real photo of a local business. Enhance and retouch THIS SAME photo — do NOT replace, redraw, reimagine or generate a new scene.`,
-    `Keep the exact same place, objects, layout, perspective and framing as the original. It must still look like the same real photograph, just professionally edited.`,
-    `Improvements only: balance and improve the lighting, lift dark shadows, fix white balance and make colors natural and vivid, increase sharpness and clarity, reduce noise/blur, and clean up small clutter, dust or distractions. Real-estate / magazine retouch quality.`,
-    `Then overlay ONLY the business name "${name}" as a headline, large, clean, elegant modern sans-serif, perfectly legible, with a subtle shadow or a soft translucent scrim behind the text so it reads well over the photo. Spell it EXACTLY as written, no typos.`,
-    `Do NOT add any other text, subtitle, category, slogan, logo, watermark, QR code or graphics. Photorealistic result, horizontal 16:9 composition.`
+    `Using this real photo of a local business, create a polished, professional promotional banner for the "Bubui" local-deals app.`,
+    `CRUCIAL — fidelity: keep the business's REAL place faithfully recognizable. Same actual location, same storefront/interior, same furniture, products, signs and layout as in the photo. Do NOT invent or replace it with a different place, building, scene or objects — it must clearly be the SAME real business, just looking its best.`,
+    `Enhance it to advertising/magazine quality: balance and improve the lighting, lift dark shadows, fix white balance, make colors rich and natural, increase sharpness and clarity, reduce noise/blur, and tidy up small clutter or distractions.`,
+    `Add the business name "${name}" as the main headline — large, elegant modern sans-serif, perfectly legible — over a subtle shadow, gradient or soft translucent scrim so it reads cleanly over the image. Spell it EXACTLY as written, no typos.`,
+    `Do NOT add any other text, subtitle, category, slogan, invented logo, watermark or QR code. Horizontal 16:9 banner composition.`
   ].join(" ");
 
   // Reducimos la imagen de entrada (la foto del móvil puede pesar varios MB)
