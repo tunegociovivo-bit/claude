@@ -8,6 +8,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db/prisma";
+import { alertBusiness } from "@/lib/bubui/business-push";
 
 export const dynamic = "force-dynamic";
 
@@ -56,10 +57,13 @@ export async function POST(req: Request) {
     }
   });
 
-  // Avisa al comercio (notificación interna del panel).
-  await prisma.bubuiBusinessNotification
-    .create({ data: { businessId: d.businessId, type: "booking", message: `📅 Nueva solicitud de cita de ${booking.customerName} para el ${when.toLocaleString("es-ES")}` } })
-    .catch(() => {});
+  // Avisa al comercio (panel + push si lo activó en su dispositivo).
+  await alertBusiness(d.businessId, {
+    type: "booking",
+    message: `📅 Nueva solicitud de cita de ${booking.customerName} para el ${when.toLocaleString("es-ES")}`,
+    pushTitle: "📅 Nueva cita",
+    link: "/bubui/negocio"
+  });
 
   return NextResponse.json({ ok: true, bookingId: booking.id }, { status: 201 });
 }

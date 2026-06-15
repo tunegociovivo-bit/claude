@@ -21,6 +21,7 @@ import {
 import { customerAuthOk } from "@/lib/bubui/customer-auth";
 import { createShareChallengeOffer } from "@/lib/bubui/share-offer";
 import { notifyBusinessNewReferredClient } from "@/lib/bubui/referral";
+import { alertBusiness } from "@/lib/bubui/business-push";
 import { computeWalletApplication, consumeWallet, qualifyAndCreditReferrer } from "@/lib/bubui/wallet";
 
 export const dynamic = "force-dynamic";
@@ -214,6 +215,16 @@ export async function POST(req: Request) {
     // Avisa al negocio si es un cliente REFERIDO que viene por 1ª vez a su local
     // (la señal que el comercio quiere: "Bubui me trae clientes nuevos").
     void notifyBusinessNewReferredClient({ businessId: d.businessId, customer }).catch(() => {});
+    // Cupón Bubui canjeado → señal de "Bubui me genera ventas". Se omite el de
+    // bienvenida (referral_welcome) para no duplicar con el aviso de cliente nuevo.
+    if (offerApplied && activeOffer && activeOffer.source !== "referral_welcome") {
+      void alertBusiness(d.businessId, {
+        type: "coupon",
+        message: `🎟️ Un cliente ha canjeado un cupón Bubui (${discountPct}% sobre ${amount}€).`,
+        pushTitle: "🎟️ Cupón Bubui canjeado",
+        link: "/bubui/negocio"
+      });
+    }
     // Registro inmediato del ahorro (sin confirmación del negocio):
     // marca cupón canjeado, suma ahorro al cliente y desbloquea cercanos.
     if (offerApplied && activeOffer) {

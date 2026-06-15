@@ -49,3 +49,24 @@ export async function sendPushToBubuiBusiness(
   );
   return { sent, removed };
 }
+
+/**
+ * Aviso al negocio por sus DOS canales de panel/dispositivo a la vez: crea la
+ * notificación del panel (siempre visible) y, si el dueño activó el push en su
+ * dispositivo, le manda también la notificación. Para eventos de valor
+ * (reseña nueva, reserva, cupón canjeado…). El email se deja a quien lo necesite.
+ */
+export async function alertBusiness(
+  businessId: string,
+  args: { type: string; message: string; pushTitle?: string; link?: string }
+): Promise<void> {
+  await prisma.bubuiBusinessNotification
+    .create({ data: { businessId, type: args.type, message: args.message } })
+    .catch(() => {});
+  void sendPushToBubuiBusiness(businessId, {
+    title: args.pushTitle ?? "Bubui",
+    body: args.message,
+    link: args.link ?? "/bubui/negocio",
+    tag: args.type
+  }).catch(() => {});
+}
