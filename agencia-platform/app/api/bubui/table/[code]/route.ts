@@ -6,7 +6,7 @@
  */
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
-import { loadTableState, mesaReviewUrl, mesaReviewPlatformLabel } from "@/lib/bubui/table";
+import { loadTableState, mesaReviewUrl, mesaReviewPlatformLabel, allowedContributions } from "@/lib/bubui/table";
 
 export const dynamic = "force-dynamic";
 
@@ -34,7 +34,9 @@ export async function GET(req: Request, { params }: { params: { code: string } }
       reviewPlatform: s.business.mesaReviewPlatform || "google",
       reviewPlatformLabel: mesaReviewPlatformLabel(s.business),
       reviewUrl: mesaReviewUrl(s.business),
-      perkLabel: (s.business.mesaPerkLabel || "").trim() || null
+      perkLabel: (s.business.mesaPerkLabel || "").trim() || null,
+      // Acciones de aporte que acepta el negocio (para mostrar solo esos botones).
+      actions: allowedContributions(s.business)
     },
     expiresAt: s.expiresAt.toISOString(),
     state

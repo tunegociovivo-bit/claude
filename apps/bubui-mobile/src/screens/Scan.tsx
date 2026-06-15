@@ -40,6 +40,12 @@ export function Scan() {
   const [ticketScanId, setTicketScanId] = useState<string | undefined>(undefined);
   // ¿El negocio exige foto del ticket (anti-fraude)? Se consulta al fijar el id.
   const [requireTicket, setRequireTicket] = useState(false);
+  // Mesa Colectiva: si el negocio la tiene activa, tras escanear ofrecemos el
+  // flujo de grupo en vez de aplicar el descuento individual directo.
+  const [mesaEnabled, setMesaEnabled] = useState(false);
+  const [businessName, setBusinessName] = useState<string>("");
+  // El comensal eligió "voy solo" → salta la oferta de Mesa y va al importe.
+  const [soloMode, setSoloMode] = useState(false);
   const ticketCamRef = useRef<CameraView>(null);
   // onBarcodeScanned se dispara muchas veces por segundo; el lock evita
   // procesar el mismo frame N veces (y Alerts en bucle con un QR no válido).
@@ -83,9 +89,14 @@ export function Scan() {
   // Al fijar el negocio (por QR o param), consulta si exige foto del ticket.
   useEffect(() => {
     let alive = true;
-    if (!businessId) { setRequireTicket(false); return; }
+    if (!businessId) { setRequireTicket(false); setMesaEnabled(false); setBusinessName(""); return; }
     api.businessPublic(businessId)
-      .then((b) => { if (alive) setRequireTicket(!!b.requireTicket); })
+      .then((b) => {
+        if (!alive) return;
+        setRequireTicket(!!b.requireTicket);
+        setMesaEnabled(!!b.mesaEnabled);
+        setBusinessName(b.name ?? "");
+      })
       .catch(() => {});
     return () => { alive = false; };
   }, [businessId]);
@@ -103,11 +114,19 @@ export function Scan() {
     setTicketUrl(undefined);
     setTicketScanId(undefined);
     setBusinessId("");
+    setSoloMode(false);
   }
 
   function onScanned(result: { data: string }) {
     if (lock.current) return;
     lock.current = true;
+    // QR de grupo de una Mesa Colectiva (…/app/mesa?code=XXXX): unirse a la mesa.
+    const mesa = /[?&]code=([A-Z0-9]+)/i.exec(result.data);
+    if (mesa && /mesa/i.test(result.data)) {
+      sfx.tap();
+      nav.replace("Mesa", { code: mesa[1].toUpperCase() });
+      return;
+    }
     const m = /\/bubui\/scan\/([a-z0-9_-]+)/i.exec(result.data);
     if (m) {
       sfx.tap();
@@ -307,6 +326,30 @@ export function Scan() {
         <View style={styles.overlayHint}>
           <Text style={styles.overlayText}>Apunta al QR del negocio</Text>
         </View>
+      </View>
+    );
+  }
+
+  // Negocio con Mesa Colectiva: ofrecemos el flujo de grupo en vez de aplicar
+  // el descuento individual directo. El comensal elige si son varios o va solo.
+  if (businessId && mesaEnabled && !soloMode) {
+    return (
+      <View style={styles.amountRoot}>
+        <TouchableOpacity style={[styles.backRow, { top: insets.top + 8 }]} onPress={close} hitSlop={8}>
+          <Text style={styles.backText}>‹ Cerrar</Text>
+        </TouchableOpacity>
+        <Text style={{ fontSize: 56 }}>🍽️</Text>
+        <Text style={[styles.bigTitle, { marginTop: 8 }]}>Mesa Colectiva</Text>
+        <Text style={[styles.muted, { marginTop: 10, marginBottom: 28 }]}>
+          {businessName ? `En ${businessName}, ` : ""}cuantos más seáis y más colaboréis, mayor es el
+          descuento del grupo. ¿Sois varios en la mesa?
+        </Text>
+        <TouchableOpacity style={styles.btn} onPress={() => { sfx.tap(); nav.replace("Mesa", { businessId, businessName }); }}>
+          <Text style={styles.btnText}>Sí, crear Mesa Colectiva</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.rescan} onPress={() => { sfx.tap(); setSoloMode(true); }}>
+          <Text style={styles.rescanText}>Voy solo, descuento normal</Text>
+        </TouchableOpacity>
       </View>
     );
   }

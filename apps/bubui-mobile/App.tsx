@@ -11,6 +11,7 @@ import { Mapa } from "./src/screens/Mapa";
 import { Cuenta } from "./src/screens/Cuenta";
 import { Afiliados } from "./src/screens/Afiliados";
 import { Scan } from "./src/screens/Scan";
+import { Mesa } from "./src/screens/Mesa";
 import { Plus } from "./src/screens/Plus";
 import { Negocio, type NegocioParam } from "./src/screens/Negocio"
 import { CheckSession } from "./src/lib/session";
@@ -35,6 +36,7 @@ export type RootStackParamList = {
     Cuenta: undefined;
     Afiliados: undefined;
     Scan: { businessId: string };
+    Mesa: { businessId?: string; code?: string; businessName?: string };
     Plus: undefined;
     Negocio: NegocioParam;
 };
@@ -53,6 +55,9 @@ const linking = {
     config: {
           screens: {
                   Scan: "scan/:businessId",
+                  // QR de grupo de la Mesa Colectiva: /bubui/app/mesa?code=XXXX
+                  // (getStateFromPath normaliza el prefijo /bubui/ → /).
+                  Mesa: "app/mesa",
                   // bubui://offers — los pushes de ofertas (reto desbloqueado,
                   // recordatorios) aterrizan en el Feed, donde están los cupones.
                   Feed: "offers"
@@ -108,6 +113,7 @@ function AppInner() {
                                 <Stack.Screen name="Cuenta" component={Cuenta} />
                                 <Stack.Screen name="Afiliados" component={Afiliados} options={{ animation: "slide_from_right" }} />
                                 <Stack.Screen name="Scan" component={Scan} options={{ animation: "slide_from_bottom" }} />
+                                <Stack.Screen name="Mesa" component={Mesa} options={{ animation: "slide_from_bottom" }} />
                                 <Stack.Screen name="Plus" component={Plus} options={{ animation: "slide_from_bottom" }} />
                                 <Stack.Screen name="Negocio" component={Negocio} options={{ animation: "slide_from_right" }} />
                       </Stack.Navigator>

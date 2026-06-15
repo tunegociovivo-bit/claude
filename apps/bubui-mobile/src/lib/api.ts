@@ -9,6 +9,37 @@ import type { BusinessLite } from "../screens/Negocio";
  *  que se puede navegar directamente a la pantalla Negocio. */
 export type BannerBusiness = BusinessLite;
 
+/** Paso del checklist de la Mesa Colectiva (espejo de lib/bubui/table-deal). */
+export type MesaStep = {
+  key: "quorum" | "share" | "review";
+  label: string;
+  pct: number;
+  euros: number;
+  done: boolean;
+};
+
+/** Estado calculado de una Mesa Colectiva (espejo del backend). */
+export type MesaState = {
+  pctNow: number;
+  pctNextVisit: number;
+  maxPotentialPct: number;
+  diners: number;
+  quorum: boolean;
+  everyonePaidEntry: boolean;
+  pendingContributors: number;
+  everyoneShared: boolean;
+  everyoneReviewed: boolean;
+  steps: MesaStep[];
+  euros: {
+    ticket: number;
+    savedNow: number;
+    savedNextVisit: number;
+    maxSaving: number;
+    payNow: number;
+    leftOnTable: number;
+  } | null;
+};
+
 export const API_BASE: string =
   (Constants.expoConfig?.extra as any)?.apiBaseUrl ?? "https://bubui.app";
 
@@ -140,10 +171,63 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ businessId, customerId, amount, scanLat, scanLng, ticketUrl, ticketScanId })
     }),
-  /** Info pública del negocio (tras escanear el QR): si exige foto del ticket. */
+  /** Info pública del negocio (tras escanear el QR): si exige foto del ticket y
+   *  si tiene Mesa Colectiva activa (para ofrecer el flujo de grupo). */
   businessPublic: (businessId: string) =>
-    call<{ id: string; name: string; slug: string; category: string; requireTicket: boolean }>(
-      `/api/bubui/business/${businessId}/public`
+    call<{
+      id: string;
+      name: string;
+      slug: string;
+      category: string;
+      requireTicket: boolean;
+      businessType?: string;
+      mesaEnabled?: boolean;
+    }>(`/api/bubui/business/${businessId}/public`),
+  // ── Mesa Colectiva ──────────────────────────────────────────────────────
+  /** El anfitrión crea la mesa tras escanear el QR del local. Devuelve el code
+   *  que su app convierte en QR de grupo para que se unan los demás. */
+  mesaCreate: (businessId: string, customerId: string, tableLabel?: string) =>
+    call<{ ok: true; code: string; sessionId: string; expiresAt: string; state: MesaState | null }>(
+      "/api/bubui/table",
+      { method: "POST", body: JSON.stringify({ businessId, customerId, tableLabel }) }
+    ),
+  /** Un comensal se une a la mesa con el código (escaneado o tecleado). */
+  mesaJoin: (code: string, customerId: string) =>
+    call<{ ok: true; sessionId: string; state: MesaState | null }>(
+      `/api/bubui/table/${encodeURIComponent(code)}/join`,
+      { method: "POST", body: JSON.stringify({ customerId }) }
+    ),
+  /** Estado en vivo de la mesa (para refrescar comensales/aportes). */
+  mesaState: (code: string, ticket?: number) => {
+    const url = new URL(`${API_BASE}/api/bubui/table/${encodeURIComponent(code)}`);
+    if (ticket != null) url.searchParams.set("ticket", String(ticket));
+    return fetch(url.toString(), { headers: authHeaders() }).then(async (r) => {
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return r.json() as Promise<{
+        ok: true;
+        sessionId: string;
+        status: string;
+        tableLabel: string | null;
+        business: {
+          id: string;
+          name: string;
+          googlePlaceId: string | null;
+          reviewPlatform: string;
+          reviewPlatformLabel: string;
+          reviewUrl: string | null;
+          perkLabel: string | null;
+          actions: ("share" | "review" | "photo" | "follow")[];
+        };
+        expiresAt: string;
+        state: MesaState | null;
+      }>;
+    });
+  },
+  /** Registra un aporte del comensal (compartir/reseña/…) → desbloquea su parte. */
+  mesaContribute: (code: string, customerId: string, type: "share" | "review" | "photo" | "follow") =>
+    call<{ ok: true; state: MesaState | null }>(
+      `/api/bubui/table/${encodeURIComponent(code)}/contribute`,
+      { method: "POST", body: JSON.stringify({ customerId, type }) }
     ),
   /** Sube la foto de un ticket; la IA devuelve el importe total leído, la URL
    *  donde quedó guardado y un ticketScanId (importe de confianza para el scan). */
