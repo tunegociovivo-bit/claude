@@ -160,6 +160,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
       mesaNextVisitDays: business.mesaNextVisitDays,
       mesaBonusOnThisVisit: business.mesaBonusOnThisVisit,
       mesaVeteranMustContribute: business.mesaVeteranMustContribute,
+      mesaNewUserMustContribute: business.mesaNewUserMustContribute,
       mesaVeteranShareFriends: business.mesaVeteranShareFriends,
       mesaAutoAdjust: business.mesaAutoAdjust,
       mesaActShare: business.mesaActShare,

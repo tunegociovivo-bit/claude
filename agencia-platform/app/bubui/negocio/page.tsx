@@ -1040,6 +1040,7 @@ function MesaConfig({ business, token, onSaved }: { business: any; token: string
     mesaNextVisitDays: business.mesaNextVisitDays ?? 15,
     mesaBonusOnThisVisit: !!business.mesaBonusOnThisVisit,
     mesaVeteranMustContribute: business.mesaVeteranMustContribute ?? true,
+    mesaNewUserMustContribute: business.mesaNewUserMustContribute ?? false,
     mesaVeteranShareFriends: business.mesaVeteranShareFriends ?? 1,
     mesaAutoAdjust: business.mesaAutoAdjust ?? true,
     mesaActShare: business.mesaActShare ?? true,
@@ -1141,6 +1142,7 @@ function MesaConfig({ business, token, onSaved }: { business: any; token: string
           <div className="space-y-2 pt-1">
             {chk("mesaBonusOnThisVisit", "Aplicar el extra en esta misma cuenta", "Si lo desmarcas, el extra se guarda como cupón para su PRÓXIMA visita (vuelven antes).")}
             {chk("mesaVeteranMustContribute", "Quien ya tiene Bubui debe aportar", "Un cliente nuevo aporta instalándose; quien ya la tiene desbloquea su parte haciendo una acción (invitar/reseña).")}
+            {chk("mesaNewUserMustContribute", "Quien se instala también debe aportar", "Por defecto, instalarse la app ya desbloquea su parte. Actívalo para exigir además una acción (invitar/reseña) a quien acaba de descargarla. Mete más fricción al recién llegado.")}
             {chk("mesaAutoAdjust", "Auto-ajuste por saturación", "Cuando casi todos ya tienen Bubui, pide algo más (más reseñas/contenido). Recomendado.")}
           </div>
 

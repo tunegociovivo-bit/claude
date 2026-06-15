@@ -72,6 +72,7 @@ const schema = z
     mesaNextVisitDays: z.number().int().min(1).max(120).optional(),
     mesaBonusOnThisVisit: z.boolean().optional(),
     mesaVeteranMustContribute: z.boolean().optional(),
+    mesaNewUserMustContribute: z.boolean().optional(),
     mesaVeteranShareFriends: z.number().int().min(1).max(10).optional(),
     mesaAutoAdjust: z.boolean().optional(),
     mesaActShare: z.boolean().optional(),

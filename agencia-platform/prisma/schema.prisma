@@ -3554,6 +3554,10 @@ model BubuiBusiness {
   // tenía la app) debe completar una acción del menú para que su parte cuente.
   // Evita regalar descuento sin recibir nada cuando la zona ya está saturada.
   mesaVeteranMustContribute Boolean @default(true)
+  // Primera descarga: false (def) = el comensal NUEVO desbloquea su parte solo
+  // con instalarse/darse de alta; true = aunque sea nuevo, debe completar también
+  // una acción del menú (compartir/reseña) para que su parte cuente.
+  mesaNewUserMustContribute Boolean @default(false)
   mesaVeteranShareFriends   Int     @default(1) // amigos si elige "compartir"
   mesaAutoAdjust            Boolean @default(true) // sube exigencia con la saturación
   // Menú de acciones que el comercio acepta como aporte del veterano.

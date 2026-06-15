@@ -17,6 +17,7 @@ export function mesaConfigFromBusiness(b: any, snapshot?: { shareFriends?: numbe
     maxPct: b.mesaMaxPct ?? 35,
     bonusOnThisVisit: !!b.mesaBonusOnThisVisit,
     veteranMustContribute: b.mesaVeteranMustContribute ?? true,
+    newUserMustContribute: b.mesaNewUserMustContribute ?? false,
     reviewPlatformLabel: mesaReviewPlatformLabel(b)
   };
 }
