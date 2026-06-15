@@ -9,6 +9,7 @@ import * as Location from "expo-location";
 import * as Notifications from "expo-notifications";
 import { api } from "../lib/api";
 import { saveSession } from "../lib/session";
+import { getPendingRef, clearPendingRef } from "../lib/referral-pending";
 import { Wordmark } from "../components/Wordmark";
 import { useTheme, type Palette, radius, shadow } from "../lib/theme";
 import { Video, ResizeMode } from "expo-av";
@@ -121,6 +122,7 @@ export function Onboarding() {
   async function verify() {
     setBusy(true);
     try {
+      const ref = (await getPendingRef()) ?? undefined;
       const r = await api.verifyOtp({
         phone: phone.trim(),
         code: code.trim(),
@@ -128,8 +130,10 @@ export function Onboarding() {
         email: email.trim(),
         birthDate: birthDate.trim(),
         gender,
-        postalCode: postalCode.trim()
+        postalCode: postalCode.trim(),
+        ref
       });
+      void clearPendingRef(); // alta vinculada: el código ya no hace falta
       try { await Location.requestForegroundPermissionsAsync(); } catch {}
       try { await Notifications.requestPermissionsAsync(); } catch {}
       await saveSession({

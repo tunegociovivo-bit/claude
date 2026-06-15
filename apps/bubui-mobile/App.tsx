@@ -16,6 +16,7 @@ import { Plus } from "./src/screens/Plus";
 import { Negocio, type NegocioParam } from "./src/screens/Negocio"
 import { CheckSession } from "./src/lib/session";
 import { setupNotificationTapHandler } from "./src/lib/push";
+import { initReferralCapture } from "./src/lib/referral-pending";
 import { ErrorBoundary } from "./src/components/ErrorBoundary";
 import { useAppFonts, applyPoppinsToTextDefaults } from "./src/lib/fonts";
 import { ThemeProvider, useThemeMeta } from "./src/lib/theme";
@@ -85,6 +86,9 @@ function AppInner() {
 
   // Al tocar una notificación push (o su imagen) se abre el enlace de la oferta.
   useEffect(() => setupNotificationTapHandler(), []);
+
+  // Captura el código de referido (deep link + Install Referrer de Android).
+  useEffect(() => initReferralCapture(), []);
 
   if (!initial) return <Splash />; // fontsLoaded check removed for simulator build
 

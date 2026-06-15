@@ -74,6 +74,9 @@ export function Feed() {
   // Invitado = sin sesión. Entra desde el onboarding ("explorar sin cuenta").
   const [guest, setGuest] = useState(false);
   const [offers, setOffers] = useState<Offer[]>([]);
+  // Retos que el usuario ya ha compartido en esta sesión (para mostrar
+  // "invitación enviada · esperando que se registren").
+  const [sharedOffers, setSharedOffers] = useState<Record<string, boolean>>({});
   const [refreshing, setRefreshing] = useState(false);
   // Aviso de fallo de red (la carga del catálogo/ofertas no respondió).
   const [netError, setNetError] = useState(false);
@@ -350,11 +353,17 @@ export function Feed() {
                         prize: item.rewardLabel ?? `${item.discountPct}%`,
                         friendsLeft: item.sharesLeft ?? null
                       });
+                      setSharedOffers((s) => ({ ...s, [item.offerId]: true }));
                     }
                   }}
                 >
                   <Text style={styles.challengeBtnText}>📲 Compartir y activar</Text>
                 </Bouncy>
+                {sharedOffers[item.offerId] && (
+                  <Text style={styles.challengeSent}>
+                    ✓ Invitación enviada · se activará cuando tus amigos se registren con tu enlace.
+                  </Text>
+                )}
               </View>
             </FadeIn>
           ) : (
@@ -462,6 +471,7 @@ const makeStyles = (c: Palette) =>
     slotPlus: { color: c.pink, fontSize: 18, fontWeight: "900" },
     challengeBtn: { backgroundColor: c.pink, borderRadius: radius.pill, paddingVertical: 13, alignItems: "center", ...shadow.btn },
     challengeBtnText: { color: c.onAccent, fontSize: 15, fontWeight: "800" },
+    challengeSent: { marginTop: 8, fontSize: 12, fontWeight: "700", color: c.green, textAlign: "center", lineHeight: 17 },
     photo: { height: 150, backgroundColor: c.pinkSoft, justifyContent: "flex-end" },
     photoImg: { ...StyleSheet.absoluteFillObject, width: "100%", height: "100%" },
     photoScrim: { position: "absolute", left: 0, right: 0, bottom: 0, height: 90 },
