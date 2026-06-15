@@ -1030,13 +1030,13 @@ function LoyaltyConfig({ business, token, onSaved }: { business: any; token: str
 function MesaConfig({ business, token, onSaved }: { business: any; token: string; onSaved: () => void }) {
   const [v, setV] = useState({
     mesaEnabled: !!business.mesaEnabled,
-    mesaBasePct: business.mesaBasePct ?? 20,
+    mesaBasePct: business.mesaBasePct ?? 5,
     mesaMinDiners: business.mesaMinDiners ?? 4,
     mesaShareBonusPct: business.mesaShareBonusPct ?? 5,
-    mesaReviewBonusPct: business.mesaReviewBonusPct ?? 5,
+    mesaReviewBonusPct: business.mesaReviewBonusPct ?? 3,
     mesaReviewPlatform: business.mesaReviewPlatform ?? "google",
-    mesaMaxPct: business.mesaMaxPct ?? 35,
-    mesaJoinWindowMin: business.mesaJoinWindowMin ?? 20,
+    mesaMaxPct: business.mesaMaxPct ?? 20,
+    mesaJoinWindowMin: business.mesaJoinWindowMin ?? 60,
     mesaNextVisitDays: business.mesaNextVisitDays ?? 15,
     mesaBonusOnThisVisit: !!business.mesaBonusOnThisVisit,
     mesaVeteranMustContribute: business.mesaVeteranMustContribute ?? true,
