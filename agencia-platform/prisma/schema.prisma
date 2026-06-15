@@ -3700,6 +3700,17 @@ model BubuiCustomer {
   // Programa de afiliados.
   referralCode    String?  @unique // código corto para su enlace de invitación
   referredById    String?  // cliente que lo invitó
+  // Hucha de referidos: % acumulado que el cliente cobra yendo a comer (solo).
+  // Se abona cuando un amigo traído se CUALIFICA (alta + tel. verificado + 1ª
+  // compra confirmada). Al canjear se aplica hasta el tope por visita del
+  // negocio (mesaMaxPct); el sobrante se queda acumulado. Caducidad global
+  // (referralWalletExpiresAt), se renueva con cada abono.
+  referralWalletPct       Int       @default(0)
+  referralWalletExpiresAt DateTime?
+  referralQualifiedCount  Int       @default(0) // amigos cualificados (histórico)
+  // true cuando ESTE cliente ya ha cualificado a su referidor (idempotencia del
+  // abono: un amigo abona como máximo una vez a quien lo trajo).
+  referralQualified       Boolean   @default(false)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 

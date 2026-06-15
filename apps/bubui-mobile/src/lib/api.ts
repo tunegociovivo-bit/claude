@@ -116,6 +116,10 @@ export const api = {
       plusEnabled?: boolean;
       planExpiresAt?: string | null;
       subscriptionCancelAt?: string | null;
+      // Hucha de referidos: % acumulado (0 si caducó), caducidad y amigos cualificados.
+      referralWalletPct?: number;
+      referralWalletExpiresAt?: string | null;
+      referralQualifiedCount?: number;
     }>(`/api/bubui/customer/${customerId}`),
   /** Inicia el checkout de Bubui Plus (1€/mes). Devuelve la URL de Stripe que
    *  la app abre en el navegador (el cobro ocurre en web). */

@@ -15,6 +15,7 @@ export function Afiliados() {
   const c = useTheme();
   const styles = makeStyles(c);
   const [data, setData] = useState<Referral | null>(null);
+  const [wallet, setWallet] = useState<{ pct: number; expiresAt: string | null; qualified: number } | null>(null);
   const [loading, setLoading] = useState(true);
   const [guest, setGuest] = useState(false);
 
@@ -23,11 +24,19 @@ export function Afiliados() {
     try {
       const s = await CheckSession();
       // Invitado (sin sesión): puede compartir la app igualmente (sin recompensas).
-      if (!s) { setGuest(true); setData(null); return; }
+      if (!s) { setGuest(true); setData(null); setWallet(null); return; }
       setGuest(false);
       try {
-        const r = await api.referral(s.customerId);
+        const [r, sum] = await Promise.all([
+          api.referral(s.customerId),
+          api.customerSummary(s.customerId).catch(() => null)
+        ]);
         setData(r);
+        setWallet(
+          sum
+            ? { pct: sum.referralWalletPct ?? 0, expiresAt: sum.referralWalletExpiresAt ?? null, qualified: sum.referralQualifiedCount ?? 0 }
+            : null
+        );
       } catch {
         setData(null);
       }
@@ -126,6 +135,21 @@ export function Afiliados() {
               )}
             </View>
 
+            {/* Hucha de referidos: % acumulado para cobrar yendo a comer */}
+            {!!wallet && wallet.pct > 0 && (
+              <View style={styles.walletCard}>
+                <Text style={styles.walletPct}>{wallet.pct}%</Text>
+                <Text style={styles.walletLabel}>acumulado en tu hucha</Text>
+                <Text style={styles.walletSub}>
+                  Se aplica solo cuando vas a comer (1 persona). Cada visita usa hasta el tope del local; el resto se
+                  queda guardado.
+                  {wallet.expiresAt
+                    ? ` Caduca el ${new Date(wallet.expiresAt).toLocaleDateString("es-ES")}.`
+                    : ""}
+                </Text>
+              </View>
+            )}
+
             {/* Hitos y recompensas */}
             {!!data?.milestones?.length && (
               <View style={styles.milestones}>
@@ -204,6 +228,10 @@ const makeStyles = (c: Palette) =>
     slotText: { fontSize: 15, fontWeight: "800", color: c.grayLight },
     slotTextOn: { color: c.onAccent },
     progressSub: { fontSize: 13, color: c.gray, marginTop: 12, textAlign: "center" },
+    walletCard: { marginTop: 16, backgroundColor: c.pinkWash, borderRadius: radius.xl, borderWidth: 2, borderColor: c.pinkSoft, padding: 18, alignItems: "center" },
+    walletPct: { fontSize: 44, fontWeight: "900", color: c.pinkDeep, letterSpacing: -1 },
+    walletLabel: { fontSize: 13, fontWeight: "800", color: c.pinkDeep, marginTop: -2 },
+    walletSub: { fontSize: 12, color: c.gray, marginTop: 10, textAlign: "center", lineHeight: 17 },
     ambCard: { marginTop: 16, backgroundColor: c.white, borderRadius: radius.xl, borderWidth: 2, borderColor: c.pinkSoft, padding: 16 },
     ambTitle: { fontSize: 15, fontWeight: "900", color: c.black },
     ambSub: { fontSize: 12, color: c.gray, marginTop: 4, marginBottom: 10 },

@@ -20,6 +20,7 @@ import {
 } from "@/lib/bubui/core";
 import { customerAuthOk } from "@/lib/bubui/customer-auth";
 import { createShareChallengeOffer } from "@/lib/bubui/share-offer";
+import { computeWalletApplication, consumeWallet, qualifyAndCreditReferrer } from "@/lib/bubui/wallet";
 
 export const dynamic = "force-dynamic";
 
@@ -132,7 +133,24 @@ export async function POST(req: Request) {
   } else {
     discountPct = business.defaultDiscountPct;
   }
-  const discountAmount = Math.round(amount * discountPct) / 100;
+  let discountAmount = Math.round(amount * discountPct) / 100;
+
+  // Hucha de referidos ("yendo solo"): si el cliente tiene saldo y le ahorra MÁS
+  // que el descuento base, se cobra aquí. Aplica hasta el tope por visita del
+  // negocio (mesaMaxPct) y solo sobre los primeros € (anti-abuso de mesa grande);
+  // el % consumido se descuenta y el resto queda acumulado. No consume el cupón
+  // base (sigue disponible para otra visita).
+  let walletUsed = false;
+  let walletInfo: { appliedPct: number; eligibleAmount: number } | null = null;
+  const walletCand = computeWalletApplication(customer, amount, business.mesaMaxPct ?? 20);
+  if (walletCand && walletCand.discountAmount > discountAmount) {
+    walletUsed = true;
+    discountPct = walletCand.appliedPct;
+    discountAmount = walletCand.discountAmount;
+    walletInfo = { appliedPct: walletCand.appliedPct, eligibleAmount: walletCand.eligibleAmount };
+  }
+  // Si gana la hucha, no se canjea el cupón base.
+  const offerApplied = !walletUsed && !!activeOffer;
 
   // Geo-check anti-fraude.
   let scanDistanceM: number | undefined;
@@ -158,7 +176,7 @@ export async function POST(req: Request) {
       discountAmount,
       status: autoReject ? "rejected" : "confirmed",
       confirmedAt: autoReject ? undefined : new Date(),
-      redeemedOfferId: activeOffer?.id,
+      redeemedOfferId: offerApplied ? activeOffer?.id : undefined,
       scanLat: d.scanLat,
       scanLng: d.scanLng,
       scanDistanceM,
@@ -184,9 +202,17 @@ export async function POST(req: Request) {
 
   let offersUnlocked = 0;
   if (!autoReject) {
+    // Si se cobró la hucha de referidos, consume el % aplicado (el resto sigue
+    // acumulado). No se hace si ganó el cupón base.
+    if (walletUsed && walletCand) {
+      await consumeWallet(customer, walletCand.remaining);
+    }
+    // Cualifica al cliente como referido (1ª compra confirmada + tel. verificado):
+    // abona % a la hucha de quien lo trajo. Idempotente y fire-and-forget.
+    void qualifyAndCreditReferrer(customer).catch(() => {});
     // Registro inmediato del ahorro (sin confirmación del negocio):
     // marca cupón canjeado, suma ahorro al cliente y desbloquea cercanos.
-    if (activeOffer) {
+    if (offerApplied && activeOffer) {
       await prisma.bubuiOffer.update({
         where: { id: activeOffer.id },
         data: { redeemed: true, redeemedAt: new Date() }
@@ -241,7 +267,9 @@ export async function POST(req: Request) {
     offersUnlocked,
     business: { id: business.id, name: business.name, category: business.category },
     rejectionReason: purchase.rejectionReason,
-    offerRedeemed: !!activeOffer,
+    offerRedeemed: offerApplied,
+    // Si se cobró la hucha de referidos: % aplicado y € de cuenta elegibles.
+    wallet: walletInfo,
     wheelSpin,
     // Para que la app muestre el reto "compártela con N amigos para activarla".
     shareOffer: shareOffer

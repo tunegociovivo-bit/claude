@@ -78,19 +78,13 @@ mesaNewUserMustContribute Boolean @default(false)
 `false` (def.) = el comensal nuevo desbloquea descuento **solo con instalarse**.
 `true` = aunque sea nuevo, debe completar **también** una acción del menú.
 
-### Gap B — Hucha de referidos numérica (Fase 3)
-Nuevos campos en `BubuiCustomer`:
-```
-referralWalletPct        Int       @default(0)  // saldo % acumulado
-referralWalletExpiresAt  DateTime?              // caducidad global
-referralQualifiedCount   Int       @default(0)  // amigos cualificados (histórico)
-```
-Nueva config por negocio (o global en `BubuiSetting`):
-```
-referralRewardPct   Int @default(1)  // % que gana el referidor por amigo cualificado
-referralWelcomePct  Int @default(5)  // descuento de bienvenida del amigo
-referralWalletDays  Int @default(90) // caducidad global de la hucha
-```
+### Gap B — Hucha de referidos numérica (Fase 3) ✅
+Campos en `BubuiCustomer`: `referralWalletPct`, `referralWalletExpiresAt`,
+`referralQualifiedCount`, `referralQualified`. Tasas del programa como
+constantes en `lib/bubui/wallet.ts` (`REFERRAL_REWARD_PCT`, `WALLET_DAYS`,
+`WALLET_MAX_AMOUNT`, `WALLET_MAX_PCT`). El % de bienvenida del amigo lo cubre el
+cupón ya existente de `applyReferral` (`defaultDiscountPct`). El tope por visita
+es el `mesaMaxPct` del negocio.
 
 ### Gap C — Atribución de altas a la mesa + push viral (Fase 2)
 "X amigos se han dado de alta; si llegan al resto, +Y% para todos." Requiere
@@ -109,9 +103,10 @@ ligar las altas a la sesión de mesa y un cron del día siguiente.
 | Acciones aceptadas | `mesaActShare/Review/Photo/Follow` | share+review |
 | Bonus en esta visita o próxima | `mesaBonusOnThisVisit` | false (próxima) |
 | Caducidad cupón próxima visita | `mesaNextVisitDays` | 15 |
-| % por referido cualificado | `referralRewardPct` *(nuevo)* | 1 |
-| % bienvenida al amigo | `referralWelcomePct` *(nuevo)* | 5 |
-| Caducidad hucha (global) | `referralWalletDays` *(nuevo)* | 90 |
+| % por referido cualificado | `REFERRAL_REWARD_PCT` (constante, `wallet.ts`) | 1 |
+| % bienvenida al amigo | `defaultDiscountPct` (ya existe, en `applyReferral`) | 5 |
+| Caducidad hucha (global) | `WALLET_DAYS` (constante, `wallet.ts`) | 90 |
+| Tope € de la hucha por visita | `WALLET_MAX_AMOUNT` (constante, `wallet.ts`) | 50 |
 
 ## 5. Fases de entrega
 
@@ -132,12 +127,24 @@ ligar las altas a la sesión de mesa y un cron del día siguiente.
   sola cuando los amigos se dan de alta (vía `applyReferral`) y el cron
   `bubui-share-reminders` ya hace el push "te faltan N amigos para tu premio".
 
-### Fase 3 — Hucha de referidos
-- Migración Gap B.
-- Abono de % al referidor cuando el amigo se cualifica (alta + tel. verificado
-  + 1ª compra confirmada).
-- Canje: aplica hasta `mesaMaxPct`, sobrante acumulado, caducidad global.
-- Regla "por persona / yendo solo" + tope de importe.
+### Fase 3 — Hucha de referidos ✅
+- **Modelo** (`BubuiCustomer`): `referralWalletPct`, `referralWalletExpiresAt`,
+  `referralQualifiedCount`, `referralQualified` (flag de idempotencia del amigo).
+- **Abono** (`lib/bubui/wallet.ts` → `qualifyAndCreditReferrer`): cuando un amigo
+  traído hace su **1ª compra confirmada** con **teléfono verificado**, se abona
+  `REFERRAL_REWARD_PCT` (1%) a la hucha de quien lo trajo y se renueva la
+  caducidad global (`WALLET_DAYS` = 90). Idempotente vía `referralQualified`.
+  Enganchado en `/api/bubui/scan` (compra confirmada).
+- **Canje** (`computeWalletApplication` + `consumeWallet`): "yendo solo" = un
+  escaneo individual. Se cobra solo si ahorra **más** que el descuento base;
+  aplica hasta el **tope por visita** del negocio (`mesaMaxPct`) y solo sobre los
+  primeros `WALLET_MAX_AMOUNT` € (anti-abuso "vine con 10"); el % consumido se
+  descuenta y el **sobrante queda acumulado** con la caducidad corriendo.
+- **Exposición**: `customerSummary` devuelve `referralWalletPct` (efectivo, 0 si
+  caducó) + caducidad + nº cualificados; tarjeta de hucha en la pantalla
+  Afiliados de la app.
+- Quién paga: el restaurante hasta su `mesaMaxPct`; los topes de % por visita y
+  de importe acotan el coste.
 
 ## 6. Decisiones cerradas
 - Quién paga el descuento: **el restaurante hasta su `mesaMaxPct`**; el sobrante
