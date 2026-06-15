@@ -3537,15 +3537,15 @@ model BubuiBusiness {
   // que sea positiva). El bonus se entrega como cupón de PRÓXIMA visita con
   // mesaNextVisitDays de caducidad (recurrencia). Todo configurable aquí.
   mesaEnabled        Boolean @default(true)
-  mesaBasePct        Int     @default(20)
+  mesaBasePct        Int     @default(5)
   mesaMinDiners      Int     @default(4)
   mesaShareBonusPct  Int     @default(5)
   mesaShareFriends   Int     @default(3)
-  mesaReviewBonusPct Int     @default(5)
+  mesaReviewBonusPct Int     @default(3)
   // Plataforma de reseña que da el bonus de la Mesa (según el nicho).
   mesaReviewPlatform String  @default("google") // google | tripadvisor | trustpilot | instagram
-  mesaMaxPct         Int     @default(35) // tope de seguridad
-  mesaJoinWindowMin  Int     @default(20) // minutos para unirse a la mesa
+  mesaMaxPct         Int     @default(20) // tope de seguridad
+  mesaJoinWindowMin  Int     @default(60) // minutos para unirse a la mesa
   mesaNextVisitDays  Int     @default(15) // caducidad del cupón próxima visita
   // true = los bonus (compartir/reseña) se aplican a la cuenta de ESTA visita;
   // false (def) = se guardan como cupón de próxima visita (recurrencia).

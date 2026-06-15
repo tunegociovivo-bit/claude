@@ -43,7 +43,7 @@ export async function POST(req: Request) {
     code = genTableCode();
   }
 
-  const expiresAt = new Date(Date.now() + (business.mesaJoinWindowMin ?? 20) * 60_000);
+  const expiresAt = new Date(Date.now() + (business.mesaJoinWindowMin ?? 60) * 60_000);
   const session = await prisma.bubuiTableSession.create({
     data: {
       businessId: business.id,
@@ -51,10 +51,10 @@ export async function POST(req: Request) {
       tableLabel: d.tableLabel ?? null,
       captainId: customer.id,
       status: "open",
-      basePct: business.mesaBasePct ?? 20,
+      basePct: business.mesaBasePct ?? 5,
       shareBonusPct: business.mesaShareBonusPct ?? 5,
-      reviewBonusPct: business.mesaReviewBonusPct ?? 5,
-      maxPct: business.mesaMaxPct ?? 35,
+      reviewBonusPct: business.mesaReviewBonusPct ?? 3,
+      maxPct: business.mesaMaxPct ?? 20,
       minDiners: business.mesaMinDiners ?? 4,
       shareFriends: business.mesaVeteranShareFriends ?? 1,
       expiresAt,
