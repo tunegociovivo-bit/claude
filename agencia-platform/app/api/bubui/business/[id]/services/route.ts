@@ -13,6 +13,7 @@ export const dynamic = "force-dynamic";
 const schema = z.object({
   name: z.string().min(1).max(120),
   durationMin: z.number().int().min(5).max(480).optional(),
+  unit: z.string().trim().max(40).optional().nullable(),
   priceEur: z.number().min(0).max(100000).optional().nullable(),
   active: z.boolean().optional(),
   sortOrder: z.number().int().optional()
@@ -39,6 +40,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       businessId: params.id,
       name: d.name,
       durationMin: d.durationMin ?? 30,
+      unit: d.unit?.trim() || null,
       priceEur: d.priceEur ?? null,
       active: d.active ?? true,
       sortOrder: d.sortOrder ?? 0

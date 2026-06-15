@@ -1362,7 +1362,7 @@ function ProductCatalog({ businessId, token }: { businessId: string; token: stri
 function ServicesConfig({ business, token, onSaved }: { business: any; token: string; onSaved: () => void }) {
   const [enabled, setEnabled] = useState<boolean>(business.bookingEnabled ?? false);
   const [items, setItems] = useState<any[]>([]);
-  const [form, setForm] = useState({ name: "", durationMin: "30", priceEur: "" });
+  const [form, setForm] = useState({ name: "", unit: "", priceEur: "" });
   const [busy, setBusy] = useState(false);
   const headers = { "Content-Type": "application/json", Authorization: `Bearer ${token}` };
 
@@ -1387,9 +1387,9 @@ function ServicesConfig({ business, token, onSaved }: { business: any; token: st
       const r = await fetch(`/api/bubui/business/${business.id}/services`, {
         method: "POST",
         headers,
-        body: JSON.stringify({ name: form.name.trim(), durationMin: Number(form.durationMin) || 30, priceEur: form.priceEur ? Number(form.priceEur) : null })
+        body: JSON.stringify({ name: form.name.trim(), unit: form.unit.trim() || null, priceEur: form.priceEur ? Number(form.priceEur) : null })
       });
-      if (r.ok) { setForm({ name: "", durationMin: "30", priceEur: "" }); load(); }
+      if (r.ok) { setForm({ name: "", unit: "", priceEur: "" }); load(); }
     } finally {
       setBusy(false);
     }
@@ -1415,8 +1415,8 @@ function ServicesConfig({ business, token, onSaved }: { business: any; token: st
       {enabled && (
         <>
           <div className="grid sm:grid-cols-3 gap-2">
-            <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Servicio (ej. Corte)" className="px-2 py-1.5 border rounded bg-white text-sm" />
-            <input value={form.durationMin} onChange={(e) => setForm({ ...form, durationMin: e.target.value })} placeholder="Min" type="number" className="px-2 py-1.5 border rounded bg-white text-sm" />
+            <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Servicio (ej. Corte, Pintar habitación, Plan mensual)" className="px-2 py-1.5 border rounded bg-white text-sm" />
+            <input value={form.unit} onChange={(e) => setForm({ ...form, unit: e.target.value })} placeholder="Unidad (ej. 30 min, por sesión, /mes)" className="px-2 py-1.5 border rounded bg-white text-sm" />
             <input value={form.priceEur} onChange={(e) => setForm({ ...form, priceEur: e.target.value })} placeholder="Precio €" type="number" className="px-2 py-1.5 border rounded bg-white text-sm" />
           </div>
           <button onClick={add} disabled={busy || !form.name.trim()} className="bubui-btn w-full text-sm py-2 disabled:opacity-50">{busy ? "Añadiendo…" : "Añadir servicio"}</button>
@@ -1426,7 +1426,7 @@ function ServicesConfig({ business, token, onSaved }: { business: any; token: st
               <div key={s.id} className="flex items-center gap-2 border rounded-lg p-2 text-sm">
                 <div className="flex-1 min-w-0">
                   <div className="font-semibold truncate">{s.name}</div>
-                  <div className="text-[11px] text-black/55">{s.durationMin} min{s.priceEur != null ? ` · ${s.priceEur}€` : ""}</div>
+                  <div className="text-[11px] text-black/55">{s.unit && String(s.unit).trim() ? s.unit : `${s.durationMin} min`}{s.priceEur != null ? ` · ${s.priceEur}€` : ""}</div>
                 </div>
                 <button onClick={() => del(s)} className="text-[11px] px-2 py-1 rounded border text-rose-600">Borrar</button>
               </div>
