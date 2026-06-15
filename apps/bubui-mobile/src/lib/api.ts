@@ -201,10 +201,12 @@ export const api = {
       `/api/bubui/table/${encodeURIComponent(code)}/join`,
       { method: "POST", body: JSON.stringify({ customerId }) }
     ),
-  /** Estado en vivo de la mesa (para refrescar comensales/aportes). */
-  mesaState: (code: string, ticket?: number) => {
+  /** Estado en vivo de la mesa. `me` = customerId que consulta (devuelve SU
+   *  aporte propio, no el del grupo). */
+  mesaState: (code: string, opts?: { ticket?: number; me?: string }) => {
     const url = new URL(`${API_BASE}/api/bubui/table/${encodeURIComponent(code)}`);
-    if (ticket != null) url.searchParams.set("ticket", String(ticket));
+    if (opts?.ticket != null) url.searchParams.set("ticket", String(opts.ticket));
+    if (opts?.me) url.searchParams.set("me", opts.me);
     return fetch(url.toString(), { headers: authHeaders() }).then(async (r) => {
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       return r.json() as Promise<{
@@ -223,6 +225,9 @@ export const api = {
           actions: ("share" | "review" | "photo" | "follow")[];
         };
         expiresAt: string;
+        ticketAmount: number | null;
+        finalPct: number | null;
+        me: { isNewUser: boolean; contributed: boolean; contributionType: string | null; sharedDone: boolean; reviewDone: boolean } | null;
         state: MesaState | null;
       }>;
     });
@@ -233,6 +238,22 @@ export const api = {
       `/api/bubui/table/${encodeURIComponent(code)}/contribute`,
       { method: "POST", body: JSON.stringify({ customerId, type }) }
     ),
+  /** Cierre por el comensal que paga: escanea el ticket → total con descuento. */
+  mesaBill: (code: string, customerId: string, args: { ticketScanId?: string; ticketAmount?: number }) =>
+    call<{
+      ok: true;
+      alreadyDone: boolean;
+      appliedPct: number;
+      ticket: number;
+      payNow: number;
+      savedNow: number;
+      nextVisitPct: number;
+      perk: string | null;
+      diners: number;
+    }>(`/api/bubui/table/${encodeURIComponent(code)}/bill`, {
+      method: "POST",
+      body: JSON.stringify({ customerId, ...args })
+    }),
   /** Sube la foto de un ticket; la IA devuelve el importe total leído, la URL
    *  donde quedó guardado y un ticketScanId (importe de confianza para el scan). */
   readTicket: (customerId: string, uri: string) => {

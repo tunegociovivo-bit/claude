@@ -4037,6 +4037,8 @@ model BubuiTableSession {
   minDiners    Int       @default(4)
   shareFriends Int       @default(3)
   finalPct     Int?      // % aplicado al canjear
+  ticketAmount Float?    // total del ticket escaneado (importe de la cuenta)
+  billedById   String?   // BubuiCustomer que escaneó el ticket (quien pagó)
   expiresAt    DateTime  // fin de la ventana de unión
   verifiedAt   DateTime?
   redeemedAt   DateTime?

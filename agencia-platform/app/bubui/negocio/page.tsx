@@ -11,6 +11,7 @@
 import { useEffect, useState } from "react";
 import BubuiBusinessPushButton from "./BubuiBusinessPushButton";
 import BubuiAlertPrefs from "./BubuiAlertPrefs";
+import BubuiMesaBills from "./BubuiMesaBills";
 
 type Session = { businessId: string; name: string; token: string };
 
@@ -345,6 +346,8 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
       {/* ───────────── PESTAÑA: INICIO ───────────── */}
       {tab === "inicio" && (
         <>
+          {/* Cuentas que Bubui ha traído en Mesa Colectiva (de un vistazo) */}
+          <BubuiMesaBills businessId={b.id} token={session.token} />
           {/* Compras por confirmar — LO MÁS USADO: destacado y arriba del todo */}
           <section className={`rounded-2xl p-4 sm:p-5 ${data.pending.length > 0 ? "border-2 border-emerald-400 bg-emerald-50 shadow-lg shadow-emerald-100" : "bubui-card"}`}>
             <div className="flex items-center justify-between mb-3">

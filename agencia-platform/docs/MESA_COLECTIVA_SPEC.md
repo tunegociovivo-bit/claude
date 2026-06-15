@@ -146,6 +146,19 @@ ligar las altas a la sesión de mesa y un cron del día siguiente.
 - Quién paga: el restaurante hasta su `mesaMaxPct`; los topes de % por visita y
   de importe acotan el coste.
 
+## 5b. Cierre por el comensal (cuenta + descuento) ✅
+- Cada comensal ve **su propio** estado de aporte (lo da el `GET /table/[code]?me=`),
+  no el del grupo → se elimina la confusión "lo hizo uno y aparece en los dos".
+- Botón **"Terminar y pagar"**: si al comensal le falta su acción, se la pide; si
+  ya aportó, muestra las instrucciones (pedir la cuenta + escanear ticket).
+- **Una persona** (quien paga) escanea el ticket (foto → IA lee el total):
+  `POST /table/[code]/bill` cierra la mesa (`finalizeMesaBill`), aplica el % del
+  grupo y muestra la **pantalla de cuenta** (total, % , a pagar, acciones) con la
+  instrucción de enseñarla al camarero.
+- La cuenta queda **registrada en el panel** del negocio
+  (`GET /business/[id]/table-bills` → tarjeta "Cuentas de Mesa Colectiva") y
+  dispara aviso al dueño (`mesa_bill`).
+
 ## 6. Decisiones cerradas
 - Quién paga el descuento: **el restaurante hasta su `mesaMaxPct`**; el sobrante
   se acumula en la hucha (no lo regala nadie de más en esa visita).
