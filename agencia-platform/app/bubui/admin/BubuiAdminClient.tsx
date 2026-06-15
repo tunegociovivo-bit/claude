@@ -1322,12 +1322,19 @@ function AnunciateButtonPanel() {
 
 function AiBannerPolicyPanel() {
   const [policy, setPolicy] = useState<"all" | "paid" | null>(null);
+  const [freeCount, setFreeCount] = useState<number | null>(null);
+  const [freeInput, setFreeInput] = useState("1");
+  const [freeMsg, setFreeMsg] = useState("");
   const [err, setErr] = useState("");
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     adminFetch("/api/bubui/admin/ai-banner")
-      .then((d) => setPolicy(d.policy))
+      .then((d) => {
+        setPolicy(d.policy);
+        setFreeCount(d.freeCount ?? 1);
+        setFreeInput(String(d.freeCount ?? 1));
+      })
       .catch((e) => setErr(String(e)));
   }, []);
 
@@ -1347,8 +1354,26 @@ function AiBannerPolicyPanel() {
     }
   }
 
+  async function saveFree() {
+    setSaving(true);
+    setFreeMsg("");
+    try {
+      const d = await adminFetch("/api/bubui/admin/ai-banner", {
+        method: "PATCH",
+        body: JSON.stringify({ freeCount: Math.max(0, parseInt(freeInput || "0", 10) || 0) })
+      });
+      setFreeCount(d.freeCount);
+      setFreeInput(String(d.freeCount));
+      setFreeMsg("Guardado ✓");
+    } catch (e) {
+      setFreeMsg("Error: " + String(e));
+    } finally {
+      setSaving(false);
+    }
+  }
+
   if (err) return <p className="text-rose-700 text-sm mt-4">{err}</p>;
-  if (!policy) return <div className="bubui-skeleton h-24 mt-4" />;
+  if (!policy || freeCount === null) return <div className="bubui-skeleton h-24 mt-4" />;
 
   return (
     <section className="bubui-card p-4 mt-4 space-y-4">
@@ -1390,6 +1415,35 @@ function AiBannerPolicyPanel() {
               {o.label}
             </button>
           ))}
+        </div>
+      </div>
+
+      {/* Banners gratis por negocio antes de pagar 1€/edición */}
+      <div className="rounded-xl bg-pink-50/50 px-3 py-3">
+        <div className="font-semibold text-sm">Banners GRATIS por negocio</div>
+        <p className="text-[12px] text-black/50 mt-0.5 mb-2">
+          Cuántos banners puede generar cada negocio gratis antes de pagar 1€/edición. Súbelo para hacer
+          pruebas o regalar generaciones al principio. (0 = se paga desde el primero.)
+        </p>
+        <div className="flex items-center gap-2">
+          <input
+            type="number"
+            min={0}
+            max={100}
+            value={freeInput}
+            onChange={(e) => setFreeInput(e.target.value.replace(/[^0-9]/g, ""))}
+            className="bubui-input text-sm py-1.5"
+            style={{ width: 90 }}
+          />
+          <button
+            onClick={saveFree}
+            disabled={saving}
+            className="px-3 py-1.5 rounded-full text-xs font-bold border disabled:opacity-50"
+            style={{ background: "#ec1c6e", color: "#fff", borderColor: "#ec1c6e", cursor: "pointer" }}
+          >
+            Guardar
+          </button>
+          {freeMsg && <span className="text-[12px] text-black/60">{freeMsg}</span>}
         </div>
       </div>
     </section>
