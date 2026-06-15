@@ -19,10 +19,10 @@ const MAX_DISCOUNT_PCT = 50;
 
 const schema = z
   .object({
-    description: z.string().max(500).optional(),
+    description: z.string().max(500).optional().nullable(),
     businessType: z.enum(["restaurante", "comercio_producto", "servicios"]).optional(),
     bookingEnabled: z.boolean().optional(),
-    address: z.string().max(200).optional(),
+    address: z.string().max(200).optional().nullable(),
     // Teléfono público de contacto (botón "Llamar" en la app).
     phone: z.string().trim().max(30).optional().nullable(),
     latitude: z.number().min(-90).max(90).optional(),
@@ -103,6 +103,8 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   }
   // Normaliza strings vacíos a null para limpiar el dato.
   const data = { ...parsed.data };
+  if (data.description === "") data.description = null;
+  if (data.address === "") data.address = null;
   if (data.phone === "") data.phone = null;
   if (data.googlePlaceId === "") data.googlePlaceId = null;
   for (const k of ["instagramUrl", "facebookUrl", "tiktokUrl", "trustpilotUrl", "tripadvisorUrl"] as const) {
