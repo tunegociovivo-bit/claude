@@ -4,7 +4,7 @@
  *  servicios. Crea una cita "pendiente"; el comercio la confirma desde su panel. */
 import { useState } from "react";
 
-type Service = { id: string; name: string; durationMin: number; priceEur: number | null };
+type Service = { id: string; name: string; durationMin: number; unit?: string | null; priceEur: number | null };
 
 export default function BookingForm({ businessId, services }: { businessId: string; services: Service[] }) {
   const [serviceId, setServiceId] = useState(services[0]?.id ?? "");
@@ -52,7 +52,7 @@ export default function BookingForm({ businessId, services }: { businessId: stri
       {services.length > 0 && (
         <select value={serviceId} onChange={(e) => setServiceId(e.target.value)} className="w-full px-3 py-2 border rounded bg-white text-sm">
           {services.map((s) => (
-            <option key={s.id} value={s.id}>{s.name}{s.priceEur != null ? ` · ${s.priceEur}€` : ""} ({s.durationMin} min)</option>
+            <option key={s.id} value={s.id}>{s.name}{s.priceEur != null ? ` · ${s.priceEur}€` : ""} ({s.unit && s.unit.trim() ? s.unit : `${s.durationMin} min`})</option>
           ))}
         </select>
       )}

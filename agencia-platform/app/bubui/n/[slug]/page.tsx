@@ -145,7 +145,7 @@ export default async function BusinessPublicPage({ params }: { params: { slug: s
     ? await prisma.bubuiService.findMany({
         where: { businessId: business.id, active: true },
         orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
-        select: { id: true, name: true, durationMin: true, priceEur: true }
+        select: { id: true, name: true, durationMin: true, unit: true, priceEur: true }
       })
     : [];
 

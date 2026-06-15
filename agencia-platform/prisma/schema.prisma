@@ -4059,6 +4059,10 @@ model BubuiService {
   businessId  String
   name        String
   durationMin Int      @default(30)
+  // Unidad de cobro/medida en texto libre para servicios que no se miden en
+  // minutos (p. ej. "por habitación", "/mes", "por sesión"). Si está vacía, se
+  // muestra la duración en minutos.
+  unit        String?
   priceEur    Float?
   active      Boolean  @default(true)
   sortOrder   Int      @default(0)
