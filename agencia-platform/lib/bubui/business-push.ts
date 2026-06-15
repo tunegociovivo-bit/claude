@@ -50,11 +50,28 @@ export async function sendPushToBubuiBusiness(
   return { sent, removed };
 }
 
+/** Mapea el tipo de evento a la preferencia de push del negocio. */
+const PUSH_PREF_BY_TYPE: Record<string, "pushOnNewClient" | "pushOnReview" | "pushOnBooking" | "pushOnCoupon"> = {
+  referred_client: "pushOnNewClient",
+  review: "pushOnReview",
+  booking: "pushOnBooking",
+  coupon: "pushOnCoupon"
+};
+
+/** ¿El negocio quiere push para este tipo de evento? (default sí si no se reconoce). */
+export async function businessWantsPush(businessId: string, type: string): Promise<boolean> {
+  const pref = PUSH_PREF_BY_TYPE[type];
+  if (!pref) return true;
+  const b = await prisma.bubuiBusiness.findUnique({ where: { id: businessId }, select: { [pref]: true } as any });
+  return b ? (b as any)[pref] !== false : true;
+}
+
 /**
  * Aviso al negocio por sus DOS canales de panel/dispositivo a la vez: crea la
  * notificación del panel (siempre visible) y, si el dueño activó el push en su
- * dispositivo, le manda también la notificación. Para eventos de valor
- * (reseña nueva, reserva, cupón canjeado…). El email se deja a quien lo necesite.
+ * dispositivo Y quiere ese tipo de aviso, le manda también la notificación. Para
+ * eventos de valor (reseña nueva, reserva, cupón canjeado…). El email se deja a
+ * quien lo necesite.
  */
 export async function alertBusiness(
   businessId: string,
@@ -63,6 +80,7 @@ export async function alertBusiness(
   await prisma.bubuiBusinessNotification
     .create({ data: { businessId, type: args.type, message: args.message } })
     .catch(() => {});
+  if (!(await businessWantsPush(businessId, args.type))) return;
   void sendPushToBubuiBusiness(businessId, {
     title: args.pushTitle ?? "Bubui",
     body: args.message,

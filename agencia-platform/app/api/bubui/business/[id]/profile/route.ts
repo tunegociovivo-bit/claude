@@ -79,7 +79,12 @@ const schema = z
     mesaActReview: z.boolean().optional(),
     mesaActPhoto: z.boolean().optional(),
     mesaActFollow: z.boolean().optional(),
-    mesaPerkLabel: z.string().trim().max(80).optional().nullable()
+    mesaPerkLabel: z.string().trim().max(80).optional().nullable(),
+    // Preferencias de push del panel del dueño.
+    pushOnNewClient: z.boolean().optional(),
+    pushOnReview: z.boolean().optional(),
+    pushOnBooking: z.boolean().optional(),
+    pushOnCoupon: z.boolean().optional()
   })
   // La ruleta no puede tener el mínimo por encima del máximo.
   .refine(

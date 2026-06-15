@@ -94,9 +94,13 @@ export async function notifyBusinessNewReferredClient(args: {
     .create({ data: { businessId, type: "referred_client", message: msg } })
     .catch(() => {});
 
-  // Push al panel del negocio (si el dueño activó notificaciones en su dispositivo).
+  // Push al panel del negocio (si el dueño activó push Y quiere este aviso).
   void import("./business-push")
-    .then((m) => m.sendPushToBubuiBusiness(businessId, { title: "🎉 Cliente nuevo vía Bubui", body: msg, link: "/bubui/negocio", tag: "referred_client" }))
+    .then(async (m) => {
+      if (await m.businessWantsPush(businessId, "referred_client")) {
+        await m.sendPushToBubuiBusiness(businessId, { title: "🎉 Cliente nuevo vía Bubui", body: msg, link: "/bubui/negocio", tag: "referred_client" });
+      }
+    })
     .catch(() => {});
 
   const biz = await prisma.bubuiBusiness.findUnique({

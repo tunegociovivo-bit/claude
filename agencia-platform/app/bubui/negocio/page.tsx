@@ -10,6 +10,7 @@
 
 import { useEffect, useState } from "react";
 import BubuiBusinessPushButton from "./BubuiBusinessPushButton";
+import BubuiAlertPrefs from "./BubuiAlertPrefs";
 
 type Session = { businessId: string; name: string; token: string };
 
@@ -295,9 +296,21 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
       </nav>
       <p className="text-xs text-black/55 -mt-1">{cur.desc}</p>
 
-      {/* Activar push del panel en este dispositivo (avisos de clientes nuevos). */}
-      <div className="flex justify-end -mt-1">
-        <BubuiBusinessPushButton businessId={b.id} token={session.token} />
+      {/* Activar push del panel en este dispositivo + elegir qué avisos recibir. */}
+      <div className="-mt-1">
+        <div className="flex justify-end">
+          <BubuiBusinessPushButton businessId={b.id} token={session.token} />
+        </div>
+        <BubuiAlertPrefs
+          businessId={b.id}
+          token={session.token}
+          initial={{
+            pushOnNewClient: b.pushOnNewClient,
+            pushOnReview: b.pushOnReview,
+            pushOnBooking: b.pushOnBooking,
+            pushOnCoupon: b.pushOnCoupon
+          }}
+        />
       </div>
 
       {/* Avisos (ej. cliente alcanzó 5 referidos) — siempre visibles */}

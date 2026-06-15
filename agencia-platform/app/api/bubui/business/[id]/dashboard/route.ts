@@ -167,7 +167,11 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
       mesaActReview: business.mesaActReview,
       mesaActPhoto: business.mesaActPhoto,
       mesaActFollow: business.mesaActFollow,
-      mesaPerkLabel: business.mesaPerkLabel
+      mesaPerkLabel: business.mesaPerkLabel,
+      pushOnNewClient: business.pushOnNewClient,
+      pushOnReview: business.pushOnReview,
+      pushOnBooking: business.pushOnBooking,
+      pushOnCoupon: business.pushOnCoupon
     },
     notifications: notifications.map((n) => ({ id: n.id, message: n.message, createdAt: n.createdAt })),
     pending: pending.map((p) => ({

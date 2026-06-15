@@ -3509,6 +3509,13 @@ model BubuiBusiness {
   // Solicitud de reseña en Google: push automático ~10 min tras escanear,
   // llevando al cliente a dejar reseña en Google (requiere googlePlaceId).
   reviewPushEnabled  Boolean @default(true)
+  // Preferencias de PUSH al panel del dueño: de qué eventos quiere que le
+  // avisemos en su dispositivo (el feed "Novedades" del panel siempre los
+  // registra; estos flags solo controlan la notificación push).
+  pushOnNewClient Boolean @default(true) // cliente referido nuevo
+  pushOnReview    Boolean @default(true) // reseña nueva
+  pushOnBooking   Boolean @default(true) // cita/reserva nueva
+  pushOnCoupon    Boolean @default(true) // cupón Bubui canjeado
   // Tarjeta de fidelidad (sellos digitales). Cada compra confirmada del
   // cliente suma 1 sello; al completar `loyaltyGoal` sellos se desbloquea
   // automáticamente un cupón con loyaltyRewardPct (o loyaltyRewardLabel) y
