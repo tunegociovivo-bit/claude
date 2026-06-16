@@ -21,6 +21,7 @@ import { prisma } from "@/lib/db/prisma";
 import { notifyBubuiCustomer } from "@/lib/bubui/notify";
 import { countVerifiedReferrals } from "@/lib/bubui/referral";
 import { sharesLeft } from "@/lib/bubui/share-offer";
+import { getChallengeExpiryWarnDays } from "@/lib/bubui/growth-settings";
 import { cronAuthOk } from "@/lib/cron-auth";
 
 export const dynamic = "force-dynamic";
@@ -28,7 +29,6 @@ export const dynamic = "force-dynamic";
 const MIN_AGE_MS = 24 * 60 * 60 * 1000; // primera vez: a las 24h del scan
 const COOLDOWN_MS = 48 * 60 * 60 * 1000; // luego, máx. uno cada 48h
 const MAX_PER_OFFER = 3;
-const EXPIRY_SOON_MS = 3 * 24 * 60 * 60 * 1000; // avisar cuando falten ≤3 días
 
 export async function GET(req: NextRequest) {
   if (!cronAuthOk(req)) {
@@ -38,15 +38,17 @@ export async function GET(req: NextRequest) {
   const now = Date.now();
 
   // ── Aviso de CADUCIDAD inminente ──────────────────────────────────────────
-  // Cupones-reto bloqueados que caducan en ≤3 días: un único push por cupón
-  // (kind "share_expiry") para que el usuario termine las acciones a tiempo.
+  // Cupones-reto bloqueados que caducan dentro de la ventana configurada por el
+  // admin: un único push por cupón (kind "share_expiry") para terminar a tiempo.
+  const warnDays = await getChallengeExpiryWarnDays();
+  const expirySoonMs = warnDays * 24 * 60 * 60 * 1000;
   let expirySent = 0;
   const expiringSoon = await prisma.bubuiOffer.findMany({
     where: {
       source: "share_challenge",
       active: false,
       redeemed: false,
-      expiresAt: { gt: new Date(now), lte: new Date(now + EXPIRY_SOON_MS) }
+      expiresAt: { gt: new Date(now), lte: new Date(now + expirySoonMs) }
     },
     include: { business: { select: { name: true } } },
     take: 500

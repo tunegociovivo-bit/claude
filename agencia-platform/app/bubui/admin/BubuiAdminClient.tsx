@@ -130,6 +130,7 @@ export default function BubuiAdminClient() {
       {tab === "plus" && (
         <>
           <PlusConfigPanel />
+          <GrowthConfigPanel />
           <PlusGiftsPanel />
         </>
       )}
@@ -756,6 +757,76 @@ function PlusConfigPanel() {
         onChange={(e) => setHours(e.target.value.replace(/[^0-9]/g, ""))}
         placeholder="0"
       />
+      <div className="flex items-center gap-3">
+        <button onClick={save} className="bubui-btn">Guardar</button>
+        {msg && <span className="text-sm">{msg}</span>}
+      </div>
+    </section>
+  );
+}
+
+// ── Crecimiento: parámetros de los cupones-reto ─────────────────────────────
+function GrowthConfigPanel() {
+  const [altMin, setAltMin] = useState("10");
+  const [warnDays, setWarnDays] = useState("3");
+  const [msg, setMsg] = useState("");
+
+  useEffect(() => {
+    adminFetch("/api/bubui/admin/growth-config")
+      .then((d) => {
+        setAltMin(String(d.altMinReferrals ?? 10));
+        setWarnDays(String(d.expiryWarnDays ?? 3));
+      })
+      .catch(() => {});
+  }, []);
+
+  async function save() {
+    setMsg("");
+    try {
+      const d = await adminFetch("/api/bubui/admin/growth-config", {
+        method: "PUT",
+        body: JSON.stringify({
+          altMinReferrals: Math.max(0, parseInt(altMin || "0", 10) || 0),
+          expiryWarnDays: Math.max(1, parseInt(warnDays || "1", 10) || 1)
+        })
+      });
+      setAltMin(String(d.altMinReferrals ?? 10));
+      setWarnDays(String(d.expiryWarnDays ?? 3));
+      setMsg("Guardado ✓");
+    } catch (e) {
+      setMsg("Error: " + String(e));
+    }
+  }
+
+  return (
+    <section className="bubui-card p-5 mt-4 max-w-xl">
+      <h2 className="text-sm font-bold mb-2">Cupones-reto (crecimiento)</h2>
+
+      <h3 className="text-xs font-bold uppercase tracking-wide text-black/55 mb-1">Desbloqueo de acciones alternativas</h3>
+      <p className="text-[13px] text-black/55 mb-2">
+        Amigos dados de alta (con su enlace) que un usuario debe conseguir para poder activar un cupón-reto{" "}
+        <strong>con una acción</strong> (reseña/foto) en vez de esperar a los amigos. Hasta llegar a este número, la única vía es compartir.
+      </p>
+      <input
+        className="bubui-input mb-3 mt-1 max-w-[160px]"
+        inputMode="numeric"
+        value={altMin}
+        onChange={(e) => setAltMin(e.target.value.replace(/[^0-9]/g, ""))}
+        placeholder="10"
+      />
+
+      <h3 className="text-xs font-bold uppercase tracking-wide text-black/55 mb-1">Aviso de caducidad</h3>
+      <p className="text-[13px] text-black/55 mb-2">
+        Días <strong>antes</strong> de que caduque un cupón-reto en los que se envía el push recordatorio para terminar las acciones.
+      </p>
+      <input
+        className="bubui-input mb-3 mt-1 max-w-[160px]"
+        inputMode="numeric"
+        value={warnDays}
+        onChange={(e) => setWarnDays(e.target.value.replace(/[^0-9]/g, ""))}
+        placeholder="3"
+      />
+
       <div className="flex items-center gap-3">
         <button onClick={save} className="bubui-btn">Guardar</button>
         {msg && <span className="text-sm">{msg}</span>}

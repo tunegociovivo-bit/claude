@@ -21,7 +21,7 @@ import { prisma } from "@/lib/db/prisma";
 import { customerAuthOk } from "@/lib/bubui/customer-auth";
 import { mesaReviewUrl, mesaReviewPlatformLabel } from "@/lib/bubui/table";
 import { countVerifiedReferrals } from "@/lib/bubui/referral";
-import { ALT_ACTION_MIN_REFERRALS } from "@/lib/bubui/share-offer";
+import { getAltActionMinReferrals } from "@/lib/bubui/growth-settings";
 import { isStorageEnabled, uploadBuffer, signedDownloadUrl } from "@/lib/storage/r2";
 
 export const dynamic = "force-dynamic";
@@ -67,11 +67,13 @@ export async function POST(req: Request, { params }: { params: { offerId: string
     return NextResponse.json({ error: { code: "not_found", message: "Cupón no encontrado, ya activo o caducado." } }, { status: 404 });
   }
 
-  // Puerta de crecimiento: la vía por acción solo se abre con +10 amigos de alta.
+  // Puerta de crecimiento: la vía por acción solo se abre con el umbral de amigos
+  // de alta (configurable por el admin).
   const verified = await countVerifiedReferrals(customerId);
-  if (verified < ALT_ACTION_MIN_REFERRALS) {
+  const altMin = await getAltActionMinReferrals();
+  if (verified < altMin) {
     return NextResponse.json(
-      { error: { code: "locked", message: `Esta vía se desbloquea al conseguir ${ALT_ACTION_MIN_REFERRALS} amigos dados de alta (llevas ${verified}). Sigue compartiendo.` } },
+      { error: { code: "locked", message: `Esta vía se desbloquea al conseguir ${altMin} amigos dados de alta (llevas ${verified}). Sigue compartiendo.` } },
       { status: 403 }
     );
   }
