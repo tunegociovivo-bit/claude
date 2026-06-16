@@ -17,6 +17,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { isStorageEnabled, uploadBuffer, signedDownloadUrl } from "@/lib/storage/r2";
+import { customerIdFromAuth } from "@/lib/bubui/customer-auth";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -39,6 +40,7 @@ export async function POST(req: Request) {
   // RN/Android); fallback al form y, por último, "anon".
   const customerId =
     url.searchParams.get("customerId") ||
+    customerIdFromAuth(req) ||
     (typeof form?.get("customerId") === "string" ? (form!.get("customerId") as string) : "anon");
   if (!(file instanceof Blob)) {
     return NextResponse.json({ error: { code: "no_file", message: "Falta el campo 'file'." } }, { status: 400 });

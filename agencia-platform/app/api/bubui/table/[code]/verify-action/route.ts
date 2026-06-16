@@ -19,7 +19,7 @@
  */
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
-import { customerAuthOk } from "@/lib/bubui/customer-auth";
+import { customerAuthOk, customerIdFromAuth } from "@/lib/bubui/customer-auth";
 import { loadTableState, mesaReviewPlatformLabel } from "@/lib/bubui/table";
 import { isStorageEnabled, uploadBuffer, signedDownloadUrl } from "@/lib/storage/r2";
 
@@ -37,10 +37,12 @@ export async function POST(req: Request, { params }: { params: { code: string } 
   const url = new URL(req.url);
   const form = await req.formData().catch(() => null);
   const file = form?.get("file");
-  // customerId/type/ticketAmount llegan por QUERY (en RN los campos de texto del
-  // multipart se pierden a veces en Android); con fallback al form por si acaso.
+  // customerId: de la QUERY o, lo más fiable, de la cabecera Authorization (en RN
+  // los campos de texto del multipart se pierden a veces); fallback al form.
   const customerId =
-    url.searchParams.get("customerId") || (typeof form?.get("customerId") === "string" ? (form!.get("customerId") as string) : "");
+    url.searchParams.get("customerId") ||
+    customerIdFromAuth(req) ||
+    (typeof form?.get("customerId") === "string" ? (form!.get("customerId") as string) : "");
   const type =
     url.searchParams.get("type") || (typeof form?.get("type") === "string" ? (form!.get("type") as string) : "");
   const ticketRaw = url.searchParams.get("ticketAmount") ?? (typeof form?.get("ticketAmount") === "string" ? (form!.get("ticketAmount") as string) : null);

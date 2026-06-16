@@ -18,7 +18,7 @@
  */
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
-import { customerAuthOk } from "@/lib/bubui/customer-auth";
+import { customerAuthOk, customerIdFromAuth } from "@/lib/bubui/customer-auth";
 import { mesaReviewUrl, mesaReviewPlatformLabel } from "@/lib/bubui/table";
 import { countVerifiedReferrals } from "@/lib/bubui/referral";
 import { getAltActionMinReferrals } from "@/lib/bubui/growth-settings";
@@ -38,10 +38,12 @@ export async function POST(req: Request, { params }: { params: { offerId: string
   const url = new URL(req.url);
   const form = await req.formData().catch(() => null);
   const file = form?.get("file");
-  // customerId/type por QUERY (los campos de texto del multipart se pierden a
-  // veces en RN/Android); fallback al form por si acaso.
+  // customerId: de la QUERY o, lo más fiable, de la cabecera Authorization (los
+  // campos de texto del multipart se pierden a veces en RN); fallback al form.
   const customerId =
-    url.searchParams.get("customerId") || (typeof form?.get("customerId") === "string" ? (form!.get("customerId") as string) : "");
+    url.searchParams.get("customerId") ||
+    customerIdFromAuth(req) ||
+    (typeof form?.get("customerId") === "string" ? (form!.get("customerId") as string) : "");
   const type =
     url.searchParams.get("type") || (typeof form?.get("type") === "string" ? (form!.get("type") as string) : "");
 
