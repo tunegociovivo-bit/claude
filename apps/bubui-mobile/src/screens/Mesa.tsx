@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { View, Text, StyleSheet, TouchableOpacity, Alert, Image, ScrollView, Linking, ActivityIndicator } from "react-native";
+import { View, Text, StyleSheet, TouchableOpacity, Alert, Image, ScrollView, Linking, ActivityIndicator, Animated } from "react-native";
 import { CameraView, Camera } from "expo-camera";
+import * as ImagePicker from "expo-image-picker";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation, useRoute, type RouteProp } from "@react-navigation/native";
 import { CheckSession } from "../lib/session";
@@ -25,6 +26,35 @@ type View_ = "mesa" | "finish" | "ticketcam" | "bill";
  * → escanea el ticket → ve la cuenta con el descuento aplicado para enseñársela
  * al camarero. La cuenta queda registrada en el panel del negocio.
  */
+/**
+ * Aviso LLAMATIVO (pulsante) para el camarero: hay acciones que la IA no pudo
+ * validar y se aceptaron de forma provisional; debe comprobarlas a mano antes de
+ * aplicar el descuento.
+ */
+function ProvisionalBanner({ count }: { count: number }) {
+  const pulse = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, { toValue: 1, duration: 600, useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 0, duration: 600, useNativeDriver: true })
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, []);
+  const scale = pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.18] });
+  return (
+    <View style={{ marginTop: 16, backgroundColor: "#FEF3C7", borderColor: "#F59E0B", borderWidth: 2, borderRadius: 16, padding: 14, flexDirection: "row", alignItems: "center", gap: 12 }}>
+      <Animated.Text style={{ fontSize: 30, transform: [{ scale }] }}>⚠️</Animated.Text>
+      <View style={{ flex: 1 }}>
+        <Text style={{ fontWeight: "900", color: "#92400E", fontSize: 14 }}>Camarero: verifica {count} acción{count === 1 ? "" : "es"}</Text>
+        <Text style={{ color: "#92400E", fontSize: 12, lineHeight: 17, marginTop: 2 }}>No se pudieron validar automáticamente. Comprueba la reseña/publicación antes de aplicar el descuento.</Text>
+      </View>
+    </View>
+  );
+}
+
 export function Mesa() {
   const nav = useNavigation<any>();
   const route = useRoute<MesaRoute>();
@@ -111,20 +141,49 @@ export function Mesa() {
     try { setMesa(await fetchState(code, customerId)); } catch {}
   }
 
-  async function contribute(type: "share" | "review") {
+  // Invitar amigos (crecimiento): comparte el enlace; el premio es la hucha de
+  // próxima visita por cada amigo que se da de alta. No cuenta para el bote.
+  async function invite() {
+    if (!customerId) return;
+    setBusyAction("share");
+    try {
+      await shareReferralForOffer(customerId);
+      await api.mesaContribute(code, customerId, "share");
+      await refresh();
+    } catch (e: any) {
+      Alert.alert("No se pudo compartir", e?.message ?? "");
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
+  // Abre la plataforma de reseña (ayuda para dejar la reseña antes de la captura).
+  async function openReviewLink() {
+    const url = mesa?.business.reviewUrl;
+    if (!url) { Alert.alert("Reseña no disponible", "Este negocio aún no tiene el enlace de reseña configurado."); return; }
+    await Linking.openURL(url);
+  }
+
+  // Sube una captura (reseña o publicación social) → la IA la valida y, si es
+  // válida, suma una acción al bote común de la mesa.
+  async function uploadAction(type: "review" | "social") {
     if (!customerId) return;
     setBusyAction(type);
     try {
-      if (type === "share") await shareReferralForOffer(customerId);
-      else {
-        const url = mesa?.business.reviewUrl;
-        if (!url) { Alert.alert("Reseña no disponible", "Este negocio aún no tiene el enlace de reseña configurado."); setBusyAction(null); return; }
-        await Linking.openURL(url);
+      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!perm.granted) { Alert.alert("Permiso necesario", "Necesitamos acceso a tus fotos para subir la captura."); return; }
+      const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.7 });
+      if (res.canceled || !res.assets?.[0]?.uri) return;
+      const r = await api.mesaVerifyAction(code, customerId, type, res.assets[0].uri, mesa?.ticketAmount ?? undefined);
+      if (r.valid) {
+        sfx.success();
+        Alert.alert(r.provisional ? "Recibido ✓" : "¡Verificado! ✓", r.reason);
+      } else {
+        Alert.alert("No hemos podido validar la captura", r.reason + "\n\nAsegúrate de que se vea bien y vuelve a intentarlo.");
       }
-      await api.mesaContribute(code, customerId, type);
       await refresh();
     } catch (e: any) {
-      Alert.alert("No se pudo registrar el aporte", e?.message ?? "");
+      Alert.alert("No se pudo subir la captura", e?.message ?? "");
     } finally {
       setBusyAction(null);
     }
@@ -174,8 +233,43 @@ export function Mesa() {
   const actions = biz.actions ?? [];
   const me = mesa.me;
   const iShared = !!me?.sharedDone;
-  const iReviewed = !!me?.reviewDone;
-  const iContributed = !!me?.contributed;
+  const iReviewVerified = !!me?.reviewVerified;
+  const iSocialVerified = !!me?.socialVerified;
+  const canReview = actions.includes("review");
+  const canSocial = actions.includes("photo") || actions.includes("follow");
+  const canInvite = actions.includes("share");
+
+  // Botones de acción verificable (reseña / publicación social) reutilizados en
+  // la mesa y en la pantalla "Terminar". Cualquiera puede aportar al bote.
+  const renderActions = () => (
+    <>
+      {canReview && (
+        <View style={{ marginTop: 10 }}>
+          <Text style={styles.actionLabel}>⭐ Reseña en {biz.reviewPlatformLabel}</Text>
+          {!iReviewVerified && !!biz.reviewUrl && (
+            <TouchableOpacity style={styles.linkBtn} onPress={openReviewLink} disabled={busyAction !== null}>
+              <Text style={styles.linkBtnText}>1 · Abrir {biz.reviewPlatformLabel} para dejar la reseña</Text>
+            </TouchableOpacity>
+          )}
+          <TouchableOpacity style={[styles.actionBtn, iReviewVerified && styles.actionBtnDone]} onPress={() => uploadAction("review")} disabled={busyAction !== null || iReviewVerified}>
+            <Text style={[styles.actionBtnText, iReviewVerified && styles.actionBtnTextDone]}>
+              {busyAction === "review" ? "Validando…" : iReviewVerified ? "✓ Reseña verificada" : `${biz.reviewUrl ? "2 · " : ""}Subir captura de la reseña`}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      )}
+      {canSocial && (
+        <View style={{ marginTop: 12 }}>
+          <Text style={styles.actionLabel}>📸 Foto de grupo en tus redes etiquetando a {biz.name}</Text>
+          <TouchableOpacity style={[styles.actionBtn, iSocialVerified && styles.actionBtnDone]} onPress={() => uploadAction("social")} disabled={busyAction !== null || iSocialVerified}>
+            <Text style={[styles.actionBtnText, iSocialVerified && styles.actionBtnTextDone]}>
+              {busyAction === "social" ? "Validando…" : iSocialVerified ? "✓ Publicación verificada" : "Subir captura de tu publicación"}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      )}
+    </>
+  );
 
   // ── Pantalla de CUENTA (con descuento aplicado) ────────────────────────────
   if (view === "bill" || mesa.status === "redeemed") {
@@ -208,6 +302,8 @@ export function Mesa() {
           <Text style={styles.waiterText}>Muéstrale esta pantalla al pagar para que te apliquen el {pct}% de descuento de la mesa.</Text>
         </View>
 
+        {(st?.provisionalActions ?? 0) > 0 && <ProvisionalBanner count={st!.provisionalActions} />}
+
         {(nextVisitPct > 0 || perk) && (
           <View style={styles.nextBox}>
             <Text style={styles.nextText}>
@@ -224,7 +320,7 @@ export function Mesa() {
               <View key={s.key} style={styles.stepRow}>
                 <Text style={[styles.stepCheck, s.done && styles.stepCheckDone]}>{s.done ? "✓" : "○"}</Text>
                 <Text style={[styles.stepLabel, s.done && styles.stepLabelDone]}>{s.label}</Text>
-                <Text style={styles.stepPct}>+{s.pct}%</Text>
+                {s.pct > 0 && <Text style={styles.stepPct}>+{s.pct}%</Text>}
               </View>
             ))}
           </View>
@@ -282,23 +378,14 @@ export function Mesa() {
         <TouchableOpacity onPress={() => setView("mesa")} hitSlop={8} style={{ marginBottom: 8 }}>
           <Text style={styles.backText}>‹ Volver a la mesa</Text>
         </TouchableOpacity>
-        {!iContributed ? (
+        {!st?.unlocked ? (
           <>
             <Text style={{ fontSize: 48 }}>📝</Text>
-            <Text style={[styles.title, { marginTop: 6 }]}>Te falta tu aporte</Text>
-            <Text style={styles.muted}>Haz UNA acción para desbloquear tu parte del descuento:</Text>
-            <View style={{ marginTop: 16 }}>
-              {actions.includes("share") && (
-                <TouchableOpacity style={[styles.actionBtn, iShared && styles.actionBtnDone]} onPress={() => contribute("share")} disabled={busyAction !== null || iShared}>
-                  <Text style={[styles.actionBtnText, iShared && styles.actionBtnTextDone]}>{busyAction === "share" ? "Abriendo…" : iShared ? "✓ Has invitado a amigos" : "📲 Invitar amigos"}</Text>
-                </TouchableOpacity>
-              )}
-              {actions.includes("review") && (
-                <TouchableOpacity style={[styles.actionBtn, iReviewed && styles.actionBtnDone]} onPress={() => contribute("review")} disabled={busyAction !== null || iReviewed}>
-                  <Text style={[styles.actionBtnText, iReviewed && styles.actionBtnTextDone]}>{busyAction === "review" ? "Abriendo…" : iReviewed ? `✓ Reseña en ${biz.reviewPlatformLabel}` : `⭐ Dejar reseña en ${biz.reviewPlatformLabel}`}</Text>
-                </TouchableOpacity>
-              )}
-            </View>
+            <Text style={[styles.title, { marginTop: 6 }]}>Faltan acciones para el descuento</Text>
+            <Text style={styles.muted}>
+              La mesa necesita {st?.requiredActions ?? 0} acciones y lleváis {st?.verifiedActions ?? 0}. Las puede completar <Text style={{ fontWeight: "800" }}>cualquiera</Text> de la mesa (sube tú una de más si alguien no puede):
+            </Text>
+            <View style={{ marginTop: 12 }}>{renderActions()}</View>
           </>
         ) : (
           <>
@@ -339,11 +426,17 @@ export function Mesa() {
       <Text style={styles.muted}>Sois {st?.diners ?? 1} en la mesa{mesa.tableLabel ? ` · ${mesa.tableLabel}` : ""}.</Text>
 
       <View style={styles.hero}>
-        <Text style={styles.heroPct}>{st?.pctNow ?? 0}%</Text>
+        <Text style={styles.heroPct}>{st?.unlocked ? (st?.pctNow ?? 0) : (st?.maxPotentialPct ?? 0)}%</Text>
         <Text style={styles.heroLabel}>descuento del grupo</Text>
         <View style={styles.heroRow}>
-          {st && st.pctNextVisit > 0 && <Text style={styles.heroSub}>+{st.pctNextVisit}% próxima visita</Text>}
-          {st && <Text style={styles.heroSub}>hasta {st.maxPotentialPct}% si lo completáis</Text>}
+          {st && st.unlocked && <Text style={[styles.heroSub, { color: c.green }]}>✓ desbloqueado</Text>}
+          {st && !st.unlocked && (
+            <Text style={styles.heroSub}>
+              {st.quorum
+                ? `faltan ${st.actionsRemaining} acción${st.actionsRemaining === 1 ? "" : "es"} de ${st.requiredActions}`
+                : `sed ${(st.requiredActions || 1)}+ en la mesa`}
+            </Text>
+          )}
         </View>
         {!!biz.perkLabel && <Text style={styles.perk}>🎁 {biz.perkLabel} para la próxima visita</Text>}
       </View>
@@ -358,21 +451,29 @@ export function Mesa() {
         </View>
       )}
 
-      {/* TU aporte (estado propio, del servidor) */}
+      {/* Acciones de la mesa: bote común (N acciones = N comensales). */}
       <View style={styles.card}>
-        <Text style={styles.cardTitle}>Tu aporte {iContributed ? "✓" : ""}</Text>
-        <Text style={styles.hint}>Elige UNA acción para desbloquear tu parte. La otra te llegará luego como cupón para tu próxima visita.</Text>
-        {actions.includes("share") && (
-          <TouchableOpacity style={[styles.actionBtn, iShared && styles.actionBtnDone]} onPress={() => contribute("share")} disabled={busyAction !== null || iShared}>
-            <Text style={[styles.actionBtnText, iShared && styles.actionBtnTextDone]}>{busyAction === "share" ? "Abriendo…" : iShared ? "✓ Has invitado a amigos" : "📲 Invitar amigos"}</Text>
-          </TouchableOpacity>
-        )}
-        {actions.includes("review") && (
-          <TouchableOpacity style={[styles.actionBtn, iReviewed && styles.actionBtnDone]} onPress={() => contribute("review")} disabled={busyAction !== null || iReviewed}>
-            <Text style={[styles.actionBtnText, iReviewed && styles.actionBtnTextDone]}>{busyAction === "review" ? "Abriendo…" : iReviewed ? `✓ Reseña en ${biz.reviewPlatformLabel}` : `⭐ Dejar reseña en ${biz.reviewPlatformLabel}`}</Text>
-          </TouchableOpacity>
+        <Text style={styles.cardTitle}>Acciones de la mesa {st?.unlocked ? "✓" : `${st?.verifiedActions ?? 0}/${st?.requiredActions ?? 0}`}</Text>
+        <Text style={styles.hint}>
+          Desbloqueáis el descuento al juntar <Text style={{ fontWeight: "800", color: c.pinkDeep }}>{st?.requiredActions ?? 0} acciones</Text> (una por comensal). Es un bote común: cualquiera puede subir <Text style={{ fontWeight: "800", color: c.pinkDeep }}>de más</Text> para cubrir a quien no pueda. Sube la captura y la verificamos al instante.
+        </Text>
+        {renderActions()}
+        {!canReview && !canSocial && <Text style={styles.hint}>Este restaurante aún no ha activado acciones.</Text>}
+        {(st?.provisionalActions ?? 0) > 0 && (
+          <Text style={[styles.hint, { color: "#B45309", fontWeight: "800" }]}>⚠️ {st!.provisionalActions} acción{st!.provisionalActions === 1 ? "" : "es"} sin validar: el camarero la verificará al pagar.</Text>
         )}
       </View>
+
+      {/* Crece y gana: invitar amigos premia INSTALACIONES reales (hucha). */}
+      {canInvite && (
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Crece y gana 📲</Text>
+          <Text style={styles.hint}>Aparte del descuento de hoy: invita a tus amigos a Bubui y por <Text style={{ fontWeight: "800", color: c.pinkDeep }}>cada uno que se dé de alta</Text> sumas % en tu hucha para tu próxima visita. Comparte con 5+ (no todos se instalan).</Text>
+          <TouchableOpacity style={[styles.actionBtn, iShared && styles.actionBtnDone]} onPress={invite} disabled={busyAction !== null || iShared}>
+            <Text style={[styles.actionBtnText, iShared && styles.actionBtnTextDone]}>{busyAction === "share" ? "Abriendo…" : iShared ? "✓ Has compartido" : "📲 Invitar amigos"}</Text>
+          </TouchableOpacity>
+        </View>
+      )}
 
       {/* Progreso del GRUPO (informativo) */}
       {!!st?.steps?.length && (
@@ -382,7 +483,7 @@ export function Mesa() {
             <View key={s.key} style={styles.stepRow}>
               <Text style={[styles.stepCheck, s.done && styles.stepCheckDone]}>{s.done ? "✓" : "○"}</Text>
               <Text style={[styles.stepLabel, s.done && styles.stepLabelDone]}>{s.label}</Text>
-              <Text style={styles.stepPct}>+{s.pct}%</Text>
+              {s.pct > 0 && <Text style={styles.stepPct}>+{s.pct}%</Text>}
             </View>
           ))}
         </View>
@@ -427,6 +528,9 @@ const makeStyles = (c: Palette) =>
     actionBtnText: { color: c.onAccent, fontSize: 15, fontWeight: "800" },
     actionBtnDone: { backgroundColor: c.pinkWash, shadowOpacity: 0, elevation: 0, borderWidth: 1.5, borderColor: c.green },
     actionBtnTextDone: { color: c.green },
+    actionLabel: { fontSize: 13, fontWeight: "800", color: c.black, marginBottom: 2 },
+    linkBtn: { marginTop: 8, paddingVertical: 8, alignItems: "center" },
+    linkBtnText: { color: c.pinkDeep, fontSize: 13, fontWeight: "800" },
     hint: { marginTop: 4, marginBottom: 4, fontSize: 12, color: c.gray, lineHeight: 17 },
     footer: { marginTop: 14, fontSize: 12, color: c.gray, textAlign: "center", lineHeight: 18, paddingHorizontal: 8 },
     btn: { marginTop: 20, backgroundColor: c.pink, borderRadius: radius.pill, paddingVertical: 15, paddingHorizontal: 32, alignItems: "center", ...shadow.btn },

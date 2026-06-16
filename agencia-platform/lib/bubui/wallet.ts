@@ -33,24 +33,18 @@ export function effectiveWalletPct(c: { referralWalletPct: number; referralWalle
  * Idempotente: el flag referralQualified del amigo garantiza un solo abono.
  * Tolerante a fallos (no rompe el flujo de escaneo). Devuelve true si abonó.
  */
-export async function qualifyAndCreditReferrer(friend: {
-  id: string;
-  referredById: string | null;
-  phoneVerified: boolean;
-  referralQualified: boolean;
-}): Promise<boolean> {
-  if (friend.referralQualified || !friend.referredById || !friend.phoneVerified) return false;
-  // Reclama el flag de forma atómica (evita doble abono en carreras).
-  const claim = await prisma.bubuiCustomer.updateMany({
-    where: { id: friend.id, referralQualified: false },
-    data: { referralQualified: true }
-  });
-  if (claim.count === 0) return false;
-
+/**
+ * Abona el % de la hucha al referidor por traer un amigo que se DA DE ALTA
+ * (teléfono verificado). Es la única vía de premio por compartir: por cada amigo
+ * que se instala/registra, +REFERRAL_REWARD_PCT. Renueva la caducidad global y
+ * topa a 100%. Se llama desde applyReferral (una vez por amigo). Tolerante a
+ * fallos. Devuelve el saldo resultante (o null si no abonó).
+ */
+export async function creditReferrerWallet(referrerId: string): Promise<number | null> {
   const expiresAt = new Date(Date.now() + WALLET_DAYS * 86_400_000);
   const updated = await prisma.bubuiCustomer
     .update({
-      where: { id: friend.referredById },
+      where: { id: referrerId },
       data: {
         referralWalletPct: { increment: REFERRAL_REWARD_PCT },
         referralQualifiedCount: { increment: 1 },
@@ -59,24 +53,23 @@ export async function qualifyAndCreditReferrer(friend: {
       select: { referralWalletPct: true }
     })
     .catch(() => null);
-  if (!updated) return false;
+  if (!updated) return null;
 
-  // Tope del saldo a 100%.
   const capped = Math.min(updated.referralWalletPct, WALLET_MAX_PCT);
   if (updated.referralWalletPct > WALLET_MAX_PCT) {
     await prisma.bubuiCustomer
-      .update({ where: { id: friend.referredById }, data: { referralWalletPct: WALLET_MAX_PCT } })
+      .update({ where: { id: referrerId }, data: { referralWalletPct: WALLET_MAX_PCT } })
       .catch(() => {});
   }
 
-  void notifyBubuiCustomer(friend.referredById, {
+  void notifyBubuiCustomer(referrerId, {
     title: `🎁 +${REFERRAL_REWARD_PCT}% en tu hucha Bubui`,
-    body: `Un amigo tuyo ya es cliente. Tienes un ${capped}% acumulado para cobrar yendo a comer (caduca en ${WALLET_DAYS} días).`,
+    body: `Un amigo se ha dado de alta con tu enlace. Tienes un ${capped}% acumulado para cobrar yendo a comer (caduca en ${WALLET_DAYS} días).`,
     link: "bubui://offers",
-    tag: `wallet-credit:${friend.id}`,
+    tag: `wallet-credit:${referrerId}`,
     data: { type: "referral_wallet_credit", pct: capped }
   });
-  return true;
+  return capped;
 }
 
 /**

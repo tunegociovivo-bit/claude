@@ -156,6 +156,10 @@ export async function applyReferral(friendId: string, code: string): Promise<voi
   if (friend?.referredById) return; // ya estaba referido
   await prisma.bubuiCustomer.update({ where: { id: friendId }, data: { referredById: referrer.id } });
 
+  // Hucha de referidos: +% al referidor por cada amigo que se da de alta (este es
+  // el ÚNICO premio por compartir — el descuento de mesa NO se gana compartiendo).
+  await import("./wallet").then((m) => m.creditReferrerWallet(referrer.id)).catch(() => {});
+
   const originId = referrer.firstBusinessId;
   if (!originId) return; // sin negocio de origen no hay quien financie premios
   const business = await prisma.bubuiBusiness.findUnique({ where: { id: originId } });

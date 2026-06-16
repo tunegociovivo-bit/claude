@@ -103,6 +103,12 @@
         }
       ],
       [
+        "expo-image-picker",
+        {
+          "photosPermission": "Bubui necesita acceso a tus fotos para subir la captura de tu reseña o publicación y validar la acción de la mesa."
+        }
+      ],
+      [
         "expo-location",
         {
           "locationAlwaysAndWhenInUsePermission": "Bubui usa tu ubicación para mostrar descuentos cerca y avisarte cuando pases junto a uno.",

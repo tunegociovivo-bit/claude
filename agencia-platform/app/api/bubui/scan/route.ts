@@ -22,7 +22,7 @@ import { customerAuthOk } from "@/lib/bubui/customer-auth";
 import { createShareChallengeOffer } from "@/lib/bubui/share-offer";
 import { notifyBusinessNewReferredClient } from "@/lib/bubui/referral";
 import { alertBusiness } from "@/lib/bubui/business-push";
-import { computeWalletApplication, consumeWallet, qualifyAndCreditReferrer } from "@/lib/bubui/wallet";
+import { computeWalletApplication, consumeWallet } from "@/lib/bubui/wallet";
 
 export const dynamic = "force-dynamic";
 
@@ -209,9 +209,6 @@ export async function POST(req: Request) {
     if (walletUsed && walletCand) {
       await consumeWallet(customer, walletCand.remaining);
     }
-    // Cualifica al cliente como referido (1ª compra confirmada + tel. verificado):
-    // abona % a la hucha de quien lo trajo. Idempotente y fire-and-forget.
-    void qualifyAndCreditReferrer(customer).catch(() => {});
     // Avisa al negocio si es un cliente REFERIDO que viene por 1ª vez a su local
     // (la señal que el comercio quiere: "Bubui me trae clientes nuevos").
     void notifyBusinessNewReferredClient({ businessId: d.businessId, customer }).catch(() => {});

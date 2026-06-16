@@ -1,10 +1,15 @@
 /**
  * Motor de la Mesa Colectiva de Bubui.
  *
- * Calcula el descuento de una mesa según su estado: base por nº de comensales,
- * + bonus si TODOS comparten (con N amigos nuevos), + bonus si TODOS dejan
- * reseña en Google (vía el enlace; no se condiciona a que sea positiva).
- * Lógica pura, sin IO, fácil de testear.
+ * El descuento de la mesa se desbloquea cuando el grupo completa un BOTE COMÚN
+ * de acciones VERIFICADAS: N acciones para N comensales. Una acción verificada
+ * es una captura validada por IA — una reseña en Google/{plataforma} o una
+ * publicación en redes etiquetando al restaurante. Es un bote: cualquier
+ * comensal puede hacer hasta 2 acciones (reseña + publicación) para cubrir a
+ * quien no puede/quiere, de modo que la mesa no se quede sin descuento.
+ *
+ * Compartir el enlace (invitar amigos) NO cuenta para este descuento: su premio
+ * es la hucha de próxima visita por cada amigo que se da de alta. Lógica pura.
  */
 
 export type MesaConfig = {
@@ -14,17 +19,10 @@ export type MesaConfig = {
   shareFriends: number;
   reviewBonusPct: number;
   maxPct: number;
-  /** true = los bonus (compartir/reseña) se aplican a ESTA cuenta; false (def)
-   *  = se guardan como cupón de PRÓXIMA visita (recurrencia). */
+  /** Conservados por compatibilidad con la config del negocio (no se usan en el
+   *  modelo de bote común; el descuento es basePct al completar las N acciones). */
   bonusOnThisVisit?: boolean;
-  /** Si true, un comensal que YA tenía la app (veterano) debe completar una
-   *  acción de aporte para que su parte cuente (el nuevo aporta instalándose).
-   *  Evita regalar descuento sin recibir valor neto-nuevo cuando la zona ya
-   *  está saturada de usuarios. */
   veteranMustContribute?: boolean;
-  /** Primera descarga: si true, un comensal NUEVO (que se instala la app en la
-   *  mesa) debe además completar una acción para que su parte cuente. Por
-   *  defecto (false) la instalación ya es su aporte y desbloquea su parte. */
   newUserMustContribute?: boolean;
   /** Plataforma de reseña que pide el negocio (Google/Tripadvisor/…) para los
    *  textos del checklist. */
@@ -32,9 +30,17 @@ export type MesaConfig = {
 };
 
 export type MesaParticipant = {
-  /** Se instaló la app al unirse a esta mesa (su instalación ya es el aporte). */
+  /** Se instaló la app al unirse a esta mesa. */
   isNewUser: boolean;
-  /** Veterano que completó una acción del menú (compartir/reseña/foto/seguir). */
+  /** Subió captura de reseña validada por IA (cuenta 1 acción del bote). */
+  reviewVerified: boolean;
+  /** Subió captura de publicación social validada por IA (cuenta 1 acción). */
+  socialVerified: boolean;
+  /** Reseña aceptada provisional (la IA no pudo validar; revisar camarero). */
+  reviewProvisional: boolean;
+  /** Publicación aceptada provisional (la IA no pudo validar; revisar camarero). */
+  socialProvisional: boolean;
+  // Legacy (acciones por clic, ya no desbloquean; se mantienen para registro).
   contributed: boolean;
   sharedCount: number;
   sharedDone: boolean;
@@ -42,7 +48,7 @@ export type MesaParticipant = {
 };
 
 export type MesaStep = {
-  key: "quorum" | "share" | "review";
+  key: "quorum" | "actions";
   label: string;
   pct: number;
   euros: number; // cuánto suma este paso sobre el ticket
@@ -52,16 +58,25 @@ export type MesaStep = {
 export type MesaState = {
   /** Descuento aplicable AHORA mismo (in situ). */
   pctNow: number;
-  /** Descuento de PRÓXIMA visita (cupón diferido). */
+  /** Descuento de PRÓXIMA visita (cupón diferido). Siempre 0 en este modelo. */
   pctNextVisit: number;
-  /** Máximo alcanzable si completan TODO (el gancho a mostrar). */
+  /** Máximo alcanzable si completan el bote (el gancho a mostrar). */
   maxPotentialPct: number;
   diners: number;
   quorum: boolean;
-  /** Todos han aportado valor neto-nuevo (nuevos por instalar, veteranos por
-   *  su acción). Si false, el descuento base está BLOQUEADO. */
+  /** Acciones verificadas que necesita la mesa (= nº de comensales). */
+  requiredActions: number;
+  /** Acciones verificadas conseguidas por el grupo (bote común). */
+  verifiedActions: number;
+  /** Acciones que faltan para desbloquear el descuento. */
+  actionsRemaining: number;
+  /** Acciones aceptadas PROVISIONALMENTE (la IA no validó): el camarero debe
+   *  verificarlas a mano antes de aplicar el descuento. */
+  provisionalActions: number;
+  /** El descuento está desbloqueado (quórum + bote completo). */
+  unlocked: boolean;
+  // Campos legacy mantenidos para compatibilidad con consumidores existentes.
   everyonePaidEntry: boolean;
-  /** Cuántos veteranos faltan por aportar (para el aviso "falta que X aporte"). */
   pendingContributors: number;
   everyoneShared: boolean;
   everyoneReviewed: boolean;
@@ -84,12 +99,15 @@ function eur(ticket: number, pct: number): number {
   return Math.round(ticket * pct) / 100;
 }
 
+/** Acciones verificadas que aporta un comensal al bote (0, 1 o 2). */
+function actionsOf(p: MesaParticipant): number {
+  return (p.reviewVerified ? 1 : 0) + (p.socialVerified ? 1 : 0);
+}
+
 /**
- * Estado de descuento de la mesa, anclado en EUROS sobre el ticket escaneado.
- * Base = se aplica en el local con quórum. Bonus (compartir/reseña) = en esta
- * cuenta o en cupón de próxima visita según cfg.bonusOnThisVisit. Devuelve
- * además el máximo potencial y el checklist con € por paso (para el indicador
- * "te ahorras 60€" y la aversión a la pérdida "te dejas 20€").
+ * Estado de descuento de la mesa (modelo de bote común), anclado en EUROS sobre
+ * el ticket. El descuento (basePct) se desbloquea con quórum + N acciones
+ * verificadas (N = comensales), repartibles libremente entre la mesa.
  */
 export function computeMesa(
   cfg: MesaConfig,
@@ -98,81 +116,76 @@ export function computeMesa(
 ): MesaState {
   const diners = participants.length;
   const quorum = diners >= Math.max(1, cfg.minDiners);
-  const everyoneShared = diners > 0 && participants.every((p) => p.sharedDone || p.sharedCount >= cfg.shareFriends);
-  const everyoneReviewed = diners > 0 && participants.every((p) => p.reviewDone);
 
-  // Valor neto-nuevo: el nuevo aporta instalándose; el veterano, con su acción.
-  // Si veteranMustContribute=false, los veteranos cuentan por estar presentes.
-  // Si newUserMustContribute=true, el nuevo además debe completar una acción
-  // (la primera descarga ya no basta).
-  const paidEntry = (p: MesaParticipant) =>
-    p.isNewUser
-      ? !cfg.newUserMustContribute || p.contributed
-      : !cfg.veteranMustContribute || p.contributed;
-  const everyonePaidEntry = diners > 0 && participants.every(paidEntry);
-  const pendingContributors = participants.filter((p) => !paidEntry(p)).length;
+  // Bote común: N acciones verificadas para N comensales. Las aporta quien sea.
+  const requiredActions = diners;
+  const verifiedActions = participants.reduce((n, p) => n + actionsOf(p), 0);
+  const provisionalActions = participants.reduce(
+    (n, p) => n + (p.reviewVerified && p.reviewProvisional ? 1 : 0) + (p.socialVerified && p.socialProvisional ? 1 : 0),
+    0
+  );
+  const actionsRemaining = Math.max(0, requiredActions - verifiedActions);
+  const botDone = diners > 0 && verifiedActions >= requiredActions;
+  const unlocked = quorum && botDone;
 
-  // El descuento base solo se DESBLOQUEA si hay quórum Y todos han aportado.
-  const basePct = quorum && everyonePaidEntry ? cfg.basePct : 0;
-  const sharePct = everyoneShared ? cfg.shareBonusPct : 0;
-  const reviewPct = everyoneReviewed ? cfg.reviewBonusPct : 0;
+  const everyoneReviewed = diners > 0 && participants.every((p) => p.reviewVerified);
 
-  // Reparto entre esta visita y la próxima, respetando el tope global.
-  let pctNow = clampPct(basePct, cfg.maxPct);
-  let pctNextVisit = 0;
-  if (cfg.bonusOnThisVisit) {
-    pctNow = clampPct(basePct + sharePct + reviewPct, cfg.maxPct);
-  } else {
-    pctNextVisit = clampPct(sharePct + reviewPct, Math.max(0, cfg.maxPct - pctNow));
-  }
-  // Máximo alcanzable si lo completan todo (gancho del indicador).
-  const maxPotentialPct = clampPct(cfg.basePct + cfg.shareBonusPct + cfg.reviewBonusPct, cfg.maxPct);
+  const pctNow = unlocked ? clampPct(cfg.basePct, cfg.maxPct) : 0;
+  const pctNextVisit = 0;
+  const maxPotentialPct = clampPct(cfg.basePct, cfg.maxPct);
 
-  const allSteps: MesaStep[] = [
+  const steps: MesaStep[] = [
     {
       key: "quorum",
-      label: !quorum
-        ? `Sed ${cfg.minDiners}+ en la mesa`
-        : !everyonePaidEntry
-          ? `Falta que ${pendingContributors} aporte${pendingContributors === 1 ? "" : "n"} (compartir/reseña/foto)`
-          : `Sois ${diners} y todos habéis aportado`,
+      label: quorum ? `Sois ${diners} en la mesa` : `Sed ${cfg.minDiners}+ en la mesa`,
+      pct: 0,
+      euros: 0,
+      done: quorum
+    },
+    {
+      key: "actions",
+      label: botDone
+        ? `¡Bote completo! ${verifiedActions}/${requiredActions} acciones`
+        : `Acciones de la mesa: ${verifiedActions}/${requiredActions} (faltan ${actionsRemaining})`,
       pct: cfg.basePct,
       euros: ticketAmount ? eur(ticketAmount, cfg.basePct) : 0,
-      done: quorum && everyonePaidEntry
-    },
-    {
-      key: "share",
-      label: `Todos invitáis a ${cfg.shareFriends} amigo${cfg.shareFriends === 1 ? "" : "s"} que instale Bubui y se dé de alta`,
-      pct: cfg.shareBonusPct,
-      euros: ticketAmount ? eur(ticketAmount, cfg.shareBonusPct) : 0,
-      done: everyoneShared
-    },
-    {
-      key: "review",
-      label: `Todos dejáis reseña en ${cfg.reviewPlatformLabel || "Google"}`,
-      pct: cfg.reviewBonusPct,
-      euros: ticketAmount ? eur(ticketAmount, cfg.reviewBonusPct) : 0,
-      done: everyoneReviewed
+      done: botDone
     }
   ];
-  const steps = allSteps.filter((s) => s.pct > 0);
 
   let euros: MesaState["euros"] = null;
   if (ticketAmount && ticketAmount > 0) {
     const savedNow = eur(ticketAmount, pctNow);
-    const savedNextVisit = eur(ticketAmount, pctNextVisit);
     const maxSaving = eur(ticketAmount, maxPotentialPct);
     euros = {
       ticket: ticketAmount,
       savedNow,
-      savedNextVisit,
+      savedNextVisit: 0,
       maxSaving,
       payNow: Math.round((ticketAmount - savedNow) * 100) / 100,
-      leftOnTable: Math.max(0, Math.round((maxSaving - savedNow - savedNextVisit) * 100) / 100)
+      leftOnTable: Math.max(0, Math.round((maxSaving - savedNow) * 100) / 100)
     };
   }
 
-  return { pctNow, pctNextVisit, maxPotentialPct, diners, quorum, everyonePaidEntry, pendingContributors, everyoneShared, everyoneReviewed, steps, euros };
+  return {
+    pctNow,
+    pctNextVisit,
+    maxPotentialPct,
+    diners,
+    quorum,
+    requiredActions,
+    verifiedActions,
+    actionsRemaining,
+    provisionalActions,
+    unlocked,
+    // Legacy (derivados del nuevo modelo).
+    everyonePaidEntry: unlocked,
+    pendingContributors: actionsRemaining,
+    everyoneShared: false,
+    everyoneReviewed,
+    steps,
+    euros
+  };
 }
 
 /**
