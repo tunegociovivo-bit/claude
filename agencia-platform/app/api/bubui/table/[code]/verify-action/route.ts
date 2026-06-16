@@ -34,12 +34,17 @@ export async function POST(req: Request, { params }: { params: { code: string } 
     return NextResponse.json({ error: { code: "storage_disabled", message: "Storage no configurado." } }, { status: 503 });
   }
 
+  const url = new URL(req.url);
   const form = await req.formData().catch(() => null);
   const file = form?.get("file");
-  const customerId = typeof form?.get("customerId") === "string" ? (form!.get("customerId") as string) : "";
-  const type = typeof form?.get("type") === "string" ? (form!.get("type") as string) : "";
-  const ticketRaw = form?.get("ticketAmount");
-  const ticketAmount = typeof ticketRaw === "string" && ticketRaw ? Number(ticketRaw) : undefined;
+  // customerId/type/ticketAmount llegan por QUERY (en RN los campos de texto del
+  // multipart se pierden a veces en Android); con fallback al form por si acaso.
+  const customerId =
+    url.searchParams.get("customerId") || (typeof form?.get("customerId") === "string" ? (form!.get("customerId") as string) : "");
+  const type =
+    url.searchParams.get("type") || (typeof form?.get("type") === "string" ? (form!.get("type") as string) : "");
+  const ticketRaw = url.searchParams.get("ticketAmount") ?? (typeof form?.get("ticketAmount") === "string" ? (form!.get("ticketAmount") as string) : null);
+  const ticketAmount = ticketRaw ? Number(ticketRaw) : undefined;
 
   if (!customerId) return NextResponse.json({ error: { code: "no_customer", message: "Falta customerId." } }, { status: 400 });
   if (type !== "review" && type !== "social") {

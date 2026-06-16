@@ -17,6 +17,7 @@ export function googleReviewUrl(placeId: string): string {
   return `https://search.google.com/local/writereview?placeid=${encodeURIComponent(placeId)}`;
 }
 
+
 /** Amigos que faltan para desbloquear una oferta-reto, dado el recuento actual. */
 export function sharesLeft(
   offer: { unlockBaseline: number; unlockShares: number },

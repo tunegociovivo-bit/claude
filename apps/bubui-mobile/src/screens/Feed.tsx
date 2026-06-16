@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { View, Text, FlatList, RefreshControl, TouchableOpacity, StyleSheet, Animated, Easing, Image, Dimensions, Linking, AppState } from "react-native";
+import { View, Text, FlatList, RefreshControl, TouchableOpacity, StyleSheet, Animated, Easing, Image, Dimensions, Linking, AppState, Alert } from "react-native";
+import * as ImagePicker from "expo-image-picker";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import { getCurrentLatLng } from "../lib/location";
 import { CheckSession, saveSession, type Customer } from "../lib/session";
@@ -42,6 +43,11 @@ type Offer = {
   friendsNeeded?: number;
   sharesLeft?: number;
   friendsJoined?: string[]; // iniciales de los amigos que ya cuentan
+  // Activación alternativa por acción (reseña/foto), validada por IA.
+  altActionsUnlocked?: boolean;
+  altMinReferrals?: number;
+  reviewUrl?: string | null;
+  reviewLabel?: string | null;
 };
 
 const SCREEN_W = Dimensions.get("window").width;
@@ -77,6 +83,7 @@ export function Feed() {
   // Retos que el usuario ya ha compartido en esta sesión (para mostrar
   // "invitación enviada · esperando que se registren").
   const [sharedOffers, setSharedOffers] = useState<Record<string, boolean>>({});
+  const [verifyingOffer, setVerifyingOffer] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   // Aviso de fallo de red (la carga del catálogo/ofertas no respondió).
   const [netError, setNetError] = useState(false);
@@ -183,6 +190,31 @@ export function Feed() {
       setRefreshing(false);
     }
   }, [nav]);
+
+  // Activa un cupón-reto subiendo una captura (reseña/foto) validada por IA.
+  async function verifyChallenge(item: Offer, type: "review" | "social") {
+    if (!customer?.customerId) return;
+    if (type === "review" && item.reviewUrl) { Linking.openURL(item.reviewUrl).catch(() => {}); }
+    setVerifyingOffer(item.offerId);
+    try {
+      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!perm.granted) { Alert.alert("Permiso necesario", "Necesitamos acceso a tus fotos para subir la captura."); return; }
+      const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.7 });
+      if (res.canceled || !res.assets?.[0]?.uri) return;
+      const r = await api.offerVerifyAction(item.offerId, customer.customerId, type, res.assets[0].uri);
+      if (r.activated) {
+        sfx.success();
+        Alert.alert(r.provisional ? "Cupón activado ✓" : "¡Cupón activado! ✓", r.reason);
+        await load();
+      } else {
+        Alert.alert("No hemos podido validar la captura", r.reason + "\n\nAsegúrate de que se vea bien y reinténtalo.");
+      }
+    } catch (e: any) {
+      Alert.alert("No se pudo activar el cupón", e?.message ?? "");
+    } finally {
+      setVerifyingOffer(null);
+    }
+  }
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
@@ -364,6 +396,36 @@ export function Feed() {
                     ✓ Invitación enviada · se activará cuando tus amigos se registren con tu enlace.
                   </Text>
                 )}
+
+                {/* Vía alternativa: activar con una acción verificada por IA.
+                    Solo se desbloquea con +N amigos dados de alta (crecer primero). */}
+                {item.altActionsUnlocked ? (
+                  <View style={styles.altBox}>
+                    <Text style={styles.altTitle}>o actívala ya con una acción</Text>
+                    <View style={styles.altRow}>
+                      {!!item.reviewUrl && (
+                        <TouchableOpacity style={styles.altBtn} disabled={verifyingOffer !== null} onPress={() => verifyChallenge(item, "review")}>
+                          <Text style={styles.altBtnText}>{verifyingOffer === item.offerId ? "Validando…" : `⭐ Reseña`}</Text>
+                        </TouchableOpacity>
+                      )}
+                      <TouchableOpacity style={styles.altBtn} disabled={verifyingOffer !== null} onPress={() => verifyChallenge(item, "social")}>
+                        <Text style={styles.altBtnText}>{verifyingOffer === item.offerId ? "Validando…" : `📸 Foto en redes`}</Text>
+                      </TouchableOpacity>
+                    </View>
+                    <Text style={styles.altHint}>Sube la captura y la validamos al instante.</Text>
+                  </View>
+                ) : (
+                  <Text style={styles.altLocked}>🔒 Consigue {item.altMinReferrals ?? 10} amigos dados de alta y podrás activarla también con reseña o foto.</Text>
+                )}
+
+                {/* Caducidad del cupón (si no haces nada, caduca). */}
+                <Text style={styles.challengeExpiry}>
+                  {item.hoursLeft > 48
+                    ? `Caduca en ${Math.ceil(item.hoursLeft / 24)} días`
+                    : item.hoursLeft >= 1
+                      ? `⏳ Caduca en ${Math.round(item.hoursLeft)} h`
+                      : "⏳ Caduca hoy"}
+                </Text>
               </View>
             </FadeIn>
           ) : (
@@ -472,6 +534,14 @@ const makeStyles = (c: Palette) =>
     challengeBtn: { backgroundColor: c.pink, borderRadius: radius.pill, paddingVertical: 13, alignItems: "center", ...shadow.btn },
     challengeBtnText: { color: c.onAccent, fontSize: 15, fontWeight: "800" },
     challengeSent: { marginTop: 8, fontSize: 12, fontWeight: "700", color: c.green, textAlign: "center", lineHeight: 17 },
+    challengeExpiry: { marginTop: 10, fontSize: 12, fontWeight: "800", color: c.gray, textAlign: "center" },
+    altBox: { marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: c.pinkSoft },
+    altTitle: { fontSize: 12, fontWeight: "900", color: c.gray, textAlign: "center", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 },
+    altRow: { flexDirection: "row", gap: 8 },
+    altBtn: { flex: 1, backgroundColor: c.white, borderWidth: 1.5, borderColor: c.pink, borderRadius: radius.pill, paddingVertical: 11, alignItems: "center" },
+    altBtnText: { color: c.pinkDeep, fontSize: 13, fontWeight: "800" },
+    altHint: { marginTop: 6, fontSize: 11, color: c.gray, textAlign: "center" },
+    altLocked: { marginTop: 12, fontSize: 12, color: c.gray, textAlign: "center", lineHeight: 17 },
     photo: { height: 150, backgroundColor: c.pinkSoft, justifyContent: "flex-end" },
     photoImg: { ...StyleSheet.absoluteFillObject, width: "100%", height: "100%" },
     photoScrim: { position: "absolute", left: 0, right: 0, bottom: 0, height: 90 },
