@@ -361,7 +361,7 @@ export function Mesa() {
       {/* TU aporte (estado propio, del servidor) */}
       <View style={styles.card}>
         <Text style={styles.cardTitle}>Tu aporte {iContributed ? "✓" : ""}</Text>
-        <Text style={styles.hint}>Elige UNA acción para desbloquear tu parte del descuento <Text style={{ fontWeight: "800", color: c.pinkDeep }}>ahora mismo</Text> — no hace falta que tus amigos se instalen. La acción que no elijas te llegará como cupón para tu próxima visita. Y si tus amigos sí se instalan, ganáis un % extra.</Text>
+        <Text style={styles.hint}>Elige UNA acción para desbloquear tu parte del descuento <Text style={{ fontWeight: "800", color: c.pinkDeep }}>ahora mismo</Text>. 📲 Compartir es además cómo ganáis <Text style={{ fontWeight: "800", color: c.pinkDeep }}>% extra</Text>: por cada amigo que se instale sumas descuento y, al llegar a 5 instalados, un cupón. Comparte con 5+ (no todos se instalan).</Text>
         {actions.includes("share") && (
           <TouchableOpacity style={[styles.actionBtn, iShared && styles.actionBtnDone]} onPress={() => contribute("share")} disabled={busyAction !== null || iShared}>
             <Text style={[styles.actionBtnText, iShared && styles.actionBtnTextDone]}>{busyAction === "share" ? "Abriendo…" : iShared ? "✓ Has invitado a amigos" : "📲 Invitar amigos"}</Text>

@@ -114,19 +114,22 @@ export function computeMesa(
 
   // El descuento base solo se DESBLOQUEA si hay quórum Y todos han aportado.
   const basePct = quorum && everyonePaidEntry ? cfg.basePct : 0;
-  const sharePct = everyoneShared ? cfg.shareBonusPct : 0;
   const reviewPct = everyoneReviewed ? cfg.reviewBonusPct : 0;
+  // NOTA: el bonus por COMPARTIR ya NO se aplica a la cuenta por el simple hecho
+  // de compartir (no es verificable). El premio por compartir se entrega por
+  // INSTALACIONES reales (hucha +%/amigo + reto al llegar a N), fuera de este
+  // cálculo de la visita. Compartir sí cuenta como aporte para desbloquear la base.
 
   // Reparto entre esta visita y la próxima, respetando el tope global.
   let pctNow = clampPct(basePct, cfg.maxPct);
   let pctNextVisit = 0;
   if (cfg.bonusOnThisVisit) {
-    pctNow = clampPct(basePct + sharePct + reviewPct, cfg.maxPct);
+    pctNow = clampPct(basePct + reviewPct, cfg.maxPct);
   } else {
-    pctNextVisit = clampPct(sharePct + reviewPct, Math.max(0, cfg.maxPct - pctNow));
+    pctNextVisit = clampPct(reviewPct, Math.max(0, cfg.maxPct - pctNow));
   }
   // Máximo alcanzable si lo completan todo (gancho del indicador).
-  const maxPotentialPct = clampPct(cfg.basePct + cfg.shareBonusPct + cfg.reviewBonusPct, cfg.maxPct);
+  const maxPotentialPct = clampPct(cfg.basePct + cfg.reviewBonusPct, cfg.maxPct);
 
   const allSteps: MesaStep[] = [
     {
@@ -139,13 +142,6 @@ export function computeMesa(
       pct: cfg.basePct,
       euros: ticketAmount ? eur(ticketAmount, cfg.basePct) : 0,
       done: quorum && everyonePaidEntry
-    },
-    {
-      key: "share",
-      label: `Cada uno comparte Bubui con sus amigos`,
-      pct: cfg.shareBonusPct,
-      euros: ticketAmount ? eur(ticketAmount, cfg.shareBonusPct) : 0,
-      done: everyoneShared
     },
     {
       key: "review",
