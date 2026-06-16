@@ -34,12 +34,16 @@ export type MesaParticipant = {
   isNewUser: boolean;
   /** Subió captura de reseña validada por IA (cuenta 1 acción del bote). */
   reviewVerified: boolean;
-  /** Subió captura de publicación social validada por IA (cuenta 1 acción). */
+  /** Subió captura de FOTO en redes validada (cuenta 1 acción). */
   socialVerified: boolean;
+  /** Subió captura de SEGUIR en redes validada (cuenta 1 acción). */
+  followVerified: boolean;
   /** Reseña aceptada provisional (la IA no pudo validar; revisar camarero). */
   reviewProvisional: boolean;
-  /** Publicación aceptada provisional (la IA no pudo validar; revisar camarero). */
+  /** Foto aceptada provisional (la IA no pudo validar; revisar camarero). */
   socialProvisional: boolean;
+  /** Seguir aceptado provisional (la IA no pudo validar; revisar camarero). */
+  followProvisional: boolean;
   // Legacy (acciones por clic, ya no desbloquean; se mantienen para registro).
   contributed: boolean;
   sharedCount: number;
@@ -99,9 +103,9 @@ function eur(ticket: number, pct: number): number {
   return Math.round(ticket * pct) / 100;
 }
 
-/** Acciones verificadas que aporta un comensal al bote (0, 1 o 2). */
+/** Acciones verificadas que aporta un comensal al bote (0..3). */
 function actionsOf(p: MesaParticipant): number {
-  return (p.reviewVerified ? 1 : 0) + (p.socialVerified ? 1 : 0);
+  return (p.reviewVerified ? 1 : 0) + (p.socialVerified ? 1 : 0) + (p.followVerified ? 1 : 0);
 }
 
 /**
@@ -121,7 +125,11 @@ export function computeMesa(
   const requiredActions = diners;
   const verifiedActions = participants.reduce((n, p) => n + actionsOf(p), 0);
   const provisionalActions = participants.reduce(
-    (n, p) => n + (p.reviewVerified && p.reviewProvisional ? 1 : 0) + (p.socialVerified && p.socialProvisional ? 1 : 0),
+    (n, p) =>
+      n +
+      (p.reviewVerified && p.reviewProvisional ? 1 : 0) +
+      (p.socialVerified && p.socialProvisional ? 1 : 0) +
+      (p.followVerified && p.followProvisional ? 1 : 0),
     0
   );
   const actionsRemaining = Math.max(0, requiredActions - verifiedActions);

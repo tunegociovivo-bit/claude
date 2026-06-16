@@ -164,9 +164,9 @@ export function Mesa() {
     await Linking.openURL(url);
   }
 
-  // Sube una captura (reseña o publicación social) → la IA la valida y, si es
+  // Sube una captura (reseña / foto en redes / seguir) → la IA la valida y, si es
   // válida, suma una acción al bote común de la mesa.
-  async function uploadAction(type: "review" | "social") {
+  async function uploadAction(type: "review" | "photo" | "follow") {
     if (!customerId) return;
     setBusyAction(type);
     try {
@@ -234,9 +234,11 @@ export function Mesa() {
   const me = mesa.me;
   const iShared = !!me?.sharedDone;
   const iReviewVerified = !!me?.reviewVerified;
-  const iSocialVerified = !!me?.socialVerified;
+  const iPhotoVerified = !!me?.socialVerified; // "photo" usa las columnas social*
+  const iFollowVerified = !!me?.followVerified;
   const canReview = actions.includes("review");
-  const canSocial = actions.includes("photo") || actions.includes("follow");
+  const canPhoto = actions.includes("photo");
+  const canFollow = actions.includes("follow");
   const canInvite = actions.includes("share");
 
   // Botones de acción verificable (reseña / publicación social) reutilizados en
@@ -258,12 +260,22 @@ export function Mesa() {
           </TouchableOpacity>
         </View>
       )}
-      {canSocial && (
+      {canPhoto && (
         <View style={{ marginTop: 12 }}>
           <Text style={styles.actionLabel}>📸 Foto de grupo en tus redes etiquetando a {biz.name}</Text>
-          <TouchableOpacity style={[styles.actionBtn, iSocialVerified && styles.actionBtnDone]} onPress={() => uploadAction("social")} disabled={busyAction !== null || iSocialVerified}>
-            <Text style={[styles.actionBtnText, iSocialVerified && styles.actionBtnTextDone]}>
-              {busyAction === "social" ? "Validando…" : iSocialVerified ? "✓ Publicación verificada" : "Subir captura de tu publicación"}
+          <TouchableOpacity style={[styles.actionBtn, iPhotoVerified && styles.actionBtnDone]} onPress={() => uploadAction("photo")} disabled={busyAction !== null || iPhotoVerified}>
+            <Text style={[styles.actionBtnText, iPhotoVerified && styles.actionBtnTextDone]}>
+              {busyAction === "photo" ? "Validando…" : iPhotoVerified ? "✓ Publicación verificada" : "Subir captura de tu publicación"}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      )}
+      {canFollow && (
+        <View style={{ marginTop: 12 }}>
+          <Text style={styles.actionLabel}>➕ Sigue a {biz.name} en redes</Text>
+          <TouchableOpacity style={[styles.actionBtn, iFollowVerified && styles.actionBtnDone]} onPress={() => uploadAction("follow")} disabled={busyAction !== null || iFollowVerified}>
+            <Text style={[styles.actionBtnText, iFollowVerified && styles.actionBtnTextDone]}>
+              {busyAction === "follow" ? "Validando…" : iFollowVerified ? "✓ Seguir verificado" : "Subir captura de que le sigues"}
             </Text>
           </TouchableOpacity>
         </View>
@@ -458,7 +470,7 @@ export function Mesa() {
           Desbloqueáis el descuento al juntar <Text style={{ fontWeight: "800", color: c.pinkDeep }}>{st?.requiredActions ?? 0} acciones</Text> (una por comensal). Es un bote común: cualquiera puede subir <Text style={{ fontWeight: "800", color: c.pinkDeep }}>de más</Text> para cubrir a quien no pueda. Sube la captura y la verificamos al instante.
         </Text>
         {renderActions()}
-        {!canReview && !canSocial && <Text style={styles.hint}>Este restaurante aún no ha activado acciones.</Text>}
+        {!canReview && !canPhoto && !canFollow && <Text style={styles.hint}>Este restaurante aún no ha activado acciones.</Text>}
         {(st?.provisionalActions ?? 0) > 0 && (
           <Text style={[styles.hint, { color: "#B45309", fontWeight: "800" }]}>⚠️ {st!.provisionalActions} acción{st!.provisionalActions === 1 ? "" : "es"} sin validar: el camarero la verificará al pagar.</Text>
         )}

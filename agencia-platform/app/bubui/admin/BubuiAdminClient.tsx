@@ -769,6 +769,7 @@ function PlusConfigPanel() {
 function GrowthConfigPanel() {
   const [altMin, setAltMin] = useState("10");
   const [warnDays, setWarnDays] = useState("3");
+  const [expiryDays, setExpiryDays] = useState("30");
   const [msg, setMsg] = useState("");
 
   useEffect(() => {
@@ -776,6 +777,7 @@ function GrowthConfigPanel() {
       .then((d) => {
         setAltMin(String(d.altMinReferrals ?? 10));
         setWarnDays(String(d.expiryWarnDays ?? 3));
+        setExpiryDays(String(d.expiryDays ?? 30));
       })
       .catch(() => {});
   }, []);
@@ -787,11 +789,13 @@ function GrowthConfigPanel() {
         method: "PUT",
         body: JSON.stringify({
           altMinReferrals: Math.max(0, parseInt(altMin || "0", 10) || 0),
-          expiryWarnDays: Math.max(1, parseInt(warnDays || "1", 10) || 1)
+          expiryWarnDays: Math.max(1, parseInt(warnDays || "1", 10) || 1),
+          expiryDays: Math.max(1, parseInt(expiryDays || "1", 10) || 1)
         })
       });
       setAltMin(String(d.altMinReferrals ?? 10));
       setWarnDays(String(d.expiryWarnDays ?? 3));
+      setExpiryDays(String(d.expiryDays ?? 30));
       setMsg("Guardado ✓");
     } catch (e) {
       setMsg("Error: " + String(e));
@@ -813,6 +817,18 @@ function GrowthConfigPanel() {
         value={altMin}
         onChange={(e) => setAltMin(e.target.value.replace(/[^0-9]/g, ""))}
         placeholder="10"
+      />
+
+      <h3 className="text-xs font-bold uppercase tracking-wide text-black/55 mb-1">Caducidad del cupón-reto</h3>
+      <p className="text-[13px] text-black/55 mb-2">
+        Días de vida de un cupón-reto desde que se crea. Pasado ese plazo, si no se activó, caduca.
+      </p>
+      <input
+        className="bubui-input mb-3 mt-1 max-w-[160px]"
+        inputMode="numeric"
+        value={expiryDays}
+        onChange={(e) => setExpiryDays(e.target.value.replace(/[^0-9]/g, ""))}
+        placeholder="30"
       />
 
       <h3 className="text-xs font-bold uppercase tracking-wide text-black/55 mb-1">Aviso de caducidad</h3>

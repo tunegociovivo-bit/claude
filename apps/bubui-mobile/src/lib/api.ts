@@ -254,14 +254,14 @@ export const api = {
         expiresAt: string;
         ticketAmount: number | null;
         finalPct: number | null;
-        me: { isNewUser: boolean; contributed: boolean; contributionType: string | null; sharedDone: boolean; reviewDone: boolean; reviewVerified: boolean; socialVerified: boolean } | null;
+        me: { isNewUser: boolean; contributed: boolean; contributionType: string | null; sharedDone: boolean; reviewDone: boolean; reviewVerified: boolean; socialVerified: boolean; followVerified: boolean } | null;
         state: MesaState | null;
       }>;
     });
   },
   /** Sube una CAPTURA (reseña o publicación social) → la IA la valida y, si es
    *  válida, suma una acción al bote común de la mesa. */
-  mesaVerifyAction: (code: string, customerId: string, type: "review" | "social", uri: string, ticketAmount?: number) => {
+  mesaVerifyAction: (code: string, customerId: string, type: "review" | "photo" | "follow", uri: string, ticketAmount?: number) => {
     // customerId/type van por QUERY (en RN los campos de texto del multipart se
     // pierden a veces en Android; el archivo sí llega). El cuerpo solo lleva file.
     const url = new URL(`${API_BASE}/api/bubui/table/${encodeURIComponent(code)}/verify-action`);

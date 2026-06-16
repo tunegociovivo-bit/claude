@@ -16,22 +16,33 @@ import {
   getAltActionMinReferrals,
   setAltActionMinReferrals,
   getChallengeExpiryWarnDays,
-  setChallengeExpiryWarnDays
+  setChallengeExpiryWarnDays,
+  getChallengeExpiryDays,
+  setChallengeExpiryDays
 } from "@/lib/bubui/growth-settings";
 
 export const dynamic = "force-dynamic";
 
 const schema = z.object({
   altMinReferrals: z.number().int().min(0).max(1000).optional(),
-  expiryWarnDays: z.number().int().min(1).max(60).optional()
+  expiryWarnDays: z.number().int().min(1).max(60).optional(),
+  expiryDays: z.number().int().min(1).max(365).optional()
 });
+
+async function readAll() {
+  const [altMinReferrals, expiryWarnDays, expiryDays] = await Promise.all([
+    getAltActionMinReferrals(),
+    getChallengeExpiryWarnDays(),
+    getChallengeExpiryDays()
+  ]);
+  return { altMinReferrals, expiryWarnDays, expiryDays };
+}
 
 export async function GET(req: Request) {
   if (!(await adminTokenOk(req))) {
     return NextResponse.json({ error: { code: "unauthorized" } }, { status: 401 });
   }
-  const [altMinReferrals, expiryWarnDays] = await Promise.all([getAltActionMinReferrals(), getChallengeExpiryWarnDays()]);
-  return NextResponse.json({ altMinReferrals, expiryWarnDays });
+  return NextResponse.json(await readAll());
 }
 
 export async function PUT(req: Request) {
@@ -44,6 +55,6 @@ export async function PUT(req: Request) {
   }
   if (parsed.data.altMinReferrals !== undefined) await setAltActionMinReferrals(parsed.data.altMinReferrals);
   if (parsed.data.expiryWarnDays !== undefined) await setChallengeExpiryWarnDays(parsed.data.expiryWarnDays);
-  const [altMinReferrals, expiryWarnDays] = await Promise.all([getAltActionMinReferrals(), getChallengeExpiryWarnDays()]);
-  return NextResponse.json({ altMinReferrals, expiryWarnDays });
+  if (parsed.data.expiryDays !== undefined) await setChallengeExpiryDays(parsed.data.expiryDays);
+  return NextResponse.json(await readAll());
 }

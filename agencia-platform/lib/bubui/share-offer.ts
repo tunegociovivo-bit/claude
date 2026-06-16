@@ -45,7 +45,9 @@ export async function createShareChallengeOffer(args: {
   if (!business.shareOfferPct || business.shareOfferPct <= 0) return null;
   const friends = Math.max(1, business.shareOfferFriends || 5);
   const baseline = await countVerifiedReferrals(customerId);
-  const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 días para activarla
+  const { getChallengeExpiryDays } = await import("./growth-settings");
+  const days = await getChallengeExpiryDays();
+  const expiresAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000); // caducidad configurable
   try {
     await prisma.bubuiOffer.create({
       data: {
