@@ -92,7 +92,7 @@ export async function POST(req: Request, { params }: { params: { code: string } 
   // 2) Validar la captura con la IA.
   const platform = mesaReviewPlatformLabel(b);
   let valid = false;
-  let provisional = false;
+  const provisional = false; // sin aceptación provisional: si la IA no valida, NO cuenta
   let reason = "";
   try {
     const { completeVision } = await import("@/lib/ai/anthropic");
@@ -128,10 +128,10 @@ export async function POST(req: Request, { params }: { params: { code: string } 
       reason = typeof j.reason === "string" ? j.reason : "";
     }
   } catch (e: any) {
-    // IA no disponible: aceptamos PROVISIONALMENTE para no bloquear a la mesa.
-    valid = true;
-    provisional = true;
-    reason = "No se pudo validar automáticamente; queda pendiente de revisión.";
+    // IA no disponible: la acción NO cuenta (no se acepta sin validar). Que el
+    // comensal lo reintente; la captura queda guardada por si hace falta auditar.
+    valid = false;
+    reason = "No hemos podido validar la captura ahora mismo. Inténtalo de nuevo en un momento.";
   }
 
   // 3) Si es válida (o provisional), marca la acción verificada del comensal.
