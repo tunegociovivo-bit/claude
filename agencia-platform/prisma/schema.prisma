@@ -4070,6 +4070,10 @@ model BubuiTableParticipant {
   socialVerified Boolean @default(false) // captura de publicación en redes validada
   reviewShotUrl  String? // URL de la captura de la reseña
   socialShotUrl  String? // URL de la captura de la publicación social
+  // Aceptada de forma PROVISIONAL (la IA no pudo validar con seguridad): cuenta
+  // para el bote pero se marca para que el CAMARERO la verifique a mano.
+  reviewProvisional Boolean @default(false)
+  socialProvisional Boolean @default(false)
   // Momento del primer aporte (para el push diferido ~1h de la acción no elegida).
   contributedAt  DateTime?
   // Marca de que ya se envió el push de la "acción no elegida" (idempotencia).

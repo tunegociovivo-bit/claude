@@ -29,6 +29,8 @@ export type MesaState = {
   requiredActions: number;
   verifiedActions: number;
   actionsRemaining: number;
+  /** Acciones aceptadas provisionalmente (la IA no validó); el camarero debe revisarlas. */
+  provisionalActions: number;
   unlocked: boolean;
   everyonePaidEntry: boolean;
   pendingContributors: number;

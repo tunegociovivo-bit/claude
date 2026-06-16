@@ -36,6 +36,10 @@ export type MesaParticipant = {
   reviewVerified: boolean;
   /** Subió captura de publicación social validada por IA (cuenta 1 acción). */
   socialVerified: boolean;
+  /** Reseña aceptada provisional (la IA no pudo validar; revisar camarero). */
+  reviewProvisional: boolean;
+  /** Publicación aceptada provisional (la IA no pudo validar; revisar camarero). */
+  socialProvisional: boolean;
   // Legacy (acciones por clic, ya no desbloquean; se mantienen para registro).
   contributed: boolean;
   sharedCount: number;
@@ -66,6 +70,9 @@ export type MesaState = {
   verifiedActions: number;
   /** Acciones que faltan para desbloquear el descuento. */
   actionsRemaining: number;
+  /** Acciones aceptadas PROVISIONALMENTE (la IA no validó): el camarero debe
+   *  verificarlas a mano antes de aplicar el descuento. */
+  provisionalActions: number;
   /** El descuento está desbloqueado (quórum + bote completo). */
   unlocked: boolean;
   // Campos legacy mantenidos para compatibilidad con consumidores existentes.
@@ -113,6 +120,10 @@ export function computeMesa(
   // Bote común: N acciones verificadas para N comensales. Las aporta quien sea.
   const requiredActions = diners;
   const verifiedActions = participants.reduce((n, p) => n + actionsOf(p), 0);
+  const provisionalActions = participants.reduce(
+    (n, p) => n + (p.reviewVerified && p.reviewProvisional ? 1 : 0) + (p.socialVerified && p.socialProvisional ? 1 : 0),
+    0
+  );
   const actionsRemaining = Math.max(0, requiredActions - verifiedActions);
   const botDone = diners > 0 && verifiedActions >= requiredActions;
   const unlocked = quorum && botDone;
@@ -165,6 +176,7 @@ export function computeMesa(
     requiredActions,
     verifiedActions,
     actionsRemaining,
+    provisionalActions,
     unlocked,
     // Legacy (derivados del nuevo modelo).
     everyonePaidEntry: unlocked,

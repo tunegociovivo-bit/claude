@@ -75,6 +75,8 @@ export async function loadTableState(sessionId: string, ticketAmount?: number | 
     isNewUser: p.isNewUser,
     reviewVerified: p.reviewVerified,
     socialVerified: p.socialVerified,
+    reviewProvisional: p.reviewProvisional,
+    socialProvisional: p.socialProvisional,
     contributed: p.contributed,
     sharedCount: p.sharedCount,
     sharedDone: p.sharedDone,

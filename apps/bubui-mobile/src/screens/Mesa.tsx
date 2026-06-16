@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { View, Text, StyleSheet, TouchableOpacity, Alert, Image, ScrollView, Linking, ActivityIndicator } from "react-native";
+import { View, Text, StyleSheet, TouchableOpacity, Alert, Image, ScrollView, Linking, ActivityIndicator, Animated } from "react-native";
 import { CameraView, Camera } from "expo-camera";
 import * as ImagePicker from "expo-image-picker";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -26,6 +26,35 @@ type View_ = "mesa" | "finish" | "ticketcam" | "bill";
  * → escanea el ticket → ve la cuenta con el descuento aplicado para enseñársela
  * al camarero. La cuenta queda registrada en el panel del negocio.
  */
+/**
+ * Aviso LLAMATIVO (pulsante) para el camarero: hay acciones que la IA no pudo
+ * validar y se aceptaron de forma provisional; debe comprobarlas a mano antes de
+ * aplicar el descuento.
+ */
+function ProvisionalBanner({ count }: { count: number }) {
+  const pulse = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, { toValue: 1, duration: 600, useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 0, duration: 600, useNativeDriver: true })
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, []);
+  const scale = pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.18] });
+  return (
+    <View style={{ marginTop: 16, backgroundColor: "#FEF3C7", borderColor: "#F59E0B", borderWidth: 2, borderRadius: 16, padding: 14, flexDirection: "row", alignItems: "center", gap: 12 }}>
+      <Animated.Text style={{ fontSize: 30, transform: [{ scale }] }}>⚠️</Animated.Text>
+      <View style={{ flex: 1 }}>
+        <Text style={{ fontWeight: "900", color: "#92400E", fontSize: 14 }}>Camarero: verifica {count} acción{count === 1 ? "" : "es"}</Text>
+        <Text style={{ color: "#92400E", fontSize: 12, lineHeight: 17, marginTop: 2 }}>No se pudieron validar automáticamente. Comprueba la reseña/publicación antes de aplicar el descuento.</Text>
+      </View>
+    </View>
+  );
+}
+
 export function Mesa() {
   const nav = useNavigation<any>();
   const route = useRoute<MesaRoute>();
@@ -273,6 +302,8 @@ export function Mesa() {
           <Text style={styles.waiterText}>Muéstrale esta pantalla al pagar para que te apliquen el {pct}% de descuento de la mesa.</Text>
         </View>
 
+        {(st?.provisionalActions ?? 0) > 0 && <ProvisionalBanner count={st!.provisionalActions} />}
+
         {(nextVisitPct > 0 || perk) && (
           <View style={styles.nextBox}>
             <Text style={styles.nextText}>
@@ -428,6 +459,9 @@ export function Mesa() {
         </Text>
         {renderActions()}
         {!canReview && !canSocial && <Text style={styles.hint}>Este restaurante aún no ha activado acciones.</Text>}
+        {(st?.provisionalActions ?? 0) > 0 && (
+          <Text style={[styles.hint, { color: "#B45309", fontWeight: "800" }]}>⚠️ {st!.provisionalActions} acción{st!.provisionalActions === 1 ? "" : "es"} sin validar: el camarero la verificará al pagar.</Text>
+        )}
       </View>
 
       {/* Crece y gana: invitar amigos premia INSTALACIONES reales (hucha). */}

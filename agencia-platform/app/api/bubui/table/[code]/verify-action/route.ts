@@ -92,8 +92,9 @@ export async function POST(req: Request, { params }: { params: { code: string } 
   // 2) Validar la captura con la IA.
   const platform = mesaReviewPlatformLabel(b);
   let valid = false;
-  const provisional = false; // sin aceptación provisional: si la IA no valida, NO cuenta
+  let provisional = false; // true = cuenta pero el camarero debe verificarla a mano
   let reason = "";
+  const PROVISIONAL_MSG = "No hemos podido confirmarla con seguridad: cuenta de forma provisional y el camarero la verificará.";
   try {
     const { completeVision } = await import("@/lib/ai/anthropic");
     const system =
@@ -124,14 +125,30 @@ export async function POST(req: Request, { params }: { params: { code: string } 
     if (m) {
       const j = JSON.parse(m[0]);
       const conf = typeof j.confidence === "number" ? Math.max(0, Math.min(1, j.confidence)) : 0;
-      valid = j.valid === true && conf >= 0.6;
       reason = typeof j.reason === "string" ? j.reason : "";
+      if (j.valid === true && conf >= 0.6) {
+        valid = true; // verificada con seguridad
+      } else if (conf < 0.6) {
+        // La IA NO está segura (ni claramente válida ni claramente inválida):
+        // se acepta provisional y se marca para revisión del camarero.
+        valid = true;
+        provisional = true;
+        reason = PROVISIONAL_MSG;
+      } else {
+        valid = false; // rechazo claro (no es reseña/publicación de este sitio)
+      }
+    } else {
+      // La IA no devolvió un veredicto legible → provisional (no bloquear).
+      valid = true;
+      provisional = true;
+      reason = PROVISIONAL_MSG;
     }
   } catch (e: any) {
-    // IA no disponible: la acción NO cuenta (no se acepta sin validar). Que el
-    // comensal lo reintente; la captura queda guardada por si hace falta auditar.
-    valid = false;
-    reason = "No hemos podido validar la captura ahora mismo. Inténtalo de nuevo en un momento.";
+    // IA no disponible: se acepta PROVISIONALMENTE para no bloquear a la mesa; se
+    // marca para que el camarero la verifique (la captura queda guardada).
+    valid = true;
+    provisional = true;
+    reason = PROVISIONAL_MSG;
   }
 
   // 3) Si es válida (o provisional), marca la acción verificada del comensal.
@@ -140,9 +157,11 @@ export async function POST(req: Request, { params }: { params: { code: string } 
     if (type === "review") {
       data.reviewVerified = true;
       data.reviewShotUrl = shotUrl;
+      data.reviewProvisional = provisional;
     } else {
       data.socialVerified = true;
       data.socialShotUrl = shotUrl;
+      data.socialProvisional = provisional;
     }
     if (!me.contributedAt) data.contributedAt = new Date();
     await prisma.bubuiTableParticipant.update({ where: { id: me.id }, data });
