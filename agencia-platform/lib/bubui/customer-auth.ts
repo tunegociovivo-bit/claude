@@ -30,6 +30,16 @@ function parseAuth(header: string | null): { customerId: string; secret: string 
   return m ? { customerId: m[1], secret: m[2] } : null;
 }
 
+/**
+ * Extrae el customerId de la cabecera Authorization (`Bearer <id>:<secret>`), sin
+ * validar el token. Útil como fuente FIABLE del customerId en peticiones
+ * multipart (en React Native los campos de texto del form se pierden a veces).
+ * La validación real la sigue haciendo customerAuthOk con ese mismo id.
+ */
+export function customerIdFromAuth(req: Request): string | null {
+  return parseAuth(req.headers.get("authorization"))?.customerId ?? null;
+}
+
 function safeEqual(a: string, b: string): boolean {
   const ab = Buffer.from(a);
   const bb = Buffer.from(b);
