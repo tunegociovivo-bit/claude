@@ -32,9 +32,14 @@ export async function POST(req: Request) {
     );
   }
 
+  const url = new URL(req.url);
   const form = await req.formData().catch(() => null);
   const file = form?.get("file");
-  const customerId = typeof form?.get("customerId") === "string" ? (form!.get("customerId") as string) : "anon";
+  // customerId por QUERY (los campos de texto del multipart se pierden a veces en
+  // RN/Android); fallback al form y, por último, "anon".
+  const customerId =
+    url.searchParams.get("customerId") ||
+    (typeof form?.get("customerId") === "string" ? (form!.get("customerId") as string) : "anon");
   if (!(file instanceof Blob)) {
     return NextResponse.json({ error: { code: "no_file", message: "Falta el campo 'file'." } }, { status: 400 });
   }

@@ -35,10 +35,15 @@ export async function POST(req: Request, { params }: { params: { offerId: string
     return NextResponse.json({ error: { code: "storage_disabled", message: "Storage no configurado." } }, { status: 503 });
   }
 
+  const url = new URL(req.url);
   const form = await req.formData().catch(() => null);
   const file = form?.get("file");
-  const customerId = typeof form?.get("customerId") === "string" ? (form!.get("customerId") as string) : "";
-  const type = typeof form?.get("type") === "string" ? (form!.get("type") as string) : "";
+  // customerId/type por QUERY (los campos de texto del multipart se pierden a
+  // veces en RN/Android); fallback al form por si acaso.
+  const customerId =
+    url.searchParams.get("customerId") || (typeof form?.get("customerId") === "string" ? (form!.get("customerId") as string) : "");
+  const type =
+    url.searchParams.get("type") || (typeof form?.get("type") === "string" ? (form!.get("type") as string) : "");
 
   if (!customerId) return NextResponse.json({ error: { code: "no_customer", message: "Falta customerId." } }, { status: 400 });
   if (type !== "review" && type !== "social") {
