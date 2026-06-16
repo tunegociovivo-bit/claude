@@ -27,10 +27,12 @@ export async function GET(req: Request, { params }: { params: { code: string } }
 
   // Estado PROPIO del comensal que consulta (cada uno ve solo SU aporte), para
   // no confundir el progreso individual con el del grupo.
-  let me: { isNewUser: boolean; contributed: boolean; contributionType: string | null; sharedDone: boolean; reviewDone: boolean } | null = null;
+  let me:
+    | { isNewUser: boolean; contributed: boolean; contributionType: string | null; sharedDone: boolean; reviewDone: boolean; reviewVerified: boolean; socialVerified: boolean }
+    | null = null;
   if (meId && (await customerAuthOk(req, meId))) {
     const p = s.participants.find((pp) => pp.customerId === meId);
-    if (p) me = { isNewUser: p.isNewUser, contributed: p.contributed, contributionType: p.contributionType, sharedDone: p.sharedDone, reviewDone: p.reviewDone };
+    if (p) me = { isNewUser: p.isNewUser, contributed: p.contributed, contributionType: p.contributionType, sharedDone: p.sharedDone, reviewDone: p.reviewDone, reviewVerified: p.reviewVerified, socialVerified: p.socialVerified };
   }
   return NextResponse.json({
     ok: true,

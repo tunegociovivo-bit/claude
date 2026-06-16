@@ -11,7 +11,7 @@ export type BannerBusiness = BusinessLite;
 
 /** Paso del checklist de la Mesa Colectiva (espejo de lib/bubui/table-deal). */
 export type MesaStep = {
-  key: "quorum" | "share" | "review";
+  key: "quorum" | "actions";
   label: string;
   pct: number;
   euros: number;
@@ -25,6 +25,11 @@ export type MesaState = {
   maxPotentialPct: number;
   diners: number;
   quorum: boolean;
+  /** Bote común de acciones verificadas (N = comensales). */
+  requiredActions: number;
+  verifiedActions: number;
+  actionsRemaining: number;
+  unlocked: boolean;
   everyonePaidEntry: boolean;
   pendingContributors: number;
   everyoneShared: boolean;
@@ -229,9 +234,27 @@ export const api = {
         expiresAt: string;
         ticketAmount: number | null;
         finalPct: number | null;
-        me: { isNewUser: boolean; contributed: boolean; contributionType: string | null; sharedDone: boolean; reviewDone: boolean } | null;
+        me: { isNewUser: boolean; contributed: boolean; contributionType: string | null; sharedDone: boolean; reviewDone: boolean; reviewVerified: boolean; socialVerified: boolean } | null;
         state: MesaState | null;
       }>;
+    });
+  },
+  /** Sube una CAPTURA (reseña o publicación social) → la IA la valida y, si es
+   *  válida, suma una acción al bote común de la mesa. */
+  mesaVerifyAction: (code: string, customerId: string, type: "review" | "social", uri: string, ticketAmount?: number) => {
+    const fd = new FormData();
+    fd.append("customerId", customerId);
+    fd.append("type", type);
+    if (ticketAmount != null) fd.append("ticketAmount", String(ticketAmount));
+    fd.append("file", { uri, name: `mesa-${type}.jpg`, type: "image/jpeg" } as any);
+    return fetch(`${API_BASE}/api/bubui/table/${encodeURIComponent(code)}/verify-action`, {
+      method: "POST",
+      body: fd,
+      headers: authHeaders()
+    }).then(async (r) => {
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j?.error?.message ?? `HTTP ${r.status}`);
+      return j as { ok: true; valid: boolean; provisional: boolean; reason: string; state: MesaState | null };
     });
   },
   /** Registra un aporte del comensal (compartir/reseña/…) → desbloquea su parte. */

@@ -73,6 +73,8 @@ export async function loadTableState(sessionId: string, ticketAmount?: number | 
   const cfg = mesaConfigFromBusiness(session.business, { shareFriends: session.shareFriends });
   const parts: MesaParticipant[] = session.participants.map((p) => ({
     isNewUser: p.isNewUser,
+    reviewVerified: p.reviewVerified,
+    socialVerified: p.socialVerified,
     contributed: p.contributed,
     sharedCount: p.sharedCount,
     sharedDone: p.sharedDone,
@@ -112,7 +114,7 @@ export async function finalizeMesaBill(sessionId: string, ticketAmount: number, 
   const days = business.mesaNextVisitDays ?? 15;
   const expiresAt = new Date(Date.now() + days * 86_400_000);
   const perk = (business.mesaPerkLabel || "").trim();
-  const perkEarned = !!perk && (state.everyoneShared || state.everyoneReviewed);
+  const perkEarned = !!perk && state.unlocked;
 
   if (nextVisitPct > 0 || perkEarned) {
     const parts = await prisma.bubuiTableParticipant.findMany({ where: { sessionId }, select: { customerId: true } });
