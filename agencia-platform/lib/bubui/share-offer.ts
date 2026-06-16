@@ -17,6 +17,13 @@ export function googleReviewUrl(placeId: string): string {
   return `https://search.google.com/local/writereview?placeid=${encodeURIComponent(placeId)}`;
 }
 
+/**
+ * Amigos dados de alta (con tu enlace) a partir de los cuales se desbloquea la
+ * activación ALTERNATIVA de los cupones-reto (reseña/foto). La meta nº1 ahora es
+ * crecer: hasta llegar aquí, la única vía es compartir.
+ */
+export const ALT_ACTION_MIN_REFERRALS = 10;
+
 /** Amigos que faltan para desbloquear una oferta-reto, dado el recuento actual. */
 export function sharesLeft(
   offer: { unlockBaseline: number; unlockShares: number },

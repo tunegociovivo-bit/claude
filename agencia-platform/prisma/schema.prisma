@@ -3795,6 +3795,11 @@ model BubuiOffer {
   active          Boolean  @default(true)
   unlockShares    Int      @default(0)
   unlockBaseline  Int      @default(0)
+  // Activación ALTERNATIVA de una oferta-reto (reseña/foto validada por IA), en
+  // vez de por amigos. Solo disponible para usuarios con +10 amigos dados de alta.
+  activatedByAction    Boolean @default(false)
+  activatedProvisional Boolean @default(false) // la IA no validó: revisar a mano
+  activationShotUrl    String? // captura usada para activar por acción
   expiresAt       DateTime
   redeemed        Boolean  @default(false)
   redeemedAt      DateTime?

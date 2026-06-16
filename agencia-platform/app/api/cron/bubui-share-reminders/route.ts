@@ -28,6 +28,7 @@ export const dynamic = "force-dynamic";
 const MIN_AGE_MS = 24 * 60 * 60 * 1000; // primera vez: a las 24h del scan
 const COOLDOWN_MS = 48 * 60 * 60 * 1000; // luego, máx. uno cada 48h
 const MAX_PER_OFFER = 3;
+const EXPIRY_SOON_MS = 3 * 24 * 60 * 60 * 1000; // avisar cuando falten ≤3 días
 
 export async function GET(req: NextRequest) {
   if (!cronAuthOk(req)) {
@@ -35,6 +36,42 @@ export async function GET(req: NextRequest) {
   }
 
   const now = Date.now();
+
+  // ── Aviso de CADUCIDAD inminente ──────────────────────────────────────────
+  // Cupones-reto bloqueados que caducan en ≤3 días: un único push por cupón
+  // (kind "share_expiry") para que el usuario termine las acciones a tiempo.
+  let expirySent = 0;
+  const expiringSoon = await prisma.bubuiOffer.findMany({
+    where: {
+      source: "share_challenge",
+      active: false,
+      redeemed: false,
+      expiresAt: { gt: new Date(now), lte: new Date(now + EXPIRY_SOON_MS) }
+    },
+    include: { business: { select: { name: true } } },
+    take: 500
+  });
+  for (const o of expiringSoon) {
+    // Dedupe por cupón: si ya hubo aviso de caducidad para ESTE cupón, saltar.
+    const sentForThis = await prisma.bubuiPushLog.count({
+      where: { customerId: o.customerId, kind: "share_expiry", payload: { path: ["offerId"], equals: o.id } as any }
+    }).catch(() => 0);
+    if (sentForThis > 0) continue;
+    const prize = o.rewardLabel?.trim() || `${o.discountPct}% de descuento`;
+    const bizName = o.business?.name ?? "el negocio";
+    const daysLeft = Math.max(1, Math.ceil((o.expiresAt.getTime() - now) / 86_400_000));
+    const r = await notifyBubuiCustomer(o.customerId, {
+      title: `⏳ Tu cupón caduca en ${daysLeft} día${daysLeft === 1 ? "" : "s"}`,
+      body: `No pierdas tu ${prize} en ${bizName}. Termina las acciones (invita a amigos o, si ya puedes, reseña/foto) antes de que caduque.`,
+      link: "bubui://offers",
+      tag: `share-expiry:${o.id}`,
+      data: { type: "share_offer_expiring", offerId: o.id, businessId: o.businessId }
+    });
+    if (r.sent > 0) {
+      expirySent++;
+      await prisma.bubuiPushLog.create({ data: { customerId: o.customerId, kind: "share_expiry", payload: { offerId: o.id, daysLeft } } }).catch(() => {});
+    }
+  }
   const locked = await prisma.bubuiOffer.findMany({
     where: {
       source: "share_challenge",
@@ -102,5 +139,5 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({ ok: true, lockedOffers: locked.length, customers: byCustomer.size, sent });
+  return NextResponse.json({ ok: true, lockedOffers: locked.length, customers: byCustomer.size, sent, expirySent });
 }

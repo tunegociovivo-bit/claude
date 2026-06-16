@@ -14,7 +14,8 @@ import { prisma } from "@/lib/db/prisma";
 import { haversineMeters } from "@/lib/bubui/core";
 import { customerAuthOk } from "@/lib/bubui/customer-auth";
 import { countVerifiedReferrals } from "@/lib/bubui/referral";
-import { sharesLeft } from "@/lib/bubui/share-offer";
+import { sharesLeft, ALT_ACTION_MIN_REFERRALS } from "@/lib/bubui/share-offer";
+import { mesaReviewUrl, mesaReviewPlatformLabel } from "@/lib/bubui/table";
 import { getPlusEarlyAccessHours, isPlusActive } from "@/lib/bubui/plus";
 
 export const dynamic = "force-dynamic";
@@ -91,7 +92,13 @@ export async function GET(req: Request) {
           longitude: true,
           logoUrl: true,
           brandColor: true,
-          visibilityScore: true
+          visibilityScore: true,
+          // Para la activación alternativa de cupones-reto (reseña/foto).
+          googlePlaceId: true,
+          mesaReviewPlatform: true,
+          tripadvisorUrl: true,
+          trustpilotUrl: true,
+          instagramUrl: true
         }
       }
     }
@@ -102,6 +109,9 @@ export async function GET(req: Request) {
   // inicial de cada amigo que ya cuenta + huecos por rellenar).
   const hasLocked = offers.some((o) => !o.active);
   const verifiedNow = hasLocked ? await countVerifiedReferrals(customerId) : 0;
+  // La activación alternativa (reseña/foto) de los cupones-reto se desbloquea al
+  // llegar a 10 amigos dados de alta (hasta entonces, solo compartir).
+  const altActionsUnlocked = verifiedNow >= ALT_ACTION_MIN_REFERRALS;
   const verifiedFriends = hasLocked
     ? await prisma.bubuiCustomer.findMany({
         where: { referredById: customerId, phoneVerified: true },
@@ -136,7 +146,13 @@ export async function GET(req: Request) {
       friendsNeeded: locked ? o.unlockShares : 0,
       sharesLeft: left,
       // Reto visible: iniciales de los amigos que ya cuentan para ESTE reto.
-      friendsJoined: locked ? friendInitials.slice(0, have) : []
+      friendsJoined: locked ? friendInitials.slice(0, have) : [],
+      // Activación alternativa por acción (reseña/foto) — solo cupones-reto y
+      // solo si el usuario ya superó el umbral de amigos.
+      altActionsUnlocked: locked && o.source === "share_challenge" ? altActionsUnlocked : false,
+      altMinReferrals: ALT_ACTION_MIN_REFERRALS,
+      reviewUrl: locked ? mesaReviewUrl(o.business) : null,
+      reviewLabel: locked ? mesaReviewPlatformLabel(o.business) : null
     };
   });
 

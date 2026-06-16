@@ -160,6 +160,23 @@ export const api = {
       return r.json();
     });
   },
+  /** Activa un cupón-reto con una acción (reseña/foto) validada por IA, en vez
+   *  de esperar a los amigos. Solo disponible con +10 amigos dados de alta. */
+  offerVerifyAction: (offerId: string, customerId: string, type: "review" | "social", uri: string) => {
+    const fd = new FormData();
+    fd.append("customerId", customerId);
+    fd.append("type", type);
+    fd.append("file", { uri, name: `challenge-${type}.jpg`, type: "image/jpeg" } as any);
+    return fetch(`${API_BASE}/api/bubui/offer/${encodeURIComponent(offerId)}/verify-action`, {
+      method: "POST",
+      body: fd,
+      headers: authHeaders()
+    }).then(async (r) => {
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j?.error?.message ?? `HTTP ${r.status}`);
+      return j as { ok: true; valid: boolean; provisional: boolean; activated: boolean; reason: string };
+    });
+  },
   discover: (lat?: number, lng?: number, customerId?: string) => {
     const url = new URL(`${API_BASE}/api/bubui/discover`);
     url.searchParams.set("limit", "60");
