@@ -18,6 +18,7 @@ export function Afiliados() {
   const [wallet, setWallet] = useState<{ pct: number; expiresAt: string | null; qualified: number } | null>(null);
   const [loading, setLoading] = useState(true);
   const [guest, setGuest] = useState(false);
+  const [sent, setSent] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -53,11 +54,11 @@ export function Afiliados() {
 
   async function share() {
     if (!link) return;
-    try { await Share.share({ message: shareText, url: link }); } catch {}
+    try { await Share.share({ message: shareText, url: link }); setSent(true); } catch {}
   }
   function shareWhatsApp() {
     if (!link) return;
-    Linking.openURL(`https://wa.me/?text=${encodeURIComponent(shareText)}`).catch(() => {});
+    Linking.openURL(`https://wa.me/?text=${encodeURIComponent(shareText)}`).then(() => setSent(true)).catch(() => {});
   }
   async function copy() {
     if (!link) return;
@@ -204,6 +205,12 @@ export function Afiliados() {
               </TouchableOpacity>
             </View>
 
+            {sent && (
+              <Text style={styles.sentNote}>
+                ✓ Invitación enviada · contará cuando tus amigos se registren con tu enlace.
+              </Text>
+            )}
+
             <Text style={styles.legal}>
               Cuando un amigo se une con tu enlace y verifica su teléfono, cuenta para tu megadescuento.
             </Text>
@@ -256,5 +263,6 @@ const makeStyles = (c: Palette) =>
     secText: { fontSize: 14, fontWeight: "800", color: c.black },
     registerCta: { marginTop: 16, backgroundColor: c.white, borderRadius: radius.pill, paddingVertical: 16, paddingHorizontal: 16, alignItems: "center", borderWidth: 1.5, borderColor: c.pink, ...shadow.card },
     registerCtaText: { color: c.pink, fontSize: 15, fontWeight: "800", textAlign: "center" },
-    legal: { fontSize: 12, color: c.grayLight, textAlign: "center", marginTop: 18, lineHeight: 17 }
+    legal: { fontSize: 12, color: c.grayLight, textAlign: "center", marginTop: 18, lineHeight: 17 },
+    sentNote: { fontSize: 13, fontWeight: "700", color: c.green, textAlign: "center", marginTop: 14, lineHeight: 18 }
   });
