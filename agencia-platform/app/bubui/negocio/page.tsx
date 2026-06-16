@@ -12,6 +12,7 @@ import { useEffect, useState } from "react";
 import BubuiBusinessPushButton from "./BubuiBusinessPushButton";
 import BubuiAlertPrefs from "./BubuiAlertPrefs";
 import BubuiMesaBills from "./BubuiMesaBills";
+import BubuiPendingProofs from "./BubuiPendingProofs";
 
 type Session = { businessId: string; name: string; token: string };
 
@@ -346,6 +347,8 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
       {/* ───────────── PESTAÑA: INICIO ───────────── */}
       {tab === "inicio" && (
         <>
+          {/* Capturas provisionales por verificar (la IA no pudo validarlas) */}
+          <BubuiPendingProofs businessId={b.id} token={session.token} />
           {/* Cuentas que Bubui ha traído en Mesa Colectiva (de un vistazo) */}
           <BubuiMesaBills businessId={b.id} token={session.token} />
           {/* Compras por confirmar — LO MÁS USADO: destacado y arriba del todo */}
@@ -1173,6 +1176,7 @@ function MesaConfig({ business, token, onSaved }: { business: any; token: string
             <div className="grid sm:grid-cols-2 gap-1.5 mt-1">
               {chk("mesaActShare", "Invitar amigos")}
               {chk("mesaActReview", `Reseña en ${platformLabel}`)}
+              {chk("mesaActPhoto", "Foto en redes (etiquetando)")}
               {chk("mesaActFollow", "Seguir en redes")}
             </div>
           </div>

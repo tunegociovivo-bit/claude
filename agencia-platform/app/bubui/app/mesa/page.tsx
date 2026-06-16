@@ -62,7 +62,7 @@ function MesaInner() {
   const [activeCode, setActiveCode] = useState(code);
   const [state, setState] = useState<State | null>(null);
   const [biz, setBiz] = useState<Biz>({});
-  const [mine, setMine] = useState<{ reviewVerified: boolean; socialVerified: boolean } | null>(null);
+  const [mine, setMine] = useState<{ reviewVerified: boolean; socialVerified: boolean; followVerified: boolean } | null>(null);
   const [ticket, setTicket] = useState<number | null>(ticketParam);
   const [err, setErr] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -77,7 +77,7 @@ function MesaInner() {
       const d = await r.json();
       setState(d.state);
       setBiz(d.business ?? {});
-      setMine(d.me ? { reviewVerified: !!d.me.reviewVerified, socialVerified: !!d.me.socialVerified } : null);
+      setMine(d.me ? { reviewVerified: !!d.me.reviewVerified, socialVerified: !!d.me.socialVerified, followVerified: !!d.me.followVerified } : null);
     }
   }
 
@@ -155,7 +155,7 @@ function MesaInner() {
 
   // Sube una captura (reseña o publicación social) → la IA la valida y, si es
   // válida, suma una acción al bote común de la mesa.
-  async function uploadAction(type: "review" | "social", file: File) {
+  async function uploadAction(type: "review" | "photo" | "follow", file: File) {
     if (!activeCode || !me) return;
     setBusy(true);
     setNotice(null);
@@ -188,7 +188,8 @@ function MesaInner() {
   }
 
   const canReview = biz.actions?.includes("review");
-  const canSocial = biz.actions?.includes("photo") || biz.actions?.includes("follow");
+  const canPhoto = biz.actions?.includes("photo");
+  const canFollow = biz.actions?.includes("follow");
   const canInvite = biz.actions?.includes("share");
   const heroPct = state ? (state.unlocked ? state.pctNow : state.maxPotentialPct) : 0;
 
@@ -289,7 +290,7 @@ function MesaInner() {
                 </div>
               )}
 
-              {canSocial && (
+              {canPhoto && (
                 <div className="space-y-1">
                   <p className="text-xs font-bold">📸 Foto de grupo en tus redes etiquetando a {biz.name || "el restaurante"}</p>
                   <label className={`bubui-btn w-full py-2 text-xs flex items-center justify-center cursor-pointer ${mine?.socialVerified ? "opacity-60" : ""}`}>
@@ -299,13 +300,29 @@ function MesaInner() {
                       accept="image/*"
                       className="hidden"
                       disabled={busy || mine?.socialVerified}
-                      onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadAction("social", f); e.target.value = ""; }}
+                      onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadAction("photo", f); e.target.value = ""; }}
                     />
                   </label>
                 </div>
               )}
 
-              {!canReview && !canSocial && <p className="text-xs text-black/45">Este restaurante aún no ha activado acciones.</p>}
+              {canFollow && (
+                <div className="space-y-1">
+                  <p className="text-xs font-bold">➕ Sigue a {biz.name || "el restaurante"} en redes</p>
+                  <label className={`bubui-btn w-full py-2 text-xs flex items-center justify-center cursor-pointer ${mine?.followVerified ? "opacity-60" : ""}`}>
+                    {mine?.followVerified ? "✓ Seguir verificado" : "Subir captura de que le sigues"}
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      disabled={busy || mine?.followVerified}
+                      onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadAction("follow", f); e.target.value = ""; }}
+                    />
+                  </label>
+                </div>
+              )}
+
+              {!canReview && !canPhoto && !canFollow && <p className="text-xs text-black/45">Este restaurante aún no ha activado acciones.</p>}
             </div>
           )}
 

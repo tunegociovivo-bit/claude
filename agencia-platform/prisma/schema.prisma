@@ -4072,13 +4072,17 @@ model BubuiTableParticipant {
   // Cada comensal puede aportar hasta 2 (una reseña + una publicación social) para
   // cubrir a quien no puede/quiere; la mesa necesita N acciones (N = comensales).
   reviewVerified Boolean @default(false) // captura de reseña validada por IA
-  socialVerified Boolean @default(false) // captura de publicación en redes validada
+  socialVerified Boolean @default(false) // captura de FOTO en redes validada (acción "photo")
   reviewShotUrl  String? // URL de la captura de la reseña
-  socialShotUrl  String? // URL de la captura de la publicación social
+  socialShotUrl  String? // URL de la captura de la publicación (foto)
+  // Acción "seguir en redes" (independiente de la foto).
+  followVerified Boolean @default(false)
+  followShotUrl  String?
   // Aceptada de forma PROVISIONAL (la IA no pudo validar con seguridad): cuenta
   // para el bote pero se marca para que el CAMARERO la verifique a mano.
   reviewProvisional Boolean @default(false)
   socialProvisional Boolean @default(false)
+  followProvisional Boolean @default(false)
   // Momento del primer aporte (para el push diferido ~1h de la acción no elegida).
   contributedAt  DateTime?
   // Marca de que ya se envió el push de la "acción no elegida" (idempotencia).

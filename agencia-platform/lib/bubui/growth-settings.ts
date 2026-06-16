@@ -12,9 +12,11 @@ import { prisma } from "@/lib/db/prisma";
 
 const ALT_MIN_KEY = "challenge_alt_min_referrals";
 const EXPIRY_WARN_KEY = "challenge_expiry_warn_days";
+const EXPIRY_DAYS_KEY = "challenge_expiry_days";
 
 export const DEFAULT_ALT_MIN_REFERRALS = 10;
 export const DEFAULT_EXPIRY_WARN_DAYS = 3;
+export const DEFAULT_EXPIRY_DAYS = 30;
 
 export async function getAltActionMinReferrals(): Promise<number> {
   const row = await prisma.bubuiSetting.findUnique({ where: { key: ALT_MIN_KEY } });
@@ -45,6 +47,24 @@ export async function setChallengeExpiryWarnDays(n: number): Promise<number> {
   await prisma.bubuiSetting.upsert({
     where: { key: EXPIRY_WARN_KEY },
     create: { key: EXPIRY_WARN_KEY, value: String(safe) },
+    update: { value: String(safe) }
+  });
+  return safe;
+}
+
+/** Días de vida de un cupón-reto desde que se crea (caducidad total). */
+export async function getChallengeExpiryDays(): Promise<number> {
+  const row = await prisma.bubuiSetting.findUnique({ where: { key: EXPIRY_DAYS_KEY } });
+  if (!row) return DEFAULT_EXPIRY_DAYS;
+  const n = Number(row.value);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : DEFAULT_EXPIRY_DAYS;
+}
+
+export async function setChallengeExpiryDays(n: number): Promise<number> {
+  const safe = Number.isFinite(n) && n > 0 ? Math.floor(n) : DEFAULT_EXPIRY_DAYS;
+  await prisma.bubuiSetting.upsert({
+    where: { key: EXPIRY_DAYS_KEY },
+    create: { key: EXPIRY_DAYS_KEY, value: String(safe) },
     update: { value: String(safe) }
   });
   return safe;
