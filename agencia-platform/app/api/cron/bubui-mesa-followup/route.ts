@@ -16,8 +16,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { notifyBubuiCustomer } from "@/lib/bubui/notify";
-import { createMesaShareChallenge } from "@/lib/bubui/share-offer";
-import { mesaReviewUrl, mesaReviewPlatformLabel } from "@/lib/bubui/table";
 import { cronAuthOk } from "@/lib/cron-auth";
 
 export const dynamic = "force-dynamic";
@@ -34,14 +32,17 @@ export async function GET(req: NextRequest) {
   const upper = new Date(now - DELAY_MIN * 60_000);
   const lower = new Date(now - WINDOW_MIN * 60_000);
 
+  // Comensales que aportaron en la mesa hace ~1h y AÚN NO han compartido: les
+  // empujamos a invitar amigos (es el único motor de crecimiento — por cada
+  // amigo que se da de alta ganan +% en su hucha).
   const due = await prisma.bubuiTableParticipant.findMany({
     where: {
       followupPushedAt: null,
+      sharedDone: false,
       contributedAt: { gte: lower, lte: upper },
-      // Solo negocios que aceptan AMBAS acciones (hay "otra" que ofrecer).
-      session: { business: { mesaEnabled: true, mesaActShare: true, mesaActReview: true, active: true } }
+      session: { business: { mesaEnabled: true, mesaActShare: true, active: true } }
     },
-    include: { session: { include: { business: true } } },
+    include: { session: { include: { business: { select: { id: true, name: true } } } } },
     take: 200
   });
 
@@ -55,54 +56,14 @@ export async function GET(req: NextRequest) {
     if (claim.count === 0) continue;
 
     const b = p.session.business;
-    const did = { share: p.sharedDone, review: p.reviewDone };
-    // La acción que NO eligió (solo si hizo exactamente una).
-    const missing: "share" | "review" | null =
-      did.share && !did.review ? "review" : did.review && !did.share ? "share" : null;
-    if (!missing) continue;
-
-    const days = b.mesaNextVisitDays ?? 15;
-    const maxPct = b.mesaMaxPct ?? 20;
-
-    if (missing === "review") {
-      const pct = Math.min(b.mesaReviewBonusPct ?? 0, maxPct);
-      if (pct <= 0) continue;
-      const expiresAt = new Date(now + days * 86_400_000);
-      await prisma.bubuiOffer
-        .upsert({
-          where: { customerId_businessId_triggerBusinessId: { customerId: p.customerId, businessId: b.id, triggerBusinessId: `mesafu:${p.id}` } },
-          create: { customerId: p.customerId, businessId: b.id, triggerBusinessId: `mesafu:${p.id}`, discountPct: pct, source: "mesa_followup", active: true, expiresAt },
-          update: { discountPct: pct, expiresAt, active: true }
-        })
-        .catch(() => {});
-      const reviewLink = mesaReviewUrl(b);
-      void notifyBubuiCustomer(p.customerId, {
-        title: `⭐ Te guardamos un ${pct}% en ${b.name}`,
-        body: `Deja una reseña en ${mesaReviewPlatformLabel(b)} y tienes un ${pct}% para tu próxima visita (${days} días).`,
-        link: reviewLink || "bubui://offers",
-        tag: `mesa-followup:${p.id}`,
-        data: { type: "mesa_followup_review", participantId: p.id, businessId: b.id, sessionId: p.sessionId }
-      });
-      sent++;
-    } else {
-      // Falta compartir → reto: se activa cuando sus amigos se den de alta.
-      const pct = b.mesaShareBonusPct ?? 0;
-      if (pct <= 0) continue;
-      await createMesaShareChallenge({
-        customerId: p.customerId,
-        sessionId: p.sessionId,
-        business: { id: b.id, mesaShareBonusPct: pct },
-        friends: p.session.shareFriends
-      }).catch(() => {});
-      void notifyBubuiCustomer(p.customerId, {
-        title: `🎁 +${pct}% extra en ${b.name}`,
-        body: `Invita a ${p.session.shareFriends} amigo${p.session.shareFriends === 1 ? "" : "s"} a Bubui: cuando se den de alta, desbloqueas un ${pct}% para tu próxima visita.`,
-        link: "bubui://offers",
-        tag: `mesa-followup:${p.id}`,
-        data: { type: "mesa_followup_share", participantId: p.id, businessId: b.id, sessionId: p.sessionId }
-      });
-      sent++;
-    }
+    void notifyBubuiCustomer(p.customerId, {
+      title: `🎁 Gana descuento en ${b.name}`,
+      body: `Invita a tus amigos a Bubui: por cada uno que se dé de alta sumas un % de descuento para cuando vayas a comer.`,
+      link: "bubui://offers",
+      tag: `mesa-followup:${p.id}`,
+      data: { type: "mesa_followup_invite", participantId: p.id, businessId: b.id, sessionId: p.sessionId }
+    });
+    sent++;
   }
 
   return NextResponse.json({ ok: true, due: due.length, sent });

@@ -286,13 +286,8 @@ export function Mesa() {
           <>
             <Text style={{ fontSize: 48 }}>📝</Text>
             <Text style={[styles.title, { marginTop: 6 }]}>Te falta tu aporte</Text>
-            <Text style={styles.muted}>Haz UNA acción para desbloquear tu parte del descuento:</Text>
+            <Text style={styles.muted}>Deja una reseña para desbloquear tu parte del descuento:</Text>
             <View style={{ marginTop: 16 }}>
-              {actions.includes("share") && (
-                <TouchableOpacity style={[styles.actionBtn, iShared && styles.actionBtnDone]} onPress={() => contribute("share")} disabled={busyAction !== null || iShared}>
-                  <Text style={[styles.actionBtnText, iShared && styles.actionBtnTextDone]}>{busyAction === "share" ? "Abriendo…" : iShared ? "✓ Has invitado a amigos" : "📲 Invitar amigos"}</Text>
-                </TouchableOpacity>
-              )}
               {actions.includes("review") && (
                 <TouchableOpacity style={[styles.actionBtn, iReviewed && styles.actionBtnDone]} onPress={() => contribute("review")} disabled={busyAction !== null || iReviewed}>
                   <Text style={[styles.actionBtnText, iReviewed && styles.actionBtnTextDone]}>{busyAction === "review" ? "Abriendo…" : iReviewed ? `✓ Reseña en ${biz.reviewPlatformLabel}` : `⭐ Dejar reseña en ${biz.reviewPlatformLabel}`}</Text>
@@ -358,21 +353,27 @@ export function Mesa() {
         </View>
       )}
 
-      {/* TU aporte (estado propio, del servidor) */}
+      {/* TU aporte: desbloquea tu parte del descuento de mesa (reseña). */}
       <View style={styles.card}>
         <Text style={styles.cardTitle}>Tu aporte {iContributed ? "✓" : ""}</Text>
-        <Text style={styles.hint}>Elige UNA acción para desbloquear tu parte del descuento <Text style={{ fontWeight: "800", color: c.pinkDeep }}>ahora mismo</Text>. 📲 Compartir es además cómo ganáis <Text style={{ fontWeight: "800", color: c.pinkDeep }}>% extra</Text>: por cada amigo que se instale sumas descuento y, al llegar a 5 instalados, un cupón. Comparte con 5+ (no todos se instalan).</Text>
-        {actions.includes("share") && (
-          <TouchableOpacity style={[styles.actionBtn, iShared && styles.actionBtnDone]} onPress={() => contribute("share")} disabled={busyAction !== null || iShared}>
-            <Text style={[styles.actionBtnText, iShared && styles.actionBtnTextDone]}>{busyAction === "share" ? "Abriendo…" : iShared ? "✓ Has invitado a amigos" : "📲 Invitar amigos"}</Text>
-          </TouchableOpacity>
-        )}
+        <Text style={styles.hint}>Deja una reseña para desbloquear tu parte del descuento de la mesa. (Si te acabas de instalar, eso ya cuenta como tu aporte.)</Text>
         {actions.includes("review") && (
           <TouchableOpacity style={[styles.actionBtn, iReviewed && styles.actionBtnDone]} onPress={() => contribute("review")} disabled={busyAction !== null || iReviewed}>
             <Text style={[styles.actionBtnText, iReviewed && styles.actionBtnTextDone]}>{busyAction === "review" ? "Abriendo…" : iReviewed ? `✓ Reseña en ${biz.reviewPlatformLabel}` : `⭐ Dejar reseña en ${biz.reviewPlatformLabel}`}</Text>
           </TouchableOpacity>
         )}
       </View>
+
+      {/* Crece y gana: compartir premia INSTALACIONES reales (hucha). */}
+      {actions.includes("share") && (
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Crece y gana 📲</Text>
+          <Text style={styles.hint}>Comparte Bubui con tus amigos: por <Text style={{ fontWeight: "800", color: c.pinkDeep }}>cada amigo que se dé de alta</Text> sumas % de descuento en tu hucha para cuando vayas a comer. Comparte con 5+ (no todos se instalan).</Text>
+          <TouchableOpacity style={[styles.actionBtn, iShared && styles.actionBtnDone]} onPress={() => contribute("share")} disabled={busyAction !== null || iShared}>
+            <Text style={[styles.actionBtnText, iShared && styles.actionBtnTextDone]}>{busyAction === "share" ? "Abriendo…" : iShared ? "✓ Has compartido" : "📲 Invitar amigos"}</Text>
+          </TouchableOpacity>
+        </View>
+      )}
 
       {/* Progreso del GRUPO (informativo) */}
       {!!st?.steps?.length && (

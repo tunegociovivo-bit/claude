@@ -11,7 +11,6 @@ import { z } from "zod";
 import { prisma } from "@/lib/db/prisma";
 import { customerAuthOk } from "@/lib/bubui/customer-auth";
 import { allowedContributions, loadTableState } from "@/lib/bubui/table";
-import { createMesaShareChallenge } from "@/lib/bubui/share-offer";
 
 export const dynamic = "force-dynamic";
 
@@ -40,23 +39,18 @@ export async function POST(req: Request, { params }: { params: { code: string } 
     return NextResponse.json({ error: { code: "action_off", message: "Ese aporte no está permitido en este negocio." } }, { status: 409 });
   }
 
-  const data: any = { contributed: true, contributionType: type };
-  if (type === "share") data.sharedDone = true;
+  // Compartir NO desbloquea la parte de mesa (su premio es la hucha por
+  // instalaciones reales). Solo las acciones de VALOR (reseña/foto/seguir)
+  // cuentan como aporte que desbloquea la base del comensal.
+  const isQualifying = type !== "share";
+  const data: any = { contributionType: type };
+  if (type === "share") data.sharedDone = true; // registro, no desbloquea
   if (type === "review") data.reviewDone = true;
-  // Marca el momento del PRIMER aporte (para el push diferido de la otra acción).
-  if (!me.contributedAt) data.contributedAt = new Date();
-  await prisma.bubuiTableParticipant.update({ where: { id: me.id }, data });
-
-  // Reto de compartir de la mesa: además del % de grupo inmediato, el bonus
-  // "+% si tus amigos se instalan" cuelga del motor de oferta-reto.
-  if (type === "share") {
-    await createMesaShareChallenge({
-      customerId,
-      sessionId: session.id,
-      business: { id: session.business.id, mesaShareBonusPct: session.business.mesaShareBonusPct ?? 0 },
-      friends: session.shareFriends
-    }).catch(() => {});
+  if (isQualifying) {
+    data.contributed = true;
+    if (!me.contributedAt) data.contributedAt = new Date();
   }
+  await prisma.bubuiTableParticipant.update({ where: { id: me.id }, data });
 
   const loaded = await loadTableState(session.id, ticketAmount);
   return NextResponse.json({ ok: true, state: loaded?.state ?? null });
