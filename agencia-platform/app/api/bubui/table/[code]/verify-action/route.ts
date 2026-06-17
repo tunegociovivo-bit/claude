@@ -137,7 +137,6 @@ export async function POST(req: Request, { params }: { params: { code: string } 
   let valid = false;
   let provisional = false; // true = cuenta pero el camarero debe verificarla a mano
   let reason = "";
-  let aiDebug = ""; // DIAGNÓSTICO temporal: qué devolvió/​falló la IA
   const PROVISIONAL_MSG = "No hemos podido confirmarla con seguridad: cuenta de forma provisional y el camarero la verificará.";
   try {
     const { completeVision } = await import("@/lib/ai/anthropic");
@@ -186,7 +185,7 @@ export async function POST(req: Request, { params }: { params: { code: string } 
       system,
       userText
     });
-    aiDebug = (raw || "").replace(/\s+/g, " ").slice(0, 160);
+
     const m = raw.match(/\{[\s\S]*\}/);
     if (m) {
       const j = JSON.parse(m[0]);
@@ -215,7 +214,6 @@ export async function POST(req: Request, { params }: { params: { code: string } 
     valid = true;
     provisional = true;
     reason = PROVISIONAL_MSG;
-    aiDebug = "EXC: " + String(e?.message ?? e).slice(0, 160);
   }
 
   // 3) Si es válida (o provisional), marca la acción verificada del comensal.
@@ -249,13 +247,11 @@ export async function POST(req: Request, { params }: { params: { code: string } 
   } catch (e: any) {
     return NextResponse.json({ error: { code: "state_failed", message: `Estado mesa: ${e?.message ?? e}` } }, { status: 500 });
   }
-  const baseReason = reason || (valid ? "Acción verificada." : "No hemos podido validar la captura. Inténtalo de nuevo.");
   return NextResponse.json({
     ok: true,
     valid,
     provisional,
-    reason: aiDebug ? `${baseReason} ⟦IA: ${aiDebug}⟧` : baseReason,
-    aiDebug,
+    reason: reason || (valid ? "Acción verificada." : "No hemos podido validar la captura. Inténtalo de nuevo."),
     state: loaded?.state ?? null
   });
 }
