@@ -76,7 +76,7 @@ export async function POST(req: Request) {
     );
   }
   // URL para que la IA descargue la imagen y para devolvérsela al cliente.
-  const ticketUrl = await signedDownloadUrl(s3Key, 60 * 60 * 24 * 30); // 30 días
+  const ticketUrl = await signedDownloadUrl(s3Key, 60 * 60 * 24 * 6); // 6 días (máx SigV4 < 7 días)
 
   // 2) Pedir a la IA el total del ticket.
   let amount: number | null = null;
