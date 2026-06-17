@@ -16,12 +16,13 @@ guía es el paso a paso completo. Tiempo estimado: ~15 min.
 |----------|------|---------|-----------------|
 | Plan **Pro** | Suscripción | **29 €/mes** | El webhook activa `plan=pro` |
 | Plan **Premium** | Suscripción | **99 €/mes** | El webhook activa `plan=premium` |
+| **Bubui Plus** (usuario) | Suscripción | **1 €/mes** | El webhook activa `plan=plus` en el cliente |
 | **Push del Día** | Pago único | Variable (según alcance/radio) | El webhook lanza el push |
 | **Banner IA** (edición extra) | Pago único | 1 € | El webhook suma 1 crédito |
 
 Los pagos únicos (Push del Día y Banner IA) crean el precio al vuelo, así
-que **no necesitan** un `price_…` precreado. Solo las suscripciones lo
-necesitan, y de eso se encarga el script de abajo.
+que **no necesitan** un `price_…` precreado. Las tres suscripciones (Pro,
+Premium y Plus) sí lo necesitan, y de eso se encarga el script de abajo.
 
 ---
 
@@ -48,15 +49,18 @@ BUBUI_STRIPE_SECRET_KEY=sk_test_xxx npm run bubui:stripe-setup
 ```
 
 El script crea (o reutiliza, es idempotente) los productos **Bubui Pro**
-(29 €/mes) y **Bubui Premium** (99 €/mes) y te imprime algo así:
+(29 €/mes), **Bubui Premium** (99 €/mes) y **Bubui Plus** (1 €/mes) y te
+imprime algo así:
 
 ```
 BUBUI_STRIPE_PRICE_PRO=price_1AbcD...
 BUBUI_STRIPE_PRICE_PREMIUM=price_1EfgH...
+BUBUI_STRIPE_PRICE_PLUS=price_1IjkL...
 ```
 
-Guarda esos dos `price_…`. Si lo ejecutas otra vez no duplica nada (usa
-`lookup_key` estables: `bubui_pro_monthly` / `bubui_premium_monthly`).
+Guarda esos tres `price_…`. Si lo ejecutas otra vez no duplica nada (usa
+`lookup_key` estables: `bubui_pro_monthly` / `bubui_premium_monthly` /
+`bubui_plus_monthly`).
 
 > ¿Prefieres hacerlo a mano? En **Product catalog → Add product** crea dos
 > productos recurrentes mensuales en EUR (29 y 99) y copia el id de cada
@@ -86,16 +90,19 @@ Guarda esos dos `price_…`. Si lo ejecutas otra vez no duplica nada (usa
 
 ## Paso 4 · Variables en Railway
 
-En Railway → servicio del Hub → **Variables**, añade las 4:
+En Railway → servicio del Hub → **Variables**, añade las 5:
 
 ```
 BUBUI_STRIPE_SECRET_KEY      = sk_test_xxx   (o sk_live_xxx)
 BUBUI_STRIPE_WEBHOOK_SECRET  = whsec_xxx     (del paso 3)
 BUBUI_STRIPE_PRICE_PRO       = price_xxx     (del paso 2)
 BUBUI_STRIPE_PRICE_PREMIUM   = price_xxx     (del paso 2)
+BUBUI_STRIPE_PRICE_PLUS      = price_xxx     (del paso 2)
 ```
 
 Guarda y deja que Railway **redepliegue**. No hace falta migración de BD.
+(`BUBUI_STRIPE_PRICE_PLUS` solo si quieres ofrecer la suscripción Plus del
+usuario; sin ella, Pro/Premium/Push/Banner siguen funcionando.)
 
 ---
 

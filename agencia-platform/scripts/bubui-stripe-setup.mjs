@@ -2,7 +2,7 @@
 /**
  * Crea (o reutiliza) los productos y precios de suscripción de Bubui en
  * Stripe, e imprime los `price_…` que hay que poner en Railway como
- * BUBUI_STRIPE_PRICE_PRO y BUBUI_STRIPE_PRICE_PREMIUM.
+ * BUBUI_STRIPE_PRICE_PRO, BUBUI_STRIPE_PRICE_PREMIUM y BUBUI_STRIPE_PRICE_PLUS.
  *
  * Idempotente: usa `lookup_key` por precio, así que reejecutarlo no
  * duplica nada — reutiliza el precio existente y muestra su id.
@@ -29,7 +29,8 @@ const MODE = KEY.startsWith("sk_live_") ? "LIVE 🔴" : "TEST 🧪";
 /** Planes a crear. amountCents = importe mensual en céntimos de EUR. */
 const PLANS = [
   { key: "pro", name: "Bubui Pro", amountCents: 2900, lookupKey: "bubui_pro_monthly", envVar: "BUBUI_STRIPE_PRICE_PRO" },
-  { key: "premium", name: "Bubui Premium", amountCents: 9900, lookupKey: "bubui_premium_monthly", envVar: "BUBUI_STRIPE_PRICE_PREMIUM" }
+  { key: "premium", name: "Bubui Premium", amountCents: 9900, lookupKey: "bubui_premium_monthly", envVar: "BUBUI_STRIPE_PRICE_PREMIUM" },
+  { key: "plus", name: "Bubui Plus", amountCents: 100, lookupKey: "bubui_plus_monthly", envVar: "BUBUI_STRIPE_PRICE_PLUS" }
 ];
 
 async function stripe(path, init = {}) {
