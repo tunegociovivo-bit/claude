@@ -74,7 +74,8 @@ export async function POST(req: Request, { params }: { params: { offerId: string
     return NextResponse.json({ error: { code: "unauthorized" } }, { status: 401 });
   }
   if (!buf || buf.length === 0) {
-    return NextResponse.json({ error: { code: "no_file", message: "Falta la captura." } }, { status: 400 });
+    const via = ct.includes("application/json") ? "json" : "multipart";
+    return NextResponse.json({ error: { code: "no_file", message: `Falta la captura. [${via}]` } }, { status: 400 });
   }
   if (buf.length > MAX_BYTES) {
     return NextResponse.json({ error: { code: "too_large", message: "La imagen supera 10 MB." } }, { status: 413 });
