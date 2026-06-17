@@ -35,18 +35,39 @@ export async function POST(req: Request, { params }: { params: { code: string } 
   }
 
   const url = new URL(req.url);
-  const form = await req.formData().catch(() => null);
-  const file = form?.get("file");
-  // customerId: de la QUERY o, lo más fiable, de la cabecera Authorization (en RN
-  // los campos de texto del multipart se pierden a veces); fallback al form.
-  const customerId =
-    url.searchParams.get("customerId") ||
-    customerIdFromAuth(req) ||
-    (typeof form?.get("customerId") === "string" ? (form!.get("customerId") as string) : "");
-  const type =
-    url.searchParams.get("type") || (typeof form?.get("type") === "string" ? (form!.get("type") as string) : "");
-  const ticketRaw = url.searchParams.get("ticketAmount") ?? (typeof form?.get("ticketAmount") === "string" ? (form!.get("ticketAmount") as string) : null);
-  const ticketAmount = ticketRaw ? Number(ticketRaw) : undefined;
+  // Soporta DOS formatos: JSON con la imagen en base64 (app móvil — evita los
+  // problemas del multipart en React Native) y multipart/form-data (web).
+  const ct = req.headers.get("content-type") || "";
+  let customerId = "";
+  let type = "";
+  let ticketAmount: number | undefined;
+  let mimeType = "image/jpeg";
+  let buf: Buffer | null = null;
+
+  if (ct.includes("application/json")) {
+    const body: any = await req.json().catch(() => ({}));
+    customerId = (typeof body.customerId === "string" && body.customerId) || url.searchParams.get("customerId") || customerIdFromAuth(req) || "";
+    type = (typeof body.type === "string" && body.type) || url.searchParams.get("type") || "";
+    ticketAmount = body.ticketAmount != null ? Number(body.ticketAmount) : undefined;
+    if (typeof body.mimeType === "string" && body.mimeType) mimeType = body.mimeType;
+    if (typeof body.imageBase64 === "string" && body.imageBase64.length > 0) {
+      try { buf = Buffer.from(body.imageBase64, "base64"); } catch { buf = null; }
+    }
+  } else {
+    const form = await req.formData().catch(() => null);
+    const file = form?.get("file");
+    customerId =
+      url.searchParams.get("customerId") ||
+      customerIdFromAuth(req) ||
+      (typeof form?.get("customerId") === "string" ? (form!.get("customerId") as string) : "");
+    type = url.searchParams.get("type") || (typeof form?.get("type") === "string" ? (form!.get("type") as string) : "");
+    const ticketRaw = url.searchParams.get("ticketAmount") ?? (typeof form?.get("ticketAmount") === "string" ? (form!.get("ticketAmount") as string) : null);
+    ticketAmount = ticketRaw ? Number(ticketRaw) : undefined;
+    if (file instanceof Blob && file.size > 0) {
+      mimeType = file.type || "image/jpeg";
+      buf = Buffer.from(await file.arrayBuffer());
+    }
+  }
 
   if (!customerId) return NextResponse.json({ error: { code: "no_customer", message: "Falta customerId." } }, { status: 400 });
   // "photo" (foto en redes) y "follow" (seguir) son acciones independientes; se
@@ -58,13 +79,12 @@ export async function POST(req: Request, { params }: { params: { code: string } 
   if (!(await customerAuthOk(req, customerId))) {
     return NextResponse.json({ error: { code: "unauthorized" } }, { status: 401 });
   }
-  if (!(file instanceof Blob) || file.size === 0) {
+  if (!buf || buf.length === 0) {
     return NextResponse.json({ error: { code: "no_file", message: "Falta la captura." } }, { status: 400 });
   }
-  if (file.size > MAX_BYTES) {
+  if (buf.length > MAX_BYTES) {
     return NextResponse.json({ error: { code: "too_large", message: "La imagen supera 10 MB." } }, { status: 413 });
   }
-  const mimeType = file.type || "image/jpeg";
   if (!ALLOWED.includes(mimeType)) {
     return NextResponse.json({ error: { code: "bad_format", message: "Formato no soportado (usa JPG/PNG)." } }, { status: 415 });
   }
@@ -94,7 +114,6 @@ export async function POST(req: Request, { params }: { params: { code: string } 
   const ext = mimeType.split("/")[1]?.replace("jpeg", "jpg") || "jpg";
   const safe = customerId.replace(/[^\w-]+/g, "").slice(0, 40) || "anon";
   const s3Key = `bubui/mesa/${session.id}/${safe}-${action}-${Date.now()}.${ext}`;
-  const buf = Buffer.from(await file.arrayBuffer());
   try {
     await uploadBuffer({ s3Key, body: buf, contentType: mimeType });
   } catch (e: any) {

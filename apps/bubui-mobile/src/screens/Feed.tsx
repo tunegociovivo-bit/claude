@@ -199,9 +199,10 @@ export function Feed() {
     try {
       const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (!perm.granted) { Alert.alert("Permiso necesario", "Necesitamos acceso a tus fotos para subir la captura."); return; }
-      const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.7 });
-      if (res.canceled || !res.assets?.[0]?.uri) return;
-      const r = await api.offerVerifyAction(item.offerId, customer.customerId, type, res.assets[0].uri);
+      const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.6, base64: true });
+      const asset = res.assets?.[0];
+      if (res.canceled || !asset?.base64) return;
+      const r = await api.offerVerifyAction(item.offerId, customer.customerId, type, asset.base64, asset.mimeType ?? "image/jpeg");
       if (r.activated) {
         sfx.success();
         Alert.alert(r.provisional ? "Cupón activado ✓" : "¡Cupón activado! ✓", r.reason);
