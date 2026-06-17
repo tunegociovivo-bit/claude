@@ -2585,6 +2585,9 @@ function InboxChat({
     optedOut: boolean;
   }>({ leadName: null, leadPhone: null, realPhone: null, isLid: false, displayName: null, note: null, priority: "none", status: "pending", archived: false, followupAt: null, leadId: null, aiScore: null, aiScoreReason: null, aiDraft: null, aiCallNow: false, aiCallScript: null, autoFollowupStep: 0, autoFollowupOff: false, replyChannel: null, optedOut: false });
   const [noteDraft, setNoteDraft] = useState("");
+  // Mientras el usuario edita la nota, el sondeo de la conversación (cada 8s) NO
+  // debe sobrescribir lo que está escribiendo. Este ref marca el foco.
+  const noteFocusedRef = useRef(false);
   const [savingMeta, setSavingMeta] = useState(false);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
@@ -2630,7 +2633,8 @@ function InboxChat({
       replyChannel: d.replyChannel ?? null,
       optedOut: !!d.optedOut
     });
-    setNoteDraft(d.note ?? "");
+    // No pisar la nota que el usuario está escribiendo (sondeo cada 8s).
+    if (!noteFocusedRef.current) setNoteDraft(d.note ?? "");
     // Al abrir, los no-leídos de esa conversación quedan vistos.
     setConvs((prev) => prev.map((c) => (c.phone === phone ? { ...c, unread: 0 } : c)));
   }
@@ -3036,7 +3040,9 @@ function InboxChat({
                 <input
                   value={noteDraft}
                   onChange={(e) => setNoteDraft(e.target.value)}
+                  onFocus={() => { noteFocusedRef.current = true; }}
                   onBlur={() => {
+                    noteFocusedRef.current = false;
                     if (noteDraft !== (threadMeta.note ?? "")) void saveMeta({ note: noteDraft });
                   }}
                   onKeyDown={(e) => {
