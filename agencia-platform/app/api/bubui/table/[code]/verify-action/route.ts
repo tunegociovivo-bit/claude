@@ -140,20 +140,27 @@ export async function POST(req: Request, { params }: { params: { code: string } 
   const PROVISIONAL_MSG = "No hemos podido confirmarla con seguridad: cuenta de forma provisional y el camarero la verificará.";
   try {
     const { completeVision } = await import("@/lib/ai/anthropic");
+    const today = new Date().toLocaleDateString("es-ES", { year: "numeric", month: "long", day: "numeric" });
     const REVIEW_SYS =
-      `Eres un verificador de capturas de pantalla. Te paso una captura que DEBE ser una reseña ` +
-      `publicada en ${platform} del restaurante llamado "${b.name}". Es válida si: (a) se ve que es ` +
-      `${platform} (interfaz de reseñas), (b) es una reseña ya PUBLICADA (con estrellas o texto), y ` +
-      `(c) corresponde al restaurante "${b.name}" (o su nombre aparece de forma razonable). ` +
-      `Sé tolerante con recortes y nombres parecidos, pero rechaza capturas que claramente no son ` +
-      `una reseña o son de otro sitio. Responde EXCLUSIVAMENTE con JSON: ` +
-      `{"valid": boolean, "confidence": 0..1, "reason": "motivo breve en español"}.`;
+      `Eres un verificador de capturas de pantalla. La fecha de HOY es ${today}. Te paso una captura que ` +
+      `DEBE ser una reseña PUBLICADA HOY en ${platform} del restaurante "${b.name}", recién dejada en esta ` +
+      `visita. Es válida SOLO si se cumplen TODAS: (a) se ve que es ${platform} (interfaz de reseñas); ` +
+      `(b) es una reseña ya PUBLICADA (con estrellas o texto) del restaurante "${b.name}" (tolera recortes y ` +
+      `nombres parecidos); y (c) la FECHA visible indica que es RECIENTE, de HOY: "ahora", "hace un momento", ` +
+      `"hace X minutos", "hace X horas", "hoy", o una fecha absoluta igual a hoy (${today}). ` +
+      `Si la fecha indica DÍAS, SEMANAS o MESES (p. ej. "hace 2 semanas", "hace 3 días", "el mes pasado" o una ` +
+      `fecha anterior a hoy), NO es válida: es una reseña antigua o de otra persona, no de esta visita → ` +
+      `responde valid:false con confidence ALTA (0.9) y reason indicando que la reseña debe estar recién ` +
+      `publicada hoy. Responde EXCLUSIVAMENTE con JSON: {"valid": boolean, "confidence": 0..1, "reason": "motivo breve en español"}.`;
     const PHOTO_SYS =
-      `Eres un verificador de capturas de pantalla. Te paso una captura que DEBE ser una PUBLICACIÓN ` +
-      `en una red social (Instagram, Facebook, TikTok, X/Twitter, Stories) con una FOTO y que ETIQUETA ` +
-      `o MENCIONA al restaurante "${b.name}". Es válida si: (a) se ve que es una red social, (b) hay una ` +
-      `foto/imagen, y (c) aparece el nombre o etiqueta del restaurante "${b.name}" (un @, # o mención de texto). ` +
-      `Sé tolerante con recortes, pero rechaza capturas que no sean una publicación social o no mencionen al sitio. ` +
+      `Eres un verificador de capturas de pantalla. La fecha de HOY es ${today}. Te paso una captura que DEBE ` +
+      `ser una PUBLICACIÓN en una red social (Instagram, Facebook, TikTok, X/Twitter, Stories) con una FOTO y ` +
+      `que ETIQUETA o MENCIONA al restaurante "${b.name}", publicada HOY en esta visita. Es válida SOLO si: ` +
+      `(a) se ve que es una red social; (b) hay una foto/imagen; (c) aparece el nombre o etiqueta del ` +
+      `restaurante "${b.name}" (un @, # o mención); y (d) la FECHA visible es RECIENTE, de HOY ("ahora", "hace ` +
+      `un momento", "hace X minutos/horas", "hoy" o fecha igual a hoy). Si la publicación es de hace DÍAS, ` +
+      `SEMANAS o MESES, NO es válida (no es de esta visita): valid:false con confidence ALTA (0.9) y reason ` +
+      `indicando que debe ser una publicación recién hecha hoy. Sé tolerante con recortes. ` +
       `Responde EXCLUSIVAMENTE con JSON: {"valid": boolean, "confidence": 0..1, "reason": "motivo breve en español"}.`;
     const FOLLOW_SYS =
       `Eres un verificador de capturas de pantalla. Te paso una captura que DEBE demostrar que el usuario ` +
