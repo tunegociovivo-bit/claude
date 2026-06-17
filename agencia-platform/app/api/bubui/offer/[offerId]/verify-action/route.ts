@@ -118,7 +118,7 @@ export async function POST(req: Request, { params }: { params: { offerId: string
   } catch (e: any) {
     return NextResponse.json({ error: { code: "upload_failed", message: `No se pudo guardar la captura: ${e?.message ?? e}` } }, { status: 502 });
   }
-  const shotUrl = await signedDownloadUrl(s3Key, 60 * 60 * 24 * 30);
+  const shotUrl = await signedDownloadUrl(s3Key, 60 * 60 * 24 * 6); // 6 días (máx SigV4 < 7 días)
 
   // 2) Validar con IA.
   const platform = mesaReviewPlatformLabel(b);

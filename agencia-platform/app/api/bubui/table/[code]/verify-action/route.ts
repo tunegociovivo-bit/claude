@@ -127,7 +127,7 @@ export async function POST(req: Request, { params }: { params: { code: string } 
   }
   let shotUrl: string;
   try {
-    shotUrl = await signedDownloadUrl(s3Key, 60 * 60 * 24 * 30); // 30 días
+    shotUrl = await signedDownloadUrl(s3Key, 60 * 60 * 24 * 6); // 6 días (máx SigV4 < 7 días)
   } catch (e: any) {
     return NextResponse.json({ error: { code: "sign_failed", message: `URL firmada: ${e?.message ?? e}` } }, { status: 500 });
   }
