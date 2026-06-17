@@ -91,10 +91,15 @@ export async function POST(req: Request, { params }: { params: { code: string } 
   }
 
   // Mesa abierta + participante.
-  const session = await prisma.bubuiTableSession.findFirst({
-    where: { code: params.code.toUpperCase(), status: "open" },
-    include: { business: true, participants: { where: { customerId } } }
-  });
+  let session;
+  try {
+    session = await prisma.bubuiTableSession.findFirst({
+      where: { code: params.code.toUpperCase(), status: "open" },
+      include: { business: true, participants: { where: { customerId } } }
+    });
+  } catch (e: any) {
+    return NextResponse.json({ error: { code: "session_query_failed", message: `Consulta mesa: ${e?.message ?? e}` } }, { status: 500 });
+  }
   if (!session) return NextResponse.json({ error: { code: "not_found", message: "Mesa no encontrada o cerrada." } }, { status: 404 });
   const me = session.participants[0];
   if (!me) return NextResponse.json({ error: { code: "not_joined", message: "Únete a la mesa primero." } }, { status: 409 });
@@ -120,7 +125,12 @@ export async function POST(req: Request, { params }: { params: { code: string } 
   } catch (e: any) {
     return NextResponse.json({ error: { code: "upload_failed", message: `No se pudo guardar la captura: ${e?.message ?? e}` } }, { status: 502 });
   }
-  const shotUrl = await signedDownloadUrl(s3Key, 60 * 60 * 24 * 30); // 30 días
+  let shotUrl: string;
+  try {
+    shotUrl = await signedDownloadUrl(s3Key, 60 * 60 * 24 * 30); // 30 días
+  } catch (e: any) {
+    return NextResponse.json({ error: { code: "sign_failed", message: `URL firmada: ${e?.message ?? e}` } }, { status: 500 });
+  }
 
   // 2) Validar la captura con la IA.
   const platform = mesaReviewPlatformLabel(b);
@@ -216,10 +226,19 @@ export async function POST(req: Request, { params }: { params: { code: string } 
       data.socialProvisional = provisional;
     }
     if (!me.contributedAt) data.contributedAt = new Date();
-    await prisma.bubuiTableParticipant.update({ where: { id: me.id }, data });
+    try {
+      await prisma.bubuiTableParticipant.update({ where: { id: me.id }, data });
+    } catch (e: any) {
+      return NextResponse.json({ error: { code: "db_update_failed", message: `Guardar acción: ${e?.message ?? e}` } }, { status: 500 });
+    }
   }
 
-  const loaded = await loadTableState(session.id, ticketAmount);
+  let loaded;
+  try {
+    loaded = await loadTableState(session.id, ticketAmount);
+  } catch (e: any) {
+    return NextResponse.json({ error: { code: "state_failed", message: `Estado mesa: ${e?.message ?? e}` } }, { status: 500 });
+  }
   return NextResponse.json({
     ok: true,
     valid,
