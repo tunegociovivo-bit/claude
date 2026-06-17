@@ -180,6 +180,72 @@ async function createLeadFollowupTask(opts: {
   }
 }
 
+/**
+ * Registra un mensaje SALIENTE que el usuario envió desde su propio teléfono
+ * (WhatsApp del móvil), para que aparezca en la conversación del panel. WAHA lo
+ * entrega como `fromMe`. Idempotente: si ya existe (eco de un envío hecho desde
+ * el panel) no duplica. `toPhone` es el DESTINATARIO (el lead), no tu número.
+ */
+export async function recordOutboundFromPhone(opts: {
+  workspaceId: string;
+  toPhone: string;
+  text: string;
+  externalMessageId?: string | null;
+  instanceName?: string | null;
+  meta?: any;
+}): Promise<{ messageId: string } | null> {
+  const ws = await prisma.workspace.findUnique({ where: { id: opts.workspaceId } });
+  const countryCode: string = (ws?.settings as any)?.leads?.whatsappCountryCode ?? "34";
+  const rawPhone = String(opts.toPhone).replace(/@.*$/, "");
+  const phoneNormalized = normalizePhone(rawPhone, countryCode) ?? rawPhone;
+  if (!phoneNormalized || !opts.text.trim()) return null;
+
+  // Dedupe por id (eco de un envío hecho desde el panel) o por texto reciente.
+  if (opts.externalMessageId) {
+    const dup = await prisma.leadInboxMessage.findFirst({
+      where: { workspaceId: opts.workspaceId, externalMessageId: String(opts.externalMessageId) },
+      select: { id: true }
+    });
+    if (dup) return { messageId: dup.id };
+  }
+  const twin = await prisma.leadInboxMessage.findFirst({
+    where: {
+      workspaceId: opts.workspaceId,
+      direction: "out",
+      phoneNormalized,
+      body: opts.text,
+      receivedAt: { gte: new Date(Date.now() - 30_000) }
+    },
+    select: { id: true }
+  });
+  if (twin) return { messageId: twin.id };
+
+  const lead = await prisma.lead.findFirst({
+    where: {
+      workspaceId: opts.workspaceId,
+      OR: [{ phone: { contains: rawPhone } }, { internationalPhone: { contains: rawPhone } }]
+    },
+    select: { id: true }
+  });
+
+  const msg = await prisma.leadInboxMessage.create({
+    data: {
+      workspaceId: opts.workspaceId,
+      leadId: lead?.id ?? null,
+      fromPhone: rawPhone,
+      phoneNormalized,
+      channel: "whatsapp",
+      direction: "out",
+      body: opts.text,
+      read: true,
+      meta: opts.meta ?? undefined,
+      externalMessageId: opts.externalMessageId ?? null,
+      instanceName: opts.instanceName ?? null
+    }
+  });
+  return { messageId: msg.id };
+}
+
 export async function ingestInbox(opts: {
   workspaceId: string;
   fromPhone: string; // como llegue del webhook (puede traer @c.us)
@@ -323,6 +389,37 @@ export async function ingestInbox(opts: {
         return { messageId: keepId, classification: classified.classification, leadId };
       }
     }
+  }
+
+  // Push a los admins del workspace por CADA mensaje entrante, para no perder
+  // ningún lead. Los "interested" tienen su propio push (más rico) más abajo;
+  // los auto-replies son ruido de bots y se omiten. Fire-and-forget.
+  if (classified.classification !== "interested" && classified.classification !== "auto_reply") {
+    void (async () => {
+      try {
+        const admins = await prisma.membership.findMany({
+          where: { workspaceId: opts.workspaceId, role: "ADMIN" },
+          select: { userId: true }
+        });
+        if (!admins.length) return;
+        const who = leadName ?? phoneNormalized;
+        const body = `${who}: "${opts.text.slice(0, 120)}${opts.text.length > 120 ? "…" : ""}"`;
+        const link = leadId ? `/admin/leads?lead=${leadId}` : "/admin/leads";
+        const { sendPushToUser } = await import("@/lib/push/web-push");
+        await Promise.all(
+          admins.map((a) =>
+            sendPushToUser(a.userId, {
+              title: "💬 Nuevo mensaje de WhatsApp",
+              body,
+              link,
+              tag: `lead-msg-${phoneNormalized}` // colapsa varios del mismo contacto
+            }).catch((e) => console.warn("[push lead-msg]:", e?.message ?? e))
+          )
+        );
+      } catch (e: any) {
+        console.warn("[inbox notify-push msg]:", e?.message ?? e);
+      }
+    })();
   }
 
   // Nombre de perfil de WhatsApp (pushName) → metadatos de la conversación.

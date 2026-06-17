@@ -14,7 +14,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
-import { ingestInbox } from "@/lib/leads/inbox";
+import { ingestInbox, recordOutboundFromPhone } from "@/lib/leads/inbox";
 import { extractWahaMessageId } from "@/lib/leads/waha";
 
 export async function POST(req: NextRequest, { params }: { params: { token: string } }) {
@@ -182,16 +182,6 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
   const realPhone = fromCandidates.find((c) => /@c\.us$/i.test(c) || /^\+?\d{6,15}@/.test(c) || /^\+?\d{6,15}$/.test(c));
   const fromPhone = realPhone ?? fromCandidates[0] ?? "";
 
-  // WAHA: ignorar mensajes fromMe (echo de los nuestros)
-  const fromMe =
-    body?.payload?.fromMe === true ||
-    body?.data?.key?.fromMe === true ||
-    body?.message?.fromMe === true;
-  if (fromMe) {
-    note("from_me", { isMessage: true, from: String(fromPhone ?? "") });
-    return NextResponse.json({ ok: true, ignored: "from_me" });
-  }
-
   // El cuerpo del mensaje llega en rutas distintas según proveedor/motor:
   //  - WAHA v2: payload.body
   //  - Evolution/Baileys: data.message.{conversation | extendedTextMessage.text
@@ -218,6 +208,46 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
   const externalMessageId =
     body?.payload?.id ?? body?.data?.key?.id ?? body?.id ?? null;
   const instanceName = body?.session ?? body?.instance ?? null;
+
+  // ¿Mensaje fromMe? = respuesta que TÚ enviaste. Antes se ignoraba; ahora la
+  // registramos como SALIENTE para que aparezca en la conversación del panel
+  // (incluidas las respuestas escritas desde el TELÉFONO). El dedupe por id
+  // evita duplicar los envíos hechos desde el propio panel.
+  const fromMe =
+    body?.payload?.fromMe === true ||
+    body?.data?.key?.fromMe === true ||
+    body?.message?.fromMe === true;
+  if (fromMe) {
+    // En un saliente, el "otro" de la conversación es el DESTINATARIO.
+    const toCandidates = [
+      body?.payload?.to,
+      body?.payload?._data?.to,
+      body?.payload?._data?.id?.remote,
+      body?.data?.key?.remoteJid,
+      body?.payload?.chatId,
+      body?.to
+    ].filter((x): x is string => typeof x === "string" && x.length > 0);
+    const toReal =
+      toCandidates.find((c) => /@c\.us$/i.test(c) || /^\+?\d{6,15}@/.test(c) || /^\+?\d{6,15}$/.test(c)) ??
+      toCandidates[0] ??
+      fromPhone; // último recurso: algunos motores ponen el chat en `from`
+    if (toReal && messageBody.trim()) {
+      try {
+        await recordOutboundFromPhone({
+          workspaceId: ws.id,
+          toPhone: String(toReal),
+          text: messageBody,
+          externalMessageId: externalMessageId ? String(externalMessageId) : null,
+          instanceName: instanceName ? String(instanceName) : null,
+          meta: body
+        });
+      } catch (e: any) {
+        console.warn("[leads webhook] outbound record error:", e?.message ?? e);
+      }
+    }
+    note("from_me_out", { isMessage: true, from: String(toReal ?? "") });
+    return NextResponse.json({ ok: true, recorded: "outbound" });
+  }
 
   if (!fromPhone || typeof messageBody !== "string" || !messageBody.trim()) {
     note("missing_fields", { isMessage: true, from: String(fromPhone ?? ""), text: String(messageBody ?? "") });
