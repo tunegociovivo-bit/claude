@@ -36,31 +36,49 @@ export async function POST(req: Request, { params }: { params: { offerId: string
   }
 
   const url = new URL(req.url);
-  const form = await req.formData().catch(() => null);
-  const file = form?.get("file");
-  // customerId: de la QUERY o, lo más fiable, de la cabecera Authorization (los
-  // campos de texto del multipart se pierden a veces en RN); fallback al form.
-  const customerId =
-    url.searchParams.get("customerId") ||
-    customerIdFromAuth(req) ||
-    (typeof form?.get("customerId") === "string" ? (form!.get("customerId") as string) : "");
-  const type =
-    url.searchParams.get("type") || (typeof form?.get("type") === "string" ? (form!.get("type") as string) : "");
+  // Soporta JSON con imagen en base64 (app) y multipart/form-data (web).
+  const ct = req.headers.get("content-type") || "";
+  let customerId = "";
+  let type = "";
+  let mimeType = "image/jpeg";
+  let buf: Buffer | null = null;
+
+  if (ct.includes("application/json")) {
+    const body: any = await req.json().catch(() => ({}));
+    customerId = (typeof body.customerId === "string" && body.customerId) || url.searchParams.get("customerId") || customerIdFromAuth(req) || "";
+    type = (typeof body.type === "string" && body.type) || url.searchParams.get("type") || "";
+    if (typeof body.mimeType === "string" && body.mimeType) mimeType = body.mimeType;
+    if (typeof body.imageBase64 === "string" && body.imageBase64.length > 0) {
+      try { buf = Buffer.from(body.imageBase64, "base64"); } catch { buf = null; }
+    }
+  } else {
+    const form = await req.formData().catch(() => null);
+    const file = form?.get("file");
+    customerId =
+      url.searchParams.get("customerId") ||
+      customerIdFromAuth(req) ||
+      (typeof form?.get("customerId") === "string" ? (form!.get("customerId") as string) : "");
+    type = url.searchParams.get("type") || (typeof form?.get("type") === "string" ? (form!.get("type") as string) : "");
+    if (file instanceof Blob && file.size > 0) {
+      mimeType = file.type || "image/jpeg";
+      buf = Buffer.from(await file.arrayBuffer());
+    }
+  }
 
   if (!customerId) return NextResponse.json({ error: { code: "no_customer", message: "Falta customerId." } }, { status: 400 });
-  if (type !== "review" && type !== "social") {
+  const action = type === "photo" ? "social" : type; // "photo" es alias de "social" aquí
+  if (action !== "review" && action !== "social") {
     return NextResponse.json({ error: { code: "bad_type", message: "type debe ser 'review' o 'social'." } }, { status: 400 });
   }
   if (!(await customerAuthOk(req, customerId))) {
     return NextResponse.json({ error: { code: "unauthorized" } }, { status: 401 });
   }
-  if (!(file instanceof Blob) || file.size === 0) {
+  if (!buf || buf.length === 0) {
     return NextResponse.json({ error: { code: "no_file", message: "Falta la captura." } }, { status: 400 });
   }
-  if (file.size > MAX_BYTES) {
+  if (buf.length > MAX_BYTES) {
     return NextResponse.json({ error: { code: "too_large", message: "La imagen supera 10 MB." } }, { status: 413 });
   }
-  const mimeType = file.type || "image/jpeg";
   if (!ALLOWED.includes(mimeType)) {
     return NextResponse.json({ error: { code: "bad_format", message: "Formato no soportado (usa JPG/PNG)." } }, { status: 415 });
   }
@@ -86,15 +104,14 @@ export async function POST(req: Request, { params }: { params: { offerId: string
   }
 
   const b = offer.business;
-  if (type === "review" && !mesaReviewUrl(b)) {
+  if (action === "review" && !mesaReviewUrl(b)) {
     return NextResponse.json({ error: { code: "action_off", message: "Este negocio no tiene reseña configurada." } }, { status: 409 });
   }
 
   // 1) Guardar la captura.
   const ext = mimeType.split("/")[1]?.replace("jpeg", "jpg") || "jpg";
   const safe = customerId.replace(/[^\w-]+/g, "").slice(0, 40) || "anon";
-  const s3Key = `bubui/challenge/${offer.id}/${safe}-${type}-${Date.now()}.${ext}`;
-  const buf = Buffer.from(await file.arrayBuffer());
+  const s3Key = `bubui/challenge/${offer.id}/${safe}-${action}-${Date.now()}.${ext}`;
   try {
     await uploadBuffer({ s3Key, body: buf, contentType: mimeType });
   } catch (e: any) {
@@ -111,7 +128,7 @@ export async function POST(req: Request, { params }: { params: { offerId: string
   try {
     const { completeVision } = await import("@/lib/ai/anthropic");
     const system =
-      type === "review"
+      action === "review"
         ? `Eres un verificador de capturas. La captura DEBE ser una reseña PUBLICADA en ${platform} del restaurante "${b.name}". Es válida si se ve que es ${platform}, es una reseña ya publicada y corresponde a "${b.name}" (tolera recortes y nombres parecidos; rechaza si claramente no es una reseña o es de otro sitio). Responde SOLO JSON: {"valid": boolean, "confidence": 0..1, "reason": "motivo breve en español"}.`
         : `Eres un verificador de capturas. La captura DEBE ser una PUBLICACIÓN en una red social (Instagram/Facebook/TikTok/X/Stories) con una FOTO que ETIQUETA o MENCIONA al restaurante "${b.name}". Es válida si se ve que es una red social, hay foto y aparece el nombre/etiqueta de "${b.name}" (tolera recortes; rechaza si no es una publicación social o no menciona al sitio). Responde SOLO JSON: {"valid": boolean, "confidence": 0..1, "reason": "motivo breve en español"}.`;
     const raw = await completeVision({
@@ -121,7 +138,7 @@ export async function POST(req: Request, { params }: { params: { offerId: string
       maxTokens: 200,
       imageUrls: [shotUrl],
       system,
-      userText: type === "review" ? "¿Es una reseña publicada de este restaurante?" : "¿Es una publicación social que etiqueta a este restaurante?"
+      userText: action === "review" ? "¿Es una reseña publicada de este restaurante?" : "¿Es una publicación social que etiqueta a este restaurante?"
     });
     const m = raw.match(/\{[\s\S]*\}/);
     if (m) {

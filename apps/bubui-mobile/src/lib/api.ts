@@ -162,22 +162,11 @@ export const api = {
   },
   /** Activa un cupón-reto con una acción (reseña/foto) validada por IA, en vez
    *  de esperar a los amigos. Solo disponible con +10 amigos dados de alta. */
-  offerVerifyAction: (offerId: string, customerId: string, type: "review" | "social", uri: string) => {
-    const url = new URL(`${API_BASE}/api/bubui/offer/${encodeURIComponent(offerId)}/verify-action`);
-    url.searchParams.set("customerId", customerId);
-    url.searchParams.set("type", type);
-    const fd = new FormData();
-    fd.append("file", { uri, name: `challenge-${type}.jpg`, type: "image/jpeg" } as any);
-    return fetch(url.toString(), {
-      method: "POST",
-      body: fd,
-      headers: authHeaders()
-    }).then(async (r) => {
-      const j = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(j?.error?.message ?? `HTTP ${r.status}`);
-      return j as { ok: true; valid: boolean; provisional: boolean; activated: boolean; reason: string };
-    });
-  },
+  offerVerifyAction: (offerId: string, customerId: string, type: "review" | "social", imageBase64: string, mimeType: string) =>
+    call<{ ok: true; valid: boolean; provisional: boolean; activated: boolean; reason: string }>(
+      `/api/bubui/offer/${encodeURIComponent(offerId)}/verify-action`,
+      { method: "POST", body: JSON.stringify({ customerId, type, imageBase64, mimeType }) }
+    ),
   discover: (lat?: number, lng?: number, customerId?: string) => {
     const url = new URL(`${API_BASE}/api/bubui/discover`);
     url.searchParams.set("limit", "60");
@@ -261,25 +250,13 @@ export const api = {
   },
   /** Sube una CAPTURA (reseña o publicación social) → la IA la valida y, si es
    *  válida, suma una acción al bote común de la mesa. */
-  mesaVerifyAction: (code: string, customerId: string, type: "review" | "photo" | "follow", uri: string, ticketAmount?: number) => {
-    // customerId/type van por QUERY (en RN los campos de texto del multipart se
-    // pierden a veces en Android; el archivo sí llega). El cuerpo solo lleva file.
-    const url = new URL(`${API_BASE}/api/bubui/table/${encodeURIComponent(code)}/verify-action`);
-    url.searchParams.set("customerId", customerId);
-    url.searchParams.set("type", type);
-    if (ticketAmount != null) url.searchParams.set("ticketAmount", String(ticketAmount));
-    const fd = new FormData();
-    fd.append("file", { uri, name: `mesa-${type}.jpg`, type: "image/jpeg" } as any);
-    return fetch(url.toString(), {
-      method: "POST",
-      body: fd,
-      headers: authHeaders()
-    }).then(async (r) => {
-      const j = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(j?.error?.message ?? `HTTP ${r.status}`);
-      return j as { ok: true; valid: boolean; provisional: boolean; reason: string; state: MesaState | null };
-    });
-  },
+  mesaVerifyAction: (code: string, customerId: string, type: "review" | "photo" | "follow", imageBase64: string, mimeType: string, ticketAmount?: number) =>
+    // Imagen en base64 dentro de JSON: evita los problemas del multipart en RN
+    // (campos/archivo que Android pierde). El backend acepta JSON o multipart.
+    call<{ ok: true; valid: boolean; provisional: boolean; reason: string; state: MesaState | null }>(
+      `/api/bubui/table/${encodeURIComponent(code)}/verify-action`,
+      { method: "POST", body: JSON.stringify({ customerId, type, imageBase64, mimeType, ticketAmount }) }
+    ),
   /** Registra un aporte del comensal (compartir/reseña/…) → desbloquea su parte. */
   mesaContribute: (code: string, customerId: string, type: "share" | "review" | "photo" | "follow") =>
     call<{ ok: true; state: MesaState | null }>(
