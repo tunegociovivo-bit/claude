@@ -99,15 +99,25 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
   }
 
   let img = await tryQr();
+  let diag = "";
   if (!img) {
     // La sesión puede no existir todavía (número nuevo): créala/arráncala y
-    // reintenta el QR un par de veces (WAHA lo genera async).
+    // reintenta. Capturamos el error de WAHA para diagnosticar (p. ej. WAHA Core
+    // solo permite 1 sesión → aquí saldría el motivo real).
     const jsonHeaders = { "X-Api-Key": cfg.apiKey, "Content-Type": "application/json" };
-    await fetch(`${cfg.baseUrl}/api/sessions`, {
-      method: "POST",
-      headers: jsonHeaders,
-      body: JSON.stringify({ name: sessionName, start: true })
-    }).catch(() => {});
+    try {
+      const createResp = await fetch(`${cfg.baseUrl}/api/sessions`, {
+        method: "POST",
+        headers: jsonHeaders,
+        body: JSON.stringify({ name: sessionName, start: true })
+      });
+      if (!createResp.ok) {
+        const t = (await createResp.text().catch(() => "")).replace(/\s+/g, " ").slice(0, 220);
+        diag = ` · WAHA /sessions → ${createResp.status}: ${t}`;
+      }
+    } catch (e: any) {
+      diag = ` · No se pudo contactar con WAHA: ${e?.message ?? e}`;
+    }
     await fetch(`${cfg.baseUrl}/api/sessions/${s}/start`, { method: "POST", headers: jsonHeaders }).catch(() => {});
     for (let i = 0; i < 3 && !img; i++) {
       await new Promise((r) => setTimeout(r, 1500));
@@ -117,7 +127,7 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
   if (img) return img;
 
   return NextResponse.json(
-    { ok: false, message: "QR no disponible aún. Espera unos segundos y pulsa de nuevo (o reinicia la sesión)." },
+    { ok: false, message: `QR no disponible aún. Espera unos segundos y pulsa "Actualizar QR".${diag}` },
     { status: 409 }
   );
 });
