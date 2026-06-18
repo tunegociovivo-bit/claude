@@ -4341,6 +4341,7 @@ function NewSearchModal({ open, onClose, onSaved }: { open: boolean; onClose: ()
   const [skipExisting, setSkipExisting] = useState(false);
   const [lowRatingOnly, setLowRatingOnly] = useState(false);
   const [useSynonyms, setUseSynonyms] = useState(false);
+  const [useGrid, setUseGrid] = useState(false);
   const [allSources, setAllSources] = useState(false);
   const [cfg, setCfg] = useState<{ metaAdsConfigured?: boolean; scrapflyConfigured?: boolean } | null>(null);
   const [saving, setSaving] = useState(false);
@@ -4358,6 +4359,7 @@ function NewSearchModal({ open, onClose, onSaved }: { open: boolean; onClose: ()
     setSkipExisting(false);
     setLowRatingOnly(false);
     setUseSynonyms(false);
+    setUseGrid(false);
     setAllSources(false);
     setError(null);
     setSaving(false);
@@ -4379,10 +4381,11 @@ function NewSearchModal({ open, onClose, onSaved }: { open: boolean; onClose: ()
         skipExisting,
         source: src,
         sourceConfig:
-          src === "places" && (lowRatingOnly || useSynonyms)
+          src === "places" && (lowRatingOnly || useSynonyms || useGrid)
             ? {
                 ...(lowRatingOnly ? { lowRatingOnly: true, maxRating: 3.5, minReviewsCount: 5 } : {}),
-                ...(useSynonyms ? { useSynonyms: true } : {})
+                ...(useSynonyms ? { useSynonyms: true } : {}),
+                ...(useGrid ? { useGrid: true } : {})
               }
             : undefined
       })
@@ -4598,6 +4601,24 @@ function NewSearchModal({ open, onClose, onSaved }: { open: boolean; onClose: ()
               <p className="text-[11px] text-slate-500">
                 Lanza la búsqueda también con variantes ("dentista" → "clínica dental", "odontólogo").
                 Más resultados, pero multiplica el coste de la API de Google.
+              </p>
+            </div>
+          </label>
+        )}
+        {source === "places" && scope === "custom" && (
+          <label className="flex items-start gap-2 p-2 rounded-md border border-emerald-200 bg-emerald-50/50 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={useGrid}
+              onChange={(e) => setUseGrid(e.target.checked)}
+              className="mt-0.5 accent-emerald-600"
+            />
+            <div className="flex-1">
+              <span className="text-xs font-medium text-slate-800">🗺️ Búsqueda por cuadrícula (máxima cobertura)</span>
+              <p className="text-[11px] text-slate-500">
+                Divide la zona en una rejilla y consulta cada celda para superar el tope de ~60
+                de Google. Captura <strong>muchos más negocios</strong> de la misma zona (ideal
+                con una ciudad/municipio concreto). Usa más llamadas a la API.
               </p>
             </div>
           </label>

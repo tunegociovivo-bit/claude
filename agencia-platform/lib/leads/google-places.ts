@@ -181,6 +181,30 @@ export async function placesTextSearch(opts: {
   return results;
 }
 
+/**
+ * Centro aproximado (lat/lng) de un área por su nombre ("Gijón, Asturias").
+ * Promedia la ubicación de los primeros resultados de un Text Search. Sirve
+ * para centrar la cuadrícula de captación. Devuelve null si no hay resultados.
+ */
+export async function geocodeArea(opts: {
+  workspaceId: string;
+  area: string;
+}): Promise<{ lat: number; lng: number } | null> {
+  const res = await placesTextSearch({
+    workspaceId: opts.workspaceId,
+    query: opts.area,
+    maxPages: 1,
+    pageSize: 10
+  });
+  const pts = res
+    .map((r) => ({ lat: r.latitude, lng: r.longitude }))
+    .filter((p) => p.lat != null && p.lng != null) as { lat: number; lng: number }[];
+  if (pts.length === 0) return null;
+  const lat = pts.reduce((s, p) => s + p.lat, 0) / pts.length;
+  const lng = pts.reduce((s, p) => s + p.lng, 0) / pts.length;
+  return { lat, lng };
+}
+
 function mapPlace(p: any, province?: string): PlacesResult {
   const types = Array.isArray(p?.types) ? p.types : [];
   const primary = p?.primaryTypeDisplayName?.text ?? p?.primaryType ?? null;

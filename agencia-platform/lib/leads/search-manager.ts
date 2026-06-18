@@ -9,7 +9,8 @@
  */
 
 import { prisma } from "@/lib/db/prisma";
-import { placesTextSearch, type PlacesResult } from "./google-places";
+import { placesTextSearch, geocodeArea, type PlacesResult } from "./google-places";
+import { buildGridPoints } from "./geo-grid";
 import { scoreLead } from "./scorer";
 import { scoreTicket } from "./ticket-score";
 import { SPAIN_PROVINCES, findProvince } from "./spain-provinces";
@@ -45,7 +46,43 @@ export async function startSearch(opts: {
   //     (modo "máximo volumen"): cada municipio es un target del batch.
   const tiling: Record<string, any> = {};
   let totalTargets = 1;
-  if (source === "places") {
+  // Búsqueda por CUADRÍCULA (opt-in): divide el área en una rejilla de celdas
+  // lat/lng y consulta cada una, superando el tope de ~60 de Google en zonas
+  // densas. Tiene prioridad sobre el troceado por municipios.
+  const useGrid = !!opts.sourceConfig?.useGrid;
+  if (source === "places" && useGrid && opts.scope === "custom") {
+    // Centro de la rejilla: el municipio si se indicó, si no la provincia.
+    const areaForCenter = municipality
+      ? `${municipality}, ${province?.name ?? location}`
+      : province?.name ?? location;
+    let center: { lat: number; lng: number } | null = null;
+    try {
+      center = await geocodeArea({ workspaceId: opts.workspaceId, area: areaForCenter });
+    } catch {
+      center = null;
+    }
+    if (!center && province?.lat != null && province?.lng != null) {
+      center = { lat: province.lat, lng: province.lng };
+    }
+    if (center) {
+      // Municipio → rejilla densa de ciudad (~12 km de medio lado).
+      // Provincia → rejilla más amplia (~28 km) para cubrir el área metropolitana.
+      const halfSpanKm = municipality ? 12 : 28;
+      const stepKm = municipality ? 3.5 : 8;
+      const { cells, cellRadiusMeters } = buildGridPoints({
+        lat: center.lat,
+        lng: center.lng,
+        halfSpanKm,
+        stepKm,
+        maxCells: 64
+      });
+      tiling.gridCells = cells;
+      tiling.gridRadiusMeters = cellRadiusMeters;
+      tiling.tileProvince = province?.name ?? location;
+      totalTargets = cells.length;
+    }
+  }
+  if (source === "places" && totalTargets === 1 && !tiling.gridCells) {
     if (opts.scope === "spain") {
       totalTargets = SPAIN_PROVINCES.length;
     } else if (municipality) {
@@ -114,12 +151,32 @@ export async function processSearchBatch(opts: {
 
   // Cada "target" es un área de búsqueda: nombre para el textQuery de Places,
   // provincia para etiquetar el lead, y coords opcionales para el locationBias.
-  type Target = { area: string; provinceTag: string; lat?: number; lng?: number };
+  type Target = {
+    area: string;
+    provinceTag: string;
+    lat?: number;
+    lng?: number;
+    radiusMeters?: number;
+    gridMode?: boolean;
+  };
   const cfg: any = (search as any).sourceConfig ?? {};
   const batchSize = opts.batchSize ?? 5;
   const from = search.processedProvinces;
   let targets: Target[];
-  if (search.scope === "spain") {
+  if (Array.isArray(cfg.gridCells) && cfg.gridCells.length > 0) {
+    // Búsqueda por cuadrícula: cada celda es un punto lat/lng con radio. El
+    // textQuery va sin nombre de zona (puro geo, locationBias). El dedup entre
+    // celdas lo hace el upsert por workspaceId+placeId.
+    const prov = cfg.tileProvince ?? search.location;
+    targets = cfg.gridCells.slice(from, from + batchSize).map((c: any, i: number) => ({
+      area: `${prov} · celda ${from + i + 1}/${cfg.gridCells.length}`,
+      provinceTag: prov,
+      lat: c.lat,
+      lng: c.lng,
+      radiusMeters: cfg.gridRadiusMeters ?? 3000,
+      gridMode: true
+    }));
+  } else if (search.scope === "spain") {
     targets = SPAIN_PROVINCES.slice(from, from + batchSize).map((p) => ({
       area: p.name,
       provinceTag: p.name,
@@ -177,9 +234,13 @@ export async function processSearchBatch(opts: {
       for (const kw of variants) {
         const part = await placesTextSearch({
           workspaceId: opts.workspaceId,
-          query: `${kw} en ${prov.area}`.trim(),
+          // En modo cuadrícula la consulta es puro geo (keyword + locationBias a
+          // la celda); en el resto incluimos el nombre del área en el texto.
+          query: prov.gridMode ? kw.trim() : `${kw} en ${prov.area}`.trim(),
           lat: prov.lat || undefined,
           lng: prov.lng || undefined,
+          radiusMeters: prov.radiusMeters,
+          maxPages: prov.gridMode ? 2 : undefined,
           province: prov.provinceTag
         });
         for (const r of part) {
