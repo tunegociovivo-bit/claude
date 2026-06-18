@@ -4654,7 +4654,7 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
         )}
       </Modal>
     );
-  async function save() {
+  async function save(): Promise<boolean> {
     setSaving(true);
     setError(null);
     const body: any = {
@@ -4699,9 +4699,10 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
     if (!r.ok) {
       const j = await r.json().catch(() => ({}));
       setError(j?.error?.message ?? `Error ${r.status}`);
-      return;
+      return false;
     }
     setSavedAt(new Date());
+    return true;
   }
   function setField(k: string, v: any) { setS({ ...s, [k]: v }); }
 
@@ -5011,13 +5012,20 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
                       />
                       <button
                         type="button"
-                        onClick={() => {
+                        onClick={async () => {
                           if (!c.name?.trim()) return;
+                          // Si se está cerrando el QR, no hace falta guardar.
+                          if (channelQr === c.name) { setChannelQr(null); return; }
+                          // Guardar SIEMPRE antes de pedir el QR: el endpoint exige
+                          // que el número esté dado de alta en Ajustes. Evita el
+                          // error "no está en Ajustes".
+                          const ok = await save();
+                          if (!ok) return;
                           setChannelQrErr(null);
                           setChannelQrNonce((n) => n + 1);
-                          setChannelQr(channelQr === c.name ? null : c.name);
+                          setChannelQr(c.name);
                         }}
-                        disabled={!c.name?.trim()}
+                        disabled={!c.name?.trim() || saving}
                         className="px-2 py-1 rounded border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-xs disabled:opacity-40"
                         title="Conectar este número: escanea su QR con el móvil de la SIM (solo una vez). Guarda los ajustes antes."
                       >
