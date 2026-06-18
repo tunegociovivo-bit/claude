@@ -1194,6 +1194,7 @@ function LeadDetailModal({
   const [sendingMockup, setSendingMockup] = useState(false);
   const [mockupMsg, setMockupMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [sendingRanking, setSendingRanking] = useState(false);
+  const [harvesting, setHarvesting] = useState(false);
   const [rankingMsg, setRankingMsg] = useState<{ ok: boolean; text: string } | null>(null);
   // Pitch Bubui: mensaje de WhatsApp que vende Bubui a este negocio con una
   // demo personalizada (lead → captación product-led).
@@ -1314,6 +1315,22 @@ function LeadDetailModal({
       setRankingMsg({ ok: false, text: e?.message ?? "Error de red" });
     }
     setSendingRanking(false);
+  }
+
+  async function harvestCompetitors() {
+    if (!leadId) return;
+    if (!confirm("¿Cosechar los competidores de este lead como leads nuevos? (consulta Google y crea los que aún no tengas)")) return;
+    setHarvesting(true);
+    setRankingMsg(null);
+    try {
+      const r = await fetch(`/api/v1/leads/${leadId}/harvest-competitors`, { method: "POST" });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j.ok) setRankingMsg({ ok: false, text: j?.error?.message ?? `Error ${r.status}` });
+      else setRankingMsg({ ok: true, text: j.message ?? `Cosechados ${j.created ?? 0} leads.` });
+    } catch (e: any) {
+      setRankingMsg({ ok: false, text: e?.message ?? "Error de red" });
+    }
+    setHarvesting(false);
   }
 
   async function convertToClient() {
@@ -1446,6 +1463,16 @@ function LeadDetailModal({
             >
               {sendingRanking && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
               📤 Enviar posicionamiento por WhatsApp
+            </button>
+            <button
+              type="button"
+              onClick={harvestCompetitors}
+              disabled={harvesting}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100 text-xs font-medium disabled:opacity-50"
+              title="Crea como leads nuevos los competidores de este negocio que aún no tengas"
+            >
+              {harvesting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+              🪃 Cosechar competidores como leads
             </button>
             {rankingMsg && (
               <span className={`text-xs ${rankingMsg.ok ? "text-emerald-700" : "text-rose-600"}`}>
@@ -4342,6 +4369,7 @@ function NewSearchModal({ open, onClose, onSaved }: { open: boolean; onClose: ()
   const [lowRatingOnly, setLowRatingOnly] = useState(false);
   const [useSynonyms, setUseSynonyms] = useState(false);
   const [useGrid, setUseGrid] = useState(false);
+  const [mobileOnly, setMobileOnly] = useState(false);
   const [allSources, setAllSources] = useState(false);
   const [cfg, setCfg] = useState<{ metaAdsConfigured?: boolean; scrapflyConfigured?: boolean } | null>(null);
   const [saving, setSaving] = useState(false);
@@ -4360,6 +4388,7 @@ function NewSearchModal({ open, onClose, onSaved }: { open: boolean; onClose: ()
     setLowRatingOnly(false);
     setUseSynonyms(false);
     setUseGrid(false);
+    setMobileOnly(false);
     setAllSources(false);
     setError(null);
     setSaving(false);
@@ -4381,11 +4410,12 @@ function NewSearchModal({ open, onClose, onSaved }: { open: boolean; onClose: ()
         skipExisting,
         source: src,
         sourceConfig:
-          src === "places" && (lowRatingOnly || useSynonyms || useGrid)
+          src === "places" && (lowRatingOnly || useSynonyms || useGrid || mobileOnly)
             ? {
                 ...(lowRatingOnly ? { lowRatingOnly: true, maxRating: 3.5, minReviewsCount: 5 } : {}),
                 ...(useSynonyms ? { useSynonyms: true } : {}),
-                ...(useGrid ? { useGrid: true } : {})
+                ...(useGrid ? { useGrid: true } : {}),
+                ...(mobileOnly ? { mobileOnly: true } : {})
               }
             : undefined
       })
@@ -4619,6 +4649,23 @@ function NewSearchModal({ open, onClose, onSaved }: { open: boolean; onClose: ()
                 Divide la zona en una rejilla y consulta cada celda para superar el tope de ~60
                 de Google. Captura <strong>muchos más negocios</strong> de la misma zona (ideal
                 con una ciudad/municipio concreto). Usa más llamadas a la API.
+              </p>
+            </div>
+          </label>
+        )}
+        {source === "places" && (
+          <label className="flex items-start gap-2 p-2 rounded-md border border-sky-200 bg-sky-50/50 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={mobileOnly}
+              onChange={(e) => setMobileOnly(e.target.checked)}
+              className="mt-0.5 accent-sky-600"
+            />
+            <div className="flex-1">
+              <span className="text-xs font-medium text-slate-800">📱 Solo negocios con móvil (WhatsApp real)</span>
+              <p className="text-[11px] text-slate-500">
+                Descarta fijos (8/9) y fichas sin teléfono; deja solo <strong>móviles (6/7)</strong>,
+                que son los que de verdad reciben WhatsApp. Menos cola muerta y mejor entrega.
               </p>
             </div>
           </label>

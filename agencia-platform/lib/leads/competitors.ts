@@ -5,7 +5,9 @@
  * LeadCompetitor y devuelve los datos para pintar el informe "tú vs competencia".
  */
 import { prisma } from "@/lib/db/prisma";
-import { placesTextSearch } from "./google-places";
+import { placesTextSearch, type PlacesResult } from "./google-places";
+import { scoreLead } from "./scorer";
+import { scoreTicket } from "./ticket-score";
 
 export type RankingLead = {
   id: string;
@@ -38,6 +40,7 @@ export type CompetitorRanking = {
   aboveCount: number; // nº de competidores por delante del lead
   total: number; // resultados encontrados
   rows: RankingRow[]; // filas a mostrar (competidores de arriba + el lead)
+  harvested?: { created: number; skipped: number }; // si opts.harvest
 };
 
 const SHOWN = 5; // filas en la tarjeta
@@ -52,10 +55,94 @@ function localityOf(lead: RankingLead): string {
   return "";
 }
 
+/**
+ * COSECHA DE COMPETENCIA: convierte en leads NUEVOS los competidores
+ * encontrados (los que aún no están en el workspace). Reutiliza el trabajo del
+ * informe de posicionamiento — cada lead que miras genera hasta 5 más. No toca
+ * leads existentes (respeta su estado en el funnel).
+ */
+export async function harvestCompetitorsAsLeads(opts: {
+  workspaceId: string;
+  results: PlacesResult[];
+  excludePlaceId?: string;
+  province?: string;
+}): Promise<{ created: number; skipped: number }> {
+  let created = 0;
+  let skipped = 0;
+  let pos = 0;
+  for (const r of opts.results) {
+    pos++;
+    if (!r.placeId) continue;
+    if (opts.excludePlaceId && r.placeId === opts.excludePlaceId) continue;
+    const existing = await prisma.lead.findUnique({
+      where: { workspaceId_placeId: { workspaceId: opts.workspaceId, placeId: r.placeId } },
+      select: { id: true }
+    });
+    if (existing) {
+      skipped++;
+      continue; // ya existe → no lo duplicamos ni tocamos su estado
+    }
+    const score = scoreLead({
+      businessStatus: r.businessStatus,
+      rating: r.rating,
+      reviewsCount: r.userRatingCount,
+      position: pos,
+      website: r.website
+    });
+    const ticket = scoreTicket({
+      name: r.name,
+      category: r.category,
+      types: r.types,
+      priceLevel: r.priceLevel,
+      reviewsCount: r.userRatingCount,
+      website: r.website,
+      runsAds: false,
+      multiLocation: false
+    });
+    try {
+      await prisma.lead.create({
+        data: {
+          workspaceId: opts.workspaceId,
+          placeId: r.placeId,
+          name: r.name,
+          address: r.formattedAddress,
+          formattedAddress: r.formattedAddress,
+          province: r.province ?? opts.province ?? null,
+          phone: r.phone,
+          internationalPhone: r.internationalPhone,
+          website: r.website,
+          category: r.category,
+          types: r.types,
+          latitude: r.latitude,
+          longitude: r.longitude,
+          position: pos,
+          gmbUrl: r.gmbUrl,
+          businessStatus: r.businessStatus,
+          priceLevel: r.priceLevel,
+          rating: r.rating,
+          reviewsCount: r.userRatingCount,
+          rawData: r.rawData,
+          score: score.score,
+          urgency: score.urgency,
+          scoreBreakdown: score.breakdown,
+          ticketScore: ticket.ticketScore,
+          ticketTier: ticket.ticketTier,
+          contactStatus: "pending",
+          notes: "🪃 Cosechado de competencia"
+        } as any
+      });
+      created++;
+    } catch {
+      skipped++;
+    }
+  }
+  return { created, skipped };
+}
+
 export async function getCompetitorRanking(
   workspaceId: string,
   lead: RankingLead,
-  opts?: { store?: boolean }
+  opts?: { store?: boolean; harvest?: boolean }
 ): Promise<CompetitorRanking | null> {
   const category =
     lead.category?.trim() ||
@@ -125,5 +212,16 @@ export async function getCompetitorRanking(
     }
   }
 
-  return { category, locality, query, leadPosition, aboveCount, total: results.length, rows };
+  // Cosecha opcional: crea como leads los competidores que aún no tienes.
+  let harvested: { created: number; skipped: number } | undefined;
+  if (opts?.harvest) {
+    harvested = await harvestCompetitorsAsLeads({
+      workspaceId,
+      results,
+      excludePlaceId: lead.placeId,
+      province: locality || lead.province || undefined
+    });
+  }
+
+  return { category, locality, query, leadPosition, aboveCount, total: results.length, rows, harvested };
 }
