@@ -32,7 +32,14 @@ export const GET = withApi({ scope: "*" }, async (_req, { params, api }) => {
   });
   if (!lead) throw new ApiError(404, "not_found", "Lead no encontrado");
 
-  const data = await getCompetitorRanking(api.workspaceId, lead as any);
+  let data;
+  try {
+    data = await getCompetitorRanking(api.workspaceId, lead as any);
+  } catch (e: any) {
+    // Surface el error REAL de Google Places (clave/permiso/cuota) en vez de un
+    // "internal_error" opaco, para poder diagnosticarlo desde la propia UI.
+    throw new ApiError(400, "ranking_error", e?.message ?? "No se pudo consultar Google Places para el ranking.");
+  }
   if (!data) {
     return NextResponse.json(
       { error: { code: "no_ranking", message: "No se pudo obtener el ranking de Google (revisa categoría/zona del lead y la API key de Places)." } },

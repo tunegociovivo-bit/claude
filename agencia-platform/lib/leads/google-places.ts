@@ -229,9 +229,20 @@ export async function getPlacePhotoDataUrl(opts: {
     if (!resp.ok) return null;
     const ct = resp.headers.get("content-type") ?? "image/jpeg";
     if (!ct.startsWith("image/")) return null;
-    const buf = Buffer.from(await resp.arrayBuffer());
-    if (buf.length === 0 || buf.length > 3_000_000) return null; // sanidad
-    return `data:${ct};base64,${buf.toString("base64")}`;
+    const raw = Buffer.from(await resp.arrayBuffer());
+    if (raw.length === 0 || raw.length > 8_000_000) return null; // sanidad
+
+    // IMPORTANTE: Satori (next/og) sólo decodifica PNG/JPEG/GIF. Google Places
+    // suele servir WebP/AVIF, que hacían CRASHEAR el render del mockup (502).
+    // Re-codificamos SIEMPRE a JPEG con sharp para garantizar un formato que
+    // Satori entienda y, de paso, acotar tamaño.
+    const { default: sharp } = await import("sharp");
+    const jpeg = await sharp(raw)
+      .resize(px, px, { fit: "cover", position: "centre" })
+      .jpeg({ quality: 80 })
+      .toBuffer();
+    if (jpeg.length === 0) return null;
+    return `data:image/jpeg;base64,${jpeg.toString("base64")}`;
   } catch {
     return null;
   }
