@@ -106,6 +106,7 @@ type QueueRow = {
   sendAttempts: number;
   lastError: string | null;
   renderedMessage: string;
+  instanceName?: string | null;
 };
 
 type Tab = "leads" | "searches" | "queue" | "inbox" | "sequences" | "templates" | "exclusions" | "analytics" | "map" | "settings";
@@ -2026,6 +2027,37 @@ function QueueTable({ loading, items, onChanged }: { loading: boolean; items: Qu
   const [editingDateId, setEditingDateId] = useState<string | null>(null);
   const [editDateVal, setEditDateVal] = useState("");
   const [savingDateId, setSavingDateId] = useState<string | null>(null);
+  // Números emisores disponibles (multi-número) para la columna "Enviar desde".
+  const [channels, setChannels] = useState<{ name: string; label?: string | null }[]>([]);
+  const [savingChanId, setSavingChanId] = useState<string | null>(null);
+  useEffect(() => {
+    fetch("/api/v1/leads/settings")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => setChannels(Array.isArray(d?.channels) ? d.channels.filter((c: any) => c?.name) : []))
+      .catch(() => {});
+  }, []);
+  function channelLabel(name: string | null | undefined): string {
+    if (!name) return "Principal";
+    const c = channels.find((x) => x.name === name);
+    return c?.label?.trim() || name;
+  }
+  async function changeChannel(id: string, value: string) {
+    setSavingChanId(id);
+    try {
+      const r = await fetch(`/api/v1/leads/queue/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ channel: value })
+      });
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}));
+        alert(d?.error?.message ?? `No se pudo cambiar el número (${r.status})`);
+      }
+    } finally {
+      setSavingChanId(null);
+      onChanged();
+    }
+  }
 
   // Al refrescar, descarta de la selección los que ya no salen.
   useEffect(() => {
@@ -2369,6 +2401,7 @@ function QueueTable({ loading, items, onChanged }: { loading: boolean; items: Qu
                   />
                 </th>
                 <th className="text-left px-3 py-2.5">Teléfono</th>
+                <th className="text-left px-3 py-2.5">Enviar desde</th>
                 <th className="text-left px-3 py-2.5">Mensaje</th>
                 <th className="text-left px-3 py-2.5">Programado</th>
                 <th className="text-left px-3 py-2.5">Estado</th>
@@ -2392,6 +2425,26 @@ function QueueTable({ loading, items, onChanged }: { loading: boolean; items: Qu
                       />
                     </td>
                     <td className="px-3 py-2 font-mono text-xs">{m.phoneNormalized}</td>
+                    <td className="px-3 py-2 text-xs">
+                      {m.status === "sending" || m.sentAt || channels.length === 0 ? (
+                        <span className={m.instanceName ? "" : "text-slate-400"} title="Número emisor">
+                          {channelLabel(m.instanceName)}
+                        </span>
+                      ) : (
+                        <select
+                          value={m.instanceName ?? ""}
+                          disabled={savingChanId === m.id}
+                          onChange={(e) => changeChannel(m.id, e.target.value)}
+                          className="text-xs border rounded px-1.5 py-1 bg-white max-w-[150px] disabled:opacity-50"
+                          title="Número que enviará este mensaje"
+                        >
+                          <option value="">Principal</option>
+                          {channels.map((c) => (
+                            <option key={c.name} value={c.name}>{c.label?.trim() || c.name}</option>
+                          ))}
+                        </select>
+                      )}
+                    </td>
                     <td className="px-3 py-2 text-xs max-w-md truncate" title={m.renderedMessage}>{m.renderedMessage}</td>
                     <td className="px-3 py-2 text-xs">
                       {editingDateId === m.id ? (
