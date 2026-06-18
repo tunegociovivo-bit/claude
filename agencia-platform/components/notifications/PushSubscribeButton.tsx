@@ -18,6 +18,27 @@ export default function PushSubscribeButton() {
   const [status, setStatus] = useState<Status>("loading");
   const [publicKey, setPublicKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [testMsg, setTestMsg] = useState<string | null>(null);
+  const [testing, setTesting] = useState(false);
+
+  async function sendTest() {
+    setTesting(true);
+    setTestMsg(null);
+    try {
+      const r = await fetch("/api/v1/notifications/push/test", { method: "POST" });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d?.error?.message ?? `Error ${r.status}`);
+      setTestMsg(
+        d.sent > 0
+          ? `✓ Enviada a ${d.sent} dispositivo${d.sent === 1 ? "" : "s"}. Míralo en el móvil.`
+          : "No hay dispositivos suscritos. Activa las notificaciones en el móvil."
+      );
+    } catch (e: any) {
+      setTestMsg("Error: " + (e?.message ?? String(e)));
+    } finally {
+      setTesting(false);
+    }
+  }
 
   useEffect(() => {
     (async () => {
@@ -140,13 +161,26 @@ export default function PushSubscribeButton() {
   }
   if (status === "subscribed") {
     return (
-      <button
-        onClick={unsubscribe}
-        className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm border bg-emerald-50 border-emerald-200 text-emerald-800 hover:bg-emerald-100"
-      >
-        <BellRing className="h-4 w-4" />
-        Push activado — Desactivar
-      </button>
+      <div className="flex flex-col gap-1.5">
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            onClick={unsubscribe}
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm border bg-emerald-50 border-emerald-200 text-emerald-800 hover:bg-emerald-100"
+          >
+            <BellRing className="h-4 w-4" />
+            Push activado — Desactivar
+          </button>
+          <button
+            onClick={sendTest}
+            disabled={testing}
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm border bg-white hover:bg-slate-50 disabled:opacity-50"
+          >
+            {testing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Bell className="h-4 w-4" />}
+            🔔 Probar notificación
+          </button>
+        </div>
+        {testMsg && <p className="text-xs text-slate-600">{testMsg}</p>}
+      </div>
     );
   }
   if (status === "subscribing") {
