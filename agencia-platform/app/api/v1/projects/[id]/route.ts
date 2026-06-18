@@ -95,6 +95,37 @@ export const DELETE = withApi({ scope: "projects:write", rate: "destructive" }, 
     meta: { recoverableFor: "30 days" }
   });
 
+  // Aviso inmediato a los ADMINS (push + campana) de que se ha borrado un
+  // proyecto, para que ningún borrado pase desapercibido. Fire-and-forget.
+  void (async () => {
+    try {
+      const admins = await prisma.membership.findMany({
+        where: { workspaceId: api.workspaceId, role: "ADMIN" },
+        select: { userId: true }
+      });
+      const body = `Se ha movido a la papelera el proyecto "${project.name}" (${project._count.tasks} tareas). Recuperable 30 días en /admin/papelera.`;
+      const link = "/admin/papelera";
+      if (admins.length > 0) {
+        await prisma.notification.createMany({
+          data: admins.map((a) => ({ userId: a.userId, type: "project_deleted", body, link }))
+        });
+        const { sendPushToUser } = await import("@/lib/push/web-push");
+        await Promise.all(
+          admins.map((a) =>
+            sendPushToUser(a.userId, {
+              title: "🗑️ Proyecto borrado",
+              body,
+              link,
+              tag: `project-deleted-${project.id}`
+            }).catch(() => {})
+          )
+        );
+      }
+    } catch (e: any) {
+      console.warn("[project delete notify]:", e?.message ?? e);
+    }
+  })();
+
   return NextResponse.json({
     ok: true,
     deleted: { id: project.id, name: project.name, tasksSoftDeleted: project._count.tasks },
