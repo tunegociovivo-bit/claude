@@ -113,7 +113,13 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
       });
       if (!createResp.ok) {
         const t = (await createResp.text().catch(() => "")).replace(/\s+/g, " ").slice(0, 220);
-        diag = ` · WAHA /sessions → ${createResp.status}: ${t}`;
+        if (/WAHA Core|PLUS version|more then one|more than one/i.test(t)) {
+          diag =
+            " · Tu servidor WAHA es la versión Core (gratuita), que SOLO permite 1 número (el principal). " +
+            "Para conectar varios números necesitas WAHA Plus (de pago). Más info: https://waha.devlike.pro";
+        } else {
+          diag = ` · WAHA /sessions → ${createResp.status}: ${t}`;
+        }
       }
     } catch (e: any) {
       diag = ` · No se pudo contactar con WAHA: ${e?.message ?? e}`;
