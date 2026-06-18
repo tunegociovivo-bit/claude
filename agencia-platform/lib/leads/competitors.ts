@@ -5,7 +5,7 @@
  * LeadCompetitor y devuelve los datos para pintar el informe "tú vs competencia".
  */
 import { prisma } from "@/lib/db/prisma";
-import { placesTextSearch, type PlacesResult } from "./google-places";
+import { placesTextSearch, getPlacePhotoDataUrl, type PlacesResult } from "./google-places";
 import { scoreLead } from "./scorer";
 import { scoreTicket } from "./ticket-score";
 
@@ -30,6 +30,7 @@ export type RankingRow = {
   rating: number | null;
   reviewsCount: number;
   isLead: boolean;
+  photoDataUrl?: string | null; // foto real de la ficha (Places Photo), data URL JPEG
 };
 
 export type CompetitorRanking = {
@@ -169,6 +170,7 @@ export async function getCompetitorRanking(
   // Filas a mostrar: si el lead está en el top SHOWN, mostramos ese top con él
   // resaltado; si no, mostramos los primeros (SHOWN-1) competidores + el lead.
   const rows: RankingRow[] = [];
+  const photoNames: (string | null)[] = []; // foto por fila (paralelo a rows)
   const leadInTop = leadPosition != null && leadPosition <= SHOWN;
   const topCount = leadInTop ? SHOWN : SHOWN - 1;
   for (let i = 0; i < Math.min(topCount, results.length); i++) {
@@ -180,6 +182,7 @@ export async function getCompetitorRanking(
       reviewsCount: r.userRatingCount ?? 0,
       isLead: r.placeId === lead.placeId
     });
+    photoNames.push((r.rawData as any)?.photos?.[0]?.name ?? null);
   }
   if (!leadInTop) {
     rows.push({
@@ -189,7 +192,19 @@ export async function getCompetitorRanking(
       reviewsCount: lead.reviewsCount ?? 0,
       isLead: true
     });
+    photoNames.push(null); // el lead fuera del top no viene en results → sin foto
   }
+
+  // Fotos REALES de cada ficha (Places Photo → data URL JPEG, compatibles con
+  // Satori). Best-effort y en paralelo. Coste: 1 llamada de foto por ficha
+  // mostrada (~5). Si una falla, la miniatura cae al placeholder con la inicial.
+  await Promise.all(
+    rows.map(async (row, i) => {
+      const pn = photoNames[i];
+      if (!pn) return;
+      row.photoDataUrl = await getPlacePhotoDataUrl({ workspaceId, photoName: pn, maxPx: 200 });
+    })
+  );
 
   // Guardar el top de competidores (sin el propio lead) para histórico/uso futuro.
   if (opts?.store !== false) {

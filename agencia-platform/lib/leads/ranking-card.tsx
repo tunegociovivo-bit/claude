@@ -121,24 +121,33 @@ function Row({ r, category, locality }: { r: RankingRow; category: string; local
         <div style={{ display: "flex", marginTop: 4, fontSize: 22, color: "#70757A" }}>{sub}</div>
       </div>
 
-      {/* miniatura (placeholder con inicial) */}
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          width: 96,
-          height: 96,
-          borderRadius: 12,
-          flexShrink: 0,
-          backgroundColor: "#E8EAED",
-          color: "#9AA0A6",
-          fontSize: 44,
-          fontWeight: 700
-        }}
-      >
-        {initial}
-      </div>
+      {/* miniatura: foto real de Google si la hay, si no la inicial */}
+      {r.photoDataUrl ? (
+        <img
+          src={r.photoDataUrl}
+          width={96}
+          height={96}
+          style={{ width: 96, height: 96, borderRadius: 12, objectFit: "cover", flexShrink: 0 }}
+        />
+      ) : (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            width: 96,
+            height: 96,
+            borderRadius: 12,
+            flexShrink: 0,
+            backgroundColor: "#E8EAED",
+            color: "#9AA0A6",
+            fontSize: 44,
+            fontWeight: 700
+          }}
+        >
+          {initial}
+        </div>
+      )}
     </div>
   );
 }
