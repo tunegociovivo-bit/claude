@@ -5170,6 +5170,11 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
               <div className={`text-xs rounded-lg border p-2.5 ${wahaTest.ok ? "bg-emerald-50 border-emerald-200 text-emerald-800" : "bg-rose-50 border-rose-200 text-rose-800"}`}>
                 <div className="font-medium">{wahaTest.ok ? "✓ Conectado" : "✗ No conectado"}</div>
                 <div className="mt-0.5">{wahaTest.message}</div>
+                {wahaTest.url && (
+                  <div className="mt-1 text-[11px] opacity-80">
+                    🖥️ Servidor WAHA: <span className="font-mono break-all">{wahaTest.url}</span>
+                  </div>
+                )}
                 {wahaTest.status && (
                   <div className="mt-1 text-[11px] opacity-80">
                     Estado: {wahaTest.status}{wahaTest.engine ? ` · Motor: ${wahaTest.engine}` : ""}{wahaTest.session ? ` · Sesión: ${wahaTest.session}` : ""}
