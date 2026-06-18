@@ -95,45 +95,57 @@ export async function getChannelsHealthMap(
  * multi-número configurado). Evita números en cuarentena y prefiere sanos.
  */
 export async function pickEnqueueChannel(workspaceId: string): Promise<string | null> {
-  const channels = (await getLeadChannels(workspaceId)).filter((c) => c.active !== false);
-  if (channels.length === 0) return null;
-  if (channels.length === 1) return channels[0].name;
+  const ws = await prisma.workspace.findUnique({ where: { id: workspaceId } });
+  const leads: any = (ws?.settings as any)?.leads ?? {};
+  const channels: LeadChannel[] = (Array.isArray(leads.channels) ? leads.channels : []).filter(
+    (c: any) => c && typeof c.name === "string" && c.name.trim() && c.active !== false
+  );
+  if (channels.length === 0) return null; // sin multi-número → número principal (instanceName null)
 
-  // Salud: fuera los que están en cuarentena (si TODOS lo están seguimos con
-  // todos para no parar el sistema); entre el resto, los sanos van primero.
+  // El número PRINCIPAL (instanceName = null) también reparte, junto a los
+  // números extra. Así, al añadir un número, el volumen se DISTRIBUYE entre
+  // todos (principal + extra) y cada uno conserva su propio cupo anti-baneo.
+  const PRINCIPAL = "__principal__";
+  type Slot = { key: string; instanceName: string | null; dailyLimit: number };
+  const slots: Slot[] = [
+    { key: PRINCIPAL, instanceName: null, dailyLimit: Number(leads.dailyLimit) || 80 },
+    ...channels.map((c) => ({ key: c.name, instanceName: c.name, dailyLimit: c.dailyLimit ?? DEFAULT_CHANNEL_DAILY_LIMIT }))
+  ];
+
+  // Salud: descartamos canales en cuarentena (el principal se asume disponible).
   const health = await getChannelsHealthMap(workspaceId, channels);
-  const notQuarantined = channels.filter((c) => health.get(c.name) !== "quarantined");
-  const candidates = notQuarantined.length > 0 ? notQuarantined : channels;
-  const healthy = candidates.filter((c) => health.get(c.name) === "healthy");
+  const notQuarantined = slots.filter((s) => s.key === PRINCIPAL || health.get(s.key) !== "quarantined");
+  const candidates = notQuarantined.length > 0 ? notQuarantined : slots;
+  const healthy = candidates.filter((s) => s.key === PRINCIPAL || health.get(s.key) === "healthy");
   const roster = healthy.length > 0 ? healthy : candidates;
-  if (roster.length === 1) return roster[0].name;
+  if (roster.length === 1) return roster[0].instanceName;
 
-  // Uso de hoy por canal (enviados + programados pendientes).
+  // Uso de hoy por número (enviados + programados pendientes).
   const dayStart = new Date();
   dayStart.setUTCHours(0, 0, 0, 0);
   const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
 
   const used = new Map<string, number>();
-  for (const c of roster) {
+  for (const sl of roster) {
     const n = await prisma.leadMessage.count({
       where: {
         workspaceId,
-        instanceName: c.name,
+        instanceName: sl.instanceName, // null = principal
         OR: [
           { sentAt: { gte: dayStart, lt: dayEnd } },
           { scheduledAt: { gte: dayStart, lt: dayEnd }, status: { in: ["queued", "sending"] } }
         ]
       }
     });
-    used.set(c.name, n);
+    used.set(sl.key, n);
   }
 
-  // Preferimos los que están bajo su tope; si todos llenos, igualmente repartimos
-  // al menos cargado (el tope diario global de Ajustes sigue aplicando aparte).
-  const underCap = roster.filter((c) => (used.get(c.name) ?? 0) < (c.dailyLimit ?? DEFAULT_CHANNEL_DAILY_LIMIT));
+  // Preferimos los que están bajo su tope; si todos llenos, repartimos al menos
+  // cargado (el tope diario global, ya escalado por nº de números, aplica aparte).
+  const underCap = roster.filter((sl) => (used.get(sl.key) ?? 0) < sl.dailyLimit);
   const pool = underCap.length > 0 ? underCap : roster;
-  pool.sort((a, b) => (used.get(a.name) ?? 0) - (used.get(b.name) ?? 0));
-  return pool[0].name;
+  pool.sort((a, b) => (used.get(a.key) ?? 0) - (used.get(b.key) ?? 0));
+  return pool[0].instanceName;
 }
 
 /**
