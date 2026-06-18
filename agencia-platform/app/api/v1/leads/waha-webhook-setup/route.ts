@@ -57,43 +57,64 @@ export const POST = withApi({ scope: "*" }, async (req, { api }) => {
     customHeaders: null
   };
 
-  // Intentamos primero PUT a /api/sessions/{session} con config completa.
-  // Si WAHA rechaza por estar la sesión "WORKING", se hace stop → put → start.
-  async function putSession() {
-    return fetch(`${cfg.baseUrl}/api/sessions/${encodeURIComponent(cfg.session)}`, {
+  // Sesiones a configurar: la principal + TODOS los números extra (multi-número).
+  // Antes solo se configuraba la principal, así que las respuestas a los números
+  // extra (p. ej. "Sonia2") nunca llegaban al Inbox.
+  let sessions: string[] = [cfg.session];
+  try {
+    const { getLeadChannels } = await import("@/lib/leads/channels");
+    const channels = (await getLeadChannels(api.workspaceId)).filter((c) => c.active !== false);
+    sessions = Array.from(new Set([cfg.session, ...channels.map((c) => c.name)]));
+  } catch {
+    sessions = [cfg.session];
+  }
+
+  // Intentamos PUT a /api/sessions/{session} con config completa. Si WAHA lo
+  // rechaza por estar "WORKING" (422), se hace stop → put → start.
+  async function putSession(sessionName: string) {
+    return fetch(`${cfg.baseUrl}/api/sessions/${encodeURIComponent(sessionName)}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json", "X-Api-Key": cfg.apiKey },
       body: JSON.stringify({
-        name: cfg.session,
+        name: sessionName,
         config: { webhooks: [webhookPayload] }
       })
     });
   }
 
-  let resp = await putSession();
-  if (!resp.ok && resp.status === 422) {
-    // WAHA pide STOPPED para reconfigurar.
-    try {
-      await fetch(`${cfg.baseUrl}/api/sessions/${encodeURIComponent(cfg.session)}/stop`, {
-        method: "POST",
-        headers: { "X-Api-Key": cfg.apiKey }
-      });
-      await new Promise((r) => setTimeout(r, 800));
-      resp = await putSession();
-      // Vuelve a arrancar (aunque haya fallado el PUT, lo dejamos como estaba).
-      await fetch(`${cfg.baseUrl}/api/sessions/${encodeURIComponent(cfg.session)}/start`, {
-        method: "POST",
-        headers: { "X-Api-Key": cfg.apiKey }
-      }).catch(() => {});
-    } catch (e: any) {
-      throw new ApiError(502, "waha_unreachable", `No se pudo reconfigurar la sesión WAHA: ${e?.message ?? e}`);
+  const results: { session: string; ok: boolean; error?: string }[] = [];
+  for (const sessionName of sessions) {
+    let resp = await putSession(sessionName);
+    if (!resp.ok && resp.status === 422) {
+      // WAHA pide STOPPED para reconfigurar.
+      try {
+        await fetch(`${cfg.baseUrl}/api/sessions/${encodeURIComponent(sessionName)}/stop`, {
+          method: "POST",
+          headers: { "X-Api-Key": cfg.apiKey }
+        });
+        await new Promise((r) => setTimeout(r, 800));
+        resp = await putSession(sessionName);
+        await fetch(`${cfg.baseUrl}/api/sessions/${encodeURIComponent(sessionName)}/start`, {
+          method: "POST",
+          headers: { "X-Api-Key": cfg.apiKey }
+        }).catch(() => {});
+      } catch (e: any) {
+        results.push({ session: sessionName, ok: false, error: `reconfig: ${e?.message ?? e}` });
+        continue;
+      }
+    }
+    if (resp.ok) {
+      results.push({ session: sessionName, ok: true });
+    } else {
+      const txt = (await resp.text().catch(() => "")).slice(0, 200);
+      results.push({ session: sessionName, ok: false, error: `${resp.status}: ${txt}` });
     }
   }
 
-  if (!resp.ok) {
-    const txt = (await resp.text().catch(() => "")).slice(0, 300);
-    throw new ApiError(502, "waha_error", `WAHA ${resp.status}: ${txt}`);
+  const okCount = results.filter((r) => r.ok).length;
+  if (okCount === 0) {
+    throw new ApiError(502, "waha_error", `No se pudo configurar el webhook: ${results.map((r) => `${r.session} → ${r.error}`).join(" · ")}`);
   }
 
-  return NextResponse.json({ ok: true, url, session: cfg.session });
+  return NextResponse.json({ ok: true, url, configured: okCount, sessions: results });
 });
