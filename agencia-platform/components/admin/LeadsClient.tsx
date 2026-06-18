@@ -1193,6 +1193,8 @@ function LeadDetailModal({
 
   const [sendingMockup, setSendingMockup] = useState(false);
   const [mockupMsg, setMockupMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [sendingRanking, setSendingRanking] = useState(false);
+  const [rankingMsg, setRankingMsg] = useState<{ ok: boolean; text: string } | null>(null);
   // Pitch Bubui: mensaje de WhatsApp que vende Bubui a este negocio con una
   // demo personalizada (lead → captación product-led).
   const [pitching, setPitching] = useState(false);
@@ -1296,6 +1298,22 @@ function LeadDetailModal({
       setMockupMsg({ ok: false, text: e?.message ?? "Error de red" });
     }
     setSendingMockup(false);
+  }
+
+  async function sendRanking() {
+    if (!leadId) return;
+    if (!confirm("¿Enviar el informe de posicionamiento (tú vs competencia) por WhatsApp a este lead?")) return;
+    setSendingRanking(true);
+    setRankingMsg(null);
+    try {
+      const r = await fetch(`/api/v1/leads/${leadId}/send-ranking`, { method: "POST" });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j.ok) setRankingMsg({ ok: false, text: j?.error?.message ?? `Error ${r.status}` });
+      else setRankingMsg({ ok: true, text: j.leadPosition ? `Informe enviado (posición #${j.leadPosition}).` : "Informe enviado." });
+    } catch (e: any) {
+      setRankingMsg({ ok: false, text: e?.message ?? "Error de red" });
+    }
+    setSendingRanking(false);
   }
 
   async function convertToClient() {
@@ -1408,6 +1426,31 @@ function LeadDetailModal({
               <span className={`text-xs ${mockupMsg.ok ? "text-emerald-700" : "text-rose-600"}`}>
                 {mockupMsg.ok ? "✓ " : "✗ "}
                 {mockupMsg.text}
+              </span>
+            )}
+            <a
+              href={`/api/v1/leads/${leadId}/ranking`}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border bg-white hover:bg-slate-50 text-xs font-medium"
+              title="Informe 'tú vs tu competencia' en Google para adjuntar en el mensaje"
+            >
+              📊 Ver posicionamiento vs competencia
+            </a>
+            <button
+              type="button"
+              onClick={sendRanking}
+              disabled={sendingRanking}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 text-xs font-medium disabled:opacity-50"
+              title="Genera el informe de posicionamiento y lo envía como imagen por WhatsApp"
+            >
+              {sendingRanking && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+              📤 Enviar posicionamiento por WhatsApp
+            </button>
+            {rankingMsg && (
+              <span className={`text-xs ${rankingMsg.ok ? "text-emerald-700" : "text-rose-600"}`}>
+                {rankingMsg.ok ? "✓ " : "✗ "}
+                {rankingMsg.text}
               </span>
             )}
             <button
