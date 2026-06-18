@@ -8,7 +8,7 @@ import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { getCompetitorRanking } from "@/lib/leads/competitors";
-import { buildRankingImage } from "@/lib/leads/ranking-card";
+import { renderRankingPng } from "@/lib/leads/ranking-card";
 
 export const runtime = "nodejs";
 
@@ -46,6 +46,17 @@ export const GET = withApi({ scope: "*" }, async (_req, { params, api }) => {
       { status: 400 }
     );
   }
-  // withApi pasa el Response tal cual; ImageResponse es un Response válido.
-  return buildRankingImage(data) as unknown as NextResponse;
+  // Renderizamos a Buffer DENTRO del handler (igual que el mockup): si el render
+  // fallara durante el streaming, sería un 502 indiagnosticable; bufferizando
+  // aquí cualquier error se captura y se devuelve como JSON.
+  let png: Buffer;
+  try {
+    png = await renderRankingPng(data);
+  } catch (e: any) {
+    throw new ApiError(500, "ranking_render_error", `No se pudo generar la imagen del ranking: ${e?.message ?? e}`);
+  }
+  return new NextResponse(new Uint8Array(png), {
+    status: 200,
+    headers: { "Content-Type": "image/png", "Cache-Control": "no-store" }
+  });
 });
