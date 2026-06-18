@@ -2581,6 +2581,7 @@ type Conversation = {
   aiCallNow: boolean;
   lastBody: string;
   lastAt: string;
+  lastInboundAt: string | null;
   lastDirection: string;
   unread: number;
   instanceName: string | null;
@@ -3013,8 +3014,15 @@ function InboxChat({
                       {c.aiScore >= 70 ? "🔥" : ""}{c.aiScore}
                     </span>
                   )}
-                  <span className="text-[10px] text-slate-400">
-                    {c.followupAt ? "🔔 " : ""}{new Date(c.lastAt).toLocaleDateString("es-ES", { day: "2-digit", month: "2-digit" })}
+                  <span className="flex flex-col items-end leading-tight text-[10px] text-slate-400">
+                    <span>
+                      {c.followupAt ? "🔔 " : ""}{new Date(c.lastAt).toLocaleDateString("es-ES", { day: "2-digit", month: "2-digit" })}
+                    </span>
+                    {c.lastInboundAt && (
+                      <span className="text-slate-500" title="Hora del último mensaje recibido">
+                        🕐 {new Date(c.lastInboundAt).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}
+                      </span>
+                    )}
                   </span>
                 </span>
               </div>

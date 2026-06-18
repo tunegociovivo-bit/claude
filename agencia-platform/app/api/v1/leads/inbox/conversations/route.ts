@@ -62,6 +62,7 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
     aiCallNow: boolean;
     lastBody: string;
     lastAt: Date;
+    lastInboundAt: Date | null; // hora del último mensaje RECIBIDO (entrante)
     lastDirection: string;
     unread: number;
     instanceName: string | null;
@@ -90,6 +91,7 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
         aiCallNow: meta?.aiCallNow ?? false,
         lastBody: m.body,
         lastAt: m.receivedAt,
+        lastInboundAt: null,
         lastDirection: m.direction,
         unread: 0,
         instanceName: null,
@@ -112,6 +114,8 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
     }
     if (m.direction === "in") {
       if (!m.read) c.unread++;
+      // msgs viene desc → el primer entrante por teléfono es el más reciente.
+      if (c.lastInboundAt === null) c.lastInboundAt = m.receivedAt;
       // Canal de respuesta = el del entrante más reciente.
       if (c.instanceName === null && m.instanceName) c.instanceName = m.instanceName;
       if (c.classification === null && m.classification) c.classification = m.classification;
