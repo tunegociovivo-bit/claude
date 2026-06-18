@@ -8,6 +8,7 @@
  */
 
 import { ImageResponse } from "next/og";
+import { interFonts } from "./og-fonts";
 
 export type MockupLead = {
   name: string;
@@ -50,7 +51,7 @@ function Card({
       <div style={{ fontSize: 22, fontWeight: 700, color: accent, marginBottom: 10 }}>{title}</div>
       <div style={{ display: "flex", fontSize: 40, color: "#f59e0b" }}>{stars(rating)}</div>
       <div style={{ fontSize: 30, fontWeight: 700, color: "#111827", marginTop: 4 }}>
-        {rating.toFixed(1)} · {reviews} reseñas
+        {`${rating.toFixed(1)} · ${reviews} reseñas`}
       </div>
       <div style={{ display: "flex", flexDirection: "column", marginTop: 16 }}>
         {lines.map((l, i) => (
@@ -82,7 +83,7 @@ export function buildMockupImage(lead: MockupLead, photoDataUrl?: string | null)
           flexDirection: "column",
           backgroundColor: "#0f172a",
           padding: 44,
-          fontFamily: "sans-serif"
+          fontFamily: "Inter"
         }}
       >
         <div style={{ display: "flex", alignItems: "center", marginBottom: 24 }}>
@@ -130,7 +131,7 @@ export function buildMockupImage(lead: MockupLead, photoDataUrl?: string | null)
         </div>
       </div>
     ),
-    { width: 1080, height: 1080 }
+    { width: 1080, height: 1080, fonts: interFonts() }
   );
 }
 
