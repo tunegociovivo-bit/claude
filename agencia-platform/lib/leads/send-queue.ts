@@ -188,6 +188,23 @@ export async function getSendSettings(workspaceId: string): Promise<LeadsSendSet
     base.dailyLimit = Math.max(1, Math.round(base.dailyLimit - reduction));
   }
 
+  // MULTI-NÚMERO: los topes anti-baneo (diario, por hora, nuevas conversaciones)
+  // son POR NÚMERO. El principal + los números extra activos reparten el volumen,
+  // así que el tope del WORKSPACE es la SUMA: con N números, N× envíos/día. El
+  // reparto del enqueue (pickEnqueueChannel) distribuye entre todos, de modo que
+  // cada número se mantiene dentro de su propio cupo (anti-baneo intacto).
+  const extraChannels = Array.isArray(s.channels)
+    ? s.channels.filter(
+        (c: any) => c && typeof c.name === "string" && c.name.trim() && c.active !== false
+      ).length
+    : 0;
+  const senders = 1 + extraChannels; // principal + extra
+  if (senders > 1) {
+    base.dailyLimit = base.dailyLimit * senders;
+    base.maxPerHour = base.maxPerHour * senders;
+    base.maxNewChatsPerDay = base.maxNewChatsPerDay * senders;
+  }
+
   return base;
 }
 
