@@ -45,23 +45,39 @@ const DETAILS_FIELD_MASK = [
  *  guardada cifrada en ajustes; si no hay (o no descifra), usa la env.
  *  Hace trim(): un salto de línea o espacio al pegar la clave es causa
  *  típica de "API key not valid". */
-async function resolveGoogleApiKey(workspaceId: string): Promise<{ key: string; source: string }> {
+/** Todas las claves candidatas, EN ORDEN de preferencia y sin duplicados:
+ *  primero la guardada cifrada en Ajustes, luego la variable de entorno.
+ *  Devolver TODAS permite que, si la primera es inválida, se reintente con la
+ *  siguiente (p. ej. la de Ajustes caducó pero la env sigue siendo buena). */
+async function resolveGoogleApiKeyCandidates(workspaceId: string): Promise<{ key: string; source: string }[]> {
   const ws = await prisma.workspace.findUnique({ where: { id: workspaceId } });
   const settings: any = ws?.settings ?? {};
+  const out: { key: string; source: string }[] = [];
   const encrypted: string | undefined = settings?.leads?.googleApiKey;
   if (encrypted) {
     const dec = decryptSecret(encrypted)?.trim();
-    if (dec) return { key: dec, source: "Ajustes (/admin/leads/settings)" };
+    if (dec) out.push({ key: dec, source: "Ajustes (/admin/leads/settings)" });
   }
   const env = (process.env.GOOGLE_PLACES_API_KEY ?? "").trim();
-  if (env) return { key: env, source: "variable de entorno GOOGLE_PLACES_API_KEY" };
-  throw new Error("No hay API key de Google Places. Configúrala en /admin/leads/settings.");
+  if (env && !out.some((c) => c.key === env)) {
+    out.push({ key: env, source: "variable de entorno GOOGLE_PLACES_API_KEY" });
+  }
+  if (out.length === 0) {
+    throw new Error("No hay API key de Google Places. Configúrala en /admin/leads/settings.");
+  }
+  return out;
+}
+
+async function resolveGoogleApiKey(workspaceId: string): Promise<{ key: string; source: string }> {
+  return (await resolveGoogleApiKeyCandidates(workspaceId))[0];
 }
 
 export async function getGoogleApiKeyForWorkspace(workspaceId: string): Promise<string> {
   const { key } = await resolveGoogleApiKey(workspaceId);
   return key;
 }
+
+const KEY_INVALID_RE = /API_KEY_INVALID|API key not valid/i;
 
 export type PlacesResult = {
   placeId: string;
@@ -99,7 +115,9 @@ export async function placesTextSearch(opts: {
   languageCode?: string;
   regionCode?: string;
 }): Promise<PlacesResult[]> {
-  const { key: apiKey, source: keySource } = await resolveGoogleApiKey(opts.workspaceId);
+  const candidates = await resolveGoogleApiKeyCandidates(opts.workspaceId);
+  let keyIdx = 0;
+  let apiKey = candidates[keyIdx].key;
   const results: PlacesResult[] = [];
   let pageToken: string | undefined;
   const maxPages = opts.maxPages ?? 3;
@@ -130,11 +148,20 @@ export async function placesTextSearch(opts: {
     });
     if (!resp.ok) {
       const txt = await resp.text();
+      // Si la clave actual es inválida y hay otra candidata sin probar
+      // (p. ej. Ajustes falla pero la env es buena), reintenta con la siguiente.
+      if (KEY_INVALID_RE.test(txt) && keyIdx < candidates.length - 1) {
+        keyIdx++;
+        apiKey = candidates[keyIdx].key;
+        page--; // reintenta esta misma página con la nueva clave
+        continue;
+      }
       let msg = `Places ${resp.status}: ${txt.slice(0, 300)}`;
-      if (/API_KEY_INVALID|API key not valid/i.test(txt)) {
+      if (KEY_INVALID_RE.test(txt)) {
+        const tried = candidates.map((c) => `${maskSecret(c.key)} (${c.source})`).join(" · ");
         msg +=
-          `\n[Diagnóstico NV] La clave usada (${maskSecret(apiKey)}) viene de: ${keySource}. ` +
-          `Si crees que es correcta, lo más probable es que esa fuente tenga una versión antigua o con un espacio/salto de línea: ` +
+          `\n[Diagnóstico NV] Ninguna API key de Google Places válida. Probadas: ${tried}. ` +
+          `Lo más probable: la clave de Ajustes tiene un espacio/salto de línea o caducó — ` +
           `vuelve a pegarla y guardar en /admin/leads/settings. ` +
           `Comprueba también en Google Cloud que la key tenga habilitada "Places API (New)" y que sus restricciones no bloqueen llamadas de servidor (sin restricción de referrer HTTP).`;
       }
@@ -222,11 +249,19 @@ export async function getPlacePhotoDataUrl(opts: {
 }): Promise<string | null> {
   if (!opts.photoName) return null;
   try {
-    const apiKey = await getGoogleApiKeyForWorkspace(opts.workspaceId);
     const px = opts.maxPx ?? 600;
-    const url = `${"https://places.googleapis.com/v1/"}${opts.photoName}/media?maxWidthPx=${px}&maxHeightPx=${px}&key=${apiKey}`;
-    const resp = await fetch(url); // sigue el redirect a la imagen real
-    if (!resp.ok) return null;
+    const candidates = await resolveGoogleApiKeyCandidates(opts.workspaceId);
+    // Prueba cada clave (Ajustes → env) hasta que una baje la foto.
+    let resp: Response | null = null;
+    for (const c of candidates) {
+      const url = `${"https://places.googleapis.com/v1/"}${opts.photoName}/media?maxWidthPx=${px}&maxHeightPx=${px}&key=${c.key}`;
+      const r = await fetch(url); // sigue el redirect a la imagen real
+      if (r.ok) {
+        resp = r;
+        break;
+      }
+    }
+    if (!resp || !resp.ok) return null;
     const ct = resp.headers.get("content-type") ?? "image/jpeg";
     if (!ct.startsWith("image/")) return null;
     const raw = Buffer.from(await resp.arrayBuffer());
