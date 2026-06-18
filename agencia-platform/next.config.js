@@ -69,7 +69,16 @@ const nextConfig = {
                 './node_modules/pdfjs-dist/build/pdf.worker.mjs',
                 './node_modules/pdfjs-dist/build/pdf.worker.min.mjs',
                 // binario de ffmpeg (montaje de tomas del vídeo editorial)
-                './node_modules/ffmpeg-static/ffmpeg'
+                './node_modules/ffmpeg-static/ffmpeg',
+                // next/og (ImageResponse): el tracer del standalone NO copia los
+                // assets internos de @vercel/og (wasm de resvg/yoga + fuente por
+                // defecto), así que al renderizar el worker CRASHEABA → 502.
+                // Forzamos su inclusión para mockup, ranking, top-badge, etc.
+                './node_modules/next/dist/compiled/@vercel/og/**/*'
+            ],
+            // Rutas de imagen FUERA de /api (OG image de invitaciones Bubui).
+            '/bubui/**/*': [
+                './node_modules/next/dist/compiled/@vercel/og/**/*'
             ]
         }
     },
