@@ -604,6 +604,25 @@ export async function repaceQueue(opts: {
   let lastAt: Date | null = null;
   let updated = 0;
 
+  // REPARTO MULTI-NÚMERO: al reprogramar, distribuimos los mensajes entre el
+  // número PRINCIPAL (instanceName null) y los números extra activos (round-robin),
+  // saltando los que estén en cuarentena. Así el volumen no recae en un solo
+  // número (anti-baneo). Si no hay números extra, se deja el principal.
+  let roster: (string | null)[] = [null];
+  try {
+    const { getLeadChannels, getChannelsHealthMap } = await import("./channels");
+    const chans = (await getLeadChannels(opts.workspaceId)).filter((c) => c.active !== false);
+    if (chans.length > 0) {
+      const health = await getChannelsHealthMap(opts.workspaceId, chans);
+      const usable = chans.filter((c) => health.get(c.name) !== "quarantined");
+      roster = [null, ...usable.map((c) => c.name)];
+    }
+  } catch {
+    roster = [null];
+  }
+  const distribute = roster.length > 1;
+
+  let i = 0;
   for (const m of msgs) {
     const gapSec =
       settings.sendDelayMinSec +
@@ -612,13 +631,17 @@ export async function repaceQueue(opts: {
     const slot = await computeNextSlot({ workspaceId: opts.workspaceId, desired, settings });
     await prisma.leadMessage.update({
       where: { id: m.id },
-      data: { scheduledAt: slot }
+      data: {
+        scheduledAt: slot,
+        ...(distribute ? { instanceName: roster[i % roster.length] } : {})
+      }
     });
     prevAssigned = slot;
     if (!firstAt) firstAt = slot;
     lastAt = slot;
     isFirst = false;
     updated++;
+    i++;
   }
 
   return { updated, firstAt, lastAt };
