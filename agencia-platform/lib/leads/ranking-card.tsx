@@ -4,6 +4,7 @@
  * que vea de un vistazo que la competencia está por encima. next/og (Satori).
  */
 import { ImageResponse } from "next/og";
+import { interFonts } from "./og-fonts";
 import type { CompetitorRanking, RankingRow } from "./competitors";
 
 function clip(s: string, n = 26): string {
@@ -42,12 +43,11 @@ function Row({ r }: { r: RankingRow }) {
         {r.position ? `#${r.position}` : "+20"}
       </div>
       <div style={{ display: "flex", flexDirection: "column", flex: 1 }}>
-        <div style={{ fontSize: 30, fontWeight: 800, color: lead ? "#ffffff" : "#111827" }}>
-          {clip(r.name)}
-          {lead ? "  (TÚ)" : ""}
+        <div style={{ display: "flex", fontSize: 30, fontWeight: 800, color: lead ? "#ffffff" : "#111827" }}>
+          {`${clip(r.name)}${lead ? "  (TÚ)" : ""}`}
         </div>
-        <div style={{ fontSize: 23, color: lead ? "#fecaca" : "#6b7280", marginTop: 2 }}>
-          ★ {r.rating != null ? r.rating.toFixed(1) : "—"} · {r.reviewsCount} reseñas
+        <div style={{ display: "flex", fontSize: 23, color: lead ? "#fecaca" : "#6b7280", marginTop: 2 }}>
+          {`★ ${r.rating != null ? r.rating.toFixed(1) : "—"} · ${r.reviewsCount} reseñas`}
         </div>
       </div>
     </div>
@@ -58,7 +58,7 @@ export function buildRankingImage(data: CompetitorRanking): ImageResponse {
   const title = `${clip(data.category, 22)}${data.locality ? ` · ${clip(data.locality, 18)}` : ""}`;
   const band =
     data.leadPosition === 1
-      ? "¡Estás en el #1 de Google! 🏆"
+      ? "¡Estás en el #1 de Google!"
       : data.leadPosition
         ? `Estás en la posición #${data.leadPosition} — ${data.aboveCount} competidor${data.aboveCount === 1 ? "" : "es"} por delante`
         : `No apareces en el top 20 — tus competidores se llevan las llamadas`;
@@ -73,11 +73,11 @@ export function buildRankingImage(data: CompetitorRanking): ImageResponse {
           flexDirection: "column",
           backgroundColor: "#0f172a",
           padding: 44,
-          fontFamily: "sans-serif"
+          fontFamily: "Inter"
         }}
       >
         <div style={{ display: "flex", flexDirection: "column", marginBottom: 18 }}>
-          <div style={{ fontSize: 30, color: "#94a3b8" }}>📍 Posición en Google</div>
+          <div style={{ display: "flex", fontSize: 30, color: "#94a3b8" }}>Posición en Google</div>
           <div style={{ fontSize: 46, fontWeight: 800, color: "#ffffff" }}>{title}</div>
         </div>
 
@@ -116,7 +116,7 @@ export function buildRankingImage(data: CompetitorRanking): ImageResponse {
         </div>
       </div>
     ),
-    { width: 1080, height: 1080 }
+    { width: 1080, height: 1080, fonts: interFonts() }
   );
 }
 
