@@ -5,7 +5,7 @@
  * LeadCompetitor y devuelve los datos para pintar el informe "tú vs competencia".
  */
 import { prisma } from "@/lib/db/prisma";
-import { placesTextSearch, getPlacePhotoDataUrl, type PlacesResult } from "./google-places";
+import { placesTextSearch, type PlacesResult } from "./google-places";
 import { scoreLead } from "./scorer";
 import { scoreTicket } from "./ticket-score";
 
@@ -30,7 +30,8 @@ export type RankingRow = {
   rating: number | null;
   reviewsCount: number;
   isLead: boolean;
-  photoDataUrl?: string | null; // foto real de la ficha (Places Photo), data URL JPEG
+  website?: string | null; // para el botón "SITIO WEB" (solo si la ficha lo tiene)
+  phone?: string | null; // para el botón "LLAMAR"
 };
 
 export type CompetitorRanking = {
@@ -170,7 +171,6 @@ export async function getCompetitorRanking(
   // Filas a mostrar: si el lead está en el top SHOWN, mostramos ese top con él
   // resaltado; si no, mostramos los primeros (SHOWN-1) competidores + el lead.
   const rows: RankingRow[] = [];
-  const photoNames: (string | null)[] = []; // foto por fila (paralelo a rows)
   const leadInTop = leadPosition != null && leadPosition <= SHOWN;
   const topCount = leadInTop ? SHOWN : SHOWN - 1;
   for (let i = 0; i < Math.min(topCount, results.length); i++) {
@@ -180,9 +180,10 @@ export async function getCompetitorRanking(
       name: r.name,
       rating: r.rating,
       reviewsCount: r.userRatingCount ?? 0,
-      isLead: r.placeId === lead.placeId
+      isLead: r.placeId === lead.placeId,
+      website: r.website ?? null,
+      phone: r.phone ?? r.internationalPhone ?? null
     });
-    photoNames.push((r.rawData as any)?.photos?.[0]?.name ?? null);
   }
   if (!leadInTop) {
     rows.push({
@@ -190,21 +191,11 @@ export async function getCompetitorRanking(
       name: lead.name,
       rating: lead.rating ?? null,
       reviewsCount: lead.reviewsCount ?? 0,
-      isLead: true
+      isLead: true,
+      website: null,
+      phone: null
     });
-    photoNames.push(null); // el lead fuera del top no viene en results → sin foto
   }
-
-  // Fotos REALES de cada ficha (Places Photo → data URL JPEG, compatibles con
-  // Satori). Best-effort y en paralelo. Coste: 1 llamada de foto por ficha
-  // mostrada (~5). Si una falla, la miniatura cae al placeholder con la inicial.
-  await Promise.all(
-    rows.map(async (row, i) => {
-      const pn = photoNames[i];
-      if (!pn) return;
-      row.photoDataUrl = await getPlacePhotoDataUrl({ workspaceId, photoName: pn, maxPx: 200 });
-    })
-  );
 
   // Guardar el top de competidores (sin el propio lead) para histórico/uso futuro.
   if (opts?.store !== false) {
