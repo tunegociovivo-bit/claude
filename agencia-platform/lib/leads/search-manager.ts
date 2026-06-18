@@ -11,6 +11,7 @@
 import { prisma } from "@/lib/db/prisma";
 import { placesTextSearch, geocodeArea, type PlacesResult } from "./google-places";
 import { buildGridPoints } from "./geo-grid";
+import { phoneKind } from "./phone-type";
 import { scoreLead } from "./scorer";
 import { scoreTicket } from "./ticket-score";
 import { SPAIN_PROVINCES, findProvince } from "./spain-provinces";
@@ -263,6 +264,12 @@ export async function processSearchBatch(opts: {
             r.rating <= maxRating &&
             (r.userRatingCount ?? 0) >= minReviews
         );
+      }
+      // Filtro "WhatsApp real": solo negocios con MÓVIL (6/7). Descarta fijos
+      // (que casi nunca tienen WhatsApp) y fichas sin teléfono → menos cola
+      // muerta y mejor tasa de entrega del canal.
+      if (cfg.mobileOnly) {
+        results = results.filter((r) => phoneKind(r.phone, r.internationalPhone) === "mobile");
       }
       // Clasificación IA de relevancia: descarta resultados que NO encajan
       // con el nicho real del keyword (p. ej. masajes terapéuticos cuando
