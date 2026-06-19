@@ -114,6 +114,7 @@ type QueueRow = {
   sendAttempts: number;
   lastError: string | null;
   renderedMessage: string;
+  kind?: string | null;
   instanceName?: string | null;
 };
 
@@ -1920,7 +1921,8 @@ function EnqueueModal({
 
           {kind === "ranking" && (
             <div className="rounded-md border border-amber-300 bg-amber-50 px-2.5 py-2 text-[12px] text-amber-800">
-              Envía la “captura” de Google (tú vs competencia) a cada lead. Cada imagen hace
+              Envía <strong>texto + imagen</strong> en un mismo mensaje: la “captura” de Google
+              (tú vs competencia) con tu mensaje de plantilla como pie de foto. Cada imagen hace
               <strong> 1 consulta a Google Places</strong> para calcular su ranking.
               <div className="mt-0.5">
                 💶 Coste estimado: <strong>~{rankCostStr}</strong> ({leadIds.length} leads × ~{EUR_POR_CONSULTA.toFixed(2)}€).
@@ -1930,11 +1932,11 @@ function EnqueueModal({
           )}
 
           <label className="block text-sm font-medium text-slate-700">
-            {kind === "ranking" ? "Pie de foto (opcional)" : "Plantilla"}
+            {kind === "ranking" ? "Texto que acompaña a la imagen (pie de foto)" : "Plantilla"}
           </label>
           {templates.length === 0 ? (
             kind === "ranking" ? (
-              <p className="text-xs text-slate-500">Sin plantilla: se usará un pie automático según la posición de cada lead.</p>
+              <p className="text-xs text-slate-500">Sin plantilla: se enviará la imagen con un pie automático según la posición de cada lead.</p>
             ) : (
               <p className="text-sm text-amber-700">No hay plantillas todavía. Crea una en la pestaña <strong>Plantillas</strong>.</p>
             )
@@ -2678,7 +2680,16 @@ function QueueTable({ loading, items, onChanged }: { loading: boolean; items: Qu
                         </select>
                       )}
                     </td>
-                    <td className="px-3 py-2 text-xs max-w-md truncate" title={m.renderedMessage}>{m.renderedMessage}</td>
+                    <td className="px-3 py-2 text-xs max-w-md truncate" title={m.kind === "ranking" ? (m.renderedMessage || "Imagen de posicionamiento (pie automático)") : m.renderedMessage}>
+                      {m.kind === "ranking" ? (
+                        <span className="inline-flex items-center gap-1 text-emerald-700">
+                          📊 <span className="font-medium">Imagen de posicionamiento</span>
+                          {m.renderedMessage ? <span className="text-slate-500">· {m.renderedMessage}</span> : <span className="text-slate-400">· pie automático</span>}
+                        </span>
+                      ) : (
+                        m.renderedMessage
+                      )}
+                    </td>
                     <td className="px-3 py-2 text-xs">
                       {editingDateId === m.id ? (
                         <span className="inline-flex items-center gap-1">

@@ -520,26 +520,24 @@ export async function enqueueMessage(opts: {
   });
   if (existing) throw new Error("Ya hay un mensaje en cola para este lead");
 
-  // Renderizar (placeholders ya resueltos por el caller? — re-resolvemos por seguridad)
-  // Para "ranking" el cuerpo es solo el PIE de foto (puede ir vacío → auto-pie
-  // al enviar); no aplicamos variaciones IA al pie.
+  // Renderizar placeholders. Vale tanto para texto como para el PIE de la
+  // imagen de ranking (texto + imagen): así el lead recibe la captura con un
+  // mensaje personalizado ({{nombre}}, etc.). Si el cuerpo va vacío (ranking
+  // sin plantilla) se deja "" y al enviar se usa un pie automático.
   let rendered = opts.body;
-  if (kind === "text") {
+  if (rendered.trim()) {
     try {
       rendered = await renderTemplate({ workspaceId: opts.workspaceId, body: opts.body, leadId: lead.id });
     } catch {}
-  }
-
-  // Aplicar variaciones: cada mensaje se reescribe con IA para que dos leads
-  // nunca reciban texto idéntico (anti-spam Meta) y para mejorar el formato
-  // visual en WhatsApp (párrafos, CTA, líneas cortas). Si la IA falla cae al
-  // varyMessage determinístico para no bloquear el envío.
-  if (kind === "text" && settings.enableVariations) {
-    rendered = await aiRewriteMessage({
-      workspaceId: opts.workspaceId,
-      base: rendered,
-      seed: lead.id
-    });
+    // Variaciones IA: evita texto idéntico entre leads (anti-spam) y mejora el
+    // formato. Si falla, cae al texto renderizado.
+    if (settings.enableVariations) {
+      rendered = await aiRewriteMessage({
+        workspaceId: opts.workspaceId,
+        base: rendered,
+        seed: lead.id
+      });
+    }
   }
 
   // Calcular slot. ANTI-BANEO: encadenamos tras el ÚLTIMO mensaje ya
