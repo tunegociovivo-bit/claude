@@ -87,6 +87,8 @@ type SearchRow = {
 // Coste aprox. por consulta a Google Places Text Search (New) ≈ $0.032 ≈ €0.03.
 // Solo para dar una idea de magnitud en búsquedas grandes (cuadrícula / país).
 const EUR_POR_CONSULTA = 0.03;
+// Total de municipios del dataset (para estimar "Toda España" + cuadrícula).
+const SPAIN_MUNI_TOTAL = PROVINCE_NAMES.reduce((n, p) => n + municipalitiesForProvince(p).length, 0);
 
 type Template = { id: string; name: string; body: string; channel: string; isDefault: boolean };
 
@@ -4402,6 +4404,20 @@ function NewSearchModal({ open, onClose, onSaved }: { open: boolean; onClose: ()
   const [error, setError] = useState<string | null>(null);
   const sourceMeta = LEAD_SOURCES.find((s) => s.key === source) ?? LEAD_SOURCES[0];
   const municipios = province ? municipalitiesForProvince(province) : [];
+  // Estimación de consultas/coste antes de lanzar (espejo de la lógica del backend).
+  const estVariants = useSynonyms ? 3 : 1;
+  const provName = province || (PROVINCE_NAMES.includes(location.trim()) ? location.trim() : "");
+  let estTargets = 1;
+  if (source === "places") {
+    if (scope === "spain") estTargets = useGrid ? SPAIN_MUNI_TOTAL : 52;
+    else if (municipality) estTargets = useGrid ? 49 : 1;
+    else if (provName) estTargets = useGrid ? 64 : Math.max(1, municipalitiesForProvince(provName).length);
+    else estTargets = 1;
+  }
+  const estQueries = estTargets * estVariants;
+  const estCostEur = estQueries * EUR_POR_CONSULTA;
+  const estCostStr = estCostEur >= 10 ? `${Math.round(estCostEur)}€` : `${estCostEur.toFixed(2)}€`;
+  const showEst = source === "places" && estQueries > 1;
   useEffect(() => {
     if (!open) return;
     setSource("places");
@@ -4714,6 +4730,22 @@ function NewSearchModal({ open, onClose, onSaved }: { open: boolean; onClose: ()
               </p>
             </div>
           </label>
+        )}
+        {showEst && (
+          <div
+            className={
+              "rounded-md border px-2.5 py-2 text-[11px] " +
+              (estQueries > 1500
+                ? "border-amber-300 bg-amber-50 text-amber-800"
+                : "border-slate-200 bg-slate-50 text-slate-600")
+            }
+          >
+            📊 Estimación: <strong>≈ {estQueries.toLocaleString("es")} consultas</strong> a Google ·
+            coste aprox. <strong>~{estCostStr}</strong>
+            {estQueries > 1500 && (
+              <span> · captación grande: se procesa por batches del cron y puede tardar.</span>
+            )}
+          </div>
         )}
         {error && <p className="text-xs text-rose-600">{error}</p>}
       </div>
