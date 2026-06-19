@@ -2175,28 +2175,27 @@ function QueueTable({ loading, items, onChanged }: { loading: boolean; items: Qu
   const [rankIds, setRankIds] = useState<string[]>([]);
   const [rankLoading, setRankLoading] = useState(false);
   const [pendingMobile, setPendingMobile] = useState<number | null>(null);
-  // Contador en vivo de leads pendientes con móvil (para el botón de imagen).
+  // Filtros del envío masivo de imagen.
+  const [rankOnlyPending, setRankOnlyPending] = useState(true);
+  const [rankExcludeManaged, setRankExcludeManaged] = useState(true);
+  // Contador en vivo de candidatos según los filtros elegidos.
   useEffect(() => {
     let alive = true;
-    fetch("/api/v1/leads?contactStatus=pending&idsOnly=1")
+    const qs = `onlyPending=${rankOnlyPending ? 1 : 0}&excludeManaged=${rankExcludeManaged ? 1 : 0}`;
+    fetch(`/api/v1/leads/ranking-candidates?${qs}`)
       .then((r) => (r.ok ? r.json() : null))
-      .then((d) => {
-        if (alive && Array.isArray(d?.items)) {
-          setPendingMobile(d.items.filter((x: any) => phoneKind(x.phone) === "mobile").length);
-        }
-      })
+      .then((d) => { if (alive && typeof d?.count === "number") setPendingMobile(d.count); })
       .catch(() => {});
     return () => { alive = false; };
-  }, [items]);
+  }, [items, rankOnlyPending, rankExcludeManaged]);
   async function openRankingBlast() {
     setRankLoading(true);
     try {
-      const r = await fetch("/api/v1/leads?contactStatus=pending&idsOnly=1");
+      const qs = `onlyPending=${rankOnlyPending ? 1 : 0}&excludeManaged=${rankExcludeManaged ? 1 : 0}`;
+      const r = await fetch(`/api/v1/leads/ranking-candidates?${qs}`);
       const d = await r.json().catch(() => ({}));
-      const rows: any[] = d?.items ?? [];
-      // Solo móviles (los que reciben WhatsApp), hasta 2000.
-      const ids = rows.filter((x) => phoneKind(x.phone) === "mobile").map((x) => x.id).slice(0, 2000);
-      setPendingMobile(rows.filter((x) => phoneKind(x.phone) === "mobile").length);
+      const ids: string[] = Array.isArray(d?.ids) ? d.ids : [];
+      if (typeof d?.count === "number") setPendingMobile(d.count);
       setRankIds(ids);
       setRankOpen(true);
     } finally {
@@ -2496,11 +2495,19 @@ function QueueTable({ loading, items, onChanged }: { loading: boolean; items: Qu
           onClick={openRankingBlast}
           disabled={rankLoading}
           className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-xs disabled:opacity-50"
-          title="Enviar la captura de Google (tú vs competencia) a todos los leads pendientes con móvil"
+          title="Enviar la captura de Google (tú vs competencia) a los leads que cumplen el filtro"
         >
           {rankLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-          📊 Imagen de posicionamiento {pendingMobile != null ? `(${pendingMobile} pendientes)` : "(pendientes)"}
+          📊 Imagen de posicionamiento {pendingMobile != null ? `(${pendingMobile})` : ""}
         </button>
+        <label className="inline-flex items-center gap-1 text-[11px] text-slate-600 cursor-pointer" title="Solo leads en estado Pendiente (no contactados)">
+          <input type="checkbox" checked={rankOnlyPending} onChange={(e) => setRankOnlyPending(e.target.checked)} className="accent-emerald-600" />
+          Solo pendientes
+        </label>
+        <label className="inline-flex items-center gap-1 text-[11px] text-slate-600 cursor-pointer" title="Excluir leads que ya tienen conversación en el inbox (los que estás gestionando)">
+          <input type="checkbox" checked={rankExcludeManaged} onChange={(e) => setRankExcludeManaged(e.target.checked)} className="accent-emerald-600" />
+          Excluir ya gestionados
+        </label>
         {items.some((m) => m.status === "queued") && (
           <button
             onClick={openRepace}
