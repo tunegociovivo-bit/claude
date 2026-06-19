@@ -114,6 +114,10 @@ const schema = z.object({
   clearHunterApiKey: z.boolean().optional(),
   apolloApiKey: z.string().max(200).optional(),
   clearApolloApiKey: z.boolean().optional(),
+  // Voz IA (ElevenLabs): key cifrada + id de la voz (clonada o de su catálogo).
+  elevenLabsApiKey: z.string().max(200).optional(),
+  clearElevenLabsApiKey: z.boolean().optional(),
+  elevenLabsVoiceId: z.string().max(80).optional(),
   sendEnabled: z.boolean().optional(),
   sendPaused: z.boolean().optional(),
   sendWindowStart: z.string().regex(/^\d{2}:\d{2}$/).optional(),
@@ -206,6 +210,16 @@ export const PATCH = withApi({ scope: "*" }, async (req, { api }) => {
     delete s.apolloApiKeyEnc;
   } else if (typeof parsed.data.apolloApiKey === "string" && parsed.data.apolloApiKey.trim()) {
     s.apolloApiKeyEnc = encryptSecret(parsed.data.apolloApiKey.trim());
+  }
+  // Voz IA (ElevenLabs)
+  if (parsed.data.clearElevenLabsApiKey) {
+    delete s.elevenLabsApiKeyEnc;
+  } else if (typeof parsed.data.elevenLabsApiKey === "string" && /^[A-Za-z0-9_\-]{8,}$/.test(parsed.data.elevenLabsApiKey.trim())) {
+    // Solo guarda si parece una key real (evita pisar la guardada con autofill).
+    s.elevenLabsApiKeyEnc = encryptSecret(parsed.data.elevenLabsApiKey.trim());
+  }
+  if (typeof parsed.data.elevenLabsVoiceId === "string") {
+    s.elevenLabsVoiceId = parsed.data.elevenLabsVoiceId.trim();
   }
   for (const k of [
     "whatsappProvider",
