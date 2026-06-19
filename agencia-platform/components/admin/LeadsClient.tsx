@@ -2649,6 +2649,13 @@ function shownPhone(c: { leadPhone?: string | null; realPhone?: string | null; i
   return c.leadPhone || c.realPhone || (c.isLid ? "nº oculto por WhatsApp" : c.phone);
 }
 
+/** Nombre legible del canal (número de WhatsApp) a partir del nombre de sesión. */
+function channelLabelOf(channels: { name: string; label?: string | null }[], name: string | null | undefined): string {
+  if (!name) return "Principal";
+  const c = channels.find((x) => x.name === name);
+  return c?.label?.trim() || name;
+}
+
 const STATUS_CHIP: Record<string, { label: string; cls: string }> = {
   pending: { label: "🕘 Pendiente", cls: "bg-sky-50 text-sky-700 border-sky-200" },
   followup: { label: "📌 Seguimiento", cls: "bg-violet-50 text-violet-700 border-violet-200" },
@@ -2704,6 +2711,16 @@ function InboxChat({
   const [convs, setConvs] = useState<Conversation[]>([]);
   const [convsLoaded, setConvsLoaded] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
+  // Canales (números de WhatsApp) para mostrar con nombre legible cuál gestiona
+  // cada lead. channelLabel = helper local que usa este estado.
+  const [channels, setChannels] = useState<{ name: string; label?: string | null }[]>([]);
+  useEffect(() => {
+    fetch("/api/v1/leads/settings")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => setChannels(Array.isArray(d?.channels) ? d.channels.filter((c: any) => c?.name) : []))
+      .catch(() => {});
+  }, []);
+  const channelLabel = (name: string | null | undefined) => channelLabelOf(channels, name);
   // Filtros y orden de la lista (clave para no ahogarse con volumen).
   const [search, setSearch] = useState("");
   const [fPriority, setFPriority] = useState<string>("all"); // all|alta|media|baja
@@ -3105,11 +3122,15 @@ function InboxChat({
                   <span className={`text-[10px] px-1.5 py-0.5 rounded border ${STATUS_CHIP[c.status].cls}`}>{STATUS_CHIP[c.status].label}</span>
                 )}
                 {chip && <span className={`text-[10px] px-1.5 py-0.5 rounded border ${chip.cls}`}>{chip.label}</span>}
-                {c.instanceName && (
-                  <span className="text-[10px] px-1.5 py-0.5 rounded border bg-slate-50 text-slate-500 border-slate-200">
-                    📱 {c.instanceName}
-                  </span>
-                )}
+                {/* Número de WhatsApp que gestiona este lead (canal de respuesta =
+                    el del último entrante). Siempre visible para saber desde qué
+                    teléfono se habla con cada lead cuando hay varios. */}
+                <span
+                  className="text-[10px] px-1.5 py-0.5 rounded border bg-indigo-50 text-indigo-700 border-indigo-200"
+                  title="Número de WhatsApp con el que se gestiona este lead"
+                >
+                  📱 {c.instanceName ? channelLabel(c.instanceName) : "Principal"}
+                </span>
               </div>
             </button>
           );
@@ -3146,7 +3167,9 @@ function InboxChat({
                   </div>
                   <div className="text-[11px] text-slate-500 truncate">
                     📞 {shownPhone({ ...threadMeta, phone: sel.phone })}
-                    {threadMeta.replyChannel ? ` · respondes por: ${threadMeta.replyChannel}` : " · respondes por: número principal"}
+                    {threadMeta.replyChannel
+                      ? ` · 📱 gestionado por: ${channelLabel(threadMeta.replyChannel)}`
+                      : " · 📱 gestionado por: Principal"}
                   </div>
                 </div>
                 {/* Prioridad: a quién atender antes */}

@@ -249,6 +249,14 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
     return NextResponse.json({ ok: true, recorded: "outbound" });
   }
 
+  // Anti-duplicado: WAHA entrega el ENTRANTE por "message" Y por "message.any".
+  // Usamos "message" para los entrantes y "message.any" SOLO para los fromMe
+  // (que ya se procesaron arriba). Cualquier entrante que llegue por
+  // "message.any" es un duplicado → lo ignoramos.
+  if (eventName === "message.any") {
+    return NextResponse.json({ ok: true, ignored: "any_incoming_dup" });
+  }
+
   if (!fromPhone || typeof messageBody !== "string" || !messageBody.trim()) {
     note("missing_fields", { isMessage: true, from: String(fromPhone ?? ""), text: String(messageBody ?? "") });
     return NextResponse.json({ ok: true, ignored: "missing_fields" });
