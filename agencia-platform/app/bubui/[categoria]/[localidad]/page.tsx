@@ -12,7 +12,7 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import type { Metadata } from "next";
-import { getListing, getLocalitiesForCategory } from "@/lib/bubui/directory";
+import { getListing, getLocalitiesForCategory, getCategoriesForLocality } from "@/lib/bubui/directory";
 import { bubuiUrl } from "@/lib/bubui/url";
 import Editorial from "../../_components/Editorial";
 import DirectoryMap from "../../_components/DirectoryMap";
@@ -42,8 +42,12 @@ export default async function DirectorioNichoLocalidad({ params }: Params) {
   const data = await getListing(params.categoria, params.localidad);
   if (!data) notFound();
   const { category, cityLabel, province, businesses } = data;
-  const other = await getLocalitiesForCategory(params.categoria);
+  const [other, sameCity] = await Promise.all([
+    getLocalitiesForCategory(params.categoria),
+    getCategoriesForLocality(params.localidad)
+  ]);
   const otherLocalities = (other?.localities ?? []).filter((l) => l.citySlug !== params.localidad).slice(0, 12);
+  const otherCategories = (sameCity?.categories ?? []).filter((c) => c.catSlug !== params.categoria).slice(0, 12);
 
   // Editorial SEO: plantilla extensa + intro IA cacheada si existe.
   const editorial = templateListing({
@@ -79,9 +83,21 @@ export default async function DirectorioNichoLocalidad({ params }: Params) {
     }))
   };
 
+  // Breadcrumb para resultados enriquecidos (migas en Google).
+  const breadcrumbLd = {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    itemListElement: [
+      { "@type": "ListItem", position: 1, name: "Directorio", item: bubuiUrl("/directorio") },
+      { "@type": "ListItem", position: 2, name: category.label, item: bubuiUrl(`/${params.categoria}`) },
+      { "@type": "ListItem", position: 3, name: cityLabel, item: bubuiUrl(`/${params.categoria}/${params.localidad}`) }
+    ]
+  };
+
   return (
     <main className="min-h-screen bg-slate-50">
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbLd) }} />
 
       {/* Breadcrumb */}
       <nav className="max-w-5xl mx-auto px-4 pt-6 text-xs text-slate-500">
@@ -181,6 +197,24 @@ export default async function DirectorioNichoLocalidad({ params }: Params) {
                 className="text-sm rounded-full border border-slate-200 bg-white px-3 py-1.5 text-slate-700 hover:border-pink-300 hover:text-pink-600"
               >
                 {l.cityLabel} <span className="text-slate-400">({l.count})</span>
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* Enlazado interno: otros sectores en la misma localidad */}
+      {otherCategories.length > 0 && (
+        <section className="max-w-5xl mx-auto px-4 pb-12">
+          <h2 className="text-lg font-bold text-slate-900 mb-3">Otros negocios en {cityLabel}</h2>
+          <div className="flex flex-wrap gap-2">
+            {otherCategories.map((c) => (
+              <Link
+                key={c.catSlug}
+                href={`/${c.catSlug}/${params.localidad}`}
+                className="text-sm rounded-full border border-slate-200 bg-white px-3 py-1.5 text-slate-700 hover:border-pink-300 hover:text-pink-600"
+              >
+                {c.catLabel} <span className="text-slate-400">({c.count})</span>
               </Link>
             ))}
           </div>

@@ -12,6 +12,7 @@ import { randomBytes } from "crypto";
 import { prisma } from "@/lib/db/prisma";
 import { uniqueBusinessSlug } from "@/lib/bubui/core";
 import { bubuiUrl } from "@/lib/bubui/url";
+import { geocodeAddress } from "@/lib/bubui/geocode";
 
 const CLAIM_TTL_DAYS = 30;
 
@@ -71,15 +72,23 @@ export async function provisionBubuiFromLead(lead: {
   // Contraseña no usable hasta que la fije en la activación.
   const unusablePassword = await bcrypt.hash(randomBytes(18).toString("hex"), 10);
 
+  // Geocoding: el lead trae coordenadas pero no localidad. Resolvemos la
+  // localidad (y provincia) para que el negocio caiga en la página correcta
+  // del directorio. Coordenadas: las del lead si existen, si no las del geo.
+  const geo = await geocodeAddress(
+    [lead.formattedAddress ?? lead.address, lead.province, "España"].filter(Boolean).join(", ")
+  );
+
   const business = await prisma.bubuiBusiness.create({
     data: {
       slug,
       name: lead.name,
       category: (lead.category ?? "negocio").slice(0, 60),
       address: lead.formattedAddress ?? lead.address ?? null,
-      province: lead.province ?? undefined,
-      latitude: lead.latitude ?? null,
-      longitude: lead.longitude ?? null,
+      city: geo?.city ?? undefined,
+      province: geo?.province ?? lead.province ?? undefined,
+      latitude: lead.latitude ?? geo?.latitude ?? null,
+      longitude: lead.longitude ?? geo?.longitude ?? null,
       phone: lead.phone ?? null,
       googlePlaceId: lead.placeId ?? null,
       // Email placeholder único hasta que indique el suyo al activar.

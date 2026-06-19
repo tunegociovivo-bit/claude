@@ -16,6 +16,7 @@ import bcrypt from "bcryptjs";
 import { randomBytes } from "crypto";
 import { prisma } from "@/lib/db/prisma";
 import { uniqueBusinessSlug, bubuiScanUrl } from "@/lib/bubui/core";
+import { geocodeAddress } from "@/lib/bubui/geocode";
 
 export const dynamic = "force-dynamic";
 
@@ -56,6 +57,25 @@ export async function POST(req: Request) {
     );
   }
 
+  // Geocoding: si no llegan coordenadas, las obtenemos de la dirección para que
+  // el negocio salga en el mapa y en la página de su localidad del directorio.
+  // Si Google devuelve la localidad, la usamos (normalizada) en vez de la
+  // tecleada. Degradación elegante si no hay key o falla.
+  let latitude = d.latitude;
+  let longitude = d.longitude;
+  let city = d.city;
+  let province = d.province;
+  if (latitude == null || longitude == null) {
+    const geoQuery = [d.address, d.city, d.province, "España"].filter(Boolean).join(", ");
+    const geo = await geocodeAddress(geoQuery);
+    if (geo) {
+      latitude = latitude ?? geo.latitude;
+      longitude = longitude ?? geo.longitude;
+      if (geo.city) city = geo.city;
+      if (geo.province) province = geo.province;
+    }
+  }
+
   const slug = await uniqueBusinessSlug(d.name);
   const passwordHash = await bcrypt.hash(d.ownerPassword, 10);
   // Secreto de sesión: el alta deja al negocio "logueado" en el panel.
@@ -68,11 +88,11 @@ export async function POST(req: Request) {
       name: d.name,
       category: d.category,
       description: d.description,
-      city: d.city,
-      province: d.province,
+      city,
+      province,
       address: d.address,
-      latitude: d.latitude,
-      longitude: d.longitude,
+      latitude,
+      longitude,
       defaultDiscountPct: d.defaultDiscountPct,
       crossDiscountPct: d.crossDiscountPct,
       ownerEmail: d.ownerEmail,
