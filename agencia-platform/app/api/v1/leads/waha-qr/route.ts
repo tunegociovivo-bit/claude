@@ -101,33 +101,84 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
   let img = await tryQr();
   let diag = "";
   if (!img) {
-    // La sesión puede no existir todavía (número nuevo): créala/arráncala y
-    // reintenta. Capturamos el error de WAHA para diagnosticar (p. ej. WAHA Core
-    // solo permite 1 sesión → aquí saldría el motivo real).
     const jsonHeaders = { "X-Api-Key": cfg.apiKey, "Content-Type": "application/json" };
+    const post = (p: string) => fetch(`${cfg.baseUrl}${p}`, { method: "POST", headers: jsonHeaders });
+    const del = (p: string) => fetch(`${cfg.baseUrl}${p}`, { method: "DELETE", headers: jsonHeaders });
+    const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+    const coreLimit = (t: string) => /WAHA Core|PLUS version|more then one|more than one/i.test(t);
+
+    // 1) ¿Existe ya la sesión y en qué estado está? (Antes se hacía POST /sessions
+    //    a ciegas → si ya existía, WAHA devolvía 422 "already exists" y el QR no
+    //    aparecía nunca.) Ahora decidimos según el estado real.
+    let status: string | null = null;
     try {
-      const createResp = await fetch(`${cfg.baseUrl}/api/sessions`, {
-        method: "POST",
-        headers: jsonHeaders,
-        body: JSON.stringify({ name: sessionName, start: true })
-      });
-      if (!createResp.ok) {
-        const t = (await createResp.text().catch(() => "")).replace(/\s+/g, " ").slice(0, 220);
-        if (/WAHA Core|PLUS version|more then one|more than one/i.test(t)) {
-          diag =
-            " · Tu servidor WAHA es la versión Core (gratuita), que SOLO permite 1 número (el principal). " +
-            "Para conectar varios números necesitas WAHA Plus (de pago). Más info: https://waha.devlike.pro";
-        } else {
-          diag = ` · WAHA /sessions → ${createResp.status}: ${t}`;
-        }
-      }
-    } catch (e: any) {
-      diag = ` · No se pudo contactar con WAHA: ${e?.message ?? e}`;
+      const sresp = await fetch(`${cfg.baseUrl}/api/sessions/${s}`, { headers: jsonHeaders });
+      if (sresp.ok) status = (await sresp.json().catch(() => null))?.status ?? null;
+    } catch {}
+
+    if (status === "WORKING") {
+      return NextResponse.json(
+        { ok: false, message: `El número "${sessionName}" ya está vinculado y funcionando. No necesita escanear QR.` },
+        { status: 409 }
+      );
     }
-    await fetch(`${cfg.baseUrl}/api/sessions/${s}/start`, { method: "POST", headers: jsonHeaders }).catch(() => {});
-    for (let i = 0; i < 3 && !img; i++) {
-      await new Promise((r) => setTimeout(r, 1500));
+
+    if (!status) {
+      // No existe → crearla y arrancarla.
+      try {
+        const r = await fetch(`${cfg.baseUrl}/api/sessions`, {
+          method: "POST",
+          headers: jsonHeaders,
+          body: JSON.stringify({ name: sessionName, start: true })
+        });
+        if (!r.ok) {
+          const t = (await r.text().catch(() => "")).replace(/\s+/g, " ").slice(0, 220);
+          diag = coreLimit(t)
+            ? " · Tu servidor WAHA es la versión Core (gratuita), que SOLO permite 1 número (el principal). " +
+              "Para conectar varios números necesitas WAHA Plus (de pago). Más info: https://waha.devlike.pro"
+            : ` · WAHA /sessions → ${r.status}: ${t}`;
+        }
+      } catch (e: any) {
+        diag = ` · No se pudo contactar con WAHA: ${e?.message ?? e}`;
+      }
+    } else if (status === "FAILED" || status === "STOPPED") {
+      // Existe pero con credenciales rotas / parada → fuerza un QR nuevo:
+      // logout (limpia la auth rota) + start (arranca de cero → SCAN_QR_CODE).
+      try { await post(`/api/sessions/${s}/logout`); } catch {}
+      try { await post(`/api/sessions/${s}/start`); } catch {}
+    }
+    // status SCAN_QR_CODE o STARTING → no tocamos; solo esperamos el QR abajo.
+
+    // 2) Arranca (idempotente) y sondea el QR.
+    await post(`/api/sessions/${s}/start`).catch(() => {});
+    for (let i = 0; i < 4 && !img; i++) {
+      await sleep(1500);
       img = await tryQr();
+    }
+
+    // 3) Último recurso: si la sesión existía pero seguimos sin QR, resetéala
+    //    entera (delete + create) para salir de un estado atascado.
+    if (!img && status) {
+      try { await del(`/api/sessions/${s}`); } catch {}
+      try {
+        const r = await fetch(`${cfg.baseUrl}/api/sessions`, {
+          method: "POST",
+          headers: jsonHeaders,
+          body: JSON.stringify({ name: sessionName, start: true })
+        });
+        if (!r.ok) {
+          const t = (await r.text().catch(() => "")).replace(/\s+/g, " ").slice(0, 220);
+          if (coreLimit(t)) {
+            diag =
+              " · Tu servidor WAHA es la versión Core (gratuita), que SOLO permite 1 número (el principal). " +
+              "Para conectar varios números necesitas WAHA Plus (de pago). Más info: https://waha.devlike.pro";
+          }
+        }
+      } catch {}
+      for (let i = 0; i < 4 && !img; i++) {
+        await sleep(1500);
+        img = await tryQr();
+      }
     }
   }
   if (img) return img;
