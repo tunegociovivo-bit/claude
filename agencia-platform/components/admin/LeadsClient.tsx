@@ -5103,7 +5103,13 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
       dailyJitterPct: s.dailyJitterPct,
       channels: Array.isArray(s.channels) ? s.channels : []
     };
-    if (googleKey) body.googleApiKey = googleKey;
+    // La clave de Google SOLO se guarda si parece real (AIza…). Esto evita el
+    // bug de que el autocompletado del navegador/gestor de contraseñas rellene
+    // el campo password con una credencial guardada y, al Guardar, sobrescriba
+    // la clave válida con basura (→ API_KEY_INVALID). Si no parece clave, se
+    // ignora en silencio y NO se toca la guardada (ni bloquea guardar el resto).
+    const gk = googleKey.trim();
+    if (gk && /^AIza[\w-]{20,}$/.test(gk)) body.googleApiKey = gk;
     if (wahaKey) body.wahaApiKey = wahaKey;
     if (evoKey) body.evolutionApiKey = evoKey;
     if (metaAdsKey) body.metaAdsToken = metaAdsKey;
@@ -5235,7 +5241,7 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
       <div className="space-y-5">
         <section>
           <h3 className="text-sm font-semibold mb-2">🌐 Google Places API</h3>
-          <input type="password" value={googleKey} onChange={(e) => setGoogleKey(e.target.value)} placeholder={s.googleConfigured ? "•••• (configurada, deja vacío para no cambiar)" : "AIza..."} className="w-full px-3 py-2 rounded-lg border bg-white text-sm font-mono" />
+          <input type="password" value={googleKey} onChange={(e) => setGoogleKey(e.target.value)} autoComplete="off" data-lpignore="true" data-1p-ignore data-form-type="other" name="nv-google-places-key" placeholder={s.googleConfigured ? "•••• (configurada, deja vacío para no cambiar)" : "AIza..."} className="w-full px-3 py-2 rounded-lg border bg-white text-sm font-mono" />
           <p className="mt-1 text-[11px] text-slate-500">Se cifra con AES-256-GCM. Requiere Places API habilitada.</p>
         </section>
         <section>
@@ -5247,6 +5253,9 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
               </label>
               <input
                 type="password"
+                autoComplete="off"
+                data-lpignore="true"
+                data-1p-ignore
                 value={metaAdsKey}
                 onChange={(e) => setMetaAdsKey(e.target.value)}
                 placeholder={s.metaAdsConfigured ? "•••• (configurado, deja vacío para no cambiar)" : "APPID|APPSECRET o un user token de Meta"}
@@ -5260,6 +5269,9 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
               </label>
               <input
                 type="password"
+                autoComplete="off"
+                data-lpignore="true"
+                data-1p-ignore
                 value={scrapflyKey}
                 onChange={(e) => setScrapflyKey(e.target.value)}
                 placeholder={s.scrapflyConfigured ? "•••• (configurada, deja vacío para no cambiar)" : "scp-live-..."}
@@ -5273,6 +5285,9 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
               </label>
               <input
                 type="password"
+                autoComplete="off"
+                data-lpignore="true"
+                data-1p-ignore
                 value={hunterKey}
                 onChange={(e) => setHunterKey(e.target.value)}
                 placeholder={s.hunterConfigured ? "•••• (configurada, deja vacío para no cambiar)" : "Hunter.io API key"}
@@ -5286,6 +5301,9 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
               </label>
               <input
                 type="password"
+                autoComplete="off"
+                data-lpignore="true"
+                data-1p-ignore
                 value={apolloKey}
                 onChange={(e) => setApolloKey(e.target.value)}
                 placeholder={s.apolloConfigured ? "•••• (configurada, deja vacío para no cambiar)" : "Apollo.io API key"}
@@ -5321,7 +5339,7 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
               <>
                 <p className="text-[11px] text-emerald-700">Evolution API envía notas de voz, imágenes y archivos (también gratis). Tras guardar, pulsa Probar conexión y Reconectar para escanear el QR.</p>
                 <input value={s.evolutionUrl ?? ""} onChange={(e) => setField("evolutionUrl", e.target.value)} placeholder="https://evolution.tu-servidor.com" className="w-full px-3 py-2 rounded-lg border bg-white text-sm font-mono" />
-                <input type="password" value={evoKey} onChange={(e) => setEvoKey(e.target.value)} placeholder={s.evolutionConfigured ? "•••• (configurada)" : "API key (apikey global de Evolution)"} className="w-full px-3 py-2 rounded-lg border bg-white text-sm font-mono" />
+                <input type="password" autoComplete="off" data-lpignore="true" data-1p-ignore value={evoKey} onChange={(e) => setEvoKey(e.target.value)} placeholder={s.evolutionConfigured ? "•••• (configurada)" : "API key (apikey global de Evolution)"} className="w-full px-3 py-2 rounded-lg border bg-white text-sm font-mono" />
                 <div className="grid grid-cols-2 gap-2">
                   <input value={s.evolutionInstance ?? "default"} onChange={(e) => setField("evolutionInstance", e.target.value)} placeholder="Nombre instancia" className="px-3 py-2 rounded-lg border bg-white text-sm" />
                   <input value={s.whatsappCountryCode ?? "34"} onChange={(e) => setField("whatsappCountryCode", e.target.value)} placeholder="Código país (34)" className="px-3 py-2 rounded-lg border bg-white text-sm" />
@@ -5330,7 +5348,7 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
             ) : (
               <>
                 <input value={s.wahaUrl ?? ""} onChange={(e) => setField("wahaUrl", e.target.value)} placeholder="https://waha.ejemplo.com" className="w-full px-3 py-2 rounded-lg border bg-white text-sm font-mono" />
-                <input type="password" value={wahaKey} onChange={(e) => setWahaKey(e.target.value)} placeholder={s.wahaConfigured ? "•••• (configurada)" : "API key WAHA"} className="w-full px-3 py-2 rounded-lg border bg-white text-sm font-mono" />
+                <input type="password" autoComplete="off" data-lpignore="true" data-1p-ignore value={wahaKey} onChange={(e) => setWahaKey(e.target.value)} placeholder={s.wahaConfigured ? "•••• (configurada)" : "API key WAHA"} className="w-full px-3 py-2 rounded-lg border bg-white text-sm font-mono" />
                 <div className="grid grid-cols-2 gap-2">
                   <input value={s.wahaSession ?? "default"} onChange={(e) => setField("wahaSession", e.target.value)} placeholder="Nombre sesión" className="px-3 py-2 rounded-lg border bg-white text-sm" />
                   <input value={s.whatsappCountryCode ?? "34"} onChange={(e) => setField("whatsappCountryCode", e.target.value)} placeholder="Código país (34)" className="px-3 py-2 rounded-lg border bg-white text-sm" />
