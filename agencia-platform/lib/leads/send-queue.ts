@@ -493,6 +493,8 @@ export async function enqueueMessage(opts: {
   templateId?: string | null;
   /** "text" (defecto) o "ranking" = imagen de posicionamiento de Google. */
   kind?: "text" | "ranking";
+  /** Permite encolar un 2º mensaje al mismo lead (p. ej. texto + luego imagen). */
+  skipDuplicateCheck?: boolean;
 }): Promise<{ messageId: string; scheduledAt: Date }> {
   const kind = opts.kind === "ranking" ? "ranking" : "text";
   const settings = await getSendSettings(opts.workspaceId);
@@ -514,11 +516,14 @@ export async function enqueueMessage(opts: {
   });
   if (optout) throw new Error("Teléfono en opt-out");
 
-  // No encolar si ya hay otro mensaje queued/sending para este lead
-  const existing = await prisma.leadMessage.findFirst({
-    where: { leadId: lead.id, status: { in: ["queued", "sending"] } }
-  });
-  if (existing) throw new Error("Ya hay un mensaje en cola para este lead");
+  // No encolar si ya hay otro mensaje queued/sending para este lead (salvo que
+  // sea el 2º mensaje intencionado de un par texto+imagen).
+  if (!opts.skipDuplicateCheck) {
+    const existing = await prisma.leadMessage.findFirst({
+      where: { leadId: lead.id, status: { in: ["queued", "sending"] } }
+    });
+    if (existing) throw new Error("Ya hay un mensaje en cola para este lead");
+  }
 
   // Renderizar placeholders. Vale tanto para texto como para el PIE de la
   // imagen de ranking (texto + imagen): así el lead recibe la captura con un

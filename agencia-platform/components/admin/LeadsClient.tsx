@@ -1845,11 +1845,12 @@ function EnqueueModal({
   onClose: () => void;
   leadIds: string[];
   onDone: () => void;
-  initialKind?: "text" | "ranking";
+  initialKind?: "text" | "ranking" | "text_then_image" | "alternate";
 }) {
   const [templates, setTemplates] = useState<Template[]>([]);
   const [templateId, setTemplateId] = useState<string>("");
-  const [kind, setKind] = useState<"text" | "ranking">("text");
+  const [kind, setKind] = useState<"text" | "ranking" | "text_then_image" | "alternate">("text");
+  const usesImage = kind !== "text";
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<{ ok: number; skipped: { leadId: string; reason: string }[]; total: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -1902,37 +1903,33 @@ function EnqueueModal({
             Se encolarán con el <strong>espaciado anti-baneo</strong> de Ajustes (ventana horaria, delay aleatorio entre envíos y tope diario).
           </p>
           {/* Tipo de mensaje */}
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={() => setKind("text")}
-              className={`flex-1 px-3 py-2 rounded-lg border text-sm font-medium ${kind === "text" ? "bg-brand-600 text-white border-brand-600" : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"}`}
-            >
-              💬 Texto
-            </button>
-            <button
-              type="button"
-              onClick={() => setKind("ranking")}
-              className={`flex-1 px-3 py-2 rounded-lg border text-sm font-medium ${kind === "ranking" ? "bg-emerald-600 text-white border-emerald-600" : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"}`}
-            >
-              📊 Imagen de posicionamiento
-            </button>
-          </div>
+          <label className="block text-sm font-medium text-slate-700">Tipo de mensaje</label>
+          <select
+            value={kind}
+            onChange={(e) => setKind(e.target.value as any)}
+            className="w-full px-3 py-2 rounded-lg border bg-white text-sm"
+          >
+            <option value="text">💬 Solo texto</option>
+            <option value="ranking">📊 Imagen + texto (pie de foto)</option>
+            <option value="text_then_image">💬➜📊 Texto y luego imagen (2 mensajes)</option>
+            <option value="alternate">🔀 Alternar (varía el patrón — anti-baneo)</option>
+          </select>
 
-          {kind === "ranking" && (
+          {usesImage && (
             <div className="rounded-md border border-amber-300 bg-amber-50 px-2.5 py-2 text-[12px] text-amber-800">
-              Envía <strong>texto + imagen</strong> en un mismo mensaje: la “captura” de Google
-              (tú vs competencia) con tu mensaje de plantilla como pie de foto. Cada imagen hace
-              <strong> 1 consulta a Google Places</strong> para calcular su ranking.
+              {kind === "ranking" && <>Envía <strong>imagen con tu texto como pie</strong> (un solo mensaje).</>}
+              {kind === "text_then_image" && <>Envía <strong>2 mensajes</strong>: primero tu texto y, espaciado, la imagen.</>}
+              {kind === "alternate" && <>Reparte entre <strong>imagen+pie</strong> y <strong>texto+imagen</strong> para variar el patrón (mejor anti-baneo).</>}
+              {" "}La imagen es la “captura” de Google (tú vs competencia) — <strong>1 consulta a Places</strong> por lead.
               <div className="mt-0.5">
                 💶 Coste estimado: <strong>~{rankCostStr}</strong> ({leadIds.length} leads × ~{EUR_POR_CONSULTA.toFixed(2)}€).
-                Solo se envía a móviles; los fijos/sin WhatsApp se omiten.
+                Solo móviles; los fijos/sin WhatsApp se omiten.
               </div>
             </div>
           )}
 
           <label className="block text-sm font-medium text-slate-700">
-            {kind === "ranking" ? "Texto que acompaña a la imagen (pie de foto)" : "Plantilla"}
+            {kind === "ranking" ? "Texto que acompaña a la imagen (pie de foto)" : kind === "text" ? "Plantilla" : "Mensaje de texto"}
           </label>
           {templates.length === 0 ? (
             kind === "ranking" ? (
@@ -1962,11 +1959,11 @@ function EnqueueModal({
             </button>
             <button
               onClick={submit}
-              disabled={busy || (kind === "text" && templates.length === 0)}
+              disabled={busy || (kind !== "ranking" && templates.length === 0)}
               className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium disabled:opacity-50"
             >
               {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-              {kind === "ranking" ? `Enviar imagen a ${leadIds.length}` : `Encolar ${leadIds.length}`}
+              {usesImage ? `Enviar a ${leadIds.length}` : `Encolar ${leadIds.length}`}
             </button>
           </div>
         </div>

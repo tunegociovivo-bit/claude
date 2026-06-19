@@ -25,15 +25,17 @@ const schema = z.object({
   // así que encolar muchos no los dispara en ráfaga.
   leadIds: z.array(z.string().min(1)).min(1).max(2000),
   templateId: z.string().min(1).nullable().optional(),
-  // "text" (defecto) o "ranking" = imagen de posicionamiento de Google.
-  kind: z.enum(["text", "ranking"]).optional()
+  // "text" | "ranking" (imagen+pie) | "text_then_image" (2 mensajes) |
+  // "alternate" (varía entre imagen+pie y texto+imagen, anti-baneo).
+  kind: z.enum(["text", "ranking", "text_then_image", "alternate"]).optional()
 });
 
 export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api }) => {
   const parsed = schema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) throw new ApiError(400, "validation_error", parsed.error.message);
 
-  const kind = parsed.data.kind === "ranking" ? "ranking" : "text";
+  const kind = parsed.data.kind ?? "text";
+  const needsTemplate = kind === "text" || kind === "text_then_image" || kind === "alternate";
 
   // Resolver plantilla base: la elegida → la default → cualquiera. Para
   // "ranking" la plantilla es OPCIONAL (solo sirve de pie de foto; si no hay,
@@ -43,15 +45,15 @@ export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api }) 
         where: { id: parsed.data.templateId, workspaceId: api.workspaceId }
       })
     : null;
-  if (!tpl && kind === "text") {
+  if (!tpl && needsTemplate) {
     tpl = await prisma.leadTemplate.findFirst({
       where: { workspaceId: api.workspaceId, isDefault: true }
     });
   }
-  if (!tpl && kind === "text") {
+  if (!tpl && needsTemplate) {
     tpl = await prisma.leadTemplate.findFirst({ where: { workspaceId: api.workspaceId } });
   }
-  if (!tpl && kind === "text") {
+  if (!tpl && needsTemplate) {
     throw new ApiError(400, "no_template", "No hay ninguna plantilla. Crea una en la pestaña Plantillas.");
   }
 
@@ -87,15 +89,39 @@ export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api }) 
   let ok = 0;
   const skipped: { leadId: string; reason: string }[] = [];
 
-  for (const leadId of orderedIds) {
+  for (let i = 0; i < orderedIds.length; i++) {
+    const leadId = orderedIds[i];
+    // "alternate": varía el patrón por lead (anti-baneo) entre imagen-con-pie y
+    // texto+imagen. El resto de kinds se aplican tal cual.
+    const effKind =
+      kind === "alternate" ? (i % 2 === 0 ? "ranking" : "text_then_image") : kind;
     try {
-      await enqueueMessage({
-        workspaceId: api.workspaceId,
-        leadId,
-        body: tpl?.body ?? "",
-        templateId: tpl?.id ?? null,
-        kind
-      });
+      if (effKind === "text_then_image") {
+        // 1) Texto, 2) imagen de posicionamiento (dos mensajes, espaciados).
+        await enqueueMessage({
+          workspaceId: api.workspaceId,
+          leadId,
+          body: tpl?.body ?? "",
+          templateId: tpl?.id ?? null,
+          kind: "text"
+        });
+        await enqueueMessage({
+          workspaceId: api.workspaceId,
+          leadId,
+          body: "", // la imagen va sin pie (el texto ya fue en el 1er mensaje)
+          templateId: null,
+          kind: "ranking",
+          skipDuplicateCheck: true
+        });
+      } else {
+        await enqueueMessage({
+          workspaceId: api.workspaceId,
+          leadId,
+          body: tpl?.body ?? "",
+          templateId: tpl?.id ?? null,
+          kind: effKind === "ranking" ? "ranking" : "text"
+        });
+      }
       ok++;
     } catch (e: any) {
       skipped.push({ leadId, reason: e?.message ?? "error" });
