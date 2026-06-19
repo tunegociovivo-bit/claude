@@ -2080,7 +2080,17 @@ function SearchesTable({ loading, items, onChanged }: { loading: boolean; items:
                   )}
                 </td>
                 <td className="px-3 py-2">
-                  <div className="font-semibold">{s.totalResults.toLocaleString("es")}</div>
+                  {/* Cifra REAL = leads únicos guardados (_count.leads). totalResults
+                      es un contador de resultados procesados que infla cuando un
+                      negocio aparece en varios municipios del troceado. */}
+                  <div className="font-semibold" title="Negocios únicos guardados de esta campaña">
+                    {(s._count?.leads ?? s.totalResults).toLocaleString("es")}
+                  </div>
+                  {s._count?.leads != null && s.totalResults > s._count.leads && (
+                    <div className="text-[10px] text-slate-400" title="Resultados procesados (incluye el mismo negocio hallado en varios municipios/celdas). La cifra real de leads es la de arriba.">
+                      {s.totalResults.toLocaleString("es")} procesados
+                    </div>
+                  )}
                   {(s.leadsSkipped ?? 0) > 0 && (
                     <div className="text-[10px] text-slate-400" title="Negocios encontrados que ya tenías (no se duplican)">
                       {(s.leadsSkipped ?? 0).toLocaleString("es")} ya existían
