@@ -1,19 +1,24 @@
 /**
  * Sitemap dinámico de Bubui para Google y otros buscadores.
  *
- *   GET /bubui/sitemap.xml
+ *   GET https://bubui.app/sitemap.xml   (middleware reescribe a /bubui/sitemap.xml)
  *
- * Incluye:
- *   - Landing /bubui
- *   - Páginas públicas /bubui/n/<slug> de todos los negocios activos.
+ * Incluye, con URLs CANÓNICAS y limpias (bubui.app/…, sin prefijo /bubui):
+ *   - Informativa, alta y directorio.
+ *   - Directorio SEO: /{categoria} y /{categoria}/{localidad}.
+ *   - Fichas públicas /n/<slug> de los negocios activos.
  *
  * Cache 1h (revalidate).
  */
 
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
+import { bubuiBaseUrl } from "@/lib/bubui/url";
+import { getDirectoryIndex } from "@/lib/bubui/directory";
 
-export const revalidate = 3600;
+// Dinámica: se genera en runtime (no en build) para no depender de la BD al
+// compilar. El middleware lo sirve en bubui.app/sitemap.xml.
+export const dynamic = "force-dynamic";
 
 function esc(s: string): string {
   return s.replace(/[<>&'"]/g, (c) => ({
@@ -25,29 +30,22 @@ function esc(s: string): string {
   })[c] as string);
 }
 
-export async function GET(req: Request) {
-  const origin = new URL(req.url).origin;
-  const businesses = await prisma.bubuiBusiness.findMany({
-    where: { active: true },
-    select: { slug: true, updatedAt: true }
-  });
+export async function GET() {
+  const base = bubuiBaseUrl();
+  const today = new Date().toISOString().slice(0, 10);
 
-  const urls = [
-    {
-      loc: `${origin}/bubui`,
-      lastmod: new Date().toISOString().slice(0, 10),
-      priority: "1.0"
-    },
-    {
-      loc: `${origin}/bubui/registro`,
-      lastmod: new Date().toISOString().slice(0, 10),
-      priority: "0.7"
-    },
-    ...businesses.map((b) => ({
-      loc: `${origin}/bubui/n/${b.slug}`,
-      lastmod: b.updatedAt.toISOString().slice(0, 10),
-      priority: "0.8"
-    }))
+  const [businesses, dir] = await Promise.all([
+    prisma.bubuiBusiness.findMany({ where: { active: true }, select: { slug: true, updatedAt: true } }),
+    getDirectoryIndex()
+  ]);
+
+  const urls: { loc: string; lastmod: string; priority: string }[] = [
+    { loc: `${base}/`, lastmod: today, priority: "1.0" },
+    { loc: `${base}/directorio`, lastmod: today, priority: "0.9" },
+    { loc: `${base}/registro`, lastmod: today, priority: "0.7" },
+    ...dir.categories.map((c) => ({ loc: `${base}/${c.catSlug}`, lastmod: today, priority: "0.7" })),
+    ...dir.pairs.map((p) => ({ loc: `${base}/${p.catSlug}/${p.citySlug}`, lastmod: today, priority: "0.8" })),
+    ...businesses.map((b) => ({ loc: `${base}/n/${b.slug}`, lastmod: b.updatedAt.toISOString().slice(0, 10), priority: "0.6" }))
   ];
 
   const xml = `<?xml version="1.0" encoding="UTF-8"?>

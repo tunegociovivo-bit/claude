@@ -1,29 +1,32 @@
 /**
- * robots.txt para la sección Bubui.
- *   GET /bubui/robots.txt
+ * robots.txt de Bubui (servido en bubui.app/robots.txt vía middleware).
  *
- * Permite a Google indexar las páginas públicas y le señala el sitemap.
- * Bloquea las rutas internas (admin, app, negocio, scan) que no aportan
- * SEO y podrían filtrar metadata.
+ * Permite indexar las páginas públicas (informativa, alta, directorio SEO,
+ * fichas) y bloquea el producto privado (panel, app de cliente, admin, scan).
+ * Usa rutas LIMPIAS (las canónicas de bubui.app, sin prefijo /bubui).
  */
 
 import { NextResponse } from "next/server";
+import { bubuiBaseUrl } from "@/lib/bubui/url";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(req: Request) {
-  const origin = new URL(req.url).origin;
+export async function GET() {
+  const base = bubuiBaseUrl();
   const body = `User-agent: *
-Allow: /bubui
-Allow: /bubui/n/
-Allow: /bubui/registro
-Disallow: /bubui/admin
-Disallow: /bubui/app
-Disallow: /bubui/negocio
-Disallow: /bubui/scan/
+Allow: /
+Disallow: /usuarios
+Disallow: /negocios
+Disallow: /negocio
+Disallow: /app
+Disallow: /admin
+Disallow: /scan/
+Disallow: /r/
+Disallow: /demo/
+Disallow: /bubui/
 Disallow: /api/
 
-Sitemap: ${origin}/bubui/sitemap.xml
+Sitemap: ${base}/sitemap.xml
 `;
   return new NextResponse(body, {
     status: 200,

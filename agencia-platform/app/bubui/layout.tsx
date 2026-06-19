@@ -15,9 +15,15 @@ const poppins = Poppins({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL(process.env.NEXT_PUBLIC_BUBUI_URL || "https://bubui.app"),
   title: "Bubui — Descuentos cruzados entre negocios cerca de ti",
   description:
     "Escanea, paga, descubre. Cada compra en un negocio Bubui te abre descuentos en otros cerca de ti. Piloto en Benalmádena.",
+  // Bubui SÍ se indexa (a diferencia del hub privado): sobrescribe el noindex
+  // heredado del layout raíz. Las páginas privadas del producto (/usuarios,
+  // /negocios, /admin, /scan) se excluyen vía X-Robots-Tag en el middleware
+  // y Disallow en robots.txt.
+  robots: { index: true, follow: true },
   manifest: "/bubui/manifest.webmanifest",
   appleWebApp: {
     capable: true,
