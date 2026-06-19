@@ -2174,6 +2174,20 @@ function QueueTable({ loading, items, onChanged }: { loading: boolean; items: Qu
   const [rankOpen, setRankOpen] = useState(false);
   const [rankIds, setRankIds] = useState<string[]>([]);
   const [rankLoading, setRankLoading] = useState(false);
+  const [pendingMobile, setPendingMobile] = useState<number | null>(null);
+  // Contador en vivo de leads pendientes con móvil (para el botón de imagen).
+  useEffect(() => {
+    let alive = true;
+    fetch("/api/v1/leads?contactStatus=pending&idsOnly=1")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (alive && Array.isArray(d?.items)) {
+          setPendingMobile(d.items.filter((x: any) => phoneKind(x.phone) === "mobile").length);
+        }
+      })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [items]);
   async function openRankingBlast() {
     setRankLoading(true);
     try {
@@ -2182,6 +2196,7 @@ function QueueTable({ loading, items, onChanged }: { loading: boolean; items: Qu
       const rows: any[] = d?.items ?? [];
       // Solo móviles (los que reciben WhatsApp), hasta 2000.
       const ids = rows.filter((x) => phoneKind(x.phone) === "mobile").map((x) => x.id).slice(0, 2000);
+      setPendingMobile(rows.filter((x) => phoneKind(x.phone) === "mobile").length);
       setRankIds(ids);
       setRankOpen(true);
     } finally {
@@ -2484,7 +2499,7 @@ function QueueTable({ loading, items, onChanged }: { loading: boolean; items: Qu
           title="Enviar la captura de Google (tú vs competencia) a todos los leads pendientes con móvil"
         >
           {rankLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-          📊 Imagen de posicionamiento (pendientes)
+          📊 Imagen de posicionamiento {pendingMobile != null ? `(${pendingMobile} pendientes)` : "(pendientes)"}
         </button>
         {items.some((m) => m.status === "queued") && (
           <button
