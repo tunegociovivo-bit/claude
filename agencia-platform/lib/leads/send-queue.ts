@@ -545,6 +545,13 @@ export async function enqueueMessage(opts: {
     }
   }
 
+  // Un mensaje de TEXTO nunca debe encolarse vacío (p. ej. una plantilla que
+  // renderiza a nada por placeholders sin valor). Mejor saltarlo que enviar en
+  // blanco. (En "ranking" el cuerpo vacío es válido → pie automático.)
+  if (kind === "text" && !rendered.trim()) {
+    throw new Error("El mensaje quedó vacío al renderizar la plantilla (revisa la plantilla / placeholders)");
+  }
+
   // Calcular slot. ANTI-BANEO: encadenamos tras el ÚLTIMO mensaje ya
   // programado (no desde "ahora"), para que un alta masiva quede ESPACIADA
   // (uno cada delay min–max) en vez de amontonarse y dispararse en ráfaga

@@ -2696,14 +2696,21 @@ function QueueTable({ loading, items, onChanged }: { loading: boolean; items: Qu
                       )}
                     </td>
                     <td className="px-3 py-2 text-xs max-w-md truncate" title={m.kind === "ranking" ? (m.renderedMessage || "Imagen de posicionamiento (pie automático)") : m.renderedMessage}>
-                      {m.kind === "ranking" ? (
-                        <span className="inline-flex items-center gap-1 text-emerald-700">
-                          📊 <span className="font-medium">Imagen de posicionamiento</span>
-                          {m.renderedMessage ? <span className="text-slate-500">· {m.renderedMessage}</span> : <span className="text-slate-400">· pie automático</span>}
+                      <span className="inline-flex items-center gap-1.5">
+                        <span className={`text-[9px] px-1 py-0.5 rounded font-semibold ${m.kind === "ranking" ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>
+                          {m.kind === "ranking" ? "IMG" : "TXT"}
                         </span>
-                      ) : (
-                        m.renderedMessage
-                      )}
+                        {m.kind === "ranking" ? (
+                          <span className="inline-flex items-center gap-1 text-emerald-700">
+                            <span className="font-medium">Imagen de posicionamiento</span>
+                            {m.renderedMessage ? <span className="text-slate-500">· {m.renderedMessage}</span> : <span className="text-slate-400">· pie automático</span>}
+                          </span>
+                        ) : m.renderedMessage ? (
+                          <span>{m.renderedMessage}</span>
+                        ) : (
+                          <span className="text-rose-400 italic">(sin texto)</span>
+                        )}
+                      </span>
                     </td>
                     <td className="px-3 py-2 text-xs">
                       {editingDateId === m.id ? (
