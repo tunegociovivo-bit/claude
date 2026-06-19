@@ -2940,12 +2940,13 @@ function InboxChat({
       if (fClass !== "all" && c.classification !== fClass) return false;
       if (fUnread && c.unread === 0) return false;
       if (fDate !== "all") {
-        // Filtra por actividad reciente (último mensaje de la conversación).
+        // Filtra por el último mensaje RECIBIDO del lead (no por tus respuestas).
         const days = fDate === "today" ? 1 : fDate === "7d" ? 7 : 30;
         const cutoff = fDate === "today"
           ? new Date(new Date().setHours(0, 0, 0, 0)).getTime()
           : Date.now() - days * 86400000;
-        if (new Date(c.lastAt).getTime() < cutoff) return false;
+        const inAt = c.lastInboundAt ? new Date(c.lastInboundAt).getTime() : null;
+        if (inAt === null || inAt < cutoff) return false;
       }
       if (search.trim()) {
         const q = search.toLowerCase();
@@ -2956,7 +2957,9 @@ function InboxChat({
     })
     .sort((a, b) => {
       if (sortBy === "hot") return (b.aiScore ?? -1) - (a.aiScore ?? -1) || new Date(b.lastAt).getTime() - new Date(a.lastAt).getTime();
-      if (sortBy === "recent") return new Date(b.lastAt).getTime() - new Date(a.lastAt).getTime();
+      // "Recientes" = por el último mensaje RECIBIDO del lead (quien acaba de
+      // escribirte sube arriba aunque no le hayas contestado). Sin entrante → al fondo.
+      if (sortBy === "recent") return new Date(b.lastInboundAt ?? 0).getTime() - new Date(a.lastInboundAt ?? 0).getTime();
       if (sortBy === "unread") return b.unread - a.unread || new Date(b.lastAt).getTime() - new Date(a.lastAt).getTime();
       // priority (por defecto): alta primero, luego reciente
       return (PR_RANK[a.priority] ?? 3) - (PR_RANK[b.priority] ?? 3) || new Date(b.lastAt).getTime() - new Date(a.lastAt).getTime();
@@ -3032,7 +3035,7 @@ function InboxChat({
             >
               <option value="hot">🔥 Más calientes (IA)</option>
               <option value="priority">↕ Prioridad</option>
-              <option value="recent">↕ Recientes</option>
+              <option value="recent">↕ Recientes (te escribió)</option>
               <option value="unread">↕ No leídos</option>
             </select>
           </div>
