@@ -8,7 +8,8 @@
 import { prisma } from "@/lib/db/prisma";
 import { renderTemplate } from "./template-engine";
 import { aiRewriteMessage } from "./ai-vary";
-import { normalizePhone, sendText, sendImage, getWahaConfig, getSession, checkNumberExists } from "./waha";
+import { normalizePhone, sendText, sendImage, sendVoice, getWahaConfig, getSession, checkNumberExists } from "./waha";
+import { generateVoiceMp3 } from "./voice-tts";
 import { pickEnqueueChannel, reassignIfQuarantined, getLeadChannels } from "./channels";
 import { getCompetitorRanking, rankingAutoCaption } from "./competitors";
 import { renderRankingPng } from "./ranking-card";
@@ -491,12 +492,12 @@ export async function enqueueMessage(opts: {
   leadId: string;
   body: string; // texto crudo, o pie de foto (ranking); puede ir vacío
   templateId?: string | null;
-  /** "text" (defecto) o "ranking" = imagen de posicionamiento de Google. */
-  kind?: "text" | "ranking";
+  /** "text" (defecto), "ranking" = imagen de posicionamiento, "voice" = nota de voz IA. */
+  kind?: "text" | "ranking" | "voice";
   /** Permite encolar un 2º mensaje al mismo lead (p. ej. texto + luego imagen). */
   skipDuplicateCheck?: boolean;
 }): Promise<{ messageId: string; scheduledAt: Date }> {
-  const kind = opts.kind === "ranking" ? "ranking" : "text";
+  const kind = opts.kind === "ranking" || opts.kind === "voice" ? opts.kind : "text";
   const settings = await getSendSettings(opts.workspaceId);
   const lead = await prisma.lead.findFirst({
     where: { id: opts.leadId, workspaceId: opts.workspaceId },
@@ -548,7 +549,7 @@ export async function enqueueMessage(opts: {
   // Un mensaje de TEXTO nunca debe encolarse vacío (p. ej. una plantilla que
   // renderiza a nada por placeholders sin valor). Mejor saltarlo que enviar en
   // blanco. (En "ranking" el cuerpo vacío es válido → pie automático.)
-  if (kind === "text" && !rendered.trim()) {
+  if ((kind === "text" || kind === "voice") && !rendered.trim()) {
     throw new Error("El mensaje quedó vacío al renderizar la plantilla (revisa la plantilla / placeholders)");
   }
 
@@ -972,6 +973,25 @@ export async function sendMessageById(
         caption,
         session: msg.instanceName ?? undefined
       });
+    } else if ((msg as any).kind === "voice") {
+      // Nota de voz IA: genera el audio con ElevenLabs del texto del mensaje. Si
+      // no hay config o falla la generación, cae a texto para no perder el toque.
+      const audio = await generateVoiceMp3({ workspaceId, text: msg.renderedMessage });
+      if (audio) {
+        out = await sendVoice({
+          workspaceId,
+          phoneNormalized: msg.phoneNormalized,
+          audio,
+          session: msg.instanceName ?? undefined
+        });
+      } else {
+        out = await sendText({
+          workspaceId,
+          phoneNormalized: msg.phoneNormalized,
+          text: msg.renderedMessage,
+          session: msg.instanceName ?? undefined
+        });
+      }
     } else {
       out = await sendText({
         workspaceId,

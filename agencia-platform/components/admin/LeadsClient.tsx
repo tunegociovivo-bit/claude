@@ -1849,8 +1849,11 @@ function EnqueueModal({
 }) {
   const [templates, setTemplates] = useState<Template[]>([]);
   const [templateId, setTemplateId] = useState<string>("");
-  const [kind, setKind] = useState<"text" | "ranking" | "text_then_image" | "alternate">("text");
-  const usesImage = kind !== "text";
+  const [kind, setKind] = useState<"text" | "ranking" | "text_then_image" | "voice" | "voice_image" | "alternate" | "mix">("text");
+  // Reparto por % cuando kind === "mix" (anti-baneo + a medida).
+  const [mix, setMix] = useState<Record<string, number>>({ voice_image: 25, ranking: 35, text_then_image: 20, text: 20, voice: 0 });
+  const mixTotal = Object.values(mix).reduce((s, n) => s + (Number(n) || 0), 0);
+  const usesImage = kind !== "text" && kind !== "voice";
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<{ ok: number; skipped: { leadId: string; reason: string }[]; total: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -1876,13 +1879,25 @@ function EnqueueModal({
   }, [open]);
 
   async function submit() {
+    if (kind === "mix" && mixTotal !== 100) {
+      setError(`Los porcentajes deben sumar 100% (ahora suman ${mixTotal}%).`);
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
+      const payload: any = { leadIds, templateId: templateId || null };
+      if (kind === "mix") {
+        payload.mix = Object.entries(mix)
+          .filter(([, p]) => Number(p) > 0)
+          .map(([k, p]) => ({ kind: k, percent: Number(p) }));
+      } else {
+        payload.kind = kind;
+      }
       const r = await fetch("/api/v1/leads/queue/enqueue-bulk", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ leadIds, templateId: templateId || null, kind })
+        body: JSON.stringify(payload)
       });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) {
@@ -1912,19 +1927,57 @@ function EnqueueModal({
             <option value="text">💬 Solo texto</option>
             <option value="ranking">📊 Imagen + texto (pie de foto)</option>
             <option value="text_then_image">💬➜📊 Texto y luego imagen (2 mensajes)</option>
-            <option value="alternate">🔀 Alternar (varía el patrón — anti-baneo)</option>
+            <option value="voice">🎙️ Nota de voz IA</option>
+            <option value="voice_image">🎙️+📊 Voz + imagen</option>
+            <option value="alternate">🔀 Alternar imagen/texto (anti-baneo)</option>
+            <option value="mix">🎚️ Mezcla por % (a tu medida)</option>
           </select>
 
-          {usesImage && (
+          {kind === "mix" && (
+            <div className="rounded-md border border-indigo-200 bg-indigo-50/60 px-2.5 py-2 space-y-1.5">
+              <div className="text-[12px] text-slate-700 font-medium">Reparto de formatos (deben sumar 100%)</div>
+              {([
+                ["voice_image", "🎙️+📊 Voz + imagen"],
+                ["ranking", "📊 Imagen + texto"],
+                ["text_then_image", "💬➜📊 Texto y luego imagen"],
+                ["voice", "🎙️ Nota de voz"],
+                ["text", "💬 Solo texto"]
+              ] as const).map(([k, label]) => (
+                <div key={k} className="flex items-center gap-2 text-[12px]">
+                  <span className="flex-1 text-slate-700">{label}</span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    value={mix[k] ?? 0}
+                    onChange={(e) => setMix((m) => ({ ...m, [k]: Math.max(0, Math.min(100, Number(e.target.value) || 0)) }))}
+                    className="w-16 px-2 py-1 rounded border bg-white text-right"
+                  />
+                  <span className="text-slate-400 w-14 text-right">≈ {Math.round(((mix[k] ?? 0) / 100) * leadIds.length)}</span>
+                </div>
+              ))}
+              <div className={`text-[11px] font-medium ${mixTotal === 100 ? "text-emerald-700" : "text-rose-600"}`}>
+                Suma: {mixTotal}% {mixTotal === 100 ? "✓" : "(debe ser 100%)"}
+              </div>
+            </div>
+          )}
+
+          {kind !== "text" && (
             <div className="rounded-md border border-amber-300 bg-amber-50 px-2.5 py-2 text-[12px] text-amber-800">
               {kind === "ranking" && <>Envía <strong>imagen con tu texto como pie</strong> (un solo mensaje).</>}
               {kind === "text_then_image" && <>Envía <strong>2 mensajes</strong>: primero tu texto y, espaciado, la imagen.</>}
-              {kind === "alternate" && <>Reparte entre <strong>imagen+pie</strong> y <strong>texto+imagen</strong> para variar el patrón (mejor anti-baneo).</>}
-              {" "}La imagen es la “captura” de Google (tú vs competencia) — <strong>1 consulta a Places</strong> por lead.
-              <div className="mt-0.5">
-                💶 Coste estimado: <strong>~{rankCostStr}</strong> ({leadIds.length} leads × ~{EUR_POR_CONSULTA.toFixed(2)}€).
-                Solo móviles; los fijos/sin WhatsApp se omiten.
-              </div>
+              {kind === "voice" && <>Envía una <strong>nota de voz IA</strong> con tu guion (requiere ElevenLabs en Ajustes; si no, cae a texto).</>}
+              {kind === "voice_image" && <>Envía <strong>imagen + nota de voz</strong> (2 mensajes).</>}
+              {kind === "alternate" && <>Reparte entre <strong>imagen+pie</strong> y <strong>texto+imagen</strong> para variar el patrón.</>}
+              {kind === "mix" && <>Reparte los formatos según tus %, mezclados en el tiempo (mejor anti-baneo).</>}
+              {usesImage && <> La imagen hace <strong>1 consulta a Places</strong> por lead.</>}
+              {(kind === "voice" || kind === "voice_image" || kind === "mix") && <> La voz usa ElevenLabs (Ajustes).</>}
+              {usesImage && (
+                <div className="mt-0.5">
+                  💶 Coste imagen estimado: <strong>~{rankCostStr}</strong> (máx. {leadIds.length} × ~{EUR_POR_CONSULTA.toFixed(2)}€).
+                  Solo móviles; los fijos/sin WhatsApp se omiten.
+                </div>
+              )}
             </div>
           )}
 
@@ -1959,11 +2012,11 @@ function EnqueueModal({
             </button>
             <button
               onClick={submit}
-              disabled={busy || (kind !== "ranking" && templates.length === 0)}
+              disabled={busy || (kind !== "ranking" && kind !== "mix" && templates.length === 0)}
               className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium disabled:opacity-50"
             >
               {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-              {usesImage ? `Enviar a ${leadIds.length}` : `Encolar ${leadIds.length}`}
+              {kind === "text" ? `Encolar ${leadIds.length}` : `Enviar a ${leadIds.length}`}
             </button>
           </div>
         </div>
@@ -2707,13 +2760,18 @@ function QueueTable({ loading, items, onChanged }: { loading: boolean; items: Qu
                     </td>
                     <td className="px-3 py-2 text-xs max-w-md truncate" title={m.kind === "ranking" ? (m.renderedMessage || "Imagen de posicionamiento (pie automático)") : m.renderedMessage}>
                       <span className="inline-flex items-center gap-1.5">
-                        <span className={`text-[9px] px-1 py-0.5 rounded font-semibold ${m.kind === "ranking" ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>
-                          {m.kind === "ranking" ? "IMG" : "TXT"}
+                        <span className={`text-[9px] px-1 py-0.5 rounded font-semibold ${m.kind === "ranking" ? "bg-emerald-100 text-emerald-700" : m.kind === "voice" ? "bg-violet-100 text-violet-700" : "bg-slate-100 text-slate-500"}`}>
+                          {m.kind === "ranking" ? "IMG" : m.kind === "voice" ? "VOZ" : "TXT"}
                         </span>
                         {m.kind === "ranking" ? (
                           <span className="inline-flex items-center gap-1 text-emerald-700">
                             <span className="font-medium">Imagen de posicionamiento</span>
                             {m.renderedMessage ? <span className="text-slate-500">· {m.renderedMessage}</span> : <span className="text-slate-400">· pie automático</span>}
+                          </span>
+                        ) : m.kind === "voice" ? (
+                          <span className="inline-flex items-center gap-1 text-violet-700">
+                            <span className="font-medium">Nota de voz</span>
+                            {m.renderedMessage ? <span className="text-slate-500">· {m.renderedMessage}</span> : null}
                           </span>
                         ) : m.renderedMessage ? (
                           <span>{m.renderedMessage}</span>
@@ -2857,6 +2915,9 @@ function QueueTable({ loading, items, onChanged }: { loading: boolean; items: Qu
               </div>
             ) : (
               <p className="text-[11px] text-slate-400">Este mensaje ya no está en cola; no se puede editar.</p>
+            )}
+            {previewRow.kind === "voice" && (
+              <p className="text-[11px] text-violet-600">🎙️ Se enviará como <strong>nota de voz</strong> generada con ElevenLabs a partir de este texto (si no hay voz configurada, se envía como texto).</p>
             )}
             {previewRow.kind === "ranking" && (
               <p className="text-[11px] text-slate-400">
@@ -5220,6 +5281,8 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
   const [scrapflyKey, setScrapflyKey] = useState("");
   const [hunterKey, setHunterKey] = useState("");
   const [apolloKey, setApolloKey] = useState("");
+  const [elevenKey, setElevenKey] = useState("");
+  const [elevenVoiceId, setElevenVoiceId] = useState("");
   const [health, setHealth] = useState<any[] | null>(null);
   const [loadingHealth, setLoadingHealth] = useState(false);
   // Estado de conexión en vivo por número (sesión WAHA): WORKING / SCAN_QR_CODE / …
@@ -5254,12 +5317,12 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
         const d = await r.json().catch(() => ({}));
         throw new Error(d?.error?.message ?? `No se pudieron cargar los ajustes (HTTP ${r.status})`);
       })
-      .then(setS)
+      .then((d) => { setS(d); setElevenVoiceId(d?.elevenLabsVoiceId ?? ""); })
       .catch((e) => setLoadError(e?.message ?? "Error al cargar los ajustes"));
   }
   useEffect(() => {
     if (!open) return;
-    setGoogleKey(""); setWahaKey(""); setEvoKey(""); setMetaAdsKey(""); setScrapflyKey(""); setHunterKey(""); setApolloKey(""); setError(null); setSavedAt(null);
+    setGoogleKey(""); setWahaKey(""); setEvoKey(""); setMetaAdsKey(""); setScrapflyKey(""); setHunterKey(""); setApolloKey(""); setElevenKey(""); setError(null); setSavedAt(null);
     setS(null);
     loadSettings();
   }, [open]);
@@ -5355,6 +5418,8 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
     if (scrapflyKey) body.scrapflyApiKey = scrapflyKey;
     if (hunterKey) body.hunterApiKey = hunterKey;
     if (apolloKey) body.apolloApiKey = apolloKey;
+    if (elevenKey.trim()) body.elevenLabsApiKey = elevenKey.trim();
+    body.elevenLabsVoiceId = elevenVoiceId.trim();
     const r = await fetch("/api/v1/leads/settings", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     setSaving(false);
     if (!r.ok) {
@@ -5549,6 +5614,38 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
                 className="w-full px-3 py-2 rounded-lg border bg-white text-sm font-mono"
               />
               <p className="mt-1 text-[11px] text-slate-500">En el <strong>🎯 Kit directivo</strong>: encuentra al decisor (nombre, cargo, LinkedIn, email) por dominio. Se cifra.</p>
+            </div>
+          </div>
+        </section>
+        <section>
+          <h3 className="text-sm font-semibold mb-2">🎙️ Voz IA (ElevenLabs)</h3>
+          <div className="space-y-2">
+            <div>
+              <label className="block text-xs font-medium text-slate-700 mb-1">
+                API key de ElevenLabs {s.elevenLabsConfigured && <span className="text-emerald-600">· configurada ✓</span>}
+              </label>
+              <input
+                type="password"
+                autoComplete="off"
+                data-lpignore="true"
+                data-1p-ignore
+                value={elevenKey}
+                onChange={(e) => setElevenKey(e.target.value)}
+                placeholder={s.elevenLabsConfigured ? "•••• (configurada, deja vacío para no cambiar)" : "ElevenLabs API key"}
+                className="w-full px-3 py-2 rounded-lg border bg-white text-sm font-mono"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-700 mb-1">ID de la voz (Voice ID)</label>
+              <input
+                value={elevenVoiceId}
+                onChange={(e) => setElevenVoiceId(e.target.value)}
+                placeholder="Ej: 21m00Tcm... (tu voz clonada o una del catálogo)"
+                className="w-full px-3 py-2 rounded-lg border bg-white text-sm font-mono"
+              />
+              <p className="mt-1 text-[11px] text-slate-500">
+                Activa el envío de <strong>notas de voz IA</strong>. Clona tu voz en ElevenLabs (Voice Lab) y pega aquí su Voice ID. Se cifra la key.
+              </p>
             </div>
           </div>
         </section>

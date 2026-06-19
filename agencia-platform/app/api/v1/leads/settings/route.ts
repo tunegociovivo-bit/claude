@@ -55,6 +55,9 @@ export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
     // Enriquecimiento de contacto de directivos.
     hunterConfigured: !!(s.hunterApiKeyEnc || process.env.HUNTER_API_KEY),
     apolloConfigured: !!(s.apolloApiKeyEnc || process.env.APOLLO_API_KEY),
+    // Voz IA (ElevenLabs) para notas de voz.
+    elevenLabsConfigured: !!(s.elevenLabsApiKeyEnc || process.env.ELEVENLABS_API_KEY),
+    elevenLabsVoiceId: s.elevenLabsVoiceId ?? "",
     webhookLastHit: s.webhookLastHit ?? null,
     webhookLastEvent: s.webhookLastEvent ?? null,
     maxPerHour: s.maxPerHour ?? 10,

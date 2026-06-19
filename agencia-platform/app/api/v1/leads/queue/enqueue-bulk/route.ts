@@ -1,15 +1,15 @@
 /**
  * POST /api/v1/leads/queue/enqueue-bulk
- * Body: { leadIds: string[], templateId?: string|null }
+ * Body: { leadIds, templateId?, kind?, mix? }
  *
- * Encola un mensaje de WhatsApp para varios leads (lanzar campaña). Resuelve
- * la plantilla (la elegida, o la marcada por defecto, o cualquiera) y encola
- * lead por lead.
+ * Encola mensajes de WhatsApp para varios leads (campaña). Soporta:
+ *  - kind único: "text" | "ranking" (imagen+pie) | "text_then_image" |
+ *    "voice" (nota de voz) | "voice_image" (imagen + voz) | "alternate".
+ *  - mix: reparto por porcentajes entre formatos (anti-baneo + flexibilidad),
+ *    p. ej. [{kind:"voice_image",percent:25},{kind:"ranking",percent:35},...].
  *
- * IMPORTANTE: el bucle es SECUENCIAL a propósito. enqueueMessage encadena
- * cada mensaje tras el último programado para ESPACIARLOS (anti-baneo). Si se
- * encolaran en paralelo, todos leerían el mismo "último" y se amontonarían,
- * disparándose en ráfaga (la causa del baneo).
+ * IMPORTANTE: el bucle es SECUENCIAL a propósito. enqueueMessage encadena cada
+ * mensaje tras el último programado para ESPACIARLOS (anti-baneo).
  */
 
 import { NextResponse } from "next/server";
@@ -19,36 +19,66 @@ import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { enqueueMessage } from "@/lib/leads/send-queue";
 
+const FORMAT = z.enum(["text", "ranking", "text_then_image", "voice", "voice_image"]);
+
 const schema = z.object({
-  // Hasta 2000 para poder lanzar una campaña sobre "todos" los seleccionados.
-  // El envío real va espaciado y limitado por día (anti-baneo) en send-queue,
-  // así que encolar muchos no los dispara en ráfaga.
   leadIds: z.array(z.string().min(1)).min(1).max(2000),
   templateId: z.string().min(1).nullable().optional(),
-  // "text" | "ranking" (imagen+pie) | "text_then_image" (2 mensajes) |
-  // "alternate" (varía entre imagen+pie y texto+imagen, anti-baneo).
-  kind: z.enum(["text", "ranking", "text_then_image", "alternate"]).optional()
+  kind: z.enum(["text", "ranking", "text_then_image", "voice", "voice_image", "alternate"]).optional(),
+  // Reparto por porcentajes (si viene, manda sobre `kind`).
+  mix: z.array(z.object({ kind: FORMAT, percent: z.number().min(0).max(100) })).optional()
 });
+
+type Format = z.infer<typeof FORMAT>;
+
+// Formatos que necesitan texto de plantilla (texto a enviar o guion de voz).
+const NEEDS_TEXT: Record<Format, boolean> = {
+  text: true,
+  ranking: false, // el pie es opcional (auto)
+  text_then_image: true,
+  voice: true,
+  voice_image: true
+};
+
+/** Asigna un formato a cada lead repartiendo según porcentajes, intercalado
+ *  (greedy por mayor déficit) para que los formatos queden mezclados en el
+ *  tiempo (mejor anti-baneo) y cuadren los conteos. */
+function buildAssignment(n: number, mix: { kind: Format; percent: number }[]): Format[] {
+  const total = mix.reduce((s, m) => s + m.percent, 0) || 1;
+  const targets = mix.map((m) => ({ kind: m.kind, target: (m.percent / total) * n, assigned: 0 }));
+  const out: Format[] = [];
+  for (let i = 0; i < n; i++) {
+    let best = targets[0];
+    for (const t of targets) {
+      if (t.target - t.assigned > best.target - best.assigned) best = t;
+    }
+    out.push(best.kind);
+    best.assigned++;
+  }
+  return out;
+}
 
 export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api }) => {
   const parsed = schema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) throw new ApiError(400, "validation_error", parsed.error.message);
 
-  const kind = parsed.data.kind ?? "text";
-  const needsTemplate = kind === "text" || kind === "text_then_image" || kind === "alternate";
+  const singleKind = parsed.data.kind ?? "text";
+  const mix = parsed.data.mix?.filter((m) => m.percent > 0) ?? null;
 
-  // Resolver plantilla base: la elegida → la default → cualquiera. Para
-  // "ranking" la plantilla es OPCIONAL (solo sirve de pie de foto; si no hay,
-  // se autogenera según la posición del lead).
+  // ¿Algún formato implicado necesita texto de plantilla?
+  const usedFormats: Format[] = mix
+    ? mix.map((m) => m.kind)
+    : singleKind === "alternate"
+      ? ["ranking", "text_then_image"]
+      : [singleKind as Format];
+  const needsTemplate = usedFormats.some((f) => NEEDS_TEXT[f]);
+
+  // Resolver plantilla: la elegida → la default → cualquiera (si hace falta texto).
   let tpl = parsed.data.templateId
-    ? await prisma.leadTemplate.findFirst({
-        where: { id: parsed.data.templateId, workspaceId: api.workspaceId }
-      })
+    ? await prisma.leadTemplate.findFirst({ where: { id: parsed.data.templateId, workspaceId: api.workspaceId } })
     : null;
   if (!tpl && needsTemplate) {
-    tpl = await prisma.leadTemplate.findFirst({
-      where: { workspaceId: api.workspaceId, isDefault: true }
-    });
+    tpl = await prisma.leadTemplate.findFirst({ where: { workspaceId: api.workspaceId, isDefault: true } });
   }
   if (!tpl && needsTemplate) {
     tpl = await prisma.leadTemplate.findFirst({ where: { workspaceId: api.workspaceId } });
@@ -57,21 +87,12 @@ export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api }) 
     throw new ApiError(400, "no_template", "No hay ninguna plantilla. Crea una en la pestaña Plantillas.");
   }
 
-  // Segmentación por score/urgencia (mejora #8): los leads que pasan al
-  // encolar se ordenan primero por urgencia (crítica → alta → media → baja)
-  // y luego por score DESC. Así el primer envío del día va a los leads más
-  // calientes y la tasa de respuesta sube sin saturar el número.
+  // Orden por urgencia/score (los más calientes primero).
   const leadsForOrder = await prisma.lead.findMany({
     where: { id: { in: parsed.data.leadIds }, workspaceId: api.workspaceId },
     select: { id: true, score: true, urgency: true }
   });
-  const URGENCY_RANK: Record<string, number> = {
-    critica: 0,
-    alta: 1,
-    media: 2,
-    baja: 3,
-    descartar: 4
-  };
+  const URGENCY_RANK: Record<string, number> = { critica: 0, alta: 1, media: 2, baja: 3, descartar: 4 };
   const orderedIds = leadsForOrder
     .slice()
     .sort((a, b) => {
@@ -81,52 +102,41 @@ export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api }) 
       return (b.score ?? 0) - (a.score ?? 0);
     })
     .map((l) => l.id);
-  // Conservamos por compatibilidad cualquier id de la request que no haya
-  // venido en la query (improbable, pero por defensa).
   const known = new Set(orderedIds);
   for (const id of parsed.data.leadIds) if (!known.has(id)) orderedIds.push(id);
 
-  let ok = 0;
-  const skipped: { leadId: string; reason: string }[] = [];
+  // Formato por lead: del mix, del alternate, o el kind único.
+  const assignment: Format[] = mix
+    ? buildAssignment(orderedIds.length, mix)
+    : orderedIds.map((_, i) =>
+        singleKind === "alternate" ? (i % 2 === 0 ? "ranking" : "text_then_image") : (singleKind as Format)
+      );
 
-  for (let i = 0; i < orderedIds.length; i++) {
-    const leadId = orderedIds[i];
-    // "alternate": varía el patrón por lead (anti-baneo) entre imagen-con-pie y
-    // texto+imagen. El resto de kinds se aplican tal cual.
-    const effKind =
-      kind === "alternate" ? (i % 2 === 0 ? "ranking" : "text_then_image") : kind;
-    try {
-      if (effKind === "text_then_image") {
-        // 1) Texto, 2) imagen de posicionamiento (dos mensajes, espaciados).
-        await enqueueMessage({
-          workspaceId: api.workspaceId,
-          leadId,
-          body: tpl?.body ?? "",
-          templateId: tpl?.id ?? null,
-          kind: "text"
-        });
-        await enqueueMessage({
-          workspaceId: api.workspaceId,
-          leadId,
-          body: "", // la imagen va sin pie (el texto ya fue en el 1er mensaje)
-          templateId: null,
-          kind: "ranking",
-          skipDuplicateCheck: true
-        });
-      } else {
-        await enqueueMessage({
-          workspaceId: api.workspaceId,
-          leadId,
-          body: tpl?.body ?? "",
-          templateId: tpl?.id ?? null,
-          kind: effKind === "ranking" ? "ranking" : "text"
-        });
-      }
-      ok++;
-    } catch (e: any) {
-      skipped.push({ leadId, reason: e?.message ?? "error" });
+  const tplBody = tpl?.body ?? "";
+  const tplId = tpl?.id ?? null;
+  async function enqueueForLead(leadId: string, fmt: Format) {
+    if (fmt === "text" || fmt === "ranking" || fmt === "voice") {
+      await enqueueMessage({ workspaceId: api.workspaceId, leadId, body: tplBody, templateId: tplId, kind: fmt });
+    } else if (fmt === "text_then_image") {
+      await enqueueMessage({ workspaceId: api.workspaceId, leadId, body: tplBody, templateId: tplId, kind: "text" });
+      await enqueueMessage({ workspaceId: api.workspaceId, leadId, body: "", templateId: null, kind: "ranking", skipDuplicateCheck: true });
+    } else if (fmt === "voice_image") {
+      // Imagen (sin pie) + nota de voz con el guion de la plantilla.
+      await enqueueMessage({ workspaceId: api.workspaceId, leadId, body: "", templateId: null, kind: "ranking" });
+      await enqueueMessage({ workspaceId: api.workspaceId, leadId, body: tplBody, templateId: tplId, kind: "voice", skipDuplicateCheck: true });
     }
   }
 
-  return NextResponse.json({ ok, skipped, total: parsed.data.leadIds.length, templateName: tpl?.name ?? null, kind });
+  let ok = 0;
+  const skipped: { leadId: string; reason: string }[] = [];
+  for (let i = 0; i < orderedIds.length; i++) {
+    try {
+      await enqueueForLead(orderedIds[i], assignment[i]);
+      ok++;
+    } catch (e: any) {
+      skipped.push({ leadId: orderedIds[i], reason: e?.message ?? "error" });
+    }
+  }
+
+  return NextResponse.json({ ok, skipped, total: parsed.data.leadIds.length, templateName: tpl?.name ?? null });
 });
