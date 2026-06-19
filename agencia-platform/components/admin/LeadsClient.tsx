@@ -4422,12 +4422,40 @@ function NewSearchModal({ open, onClose, onSaved }: { open: boolean; onClose: ()
   const [useGrid, setUseGrid] = useState(false);
   const [mobileOnly, setMobileOnly] = useState(false);
   const [cacheReuse, setCacheReuse] = useState(false);
+  const [estCache, setEstCache] = useState<{ targets: number; cached: number; billable: number } | null>(null);
   const [allSources, setAllSources] = useState(false);
   const [cfg, setCfg] = useState<{ metaAdsConfigured?: boolean; scrapflyConfigured?: boolean } | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const sourceMeta = LEAD_SOURCES.find((s) => s.key === source) ?? LEAD_SOURCES[0];
   const municipios = province ? municipalitiesForProvince(province) : [];
+  // Con la caché activada, consultamos al backend cuántas áreas ya están
+  // barridas (<30 días) para restarlas del coste estimado (#4). Debounced.
+  useEffect(() => {
+    if (source !== "places" || !cacheReuse || !keyword.trim()) {
+      setEstCache(null);
+      return;
+    }
+    const ctrl = new AbortController();
+    const t = setTimeout(() => {
+      const params = new URLSearchParams({
+        keyword: keyword.trim(),
+        scope,
+        location: location.trim(),
+        municipality: scope === "custom" && municipality ? municipality : "",
+        grid: useGrid ? "1" : "0",
+        cacheDays: "30"
+      });
+      fetch(`/api/v1/leads/searches/estimate?${params.toString()}`, { signal: ctrl.signal })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => d && setEstCache(d))
+        .catch(() => {});
+    }, 500);
+    return () => {
+      clearTimeout(t);
+      ctrl.abort();
+    };
+  }, [source, cacheReuse, keyword, scope, location, municipality, useGrid]);
   // Estimación de consultas/coste antes de lanzar (espejo de la lógica del backend).
   const estVariants = useSynonyms ? 3 : 1;
   const provName = province || (PROVINCE_NAMES.includes(location.trim()) ? location.trim() : "");
@@ -4442,6 +4470,12 @@ function NewSearchModal({ open, onClose, onSaved }: { open: boolean; onClose: ()
   const estCostEur = estQueries * EUR_POR_CONSULTA;
   const estCostStr = estCostEur >= 10 ? `${Math.round(estCostEur)}€` : `${estCostEur.toFixed(2)}€`;
   const showEst = source === "places" && estQueries > 1;
+  // Coste real esperado restando lo que ahorra la caché (#4).
+  const cacheOn = cacheReuse && !!estCache;
+  const cachedQueries = cacheOn ? (estCache?.cached ?? 0) * estVariants : 0;
+  const billableQueries = cacheOn ? (estCache?.billable ?? estTargets) * estVariants : estQueries;
+  const realCostEur = billableQueries * EUR_POR_CONSULTA;
+  const realCostStr = realCostEur >= 10 ? `${Math.round(realCostEur)}€` : `${realCostEur.toFixed(2)}€`;
   useEffect(() => {
     if (!open) return;
     setSource("places");
@@ -4784,10 +4818,23 @@ function NewSearchModal({ open, onClose, onSaved }: { open: boolean; onClose: ()
                 : "border-slate-200 bg-slate-50 text-slate-600")
             }
           >
-            📊 Estimación: <strong>≈ {estQueries.toLocaleString("es")} consultas</strong> a Google ·
-            coste aprox. <strong>~{estCostStr}</strong>
-            {estQueries > 1500 && (
-              <span> · captación grande: se procesa por batches del cron y puede tardar.</span>
+            {cacheOn ? (
+              <>
+                📊 Estimación: <strong>≈ {billableQueries.toLocaleString("es")} consultas reales</strong> ·
+                coste aprox. <strong>~{realCostStr}</strong>
+                <div className="mt-0.5 text-[10px] opacity-80">
+                  de {estQueries.toLocaleString("es")} totales · ♻️ {cachedQueries.toLocaleString("es")} en caché
+                  (se saltan, ahorras ~{(estCostEur - realCostEur >= 10 ? Math.round(estCostEur - realCostEur) : (estCostEur - realCostEur).toFixed(2))}€)
+                </div>
+              </>
+            ) : (
+              <>
+                📊 Estimación: <strong>≈ {estQueries.toLocaleString("es")} consultas</strong> a Google ·
+                coste aprox. <strong>~{estCostStr}</strong>
+                {estQueries > 1500 && (
+                  <span> · captación grande: se procesa por batches del cron y puede tardar.</span>
+                )}
+              </>
             )}
           </div>
         )}
