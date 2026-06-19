@@ -7,7 +7,7 @@
  */
 import Link from "next/link";
 import type { Metadata } from "next";
-import { getDirectoryIndex } from "@/lib/bubui/directory";
+import { getDirectoryIndex, getAllLocalities } from "@/lib/bubui/directory";
 import { bubuiUrl } from "@/lib/bubui/url";
 
 // Dinámica: consulta la BD en cada petición (no en build). Evita depender de
@@ -22,7 +22,7 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 export default async function DirectorioIndex() {
-  const { pairs, categories } = await getDirectoryIndex();
+  const [{ pairs, categories }, localities] = await Promise.all([getDirectoryIndex(), getAllLocalities()]);
 
   return (
     <main className="min-h-screen bg-slate-50">
@@ -46,6 +46,20 @@ export default async function DirectorioIndex() {
           </div>
         )}
       </section>
+
+      {/* Localidades */}
+      {localities.length > 0 && (
+        <section className="max-w-5xl mx-auto px-4 pb-8">
+          <h2 className="text-lg font-bold text-slate-900 mb-3">Por localidad</h2>
+          <div className="flex flex-wrap gap-2">
+            {localities.map((l) => (
+              <Link key={l.citySlug} href={`/${l.citySlug}`} className="text-sm rounded-full border border-slate-200 bg-white px-3 py-1.5 text-slate-700 hover:border-pink-300 hover:text-pink-600">
+                {l.cityLabel} <span className="text-slate-400">({l.count})</span>
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* Pares nicho+localidad */}
       {pairs.length > 0 && (

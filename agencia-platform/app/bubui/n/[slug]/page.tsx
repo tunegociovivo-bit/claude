@@ -15,10 +15,12 @@ import { notFound } from "next/navigation";
 import { Suspense } from "react";
 import { prisma } from "@/lib/db/prisma";
 import type { Metadata } from "next";
+import Link from "next/link";
 import ReviewForm from "./ReviewForm";
 import BookingForm from "./BookingForm";
 import RefCapture from "./RefCapture";
 import { getTopPosition } from "@/lib/bubui/topcategory";
+import { resolveCategory, slugify } from "@/lib/bubui/directory";
 
 export const revalidate = 300;
 
@@ -215,11 +217,26 @@ export default async function BusinessPublicPage({ params }: { params: { slug: s
     }
   };
 
+  const catDef = resolveCategory(business.category);
+  const citySlug = slugify(business.city);
+
   return (
     <main className="max-w-3xl mx-auto px-4 py-12">
       <Suspense fallback={null}>
         <RefCapture />
       </Suspense>
+      {/* Breadcrumb → enlazado interno hacia el directorio (SEO) */}
+      <nav className="text-xs text-black/50 mb-4">
+        <Link href="/directorio" className="hover:text-pink-600">Directorio</Link>
+        <span className="mx-1.5">/</span>
+        <Link href={`/${catDef.slug}`} className="hover:text-pink-600">{catDef.label}</Link>
+        {citySlug && (
+          <>
+            <span className="mx-1.5">/</span>
+            <Link href={`/${catDef.slug}/${citySlug}`} className="hover:text-pink-600">{business.city}</Link>
+          </>
+        )}
+      </nav>
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}

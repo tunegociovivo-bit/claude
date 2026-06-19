@@ -136,7 +136,54 @@ export async function getLocalitiesForCategory(catSlug: string): Promise<{
   return { category, localities };
 }
 
-/** Todos los pares nicho×localidad con negocios (índice + sitemap). */
+/** Sectores (con conteo) que tienen negocios activos en una localidad.
+ *  Soporta la página /{localidad} (todos los nichos de un pueblo). */
+export async function getCategoriesForLocality(citySlug: string): Promise<{
+  cityLabel: string;
+  province: string | null;
+  categories: { catSlug: string; catLabel: string; count: number }[];
+  total: number;
+} | null> {
+  const all = await prisma.bubuiBusiness.findMany({
+    where: { active: true },
+    select: { category: true, city: true, province: true }
+  });
+  const inCity = all.filter((b) => slugify(b.city) === citySlug);
+  if (inCity.length === 0) return null;
+  const map = new Map<string, { catLabel: string; count: number }>();
+  for (const b of inCity) {
+    const cat = resolveCategory(b.category);
+    const cur = map.get(cat.slug);
+    if (cur) cur.count++;
+    else map.set(cat.slug, { catLabel: cat.label, count: 1 });
+  }
+  const categories = [...map.entries()]
+    .map(([catSlug, v]) => ({ catSlug, ...v }))
+    .sort((a, b) => b.count - a.count || a.catLabel.localeCompare(b.catLabel));
+  return {
+    cityLabel: inCity[0].city,
+    province: inCity[0].province,
+    categories,
+    total: inCity.length
+  };
+}
+
+/** Todas las localidades (con conteo) que tienen negocios activos. */
+export async function getAllLocalities(): Promise<{ citySlug: string; cityLabel: string; count: number }[]> {
+  const all = await prisma.bubuiBusiness.findMany({ where: { active: true }, select: { city: true } });
+  const map = new Map<string, { cityLabel: string; count: number }>();
+  for (const b of all) {
+    const cs = slugify(b.city);
+    if (!cs) continue;
+    const cur = map.get(cs);
+    if (cur) cur.count++;
+    else map.set(cs, { cityLabel: b.city, count: 1 });
+  }
+  return [...map.entries()]
+    .map(([citySlug, v]) => ({ citySlug, ...v }))
+    .sort((a, b) => b.count - a.count || a.cityLabel.localeCompare(b.cityLabel));
+}
+
 export async function getDirectoryIndex(): Promise<{
   pairs: { catSlug: string; catLabel: string; citySlug: string; cityLabel: string; count: number }[];
   categories: { catSlug: string; catLabel: string; count: number }[];
