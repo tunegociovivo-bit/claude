@@ -2727,6 +2727,7 @@ function InboxChat({
   const [fClass, setFClass] = useState<string>("all"); // all|interested|info_request|objection|opt_out
   const [fUnread, setFUnread] = useState(false);
   const [fStatus, setFStatus] = useState<string>("all"); // all|pending|followup|resolved
+  const [fDate, setFDate] = useState<"all" | "today" | "7d" | "30d">("all"); // por actividad reciente
   const [showArchived, setShowArchived] = useState(false);
   const [sortBy, setSortBy] = useState<"hot" | "priority" | "recent" | "unread">("hot");
   const [showBroadcast, setShowBroadcast] = useState(false);
@@ -2938,6 +2939,14 @@ function InboxChat({
       if (fStatus !== "all" && c.status !== fStatus) return false;
       if (fClass !== "all" && c.classification !== fClass) return false;
       if (fUnread && c.unread === 0) return false;
+      if (fDate !== "all") {
+        // Filtra por actividad reciente (último mensaje de la conversación).
+        const days = fDate === "today" ? 1 : fDate === "7d" ? 7 : 30;
+        const cutoff = fDate === "today"
+          ? new Date(new Date().setHours(0, 0, 0, 0)).getTime()
+          : Date.now() - days * 86400000;
+        if (new Date(c.lastAt).getTime() < cutoff) return false;
+      }
       if (search.trim()) {
         const q = search.toLowerCase();
         const hay = `${c.leadName ?? ""} ${c.displayName ?? ""} ${c.phone} ${c.realPhone ?? ""} ${c.leadPhone ?? ""} ${c.note ?? ""} ${c.lastBody}`.toLowerCase();
@@ -2952,7 +2961,7 @@ function InboxChat({
       // priority (por defecto): alta primero, luego reciente
       return (PR_RANK[a.priority] ?? 3) - (PR_RANK[b.priority] ?? 3) || new Date(b.lastAt).getTime() - new Date(a.lastAt).getTime();
     });
-  const activeFilters = (fPriority !== "all" ? 1 : 0) + (fStatus !== "all" ? 1 : 0) + (fClass !== "all" ? 1 : 0) + (fUnread ? 1 : 0) + (search.trim() ? 1 : 0);
+  const activeFilters = (fPriority !== "all" ? 1 : 0) + (fStatus !== "all" ? 1 : 0) + (fClass !== "all" ? 1 : 0) + (fUnread ? 1 : 0) + (fDate !== "all" ? 1 : 0) + (search.trim() ? 1 : 0);
 
   return (
     <div className="bg-white rounded-xl border overflow-hidden grid grid-cols-1 md:grid-cols-[320px_1fr]" style={{ height: "72vh" }}>
@@ -2984,6 +2993,23 @@ function InboxChat({
             >
               ● No leídos
             </button>
+          </div>
+          {/* Filtro por fecha (actividad reciente). Combínalo con orden "Recientes". */}
+          <div className="flex items-center gap-1 flex-wrap">
+            <span className="text-[10px] text-slate-400">📅</span>
+            {([["all", "Todo"], ["today", "Hoy"], ["7d", "7 días"], ["30d", "30 días"]] as const).map(([v, lbl]) => (
+              <button
+                key={v}
+                onClick={() => {
+                  setFDate(v);
+                  // Al filtrar por fecha, ordena por más reciente arriba.
+                  if (v !== "all") setSortBy("recent");
+                }}
+                className={`text-[11px] px-1.5 py-0.5 rounded border ${fDate === v ? "bg-indigo-600 text-white border-indigo-600" : "bg-white text-slate-500 border-slate-200 hover:bg-slate-50"}`}
+              >
+                {lbl}
+              </button>
+            ))}
           </div>
           <div className="flex items-center gap-1.5">
             <select
@@ -3030,7 +3056,7 @@ function InboxChat({
           </div>
           {activeFilters > 0 && (
             <button
-              onClick={() => { setSearch(""); setFPriority("all"); setFClass("all"); setFUnread(false); }}
+              onClick={() => { setSearch(""); setFPriority("all"); setFClass("all"); setFUnread(false); setFStatus("all"); setFDate("all"); }}
               className="text-[11px] text-rose-600 hover:underline"
             >
               ✕ Quitar filtros ({visibleConvs.length} de {convs.length})
