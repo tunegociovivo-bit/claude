@@ -8,10 +8,26 @@
 import { prisma } from "@/lib/db/prisma";
 import { renderTemplate } from "./template-engine";
 import { aiRewriteMessage } from "./ai-vary";
-import { normalizePhone, sendText, sendImage, getWahaConfig, checkNumberExists } from "./waha";
-import { pickEnqueueChannel, reassignIfQuarantined } from "./channels";
+import { normalizePhone, sendText, sendImage, getWahaConfig, getSession, checkNumberExists } from "./waha";
+import { pickEnqueueChannel, reassignIfQuarantined, getLeadChannels } from "./channels";
 import { getCompetitorRanking, rankingAutoCaption } from "./competitors";
 import { renderRankingPng } from "./ranking-card";
+
+/** ¿La sesión WAHA está conectada (WORKING)? null si no se puede determinar. */
+async function sessionWorking(workspaceId: string, session: string): Promise<boolean | null> {
+  try {
+    const s = await getSession({ workspaceId, session });
+    const st = String((s as any)?.status ?? "").toUpperCase();
+    if (!st) return null;
+    return st === "WORKING";
+  } catch {
+    return null;
+  }
+}
+
+/** Errores de WAHA que indican que la sesión no está lista (no es un fallo del
+ *  mensaje): no deben quemar intentos, sino reintentarse al reconectar. */
+const SESSION_DOWN_RE = /not\s*working|SCAN_QR|STARTING|STOPPED|FAILED|session.*(not|stopped|failed|status)/i;
 
 /**
  * Estados que cuentan como "ya enviado" para los topes anti-baneo. Cuando el
@@ -847,6 +863,43 @@ export async function sendMessageById(
 
   try {
     const cfg = await getWahaConfig(workspaceId);
+
+    // GUARDA DE SESIÓN: antes de enviar, comprobar que el número asignado está
+    // realmente CONECTADO en WAHA. Si no, reasignar a otro número conectado; si
+    // ninguno lo está, dejar el mensaje EN COLA (sin quemar intentos) con un
+    // aviso claro. Esto evita que toda una campaña falle (WAHA 422 "session not
+    // working") cuando un número se desconecta.
+    const preferred = msg.instanceName ?? cfg.session;
+    const pref = await sessionWorking(workspaceId, preferred);
+    if (pref === false) {
+      const extraNames = (await getLeadChannels(workspaceId)).map((c) => c.name).filter(Boolean);
+      const candidates = [cfg.session, ...extraNames].filter(
+        (v, i, a) => v && v !== preferred && a.indexOf(v) === i
+      );
+      let chosen: string | null = null;
+      for (const cand of candidates) {
+        if ((await sessionWorking(workspaceId, cand)) === true) {
+          chosen = cand;
+          break;
+        }
+      }
+      if (chosen) {
+        msg.instanceName = chosen === cfg.session ? null : chosen;
+        await prisma.leadMessage.update({ where: { id: msg.id }, data: { instanceName: msg.instanceName } });
+      } else {
+        await prisma.leadMessage.update({
+          where: { id: msg.id },
+          data: {
+            status: "queued",
+            sendAttempts: msg.sendAttempts, // no contar este intento (sesión caída ≠ fallo del mensaje)
+            scheduledAt: new Date(Date.now() + 10 * 60 * 1000),
+            lastError: `El número "${preferred}" no está conectado en WhatsApp y no hay otro conectado. Reconéctalo en Ajustes → Conectar; los mensajes se reintentan solos.`
+          }
+        });
+        return { processed: false, messageId: msg.id, status: "no_session" };
+      }
+    }
+
     if (settings.validateWaBeforeSend) {
       const exists = await checkNumberExists({
         workspaceId,
@@ -930,13 +983,29 @@ export async function sendMessageById(
     });
     return { processed: true, messageId: msg.id, status: "sent" };
   } catch (e: any) {
+    const errStr = String(e?.message ?? e);
+    // Sesión caída (422 "session not working", etc.): NO es fallo del mensaje.
+    // Lo devolvemos a la cola sin quemar intentos para que se reenvíe en cuanto
+    // el número se reconecte, en vez de marcar la campaña entera como failed.
+    if (SESSION_DOWN_RE.test(errStr)) {
+      await prisma.leadMessage.update({
+        where: { id: msg.id },
+        data: {
+          status: "queued",
+          sendAttempts: msg.sendAttempts, // no contar este intento
+          scheduledAt: new Date(Date.now() + 10 * 60 * 1000),
+          lastError: `Número desconectado en WhatsApp — reintento al reconectar. (${errStr.slice(0, 160)})`
+        }
+      });
+      return { processed: false, messageId: msg.id, status: "session_down" };
+    }
     const newAttempts = msg.sendAttempts + 1;
     const maxed = newAttempts >= settings.maxAttempts;
     await prisma.leadMessage.update({
       where: { id: msg.id },
       data: {
         status: maxed ? "failed" : "queued",
-        lastError: String(e?.message ?? e).slice(0, 500),
+        lastError: errStr.slice(0, 500),
         scheduledAt: maxed ? msg.scheduledAt : new Date(Date.now() + 30 * 60 * 1000)
       }
     });
