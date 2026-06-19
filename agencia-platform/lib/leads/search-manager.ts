@@ -85,7 +85,17 @@ export async function startSearch(opts: {
   }
   if (source === "places" && totalTargets === 1 && !tiling.gridCells) {
     if (opts.scope === "spain") {
-      totalTargets = SPAIN_PROVINCES.length;
+      if (useGrid) {
+        // Máxima cobertura nacional: trocear por TODOS los municipios de cada
+        // provincia (no solo la capital), igual que el modo provincia pero a
+        // nivel país. Cubre todo el territorio, no solo las grandes ciudades.
+        let n = 0;
+        for (const p of SPAIN_PROVINCES) n += municipalitiesForProvince(p.name).length;
+        totalTargets = n || SPAIN_PROVINCES.length;
+        tiling.spainMunicipalities = true;
+      } else {
+        totalTargets = SPAIN_PROVINCES.length;
+      }
     } else if (municipality) {
       tiling.municipality = municipality;
       tiling.tileProvince = province?.name ?? location;
@@ -177,6 +187,18 @@ export async function processSearchBatch(opts: {
       radiusMeters: cfg.gridRadiusMeters ?? 3000,
       gridMode: true
     }));
+  } else if (search.scope === "spain" && cfg.spainMunicipalities) {
+    // Máxima cobertura nacional: lista plana de TODOS los municipios de todas
+    // las provincias (en el mismo orden con que se contaron en startSearch) y
+    // se trocea por batch. Bias a la capital de provincia; el nombre del
+    // municipio en el textQuery hace que Google lo geolocalice.
+    const flat: Target[] = [];
+    for (const p of SPAIN_PROVINCES) {
+      for (const m of municipalitiesForProvince(p.name)) {
+        flat.push({ area: `${m}, ${p.name}`, provinceTag: p.name, lat: p.lat, lng: p.lng });
+      }
+    }
+    targets = flat.slice(from, from + batchSize);
   } else if (search.scope === "spain") {
     targets = SPAIN_PROVINCES.slice(from, from + batchSize).map((p) => ({
       area: p.name,
@@ -232,43 +254,22 @@ export async function processSearchBatch(opts: {
         : [search.keyword];
       let results: PlacesResult[] = [];
       const seenPlace = new Set<string>();
-      // Cuadrícula en "Toda España": cada provincia se trocea en celdas
-      // alrededor de su capital para romper el tope de ~60 por consulta de
-      // Google (en scope custom las celdas ya vienen como targets → gridMode).
-      const useGrid = !!(search as any).sourceConfig?.useGrid;
-      const gridThisTarget =
-        useGrid && search.scope === "spain" && !prov.gridMode && prov.lat != null && prov.lng != null;
-      let cells: { lat?: number; lng?: number; radiusMeters?: number; gridMode: boolean }[];
-      if (gridThisTarget) {
-        const { cells: pts, cellRadiusMeters } = buildGridPoints({
-          lat: prov.lat!,
-          lng: prov.lng!,
-          halfSpanKm: 30,
-          stepKm: 12,
-          maxCells: 36
+      for (const kw of variants) {
+        const part = await placesTextSearch({
+          workspaceId: opts.workspaceId,
+          // En modo cuadrícula la consulta es puro geo (keyword + locationBias a
+          // la celda); en el resto incluimos el nombre del área en el texto.
+          query: prov.gridMode ? kw.trim() : `${kw} en ${prov.area}`.trim(),
+          lat: prov.lat || undefined,
+          lng: prov.lng || undefined,
+          radiusMeters: prov.radiusMeters,
+          maxPages: prov.gridMode ? 2 : undefined,
+          province: prov.provinceTag
         });
-        cells = pts.map((c) => ({ lat: c.lat, lng: c.lng, radiusMeters: cellRadiusMeters, gridMode: true }));
-      } else {
-        cells = [{ lat: prov.lat, lng: prov.lng, radiusMeters: prov.radiusMeters, gridMode: !!prov.gridMode }];
-      }
-      for (const cell of cells) {
-        for (const kw of variants) {
-          const part = await placesTextSearch({
-            workspaceId: opts.workspaceId,
-            // En modo cuadrícula la consulta es puro geo (keyword + locationBias a
-            // la celda); en el resto incluimos el nombre del área en el texto.
-            query: cell.gridMode ? kw.trim() : `${kw} en ${prov.area}`.trim(),
-            lat: cell.lat || undefined,
-            lng: cell.lng || undefined,
-            radiusMeters: cell.radiusMeters,
-            maxPages: cell.gridMode ? 2 : undefined,
-            province: prov.provinceTag
-          });
-          for (const r of part) {
-            if (r.placeId && seenPlace.has(r.placeId)) continue;
-            if (r.placeId) seenPlace.add(r.placeId);
-            results.push(r);
-          }
+        for (const r of part) {
+          if (r.placeId && seenPlace.has(r.placeId)) continue;
+          if (r.placeId) seenPlace.add(r.placeId);
+          results.push(r);
         }
       }
       // Filtro de "reseñas bajas" (mejora propuesta — leads urgentes con

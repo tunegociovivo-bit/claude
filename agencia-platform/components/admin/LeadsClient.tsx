@@ -4647,9 +4647,9 @@ function NewSearchModal({ open, onClose, onSaved }: { open: boolean; onClose: ()
               <span className="text-xs font-medium text-slate-800">🗺️ Búsqueda por cuadrícula (máxima cobertura)</span>
               <p className="text-[11px] text-slate-500">
                 Divide la zona en una rejilla y consulta cada celda para superar el tope de ~60
-                de Google. Captura <strong>muchos más negocios</strong>. En "Toda España" trocea
-                cada provincia alrededor de su capital. Usa muchas más llamadas a la API
-                (sobre todo en Toda España).
+                de Google. Captura <strong>muchos más negocios</strong>. En "Toda España" busca en
+                <strong> todos los municipios del país</strong> (~8.000) → cobertura total, pero
+                tarda y consume muchas más llamadas a la API.
               </p>
             </div>
           </label>
