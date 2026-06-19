@@ -1837,14 +1837,20 @@ function EnqueueModal({
 }) {
   const [templates, setTemplates] = useState<Template[]>([]);
   const [templateId, setTemplateId] = useState<string>("");
+  const [kind, setKind] = useState<"text" | "ranking">("text");
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<{ ok: number; skipped: { leadId: string; reason: string }[]; total: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Coste estimado de la imagen de posicionamiento: 1 consulta a Google Places
+  // por lead (para calcular el ranking) ≈ €0.03 c/u.
+  const rankCost = leadIds.length * EUR_POR_CONSULTA;
+  const rankCostStr = rankCost >= 10 ? `${Math.round(rankCost)}€` : `${rankCost.toFixed(2)}€`;
 
   useEffect(() => {
     if (!open) return;
     setResult(null);
     setError(null);
+    setKind("text");
     fetch("/api/v1/leads/templates")
       .then((r) => (r.ok ? r.json() : { items: [] }))
       .then((d) => {
@@ -1863,7 +1869,7 @@ function EnqueueModal({
       const r = await fetch("/api/v1/leads/queue/enqueue-bulk", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ leadIds, templateId: templateId || null })
+        body: JSON.stringify({ leadIds, templateId: templateId || null, kind })
       });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) {
@@ -1881,17 +1887,53 @@ function EnqueueModal({
       {!result ? (
         <div className="space-y-3">
           <p className="text-sm text-slate-600">
-            Se encolarán con el <strong>espaciado anti-baneo</strong> de Ajustes (ventana horaria, delay aleatorio entre envíos y tope diario). Cada mensaje se personaliza y se le aplican micro-variaciones por lead.
+            Se encolarán con el <strong>espaciado anti-baneo</strong> de Ajustes (ventana horaria, delay aleatorio entre envíos y tope diario).
           </p>
-          <label className="block text-sm font-medium text-slate-700">Plantilla</label>
+          {/* Tipo de mensaje */}
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => setKind("text")}
+              className={`flex-1 px-3 py-2 rounded-lg border text-sm font-medium ${kind === "text" ? "bg-brand-600 text-white border-brand-600" : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"}`}
+            >
+              💬 Texto
+            </button>
+            <button
+              type="button"
+              onClick={() => setKind("ranking")}
+              className={`flex-1 px-3 py-2 rounded-lg border text-sm font-medium ${kind === "ranking" ? "bg-emerald-600 text-white border-emerald-600" : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"}`}
+            >
+              📊 Imagen de posicionamiento
+            </button>
+          </div>
+
+          {kind === "ranking" && (
+            <div className="rounded-md border border-amber-300 bg-amber-50 px-2.5 py-2 text-[12px] text-amber-800">
+              Envía la “captura” de Google (tú vs competencia) a cada lead. Cada imagen hace
+              <strong> 1 consulta a Google Places</strong> para calcular su ranking.
+              <div className="mt-0.5">
+                💶 Coste estimado: <strong>~{rankCostStr}</strong> ({leadIds.length} leads × ~{EUR_POR_CONSULTA.toFixed(2)}€).
+                Solo se envía a móviles; los fijos/sin WhatsApp se omiten.
+              </div>
+            </div>
+          )}
+
+          <label className="block text-sm font-medium text-slate-700">
+            {kind === "ranking" ? "Pie de foto (opcional)" : "Plantilla"}
+          </label>
           {templates.length === 0 ? (
-            <p className="text-sm text-amber-700">No hay plantillas todavía. Crea una en la pestaña <strong>Plantillas</strong>.</p>
+            kind === "ranking" ? (
+              <p className="text-xs text-slate-500">Sin plantilla: se usará un pie automático según la posición de cada lead.</p>
+            ) : (
+              <p className="text-sm text-amber-700">No hay plantillas todavía. Crea una en la pestaña <strong>Plantillas</strong>.</p>
+            )
           ) : (
             <select
               value={templateId}
               onChange={(e) => setTemplateId(e.target.value)}
               className="w-full px-3 py-2 rounded-lg border bg-white text-sm"
             >
+              {kind === "ranking" && <option value="">— Pie automático —</option>}
               {templates.map((t) => (
                 <option key={t.id} value={t.id}>
                   {t.name}
@@ -1907,11 +1949,11 @@ function EnqueueModal({
             </button>
             <button
               onClick={submit}
-              disabled={busy || templates.length === 0}
+              disabled={busy || (kind === "text" && templates.length === 0)}
               className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium disabled:opacity-50"
             >
               {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-              Encolar {leadIds.length}
+              {kind === "ranking" ? `Enviar imagen a ${leadIds.length}` : `Encolar ${leadIds.length}`}
             </button>
           </div>
         </div>

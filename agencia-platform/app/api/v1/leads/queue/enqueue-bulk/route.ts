@@ -24,28 +24,34 @@ const schema = z.object({
   // El envío real va espaciado y limitado por día (anti-baneo) en send-queue,
   // así que encolar muchos no los dispara en ráfaga.
   leadIds: z.array(z.string().min(1)).min(1).max(2000),
-  templateId: z.string().min(1).nullable().optional()
+  templateId: z.string().min(1).nullable().optional(),
+  // "text" (defecto) o "ranking" = imagen de posicionamiento de Google.
+  kind: z.enum(["text", "ranking"]).optional()
 });
 
 export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api }) => {
   const parsed = schema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) throw new ApiError(400, "validation_error", parsed.error.message);
 
-  // Resolver plantilla base: la elegida → la default → cualquiera.
+  const kind = parsed.data.kind === "ranking" ? "ranking" : "text";
+
+  // Resolver plantilla base: la elegida → la default → cualquiera. Para
+  // "ranking" la plantilla es OPCIONAL (solo sirve de pie de foto; si no hay,
+  // se autogenera según la posición del lead).
   let tpl = parsed.data.templateId
     ? await prisma.leadTemplate.findFirst({
         where: { id: parsed.data.templateId, workspaceId: api.workspaceId }
       })
     : null;
-  if (!tpl) {
+  if (!tpl && kind === "text") {
     tpl = await prisma.leadTemplate.findFirst({
       where: { workspaceId: api.workspaceId, isDefault: true }
     });
   }
-  if (!tpl) {
+  if (!tpl && kind === "text") {
     tpl = await prisma.leadTemplate.findFirst({ where: { workspaceId: api.workspaceId } });
   }
-  if (!tpl) {
+  if (!tpl && kind === "text") {
     throw new ApiError(400, "no_template", "No hay ninguna plantilla. Crea una en la pestaña Plantillas.");
   }
 
@@ -86,8 +92,9 @@ export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api }) 
       await enqueueMessage({
         workspaceId: api.workspaceId,
         leadId,
-        body: tpl.body,
-        templateId: tpl.id
+        body: tpl?.body ?? "",
+        templateId: tpl?.id ?? null,
+        kind
       });
       ok++;
     } catch (e: any) {
@@ -95,5 +102,5 @@ export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api }) 
     }
   }
 
-  return NextResponse.json({ ok, skipped, total: parsed.data.leadIds.length, templateName: tpl.name });
+  return NextResponse.json({ ok, skipped, total: parsed.data.leadIds.length, templateName: tpl?.name ?? null, kind });
 });

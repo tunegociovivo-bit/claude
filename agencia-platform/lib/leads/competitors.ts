@@ -141,6 +141,18 @@ export async function harvestCompetitorsAsLeads(opts: {
   return { created, skipped };
 }
 
+/** Pie de foto automático del informe de posicionamiento según la posición real. */
+export function rankingAutoCaption(data: CompetitorRanking, name: string): string {
+  const q = data.query;
+  if (data.leadPosition === 1) {
+    return `¡${name} aparece el nº1 en Google para "${q}"! 🏆 Te enseño cómo mantenerlo y sacarle más clientes.`;
+  }
+  if (data.leadPosition) {
+    return `📍 Mira dónde sale ${name} en Google para "${q}": posición #${data.leadPosition}, con ${data.aboveCount} competidor${data.aboveCount === 1 ? "" : "es"} por delante llevándose esas llamadas. Te enseño cómo subir al top 3 👆`;
+  }
+  return `📍 ${name} no aparece en el top 20 de Google para "${q}" — esos clientes se los están llevando tus competidores. Te enseño cómo posicionarte arriba 👆`;
+}
+
 export async function getCompetitorRanking(
   workspaceId: string,
   lead: RankingLead,

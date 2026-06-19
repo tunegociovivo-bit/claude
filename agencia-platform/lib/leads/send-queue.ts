@@ -8,8 +8,10 @@
 import { prisma } from "@/lib/db/prisma";
 import { renderTemplate } from "./template-engine";
 import { aiRewriteMessage } from "./ai-vary";
-import { normalizePhone, sendText, getWahaConfig, checkNumberExists } from "./waha";
+import { normalizePhone, sendText, sendImage, getWahaConfig, checkNumberExists } from "./waha";
 import { pickEnqueueChannel, reassignIfQuarantined } from "./channels";
+import { getCompetitorRanking, rankingAutoCaption } from "./competitors";
+import { renderRankingPng } from "./ranking-card";
 
 /**
  * Estados que cuentan como "ya enviado" para los topes anti-baneo. Cuando el
@@ -471,9 +473,12 @@ export async function computeNextSlot(opts: {
 export async function enqueueMessage(opts: {
   workspaceId: string;
   leadId: string;
-  body: string; // mensaje crudo, antes de variaciones
+  body: string; // texto crudo, o pie de foto (ranking); puede ir vacío
   templateId?: string | null;
+  /** "text" (defecto) o "ranking" = imagen de posicionamiento de Google. */
+  kind?: "text" | "ranking";
 }): Promise<{ messageId: string; scheduledAt: Date }> {
+  const kind = opts.kind === "ranking" ? "ranking" : "text";
   const settings = await getSendSettings(opts.workspaceId);
   const lead = await prisma.lead.findFirst({
     where: { id: opts.leadId, workspaceId: opts.workspaceId },
@@ -500,16 +505,20 @@ export async function enqueueMessage(opts: {
   if (existing) throw new Error("Ya hay un mensaje en cola para este lead");
 
   // Renderizar (placeholders ya resueltos por el caller? — re-resolvemos por seguridad)
+  // Para "ranking" el cuerpo es solo el PIE de foto (puede ir vacío → auto-pie
+  // al enviar); no aplicamos variaciones IA al pie.
   let rendered = opts.body;
-  try {
-    rendered = await renderTemplate({ workspaceId: opts.workspaceId, body: opts.body, leadId: lead.id });
-  } catch {}
+  if (kind === "text") {
+    try {
+      rendered = await renderTemplate({ workspaceId: opts.workspaceId, body: opts.body, leadId: lead.id });
+    } catch {}
+  }
 
   // Aplicar variaciones: cada mensaje se reescribe con IA para que dos leads
   // nunca reciban texto idéntico (anti-spam Meta) y para mejorar el formato
   // visual en WhatsApp (párrafos, CTA, líneas cortas). Si la IA falla cae al
   // varyMessage determinístico para no bloquear el envío.
-  if (settings.enableVariations) {
+  if (kind === "text" && settings.enableVariations) {
     rendered = await aiRewriteMessage({
       workspaceId: opts.workspaceId,
       base: rendered,
@@ -548,6 +557,7 @@ export async function enqueueMessage(opts: {
       workspaceId: opts.workspaceId,
       leadId: lead.id,
       templateId: opts.templateId ?? null,
+      kind,
       renderedMessage: rendered,
       channel: "whatsapp",
       phoneNormalized: phone,
@@ -874,15 +884,42 @@ export async function sendMessageById(
         });
       }
     }
-    const out = await sendText({
-      workspaceId,
-      phoneNormalized: msg.phoneNormalized,
-      text: msg.renderedMessage,
-      // Solo forzamos sesión/instancia si el mensaje tiene canal asignado
-      // (multi-número). Si no, cada proveedor usa su propia por defecto
-      // (WAHA → su sesión; Evolution → su instancia).
-      session: msg.instanceName ?? undefined
-    });
+    let out: { messageId: string; raw?: any };
+    if ((msg as any).kind === "ranking") {
+      // Imagen de posicionamiento: calcula el ranking del lead en Google (1
+      // consulta a Places) y envía la "captura" como imagen con su pie. Si no
+      // hay datos de ranking, lanza error → se reintenta/falla como el resto.
+      const lead = await prisma.lead.findFirst({
+        where: { id: msg.leadId, workspaceId },
+        select: {
+          id: true, placeId: true, name: true, category: true, types: true, province: true,
+          formattedAddress: true, address: true, latitude: true, longitude: true,
+          rating: true, reviewsCount: true
+        }
+      });
+      if (!lead) throw new Error("Lead no encontrado para el ranking");
+      const data = await getCompetitorRanking(workspaceId, lead as any);
+      if (!data) throw new Error("No se pudo obtener el ranking de Google (categoría/zona o API key de Places)");
+      const png = await renderRankingPng(data);
+      const caption = (msg.renderedMessage ?? "").trim() || rankingAutoCaption(data, lead.name);
+      out = await sendImage({
+        workspaceId,
+        phoneNormalized: msg.phoneNormalized,
+        imageBase64: png.toString("base64"),
+        caption,
+        session: msg.instanceName ?? undefined
+      });
+    } else {
+      out = await sendText({
+        workspaceId,
+        phoneNormalized: msg.phoneNormalized,
+        text: msg.renderedMessage,
+        // Solo forzamos sesión/instancia si el mensaje tiene canal asignado
+        // (multi-número). Si no, cada proveedor usa su propia por defecto
+        // (WAHA → su sesión; Evolution → su instancia).
+        session: msg.instanceName ?? undefined
+      });
+    }
     await prisma.leadMessage.update({
       where: { id: msg.id },
       data: { status: "sent", sentAt: new Date(), externalMessageId: out.messageId }
