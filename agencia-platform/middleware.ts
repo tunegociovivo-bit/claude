@@ -91,9 +91,21 @@ export async function middleware(req: NextRequest) {
     ) {
       return NextResponse.next();
     }
-    // / → /bubui,  /app → /bubui/app,  /admin → /bubui/admin …
+    // Alias "bonitos" del dominio público bubui.app:
+    //   /negocios(/…) → panel del comercio (/bubui/negocio)
+    //   /usuarios(/…) → app de clientes (/bubui/app)
+    //   /registro, /privacidad, /soporte, /n/…, /r/… → /bubui/<path>
+    //   /            → /bubui (informativa)
+    // Las rutas antiguas /negocio y /app siguen sirviendo vía el prefijo
+    // genérico (compatibilidad con QR/enlaces ya repartidos).
     const url = req.nextUrl.clone();
-    url.pathname = pathname === "/" ? "/bubui" : "/bubui" + pathname;
+    if (pathname === "/negocios" || pathname.startsWith("/negocios/")) {
+      url.pathname = "/bubui/negocio" + pathname.slice("/negocios".length);
+    } else if (pathname === "/usuarios" || pathname.startsWith("/usuarios/")) {
+      url.pathname = "/bubui/app" + pathname.slice("/usuarios".length);
+    } else {
+      url.pathname = pathname === "/" ? "/bubui" : "/bubui" + pathname;
+    }
     return NextResponse.rewrite(url);
   }
   // ────────────────────────────────────────────────────────────────────────

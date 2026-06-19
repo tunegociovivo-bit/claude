@@ -18,6 +18,7 @@ import { NextResponse } from "next/server";
 import sharp from "sharp";
 import { prisma } from "@/lib/db/prisma";
 import { generateBusinessQrPng, bubuiScanUrl } from "@/lib/bubui/core";
+import { bubuiBaseUrl } from "@/lib/bubui/url";
 import { getQrPosterConfig, composeQrPoster } from "@/lib/bubui/qr-poster";
 
 export const dynamic = "force-dynamic";
@@ -61,7 +62,8 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
   const business = await prisma.bubuiBusiness.findUnique({ where: { id: params.id } });
   if (!business) return new NextResponse("Not found", { status: 404 });
 
-  const baseUrl = new URL(req.url).origin;
+  // Cartel impreso → QR siempre al dominio canónico de Bubui.
+  const baseUrl = bubuiBaseUrl();
 
   // ── Plantilla oficial (si el admin la subió): mismo cartel de marca para
   //    todos los comercios, con SU QR compuesto encima. Tiene prioridad
