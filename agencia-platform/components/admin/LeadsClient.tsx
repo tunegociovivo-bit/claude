@@ -76,11 +76,17 @@ type SearchRow = {
   processedProvinces: number;
   currentProvince: string | null;
   totalResults: number;
+  leadsSkipped?: number;
+  sourceConfig?: any;
   errorMessage?: string | null;
   monitored?: boolean;
   createdAt: string;
   _count?: { leads: number };
 };
+
+// Coste aprox. por consulta a Google Places Text Search (New) ≈ $0.032 ≈ €0.03.
+// Solo para dar una idea de magnitud en búsquedas grandes (cuadrícula / país).
+const EUR_POR_CONSULTA = 0.03;
 
 type Template = { id: string; name: string; body: string; channel: string; isDefault: boolean };
 
@@ -1990,6 +1996,14 @@ function SearchesTable({ loading, items, onChanged }: { loading: boolean; items:
           {items.map((s) => {
             const pending = s.status !== "COMPLETED" && s.status !== "FAILED";
             const pct = s.totalProvinces > 0 ? Math.round((s.processedProvinces / s.totalProvinces) * 100) : 0;
+            // Indicador de consultas y coste estimado (cada "target" ≈ 1 consulta;
+            // ×3 si están activados los sinónimos). Útil en cuadrícula / Toda España.
+            const variants = s.sourceConfig?.useSynonyms ? 3 : 1;
+            const totalQueries = s.totalProvinces * variants;
+            const doneQueries = s.processedProvinces * variants;
+            const estCost = totalQueries * EUR_POR_CONSULTA;
+            const costStr = estCost >= 10 ? `${Math.round(estCost)}€` : `${estCost.toFixed(2)}€`;
+            const bigSearch = totalQueries > 20; // solo lo mostramos si tiene sentido
             return (
               <tr key={s.id} className="hover:bg-slate-50">
                 <td className="px-3 py-2 font-medium">{s.keyword}</td>
@@ -2005,8 +2019,20 @@ function SearchesTable({ loading, items, onChanged }: { loading: boolean; items:
                     </span>
                   </div>
                   {s.currentProvince && <div className="text-[10px] text-slate-400 mt-0.5">en {s.currentProvince}</div>}
+                  {bigSearch && (
+                    <div className="text-[10px] text-slate-400 mt-0.5" title="Consultas a Google Places (aprox.) y coste estimado">
+                      🔎 {doneQueries.toLocaleString("es")}/{totalQueries.toLocaleString("es")} consultas · ~{costStr}
+                    </div>
+                  )}
                 </td>
-                <td className="px-3 py-2 font-semibold">{s.totalResults}</td>
+                <td className="px-3 py-2">
+                  <div className="font-semibold">{s.totalResults.toLocaleString("es")}</div>
+                  {(s.leadsSkipped ?? 0) > 0 && (
+                    <div className="text-[10px] text-slate-400" title="Negocios encontrados que ya tenías (no se duplican)">
+                      {(s.leadsSkipped ?? 0).toLocaleString("es")} ya existían
+                    </div>
+                  )}
+                </td>
                 <td className="px-3 py-2 text-xs">
                   <span
                     className={
