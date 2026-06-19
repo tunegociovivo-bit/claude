@@ -192,6 +192,46 @@ export async function getAllLocalities(): Promise<{ citySlug: string; cityLabel:
     .sort((a, b) => b.count - a.count || a.cityLabel.localeCompare(b.cityLabel));
 }
 
+/** Todas las provincias (con conteo) que tienen negocios activos. */
+export async function getAllProvinces(): Promise<{ provSlug: string; provLabel: string; count: number }[]> {
+  const all = await prisma.bubuiBusiness.findMany({ where: { active: true }, select: { province: true } });
+  const map = new Map<string, { provLabel: string; count: number }>();
+  for (const b of all) {
+    if (!b.province) continue;
+    const ps = slugify(b.province);
+    if (!ps) continue;
+    const cur = map.get(ps);
+    if (cur) cur.count++;
+    else map.set(ps, { provLabel: b.province, count: 1 });
+  }
+  return [...map.entries()]
+    .map(([provSlug, v]) => ({ provSlug, ...v }))
+    .sort((a, b) => b.count - a.count || a.provLabel.localeCompare(b.provLabel));
+}
+
+/** Localidades (con conteo) de una provincia con negocios activos. */
+export async function getLocalitiesForProvince(provSlug: string): Promise<{
+  provLabel: string;
+  total: number;
+  localities: { citySlug: string; cityLabel: string; count: number }[];
+} | null> {
+  const all = await prisma.bubuiBusiness.findMany({ where: { active: true }, select: { city: true, province: true } });
+  const inProv = all.filter((b) => b.province && slugify(b.province) === provSlug);
+  if (inProv.length === 0) return null;
+  const map = new Map<string, { cityLabel: string; count: number }>();
+  for (const b of inProv) {
+    const cs = slugify(b.city);
+    if (!cs) continue;
+    const cur = map.get(cs);
+    if (cur) cur.count++;
+    else map.set(cs, { cityLabel: b.city, count: 1 });
+  }
+  const localities = [...map.entries()]
+    .map(([citySlug, v]) => ({ citySlug, ...v }))
+    .sort((a, b) => b.count - a.count || a.cityLabel.localeCompare(b.cityLabel));
+  return { provLabel: inProv[0].province as string, total: inProv.length, localities };
+}
+
 export async function getDirectoryIndex(): Promise<{
   pairs: { catSlug: string; catLabel: string; citySlug: string; cityLabel: string; count: number }[];
   categories: { catSlug: string; catLabel: string; count: number }[];

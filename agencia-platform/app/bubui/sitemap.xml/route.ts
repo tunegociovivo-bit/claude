@@ -14,7 +14,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { bubuiBaseUrl } from "@/lib/bubui/url";
-import { getDirectoryIndex, getAllLocalities } from "@/lib/bubui/directory";
+import { getDirectoryIndex, getAllLocalities, getAllProvinces } from "@/lib/bubui/directory";
 
 // Dinámica: se genera en runtime (no en build) para no depender de la BD al
 // compilar. El middleware lo sirve en bubui.app/sitemap.xml.
@@ -34,10 +34,11 @@ export async function GET() {
   const base = bubuiBaseUrl();
   const today = new Date().toISOString().slice(0, 10);
 
-  const [businesses, dir, localities] = await Promise.all([
+  const [businesses, dir, localities, provinces] = await Promise.all([
     prisma.bubuiBusiness.findMany({ where: { active: true }, select: { slug: true, updatedAt: true } }),
     getDirectoryIndex(),
-    getAllLocalities()
+    getAllLocalities(),
+    getAllProvinces()
   ]);
 
   const urls: { loc: string; lastmod: string; priority: string }[] = [
@@ -45,6 +46,7 @@ export async function GET() {
     { loc: `${base}/directorio`, lastmod: today, priority: "0.9" },
     { loc: `${base}/registro`, lastmod: today, priority: "0.7" },
     ...dir.categories.map((c) => ({ loc: `${base}/${c.catSlug}`, lastmod: today, priority: "0.7" })),
+    ...provinces.map((p) => ({ loc: `${base}/provincia/${p.provSlug}`, lastmod: today, priority: "0.6" })),
     ...localities.map((l) => ({ loc: `${base}/${l.citySlug}`, lastmod: today, priority: "0.7" })),
     ...dir.pairs.map((p) => ({ loc: `${base}/${p.catSlug}/${p.citySlug}`, lastmod: today, priority: "0.8" })),
     ...businesses.map((b) => ({ loc: `${base}/n/${b.slug}`, lastmod: b.updatedAt.toISOString().slice(0, 10), priority: "0.6" }))

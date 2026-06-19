@@ -7,7 +7,7 @@
  */
 import Link from "next/link";
 import type { Metadata } from "next";
-import { getDirectoryIndex, getAllLocalities } from "@/lib/bubui/directory";
+import { getDirectoryIndex, getAllLocalities, getAllProvinces } from "@/lib/bubui/directory";
 import { bubuiUrl } from "@/lib/bubui/url";
 import DirectorySearch from "../_components/DirectorySearch";
 
@@ -23,7 +23,7 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 export default async function DirectorioIndex() {
-  const [{ pairs, categories }, localities] = await Promise.all([getDirectoryIndex(), getAllLocalities()]);
+  const [{ pairs, categories }, localities, provinces] = await Promise.all([getDirectoryIndex(), getAllLocalities(), getAllProvinces()]);
 
   const searchItems = [
     ...categories.map((c) => ({ label: c.catLabel, href: `/${c.catSlug}` })),
@@ -58,6 +58,20 @@ export default async function DirectorioIndex() {
           </div>
         )}
       </section>
+
+      {/* Provincias */}
+      {provinces.length > 0 && (
+        <section className="max-w-5xl mx-auto px-4 pb-8">
+          <h2 className="text-lg font-bold text-slate-900 mb-3">Por provincia</h2>
+          <div className="flex flex-wrap gap-2">
+            {provinces.map((p) => (
+              <Link key={p.provSlug} href={`/provincia/${p.provSlug}`} className="text-sm rounded-full border border-slate-200 bg-white px-3 py-1.5 text-slate-700 hover:border-pink-300 hover:text-pink-600">
+                {p.provLabel} <span className="text-slate-400">({p.count})</span>
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* Localidades */}
       {localities.length > 0 && (

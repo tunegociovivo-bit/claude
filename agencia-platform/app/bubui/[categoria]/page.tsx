@@ -10,7 +10,7 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import type { Metadata } from "next";
-import { categoryBySlug, getLocalitiesForCategory, getCategoriesForLocality } from "@/lib/bubui/directory";
+import { categoryBySlug, getLocalitiesForCategory, getCategoriesForLocality, slugify } from "@/lib/bubui/directory";
 import { bubuiUrl } from "@/lib/bubui/url";
 import Editorial from "../_components/Editorial";
 import DirectoryMap from "../_components/DirectoryMap";
@@ -94,6 +94,11 @@ export default async function SegmentoPage({ params }: Params) {
         <p className="mt-2 text-slate-600 max-w-2xl">
           {loc.total === 1 ? "1 negocio" : `${loc.total} negocios`} de {loc.cityLabel} con descuentos en Bubui{loc.province ? `, ${loc.province}` : ""}. Elige un sector:
         </p>
+        {loc.province && (
+          <Link href={`/provincia/${slugify(loc.province)}`} className="mt-2 inline-block text-sm text-pink-600 hover:text-pink-700">
+            Ver toda la provincia de {loc.province} →
+          </Link>
+        )}
       </header>
       {loc.pins.length > 0 && (
         <section className="max-w-5xl mx-auto px-4 pb-8">

@@ -45,6 +45,18 @@ export function startInAppScheduler(): void {
     } catch (e) {
       console.warn("[in-app-cron] recurring invoices:", (e as Error).message);
     }
+    try {
+      // Bubui: geocodifica negocios sin coordenadas (1 tanda/día). Idempotente:
+      // si no quedan pendientes, no hace nada.
+      const bubuiHour = parseInt(process.env.BUBUI_MAINT_HOUR_UTC ?? "4", 10);
+      if (new Date().getUTCHours() === bubuiHour) {
+        const { runBubuiGeoBackfill } = await import("@/lib/bubui/directory-maintenance");
+        const res = await runBubuiGeoBackfill(30);
+        if (res.updated > 0) console.log(`[in-app-cron] bubui geo: ${res.updated} geocodificados, ${res.remaining} pendientes`);
+      }
+    } catch (e) {
+      console.warn("[in-app-cron] bubui geo:", (e as Error).message);
+    }
   }
 
   // Primer tick 60s tras el arranque (deja estabilizar la app y la BD).
