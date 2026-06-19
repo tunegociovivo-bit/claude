@@ -2983,7 +2983,7 @@ function PlanCard({ business, token, onChanged }: { business: any; token: string
     try {
       const r = await fetch("/api/bubui/stripe/checkout-subscription", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ businessId: business.id, plan })
       });
       const j = await r.json();

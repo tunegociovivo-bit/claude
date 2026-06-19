@@ -37,7 +37,7 @@ export async function POST(req: Request) {
   }
   // Solo el propio negocio (token válido) puede iniciar su checkout.
   if (!(await businessTokenAllows(req.headers.get("authorization"), parsed.data.businessId))) {
-    return NextResponse.json({ error: { code: "unauthorized" } }, { status: 401 });
+    return NextResponse.json({ error: { code: "unauthorized", message: "Sesión no válida para este negocio. Cierra sesión y vuelve a entrar." } }, { status: 401 });
   }
   const business = await prisma.bubuiBusiness.findUnique({ where: { id: parsed.data.businessId } });
   if (!business) {
