@@ -18,7 +18,7 @@ const schema = z.object({
   note: z.string().max(2000).nullable().optional(),
   displayName: z.string().max(80).nullable().optional(),
   priority: z.enum(["alta", "media", "baja", "none"]).optional(),
-  status: z.enum(["pending", "followup", "resolved"]).optional(),
+  status: z.enum(["pending", "followup", "resolved", "not_interested"]).optional(),
   archived: z.boolean().optional(),
   // Recordatorio: ISO string o null para quitarlo. followupNote opcional.
   followupAt: z.string().datetime().nullable().optional(),

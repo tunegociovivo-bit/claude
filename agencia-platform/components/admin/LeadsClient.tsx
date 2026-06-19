@@ -2659,7 +2659,8 @@ function channelLabelOf(channels: { name: string; label?: string | null }[], nam
 const STATUS_CHIP: Record<string, { label: string; cls: string }> = {
   pending: { label: "🕘 Pendiente", cls: "bg-sky-50 text-sky-700 border-sky-200" },
   followup: { label: "📌 Seguimiento", cls: "bg-violet-50 text-violet-700 border-violet-200" },
-  resolved: { label: "✅ Resuelto", cls: "bg-emerald-50 text-emerald-700 border-emerald-200" }
+  resolved: { label: "✅ Resuelto", cls: "bg-emerald-50 text-emerald-700 border-emerald-200" },
+  not_interested: { label: "❌ No interesado", cls: "bg-rose-50 text-rose-700 border-rose-200" }
 };
 
 const PRIORITY_CHIP: Record<string, { label: string; cls: string }> = {
@@ -3040,7 +3041,7 @@ function InboxChat({
             </select>
           </div>
           <div className="flex items-center gap-1 flex-wrap">
-            {([["all", "Estado"], ["pending", "🕘"], ["followup", "📌"], ["resolved", "✅"]] as const).map(([v, lbl]) => (
+            {([["all", "Estado"], ["pending", "🕘"], ["followup", "📌"], ["resolved", "✅"], ["not_interested", "❌"]] as const).map(([v, lbl]) => (
               <button
                 key={v}
                 onClick={() => setFStatus(v)}
@@ -3090,15 +3091,21 @@ function InboxChat({
             none: { base: "", sel: "bg-brand-50" }
           };
           const pc = prCard[c.priority] ?? prCard.none;
-          const selectedCls = selected === c.phone ? pc.sel : pc.base;
+          // "No interesado": tarjeta apagada (gris + tenue) que prevalece sobre
+          // el color de prioridad, para distinguir de un vistazo a los descartados.
+          const notInterested = c.status === "not_interested";
+          const selectedCls = notInterested
+            ? selected === c.phone ? "bg-rose-100/70 opacity-90" : "bg-slate-50 opacity-60"
+            : selected === c.phone ? pc.sel : pc.base;
           return (
             <button
               key={c.phone}
               onClick={() => setSelected(c.phone)}
-              className={`w-full text-left px-3 py-2.5 border-b hover:brightness-95 transition ${selectedCls}`}
+              className={`w-full text-left px-3 py-2.5 border-b hover:brightness-95 transition ${notInterested ? "border-l-4 border-l-rose-400 " : ""}${selectedCls}`}
             >
               <div className="flex items-center justify-between gap-2">
-                <span className="text-sm font-semibold text-slate-800 truncate">
+                <span className={`text-sm font-semibold truncate flex items-center gap-1 ${notInterested ? "text-rose-400 line-through" : "text-slate-800"}`}>
+                  {notInterested && <span className="no-underline" title="No interesado">❌</span>}
                   {c.leadName || c.displayName || c.phone}
                 </span>
                 <span className="flex items-center gap-1 shrink-0">
@@ -3222,10 +3229,12 @@ function InboxChat({
               </div>
               {/* Estado + archivar */}
               <div className="flex items-center gap-1.5 flex-wrap">
-                {(["pending", "followup", "resolved"] as const).map((st) => (
+                {(["pending", "followup", "resolved", "not_interested"] as const).map((st) => (
                   <button
                     key={st}
-                    onClick={() => void saveMeta({ status: st })}
+                    // "No interesado" además apaga el auto-seguimiento para no
+                    // seguir escribiendo a quien ya dijo que no.
+                    onClick={() => void saveMeta(st === "not_interested" ? { status: st, autoFollowupOff: true } : { status: st })}
                     disabled={savingMeta}
                     className={`text-[11px] px-2 py-0.5 rounded-md border font-medium disabled:opacity-50 ${
                       threadMeta.status === st
