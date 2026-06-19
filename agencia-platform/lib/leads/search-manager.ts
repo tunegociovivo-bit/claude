@@ -232,22 +232,43 @@ export async function processSearchBatch(opts: {
         : [search.keyword];
       let results: PlacesResult[] = [];
       const seenPlace = new Set<string>();
-      for (const kw of variants) {
-        const part = await placesTextSearch({
-          workspaceId: opts.workspaceId,
-          // En modo cuadrícula la consulta es puro geo (keyword + locationBias a
-          // la celda); en el resto incluimos el nombre del área en el texto.
-          query: prov.gridMode ? kw.trim() : `${kw} en ${prov.area}`.trim(),
-          lat: prov.lat || undefined,
-          lng: prov.lng || undefined,
-          radiusMeters: prov.radiusMeters,
-          maxPages: prov.gridMode ? 2 : undefined,
-          province: prov.provinceTag
+      // Cuadrícula en "Toda España": cada provincia se trocea en celdas
+      // alrededor de su capital para romper el tope de ~60 por consulta de
+      // Google (en scope custom las celdas ya vienen como targets → gridMode).
+      const useGrid = !!(search as any).sourceConfig?.useGrid;
+      const gridThisTarget =
+        useGrid && search.scope === "spain" && !prov.gridMode && prov.lat != null && prov.lng != null;
+      let cells: { lat?: number; lng?: number; radiusMeters?: number; gridMode: boolean }[];
+      if (gridThisTarget) {
+        const { cells: pts, cellRadiusMeters } = buildGridPoints({
+          lat: prov.lat!,
+          lng: prov.lng!,
+          halfSpanKm: 30,
+          stepKm: 12,
+          maxCells: 36
         });
-        for (const r of part) {
-          if (r.placeId && seenPlace.has(r.placeId)) continue;
-          if (r.placeId) seenPlace.add(r.placeId);
-          results.push(r);
+        cells = pts.map((c) => ({ lat: c.lat, lng: c.lng, radiusMeters: cellRadiusMeters, gridMode: true }));
+      } else {
+        cells = [{ lat: prov.lat, lng: prov.lng, radiusMeters: prov.radiusMeters, gridMode: !!prov.gridMode }];
+      }
+      for (const cell of cells) {
+        for (const kw of variants) {
+          const part = await placesTextSearch({
+            workspaceId: opts.workspaceId,
+            // En modo cuadrícula la consulta es puro geo (keyword + locationBias a
+            // la celda); en el resto incluimos el nombre del área en el texto.
+            query: cell.gridMode ? kw.trim() : `${kw} en ${prov.area}`.trim(),
+            lat: cell.lat || undefined,
+            lng: cell.lng || undefined,
+            radiusMeters: cell.radiusMeters,
+            maxPages: cell.gridMode ? 2 : undefined,
+            province: prov.provinceTag
+          });
+          for (const r of part) {
+            if (r.placeId && seenPlace.has(r.placeId)) continue;
+            if (r.placeId) seenPlace.add(r.placeId);
+            results.push(r);
+          }
         }
       }
       // Filtro de "reseñas bajas" (mejora propuesta — leads urgentes con

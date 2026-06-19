@@ -4635,7 +4635,7 @@ function NewSearchModal({ open, onClose, onSaved }: { open: boolean; onClose: ()
             </div>
           </label>
         )}
-        {source === "places" && scope === "custom" && (
+        {source === "places" && (
           <label className="flex items-start gap-2 p-2 rounded-md border border-emerald-200 bg-emerald-50/50 cursor-pointer">
             <input
               type="checkbox"
@@ -4647,8 +4647,9 @@ function NewSearchModal({ open, onClose, onSaved }: { open: boolean; onClose: ()
               <span className="text-xs font-medium text-slate-800">🗺️ Búsqueda por cuadrícula (máxima cobertura)</span>
               <p className="text-[11px] text-slate-500">
                 Divide la zona en una rejilla y consulta cada celda para superar el tope de ~60
-                de Google. Captura <strong>muchos más negocios</strong> de la misma zona (ideal
-                con una ciudad/municipio concreto). Usa más llamadas a la API.
+                de Google. Captura <strong>muchos más negocios</strong>. En "Toda España" trocea
+                cada provincia alrededor de su capital. Usa muchas más llamadas a la API
+                (sobre todo en Toda España).
               </p>
             </div>
           </label>
