@@ -882,6 +882,7 @@ function LeadsTable({
   const [allMatchingSelected, setAllMatchingSelected] = useState(false);
   const [selectingAll, setSelectingAll] = useState(false);
   const [enqueueOpen, setEnqueueOpen] = useState(false);
+  const [enqueueKind, setEnqueueKind] = useState<"text" | "ranking">("text");
   const [enrollOpen, setEnrollOpen] = useState(false);
   const [detailLeadId, setDetailLeadId] = useState<string | null>(null);
 
@@ -986,7 +987,14 @@ function LeadsTable({
               Añadir a secuencia
             </button>
             <button
-              onClick={() => setEnqueueOpen(true)}
+              onClick={() => { setEnqueueKind("ranking"); setEnqueueOpen(true); }}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium"
+              title="Enviar la captura de Google (tú vs competencia) a los leads seleccionados"
+            >
+              📊 Imagen posicionamiento
+            </button>
+            <button
+              onClick={() => { setEnqueueKind("text"); setEnqueueOpen(true); }}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium"
             >
               <Send className="h-4 w-4" />
@@ -1117,6 +1125,7 @@ function LeadsTable({
         open={enqueueOpen}
         onClose={() => setEnqueueOpen(false)}
         leadIds={Array.from(selected)}
+        initialKind={enqueueKind}
         onDone={() => {
           setEnqueueOpen(false);
           clearSelection();
@@ -1828,12 +1837,14 @@ function EnqueueModal({
   open,
   onClose,
   leadIds,
-  onDone
+  onDone,
+  initialKind
 }: {
   open: boolean;
   onClose: () => void;
   leadIds: string[];
   onDone: () => void;
+  initialKind?: "text" | "ranking";
 }) {
   const [templates, setTemplates] = useState<Template[]>([]);
   const [templateId, setTemplateId] = useState<string>("");
@@ -1850,7 +1861,7 @@ function EnqueueModal({
     if (!open) return;
     setResult(null);
     setError(null);
-    setKind("text");
+    setKind(initialKind ?? "text");
     fetch("/api/v1/leads/templates")
       .then((r) => (r.ok ? r.json() : { items: [] }))
       .then((d) => {
@@ -2159,6 +2170,24 @@ function QueueTable({ loading, items, onChanged }: { loading: boolean; items: Qu
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const [sendingNowId, setSendingNowId] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  // Envío masivo de imagen de posicionamiento a leads pendientes contactables.
+  const [rankOpen, setRankOpen] = useState(false);
+  const [rankIds, setRankIds] = useState<string[]>([]);
+  const [rankLoading, setRankLoading] = useState(false);
+  async function openRankingBlast() {
+    setRankLoading(true);
+    try {
+      const r = await fetch("/api/v1/leads?contactStatus=pending&idsOnly=1");
+      const d = await r.json().catch(() => ({}));
+      const rows: any[] = d?.items ?? [];
+      // Solo móviles (los que reciben WhatsApp), hasta 2000.
+      const ids = rows.filter((x) => phoneKind(x.phone) === "mobile").map((x) => x.id).slice(0, 2000);
+      setRankIds(ids);
+      setRankOpen(true);
+    } finally {
+      setRankLoading(false);
+    }
+  }
   // Reprogramado masivo (re-paginado de la cola)
   const [repaceOpen, setRepaceOpen] = useState(false);
   const [repaceFrom, setRepaceFrom] = useState("");
@@ -2448,6 +2477,15 @@ function QueueTable({ loading, items, onChanged }: { loading: boolean; items: Qu
           {processing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
           Procesar siguiente
         </button>
+        <button
+          onClick={openRankingBlast}
+          disabled={rankLoading}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-xs disabled:opacity-50"
+          title="Enviar la captura de Google (tú vs competencia) a todos los leads pendientes con móvil"
+        >
+          {rankLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+          📊 Imagen de posicionamiento (pendientes)
+        </button>
         {items.some((m) => m.status === "queued") && (
           <button
             onClick={openRepace}
@@ -2653,6 +2691,13 @@ function QueueTable({ loading, items, onChanged }: { loading: boolean; items: Qu
           </table>
         </div>
       )}
+      <EnqueueModal
+        open={rankOpen}
+        onClose={() => setRankOpen(false)}
+        leadIds={rankIds}
+        initialKind="ranking"
+        onDone={() => { setRankOpen(false); onChanged(); }}
+      />
     </div>
   );
 }
