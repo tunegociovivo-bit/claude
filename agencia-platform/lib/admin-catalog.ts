@@ -60,6 +60,7 @@ export const ADMIN_CARDS: AdminCardMeta[] = [
   { href: "/admin/reviews", title: "Generador de reseñas IA", sectionId: "ia" },
   { href: "/admin/voice-reviews", title: "Voice Reviews", sectionId: "ia" },
   { href: "/admin/editorial", title: "Calendario editorial", sectionId: "ia" },
+  { href: "/admin/bubui", title: "Bubui · Directorio SEO", sectionId: "ia" },
   { href: "/admin/busqueda", title: "Búsqueda semántica", sectionId: "ia" },
   { href: "/admin/ia-usage", title: "Consumo de IA", sectionId: "ia" },
   // workspace
