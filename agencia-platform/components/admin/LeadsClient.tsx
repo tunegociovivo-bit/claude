@@ -2178,21 +2178,32 @@ function QueueTable({ loading, items, onChanged }: { loading: boolean; items: Qu
   // Filtros del envío masivo de imagen.
   const [rankOnlyPending, setRankOnlyPending] = useState(true);
   const [rankExcludeManaged, setRankExcludeManaged] = useState(true);
+  const [rankProvince, setRankProvince] = useState("");
+  const [rankSearchId, setRankSearchId] = useState("");
+  const [rankSearches, setRankSearches] = useState<{ id: string; keyword: string; location: string }[]>([]);
+  useEffect(() => {
+    fetch("/api/v1/leads/searches")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => setRankSearches(Array.isArray(d?.items) ? d.items : []))
+      .catch(() => {});
+  }, []);
+  const rankQs = () =>
+    `onlyPending=${rankOnlyPending ? 1 : 0}&excludeManaged=${rankExcludeManaged ? 1 : 0}` +
+    (rankProvince ? `&province=${encodeURIComponent(rankProvince)}` : "") +
+    (rankSearchId ? `&searchId=${encodeURIComponent(rankSearchId)}` : "");
   // Contador en vivo de candidatos según los filtros elegidos.
   useEffect(() => {
     let alive = true;
-    const qs = `onlyPending=${rankOnlyPending ? 1 : 0}&excludeManaged=${rankExcludeManaged ? 1 : 0}`;
-    fetch(`/api/v1/leads/ranking-candidates?${qs}`)
+    fetch(`/api/v1/leads/ranking-candidates?${rankQs()}`)
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => { if (alive && typeof d?.count === "number") setPendingMobile(d.count); })
       .catch(() => {});
     return () => { alive = false; };
-  }, [items, rankOnlyPending, rankExcludeManaged]);
+  }, [items, rankOnlyPending, rankExcludeManaged, rankProvince, rankSearchId]);
   async function openRankingBlast() {
     setRankLoading(true);
     try {
-      const qs = `onlyPending=${rankOnlyPending ? 1 : 0}&excludeManaged=${rankExcludeManaged ? 1 : 0}`;
-      const r = await fetch(`/api/v1/leads/ranking-candidates?${qs}`);
+      const r = await fetch(`/api/v1/leads/ranking-candidates?${rankQs()}`);
       const d = await r.json().catch(() => ({}));
       const ids: string[] = Array.isArray(d?.ids) ? d.ids : [];
       if (typeof d?.count === "number") setPendingMobile(d.count);
@@ -2508,6 +2519,28 @@ function QueueTable({ loading, items, onChanged }: { loading: boolean; items: Qu
           <input type="checkbox" checked={rankExcludeManaged} onChange={(e) => setRankExcludeManaged(e.target.checked)} className="accent-emerald-600" />
           Excluir ya gestionados
         </label>
+        <select
+          value={rankProvince}
+          onChange={(e) => setRankProvince(e.target.value)}
+          className="text-[11px] px-1.5 py-1 rounded border bg-white max-w-[140px]"
+          title="Filtrar por provincia"
+        >
+          <option value="">Toda provincia</option>
+          {PROVINCE_NAMES.map((p) => (
+            <option key={p} value={p}>{p}</option>
+          ))}
+        </select>
+        <select
+          value={rankSearchId}
+          onChange={(e) => setRankSearchId(e.target.value)}
+          className="text-[11px] px-1.5 py-1 rounded border bg-white max-w-[180px]"
+          title="Filtrar por una búsqueda/captación concreta"
+        >
+          <option value="">Cualquier búsqueda</option>
+          {rankSearches.map((s) => (
+            <option key={s.id} value={s.id}>{s.keyword} · {s.location}</option>
+          ))}
+        </select>
         {items.some((m) => m.status === "queued") && (
           <button
             onClick={openRepace}

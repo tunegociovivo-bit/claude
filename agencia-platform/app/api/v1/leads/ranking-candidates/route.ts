@@ -20,6 +20,8 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
   const u = new URL(req.url);
   const onlyPending = u.searchParams.get("onlyPending") !== "0";
   const excludeManaged = u.searchParams.get("excludeManaged") !== "0";
+  const province = u.searchParams.get("province")?.trim();
+  const searchId = u.searchParams.get("searchId")?.trim();
 
   const where: any = {
     workspaceId: api.workspaceId,
@@ -31,6 +33,8 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
     // "Gestionado" = ya hay conversación en el inbox (te escribió o le escribiste).
     where.inboxMessages = { none: {} };
   }
+  if (province) where.province = province; // filtra por provincia
+  if (searchId) where.searchId = searchId; // filtra por una captación concreta
 
   const rows = await prisma.lead.findMany({
     where,
