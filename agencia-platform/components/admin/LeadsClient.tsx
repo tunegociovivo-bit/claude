@@ -5310,6 +5310,9 @@ function TemplateModal({ open, onClose, onSaved, template }: { open: boolean; on
         <p className="text-[11px] text-slate-500">
           💡 <code>{"{{demo_bubui}}"}</code> inserta el enlace a una demo personalizada de cómo se vería ese negocio en Bubui — ideal para captar con un envío.
         </p>
+        <p className="text-[11px] text-emerald-700">
+          ⚡ <code>{"{{enlace_bubui}}"}</code> crea su ficha de Bubui y mete el <strong>enlace de activación</strong> único (entra sin contraseña y la activa). Se genera al enviar, uno por negocio.
+        </p>
         <label className="flex items-center gap-2 text-xs cursor-pointer">
           <input type="checkbox" checked={isDefault} onChange={(e) => setIsDefault(e.target.checked)} className="accent-brand-600" />
           Marcar como default (entra en pool de rotación)
