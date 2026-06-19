@@ -5313,6 +5313,24 @@ function TemplateModal({ open, onClose, onSaved, template }: { open: boolean; on
         <p className="text-[11px] text-emerald-700">
           ⚡ <code>{"{{enlace_bubui}}"}</code> crea su ficha de Bubui y mete el <strong>enlace de activación</strong> único (entra sin contraseña y la activa). Se genera al enviar, uno por negocio.
         </p>
+        {!isEdit && (
+          <button
+            type="button"
+            onClick={() => {
+              setName("Activación Bubui");
+              setBody(
+                "Hola {{nombre_negocio}} 👋\n\n" +
+                  "Soy de Negocio Vivo. Os he preparado vuestra ficha en Bubui (la app con la que vuestros clientes vuelven y traen amigos) usando vuestros datos de Google.\n\n" +
+                  "Ya está montada, solo falta que la activéis vosotros:\n" +
+                  "{{enlace_bubui}}\n\n" +
+                  "Al abrir el enlace entráis sin contraseña y la activáis en 1 minuto. ¿Le echáis un vistazo?"
+              );
+            }}
+            className="text-[11px] px-2.5 py-1 rounded-md border border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 font-medium"
+          >
+            ⚡ Usar ejemplo: Activación Bubui
+          </button>
+        )}
         <label className="flex items-center gap-2 text-xs cursor-pointer">
           <input type="checkbox" checked={isDefault} onChange={(e) => setIsDefault(e.target.checked)} className="accent-brand-600" />
           Marcar como default (entra en pool de rotación)
