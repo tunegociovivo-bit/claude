@@ -34,7 +34,7 @@ function isPainNow(l: { rating: number | null; reviewsCount: number }): boolean 
 }
 import {
   Loader2, Plus, Search, Inbox, ListChecks, BarChart3, MessageCircle,
-  Settings as SettingsIcon, Ban, GitBranch, Send, RefreshCw, Download, Play, Pause, Trash2, Pencil, Zap, CalendarClock
+  Settings as SettingsIcon, Ban, GitBranch, Send, RefreshCw, Download, Play, Pause, Trash2, Pencil, Zap, CalendarClock, Eye
 } from "lucide-react";
 
 type Lead = {
@@ -2173,6 +2173,7 @@ function QueueTable({ loading, items, onChanged }: { loading: boolean; items: Qu
   const [rankOpen, setRankOpen] = useState(false);
   const [rankIds, setRankIds] = useState<string[]>([]);
   const [rankLoading, setRankLoading] = useState(false);
+  const [previewRow, setPreviewRow] = useState<QueueRow | null>(null);
   const [pendingMobile, setPendingMobile] = useState<number | null>(null);
   // Filtros del envío masivo de imagen.
   const [rankOnlyPending, setRankOnlyPending] = useState(true);
@@ -2728,6 +2729,13 @@ function QueueTable({ loading, items, onChanged }: { loading: boolean; items: Qu
                     <td className="px-3 py-2 text-xs">{m.status}</td>
                     <td className="px-3 py-2 text-xs">{m.sendAttempts}{m.lastError && ` ⚠ ${m.lastError.slice(0, 40)}`}</td>
                     <td className="px-3 py-2 text-right whitespace-nowrap">
+                      <button
+                        onClick={() => setPreviewRow(m)}
+                        className="mr-1 inline-flex items-center justify-center p-1.5 rounded text-slate-400 hover:text-indigo-600 hover:bg-indigo-50"
+                        title="Vista previa del mensaje (texto + imagen)"
+                      >
+                        <Eye className="h-3.5 w-3.5" />
+                      </button>
                       {m.status === "queued" && (
                         <button
                           onClick={() => sendNow(m.id)}
@@ -2761,6 +2769,40 @@ function QueueTable({ loading, items, onChanged }: { loading: boolean; items: Qu
         initialKind="ranking"
         onDone={() => { setRankOpen(false); onChanged(); }}
       />
+      <Modal open={!!previewRow} onClose={() => setPreviewRow(null)} title="Vista previa del mensaje" size="md">
+        {previewRow && (
+          <div className="space-y-3">
+            <div className="text-xs text-slate-500">
+              📞 {previewRow.phoneNormalized} · enviar desde: <strong>{previewRow.instanceName || "Principal"}</strong>
+            </div>
+            {/* Simulación de burbuja de WhatsApp */}
+            <div className="rounded-xl bg-[#e5ddd5] p-4">
+              <div className="ml-auto max-w-[85%] rounded-lg bg-[#dcf8c6] shadow-sm overflow-hidden">
+                {previewRow.kind === "ranking" && (
+                  <img
+                    src={`/api/v1/leads/${previewRow.leadId}/ranking`}
+                    alt="Imagen de posicionamiento"
+                    className="w-full block"
+                    style={{ maxHeight: 420, objectFit: "contain", background: "#fff" }}
+                  />
+                )}
+                <div className="px-3 py-2 text-sm text-slate-800 whitespace-pre-wrap">
+                  {previewRow.renderedMessage
+                    ? previewRow.renderedMessage
+                    : previewRow.kind === "ranking"
+                      ? "(pie automático: se genera según la posición real del lead al enviar)"
+                      : "(sin texto)"}
+                </div>
+              </div>
+            </div>
+            {previewRow.kind === "ranking" && (
+              <p className="text-[11px] text-slate-400">
+                La imagen se genera en este momento desde Google (puede tardar unos segundos). Al enviar se vuelve a calcular con datos frescos.
+              </p>
+            )}
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }
