@@ -259,29 +259,29 @@ model Workspace {
 // Empresa emisora. Soporta varios perfiles (multi-emisor). Cada factura
 // referencia un emisor; sus datos se "congelan" en la factura al emitir.
 model InvoiceIssuer {
-  id          String  @id @default(cuid())
-  workspaceId String
-  name        String // nombre comercial
-  legalName   String? // razón social (si difiere)
-  taxId       String // NIF/CIF
-  address     String?
-  postalCode  String?
-  city        String?
-  province    String?
-  countryCode String  @default("ESP") // ISO 3166-1 alpha-3 (Facturae)
-  email       String?
-  phone       String?
-  web         String?
-  iban        String? // para transferencia / remesa SEPA
-  logoUrl     String?
+  id            String  @id @default(cuid())
+  workspaceId   String
+  name          String // nombre comercial
+  legalName     String? // razón social (si difiere)
+  taxId         String // NIF/CIF
+  address       String?
+  postalCode    String?
+  city          String?
+  province      String?
+  countryCode   String  @default("ESP") // ISO 3166-1 alpha-3 (Facturae)
+  email         String?
+  phone         String?
+  web           String?
+  iban          String? // para transferencia / remesa SEPA
+  logoUrl       String?
   // Facturae: tipo de persona (F=física, J=jurídica) y residencia (R/E/U).
-  personType    String @default("J") // F | J
-  residenceType String @default("R") // R (residente) | E (extranjero) | U (UE)
-  isDefault   Boolean @default(false)
+  personType    String  @default("J") // F | J
+  residenceType String  @default("R") // R (residente) | E (extranjero) | U (UE)
+  isDefault     Boolean @default(false)
 
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-  deletedAt   DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   invoices  Invoice[]
@@ -321,16 +321,16 @@ model Expense {
   supplierTaxId String?
   concept       String? @db.Text
 
-  currency String @default("EUR") // EUR | USD
+  currency      String @default("EUR") // EUR | USD
   // paymentMethod: STRIPE | TRANSFER | REMITTANCE | CARD | CASH | OTHER
   paymentMethod String @default("TRANSFER")
   // status: PENDING | PAID
   status        String @default("PAID")
 
-  baseCents  Int   @default(0)
-  taxRate    Float @default(21)
-  taxCents   Int   @default(0)
-  totalCents Int   @default(0)
+  baseCents  Int     @default(0)
+  taxRate    Float   @default(21)
+  taxCents   Int     @default(0)
+  totalCents Int     @default(0)
   // Si el IVA es deducible (afecta a reporting fiscal).
   deductible Boolean @default(true)
 
@@ -387,10 +387,10 @@ model Invoice {
   issuerSnapshot Json?
   clientSnapshot Json?
 
-  issueDate DateTime @default(now())
+  issueDate DateTime  @default(now())
   dueDate   DateTime?
 
-  currency String @default("EUR") // EUR | USD
+  currency      String @default("EUR") // EUR | USD
   // paymentMethod: STRIPE | TRANSFER | REMITTANCE | CARD | CASH | OTHER
   paymentMethod String @default("STRIPE")
 
@@ -414,13 +414,13 @@ model Invoice {
   // Recurrencia: si recurring=true esta factura es una PLANTILLA que el
   // cron usa para generar facturas reales. recurrenceConfig:
   // { intervalMonths, dayOfMonth, nextRunAt, endsAt }
-  recurring        Boolean @default(false)
-  recurrenceConfig Json?
+  recurring         Boolean @default(false)
+  recurrenceConfig  Json?
   // Si esta factura fue GENERADA por una plantilla recurrente, su id.
   recurringSourceId String?
 
   // Factura-e
-  facturaeXml      String? @db.Text // XML generado (sin firma en fase 1)
+  facturaeXml      String?   @db.Text // XML generado (sin firma en fase 1)
   facturaeSignedAt DateTime?
 
   // Cobro
@@ -556,23 +556,23 @@ model Client {
   // Cuando una tarea de campaña tiene clientId, Sonia resuelve estos
   // valores automáticamente (sin tener que pegar la URL del Ads Manager).
   // metaAdAccountId: id de la cuenta publicitaria (con o sin "act_").
-  metaAdAccountId    String?
+  metaAdAccountId String?
   // metaPageId: id de la página de Facebook que publicará los anuncios.
-  metaPageId         String?
+  metaPageId      String?
   // metaInstagramId: id de la cuenta de Instagram vinculada (opcional).
-  metaInstagramId    String?
+  metaInstagramId String?
   // metaLeadEmails: emails (coma-separados) a los que avisar de leads.
-  metaLeadEmails     String?
+  metaLeadEmails  String?
 
   // ----- Datos fiscales (para el gestor de facturas) -----
   // Razón social (si difiere del nombre comercial). taxId = NIF/CIF/VAT.
-  legalName    String?
-  taxId        String?
-  fiscalAddress String?
-  postalCode   String?
-  city         String?
-  province     String?
-  countryCode  String? @default("ESP") // ISO 3166-1 alpha-3 (Facturae)
+  legalName        String?
+  taxId            String?
+  fiscalAddress    String?
+  postalCode       String?
+  city             String?
+  province         String?
+  countryCode      String? @default("ESP") // ISO 3166-1 alpha-3 (Facturae)
   // Customer de Stripe (para cobros vía payment link / remesa).
   stripeCustomerId String?
 
@@ -581,7 +581,7 @@ model Client {
   deletedAt   DateTime?
   deletedById String?
 
-  workspace      Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspace      Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   projects       Project[]
   tasks          Task[]
   events         CalendarEvent[]
@@ -675,7 +675,7 @@ model ProjectMember {
 // REVIEWS GENERATOR (migrado de Generador de Reseñas IA PRO de WordPress)
 // ====================================================================
 model ReviewClient {
-  id                String   @id @default(cuid())
+  id                String     @id @default(cuid())
   workspaceId       String
   slug              String // identificador URL-safe único por workspace
   name              String
@@ -705,13 +705,13 @@ model ReviewClient {
   // con el formato de whitespark:
   //   https://search.google.com/local/writereview?placeid=<placeId>
   placeId           String?
-  topics            String   @db.Text // un tema por línea (solo AI_GENERATOR)
+  topics            String     @db.Text // un tema por línea (solo AI_GENERATOR)
   bannedWords       String? // separadas por coma (solo AI_GENERATOR)
   recommendedWords  String? // separadas por coma (solo AI_GENERATOR)
-  extraInstructions String?  @db.Text // (solo AI_GENERATOR)
-  model             String   @default("gpt-4o-mini")
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  extraInstructions String?    @db.Text // (solo AI_GENERATOR)
+  model             String     @default("gpt-4o-mini")
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
 
   workspace Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   history   ReviewHistory[]
@@ -743,41 +743,41 @@ model ReviewHistory {
 // EDITORIAL (migrado de NV Dashboard WP — calendario de publicaciones)
 // ====================================================================
 model EditorialPost {
-  id             String    @id @default(cuid())
-  workspaceId    String
-  clientId       String?
-  title          String
-  content        String?   @db.Text
-  excerpt        String?   @db.Text
-  scheduledFor   DateTime?
-  publishedAt    DateTime?
-  status         String    @default("DRAFT") // DRAFT|REVIEW|APPROVED|SCHEDULED|PUBLISHED|ARCHIVED
-  format         String? // post|reel|story|video|blog|email|carousel
-  networks       String    @default("[]") // JSON array de redes destino
-  thumbnail      String?
-  mediaUrls      String    @default("[]") // JSON array
+  id                String    @id @default(cuid())
+  workspaceId       String
+  clientId          String?
+  title             String
+  content           String?   @db.Text
+  excerpt           String?   @db.Text
+  scheduledFor      DateTime?
+  publishedAt       DateTime?
+  status            String    @default("DRAFT") // DRAFT|REVIEW|APPROVED|SCHEDULED|PUBLISHED|ARCHIVED
+  format            String? // post|reel|story|video|blog|email|carousel
+  networks          String    @default("[]") // JSON array de redes destino
+  thumbnail         String?
+  mediaUrls         String    @default("[]") // JSON array
   // Copy distinto por red — JSON { instagram: "...", facebook: "...", ... }.
   // Si una red no aparece en el mapa, se usa `content` como fallback.
-  copyByNetwork  Json?
-  hashtags       String?   @db.Text // copy compartido de hashtags (no por red)
-  firstComment   String?   @db.Text // primer comentario para Metricool
+  copyByNetwork     Json?
+  hashtags          String?   @db.Text // copy compartido de hashtags (no por red)
+  firstComment      String?   @db.Text // primer comentario para Metricool
   // Plan visual estructurado generado JUNTO al copy por Claude (migrado
   // del plugin NV Dashboard). Permite que la imagen IA respete personas
   // del roster y el overlay de texto se componga limpio sin alucinaciones.
   // headlineLines: array de {text, size:sm|md|lg|xl, color:white|accent|primary, weight:regular|bold}
-  headlineLines  Json?
+  headlineLines     Json?
   // imagePrompt: prompt en inglés para gpt-image-1, con descripción física
   // de personas mencionadas en copy, espacio negativo, "no readable text".
-  imagePrompt    String?   @db.Text
+  imagePrompt       String?   @db.Text
   // textPlacement: top|center|bottom (lado opuesto a donde va la persona)
-  textPlacement  String?
+  textPlacement     String?
   // Patrón visual ELEGIDO para esta publicación (override del cliente).
   // key de VISUAL_PATTERNS (clean/frame/bold_blocks/...). Si null, usa
   // el del cliente.
-  visualPattern  String?
+  visualPattern     String?
   // % (0-100) de cuánto debe la IA aplicar el estilo del patrón al
   // generar la imagen. 0 = ignóralo, 100 = aplícalo al máximo.
-  patternStrength Int?
+  patternStrength   Int?
   // id de una plantilla visual del cliente (patternTemplates) elegida
   // para esta publicación. Si está, la IA la usa como guía de estilo
   // (imagen de referencia) con intensidad patternStrength.
@@ -786,13 +786,13 @@ model EditorialPost {
   // "9:16", "4:3", "3:4", "2:3", "3:2", "2:1", "3:1", "21:9"). Null o "auto"
   // = derivado del formato según los defaults del cliente. La generación de
   // imagen/vídeo lo usa para fijar las dimensiones de la salida.
-  aspectRatio    String?
-  metaJson       Json? // resto de ACF / metadatos
-  legacyWpId     Int?      @unique
-  metricoolJobId String? // reservado para integración API directa (futura)
-  lastExportedAt DateTime? // última vez que se incluyó en un export CSV/Metricool
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  aspectRatio       String?
+  metaJson          Json? // resto de ACF / metadatos
+  legacyWpId        Int?      @unique
+  metricoolJobId    String? // reservado para integración API directa (futura)
+  lastExportedAt    DateTime? // última vez que se incluyó en un export CSV/Metricool
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
   workspace Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   client    Client?                @relation(fields: [clientId], references: [id], onDelete: SetNull)
@@ -1130,16 +1130,16 @@ model LeadSequenceAssignment {
 }
 
 model LeadInboxMessage {
-  id                       String   @id @default(cuid())
+  id                       String    @id @default(cuid())
   workspaceId              String
   leadId                   String?
   fromPhone                String
   phoneNormalized          String? // alias E.164 sin +
-  channel                  String   @default("whatsapp")
-  direction                String   @default("in") // in | out
-  body                     String   @db.Text
+  channel                  String    @default("whatsapp")
+  direction                String    @default("in") // in | out
+  body                     String    @db.Text
   meta                     Json?
-  read                     Boolean  @default(false)
+  read                     Boolean   @default(false)
   externalMessageId        String?
   instanceName             String?
   // Acuse de recibo de WhatsApp para los mensajes SALIENTES (lo que envías
@@ -1150,8 +1150,8 @@ model LeadInboxMessage {
   // Clasificación IA
   classification           String? // interested|objection|info_request|opt_out|off_topic|positive_no|auto_reply
   classificationConfidence Float?
-  classificationReason     String?  @db.Text
-  receivedAt               DateTime @default(now())
+  classificationReason     String?   @db.Text
+  receivedAt               DateTime  @default(now())
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   lead      Lead?     @relation(fields: [leadId], references: [id], onDelete: SetNull)
@@ -1187,33 +1187,33 @@ model LeadExclusion {
 /// (clave para reconocer contactos con LID, donde no hay teléfono legible);
 /// note y priority los pone el usuario para organizar a quién atender antes.
 model LeadConversationMeta {
-  id          String   @id @default(cuid())
-  workspaceId String
-  phone       String // phoneNormalized de la conversación
-  displayName String?
-  note        String?  @db.Text
-  priority    String   @default("none") // alta | media | baja | none
-  status      String   @default("pending") // pending | followup | resolved
-  archived    Boolean  @default(false)
+  id                 String    @id @default(cuid())
+  workspaceId        String
+  phone              String // phoneNormalized de la conversación
+  displayName        String?
+  note               String?   @db.Text
+  priority           String    @default("none") // alta | media | baja | none
+  status             String    @default("pending") // pending | followup | resolved
+  archived           Boolean   @default(false)
   // Teléfono real resuelto desde WAHA cuando el contacto llega como LID (id
   // privado de WhatsApp). null = no resuelto / oculto.
-  realPhone   String?
+  realPhone          String?
   // Recordatorio de seguimiento: cuándo volver a contactar. El cron
   // leads-followups avisa al llegar la hora y sube la conversación a
   // "followup". null = sin recordatorio.
-  followupAt  DateTime?
-  followupNote String?
+  followupAt         DateTime?
+  followupNote       String?
   followupNotifiedAt DateTime?
   // Análisis IA de la conversación: probabilidad de cierre (0-100), su motivo
   // y un borrador de respuesta listo. Se recalcula al entrar un mensaje.
-  aiScore     Int?
-  aiScoreReason String?
-  aiDraft     String?  @db.Text
-  aiAt        DateTime?
+  aiScore            Int?
+  aiScoreReason      String?
+  aiDraft            String?   @db.Text
+  aiAt               DateTime?
   // Momento de comprar: la IA detecta alta intención (pregunta precio/cuándo,
   // urgencia) y marca aiCallNow=true con un guion de cierre por teléfono.
-  aiCallNow   Boolean  @default(false)
-  aiCallScript String? @db.Text
+  aiCallNow          Boolean   @default(false)
+  aiCallScript       String?   @db.Text
   // Auto-piloto de seguimiento: si un lead caliente se queda en silencio tras
   // nuestra última respuesta, la IA envía sola un follow-up con cadencia
   // decreciente (24h, 72h, 7d). step = nudges enviados; se reinicia a 0 cuando
@@ -1221,8 +1221,8 @@ model LeadConversationMeta {
   autoFollowupStep   Int       @default(0)
   autoFollowupLastAt DateTime?
   autoFollowupOff    Boolean   @default(false)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
@@ -1247,7 +1247,7 @@ model LeadBroadcast {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  workspace  Workspace                 @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspace  Workspace                @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   recipients LeadBroadcastRecipient[]
 
   @@index([workspaceId, status])
@@ -1948,37 +1948,37 @@ model Notification {
 // requesterId: el user que disparó el run (al añadir la tarea al
 //   buzón IA). Se notifica al terminar.
 model AiAgentRun {
-  id            String              @id @default(cuid())
-  workspaceId   String
-  taskId        String
-  requesterId   String? // user que enlazó la task al proyecto IA
-  status        AiAgentRunStatus    @default(PENDING)
-  trigger       AiAgentRunTrigger   @default(MANUAL)
+  id              String            @id @default(cuid())
+  workspaceId     String
+  taskId          String
+  requesterId     String? // user que enlazó la task al proyecto IA
+  status          AiAgentRunStatus  @default(PENDING)
+  trigger         AiAgentRunTrigger @default(MANUAL)
   // Contexto extra del trigger (ej: "vence en 36h", "lleva 8 días
   // sin actividad"). Se inyecta en el primer mensaje al modelo.
-  triggerContext String?            @db.Text
+  triggerContext  String?           @db.Text
   // Fase 50: timestamp del último ciclo del loop. El runner lo
   // actualiza cada vez que vuelve de una llamada al modelo. Un
   // watchdog cron marca como REQUIRES_HUMAN los RUNNING que no
   // hacen tick en >10 min (proceso muerto: deploy, crash, OOM).
   lastIterationAt DateTime?
   // Modelo usado (por si en el futuro queremos elegir Haiku/Sonnet/Opus)
-  model         String              @default("claude-opus-4-7")
-  summary       String?             @db.Text // resumen final de la IA al user
-  error         String?             @db.Text
-  log           Json                @default("[]") // steps
-  stepsCount    Int                 @default(0)
-  inputTokens   Int                 @default(0)
-  outputTokens  Int                 @default(0)
-  startedAt     DateTime?
-  finishedAt    DateTime?
+  model           String            @default("claude-opus-4-7")
+  summary         String?           @db.Text // resumen final de la IA al user
+  error           String?           @db.Text
+  log             Json              @default("[]") // steps
+  stepsCount      Int               @default(0)
+  inputTokens     Int               @default(0)
+  outputTokens    Int               @default(0)
+  startedAt       DateTime?
+  finishedAt      DateTime?
   // Φ — UI: cuándo un humano "revisó" el resultado de este run. Mientras
   // sea null y status sea SUCCEEDED/REQUIRES_HUMAN, la task parpadea
   // verde/naranja en el tablón. Se rellena automáticamente al editar la
   // task (PATCH significa que el humano la atendió) o vía endpoint manual.
   humanReviewedAt DateTime?
-  createdAt     DateTime            @default(now())
-  updatedAt     DateTime            @updatedAt
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
@@ -1987,10 +1987,10 @@ model AiAgentRun {
 }
 
 enum AiAgentRunStatus {
-  PENDING       // creado, esperando worker
-  RUNNING       // agent loop en marcha
-  SUCCEEDED     // terminó OK, resumen disponible
-  FAILED        // error fatal (timeout, tokens, exception)
+  PENDING // creado, esperando worker
+  RUNNING // agent loop en marcha
+  SUCCEEDED // terminó OK, resumen disponible
+  FAILED // error fatal (timeout, tokens, exception)
   REQUIRES_HUMAN // la IA pidió ayuda — la tarea queda en mano del user
 }
 
@@ -2003,25 +2003,25 @@ enum AiAgentRunStatus {
 // Al terminar la reunión se crea una task normal con el transcript
 // completo + resumen + action items extraídos.
 model LiveMeetingSession {
-  id              String   @id @default(cuid())
+  id              String    @id @default(cuid())
   workspaceId     String
   userId          String // quien arrancó la sesión
   taskId          String? // task creada al finalizar
   platform        String // "meet" | "teams" | "zoom" | ...
   meetingUrl      String?
   meetingTitle    String?
-  startedAt       DateTime @default(now())
+  startedAt       DateTime  @default(now())
   endedAt         DateTime?
-  status          String   @default("LIVE") // LIVE | ENDED | FAILED
+  status          String    @default("LIVE") // LIVE | ENDED | FAILED
   // Append-only — concat del texto de cada chunk transcrito.
-  fullTranscript  String   @default("") @db.Text
+  fullTranscript  String    @default("") @db.Text
   // Append-only — { ts, chunkIdx, transcript, suggestions[] }
-  suggestionsLog  Json     @default("[]")
+  suggestionsLog  Json      @default("[]")
   // Para throttling — cuándo procesamos la última vez con Claude.
   lastProcessedAt DateTime?
-  chunksReceived  Int      @default(0)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  chunksReceived  Int       @default(0)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
@@ -2032,20 +2032,20 @@ model LiveMeetingSession {
 // Φ3 — Negociación autónoma. Sonia gestiona deals con leads/clientes
 // dentro de rangos pre-aprobados por el admin.
 model PricingService {
-  id            String    @id @default(cuid())
+  id            String   @id @default(cuid())
   workspaceId   String
   name          String // "Diseño web", "Gestión RRSS mensual", etc.
-  description   String?   @db.Text
+  description   String?  @db.Text
   baseAmountEur Float // precio "lista" en EUR
   minAmountEur  Float // mínimo aceptable — Sonia no baja de aquí sin escalación
-  unit          String    @default("one_time") // "one_time" | "monthly" | "hourly"
+  unit          String   @default("one_time") // "one_time" | "monthly" | "hourly"
   // Trade-offs que Sonia puede ofrecer durante la negociación.
   // Json shape: [{ if: "discount_pct >= 15", then: "min_term_months >= 12" }]
   // o simple lista de items: ["compromiso 12m", "sin módulo X", "pago 100% upfront"]
-  tradeoffs     Json      @default("[]")
-  active        Boolean   @default(true)
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  tradeoffs     Json     @default("[]")
+  active        Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
@@ -2053,26 +2053,26 @@ model PricingService {
 }
 
 model Deal {
-  id              String   @id @default(cuid())
+  id              String    @id @default(cuid())
   workspaceId     String
   leadId          String? // si conocemos el Lead en BD
   clientId        String? // si ya es cliente nuestro (upsell)
   contactName     String?
   contactEmail    String?
   contactPhone    String?
-  status          String   @default("PROSPECT")
+  status          String    @default("PROSPECT")
   // PROSPECT | PROPOSED | NEGOTIATING | CLOSED_WON | CLOSED_LOST | ESCALATED
-  proposedItems   Json     @default("[]") // [{ serviceId, name, units, amountEur, unit }]
-  negotiationLog  Json     @default("[]") // [{ ts, actor, action, snapshot }]
+  proposedItems   Json      @default("[]") // [{ serviceId, name, units, amountEur, unit }]
+  negotiationLog  Json      @default("[]") // [{ ts, actor, action, snapshot }]
   currentValueEur Float?
   // Estado libre — lo que llevamos negociado en lenguaje natural,
   // para que Sonia lo lea sin parsear el log entero.
-  notes           String?  @db.Text
+  notes           String?   @db.Text
   expectedCloseAt DateTime?
   closedAt        DateTime?
-  closedReason    String?  @db.Text
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  closedReason    String?   @db.Text
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
@@ -2082,23 +2082,23 @@ model Deal {
 }
 
 enum AiAgentRunTrigger {
-  MANUAL              // user enlazó la task al proyecto buzón
-  MENTION             // @nv-ia en un comentario
-  PROACTIVE_DEADLINE  // cron detectó deadline cercana sin progreso
-  PROACTIVE_STALE     // cron detectó task estancada (IN_PROGRESS sin updates)
-  SCHEDULED           // cron diario de revisión global
-  WHATSAPP_INBOUND    // llegó WhatsApp de cliente vía /leads/webhook
-  EMAIL_INBOUND       // llegó email vía /api/webhooks/inbound-email
-  CALL_INBOUND        // llamada telefónica recibida (Twilio/Vonage/Aircall)
-  STRATEGIC_REVIEW    // Co-CEO trimestral (Fase 40)
-  OWNER_MODE_CHECK    // Owner mode: cliente bajo responsabilidad de Sonia (Fase 31)
-  COMPLIANCE_FLAG     // Filtro de compliance bloqueó algo (Fase 36)
-  LEAD_OPPORTUNITY    // Detección de señal de oportunidad (Fase 35)
-  WORKFLOW_STEP       // Paso de un workflow automático (Fase 41)
-  CHURN_RISK          // Señal de fuga de cliente detectada (Fase 43)
-  SELF_HEALING        // Cron de auto-mejora detectó patrón de fallos (Fase 44)
-  NEGOTIATION        // Lead/cliente en proceso de negociación (Φ3)
-  LIVE_MEETING_TICK  // Tick de transcripción en vivo durante meeting (Φ5)
+  MANUAL // user enlazó la task al proyecto buzón
+  MENTION // @nv-ia en un comentario
+  PROACTIVE_DEADLINE // cron detectó deadline cercana sin progreso
+  PROACTIVE_STALE // cron detectó task estancada (IN_PROGRESS sin updates)
+  SCHEDULED // cron diario de revisión global
+  WHATSAPP_INBOUND // llegó WhatsApp de cliente vía /leads/webhook
+  EMAIL_INBOUND // llegó email vía /api/webhooks/inbound-email
+  CALL_INBOUND // llamada telefónica recibida (Twilio/Vonage/Aircall)
+  STRATEGIC_REVIEW // Co-CEO trimestral (Fase 40)
+  OWNER_MODE_CHECK // Owner mode: cliente bajo responsabilidad de Sonia (Fase 31)
+  COMPLIANCE_FLAG // Filtro de compliance bloqueó algo (Fase 36)
+  LEAD_OPPORTUNITY // Detección de señal de oportunidad (Fase 35)
+  WORKFLOW_STEP // Paso de un workflow automático (Fase 41)
+  CHURN_RISK // Señal de fuga de cliente detectada (Fase 43)
+  SELF_HEALING // Cron de auto-mejora detectó patrón de fallos (Fase 44)
+  NEGOTIATION // Lead/cliente en proceso de negociación (Φ3)
+  LIVE_MEETING_TICK // Tick de transcripción en vivo durante meeting (Φ5)
 }
 
 // Fase 41 — Workflows automáticos por cliente.
@@ -2108,23 +2108,23 @@ enum AiAgentRunTrigger {
 // primer entregable, día 7 reunión check-in. Cada paso es una task
 // en el inbox de Sonia con trigger=WORKFLOW_STEP.
 model AiClientWorkflow {
-  id            String   @id @default(cuid())
-  workspaceId   String
-  clientId      String
+  id           String    @id @default(cuid())
+  workspaceId  String
+  clientId     String
   // Tipo del workflow (clave para buscar la definición en code):
   // "onboarding_7d", "renewal_30d", "churn_recovery_14d", custom...
-  workflowType  String
+  workflowType String
   // Plantilla de pasos como Json: [{ id, label, dayOffset, prompt }].
   // Se copia desde la definición en code al crear (snapshot — si
   // cambia la plantilla, los workflows ya iniciados no se ven afectados).
-  steps         Json     @default("[]")
+  steps        Json      @default("[]")
   // Índice del próximo paso a ejecutar (0-based).
-  nextStepIdx   Int      @default(0)
-  status        String   @default("ACTIVE") // ACTIVE | PAUSED | COMPLETED | ABANDONED
-  startedAt     DateTime @default(now())
-  completedAt   DateTime?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  nextStepIdx  Int       @default(0)
+  status       String    @default("ACTIVE") // ACTIVE | PAUSED | COMPLETED | ABANDONED
+  startedAt    DateTime  @default(now())
+  completedAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   client    Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
@@ -2147,20 +2147,20 @@ model AiClientWorkflow {
 // medibles. El cron OWNER_MODE_CHECK la dispara periódicamente (default
 // semanal) para que revise estado, identifique desviaciones, escale.
 model AiOwnership {
-  id            String   @id @default(cuid())
+  id            String    @id @default(cuid())
   workspaceId   String
-  clientId      String   @unique
+  clientId      String    @unique
   // KPIs en formato libre — la IA los lee/interpreta. Ej:
   // { responseTimeHours: 2, monthlyEngagement: ">5%", escalationCap: 1 }
-  kpis          Json     @default("{}")
+  kpis          Json      @default("{}")
   // Cada cuánto revisa (default 7 días)
-  checkFreqDays Int      @default(7)
+  checkFreqDays Int       @default(7)
   lastCheckAt   DateTime?
   // Último estado conocido (resumen breve de la última revisión)
-  lastStatus    String?  @db.Text
-  active        Boolean  @default(true)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  lastStatus    String?   @db.Text
+  active        Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   client    Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
@@ -2169,13 +2169,13 @@ model AiOwnership {
 }
 
 model AiClientMemory {
-  id          String   @id @default(cuid())
-  workspaceId String
-  clientId    String   @unique
-  content     String   @db.Text @default("")
-  updatedBy   String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id                    String   @id @default(cuid())
+  workspaceId           String
+  clientId              String   @unique
+  content               String   @default("") @db.Text
+  updatedBy             String?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
   // Fase 18: si autoApproveDraftKinds tiene valores (ej:
   // ["WHATSAPP", "EMAIL"]), los drafts de Sonia sobre tareas de
   // este cliente y de ese kind se auto-aprueban + ejecutan sin
@@ -2204,22 +2204,22 @@ model AiClientMemory {
 //     ejecuta — es input para el dev humano que la implementa.
 //   - rationale: por qué la pide, qué runs/tareas se beneficiarían
 model AiProposedTool {
-  id              String   @id @default(cuid())
-  workspaceId     String
-  proposedByRunId String? // qué AiAgentRun la propuso
-  name            String
-  description     String   @db.Text
-  inputSchema     Json
-  executorPseudoCode String @db.Text
-  rationale       String   @db.Text
-  status          String   @default("PROPOSED") // PROPOSED | APPROVED | REJECTED | IMPLEMENTED
-  reviewedById    String?
-  reviewedAt      DateTime?
-  reviewerNote    String?  @db.Text
+  id                 String    @id @default(cuid())
+  workspaceId        String
+  proposedByRunId    String? // qué AiAgentRun la propuso
+  name               String
+  description        String    @db.Text
+  inputSchema        Json
+  executorPseudoCode String    @db.Text
+  rationale          String    @db.Text
+  status             String    @default("PROPOSED") // PROPOSED | APPROVED | REJECTED | IMPLEMENTED
+  reviewedById       String?
+  reviewedAt         DateTime?
+  reviewerNote       String?   @db.Text
   // Si el admin la marca IMPLEMENTED, anota el commit o referencia
   // donde quedó añadida al código.
-  implementationRef String?
-  createdAt       DateTime @default(now())
+  implementationRef  String?
+  createdAt          DateTime  @default(now())
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
@@ -2232,7 +2232,7 @@ model AiProposedTool {
 model AiWorkspaceMemory {
   id          String   @id @default(cuid())
   workspaceId String   @unique
-  content     String   @db.Text @default("")
+  content     String   @default("") @db.Text
   updatedBy   String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -2246,7 +2246,7 @@ model AiUserMemory {
   id          String   @id @default(cuid())
   workspaceId String
   userId      String
-  content     String   @db.Text @default("")
+  content     String   @default("") @db.Text
   updatedBy   String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -2272,21 +2272,21 @@ model AiUserMemory {
 // executionResult: respuesta del backend al ejecutar (ej. messageId
 //   de Resend, gid del post creado), o el error si falló.
 model AiDraft {
-  id              String         @id @default(cuid())
+  id              String        @id @default(cuid())
   workspaceId     String
   aiAgentRunId    String? // run que lo creó (null si lo creó admin a mano)
   taskId          String? // tarea de origen (opcional — drafts pueden venir de tareas IA)
   kind            AiDraftKind
   title           String // resumen humano-legible para la lista de aprobación
   payload         Json
-  status          AiDraftStatus  @default(PENDING)
+  status          AiDraftStatus @default(PENDING)
   reviewedById    String? // user que aprobó/rechazó
   reviewedAt      DateTime?
-  reviewerNote    String?        @db.Text
+  reviewerNote    String?       @db.Text
   executedAt      DateTime?
   executionResult Json? // { ok: true, externalId: "..." } | { ok: false, error: "..." }
-  createdAt       DateTime       @default(now())
-  updatedAt       DateTime       @updatedAt
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
@@ -2309,11 +2309,11 @@ enum AiDraftKind {
 }
 
 enum AiDraftStatus {
-  PENDING     // recién creado, esperando review
-  APPROVED    // aprobado pero aún no ejecutado (race window)
-  REJECTED    // descartado, no se ejecuta
-  EXECUTED    // ejecutado con éxito
-  FAILED      // intentó ejecutarse y falló — admin puede reintentar
+  PENDING // recién creado, esperando review
+  APPROVED // aprobado pero aún no ejecutado (race window)
+  REJECTED // descartado, no se ejecuta
+  EXECUTED // ejecutado con éxito
+  FAILED // intentó ejecutarse y falló — admin puede reintentar
 }
 
 // Reportes automáticos de errores producidos en el frontend o backend.
@@ -2433,11 +2433,11 @@ model AsanaConnection {
 }
 
 model AsanaImport {
-  id          String    @id @default(cuid())
-  workspaceId String
-  status      String // PENDING | RUNNING | COMPLETED | FAILED
-  startedAt   DateTime  @default(now())
-  finishedAt  DateTime?
+  id              String    @id @default(cuid())
+  workspaceId     String
+  status          String // PENDING | RUNNING | COMPLETED | FAILED
+  startedAt       DateTime  @default(now())
+  finishedAt      DateTime?
   // Latido del background job: el importer actualiza este campo cada
   // pocas operaciones. Si el UI ve status=RUNNING pero lastHeartbeatAt
   // > 5 min sin actualizar, sabe que el proceso ha muerto (deploy,
@@ -2447,9 +2447,9 @@ model AsanaImport {
   // "Importando tareas (proyecto 3/12)", "Subiendo adjuntos", etc.
   // El UI lo muestra para que el user vea QUÉ está haciendo, no solo
   // contadores.
-  currentStage String?
-  stats       Json? // { projects: 12, tasks: 340, attachments: 18, ... }
-  errorMsg    String?
+  currentStage    String?
+  stats           Json? // { projects: 12, tasks: 340, attachments: 18, ... }
+  errorMsg        String?
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 }
@@ -2610,24 +2610,24 @@ model GoogleCalendarConnection {
 // api.userId). La contraseña (idealmente una "app password") se guarda
 // cifrada con lib/ai/crypto.ts.
 model EmailAccount {
-  id           String   @id @default(cuid())
-  userId       String
-  workspaceId  String
-  email        String // info@negociovivo.com
+  id          String   @id @default(cuid())
+  userId      String
+  workspaceId String
+  email       String // info@negociovivo.com
   // IMAP (lectura)
-  imapHost     String
-  imapPort     Int      @default(993)
-  imapSecure   Boolean  @default(true)
+  imapHost    String
+  imapPort    Int      @default(993)
+  imapSecure  Boolean  @default(true)
   // SMTP (envío)
-  smtpHost     String
-  smtpPort     Int      @default(465)
-  smtpSecure   Boolean  @default(true)
+  smtpHost    String
+  smtpPort    Int      @default(465)
+  smtpSecure  Boolean  @default(true)
   // Usuario de login (suele ser el email completo) + password cifrada
-  loginUser    String
-  passwordEnc  String   @db.Text
-  lastError    String?  @db.Text
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  loginUser   String
+  passwordEnc String   @db.Text
+  lastError   String?  @db.Text
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   user      User      @relation("UserEmailAccounts", fields: [userId], references: [id], onDelete: Cascade)
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
@@ -2635,6 +2635,7 @@ model EmailAccount {
   @@unique([userId, workspaceId])
   @@index([workspaceId])
 }
+
 // Cada fila representa el vector de embedding de una entidad (tarea,
 // cliente, proyecto, documento, comentario). Lo almacenamos como Json
 // en lugar de usar pgvector para no obligar a habilitar la extensión
@@ -2721,13 +2722,13 @@ model GoogleCalendarWatchChannel {
 // loginCustomerId opcional: necesario solo si gestionas la cuenta
 // desde un MCC (manager account).
 model GoogleAdsConnection {
-  id                 String   @id @default(cuid())
-  workspaceId        String   @unique
-  refreshTokenEnc    String   @db.Text
-  customerId         String // "1234567890" sin guiones
-  loginCustomerId    String? // si gestionas desde un MCC
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  id              String   @id @default(cuid())
+  workspaceId     String   @unique
+  refreshTokenEnc String   @db.Text
+  customerId      String // "1234567890" sin guiones
+  loginCustomerId String? // si gestionas desde un MCC
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 }
@@ -2868,7 +2869,7 @@ model MetaCampaign {
 
   // Logo de la marca (1 URL en R2) — la IA lo coloca como footer del
   // anuncio si está presente.
-  logoUrl String?
+  logoUrl            String?
   // Imágenes de referencia (productos, brand visuals, fotos de equipo)
   // que la IA toma como inspiración estilística para el creativo. Hasta
   // 5 URLs en R2. Pasadas al modelo via image-to-image (gpt-image-2 con
@@ -3003,8 +3004,8 @@ model MetaCampaignReview {
 // ====================================================================
 
 model AiAgentLesson {
-  id          String  @id @default(cuid())
-  workspaceId String
+  id             String    @id @default(cuid())
+  workspaceId    String
   // Scope semántico — usado para filtrar qué lecciones cargar en
   // cada run. Convención:
   //   "general"                    → siempre cargar
@@ -3012,32 +3013,32 @@ model AiAgentLesson {
   //   "client:<clientId>"          → si el task tiene ese client
   //   "task_type:meta_lead_campaign" → si trigger context coincide
   //   "error_pattern:robots_txt"   → match por palabra clave error
-  scope       String
+  scope          String
   // Texto natural que se inyecta en el system prompt cuando aplica.
   // Pensado como instrucción accionable, ej:
   //   "Cuando el user pegue múltiples tokens Meta en comentarios,
   //    usa el ÚLTIMO (más reciente), no el primero."
-  lesson      String  @db.Text
+  lesson         String    @db.Text
   // Patrón regex/keyword para refinar el matching dentro del scope.
   // Opcional: si null, se carga siempre que el scope aplique.
-  triggerPattern String? @db.Text
+  triggerPattern String?   @db.Text
   // Quién creó la lección. Solo para auditoría:
   //   "claude"     → Claude Code tras resolver una escalación
   //   "sonia_self" → Sonia llamó record_lesson durante un run
   //   "human"      → un admin del workspace
-  source      String  @default("sonia_self")
+  source         String    @default("sonia_self")
   // Task donde se aprendió (opcional, para auditoría).
-  taskId      String?
+  taskId         String?
   // Cuántas veces se ha cargado/aplicado esta lección. Las más
   // usadas se priorizan cuando hay muchas y hay que recortar.
-  useCount    Int     @default(0)
-  lastUsedAt  DateTime?
+  useCount       Int       @default(0)
+  lastUsedAt     DateTime?
   // Lecciones obsoletas pueden inactivarse sin borrar (para auditoría).
-  isActive    Boolean @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  isActive       Boolean   @default(true)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
-  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@index([workspaceId, scope, isActive])
   @@index([workspaceId, useCount])
@@ -3076,25 +3077,25 @@ model AiAgentLesson {
 // Al editar la task más tarde, el modal recupera customData del Task
 // y los pinta otra vez con el schema del TaskTemplate referenciado.
 model TaskTemplate {
-  id          String   @id @default(cuid())
+  id          String  @id @default(cuid())
   workspaceId String
   name        String
-  description String?  @db.Text
+  description String? @db.Text
   // Emoji o nombre de icono lucide para mostrar en el selector.
   icon        String?
 
   // Pre-fills (todos opcionales). Si null, el formulario coge el
   // default que tendría una task nueva sin plantilla.
-  defaultProjectId      String?
-  defaultStatus         String? // id de columna kanban
-  defaultPriority       String? // LOW / MEDIUM / HIGH / URGENT
-  defaultAssigneeIds    Json? // string[] de userIds
-  defaultTags           Json? // string[] de tag names
+  defaultProjectId     String?
+  defaultStatus        String? // id de columna kanban
+  defaultPriority      String? // LOW / MEDIUM / HIGH / URGENT
+  defaultAssigneeIds   Json? // string[] de userIds
+  defaultTags          Json? // string[] de tag names
   // Offset desde la creación de la task. Si 3, dueDate = now + 3d.
-  defaultDueOffsetDays  Int?
+  defaultDueOffsetDays Int?
   // Cuerpo de descripción preconfigurado (markdown / texto plano).
   // El TaskFormModal lo carga al rich text editor.
-  bodyMarkdown          String? @db.Text
+  bodyMarkdown         String? @db.Text
 
   // Schema de custom fields (ver doc arriba).
   customFields Json?
@@ -3113,7 +3114,7 @@ model TaskTemplate {
   //   successCriteria: "Qué debe verificar al final"
   // }
   // Si null, Sonia improvisa como hoy.
-  aiWorkflow   Json?
+  aiWorkflow Json?
 
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -3133,37 +3134,37 @@ model TaskTemplate {
 // ============================================================================
 
 model GmbClient {
-  id          String   @id @default(cuid())
-  workspaceId String
-  name        String
-  category    String   @default("")
-  description String?  @db.Text
-  tone        String   @default("profesional") // profesional|cercano|formal|entusiasta|custom
-  customTone  String?  @db.Text
-  accountId   String   @default("") // GMB "accounts/XXX"
-  locationId  String   @default("") // GMB "accounts/XXX/locations/YYY"
-  emails      String   @default("") // emails de notificación, separados por coma
-  mainKeyword String   @default("")
-  autoReply   String   @default("manual") // manual|auto
-  connectionId String  @default("") // override de connection de Make
-  frequency   Int      @default(15) // minutos
-  scenarioId  String   @default("") // id del escenario de Make
-  status      String   @default("active") // active|paused
+  id           String   @id @default(cuid())
+  workspaceId  String
+  name         String
+  category     String   @default("")
+  description  String?  @db.Text
+  tone         String   @default("profesional") // profesional|cercano|formal|entusiasta|custom
+  customTone   String?  @db.Text
+  accountId    String   @default("") // GMB "accounts/XXX"
+  locationId   String   @default("") // GMB "accounts/XXX/locations/YYY"
+  emails       String   @default("") // emails de notificación, separados por coma
+  mainKeyword  String   @default("")
+  autoReply    String   @default("manual") // manual|auto
+  connectionId String   @default("") // override de connection de Make
+  frequency    Int      @default(15) // minutos
+  scenarioId   String   @default("") // id del escenario de Make
+  status       String   @default("active") // active|paused
   // Campos geo/SEO (el plugin los usa pero no estaban en el CREATE original)
-  placeId     String   @default("")
-  latitude    Float?
-  longitude   Float?
-  rating      Float    @default(0)
-  reviewCount Int      @default(0)
-  phone       String   @default("")
-  website     String   @default("")
-  address     String   @default("")
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  placeId      String   @default("")
+  latitude     Float?
+  longitude    Float?
+  rating       Float    @default(0)
+  reviewCount  Int      @default(0)
+  phone        String   @default("")
+  website      String   @default("")
+  address      String   @default("")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
-  reviews    GmbReview[]
-  activities GmbActivity[]
-  clientTags GmbClientTag[]
+  reviews       GmbReview[]
+  activities    GmbActivity[]
+  clientTags    GmbClientTag[]
   ratingHistory GmbRatingHistory[]
 
   @@index([workspaceId])
@@ -3175,14 +3176,14 @@ model GmbReview {
   workspaceId String
   clientId    String
   reviewId    String // id de Google (o generado rev_+hash)
-  authorName  String   @default("")
-  authorPhoto String   @default("")
-  rating      Int      @default(0) // 1-5
-  comment     String?  @db.Text
-  reviewReply String?  @db.Text
+  authorName  String    @default("")
+  authorPhoto String    @default("")
+  rating      Int       @default(0) // 1-5
+  comment     String?   @db.Text
+  reviewReply String?   @db.Text
   reviewTime  DateTime?
   updateTime  DateTime?
-  createdAt   DateTime @default(now())
+  createdAt   DateTime  @default(now())
 
   client GmbClient @relation(fields: [clientId], references: [id], onDelete: Cascade)
 
@@ -3278,24 +3279,24 @@ model GmbPosition {
 // asistente se configuran en Vapi; aquí guardamos cada llamada y su
 // resultado (transcripción, resumen, datos extraídos) que llega por webhook.
 model VoiceCall {
-  id           String   @id @default(cuid())
-  workspaceId  String
-  provider     String   @default("vapi")
+  id             String   @id @default(cuid())
+  workspaceId    String
+  provider       String   @default("vapi")
   providerCallId String? // id de la llamada en Vapi
-  toNumber     String
-  goal         String?  @db.Text // objetivo/guion de la llamada
-  status       String   @default("queued") // queued|ringing|in-progress|ended|failed
-  endedReason  String?
-  durationSec  Int?
-  transcript   String?  @db.Text
-  summary      String?  @db.Text
-  structured   Json? // datos extraídos (variables/análisis)
-  recordingUrl String?
-  clientId     String?
-  createdById  String?
-  taskId       String? // tarea creada en "Reuniones y llamadas" al colgar
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  toNumber       String
+  goal           String?  @db.Text // objetivo/guion de la llamada
+  status         String   @default("queued") // queued|ringing|in-progress|ended|failed
+  endedReason    String?
+  durationSec    Int?
+  transcript     String?  @db.Text
+  summary        String?  @db.Text
+  structured     Json? // datos extraídos (variables/análisis)
+  recordingUrl   String?
+  clientId       String?
+  createdById    String?
+  taskId         String? // tarea creada en "Reuniones y llamadas" al colgar
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   @@index([workspaceId])
   @@index([providerCallId])
@@ -3334,7 +3335,7 @@ model GmbQa {
 model GmbReplyTemplate {
   id          String   @id @default(cuid())
   workspaceId String
-  clientId    String?  // null = plantilla global del workspace
+  clientId    String? // null = plantilla global del workspace
   name        String
   content     String   @db.Text
   type        String   @default("positive") // positive|neutral|negative
@@ -3346,19 +3347,19 @@ model GmbReplyTemplate {
 
 // Publicaciones de Google Business Profile (programadas / borradores)
 model GmbPost {
-  id           String    @id @default(cuid())
-  workspaceId  String
-  clientId     String
-  title        String    @default("")
-  content      String    @db.Text
-  cta          String    @default("")
-  imageUrl     String?   @db.Text
-  scheduledAt  DateTime?
-  status       String    @default("draft") // draft|scheduled|published|failed
-  publishedAt  DateTime?
-  createdById  String?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  id          String    @id @default(cuid())
+  workspaceId String
+  clientId    String
+  title       String    @default("")
+  content     String    @db.Text
+  cta         String    @default("")
+  imageUrl    String?   @db.Text
+  scheduledAt DateTime?
+  status      String    @default("draft") // draft|scheduled|published|failed
+  publishedAt DateTime?
+  createdById String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   @@index([workspaceId])
   @@index([clientId])
@@ -3373,7 +3374,7 @@ model GmbNotification {
   id          String   @id @default(cuid())
   workspaceId String
   clientId    String?
-  type        String   // negative_review|position_drop|profile_change|claimable|info
+  type        String // negative_review|position_drop|profile_change|claimable|info
   title       String
   body        String?  @db.Text
   data        Json?
@@ -3401,20 +3402,20 @@ model GmbSnapshot {
 
 // Búsquedas guardadas del buscador GMB (captación de fichas reclamables).
 model GmbSearch {
-  id             String   @id @default(cuid())
+  id             String    @id @default(cuid())
   workspaceId    String
   name           String
-  locations      String   @db.Text // una localización por línea
-  keyword        String   @default("")
-  type           String   @default("")
-  radiusKm       Float    @default(3)
-  schedule       String   @default("none") // none|daily|weekly|monthly
+  locations      String    @db.Text // una localización por línea
+  keyword        String    @default("")
+  type           String    @default("")
+  radiusKm       Float     @default(3)
+  schedule       String    @default("none") // none|daily|weekly|monthly
   lastRun        DateTime?
-  totalFound     Int      @default(0)
-  totalClaimable Int      @default(0)
+  totalFound     Int       @default(0)
+  totalClaimable Int       @default(0)
   createdById    String?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
   results GmbSearchResult[]
 
@@ -3423,20 +3424,20 @@ model GmbSearch {
 }
 
 model GmbSearchResult {
-  id          String   @id @default(cuid())
+  id          String    @id @default(cuid())
   workspaceId String
   searchId    String
   placeId     String
-  name        String   @default("")
-  address     String   @default("")
-  rating      Float    @default(0)
-  reviewCount Int      @default(0)
-  lat         Float    @default(0)
-  lng         Float    @default(0)
-  isClaimable Boolean  @default(false)
-  checked     Boolean  @default(false)
+  name        String    @default("")
+  address     String    @default("")
+  rating      Float     @default(0)
+  reviewCount Int       @default(0)
+  lat         Float     @default(0)
+  lng         Float     @default(0)
+  isClaimable Boolean   @default(false)
+  checked     Boolean   @default(false)
   checkedAt   DateTime?
-  createdAt   DateTime @default(now())
+  createdAt   DateTime  @default(now())
 
   search GmbSearch @relation(fields: [searchId], references: [id], onDelete: Cascade)
 
@@ -3473,87 +3474,86 @@ model SoniaKnowledge {
 
 /// Negocio dado de alta en la red Bubui.
 model BubuiBusiness {
-  @@map("BipiBusiness")
-  id            String   @id @default(cuid())
+  id                        String    @id @default(cuid())
   // Slug humano para QR url corto y SEO (bubui.app/n/spa-bambu).
-  slug          String   @unique
-  name          String
-  category      String   // peluquería | restaurante | gimnasio | spa | nutrición | ...
+  slug                      String    @unique
+  name                      String
+  category                  String // peluquería | restaurante | gimnasio | spa | nutrición | ...
   // Tipo de negocio → decide qué secciones ve en su panel (la Mesa Colectiva
   // solo para restaurante; catálogo/stock para comercio_producto; etc.).
-  businessType  String   @default("servicios") // restaurante | comercio_producto | servicios
+  businessType              String    @default("servicios") // restaurante | comercio_producto | servicios
   // Reservas/citas (nicho servicios): si está activo, los clientes piden cita
   // desde la ficha pública y el comercio las confirma desde su panel.
-  bookingEnabled Boolean  @default(false)
-  description   String?  @db.Text
+  bookingEnabled            Boolean   @default(false)
+  description               String?   @db.Text
   // Localización del local (para geofencing + radio de visibilidad).
-  address       String?
-  city          String   @default("Benalmádena")
-  province      String   @default("Málaga")
-  latitude      Float?
-  longitude     Float?
+  address                   String?
+  city                      String    @default("Benalmádena")
+  province                  String    @default("Málaga")
+  latitude                  Float?
+  longitude                 Float?
   // Teléfono PÚBLICO de contacto del negocio (botón "Llamar" en la app).
   // Distinto de ownerPhone (privado, del titular de la cuenta).
-  phone         String?
+  phone                     String?
   // Branding mínimo.
-  logoUrl       String?
-  brandColor    String?
+  logoUrl                   String?
+  brandColor                String?
   // Oferta default (descuento estándar al cliente cuando escanea).
-  defaultDiscountPct Int @default(5)
+  defaultDiscountPct        Int       @default(5)
   // Cupón cruzado: el % que ofrece a clientes de otros negocios.
-  crossDiscountPct   Int @default(8)
+  crossDiscountPct          Int       @default(8)
   // % de descuento extra que el negocio regala al cliente cuando deja una
   // reseña. 0 = no se incentivan reseñas. Solo se da una vez por cliente
   // (clave única en BubuiOffer triggerBusinessId="review:<businessId>").
-  reviewRewardPct    Int @default(0)
+  reviewRewardPct           Int       @default(0)
   // Place ID de Google Business Profile (Google My Business) del negocio,
   // si lo tienen verificado. Habilita el CTA "compártela también en Google"
   // tras dejar una reseña — abre el formulario de reseñas de Google con
   // este local pre-seleccionado.
-  googlePlaceId      String?
+  googlePlaceId             String?
   // Redes y reseñas del negocio (autocompletadas por IA al darse de alta y
   // verificadas por el dueño). Para enlazarlas en su ficha y para reseñas.
-  instagramUrl       String?
-  facebookUrl        String?
-  tiktokUrl          String?
-  trustpilotUrl      String?
-  tripadvisorUrl     String?
+  instagramUrl              String?
+  facebookUrl               String?
+  tiktokUrl                 String?
+  trustpilotUrl             String?
+  tripadvisorUrl            String?
   // ── Crecimiento viral + reseñas ──────────────────────────────────
   // Oferta-reto: tras escanear el ticket, al cliente se le crea una oferta
   // MAYOR (shareOfferPct), bloqueada, que solo se activa cuando comparte
   // Bubui y consigue `shareOfferFriends` amigos nuevos verificados. 0 = off.
-  shareOfferPct      Int     @default(0)
-  shareOfferFriends  Int     @default(5)
-  shareOfferLabel    String? // etiqueta no-% opcional (ej. "Postre gratis")
+  shareOfferPct             Int       @default(0)
+  shareOfferFriends         Int       @default(5)
+  shareOfferLabel           String? // etiqueta no-% opcional (ej. "Postre gratis")
   // Solicitud de reseña en Google: push automático ~10 min tras escanear,
   // llevando al cliente a dejar reseña en Google (requiere googlePlaceId).
-  reviewPushEnabled  Boolean @default(true)
+  reviewPushEnabled         Boolean   @default(true)
   // Preferencias de PUSH al panel del dueño: de qué eventos quiere que le
   // avisemos en su dispositivo (el feed "Novedades" del panel siempre los
   // registra; estos flags solo controlan la notificación push).
-  pushOnNewClient Boolean @default(true) // cliente referido nuevo
-  pushOnReview    Boolean @default(true) // reseña nueva
-  pushOnBooking   Boolean @default(true) // cita/reserva nueva
-  pushOnCoupon    Boolean @default(true) // cupón Bubui canjeado
+  pushOnNewClient           Boolean   @default(true) // cliente referido nuevo
+  pushOnReview              Boolean   @default(true) // reseña nueva
+  pushOnBooking             Boolean   @default(true) // cita/reserva nueva
+  pushOnCoupon              Boolean   @default(true) // cupón Bubui canjeado
   // Tarjeta de fidelidad (sellos digitales). Cada compra confirmada del
   // cliente suma 1 sello; al completar `loyaltyGoal` sellos se desbloquea
   // automáticamente un cupón con loyaltyRewardPct (o loyaltyRewardLabel) y
   // la tarjeta arranca el siguiente ciclo. Triggers únicos
   // "loyalty:<businessId>:<cycle>" → un cliente puede ciclar muchas veces
   // pero no farmea dentro de un ciclo.
-  loyaltyEnabled     Boolean @default(false)
-  loyaltyGoal        Int     @default(5) // nº de visitas para completar
-  loyaltyRewardPct   Int     @default(0) // % de la recompensa (0 = label)
-  loyaltyRewardLabel String? // texto libre alternativo (ej. "Café gratis")
+  loyaltyEnabled            Boolean   @default(false)
+  loyaltyGoal               Int       @default(5) // nº de visitas para completar
+  loyaltyRewardPct          Int       @default(0) // % de la recompensa (0 = label)
+  loyaltyRewardLabel        String? // texto libre alternativo (ej. "Café gratis")
   // Premium: cupón automático el día del cumpleaños del cliente.
-  birthdayEnabled    Boolean @default(false)
-  birthdayDiscountPct Int    @default(15)
-  birthdayMessage    String? @db.Text
+  birthdayEnabled           Boolean   @default(false)
+  birthdayDiscountPct       Int       @default(15)
+  birthdayMessage           String?   @db.Text
   // Premium: ruleta / rasca y gana al escanear el QR. En lugar del descuento
   // fijo (defaultDiscountPct) se sortea uno aleatorio entre min y max.
-  wheelEnabled       Boolean @default(false)
-  wheelMinPct        Int     @default(3)
-  wheelMaxPct        Int     @default(20)
+  wheelEnabled              Boolean   @default(false)
+  wheelMinPct               Int       @default(3)
+  wheelMaxPct               Int       @default(20)
   // ── MESA COLECTIVA (restauración): descuento de grupo viral ──────────
   // El anfitrión escanea el QR del local y la app le muestra un QR de mesa;
   // el resto de comensales lo escanean para unirse (ventana mesaJoinWindowMin).
@@ -3562,50 +3562,50 @@ model BubuiBusiness {
   // dejan reseña en Google (mesaReviewBonusPct, vía enlace, sin condicionar a
   // que sea positiva). El bonus se entrega como cupón de PRÓXIMA visita con
   // mesaNextVisitDays de caducidad (recurrencia). Todo configurable aquí.
-  mesaEnabled        Boolean @default(true)
-  mesaBasePct        Int     @default(5)
-  mesaMinDiners      Int     @default(4)
-  mesaShareBonusPct  Int     @default(5)
-  mesaShareFriends   Int     @default(3)
-  mesaReviewBonusPct Int     @default(3)
+  mesaEnabled               Boolean   @default(true)
+  mesaBasePct               Int       @default(5)
+  mesaMinDiners             Int       @default(4)
+  mesaShareBonusPct         Int       @default(5)
+  mesaShareFriends          Int       @default(3)
+  mesaReviewBonusPct        Int       @default(3)
   // Plataforma de reseña que da el bonus de la Mesa (según el nicho).
-  mesaReviewPlatform String  @default("google") // google | tripadvisor | trustpilot | instagram
-  mesaMaxPct         Int     @default(20) // tope de seguridad
-  mesaJoinWindowMin  Int     @default(60) // minutos para unirse a la mesa
-  mesaNextVisitDays  Int     @default(15) // caducidad del cupón próxima visita
+  mesaReviewPlatform        String    @default("google") // google | tripadvisor | trustpilot | instagram
+  mesaMaxPct                Int       @default(20) // tope de seguridad
+  mesaJoinWindowMin         Int       @default(60) // minutos para unirse a la mesa
+  mesaNextVisitDays         Int       @default(15) // caducidad del cupón próxima visita
   // true = los bonus (compartir/reseña) se aplican a la cuenta de ESTA visita;
   // false (def) = se guardan como cupón de próxima visita (recurrencia).
-  mesaBonusOnThisVisit Boolean @default(false)
+  mesaBonusOnThisVisit      Boolean   @default(false)
   // Valor neto-nuevo: el comensal NUEVO aporta instalándose; el VETERANO (ya
   // tenía la app) debe completar una acción del menú para que su parte cuente.
   // Evita regalar descuento sin recibir nada cuando la zona ya está saturada.
-  mesaVeteranMustContribute Boolean @default(true)
+  mesaVeteranMustContribute Boolean   @default(true)
   // Primera descarga: false (def) = el comensal NUEVO desbloquea su parte solo
   // con instalarse/darse de alta; true = aunque sea nuevo, debe completar también
   // una acción del menú (compartir/reseña) para que su parte cuente.
-  mesaNewUserMustContribute Boolean @default(false)
-  mesaVeteranShareFriends   Int     @default(1) // amigos si elige "compartir"
-  mesaAutoAdjust            Boolean @default(true) // sube exigencia con la saturación
+  mesaNewUserMustContribute Boolean   @default(false)
+  mesaVeteranShareFriends   Int       @default(1) // amigos si elige "compartir"
+  mesaAutoAdjust            Boolean   @default(true) // sube exigencia con la saturación
   // Menú de acciones que el comercio acepta como aporte del veterano.
-  mesaActShare  Boolean @default(true)  // invitar amigos
-  mesaActReview Boolean @default(true)  // reseña en Google
-  mesaActPhoto  Boolean @default(true)  // foto del plato (UGC)
-  mesaActFollow Boolean @default(false) // seguir en redes
+  mesaActShare              Boolean   @default(true) // invitar amigos
+  mesaActReview             Boolean   @default(true) // reseña en Google
+  mesaActPhoto              Boolean   @default(true) // foto del plato (UGC)
+  mesaActFollow             Boolean   @default(false) // seguir en redes
   // Regalo de PRÓXIMA visita (alternativa/extra al % por completar los pasos):
   // texto libre, ej. "1 bebida gratis", "1 café gratis". Si está, al completar
   // los pasos extra (compartir/reseña) cada comensal recibe un cupón canjeable
   // la próxima vez. Vacío = solo % de descuento.
-  mesaPerkLabel String?
+  mesaPerkLabel             String?
   // Programa de afiliados: recompensas por hitos de amigos traídos.
-  referralEnabled Boolean @default(true)
-  referralReward1 String? // recompensa al traer 1 amigo
-  referralReward3 String? // al traer 3
-  referralReward5 String? // al traer 5
+  referralEnabled           Boolean   @default(true)
+  referralReward1           String? // recompensa al traer 1 amigo
+  referralReward3           String? // al traer 3
+  referralReward5           String? // al traer 5
   // Programa de referidos B2B: cuántas semanas de banner Home se le han
   // otorgado por traer negocios (1 semana por cada 5 negocios activos).
   // bannerWeeksGranted es acumulativo histórico; se compara con floor(refs/5)
   // para saber cuántas semanas nuevas hay que conceder.
-  bannerWeeksGranted Int @default(0)
+  bannerWeeksGranted        Int       @default(0)
   // Cartel/QR físico: el negocio puede imprimirlo él mismo o pedir que se
   // lo llevemos gratis (facilita el alta y acelera el crecimiento). Si
   // posterDeliveryRequestedAt != null y posterDeliveredAt == null, está
@@ -3616,129 +3616,137 @@ model BubuiBusiness {
   posterDeliveryNote        String?   @db.Text
   posterDeliveredAt         DateTime?
   // Karma de visibilidad (0-100, recalculado nocturno).
-  visibilityScore Int @default(50)
-  scoreUpdatedAt  DateTime?
+  visibilityScore           Int       @default(50)
+  scoreUpdatedAt            DateTime?
   // Modelo de validación de compra.
-  purchaseMode  String   @default("express") // express | double_confirm
+  purchaseMode              String    @default("express") // express | double_confirm
   // Anti-fraude: si está activo, el cliente DEBE fotografiar el ticket y el
   // importe lo lee la IA (no se teclea libremente). El importe se toma del
   // servidor (BubuiTicketScan), no del cliente.
-  requireTicket Boolean  @default(false)
+  requireTicket             Boolean   @default(false)
   // Suscripción.
-  plan          String   @default("free") // free | pro | premium
+  plan                      String    @default("free") // free | pro | premium
   // Email + contraseña hash del dueño (auth simple v1; iremos a oauth en v2).
-  ownerEmail    String   @unique
-  ownerPasswordHash String
-  ownerName     String?
-  ownerPhone    String?
+  ownerEmail                String    @unique
+  ownerPasswordHash         String
+  ownerName                 String?
+  ownerPhone                String?
   // Quien lo refirió a Bubui (si vino vía QR de otro negocio).
-  referrerId    String?
+  referrerId                String?
   // Stripe billing — para suscripción Pro/Premium.
-  bubuiStripeCustomerId  String? @map("bipiStripeCustomerId")
-  bubuiStripeSubscriptionId String? @map("bipiStripeSubscriptionId")
-  planExpiresAt DateTime? // null o futuro = activo; pasado = volver a free.
+  bubuiStripeCustomerId     String?   @map("bipiStripeCustomerId")
+  bubuiStripeSubscriptionId String?   @map("bipiStripeSubscriptionId")
+  planExpiresAt             DateTime? // null o futuro = activo; pasado = volver a free.
   // Cancelación programada: si está, la suscripción se cancela al final del
   // periodo ya pagado (cancel_at_period_end en Stripe). Hasta esa fecha el
   // negocio conserva las ventajas del plan.
-  subscriptionCancelAt DateTime?
+  subscriptionCancelAt      DateTime?
   // Recuperación de contraseña: hash del token de un solo uso + caducidad.
-  ownerResetTokenHash String?
-  ownerResetExpiresAt DateTime?
+  ownerResetTokenHash       String?
+  ownerResetExpiresAt       DateTime?
   // Secreto de sesión del panel: se compara con el `<id>:<secret>` que envía
   // el panel. Se emite/renueva en el login. null hasta el próximo login.
-  apiToken      String?
+  apiToken                  String?
+  // ── Activación sin fricción ("claim") ────────────────────────────────
+  // Ficha pre-creada desde un lead captado (Google Places). El dueño recibe
+  // por WhatsApp un enlace mágico bubui.app/negocios?claim=<token> que entra
+  // sin contraseña y le muestra su perfil ya montado para ACTIVARLO.
+  claimToken                String?   @unique
+  claimExpiresAt            DateTime?
+  claimedAt                 DateTime? // null = aún sin reclamar/activar
+  provisionedFromLeadId     String? // lead de origen (NV Leads Pro)
   // Status.
-  active        Boolean  @default(true)
+  active                    Boolean   @default(true)
   // Destacado en Descubre (ordenación preferente).
-  featured      Boolean  @default(false)
+  featured                  Boolean   @default(false)
   // Destacado TEMPORAL: premio del ranking mensual (negocio que más clientes
   // trajo). Mientras featuredUntil > now, cuenta como destacado en Descubre.
-  featuredUntil DateTime?
+  featuredUntil             DateTime?
   // Banner IA (foto del escaparate → banner con el nombre del negocio).
   // La PRIMERA generación es gratis; cada edición extra cuesta 1€ y concede
   // 1 crédito (aiBannerCredits) al confirmar el pago en Stripe.
-  aiBannerUsed    Int @default(0)
-  aiBannerCredits Int @default(0)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  aiBannerUsed              Int       @default(0)
+  aiBannerCredits           Int       @default(0)
+  createdAt                 DateTime  @default(now())
+  updatedAt                 DateTime  @updatedAt
 
-  referrer       BubuiBusiness?              @relation("BubuiReferral", fields: [referrerId], references: [id])
-  referrals      BubuiBusiness[]             @relation("BubuiReferral")
-  purchases      BubuiPurchase[]
-  offers         BubuiOffer[]
-  pushAds        BubuiPushAd[]
-  notifications  BubuiBusinessNotification[]
-  reviews        BubuiReview[]
-  sponsoredSlots BubuiSponsoredSlot[]
+  referrer        BubuiBusiness?              @relation("BubuiReferral", fields: [referrerId], references: [id])
+  referrals       BubuiBusiness[]             @relation("BubuiReferral")
+  purchases       BubuiPurchase[]
+  offers          BubuiOffer[]
+  pushAds         BubuiPushAd[]
+  notifications   BubuiBusinessNotification[]
+  reviews         BubuiReview[]
+  sponsoredSlots  BubuiSponsoredSlot[]
   bannerCampaigns BubuiBannerCampaign[]
-  tableSessions  BubuiTableSession[]
-  products       BubuiProduct[]
-  services       BubuiService[]
-  bookings       BubuiBooking[]
+  tableSessions   BubuiTableSession[]
+  products        BubuiProduct[]
+  services        BubuiService[]
+  bookings        BubuiBooking[]
 
   @@index([city, active])
   @@index([referrerId])
   @@index([visibilityScore])
+  @@map("BipiBusiness")
 }
 
 /// Cliente final dado de alta en la app Bubui.
 model BubuiCustomer {
-  @@map("BipiCustomer")
-  id              String   @id @default(cuid())
-  email           String   @unique
-  phone           String?  @unique
-  phoneVerified   Boolean  @default(false)
-  name            String?
-  gender          String?  // male | female | other
-  birthDate       String?  // YYYY-MM-DD
-  postalCode      String?  // CP de residencia (5 dígitos) — ofertas cerca de casa
+  id                        String    @id @default(cuid())
+  email                     String    @unique
+  phone                     String?   @unique
+  phoneVerified             Boolean   @default(false)
+  name                      String?
+  gender                    String? // male | female | other
+  birthDate                 String? // YYYY-MM-DD
+  postalCode                String? // CP de residencia (5 dígitos) — ofertas cerca de casa
   // Token push (Expo / FCM / APNs).
-  pushToken       String?
+  pushToken                 String?
   // Token de sesión opaco para autenticar las llamadas de la app a los
   // endpoints /customer/[id]/*, /offers y /scan. Se emite/renueva al verificar
   // el OTP y al hacer login. null en cuentas antiguas hasta el próximo login.
-  apiToken        String?
+  apiToken                  String?
   // Versión de la app instalada (la reporta la app móvil en cada apertura del
   // feed). appBuild = versionCode (Android) / buildNumber (iOS), p. ej. "1015".
   // Sirve para saber qué build tiene cada usuario al hacer pruebas.
-  appVersion      String?  // p. ej. "1.0.0"
-  appBuild        String?  // p. ej. "1015"
-  appPlatform     String?  // ios | android
-  lastSeenAt      DateTime? // última vez que la app llamó al backend
+  appVersion                String? // p. ej. "1.0.0"
+  appBuild                  String? // p. ej. "1015"
+  appPlatform               String? // ios | android
+  lastSeenAt                DateTime? // última vez que la app llamó al backend
   // Última ubicación (para feed + push geo).
-  lastLat         Float?
-  lastLng         Float?
-  lastLocationAt  DateTime?
+  lastLat                   Float?
+  lastLng                   Float?
+  lastLocationAt            DateTime?
   // Métrica showcase.
-  totalSaved      Float    @default(0) // €  total ahorrados con Bubui
-  totalPurchases  Int      @default(0)
+  totalSaved                Float     @default(0) // €  total ahorrados con Bubui
+  totalPurchases            Int       @default(0)
   // Embajador (nivel desbloqueado).
-  ambassadorLevel String   @default("none") // none | bronze | silver | gold | founder
+  ambassadorLevel           String    @default("none") // none | bronze | silver | gold | founder
   // Suscripción "Bubui Plus" del usuario (1€/mes, cobro por Stripe en web).
   // plan: free | plus. planExpiresAt null o futuro = activo; pasado = free.
-  plan          String   @default("free")
-  planExpiresAt DateTime?
-  subscriptionCancelAt DateTime? // fin de periodo si canceló (sigue Plus hasta entonces)
+  plan                      String    @default("free")
+  planExpiresAt             DateTime?
+  subscriptionCancelAt      DateTime? // fin de periodo si canceló (sigue Plus hasta entonces)
   bubuiStripeCustomerId     String?
   bubuiStripeSubscriptionId String?
   // Quien lo refirió (negocio donde escaneó por primera vez).
-  firstBusinessId String?
+  firstBusinessId           String?
   // Programa de afiliados.
-  referralCode    String?  @unique // código corto para su enlace de invitación
-  referredById    String?  // cliente que lo invitó
+  referralCode              String?   @unique // código corto para su enlace de invitación
+  referredById              String? // cliente que lo invitó
   // Hucha de referidos: % acumulado que el cliente cobra yendo a comer (solo).
   // Se abona cuando un amigo traído se CUALIFICA (alta + tel. verificado + 1ª
   // compra confirmada). Al canjear se aplica hasta el tope por visita del
   // negocio (mesaMaxPct); el sobrante se queda acumulado. Caducidad global
   // (referralWalletExpiresAt), se renueva con cada abono.
-  referralWalletPct       Int       @default(0)
-  referralWalletExpiresAt DateTime?
-  referralQualifiedCount  Int       @default(0) // amigos cualificados (histórico)
+  referralWalletPct         Int       @default(0)
+  referralWalletExpiresAt   DateTime?
+  referralQualifiedCount    Int       @default(0) // amigos cualificados (histórico)
   // true cuando ESTE cliente ya ha cualificado a su referidor (idempotencia del
   // abono: un amigo abona como máximo una vez a quien lo trajo).
-  referralQualified       Boolean   @default(false)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  referralQualified         Boolean   @default(false)
+  createdAt                 DateTime  @default(now())
+  updatedAt                 DateTime  @updatedAt
 
   purchases BubuiPurchase[]
   offers    BubuiOffer[]
@@ -3746,6 +3754,7 @@ model BubuiCustomer {
   reviews   BubuiReview[]
 
   @@index([lastLat, lastLng])
+  @@map("BipiCustomer")
 }
 
 /// Compra registrada con escaneo del QR.
@@ -3755,25 +3764,24 @@ model BubuiCustomer {
 ///   confirmed → negocio aprobó. Descuento aplicado, ofertas desbloqueadas.
 ///   rejected  → negocio rechazó (importe incorrecto o no es válido).
 model BubuiPurchase {
-  @@map("BipiPurchase")
-  id              String   @id @default(cuid())
+  id              String    @id @default(cuid())
   customerId      String
   businessId      String
-  amount          Float    // importe bruto pagado en caja
-  discountPct     Int      // descuento aplicado %
-  discountAmount  Float    // € de descuento
-  status          String   @default("pending") // pending | confirmed | rejected
+  amount          Float // importe bruto pagado en caja
+  discountPct     Int // descuento aplicado %
+  discountAmount  Float // € de descuento
+  status          String    @default("pending") // pending | confirmed | rejected
   // Si vino vía un cupón cruzado, link al BubuiOffer que se canjeó.
   redeemedOfferId String?
   // Geolocalización al escanear (anti-fraude).
   scanLat         Float?
   scanLng         Float?
-  scanDistanceM   Float?   // distancia al local en metros
+  scanDistanceM   Float? // distancia al local en metros
   // Razón si rejected.
   rejectionReason String?
   // Foto del ticket de compra (si el cliente la subió para leer el importe con IA).
   ticketUrl       String?
-  scannedAt       DateTime @default(now())
+  scannedAt       DateTime  @default(now())
   confirmedAt     DateTime?
   // Cuándo se envió el push de "déjanos una reseña en Google" (~10 min tras
   // escanear). null = pendiente de enviar; lo procesa el cron review-requests.
@@ -3786,98 +3794,99 @@ model BubuiPurchase {
   @@index([customerId])
   @@index([scannedAt])
   @@index([status, reviewPushedAt])
+  @@map("BipiPurchase")
 }
 
 /// Oferta desbloqueada para un cliente concreto en un negocio concreto.
 /// Se generan tras cada compra confirmada (3-5 ofertas de negocios
 /// complementarios cercanos) y caducan a los 4 días.
 model BubuiOffer {
-  @@map("BipiOffer")
-  id              String   @id @default(cuid())
-  customerId      String
-  businessId      String   // negocio que ofrece el descuento
-  discountPct     Int
+  id                   String    @id @default(cuid())
+  customerId           String
+  businessId           String // negocio que ofrece el descuento
+  discountPct          Int
   // Negocio "originador" — la compra que desbloqueó esta oferta.
   // En ofertas de afiliados se usa como marcador: "ref:1" | "ref:3" |
   // "ref:5" | "ref:welcome" (garantiza unicidad por hito).
-  triggerBusinessId String?
+  triggerBusinessId    String?
   // Etiqueta de premio no porcentual (ej. "Tapa gratis"). Si está, la UI
   // la muestra en vez del %.
-  rewardLabel     String?
+  rewardLabel          String?
   // Origen de la oferta: "cross" (cupón cruzado) | "referral" | "referral_welcome"
   //  | "review_reward" | "share_challenge" (oferta-reto viral) | "mesa" (cupón
   //  próxima visita de la Mesa Colectiva) | "mesa_followup" (acción no elegida).
-  source          String?  @default("cross")
+  source               String?   @default("cross")
   // Oferta-reto viral: si active=false la oferta está BLOQUEADA y no se puede
   // canjear hasta conseguir `unlockShares` amigos verificados nuevos por
   // encima de `unlockBaseline` (los que el cliente ya tenía al crearse).
-  active          Boolean  @default(true)
-  unlockShares    Int      @default(0)
-  unlockBaseline  Int      @default(0)
+  active               Boolean   @default(true)
+  unlockShares         Int       @default(0)
+  unlockBaseline       Int       @default(0)
   // Activación ALTERNATIVA de una oferta-reto (reseña/foto validada por IA), en
   // vez de por amigos. Solo disponible para usuarios con +10 amigos dados de alta.
-  activatedByAction    Boolean @default(false)
-  activatedProvisional Boolean @default(false) // la IA no validó: revisar a mano
+  activatedByAction    Boolean   @default(false)
+  activatedProvisional Boolean   @default(false) // la IA no validó: revisar a mano
   activationShotUrl    String? // captura usada para activar por acción
-  expiresAt       DateTime
-  redeemed        Boolean  @default(false)
-  redeemedAt      DateTime?
-  createdAt       DateTime @default(now())
+  expiresAt            DateTime
+  redeemed             Boolean   @default(false)
+  redeemedAt           DateTime?
+  createdAt            DateTime  @default(now())
 
   customer BubuiCustomer @relation(fields: [customerId], references: [id], onDelete: Cascade)
   business BubuiBusiness @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
+  @@unique([customerId, businessId, triggerBusinessId])
   @@index([customerId, expiresAt])
   @@index([businessId, expiresAt])
-  @@unique([customerId, businessId, triggerBusinessId])
+  @@map("BipiOffer")
 }
 
 /// Anuncio push pagado (el "Push del Día" que paga el negocio por 24h).
 model BubuiPushAd {
-  @@map("BipiPushAd")
-  id            String   @id @default(cuid())
-  businessId    String
-  title         String
-  body          String   @db.Text
+  id           String   @id @default(cuid())
+  businessId   String
+  title        String
+  body         String   @db.Text
   // Imagen grande opcional (rich push) — capta más la atención.
-  imageUrl      String?  @db.Text
+  imageUrl     String?  @db.Text
   // Radio de envío (km).
-  radiusKm      Float    @default(1)
-  centerLat     Float
-  centerLng     Float
+  radiusKm     Float    @default(1)
+  centerLat    Float
+  centerLng    Float
   // Pricing.
-  reach         Int      // usuarios estimados al crear
-  pricePaidEur  Float
+  reach        Int // usuarios estimados al crear
+  pricePaidEur Float
   // Programación.
-  startsAt      DateTime
-  endsAt        DateTime
+  startsAt     DateTime
+  endsAt       DateTime
   // Stats.
-  sentCount     Int      @default(0)
-  openedCount   Int      @default(0)
-  redeemCount   Int      @default(0)
-  status        String   @default("scheduled") // scheduled | sending | done | cancelled
-  createdAt     DateTime @default(now())
+  sentCount    Int      @default(0)
+  openedCount  Int      @default(0)
+  redeemCount  Int      @default(0)
+  status       String   @default("scheduled") // scheduled | sending | done | cancelled
+  createdAt    DateTime @default(now())
 
   business BubuiBusiness @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
   @@index([businessId])
   @@index([startsAt, endsAt])
+  @@map("BipiPushAd")
 }
 
 /// Log de cada push enviado (para evitar dups y medir performance).
 model BubuiPushLog {
-  @@map("BipiPushLog")
-  id          String   @id @default(cuid())
-  customerId  String
-  pushAdId    String?
-  kind        String   // ad | offer_expiring | new_offers | welcome
-  payload     Json
-  sentAt      DateTime @default(now())
-  opened      Boolean  @default(false)
+  id         String   @id @default(cuid())
+  customerId String
+  pushAdId   String?
+  kind       String // ad | offer_expiring | new_offers | welcome
+  payload    Json
+  sentAt     DateTime @default(now())
+  opened     Boolean  @default(false)
 
   customer BubuiCustomer @relation(fields: [customerId], references: [id], onDelete: Cascade)
 
   @@index([customerId, sentAt])
+  @@map("BipiPushLog")
 }
 
 /// Suscripción Web Push de un cliente Bubui (PWA). Permite mandarle
@@ -3885,81 +3894,83 @@ model BubuiPushLog {
 /// Cuando el cliente desinstala la PWA o desactiva permisos, web-push
 /// devuelve 404/410 y la limpiamos automáticamente.
 model BubuiPushSubscription {
-  @@map("BipiPushSubscription")
-  id          String   @id @default(cuid())
-  customerId  String
-  endpoint    String   @unique
-  p256dh      String
-  authKey     String
-  userAgent   String?
-  createdAt   DateTime @default(now())
+  id         String   @id @default(cuid())
+  customerId String
+  endpoint   String   @unique
+  p256dh     String
+  authKey    String
+  userAgent  String?
+  createdAt  DateTime @default(now())
 
   @@index([customerId])
+  @@map("BipiPushSubscription")
 }
 
 /// Suscripción Web Push del PANEL del negocio (PWA). Igual que
 /// BubuiPushSubscription pero keyed por businessId: avisa al dueño en su
 /// dispositivo (ej. "Bubui te ha traído un cliente nuevo").
 model BubuiBusinessPushSubscription {
-  @@map("BipiBusinessPushSubscription")
-  id          String   @id @default(cuid())
-  businessId  String
-  endpoint    String   @unique
-  p256dh      String
-  authKey     String
-  userAgent   String?
-  createdAt   DateTime @default(now())
+  id         String   @id @default(cuid())
+  businessId String
+  endpoint   String   @unique
+  p256dh     String
+  authKey    String
+  userAgent  String?
+  createdAt  DateTime @default(now())
 
   @@index([businessId])
+  @@map("BipiBusinessPushSubscription")
 }
 
 /// Token de push para apps móviles nativas (Expo Push Service). El campo
 /// `token` empieza por `ExponentPushToken[...]` o `ExpoPushToken[...]`.
 /// La entrega final en Android necesita FCM configurado en EAS.
 model BubuiMobilePushToken {
-  @@map("BipiMobilePushToken")
-  id          String   @id @default(cuid())
-  customerId  String
-  token       String   @unique
-  platform    String   // "ios" | "android"
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @default(now()) @updatedAt
+  id         String   @id @default(cuid())
+  customerId String
+  token      String   @unique
+  platform   String // "ios" | "android"
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @default(now()) @updatedAt
 
   @@index([customerId])
+  @@map("BipiMobilePushToken")
 }
 
 /// Ajustes simples clave-valor de Bubui (p. ej. banner del Home).
 model BubuiSetting {
-  @@map("BipiSetting")
   key       String   @id
   value     String   @db.Text
   updatedAt DateTime @default(now()) @updatedAt
+
+  @@map("BipiSetting")
 }
 
 /// Regalo exclusivo para suscriptores "Bubui Plus". Lo gestiona el admin y
 /// solo lo ven (en la app) los usuarios con plan plus activo.
 model BubuiPlusGift {
-  @@map("BipiPlusGift")
   id          String   @id @default(cuid())
   title       String
   description String?  @db.Text
   imageUrl    String?
-  link        String?  // opcional: a dónde lleva al tocar (canje, web…)
+  link        String? // opcional: a dónde lleva al tocar (canje, web…)
   order       Int      @default(0) // orden de aparición (asc)
   active      Boolean  @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   @@index([active, order])
+  @@map("BipiPlusGift")
 }
 
 /// Idempotencia de webhooks de Stripe: el id del evento se guarda al
 /// procesarlo. Si Stripe reintenta la entrega del mismo evento, se ignora
 /// (evita, p. ej., conceder dos créditos de Banner IA por un solo pago).
 model BubuiProcessedWebhook {
-  @@map("BipiProcessedWebhook")
   id          String   @id // event.id de Stripe
   processedAt DateTime @default(now())
+
+  @@map("BipiProcessedWebhook")
 }
 
 /// Latido de los crons: cada vez que un endpoint de cron se ejecuta con auth
@@ -3969,9 +3980,9 @@ model BubuiProcessedWebhook {
 /// CRON_SECRET desparejado) salta en horas, no en semanas. `alertedAt` evita
 /// repetir el aviso del mismo incidente.
 model CronHeartbeat {
-  name      String   @id // p.ej. "ai-agent/recurring"
-  lastRunAt DateTime @default(now())
-  runs      Int      @default(0)
+  name      String    @id // p.ej. "ai-agent/recurring"
+  lastRunAt DateTime  @default(now())
+  runs      Int       @default(0)
   alertedAt DateTime?
 }
 
@@ -3980,7 +3991,6 @@ model CronHeartbeat {
 /// importe (no el que teclee el cliente) y marca el registro como usado
 /// (un ticket = una compra). Caduca a los 30 min si no se usa.
 model BubuiTicketScan {
-  @@map("BipiTicketScan")
   id               String   @id @default(cuid())
   customerId       String
   businessId       String?
@@ -3992,25 +4002,26 @@ model BubuiTicketScan {
   createdAt        DateTime @default(now())
 
   @@index([customerId])
+  @@map("BipiTicketScan")
 }
 
 /// Imagen subida y servida desde la propia BD (sin bucket externo). Se usa
 /// como fallback del banner cuando no hay storage S3/R2 configurado: la
 /// imagen se guarda aquí y se sirve vía /api/bubui/banner-image/<id>.
 model BubuiImage {
-  @@map("BipiImage")
   id        String   @id @default(cuid())
   mimeType  String
   data      Bytes
   createdAt DateTime @default(now())
+
+  @@map("BipiImage")
 }
 
 /// Notificación para el panel del negocio (nueva compra, cupón canjeado…).
 model BubuiBusinessNotification {
-  @@map("BipiBusinessNotification")
   id         String   @id @default(cuid())
   businessId String
-  type       String   // new_purchase | offer_redeemed | referral_milestone | ...
+  type       String // new_purchase | offer_redeemed | referral_milestone | ...
   message    String   @db.Text
   read       Boolean  @default(false)
   createdAt  DateTime @default(now())
@@ -4019,17 +4030,17 @@ model BubuiBusinessNotification {
 
   @@index([businessId, read])
   @@index([createdAt])
+  @@map("BipiBusinessNotification")
 }
 
 /// Reseña/valoración de un cliente a un negocio. Solo puede dejarla quien
 /// tiene al menos una compra confirmada en ese negocio (se valida en el
 /// endpoint). Una reseña por cliente y negocio; se puede editar reenviando.
 model BubuiReview {
-  @@map("BipiReview")
   id         String   @id @default(cuid())
   businessId String
   customerId String
-  rating     Int      // 1-5 estrellas
+  rating     Int // 1-5 estrellas
   comment    String?  @db.Text
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
@@ -4039,6 +4050,7 @@ model BubuiReview {
 
   @@unique([customerId, businessId])
   @@index([businessId, createdAt])
+  @@map("BipiReview")
 }
 
 /// Mesa Colectiva: una mesa de un restaurante que activa un descuento de grupo
@@ -4047,78 +4059,77 @@ model BubuiReview {
 /// comparten Bubui y/o dejan reseña en Google. El dueño la verifica desde su
 /// panel y la canjea. status: open → verified → redeemed | expired.
 model BubuiTableSession {
-  @@map("BipiTableSession")
-  id           String    @id @default(cuid())
-  businessId   String
-  code         String    // código corto de unión (único entre sesiones abiertas)
-  tableLabel   String?   // nº/nombre de mesa
-  captainId    String?   // BubuiCustomer que la creó
-  status       String    @default("open") // open | verified | redeemed | expired
-  basePct      Int       @default(0) // snapshot de config al crear
-  shareBonusPct Int      @default(0)
-  reviewBonusPct Int     @default(0)
-  maxPct       Int       @default(35)
-  minDiners    Int       @default(4)
-  shareFriends Int       @default(3)
-  finalPct     Int?      // % aplicado al canjear
-  ticketAmount Float?    // total del ticket escaneado (importe de la cuenta)
-  billedById   String?   // BubuiCustomer que escaneó el ticket (quien pagó)
-  expiresAt    DateTime  // fin de la ventana de unión
-  verifiedAt   DateTime?
-  redeemedAt   DateTime?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  id             String    @id @default(cuid())
+  businessId     String
+  code           String // código corto de unión (único entre sesiones abiertas)
+  tableLabel     String? // nº/nombre de mesa
+  captainId      String? // BubuiCustomer que la creó
+  status         String    @default("open") // open | verified | redeemed | expired
+  basePct        Int       @default(0) // snapshot de config al crear
+  shareBonusPct  Int       @default(0)
+  reviewBonusPct Int       @default(0)
+  maxPct         Int       @default(35)
+  minDiners      Int       @default(4)
+  shareFriends   Int       @default(3)
+  finalPct       Int? // % aplicado al canjear
+  ticketAmount   Float? // total del ticket escaneado (importe de la cuenta)
+  billedById     String? // BubuiCustomer que escaneó el ticket (quien pagó)
+  expiresAt      DateTime // fin de la ventana de unión
+  verifiedAt     DateTime?
+  redeemedAt     DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
-  business     BubuiBusiness          @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  business     BubuiBusiness           @relation(fields: [businessId], references: [id], onDelete: Cascade)
   participants BubuiTableParticipant[]
 
   @@index([businessId, status])
   @@index([code, status])
+  @@map("BipiTableSession")
 }
 
 model BubuiTableParticipant {
-  @@map("BipiTableParticipant")
-  id          String   @id @default(cuid())
-  sessionId   String
-  customerId  String
-  isNewUser   Boolean  @default(false) // se instaló la app al unirse a esta mesa
-  contributed Boolean  @default(false) // veterano que completó una acción del menú
-  contributionType String? // share | review | photo | follow
-  sharedCount Int      @default(0)
-  sharedDone  Boolean  @default(false) // alcanzó shareFriends amigos nuevos
-  reviewDone  Boolean  @default(false) // pasó por el enlace de reseña de Google
+  id                String    @id @default(cuid())
+  sessionId         String
+  customerId        String
+  isNewUser         Boolean   @default(false) // se instaló la app al unirse a esta mesa
+  contributed       Boolean   @default(false) // veterano que completó una acción del menú
+  contributionType  String? // share | review | photo | follow
+  sharedCount       Int       @default(0)
+  sharedDone        Boolean   @default(false) // alcanzó shareFriends amigos nuevos
+  reviewDone        Boolean   @default(false) // pasó por el enlace de reseña de Google
   // Acciones VERIFICADAS por IA (captura subida): cuentan para el bote de la mesa.
   // Cada comensal puede aportar hasta 2 (una reseña + una publicación social) para
   // cubrir a quien no puede/quiere; la mesa necesita N acciones (N = comensales).
-  reviewVerified Boolean @default(false) // captura de reseña validada por IA
-  socialVerified Boolean @default(false) // captura de FOTO en redes validada (acción "photo")
-  reviewShotUrl  String? // URL de la captura de la reseña
-  socialShotUrl  String? // URL de la captura de la publicación (foto)
+  reviewVerified    Boolean   @default(false) // captura de reseña validada por IA
+  socialVerified    Boolean   @default(false) // captura de FOTO en redes validada (acción "photo")
+  reviewShotUrl     String? // URL de la captura de la reseña
+  socialShotUrl     String? // URL de la captura de la publicación (foto)
   // Acción "seguir en redes" (independiente de la foto).
-  followVerified Boolean @default(false)
-  followShotUrl  String?
+  followVerified    Boolean   @default(false)
+  followShotUrl     String?
   // Aceptada de forma PROVISIONAL (la IA no pudo validar con seguridad): cuenta
   // para el bote pero se marca para que el CAMARERO la verifique a mano.
-  reviewProvisional Boolean @default(false)
-  socialProvisional Boolean @default(false)
-  followProvisional Boolean @default(false)
+  reviewProvisional Boolean   @default(false)
+  socialProvisional Boolean   @default(false)
+  followProvisional Boolean   @default(false)
   // Momento del primer aporte (para el push diferido ~1h de la acción no elegida).
-  contributedAt  DateTime?
+  contributedAt     DateTime?
   // Marca de que ya se envió el push de la "acción no elegida" (idempotencia).
-  followupPushedAt DateTime?
-  joinedAt    DateTime @default(now())
+  followupPushedAt  DateTime?
+  joinedAt          DateTime  @default(now())
 
-  session  BubuiTableSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  session BubuiTableSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
   @@unique([sessionId, customerId])
   @@index([sessionId])
   @@index([contributedAt, followupPushedAt])
+  @@map("BipiTableParticipant")
 }
 
 /// Catálogo de productos de un comercio (nicho comercio_producto). Se muestra
 /// en su página pública de Bubui; el comercio lo gestiona desde su panel.
 model BubuiProduct {
-  @@map("BipiProduct")
   id          String   @id @default(cuid())
   businessId  String
   name        String
@@ -4134,12 +4145,12 @@ model BubuiProduct {
   business BubuiBusiness @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
   @@index([businessId, active])
+  @@map("BipiProduct")
 }
 
 /// Servicio que ofrece un comercio del nicho "servicios" (peluquería, clínica,
 /// taller…). El cliente pide cita para uno de ellos.
 model BubuiService {
-  @@map("BipiService")
   id          String   @id @default(cuid())
   businessId  String
   name        String
@@ -4157,28 +4168,29 @@ model BubuiService {
   bookings BubuiBooking[]
 
   @@index([businessId, active])
+  @@map("BipiService")
 }
 
 /// Cita solicitada por un cliente. v1 por solicitud: el cliente elige fecha/hora
 /// y el comercio confirma o rechaza desde su panel.
 model BubuiBooking {
-  @@map("BipiBooking")
-  id            String    @id @default(cuid())
+  id            String   @id @default(cuid())
   businessId    String
   serviceId     String?
   customerId    String?
   customerName  String
   customerPhone String
   startsAt      DateTime
-  notes         String?   @db.Text
-  status        String    @default("pending") // pending | confirmed | cancelled
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  notes         String?  @db.Text
+  status        String   @default("pending") // pending | confirmed | cancelled
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
   business BubuiBusiness @relation(fields: [businessId], references: [id], onDelete: Cascade)
   service  BubuiService? @relation(fields: [serviceId], references: [id], onDelete: SetNull)
 
   @@index([businessId, status, startsAt])
+  @@map("BipiBooking")
 }
 
 /// Slot patrocinado: anuncio "hero" del feed del cliente durante una
@@ -4186,7 +4198,6 @@ model BubuiBooking {
 /// si tiene plan != "free" (cuota mensual por plan). Cliente lo ve marcado
 /// como "Patrocinado" al abrir la app, filtrado por su ciudad.
 model BubuiSponsoredSlot {
-  @@map("BipiSponsoredSlot")
   id         String   @id @default(cuid())
   businessId String
   title      String
@@ -4200,30 +4211,31 @@ model BubuiSponsoredSlot {
 
   @@index([city, startsAt, endsAt])
   @@index([businessId, startsAt])
+  @@map("BipiSponsoredSlot")
 }
 
 /// Campaña de banner del Home ganada por un negocio (recompensa de referidos
 /// B2B: 1 semana por cada 5 negocios activos que trae). Se sirven por turnos:
 /// el banner del Home muestra la campaña activa (status=active) más antigua.
 model BubuiBannerCampaign {
-  @@map("BipiBannerCampaign")
-  id         String   @id @default(cuid())
+  id         String    @id @default(cuid())
   businessId String
   // Imagen del banner (la sube el negocio); puede quedar pendiente hasta que
   // la suba — entonces se usa su logo/nombre como fallback.
   imageUrl   String?
   link       String?
   // queued | active | done
-  status     String   @default("queued")
+  status     String    @default("queued")
   // Semanas concedidas (cada recompensa = 1 semana). Al activarse fija las
   // fechas; mientras está en cola, startsAt/endsAt son null.
-  weeks      Int      @default(1)
+  weeks      Int       @default(1)
   startsAt   DateTime?
   endsAt     DateTime?
-  createdAt  DateTime @default(now())
+  createdAt  DateTime  @default(now())
 
   business BubuiBusiness @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
   @@index([status, startsAt])
   @@index([businessId])
+  @@map("BipiBannerCampaign")
 }

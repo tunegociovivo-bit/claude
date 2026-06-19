@@ -1303,6 +1303,27 @@ function LeadDetailModal({
     }
   }
 
+  // Activación sin fricción: crea la ficha Bubui del lead y copia el enlace
+  // mágico (bubui.app/negocios?claim=…) para enviárselo por WhatsApp.
+  const [provisioning, setProvisioning] = useState(false);
+  const [claimUrl, setClaimUrl] = useState<string | null>(null);
+  const [provErr, setProvErr] = useState<string | null>(null);
+  async function provisionBubui() {
+    setProvisioning(true);
+    setProvErr(null);
+    try {
+      const r = await fetch(`/api/v1/leads/${leadId}/provision-bubui`, { method: "POST" });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d?.error?.message ?? `HTTP ${r.status}`);
+      setClaimUrl(d.claimUrl);
+      try { await navigator.clipboard.writeText(d.claimUrl); } catch {}
+    } catch (e: any) {
+      setProvErr(e?.message ?? "No se pudo crear la ficha");
+    } finally {
+      setProvisioning(false);
+    }
+  }
+
   async function sendMockup() {
     if (!leadId) return;
     if (!confirm("¿Enviar el mockup de su ficha por WhatsApp a este lead?")) return;
@@ -1510,6 +1531,16 @@ function LeadDetailModal({
             </button>
             <button
               type="button"
+              onClick={provisionBubui}
+              disabled={provisioning}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 text-xs font-medium disabled:opacity-50"
+              title="Crea la ficha de Bubui de este negocio y copia el enlace de activación (sin fricción, sin contraseña)"
+            >
+              {provisioning && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+              ⚡ Crear Bubui + enlace
+            </button>
+            <button
+              type="button"
               onClick={loadDecisionMaker}
               disabled={dmLoading}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-indigo-300 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 text-xs font-medium disabled:opacity-50"
@@ -1647,6 +1678,23 @@ function LeadDetailModal({
                 )}
               </div>
               <p className="text-[10px] text-slate-500 border-t border-indigo-200 pt-1">{dm.disclaimer}</p>
+            </div>
+          )}
+          {provErr && <div className="text-xs text-rose-600">✗ {provErr}</div>}
+          {claimUrl && (
+            <div className="rounded-lg border border-emerald-200 bg-emerald-50/70 p-3 space-y-2">
+              <p className="text-[11px] text-emerald-800 font-medium">⚡ Ficha de Bubui creada. Enlace de activación (copiado):</p>
+              <div className="flex items-center gap-2">
+                <input readOnly value={claimUrl} className="flex-1 text-xs rounded-md border bg-white px-2 py-1.5 font-mono" />
+                <button
+                  type="button"
+                  onClick={() => { void navigator.clipboard?.writeText(claimUrl); }}
+                  className="px-2.5 py-1.5 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-medium"
+                >
+                  Copiar
+                </button>
+              </div>
+              <p className="text-[10px] text-emerald-700">Envíaselo por WhatsApp: al abrirlo entra sin contraseña y ve su ficha lista para activar. Caduca en 30 días.</p>
             </div>
           )}
           {pitchErr && <div className="text-xs text-rose-600">✗ {pitchErr}</div>}

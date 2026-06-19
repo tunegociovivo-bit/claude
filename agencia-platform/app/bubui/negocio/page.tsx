@@ -18,21 +18,177 @@ type Session = { businessId: string; name: string; token: string };
 
 export default function NegocioPanel() {
   const [session, setSession] = useState<Session | null>(null);
+  const [pending, setPending] = useState(false); // ficha por activar (vino por claim)
+  const [peek, setPeek] = useState(false); // "ver mi ficha primero"
+  const [claiming, setClaiming] = useState(false);
+  const [claimError, setClaimError] = useState<string | null>(null);
+
   useEffect(() => {
+    let stored: Session | null = null;
     try {
       const raw = localStorage.getItem("bubui.business");
-      if (raw) setSession(JSON.parse(raw));
+      if (raw) stored = JSON.parse(raw);
     } catch {}
+
+    const url = new URL(window.location.href);
+    const claim = url.searchParams.get("claim");
+    if (claim) {
+      setClaiming(true);
+      fetch("/api/bubui/business/claim", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: claim })
+      })
+        .then(async (r) => {
+          const j = await r.json().catch(() => ({}));
+          if (!r.ok) throw new Error(j?.error?.message ?? "Enlace no válido");
+          return j;
+        })
+        .then((j) => {
+          const s: Session = { businessId: j.businessId, name: j.name, token: j.token };
+          setSession(s);
+          localStorage.setItem("bubui.business", JSON.stringify(s));
+          setPending(!!j.pending);
+          url.searchParams.delete("claim");
+          window.history.replaceState({}, "", url.pathname + url.search);
+        })
+        .catch((e) => setClaimError(e?.message ?? "Enlace no válido"))
+        .finally(() => setClaiming(false));
+    } else if (stored) {
+      setSession(stored);
+    }
   }, []);
 
+  if (claiming) {
+    return (
+      <div className="min-h-screen grid place-items-center text-slate-500 text-sm">
+        Preparando tu Bubui…
+      </div>
+    );
+  }
+  if (claimError && !session) {
+    return (
+      <div className="min-h-screen grid place-items-center p-6 text-center">
+        <div>
+          <p className="text-rose-600 font-medium mb-2">{claimError}</p>
+          <a href="/negocios" className="text-brand-600 underline text-sm">Ir a iniciar sesión</a>
+        </div>
+      </div>
+    );
+  }
   if (!session) {
     return <LoginForm onLogin={(s) => { setSession(s); localStorage.setItem("bubui.business", JSON.stringify(s)); }} />;
   }
   return (
-    <Dashboard
-      session={session}
-      onLogout={() => { setSession(null); localStorage.removeItem("bubui.business"); }}
-    />
+    <>
+      {pending && (
+        <ActivateGate
+          session={session}
+          peek={peek}
+          onPeek={() => setPeek(true)}
+          onActivated={() => { setPending(false); setPeek(false); }}
+        />
+      )}
+      <Dashboard
+        session={session}
+        onLogout={() => { setSession(null); setPending(false); localStorage.removeItem("bubui.business"); }}
+      />
+    </>
+  );
+}
+
+/** Pantalla de activación de una ficha pre-creada (claim). Muestra que su
+ *  Bubui ya está montado y pide email + contraseña para ponerlo en vivo. */
+function ActivateGate({
+  session,
+  peek,
+  onPeek,
+  onActivated
+}: {
+  session: Session;
+  peek: boolean;
+  onPeek: () => void;
+  onActivated: () => void;
+}) {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [open, setOpen] = useState(true);
+
+  async function activate(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await fetch(`/api/bubui/business/${session.businessId}/activate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.token}` },
+        body: JSON.stringify({ email, password })
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) { setError(j?.error?.message ?? "No se pudo activar"); return; }
+      onActivated();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // Si está "peek", solo una barra fija para reabrir.
+  if (peek && !open) {
+    return (
+      <div className="sticky top-0 z-40 bg-emerald-600 text-white text-sm px-4 py-2 flex items-center justify-between">
+        <span>Tu ficha está lista pero <strong>aún no activa</strong>.</span>
+        <button onClick={() => setOpen(true)} className="bg-white text-emerald-700 rounded-full px-3 py-1 text-xs font-semibold">
+          Activar ahora
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/50 grid place-items-center p-4">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
+        <h2 className="text-xl font-bold text-slate-900">🎉 ¡Tu Bubui ya está montado!</h2>
+        <p className="mt-1 text-sm text-slate-600">
+          Hemos preparado la ficha de <strong>{session.name}</strong> con tus datos de Google.
+          Solo falta activarla para ponerla en marcha. Crea tu acceso:
+        </p>
+        <form onSubmit={activate} className="mt-4 space-y-3">
+          <input
+            type="email"
+            required
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="Tu email"
+            className="w-full px-3 py-2 rounded-lg border bg-white text-sm"
+          />
+          <input
+            type="password"
+            required
+            minLength={6}
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="Crea una contraseña (mín. 6)"
+            className="w-full px-3 py-2 rounded-lg border bg-white text-sm"
+          />
+          {error && <p className="text-rose-600 text-xs">{error}</p>}
+          <button
+            type="submit"
+            disabled={busy}
+            className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-lg py-2.5 text-sm font-semibold"
+          >
+            {busy ? "Activando…" : "Activar mi Bubui"}
+          </button>
+        </form>
+        <button
+          onClick={() => { setOpen(false); onPeek(); }}
+          className="mt-3 w-full text-center text-xs text-slate-500 hover:text-slate-700"
+        >
+          Ver mi ficha primero
+        </button>
+      </div>
+    </div>
   );
 }
 
