@@ -212,6 +212,7 @@ model Workspace {
   deliverables              Deliverable[]
   credentialGrants          CredentialAccessGrant[]
   leadSearches              LeadSearch[]
+  leadQueryCache            LeadQueryCache[]
   leads                     Lead[]
   leadTemplates             LeadTemplate[]
   leadSequences             LeadSequence[]
@@ -920,6 +921,22 @@ model LeadSearch {
 
   @@index([workspaceId, status])
   @@index([monitored])
+}
+
+// Caché de barridos: registra cuándo se consultó por última vez a Google una
+// combinación (keyword + área). Si está activado "reusar lo barrido", el motor
+// salta la consulta a Google para áreas vistas hace menos de X días → ahorra
+// llamadas (y €) sin perder calidad para el usuario que rebusca a menudo.
+model LeadQueryCache {
+  id            String   @id @default(cuid())
+  workspaceId   String
+  cacheKey      String // norm(keyword) + "|" + norm(area)
+  lastQueriedAt DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, cacheKey])
+  @@index([workspaceId])
 }
 
 model Lead {

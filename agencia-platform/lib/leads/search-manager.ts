@@ -20,6 +20,11 @@ import { expandKeyword } from "./synonyms";
 import { classifyLeadsRelevance, type RelevanceVerdict } from "./relevance";
 import { collectFromSource, type LeadSourceKey } from "./sources";
 
+/** Clave de caché de barridos: normaliza keyword/área (minúsculas, espacios). */
+function normKey(s: string): string {
+  return (s ?? "").toLowerCase().replace(/\s+/g, " ").trim();
+}
+
 export async function startSearch(opts: {
   workspaceId: string;
   userId?: string | null;
@@ -237,6 +242,13 @@ export async function processSearchBatch(opts: {
 
   let leadsInserted = 0;
   let leadsSkipped = 0;
+  // #4 Caché de barridos: si cacheDays>0, saltamos consultas a Google de áreas
+  // vistas hace menos de X días (ahorro de API al rebuscar a menudo).
+  const cacheDays = Number(cfg.cacheDays) > 0 ? Number(cfg.cacheDays) : 0;
+  const cacheCutoff = cacheDays > 0 ? new Date(Date.now() - cacheDays * 86400000) : null;
+  // #2/#3 Búsqueda troceada (país/provincia por municipios) → menos páginas por
+  // consulta (los municipios pequeños rara vez superan 1 página de todos modos).
+  const tiled = search.scope === "spain" || !!cfg.tileMunicipalities || !!cfg.spainMunicipalities;
   // Si Places lanza error en alguna provincia, guardamos el último para
   // surfacearlo en la UI si la búsqueda acaba con 0 leads.
   let batchError: string | null = null;
@@ -246,6 +258,16 @@ export async function processSearchBatch(opts: {
         where: { id: search.id },
         data: { currentProvince: prov.area }
       });
+      // #4 ¿Área barrida recientemente? → no gastamos consulta a Google.
+      const cacheable = !!cacheCutoff && !prov.gridMode && !!prov.area;
+      const cacheKey = cacheable ? `${normKey(search.keyword)}|${normKey(prov.area)}` : "";
+      if (cacheable) {
+        const hit = await prisma.leadQueryCache.findUnique({
+          where: { workspaceId_cacheKey: { workspaceId: opts.workspaceId, cacheKey } },
+          select: { lastQueriedAt: true }
+        });
+        if (hit && hit.lastQueriedAt > cacheCutoff!) continue;
+      }
       // Sinónimos del nicho (opt-in): lanzamos una consulta por variante y
       // fusionamos deduplicando por placeId, para cubrir fichas que aparecen
       // bajo otra denominación ("dentista" vs "clínica dental").
@@ -263,7 +285,8 @@ export async function processSearchBatch(opts: {
           lat: prov.lat || undefined,
           lng: prov.lng || undefined,
           radiusMeters: prov.radiusMeters,
-          maxPages: prov.gridMode ? 2 : undefined,
+          // #2/#3 menos páginas en barridos masivos (grid o troceado por municipios).
+          maxPages: prov.gridMode ? 2 : tiled ? 2 : undefined,
           province: prov.provinceTag
         });
         for (const r of part) {
@@ -331,6 +354,16 @@ export async function processSearchBatch(opts: {
         } catch (err) {
           console.error("[search-manager] upsert lead error:", err);
         }
+      }
+      // #4 marca el área como barrida ahora (para futuras re-búsquedas con caché).
+      if (cacheable) {
+        await prisma.leadQueryCache
+          .upsert({
+            where: { workspaceId_cacheKey: { workspaceId: opts.workspaceId, cacheKey } },
+            create: { workspaceId: opts.workspaceId, cacheKey, lastQueriedAt: new Date() },
+            update: { lastQueriedAt: new Date() }
+          })
+          .catch(() => {});
       }
     } catch (e: any) {
       const msg = e?.message ?? String(e);

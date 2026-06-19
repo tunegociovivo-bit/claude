@@ -4421,6 +4421,7 @@ function NewSearchModal({ open, onClose, onSaved }: { open: boolean; onClose: ()
   const [useSynonyms, setUseSynonyms] = useState(false);
   const [useGrid, setUseGrid] = useState(false);
   const [mobileOnly, setMobileOnly] = useState(false);
+  const [cacheReuse, setCacheReuse] = useState(false);
   const [allSources, setAllSources] = useState(false);
   const [cfg, setCfg] = useState<{ metaAdsConfigured?: boolean; scrapflyConfigured?: boolean } | null>(null);
   const [saving, setSaving] = useState(false);
@@ -4454,6 +4455,7 @@ function NewSearchModal({ open, onClose, onSaved }: { open: boolean; onClose: ()
     setUseSynonyms(false);
     setUseGrid(false);
     setMobileOnly(false);
+    setCacheReuse(false);
     setAllSources(false);
     setError(null);
     setSaving(false);
@@ -4475,12 +4477,13 @@ function NewSearchModal({ open, onClose, onSaved }: { open: boolean; onClose: ()
         skipExisting,
         source: src,
         sourceConfig:
-          src === "places" && (lowRatingOnly || useSynonyms || useGrid || mobileOnly)
+          src === "places" && (lowRatingOnly || useSynonyms || useGrid || mobileOnly || cacheReuse)
             ? {
                 ...(lowRatingOnly ? { lowRatingOnly: true, maxRating: 3.5, minReviewsCount: 5 } : {}),
                 ...(useSynonyms ? { useSynonyms: true } : {}),
                 ...(useGrid ? { useGrid: true } : {}),
-                ...(mobileOnly ? { mobileOnly: true } : {})
+                ...(mobileOnly ? { mobileOnly: true } : {}),
+                ...(cacheReuse ? { cacheDays: 30 } : {})
               }
             : undefined
       })
@@ -4732,6 +4735,24 @@ function NewSearchModal({ open, onClose, onSaved }: { open: boolean; onClose: ()
               <p className="text-[11px] text-slate-500">
                 Descarta fijos (8/9) y fichas sin teléfono; deja solo <strong>móviles (6/7)</strong>,
                 que son los que de verdad reciben WhatsApp. Menos cola muerta y mejor entrega.
+              </p>
+            </div>
+          </label>
+        )}
+        {source === "places" && (
+          <label className="flex items-start gap-2 p-2 rounded-md border border-teal-200 bg-teal-50/50 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={cacheReuse}
+              onChange={(e) => setCacheReuse(e.target.checked)}
+              className="mt-0.5 accent-teal-600"
+            />
+            <div className="flex-1">
+              <span className="text-xs font-medium text-slate-800">♻️ No rebuscar zonas barridas hace &lt; 30 días</span>
+              <p className="text-[11px] text-slate-500">
+                Salta las consultas de áreas (keyword + zona) ya barridas hace menos de 30 días →
+                <strong> ahorra muchas llamadas a la API</strong> al rebuscar a menudo. Contrapartida:
+                un negocio nuevo en esa zona puede tardar hasta 30 días en aparecer.
               </p>
             </div>
           </label>
