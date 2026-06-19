@@ -5009,6 +5009,8 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
   const [apolloKey, setApolloKey] = useState("");
   const [health, setHealth] = useState<any[] | null>(null);
   const [loadingHealth, setLoadingHealth] = useState(false);
+  // Estado de conexión en vivo por número (sesión WAHA): WORKING / SCAN_QR_CODE / …
+  const [chanStatus, setChanStatus] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<Date | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -5048,6 +5050,30 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
     setS(null);
     loadSettings();
   }, [open]);
+  // Estado de conexión de cada número, refrescado cada 12s mientras el modal abierto.
+  useEffect(() => {
+    if (!open) return;
+    let alive = true;
+    const load = () =>
+      fetch("/api/v1/leads/channels-status")
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => { if (alive && d?.statuses) setChanStatus(d.statuses); })
+        .catch(() => {});
+    load();
+    const id = setInterval(load, 12000);
+    return () => { alive = false; clearInterval(id); };
+  }, [open]);
+  function chanBadge(name?: string) {
+    const n = (name ?? "").trim();
+    if (!n) return null;
+    const st = chanStatus[n];
+    const base = "text-[10px] px-1.5 py-0.5 rounded border whitespace-nowrap";
+    if (st === undefined) return <span className={`${base} bg-slate-50 text-slate-400 border-slate-200`}>⋯</span>;
+    if (st === "WORKING") return <span className={`${base} bg-emerald-50 text-emerald-700 border-emerald-200`}>🟢 Conectado</span>;
+    if (st === "SCAN_QR_CODE") return <span className={`${base} bg-amber-50 text-amber-700 border-amber-200`}>🟡 Escanea QR</span>;
+    if (st === "STARTING") return <span className={`${base} bg-amber-50 text-amber-700 border-amber-200`}>🟡 Iniciando</span>;
+    return <span className={`${base} bg-rose-50 text-rose-700 border-rose-200`} title={st}>🔴 Desconectado</span>;
+  }
   useEffect(() => {
     if (!open) {
       if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
@@ -5444,6 +5470,7 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
                         title="Tope diario de este número"
                         className="w-16 px-2 py-1 rounded border bg-white text-xs"
                       />
+                      {chanBadge(c.name)}
                       <button
                         type="button"
                         onClick={async () => {
