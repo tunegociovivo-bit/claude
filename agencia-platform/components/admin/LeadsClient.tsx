@@ -5283,6 +5283,8 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
   const [apolloKey, setApolloKey] = useState("");
   const [elevenKey, setElevenKey] = useState("");
   const [elevenVoiceId, setElevenVoiceId] = useState("");
+  const [testingVoice, setTestingVoice] = useState(false);
+  const [voiceMsg, setVoiceMsg] = useState<string | null>(null);
   const [health, setHealth] = useState<any[] | null>(null);
   const [loadingHealth, setLoadingHealth] = useState(false);
   // Estado de conexión en vivo por número (sesión WAHA): WORKING / SCAN_QR_CODE / …
@@ -5429,6 +5431,32 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
     }
     setSavedAt(new Date());
     return true;
+  }
+  async function testVoice() {
+    setTestingVoice(true);
+    setVoiceMsg(null);
+    try {
+      // Guarda primero (por si cambió la key/voz) y luego genera la muestra.
+      const okSaved = await save();
+      if (!okSaved) { setTestingVoice(false); return; }
+      const r = await fetch("/api/v1/leads/voice/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({})
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j?.audioBase64) {
+        setVoiceMsg(j?.error?.message ?? `No se pudo generar la voz (HTTP ${r.status}).`);
+        return;
+      }
+      const audio = new Audio(`data:audio/mpeg;base64,${j.audioBase64}`);
+      await audio.play().catch(() => setVoiceMsg("Audio generado, pero el navegador bloqueó la reproducción. Reintenta."));
+      setVoiceMsg("✓ Voz generada y reproduciéndose.");
+    } catch (e: any) {
+      setVoiceMsg(e?.message ?? "Error probando la voz.");
+    } finally {
+      setTestingVoice(false);
+    }
   }
   function setField(k: string, v: any) { setS({ ...s, [k]: v }); }
 
@@ -5647,6 +5675,18 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
                 Activa el envío de <strong>notas de voz IA</strong>. Clona tu voz en ElevenLabs (Voice Lab) y pega aquí su Voice ID. Se cifra la key.
               </p>
             </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={testVoice}
+                disabled={testingVoice || (!elevenVoiceId.trim() && !s.elevenLabsConfigured)}
+                className="px-3 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-700 disabled:opacity-50 text-white text-xs font-medium"
+              >
+                {testingVoice ? "Generando…" : "▶ Probar voz"}
+              </button>
+              {voiceMsg && <span className={`text-[11px] ${voiceMsg.startsWith("✓") ? "text-emerald-600" : "text-rose-600"}`}>{voiceMsg}</span>}
+            </div>
+            <p className="text-[10px] text-slate-400">Guarda los ajustes y genera una nota de voz de muestra para oír cómo suena.</p>
           </div>
         </section>
         <section>
