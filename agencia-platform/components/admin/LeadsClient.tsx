@@ -2174,6 +2174,23 @@ function QueueTable({ loading, items, onChanged }: { loading: boolean; items: Qu
   const [rankIds, setRankIds] = useState<string[]>([]);
   const [rankLoading, setRankLoading] = useState(false);
   const [previewRow, setPreviewRow] = useState<QueueRow | null>(null);
+  const [previewText, setPreviewText] = useState("");
+  const [savingPreview, setSavingPreview] = useState(false);
+  useEffect(() => { setPreviewText(previewRow?.renderedMessage ?? ""); }, [previewRow]);
+  async function savePreviewText() {
+    if (!previewRow) return;
+    setSavingPreview(true);
+    try {
+      const r = await fetch(`/api/v1/leads/queue/${previewRow.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: previewText })
+      });
+      if (r.ok) { onChanged(); setPreviewRow(null); }
+    } finally {
+      setSavingPreview(false);
+    }
+  }
   const [pendingMobile, setPendingMobile] = useState<number | null>(null);
   // Filtros del envío masivo de imagen.
   const [rankOnlyPending, setRankOnlyPending] = useState(true);
@@ -2775,7 +2792,7 @@ function QueueTable({ loading, items, onChanged }: { loading: boolean; items: Qu
             <div className="text-xs text-slate-500">
               📞 {previewRow.phoneNormalized} · enviar desde: <strong>{previewRow.instanceName || "Principal"}</strong>
             </div>
-            {/* Simulación de burbuja de WhatsApp */}
+            {/* Simulación de burbuja de WhatsApp (refleja en vivo lo que escribes) */}
             <div className="rounded-xl bg-[#e5ddd5] p-4">
               <div className="ml-auto max-w-[85%] rounded-lg bg-[#dcf8c6] shadow-sm overflow-hidden">
                 {previewRow.kind === "ranking" && (
@@ -2783,21 +2800,50 @@ function QueueTable({ loading, items, onChanged }: { loading: boolean; items: Qu
                     src={`/api/v1/leads/${previewRow.leadId}/ranking`}
                     alt="Imagen de posicionamiento"
                     className="w-full block"
-                    style={{ maxHeight: 420, objectFit: "contain", background: "#fff" }}
+                    style={{ maxHeight: 380, objectFit: "contain", background: "#fff" }}
                   />
                 )}
-                <div className="px-3 py-2 text-sm text-slate-800 whitespace-pre-wrap">
-                  {previewRow.renderedMessage
-                    ? previewRow.renderedMessage
+                <div className="px-3 py-2 text-sm text-slate-800 whitespace-pre-wrap min-h-[1.5rem]">
+                  {previewText
+                    ? previewText
                     : previewRow.kind === "ranking"
                       ? "(pie automático: se genera según la posición real del lead al enviar)"
                       : "(sin texto)"}
                 </div>
               </div>
             </div>
+
+            {/* Editor del texto (solo si sigue en cola) */}
+            {previewRow.status === "queued" ? (
+              <div className="space-y-1">
+                <label className="block text-xs font-medium text-slate-600">
+                  {previewRow.kind === "ranking" ? "Texto (pie de la imagen)" : "Texto del mensaje"}
+                </label>
+                <textarea
+                  value={previewText}
+                  onChange={(e) => setPreviewText(e.target.value)}
+                  rows={4}
+                  placeholder={previewRow.kind === "ranking" ? "Deja vacío para pie automático…" : "Texto del mensaje…"}
+                  className="w-full px-3 py-2 rounded-lg border bg-white text-sm"
+                />
+                <div className="flex justify-end gap-2">
+                  <button onClick={() => setPreviewRow(null)} className="px-3 py-1.5 rounded-lg text-sm border bg-white hover:bg-slate-50">Cerrar</button>
+                  <button
+                    onClick={savePreviewText}
+                    disabled={savingPreview}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium disabled:opacity-50"
+                  >
+                    {savingPreview && <Loader2 className="h-4 w-4 animate-spin" />}
+                    Guardar texto
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <p className="text-[11px] text-slate-400">Este mensaje ya no está en cola; no se puede editar.</p>
+            )}
             {previewRow.kind === "ranking" && (
               <p className="text-[11px] text-slate-400">
-                La imagen se genera en este momento desde Google (puede tardar unos segundos). Al enviar se vuelve a calcular con datos frescos.
+                La imagen se genera ahora desde Google (puede tardar unos segundos). Al enviar se recalcula con datos frescos.
               </p>
             )}
           </div>

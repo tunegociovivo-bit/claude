@@ -25,9 +25,11 @@ const patchSchema = z
     // Fecha/hora a la que reprogramar el mensaje (ISO). Debe estar en cola.
     scheduledAt: z.string().min(1).optional(),
     // Número emisor (sesión WAHA): "" = Principal/automático. Solo si no se ha enviado.
-    channel: z.string().optional()
+    channel: z.string().optional(),
+    // Texto del mensaje (o pie de foto si es imagen). Solo mientras esté en cola.
+    message: z.string().max(4000).optional()
   })
-  .refine((d) => d.scheduledAt !== undefined || d.channel !== undefined, {
+  .refine((d) => d.scheduledAt !== undefined || d.channel !== undefined || d.message !== undefined, {
     message: "Nada que actualizar"
   });
 
@@ -58,6 +60,20 @@ export const PATCH = withApi({ scope: "*" }, async (req, { api, params }) => {
     await prisma.leadMessage.update({ where: { id }, data: { instanceName: channel || null } });
     if (parsed.data.scheduledAt === undefined) {
       return NextResponse.json({ ok: true, instanceName: channel || null });
+    }
+  }
+
+  // Editar el texto/pie del mensaje (mientras esté en cola).
+  if (parsed.data.message !== undefined) {
+    const msg = await prisma.leadMessage.findFirst({
+      where: { id, workspaceId: api.workspaceId },
+      select: { id: true, status: true }
+    });
+    if (!msg) throw new ApiError(404, "not_found", "Mensaje no encontrado");
+    if (msg.status !== "queued") throw new ApiError(409, "not_queued", "Solo se puede editar el texto de mensajes en cola");
+    await prisma.leadMessage.update({ where: { id }, data: { renderedMessage: parsed.data.message } });
+    if (parsed.data.scheduledAt === undefined) {
+      return NextResponse.json({ ok: true, renderedMessage: parsed.data.message });
     }
   }
 
