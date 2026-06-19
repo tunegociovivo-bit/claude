@@ -56,7 +56,8 @@ export async function enrollLeadInSequence(opts: {
     const out = await enqueueMessage({
       workspaceId: opts.workspaceId,
       leadId: lead.id,
-      body: step0.templateBody
+      body: step0.templateBody,
+      kind: (step0 as any).kind === "ranking" ? "ranking" : "text"
     });
     firstMessageId = out.messageId;
   } catch (e: any) {
@@ -127,7 +128,8 @@ export async function processSequencesTick(opts: {
         await enqueueMessage({
           workspaceId: opts.workspaceId,
           leadId: a.leadId,
-          body: step.templateBody
+          body: step.templateBody,
+          kind: (step as any).kind === "ranking" ? "ranking" : "text"
         });
         const delayDays = step.delayDays ?? Math.max(1, Math.round(step.delayHours / 24));
         const nextRun = new Date(Date.now() + delayDays * 24 * 60 * 60 * 1000);

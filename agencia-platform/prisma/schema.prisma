@@ -1100,6 +1100,7 @@ model LeadSequenceStep {
   delayHours      Int     @default(24)
   delayDays       Int     @default(1) // alias humano; cron mira delayHours/delayDays
   templateBody    String  @db.Text
+  kind            String  @default("text") // text | ranking (imagen de posicionamiento)
   channel         String  @default("whatsapp")
   stopIfResponded Boolean @default(true)
 

@@ -3998,7 +3998,7 @@ function ReactivateModal({
   );
 }
 
-type StepDraft = { delayDays: number; templateBody: string; stopIfResponded: boolean };
+type StepDraft = { delayDays: number; templateBody: string; stopIfResponded: boolean; kind?: "text" | "ranking" };
 
 /** Genera con IA una propuesta de pasos para la secuencia. El usuario indica
  *  keyword + tono y la IA devuelve N pasos con copy listo. */
@@ -4078,7 +4078,7 @@ function NewSequenceModal({ open, onClose, onSaved }: { open: boolean; onClose: 
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [isDefault, setIsDefault] = useState(false);
-  const [steps, setSteps] = useState<StepDraft[]>([{ delayDays: 0, templateBody: "", stopIfResponded: true }]);
+  const [steps, setSteps] = useState<StepDraft[]>([{ delayDays: 0, templateBody: "", stopIfResponded: true, kind: "text" }]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -4087,7 +4087,7 @@ function NewSequenceModal({ open, onClose, onSaved }: { open: boolean; onClose: 
     setName("");
     setDescription("");
     setIsDefault(false);
-    setSteps([{ delayDays: 0, templateBody: "", stopIfResponded: true }]);
+    setSteps([{ delayDays: 0, templateBody: "", stopIfResponded: true, kind: "text" }]);
     setError(null);
   }, [open]);
 
@@ -4095,7 +4095,7 @@ function NewSequenceModal({ open, onClose, onSaved }: { open: boolean; onClose: 
     setSteps((prev) => prev.map((st, idx) => (idx === i ? { ...st, ...patch } : st)));
   }
   function addStep() {
-    setSteps((prev) => [...prev, { delayDays: 1, templateBody: "", stopIfResponded: true }]);
+    setSteps((prev) => [...prev, { delayDays: 1, templateBody: "", stopIfResponded: true, kind: "text" }]);
   }
   function removeStep(i: number) {
     setSteps((prev) => prev.filter((_, idx) => idx !== i));
@@ -4104,7 +4104,7 @@ function NewSequenceModal({ open, onClose, onSaved }: { open: boolean; onClose: 
   async function save() {
     if (!name.trim()) { setError("Ponle un nombre a la secuencia."); return; }
     if (steps.length === 0) { setError("Añade al menos un paso."); return; }
-    if (steps.some((st) => !st.templateBody.trim())) { setError("Cada paso necesita un mensaje."); return; }
+    if (steps.some((st) => st.kind !== "ranking" && !st.templateBody.trim())) { setError("Cada paso de texto necesita un mensaje."); return; }
     setSaving(true);
     setError(null);
     try {
@@ -4120,6 +4120,7 @@ function NewSequenceModal({ open, onClose, onSaved }: { open: boolean; onClose: 
             delayDays: st.delayDays,
             delayHours: st.delayDays * 24,
             templateBody: st.templateBody,
+            kind: st.kind ?? "text",
             channel: "whatsapp",
             stopIfResponded: st.stopIfResponded
           }))
@@ -4174,7 +4175,8 @@ function NewSequenceModal({ open, onClose, onSaved }: { open: boolean; onClose: 
               generated.map((st) => ({
                 delayDays: st.delayDays,
                 templateBody: st.templateBody,
-                stopIfResponded: true
+                stopIfResponded: true,
+                kind: "text" as const
               }))
             )
           }
@@ -4201,6 +4203,15 @@ function NewSequenceModal({ open, onClose, onSaved }: { open: boolean; onClose: 
                   />
                   días {i === 0 && st.delayDays === 0 ? "(inmediato al enrolar)" : ""}
                 </label>
+                <select
+                  value={st.kind ?? "text"}
+                  onChange={(e) => updateStep(i, { kind: e.target.value as "text" | "ranking" })}
+                  className="text-xs px-1.5 py-1 rounded border bg-white"
+                  title="Tipo de paso"
+                >
+                  <option value="text">💬 Texto</option>
+                  <option value="ranking">📊 Imagen posicionamiento</option>
+                </select>
                 <label className="text-xs flex items-center gap-1 ml-auto cursor-pointer">
                   <input type="checkbox" checked={st.stopIfResponded} onChange={(e) => updateStep(i, { stopIfResponded: e.target.checked })} className="accent-brand-600" />
                   Parar si responde
@@ -4215,9 +4226,12 @@ function NewSequenceModal({ open, onClose, onSaved }: { open: boolean; onClose: 
                 value={st.templateBody}
                 onChange={(e) => updateStep(i, { templateBody: e.target.value })}
                 rows={2}
-                placeholder="Mensaje. Placeholders: {{nombre}}, {{provincia}}…"
+                placeholder={st.kind === "ranking" ? "Pie de foto (opcional). Vacío = automático según su posición en Google." : "Mensaje. Placeholders: {{nombre}}, {{provincia}}…"}
                 className="w-full px-3 py-2 rounded-lg border bg-white text-sm"
               />
+              {st.kind === "ranking" && (
+                <p className="text-[10px] text-amber-700">📊 Envía la imagen "tú vs competencia" de Google · cada envío = 1 consulta a Places (~0,03€/lead).</p>
+              )}
             </div>
           ))}
         </div>

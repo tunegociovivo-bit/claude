@@ -24,7 +24,9 @@ const createSchema = z.object({
         order: z.number().int().min(0),
         delayDays: z.number().int().min(0).default(0),
         delayHours: z.number().int().min(0).optional(),
-        templateBody: z.string().min(1),
+        // En pasos "ranking" (imagen) el cuerpo es solo el pie de foto y puede ir vacío.
+        templateBody: z.string().default(""),
+        kind: z.enum(["text", "ranking"]).default("text"),
         channel: z.string().default("whatsapp"),
         stopIfResponded: z.boolean().default(true)
       })
@@ -49,6 +51,7 @@ export const POST = withApi({ scope: "*" }, async (req, { api }) => {
           delayDays: s.delayDays,
           delayHours: s.delayHours ?? s.delayDays * 24,
           templateBody: s.templateBody,
+          kind: s.kind,
           channel: s.channel,
           stopIfResponded: s.stopIfResponded
         }))
