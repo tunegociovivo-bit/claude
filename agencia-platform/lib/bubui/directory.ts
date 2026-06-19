@@ -76,11 +76,14 @@ export type DirectoryBusiness = {
   logoUrl: string | null;
   brandColor: string | null;
   defaultDiscountPct: number;
+  latitude: number | null;
+  longitude: number | null;
 };
 
 const SELECT = {
   id: true, slug: true, name: true, category: true, city: true, province: true,
-  description: true, address: true, logoUrl: true, brandColor: true, defaultDiscountPct: true
+  description: true, address: true, logoUrl: true, brandColor: true, defaultDiscountPct: true,
+  latitude: true, longitude: true
 } as const;
 
 /**
@@ -143,10 +146,11 @@ export async function getCategoriesForLocality(citySlug: string): Promise<{
   province: string | null;
   categories: { catSlug: string; catLabel: string; count: number }[];
   total: number;
+  pins: { name: string; slug: string; lat: number; lng: number }[];
 } | null> {
   const all = await prisma.bubuiBusiness.findMany({
     where: { active: true },
-    select: { category: true, city: true, province: true }
+    select: { name: true, slug: true, category: true, city: true, province: true, latitude: true, longitude: true }
   });
   const inCity = all.filter((b) => slugify(b.city) === citySlug);
   if (inCity.length === 0) return null;
@@ -160,11 +164,15 @@ export async function getCategoriesForLocality(citySlug: string): Promise<{
   const categories = [...map.entries()]
     .map(([catSlug, v]) => ({ catSlug, ...v }))
     .sort((a, b) => b.count - a.count || a.catLabel.localeCompare(b.catLabel));
+  const pins = inCity
+    .filter((b) => b.latitude != null && b.longitude != null)
+    .map((b) => ({ name: b.name, slug: b.slug, lat: b.latitude as number, lng: b.longitude as number }));
   return {
     cityLabel: inCity[0].city,
     province: inCity[0].province,
     categories,
-    total: inCity.length
+    total: inCity.length,
+    pins
   };
 }
 

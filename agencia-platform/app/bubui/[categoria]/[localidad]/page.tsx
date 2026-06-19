@@ -14,6 +14,9 @@ import Link from "next/link";
 import type { Metadata } from "next";
 import { getListing, getLocalitiesForCategory } from "@/lib/bubui/directory";
 import { bubuiUrl } from "@/lib/bubui/url";
+import Editorial from "../../_components/Editorial";
+import DirectoryMap from "../../_components/DirectoryMap";
+import { templateListing, getStoredIntro, keyListing } from "@/lib/bubui/editorial";
 
 export const revalidate = 300;
 
@@ -41,6 +44,23 @@ export default async function DirectorioNichoLocalidad({ params }: Params) {
   const { category, cityLabel, province, businesses } = data;
   const other = await getLocalitiesForCategory(params.categoria);
   const otherLocalities = (other?.localities ?? []).filter((l) => l.citySlug !== params.localidad).slice(0, 12);
+
+  // Editorial SEO: plantilla extensa + intro IA cacheada si existe.
+  const editorial = templateListing({
+    catLabel: category.label,
+    catSingular: category.singular,
+    cityLabel,
+    province,
+    count: businesses.length,
+    names: businesses.map((b) => b.name)
+  });
+  const storedIntro = await getStoredIntro(keyListing(params.categoria, params.localidad));
+  if (storedIntro) editorial.intro = storedIntro;
+
+  // Pines del mapa (negocios con coordenadas).
+  const pins = businesses
+    .filter((b) => b.latitude != null && b.longitude != null)
+    .map((b) => ({ name: b.name, slug: b.slug, lat: b.latitude as number, lng: b.longitude as number }));
 
   // JSON-LD: lista de negocios para resultados enriquecidos.
   const jsonLd = {
@@ -83,6 +103,13 @@ export default async function DirectorioNichoLocalidad({ params }: Params) {
         </p>
       </header>
 
+      {/* Mapa de los negocios con ubicación */}
+      {pins.length > 0 && (
+        <section className="max-w-5xl mx-auto px-4 pb-8">
+          <DirectoryMap pins={pins} />
+        </section>
+      )}
+
       {/* Listado */}
       <section className="max-w-5xl mx-auto px-4 pb-10">
         <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -120,6 +147,9 @@ export default async function DirectorioNichoLocalidad({ params }: Params) {
           ))}
         </ul>
       </section>
+
+      {/* Editorial SEO (texto extenso + FAQ con schema) */}
+      <Editorial content={editorial} />
 
       {/* CTA captación de negocio (el objetivo del SEO) */}
       <section className="bg-gradient-to-br from-pink-600 to-fuchsia-600 text-white">

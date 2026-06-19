@@ -4239,3 +4239,16 @@ model BubuiBannerCampaign {
   @@index([businessId])
   @@map("BipiBannerCampaign")
 }
+
+// Contenido editorial (texto SEO largo, generado por IA) de las páginas del
+// directorio Bubui. Cacheado por `key` para no llamar a la IA en cada visita.
+//   key: "cl:<catSlug>:<citySlug>" (nicho+localidad)
+//        "c:<catSlug>"             (sector)
+//        "l:<citySlug>"            (localidad)
+// Si no existe registro, la página usa la plantilla extensa por defecto.
+model BubuiDirectoryContent {
+  key       String   @id
+  intro     String   @db.Text // párrafos separados por línea en blanco
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+}

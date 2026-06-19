@@ -9,6 +9,7 @@ import Link from "next/link";
 import type { Metadata } from "next";
 import { getDirectoryIndex, getAllLocalities } from "@/lib/bubui/directory";
 import { bubuiUrl } from "@/lib/bubui/url";
+import DirectorySearch from "../_components/DirectorySearch";
 
 // Dinámica: consulta la BD en cada petición (no en build). Evita depender de
 // la BD al compilar y refleja altas nuevas al instante.
@@ -24,11 +25,22 @@ export async function generateMetadata(): Promise<Metadata> {
 export default async function DirectorioIndex() {
   const [{ pairs, categories }, localities] = await Promise.all([getDirectoryIndex(), getAllLocalities()]);
 
+  const searchItems = [
+    ...categories.map((c) => ({ label: c.catLabel, href: `/${c.catSlug}` })),
+    ...localities.map((l) => ({ label: l.cityLabel, href: `/${l.citySlug}` })),
+    ...pairs.map((p) => ({ label: `${p.catLabel} en ${p.cityLabel}`, href: `/${p.catSlug}/${p.citySlug}` }))
+  ];
+
   return (
     <main className="min-h-screen bg-slate-50">
       <header className="max-w-5xl mx-auto px-4 pt-10 pb-6">
         <h1 className="text-3xl sm:text-4xl font-black text-slate-900">Directorio de negocios locales</h1>
         <p className="mt-2 text-slate-600 max-w-2xl">Negocios de tu zona con descuentos y ofertas en Bubui. Elige tu sector y tu localidad.</p>
+        {searchItems.length > 0 && (
+          <div className="mt-5 max-w-xl">
+            <DirectorySearch items={searchItems} />
+          </div>
+        )}
       </header>
 
       {/* Categorías */}

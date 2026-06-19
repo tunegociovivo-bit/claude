@@ -12,6 +12,9 @@ import Link from "next/link";
 import type { Metadata } from "next";
 import { categoryBySlug, getLocalitiesForCategory, getCategoriesForLocality } from "@/lib/bubui/directory";
 import { bubuiUrl } from "@/lib/bubui/url";
+import Editorial from "../_components/Editorial";
+import DirectoryMap from "../_components/DirectoryMap";
+import { templateCategory, templateLocality, getStoredIntro, keyCategory, keyLocality } from "@/lib/bubui/editorial";
 
 export const revalidate = 300;
 
@@ -43,6 +46,9 @@ export default async function SegmentoPage({ params }: Params) {
     const data = await getLocalitiesForCategory(slug);
     if (!data) notFound();
     const { category, localities } = data;
+    const editorial = templateCategory({ catLabel: category.label, catSingular: category.singular, cityCount: localities.length });
+    const storedIntro = await getStoredIntro(keyCategory(slug));
+    if (storedIntro) editorial.intro = storedIntro;
     return (
       <main className="min-h-screen bg-slate-50">
         <nav className="max-w-5xl mx-auto px-4 pt-6 text-xs text-slate-500">
@@ -64,6 +70,7 @@ export default async function SegmentoPage({ params }: Params) {
             ))}
           </div>
         </section>
+        <Editorial content={editorial} />
         <CtaAlta titulo="¿Tu negocio no está todavía?" sub="Date de alta gratis y aparece en el directorio de tu localidad." />
       </main>
     );
@@ -72,6 +79,9 @@ export default async function SegmentoPage({ params }: Params) {
   // ── Caso localidad (/benalmadena) ───────────────────────────────────────
   const loc = await getCategoriesForLocality(slug);
   if (!loc) notFound();
+  const editorialLoc = templateLocality({ cityLabel: loc.cityLabel, province: loc.province, total: loc.total, catLabels: loc.categories.map((c) => c.catLabel) });
+  const storedIntroLoc = await getStoredIntro(keyLocality(slug));
+  if (storedIntroLoc) editorialLoc.intro = storedIntroLoc;
   return (
     <main className="min-h-screen bg-slate-50">
       <nav className="max-w-5xl mx-auto px-4 pt-6 text-xs text-slate-500">
@@ -85,6 +95,11 @@ export default async function SegmentoPage({ params }: Params) {
           {loc.total === 1 ? "1 negocio" : `${loc.total} negocios`} de {loc.cityLabel} con descuentos en Bubui{loc.province ? `, ${loc.province}` : ""}. Elige un sector:
         </p>
       </header>
+      {loc.pins.length > 0 && (
+        <section className="max-w-5xl mx-auto px-4 pb-8">
+          <DirectoryMap pins={loc.pins} />
+        </section>
+      )}
       <section className="max-w-5xl mx-auto px-4 pb-12">
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {loc.categories.map((c) => (
@@ -95,6 +110,7 @@ export default async function SegmentoPage({ params }: Params) {
           ))}
         </div>
       </section>
+      <Editorial content={editorialLoc} />
       <CtaAlta titulo={`¿Tienes un negocio en ${loc.cityLabel}?`} sub={`Date de alta gratis y aparece en el directorio de ${loc.cityLabel}.`} />
     </main>
   );
