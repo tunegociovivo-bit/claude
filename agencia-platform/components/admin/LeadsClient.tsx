@@ -2292,6 +2292,7 @@ function QueueTable({ loading, items, onChanged }: { loading: boolean; items: Qu
   const [rankIds, setRankIds] = useState<string[]>([]);
   const [rankLoading, setRankLoading] = useState(false);
   const [previewRow, setPreviewRow] = useState<QueueRow | null>(null);
+  const [playingVoiceId, setPlayingVoiceId] = useState<string | null>(null);
   const [previewText, setPreviewText] = useState("");
   const [savingPreview, setSavingPreview] = useState(false);
   const [geoWarn, setGeoWarn] = useState<{ leadProvince: string | null; detectedProvince: string | null } | null>(null);
@@ -2880,9 +2881,23 @@ function QueueTable({ loading, items, onChanged }: { loading: boolean; items: Qu
                             {m.renderedMessage ? <span className="text-slate-500">· {m.renderedMessage}</span> : <span className="text-slate-400">· pie automático</span>}
                           </span>
                         ) : m.kind === "voice" ? (
-                          <span className="inline-flex items-center gap-1 text-violet-700">
-                            <span className="font-medium">Nota de voz</span>
-                            {m.renderedMessage ? <span className="text-slate-500">· {m.renderedMessage}</span> : null}
+                          <span className="inline-flex items-center gap-1.5 text-violet-700 max-w-full">
+                            <button
+                              type="button"
+                              onClick={() => setPlayingVoiceId(playingVoiceId === m.id ? null : m.id)}
+                              title="Escuchar la nota de voz"
+                              className="inline-flex items-center justify-center h-5 w-5 rounded-full bg-violet-600 text-white text-[10px] hover:bg-violet-700 shrink-0"
+                            >
+                              {playingVoiceId === m.id ? "■" : "▶"}
+                            </button>
+                            {playingVoiceId === m.id ? (
+                              <audio autoPlay controls preload="none" className="h-7 max-w-[220px]" src={`/api/v1/leads/queue/${m.id}/voice.mp3`} />
+                            ) : (
+                              <>
+                                <span className="font-medium">Nota de voz</span>
+                                {m.renderedMessage ? <span className="text-slate-500 truncate">· {m.renderedMessage}</span> : null}
+                              </>
+                            )}
                           </span>
                         ) : m.renderedMessage ? (
                           <span>{m.renderedMessage}</span>
