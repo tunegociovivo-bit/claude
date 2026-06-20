@@ -76,5 +76,14 @@ export async function runLeadsCronAllWorkspaces(): Promise<any[]> {
     report.push(wsReport);
   }
 
+  // Calentamiento por conversación entre los propios teléfonos en warm-up
+  // (opt-in, horario diurno, volumen bajo). Itera workspaces por dentro.
+  try {
+    const { runWarmupConversations } = await import("./warmup-chat");
+    await runWarmupConversations();
+  } catch (e) {
+    console.warn("[leads-cron] warmup-chat:", (e as Error).message);
+  }
+
   return report;
 }

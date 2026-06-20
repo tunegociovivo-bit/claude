@@ -69,6 +69,8 @@ export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
     warmupEnabled: s.warmupEnabled ?? true,
     warmupDays: s.warmupDays ?? 21,
     warmupStartCap: s.warmupStartCap ?? 10,
+    warmupChatEnabled: s.warmupChatEnabled ?? false,
+    principalPhone: s.principalPhone ?? null,
     autoRecoveryEnabled: s.autoRecoveryEnabled ?? true,
     dailyJitterPct: s.dailyJitterPct ?? 0.15,
     sendEnabled: s.sendEnabled ?? true,
@@ -140,6 +142,8 @@ const schema = z.object({
   warmupEnabled: z.boolean().optional(),
   warmupDays: z.number().int().min(1).max(120).optional(),
   warmupStartCap: z.number().int().min(1).max(1000).optional(),
+  warmupChatEnabled: z.boolean().optional(),
+  principalPhone: z.string().max(30).optional(),
   autoRecoveryEnabled: z.boolean().optional(),
   dailyJitterPct: z.number().min(0).max(0.5).optional(),
   rotateWebhookToken: z.boolean().optional(),
@@ -150,7 +154,11 @@ const schema = z.object({
         name: z.string().min(1).max(60),
         label: z.string().max(60).optional(),
         dailyLimit: z.number().int().min(1).max(1000).optional(),
-        active: z.boolean().optional()
+        active: z.boolean().optional(),
+        // Calentamiento por teléfono: fecha de alta del número (se autosella) y
+        // su número E.164 (para el calentamiento por conversación entre teléfonos).
+        addedAt: z.string().optional(),
+        phone: z.string().max(30).optional()
       })
     )
     .max(20)
@@ -251,11 +259,27 @@ export const PATCH = withApi({ scope: "*" }, async (req, { api }) => {
     "warmupEnabled",
     "warmupDays",
     "warmupStartCap",
+    "warmupChatEnabled",
+    "principalPhone",
     "autoRecoveryEnabled",
     "dailyJitterPct",
     "channels"
   ] as const) {
     if (parsed.data[k] !== undefined) s[k] = parsed.data[k];
+  }
+  // Calentamiento por teléfono: cada canal conserva (o estrena) su addedAt, así
+  // un número nuevo arranca su propia rampa anti-baneo aunque la cuenta sea
+  // antigua. Preservamos el addedAt existente por nombre; los nuevos se sellan.
+  if (parsed.data.channels !== undefined) {
+    const prev: any[] = Array.isArray((ws?.settings as any)?.leads?.channels)
+      ? (ws!.settings as any).leads.channels
+      : [];
+    const prevById = new Map(prev.map((c: any) => [c?.name, c]));
+    const nowIso = new Date().toISOString();
+    s.channels = parsed.data.channels.map((c) => ({
+      ...c,
+      addedAt: c.addedAt || prevById.get(c.name)?.addedAt || nowIso
+    }));
   }
   // Recovery toggle: al activar, sella la fecha de inicio. Al desactivar
   // borra recoverySince para que el siguiente toggle vuelva a empezar.

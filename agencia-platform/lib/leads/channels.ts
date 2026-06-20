@@ -23,6 +23,26 @@ export type LeadChannel = {
 
 const DEFAULT_CHANNEL_DAILY_LIMIT = 50;
 
+/**
+ * Tope diario EFECTIVO de un canal según su calentamiento POR TELÉFONO.
+ * Cada número arranca su propia rampa desde su `addedAt` (no desde la edad de
+ * la cuenta), así un número nuevo en una cuenta antigua no envía a tope desde
+ * el día 1 (la causa típica del baneo). Sin addedAt → se asume ya calentado.
+ */
+export function channelWarmupCap(channel: any, leads: any): { cap: number; warming: boolean; dayIndex: number; warmupDays: number } {
+  const configured = channel?.dailyLimit ?? DEFAULT_CHANNEL_DAILY_LIMIT;
+  const warmupDays = Number(leads?.warmupDays) || 21;
+  const startCap = Math.min(Number(leads?.warmupStartCap) || 10, configured);
+  const added = channel?.addedAt ? Date.parse(channel.addedAt) : NaN;
+  if (leads?.warmupEnabled === false || !added || Number.isNaN(added)) {
+    return { cap: configured, warming: false, dayIndex: warmupDays, warmupDays };
+  }
+  const dayIndex = Math.floor((Date.now() - added) / 86_400_000) + 1;
+  if (dayIndex >= warmupDays) return { cap: configured, warming: false, dayIndex, warmupDays };
+  const ramp = startCap + ((configured - startCap) * (dayIndex - 1)) / Math.max(1, warmupDays - 1);
+  return { cap: Math.max(startCap, Math.min(configured, Math.round(ramp))), warming: true, dayIndex, warmupDays };
+}
+
 export async function getLeadChannels(workspaceId: string): Promise<LeadChannel[]> {
   const ws = await prisma.workspace.findUnique({ where: { id: workspaceId } });
   const arr = (ws?.settings as any)?.leads?.channels;
@@ -109,7 +129,8 @@ export async function pickEnqueueChannel(workspaceId: string): Promise<string | 
   type Slot = { key: string; instanceName: string | null; dailyLimit: number };
   const slots: Slot[] = [
     { key: PRINCIPAL, instanceName: null, dailyLimit: Number(leads.dailyLimit) || 80 },
-    ...channels.map((c) => ({ key: c.name, instanceName: c.name, dailyLimit: c.dailyLimit ?? DEFAULT_CHANNEL_DAILY_LIMIT }))
+    // Cada número extra usa su tope EFECTIVO de calentamiento (rampa por teléfono).
+    ...channels.map((c) => ({ key: c.name, instanceName: c.name, dailyLimit: channelWarmupCap(c, leads).cap }))
   ];
 
   // Salud: descartamos canales en cuarentena (el principal se asume disponible).
