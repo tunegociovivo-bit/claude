@@ -175,7 +175,13 @@ export const config = {
      * Aplica a todas las rutas excepto las que ya excluimos en isPublic().
      * El matcher de Next.js sólo soporta excluir asset paths comunes; el
      * resto se filtra dentro del propio middleware.
+     *
+     * OJO: robots.txt NO se excluye aquí a propósito. En bubui.app el
+     * middleware debe interceptarlo para servir el robots de Bubui (Allow +
+     * sitemap) en lugar del robots global del hub (Disallow: /). En el hub,
+     * isPublic() lo deja pasar igual. (sitemap.xml tampoco se excluye, por eso
+     * ya funcionaba.)
      */
-    "/((?!_next/static|_next/image|favicon.ico|icon-|sw.js|manifest.json|robots.txt).*)"
+    "/((?!_next/static|_next/image|favicon.ico|icon-|sw.js|manifest.json).*)"
   ]
 };
