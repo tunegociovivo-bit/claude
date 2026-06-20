@@ -3005,6 +3005,14 @@ function QueueTable({ loading, items, onChanged }: { loading: boolean; items: Qu
                     style={{ maxHeight: 380, objectFit: "contain", background: "#fff" }}
                   />
                 )}
+                {previewRow.kind === "voice" && (
+                  <div className="px-3 pt-2">
+                    <audio controls preload="none" className="w-full" src={`/api/v1/leads/queue/${previewRow.id}/voice.mp3`}>
+                      Tu navegador no soporta audio.
+                    </audio>
+                    <p className="text-[10px] text-slate-500 mt-1">🎙️ Nota de voz IA (se genera al pulsar play; usa tu voz de ElevenLabs).</p>
+                  </div>
+                )}
                 <div className="px-3 py-2 text-sm text-slate-800 whitespace-pre-wrap min-h-[1.5rem]">
                   {previewText
                     ? previewText
