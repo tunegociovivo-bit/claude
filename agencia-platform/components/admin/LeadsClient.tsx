@@ -5576,6 +5576,9 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
       warmupStartCap: s.warmupStartCap,
       warmupChatEnabled: s.warmupChatEnabled,
       principalPhone: s.principalPhone,
+      voiceSpeed: s.voiceSpeed,
+      voiceShorten: s.voiceShorten,
+      voiceMaxSeconds: s.voiceMaxSeconds,
       autoRecoveryEnabled: s.autoRecoveryEnabled,
       dailyJitterPct: s.dailyJitterPct,
       channels: Array.isArray(s.channels) ? s.channels : []
@@ -5847,6 +5850,31 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
               <p className="mt-1 text-[11px] text-slate-500">
                 Activa el envío de <strong>notas de voz IA</strong>. Clona tu voz en ElevenLabs (Voice Lab) y pega aquí su Voice ID. Se cifra la key.
               </p>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">Velocidad de habla ({(s.voiceSpeed ?? 1).toFixed(2)}×)</label>
+                <input
+                  type="range" min={0.8} max={1.2} step={0.05}
+                  value={s.voiceSpeed ?? 1}
+                  onChange={(e) => setField("voiceSpeed", Number(e.target.value))}
+                  className="w-full accent-violet-600"
+                />
+                <p className="text-[10px] text-slate-400">1.0 = normal · sube a ~1.10 para que hable más rápido.</p>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">Duración objetivo (seg)</label>
+                <input
+                  type="number" min={8} max={60}
+                  value={s.voiceMaxSeconds ?? 18}
+                  onChange={(e) => setField("voiceMaxSeconds", Number(e.target.value) || 18)}
+                  className="w-full px-2 py-1 rounded border bg-white text-sm"
+                />
+                <label className="flex items-center gap-1.5 text-[11px] text-slate-600 mt-1 cursor-pointer">
+                  <input type="checkbox" checked={s.voiceShorten ?? true} onChange={(e) => setField("voiceShorten", e.target.checked)} className="accent-violet-600" />
+                  Acortar el guion con IA (ir al grano)
+                </label>
+              </div>
             </div>
             <div className="flex items-center gap-2">
               <button
