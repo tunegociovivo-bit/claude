@@ -164,7 +164,9 @@ const schema = z.object({
         // Calentamiento por teléfono: fecha de alta del número (se autosella) y
         // su número E.164 (para el calentamiento por conversación entre teléfonos).
         addedAt: z.string().nullable().optional(),
-        phone: z.string().max(30).nullable().optional()
+        phone: z.string().max(30).nullable().optional(),
+        // Reinicio de la rampa de calentamiento (teléfono nuevo o recuperado).
+        warmupSince: z.string().nullable().optional()
       })
     )
     .max(20)

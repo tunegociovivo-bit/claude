@@ -10,7 +10,7 @@ import { renderTemplate } from "./template-engine";
 import { aiRewriteMessage } from "./ai-vary";
 import { normalizePhone, sendText, sendImage, sendVoice, getWahaConfig, getSession, checkNumberExists } from "./waha";
 import { generateVoiceMp3 } from "./voice-tts";
-import { pickEnqueueChannel, reassignIfQuarantined, getLeadChannels } from "./channels";
+import { pickEnqueueChannel, reassignIfQuarantined, getLeadChannels, warmupReroute } from "./channels";
 import { getCompetitorRanking, rankingAutoCaption } from "./competitors";
 import { renderRankingPng } from "./ranking-card";
 
@@ -896,6 +896,28 @@ export async function sendMessageById(
     }
   } catch {
     // La salud es best-effort: si falla, se envía por el canal original.
+  }
+
+  // Tope de CALENTAMIENTO al enviar: si el teléfono asignado ya agotó su cupo
+  // diario (número nuevo o recién recuperado de un baneo), el mensaje sale por
+  // otro número con hueco; si ninguno tiene, se aplaza a mañana. Así un número
+  // frágil envía POCO aunque la cola le hubiera asignado muchos.
+  try {
+    const rr = await warmupReroute(workspaceId, msg.instanceName);
+    if (rr && "defer" in rr) {
+      const next = new Date();
+      next.setDate(next.getDate() + 1);
+      next.setHours(9, 0, 0, 0);
+      await prisma.leadMessage.update({ where: { id: msg.id }, data: { status: "queued", scheduledAt: next } });
+      return { processed: false, error: "warmup_cap_deferred" };
+    }
+    if (rr && "reassignTo" in rr) {
+      console.warn(`[send-queue] canal "${msg.instanceName}" en warm-up al tope; mensaje ${msg.id} → "${rr.reassignTo ?? "Principal"}"`);
+      msg.instanceName = rr.reassignTo;
+      await prisma.leadMessage.update({ where: { id: msg.id }, data: { instanceName: rr.reassignTo } });
+    }
+  } catch {
+    // best-effort: si falla, se envía por el canal original.
   }
 
   try {

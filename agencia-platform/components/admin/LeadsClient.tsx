@@ -6031,6 +6031,14 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
                       {chanBadge(c.name)}
                       <button
                         type="button"
+                        title="Reiniciar calentamiento: trata este número como nuevo/frágil (recién recuperado de un baneo) y limita sus envíos en rampa unos días."
+                        onClick={() => updateChannel(i, { warmupSince: new Date().toISOString() })}
+                        className={`shrink-0 text-[10px] px-1.5 py-1 rounded border ${c.warmupSince ? "border-amber-300 bg-amber-50 text-amber-700" : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50"}`}
+                      >
+                        {c.warmupSince ? "🔥 calentando" : "🔥 reiniciar"}
+                      </button>
+                      <button
+                        type="button"
                         onClick={async () => {
                           if (!c.name?.trim()) return;
                           // Si se está cerrando el QR, no hace falta guardar.
