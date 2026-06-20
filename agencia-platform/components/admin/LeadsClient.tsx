@@ -2407,7 +2407,7 @@ function QueueTable({ loading, items, onChanged }: { loading: boolean; items: Qu
   }
 
   async function refreshRendered() {
-    if (!confirm("¿Re-renderizar el texto de los mensajes EN COLA que vienen de plantilla? Recogerán las correcciones del motor (p. ej. posición/competidor del ranking). Los de secuencias no se tocan.")) return;
+    if (!confirm("¿Re-renderizar el texto de los mensajes EN COLA? Recogerán las correcciones del motor (p. ej. posición/competidor del ranking). Cubre plantillas y secuencias.")) return;
     setProcessing(true);
     setTickResult(null);
     try {
@@ -2418,7 +2418,7 @@ function QueueTable({ loading, items, onChanged }: { loading: boolean; items: Qu
       });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) setTickResult({ kind: "error", text: d?.error?.message ?? `Error HTTP ${r.status}` });
-      else setTickResult({ kind: "ok", text: `✓ ${d.refreshed} textos actualizados. Sin plantilla (no tocados): ${d.skippedSinPlantilla}.` });
+      else setTickResult({ kind: "ok", text: `✓ ${d.refreshed} textos actualizados${d.sinFuente ? ` · ${d.sinFuente} sin fuente (revisar a mano)` : ""}.` });
     } catch (e: any) {
       setTickResult({ kind: "error", text: e?.message ?? "Error de red" });
     } finally {
@@ -2949,7 +2949,7 @@ function QueueTable({ loading, items, onChanged }: { loading: boolean; items: Qu
               <div className="ml-auto max-w-[85%] rounded-lg bg-[#dcf8c6] shadow-sm overflow-hidden">
                 {previewRow.kind === "ranking" && (
                   <img
-                    src={`/api/v1/leads/${previewRow.leadId}/ranking`}
+                    src={`/api/v1/leads/queue/${previewRow.id}/ranking.png`}
                     alt="Imagen de posicionamiento"
                     className="w-full block"
                     style={{ maxHeight: 380, objectFit: "contain", background: "#fff" }}

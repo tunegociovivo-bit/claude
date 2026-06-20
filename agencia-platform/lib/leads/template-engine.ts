@@ -73,6 +73,9 @@ export async function renderTemplate(opts: {
   workspaceId: string;
   body: string;
   leadId: string;
+  /** Snapshot del ranking a usar (para que texto e imagen cuadren). Si se pasa
+   *  (aunque sea null), NO se consulta el ranking en vivo. */
+  ranking?: CompetitorRanking | null;
 }): Promise<string> {
   const lead = await prisma.lead.findFirst({
     where: { id: opts.leadId, workspaceId: opts.workspaceId },
@@ -144,9 +147,11 @@ export async function renderTemplate(opts: {
   // usa la tarjeta (getCompetitorRanking), no del scrape por palabra clave (que
   // da otra posición y contradecía la imagen). Solo si la plantilla los usa.
   if (/\{\{\s*(posicion|competidor_top|competidores_por_delante)\s*\}\}/.test(opts.body)) {
-    const live = await getLiveRanking(opts.workspaceId, lead);
+    // Si nos dan un snapshot lo usamos (consistencia texto↔imagen); si no, en vivo.
+    const live = opts.ranking !== undefined ? opts.ranking : await getLiveRanking(opts.workspaceId, lead);
     if (live) {
-      vars.posicion = live.leadPosition != null ? String(live.leadPosition) : `${live.total}+`;
+      // Fuera del top → "20+" (igual que el badge de la imagen), no el total.
+      vars.posicion = live.leadPosition != null ? String(live.leadPosition) : "20+";
       vars.competidores_por_delante = String(live.aboveCount);
       const topComp = live.rows.find((r: any) => !r.isLead)?.name;
       if (topComp) {

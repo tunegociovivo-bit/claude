@@ -1024,6 +1024,10 @@ model LeadMessage {
   templateId        String?
   kind              String    @default("text") // text | ranking (imagen de posicionamiento)
   renderedMessage   String    @db.Text
+  // Snapshot del ranking (getCompetitorRanking) calculado al encolar, para que
+  // el TEXTO, la IMAGEN y la PREVIEW usen los MISMOS datos (el ranking en vivo
+  // varía entre llamadas y descuadraba texto vs imagen).
+  rankingSnapshot   Json?
   channel           String    @default("whatsapp")
   instanceName      String? // sesión WAHA (default si null)
   phoneNormalized   String // E.164 sin +
