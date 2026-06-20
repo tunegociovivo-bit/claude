@@ -155,6 +155,35 @@ export function templateLocality(input: { cityLabel: string; province: string | 
   };
 }
 
+/** Plantilla: ranking "los mejores {sector} de {localidad}". */
+export function templateRanking(input: {
+  catLabel: string;
+  catSingular: string;
+  cityLabel: string;
+  count: number;
+  year: number;
+}): EditorialContent {
+  const { catLabel, catSingular, cityLabel, count, year } = input;
+  const lc = catLabel.toLowerCase();
+  return {
+    intro: [
+      `¿Cuáles son las mejores ${lc} de ${cityLabel}? Hemos analizado ${count} ${lc} de ${cityLabel} dentro de Bubui y las hemos ordenado por su Puntuación Bubui para ayudarte a elegir con confianza. Ranking actualizado en ${year}.`,
+      `A diferencia de una lista cualquiera, aquí el orden no se compra: se calcula con datos. Así puedes comparar las mejores ${lc} de ${cityLabel} de un vistazo y, además, llevarte descuentos al elegir una.`
+    ],
+    sections: [
+      {
+        h: `Cómo elaboramos el ranking de ${lc} en ${cityLabel}`,
+        p: `La Puntuación Bubui (0-100) de cada ${catSingular} combina la valoración de sus reseñas verificadas —con una media bayesiana, para que un negocio con pocas reseñas no adelante injustamente a otro con muchas— y su nivel de actividad y visibilidad en la comunidad Bubui de ${cityLabel}. El ranking se recalcula automáticamente: mejorar tus reseñas y tu actividad te hace subir.`
+      }
+    ],
+    faq: [
+      { q: `¿Cuál es la mejor ${catSingular} de ${cityLabel}?`, a: `Según la Puntuación Bubui, la mejor ${catSingular} de ${cityLabel} es la que encabeza este ranking. Es una valoración orientativa basada en reseñas y actividad; revisa también la ficha de cada negocio.` },
+      { q: `¿Cómo se calcula el ranking?`, a: `Con una Puntuación Bubui de 0 a 100 que pondera las reseñas verificadas (media bayesiana) y la actividad/visibilidad del negocio en ${cityLabel}. La posición no se puede comprar.` },
+      { q: `Tengo ${/a$/.test(catSingular) ? "una" : "un"} ${catSingular} en ${cityLabel}, ¿cómo subo en el ranking?`, a: `Date de alta gratis en Bubui, mantén tu ficha al día y consigue reseñas de tus clientes: cuantas más y mejores, más sube tu Puntuación Bubui y tu posición.` }
+    ]
+  };
+}
+
 /** JSON-LD FAQPage a partir de las preguntas/respuestas (rich results). */
 export function faqJsonLd(faq: { q: string; a: string }[]) {
   return {
