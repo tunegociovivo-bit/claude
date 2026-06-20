@@ -143,7 +143,7 @@ const schema = z.object({
   warmupDays: z.number().int().min(1).max(120).optional(),
   warmupStartCap: z.number().int().min(1).max(1000).optional(),
   warmupChatEnabled: z.boolean().optional(),
-  principalPhone: z.string().max(30).optional(),
+  principalPhone: z.string().max(30).nullable().optional(),
   autoRecoveryEnabled: z.boolean().optional(),
   dailyJitterPct: z.number().min(0).max(0.5).optional(),
   rotateWebhookToken: z.boolean().optional(),
@@ -157,8 +157,8 @@ const schema = z.object({
         active: z.boolean().optional(),
         // Calentamiento por teléfono: fecha de alta del número (se autosella) y
         // su número E.164 (para el calentamiento por conversación entre teléfonos).
-        addedAt: z.string().optional(),
-        phone: z.string().max(30).optional()
+        addedAt: z.string().nullable().optional(),
+        phone: z.string().max(30).nullable().optional()
       })
     )
     .max(20)
