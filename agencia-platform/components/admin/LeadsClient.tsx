@@ -2288,6 +2288,21 @@ function QueueTable({ loading, items, onChanged }: { loading: boolean; items: Qu
   const [previewText, setPreviewText] = useState("");
   const [savingPreview, setSavingPreview] = useState(false);
   const [geoWarn, setGeoWarn] = useState<{ leadProvince: string | null; detectedProvince: string | null } | null>(null);
+  const [fixingGeo, setFixingGeo] = useState(false);
+  async function fixGeo() {
+    if (!previewRow) return;
+    setFixingGeo(true);
+    try {
+      const r = await fetch(`/api/v1/leads/${previewRow.leadId}/fix-geo`, { method: "POST" });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) { alert(d?.error?.message ?? "No se pudo corregir la ubicación."); return; }
+      setGeoWarn(null);
+      onChanged(); // recarga la cola con el texto/imagen ya corregidos
+      setPreviewRow(null); // ciérralo; al reabrir verás la versión corregida
+    } finally {
+      setFixingGeo(false);
+    }
+  }
   useEffect(() => { setPreviewText(previewRow?.renderedMessage ?? ""); }, [previewRow]);
   // Aviso de geo incoherente (coords del lead en otra provincia → ranking malo).
   useEffect(() => {
@@ -2961,6 +2976,15 @@ function QueueTable({ loading, items, onChanged }: { loading: boolean; items: Qu
                 ⚠️ Las coordenadas de este lead parecen estar en <strong>{geoWarn.detectedProvince || "otra provincia"}</strong>
                 {geoWarn.leadProvince ? <> y no en <strong>{geoWarn.leadProvince}</strong></> : null}. El ranking por
                 cercanía (y la imagen) puede salir incorrecto — revisa/recaptura la ubicación de este lead antes de enviar.
+                <div className="mt-2">
+                  <button
+                    onClick={fixGeo}
+                    disabled={fixingGeo}
+                    className="inline-flex items-center gap-1.5 rounded-md border border-amber-400 bg-white px-2.5 py-1 text-amber-800 font-medium hover:bg-amber-100 disabled:opacity-50"
+                  >
+                    {fixingGeo ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "📍"} Corregir ubicación (re-geocodificar)
+                  </button>
+                </div>
               </div>
             )}
             {/* Simulación de burbuja de WhatsApp (refleja en vivo lo que escribes) */}
