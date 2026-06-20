@@ -5,6 +5,22 @@
  */
 import { prisma } from "@/lib/db/prisma";
 
+// LIMITACIÓN — foco regional: solo se guardan convocatorias estatales o de la
+// zona de trabajo (Andalucía y sus provincias) para que el catálogo sea
+// relevante y manejable. Las de otras CCAA se descartan en la ingesta.
+const FOCUS_REGIONS = [
+  "espana", "estatal", "nacional", "general",
+  "andalucia", "malaga", "sevilla", "cordoba", "granada", "cadiz", "jaen", "almeria", "huelva"
+];
+function nrm(s: string | null | undefined): string {
+  return (s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+}
+function inFocus(regiones: string | null): boolean {
+  const r = nrm(regiones);
+  if (!r) return true; // sin región indicada → suele ser estatal: se mantiene
+  return FOCUS_REGIONS.some((f) => r.includes(f));
+}
+
 const BASES = [
   "https://www.infosubvenciones.es/bdnstrans/api",
   "https://www.pap.hacienda.gob.es/bdnstrans/api"
@@ -121,10 +137,12 @@ export async function fetchOpenConvocatorias(opts?: { daysBack?: number; maxPage
 }
 
 /** Ingiere/actualiza el catálogo de convocatorias abiertas. */
-export async function ingestConvocatorias(opts?: { daysBack?: number; maxPages?: number }): Promise<{ fetched: number; upserted: number }> {
+export async function ingestConvocatorias(opts?: { daysBack?: number; maxPages?: number }): Promise<{ fetched: number; upserted: number; fueraDeFoco: number }> {
   const list = await fetchOpenConvocatorias(opts);
   let upserted = 0;
+  let fueraDeFoco = 0;
   for (const c of list) {
+    if (!inFocus(c.regiones)) { fueraDeFoco++; continue; } // LIMITACIÓN: foco regional
     try {
       await prisma.subvencionConvocatoria.upsert({
         where: { id: c.id },
@@ -151,5 +169,5 @@ export async function ingestConvocatorias(opts?: { daysBack?: number; maxPages?:
     where: { abierta: true, fechaFin: { lt: new Date() } },
     data: { abierta: false }
   });
-  return { fetched: list.length, upserted };
+  return { fetched: list.length, upserted, fueraDeFoco };
 }

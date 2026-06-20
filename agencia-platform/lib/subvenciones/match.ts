@@ -48,7 +48,16 @@ export type ClientMatch = {
   urlBases: string | null;
 };
 
-export async function matchForClient(workspaceId: string, clientId: string, userId?: string | null): Promise<ClientMatch[]> {
+// LIMITACIÓN — caché del cruce por cliente: no re-llama a la IA en cada clic.
+const matchCache = new Map<string, { at: number; data: ClientMatch[] }>();
+const MATCH_TTL = 12 * 60 * 60 * 1000;
+
+export async function matchForClient(workspaceId: string, clientId: string, opts?: { force?: boolean }): Promise<ClientMatch[]> {
+  const cacheKey = `${workspaceId}:${clientId}`;
+  if (!opts?.force) {
+    const hit = matchCache.get(cacheKey);
+    if (hit && Date.now() - hit.at < MATCH_TTL) return hit.data;
+  }
   const client = await prisma.client.findFirst({
     where: { id: clientId, workspaceId },
     select: { id: true, name: true, industry: true, infoGeneral: true, city: true, province: true, taxId: true, kitDigital: true }
@@ -93,7 +102,6 @@ export async function matchForClient(workspaceId: string, clientId: string, user
     .join("\n");
 
   try {
-    void userId;
     const out = await completeJson<{ matches: { id: string; fitScore: number; motivo: string; requisitos: string }[] }>({
       workspaceId,
       model: "claude-haiku-4-5-20251001",
@@ -107,7 +115,7 @@ Usa EXACTAMENTE los id que te paso. Ordena por fitScore desc. Máximo 10. Si nin
       maxTokens: 1500
     });
     const byId = new Map(candidates.map((c) => [c.id, c]));
-    return (out.matches ?? [])
+    const result: ClientMatch[] = (out.matches ?? [])
       .filter((m) => byId.has(m.id) && m.fitScore >= 40)
       .sort((a, b) => b.fitScore - a.fitScore)
       .map((m) => {
@@ -117,6 +125,8 @@ Usa EXACTAMENTE los id que te paso. Ordena por fitScore desc. Máximo 10. Si nin
           titulo: c.titulo, organo: c.organo, importeTotal: c.importeTotal, fechaFin: c.fechaFin, urlBases: c.urlBases
         };
       });
+    matchCache.set(cacheKey, { at: Date.now(), data: result });
+    return result;
   } catch (e) {
     if (e instanceof AIDisabledError) throw new Error("La IA (Anthropic) no está configurada en el workspace.");
     throw e;

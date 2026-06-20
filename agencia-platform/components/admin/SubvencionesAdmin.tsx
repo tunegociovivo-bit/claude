@@ -41,20 +41,22 @@ export default function SubvencionesAdmin() {
     try {
       const r = await fetch("/api/v1/admin/subvenciones/ingest", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
       const j = await r.json().catch(() => ({}));
-      setMsg(r.ok ? `✅ ${j.upserted} convocatorias actualizadas (${j.fetched} abiertas encontradas).` : `❌ ${j?.error?.message ?? "Error"}`);
+      if (!r.ok) setMsg(`❌ ${j?.error?.message ?? "Error"}`);
+      else if (j.skipped) setMsg(`⏳ ${j.message}`);
+      else setMsg(`✅ ${j.upserted} convocatorias actualizadas${typeof j.fueraDeFoco === "number" ? ` · ${j.fueraDeFoco} descartadas por foco regional` : ""}.`);
       await load();
     } finally {
       setIngesting(false);
     }
   }
 
-  async function buscar() {
+  async function buscar(force = false) {
     if (!clientId) return;
     setMatching(true);
     setMatches(null);
     setMsg(null);
     try {
-      const r = await fetch(`/api/v1/admin/subvenciones/match?clientId=${encodeURIComponent(clientId)}`);
+      const r = await fetch(`/api/v1/admin/subvenciones/match?clientId=${encodeURIComponent(clientId)}${force ? "&refresh=1" : ""}`);
       const j = await r.json().catch(() => ({}));
       if (!r.ok) setMsg(`❌ ${j?.error?.message ?? "Error"}`);
       else setMatches(j.matches ?? []);
@@ -99,11 +101,12 @@ export default function SubvencionesAdmin() {
                 <option value="">— Elige un cliente —</option>
                 {s.clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
-              <button onClick={buscar} disabled={!clientId || matching} className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-sm px-4 py-2">
+              <button onClick={() => buscar(false)} disabled={!clientId || matching} className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-sm px-4 py-2">
                 {matching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
                 Buscar subvenciones
               </button>
             </div>
+            <p className="mt-1 text-[11px] text-slate-400">El resultado se cachea 12 h para no repetir el análisis IA. {matches && !matching && <button onClick={() => buscar(true)} className="text-brand-600 hover:underline">↻ volver a analizar</button>}</p>
             {msg && <p className="mt-2 text-sm text-slate-700">{msg}</p>}
 
             {matches && (

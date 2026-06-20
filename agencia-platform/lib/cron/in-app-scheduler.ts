@@ -55,6 +55,14 @@ export function startInAppScheduler(): void {
         if (geo.updated > 0) console.log(`[in-app-cron] bubui geo: ${geo.updated} geocodificados, ${geo.remaining} pendientes`);
         const rat = await maint.runBubuiGoogleRatingRefresh(30);
         if (rat.updated > 0) console.log(`[in-app-cron] bubui google rating: ${rat.updated} actualizadas, ${rat.remaining} pendientes`);
+        // Subvenciones: ingesta nocturna del catálogo de convocatorias (BDNS).
+        try {
+          const { ingestConvocatorias } = await import("@/lib/subvenciones/bdns");
+          const r = await ingestConvocatorias();
+          console.log(`[in-app-cron] subvenciones: ${r.upserted} convocatorias (${r.fueraDeFoco} fuera de foco)`);
+        } catch (e) {
+          console.warn("[in-app-cron] subvenciones:", (e as Error).message);
+        }
       }
     } catch (e) {
       console.warn("[in-app-cron] bubui geo:", (e as Error).message);
