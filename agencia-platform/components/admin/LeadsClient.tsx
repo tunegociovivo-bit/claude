@@ -5472,6 +5472,8 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
       warmupEnabled: s.warmupEnabled,
       warmupDays: s.warmupDays,
       warmupStartCap: s.warmupStartCap,
+      warmupChatEnabled: s.warmupChatEnabled,
+      principalPhone: s.principalPhone,
       autoRecoveryEnabled: s.autoRecoveryEnabled,
       dailyJitterPct: s.dailyJitterPct,
       channels: Array.isArray(s.channels) ? s.channels : []
@@ -5889,6 +5891,13 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
                         title="Tope diario de este número"
                         className="w-16 px-2 py-1 rounded border bg-white text-xs"
                       />
+                      <input
+                        value={c.phone ?? ""}
+                        onChange={(e) => updateChannel(i, { phone: e.target.value })}
+                        placeholder="+34600…"
+                        title="Número de WhatsApp de este teléfono (para el calentamiento por conversación)"
+                        className="w-28 min-w-0 px-2 py-1 rounded border bg-white text-xs font-mono"
+                      />
                       {chanBadge(c.name)}
                       <button
                         type="button"
@@ -6190,7 +6199,8 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
                 <strong className="block text-sm">🔥 Calentamiento de número nuevo (warmup)</strong>
                 <p className="mt-1">
                   El tope diario sube en rampa durante los primeros días en vez de empezar al máximo
-                  (clave para no quemar un número nuevo). La edad del número se calcula desde el primer envío.
+                  (clave para no quemar un número nuevo). <strong>Por teléfono</strong>: cada número calienta
+                  desde su propia fecha de alta, así uno nuevo no envía a tope aunque la cuenta sea antigua.
                 </p>
               </div>
             </label>
@@ -6202,6 +6212,37 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
                 <label>Tope del primer día
                   <input type="number" value={s.warmupStartCap ?? 10} onChange={(e) => setField("warmupStartCap", Number(e.target.value))} className="w-full px-2 py-1 rounded border" />
                 </label>
+              </div>
+            )}
+            <label className="flex items-start gap-2 cursor-pointer pt-1 border-t border-emerald-200">
+              <input
+                type="checkbox"
+                checked={s.warmupChatEnabled ?? false}
+                onChange={(e) => setField("warmupChatEnabled", e.target.checked)}
+                className="mt-0.5 accent-emerald-600"
+              />
+              <div className="flex-1 text-xs text-emerald-900">
+                <strong className="block text-sm">💬 Calentamiento por conversación entre tus teléfonos</strong>
+                <p className="mt-1">
+                  Los números en warm-up se mandan mensajes cortos y normales <strong>entre tus propios
+                  teléfonos</strong> (horario diurno, poco volumen), para ganar reputación antes de escribir
+                  a desconocidos. Requiere poner el número de cada teléfono.
+                </p>
+              </div>
+            </label>
+            {(s.warmupChatEnabled ?? false) && (
+              <div className="text-xs pl-6">
+                <label>Número del teléfono principal (WhatsApp, formato +34…)
+                  <input
+                    value={s.principalPhone ?? ""}
+                    onChange={(e) => setField("principalPhone", e.target.value)}
+                    placeholder="+34600112233"
+                    className="w-full px-2 py-1 rounded border font-mono"
+                  />
+                </label>
+                <p className="mt-1 text-emerald-700">
+                  Pon también el número (+34…) de cada teléfono extra arriba, en la columna de la derecha de cada canal. Hacen falta al menos 2 números para que “conversen”.
+                </p>
               </div>
             )}
             <label className="flex items-start gap-2 cursor-pointer pt-1 border-t border-emerald-200">
