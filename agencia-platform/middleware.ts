@@ -95,13 +95,16 @@ export async function middleware(req: NextRequest) {
       u.pathname = pathname === "/robots.txt" ? "/bubui/robots.txt" : "/bubui/sitemap.xml";
       return NextResponse.rewrite(u);
     }
-    // Assets de Next.js, service worker y manifest: sin reescritura.
+    // Assets de Next.js, service worker, manifest y ficheros de verificación
+    // de Google Search Console (public/googleXXXX.html): sin reescritura, para
+    // que se sirvan tal cual desde /public en bubui.app.
     if (
       pathname.startsWith("/_next") ||
       pathname.startsWith("/api/") ||
       pathname.startsWith("/.well-known") ||
       pathname === "/bubui-sw.js" ||
-      pathname === "/manifest.webmanifest"
+      pathname === "/manifest.webmanifest" ||
+      /^\/google[0-9a-f]+\.html$/.test(pathname)
     ) {
       return NextResponse.next();
     }
