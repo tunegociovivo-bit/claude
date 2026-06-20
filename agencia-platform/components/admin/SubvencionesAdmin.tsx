@@ -37,6 +37,38 @@ export default function SubvencionesAdmin() {
   const [msg, setMsg] = useState<string | null>(null);
   const [webhook, setWebhook] = useState("");
   const [savingHook, setSavingHook] = useState(false);
+  const [scanRows, setScanRows] = useState<{ clientId: string; clientName: string; count: number; topTitulo: string | null; topScore: number | null; topFechaFin: string | null }[] | null>(null);
+  const [scanning, setScanning] = useState(false);
+  const [borrador, setBorrador] = useState<{ titulo: string; text: string } | null>(null);
+  const [borradorLoading, setBorradorLoading] = useState<string | null>(null);
+
+  async function scanAll() {
+    setScanning(true);
+    setScanRows(null);
+    try {
+      const r = await fetch("/api/v1/admin/subvenciones/match-all?limit=40");
+      const j = await r.json().catch(() => ({}));
+      if (r.ok) setScanRows(j.rows ?? []);
+    } finally {
+      setScanning(false);
+    }
+  }
+  async function verBorrador(convocatoriaId: string, titulo: string) {
+    if (!clientId) return;
+    setBorradorLoading(convocatoriaId);
+    try {
+      const r = await fetch("/api/v1/admin/subvenciones/borrador", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ clientId, convocatoriaId })
+      });
+      const j = await r.json().catch(() => ({}));
+      if (r.ok) setBorrador({ titulo, text: j.borrador ?? "" });
+      else setMsg(`❌ ${j?.error?.message ?? "No se pudo generar el borrador"}`);
+    } finally {
+      setBorradorLoading(null);
+    }
+  }
 
   async function saveWebhook() {
     setSavingHook(true);
@@ -164,6 +196,9 @@ export default function SubvencionesAdmin() {
                           {ESTADOS.map((o) => <option key={o.v} value={o.v}>{o.t}</option>)}
                         </select>
                         {m.urlBases && <a href={m.urlBases} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs text-brand-600 hover:underline"><ExternalLink className="h-3 w-3" /> Bases / sede</a>}
+                        <button onClick={() => verBorrador(m.id, m.titulo)} disabled={borradorLoading === m.id} className="inline-flex items-center gap-1 text-xs rounded border border-brand-300 bg-brand-50 text-brand-700 px-2 py-0.5 hover:bg-brand-100 disabled:opacity-50">
+                          {borradorLoading === m.id ? <Loader2 className="h-3 w-3 animate-spin" /> : "📝"} Borrador IA
+                        </button>
                       </div>
                     </li>
                   ))}
@@ -180,6 +215,37 @@ export default function SubvencionesAdmin() {
               <input value={webhook} onChange={(e) => setWebhook(e.target.value)} placeholder="https://hook.eu2.make.com/…" className="flex-1 min-w-[240px] px-3 py-2 rounded-lg border bg-white text-sm font-mono" />
               <button onClick={saveWebhook} disabled={savingHook} className="rounded-lg border bg-white hover:bg-slate-50 text-sm px-3 py-2 disabled:opacity-50">{savingHook ? "Guardando…" : "Guardar webhook"}</button>
             </div>
+          </div>
+
+          {/* Escaneo masivo de clientes */}
+          <div className="mt-4 rounded-xl border border-slate-200 bg-white p-4">
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="text-sm font-semibold text-slate-800">Oportunidades por cliente</h2>
+              <button onClick={scanAll} disabled={scanning} className="inline-flex items-center gap-1.5 rounded-lg border bg-white hover:bg-slate-50 text-sm px-3 py-1.5 disabled:opacity-50">
+                {scanning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+                Escanear todos los clientes
+              </button>
+            </div>
+            {scanRows && (
+              scanRows.length === 0 ? (
+                <p className="mt-2 text-sm text-slate-500">Sin clientes activos.</p>
+              ) : (
+                <div className="mt-3 space-y-1">
+                  {scanRows.map((r) => (
+                    <button key={r.clientId} onClick={() => { setClientId(r.clientId); setTimeout(() => buscar(false), 0); }} className="w-full flex items-center justify-between gap-2 rounded-lg border bg-white hover:bg-emerald-50 px-3 py-2 text-left">
+                      <span className="min-w-0">
+                        <span className="text-sm font-medium text-slate-800">{r.clientName}</span>
+                        {r.topTitulo && <span className="block text-[11px] text-slate-500 truncate">Mejor: {r.topTitulo}</span>}
+                      </span>
+                      <span className="shrink-0 text-xs">
+                        {r.count > 0 ? <span className="font-bold text-emerald-700">{r.count} oportunidad{r.count === 1 ? "" : "es"}</span> : <span className="text-slate-400">—</span>}
+                        {r.topScore != null && <span className="ml-2 text-slate-400">({r.topScore})</span>}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )
+            )}
           </div>
 
           {/* Catálogo */}
@@ -202,6 +268,21 @@ export default function SubvencionesAdmin() {
             )}
           </div>
         </>
+      )}
+
+      {borrador && (
+        <div className="fixed inset-0 z-50 bg-black/50 grid place-items-center p-4" onClick={() => setBorrador(null)}>
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-start justify-between gap-3 p-4 border-b">
+              <h3 className="font-bold text-slate-900 text-sm">📝 Borrador de solicitud — {borrador.titulo}</h3>
+              <button onClick={() => setBorrador(null)} className="text-slate-400 hover:text-slate-700 text-xl leading-none">×</button>
+            </div>
+            <textarea readOnly value={borrador.text} className="flex-1 overflow-auto m-4 p-3 rounded-lg border bg-slate-50 text-sm font-mono leading-relaxed" rows={18} />
+            <div className="flex justify-end gap-2 p-4 pt-0">
+              <button onClick={() => { void navigator.clipboard?.writeText(borrador.text); }} className="rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm px-3 py-2">Copiar</button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
