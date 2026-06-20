@@ -2406,6 +2406,27 @@ function QueueTable({ loading, items, onChanged }: { loading: boolean; items: Qu
     setSelected(allSelected ? new Set() : new Set(deletable.map((m) => m.id)));
   }
 
+  async function refreshRendered() {
+    if (!confirm("¿Re-renderizar el texto de los mensajes EN COLA que vienen de plantilla? Recogerán las correcciones del motor (p. ej. posición/competidor del ranking). Los de secuencias no se tocan.")) return;
+    setProcessing(true);
+    setTickResult(null);
+    try {
+      const r = await fetch("/api/v1/leads/queue/refresh-rendered", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ limit: 500 })
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) setTickResult({ kind: "error", text: d?.error?.message ?? `Error HTTP ${r.status}` });
+      else setTickResult({ kind: "ok", text: `✓ ${d.refreshed} textos actualizados. Sin plantilla (no tocados): ${d.skippedSinPlantilla}.` });
+    } catch (e: any) {
+      setTickResult({ kind: "error", text: e?.message ?? "Error de red" });
+    } finally {
+      setProcessing(false);
+      onChanged();
+    }
+  }
+
   async function tick() {
     setProcessing(true);
     setTickResult(null);
@@ -2629,6 +2650,14 @@ function QueueTable({ loading, items, onChanged }: { loading: boolean; items: Qu
         >
           {processing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
           Procesar siguiente
+        </button>
+        <button
+          onClick={refreshRendered}
+          disabled={processing}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-700 text-xs disabled:opacity-50"
+          title="Re-renderiza el texto de los mensajes en cola que vienen de plantilla (recoge correcciones como la posición/competidor del ranking)"
+        >
+          🔄 Refrescar textos
         </button>
         <button
           onClick={openRankingBlast}
