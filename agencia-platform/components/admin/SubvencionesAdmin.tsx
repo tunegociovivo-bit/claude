@@ -9,8 +9,20 @@ import PageHeader from "@/components/PageHeader";
 import { Loader2, RefreshCw, Landmark, Search, ExternalLink } from "lucide-react";
 
 type Convo = { id: string; titulo: string; organo: string | null; regiones: string | null; importeTotal: number | null; fechaFin: string | null; urlBases: string | null };
-type Match = Convo & { fitScore: number; motivo: string; requisitos: string };
-type Status = { abiertas: number; total: number; ultimaActualizacion: string | null; convocatorias: Convo[]; clients: { id: string; name: string }[] };
+type Match = Convo & { fitScore: number; motivo: string; requisitos: string; estado?: string | null };
+type Status = { abiertas: number; total: number; ultimaActualizacion: string | null; convocatorias: Convo[]; clients: { id: string; name: string }[]; webhookUrl?: string };
+
+const ESTADOS = [
+  { v: "", t: "— Estado —" },
+  { v: "interesa", t: "Interesa" },
+  { v: "en_proceso", t: "En proceso" },
+  { v: "presentada", t: "Presentada" },
+  { v: "descartada", t: "Descartada" }
+];
+function diasRestantes(s: string | null): number | null {
+  if (!s) return null;
+  return Math.ceil((new Date(s).getTime() - Date.now()) / 86_400_000);
+}
 
 const eur = (n: number | null) => (n ? new Intl.NumberFormat("es-ES", { style: "currency", currency: "EUR", maximumFractionDigits: 0 }).format(n) : "—");
 const fecha = (s: string | null) => (s ? new Date(s).toLocaleDateString("es-ES") : "Sin plazo fijo");
@@ -23,12 +35,33 @@ export default function SubvencionesAdmin() {
   const [matching, setMatching] = useState(false);
   const [matches, setMatches] = useState<Match[] | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
+  const [webhook, setWebhook] = useState("");
+  const [savingHook, setSavingHook] = useState(false);
+
+  async function saveWebhook() {
+    setSavingHook(true);
+    try {
+      await fetch("/api/v1/admin/subvenciones", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ webhookUrl: webhook }) });
+    } finally {
+      setSavingHook(false);
+    }
+  }
+  async function setEstado(convocatoriaId: string, estado: string) {
+    if (!clientId) return;
+    setMatches((ms) => ms?.map((m) => (m.id === convocatoriaId ? { ...m, estado: estado || null } : m)) ?? ms);
+    if (!estado) return;
+    await fetch("/api/v1/admin/subvenciones/estado", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ clientId, convocatoriaId, estado })
+    }).catch(() => {});
+  }
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const r = await fetch("/api/v1/admin/subvenciones");
-      if (r.ok) setS(await r.json());
+      if (r.ok) { const d = await r.json(); setS(d); setWebhook(d.webhookUrl ?? ""); }
     } finally {
       setLoading(false);
     }
@@ -125,12 +158,28 @@ export default function SubvencionesAdmin() {
                       </div>
                       <p className="mt-1.5 text-sm text-slate-700"><strong>Encaja porque:</strong> {m.motivo}</p>
                       <p className="text-sm text-slate-600"><strong>Necesita:</strong> {m.requisitos}</p>
-                      {m.urlBases && <a href={m.urlBases} target="_blank" rel="noreferrer" className="mt-1 inline-flex items-center gap-1 text-xs text-brand-600 hover:underline"><ExternalLink className="h-3 w-3" /> Bases / sede</a>}
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        {(() => { const d = diasRestantes(m.fechaFin); return d != null ? <span className={`text-[11px] font-semibold rounded-full px-2 py-0.5 ${d <= 7 ? "bg-rose-100 text-rose-700" : "bg-slate-100 text-slate-600"}`}>⏰ cierra en {d} día{d === 1 ? "" : "s"}</span> : null; })()}
+                        <select value={m.estado ?? ""} onChange={(e) => setEstado(m.id, e.target.value)} className="text-xs border rounded px-1.5 py-1 bg-white">
+                          {ESTADOS.map((o) => <option key={o.v} value={o.v}>{o.t}</option>)}
+                        </select>
+                        {m.urlBases && <a href={m.urlBases} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs text-brand-600 hover:underline"><ExternalLink className="h-3 w-3" /> Bases / sede</a>}
+                      </div>
                     </li>
                   ))}
                 </ul>
               )
             )}
+          </div>
+
+          {/* Avisos de cierre (Make) */}
+          <div className="mt-4 rounded-xl border border-slate-200 bg-white p-4">
+            <h2 className="text-sm font-semibold text-slate-800">Avisos de cierre de plazo</h2>
+            <p className="text-[11px] text-slate-500 mt-0.5 mb-2">Cada noche se avisa de las convocatorias marcadas como <strong>Interesa/En proceso</strong> que cierran en ≤7 días, enviando un webhook a Make (que enrutas a WhatsApp/email).</p>
+            <div className="flex flex-wrap items-center gap-2">
+              <input value={webhook} onChange={(e) => setWebhook(e.target.value)} placeholder="https://hook.eu2.make.com/…" className="flex-1 min-w-[240px] px-3 py-2 rounded-lg border bg-white text-sm font-mono" />
+              <button onClick={saveWebhook} disabled={savingHook} className="rounded-lg border bg-white hover:bg-slate-50 text-sm px-3 py-2 disabled:opacity-50">{savingHook ? "Guardando…" : "Guardar webhook"}</button>
+            </div>
           </div>
 
           {/* Catálogo */}

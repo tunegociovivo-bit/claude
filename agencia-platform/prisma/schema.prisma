@@ -4249,6 +4249,21 @@ model BubuiBannerCampaign {
   @@map("BipiBannerCampaign")
 }
 
+// Estado de gestión de una convocatoria para un cliente (seguimiento + avisos).
+model SubvencionEstado {
+  id              String    @id @default(cuid())
+  workspaceId     String
+  clientId        String
+  convocatoriaId  String
+  estado          String    @default("interesa") // interesa | en_proceso | presentada | descartada
+  notifiedCloseAt DateTime? // último aviso de cierre enviado (anti-duplicado)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([workspaceId, clientId, convocatoriaId])
+  @@index([workspaceId, estado])
+}
+
 // Catálogo de convocatorias de subvenciones (BDNS / SNPSAP), público y global
 // (no por workspace). El "Cazador de Subvenciones" las cruza con cada cliente.
 model SubvencionConvocatoria {
