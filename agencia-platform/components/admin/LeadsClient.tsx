@@ -2287,7 +2287,19 @@ function QueueTable({ loading, items, onChanged }: { loading: boolean; items: Qu
   const [previewRow, setPreviewRow] = useState<QueueRow | null>(null);
   const [previewText, setPreviewText] = useState("");
   const [savingPreview, setSavingPreview] = useState(false);
+  const [geoWarn, setGeoWarn] = useState<{ leadProvince: string | null; detectedProvince: string | null } | null>(null);
   useEffect(() => { setPreviewText(previewRow?.renderedMessage ?? ""); }, [previewRow]);
+  // Aviso de geo incoherente (coords del lead en otra provincia → ranking malo).
+  useEffect(() => {
+    setGeoWarn(null);
+    if (!previewRow || previewRow.kind !== "ranking") return;
+    let cancel = false;
+    fetch(`/api/v1/leads/${previewRow.leadId}/geo-check`)
+      .then((r) => r.json())
+      .then((d) => { if (!cancel && d?.mismatch) setGeoWarn({ leadProvince: d.leadProvince, detectedProvince: d.detectedProvince }); })
+      .catch(() => {});
+    return () => { cancel = true; };
+  }, [previewRow]);
   async function savePreviewText() {
     if (!previewRow) return;
     setSavingPreview(true);
@@ -2944,6 +2956,13 @@ function QueueTable({ loading, items, onChanged }: { loading: boolean; items: Qu
             <div className="text-xs text-slate-500">
               📞 {previewRow.phoneNormalized} · enviar desde: <strong>{previewRow.instanceName || "Principal"}</strong>
             </div>
+            {geoWarn && (
+              <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                ⚠️ Las coordenadas de este lead parecen estar en <strong>{geoWarn.detectedProvince || "otra provincia"}</strong>
+                {geoWarn.leadProvince ? <> y no en <strong>{geoWarn.leadProvince}</strong></> : null}. El ranking por
+                cercanía (y la imagen) puede salir incorrecto — revisa/recaptura la ubicación de este lead antes de enviar.
+              </div>
+            )}
             {/* Simulación de burbuja de WhatsApp (refleja en vivo lo que escribes) */}
             <div className="rounded-xl bg-[#e5ddd5] p-4">
               <div className="ml-auto max-w-[85%] rounded-lg bg-[#dcf8c6] shadow-sm overflow-hidden">
