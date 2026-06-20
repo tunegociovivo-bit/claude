@@ -15,10 +15,13 @@ import { notFound } from "next/navigation";
 import { Suspense } from "react";
 import { prisma } from "@/lib/db/prisma";
 import type { Metadata } from "next";
+import Link from "next/link";
 import ReviewForm from "./ReviewForm";
 import BookingForm from "./BookingForm";
 import RefCapture from "./RefCapture";
 import { getTopPosition } from "@/lib/bubui/topcategory";
+import { resolveCategory, slugify } from "@/lib/bubui/directory";
+import { bubuiUrl, bubuiBaseUrl } from "@/lib/bubui/url";
 
 export const revalidate = 300;
 
@@ -107,9 +110,12 @@ export async function generateMetadata({ params }: { params: { slug: string } })
   return {
     title: `${b.name} · Descuentos en ${b.city} | Bubui`,
     description: `${b.name} en ${b.city} te ofrece un ${b.defaultDiscountPct}% al escanear su QR con la app Bubui. Y desbloqueas descuentos en otros negocios cerca.`,
+    alternates: { canonical: bubuiUrl(`/n/${b.slug}`) },
+    robots: { index: true, follow: true },
     openGraph: {
       title: `${b.name} · Bubui`,
       description: `Llévate ${b.defaultDiscountPct}% en ${b.name} (${b.city}) con la app Bubui.`,
+      url: bubuiUrl(`/n/${b.slug}`),
       images: [{ url: `/api/bubui/business/${b.id}/poster.png` }]
     }
   };
@@ -160,8 +166,9 @@ export default async function BusinessPublicPage({ params }: { params: { slug: s
 
   // JSON-LD para SEO: LocalBusiness + Offer. Google lo usa para rich
   // snippets en búsquedas locales y Maps.
-  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://hub.negociovivo.app";
-  const businessUrl = `${siteUrl}/bubui/n/${business.slug}`;
+  // URLs canónicas en el dominio público de Bubui (bubui.app).
+  const siteUrl = bubuiBaseUrl();
+  const businessUrl = bubuiUrl(`/n/${business.slug}`);
   const jsonLd = {
     "@context": "https://schema.org",
     "@type": categoryToSchemaType(business.category),
@@ -200,11 +207,25 @@ export default async function BusinessPublicPage({ params }: { params: { slug: s
           }
         }
       : {}),
+    ...(reviews.list.length > 0
+      ? {
+          review: reviews.list
+            .filter((r) => r.comment)
+            .slice(0, 5)
+            .map((r) => ({
+              "@type": "Review",
+              author: { "@type": "Person", name: r.author },
+              datePublished: new Date(r.createdAt).toISOString().slice(0, 10),
+              reviewRating: { "@type": "Rating", ratingValue: r.rating, bestRating: 5, worstRating: 1 },
+              reviewBody: r.comment
+            }))
+        }
+      : {}),
     makesOffer: {
       "@type": "Offer",
       name: `Descuento Bubui ${business.defaultDiscountPct}%`,
       description: `${business.defaultDiscountPct}% al escanear el QR de ${business.name} con la app Bubui. Y desbloqueas cupones en otros negocios cerca.`,
-      url: `${siteUrl}/bubui/scan/${business.id}`,
+      url: bubuiUrl(`/scan/${business.id}`),
       priceSpecification: {
         "@type": "UnitPriceSpecification",
         priceCurrency: "EUR",
@@ -215,11 +236,26 @@ export default async function BusinessPublicPage({ params }: { params: { slug: s
     }
   };
 
+  const catDef = resolveCategory(business.category);
+  const citySlug = slugify(business.city);
+
   return (
     <main className="max-w-3xl mx-auto px-4 py-12">
       <Suspense fallback={null}>
         <RefCapture />
       </Suspense>
+      {/* Breadcrumb → enlazado interno hacia el directorio (SEO) */}
+      <nav className="text-xs text-black/50 mb-4">
+        <Link href="/directorio" className="hover:text-pink-600">Directorio</Link>
+        <span className="mx-1.5">/</span>
+        <Link href={`/${catDef.slug}`} className="hover:text-pink-600">{catDef.label}</Link>
+        {citySlug && (
+          <>
+            <span className="mx-1.5">/</span>
+            <Link href={`/${catDef.slug}/${citySlug}`} className="hover:text-pink-600">{business.city}</Link>
+          </>
+        )}
+      </nav>
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}

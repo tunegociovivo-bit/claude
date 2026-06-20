@@ -16,22 +16,14 @@ const nextConfig = {
     env: {
         NEXT_PUBLIC_BUILD_TIMESTAMP: BUILD_TIMESTAMP
     },
-    // Plataforma interna privada: cabecera HTTP que impide indexación en
-    // TODAS las respuestas (incluye assets y rutas no-HTML, que la meta
-    // tag no cubre). Es la señal más fuerte para Google/Bing.
-    async headers() {
-        return [
-            {
-                source: '/:path*',
-                headers: [
-                    {
-                        key: 'X-Robots-Tag',
-                        value: 'noindex, nofollow, noarchive, nosnippet, noimageindex'
-                    }
-                ]
-            }
-        ];
-    },
+    // El X-Robots-Tag NO se puede fijar aquí de forma global: el hub privado
+    // debe seguir siendo noindex, pero bubui.app (mismo deploy) necesita
+    // indexar sus páginas públicas (directorio SEO, fichas). Como next.config
+    // no conoce el dominio, el control de indexación vive ahora en el
+    // middleware (host-aware): noindex para el hub y para las páginas
+    // privadas de Bubui; index para las públicas de bubui.app. El hub sigue
+    // protegido además por app/robots.ts (Disallow: /) y el meta noindex del
+    // layout raíz.
     // Compatibilidad tras el rebrand Bipi → Bubui: las rutas antiguas
     // /bipi/* siguen sirviendo el contenido nuevo /bubui/* para no romper
     // QR impresos ni la app nativa instalada antes del cambio.

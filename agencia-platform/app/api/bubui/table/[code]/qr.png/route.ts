@@ -6,14 +6,15 @@
  */
 import { NextResponse } from "next/server";
 import QRCode from "qrcode";
+import { bubuiUrl } from "@/lib/bubui/url";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request, { params }: { params: { code: string } }) {
   const code = params.code.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 8);
   if (!code) return new NextResponse("Bad code", { status: 400 });
-  const origin = new URL(req.url).origin;
-  const url = `${origin}/bubui/app/mesa?code=${code}`;
+  // QR de mesa → dominio canónico + ruta limpia /usuarios/mesa.
+  const url = bubuiUrl(`/usuarios/mesa?code=${code}`);
   const png = await QRCode.toBuffer(url, { type: "png", width: 600, margin: 2, errorCorrectionLevel: "H" });
   return new NextResponse(png as any, {
     status: 200,

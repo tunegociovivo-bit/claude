@@ -21,6 +21,7 @@ export default function RegistroNegocio() {
     name: "",
     category: CATEGORIES[0],
     address: "",
+    city: "",
     ownerName: "",
     ownerEmail: "",
     ownerPhone: "",
@@ -50,7 +51,7 @@ export default function RegistroNegocio() {
       const r = await fetch("/api/bubui/business/signup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...form, referrerBusinessId: referrerBusinessId ?? undefined })
+        body: JSON.stringify({ ...form, city: form.city.trim() || undefined, referrerBusinessId: referrerBusinessId ?? undefined })
       });
       const j = await r.json();
       if (!r.ok) {
@@ -133,14 +134,25 @@ export default function RegistroNegocio() {
             </select>
           </Field>
         </div>
-        <Field label="Dirección (calle y número, Benalmádena)">
-          <input
-            value={form.address}
-            onChange={(e) => setForm({ ...form, address: e.target.value })}
-            className="input"
-            placeholder="Av. de la Constitución 12"
-          />
-        </Field>
+        <div className="grid sm:grid-cols-2 gap-3">
+          <Field label="Dirección (calle y número)">
+            <input
+              value={form.address}
+              onChange={(e) => setForm({ ...form, address: e.target.value })}
+              className="input"
+              placeholder="Av. de la Constitución 12"
+            />
+          </Field>
+          <Field label="Localidad" required>
+            <input
+              value={form.city}
+              onChange={(e) => setForm({ ...form, city: e.target.value })}
+              className="input"
+              placeholder="Benalmádena"
+              required
+            />
+          </Field>
+        </div>
         <div className="grid sm:grid-cols-2 gap-3">
           <Field label="Tu nombre" required>
             <input

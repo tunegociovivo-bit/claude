@@ -7,6 +7,7 @@
 
 import { NextResponse } from "next/server";
 import { generateBusinessQrPng } from "@/lib/bubui/core";
+import { bubuiBaseUrl } from "@/lib/bubui/url";
 import { prisma } from "@/lib/db/prisma";
 
 export const dynamic = "force-dynamic";
@@ -16,7 +17,8 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
   if (!business) {
     return new NextResponse("Not found", { status: 404 });
   }
-  const baseUrl = new URL(req.url).origin;
+  // QR impreso → siempre al dominio canónico de Bubui (lo escanean clientes).
+  const baseUrl = bubuiBaseUrl();
   const png = await generateBusinessQrPng({ businessId: business.id, baseUrl, size: 800 });
   return new NextResponse(png as any, {
     status: 200,

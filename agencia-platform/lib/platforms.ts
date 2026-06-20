@@ -13,7 +13,7 @@
  */
 
 import { LucideIcon } from "lucide-react";
-import { Star, Mic, FileText, Download, MessageSquare, Sparkles, Megaphone, Puzzle } from "lucide-react";
+import { Star, Mic, FileText, Download, MessageSquare, Sparkles, Megaphone, Puzzle, Store } from "lucide-react";
 
 export type PlatformKey =
   | "reviews"
@@ -23,7 +23,8 @@ export type PlatformKey =
   | "redactor_ia"
   | "asana_import"
   | "meta_campaigns"
-  | "chrome_extension";
+  | "chrome_extension"
+  | "bubui_directorio";
 
 export type PlatformDef = {
   key: PlatformKey;
@@ -100,6 +101,14 @@ export const PLATFORMS: PlatformDef[] = [
     description: "Descarga e instala la extensión para grabar reuniones (Meet/Teams/Zoom) y recibir avisos de tareas y menciones fuera del Hub.",
     href: "/admin/extension",
     icon: Puzzle,
+    available: true
+  },
+  {
+    key: "bubui_directorio",
+    label: "Bubui · Directorio SEO",
+    description: "Gestiona el directorio de comercios de Bubui: genera el contenido SEO con IA, geocodifica negocios y revisa el estado de las páginas por nicho y localidad.",
+    href: "/admin/bubui",
+    icon: Store,
     available: true
   }
 ];

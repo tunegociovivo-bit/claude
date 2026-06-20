@@ -7,6 +7,8 @@
 
 import { prisma } from "@/lib/db/prisma";
 import { pickNegativeReview, clip } from "./reviews";
+import { provisionBubuiFromLead } from "@/lib/bubui/provision";
+import { bubuiUrl } from "@/lib/bubui/url";
 
 export const SUPPORTED_PLACEHOLDERS = [
   "nombre_negocio",
@@ -30,6 +32,9 @@ export const SUPPORTED_PLACEHOLDERS = [
   "opener_ia",
   // Enlace a la demo pública de cómo se vería SU negocio en Bubui.
   "demo_bubui",
+  // Enlace de ACTIVACIÓN sin fricción: crea su ficha de Bubui y mete el enlace
+  // mágico (entra sin contraseña y la activa). Se provisiona al renderizar.
+  "enlace_bubui",
   // Reseña negativa real (requiere enriquecer el lead con Place Details).
   "resena_negativa",
   "resena_negativa_fecha",
@@ -98,7 +103,9 @@ export async function renderTemplate(opts: {
     urgencia: lead.urgency ?? "",
     opener_ia: lead.aiOpener ?? "",
     // Enlace a la demo personalizada del negocio en Bubui (captación viral).
-    demo_bubui: `${process.env.NEXT_PUBLIC_APP_URL || "https://hub.negociovivo.app"}/bubui/demo/${lead.id}`,
+    demo_bubui: bubuiUrl(`/demo/${lead.id}`),
+    enlace_bubui: "", // se rellena abajo solo si la plantilla lo usa
+
     ...(() => {
       const neg = pickNegativeReview(lead.reviewsJson);
       return {
@@ -108,6 +115,17 @@ export async function renderTemplate(opts: {
       };
     })()
   };
+
+  // Enlace de activación: solo si la plantilla lo usa (provisiona la ficha de
+  // Bubui de este lead bajo demanda y mete su enlace mágico único).
+  if (/\{\{\s*enlace_bubui\s*\}\}/.test(opts.body)) {
+    try {
+      const prov = await provisionBubuiFromLead(lead);
+      vars.enlace_bubui = prov.claimUrl;
+    } catch {
+      vars.enlace_bubui = "";
+    }
+  }
 
   let out = opts.body;
   for (const [k, v] of Object.entries(vars)) {
