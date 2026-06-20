@@ -116,6 +116,9 @@ type QueueRow = {
   renderedMessage: string;
   kind?: string | null;
   instanceName?: string | null;
+  warming?: boolean;
+  willSend?: boolean;
+  channelCap?: number;
 };
 
 type Tab = "leads" | "searches" | "queue" | "inbox" | "sequences" | "templates" | "exclusions" | "analytics" | "map" | "settings";
@@ -2868,6 +2871,19 @@ function QueueTable({ loading, items, onChanged }: { loading: boolean; items: Qu
                             <option key={c.name} value={c.name}>{c.label?.trim() || c.name}</option>
                           ))}
                         </select>
+                      )}
+                      {m.status === "queued" && m.warming && (
+                        <div className="mt-1">
+                          {m.willSend ? (
+                            <span className="inline-flex items-center gap-1 text-[10px] text-amber-700" title={`Teléfono en calentamiento (tope ${m.channelCap}/día). Este mensaje entra en el cupo: lo enviará este número.`}>
+                              🔥 calentando · ✅ entra
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-[10px] text-rose-600 font-medium" title={`Teléfono en calentamiento (tope ${m.channelCap}/día) ya cubierto ese día. Al enviar, este mensaje saldrá por otro número con hueco o se aplazará a mañana.`}>
+                              🔥 calentando · ⏭️ saltará (otro nº / mañana)
+                            </span>
+                          )}
+                        </div>
                       )}
                     </td>
                     <td className="px-3 py-2 text-xs max-w-md truncate" title={m.kind === "ranking" ? (m.renderedMessage || "Imagen de posicionamiento (pie automático)") : m.renderedMessage}>
