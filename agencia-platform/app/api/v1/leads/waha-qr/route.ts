@@ -37,6 +37,27 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
         { status: 400 }
       );
     }
+    // Auto-calentamiento: (re)conectar un número (típico tras un baneo) reinicia
+    // su rampa de warm-up automáticamente, para que vuelva a enviar poco e ir
+    // subiendo. Solo si no se reinició hace <10 min (evita re-escrituras en cada
+    // refresco del QR).
+    try {
+      const ws = await prisma.workspace.findUnique({ where: { id: api.workspaceId } });
+      const settings: any = ws?.settings ?? {};
+      const arr: any[] = settings?.leads?.channels;
+      if (Array.isArray(arr)) {
+        const ch = arr.find((c) => c?.name === requested);
+        if (ch) {
+          const since = ch.warmupSince ? Date.parse(ch.warmupSince) : 0;
+          if (!since || Date.now() - since > 10 * 60 * 1000) {
+            ch.warmupSince = new Date().toISOString();
+            await prisma.workspace.update({ where: { id: api.workspaceId }, data: { settings } });
+          }
+        }
+      }
+    } catch {
+      /* warm-up best-effort: no romper el QR si falla */
+    }
   }
 
   // Evolution: el QR viene como data URL base64 en /instance/connect.
