@@ -4249,7 +4249,28 @@ model BubuiBannerCampaign {
   @@map("BipiBannerCampaign")
 }
 
-// Contenido editorial (texto SEO largo, generado por IA) de las páginas del
+// Catálogo de convocatorias de subvenciones (BDNS / SNPSAP), público y global
+// (no por workspace). El "Cazador de Subvenciones" las cruza con cada cliente.
+model SubvencionConvocatoria {
+  id            String    @id // código BDNS
+  titulo        String    @db.Text
+  organo        String?
+  finalidad     String?   @db.Text
+  beneficiarios String?   @db.Text
+  sectores      String?   @db.Text
+  regiones      String?   @db.Text
+  importeTotal  Float?
+  abierta       Boolean   @default(true)
+  fechaInicio   DateTime?
+  fechaFin      DateTime? // fin de plazo de solicitud (deadline)
+  urlBases      String?
+  raw           Json?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([abierta, fechaFin])
+}
+
 // directorio Bubui. Cacheado por `key` para no llamar a la IA en cada visita.
 //   key: "cl:<catSlug>:<citySlug>" (nicho+localidad)
 //        "c:<catSlug>"             (sector)

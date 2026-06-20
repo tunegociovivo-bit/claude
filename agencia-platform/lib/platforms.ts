@@ -13,7 +13,7 @@
  */
 
 import { LucideIcon } from "lucide-react";
-import { Star, Mic, FileText, Download, MessageSquare, Sparkles, Megaphone, Puzzle, Store } from "lucide-react";
+import { Star, Mic, FileText, Download, MessageSquare, Sparkles, Megaphone, Puzzle, Store, Landmark } from "lucide-react";
 
 export type PlatformKey =
   | "reviews"
@@ -24,7 +24,8 @@ export type PlatformKey =
   | "asana_import"
   | "meta_campaigns"
   | "chrome_extension"
-  | "bubui_directorio";
+  | "bubui_directorio"
+  | "subvenciones";
 
 export type PlatformDef = {
   key: PlatformKey;
@@ -109,6 +110,14 @@ export const PLATFORMS: PlatformDef[] = [
     description: "Gestiona el directorio de comercios de Bubui: genera el contenido SEO con IA, geocodifica negocios y revisa el estado de las páginas por nicho y localidad.",
     href: "/admin/bubui",
     icon: Store,
+    available: true
+  },
+  {
+    key: "subvenciones",
+    label: "Cazador de Subvenciones IA",
+    description: "Detecta convocatorias públicas abiertas (BDNS) y las cruza con cada cliente: qué le encaja, por qué califica y qué necesita para solicitarla.",
+    href: "/admin/subvenciones",
+    icon: Landmark,
     available: true
   }
 ];
