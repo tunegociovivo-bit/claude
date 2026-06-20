@@ -31,6 +31,7 @@ export type RankedBusiness = {
   featured: boolean;
   ratingAvg: number | null; // media real (null si no hay reseñas)
   ratingCount: number;
+  ratingSource: "google" | "bubui" | null;
   score: number; // Puntuación Bubui 0-100
 };
 
@@ -48,6 +49,7 @@ export async function getRanking(catSlug: string, citySlug: string): Promise<{
     select: {
       id: true, slug: true, name: true, address: true, logoUrl: true, brandColor: true,
       defaultDiscountPct: true, visibilityScore: true, featured: true, featuredUntil: true,
+      googleRating: true, googleReviewsCount: true,
       category: true, city: true, province: true
     }
   });
@@ -68,10 +70,19 @@ export async function getRanking(catSlug: string, citySlug: string): Promise<{
 
   const now = Date.now();
   const scored = matched.map((b) => {
-    const r = byId.get(b.id) ?? { avg: 0, count: 0 };
-    const bayes = (CONFIDENCE * GLOBAL_MEAN + r.count * r.avg) / (CONFIDENCE + r.count); // 0..5
+    // La nota de GOOGLE manda; si no hay, caemos a las reseñas internas de Bubui.
+    const internal = byId.get(b.id) ?? { avg: 0, count: 0 };
+    const google = b.googleRating != null ? { avg: b.googleRating, count: b.googleReviewsCount ?? 0 } : null;
+    const use = google ?? (internal.count > 0 ? internal : null);
+    const ratingSource: "google" | "bubui" | null = google ? "google" : internal.count > 0 ? "bubui" : null;
+
+    const bayes = use
+      ? (CONFIDENCE * GLOBAL_MEAN + use.count * use.avg) / (CONFIDENCE + use.count)
+      : GLOBAL_MEAN; // sin datos → prior neutro
     const ratingScore = (bayes / 5) * 100;
-    const score = Math.round(0.65 * ratingScore + 0.35 * b.visibilityScore);
+    // Si hay nota de Google, pesa más (es lo que de momento ordena el ranking).
+    const wRating = google ? 0.8 : 0.65;
+    const score = Math.round(wRating * ratingScore + (1 - wRating) * b.visibilityScore);
     const featured = b.featured || (b.featuredUntil ? b.featuredUntil.getTime() > now : false);
     return {
       id: b.id,
@@ -82,8 +93,9 @@ export async function getRanking(catSlug: string, citySlug: string): Promise<{
       brandColor: b.brandColor,
       defaultDiscountPct: b.defaultDiscountPct,
       featured,
-      ratingAvg: r.count > 0 ? Math.round(r.avg * 10) / 10 : null,
-      ratingCount: r.count,
+      ratingAvg: use ? Math.round(use.avg * 10) / 10 : null,
+      ratingCount: use ? use.count : 0,
+      ratingSource,
       score
     };
   });

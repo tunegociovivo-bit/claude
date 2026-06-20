@@ -117,7 +117,7 @@ export default async function RankingPage({ params }: Params) {
                 </div>
                 <p className="text-xs text-slate-500 truncate">{b.address || cityLabel}</p>
                 <p className="mt-1 text-xs text-slate-600">
-                  {b.ratingAvg != null ? <>★ {b.ratingAvg.toString().replace(".", ",")} · {b.ratingCount} {b.ratingCount === 1 ? "reseña" : "reseñas"}</> : <span className="text-slate-400">Sin reseñas todavía</span>}
+                  {b.ratingAvg != null ? <>★ {b.ratingAvg.toString().replace(".", ",")} · {b.ratingCount} {b.ratingCount === 1 ? "reseña" : "reseñas"}{b.ratingSource === "google" ? " en Google" : ""}</> : <span className="text-slate-400">Sin reseñas todavía</span>}
                   {b.defaultDiscountPct > 0 && <span className="text-pink-700"> · hasta {b.defaultDiscountPct}% dto.</span>}
                 </p>
               </div>

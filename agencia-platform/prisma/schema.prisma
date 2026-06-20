@@ -3655,6 +3655,11 @@ model BubuiBusiness {
   claimExpiresAt            DateTime?
   claimedAt                 DateTime? // null = aún sin reclamar/activar
   provisionedFromLeadId     String? // lead de origen (NV Leads Pro)
+  // Nota de Google (Business Profile), cacheada para ordenar los rankings del
+  // directorio sin llamar a Google en cada visita. Se refresca por cron/panel.
+  googleRating              Float?
+  googleReviewsCount        Int?
+  googleRatingUpdatedAt     DateTime?
   // Status.
   active                    Boolean   @default(true)
   // Destacado en Descubre (ordenación preferente).
