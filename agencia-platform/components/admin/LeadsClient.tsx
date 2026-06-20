@@ -1903,6 +1903,7 @@ function EnqueueModal({
   const mixTotal = Object.values(mix).reduce((s, n) => s + (Number(n) || 0), 0);
   const usesImage = kind !== "text" && kind !== "voice";
   const [busy, setBusy] = useState(false);
+  const [replaceQueued, setReplaceQueued] = useState(false);
   const [result, setResult] = useState<{ ok: number; skipped: { leadId: string; reason: string }[]; total: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Coste estimado de la imagen de posicionamiento: 1 consulta a Google Places
@@ -1934,7 +1935,7 @@ function EnqueueModal({
     setBusy(true);
     setError(null);
     try {
-      const payload: any = { leadIds, templateId: templateId || null };
+      const payload: any = { leadIds, templateId: templateId || null, replaceQueued };
       if (kind === "mix") {
         payload.mix = Object.entries(mix)
           .filter(([, p]) => Number(p) > 0)
@@ -2053,6 +2054,12 @@ function EnqueueModal({
               ))}
             </select>
           )}
+          <label className="flex items-start gap-2 text-xs text-slate-700 cursor-pointer pt-1 border-t">
+            <input type="checkbox" checked={replaceQueued} onChange={(e) => setReplaceQueued(e.target.checked)} className="mt-0.5 accent-brand-600" />
+            <span>
+              <strong>Reemplazar lo que ya esté en cola</strong> de estos leads. Actívalo si ya los habías encolado (p. ej. como texto) y quieres cambiar el formato: borra sus mensajes <em>pendientes</em> y los reencola con este modo. No afecta a los ya enviados.
+            </span>
+          </label>
           {error && <p className="text-sm text-rose-600">{error}</p>}
           <div className="flex justify-end gap-2 pt-1">
             <button onClick={onClose} className="px-3 py-2 rounded-lg text-sm border bg-white hover:bg-slate-50">
