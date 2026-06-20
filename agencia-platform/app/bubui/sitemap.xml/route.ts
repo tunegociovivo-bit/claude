@@ -46,6 +46,7 @@ export async function GET() {
   const urls: { loc: string; lastmod: string; priority: string }[] = [
     { loc: `${base}/`, lastmod: today, priority: "1.0" },
     { loc: `${base}/directorio`, lastmod: today, priority: "0.9" },
+    { loc: `${base}/mejores`, lastmod: today, priority: "0.8" },
     { loc: `${base}/registro`, lastmod: today, priority: "0.7" },
     ...dir.categories.map((c) => ({ loc: `${base}/${c.catSlug}`, lastmod: today, priority: "0.7" })),
     ...provinces.map((p) => ({ loc: `${base}/provincia/${p.provSlug}`, lastmod: today, priority: "0.6" })),

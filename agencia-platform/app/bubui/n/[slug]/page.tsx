@@ -21,6 +21,7 @@ import BookingForm from "./BookingForm";
 import RefCapture from "./RefCapture";
 import { getTopPosition } from "@/lib/bubui/topcategory";
 import { resolveCategory, slugify } from "@/lib/bubui/directory";
+import { getBusinessRankPosition } from "@/lib/bubui/rankings";
 import { bubuiUrl, bubuiBaseUrl } from "@/lib/bubui/url";
 
 export const revalidate = 300;
@@ -238,6 +239,8 @@ export default async function BusinessPublicPage({ params }: { params: { slug: s
 
   const catDef = resolveCategory(business.category);
   const citySlug = slugify(business.city);
+  // Posición en el ranking de su nicho+localidad (prueba social + enlace SEO).
+  const rank = await getBusinessRankPosition(business.id, catDef.slug, citySlug);
 
   return (
     <main className="max-w-3xl mx-auto px-4 py-12">
@@ -256,6 +259,15 @@ export default async function BusinessPublicPage({ params }: { params: { slug: s
           </>
         )}
       </nav>
+      {rank && rank.position <= 10 && (
+        <Link
+          href={`/mejores/${catDef.slug}/${citySlug}`}
+          className="inline-flex items-center gap-1.5 mb-4 rounded-full bg-amber-100 text-amber-800 text-xs font-bold px-3 py-1.5 hover:bg-amber-200"
+        >
+          {rank.position === 1 ? "🥇" : rank.position === 2 ? "🥈" : rank.position === 3 ? "🥉" : "🏆"}
+          {rank.position === 1 ? "Nº 1" : `Top ${rank.position}`} en las mejores {catDef.label.toLowerCase()} de {business.city}
+        </Link>
+      )}
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}

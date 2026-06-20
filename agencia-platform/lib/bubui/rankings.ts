@@ -111,3 +111,34 @@ export async function getRankablePairs(): Promise<{ catSlug: string; citySlug: s
       return { catSlug, citySlug };
     });
 }
+
+/** Índice de rankings (con etiquetas y conteo) para la página /mejores. */
+export async function getRankingIndex(): Promise<{ catSlug: string; catLabel: string; citySlug: string; cityLabel: string; count: number }[]> {
+  const all = await prisma.bubuiBusiness.findMany({ where: { active: true }, select: { category: true, city: true } });
+  const map = new Map<string, { catSlug: string; catLabel: string; citySlug: string; cityLabel: string; count: number }>();
+  for (const b of all) {
+    const cat = resolveCategory(b.category);
+    const cs = slugify(b.city);
+    if (!cs) continue;
+    const key = `${cat.slug}/${cs}`;
+    const cur = map.get(key);
+    if (cur) cur.count++;
+    else map.set(key, { catSlug: cat.slug, catLabel: cat.label, citySlug: cs, cityLabel: b.city, count: 1 });
+  }
+  return [...map.values()].filter((p) => p.count >= MIN_RANKING).sort((a, b) => b.count - a.count);
+}
+
+/** Posición de un negocio en el ranking de su nicho+localidad (o null si no
+ *  hay ranking). Para mostrar el badge "#N" en la ficha pública. */
+export async function getBusinessRankPosition(
+  businessId: string,
+  catSlug: string,
+  citySlug: string
+): Promise<{ position: number; total: number } | null> {
+  const r = await getRanking(catSlug, citySlug);
+  if (!r) return null;
+  const idx = r.businesses.findIndex((b) => b.id === businessId);
+  if (idx < 0) return null;
+  return { position: idx + 1, total: r.businesses.length };
+}
+
