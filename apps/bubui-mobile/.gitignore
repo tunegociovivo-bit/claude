@@ -13,3 +13,10 @@ google-services.json
 
 # Credencial de Google Play para 'eas submit' (NO subir)
 google-service-account.json
+
+# Credenciales iOS locales (NO subir)
+credentials.json
+dist.p12
+dist.mobileprovision
+*.p8
+dist-ext.mobileprovision

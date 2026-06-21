@@ -1,51 +1,51 @@
 {
-    "cli": {
-          "version": ">= 5.0.0",
-          "appVersionSource": "remote"
+  "cli": {
+    "version": ">= 5.0.0",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "preview": {
+      "distribution": "internal",
+      "autoIncrement": true,
+      "prebuildCommand": "npx expo prebuild --clean",
+      "android": {
+        "buildType": "apk"
+      },
+      "ios": {
+        "simulator": false
+      }
     },
-    "build": {
-          "preview": {
-                  "distribution": "internal",
-                  "autoIncrement": true,
-                  "prebuildCommand": "npx expo prebuild --clean",
-                  "android": {
-                            "buildType": "apk"
-                  },
-                  "ios": {
-                            "simulator": false
-                  }
-          },
-          "ios-simulator": {
-                  "distribution": "internal",
-                  "prebuildCommand": "npx expo prebuild --clean",
-                  "ios": {
-                            "simulator": true
-                  }
-          },
-          "production": {
-                  "autoIncrement": true,
-                  "prebuildCommand": "npx expo prebuild --clean",
-                  "android": {
-                            "buildType": "app-bundle"
-                  },
-                  "ios": {
-                            "buildConfiguration": "Release",
-                            "credentialsSource": "remote",
-                            "image": "latest"
-                  }
-          }
+    "ios-simulator": {
+      "distribution": "internal",
+      "prebuildCommand": "npx expo prebuild --clean",
+      "ios": {
+        "simulator": true
+      }
     },
-    "submit": {
-          "production": {
-                  "ios": {
-                            "ascAppId": "6776224976",
-                            "appleTeamId": "9J97GC5NCG"
-                  },
-                  "android": {
-                            "serviceAccountKeyPath": "./google-service-account.json",
-                            "track": "internal",
-                            "releaseStatus": "draft"
-                  }
-          }
+    "production": {
+      "autoIncrement": true,
+      "prebuildCommand": "npx expo prebuild --clean",
+      "android": {
+        "buildType": "app-bundle"
+      },
+      "ios": {
+        "buildConfiguration": "Release",
+        "credentialsSource": "local",
+        "image": "latest"
+      }
     }
+  },
+  "submit": {
+    "production": {
+      "ios": {
+        "ascAppId": "6776224976",
+        "appleTeamId": "9J97GC5NCG"
+      },
+      "android": {
+        "serviceAccountKeyPath": "./google-service-account.json",
+        "track": "internal",
+        "releaseStatus": "draft"
+      }
+    }
+  }
 }
