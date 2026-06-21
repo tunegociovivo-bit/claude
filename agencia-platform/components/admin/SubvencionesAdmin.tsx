@@ -8,7 +8,7 @@ import { useCallback, useEffect, useState } from "react";
 import PageHeader from "@/components/PageHeader";
 import { Loader2, RefreshCw, Landmark, Search, ExternalLink } from "lucide-react";
 
-type Convo = { id: string; titulo: string; organo: string | null; regiones: string | null; importeTotal: number | null; fechaFin: string | null; urlBases: string | null };
+type Convo = { id: string; titulo: string; organo: string | null; regiones: string | null; importeTotal: number | null; fechaFin: string | null; urlBases: string | null; fuente?: string };
 type Match = Convo & { fitScore: number; motivo: string; requisitos: string; estado?: string | null };
 type Status = { abiertas: number; total: number; ultimaActualizacion: string | null; convocatorias: Convo[]; clients: { id: string; name: string }[]; webhookUrl?: string };
 
@@ -108,7 +108,7 @@ export default function SubvencionesAdmin() {
       const j = await r.json().catch(() => ({}));
       if (!r.ok) setMsg(`❌ ${j?.error?.message ?? "Error"}`);
       else if (j.skipped) setMsg(`⏳ ${j.message}`);
-      else setMsg(`✅ ${j.upserted} convocatorias actualizadas${typeof j.fueraDeFoco === "number" ? ` · ${j.fueraDeFoco} descartadas por foco regional` : ""}.`);
+      else setMsg(`✅ ${j.upserted} de BDNS${j.curadas ? ` + ${j.curadas} curadas` : ""}${typeof j.fueraDeFoco === "number" ? ` · ${j.fueraDeFoco} descartadas por foco regional` : ""}.`);
       await load();
     } finally {
       setIngesting(false);
@@ -250,7 +250,8 @@ export default function SubvencionesAdmin() {
 
           {/* Catálogo */}
           <div className="mt-8">
-            <h2 className="text-sm font-semibold text-slate-700 mb-2">Convocatorias abiertas ({s.convocatorias.length})</h2>
+            <h2 className="text-sm font-semibold text-slate-700 mb-1">Convocatorias abiertas ({s.convocatorias.length})</h2>
+            <p className="text-[11px] text-slate-400 mb-2">Fuentes: <strong>BDNS</strong> (estatal+autonómica/local) · <strong>curadas</strong> (Kit Digital, Kit Consulting) · <strong>externas vía Make</strong> (POST a <code>/api/v1/admin/subvenciones/external</code> para BOJA, Cámaras, fondos EU…).</p>
             {s.convocatorias.length === 0 ? (
               <p className="text-sm text-slate-500">Catálogo vacío. Pulsa <strong>Actualizar convocatorias</strong> para traerlas de la BDNS.</p>
             ) : (
@@ -258,7 +259,10 @@ export default function SubvencionesAdmin() {
                 {s.convocatorias.map((c) => (
                   <div key={c.id} className="flex items-center justify-between gap-2 rounded-lg border bg-white px-3 py-2 text-sm">
                     <div className="min-w-0">
-                      <p className="text-slate-800 truncate">{c.titulo}</p>
+                      <p className="text-slate-800 truncate">
+                        {c.fuente && c.fuente !== "bdns" && <span className="mr-1.5 text-[9px] font-bold uppercase rounded px-1 py-0.5 bg-indigo-100 text-indigo-700">{c.fuente}</span>}
+                        {c.titulo}
+                      </p>
                       <p className="text-[11px] text-slate-400">{c.organo || "—"} · {c.regiones || "ámbito no indicado"} · {eur(c.importeTotal)}</p>
                     </div>
                     <span className="shrink-0 text-[11px] text-slate-500">cierra {fecha(c.fechaFin)}</span>

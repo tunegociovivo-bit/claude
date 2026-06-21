@@ -4276,6 +4276,7 @@ model SubvencionConvocatoria {
   regiones      String?   @db.Text
   importeTotal  Float?
   abierta       Boolean   @default(true)
+  fuente        String    @default("bdns") // bdns | curada | <externa via Make>
   fechaInicio   DateTime?
   fechaFin      DateTime? // fin de plazo de solicitud (deadline)
   urlBases      String?

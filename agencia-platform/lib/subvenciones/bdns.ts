@@ -137,37 +137,70 @@ export async function fetchOpenConvocatorias(opts?: { daysBack?: number; maxPage
 }
 
 /** Ingiere/actualiza el catálogo de convocatorias abiertas. */
-export async function ingestConvocatorias(opts?: { daysBack?: number; maxPages?: number }): Promise<{ fetched: number; upserted: number; fueraDeFoco: number }> {
-  const list = await fetchOpenConvocatorias(opts);
-  let upserted = 0;
-  let fueraDeFoco = 0;
+// Fuentes CURADAS: programas evergreen que casi siempre aplican (sin plazo
+// fijo aquí; el match las pondera por cliente). Ampliable.
+export const CURATED: RawConvocatoria[] = [
+  {
+    id: "curada:kit-digital",
+    titulo: "Kit Digital — ayudas a la digitalización de pymes y autónomos",
+    organo: "Red.es · Gobierno de España",
+    finalidad: "Bono digital para web, comercio electrónico, redes sociales, gestión de clientes, ciberseguridad, facturación electrónica, etc.",
+    beneficiarios: "Autónomos y pymes (hasta 249 empleados)",
+    sectores: "Todos",
+    regiones: "España",
+    importeTotal: null,
+    fechaInicio: null,
+    fechaFin: null,
+    urlBases: "https://www.acelerapyme.gob.es/kit-digital",
+    raw: { source: "curada" }
+  },
+  {
+    id: "curada:kit-consulting",
+    titulo: "Kit Consulting — asesoramiento en transformación digital",
+    organo: "Red.es · Gobierno de España",
+    finalidad: "Ayuda para servicios de asesoramiento (IA, ciberseguridad, ventas digitales, análisis de datos).",
+    beneficiarios: "Pymes de 10 a 249 empleados",
+    sectores: "Todos",
+    regiones: "España",
+    importeTotal: null,
+    fechaInicio: null,
+    fechaFin: null,
+    urlBases: "https://www.acelerapyme.gob.es/kit-consulting",
+    raw: { source: "curada" }
+  }
+];
+
+/** Upsert reutilizable de convocatorias (BDNS, curadas o externas vía Make). */
+export async function upsertConvocatorias(list: RawConvocatoria[], fuente: string): Promise<number> {
+  let n = 0;
   for (const c of list) {
-    if (!inFocus(c.regiones)) { fueraDeFoco++; continue; } // LIMITACIÓN: foco regional
     try {
-      await prisma.subvencionConvocatoria.upsert({
-        where: { id: c.id },
-        create: {
-          id: c.id, titulo: c.titulo, organo: c.organo, finalidad: c.finalidad,
-          beneficiarios: c.beneficiarios, sectores: c.sectores, regiones: c.regiones,
-          importeTotal: c.importeTotal, abierta: true, fechaInicio: c.fechaInicio,
-          fechaFin: c.fechaFin, urlBases: c.urlBases, raw: c.raw
-        },
-        update: {
-          titulo: c.titulo, organo: c.organo, finalidad: c.finalidad,
-          beneficiarios: c.beneficiarios, sectores: c.sectores, regiones: c.regiones,
-          importeTotal: c.importeTotal, abierta: true, fechaInicio: c.fechaInicio,
-          fechaFin: c.fechaFin, urlBases: c.urlBases, raw: c.raw
-        }
-      });
-      upserted++;
+      const data = {
+        titulo: c.titulo, organo: c.organo, finalidad: c.finalidad,
+        beneficiarios: c.beneficiarios, sectores: c.sectores, regiones: c.regiones,
+        importeTotal: c.importeTotal, abierta: true, fuente, fechaInicio: c.fechaInicio,
+        fechaFin: c.fechaFin, urlBases: c.urlBases, raw: c.raw ?? { source: fuente }
+      };
+      await prisma.subvencionConvocatoria.upsert({ where: { id: c.id }, create: { id: c.id, ...data }, update: data });
+      n++;
     } catch {
-      /* saltar una convocatoria no debe romper la ingesta */
+      /* saltar una no debe romper la ingesta */
     }
   }
-  // Marcar como cerradas las que ya vencieron.
+  return n;
+}
+
+/** Ingiere/actualiza el catálogo de convocatorias abiertas (BDNS + curadas). */
+export async function ingestConvocatorias(opts?: { daysBack?: number; maxPages?: number }): Promise<{ fetched: number; upserted: number; fueraDeFoco: number; curadas: number }> {
+  const list = await fetchOpenConvocatorias(opts);
+  const enFoco = list.filter((c) => inFocus(c.regiones));
+  const fueraDeFoco = list.length - enFoco.length;
+  const upserted = await upsertConvocatorias(enFoco, "bdns");
+  const curadas = await upsertConvocatorias(CURATED, "curada");
+  // Marcar como cerradas las que ya vencieron (las curadas sin fecha no se tocan).
   await prisma.subvencionConvocatoria.updateMany({
     where: { abierta: true, fechaFin: { lt: new Date() } },
     data: { abierta: false }
   });
-  return { fetched: list.length, upserted, fueraDeFoco };
+  return { fetched: list.length, upserted, fueraDeFoco, curadas };
 }

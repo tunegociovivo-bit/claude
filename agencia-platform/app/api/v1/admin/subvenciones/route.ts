@@ -23,7 +23,7 @@ export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
       where: { abierta: true, OR: [{ fechaFin: null }, { fechaFin: { gte: now } }] },
       orderBy: { fechaFin: "asc" },
       take: 100,
-      select: { id: true, titulo: true, organo: true, regiones: true, importeTotal: true, fechaFin: true, urlBases: true }
+      select: { id: true, titulo: true, organo: true, regiones: true, importeTotal: true, fechaFin: true, urlBases: true, fuente: true }
     }),
     prisma.client.findMany({ where: { workspaceId: api.workspaceId }, orderBy: { name: "asc" }, select: { id: true, name: true } })
   ]);
