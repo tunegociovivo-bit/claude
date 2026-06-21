@@ -8,6 +8,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
+import { AGENCY_ID } from "@/lib/subvenciones/match";
 
 export const dynamic = "force-dynamic";
 
@@ -22,9 +23,11 @@ export const POST = withApi({ scope: "*" }, async (req, { api }) => {
   if (!parsed.success) throw new ApiError(400, "validation_error", parsed.error.message);
   const { clientId, convocatoriaId, estado } = parsed.data;
 
-  // Verifica que el cliente es del workspace.
-  const client = await prisma.client.findFirst({ where: { id: clientId, workspaceId: api.workspaceId }, select: { id: true } });
-  if (!client) throw new ApiError(404, "no_client", "Cliente no encontrado");
+  // El objetivo "agencia" (Negocio Vivo) usa un id centinela, no es un Client.
+  if (clientId !== AGENCY_ID) {
+    const client = await prisma.client.findFirst({ where: { id: clientId, workspaceId: api.workspaceId }, select: { id: true } });
+    if (!client) throw new ApiError(404, "no_client", "Cliente no encontrado");
+  }
 
   const row = await prisma.subvencionEstado.upsert({
     where: { workspaceId_clientId_convocatoriaId: { workspaceId: api.workspaceId, clientId, convocatoriaId } },

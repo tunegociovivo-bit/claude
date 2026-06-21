@@ -5,6 +5,7 @@
  * Idempotente: marca notifiedCloseAt para no repetir.
  */
 import { prisma } from "@/lib/db/prisma";
+import { AGENCY_ID } from "@/lib/subvenciones/match";
 
 const DIAS_AVISO = 7;
 
@@ -47,7 +48,7 @@ export async function runSubvencionAlertas(): Promise<{ enviados: number }> {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             tipo: "subvencion_cierra_pronto",
-            cliente: clientById.get(e.clientId) ?? e.clientId,
+            cliente: e.clientId === AGENCY_ID ? "Negocio Vivo (agencia)" : (clientById.get(e.clientId) ?? e.clientId),
             convocatoria: c.titulo,
             organo: c.organo,
             importe: c.importeTotal,

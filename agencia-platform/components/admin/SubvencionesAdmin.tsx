@@ -2,15 +2,20 @@
 
 /**
  * Cazador de Subvenciones: actualiza el catálogo de convocatorias abiertas
- * (BDNS) y cruza cada cliente con las que le encajan (IA).
+ * (BDNS) y cruza objetivos con las que les encajan (IA). El objetivo PRINCIPAL
+ * es la propia agencia (Negocio Vivo): subvenciones + licitaciones públicas.
  */
 import { useCallback, useEffect, useState } from "react";
 import PageHeader from "@/components/PageHeader";
-import { Loader2, RefreshCw, Landmark, Search, ExternalLink } from "lucide-react";
+import { Loader2, RefreshCw, Landmark, Search, ExternalLink, Target } from "lucide-react";
+
+// Objetivo "agencia" (Negocio Vivo): id centinela compartido con el backend.
+const AGENCY_ID = "__agency__";
+const AGENCY_LABEL = "Negocio Vivo (agencia)";
 
 type Convo = { id: string; titulo: string; organo: string | null; regiones: string | null; importeTotal: number | null; fechaFin: string | null; urlBases: string | null; fuente?: string };
 type Match = Convo & { fitScore: number; motivo: string; requisitos: string; estado?: string | null };
-type Status = { abiertas: number; total: number; ultimaActualizacion: string | null; convocatorias: Convo[]; clients: { id: string; name: string }[]; webhookUrl?: string };
+type Status = { abiertas: number; total: number; ultimaActualizacion: string | null; convocatorias: Convo[]; clients: { id: string; name: string }[]; webhookUrl?: string; agencyProfile?: string };
 
 const ESTADOS = [
   { v: "", t: "— Estado —" },
@@ -41,6 +46,12 @@ export default function SubvencionesAdmin() {
   const [scanning, setScanning] = useState(false);
   const [borrador, setBorrador] = useState<{ titulo: string; text: string } | null>(null);
   const [borradorLoading, setBorradorLoading] = useState<string | null>(null);
+  const [agencyProfile, setAgencyProfile] = useState("");
+  const [showProfile, setShowProfile] = useState(false);
+  const [savingProfile, setSavingProfile] = useState(false);
+
+  // Nombre legible del objetivo cuyos resultados se muestran ahora.
+  const targetName = clientId === AGENCY_ID ? AGENCY_LABEL : (s?.clients.find((c) => c.id === clientId)?.name ?? "");
 
   async function scanAll() {
     setScanning(true);
@@ -93,7 +104,7 @@ export default function SubvencionesAdmin() {
     setLoading(true);
     try {
       const r = await fetch("/api/v1/admin/subvenciones");
-      if (r.ok) { const d = await r.json(); setS(d); setWebhook(d.webhookUrl ?? ""); }
+      if (r.ok) { const d = await r.json(); setS(d); setWebhook(d.webhookUrl ?? ""); setAgencyProfile(d.agencyProfile ?? ""); }
     } finally {
       setLoading(false);
     }
@@ -115,13 +126,15 @@ export default function SubvencionesAdmin() {
     }
   }
 
-  async function buscar(force = false) {
-    if (!clientId) return;
+  async function buscar(force = false, idOverride?: string) {
+    const target = idOverride ?? clientId;
+    if (!target) return;
+    if (idOverride && idOverride !== clientId) setClientId(idOverride);
     setMatching(true);
     setMatches(null);
     setMsg(null);
     try {
-      const r = await fetch(`/api/v1/admin/subvenciones/match?clientId=${encodeURIComponent(clientId)}${force ? "&refresh=1" : ""}`);
+      const r = await fetch(`/api/v1/admin/subvenciones/match?clientId=${encodeURIComponent(target)}${force ? "&refresh=1" : ""}`);
       const j = await r.json().catch(() => ({}));
       if (!r.ok) setMsg(`❌ ${j?.error?.message ?? "Error"}`);
       else setMatches(j.matches ?? []);
@@ -130,11 +143,23 @@ export default function SubvencionesAdmin() {
     }
   }
 
+  async function saveProfile() {
+    setSavingProfile(true);
+    try {
+      await fetch("/api/v1/admin/subvenciones", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ agencyProfile }) });
+      setShowProfile(false);
+      // Si ya había resultados de la agencia, refréscalos con el nuevo perfil.
+      if (clientId === AGENCY_ID) void buscar(true, AGENCY_ID);
+    } finally {
+      setSavingProfile(false);
+    }
+  }
+
   return (
     <div className="p-4 sm:p-6 max-w-5xl mx-auto">
       <PageHeader
         title="Cazador de Subvenciones IA"
-        description="Convocatorias públicas abiertas (BDNS) cruzadas con cada cliente: qué le encaja, por qué y qué necesita."
+        description="Subvenciones y licitaciones públicas para Negocio Vivo (tu agencia) y, además, para tus clientes: qué encaja, por qué y qué hace falta."
         actions={
           <button onClick={ingest} disabled={ingesting} className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white text-sm px-3 py-2">
             {ingesting ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
@@ -158,54 +183,89 @@ export default function SubvencionesAdmin() {
             </div>
           </div>
 
-          {/* Cruce por cliente */}
-          <div className="mt-6 rounded-xl border border-slate-200 bg-white p-4">
-            <h2 className="text-sm font-semibold text-slate-800 mb-2">Buscar subvenciones para un cliente</h2>
+          {/* OBJETIVO PRINCIPAL: la propia agencia (Negocio Vivo) */}
+          <div className="mt-6 rounded-xl border-2 border-indigo-200 bg-gradient-to-br from-indigo-50 to-white p-4">
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <h2 className="text-sm font-bold text-indigo-900 flex items-center gap-1.5"><Target className="h-4 w-4" /> Mi agencia · Negocio Vivo</h2>
+                <p className="text-[12px] text-indigo-700/80 mt-0.5">Subvenciones <strong>y licitaciones públicas</strong> para tu agencia de marketing (objetivo principal).</p>
+              </div>
+              <button onClick={() => buscar(false, AGENCY_ID)} disabled={matching} className="shrink-0 inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-sm px-4 py-2">
+                {matching && clientId === AGENCY_ID ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+                Buscar para mi agencia
+              </button>
+            </div>
+            <button onClick={() => setShowProfile((v) => !v)} className="mt-2 text-[11px] text-indigo-600 hover:underline">
+              {showProfile ? "▾ Ocultar perfil de la agencia" : "▸ Editar perfil de la agencia (lo usa la IA para afinar el encaje)"}
+            </button>
+            {showProfile && (
+              <div className="mt-2">
+                <textarea value={agencyProfile} onChange={(e) => setAgencyProfile(e.target.value)} rows={9} className="w-full px-3 py-2 rounded-lg border bg-white text-[13px] font-mono leading-snug" placeholder="Describe Negocio Vivo: sector, servicios, ubicación, tipo (empresa/CIF), e intereses en subvenciones y licitaciones…" />
+                <div className="mt-1.5 flex items-center gap-2">
+                  <button onClick={saveProfile} disabled={savingProfile} className="rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs px-3 py-1.5">{savingProfile ? "Guardando…" : "Guardar perfil"}</button>
+                  <span className="text-[11px] text-slate-400">Si lo dejas vacío, se usa el perfil por defecto de Negocio Vivo.</span>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Cruce por cliente (secundario) */}
+          <div className="mt-4 rounded-xl border border-slate-200 bg-white p-4">
+            <h2 className="text-sm font-semibold text-slate-800 mb-2">…y también para un cliente</h2>
             <div className="flex flex-wrap items-center gap-2">
-              <select value={clientId} onChange={(e) => setClientId(e.target.value)} className="flex-1 min-w-[200px] px-3 py-2 rounded-lg border bg-white text-sm">
+              <select value={clientId === AGENCY_ID ? "" : clientId} onChange={(e) => setClientId(e.target.value)} className="flex-1 min-w-[200px] px-3 py-2 rounded-lg border bg-white text-sm">
                 <option value="">— Elige un cliente —</option>
                 {s.clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
-              <button onClick={() => buscar(false)} disabled={!clientId || matching} className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-sm px-4 py-2">
-                {matching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+              <button onClick={() => buscar(false)} disabled={!clientId || clientId === AGENCY_ID || matching} className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-sm px-4 py-2">
+                {matching && clientId !== AGENCY_ID ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
                 Buscar subvenciones
               </button>
             </div>
-            <p className="mt-1 text-[11px] text-slate-400">El resultado se cachea 12 h para no repetir el análisis IA. {matches && !matching && <button onClick={() => buscar(true)} className="text-brand-600 hover:underline">↻ volver a analizar</button>}</p>
-            {msg && <p className="mt-2 text-sm text-slate-700">{msg}</p>}
-
-            {matches && (
-              matches.length === 0 ? (
-                <p className="mt-3 text-sm text-slate-500">No se encontraron convocatorias que encajen claramente. Prueba a actualizar el catálogo o revisa el sector/ubicación del cliente.</p>
-              ) : (
-                <ul className="mt-3 space-y-2">
-                  {matches.map((m) => (
-                    <li key={m.id} className="rounded-lg border border-emerald-200 bg-emerald-50/50 p-3">
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <p className="font-semibold text-slate-900">{m.titulo}</p>
-                          <p className="text-xs text-slate-500">{m.organo || "—"} · {eur(m.importeTotal)} · cierra {fecha(m.fechaFin)}</p>
-                        </div>
-                        <span className="shrink-0 text-xs font-black text-emerald-700 bg-white border border-emerald-200 rounded-full px-2 py-0.5">{m.fitScore}</span>
-                      </div>
-                      <p className="mt-1.5 text-sm text-slate-700"><strong>Encaja porque:</strong> {m.motivo}</p>
-                      <p className="text-sm text-slate-600"><strong>Necesita:</strong> {m.requisitos}</p>
-                      <div className="mt-2 flex flex-wrap items-center gap-2">
-                        {(() => { const d = diasRestantes(m.fechaFin); return d != null ? <span className={`text-[11px] font-semibold rounded-full px-2 py-0.5 ${d <= 7 ? "bg-rose-100 text-rose-700" : "bg-slate-100 text-slate-600"}`}>⏰ cierra en {d} día{d === 1 ? "" : "s"}</span> : null; })()}
-                        <select value={m.estado ?? ""} onChange={(e) => setEstado(m.id, e.target.value)} className="text-xs border rounded px-1.5 py-1 bg-white">
-                          {ESTADOS.map((o) => <option key={o.v} value={o.v}>{o.t}</option>)}
-                        </select>
-                        {m.urlBases && <a href={m.urlBases} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs text-brand-600 hover:underline"><ExternalLink className="h-3 w-3" /> Bases / sede</a>}
-                        <button onClick={() => verBorrador(m.id, m.titulo)} disabled={borradorLoading === m.id} className="inline-flex items-center gap-1 text-xs rounded border border-brand-300 bg-brand-50 text-brand-700 px-2 py-0.5 hover:bg-brand-100 disabled:opacity-50">
-                          {borradorLoading === m.id ? <Loader2 className="h-3 w-3 animate-spin" /> : "📝"} Borrador IA
-                        </button>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              )
-            )}
+            <p className="mt-1 text-[11px] text-slate-400">El resultado se cachea 12 h para no repetir el análisis IA.</p>
           </div>
+
+          {/* Resultados (agencia o cliente) */}
+          {(matches || msg) && (
+            <div className="mt-4 rounded-xl border border-slate-200 bg-white p-4">
+              <div className="flex items-center justify-between gap-2">
+                <h2 className="text-sm font-semibold text-slate-800">Resultados{targetName ? <> · <span className={clientId === AGENCY_ID ? "text-indigo-700" : "text-emerald-700"}>{targetName}</span></> : null}</h2>
+                {matches && !matching && clientId && <button onClick={() => buscar(true, clientId)} className="text-[11px] text-brand-600 hover:underline">↻ volver a analizar</button>}
+              </div>
+              {msg && <p className="mt-2 text-sm text-slate-700">{msg}</p>}
+              {matches && (
+                matches.length === 0 ? (
+                  <p className="mt-3 text-sm text-slate-500">No se encontraron convocatorias que encajen claramente. Prueba a actualizar el catálogo{clientId === AGENCY_ID ? " o ajusta el perfil de la agencia" : " o revisa el sector/ubicación del cliente"}.</p>
+                ) : (
+                  <ul className="mt-3 space-y-2">
+                    {matches.map((m) => (
+                      <li key={m.id} className="rounded-lg border border-emerald-200 bg-emerald-50/50 p-3">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="font-semibold text-slate-900">{m.titulo}</p>
+                            <p className="text-xs text-slate-500">{m.organo || "—"} · {eur(m.importeTotal)} · cierra {fecha(m.fechaFin)}</p>
+                          </div>
+                          <span className="shrink-0 text-xs font-black text-emerald-700 bg-white border border-emerald-200 rounded-full px-2 py-0.5">{m.fitScore}</span>
+                        </div>
+                        <p className="mt-1.5 text-sm text-slate-700"><strong>Encaja porque:</strong> {m.motivo}</p>
+                        <p className="text-sm text-slate-600"><strong>Necesita:</strong> {m.requisitos}</p>
+                        <div className="mt-2 flex flex-wrap items-center gap-2">
+                          {(() => { const d = diasRestantes(m.fechaFin); return d != null ? <span className={`text-[11px] font-semibold rounded-full px-2 py-0.5 ${d <= 7 ? "bg-rose-100 text-rose-700" : "bg-slate-100 text-slate-600"}`}>⏰ cierra en {d} día{d === 1 ? "" : "s"}</span> : null; })()}
+                          <select value={m.estado ?? ""} onChange={(e) => setEstado(m.id, e.target.value)} className="text-xs border rounded px-1.5 py-1 bg-white">
+                            {ESTADOS.map((o) => <option key={o.v} value={o.v}>{o.t}</option>)}
+                          </select>
+                          {m.urlBases && <a href={m.urlBases} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs text-brand-600 hover:underline"><ExternalLink className="h-3 w-3" /> Bases / sede</a>}
+                          <button onClick={() => verBorrador(m.id, m.titulo)} disabled={borradorLoading === m.id} className="inline-flex items-center gap-1 text-xs rounded border border-brand-300 bg-brand-50 text-brand-700 px-2 py-0.5 hover:bg-brand-100 disabled:opacity-50">
+                            {borradorLoading === m.id ? <Loader2 className="h-3 w-3 animate-spin" /> : "📝"} Borrador IA
+                          </button>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )
+              )}
+            </div>
+          )}
 
           {/* Avisos de cierre (Make) */}
           <div className="mt-4 rounded-xl border border-slate-200 bg-white p-4">

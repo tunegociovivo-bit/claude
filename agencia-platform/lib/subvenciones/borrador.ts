@@ -5,26 +5,31 @@
  */
 import { prisma } from "@/lib/db/prisma";
 import { complete, AIDisabledError } from "@/lib/ai/anthropic";
+import { AGENCY_ID, getAgencyProfile } from "@/lib/subvenciones/match";
 
 export async function generarBorrador(workspaceId: string, clientId: string, convocatoriaId: string): Promise<string> {
-  const [client, convo] = await Promise.all([
-    prisma.client.findFirst({
-      where: { id: clientId, workspaceId },
-      select: { name: true, legalName: true, taxId: true, industry: true, infoGeneral: true, city: true, province: true }
-    }),
-    prisma.subvencionConvocatoria.findUnique({ where: { id: convocatoriaId } })
-  ]);
-  if (!client) throw new Error("Cliente no encontrado");
+  const convo = await prisma.subvencionConvocatoria.findUnique({ where: { id: convocatoriaId } });
   if (!convo) throw new Error("Convocatoria no encontrada");
 
-  const perfil = [
-    `Nombre: ${client.name}`,
-    client.legalName ? `Razón social: ${client.legalName}` : "",
-    client.taxId ? `NIF/CIF: ${client.taxId}` : "",
-    client.industry ? `Sector: ${client.industry}` : "",
-    client.infoGeneral ? `Descripción: ${client.infoGeneral.slice(0, 800)}` : "",
-    `Ubicación: ${[client.city, client.province].filter(Boolean).join(", ") || "—"}`
-  ].filter(Boolean).join("\n");
+  let perfil: string;
+  if (clientId === AGENCY_ID) {
+    // Borrador para la propia agencia (Negocio Vivo): subvención o licitación.
+    perfil = (await getAgencyProfile(workspaceId)).profile;
+  } else {
+    const client = await prisma.client.findFirst({
+      where: { id: clientId, workspaceId },
+      select: { name: true, legalName: true, taxId: true, industry: true, infoGeneral: true, city: true, province: true }
+    });
+    if (!client) throw new Error("Cliente no encontrado");
+    perfil = [
+      `Nombre: ${client.name}`,
+      client.legalName ? `Razón social: ${client.legalName}` : "",
+      client.taxId ? `NIF/CIF: ${client.taxId}` : "",
+      client.industry ? `Sector: ${client.industry}` : "",
+      client.infoGeneral ? `Descripción: ${client.infoGeneral.slice(0, 800)}` : "",
+      `Ubicación: ${[client.city, client.province].filter(Boolean).join(", ") || "—"}`
+    ].filter(Boolean).join("\n");
+  }
 
   const conv = [
     `Título: ${convo.titulo}`,
