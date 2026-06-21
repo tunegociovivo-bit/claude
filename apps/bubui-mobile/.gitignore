@@ -20,3 +20,8 @@ dist.p12
 dist.mobileprovision
 *.p8
 dist-ext.mobileprovision
+
+# Binarios de build descargados de EAS (artefactos, no versionar)
+*.aab
+*.apk
+*.ipa
