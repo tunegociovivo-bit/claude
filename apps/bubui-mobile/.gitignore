@@ -10,3 +10,6 @@ node_modules/
 
 # Firebase / FCM (se inyecta desde secret en CI; no commitear)
 google-services.json
+
+# Credencial de Google Play para 'eas submit' (NO subir)
+google-service-account.json
