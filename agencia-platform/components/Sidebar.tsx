@@ -27,7 +27,8 @@ import {
   Sunrise,
   Receipt,
   MapPin,
-  Building2
+  Building2,
+  Landmark
 } from "lucide-react";
 
 // Áreas de la plataforma Bubui accesibles desde "Otros Proyectos".
@@ -542,6 +543,26 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}
                 <Building2 className="h-2.5 w-2.5" />
               </span>
               <span className="font-semibold">Buscador inmobiliario</span>
+            </Link>
+
+            {/* Cazador de Subvenciones IA */}
+            <Link
+              onClick={onNavigate}
+              href="/admin/subvenciones"
+              className={clsx(
+                "mt-1 flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition-colors",
+                pathname.startsWith("/admin/subvenciones")
+                  ? "bg-brand-600/25 text-white font-medium"
+                  : "text-slate-300 hover:bg-slate-800 hover:text-white"
+              )}
+            >
+              <span
+                className="h-4 w-4 rounded-[5px] shrink-0 grid place-items-center text-white"
+                style={{ background: "linear-gradient(135deg,#6D28D9,#4C1D95)" }}
+              >
+                <Landmark className="h-2.5 w-2.5" />
+              </span>
+              <span className="font-semibold">Cazador de Subvenciones IA</span>
             </Link>
           </div>
         )}
