@@ -15,7 +15,7 @@ const AGENCY_LABEL = "Negocio Vivo (agencia)";
 
 type Convo = { id: string; titulo: string; organo: string | null; regiones: string | null; importeTotal: number | null; fechaFin: string | null; urlBases: string | null; fuente?: string };
 type Match = Convo & { fitScore: number; motivo: string; requisitos: string; estado?: string | null };
-type Status = { abiertas: number; total: number; ultimaActualizacion: string | null; convocatorias: Convo[]; clients: { id: string; name: string }[]; webhookUrl?: string; agencyProfile?: string };
+type Status = { abiertas: number; total: number; ultimaActualizacion: string | null; convocatorias: Convo[]; clients: { id: string; name: string }[]; webhookUrl?: string; oportWebhookUrl?: string; agencyProfile?: string };
 
 const ESTADOS = [
   { v: "", t: "— Estado —" },
@@ -41,6 +41,7 @@ export default function SubvencionesAdmin() {
   const [matches, setMatches] = useState<Match[] | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [webhook, setWebhook] = useState("");
+  const [oportWebhook, setOportWebhook] = useState("");
   const [savingHook, setSavingHook] = useState(false);
   const [scanRows, setScanRows] = useState<{ clientId: string; clientName: string; count: number; topTitulo: string | null; topScore: number | null; topFechaFin: string | null }[] | null>(null);
   const [scanning, setScanning] = useState(false);
@@ -84,7 +85,7 @@ export default function SubvencionesAdmin() {
   async function saveWebhook() {
     setSavingHook(true);
     try {
-      await fetch("/api/v1/admin/subvenciones", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ webhookUrl: webhook }) });
+      await fetch("/api/v1/admin/subvenciones", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ webhookUrl: webhook, oportWebhookUrl: oportWebhook }) });
     } finally {
       setSavingHook(false);
     }
@@ -104,7 +105,7 @@ export default function SubvencionesAdmin() {
     setLoading(true);
     try {
       const r = await fetch("/api/v1/admin/subvenciones");
-      if (r.ok) { const d = await r.json(); setS(d); setWebhook(d.webhookUrl ?? ""); setAgencyProfile(d.agencyProfile ?? ""); }
+      if (r.ok) { const d = await r.json(); setS(d); setWebhook(d.webhookUrl ?? ""); setOportWebhook(d.oportWebhookUrl ?? ""); setAgencyProfile(d.agencyProfile ?? ""); }
     } finally {
       setLoading(false);
     }
@@ -267,14 +268,19 @@ export default function SubvencionesAdmin() {
             </div>
           )}
 
-          {/* Avisos de cierre (Make) */}
-          <div className="mt-4 rounded-xl border border-slate-200 bg-white p-4">
-            <h2 className="text-sm font-semibold text-slate-800">Avisos de cierre de plazo</h2>
-            <p className="text-[11px] text-slate-500 mt-0.5 mb-2">Cada noche se avisa de las convocatorias marcadas como <strong>Interesa/En proceso</strong> que cierran en ≤7 días, enviando un webhook a Make (que enrutas a WhatsApp/email).</p>
-            <div className="flex flex-wrap items-center gap-2">
-              <input value={webhook} onChange={(e) => setWebhook(e.target.value)} placeholder="https://hook.eu2.make.com/…" className="flex-1 min-w-[240px] px-3 py-2 rounded-lg border bg-white text-sm font-mono" />
-              <button onClick={saveWebhook} disabled={savingHook} className="rounded-lg border bg-white hover:bg-slate-50 text-sm px-3 py-2 disabled:opacity-50">{savingHook ? "Guardando…" : "Guardar webhook"}</button>
+          {/* Avisos (Make) */}
+          <div className="mt-4 rounded-xl border border-slate-200 bg-white p-4 space-y-4">
+            <div>
+              <h2 className="text-sm font-semibold text-slate-800">Avisos de cierre de plazo</h2>
+              <p className="text-[11px] text-slate-500 mt-0.5 mb-2">Cada noche se avisa de las convocatorias marcadas como <strong>Interesa/En proceso</strong> (de la agencia o de clientes) que cierran en ≤7 días, enviando un webhook a Make (email/WhatsApp).</p>
+              <input value={webhook} onChange={(e) => setWebhook(e.target.value)} placeholder="https://hook.eu1.make.com/… (aviso de cierre)" className="w-full px-3 py-2 rounded-lg border bg-white text-sm font-mono" />
             </div>
+            <div>
+              <h2 className="text-sm font-semibold text-indigo-900 flex items-center gap-1.5"><Target className="h-4 w-4" /> Aviso de oportunidad TOP (agencia)</h2>
+              <p className="text-[11px] text-slate-500 mt-0.5 mb-2">Cada noche, la IA cruza el catálogo con el perfil de <strong>Negocio Vivo</strong> y avisa por este webhook de las <strong>subvenciones/licitaciones nuevas con encaje ≥78</strong> (sin repetir).</p>
+              <input value={oportWebhook} onChange={(e) => setOportWebhook(e.target.value)} placeholder="https://hook.eu1.make.com/… (oportunidad TOP)" className="w-full px-3 py-2 rounded-lg border bg-white text-sm font-mono" />
+            </div>
+            <button onClick={saveWebhook} disabled={savingHook} className="rounded-lg border bg-white hover:bg-slate-50 text-sm px-3 py-2 disabled:opacity-50">{savingHook ? "Guardando…" : "Guardar webhooks"}</button>
           </div>
 
           {/* Escaneo masivo de clientes */}

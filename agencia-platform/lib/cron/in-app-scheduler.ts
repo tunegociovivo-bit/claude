@@ -60,9 +60,11 @@ export function startInAppScheduler(): void {
           const { ingestConvocatorias } = await import("@/lib/subvenciones/bdns");
           const r = await ingestConvocatorias();
           console.log(`[in-app-cron] subvenciones: ${r.upserted} convocatorias (${r.fueraDeFoco} fuera de foco)`);
-          const { runSubvencionAlertas } = await import("@/lib/subvenciones/alertas");
+          const { runSubvencionAlertas, runAgencyOpportunityAlerts } = await import("@/lib/subvenciones/alertas");
           const a = await runSubvencionAlertas();
           if (a.enviados > 0) console.log(`[in-app-cron] subvenciones avisos: ${a.enviados}`);
+          const op = await runAgencyOpportunityAlerts();
+          if (op.enviados > 0) console.log(`[in-app-cron] subvenciones oportunidad TOP agencia: ${op.enviados}`);
         } catch (e) {
           console.warn("[in-app-cron] subvenciones:", (e as Error).message);
         }
