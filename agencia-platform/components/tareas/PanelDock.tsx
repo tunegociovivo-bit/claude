@@ -49,13 +49,15 @@ function buildMonth(year: number, month: number) {
 // ---- Notas: paleta de colores -------------------------------------
 type NoteColor = "amber" | "sky" | "rose" | "emerald" | "violet" | "slate";
 
+// Post-it: pastel un punto más saturado (-100) con borde definido (-300)
+// para que destaquen como notas de papel sobre el fondo oscuro del dock.
 const NOTE_STYLES: Record<NoteColor, string> = {
-  amber: "bg-amber-50 border-amber-200",
-  sky: "bg-sky-50 border-sky-200",
-  rose: "bg-rose-50 border-rose-200",
-  emerald: "bg-emerald-50 border-emerald-200",
-  violet: "bg-violet-50 border-violet-200",
-  slate: "bg-slate-50 border-slate-200"
+  amber: "bg-amber-100 border-amber-300",
+  sky: "bg-sky-100 border-sky-300",
+  rose: "bg-rose-100 border-rose-300",
+  emerald: "bg-emerald-100 border-emerald-300",
+  violet: "bg-violet-100 border-violet-300",
+  slate: "bg-slate-100 border-slate-300"
 };
 
 const NOTE_DOTS: Record<NoteColor, string> = {
@@ -87,6 +89,16 @@ export default function PanelDock({
   // Semana visible en "Tareas de esta semana": 0 = esta semana, 1 = la
   // siguiente, -1 = la anterior… (se navega con las flechas).
   const [weekOffset, setWeekOffset] = useState(0);
+  // Día sobre el que está el ratón en el calendario → muestra un popover
+  // flotante con todas sus tareas sin necesidad de hacer click. Guardamos
+  // la posición de la celda (rect) para anclar el cuadro con position:fixed
+  // (así escapa de los overflow del dock).
+  const [hover, setHover] = useState<{
+    iso: string;
+    left: number;
+    top: number;
+    bottom: number;
+  } | null>(null);
 
   const year = cursor.getFullYear();
   const month = cursor.getMonth();
@@ -234,7 +246,12 @@ export default function PanelDock({
               <button
                 key={idx}
                 onClick={() => handleDayClick(iso)}
-                title={busy ? `${list.length} tarea(s) este día` : undefined}
+                onMouseEnter={(e) => {
+                  if (!busy) return;
+                  const r = e.currentTarget.getBoundingClientRect();
+                  setHover({ iso, left: r.left + r.width / 2, top: r.top, bottom: r.bottom });
+                }}
+                onMouseLeave={() => setHover((h) => (h?.iso === iso ? null : h))}
                 className={
                   "relative h-9 rounded-md text-xs flex flex-col items-center justify-center transition " +
                   (isSelected
@@ -407,6 +424,53 @@ export default function PanelDock({
 
       {/* ---- Tablón de notas ---- */}
       <NotesBoard />
+
+      {/* Popover flotante al pasar el ratón por un día con tareas. Se ancla
+          con position:fixed a la celda; si el día está muy arriba, el cuadro
+          sale por debajo en vez de por encima. pointer-events-none para que
+          no provoque parpadeo del hover. */}
+      {hover &&
+        (() => {
+          const list = tasksByDay.get(hover.iso) ?? [];
+          if (list.length === 0) return null;
+          const below = hover.top < 260;
+          return (
+            <div
+              style={{
+                position: "fixed",
+                left: hover.left,
+                top: below ? hover.bottom + 6 : hover.top - 6,
+                transform: below ? "translate(-50%, 0)" : "translate(-50%, -100%)"
+              }}
+              className="z-[60] w-52 pointer-events-none rounded-lg border border-slate-700 bg-slate-800 shadow-xl p-2"
+            >
+              <div className="text-[11px] font-semibold text-slate-200 mb-1 capitalize">
+                {new Date(hover.iso + "T00:00:00").toLocaleDateString("es-ES", {
+                  weekday: "long",
+                  day: "numeric",
+                  month: "long"
+                })}
+              </div>
+              <ul className="space-y-1 max-h-56 overflow-hidden">
+                {list.map((t) => (
+                  <li key={t.id} className="flex items-center gap-2 text-xs text-slate-200">
+                    <span
+                      className={
+                        "h-1.5 w-1.5 rounded-full shrink-0 " +
+                        (t.priority === "urgencia"
+                          ? "bg-rose-500"
+                          : t.priority === "alta"
+                          ? "bg-amber-500"
+                          : "bg-slate-400")
+                      }
+                    />
+                    <span className="truncate">{t.title}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          );
+        })()}
     </aside>
   );
 }
@@ -537,7 +601,7 @@ function NoteCard({
   }, []);
 
   return (
-    <div className={"rounded-lg border p-2 " + NOTE_STYLES[color]}>
+    <div className={"rounded-lg border p-2 shadow-md " + NOTE_STYLES[color]}>
       <textarea
         value={note.content}
         onChange={(e) => {
