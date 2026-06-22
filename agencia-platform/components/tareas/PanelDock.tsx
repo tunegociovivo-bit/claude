@@ -190,7 +190,7 @@ export default function PanelDock({
     // ganando ese espacio para el tablero.
     <aside className="hidden xl:flex w-72 shrink-0 flex-col gap-3 sticky top-4 self-start max-h-[calc(100vh-6rem)] overflow-y-auto rounded-l-xl border border-slate-800 bg-slate-900 p-3 text-slate-300 -mr-4 sm:-mr-6 lg:-mr-8">
       {/* ---- Mini calendario ---- */}
-      <div className="rounded-xl overflow-hidden bg-slate-800 border border-slate-700">
+      <div className="shrink-0 rounded-xl overflow-hidden bg-slate-800 border border-slate-700">
         <div className="flex items-center justify-between px-3 py-2.5 border-b border-slate-700">
           <div className="flex items-center gap-1.5 text-sm font-semibold text-slate-100">
             <CalendarDays className="h-4 w-4 text-brand-400" />
@@ -339,7 +339,7 @@ export default function PanelDock({
       </div>
 
       {/* ---- Tareas de la semana (con navegación entre semanas) ---- */}
-      <div className="bg-slate-800 rounded-xl border border-slate-700 overflow-hidden">
+      <div className="shrink-0 bg-slate-800 rounded-xl border border-slate-700 overflow-hidden">
         <div className="px-3 py-2.5 border-b border-slate-700 bg-slate-700/40 space-y-2">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-1.5 text-sm font-semibold text-brand-300">
@@ -556,7 +556,7 @@ function NotesBoard() {
   }
 
   return (
-    <div className="bg-slate-800 rounded-xl border border-slate-700">
+    <div className="shrink-0 bg-slate-800 rounded-xl border border-slate-700">
       <div className="flex items-center justify-between px-3 py-2.5 border-b border-slate-700">
         <div className="flex items-center gap-1.5 text-sm font-semibold text-slate-100">
           <StickyNote className="h-4 w-4 text-amber-400" />
