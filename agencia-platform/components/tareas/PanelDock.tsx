@@ -17,7 +17,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { UiTask } from "@/lib/db/queries";
-import { ChevronLeft, ChevronRight, Plus, Trash2, StickyNote, CalendarDays, Loader2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, Trash2, StickyNote, CalendarDays, Loader2, CalendarRange } from "lucide-react";
 
 // ---- Helpers de fecha (local, sin saltos de zona horaria) ----------
 function isoLocal(d: Date): string {
@@ -25,6 +25,14 @@ function isoLocal(d: Date): string {
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
   return `${y}-${m}-${day}`;
+}
+
+// Lunes (00:00) de la semana de `d`. Semana ES = lunes→domingo.
+function startOfWeek(d: Date): Date {
+  const x = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const dow = (x.getDay() + 6) % 7; // lunes = 0
+  x.setDate(x.getDate() - dow);
+  return x;
 }
 
 function buildMonth(year: number, month: number) {
@@ -103,6 +111,25 @@ export default function PanelDock({
     }
     return set;
   }, [tasksByDay, myUserId]);
+
+  // Tareas de ESTA semana (lunes→domingo) agrupadas por día, en orden.
+  // Vista rápida de "lo que tengo que hacer esta semana".
+  const weekDays = useMemo(() => {
+    const monday = startOfWeek(today);
+    const days: { iso: string; date: Date; tasks: UiTask[] }[] = [];
+    for (let i = 0; i < 7; i++) {
+      const date = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + i);
+      const iso = isoLocal(date);
+      const tasks = tasksByDay.get(iso) ?? [];
+      if (tasks.length > 0) days.push({ iso, date, tasks });
+    }
+    return days;
+  }, [tasksByDay, today]);
+
+  const weekCount = useMemo(
+    () => weekDays.reduce((sum, d) => sum + d.tasks.length, 0),
+    [weekDays]
+  );
 
   function handleDayClick(iso: string) {
     const list = tasksByDay.get(iso) ?? [];
@@ -245,6 +272,78 @@ export default function PanelDock({
               </ul>
             )}
           </div>
+        )}
+      </div>
+
+      {/* ---- Tareas de esta semana ---- */}
+      <div className="bg-white rounded-xl border overflow-hidden">
+        <div className="flex items-center justify-between px-3 py-2.5 border-b bg-brand-50/60">
+          <div className="flex items-center gap-1.5 text-sm font-semibold text-brand-700">
+            <CalendarRange className="h-4 w-4" />
+            Tareas de esta semana
+          </div>
+          {weekCount > 0 && (
+            <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-brand-600 text-white">
+              {weekCount}
+            </span>
+          )}
+        </div>
+        {weekDays.length === 0 ? (
+          <div className="px-3 py-4 text-xs text-slate-400 text-center">
+            No tienes tareas con fecha esta semana. 🎉
+          </div>
+        ) : (
+          <ul className="divide-y">
+            {weekDays.map(({ iso, date, tasks }) => {
+              const isToday = iso === isoToday;
+              return (
+                <li key={iso} className="px-3 py-2">
+                  <div
+                    className={
+                      "text-[11px] font-medium mb-1 flex items-center gap-1.5 " +
+                      (isToday ? "text-brand-600" : "text-slate-500")
+                    }
+                  >
+                    <span className="capitalize">
+                      {date.toLocaleDateString("es-ES", { weekday: "long", day: "numeric" })}
+                    </span>
+                    {isToday && (
+                      <span className="text-[9px] uppercase tracking-wide px-1.5 py-0.5 rounded-full bg-brand-100 text-brand-700">
+                        Hoy
+                      </span>
+                    )}
+                  </div>
+                  <ul className="space-y-1">
+                    {tasks.map((t) => (
+                      <li key={t.id}>
+                        <button
+                          onClick={() => onOpenTask(t)}
+                          className={
+                            "w-full text-left text-xs px-2 py-1.5 rounded-md flex items-center gap-2 border-l-2 transition " +
+                            (isToday
+                              ? "border-brand-500 bg-brand-50/50 hover:bg-brand-50"
+                              : "border-slate-200 hover:bg-slate-50")
+                          }
+                        >
+                          <span
+                            className={
+                              "h-1.5 w-1.5 rounded-full shrink-0 " +
+                              (t.priority === "urgencia"
+                                ? "bg-rose-500"
+                                : t.priority === "alta"
+                                ? "bg-amber-500"
+                                : "bg-slate-300")
+                            }
+                          />
+                          <span className="truncate">{t.title}</span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </li>
+              );
+            })}
+          </ul>
         )}
       </div>
 
