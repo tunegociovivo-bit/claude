@@ -105,12 +105,19 @@ export default function RegistroNegocio() {
       <div className="text-center mb-8 bubui-fade-up">
         <span className="bubui-eyebrow">Para negocios</span>
         <h1 className="bubui-wordmark mx-auto justify-center mt-4" style={{ fontSize: 64 }}>bubui</h1>
-        <p className="text-black mt-3 font-bold tracking-tight">
-          Ahorra. Disfruta. <span style={{ color: "#EC4899" }}>Apoya local.</span>
-        </p>
-        <h2 className="text-2xl sm:text-3xl font-black mt-6 tracking-tight">Alta de negocio</h2>
-        <p className="text-black/60 text-sm mt-2">
-          Gratis. 2 minutos. Tú eliges: imprimes tu QR o te lo llevamos gratis al local.
+        <h2 className="text-2xl sm:text-3xl font-black mt-5 tracking-tight leading-tight">
+          Más clientes, más visibilidad y <span style={{ color: "#EC4899" }}>subvenciones</span> para tu negocio.
+          <br />
+          <span style={{ color: "#EC4899" }}>Todo gratis.</span>
+        </h2>
+        {/* Tira de 3 beneficios — el gancho de un vistazo */}
+        <div className="flex items-center justify-center gap-2 mt-4 flex-wrap text-sm font-bold">
+          <span className="inline-flex items-center gap-1.5 bg-white border rounded-full px-3 py-1.5">🧲 Clientes nuevos</span>
+          <span className="inline-flex items-center gap-1.5 bg-white border rounded-full px-3 py-1.5">👀 Más visibilidad</span>
+          <span className="inline-flex items-center gap-1.5 bg-white border rounded-full px-3 py-1.5">💶 Subvenciones para crecer</span>
+        </div>
+        <p className="text-black/60 text-sm mt-4">
+          Date de alta gratis en 2 minutos. Tú eliges: imprimes tu QR o te lo llevamos gratis al local.
         </p>
       </div>
       <form onSubmit={submit} className="space-y-4 bg-white border rounded-2xl p-6 shadow-sm">
