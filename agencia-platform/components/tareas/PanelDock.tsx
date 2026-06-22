@@ -16,6 +16,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { UiTask } from "@/lib/db/queries";
 import { ChevronLeft, ChevronRight, Plus, Trash2, StickyNote, CalendarDays, Loader2, CalendarRange } from "lucide-react";
 
@@ -184,7 +185,10 @@ export default function PanelDock({
     // Columna fija oscura, mismo aire que la barra de navegación de la
     // izquierda (bg-slate-900). Las tarjetas internas son superficies un
     // punto más claras (slate-800) con texto claro.
-    <aside className="hidden xl:flex w-80 shrink-0 flex-col gap-3 sticky top-4 self-start max-h-[calc(100vh-6rem)] overflow-y-auto rounded-xl border border-slate-800 bg-slate-900 p-3 text-slate-300">
+    // Margen negativo derecho para cancelar el padding del <main>
+    // (px-4/sm:px-6/lg:px-8) y pegar la columna al borde de la pantalla,
+    // ganando ese espacio para el tablero.
+    <aside className="hidden xl:flex w-72 shrink-0 flex-col gap-3 sticky top-4 self-start max-h-[calc(100vh-6rem)] overflow-y-auto rounded-l-xl border border-slate-800 bg-slate-900 p-3 text-slate-300 -mr-4 sm:-mr-6 lg:-mr-8">
       {/* ---- Mini calendario ---- */}
       <div className="rounded-xl overflow-hidden bg-slate-800 border border-slate-700">
         <div className="flex items-center justify-between px-3 py-2.5 border-b border-slate-700">
@@ -430,11 +434,12 @@ export default function PanelDock({
           sale por debajo en vez de por encima. pointer-events-none para que
           no provoque parpadeo del hover. */}
       {hover &&
+        typeof document !== "undefined" &&
         (() => {
           const list = tasksByDay.get(hover.iso) ?? [];
           if (list.length === 0) return null;
           const below = hover.top < 260;
-          return (
+          return createPortal(
             <div
               style={{
                 position: "fixed",
@@ -442,7 +447,7 @@ export default function PanelDock({
                 top: below ? hover.bottom + 6 : hover.top - 6,
                 transform: below ? "translate(-50%, 0)" : "translate(-50%, -100%)"
               }}
-              className="z-[60] w-52 pointer-events-none rounded-lg border border-slate-700 bg-slate-800 shadow-xl p-2"
+              className="z-[9999] w-52 pointer-events-none rounded-lg border border-slate-700 bg-slate-800 shadow-xl p-2"
             >
               <div className="text-[11px] font-semibold text-slate-200 mb-1 capitalize">
                 {new Date(hover.iso + "T00:00:00").toLocaleDateString("es-ES", {
@@ -468,7 +473,8 @@ export default function PanelDock({
                   </li>
                 ))}
               </ul>
-            </div>
+            </div>,
+            document.body
           );
         })()}
     </aside>
