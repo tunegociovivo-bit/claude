@@ -62,7 +62,15 @@ export default function SubvencionValidateView({
                 </div>
                 {m.motivo && <p className="text-xs text-slate-600 mt-1">{m.motivo}</p>}
                 <div className="text-[11px] text-slate-400 mt-1.5 flex gap-3">
-                  {m.fechaFin && <span>Cierra: {new Date(m.fechaFin).toLocaleDateString("es-ES")}</span>}
+                  {(() => {
+                    if (!m.fechaFin) return null;
+                    const d = Math.ceil((new Date(m.fechaFin).getTime() - Date.now()) / (24 * 60 * 60 * 1000));
+                    return d >= 0 && d <= 15 ? (
+                      <span className="text-rose-600 font-semibold">⏳ Cierra en {d} día{d === 1 ? "" : "s"}</span>
+                    ) : (
+                      <span>Cierra: {new Date(m.fechaFin).toLocaleDateString("es-ES")}</span>
+                    );
+                  })()}
                   {m.urlBases && (
                     <a href={m.urlBases} target="_blank" rel="noreferrer" className="text-pink-600 hover:underline">
                       Ver bases

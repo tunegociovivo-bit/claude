@@ -42,6 +42,27 @@ async function firstWorkspaceId(): Promise<string | null> {
   return ws?.id ?? null;
 }
 
+/** Días que faltan para el cierre (negativo si ya pasó, null si sin fecha). */
+export function daysUntilClose(iso: string | null): number | null {
+  if (!iso) return null;
+  const ms = new Date(iso).getTime() - Date.now();
+  return Math.ceil(ms / (24 * 60 * 60 * 1000));
+}
+
+// Orden de visualización: lo que cierra pronto (<=30 días) primero, por
+// cercanía de cierre; el resto por relevancia (fitScore). Así no se pierde
+// una ayuda a punto de cerrar entre las de mucho plazo.
+function byUrgencyThenFit(a: SubvProposalMatch, b: SubvProposalMatch): number {
+  const da = daysUntilClose(a.fechaFin);
+  const db = daysUntilClose(b.fechaFin);
+  const au = da != null && da >= 0 && da <= 30;
+  const bu = db != null && db >= 0 && db <= 30;
+  if (au && bu) return (da as number) - (db as number);
+  if (au) return -1;
+  if (bu) return 1;
+  return b.fitScore - a.fitScore;
+}
+
 function toSnapshot(m: ClientMatch): SubvProposalMatch {
   return {
     id: m.id,
@@ -99,7 +120,7 @@ export async function scanBusinessForSubvenciones(
 
   if (fresh.length === 0) return { created: false, count: 0 };
 
-  const snapshot = fresh.map(toSnapshot);
+  const snapshot = fresh.map(toSnapshot).sort(byUrgencyThenFit);
   const proposal = await prisma.bubuiSubvencionProposal.create({
     data: { businessId, status: "pending", matches: snapshot as any }
   });
@@ -154,7 +175,13 @@ export function triggerScanInBackground(businessId: string): void {
 function buildMessages(businessName: string, matches: SubvProposalMatch[], url: string) {
   const lines = matches.map((m) => {
     const importe = m.importeTotal ? ` — hasta ${Math.round(m.importeTotal).toLocaleString("es-ES")} €` : "";
-    const cierre = m.fechaFin ? ` (cierra ${new Date(m.fechaFin).toLocaleDateString("es-ES")})` : "";
+    const d = daysUntilClose(m.fechaFin);
+    const cierre =
+      d != null && d >= 0 && d <= 15
+        ? ` ⏳ cierra en ${d} día${d === 1 ? "" : "s"}`
+        : m.fechaFin
+        ? ` (cierra ${new Date(m.fechaFin).toLocaleDateString("es-ES")})`
+        : "";
     return `• ${m.titulo}${importe}${cierre}`;
   });
   const text =
@@ -167,7 +194,13 @@ function buildMessages(businessName: string, matches: SubvProposalMatch[], url: 
   const itemsHtml = matches
     .map((m) => {
       const importe = m.importeTotal ? `<span style="color:#059669;font-weight:600"> — hasta ${Math.round(m.importeTotal).toLocaleString("es-ES")} €</span>` : "";
-      const cierre = m.fechaFin ? `<span style="color:#64748b"> (cierra ${new Date(m.fechaFin).toLocaleDateString("es-ES")})</span>` : "";
+      const d = daysUntilClose(m.fechaFin);
+      const cierre =
+        d != null && d >= 0 && d <= 15
+          ? `<span style="color:#dc2626;font-weight:600"> ⏳ cierra en ${d} día${d === 1 ? "" : "s"}</span>`
+          : m.fechaFin
+          ? `<span style="color:#64748b"> (cierra ${new Date(m.fechaFin).toLocaleDateString("es-ES")})</span>`
+          : "";
       const motivo = m.motivo ? `<div style="color:#475569;font-size:13px;margin-top:2px">${m.motivo}</div>` : "";
       return `<li style="margin-bottom:10px"><strong>${m.titulo}</strong>${importe}${cierre}${motivo}</li>`;
     })

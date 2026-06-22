@@ -39,9 +39,23 @@ const STATUS_CLASS: Record<string, string> = {
   rejected: "bg-slate-100 text-slate-500 border-slate-200"
 };
 
+type Metrics = {
+  total: number;
+  validationRate: number;
+  eurosEnJuego: number;
+  bySector: { name: string; count: number }[];
+  byZona: { name: string; count: number }[];
+};
+
+function daysUntil(iso?: string | null): number | null {
+  if (!iso) return null;
+  return Math.ceil((new Date(iso).getTime() - Date.now()) / (24 * 60 * 60 * 1000));
+}
+
 export default function BubuiSubvencionesReview() {
   const [items, setItems] = useState<Proposal[]>([]);
   const [counts, setCounts] = useState<{ pending: number; sent: number; accepted: number } | null>(null);
+  const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
 
@@ -53,6 +67,7 @@ export default function BubuiSubvencionesReview() {
         const d = await r.json();
         setItems(d.items ?? []);
         setCounts(d.counts ?? null);
+        setMetrics(d.metrics ?? null);
       }
     } finally {
       setLoading(false);
@@ -95,10 +110,34 @@ export default function BubuiSubvencionesReview() {
       </p>
 
       {counts && (
-        <div className="flex gap-2 mb-4 text-xs">
+        <div className="flex gap-2 mb-4 text-xs flex-wrap">
           <span className="px-2.5 py-1 rounded-full bg-amber-100 text-amber-800 font-semibold">{counts.pending} pendientes</span>
           <span className="px-2.5 py-1 rounded-full bg-sky-100 text-sky-800 font-semibold">{counts.sent} enviadas</span>
           <span className="px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800 font-semibold">{counts.accepted} aceptadas</span>
+        </div>
+      )}
+
+      {/* Métricas (también sirven de argumento para el ayuntamiento). */}
+      {metrics && (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4">
+          <div className="rounded-lg border bg-slate-50 p-3">
+            <div className="text-lg font-bold">{metrics.total}</div>
+            <div className="text-[11px] text-slate-500">Propuestas totales</div>
+          </div>
+          <div className="rounded-lg border bg-slate-50 p-3">
+            <div className="text-lg font-bold">{metrics.validationRate}%</div>
+            <div className="text-[11px] text-slate-500">Validación (aceptan / enviadas)</div>
+          </div>
+          <div className="rounded-lg border bg-emerald-50 p-3">
+            <div className="text-lg font-bold text-emerald-700">{metrics.eurosEnJuego.toLocaleString("es-ES")} €</div>
+            <div className="text-[11px] text-slate-500">En juego (ayudas de comercios interesados)</div>
+          </div>
+          <div className="rounded-lg border bg-slate-50 p-3">
+            <div className="text-[11px] text-slate-500 mb-0.5">Por sector</div>
+            <div className="text-[11px] text-slate-700 leading-tight">
+              {metrics.bySector.slice(0, 3).map((s) => `${s.name} (${s.count})`).join(", ") || "—"}
+            </div>
+          </div>
         </div>
       )}
 
@@ -145,17 +184,25 @@ export default function BubuiSubvencionesReview() {
               </div>
 
               <ul className="mt-3 space-y-1.5">
-                {p.matches.map((m) => (
-                  <li key={m.id} className="text-xs flex items-start gap-2">
-                    <span className="text-slate-300 mt-0.5">•</span>
-                    <span className="text-slate-700">
-                      <strong>{m.titulo}</strong>
-                      {m.importeTotal ? <span className="text-emerald-700 font-semibold"> — hasta {Math.round(m.importeTotal).toLocaleString("es-ES")} €</span> : null}
-                      {m.fechaFin ? <span className="text-slate-400"> (cierra {new Date(m.fechaFin).toLocaleDateString("es-ES")})</span> : null}
-                      {m.motivo ? <span className="block text-slate-500">{m.motivo}</span> : null}
-                    </span>
-                  </li>
-                ))}
+                {p.matches.map((m) => {
+                  const d = daysUntil(m.fechaFin);
+                  const urgent = d != null && d >= 0 && d <= 15;
+                  return (
+                    <li key={m.id} className="text-xs flex items-start gap-2">
+                      <span className="text-slate-300 mt-0.5">•</span>
+                      <span className="text-slate-700">
+                        <strong>{m.titulo}</strong>
+                        {m.importeTotal ? <span className="text-emerald-700 font-semibold"> — hasta {Math.round(m.importeTotal).toLocaleString("es-ES")} €</span> : null}
+                        {urgent ? (
+                          <span className="text-rose-600 font-semibold"> ⏳ cierra en {d} día{d === 1 ? "" : "s"}</span>
+                        ) : m.fechaFin ? (
+                          <span className="text-slate-400"> (cierra {new Date(m.fechaFin).toLocaleDateString("es-ES")})</span>
+                        ) : null}
+                        {m.motivo ? <span className="block text-slate-500">{m.motivo}</span> : null}
+                      </span>
+                    </li>
+                  );
+                })}
               </ul>
 
               {p.status !== "pending" && (

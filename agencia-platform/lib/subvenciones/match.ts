@@ -9,6 +9,7 @@
  */
 import { prisma } from "@/lib/db/prisma";
 import { completeJson, AIDisabledError } from "@/lib/ai/anthropic";
+import { cnaeForCategory } from "./cnae";
 
 // Id centinela para tratar a la agencia como un "objetivo" más (estados,
 // borradores, avisos) sin tener que crear un Client falso.
@@ -205,6 +206,10 @@ export async function matchForBubuiBusiness(
     `Nombre: ${business.name}`,
     business.category ? `Sector/actividad: ${business.category}` : "",
     business.businessType ? `Tipo de negocio: ${business.businessType}` : "",
+    (() => {
+      const cnae = cnaeForCategory(business.category, business.businessType ?? null);
+      return cnae ? `CNAE aproximado: ${cnae.code} (${cnae.label})` : "";
+    })(),
     `Ubicación: ${[business.city, business.province].filter(Boolean).join(", ") || "—"}`,
     "Tipo: comercio local (pyme o autónomo)"
   ].filter(Boolean).join("\n");

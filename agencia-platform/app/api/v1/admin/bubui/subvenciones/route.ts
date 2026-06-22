@@ -45,11 +45,50 @@ export const GET = withApi({ scope: "*" }, async () => {
     }
   }));
 
+  // Métricas agregadas sobre TODAS las propuestas (no solo las 150 listadas).
+  const all = await prisma.bubuiSubvencionProposal.findMany({
+    take: 3000,
+    select: { status: true, matches: true, business: { select: { category: true, city: true } } }
+  });
+
   const counts = {
-    pending: items.filter((i) => i.status === "pending").length,
-    sent: items.filter((i) => i.status === "sent").length,
-    accepted: items.filter((i) => i.status === "accepted").length
+    pending: all.filter((i) => i.status === "pending").length,
+    sent: all.filter((i) => i.status === "sent").length,
+    accepted: all.filter((i) => i.status === "accepted").length,
+    rejected: all.filter((i) => i.status === "rejected").length
   };
 
-  return NextResponse.json({ items, counts });
+  // % de validación: de las enviadas, cuántas acepta el comercio.
+  const enviadasTotal = counts.sent + counts.accepted;
+  const validationRate = enviadasTotal > 0 ? Math.round((counts.accepted / enviadasTotal) * 100) : 0;
+
+  // € "en juego": suma del importe de las ayudas de las propuestas ACEPTADAS
+  // (comercios que quieren que se las gestionemos). Proxy de oportunidad.
+  let eurosEnJuego = 0;
+  const bySector: Record<string, number> = {};
+  const byZona: Record<string, number> = {};
+  for (const p of all) {
+    const ms = (p.matches as unknown as { importeTotal?: number | null }[]) ?? [];
+    if (p.status === "accepted") {
+      for (const m of ms) if (typeof m.importeTotal === "number") eurosEnJuego += m.importeTotal;
+    }
+    const sector = (p.business.category ?? "—").trim() || "—";
+    const zona = (p.business.city ?? "—").trim() || "—";
+    bySector[sector] = (bySector[sector] ?? 0) + 1;
+    byZona[zona] = (byZona[zona] ?? 0) + 1;
+  }
+  const top = (rec: Record<string, number>) =>
+    Object.entries(rec).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([k, v]) => ({ name: k, count: v }));
+
+  return NextResponse.json({
+    items,
+    counts,
+    metrics: {
+      total: all.length,
+      validationRate,
+      eurosEnJuego: Math.round(eurosEnJuego),
+      bySector: top(bySector),
+      byZona: top(byZona)
+    }
+  });
 });
