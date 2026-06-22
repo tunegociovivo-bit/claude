@@ -36,6 +36,9 @@ export default async function DirectorioIndex() {
       <header className="max-w-5xl mx-auto px-4 pt-10 pb-6">
         <h1 className="text-3xl sm:text-4xl font-black text-slate-900">Directorio de negocios locales</h1>
         <p className="mt-2 text-slate-600 max-w-2xl">Negocios de tu zona con descuentos y ofertas en Bubui. Elige tu sector y tu localidad.</p>
+        <Link href="/mejores" className="mt-3 inline-flex items-center gap-2 rounded-full bg-amber-100 text-amber-800 font-semibold text-sm px-4 py-2 hover:bg-amber-200">
+          🏆 Ver los rankings: los mejores negocios por sector y ciudad
+        </Link>
         {searchItems.length > 0 && (
           <div className="mt-5 max-w-xl">
             <DirectorySearch items={searchItems} />

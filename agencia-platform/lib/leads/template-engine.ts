@@ -9,6 +9,7 @@ import { prisma } from "@/lib/db/prisma";
 import { pickNegativeReview, clip } from "./reviews";
 import { provisionBubuiFromLead } from "@/lib/bubui/provision";
 import { bubuiUrl } from "@/lib/bubui/url";
+import { getCompetitorRanking, type CompetitorRanking } from "./competitors";
 
 export const SUPPORTED_PLACEHOLDERS = [
   "nombre_negocio",
@@ -27,6 +28,7 @@ export const SUPPORTED_PLACEHOLDERS = [
   "competidor_top2",
   "competidor_top3",
   "competidores_lista",
+  "competidores_por_delante",
   "score",
   "urgencia",
   "opener_ia",
@@ -47,10 +49,33 @@ function starsFor(rating: number | null): string {
   return "★".repeat(r) + "☆".repeat(Math.max(0, 5 - r));
 }
 
+// Caché del ranking en vivo por lead (evita repetir la llamada a Google en
+// envíos masivos / previsualizaciones seguidas). TTL corto.
+const RANKING_CACHE = new Map<string, { at: number; data: CompetitorRanking | null }>();
+const RANKING_TTL_MS = 30 * 60 * 1000;
+
+async function getLiveRanking(workspaceId: string, lead: any): Promise<CompetitorRanking | null> {
+  if (!lead?.placeId) return null;
+  const cached = RANKING_CACHE.get(lead.id);
+  if (cached && Date.now() - cached.at < RANKING_TTL_MS) return cached.data;
+  let data: CompetitorRanking | null = null;
+  try {
+    // Solo lectura: no sobrescribe competidores guardados ni cosecha leads.
+    data = await getCompetitorRanking(workspaceId, lead, { store: false, harvest: false });
+  } catch {
+    data = null;
+  }
+  RANKING_CACHE.set(lead.id, { at: Date.now(), data });
+  return data;
+}
+
 export async function renderTemplate(opts: {
   workspaceId: string;
   body: string;
   leadId: string;
+  /** Snapshot del ranking a usar (para que texto e imagen cuadren). Si se pasa
+   *  (aunque sea null), NO se consulta el ranking en vivo. */
+  ranking?: CompetitorRanking | null;
 }): Promise<string> {
   const lead = await prisma.lead.findFirst({
     where: { id: opts.leadId, workspaceId: opts.workspaceId },
@@ -99,6 +124,7 @@ export async function renderTemplate(opts: {
     competidor_top2: competitorNames[1] ?? "",
     competidor_top3: competitorNames[2] ?? "",
     competidores_lista: competitorNames.slice(0, 3).join(", "),
+    competidores_por_delante: lead.position != null ? String(Math.max(0, lead.position - 1)) : "",
     score: lead.score != null ? String(lead.score) : "",
     urgencia: lead.urgency ?? "",
     opener_ia: lead.aiOpener ?? "",
@@ -115,6 +141,28 @@ export async function renderTemplate(opts: {
       };
     })()
   };
+
+  // POSICIÓN/COMPETIDOR consistentes con la IMAGEN del ranking: {{posicion}} y
+  // {{competidor_top}} deben salir del MISMO ranking en vivo por cercanía que
+  // usa la tarjeta (getCompetitorRanking), no del scrape por palabra clave (que
+  // da otra posición y contradecía la imagen). Solo si la plantilla los usa.
+  if (/\{\{\s*(posicion|competidor_top|competidores_por_delante)\s*\}\}/.test(opts.body)) {
+    // Si nos dan un snapshot lo usamos (consistencia texto↔imagen); si no, en vivo.
+    const live = opts.ranking !== undefined ? opts.ranking : await getLiveRanking(opts.workspaceId, lead);
+    if (live) {
+      // Fuera del top → "20+" (igual que el badge de la imagen), no el total.
+      vars.posicion = live.leadPosition != null ? String(live.leadPosition) : "20+";
+      vars.competidores_por_delante = String(live.aboveCount);
+      const topComp = live.rows.find((r: any) => !r.isLead)?.name;
+      if (topComp) {
+        vars.competidor_top = topComp;
+        const others = live.rows.filter((r: any) => !r.isLead).map((r: any) => r.name);
+        if (others[1]) vars.competidor_top2 = others[1];
+        if (others[2]) vars.competidor_top3 = others[2];
+        if (others.length) vars.competidores_lista = others.slice(0, 3).join(", ");
+      }
+    }
+  }
 
   // Enlace de activación: solo si la plantilla lo usa (provisiona la ficha de
   // Bubui de este lead bajo demanda y mete su enlace mágico único).

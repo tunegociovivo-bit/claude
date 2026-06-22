@@ -13,7 +13,7 @@
  */
 
 import { LucideIcon } from "lucide-react";
-import { Star, Mic, FileText, Download, MessageSquare, Sparkles, Megaphone, Puzzle, Store } from "lucide-react";
+import { Star, Mic, FileText, Download, MessageSquare, Sparkles, Megaphone, Puzzle, Store, Landmark } from "lucide-react";
 
 export type PlatformKey =
   | "reviews"
@@ -24,7 +24,8 @@ export type PlatformKey =
   | "asana_import"
   | "meta_campaigns"
   | "chrome_extension"
-  | "bubui_directorio";
+  | "bubui_directorio"
+  | "subvenciones";
 
 export type PlatformDef = {
   key: PlatformKey;
@@ -36,6 +37,9 @@ export type PlatformDef = {
   available: boolean;
   /** Texto explicativo si no está disponible */
   pendingMessage?: string;
+  /** Visible en el sidebar aunque el workspace no la haya configurado todavía.
+   *  El admin puede desactivarla explícitamente en /admin/plataformas. */
+  defaultEnabled?: boolean;
 };
 
 export const PLATFORMS: PlatformDef[] = [
@@ -110,6 +114,15 @@ export const PLATFORMS: PlatformDef[] = [
     href: "/admin/bubui",
     icon: Store,
     available: true
+  },
+  {
+    key: "subvenciones",
+    label: "Cazador de Subvenciones IA",
+    description: "Detecta convocatorias públicas abiertas (BDNS) y las cruza con cada cliente: qué le encaja, por qué califica y qué necesita para solicitarla.",
+    href: "/admin/subvenciones",
+    icon: Landmark,
+    available: true,
+    defaultEnabled: true
   }
 ];
 
@@ -156,7 +169,10 @@ export function platformsVisibleTo(
   return PLATFORMS
     .filter((p) => {
       const c = cfg[p.key];
-      if (!c?.enabled) return false;
+      // Sin config explícita → usa defaultEnabled del catálogo. Con config →
+      // manda el flag enabled (permite que el admin la desactive a propósito).
+      const enabled = c ? !!c.enabled : !!p.defaultEnabled;
+      if (!enabled) return false;
       if (isAdmin) return true;
       if (!c.memberIds || c.memberIds.length === 0) return true;
       return c.memberIds.includes(userId);

@@ -23,6 +23,80 @@ export type LeadChannel = {
 
 const DEFAULT_CHANNEL_DAILY_LIMIT = 50;
 
+/**
+ * Tope diario EFECTIVO de un canal según su calentamiento POR TELÉFONO.
+ * Cada número arranca su propia rampa desde su `addedAt` (no desde la edad de
+ * la cuenta), así un número nuevo en una cuenta antigua no envía a tope desde
+ * el día 1 (la causa típica del baneo). Sin addedAt → se asume ya calentado.
+ */
+export function channelWarmupCap(channel: any, leads: any): { cap: number; warming: boolean; dayIndex: number; warmupDays: number } {
+  const configured = channel?.dailyLimit ?? DEFAULT_CHANNEL_DAILY_LIMIT;
+  const warmupDays = Number(leads?.warmupDays) || 21;
+  const startCap = Math.min(Number(leads?.warmupStartCap) || 10, configured);
+  // warmupSince permite reiniciar la rampa (teléfono nuevo O recuperado de un
+  // baneo); si no, la fecha de alta.
+  const startStr = channel?.warmupSince || channel?.addedAt;
+  const added = startStr ? Date.parse(startStr) : NaN;
+  if (leads?.warmupEnabled === false || !added || Number.isNaN(added)) {
+    return { cap: configured, warming: false, dayIndex: warmupDays, warmupDays };
+  }
+  const dayIndex = Math.floor((Date.now() - added) / 86_400_000) + 1;
+  if (dayIndex >= warmupDays) return { cap: configured, warming: false, dayIndex, warmupDays };
+  const ramp = startCap + ((configured - startCap) * (dayIndex - 1)) / Math.max(1, warmupDays - 1);
+  return { cap: Math.max(startCap, Math.min(configured, Math.round(ramp))), warming: true, dayIndex, warmupDays };
+}
+
+const SENT_OK = ["sent", "delivered", "read"];
+
+/** Mensajes ya enviados HOY por un canal (null = principal). */
+async function sentTodayByChannel(workspaceId: string, instanceName: string | null): Promise<number> {
+  const dayStart = new Date();
+  dayStart.setHours(0, 0, 0, 0);
+  return prisma.leadMessage.count({
+    where: { workspaceId, instanceName, status: { in: SENT_OK }, sentAt: { gte: dayStart } }
+  });
+}
+
+/**
+ * Enforce del tope de calentamiento AL ENVIAR: si el canal asignado a un
+ * mensaje ya llegó a su tope diario (warm-up), reasigna a otro canal sano que
+ * aún tenga cupo, o pide aplazar el mensaje. Devuelve null si no hay que tocar.
+ */
+export async function warmupReroute(
+  workspaceId: string,
+  currentInstanceName: string | null
+): Promise<{ reassignTo: string | null } | { defer: true } | null> {
+  if (!currentInstanceName) return null; // el principal no tiene rampa aquí
+  const ws = await prisma.workspace.findUnique({ where: { id: workspaceId } });
+  const leads: any = (ws?.settings as any)?.leads ?? {};
+  const channels: any[] = (Array.isArray(leads.channels) ? leads.channels : []).filter(
+    (c: any) => c && typeof c.name === "string" && c.name.trim() && c.active !== false
+  );
+  const cur = channels.find((c) => c.name === currentInstanceName);
+  if (!cur) return null;
+  const curCap = channelWarmupCap(cur, leads).cap;
+  const curUsed = await sentTodayByChannel(workspaceId, currentInstanceName);
+  if (curUsed < curCap) return null; // aún tiene cupo → enviar normal
+
+  // Sobrepasó su cupo: buscar alternativa sana con hueco (incluye principal).
+  const health = await getChannelsHealthMap(workspaceId, channels);
+  type Slot = { instanceName: string | null; cap: number };
+  const slots: Slot[] = [
+    { instanceName: null, cap: Number(leads.dailyLimit) || 80 },
+    ...channels
+      .filter((c) => c.name !== currentInstanceName && health.get(c.name) !== "quarantined")
+      .map((c) => ({ instanceName: c.name as string, cap: channelWarmupCap(c, leads).cap }))
+  ];
+  let best: { instanceName: string | null; free: number } | null = null;
+  for (const s of slots) {
+    const used = await sentTodayByChannel(workspaceId, s.instanceName);
+    const free = s.cap - used;
+    if (free > 0 && (!best || free > best.free)) best = { instanceName: s.instanceName, free };
+  }
+  if (best) return { reassignTo: best.instanceName };
+  return { defer: true };
+}
+
 export async function getLeadChannels(workspaceId: string): Promise<LeadChannel[]> {
   const ws = await prisma.workspace.findUnique({ where: { id: workspaceId } });
   const arr = (ws?.settings as any)?.leads?.channels;
@@ -109,7 +183,8 @@ export async function pickEnqueueChannel(workspaceId: string): Promise<string | 
   type Slot = { key: string; instanceName: string | null; dailyLimit: number };
   const slots: Slot[] = [
     { key: PRINCIPAL, instanceName: null, dailyLimit: Number(leads.dailyLimit) || 80 },
-    ...channels.map((c) => ({ key: c.name, instanceName: c.name, dailyLimit: c.dailyLimit ?? DEFAULT_CHANNEL_DAILY_LIMIT }))
+    // Cada número extra usa su tope EFECTIVO de calentamiento (rampa por teléfono).
+    ...channels.map((c) => ({ key: c.name, instanceName: c.name, dailyLimit: channelWarmupCap(c, leads).cap }))
   ];
 
   // Salud: descartamos canales en cuarentena (el principal se asume disponible).

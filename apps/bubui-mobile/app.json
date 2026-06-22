@@ -2,7 +2,7 @@
   "expo": {
     "name": "Bubui",
     "slug": "bipi",
-    "version": "1.0.2",
+    "version": "1.0.3",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
@@ -21,8 +21,7 @@
       "infoPlist": {
         "NSCameraUsageDescription": "Bubui necesita la cámara para escanear el QR de los negocios y aplicarte el descuento.",
         "NSLocationWhenInUseUsageDescription": "Bubui usa tu ubicación para mostrarte los descuentos cerca de ti.",
-        "NSLocationAlwaysAndWhenInUseUsageDescription": "Bubui usa tu ubicación para avisarte cuando pasas junto a un negocio donde tienes un cupón.",
-        "UIBackgroundModes": ["location", "fetch"],
+        "UIBackgroundModes": ["fetch"],
         "LSApplicationQueriesSchemes": ["whatsapp"]
       },
       "associatedDomains": [
@@ -42,9 +41,6 @@
         "CAMERA",
         "ACCESS_COARSE_LOCATION",
         "ACCESS_FINE_LOCATION",
-        "ACCESS_BACKGROUND_LOCATION",
-        "FOREGROUND_SERVICE",
-        "FOREGROUND_SERVICE_LOCATION",
         "POST_NOTIFICATIONS"
       ],
       "intentFilters": [
@@ -111,9 +107,7 @@
       [
         "expo-location",
         {
-          "locationAlwaysAndWhenInUsePermission": "Bubui usa tu ubicación para mostrar descuentos cerca y avisarte cuando pases junto a uno.",
-          "isAndroidBackgroundLocationEnabled": true,
-          "isAndroidForegroundServiceEnabled": true
+          "locationWhenInUsePermission": "Bubui usa tu ubicación para mostrarte los descuentos cerca de ti."
         }
       ],
       [

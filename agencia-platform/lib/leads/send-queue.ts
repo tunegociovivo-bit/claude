@@ -10,7 +10,7 @@ import { renderTemplate } from "./template-engine";
 import { aiRewriteMessage } from "./ai-vary";
 import { normalizePhone, sendText, sendImage, sendVoice, getWahaConfig, getSession, checkNumberExists } from "./waha";
 import { generateVoiceMp3 } from "./voice-tts";
-import { pickEnqueueChannel, reassignIfQuarantined, getLeadChannels } from "./channels";
+import { pickEnqueueChannel, reassignIfQuarantined, getLeadChannels, warmupReroute } from "./channels";
 import { getCompetitorRanking, rankingAutoCaption } from "./competitors";
 import { renderRankingPng } from "./ranking-card";
 
@@ -501,7 +501,12 @@ export async function enqueueMessage(opts: {
   const settings = await getSendSettings(opts.workspaceId);
   const lead = await prisma.lead.findFirst({
     where: { id: opts.leadId, workspaceId: opts.workspaceId },
-    select: { id: true, phone: true, internationalPhone: true, contactStatus: true }
+    select: {
+      id: true, phone: true, internationalPhone: true, contactStatus: true,
+      placeId: true, name: true, category: true, types: true, province: true,
+      formattedAddress: true, address: true, latitude: true, longitude: true,
+      rating: true, reviewsCount: true
+    }
   });
   if (!lead) throw new Error("Lead no encontrado");
   if (["excluded", "discarded"].includes(lead.contactStatus)) {
@@ -530,10 +535,30 @@ export async function enqueueMessage(opts: {
   // imagen de ranking (texto + imagen): así el lead recibe la captura con un
   // mensaje personalizado ({{nombre}}, etc.). Si el cuerpo va vacío (ranking
   // sin plantilla) se deja "" y al enviar se usa un pie automático.
+  // Snapshot del ranking: se calcula UNA vez aquí (kind ranking o si el texto
+  // usa {{posicion}}/{{competidor_top}}) y se guarda en el mensaje, para que el
+  // texto, la imagen y la preview usen EXACTAMENTE los mismos datos (el ranking
+  // en vivo varía entre llamadas y descuadraba texto vs imagen).
+  const needsRanking =
+    kind === "ranking" || /\{\{\s*(posicion|competidor_top|competidores_por_delante)\s*\}\}/.test(opts.body);
+  let rankingSnapshot: any = null;
+  if (needsRanking) {
+    try {
+      rankingSnapshot = await getCompetitorRanking(opts.workspaceId, lead as any, { store: false, harvest: false });
+    } catch {
+      rankingSnapshot = null;
+    }
+  }
+
   let rendered = opts.body;
   if (rendered.trim()) {
     try {
-      rendered = await renderTemplate({ workspaceId: opts.workspaceId, body: opts.body, leadId: lead.id });
+      rendered = await renderTemplate({
+        workspaceId: opts.workspaceId,
+        body: opts.body,
+        leadId: lead.id,
+        ...(needsRanking ? { ranking: rankingSnapshot } : {})
+      });
     } catch {}
     // Variaciones IA: evita texto idéntico entre leads (anti-spam) y mejora el
     // formato. Si falla, cae al texto renderizado.
@@ -586,6 +611,7 @@ export async function enqueueMessage(opts: {
       templateId: opts.templateId ?? null,
       kind,
       renderedMessage: rendered,
+      rankingSnapshot: rankingSnapshot ?? undefined,
       channel: "whatsapp",
       phoneNormalized: phone,
       status: "queued",
@@ -872,6 +898,28 @@ export async function sendMessageById(
     // La salud es best-effort: si falla, se envía por el canal original.
   }
 
+  // Tope de CALENTAMIENTO al enviar: si el teléfono asignado ya agotó su cupo
+  // diario (número nuevo o recién recuperado de un baneo), el mensaje sale por
+  // otro número con hueco; si ninguno tiene, se aplaza a mañana. Así un número
+  // frágil envía POCO aunque la cola le hubiera asignado muchos.
+  try {
+    const rr = await warmupReroute(workspaceId, msg.instanceName);
+    if (rr && "defer" in rr) {
+      const next = new Date();
+      next.setDate(next.getDate() + 1);
+      next.setHours(9, 0, 0, 0);
+      await prisma.leadMessage.update({ where: { id: msg.id }, data: { status: "queued", scheduledAt: next } });
+      return { processed: false, error: "warmup_cap_deferred" };
+    }
+    if (rr && "reassignTo" in rr) {
+      console.warn(`[send-queue] canal "${msg.instanceName}" en warm-up al tope; mensaje ${msg.id} → "${rr.reassignTo ?? "Principal"}"`);
+      msg.instanceName = rr.reassignTo;
+      await prisma.leadMessage.update({ where: { id: msg.id }, data: { instanceName: rr.reassignTo } });
+    }
+  } catch {
+    // best-effort: si falla, se envía por el canal original.
+  }
+
   try {
     const cfg = await getWahaConfig(workspaceId);
 
@@ -962,7 +1010,11 @@ export async function sendMessageById(
         }
       });
       if (!lead) throw new Error("Lead no encontrado para el ranking");
-      const data = await getCompetitorRanking(workspaceId, lead as any);
+      // Usa el snapshot guardado al encolar (mismo dato que el texto/preview);
+      // solo si no hay, consulta en vivo como reserva.
+      const data =
+        ((msg as any).rankingSnapshot as Awaited<ReturnType<typeof getCompetitorRanking>>) ||
+        (await getCompetitorRanking(workspaceId, lead as any));
       if (!data) throw new Error("No se pudo obtener el ranking de Google (categoría/zona o API key de Places)");
       const png = await renderRankingPng(data);
       const caption = (msg.renderedMessage ?? "").trim() || rankingAutoCaption(data, lead.name);

@@ -95,13 +95,16 @@ export async function middleware(req: NextRequest) {
       u.pathname = pathname === "/robots.txt" ? "/bubui/robots.txt" : "/bubui/sitemap.xml";
       return NextResponse.rewrite(u);
     }
-    // Assets de Next.js, service worker y manifest: sin reescritura.
+    // Assets de Next.js, service worker, manifest y ficheros de verificación
+    // de Google Search Console (public/googleXXXX.html): sin reescritura, para
+    // que se sirvan tal cual desde /public en bubui.app.
     if (
       pathname.startsWith("/_next") ||
       pathname.startsWith("/api/") ||
       pathname.startsWith("/.well-known") ||
       pathname === "/bubui-sw.js" ||
-      pathname === "/manifest.webmanifest"
+      pathname === "/manifest.webmanifest" ||
+      /^\/google[0-9a-f]+\.html$/.test(pathname)
     ) {
       return NextResponse.next();
     }
@@ -175,7 +178,13 @@ export const config = {
      * Aplica a todas las rutas excepto las que ya excluimos en isPublic().
      * El matcher de Next.js sólo soporta excluir asset paths comunes; el
      * resto se filtra dentro del propio middleware.
+     *
+     * OJO: robots.txt NO se excluye aquí a propósito. En bubui.app el
+     * middleware debe interceptarlo para servir el robots de Bubui (Allow +
+     * sitemap) en lugar del robots global del hub (Disallow: /). En el hub,
+     * isPublic() lo deja pasar igual. (sitemap.xml tampoco se excluye, por eso
+     * ya funcionaba.)
      */
-    "/((?!_next/static|_next/image|favicon.ico|icon-|sw.js|manifest.json|robots.txt).*)"
+    "/((?!_next/static|_next/image|favicon.ico|icon-|sw.js|manifest.json).*)"
   ]
 };

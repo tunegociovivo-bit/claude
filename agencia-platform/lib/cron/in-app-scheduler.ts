@@ -50,9 +50,24 @@ export function startInAppScheduler(): void {
       // si no quedan pendientes, no hace nada.
       const bubuiHour = parseInt(process.env.BUBUI_MAINT_HOUR_UTC ?? "4", 10);
       if (new Date().getUTCHours() === bubuiHour) {
-        const { runBubuiGeoBackfill } = await import("@/lib/bubui/directory-maintenance");
-        const res = await runBubuiGeoBackfill(30);
-        if (res.updated > 0) console.log(`[in-app-cron] bubui geo: ${res.updated} geocodificados, ${res.remaining} pendientes`);
+        const maint = await import("@/lib/bubui/directory-maintenance");
+        const geo = await maint.runBubuiGeoBackfill(30);
+        if (geo.updated > 0) console.log(`[in-app-cron] bubui geo: ${geo.updated} geocodificados, ${geo.remaining} pendientes`);
+        const rat = await maint.runBubuiGoogleRatingRefresh(30);
+        if (rat.updated > 0) console.log(`[in-app-cron] bubui google rating: ${rat.updated} actualizadas, ${rat.remaining} pendientes`);
+        // Subvenciones: ingesta nocturna del catálogo de convocatorias (BDNS).
+        try {
+          const { ingestConvocatorias } = await import("@/lib/subvenciones/bdns");
+          const r = await ingestConvocatorias();
+          console.log(`[in-app-cron] subvenciones: ${r.upserted} convocatorias (${r.fueraDeFoco} fuera de foco)`);
+          const { runSubvencionAlertas, runAgencyOpportunityAlerts } = await import("@/lib/subvenciones/alertas");
+          const a = await runSubvencionAlertas();
+          if (a.enviados > 0) console.log(`[in-app-cron] subvenciones avisos: ${a.enviados}`);
+          const op = await runAgencyOpportunityAlerts();
+          if (op.enviados > 0) console.log(`[in-app-cron] subvenciones oportunidad TOP agencia: ${op.enviados}`);
+        } catch (e) {
+          console.warn("[in-app-cron] subvenciones:", (e as Error).message);
+        }
       }
     } catch (e) {
       console.warn("[in-app-cron] bubui geo:", (e as Error).message);

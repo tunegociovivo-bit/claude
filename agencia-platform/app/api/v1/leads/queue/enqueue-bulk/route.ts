@@ -26,7 +26,10 @@ const schema = z.object({
   templateId: z.string().min(1).nullable().optional(),
   kind: z.enum(["text", "ranking", "text_then_image", "voice", "voice_image", "alternate"]).optional(),
   // Reparto por porcentajes (si viene, manda sobre `kind`).
-  mix: z.array(z.object({ kind: FORMAT, percent: z.number().min(0).max(100) })).optional()
+  mix: z.array(z.object({ kind: FORMAT, percent: z.number().min(0).max(100) })).optional(),
+  // Si true, borra los mensajes EN COLA (no enviados) de estos leads antes de
+  // reencolar, para poder cambiar el formato de leads ya encolados.
+  replaceQueued: z.boolean().optional()
 });
 
 type Format = z.infer<typeof FORMAT>;
@@ -105,6 +108,16 @@ export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api }) 
   const known = new Set(orderedIds);
   for (const id of parsed.data.leadIds) if (!known.has(id)) orderedIds.push(id);
 
+  // Reemplazar: borra lo pendiente (status "queued") de estos leads para poder
+  // reencolar con otro formato. No toca "sending"/"sent".
+  let replacedQueued = 0;
+  if (parsed.data.replaceQueued && orderedIds.length > 0) {
+    const del = await prisma.leadMessage.deleteMany({
+      where: { workspaceId: api.workspaceId, leadId: { in: orderedIds }, status: "queued" }
+    });
+    replacedQueued = del.count;
+  }
+
   // Formato por lead: del mix, del alternate, o el kind único.
   const assignment: Format[] = mix
     ? buildAssignment(orderedIds.length, mix)
@@ -138,5 +151,5 @@ export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api }) 
     }
   }
 
-  return NextResponse.json({ ok, skipped, total: parsed.data.leadIds.length, templateName: tpl?.name ?? null });
+  return NextResponse.json({ ok, skipped, total: parsed.data.leadIds.length, templateName: tpl?.name ?? null, replacedQueued });
 });

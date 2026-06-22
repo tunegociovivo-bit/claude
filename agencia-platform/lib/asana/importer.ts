@@ -12,6 +12,7 @@ import { detectPriorityFromCustomFields } from "./priority";
 import { importAttachmentsForTask } from "./attachments";
 import { parseAsanaCommentToTipTap } from "./comment-parser";
 import { toTipTapDoc } from "@/lib/comments/body";
+import { recordAudit } from "@/lib/audit/log";
 
 // Antes TaskStatus era enum en Prisma; ahora es string libre para soportar
 // columnas custom del Kanban. Mantenemos los valores por defecto como
@@ -30,6 +31,13 @@ type ImportOptions = {
   asanaWorkspaceGid: string;
   token: string;
   projectGids?: string[]; // si se especifica, sólo esos proyectos
+  /**
+   * Si true, el import RESUCITA tareas que estaban en la papelera (deletedAt
+   * poblado). Por defecto FALSE: respeta lo que el usuario borró — un
+   * re-import NO debe traer de vuelta tareas eliminadas a propósito (era el
+   * origen del bug "tareas que borré reaparecen solas").
+   */
+  restoreDeleted?: boolean;
 };
 
 type Stats = {
@@ -924,6 +932,9 @@ export async function reimportAsanaSection(opts: {
   /** Columna del Hub a la que mapear las tasks. Si no se pasa,
    *  intentamos derivarla del nombre de la sección con slugify. */
   targetColumnId?: string;
+  /** Opt-in: resucitar tareas en papelera. Por defecto FALSE — respeta lo que
+   *  el usuario borró (no traer de vuelta tareas eliminadas a propósito). */
+  restoreDeleted?: boolean;
 }): Promise<ReimportSectionResult> {
   const project = await prisma.project.findFirst({
     where: { id: opts.projectId, workspaceId: opts.workspaceId }
@@ -984,6 +995,17 @@ export async function reimportAsanaSection(opts: {
 
       let local = await prisma.task.findUnique({ where: { asanaId: t.gid } });
       if (local) {
+        // Traza: si este re-import resucita una tarea que estaba borrada, deja
+        // constancia en auditoría (autor + tarea) para poder rastrear el origen.
+        if (opts.restoreDeleted && (local as any).deletedAt) {
+          await recordAudit({
+            workspaceId: opts.workspaceId,
+            action: "task.restored_by_asana_import",
+            targetType: "task",
+            targetId: local.id,
+            meta: { title: t.name, sectionGid: opts.sectionGid }
+          }).catch(() => {});
+        }
         await prisma.task.update({
           where: { id: local.id },
           data: {
@@ -996,12 +1018,10 @@ export async function reimportAsanaSection(opts: {
             projectId: opts.projectId,
             asanaPermalink: t.permalink_url ?? null,
             asanaCustomFields: (t.custom_fields ?? null) as any,
-            // REVIVE tasks soft-deleted: si el user borró la columna y
-            // las tasks quedaron en papelera (deletedAt poblado), el
-            // re-import las trae de vuelta. Sin esto, el update cambiaba
-            // el status pero la task seguía oculta -> "solo importó lo nuevo".
-            deletedAt: null,
-            deletedById: null
+            // Por defecto RESPETA lo borrado: NO tocamos deletedAt, así una
+            // tarea que el usuario eliminó sigue en la papelera tras re-importar.
+            // Solo se resucita si se pide explícitamente (restoreDeleted).
+            ...(opts.restoreDeleted ? { deletedAt: null, deletedById: null } : {})
           } as any
         });
         result.tasksUpdated++;
@@ -1040,8 +1060,7 @@ export async function reimportAsanaSection(opts: {
               completedAt: t.completed_at ? new Date(t.completed_at) : null,
               asanaPermalink: t.permalink_url ?? null,
               asanaCustomFields: (t.custom_fields ?? null) as any,
-              deletedAt: null,
-              deletedById: null
+              ...(opts.restoreDeleted ? { deletedAt: null, deletedById: null } : {})
             } as any
           });
           local = ex;

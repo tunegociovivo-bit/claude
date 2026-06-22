@@ -6,7 +6,7 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import PageHeader from "@/components/PageHeader";
-import { Loader2, Store, MapPin, Sparkles, ExternalLink } from "lucide-react";
+import { Loader2, Store, MapPin, Sparkles, ExternalLink, Star } from "lucide-react";
 
 type Status = {
   activeTotal: number;
@@ -23,7 +23,7 @@ const BUBUI = (process.env.NEXT_PUBLIC_BUBUI_URL || "https://bubui.app").replace
 export default function BubuiDirectoryAdmin() {
   const [status, setStatus] = useState<Status | null>(null);
   const [loading, setLoading] = useState(true);
-  const [busy, setBusy] = useState<null | "gen" | "geo">(null);
+  const [busy, setBusy] = useState<null | "gen" | "geo" | "google">(null);
   const [msg, setMsg] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -50,6 +50,24 @@ export default function BubuiDirectoryAdmin() {
       const j = await r.json().catch(() => ({}));
       if (!r.ok) setMsg(`❌ ${j?.error?.message ?? `Error ${r.status}`}`);
       else setMsg(`✅ Generadas ${j.generated} páginas (faltan ~${j.pendingApprox}). Vuelve a pulsar para seguir.`);
+      await load();
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function refreshGoogle() {
+    setBusy("google");
+    setMsg(null);
+    try {
+      const r = await fetch("/api/v1/admin/bubui/directory/refresh-google", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ limit: 25 })
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) setMsg(`❌ ${j?.error?.message ?? `Error ${r.status}`}`);
+      else setMsg(`✅ Notas de Google actualizadas: ${j.updated}. Pendientes de refrescar: ${j.remaining}.`);
       await load();
     } finally {
       setBusy(null);
@@ -109,6 +127,10 @@ export default function BubuiDirectoryAdmin() {
             <button onClick={geocode} disabled={!!busy} className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-sm font-medium px-4 py-2.5">
               {busy === "geo" ? <Loader2 className="h-4 w-4 animate-spin" /> : <MapPin className="h-4 w-4" />}
               Geocodificar negocios ({status.missingGeo})
+            </button>
+            <button onClick={refreshGoogle} disabled={!!busy} className="inline-flex items-center gap-2 rounded-lg bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-white text-sm font-medium px-4 py-2.5">
+              {busy === "google" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Star className="h-4 w-4" />}
+              Actualizar notas de Google
             </button>
           </div>
           {msg && <p className="mt-3 text-sm text-slate-700">{msg}</p>}

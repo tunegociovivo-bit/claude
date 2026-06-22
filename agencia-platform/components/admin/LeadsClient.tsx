@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import PageHeader from "@/components/PageHeader";
 import Modal from "@/components/ui/Modal";
 import { SectionBoundary } from "@/components/admin/SectionBoundary";
@@ -116,6 +116,9 @@ type QueueRow = {
   renderedMessage: string;
   kind?: string | null;
   instanceName?: string | null;
+  warming?: boolean;
+  willSend?: boolean;
+  channelCap?: number;
 };
 
 type Tab = "leads" | "searches" | "queue" | "inbox" | "sequences" | "templates" | "exclusions" | "analytics" | "map" | "settings";
@@ -561,25 +564,80 @@ function BulkStatusButton({
   );
 }
 
-/** Pestaña Mapa: muestra todos los leads con coordenadas en un mapa
- *  Leaflet/OpenStreetMap. Carga Leaflet dinámicamente desde CDN para no
- *  añadir dependencias al bundle.
+/** Pestaña Mapa: muestra los leads con coordenadas en un mapa Leaflet/OSM.
  *
- *  Color del marker por urgencia: rojo=crítica, naranja=alta, ámbar=media,
- *  azul=baja. Click muestra nombre + teléfono + score. */
+ *  Filtro por BÚSQUEDA realizada (cerrajero, dentista…): se elige en un
+ *  desplegable y el mapa carga del backend los leads de esa búsqueda
+ *  (searchId), para ver por nicho qué zona ya se ha "atacado" (contactada) y
+ *  cuál falta. Color del marker: verde = ya contactado, rojo = pendiente. */
 function LeadsMapView() {
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const mapRef = useRef<any>(null);
+  const layerRef = useRef<any>(null);
+  const LRef = useRef<any>(null);
   const [loading, setLoading] = useState(true);
+  const [redrawing, setRedrawing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [niches, setNiches] = useState<{ keyword: string; leads: number }[]>([]);
+  const [nicho, setNicho] = useState("");
+  const [stats, setStats] = useState<{ total: number; atacados: number; pendientes: number; sinCoords: number }>({ total: 0, atacados: 0, pendientes: 0, sinCoords: 0 });
+
+  // Pinta SOLO los leads ya atacados (contactados), en rojo.
+  const draw = useCallback((items: any[]) => {
+    const L = LRef.current;
+    const map = mapRef.current;
+    if (!L || !map) return;
+    if (!layerRef.current) layerRef.current = L.layerGroup().addTo(map);
+    const layer = layerRef.current;
+    layer.clearLayers();
+
+    const esAtacado = (l: any) =>
+      (l.messagesSent ?? 0) > 0 || ["contacted", "replied", "qualified", "won", "lost", "in_sequence"].includes(l.contactStatus ?? "");
+    const conCoords = items.filter((l) => l.latitude != null && l.longitude != null);
+    const atacados = conCoords.filter(esAtacado);
+    const pts: any[] = [];
+    for (const l of atacados) {
+      const color = "#ef4444"; // rojo = atacado
+      const marker = L.circleMarker([l.latitude, l.longitude], {
+        radius: 7, color, fillColor: color, fillOpacity: 0.75, weight: 1.5
+      });
+      marker.bindPopup(`
+        <strong>${escapeHtmlClient(l.name)}</strong><br/>
+        ${escapeHtmlClient(l.category ?? l.searchQuery ?? "")} ${l.province ? "· " + escapeHtmlClient(l.province) : ""}<br/>
+        ${l.phone ?? "Sin teléfono"}<br/>
+        <span style="color:${color};font-weight:600">✓ Ya atacado</span> ·
+        Score ${l.score ?? "—"} · ${l.messagesSent ?? 0} msg
+      `);
+      layer.addLayer(marker);
+      pts.push([l.latitude, l.longitude]);
+    }
+    setStats({ total: items.length, atacados: atacados.length, pendientes: conCoords.length - atacados.length, sinCoords: items.length - conCoords.length });
+    if (pts.length > 0) {
+      try { map.fitBounds(pts, { padding: [30, 30], maxZoom: 14 }); } catch {}
+    }
+  }, []);
+
+  // Carga del backend los leads (todos o de un NICHO/keyword) y los pinta.
+  const loadLeads = useCallback(async (kw: string) => {
+    setRedrawing(true);
+    try {
+      const url = kw ? `/api/v1/leads?keyword=${encodeURIComponent(kw)}&limit=500` : "/api/v1/leads?limit=500";
+      const r = await fetch(url);
+      const j = r.ok ? await r.json() : { items: [] };
+      draw(j.items ?? []);
+    } catch {
+      /* deja el mapa como estaba */
+    } finally {
+      setRedrawing(false);
+    }
+  }, [draw]);
 
   useEffect(() => {
     let cancelled = false;
-    let map: any = null;
 
     async function loadLeaflet(): Promise<any> {
       const w = window as any;
       if (w.L) return w.L;
-      // CSS
       if (!document.getElementById("leaflet-css")) {
         const link = document.createElement("link");
         link.id = "leaflet-css";
@@ -587,7 +645,6 @@ function LeadsMapView() {
         link.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
         document.head.appendChild(link);
       }
-      // JS
       await new Promise<void>((resolve, reject) => {
         if (w.L) return resolve();
         const script = document.createElement("script");
@@ -602,52 +659,40 @@ function LeadsMapView() {
 
     (async () => {
       try {
-        const [leads, L] = await Promise.all([
+        const [leads, sres, L] = await Promise.all([
           fetch("/api/v1/leads?limit=500").then((r) => (r.ok ? r.json() : { items: [] })),
+          fetch("/api/v1/leads/searches").then((r) => (r.ok ? r.json() : { items: [] })),
           loadLeaflet()
         ]);
         if (cancelled || !containerRef.current) return;
+        LRef.current = L;
+        // Agrupa las búsquedas por NICHO (keyword), uniendo localidades:
+        // "cerrajero Málaga" + "cerrajero España" → un solo "cerrajero".
+        const byKw = new Map<string, { keyword: string; leads: number }>();
+        for (const s of (sres.items ?? [])) {
+          const kw = String(s.keyword ?? "").trim();
+          if (!kw) continue;
+          const k = kw.toLowerCase();
+          const cur = byKw.get(k) ?? { keyword: kw, leads: 0 };
+          cur.leads += s._count?.leads ?? 0;
+          byKw.set(k, cur);
+        }
+        const nrows = [...byKw.values()].filter((n) => n.leads > 0).sort((a, b) => b.leads - a.leads);
+        setNiches(nrows);
+
         const items: any[] = leads.items ?? [];
         const geo = items.filter((l) => l.latitude != null && l.longitude != null);
-        // Centrar en la media; si no hay puntos, en Madrid.
         const center =
           geo.length > 0
-            ? [
-                geo.reduce((s, l) => s + l.latitude, 0) / geo.length,
-                geo.reduce((s, l) => s + l.longitude, 0) / geo.length
-              ]
+            ? [geo.reduce((s, l) => s + l.latitude, 0) / geo.length, geo.reduce((s, l) => s + l.longitude, 0) / geo.length]
             : [40.4168, -3.7038];
-        map = L.map(containerRef.current).setView(center, geo.length > 0 ? 6 : 5);
+        const map = L.map(containerRef.current).setView(center, geo.length > 0 ? 6 : 5);
+        mapRef.current = map;
         L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
           attribution: "© OpenStreetMap",
           maxZoom: 19
         }).addTo(map);
-        const URG_COLOR: Record<string, string> = {
-          critica: "#dc2626",
-          alta: "#ea580c",
-          media: "#d97706",
-          baja: "#0284c7",
-          descartar: "#94a3b8"
-        };
-        for (const l of geo) {
-          const color = URG_COLOR[l.urgency ?? ""] ?? "#475569";
-          const marker = L.circleMarker([l.latitude, l.longitude], {
-            radius: 7,
-            color,
-            fillColor: color,
-            fillOpacity: 0.7,
-            weight: 1.5
-          }).addTo(map);
-          const popup = `
-            <strong>${escapeHtmlClient(l.name)}</strong><br/>
-            ${l.province ?? ""}<br/>
-            ${l.phone ?? "Sin teléfono"}<br/>
-            <span style="color:${color}">★ ${l.rating ?? "—"}</span> ·
-            Score ${l.score ?? "—"} ·
-            ${l.urgency ?? "—"}
-          `;
-          marker.bindPopup(popup);
-        }
+        draw(items);
         setLoading(false);
       } catch (e: any) {
         if (!cancelled) {
@@ -658,14 +703,36 @@ function LeadsMapView() {
     })();
     return () => {
       cancelled = true;
-      if (map) map.remove();
+      if (mapRef.current) { mapRef.current.remove(); mapRef.current = null; }
+      layerRef.current = null;
     };
-  }, []);
+  }, [draw]);
 
   return (
     <div className="space-y-2">
-      <p className="text-xs text-slate-500">
-        Vista geográfica de los leads con coordenadas. Color del marker según urgencia.
+      <div className="flex flex-wrap items-center gap-2">
+        <select
+          value={nicho}
+          onChange={(e) => { setNicho(e.target.value); void loadLeads(e.target.value); }}
+          className="flex-1 min-w-[240px] px-3 py-2 rounded-lg border bg-white text-sm"
+        >
+          <option value="">— Todos los nichos —</option>
+          {niches.map((n) => (
+            <option key={n.keyword} value={n.keyword}>
+              {n.keyword} ({n.leads})
+            </option>
+          ))}
+        </select>
+        {redrawing && <Loader2 className="h-4 w-4 animate-spin text-slate-400" />}
+        <div className="flex items-center gap-3 text-xs">
+          <span className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-full" style={{ background: "#ef4444" }} /> Atacados <strong>{stats.atacados}</strong></span>
+          <span className="text-slate-500">Pendientes {stats.pendientes}</span>
+        </div>
+      </div>
+      <p className="text-[11px] text-slate-500">
+        Elige un nicho (p. ej. <strong>cerrajero</strong>) para ver en el mapa, en <span style={{ color: "#ef4444", fontWeight: 600 }}>rojo</span>, los negocios que <strong>ya se han atacado</strong> (contactados) — así ves qué zonas tienes cubiertas y dónde seguir.
+        {stats.sinCoords > 0 && <> · {stats.sinCoords} sin coordenadas (no se pueden situar).</>}
+        {niches.length === 0 && !loading && <> · No hay búsquedas con leads todavía.</>}
       </p>
       {error && (
         <div className="text-xs px-3 py-2 rounded border border-rose-200 bg-rose-50 text-rose-700">{error}</div>
@@ -1903,6 +1970,7 @@ function EnqueueModal({
   const mixTotal = Object.values(mix).reduce((s, n) => s + (Number(n) || 0), 0);
   const usesImage = kind !== "text" && kind !== "voice";
   const [busy, setBusy] = useState(false);
+  const [replaceQueued, setReplaceQueued] = useState(false);
   const [result, setResult] = useState<{ ok: number; skipped: { leadId: string; reason: string }[]; total: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Coste estimado de la imagen de posicionamiento: 1 consulta a Google Places
@@ -1934,7 +2002,7 @@ function EnqueueModal({
     setBusy(true);
     setError(null);
     try {
-      const payload: any = { leadIds, templateId: templateId || null };
+      const payload: any = { leadIds, templateId: templateId || null, replaceQueued };
       if (kind === "mix") {
         payload.mix = Object.entries(mix)
           .filter(([, p]) => Number(p) > 0)
@@ -2053,6 +2121,12 @@ function EnqueueModal({
               ))}
             </select>
           )}
+          <label className="flex items-start gap-2 text-xs text-slate-700 cursor-pointer pt-1 border-t">
+            <input type="checkbox" checked={replaceQueued} onChange={(e) => setReplaceQueued(e.target.checked)} className="mt-0.5 accent-brand-600" />
+            <span>
+              <strong>Reemplazar lo que ya esté en cola</strong> de estos leads. Actívalo si ya los habías encolado (p. ej. como texto) y quieres cambiar el formato: borra sus mensajes <em>pendientes</em> y los reencola con este modo. No afecta a los ya enviados.
+            </span>
+          </label>
           {error && <p className="text-sm text-rose-600">{error}</p>}
           <div className="flex justify-end gap-2 pt-1">
             <button onClick={onClose} className="px-3 py-2 rounded-lg text-sm border bg-white hover:bg-slate-50">
@@ -2285,9 +2359,37 @@ function QueueTable({ loading, items, onChanged }: { loading: boolean; items: Qu
   const [rankIds, setRankIds] = useState<string[]>([]);
   const [rankLoading, setRankLoading] = useState(false);
   const [previewRow, setPreviewRow] = useState<QueueRow | null>(null);
+  const [playingVoiceId, setPlayingVoiceId] = useState<string | null>(null);
   const [previewText, setPreviewText] = useState("");
   const [savingPreview, setSavingPreview] = useState(false);
+  const [geoWarn, setGeoWarn] = useState<{ leadProvince: string | null; detectedProvince: string | null } | null>(null);
+  const [fixingGeo, setFixingGeo] = useState(false);
+  async function fixGeo() {
+    if (!previewRow) return;
+    setFixingGeo(true);
+    try {
+      const r = await fetch(`/api/v1/leads/${previewRow.leadId}/fix-geo`, { method: "POST" });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) { alert(d?.error?.message ?? "No se pudo corregir la ubicación."); return; }
+      setGeoWarn(null);
+      onChanged(); // recarga la cola con el texto/imagen ya corregidos
+      setPreviewRow(null); // ciérralo; al reabrir verás la versión corregida
+    } finally {
+      setFixingGeo(false);
+    }
+  }
   useEffect(() => { setPreviewText(previewRow?.renderedMessage ?? ""); }, [previewRow]);
+  // Aviso de geo incoherente (coords del lead en otra provincia → ranking malo).
+  useEffect(() => {
+    setGeoWarn(null);
+    if (!previewRow || previewRow.kind !== "ranking") return;
+    let cancel = false;
+    fetch(`/api/v1/leads/${previewRow.leadId}/geo-check`)
+      .then((r) => r.json())
+      .then((d) => { if (!cancel && d?.mismatch) setGeoWarn({ leadProvince: d.leadProvince, detectedProvince: d.detectedProvince }); })
+      .catch(() => {});
+    return () => { cancel = true; };
+  }, [previewRow]);
   async function savePreviewText() {
     if (!previewRow) return;
     setSavingPreview(true);
@@ -2404,6 +2506,27 @@ function QueueTable({ loading, items, onChanged }: { loading: boolean; items: Qu
   }
   function toggleAll() {
     setSelected(allSelected ? new Set() : new Set(deletable.map((m) => m.id)));
+  }
+
+  async function refreshRendered() {
+    if (!confirm("¿Re-renderizar el texto de los mensajes EN COLA? Recogerán las correcciones del motor (p. ej. posición/competidor del ranking). Cubre plantillas y secuencias.")) return;
+    setProcessing(true);
+    setTickResult(null);
+    try {
+      const r = await fetch("/api/v1/leads/queue/refresh-rendered", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ limit: 500 })
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) setTickResult({ kind: "error", text: d?.error?.message ?? `Error HTTP ${r.status}` });
+      else setTickResult({ kind: "ok", text: `✓ ${d.refreshed} textos actualizados${d.sinFuente ? ` · ${d.sinFuente} sin fuente (revisar a mano)` : ""}.` });
+    } catch (e: any) {
+      setTickResult({ kind: "error", text: e?.message ?? "Error de red" });
+    } finally {
+      setProcessing(false);
+      onChanged();
+    }
   }
 
   async function tick() {
@@ -2631,6 +2754,14 @@ function QueueTable({ loading, items, onChanged }: { loading: boolean; items: Qu
           Procesar siguiente
         </button>
         <button
+          onClick={refreshRendered}
+          disabled={processing}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-700 text-xs disabled:opacity-50"
+          title="Re-renderiza el texto de los mensajes en cola que vienen de plantilla (recoge correcciones como la posición/competidor del ranking)"
+        >
+          🔄 Refrescar textos
+        </button>
+        <button
           onClick={openRankingBlast}
           disabled={rankLoading}
           className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-xs disabled:opacity-50"
@@ -2805,6 +2936,19 @@ function QueueTable({ loading, items, onChanged }: { loading: boolean; items: Qu
                           ))}
                         </select>
                       )}
+                      {m.status === "queued" && m.warming && (
+                        <div className="mt-1">
+                          {m.willSend ? (
+                            <span className="inline-flex items-center gap-1 text-[10px] text-amber-700" title={`Teléfono en calentamiento (tope ${m.channelCap}/día). Este mensaje entra en el cupo: lo enviará este número.`}>
+                              🔥 calentando · ✅ entra
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-[10px] text-rose-600 font-medium" title={`Teléfono en calentamiento (tope ${m.channelCap}/día) ya cubierto ese día. Al enviar, este mensaje saldrá por otro número con hueco o se aplazará a mañana.`}>
+                              🔥 calentando · ⏭️ saltará (otro nº / mañana)
+                            </span>
+                          )}
+                        </div>
+                      )}
                     </td>
                     <td className="px-3 py-2 text-xs max-w-md truncate" title={m.kind === "ranking" ? (m.renderedMessage || "Imagen de posicionamiento (pie automático)") : m.renderedMessage}>
                       <span className="inline-flex items-center gap-1.5">
@@ -2817,9 +2961,23 @@ function QueueTable({ loading, items, onChanged }: { loading: boolean; items: Qu
                             {m.renderedMessage ? <span className="text-slate-500">· {m.renderedMessage}</span> : <span className="text-slate-400">· pie automático</span>}
                           </span>
                         ) : m.kind === "voice" ? (
-                          <span className="inline-flex items-center gap-1 text-violet-700">
-                            <span className="font-medium">Nota de voz</span>
-                            {m.renderedMessage ? <span className="text-slate-500">· {m.renderedMessage}</span> : null}
+                          <span className="inline-flex items-center gap-1.5 text-violet-700 max-w-full">
+                            <button
+                              type="button"
+                              onClick={() => setPlayingVoiceId(playingVoiceId === m.id ? null : m.id)}
+                              title="Escuchar la nota de voz"
+                              className="inline-flex items-center justify-center h-5 w-5 rounded-full bg-violet-600 text-white text-[10px] hover:bg-violet-700 shrink-0"
+                            >
+                              {playingVoiceId === m.id ? "■" : "▶"}
+                            </button>
+                            {playingVoiceId === m.id ? (
+                              <audio autoPlay controls preload="none" className="h-7 max-w-[220px]" src={`/api/v1/leads/queue/${m.id}/voice.mp3`} />
+                            ) : (
+                              <>
+                                <span className="font-medium">Nota de voz</span>
+                                {m.renderedMessage ? <span className="text-slate-500 truncate">· {m.renderedMessage}</span> : null}
+                              </>
+                            )}
                           </span>
                         ) : m.renderedMessage ? (
                           <span>{m.renderedMessage}</span>
@@ -2915,16 +3073,40 @@ function QueueTable({ loading, items, onChanged }: { loading: boolean; items: Qu
             <div className="text-xs text-slate-500">
               📞 {previewRow.phoneNormalized} · enviar desde: <strong>{previewRow.instanceName || "Principal"}</strong>
             </div>
+            {geoWarn && (
+              <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                ⚠️ Las coordenadas de este lead parecen estar en <strong>{geoWarn.detectedProvince || "otra provincia"}</strong>
+                {geoWarn.leadProvince ? <> y no en <strong>{geoWarn.leadProvince}</strong></> : null}. El ranking por
+                cercanía (y la imagen) puede salir incorrecto — revisa/recaptura la ubicación de este lead antes de enviar.
+                <div className="mt-2">
+                  <button
+                    onClick={fixGeo}
+                    disabled={fixingGeo}
+                    className="inline-flex items-center gap-1.5 rounded-md border border-amber-400 bg-white px-2.5 py-1 text-amber-800 font-medium hover:bg-amber-100 disabled:opacity-50"
+                  >
+                    {fixingGeo ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "📍"} Corregir ubicación (re-geocodificar)
+                  </button>
+                </div>
+              </div>
+            )}
             {/* Simulación de burbuja de WhatsApp (refleja en vivo lo que escribes) */}
             <div className="rounded-xl bg-[#e5ddd5] p-4">
               <div className="ml-auto max-w-[85%] rounded-lg bg-[#dcf8c6] shadow-sm overflow-hidden">
                 {previewRow.kind === "ranking" && (
                   <img
-                    src={`/api/v1/leads/${previewRow.leadId}/ranking`}
+                    src={`/api/v1/leads/queue/${previewRow.id}/ranking.png`}
                     alt="Imagen de posicionamiento"
                     className="w-full block"
                     style={{ maxHeight: 380, objectFit: "contain", background: "#fff" }}
                   />
+                )}
+                {previewRow.kind === "voice" && (
+                  <div className="px-3 pt-2">
+                    <audio controls preload="none" className="w-full" src={`/api/v1/leads/queue/${previewRow.id}/voice.mp3`}>
+                      Tu navegador no soporta audio.
+                    </audio>
+                    <p className="text-[10px] text-slate-500 mt-1">🎙️ Nota de voz IA (se genera al pulsar play; usa tu voz de ElevenLabs).</p>
+                  </div>
                 )}
                 <div className="px-3 py-2 text-sm text-slate-800 whitespace-pre-wrap min-h-[1.5rem]">
                   {previewText
@@ -5472,6 +5654,11 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
       warmupEnabled: s.warmupEnabled,
       warmupDays: s.warmupDays,
       warmupStartCap: s.warmupStartCap,
+      warmupChatEnabled: s.warmupChatEnabled,
+      principalPhone: s.principalPhone,
+      voiceSpeed: s.voiceSpeed,
+      voiceShorten: s.voiceShorten,
+      voiceMaxSeconds: s.voiceMaxSeconds,
       autoRecoveryEnabled: s.autoRecoveryEnabled,
       dailyJitterPct: s.dailyJitterPct,
       channels: Array.isArray(s.channels) ? s.channels : []
@@ -5744,6 +5931,31 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
                 Activa el envío de <strong>notas de voz IA</strong>. Clona tu voz en ElevenLabs (Voice Lab) y pega aquí su Voice ID. Se cifra la key.
               </p>
             </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">Velocidad de habla ({(s.voiceSpeed ?? 1).toFixed(2)}×)</label>
+                <input
+                  type="range" min={0.8} max={1.2} step={0.05}
+                  value={s.voiceSpeed ?? 1}
+                  onChange={(e) => setField("voiceSpeed", Number(e.target.value))}
+                  className="w-full accent-violet-600"
+                />
+                <p className="text-[10px] text-slate-400">1.0 = normal · sube a ~1.10 para que hable más rápido.</p>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">Duración objetivo (seg)</label>
+                <input
+                  type="number" min={8} max={60}
+                  value={s.voiceMaxSeconds ?? 18}
+                  onChange={(e) => setField("voiceMaxSeconds", Number(e.target.value) || 18)}
+                  className="w-full px-2 py-1 rounded border bg-white text-sm"
+                />
+                <label className="flex items-center gap-1.5 text-[11px] text-slate-600 mt-1 cursor-pointer">
+                  <input type="checkbox" checked={s.voiceShorten ?? true} onChange={(e) => setField("voiceShorten", e.target.checked)} className="accent-violet-600" />
+                  Acortar el guion con IA (ir al grano)
+                </label>
+              </div>
+            </div>
             <div className="flex items-center gap-2">
               <button
                 type="button"
@@ -5889,7 +6101,22 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
                         title="Tope diario de este número"
                         className="w-16 px-2 py-1 rounded border bg-white text-xs"
                       />
+                      <input
+                        value={c.phone ?? ""}
+                        onChange={(e) => updateChannel(i, { phone: e.target.value })}
+                        placeholder="+34600…"
+                        title="Número de WhatsApp de este teléfono (para el calentamiento por conversación)"
+                        className="w-28 min-w-0 px-2 py-1 rounded border bg-white text-xs font-mono"
+                      />
                       {chanBadge(c.name)}
+                      <button
+                        type="button"
+                        title="Reiniciar calentamiento: trata este número como nuevo/frágil (recién recuperado de un baneo) y limita sus envíos en rampa unos días."
+                        onClick={() => updateChannel(i, { warmupSince: new Date().toISOString() })}
+                        className={`shrink-0 text-[10px] px-1.5 py-1 rounded border ${c.warmupSince ? "border-amber-300 bg-amber-50 text-amber-700" : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50"}`}
+                      >
+                        {c.warmupSince ? "🔥 calentando" : "🔥 reiniciar"}
+                      </button>
                       <button
                         type="button"
                         onClick={async () => {
@@ -6190,7 +6417,8 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
                 <strong className="block text-sm">🔥 Calentamiento de número nuevo (warmup)</strong>
                 <p className="mt-1">
                   El tope diario sube en rampa durante los primeros días en vez de empezar al máximo
-                  (clave para no quemar un número nuevo). La edad del número se calcula desde el primer envío.
+                  (clave para no quemar un número nuevo). <strong>Por teléfono</strong>: cada número calienta
+                  desde su propia fecha de alta, así uno nuevo no envía a tope aunque la cuenta sea antigua.
                 </p>
               </div>
             </label>
@@ -6202,6 +6430,37 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
                 <label>Tope del primer día
                   <input type="number" value={s.warmupStartCap ?? 10} onChange={(e) => setField("warmupStartCap", Number(e.target.value))} className="w-full px-2 py-1 rounded border" />
                 </label>
+              </div>
+            )}
+            <label className="flex items-start gap-2 cursor-pointer pt-1 border-t border-emerald-200">
+              <input
+                type="checkbox"
+                checked={s.warmupChatEnabled ?? false}
+                onChange={(e) => setField("warmupChatEnabled", e.target.checked)}
+                className="mt-0.5 accent-emerald-600"
+              />
+              <div className="flex-1 text-xs text-emerald-900">
+                <strong className="block text-sm">💬 Calentamiento por conversación entre tus teléfonos</strong>
+                <p className="mt-1">
+                  Los números en warm-up se mandan mensajes cortos y normales <strong>entre tus propios
+                  teléfonos</strong> (horario diurno, poco volumen), para ganar reputación antes de escribir
+                  a desconocidos. Requiere poner el número de cada teléfono.
+                </p>
+              </div>
+            </label>
+            {(s.warmupChatEnabled ?? false) && (
+              <div className="text-xs pl-6">
+                <label>Número del teléfono principal (WhatsApp, formato +34…)
+                  <input
+                    value={s.principalPhone ?? ""}
+                    onChange={(e) => setField("principalPhone", e.target.value)}
+                    placeholder="+34600112233"
+                    className="w-full px-2 py-1 rounded border font-mono"
+                  />
+                </label>
+                <p className="mt-1 text-emerald-700">
+                  Pon también el número (+34…) de cada teléfono extra arriba, en la columna de la derecha de cada canal. Hacen falta al menos 2 números para que “conversen”.
+                </p>
               </div>
             )}
             <label className="flex items-start gap-2 cursor-pointer pt-1 border-t border-emerald-200">

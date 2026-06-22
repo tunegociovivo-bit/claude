@@ -27,7 +27,11 @@ import {
   Sunrise,
   Receipt,
   MapPin,
-  Building2
+  Building2,
+  Megaphone,
+  Puzzle,
+  Store,
+  Landmark
 } from "lucide-react";
 
 // Áreas de la plataforma Bubui accesibles desde "Otros Proyectos".
@@ -53,8 +57,30 @@ const PLATFORM_ICONS: Record<string, typeof Star> = {
   redactor_ia: Sparkles,
   asana_import: Download,
   nv_dashboard: FileText,
-  nv_leads: MessageSquare
+  nv_leads: MessageSquare,
+  meta_campaigns: Megaphone,
+  chrome_extension: Puzzle,
+  bubui_directorio: Store,
+  subvenciones: Landmark,
+  gmb_hub: Star
 };
+
+// Degradado de la insignia de cada plataforma: iconos vivos y con color en el
+// menú lateral (en vez de un icono gris heredando el color del texto).
+const PLATFORM_GRAD: Record<string, string> = {
+  reviews: "linear-gradient(135deg,#FBBF24,#F59E0B)",          // ámbar
+  voice_reviews: "linear-gradient(135deg,#FB7185,#E11D48)",    // rosa
+  redactor_ia: "linear-gradient(135deg,#A78BFA,#7C3AED)",      // violeta
+  asana_import: "linear-gradient(135deg,#FB923C,#EA580C)",     // naranja
+  nv_dashboard: "linear-gradient(135deg,#38BDF8,#2563EB)",     // azul
+  nv_leads: "linear-gradient(135deg,#34D399,#059669)",         // esmeralda
+  meta_campaigns: "linear-gradient(135deg,#60A5FA,#4F46E5)",   // azul-índigo (Meta)
+  chrome_extension: "linear-gradient(135deg,#2DD4BF,#0D9488)", // teal
+  bubui_directorio: "linear-gradient(135deg,#F86FB0,#D1186A)", // rosa Bubui
+  subvenciones: "linear-gradient(135deg,#818CF8,#4338CA)",     // índigo
+  gmb_hub: "linear-gradient(135deg,#34A853,#1A73E8)"           // verde-azul Google
+};
+const PLATFORM_GRAD_DEFAULT = "linear-gradient(135deg,#94A3B8,#475569)";
 
 const nav = [
   { href: "/", label: "Inicio", icon: LayoutDashboard, feature: "inicio" as const },
@@ -436,7 +462,12 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}
                             : "text-slate-300 hover:bg-slate-800 hover:text-white"
                         )}
                       >
-                        <Icon className="h-3.5 w-3.5 shrink-0" />
+                        <span
+                          className="h-5 w-5 rounded-md shrink-0 grid place-items-center text-white shadow-sm"
+                          style={{ background: PLATFORM_GRAD[p.key] ?? PLATFORM_GRAD_DEFAULT }}
+                        >
+                          <Icon className="h-3 w-3" />
+                        </span>
                         <span className="truncate flex-1">{p.label}</span>
                         {key !== "gmb_hub" && <UsageBar micros={cost} max={usage.maxMicros} />}
                       </Link>

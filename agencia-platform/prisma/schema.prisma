@@ -59,6 +59,7 @@ model User {
   userSessions              UserSession[]
   MetaConnection            MetaConnection[]
   aiMemoryEntries           AiUserMemory[]
+  panelNotes                PanelNote[]
   managedProjects           Project[]                  @relation("ProjectManager")
   emailAccounts             EmailAccount[]             @relation("UserEmailAccounts")
 }
@@ -250,6 +251,7 @@ model Workspace {
   invoiceIssuers            InvoiceIssuer[]
   invoiceCounters           InvoiceCounter[]
   expenses                  Expense[]
+  panelNotes                PanelNote[]
 }
 
 // ====================================================================
@@ -1024,6 +1026,10 @@ model LeadMessage {
   templateId        String?
   kind              String    @default("text") // text | ranking (imagen de posicionamiento)
   renderedMessage   String    @db.Text
+  // Snapshot del ranking (getCompetitorRanking) calculado al encolar, para que
+  // el TEXTO, la IMAGEN y la PREVIEW usen los MISMOS datos (el ranking en vivo
+  // varía entre llamadas y descuadraba texto vs imagen).
+  rankingSnapshot   Json?
   channel           String    @default("whatsapp")
   instanceName      String? // sesión WAHA (default si null)
   phoneNormalized   String // E.164 sin +
@@ -2256,6 +2262,28 @@ model AiUserMemory {
 
   @@unique([workspaceId, userId])
   @@index([workspaceId])
+}
+
+// Notas personales tipo post-it del "tablón" del panel de tareas.
+// Cada nota pertenece a un usuario (privadas, no se comparten con el
+// equipo). `color` es una clave de paleta (amber/sky/rose/emerald/
+// violet/slate) que el front mapea a estilos. `order` permite
+// reordenarlas (ASC = primero). Se renderizan en el dock derecho del
+// kanban junto al mini-calendario.
+model PanelNote {
+  id          String   @id @default(cuid())
+  workspaceId String
+  userId      String
+  content     String   @default("") @db.Text
+  color       String   @default("amber")
+  order       Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, userId, order])
 }
 
 // Fase 2: borradores generados por Sonia que necesitan aprobación
@@ -3655,6 +3683,11 @@ model BubuiBusiness {
   claimExpiresAt            DateTime?
   claimedAt                 DateTime? // null = aún sin reclamar/activar
   provisionedFromLeadId     String? // lead de origen (NV Leads Pro)
+  // Nota de Google (Business Profile), cacheada para ordenar los rankings del
+  // directorio sin llamar a Google en cada visita. Se refresca por cron/panel.
+  googleRating              Float?
+  googleReviewsCount        Int?
+  googleRatingUpdatedAt     DateTime?
   // Status.
   active                    Boolean   @default(true)
   // Destacado en Descubre (ordenación preferente).
@@ -4240,7 +4273,44 @@ model BubuiBannerCampaign {
   @@map("BipiBannerCampaign")
 }
 
-// Contenido editorial (texto SEO largo, generado por IA) de las páginas del
+// Estado de gestión de una convocatoria para un cliente (seguimiento + avisos).
+model SubvencionEstado {
+  id              String    @id @default(cuid())
+  workspaceId     String
+  clientId        String
+  convocatoriaId  String
+  estado          String    @default("interesa") // interesa | en_proceso | presentada | descartada
+  notifiedCloseAt DateTime? // último aviso de cierre enviado (anti-duplicado)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([workspaceId, clientId, convocatoriaId])
+  @@index([workspaceId, estado])
+}
+
+// Catálogo de convocatorias de subvenciones (BDNS / SNPSAP), público y global
+// (no por workspace). El "Cazador de Subvenciones" las cruza con cada cliente.
+model SubvencionConvocatoria {
+  id            String    @id // código BDNS
+  titulo        String    @db.Text
+  organo        String?
+  finalidad     String?   @db.Text
+  beneficiarios String?   @db.Text
+  sectores      String?   @db.Text
+  regiones      String?   @db.Text
+  importeTotal  Float?
+  abierta       Boolean   @default(true)
+  fuente        String    @default("bdns") // bdns | curada | <externa via Make>
+  fechaInicio   DateTime?
+  fechaFin      DateTime? // fin de plazo de solicitud (deadline)
+  urlBases      String?
+  raw           Json?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([abierta, fechaFin])
+}
+
 // directorio Bubui. Cacheado por `key` para no llamar a la IA en cada visita.
 //   key: "cl:<catSlug>:<citySlug>" (nicho+localidad)
 //        "c:<catSlug>"             (sector)

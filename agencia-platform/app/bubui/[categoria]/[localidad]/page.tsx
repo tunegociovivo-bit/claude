@@ -117,6 +117,14 @@ export default async function DirectorioNichoLocalidad({ params }: Params) {
           {businesses.length === 1 ? "1 negocio" : `${businesses.length} negocios`} de tu zona en Bubui, con descuentos y ofertas para sus clientes.
           {province ? ` ${cityLabel}, ${province}.` : ""}
         </p>
+        {businesses.length >= 3 && (
+          <Link
+            href={`/mejores/${params.categoria}/${params.localidad}`}
+            className="mt-3 inline-flex items-center gap-2 rounded-full bg-amber-100 text-amber-800 font-semibold text-sm px-4 py-2 hover:bg-amber-200"
+          >
+            🏆 Ver las mejores {category.label.toLowerCase()} de {cityLabel}
+          </Link>
+        )}
       </header>
 
       {/* Mapa de los negocios con ubicación */}

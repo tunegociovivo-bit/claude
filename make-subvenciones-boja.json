@@ -1,0 +1,62 @@
+{
+  "name": "Subvenciones BOJA → NV Hub",
+  "flow": [
+    {
+      "id": 1,
+      "module": "rss:ActionReadArticles",
+      "version": 2,
+      "parameters": {
+        "url": "https://PON-AQUI-EL-RSS-DEL-BOLETIN",
+        "maxResults": 50
+      },
+      "mapper": {},
+      "metadata": {
+        "designer": { "x": 0, "y": 0 },
+        "restore": {}
+      }
+    },
+    {
+      "id": 2,
+      "module": "http:ActionSendData",
+      "version": 3,
+      "parameters": {
+        "handleErrors": false,
+        "useNewZLibDeCompress": true
+      },
+      "mapper": {
+        "url": "https://hub.negociovivo.app/api/v1/admin/subvenciones/external",
+        "method": "post",
+        "headers": [
+          { "name": "Authorization", "value": "Bearer TU_API_KEY_DEL_HUB" },
+          { "name": "Content-Type", "value": "application/json" }
+        ],
+        "qs": [],
+        "bodyType": "raw",
+        "contentType": "application/json",
+        "parseResponse": true,
+        "data": "{ \"fuente\": \"boja\", \"convocatorias\": [ { \"id\": \"{{1.guid}}\", \"titulo\": \"{{1.title}}\", \"finalidad\": \"{{1.summary}}\", \"urlBases\": \"{{1.link}}\", \"organo\": \"Junta de Andalucía\", \"regiones\": \"Andalucía\" } ] }"
+      },
+      "metadata": {
+        "designer": { "x": 300, "y": 0 },
+        "restore": {}
+      }
+    }
+  ],
+  "metadata": {
+    "instant": false,
+    "version": 1,
+    "scenario": {
+      "roundtrips": 1,
+      "maxErrors": 3,
+      "autoCommit": true,
+      "autoCommitTriggerLast": true,
+      "sequential": false,
+      "confidential": false,
+      "dataloss": false,
+      "dlq": false,
+      "freshVariables": false
+    },
+    "designer": { "orphans": [] },
+    "zone": "eu2.make.com"
+  }
+}

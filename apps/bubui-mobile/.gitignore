@@ -10,3 +10,18 @@ node_modules/
 
 # Firebase / FCM (se inyecta desde secret en CI; no commitear)
 google-services.json
+
+# Credencial de Google Play para 'eas submit' (NO subir)
+google-service-account.json
+
+# Credenciales iOS locales (NO subir)
+credentials.json
+dist.p12
+dist.mobileprovision
+*.p8
+dist-ext.mobileprovision
+
+# Binarios de build descargados de EAS (artefactos, no versionar)
+*.aab
+*.apk
+*.ipa

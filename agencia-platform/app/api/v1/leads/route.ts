@@ -9,6 +9,7 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
   const urgency = url.searchParams.get("urgency") ?? undefined;
   const province = url.searchParams.get("province") ?? undefined;
   const searchId = url.searchParams.get("searchId") ?? undefined;
+  const keyword = url.searchParams.get("keyword") ?? undefined;
   const search = url.searchParams.get("search") ?? undefined;
   const ticketTier = url.searchParams.get("ticketTier") ?? undefined;
   // sort=ticket → prioriza captación de ticket alto; por defecto, "dolor ahora".
@@ -26,6 +27,9 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
   if (urgency) where.urgency = urgency;
   if (province) where.province = province;
   if (searchId) where.searchId = searchId;
+  // Filtro por NICHO: todas las búsquedas cuya keyword coincide (cerrajero,
+  // cerrajero Málaga, cerrajero España… comparten keyword "cerrajero").
+  if (keyword) where.search = { is: { keyword: { equals: keyword, mode: "insensitive" } } };
   if (ticketTier) where.ticketTier = ticketTier;
   if (search) {
     where.OR = [
@@ -60,6 +64,8 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
       id: true,
       name: true,
       province: true,
+      category: true,
+      searchId: true,
       phone: true,
       website: true,
       rating: true,
@@ -74,6 +80,7 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
       hasWhatsapp: true,
       latitude: true,
       longitude: true,
+      search: { select: { keyword: true, location: true } },
       _count: {
         select: {
           // Solo mensajes que SALIERON de verdad por WhatsApp (incluye los
@@ -93,10 +100,12 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
   });
   // Aplana _count.messages → messagesSent y derivado nextScheduledAt.
   const flat = items.map((l) => {
-    const { _count, messages, ...rest } = l as any;
+    const { _count, messages, search, ...rest } = l as any;
     const next = Array.isArray(messages) && messages.length > 0 ? messages[0] : null;
     return {
       ...rest,
+      searchQuery: search?.keyword ?? null,
+      searchLocation: search?.location ?? null,
       messagesSent: _count?.messages ?? 0,
       nextScheduledAt: next?.scheduledAt ?? null
     };

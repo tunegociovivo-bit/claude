@@ -47,6 +47,20 @@ export async function GET(req: NextRequest) {
   });
 
   const cfgCache = new Map<string, { userId: string; inboxProjectId: string } | null>();
+  // Guardarraíl por workspace: la REAPARICIÓN automática de tareas normales
+  // recurrentes está DESACTIVADA salvo que el workspace la active a propósito
+  // (settings.tasks.autoRecurrence === true). Evita que el tablero cambie sin
+  // consentimiento. Las tareas de Sonia (su buzón) sí se relanzan siempre,
+  // porque son su mecanismo de ejecución programada, no tareas del tablero.
+  const autoRecurrenceCache = new Map<string, boolean>();
+  async function autoRecurrenceOn(workspaceId: string): Promise<boolean> {
+    const hit = autoRecurrenceCache.get(workspaceId);
+    if (hit !== undefined) return hit;
+    const ws = await prisma.workspace.findUnique({ where: { id: workspaceId }, select: { settings: true } });
+    const on = (ws?.settings as any)?.tasks?.autoRecurrence === true;
+    autoRecurrenceCache.set(workspaceId, on);
+    return on;
+  }
   // Columnas resueltas por proyecto: primera columna abierta + ids de columnas
   // "hechas", para reabrir bien las tareas normales sin mandarlas a una
   // columna inexistente.
@@ -141,8 +155,14 @@ export async function GET(req: NextRequest) {
       continue;
     }
 
-    // Tarea NORMAL: hazla reaparecer. Si estaba completada o en una columna
-    // "hecha", vuelve a la primera columna abierta y se limpia completedAt.
+    // Tarea NORMAL: hazla reaparecer SOLO si el workspace activó la
+    // reaparición automática. Si no, se deja intacta (no reabrir sin permiso)
+    // y se avanza recurrenceNextAt para no acumular vencimientos.
+    if (!(await autoRecurrenceOn(t.workspaceId))) {
+      await prisma.task.update({ where: { id: t.id }, data: { recurrenceNextAt: next } as any });
+      advanced++;
+      continue;
+    }
     const { firstOpen, doneIds } = await resolveCols(t.projectId, t.workspaceId);
     const wasDone =
       (t as any).completedAt != null ||

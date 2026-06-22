@@ -254,13 +254,11 @@ export function Onboarding() {
         {/* Explorar sin registrarse: ver negocios y ofertas del mapa sin cuenta.
             El registro solo se pide al canjear/escanear o guardar (Apple 5.1.1). */}
         <TouchableOpacity
-          style={styles.loginLink}
+          style={styles.guestBtn}
           onPress={() => { sfx.tap(); nav.reset({ index: 0, routes: [{ name: "Feed" }] }); }}
-          activeOpacity={0.7}
+          activeOpacity={0.8}
         >
-          <Text style={styles.loginLinkText}>
-            Solo quiero <Text style={styles.loginLinkStrong}>echar un vistazo</Text>
-          </Text>
+          <Text style={styles.guestBtnText}>Explorar sin cuenta</Text>
         </TouchableOpacity>
 
         {/* CTA secundaria: alta de negocio */}
@@ -616,6 +614,8 @@ const makeStyles = (c: Palette) =>
 
     // Link "Ya tengo cuenta" — entre el hero y el bloque negocio
     loginLink: { alignSelf: "center", paddingVertical: 14, paddingHorizontal: 18, marginTop: 8 },
+    guestBtn: { alignSelf: "stretch", marginTop: 10, paddingVertical: 14, borderRadius: 14, borderWidth: 1.5, borderColor: c.pink, alignItems: "center" },
+    guestBtnText: { fontSize: 15, fontWeight: "800", color: c.pink },
     loginLinkText: { fontSize: 14, color: c.gray, fontWeight: "600" },
     loginLinkStrong: { color: c.pink, fontWeight: "800" },
 
