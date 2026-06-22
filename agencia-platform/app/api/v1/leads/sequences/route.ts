@@ -22,7 +22,8 @@ Soy de *Bubui*, la app de Benalmádena que ayuda a los negocios locales a crecer
 💶 Subvenciones para crecer (te las gestionamos nosotros)
 
 Todo gratis y en 2 minutos. ¿Te activo tu ficha? 👇
-{{enlace_bubui}}`;
+{{enlace_bubui}}
+{{colaboracion_ayto}}`;
     const seguimiento = `Hola de nuevo {{nombre_negocio}} 👋
 
 ¿Pudiste ver lo de *Bubui*? Es la app de Benalmádena que te trae clientes, te da visibilidad y te busca subvenciones — todo GRATIS.
@@ -30,7 +31,8 @@ Todo gratis y en 2 minutos. ¿Te activo tu ficha? 👇
 Sigue disponible tu alta sin coste 👇
 {{enlace_bubui}}
 
-Si prefieres que te lo cuente en 2 minutos por teléfono, dímelo y te llamo. 🙂`;
+Si prefieres que te lo cuente en 2 minutos por teléfono, dímelo y te llamo. 🙂
+{{colaboracion_ayto}}`;
     await prisma.leadSequence
       .create({
         data: {

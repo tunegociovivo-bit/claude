@@ -5636,6 +5636,7 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
       evolutionInstance: s.evolutionInstance,
       whatsappCountryCode: s.whatsappCountryCode,
       notifyInterestedPhone: s.notifyInterestedPhone ?? "",
+      ayuntamiento: s.ayuntamiento ?? "",
       sendEnabled: s.sendEnabled,
       sendPaused: s.sendPaused,
       sendWindowStart: s.sendWindowStart,
@@ -6022,6 +6023,19 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
                 className="w-full px-3 py-2 rounded-lg border bg-white text-sm"
               />
               <p className="text-[11px] text-slate-500 mt-1">Te llega un WhatsApp inmediato cuando la IA clasifica una respuesta como interesada. Déjalo vacío para no recibir avisos.</p>
+            </div>
+            <div className="mt-2">
+              <label className="block text-xs font-medium text-slate-700 mb-1">🏛️ Ayuntamiento colaborador (opcional)</label>
+              <input
+                value={s.ayuntamiento ?? ""}
+                onChange={(e) => setField("ayuntamiento", e.target.value)}
+                placeholder="Ej: Benalmádena"
+                className="w-full px-3 py-2 rounded-lg border bg-white text-sm"
+              />
+              <p className="text-[11px] text-slate-500 mt-1">
+                Si colaboráis con un ayuntamiento, ponlo aquí. Las plantillas que usen <code>{"{{colaboracion_ayto}}"}</code> añadirán
+                automáticamente “En colaboración con el Ayuntamiento de …”. Déjalo vacío para no nombrar a nadie.
+              </p>
             </div>
             <div className="mt-2 rounded-lg border bg-emerald-50/50 p-3">
               <label className="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer">

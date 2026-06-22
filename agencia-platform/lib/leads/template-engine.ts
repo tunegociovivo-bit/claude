@@ -17,6 +17,10 @@ export const SUPPORTED_PLACEHOLDERS = [
   "provincia",
   "telefono",
   "web",
+  // Colaboración con ayuntamiento: {{ayuntamiento}} = nombre; {{colaboracion_ayto}}
+  // = frase completa (vacía si no hay colaboración configurada).
+  "ayuntamiento",
+  "colaboracion_ayto",
   "rating",
   "rating_estrellas",
   "resenas",
@@ -131,6 +135,8 @@ export async function renderTemplate(opts: {
     // Enlace a la demo personalizada del negocio en Bubui (captación viral).
     demo_bubui: bubuiUrl(`/demo/${lead.id}`),
     enlace_bubui: "", // se rellena abajo solo si la plantilla lo usa
+    ayuntamiento: "", // se rellena abajo si la plantilla lo usa y hay colaboración
+    colaboracion_ayto: "",
 
     ...(() => {
       const neg = pickNegativeReview(lead.reviewsJson);
@@ -162,6 +168,23 @@ export async function renderTemplate(opts: {
         if (others.length) vars.competidores_lista = others.slice(0, 3).join(", ");
       }
     }
+  }
+
+  // Colaboración con ayuntamiento: solo si la plantilla lo usa. El nombre se
+  // configura en Ajustes de Leads (settings.leads.ayuntamiento). Si está vacío,
+  // ambos placeholders quedan vacíos (no se nombra a nadie).
+  if (/\{\{\s*(ayuntamiento|colaboracion_ayto)\s*\}\}/.test(opts.body)) {
+    try {
+      const ws = await prisma.workspace.findUnique({
+        where: { id: opts.workspaceId },
+        select: { settings: true }
+      });
+      const ayto = ((ws?.settings as any)?.leads?.ayuntamiento ?? "").toString().trim();
+      if (ayto) {
+        vars.ayuntamiento = ayto;
+        vars.colaboracion_ayto = `\n\n🏛️ En colaboración con el *Ayuntamiento de ${ayto}*.`;
+      }
+    } catch {}
   }
 
   // Enlace de activación: solo si la plantilla lo usa (provisiona la ficha de

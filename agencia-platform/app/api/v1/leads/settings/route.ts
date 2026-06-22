@@ -46,6 +46,9 @@ export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
     evolutionInstance: s.evolutionInstance ?? evo.instance ?? "default",
     whatsappCountryCode: s.whatsappCountryCode ?? "34",
     notifyInterestedPhone: s.notifyInterestedPhone ?? "",
+    // Colaboración con un ayuntamiento: si está, los mensajes pueden usar
+    // {{colaboracion_ayto}} / {{ayuntamiento}} para nombrarlo (más confianza).
+    ayuntamiento: s.ayuntamiento ?? "",
     autoReplyEnabled: !!s.autoReplyEnabled,
     autoReplyText: s.autoReplyText ?? "¡Hola! Gracias por escribir 🙌 Te atiendo enseguida.",
     autoFollowupEnabled: !!s.autoFollowupEnabled,
@@ -110,6 +113,7 @@ const schema = z.object({
   evolutionInstance: z.string().optional(),
   whatsappCountryCode: z.string().regex(/^\d{1,3}$/).optional(),
   notifyInterestedPhone: z.string().max(40).optional(),
+  ayuntamiento: z.string().max(80).optional(),
   autoReplyEnabled: z.boolean().optional(),
   autoReplyText: z.string().max(1000).optional(),
   autoFollowupEnabled: z.boolean().optional(),
@@ -246,6 +250,7 @@ export const PATCH = withApi({ scope: "*" }, async (req, { api }) => {
     "evolutionInstance",
     "whatsappCountryCode",
     "notifyInterestedPhone",
+    "ayuntamiento",
     "autoReplyEnabled",
     "autoReplyText",
     "autoFollowupEnabled",

@@ -30,7 +30,8 @@ Soy de *Bubui*, la app de Benalmádena que ayuda a los negocios locales a crecer
 💶 Subvenciones para crecer (te las gestionamos nosotros)
 
 Todo gratis y en 2 minutos. ¿Te activo tu ficha? 👇
-{{enlace_bubui}}`
+{{enlace_bubui}}
+{{colaboracion_ayto}}`
   },
   {
     name: "Captación Bubui — Demo",
@@ -44,7 +45,8 @@ Si te gusta, te damos de alta GRATIS y consigues:
 👀 Más visibilidad en tu zona
 💶 Subvenciones para crecer (te las gestionamos)
 
-¿La activamos? Es gratis y son 2 minutos.`
+¿La activamos? Es gratis y son 2 minutos.
+{{colaboracion_ayto}}`
   },
   {
     name: "Captación Bubui — Seguimiento",
@@ -55,7 +57,8 @@ Si te gusta, te damos de alta GRATIS y consigues:
 Sigue disponible tu alta sin coste 👇
 {{enlace_bubui}}
 
-Si prefieres que te lo cuente en 2 minutos por teléfono, dímelo y te llamo. 🙂`
+Si prefieres que te lo cuente en 2 minutos por teléfono, dímelo y te llamo. 🙂
+{{colaboracion_ayto}}`
   }
 ];
 
