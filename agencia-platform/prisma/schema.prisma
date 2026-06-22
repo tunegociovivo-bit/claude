@@ -59,6 +59,7 @@ model User {
   userSessions              UserSession[]
   MetaConnection            MetaConnection[]
   aiMemoryEntries           AiUserMemory[]
+  panelNotes                PanelNote[]
   managedProjects           Project[]                  @relation("ProjectManager")
   emailAccounts             EmailAccount[]             @relation("UserEmailAccounts")
 }
@@ -250,6 +251,7 @@ model Workspace {
   invoiceIssuers            InvoiceIssuer[]
   invoiceCounters           InvoiceCounter[]
   expenses                  Expense[]
+  panelNotes                PanelNote[]
 }
 
 // ====================================================================
@@ -2260,6 +2262,28 @@ model AiUserMemory {
 
   @@unique([workspaceId, userId])
   @@index([workspaceId])
+}
+
+// Notas personales tipo post-it del "tablón" del panel de tareas.
+// Cada nota pertenece a un usuario (privadas, no se comparten con el
+// equipo). `color` es una clave de paleta (amber/sky/rose/emerald/
+// violet/slate) que el front mapea a estilos. `order` permite
+// reordenarlas (ASC = primero). Se renderizan en el dock derecho del
+// kanban junto al mini-calendario.
+model PanelNote {
+  id          String   @id @default(cuid())
+  workspaceId String
+  userId      String
+  content     String   @default("") @db.Text
+  color       String   @default("amber")
+  order       Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, userId, order])
 }
 
 // Fase 2: borradores generados por Sonia que necesitan aprobación

@@ -36,6 +36,7 @@ import BulkActionBar from "@/components/tareas/BulkActionBar";
 import MobileFABs from "@/components/tareas/MobileFABs";
 import VoiceTaskRecorder from "@/components/forms/VoiceTaskRecorder";
 import MeetingRecorder from "@/components/forms/MeetingRecorder";
+import PanelDock from "@/components/tareas/PanelDock";
 import { statusLabelOf, statusColorOf, priorityColors, priorityLabels } from "@/lib/mock-data";
 import type { UiTask, UiProject, UiClient, UiMember } from "@/lib/db/queries";
 import { LayoutGrid, List, Plus, Filter, CalendarDays, FolderPlus, GripVertical, CheckSquare, Square, Settings2, Loader2, Link2, Check, Bot, X, Zap, Pencil, RefreshCw } from "lucide-react";
@@ -165,6 +166,11 @@ export default function TareasClient({
   const urlProject = searchParams.get("project");
   const { data: session } = useSession();
   const myUserId = (session?.user as any)?.id as string | undefined;
+  const myEmail = ((session?.user as any)?.email as string | undefined)?.toLowerCase();
+  // El dock derecho (calendario fijo + tablón de notas) se muestra en el
+  // panel personal de info@negociovivo.com, igual que la redirección de
+  // la home lo lleva directo a su kanban. Solo en pantallas anchas (xl+).
+  const showDock = myEmail === "info@negociovivo.com";
   const [view, setView] = useState<"kanban" | "list">("kanban");
   const [isMobile, setIsMobile] = useState(false);
   // En móvil mantenemos kanban (no list) — estilo Asana, una columna
@@ -1137,11 +1143,14 @@ export default function TareasClient({
   const isAdmin = !columnsLoaded; // placeholder; usaremos el endpoint /me en futuro si hace falta
 
   return (
-    // Sin max-w: el tablero ocupa todo el ancho disponible, estilo Asana.
-    // Las columnas se vuelven más anchas en monitores grandes.
-    // flex column + min-h-screen para que las columnas se estiren hasta
-    // abajo cuando no hay otra cosa que las empuje.
-    <div className="flex flex-col min-h-[calc(100vh-8rem)]">
+    // Layout en fila: tablero (flex-1) + dock derecho fijo (calendario +
+    // notas) para info@negociovivo.com en pantallas anchas.
+    <div className="flex gap-4 items-start">
+    {/* Sin max-w: el tablero ocupa todo el ancho disponible, estilo Asana.
+        Las columnas se vuelven más anchas en monitores grandes.
+        flex column + min-h-screen para que las columnas se estiren hasta
+        abajo cuando no hay otra cosa que las empuje. */}
+    <div className="flex flex-col min-h-[calc(100vh-8rem)] flex-1 min-w-0">
       {/* Cabecera + filtros: ocultos en mobile. En el móvil ganamos
           espacio vertical para las columnas — el user crea tareas
           desde los FABs flotantes y filtra (cuando haga falta) desde
@@ -1641,6 +1650,11 @@ export default function TareasClient({
           onCancel={clearSelection}
         />
       )}
+    </div>
+
+    {showDock && (
+      <PanelDock tasks={tasks} myUserId={myUserId} onOpenTask={openEditTask} />
+    )}
     </div>
   );
 }
