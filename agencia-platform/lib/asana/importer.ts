@@ -12,6 +12,7 @@ import { detectPriorityFromCustomFields } from "./priority";
 import { importAttachmentsForTask } from "./attachments";
 import { parseAsanaCommentToTipTap } from "./comment-parser";
 import { toTipTapDoc } from "@/lib/comments/body";
+import { recordAudit } from "@/lib/audit/log";
 
 // Antes TaskStatus era enum en Prisma; ahora es string libre para soportar
 // columnas custom del Kanban. Mantenemos los valores por defecto como
@@ -994,6 +995,17 @@ export async function reimportAsanaSection(opts: {
 
       let local = await prisma.task.findUnique({ where: { asanaId: t.gid } });
       if (local) {
+        // Traza: si este re-import resucita una tarea que estaba borrada, deja
+        // constancia en auditoría (autor + tarea) para poder rastrear el origen.
+        if (opts.restoreDeleted && (local as any).deletedAt) {
+          await recordAudit({
+            workspaceId: opts.workspaceId,
+            action: "task.restored_by_asana_import",
+            targetType: "task",
+            targetId: local.id,
+            meta: { title: t.name, sectionGid: opts.sectionGid }
+          }).catch(() => {});
+        }
         await prisma.task.update({
           where: { id: local.id },
           data: {
