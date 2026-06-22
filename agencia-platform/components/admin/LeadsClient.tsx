@@ -564,30 +564,26 @@ function BulkStatusButton({
   );
 }
 
-/** Pestaña Mapa: muestra todos los leads con coordenadas en un mapa
- *  Leaflet/OpenStreetMap. Carga Leaflet dinámicamente desde CDN para no
- *  añadir dependencias al bundle.
+/** Pestaña Mapa: muestra los leads con coordenadas en un mapa Leaflet/OSM.
  *
- *  Filtro por palabra clave (negocio/nicho): filtra los marcadores por
- *  nombre + categoría + keyword de la búsqueda, para ver por nicho qué zona
- *  ya se ha "atacado" (contactada) y cuál falta. Color del marker:
- *  verde = ya contactado, rojo = pendiente. */
+ *  Filtro por BÚSQUEDA realizada (cerrajero, dentista…): se elige en un
+ *  desplegable y el mapa carga del backend los leads de esa búsqueda
+ *  (searchId), para ver por nicho qué zona ya se ha "atacado" (contactada) y
+ *  cuál falta. Color del marker: verde = ya contactado, rojo = pendiente. */
 function LeadsMapView() {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<any>(null);
   const layerRef = useRef<any>(null);
   const LRef = useRef<any>(null);
-  const allRef = useRef<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [redrawing, setRedrawing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [kw, setKw] = useState("");
-  const [stats, setStats] = useState<{ total: number; atacados: number; pendientes: number }>({ total: 0, atacados: 0, pendientes: 0 });
+  const [searches, setSearches] = useState<{ id: string; keyword: string; location: string; leads: number }[]>([]);
+  const [searchId, setSearchId] = useState("");
+  const [stats, setStats] = useState<{ total: number; atacados: number; pendientes: number; sinCoords: number }>({ total: 0, atacados: 0, pendientes: 0, sinCoords: 0 });
 
-  const norm = (s: any) =>
-    String(s ?? "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
-
-  // Redibuja los marcadores según la palabra clave actual.
-  const render = useCallback((keyword: string) => {
+  // Pinta en el mapa la lista de leads recibida.
+  const draw = useCallback((items: any[]) => {
     const L = LRef.current;
     const map = mapRef.current;
     if (!L || !map) return;
@@ -595,15 +591,7 @@ function LeadsMapView() {
     const layer = layerRef.current;
     layer.clearLayers();
 
-    const q = norm(keyword).trim();
-    const terms = q.split(/\s+/).filter(Boolean);
-    const match = (l: any) => {
-      if (terms.length === 0) return true;
-      const hay = norm(`${l.name} ${l.category ?? ""} ${l.searchQuery ?? ""} ${l.searchLocation ?? ""} ${l.province ?? ""}`);
-      return terms.every((t) => hay.includes(t));
-    };
-
-    const geo = allRef.current.filter((l) => l.latitude != null && l.longitude != null && match(l));
+    const geo = items.filter((l) => l.latitude != null && l.longitude != null);
     let atacados = 0;
     const pts: any[] = [];
     for (const l of geo) {
@@ -613,22 +601,36 @@ function LeadsMapView() {
       const marker = L.circleMarker([l.latitude, l.longitude], {
         radius: 7, color, fillColor: color, fillOpacity: 0.7, weight: 1.5
       });
-      const popup = `
+      marker.bindPopup(`
         <strong>${escapeHtmlClient(l.name)}</strong><br/>
         ${escapeHtmlClient(l.category ?? l.searchQuery ?? "")} ${l.province ? "· " + escapeHtmlClient(l.province) : ""}<br/>
         ${l.phone ?? "Sin teléfono"}<br/>
         <span style="color:${color};font-weight:600">${atacado ? "✓ Ya contactado" : "● Pendiente"}</span> ·
         Score ${l.score ?? "—"} · ${l.messagesSent ?? 0} msg
-      `;
-      marker.bindPopup(popup);
+      `);
       layer.addLayer(marker);
       pts.push([l.latitude, l.longitude]);
     }
-    setStats({ total: geo.length, atacados, pendientes: geo.length - atacados });
+    setStats({ total: geo.length, atacados, pendientes: geo.length - atacados, sinCoords: items.length - geo.length });
     if (pts.length > 0) {
-      try { map.fitBounds(pts, { padding: [30, 30], maxZoom: 13 }); } catch {}
+      try { map.fitBounds(pts, { padding: [30, 30], maxZoom: 14 }); } catch {}
     }
   }, []);
+
+  // Carga del backend los leads (todos o de una búsqueda) y los pinta.
+  const loadLeads = useCallback(async (sid: string) => {
+    setRedrawing(true);
+    try {
+      const url = sid ? `/api/v1/leads?searchId=${encodeURIComponent(sid)}&limit=500` : "/api/v1/leads?limit=500";
+      const r = await fetch(url);
+      const j = r.ok ? await r.json() : { items: [] };
+      draw(j.items ?? []);
+    } catch {
+      /* deja el mapa como estaba */
+    } finally {
+      setRedrawing(false);
+    }
+  }, [draw]);
 
   useEffect(() => {
     let cancelled = false;
@@ -657,14 +659,21 @@ function LeadsMapView() {
 
     (async () => {
       try {
-        const [leads, L] = await Promise.all([
+        const [leads, sres, L] = await Promise.all([
           fetch("/api/v1/leads?limit=500").then((r) => (r.ok ? r.json() : { items: [] })),
+          fetch("/api/v1/leads/searches").then((r) => (r.ok ? r.json() : { items: [] })),
           loadLeaflet()
         ]);
         if (cancelled || !containerRef.current) return;
         LRef.current = L;
+        // Solo búsquedas con al menos un lead, ordenadas por volumen.
+        const srows = (sres.items ?? [])
+          .map((s: any) => ({ id: s.id, keyword: s.keyword, location: s.location, leads: s._count?.leads ?? 0 }))
+          .filter((s: any) => s.leads > 0)
+          .sort((a: any, b: any) => b.leads - a.leads);
+        setSearches(srows);
+
         const items: any[] = leads.items ?? [];
-        allRef.current = items;
         const geo = items.filter((l) => l.latitude != null && l.longitude != null);
         const center =
           geo.length > 0
@@ -676,7 +685,7 @@ function LeadsMapView() {
           attribution: "© OpenStreetMap",
           maxZoom: 19
         }).addTo(map);
-        render("");
+        draw(items);
         setLoading(false);
       } catch (e: any) {
         if (!cancelled) {
@@ -690,34 +699,34 @@ function LeadsMapView() {
       if (mapRef.current) { mapRef.current.remove(); mapRef.current = null; }
       layerRef.current = null;
     };
-  }, [render]);
-
-  // Redibuja con debounce al cambiar la palabra clave.
-  useEffect(() => {
-    const t = setTimeout(() => render(kw), 250);
-    return () => clearTimeout(t);
-  }, [kw, render]);
+  }, [draw]);
 
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap items-center gap-2">
-        <div className="relative flex-1 min-w-[220px]">
-          <Search className="h-3.5 w-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
-          <input
-            value={kw}
-            onChange={(e) => setKw(e.target.value)}
-            placeholder="Filtra por nicho/negocio: peluquería, dentista, taller…"
-            className="w-full pl-8 pr-3 py-2 rounded-lg border bg-white text-sm"
-          />
-        </div>
+        <select
+          value={searchId}
+          onChange={(e) => { setSearchId(e.target.value); void loadLeads(e.target.value); }}
+          className="flex-1 min-w-[240px] px-3 py-2 rounded-lg border bg-white text-sm"
+        >
+          <option value="">— Todas las búsquedas —</option>
+          {searches.map((s) => (
+            <option key={s.id} value={s.id}>
+              {s.keyword}{s.location ? ` · ${s.location}` : ""} ({s.leads})
+            </option>
+          ))}
+        </select>
+        {redrawing && <Loader2 className="h-4 w-4 animate-spin text-slate-400" />}
         <div className="flex items-center gap-3 text-xs">
           <span className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-full" style={{ background: "#16a34a" }} /> Atacados <strong>{stats.atacados}</strong></span>
           <span className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-full" style={{ background: "#ef4444" }} /> Pendientes <strong>{stats.pendientes}</strong></span>
-          <span className="text-slate-500">Total <strong>{stats.total}</strong></span>
+          <span className="text-slate-500">En mapa <strong>{stats.total}</strong></span>
         </div>
       </div>
       <p className="text-[11px] text-slate-500">
-        Verde = ya contactado · Rojo = aún sin contactar. Escribe un nicho para ver por zona qué falta por atacar. {kw && <button onClick={() => setKw("")} className="text-brand-600 hover:underline">limpiar</button>}
+        Elige una búsqueda (nicho) para ver por zona qué falta por atacar. Verde = ya contactado · Rojo = aún sin contactar.
+        {stats.sinCoords > 0 && <> · {stats.sinCoords} sin coordenadas (no se pueden situar).</>}
+        {searches.length === 0 && !loading && <> · No hay búsquedas con leads todavía.</>}
       </p>
       {error && (
         <div className="text-xs px-3 py-2 rounded border border-rose-200 bg-rose-50 text-rose-700">{error}</div>

@@ -61,6 +61,7 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
       name: true,
       province: true,
       category: true,
+      searchId: true,
       phone: true,
       website: true,
       rating: true,
