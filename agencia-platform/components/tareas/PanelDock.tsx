@@ -464,7 +464,7 @@ export default function PanelDock({
                 top: below ? hover.bottom + 6 : hover.top - 6,
                 transform: below ? "translate(-50%, 0)" : "translate(-50%, -100%)"
               }}
-              className="z-[9999] w-52 pointer-events-none rounded-lg border border-slate-700 bg-slate-800 shadow-xl p-2"
+              className="z-[9999] w-64 max-w-[80vw] pointer-events-none rounded-lg border border-slate-700 bg-slate-800 shadow-xl p-2"
             >
               <div className="text-[11px] font-semibold text-slate-200 mb-1 capitalize">
                 {new Date(hover.iso + "T00:00:00").toLocaleDateString("es-ES", {
@@ -473,12 +473,12 @@ export default function PanelDock({
                   month: "long"
                 })}
               </div>
-              <ul className="space-y-1 max-h-56 overflow-hidden">
+              <ul className="space-y-1">
                 {list.map((t) => (
-                  <li key={t.id} className="flex items-center gap-2 text-xs text-slate-200">
+                  <li key={t.id} className="flex items-start gap-2 text-xs text-slate-200">
                     <span
                       className={
-                        "h-1.5 w-1.5 rounded-full shrink-0 " +
+                        "h-1.5 w-1.5 rounded-full shrink-0 mt-[5px] " +
                         (t.priority === "urgencia"
                           ? "bg-rose-500"
                           : t.priority === "alta"
@@ -486,7 +486,7 @@ export default function PanelDock({
                           : "bg-slate-400")
                       }
                     />
-                    <span className="truncate">{t.title}</span>
+                    <span className="whitespace-normal break-words leading-snug">{t.title}</span>
                   </li>
                 ))}
               </ul>
