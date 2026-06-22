@@ -74,20 +74,19 @@ type Note = { id: string; content: string; color: string; order: number };
 export default function PanelDock({
   tasks,
   myUserId,
-  onOpenTask,
-  columnBgClass
+  onOpenTask
 }: {
   tasks: UiTask[];
   myUserId?: string;
   onOpenTask: (t: UiTask) => void;
-  /** Clases de fondo de la 1ª columna del kanban, para que la columna del
-   *  calendario respire el mismo color que la columna de la izquierda. */
-  columnBgClass?: string;
 }) {
   const today = useMemo(() => new Date(), []);
   const isoToday = isoLocal(today);
   const [cursor, setCursor] = useState(() => new Date(today.getFullYear(), today.getMonth(), 1));
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
+  // Semana visible en "Tareas de esta semana": 0 = esta semana, 1 = la
+  // siguiente, -1 = la anterior… (se navega con las flechas).
+  const [weekOffset, setWeekOffset] = useState(0);
 
   const year = cursor.getFullYear();
   const month = cursor.getMonth();
@@ -116,24 +115,43 @@ export default function PanelDock({
     return set;
   }, [tasksByDay, myUserId]);
 
-  // Tareas de ESTA semana (lunes→domingo) agrupadas por día, en orden.
-  // Vista rápida de "lo que tengo que hacer esta semana".
+  // Lunes de la semana visible (aplicando weekOffset) y su rango.
+  const weekMonday = useMemo(() => {
+    const m = startOfWeek(today);
+    m.setDate(m.getDate() + weekOffset * 7);
+    return m;
+  }, [today, weekOffset]);
+  const weekSunday = useMemo(() => {
+    const s = new Date(weekMonday);
+    s.setDate(s.getDate() + 6);
+    return s;
+  }, [weekMonday]);
+
+  // Tareas de la semana visible (lunes→domingo) agrupadas por día, en orden.
   const weekDays = useMemo(() => {
-    const monday = startOfWeek(today);
     const days: { iso: string; date: Date; tasks: UiTask[] }[] = [];
     for (let i = 0; i < 7; i++) {
-      const date = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + i);
+      const date = new Date(weekMonday.getFullYear(), weekMonday.getMonth(), weekMonday.getDate() + i);
       const iso = isoLocal(date);
       const tasks = tasksByDay.get(iso) ?? [];
       if (tasks.length > 0) days.push({ iso, date, tasks });
     }
     return days;
-  }, [tasksByDay, today]);
+  }, [tasksByDay, weekMonday]);
 
   const weekCount = useMemo(
     () => weekDays.reduce((sum, d) => sum + d.tasks.length, 0),
     [weekDays]
   );
+
+  // Etiqueta de la semana visible: relativa cuando es cercana, si no el rango.
+  const weekLabel = useMemo(() => {
+    if (weekOffset === 0) return "Esta semana";
+    if (weekOffset === 1) return "Próxima semana";
+    if (weekOffset === -1) return "Semana pasada";
+    const fmt = (d: Date) => d.toLocaleDateString("es-ES", { day: "numeric", month: "short" });
+    return `${fmt(weekMonday)} – ${fmt(weekSunday)}`;
+  }, [weekOffset, weekMonday, weekSunday]);
 
   function handleDayClick(iso: string) {
     const list = tasksByDay.get(iso) ?? [];
@@ -151,14 +169,15 @@ export default function PanelDock({
   const selectedTasks = selectedDay ? tasksByDay.get(selectedDay) ?? [] : [];
 
   return (
-    <aside className="hidden xl:flex w-80 shrink-0 flex-col gap-4 sticky top-4 self-start max-h-[calc(100vh-6rem)] overflow-y-auto pb-4">
+    // Columna fija oscura, mismo aire que la barra de navegación de la
+    // izquierda (bg-slate-900). Las tarjetas internas son superficies un
+    // punto más claras (slate-800) con texto claro.
+    <aside className="hidden xl:flex w-80 shrink-0 flex-col gap-3 sticky top-4 self-start max-h-[calc(100vh-6rem)] overflow-y-auto rounded-xl border border-slate-800 bg-slate-900 p-3 text-slate-300">
       {/* ---- Mini calendario ---- */}
-      {/* Mismo fondo que la 1ª columna del kanban (la de la izquierda).
-          Si no llega color, cae a blanco con borde. */}
-      <div className={"rounded-xl overflow-hidden " + (columnBgClass || "bg-white border")}>
-        <div className="flex items-center justify-between px-3 py-2.5 border-b">
-          <div className="flex items-center gap-1.5 text-sm font-semibold">
-            <CalendarDays className="h-4 w-4 text-brand-600" />
+      <div className="rounded-xl overflow-hidden bg-slate-800 border border-slate-700">
+        <div className="flex items-center justify-between px-3 py-2.5 border-b border-slate-700">
+          <div className="flex items-center gap-1.5 text-sm font-semibold text-slate-100">
+            <CalendarDays className="h-4 w-4 text-brand-400" />
             <span className="capitalize">
               {cursor.toLocaleDateString("es-ES", { month: "long", year: "numeric" })}
             </span>
@@ -169,7 +188,7 @@ export default function PanelDock({
                 setSelectedDay(null);
                 setCursor(new Date(year, month - 1, 1));
               }}
-              className="h-6 w-6 grid place-items-center rounded-md border hover:bg-slate-50"
+              className="h-6 w-6 grid place-items-center rounded-md border border-slate-600 text-slate-300 hover:bg-slate-700"
               aria-label="Mes anterior"
             >
               <ChevronLeft className="h-3.5 w-3.5" />
@@ -179,7 +198,7 @@ export default function PanelDock({
                 setSelectedDay(null);
                 setCursor(new Date(today.getFullYear(), today.getMonth(), 1));
               }}
-              className="text-[11px] px-1.5 py-1 rounded-md border hover:bg-slate-50 text-slate-500"
+              className="text-[11px] px-1.5 py-1 rounded-md border border-slate-600 text-slate-400 hover:bg-slate-700 hover:text-slate-200"
             >
               Hoy
             </button>
@@ -188,7 +207,7 @@ export default function PanelDock({
                 setSelectedDay(null);
                 setCursor(new Date(year, month + 1, 1));
               }}
-              className="h-6 w-6 grid place-items-center rounded-md border hover:bg-slate-50"
+              className="h-6 w-6 grid place-items-center rounded-md border border-slate-600 text-slate-300 hover:bg-slate-700"
               aria-label="Mes siguiente"
             >
               <ChevronRight className="h-3.5 w-3.5" />
@@ -196,7 +215,7 @@ export default function PanelDock({
           </div>
         </div>
 
-        <div className="grid grid-cols-7 text-[10px] uppercase tracking-wide text-slate-400 px-2 pt-2">
+        <div className="grid grid-cols-7 text-[10px] uppercase tracking-wide text-slate-500 px-2 pt-2">
           {["L", "M", "X", "J", "V", "S", "D"].map((d, i) => (
             <div key={i} className="text-center py-1">{d}</div>
           ))}
@@ -221,10 +240,10 @@ export default function PanelDock({
                   (isSelected
                     ? "bg-brand-600 text-white"
                     : isToday
-                    ? "bg-brand-50 text-brand-700 font-semibold ring-1 ring-brand-300"
+                    ? "bg-brand-500/20 text-brand-300 font-semibold ring-1 ring-brand-500"
                     : busy
-                    ? "bg-slate-50 hover:bg-brand-50 text-slate-800 font-medium"
-                    : "hover:bg-slate-50 text-slate-500")
+                    ? "bg-slate-700 hover:bg-slate-600 text-slate-100 font-medium"
+                    : "hover:bg-slate-700 text-slate-400")
                 }
               >
                 <span>{date.getDate()}</span>
@@ -232,7 +251,7 @@ export default function PanelDock({
                   <span
                     className={
                       "absolute bottom-1 h-1.5 w-1.5 rounded-full " +
-                      (isSelected ? "bg-white" : mine ? "bg-brand-500" : "bg-slate-400")
+                      (isSelected ? "bg-white" : mine ? "bg-brand-400" : "bg-slate-400")
                     }
                   />
                 )}
@@ -243,8 +262,8 @@ export default function PanelDock({
 
         {/* Lista del día seleccionado → click abre la tarea */}
         {selectedDay && (
-          <div className="border-t px-3 py-2">
-            <div className="text-[11px] font-medium text-slate-500 mb-1.5">
+          <div className="border-t border-slate-700 px-3 py-2">
+            <div className="text-[11px] font-medium text-slate-400 mb-1.5">
               {new Date(selectedDay + "T00:00:00").toLocaleDateString("es-ES", {
                 weekday: "long",
                 day: "numeric",
@@ -252,14 +271,14 @@ export default function PanelDock({
               })}
             </div>
             {selectedTasks.length === 0 ? (
-              <div className="text-xs text-slate-400 py-1">Sin tareas este día.</div>
+              <div className="text-xs text-slate-500 py-1">Sin tareas este día.</div>
             ) : (
               <ul className="space-y-1">
                 {selectedTasks.map((t) => (
                   <li key={t.id}>
                     <button
                       onClick={() => onOpenTask(t)}
-                      className="w-full text-left text-xs px-2 py-1.5 rounded-md hover:bg-brand-50 flex items-center gap-2"
+                      className="w-full text-left text-xs px-2 py-1.5 rounded-md text-slate-200 hover:bg-slate-700 flex items-center gap-2"
                     >
                       <span
                         className={
@@ -268,7 +287,7 @@ export default function PanelDock({
                             ? "bg-rose-500"
                             : t.priority === "alta"
                             ? "bg-amber-500"
-                            : "bg-slate-300")
+                            : "bg-slate-400")
                         }
                       />
                       <span className="truncate">{t.title}</span>
@@ -281,25 +300,58 @@ export default function PanelDock({
         )}
       </div>
 
-      {/* ---- Tareas de esta semana ---- */}
-      <div className="bg-white rounded-xl border overflow-hidden">
-        <div className="flex items-center justify-between px-3 py-2.5 border-b bg-brand-50/60">
-          <div className="flex items-center gap-1.5 text-sm font-semibold text-brand-700">
-            <CalendarRange className="h-4 w-4" />
-            Tareas de esta semana
+      {/* ---- Tareas de la semana (con navegación entre semanas) ---- */}
+      <div className="bg-slate-800 rounded-xl border border-slate-700 overflow-hidden">
+        <div className="px-3 py-2.5 border-b border-slate-700 bg-slate-700/40 space-y-2">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-1.5 text-sm font-semibold text-brand-300">
+              <CalendarRange className="h-4 w-4" />
+              Tareas de la semana
+            </div>
+            {weekCount > 0 && (
+              <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-brand-600 text-white">
+                {weekCount}
+              </span>
+            )}
           </div>
-          {weekCount > 0 && (
-            <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-brand-600 text-white">
-              {weekCount}
-            </span>
-          )}
+          {/* Selector de semana: ◀ etiqueta ▶ (+ volver a "hoy" si no estás
+              en la semana actual). */}
+          <div className="flex items-center justify-between gap-1">
+            <button
+              onClick={() => setWeekOffset((w) => w - 1)}
+              className="h-6 w-6 grid place-items-center rounded-md border border-slate-600 text-slate-300 hover:bg-slate-700"
+              aria-label="Semana anterior"
+            >
+              <ChevronLeft className="h-3.5 w-3.5" />
+            </button>
+            <div className="flex items-center gap-1.5 min-w-0">
+              <span className="text-xs font-medium text-slate-200 truncate">{weekLabel}</span>
+              {weekOffset !== 0 && (
+                <button
+                  onClick={() => setWeekOffset(0)}
+                  className="text-[10px] px-1.5 py-0.5 rounded border border-slate-600 text-slate-400 hover:bg-slate-700 hover:text-slate-200 shrink-0"
+                >
+                  Hoy
+                </button>
+              )}
+            </div>
+            <button
+              onClick={() => setWeekOffset((w) => w + 1)}
+              className="h-6 w-6 grid place-items-center rounded-md border border-slate-600 text-slate-300 hover:bg-slate-700"
+              aria-label="Semana siguiente"
+            >
+              <ChevronRight className="h-3.5 w-3.5" />
+            </button>
+          </div>
         </div>
         {weekDays.length === 0 ? (
-          <div className="px-3 py-4 text-xs text-slate-400 text-center">
-            No tienes tareas con fecha esta semana. 🎉
+          <div className="px-3 py-4 text-xs text-slate-500 text-center">
+            {weekOffset === 0
+              ? "No tienes tareas con fecha esta semana. 🎉"
+              : "No hay tareas con fecha en esta semana."}
           </div>
         ) : (
-          <ul className="divide-y">
+          <ul className="divide-y divide-slate-700">
             {weekDays.map(({ iso, date, tasks }) => {
               const isToday = iso === isoToday;
               return (
@@ -307,14 +359,14 @@ export default function PanelDock({
                   <div
                     className={
                       "text-[11px] font-medium mb-1 flex items-center gap-1.5 " +
-                      (isToday ? "text-brand-600" : "text-slate-500")
+                      (isToday ? "text-amber-300" : "text-slate-400")
                     }
                   >
                     <span className="capitalize">
                       {date.toLocaleDateString("es-ES", { weekday: "long", day: "numeric" })}
                     </span>
                     {isToday && (
-                      <span className="text-[9px] uppercase tracking-wide px-1.5 py-0.5 rounded-full bg-brand-100 text-brand-700">
+                      <span className="text-[9px] uppercase tracking-wide px-1.5 py-0.5 rounded-full bg-amber-400/20 text-amber-300 font-semibold">
                         Hoy
                       </span>
                     )}
@@ -327,8 +379,8 @@ export default function PanelDock({
                           className={
                             "w-full text-left text-xs px-2 py-1.5 rounded-md flex items-center gap-2 border-l-2 transition " +
                             (isToday
-                              ? "border-brand-500 bg-brand-50/50 hover:bg-brand-50"
-                              : "border-slate-200 hover:bg-slate-50")
+                              ? "border-amber-400 bg-amber-400/15 hover:bg-amber-400/25 text-amber-50 font-medium"
+                              : "border-slate-600 text-slate-200 hover:bg-slate-700")
                           }
                         >
                           <span
@@ -338,7 +390,7 @@ export default function PanelDock({
                                 ? "bg-rose-500"
                                 : t.priority === "alta"
                                 ? "bg-amber-500"
-                                : "bg-slate-300")
+                                : "bg-slate-400")
                             }
                           />
                           <span className="truncate">{t.title}</span>
@@ -417,10 +469,10 @@ function NotesBoard() {
   }
 
   return (
-    <div className="bg-white rounded-xl border">
-      <div className="flex items-center justify-between px-3 py-2.5 border-b">
-        <div className="flex items-center gap-1.5 text-sm font-semibold">
-          <StickyNote className="h-4 w-4 text-amber-500" />
+    <div className="bg-slate-800 rounded-xl border border-slate-700">
+      <div className="flex items-center justify-between px-3 py-2.5 border-b border-slate-700">
+        <div className="flex items-center gap-1.5 text-sm font-semibold text-slate-100">
+          <StickyNote className="h-4 w-4 text-amber-400" />
           Tablón de notas
         </div>
         <button
@@ -435,12 +487,12 @@ function NotesBoard() {
 
       <div className="p-3 space-y-2">
         {loading ? (
-          <div className="text-xs text-slate-400 py-2 flex items-center gap-1.5">
+          <div className="text-xs text-slate-500 py-2 flex items-center gap-1.5">
             <Loader2 className="h-3.5 w-3.5 animate-spin" /> Cargando notas…
           </div>
         ) : notes.length === 0 ? (
-          <div className="text-xs text-slate-400 py-3 text-center">
-            Sin notas. Pulsa <span className="font-medium">+ Nota</span> para crear una.
+          <div className="text-xs text-slate-500 py-3 text-center">
+            Sin notas. Pulsa <span className="font-medium text-slate-400">+ Nota</span> para crear una.
           </div>
         ) : (
           notes.map((n) => (
