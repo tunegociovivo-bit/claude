@@ -60,6 +60,7 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
       id: true,
       name: true,
       province: true,
+      category: true,
       phone: true,
       website: true,
       rating: true,
@@ -74,6 +75,7 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
       hasWhatsapp: true,
       latitude: true,
       longitude: true,
+      search: { select: { keyword: true, location: true } },
       _count: {
         select: {
           // Solo mensajes que SALIERON de verdad por WhatsApp (incluye los
@@ -93,10 +95,12 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
   });
   // Aplana _count.messages → messagesSent y derivado nextScheduledAt.
   const flat = items.map((l) => {
-    const { _count, messages, ...rest } = l as any;
+    const { _count, messages, search, ...rest } = l as any;
     const next = Array.isArray(messages) && messages.length > 0 ? messages[0] : null;
     return {
       ...rest,
+      searchQuery: search?.keyword ?? null,
+      searchLocation: search?.location ?? null,
       messagesSent: _count?.messages ?? 0,
       nextScheduledAt: next?.scheduledAt ?? null
     };

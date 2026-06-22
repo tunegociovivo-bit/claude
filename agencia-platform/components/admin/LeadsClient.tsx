@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import PageHeader from "@/components/PageHeader";
 import Modal from "@/components/ui/Modal";
 import { SectionBoundary } from "@/components/admin/SectionBoundary";
@@ -568,21 +568,74 @@ function BulkStatusButton({
  *  Leaflet/OpenStreetMap. Carga Leaflet dinámicamente desde CDN para no
  *  añadir dependencias al bundle.
  *
- *  Color del marker por urgencia: rojo=crítica, naranja=alta, ámbar=media,
- *  azul=baja. Click muestra nombre + teléfono + score. */
+ *  Filtro por palabra clave (negocio/nicho): filtra los marcadores por
+ *  nombre + categoría + keyword de la búsqueda, para ver por nicho qué zona
+ *  ya se ha "atacado" (contactada) y cuál falta. Color del marker:
+ *  verde = ya contactado, rojo = pendiente. */
 function LeadsMapView() {
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const mapRef = useRef<any>(null);
+  const layerRef = useRef<any>(null);
+  const LRef = useRef<any>(null);
+  const allRef = useRef<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [kw, setKw] = useState("");
+  const [stats, setStats] = useState<{ total: number; atacados: number; pendientes: number }>({ total: 0, atacados: 0, pendientes: 0 });
+
+  const norm = (s: any) =>
+    String(s ?? "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+
+  // Redibuja los marcadores según la palabra clave actual.
+  const render = useCallback((keyword: string) => {
+    const L = LRef.current;
+    const map = mapRef.current;
+    if (!L || !map) return;
+    if (!layerRef.current) layerRef.current = L.layerGroup().addTo(map);
+    const layer = layerRef.current;
+    layer.clearLayers();
+
+    const q = norm(keyword).trim();
+    const terms = q.split(/\s+/).filter(Boolean);
+    const match = (l: any) => {
+      if (terms.length === 0) return true;
+      const hay = norm(`${l.name} ${l.category ?? ""} ${l.searchQuery ?? ""} ${l.searchLocation ?? ""} ${l.province ?? ""}`);
+      return terms.every((t) => hay.includes(t));
+    };
+
+    const geo = allRef.current.filter((l) => l.latitude != null && l.longitude != null && match(l));
+    let atacados = 0;
+    const pts: any[] = [];
+    for (const l of geo) {
+      const atacado = (l.messagesSent ?? 0) > 0 || ["contacted", "replied", "qualified", "won", "lost", "in_sequence"].includes(l.contactStatus ?? "");
+      if (atacado) atacados++;
+      const color = atacado ? "#16a34a" : "#ef4444"; // verde=atacado, rojo=pendiente
+      const marker = L.circleMarker([l.latitude, l.longitude], {
+        radius: 7, color, fillColor: color, fillOpacity: 0.7, weight: 1.5
+      });
+      const popup = `
+        <strong>${escapeHtmlClient(l.name)}</strong><br/>
+        ${escapeHtmlClient(l.category ?? l.searchQuery ?? "")} ${l.province ? "· " + escapeHtmlClient(l.province) : ""}<br/>
+        ${l.phone ?? "Sin teléfono"}<br/>
+        <span style="color:${color};font-weight:600">${atacado ? "✓ Ya contactado" : "● Pendiente"}</span> ·
+        Score ${l.score ?? "—"} · ${l.messagesSent ?? 0} msg
+      `;
+      marker.bindPopup(popup);
+      layer.addLayer(marker);
+      pts.push([l.latitude, l.longitude]);
+    }
+    setStats({ total: geo.length, atacados, pendientes: geo.length - atacados });
+    if (pts.length > 0) {
+      try { map.fitBounds(pts, { padding: [30, 30], maxZoom: 13 }); } catch {}
+    }
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
-    let map: any = null;
 
     async function loadLeaflet(): Promise<any> {
       const w = window as any;
       if (w.L) return w.L;
-      // CSS
       if (!document.getElementById("leaflet-css")) {
         const link = document.createElement("link");
         link.id = "leaflet-css";
@@ -590,7 +643,6 @@ function LeadsMapView() {
         link.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
         document.head.appendChild(link);
       }
-      // JS
       await new Promise<void>((resolve, reject) => {
         if (w.L) return resolve();
         const script = document.createElement("script");
@@ -610,47 +662,21 @@ function LeadsMapView() {
           loadLeaflet()
         ]);
         if (cancelled || !containerRef.current) return;
+        LRef.current = L;
         const items: any[] = leads.items ?? [];
+        allRef.current = items;
         const geo = items.filter((l) => l.latitude != null && l.longitude != null);
-        // Centrar en la media; si no hay puntos, en Madrid.
         const center =
           geo.length > 0
-            ? [
-                geo.reduce((s, l) => s + l.latitude, 0) / geo.length,
-                geo.reduce((s, l) => s + l.longitude, 0) / geo.length
-              ]
+            ? [geo.reduce((s, l) => s + l.latitude, 0) / geo.length, geo.reduce((s, l) => s + l.longitude, 0) / geo.length]
             : [40.4168, -3.7038];
-        map = L.map(containerRef.current).setView(center, geo.length > 0 ? 6 : 5);
+        const map = L.map(containerRef.current).setView(center, geo.length > 0 ? 6 : 5);
+        mapRef.current = map;
         L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
           attribution: "© OpenStreetMap",
           maxZoom: 19
         }).addTo(map);
-        const URG_COLOR: Record<string, string> = {
-          critica: "#dc2626",
-          alta: "#ea580c",
-          media: "#d97706",
-          baja: "#0284c7",
-          descartar: "#94a3b8"
-        };
-        for (const l of geo) {
-          const color = URG_COLOR[l.urgency ?? ""] ?? "#475569";
-          const marker = L.circleMarker([l.latitude, l.longitude], {
-            radius: 7,
-            color,
-            fillColor: color,
-            fillOpacity: 0.7,
-            weight: 1.5
-          }).addTo(map);
-          const popup = `
-            <strong>${escapeHtmlClient(l.name)}</strong><br/>
-            ${l.province ?? ""}<br/>
-            ${l.phone ?? "Sin teléfono"}<br/>
-            <span style="color:${color}">★ ${l.rating ?? "—"}</span> ·
-            Score ${l.score ?? "—"} ·
-            ${l.urgency ?? "—"}
-          `;
-          marker.bindPopup(popup);
-        }
+        render("");
         setLoading(false);
       } catch (e: any) {
         if (!cancelled) {
@@ -661,14 +687,37 @@ function LeadsMapView() {
     })();
     return () => {
       cancelled = true;
-      if (map) map.remove();
+      if (mapRef.current) { mapRef.current.remove(); mapRef.current = null; }
+      layerRef.current = null;
     };
-  }, []);
+  }, [render]);
+
+  // Redibuja con debounce al cambiar la palabra clave.
+  useEffect(() => {
+    const t = setTimeout(() => render(kw), 250);
+    return () => clearTimeout(t);
+  }, [kw, render]);
 
   return (
     <div className="space-y-2">
-      <p className="text-xs text-slate-500">
-        Vista geográfica de los leads con coordenadas. Color del marker según urgencia.
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative flex-1 min-w-[220px]">
+          <Search className="h-3.5 w-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+          <input
+            value={kw}
+            onChange={(e) => setKw(e.target.value)}
+            placeholder="Filtra por nicho/negocio: peluquería, dentista, taller…"
+            className="w-full pl-8 pr-3 py-2 rounded-lg border bg-white text-sm"
+          />
+        </div>
+        <div className="flex items-center gap-3 text-xs">
+          <span className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-full" style={{ background: "#16a34a" }} /> Atacados <strong>{stats.atacados}</strong></span>
+          <span className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-full" style={{ background: "#ef4444" }} /> Pendientes <strong>{stats.pendientes}</strong></span>
+          <span className="text-slate-500">Total <strong>{stats.total}</strong></span>
+        </div>
+      </div>
+      <p className="text-[11px] text-slate-500">
+        Verde = ya contactado · Rojo = aún sin contactar. Escribe un nicho para ver por zona qué falta por atacar. {kw && <button onClick={() => setKw("")} className="text-brand-600 hover:underline">limpiar</button>}
       </p>
       {error && (
         <div className="text-xs px-3 py-2 rounded border border-rose-200 bg-rose-50 text-rose-700">{error}</div>
