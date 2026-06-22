@@ -38,7 +38,7 @@ import VoiceTaskRecorder from "@/components/forms/VoiceTaskRecorder";
 import MeetingRecorder from "@/components/forms/MeetingRecorder";
 import { statusLabelOf, statusColorOf, priorityColors, priorityLabels } from "@/lib/mock-data";
 import type { UiTask, UiProject, UiClient, UiMember } from "@/lib/db/queries";
-import { LayoutGrid, List, Plus, Filter, CalendarDays, FolderPlus, GripVertical, CheckSquare, Square, Settings2, Loader2, Link2, Check, Bot, X, Zap, Pencil } from "lucide-react";
+import { LayoutGrid, List, Plus, Filter, CalendarDays, FolderPlus, GripVertical, CheckSquare, Square, Settings2, Loader2, Link2, Check, Bot, X, Zap, Pencil, RefreshCw } from "lucide-react";
 import clsx from "clsx";
 import { DEFAULT_FILTERS, type TaskFilters } from "@/components/tareas/SavedFiltersBar";
 import { RECURRENCE_OPTIONS } from "@/lib/tasks/recurrence";
@@ -1302,6 +1302,7 @@ export default function TareasClient({
           <option value="week">Esta semana</option>
           <option value="no-date">Sin fecha</option>
         </select>
+        <RecurrenceGuardToggle />
         {/* "limpiar" inline: solo aparece si hay algún filtro activo.
             Sustituye a la antigua barra SavedFiltersBar que ocupaba
             una fila entera. */}
@@ -3388,4 +3389,60 @@ function playSoniaSound(status: AiStatusInfo["aiStatus"]): void {
     // Web Audio bloqueado (autoplay policy). El primer click del user
     // en la página debería "desbloquearlo" para los siguientes sounds.
   }
+}
+
+/**
+ * Interruptor del guardarraíl de recurrencia: por defecto las tareas
+ * recurrentes NO reaparecen solas (el tablero no cambia sin permiso). Aquí el
+ * admin puede reactivar la reaparición automática si la quiere. Componente
+ * autónomo (lee/escribe su propio estado) para no acoplarlo al tablero.
+ */
+function RecurrenceGuardToggle() {
+  const [on, setOn] = useState<boolean | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    fetch("/api/v1/tasks/recurrence-setting")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (alive && d) setOn(!!d.autoRecurrence); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, []);
+
+  async function toggle() {
+    if (on === null || saving) return;
+    const next = !on;
+    setSaving(true);
+    try {
+      const r = await fetch("/api/v1/tasks/recurrence-setting", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ autoRecurrence: next })
+      });
+      if (r.ok) setOn(next);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (on === null) return null;
+  return (
+    <button
+      onClick={toggle}
+      disabled={saving}
+      title={
+        on
+          ? "Reaparición automática de tareas recurrentes ACTIVADA. Pulsa para desactivar (el tablero no cambiará solo)."
+          : "Reaparición automática de tareas recurrentes DESACTIVADA. Tu tablero no cambia sin tu permiso. Pulsa para activarla."
+      }
+      className={
+        "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs shrink-0 transition-colors " +
+        (on ? "bg-amber-50 border-amber-300 text-amber-800" : "bg-white text-slate-500 hover:bg-slate-50")
+      }
+    >
+      <RefreshCw className={"h-3.5 w-3.5 " + (saving ? "animate-spin" : "")} />
+      {on ? "Recurrencia auto: ON" : "Recurrencia auto: OFF"}
+    </button>
+  );
 }
