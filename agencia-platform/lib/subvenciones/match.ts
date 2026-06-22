@@ -24,10 +24,40 @@ Tamaño: pequeña empresa / pyme.
 Intereses en SUBVENCIONES: digitalización, innovación, transformación digital, contratación de personal, formación, internacionalización, eficiencia y proyectos de marketing/comunicación.
 Intereses en LICITACIONES y contratos públicos: servicios de marketing, publicidad institucional, comunicación, diseño y mantenimiento web, gestión de redes sociales, campañas y SEO para ayuntamientos, diputaciones, Junta de Andalucía y otros organismos públicos.`;
 
-// CCAA por provincia (mínimo para prefiltro regional; ampliable).
+// CCAA por provincia — TODA España, para poder replicar el Cazador en
+// cualquier ciudad/CCAA (no solo Andalucía). Claves normalizadas (sin acentos).
 const CCAA: Record<string, string> = {
-  malaga: "andalucia", sevilla: "andalucia", cordoba: "andalucia", granada: "andalucia",
-  cadiz: "andalucia", jaen: "andalucia", almeria: "andalucia", huelva: "andalucia"
+  // Andalucía
+  almeria: "andalucia", cadiz: "andalucia", cordoba: "andalucia", granada: "andalucia",
+  huelva: "andalucia", jaen: "andalucia", malaga: "andalucia", sevilla: "andalucia",
+  // Aragón
+  huesca: "aragon", teruel: "aragon", zaragoza: "aragon",
+  // Asturias / Cantabria / Murcia / Madrid / Navarra / La Rioja
+  asturias: "asturias", cantabria: "cantabria", murcia: "murcia", madrid: "madrid",
+  navarra: "navarra", "la rioja": "la rioja", rioja: "la rioja",
+  // Baleares / Canarias
+  baleares: "baleares", "illes balears": "baleares", "las palmas": "canarias",
+  "santa cruz de tenerife": "canarias",
+  // Castilla-La Mancha
+  albacete: "castilla-la mancha", "ciudad real": "castilla-la mancha", cuenca: "castilla-la mancha",
+  guadalajara: "castilla-la mancha", toledo: "castilla-la mancha",
+  // Castilla y León
+  avila: "castilla y leon", burgos: "castilla y leon", leon: "castilla y leon",
+  palencia: "castilla y leon", salamanca: "castilla y leon", segovia: "castilla y leon",
+  soria: "castilla y leon", valladolid: "castilla y leon", zamora: "castilla y leon",
+  // Cataluña
+  barcelona: "cataluna", girona: "cataluna", lleida: "cataluna", tarragona: "cataluna",
+  // Extremadura
+  badajoz: "extremadura", caceres: "extremadura",
+  // Galicia
+  "a coruna": "galicia", "la coruna": "galicia", lugo: "galicia", ourense: "galicia", pontevedra: "galicia",
+  // País Vasco
+  alava: "pais vasco", araba: "pais vasco", guipuzcoa: "pais vasco", gipuzkoa: "pais vasco",
+  vizcaya: "pais vasco", bizkaia: "pais vasco",
+  // Comunidad Valenciana
+  alicante: "comunidad valenciana", castellon: "comunidad valenciana", valencia: "comunidad valenciana",
+  // Ciudades autónomas
+  ceuta: "ceuta", melilla: "melilla"
 };
 
 function norm(s: string | null | undefined): string {
@@ -44,10 +74,11 @@ const SCHEMA = {
         properties: {
           id: { type: "string" },
           fitScore: { type: "integer" },
+          probabilidad: { type: "integer" },
           motivo: { type: "string" },
           requisitos: { type: "string" }
         },
-        required: ["id", "fitScore", "motivo", "requisitos"]
+        required: ["id", "fitScore", "probabilidad", "motivo", "requisitos"]
       }
     }
   },
@@ -57,6 +88,8 @@ const SCHEMA = {
 export type ClientMatch = {
   id: string;
   fitScore: number;
+  /** Probabilidad estimada (0-100) de CONCESIÓN si la solicita. null si la IA no la dio. */
+  probabilidad: number | null;
   motivo: string;
   requisitos: string;
   titulo: string;
@@ -127,11 +160,13 @@ async function analizar(
 2) LICITACIONES y contratos públicos de servicios que la agencia podría GANAR (publicidad, comunicación, diseño/mantenimiento web, redes sociales, SEO, campañas) para ayuntamientos, diputaciones, Junta de Andalucía u otros organismos.
 Devuelve SOLO las que le ENCAJAN de verdad, con:
 - fitScore 0-100 (descarta lo que no aplique: no inventes encaje).
+- probabilidad 0-100: probabilidad estimada de CONCESIÓN/adjudicación si se presenta (distinto del encaje: valora competencia por los fondos, exigencia de requisitos y presupuesto limitado).
 - motivo: 1 frase de por qué le encaja a la agencia.
 - requisitos: 1 frase de qué necesitaría para solicitarla/presentarse.
 Usa EXACTAMENTE los id que te paso. Ordena por fitScore desc. Máximo 12. Si ninguna encaja, devuelve lista vacía.`
     : `Eres experto en subvenciones para pymes y autónomos en España. Te paso el perfil de un negocio y una lista de convocatorias abiertas (con su id). Devuelve SOLO las que le ENCAJAN de verdad, con:
 - fitScore 0-100 (descarta las que no apliquen: no inventes encaje).
+- probabilidad 0-100: probabilidad estimada de CONCESIÓN si la solicita (distinto del encaje: valora competencia por los fondos, exigencia de requisitos y presupuesto limitado).
 - motivo: 1 frase de por qué califica.
 - requisitos: 1 frase de qué necesitaría para solicitarla.
 Usa EXACTAMENTE los id que te paso. Ordena por fitScore desc. Máximo 10. Si ninguna encaja, devuelve lista vacía.`;
@@ -139,7 +174,7 @@ Usa EXACTAMENTE los id que te paso. Ordena por fitScore desc. Máximo 10. Si nin
   const etiqueta = mode === "agencia" ? "PERFIL DE LA AGENCIA" : "PERFIL DEL NEGOCIO";
 
   try {
-    const out = await completeJson<{ matches: { id: string; fitScore: number; motivo: string; requisitos: string }[] }>({
+    const out = await completeJson<{ matches: { id: string; fitScore: number; probabilidad?: number; motivo: string; requisitos: string }[] }>({
       workspaceId,
       model: "claude-haiku-4-5-20251001",
       system,
@@ -154,7 +189,9 @@ Usa EXACTAMENTE los id que te paso. Ordena por fitScore desc. Máximo 10. Si nin
       .map((m) => {
         const c = byId.get(m.id)!;
         return {
-          id: m.id, fitScore: m.fitScore, motivo: m.motivo, requisitos: m.requisitos,
+          id: m.id, fitScore: m.fitScore,
+          probabilidad: typeof m.probabilidad === "number" ? m.probabilidad : null,
+          motivo: m.motivo, requisitos: m.requisitos,
           titulo: c.titulo, organo: c.organo, importeTotal: c.importeTotal, fechaFin: c.fechaFin, urlBases: c.urlBases
         };
       });

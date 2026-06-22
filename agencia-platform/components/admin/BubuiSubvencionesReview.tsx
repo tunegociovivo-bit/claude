@@ -12,6 +12,7 @@ type Match = {
   id: string;
   titulo: string;
   motivo?: string;
+  probabilidad?: number | null;
   importeTotal?: number | null;
   fechaFin?: string | null;
   urlBases?: string | null;
@@ -58,6 +59,33 @@ export default function BubuiSubvencionesReview() {
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
+  // Borrador IA por (propuesta+convocatoria).
+  const [draftKey, setDraftKey] = useState<string | null>(null);
+  const [draftBusy, setDraftBusy] = useState<string | null>(null);
+  const [draftText, setDraftText] = useState<string>("");
+
+  async function genBorrador(businessId: string, convocatoriaId: string) {
+    const key = `${businessId}:${convocatoriaId}`;
+    if (draftKey === key) { setDraftKey(null); return; } // toggle cerrar
+    setDraftBusy(key);
+    setDraftText("");
+    try {
+      const r = await fetch("/api/v1/admin/bubui/subvenciones/borrador", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ businessId, convocatoriaId })
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        alert(d?.error?.message ?? "No se pudo generar el borrador");
+        return;
+      }
+      setDraftText(d.borrador ?? "");
+      setDraftKey(key);
+    } finally {
+      setDraftBusy(null);
+    }
+  }
 
   async function load() {
     setLoading(true);
@@ -187,19 +215,45 @@ export default function BubuiSubvencionesReview() {
                 {p.matches.map((m) => {
                   const d = daysUntil(m.fechaFin);
                   const urgent = d != null && d >= 0 && d <= 15;
+                  const key = `${p.business.id}:${m.id}`;
+                  const prob = typeof m.probabilidad === "number" ? m.probabilidad : null;
+                  const probClass = prob == null ? "" : prob >= 66 ? "bg-emerald-100 text-emerald-800" : prob >= 40 ? "bg-amber-100 text-amber-800" : "bg-slate-100 text-slate-600";
                   return (
-                    <li key={m.id} className="text-xs flex items-start gap-2">
-                      <span className="text-slate-300 mt-0.5">•</span>
-                      <span className="text-slate-700">
-                        <strong>{m.titulo}</strong>
-                        {m.importeTotal ? <span className="text-emerald-700 font-semibold"> — hasta {Math.round(m.importeTotal).toLocaleString("es-ES")} €</span> : null}
-                        {urgent ? (
-                          <span className="text-rose-600 font-semibold"> ⏳ cierra en {d} día{d === 1 ? "" : "s"}</span>
-                        ) : m.fechaFin ? (
-                          <span className="text-slate-400"> (cierra {new Date(m.fechaFin).toLocaleDateString("es-ES")})</span>
-                        ) : null}
-                        {m.motivo ? <span className="block text-slate-500">{m.motivo}</span> : null}
-                      </span>
+                    <li key={m.id} className="text-xs">
+                      <div className="flex items-start gap-2">
+                        <span className="text-slate-300 mt-0.5">•</span>
+                        <span className="text-slate-700 flex-1">
+                          <strong>{m.titulo}</strong>
+                          {m.importeTotal ? <span className="text-emerald-700 font-semibold"> — hasta {Math.round(m.importeTotal).toLocaleString("es-ES")} €</span> : null}
+                          {urgent ? (
+                            <span className="text-rose-600 font-semibold"> ⏳ cierra en {d} día{d === 1 ? "" : "s"}</span>
+                          ) : m.fechaFin ? (
+                            <span className="text-slate-400"> (cierra {new Date(m.fechaFin).toLocaleDateString("es-ES")})</span>
+                          ) : null}
+                          {prob != null && (
+                            <span className={`ml-1 px-1.5 py-0.5 rounded-full font-semibold ${probClass}`}>🎯 {prob}% concesión</span>
+                          )}
+                          {m.motivo ? <span className="block text-slate-500">{m.motivo}</span> : null}
+                        </span>
+                        <button
+                          onClick={() => genBorrador(p.business.id, m.id)}
+                          disabled={draftBusy === key}
+                          className="shrink-0 text-[11px] px-2 py-1 rounded-md border bg-white hover:bg-slate-50 disabled:opacity-50"
+                        >
+                          {draftBusy === key ? "Generando…" : draftKey === key ? "Ocultar" : "Borrador"}
+                        </button>
+                      </div>
+                      {draftKey === key && (
+                        <div className="mt-1.5 ml-4 rounded-lg border bg-slate-50 p-2">
+                          <pre className="whitespace-pre-wrap font-sans text-[11px] text-slate-700 max-h-72 overflow-auto">{draftText}</pre>
+                          <button
+                            onClick={() => navigator.clipboard?.writeText(draftText)}
+                            className="mt-1 text-[11px] text-brand-600 hover:text-brand-700"
+                          >
+                            Copiar borrador
+                          </button>
+                        </div>
+                      )}
                     </li>
                   );
                 })}

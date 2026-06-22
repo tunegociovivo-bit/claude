@@ -25,6 +25,7 @@ export type SubvProposalMatch = {
   motivo: string;
   requisitos: string;
   fitScore: number;
+  probabilidad: number | null; // 0-100 prob. estimada de concesión
   importeTotal: number | null;
   fechaFin: string | null; // ISO
   urlBases: string | null;
@@ -70,6 +71,7 @@ function toSnapshot(m: ClientMatch): SubvProposalMatch {
     motivo: m.motivo,
     requisitos: m.requisitos,
     fitScore: m.fitScore,
+    probabilidad: m.probabilidad ?? null,
     importeTotal: m.importeTotal ?? null,
     fechaFin: m.fechaFin ? new Date(m.fechaFin).toISOString() : null,
     urlBases: m.urlBases ?? null

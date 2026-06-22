@@ -6,6 +6,7 @@
 import { prisma } from "@/lib/db/prisma";
 import { complete, AIDisabledError } from "@/lib/ai/anthropic";
 import { AGENCY_ID, getAgencyProfile } from "@/lib/subvenciones/match";
+import { cnaeForCategory } from "@/lib/subvenciones/cnae";
 
 export async function generarBorrador(workspaceId: string, clientId: string, convocatoriaId: string): Promise<string> {
   const convo = await prisma.subvencionConvocatoria.findUnique({ where: { id: convocatoriaId } });
@@ -31,6 +32,31 @@ export async function generarBorrador(workspaceId: string, clientId: string, con
     ].filter(Boolean).join("\n");
   }
 
+  return await redactar(workspaceId, perfil, convo);
+}
+
+/** Borrador para un COMERCIO de Bubui (pyme/autónomo local). */
+export async function generarBorradorBubui(workspaceId: string, businessId: string, convocatoriaId: string): Promise<string> {
+  const convo = await prisma.subvencionConvocatoria.findUnique({ where: { id: convocatoriaId } });
+  if (!convo) throw new Error("Convocatoria no encontrada");
+  const b = await prisma.bubuiBusiness.findUnique({
+    where: { id: businessId },
+    select: { name: true, category: true, businessType: true, city: true, province: true, description: true }
+  });
+  if (!b) throw new Error("Comercio no encontrado");
+  const cnae = cnaeForCategory(b.category, b.businessType ?? null);
+  const perfil = [
+    `Nombre: ${b.name}`,
+    b.category ? `Sector/actividad: ${b.category}` : "",
+    cnae ? `CNAE aproximado: ${cnae.code} (${cnae.label})` : "",
+    b.description ? `Descripción: ${b.description.slice(0, 800)}` : "",
+    `Ubicación: ${[b.city, b.province].filter(Boolean).join(", ") || "—"}`,
+    "Tipo: comercio local (pyme o autónomo)"
+  ].filter(Boolean).join("\n");
+  return await redactar(workspaceId, perfil, convo);
+}
+
+async function redactar(workspaceId: string, perfil: string, convo: any): Promise<string> {
   const conv = [
     `Título: ${convo.titulo}`,
     convo.organo ? `Organismo: ${convo.organo}` : "",
