@@ -74,11 +74,15 @@ type Note = { id: string; content: string; color: string; order: number };
 export default function PanelDock({
   tasks,
   myUserId,
-  onOpenTask
+  onOpenTask,
+  columnBgClass
 }: {
   tasks: UiTask[];
   myUserId?: string;
   onOpenTask: (t: UiTask) => void;
+  /** Clases de fondo de la 1ª columna del kanban, para que la columna del
+   *  calendario respire el mismo color que la columna de la izquierda. */
+  columnBgClass?: string;
 }) {
   const today = useMemo(() => new Date(), []);
   const isoToday = isoLocal(today);
@@ -149,7 +153,9 @@ export default function PanelDock({
   return (
     <aside className="hidden xl:flex w-80 shrink-0 flex-col gap-4 sticky top-4 self-start max-h-[calc(100vh-6rem)] overflow-y-auto pb-4">
       {/* ---- Mini calendario ---- */}
-      <div className="bg-white rounded-xl border overflow-hidden">
+      {/* Mismo fondo que la 1ª columna del kanban (la de la izquierda).
+          Si no llega color, cae a blanco con borde. */}
+      <div className={"rounded-xl overflow-hidden " + (columnBgClass || "bg-white border")}>
         <div className="flex items-center justify-between px-3 py-2.5 border-b">
           <div className="flex items-center gap-1.5 text-sm font-semibold">
             <CalendarDays className="h-4 w-4 text-brand-600" />

@@ -1653,7 +1653,12 @@ export default function TareasClient({
     </div>
 
     {showDock && (
-      <PanelDock tasks={tasks} myUserId={myUserId} onOpenTask={openEditTask} />
+      <PanelDock
+        tasks={tasks}
+        myUserId={myUserId}
+        onOpenTask={openEditTask}
+        columnBgClass={softBgFromColor(orderedColumns[0]?.color ?? "")}
+      />
     )}
     </div>
   );
