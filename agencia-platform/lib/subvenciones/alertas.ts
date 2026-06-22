@@ -16,6 +16,24 @@ const OPORT_MEMORY = 500;
 const eur = (n: number | null) =>
   n ? new Intl.NumberFormat("es-ES", { style: "currency", currency: "EUR", maximumFractionDigits: 0 }).format(n) : "";
 
+/**
+ * Envía un WhatsApp best-effort al helper CallMeBot del workspace (espera
+ * { titulo, mensaje, url }). El helper gestiona número/apikey y el estado
+ * "pendiente de activar", así que aquí nunca rompemos el aviso principal.
+ */
+async function sendWhatsApp(url: string, titulo: string, mensaje: string, link?: string | null): Promise<void> {
+  try {
+    await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ titulo, mensaje, url: link ?? "" }),
+      signal: AbortSignal.timeout(12000)
+    });
+  } catch {
+    /* best-effort */
+  }
+}
+
 export async function runSubvencionAlertas(): Promise<{ enviados: number }> {
   const now = new Date();
   const limite = new Date(now.getTime() + DIAS_AVISO * 86_400_000);
@@ -25,6 +43,7 @@ export async function runSubvencionAlertas(): Promise<{ enviados: number }> {
   for (const ws of workspaces) {
     const webhookUrl = (ws.settings as any)?.subvenciones?.webhookUrl?.trim();
     if (!webhookUrl) continue;
+    const waUrl: string = ((ws.settings as any)?.subvenciones?.whatsappHelperUrl ?? "").trim();
 
     const estados = await prisma.subvencionEstado.findMany({
       where: {
@@ -68,6 +87,15 @@ export async function runSubvencionAlertas(): Promise<{ enviados: number }> {
         });
         await prisma.subvencionEstado.update({ where: { id: e.id }, data: { notifiedCloseAt: now } });
         enviados++;
+        if (waUrl) {
+          const quien = e.clientId === AGENCY_ID ? "Negocio Vivo (agencia)" : (clientById.get(e.clientId) ?? e.clientId);
+          await sendWhatsApp(
+            waUrl,
+            `⏰ Cierra en ${diasRestantes} día${diasRestantes === 1 ? "" : "s"}: ${quien}`,
+            `${c.titulo}\nÓrgano: ${c.organo ?? "-"}\nImporte: ${eur(c.importeTotal) || "-"}\nEstado: ${e.estado}\nCierra: ${c.fechaFin.toISOString().slice(0, 10)}`,
+            c.urlBases
+          );
+        }
       } catch {
         /* el aviso es best-effort */
       }
@@ -91,6 +119,7 @@ export async function runAgencyOpportunityAlerts(): Promise<{ enviados: number }
     const sv = (ws.settings as any)?.subvenciones ?? {};
     const oportWebhookUrl: string = (sv.oportWebhookUrl ?? "").trim();
     if (!oportWebhookUrl) continue;
+    const waUrl: string = (sv.whatsappHelperUrl ?? "").trim();
 
     let matches;
     try {
@@ -138,6 +167,14 @@ export async function runAgencyOpportunityAlerts(): Promise<{ enviados: number }
         });
         enviadasOk.push(m.id);
         enviados++;
+        if (waUrl) {
+          await sendWhatsApp(
+            waUrl,
+            `🎯 Oportunidad ${m.fitScore}/100: ${m.titulo}`,
+            `${esLicitacion ? "Licitación pública" : "Subvención"} para Negocio Vivo\nÓrgano: ${m.organo ?? "-"}\nImporte: ${eur(m.importeTotal) || "-"}\nEncaja: ${m.motivo}`,
+            m.urlBases
+          );
+        }
       } catch {
         /* best-effort: si falla, se reintenta en la próxima pasada */
       }

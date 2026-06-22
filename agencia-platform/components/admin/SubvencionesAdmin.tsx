@@ -15,7 +15,7 @@ const AGENCY_LABEL = "Negocio Vivo (agencia)";
 
 type Convo = { id: string; titulo: string; organo: string | null; regiones: string | null; importeTotal: number | null; fechaFin: string | null; urlBases: string | null; fuente?: string };
 type Match = Convo & { fitScore: number; motivo: string; requisitos: string; estado?: string | null };
-type Status = { abiertas: number; total: number; ultimaActualizacion: string | null; convocatorias: Convo[]; clients: { id: string; name: string }[]; webhookUrl?: string; oportWebhookUrl?: string; agencyProfile?: string };
+type Status = { abiertas: number; total: number; ultimaActualizacion: string | null; convocatorias: Convo[]; clients: { id: string; name: string }[]; webhookUrl?: string; oportWebhookUrl?: string; whatsappHelperUrl?: string; agencyProfile?: string };
 
 const ESTADOS = [
   { v: "", t: "— Estado —" },
@@ -42,6 +42,7 @@ export default function SubvencionesAdmin() {
   const [msg, setMsg] = useState<string | null>(null);
   const [webhook, setWebhook] = useState("");
   const [oportWebhook, setOportWebhook] = useState("");
+  const [waHook, setWaHook] = useState("");
   const [savingHook, setSavingHook] = useState(false);
   const [scanRows, setScanRows] = useState<{ clientId: string; clientName: string; count: number; topTitulo: string | null; topScore: number | null; topFechaFin: string | null }[] | null>(null);
   const [scanning, setScanning] = useState(false);
@@ -85,7 +86,7 @@ export default function SubvencionesAdmin() {
   async function saveWebhook() {
     setSavingHook(true);
     try {
-      await fetch("/api/v1/admin/subvenciones", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ webhookUrl: webhook, oportWebhookUrl: oportWebhook }) });
+      await fetch("/api/v1/admin/subvenciones", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ webhookUrl: webhook, oportWebhookUrl: oportWebhook, whatsappHelperUrl: waHook }) });
     } finally {
       setSavingHook(false);
     }
@@ -105,7 +106,7 @@ export default function SubvencionesAdmin() {
     setLoading(true);
     try {
       const r = await fetch("/api/v1/admin/subvenciones");
-      if (r.ok) { const d = await r.json(); setS(d); setWebhook(d.webhookUrl ?? ""); setOportWebhook(d.oportWebhookUrl ?? ""); setAgencyProfile(d.agencyProfile ?? ""); }
+      if (r.ok) { const d = await r.json(); setS(d); setWebhook(d.webhookUrl ?? ""); setOportWebhook(d.oportWebhookUrl ?? ""); setWaHook(d.whatsappHelperUrl ?? ""); setAgencyProfile(d.agencyProfile ?? ""); }
     } finally {
       setLoading(false);
     }
@@ -279,6 +280,11 @@ export default function SubvencionesAdmin() {
               <h2 className="text-sm font-semibold text-indigo-900 flex items-center gap-1.5"><Target className="h-4 w-4" /> Aviso de oportunidad TOP (agencia)</h2>
               <p className="text-[11px] text-slate-500 mt-0.5 mb-2">Cada noche, la IA cruza el catálogo con el perfil de <strong>Negocio Vivo</strong> y avisa por este webhook de las <strong>subvenciones/licitaciones nuevas con encaje ≥78</strong> (sin repetir).</p>
               <input value={oportWebhook} onChange={(e) => setOportWebhook(e.target.value)} placeholder="https://hook.eu1.make.com/… (oportunidad TOP)" className="w-full px-3 py-2 rounded-lg border bg-white text-sm font-mono" />
+            </div>
+            <div>
+              <h2 className="text-sm font-semibold text-emerald-800 flex items-center gap-1.5">📲 WhatsApp (además del email)</h2>
+              <p className="text-[11px] text-slate-500 mt-0.5 mb-2">Si pegas aquí el webhook de tu <strong>helper de WhatsApp (CallMeBot)</strong>, los dos avisos de arriba te llegarán <strong>también por WhatsApp</strong>. Pégalo <strong>solo cuando CallMeBot esté activado</strong>; si lo dejas vacío, solo se envía email.</p>
+              <input value={waHook} onChange={(e) => setWaHook(e.target.value)} placeholder="https://hook.eu1.make.com/… (helper WhatsApp CallMeBot)" className="w-full px-3 py-2 rounded-lg border bg-white text-sm font-mono" />
             </div>
             <button onClick={saveWebhook} disabled={savingHook} className="rounded-lg border bg-white hover:bg-slate-50 text-sm px-3 py-2 disabled:opacity-50">{savingHook ? "Guardando…" : "Guardar webhooks"}</button>
           </div>
