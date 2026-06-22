@@ -233,19 +233,32 @@ export default function PanelDock({
 
         <div className="grid grid-cols-7 text-[10px] uppercase tracking-wide text-slate-500 px-2 pt-2">
           {["L", "M", "X", "J", "V", "S", "D"].map((d, i) => (
-            <div key={i} className="text-center py-1">{d}</div>
+            <div
+              key={i}
+              className={"text-center py-1 " + (i === 5 || i === 6 ? "text-orange-400 font-semibold" : "")}
+            >
+              {d}
+            </div>
           ))}
         </div>
 
         <div className="grid grid-cols-7 gap-0.5 px-2 pb-2">
           {cells.map((date, idx) => {
-            if (!date) return <div key={idx} />;
+            // Huecos vacíos: si caen en columna de fin de semana (5=Sáb,
+            // 6=Dom), un tinte naranja muy suave para que la columna se
+            // lea entera.
+            if (!date) {
+              const weekendCol = idx % 7 === 5 || idx % 7 === 6;
+              return <div key={idx} className={weekendCol ? "rounded-md bg-orange-500/10" : ""} />;
+            }
             const iso = isoLocal(date);
             const list = tasksByDay.get(iso) ?? [];
             const busy = list.length > 0;
             const isToday = iso === isoToday;
             const isSelected = iso === selectedDay;
             const mine = myDays.has(iso);
+            const dow = date.getDay();
+            const isWeekend = dow === 0 || dow === 6; // domingo o sábado
             return (
               <button
                 key={idx}
@@ -262,6 +275,10 @@ export default function PanelDock({
                     ? "bg-brand-600 text-white"
                     : isToday
                     ? "bg-brand-500/20 text-brand-300 font-semibold ring-1 ring-brand-500"
+                    : isWeekend
+                    ? busy
+                      ? "bg-orange-500/30 hover:bg-orange-500/40 text-orange-50 font-medium"
+                      : "bg-orange-500/15 hover:bg-orange-500/25 text-orange-300"
                     : busy
                     ? "bg-slate-700 hover:bg-slate-600 text-slate-100 font-medium"
                     : "hover:bg-slate-700 text-slate-400")
