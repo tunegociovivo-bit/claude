@@ -578,11 +578,11 @@ function LeadsMapView() {
   const [loading, setLoading] = useState(true);
   const [redrawing, setRedrawing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [searches, setSearches] = useState<{ id: string; keyword: string; location: string; leads: number }[]>([]);
-  const [searchId, setSearchId] = useState("");
+  const [niches, setNiches] = useState<{ keyword: string; leads: number }[]>([]);
+  const [nicho, setNicho] = useState("");
   const [stats, setStats] = useState<{ total: number; atacados: number; pendientes: number; sinCoords: number }>({ total: 0, atacados: 0, pendientes: 0, sinCoords: 0 });
 
-  // Pinta en el mapa la lista de leads recibida.
+  // Pinta SOLO los leads ya atacados (contactados), en rojo.
   const draw = useCallback((items: any[]) => {
     const L = LRef.current;
     const map = mapRef.current;
@@ -591,37 +591,37 @@ function LeadsMapView() {
     const layer = layerRef.current;
     layer.clearLayers();
 
-    const geo = items.filter((l) => l.latitude != null && l.longitude != null);
-    let atacados = 0;
+    const esAtacado = (l: any) =>
+      (l.messagesSent ?? 0) > 0 || ["contacted", "replied", "qualified", "won", "lost", "in_sequence"].includes(l.contactStatus ?? "");
+    const conCoords = items.filter((l) => l.latitude != null && l.longitude != null);
+    const atacados = conCoords.filter(esAtacado);
     const pts: any[] = [];
-    for (const l of geo) {
-      const atacado = (l.messagesSent ?? 0) > 0 || ["contacted", "replied", "qualified", "won", "lost", "in_sequence"].includes(l.contactStatus ?? "");
-      if (atacado) atacados++;
-      const color = atacado ? "#16a34a" : "#ef4444"; // verde=atacado, rojo=pendiente
+    for (const l of atacados) {
+      const color = "#ef4444"; // rojo = atacado
       const marker = L.circleMarker([l.latitude, l.longitude], {
-        radius: 7, color, fillColor: color, fillOpacity: 0.7, weight: 1.5
+        radius: 7, color, fillColor: color, fillOpacity: 0.75, weight: 1.5
       });
       marker.bindPopup(`
         <strong>${escapeHtmlClient(l.name)}</strong><br/>
         ${escapeHtmlClient(l.category ?? l.searchQuery ?? "")} ${l.province ? "· " + escapeHtmlClient(l.province) : ""}<br/>
         ${l.phone ?? "Sin teléfono"}<br/>
-        <span style="color:${color};font-weight:600">${atacado ? "✓ Ya contactado" : "● Pendiente"}</span> ·
+        <span style="color:${color};font-weight:600">✓ Ya atacado</span> ·
         Score ${l.score ?? "—"} · ${l.messagesSent ?? 0} msg
       `);
       layer.addLayer(marker);
       pts.push([l.latitude, l.longitude]);
     }
-    setStats({ total: geo.length, atacados, pendientes: geo.length - atacados, sinCoords: items.length - geo.length });
+    setStats({ total: items.length, atacados: atacados.length, pendientes: conCoords.length - atacados.length, sinCoords: items.length - conCoords.length });
     if (pts.length > 0) {
       try { map.fitBounds(pts, { padding: [30, 30], maxZoom: 14 }); } catch {}
     }
   }, []);
 
-  // Carga del backend los leads (todos o de una búsqueda) y los pinta.
-  const loadLeads = useCallback(async (sid: string) => {
+  // Carga del backend los leads (todos o de un NICHO/keyword) y los pinta.
+  const loadLeads = useCallback(async (kw: string) => {
     setRedrawing(true);
     try {
-      const url = sid ? `/api/v1/leads?searchId=${encodeURIComponent(sid)}&limit=500` : "/api/v1/leads?limit=500";
+      const url = kw ? `/api/v1/leads?keyword=${encodeURIComponent(kw)}&limit=500` : "/api/v1/leads?limit=500";
       const r = await fetch(url);
       const j = r.ok ? await r.json() : { items: [] };
       draw(j.items ?? []);
@@ -666,12 +666,19 @@ function LeadsMapView() {
         ]);
         if (cancelled || !containerRef.current) return;
         LRef.current = L;
-        // Solo búsquedas con al menos un lead, ordenadas por volumen.
-        const srows = (sres.items ?? [])
-          .map((s: any) => ({ id: s.id, keyword: s.keyword, location: s.location, leads: s._count?.leads ?? 0 }))
-          .filter((s: any) => s.leads > 0)
-          .sort((a: any, b: any) => b.leads - a.leads);
-        setSearches(srows);
+        // Agrupa las búsquedas por NICHO (keyword), uniendo localidades:
+        // "cerrajero Málaga" + "cerrajero España" → un solo "cerrajero".
+        const byKw = new Map<string, { keyword: string; leads: number }>();
+        for (const s of (sres.items ?? [])) {
+          const kw = String(s.keyword ?? "").trim();
+          if (!kw) continue;
+          const k = kw.toLowerCase();
+          const cur = byKw.get(k) ?? { keyword: kw, leads: 0 };
+          cur.leads += s._count?.leads ?? 0;
+          byKw.set(k, cur);
+        }
+        const nrows = [...byKw.values()].filter((n) => n.leads > 0).sort((a, b) => b.leads - a.leads);
+        setNiches(nrows);
 
         const items: any[] = leads.items ?? [];
         const geo = items.filter((l) => l.latitude != null && l.longitude != null);
@@ -705,28 +712,27 @@ function LeadsMapView() {
     <div className="space-y-2">
       <div className="flex flex-wrap items-center gap-2">
         <select
-          value={searchId}
-          onChange={(e) => { setSearchId(e.target.value); void loadLeads(e.target.value); }}
+          value={nicho}
+          onChange={(e) => { setNicho(e.target.value); void loadLeads(e.target.value); }}
           className="flex-1 min-w-[240px] px-3 py-2 rounded-lg border bg-white text-sm"
         >
-          <option value="">— Todas las búsquedas —</option>
-          {searches.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.keyword}{s.location ? ` · ${s.location}` : ""} ({s.leads})
+          <option value="">— Todos los nichos —</option>
+          {niches.map((n) => (
+            <option key={n.keyword} value={n.keyword}>
+              {n.keyword} ({n.leads})
             </option>
           ))}
         </select>
         {redrawing && <Loader2 className="h-4 w-4 animate-spin text-slate-400" />}
         <div className="flex items-center gap-3 text-xs">
-          <span className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-full" style={{ background: "#16a34a" }} /> Atacados <strong>{stats.atacados}</strong></span>
-          <span className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-full" style={{ background: "#ef4444" }} /> Pendientes <strong>{stats.pendientes}</strong></span>
-          <span className="text-slate-500">En mapa <strong>{stats.total}</strong></span>
+          <span className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-full" style={{ background: "#ef4444" }} /> Atacados <strong>{stats.atacados}</strong></span>
+          <span className="text-slate-500">Pendientes {stats.pendientes}</span>
         </div>
       </div>
       <p className="text-[11px] text-slate-500">
-        Elige una búsqueda (nicho) para ver por zona qué falta por atacar. Verde = ya contactado · Rojo = aún sin contactar.
+        Elige un nicho (p. ej. <strong>cerrajero</strong>) para ver en el mapa, en <span style={{ color: "#ef4444", fontWeight: 600 }}>rojo</span>, los negocios que <strong>ya se han atacado</strong> (contactados) — así ves qué zonas tienes cubiertas y dónde seguir.
         {stats.sinCoords > 0 && <> · {stats.sinCoords} sin coordenadas (no se pueden situar).</>}
-        {searches.length === 0 && !loading && <> · No hay búsquedas con leads todavía.</>}
+        {niches.length === 0 && !loading && <> · No hay búsquedas con leads todavía.</>}
       </p>
       {error && (
         <div className="text-xs px-3 py-2 rounded border border-rose-200 bg-rose-50 text-rose-700">{error}</div>
