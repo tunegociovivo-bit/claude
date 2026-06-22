@@ -11,7 +11,10 @@ import { readAsanaToken, saveAsanaToken } from "@/lib/asana/token";
 const schema = z.object({
   token: z.string().min(10).optional(),
   asanaWorkspaceGid: z.string().min(1),
-  projectGids: z.array(z.string()).optional()
+  projectGids: z.array(z.string()).optional(),
+  // Opt-in: traer de vuelta tareas que estaban en la papelera. Por defecto NO,
+  // para no resucitar lo que el usuario borró a propósito.
+  restoreDeleted: z.boolean().optional()
 });
 
 export const POST = withApi({ scope: "admin" }, async (req, { api }) => {
@@ -39,7 +42,8 @@ export const POST = withApi({ scope: "admin" }, async (req, { api }) => {
     workspaceId: api.workspaceId,
     asanaWorkspaceGid: parsed.data.asanaWorkspaceGid,
     token,
-    projectGids: parsed.data.projectGids
+    projectGids: parsed.data.projectGids,
+    restoreDeleted: parsed.data.restoreDeleted === true
   });
 
   return NextResponse.json({ jobId, status: "started" }, { status: 202 });

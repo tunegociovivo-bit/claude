@@ -76,7 +76,9 @@ export const POST = withApi({ scope: "admin" }, async (req, { api }) => {
     projectId,
     sectionGid,
     targetColumnId,
-    token
+    token,
+    // Por defecto NO resucita tareas borradas (respeta tus eliminaciones).
+    restoreDeleted: body?.restoreDeleted === true
   });
   return NextResponse.json(result);
 });
