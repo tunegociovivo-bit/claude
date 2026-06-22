@@ -17,7 +17,8 @@ export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
   const ws = await prisma.workspace.findUnique({ where: { id: api.workspaceId } });
   const webhookUrl = (ws?.settings as any)?.subvenciones?.webhookUrl ?? "";
   const oportWebhookUrl = (ws?.settings as any)?.subvenciones?.oportWebhookUrl ?? "";
-  const whatsappHelperUrl = (ws?.settings as any)?.subvenciones?.whatsappHelperUrl ?? "";
+  const whatsappTo = (ws?.settings as any)?.subvenciones?.whatsappTo ?? "";
+  const whatsappSession = (ws?.settings as any)?.subvenciones?.whatsappSession ?? "";
   const { profile: agencyProfile } = await getAgencyProfile(api.workspaceId);
   const [abiertas, total, ultima, convocatorias, clients] = await Promise.all([
     prisma.subvencionConvocatoria.count({ where: { abierta: true, OR: [{ fechaFin: null }, { fechaFin: { gte: now } }] } }),
@@ -39,7 +40,8 @@ export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
     clients,
     webhookUrl,
     oportWebhookUrl,
-    whatsappHelperUrl,
+    whatsappTo,
+    whatsappSession,
     agencyProfile
   });
 });
@@ -49,7 +51,8 @@ export const PATCH = withApi({ scope: "*" }, async (req, { api }) => {
   const parsed = z.object({
     webhookUrl: z.string().max(500).nullable().optional(),
     oportWebhookUrl: z.string().max(500).nullable().optional(),
-    whatsappHelperUrl: z.string().max(500).nullable().optional(),
+    whatsappTo: z.string().max(40).nullable().optional(),
+    whatsappSession: z.string().max(60).nullable().optional(),
     agencyProfile: z.string().max(4000).nullable().optional()
   }).safeParse(await req.json().catch(() => null));
   if (!parsed.success) throw new ApiError(400, "validation_error", parsed.error.message);
@@ -58,7 +61,8 @@ export const PATCH = withApi({ scope: "*" }, async (req, { api }) => {
   settings.subvenciones = settings.subvenciones ?? {};
   if (parsed.data.webhookUrl !== undefined) settings.subvenciones.webhookUrl = (parsed.data.webhookUrl ?? "").trim();
   if (parsed.data.oportWebhookUrl !== undefined) settings.subvenciones.oportWebhookUrl = (parsed.data.oportWebhookUrl ?? "").trim();
-  if (parsed.data.whatsappHelperUrl !== undefined) settings.subvenciones.whatsappHelperUrl = (parsed.data.whatsappHelperUrl ?? "").trim();
+  if (parsed.data.whatsappTo !== undefined) settings.subvenciones.whatsappTo = (parsed.data.whatsappTo ?? "").trim();
+  if (parsed.data.whatsappSession !== undefined) settings.subvenciones.whatsappSession = (parsed.data.whatsappSession ?? "").trim();
   if (parsed.data.agencyProfile !== undefined) settings.subvenciones.agencyProfile = (parsed.data.agencyProfile ?? "").trim();
   await prisma.workspace.update({ where: { id: api.workspaceId }, data: { settings } });
   return NextResponse.json({ ok: true });

@@ -6,6 +6,7 @@
  */
 import { prisma } from "@/lib/db/prisma";
 import { AGENCY_ID, matchForAgency } from "@/lib/subvenciones/match";
+import { sendText, normalizePhone } from "@/lib/leads/waha";
 
 const DIAS_AVISO = 7;
 // Encaje mínimo (0-100) para avisar de una oportunidad nueva para la agencia.
@@ -17,20 +18,16 @@ const eur = (n: number | null) =>
   n ? new Intl.NumberFormat("es-ES", { style: "currency", currency: "EUR", maximumFractionDigits: 0 }).format(n) : "";
 
 /**
- * Envía un WhatsApp best-effort al helper CallMeBot del workspace (espera
- * { titulo, mensaje, url }). El helper gestiona número/apikey y el estado
- * "pendiente de activar", así que aquí nunca rompemos el aviso principal.
+ * Envía un WhatsApp best-effort por WAHA (el mismo proveedor que ya usa el
+ * sistema de leads, con el plan Plus). Nunca rompe el aviso principal por email.
  */
-async function sendWhatsApp(url: string, titulo: string, mensaje: string, link?: string | null): Promise<void> {
+async function sendWhatsAppWaha(workspaceId: string, to: string, text: string, session?: string): Promise<void> {
   try {
-    await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ titulo, mensaje, url: link ?? "" }),
-      signal: AbortSignal.timeout(12000)
-    });
+    const phone = normalizePhone(to);
+    if (!phone) return;
+    await sendText({ workspaceId, phoneNormalized: phone, text, session: session || undefined });
   } catch {
-    /* best-effort */
+    /* best-effort: si WAHA falla, el email ya salió */
   }
 }
 
@@ -43,7 +40,9 @@ export async function runSubvencionAlertas(): Promise<{ enviados: number }> {
   for (const ws of workspaces) {
     const webhookUrl = (ws.settings as any)?.subvenciones?.webhookUrl?.trim();
     if (!webhookUrl) continue;
-    const waUrl: string = ((ws.settings as any)?.subvenciones?.whatsappHelperUrl ?? "").trim();
+    const svc: any = (ws.settings as any)?.subvenciones ?? {};
+    const waTo: string = (svc.whatsappTo ?? "").trim();
+    const waSession: string = (svc.whatsappSession ?? "").trim();
 
     const estados = await prisma.subvencionEstado.findMany({
       where: {
@@ -87,14 +86,12 @@ export async function runSubvencionAlertas(): Promise<{ enviados: number }> {
         });
         await prisma.subvencionEstado.update({ where: { id: e.id }, data: { notifiedCloseAt: now } });
         enviados++;
-        if (waUrl) {
+        if (waTo) {
           const quien = e.clientId === AGENCY_ID ? "Negocio Vivo (agencia)" : (clientById.get(e.clientId) ?? e.clientId);
-          await sendWhatsApp(
-            waUrl,
-            `⏰ Cierra en ${diasRestantes} día${diasRestantes === 1 ? "" : "s"}: ${quien}`,
-            `${c.titulo}\nÓrgano: ${c.organo ?? "-"}\nImporte: ${eur(c.importeTotal) || "-"}\nEstado: ${e.estado}\nCierra: ${c.fechaFin.toISOString().slice(0, 10)}`,
-            c.urlBases
-          );
+          const txt = `⏰ *Cierra en ${diasRestantes} día${diasRestantes === 1 ? "" : "s"}* · ${quien}\n\n` +
+            `*${c.titulo}*\nÓrgano: ${c.organo ?? "-"}\nImporte: ${eur(c.importeTotal) || "-"}\nEstado: ${e.estado}\nCierra: ${c.fechaFin.toISOString().slice(0, 10)}` +
+            (c.urlBases ? `\n\n${c.urlBases}` : "");
+          await sendWhatsAppWaha(ws.id, waTo, txt, waSession);
         }
       } catch {
         /* el aviso es best-effort */
@@ -119,7 +116,8 @@ export async function runAgencyOpportunityAlerts(): Promise<{ enviados: number }
     const sv = (ws.settings as any)?.subvenciones ?? {};
     const oportWebhookUrl: string = (sv.oportWebhookUrl ?? "").trim();
     if (!oportWebhookUrl) continue;
-    const waUrl: string = (sv.whatsappHelperUrl ?? "").trim();
+    const waTo: string = (sv.whatsappTo ?? "").trim();
+    const waSession: string = (sv.whatsappSession ?? "").trim();
 
     let matches;
     try {
@@ -167,13 +165,12 @@ export async function runAgencyOpportunityAlerts(): Promise<{ enviados: number }
         });
         enviadasOk.push(m.id);
         enviados++;
-        if (waUrl) {
-          await sendWhatsApp(
-            waUrl,
-            `🎯 Oportunidad ${m.fitScore}/100: ${m.titulo}`,
-            `${esLicitacion ? "Licitación pública" : "Subvención"} para Negocio Vivo\nÓrgano: ${m.organo ?? "-"}\nImporte: ${eur(m.importeTotal) || "-"}\nEncaja: ${m.motivo}`,
-            m.urlBases
-          );
+        if (waTo) {
+          const txt = `🎯 *Oportunidad ${m.fitScore}/100 para Negocio Vivo*\n\n` +
+            `${esLicitacion ? "Licitación pública" : "Subvención"}\n*${m.titulo}*\n` +
+            `Órgano: ${m.organo ?? "-"}\nImporte: ${eur(m.importeTotal) || "-"}\nEncaja: ${m.motivo}` +
+            (m.urlBases ? `\n\n${m.urlBases}` : "");
+          await sendWhatsAppWaha(ws.id, waTo, txt, waSession);
         }
       } catch {
         /* best-effort: si falla, se reintenta en la próxima pasada */
