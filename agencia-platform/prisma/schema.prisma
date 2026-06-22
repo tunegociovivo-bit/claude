@@ -3523,6 +3523,11 @@ model BubuiBusiness {
   // Teléfono PÚBLICO de contacto del negocio (botón "Llamar" en la app).
   // Distinto de ownerPhone (privado, del titular de la cuenta).
   phone                     String?
+  // Cazador de Subvenciones: última vez que se barrió este comercio en
+  // busca de ayudas de su nicho (null = nunca). El cron re-escanea los
+  // que llevan >7 días o nunca se escanearon.
+  subvLastScanAt            DateTime?
+  subvencionProposals       BubuiSubvencionProposal[]
   // Branding mínimo.
   logoUrl                   String?
   brandColor                String?
@@ -4321,4 +4326,34 @@ model BubuiDirectoryContent {
   intro     String   @db.Text // párrafos separados por línea en blanco
   updatedAt DateTime @updatedAt
   createdAt DateTime @default(now())
+}
+
+// Cazador de Subvenciones → comercios Bubui.
+// Cuando entra (o se re-escanea) un comercio, el Cazador busca ayudas de
+// su nicho y crea una PROPUESTA pendiente de revisión por el admin de la
+// agencia. Si el admin la aprueba, se envía al comercio por WhatsApp+email
+// con un enlace de validación de un clic. El comercio confirma que quiere
+// que la agencia se la gestione → status "accepted" y aviso al equipo.
+//
+// matches: snapshot de las convocatorias encontradas en el momento de la
+//   propuesta (cada una: { id, titulo, motivo, requisitos, fitScore,
+//   importeTotal, fechaFin, urlBases }). Se congela para que el comercio
+//   vea exactamente lo aprobado aunque el catálogo cambie luego.
+model BubuiSubvencionProposal {
+  id          String    @id @default(cuid())
+  businessId  String
+  token       String    @unique @default(cuid()) // enlace público de validación
+  status      String    @default("pending") // pending | sent | rejected | accepted
+  matches     Json
+  createdAt   DateTime  @default(now())
+  reviewedAt  DateTime?
+  sentAt      DateTime?
+  respondedAt DateTime?
+  sentWhatsapp Boolean  @default(false)
+  sentEmail    Boolean  @default(false)
+
+  business BubuiBusiness @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@index([status])
 }

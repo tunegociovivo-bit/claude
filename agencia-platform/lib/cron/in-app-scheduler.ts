@@ -65,6 +65,11 @@ export function startInAppScheduler(): void {
           if (a.enviados > 0) console.log(`[in-app-cron] subvenciones avisos: ${a.enviados}`);
           const op = await runAgencyOpportunityAlerts();
           if (op.enviados > 0) console.log(`[in-app-cron] subvenciones oportunidad TOP agencia: ${op.enviados}`);
+          // Bubui: barre comercios (altas nuevas + re-escaneo semanal) para
+          // encontrar subvenciones de su nicho y crear propuestas a revisar.
+          const { runBubuiSubvencionScan } = await import("@/lib/bubui/subvenciones");
+          const bs = await runBubuiSubvencionScan(40);
+          if (bs.proposalsCreated > 0) console.log(`[in-app-cron] bubui subvenciones: ${bs.proposalsCreated} propuestas de ${bs.scanned} comercios`);
         } catch (e) {
           console.warn("[in-app-cron] subvenciones:", (e as Error).message);
         }

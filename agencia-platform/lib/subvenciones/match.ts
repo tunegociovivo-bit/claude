@@ -193,3 +193,20 @@ export async function matchForClient(workspaceId: string, clientId: string, opts
 
   return analizar(workspaceId, perfil, norm(client.province), `${workspaceId}:${clientId}`, "cliente", opts);
 }
+
+/** Cruce para un COMERCIO de Bubui (pyme/autónomo local). Construye el perfil
+ *  a partir de su categoría/tipo/ubicación y reutiliza el mismo motor IA. */
+export async function matchForBubuiBusiness(
+  workspaceId: string,
+  business: { id: string; name: string; category: string | null; businessType?: string | null; city?: string | null; province?: string | null },
+  opts?: { force?: boolean }
+): Promise<ClientMatch[]> {
+  const perfil = [
+    `Nombre: ${business.name}`,
+    business.category ? `Sector/actividad: ${business.category}` : "",
+    business.businessType ? `Tipo de negocio: ${business.businessType}` : "",
+    `Ubicación: ${[business.city, business.province].filter(Boolean).join(", ") || "—"}`,
+    "Tipo: comercio local (pyme o autónomo)"
+  ].filter(Boolean).join("\n");
+  return analizar(workspaceId, perfil, norm(business.province), `${workspaceId}:bubui:${business.id}`, "cliente", opts);
+}

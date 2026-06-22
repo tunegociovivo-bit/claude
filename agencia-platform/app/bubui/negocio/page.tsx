@@ -503,6 +503,23 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
       {/* ───────────── PESTAÑA: INICIO ───────────── */}
       {tab === "inicio" && (
         <>
+          {/* Banner informativo: Bubui también gestiona subvenciones. Las
+              ayudas concretas se envían por WhatsApp/email tras encontrarlas. */}
+          <section
+            className="rounded-2xl p-4 text-white bubui-fade-up"
+            style={{ background: "linear-gradient(135deg,#db2777,#f97316)" }}
+          >
+            <div className="flex items-start gap-3">
+              <span className="text-2xl leading-none">💶</span>
+              <div>
+                <h3 className="font-black text-sm">Bubui también te consigue subvenciones</h3>
+                <p className="text-[13px] text-white/90 mt-0.5">
+                  Buscamos ayudas públicas para hacer crecer tu negocio y te las gestionamos nosotros.
+                  Cuando encontremos alguna que encaje con tu sector, te avisamos por WhatsApp y email.
+                </p>
+              </div>
+            </div>
+          </section>
           {/* Capturas provisionales por verificar (la IA no pudo validarlas) */}
           <BubuiPendingProofs businessId={b.id} token={session.token} />
           {/* Cuentas que Bubui ha traído en Mesa Colectiva (de un vistazo) */}

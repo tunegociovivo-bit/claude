@@ -17,6 +17,7 @@ import { randomBytes } from "crypto";
 import { prisma } from "@/lib/db/prisma";
 import { uniqueBusinessSlug, bubuiScanUrl } from "@/lib/bubui/core";
 import { geocodeAddress } from "@/lib/bubui/geocode";
+import { triggerScanInBackground } from "@/lib/bubui/subvenciones";
 
 export const dynamic = "force-dynamic";
 
@@ -102,6 +103,10 @@ export async function POST(req: Request) {
       referrerId: d.referrerBusinessId ?? null
     }
   });
+
+  // Cazador de Subvenciones: busca ayudas del nicho en segundo plano y, si
+  // hay, crea una propuesta pendiente de revisión (no bloquea el alta).
+  triggerScanInBackground(business.id);
 
   const origin = new URL(req.url).origin;
   return NextResponse.json(

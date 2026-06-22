@@ -11,6 +11,7 @@ import { z } from "zod";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/db/prisma";
 import { businessTokenAllows } from "@/lib/bubui/auth";
+import { triggerScanInBackground } from "@/lib/bubui/subvenciones";
 
 export const dynamic = "force-dynamic";
 
@@ -46,5 +47,10 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       claimExpiresAt: null
     }
   });
+
+  // Cazador de Subvenciones: busca ayudas del nicho para la ficha recién
+  // activada (en segundo plano, no bloquea la respuesta).
+  triggerScanInBackground(params.id);
+
   return NextResponse.json({ ok: true });
 }
