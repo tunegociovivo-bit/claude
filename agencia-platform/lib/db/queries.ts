@@ -191,13 +191,24 @@ export async function getTasksForUi(): Promise<UiTask[]> {
       // workspaces de la BD (perf disaster + tenant leak).
       where: { workspaceId, parentId: null, deletedAt: null, ...(visibility ?? {}) } as any,
       include: { assignees: true, tags: { include: { tag: true } }, extraProjects: true },
-      // order ASC = más arriba en la columna. Tareas recientes (con order = 0
-      // por defecto) flotan arriba, y los reorders manuales (drag&drop) ganan.
-      orderBy: [{ order: "asc" }, { createdAt: "desc" }],
+      // IMPORTANTE — ordenar por updatedAt DESC, no por `order`.
+      //
+      // `order` es la posición DENTRO de una columna (per-columna), no un
+      // orden global. El cliente ya re-ordena cada columna por `order`
+      // (ver tasksByColumn en TareasClient), así que el orden de este fetch
+      // SOLO decide QUÉ tareas entran en el `take`.
+      //
+      // Con `order ASC` global + 2000+ tareas importadas (casi todas
+      // order=0), al mover una tarea al fondo de su columna su `order`
+      // pasaba a positivo y caía DETRÁS de las miles con order=0 → el
+      // take la dejaba fuera y "desaparecía" al refrescar (sin estar
+      // borrada). updatedAt DESC hace que cualquier tarea creada, movida
+      // o editada suba al principio y NUNCA quede fuera del corte.
+      orderBy: [{ updatedAt: "desc" }],
       // Cap defensivo: con 2000+ tasks importadas de Asana, sin take
-      // el SSR de /tareas tardaba 5-10s. 1000 cubre con margen el
-      // tamaño típico de tablón visible.
-      take: 1000
+      // el SSR de /tareas tardaba 5-10s. 1500 cubre el working set
+      // (tareas tocadas recientemente) con margen.
+      take: 1500
     });
 
     // Privacidad de encargos a Sonia: una tarea ASIGNADA a Sonia que tiene
