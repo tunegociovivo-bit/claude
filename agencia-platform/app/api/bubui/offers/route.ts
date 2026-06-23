@@ -123,6 +123,19 @@ export async function GET(req: Request) {
     : [];
   const friendInitials = verifiedFriends.map((f) => (f.name?.trim()?.[0] || "?").toUpperCase());
 
+  // Negocios donde el cliente YA dejó (verificada) una reseña en Google: no
+  // le volvemos a ofrecer reseñar (Google solo permite una por usuario/sitio).
+  const googleReviewedIds = hasLocked
+    ? new Set(
+        (
+          await prisma.bubuiGoogleReview.findMany({
+            where: { customerId, businessId: { in: offers.filter((o) => !o.active).map((o) => o.businessId) } },
+            select: { businessId: true }
+          })
+        ).map((r) => r.businessId)
+      )
+    : new Set<string>();
+
   const enriched = offers.map((o) => {
     let distanceM: number | null = null;
     if (lat != null && lng != null && o.business.latitude != null && o.business.longitude != null) {
@@ -153,8 +166,8 @@ export async function GET(req: Request) {
       // solo si el usuario ya superó el umbral de amigos.
       altActionsUnlocked: locked && o.source === "share_challenge" ? altActionsUnlocked : false,
       altMinReferrals,
-      reviewUrl: locked ? mesaReviewUrl(o.business) : null,
-      reviewLabel: locked ? mesaReviewPlatformLabel(o.business) : null
+      reviewUrl: locked && !googleReviewedIds.has(o.businessId) ? mesaReviewUrl(o.business) : null,
+      reviewLabel: locked && !googleReviewedIds.has(o.businessId) ? mesaReviewPlatformLabel(o.business) : null
     };
   });
 

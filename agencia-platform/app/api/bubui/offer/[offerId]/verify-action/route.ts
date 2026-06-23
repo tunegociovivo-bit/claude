@@ -163,6 +163,17 @@ export async function POST(req: Request, { params }: { params: { offerId: string
       where: { id: offer.id, active: false },
       data: { active: true, activatedByAction: true, activatedProvisional: provisional, activationShotUrl: shotUrl }
     });
+    // Reseña de Google VERIFICADA (no provisional): marca para no volver a
+    // ofrecerle reseñar ese negocio (Google solo permite una por usuario/sitio).
+    if (action === "review" && !provisional) {
+      await prisma.bubuiGoogleReview
+        .upsert({
+          where: { customerId_businessId: { customerId, businessId: offer.businessId } },
+          create: { customerId, businessId: offer.businessId },
+          update: {}
+        })
+        .catch(() => {});
+    }
   }
 
   return NextResponse.json({

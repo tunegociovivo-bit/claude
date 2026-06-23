@@ -3719,6 +3719,7 @@ model BubuiBusiness {
   pushAds         BubuiPushAd[]
   notifications   BubuiBusinessNotification[]
   reviews         BubuiReview[]
+  googleReviews   BubuiGoogleReview[]
   sponsoredSlots  BubuiSponsoredSlot[]
   bannerCampaigns BubuiBannerCampaign[]
   tableSessions   BubuiTableSession[]
@@ -3794,6 +3795,7 @@ model BubuiCustomer {
   offers    BubuiOffer[]
   pushLogs  BubuiPushLog[]
   reviews   BubuiReview[]
+  googleReviews BubuiGoogleReview[]
 
   @@index([lastLat, lastLng])
   @@map("BipiCustomer")
@@ -4093,6 +4095,23 @@ model BubuiReview {
   @@unique([customerId, businessId])
   @@index([businessId, createdAt])
   @@map("BipiReview")
+}
+
+// Marca de que un cliente ya dejó (y se le VERIFICÓ) una reseña en Google de un
+// negocio. Sirve para no volver a ofrecerle la acción "deja una reseña en
+// Google" de ese negocio (Google solo permite una reseña por sitio y usuario).
+// Distinto de BubuiReview, que es la valoración interna 1-5 de Bubui.
+model BubuiGoogleReview {
+  id         String   @id @default(cuid())
+  businessId String
+  customerId String
+  createdAt  DateTime @default(now())
+
+  business BubuiBusiness @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  customer BubuiCustomer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@unique([customerId, businessId])
+  @@index([businessId])
 }
 
 /// Mesa Colectiva: una mesa de un restaurante que activa un descuento de grupo
