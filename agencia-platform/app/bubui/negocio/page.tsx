@@ -1503,6 +1503,7 @@ function MesaConfig({ business, token, onSaved }: { business: any; token: string
  *  el comercio no tenga que montar un catálogo. */
 function DiscountsConfig({ business, token, onSaved }: { business: any; token: string; onSaved: () => void }) {
   const [scan, setScan] = useState<number>(business.defaultDiscountPct ?? 5);
+  const [newCust, setNewCust] = useState<number>(business.newCustomerDiscountPct ?? 0);
   const [cross, setCross] = useState<number>(business.crossDiscountPct ?? 8);
   const [review, setReview] = useState<number>(business.reviewRewardPct ?? 0);
   const [sharePct, setSharePct] = useState<number>(business.shareOfferPct ?? 0);
@@ -1520,6 +1521,7 @@ function DiscountsConfig({ business, token, onSaved }: { business: any; token: s
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({
           defaultDiscountPct: Number(scan),
+          newCustomerDiscountPct: Number(newCust),
           crossDiscountPct: Number(cross),
           reviewRewardPct: Number(review),
           shareOfferPct: Number(sharePct),
@@ -1543,11 +1545,23 @@ function DiscountsConfig({ business, token, onSaved }: { business: any; token: s
         </p>
       </div>
 
-      {/* Escanear QR + comprar */}
+      {/* Cliente NUEVO (primera compra con Bubui) */}
+      <div className="rounded-xl border border-pink-200 bg-pink-50/40 p-3 flex items-center justify-between gap-3">
+        <div>
+          <div className="font-semibold text-sm">🆕 Cliente nuevo (primera compra con Bubui)</div>
+          <p className="text-[12px] text-black/55">Descuento de bienvenida para quien te compra por primera vez usando Bubui. 0 = mismo que el recurrente.</p>
+        </div>
+        <div className="flex items-center gap-1 shrink-0">
+          <input type="number" min={0} max={90} value={newCust} onChange={(e) => setNewCust(Number(e.target.value))} className="w-16 px-2 py-1.5 border rounded bg-white text-right" />
+          <span className="text-sm font-bold">%</span>
+        </div>
+      </div>
+
+      {/* Cliente RECURRENTE (escaneo normal) */}
       <div className="rounded-xl border border-black/10 p-3 flex items-center justify-between gap-3">
         <div>
-          <div className="font-semibold text-sm">📲 Al escanear tu QR y comprar</div>
-          <p className="text-[12px] text-black/55">Descuento base que se lleva cualquier cliente al escanear tu QR en el local.</p>
+          <div className="font-semibold text-sm">🔁 Cliente recurrente (ya tiene Bubui)</div>
+          <p className="text-[12px] text-black/55">Descuento base al escanear tu QR y comprar, para quien ya te ha comprado antes con Bubui.</p>
         </div>
         <div className="flex items-center gap-1 shrink-0">
           <input type="number" min={3} max={90} value={scan} onChange={(e) => setScan(Number(e.target.value))} className="w-16 px-2 py-1.5 border rounded bg-white text-right" />

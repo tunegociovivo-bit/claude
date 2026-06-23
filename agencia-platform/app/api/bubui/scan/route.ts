@@ -19,6 +19,7 @@ import {
   recalculateAmbassadorLevel
 } from "@/lib/bubui/core";
 import { customerAuthOk } from "@/lib/bubui/customer-auth";
+import { isNewCustomer } from "@/lib/bubui/table";
 import { createShareChallengeOffer } from "@/lib/bubui/share-offer";
 import { notifyBusinessNewReferredClient } from "@/lib/bubui/referral";
 import { alertBusiness } from "@/lib/bubui/business-push";
@@ -126,6 +127,9 @@ export async function POST(req: Request) {
   let discountPct: number;
   if (activeOffer) {
     discountPct = activeOffer.discountPct;
+  } else if (isNewCustomer(customer) && (business.newCustomerDiscountPct ?? 0) > 0) {
+    // Cliente NUEVO (primera compra con Bubui aquí): descuento de bienvenida.
+    discountPct = business.newCustomerDiscountPct;
   } else if (business.wheelEnabled) {
     const min = Math.max(0, Math.min(90, business.wheelMinPct ?? 3));
     const max = Math.max(min, Math.min(90, business.wheelMaxPct ?? 20));
@@ -133,6 +137,7 @@ export async function POST(req: Request) {
     discountPct = rolled;
     wheelSpin = { rolled, min, max };
   } else {
+    // Cliente recurrente (o sin descuento de bienvenida configurado).
     discountPct = business.defaultDiscountPct;
   }
   let discountAmount = Math.round(amount * discountPct) / 100;

@@ -30,6 +30,7 @@ const schema = z
     logoUrl: z.string().url().optional().nullable(),
     brandColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional().nullable(),
     defaultDiscountPct: z.number().int().min(3).max(MAX_DISCOUNT_PCT).optional(),
+    newCustomerDiscountPct: z.number().int().min(0).max(MAX_DISCOUNT_PCT).optional(),
     crossDiscountPct: z.number().int().min(3).max(MAX_DISCOUNT_PCT).optional(),
     purchaseMode: z.enum(["double_confirm", "express"]).optional(),
     requireTicket: z.boolean().optional(),

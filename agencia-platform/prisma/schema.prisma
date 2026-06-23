@@ -3531,8 +3531,12 @@ model BubuiBusiness {
   // Branding mínimo.
   logoUrl                   String?
   brandColor                String?
-  // Oferta default (descuento estándar al cliente cuando escanea).
+  // Oferta default (descuento estándar al cliente cuando escanea). Se usa para
+  // el cliente RECURRENTE (ya tiene Bubui y ya ha comprado aquí).
   defaultDiscountPct        Int       @default(5)
+  // Descuento de BIENVENIDA para el cliente NUEVO (primera compra con Bubui en
+  // este negocio). 0 = sin diferenciar (usa defaultDiscountPct).
+  newCustomerDiscountPct    Int       @default(0)
   // Cupón cruzado: el % que ofrece a clientes de otros negocios.
   crossDiscountPct          Int       @default(8)
   // % de descuento extra que el negocio regala al cliente cuando deja una
