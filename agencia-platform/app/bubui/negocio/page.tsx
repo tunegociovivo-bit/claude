@@ -1492,8 +1492,7 @@ function MesaConfig({ business, token, onSaved }: { business: any; token: string
  *  compartir, reseña, cupón cruzado) con copy orientado a la acción, para que
  *  el comercio no tenga que montar un catálogo. */
 function DiscountsConfig({ business, token, onSaved }: { business: any; token: string; onSaved: () => void }) {
-  const [scan, setScan] = useState<number>(business.defaultDiscountPct ?? 5);
-  const [newCust, setNewCust] = useState<number>(business.newCustomerDiscountPct ?? 0);
+  const [newCust, setNewCust] = useState<number>(business.newCustomerDiscountPct ?? business.defaultDiscountPct ?? 5);
   const [cross, setCross] = useState<number>(business.crossDiscountPct ?? 8);
   const [review, setReview] = useState<number>(business.reviewRewardPct ?? 0);
   const [sharePct, setSharePct] = useState<number>(business.shareOfferPct ?? 0);
@@ -1510,7 +1509,6 @@ function DiscountsConfig({ business, token, onSaved }: { business: any; token: s
         method: "PATCH",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({
-          defaultDiscountPct: Number(scan),
           newCustomerDiscountPct: Number(newCust),
           crossDiscountPct: Number(cross),
           reviewRewardPct: Number(review),
@@ -1535,28 +1533,21 @@ function DiscountsConfig({ business, token, onSaved }: { business: any; token: s
         </p>
       </div>
 
-      {/* Cliente NUEVO (primera compra con Bubui) */}
+      {/* Cliente NUEVO: descuento de bienvenida al instalar Bubui y comprar */}
       <div className="rounded-xl border border-pink-200 bg-pink-50/40 p-3 flex items-center justify-between gap-3">
         <div>
-          <div className="font-semibold text-sm">🆕 Cliente nuevo (primera compra con Bubui)</div>
-          <p className="text-[12px] text-black/55">Descuento de bienvenida para quien te compra por primera vez usando Bubui. 0 = mismo que el recurrente.</p>
+          <div className="font-semibold text-sm">🆕 Cliente nuevo (instala Bubui y compra)</div>
+          <p className="text-[12px] text-black/55">Descuento de bienvenida para quien escanea tu QR, se instala Bubui y compra por primera vez. Es lo que le anima a darse de alta.</p>
         </div>
         <div className="flex items-center gap-1 shrink-0">
-          <input type="number" min={0} max={90} value={newCust} onChange={(e) => setNewCust(Number(e.target.value))} className="w-16 px-2 py-1.5 border rounded bg-white text-right" />
+          <input type="number" min={3} max={90} value={newCust} onChange={(e) => setNewCust(Number(e.target.value))} className="w-16 px-2 py-1.5 border rounded bg-white text-right" />
           <span className="text-sm font-bold">%</span>
         </div>
       </div>
 
-      {/* Cliente RECURRENTE (escaneo normal) */}
-      <div className="rounded-xl border border-black/10 p-3 flex items-center justify-between gap-3">
-        <div>
-          <div className="font-semibold text-sm">🔁 Cliente recurrente (ya tiene Bubui)</div>
-          <p className="text-[12px] text-black/55">Descuento base al escanear tu QR y comprar, para quien ya te ha comprado antes con Bubui.</p>
-        </div>
-        <div className="flex items-center gap-1 shrink-0">
-          <input type="number" min={3} max={90} value={scan} onChange={(e) => setScan(Number(e.target.value))} className="w-16 px-2 py-1.5 border rounded bg-white text-right" />
-          <span className="text-sm font-bold">%</span>
-        </div>
+      {/* Aviso: el recurrente NO cobra por escanear */}
+      <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-[12px] text-amber-800">
+        🔁 <b>El cliente que ya tiene Bubui no recibe descuento solo por escanear.</b> Lo gana realizando una de estas acciones o con un cupón de otro negocio de la zona 👇
       </div>
 
       {/* Reto compartir */}

@@ -126,19 +126,28 @@ export async function POST(req: Request) {
   let wheelSpin: { rolled: number; min: number; max: number } | null = null;
   let discountPct: number;
   if (activeOffer) {
+    // Oferta ya ganada (cupón cruzado de otro negocio, recompensa por acción,
+    // descuento post-compra…). Es la vía del cliente recurrente.
     discountPct = activeOffer.discountPct;
-  } else if (isNewCustomer(customer) && (business.newCustomerDiscountPct ?? 0) > 0) {
-    // Cliente NUEVO (primera compra con Bubui aquí): descuento de bienvenida.
-    discountPct = business.newCustomerDiscountPct;
+  } else if (isNewCustomer(customer)) {
+    // Cliente NUEVO (primera compra con Bubui aquí): descuento de BIENVENIDA.
+    // Si el negocio no fijó uno específico, usamos defaultDiscountPct (compat
+    // con la config previa) para no dejar al nuevo sin descuento.
+    discountPct =
+      (business.newCustomerDiscountPct ?? 0) > 0
+        ? business.newCustomerDiscountPct
+        : business.defaultDiscountPct;
   } else if (business.wheelEnabled) {
+    // Ruleta: gamificación opt-in que el negocio activa a propósito.
     const min = Math.max(0, Math.min(90, business.wheelMinPct ?? 3));
     const max = Math.max(min, Math.min(90, business.wheelMaxPct ?? 20));
     const rolled = min + Math.floor(Math.random() * (max - min + 1));
     discountPct = rolled;
     wheelSpin = { rolled, min, max };
   } else {
-    // Cliente recurrente (o sin descuento de bienvenida configurado).
-    discountPct = business.defaultDiscountPct;
+    // Cliente RECURRENTE sin oferta ganada: NO hay descuento solo por escanear.
+    // Lo gana con acciones (compartir, reseña…) o con cupones de otros negocios.
+    discountPct = 0;
   }
   let discountAmount = Math.round(amount * discountPct) / 100;
 
