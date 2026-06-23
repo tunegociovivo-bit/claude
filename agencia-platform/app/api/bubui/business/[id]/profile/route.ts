@@ -39,6 +39,8 @@ const schema = z
     referralReward3: z.string().max(60).optional().nullable(),
     referralReward5: z.string().max(60).optional().nullable(),
     reviewRewardPct: z.number().int().min(0).max(MAX_DISCOUNT_PCT).optional(),
+    ppFollowDiscountPct: z.number().int().min(0).max(MAX_DISCOUNT_PCT).optional(),
+    ppPhotoDiscountPct: z.number().int().min(0).max(MAX_DISCOUNT_PCT).optional(),
     googlePlaceId: z.string().trim().max(200).optional().nullable(),
     instagramUrl: z.string().trim().max(300).optional().nullable(),
     facebookUrl: z.string().trim().max(300).optional().nullable(),

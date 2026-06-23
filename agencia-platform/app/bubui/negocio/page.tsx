@@ -1498,6 +1498,8 @@ function DiscountsConfig({ business, token, onSaved }: { business: any; token: s
   const [sharePct, setSharePct] = useState<number>(business.shareOfferPct ?? 0);
   const [shareFriends, setShareFriends] = useState<number>(business.shareOfferFriends ?? 5);
   const [shareLabel, setShareLabel] = useState<string>(business.shareOfferLabel ?? "");
+  const [followPct, setFollowPct] = useState<number>(business.ppFollowDiscountPct ?? 0);
+  const [photoPct, setPhotoPct] = useState<number>(business.ppPhotoDiscountPct ?? 0);
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
 
@@ -1514,7 +1516,9 @@ function DiscountsConfig({ business, token, onSaved }: { business: any; token: s
           reviewRewardPct: Number(review),
           shareOfferPct: Number(sharePct),
           shareOfferFriends: Number(shareFriends),
-          shareOfferLabel: shareLabel.trim() || null
+          shareOfferLabel: shareLabel.trim() || null,
+          ppFollowDiscountPct: Number(followPct),
+          ppPhotoDiscountPct: Number(photoPct)
         })
       });
       setStatus(r.ok ? "Guardado ✓" : "Error al guardar.");
@@ -1580,6 +1584,30 @@ function DiscountsConfig({ business, token, onSaved }: { business: any; token: s
         </div>
         <div className="flex items-center gap-1 shrink-0">
           <input type="number" min={0} max={90} value={review} onChange={(e) => setReview(Number(e.target.value))} className="w-16 px-2 py-1.5 border rounded bg-white text-right" />
+          <span className="text-sm font-bold">%</span>
+        </div>
+      </div>
+
+      {/* Seguir en redes */}
+      <div className="rounded-xl border border-black/10 p-3 flex items-center justify-between gap-3">
+        <div>
+          <div className="font-semibold text-sm">📷 Por seguirte en redes (IG/FB)</div>
+          <p className="text-[12px] text-black/55">Descuento por seguir tu Instagram/Facebook. 0 = desactivado.</p>
+        </div>
+        <div className="flex items-center gap-1 shrink-0">
+          <input type="number" min={0} max={90} value={followPct} onChange={(e) => setFollowPct(Number(e.target.value))} className="w-16 px-2 py-1.5 border rounded bg-white text-right" />
+          <span className="text-sm font-bold">%</span>
+        </div>
+      </div>
+
+      {/* Subir foto/historia */}
+      <div className="rounded-xl border border-black/10 p-3 flex items-center justify-between gap-3">
+        <div>
+          <div className="font-semibold text-sm">🤳 Por subir una foto/historia</div>
+          <p className="text-[12px] text-black/55">Descuento por compartir una foto o historia etiquetando tu negocio. 0 = desactivado.</p>
+        </div>
+        <div className="flex items-center gap-1 shrink-0">
+          <input type="number" min={0} max={90} value={photoPct} onChange={(e) => setPhotoPct(Number(e.target.value))} className="w-16 px-2 py-1.5 border rounded bg-white text-right" />
           <span className="text-sm font-bold">%</span>
         </div>
       </div>

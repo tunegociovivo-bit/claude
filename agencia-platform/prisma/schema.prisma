@@ -3543,6 +3543,10 @@ model BubuiBusiness {
   // reseña. 0 = no se incentivan reseñas. Solo se da una vez por cliente
   // (clave única en BubuiOffer triggerBusinessId="review:<businessId>").
   reviewRewardPct           Int       @default(0)
+  // Descuentos por ACCIÓN post-compra (push a la hora). share→shareOfferPct,
+  // review→reviewRewardPct; aquí los dos que faltaban:
+  ppFollowDiscountPct       Int       @default(0) // seguir en redes (IG/FB)
+  ppPhotoDiscountPct        Int       @default(0) // subir foto/historia etiquetando
   // Place ID de Google Business Profile (Google My Business) del negocio,
   // si lo tienen verificado. Habilita el CTA "compártela también en Google"
   // tras dejar una reseña — abre el formulario de reseñas de Google con
