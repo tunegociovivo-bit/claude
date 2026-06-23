@@ -787,6 +787,17 @@ export function processRunInBackground(runId: string): void {
  */
 function classifyError(errorMsg: string): "credential" | "transient" | "technical" {
   const m = errorMsg.toLowerCase();
+  // 500 "api_error" de la PROPIA API de Anthropic (Internal server error):
+  // es un fallo TRANSITORIO de su infra, no un bug nuestro. Hay que
+  // distinguirlo del 500 de una TOOL (p.ej. Meta), que SÍ es técnico: el de
+  // Anthropic trae su envoltorio característico (type "api_error" + "internal
+  // server error", o un request_id "req_..."). Un 500 de Meta/otra API no.
+  if (
+    (m.includes("api_error") && m.includes("internal server error")) ||
+    (m.includes("internal server error") && /"request_id"\s*:\s*"req_/.test(m))
+  ) {
+    return "transient";
+  }
   // Errores TRANSIENTES de infra de Anthropic / red. No son bugs nuestros
   // ni del workspace — son momentáneos. Si llegan aquí significa que el
   // retry interno ya falló N veces; el run queda FAILED pero NO escalamos
