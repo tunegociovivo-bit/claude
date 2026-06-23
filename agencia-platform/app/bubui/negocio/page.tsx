@@ -618,16 +618,6 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
               <DiscountsConfig business={b} token={session.token} onSaved={load} />
             </Highlight>
           )}
-          {b.businessType === "comercio_producto" && (
-            <details className="bubui-card p-0 overflow-hidden">
-              <summary className="cursor-pointer px-5 py-3 text-sm font-semibold text-black/70">
-                🛍️ Catálogo de productos (opcional)
-              </summary>
-              <div className="px-1 pb-1">
-                <ProductCatalog businessId={b.id} token={session.token} />
-              </div>
-            </details>
-          )}
           {b.businessType === "servicios" && (
             <>
               <BookingsPanel businessId={b.id} token={session.token} />
