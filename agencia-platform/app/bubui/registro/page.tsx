@@ -199,7 +199,7 @@ export default function RegistroNegocio() {
           </Field>
         </div>
         <div className="grid sm:grid-cols-2 gap-3">
-          <Field label="% a clientes que escanean tu QR">
+          <Field label="% de descuento a clientes que escanean tu QR">
             <input
               type="number"
               min={3}
@@ -209,7 +209,7 @@ export default function RegistroNegocio() {
               className="input"
             />
           </Field>
-          <Field label="% a clientes con cupón cruzado de otros negocios">
+          <Field label="% de descuento a clientes con cupón cruzado de otros negocios de la zona">
             <input
               type="number"
               min={3}
