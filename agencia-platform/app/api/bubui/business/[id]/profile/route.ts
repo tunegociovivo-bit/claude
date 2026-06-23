@@ -49,6 +49,7 @@ const schema = z
     tripadvisorUrl: z.string().trim().max(300).optional().nullable(),
     mesaReviewPlatform: z.enum(["google", "tripadvisor", "trustpilot", "instagram"]).optional(),
     reviewPushEnabled: z.boolean().optional(),
+    postPurchasePushEnabled: z.boolean().optional(),
     // Oferta-reto viral (compártela con N amigos para activarla).
     shareOfferPct: z.number().int().min(0).max(MAX_DISCOUNT_PCT).optional(),
     shareOfferFriends: z.number().int().min(1).max(20).optional(),

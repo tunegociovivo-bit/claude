@@ -27,7 +27,7 @@ export default function RegistroNegocio() {
     ownerPhone: "",
     ownerPassword: "",
     defaultDiscountPct: 5,
-    crossDiscountPct: 8
+    crossDiscountPct: 10
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);

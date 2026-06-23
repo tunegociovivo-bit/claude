@@ -31,7 +31,7 @@ const schema = z.object({
   latitude: z.number().optional(),
   longitude: z.number().optional(),
   defaultDiscountPct: z.number().int().min(3).max(30).optional().default(5),
-  crossDiscountPct: z.number().int().min(3).max(30).optional().default(8),
+  crossDiscountPct: z.number().int().min(3).max(30).optional().default(10),
   ownerEmail: z.string().email(),
   ownerPassword: z.string().min(8).max(60),
   ownerName: z.string().max(80).optional(),

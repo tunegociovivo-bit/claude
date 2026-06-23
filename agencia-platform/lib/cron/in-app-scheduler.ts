@@ -47,6 +47,15 @@ export function startInAppScheduler(): void {
       console.warn("[in-app-cron] bubui mesa expiry:", (e as Error).message);
     }
     try {
+      // Bubui: push de acciones post-compra (~1 h) → descuento por compartir/
+      // reseña/seguir/foto. Solo negocios con postPurchasePushEnabled.
+      const { runPostPurchaseActionPush } = await import("@/lib/bubui/post-purchase");
+      const r = await runPostPurchaseActionPush();
+      if (r.sent > 0) console.log(`[in-app-cron] bubui push acciones post-compra: ${r.sent}/${r.due}`);
+    } catch (e) {
+      console.warn("[in-app-cron] bubui post-purchase push:", (e as Error).message);
+    }
+    try {
       // Genera las facturas recurrentes que toque emitir.
       const { runRecurringInvoices } = await import("@/lib/invoicing/recurring");
       const res = await runRecurringInvoices();

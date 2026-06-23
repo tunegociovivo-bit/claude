@@ -3538,15 +3538,15 @@ model BubuiBusiness {
   // este negocio). 0 = sin diferenciar (usa defaultDiscountPct).
   newCustomerDiscountPct    Int       @default(0)
   // Cupón cruzado: el % que ofrece a clientes de otros negocios.
-  crossDiscountPct          Int       @default(8)
+  crossDiscountPct          Int       @default(10)
   // % de descuento extra que el negocio regala al cliente cuando deja una
   // reseña. 0 = no se incentivan reseñas. Solo se da una vez por cliente
   // (clave única en BubuiOffer triggerBusinessId="review:<businessId>").
-  reviewRewardPct           Int       @default(0)
+  reviewRewardPct           Int       @default(5)
   // Descuentos por ACCIÓN post-compra (push a la hora). share→shareOfferPct,
   // review→reviewRewardPct; aquí los dos que faltaban:
-  ppFollowDiscountPct       Int       @default(0) // seguir en redes (IG/FB)
-  ppPhotoDiscountPct        Int       @default(0) // subir foto/historia etiquetando
+  ppFollowDiscountPct       Int       @default(5) // seguir en redes (IG/FB)
+  ppPhotoDiscountPct        Int       @default(5) // subir foto/historia etiquetando
   // Place ID de Google Business Profile (Google My Business) del negocio,
   // si lo tienen verificado. Habilita el CTA "compártela también en Google"
   // tras dejar una reseña — abre el formulario de reseñas de Google con
@@ -3563,12 +3563,16 @@ model BubuiBusiness {
   // Oferta-reto: tras escanear el ticket, al cliente se le crea una oferta
   // MAYOR (shareOfferPct), bloqueada, que solo se activa cuando comparte
   // Bubui y consigue `shareOfferFriends` amigos nuevos verificados. 0 = off.
-  shareOfferPct             Int       @default(0)
+  shareOfferPct             Int       @default(10)
   shareOfferFriends         Int       @default(5)
   shareOfferLabel           String? // etiqueta no-% opcional (ej. "Postre gratis")
   // Solicitud de reseña en Google: push automático ~10 min tras escanear,
   // llevando al cliente a dejar reseña en Google (requiere googlePlaceId).
   reviewPushEnabled         Boolean   @default(true)
+  // Interruptor del push post-compra (a la hora) que ofrece acciones por
+  // descuento (compartir/reseña/seguir/foto). Off por defecto: el comercio lo
+  // activa cuando quiere usarlo.
+  postPurchasePushEnabled   Boolean   @default(false)
   // Preferencias de PUSH al panel del dueño: de qué eventos quiere que le
   // avisemos en su dispositivo (el feed "Novedades" del panel siempre los
   // registra; estos flags solo controlan la notificación push).
@@ -3724,6 +3728,7 @@ model BubuiBusiness {
   notifications   BubuiBusinessNotification[]
   reviews         BubuiReview[]
   googleReviews   BubuiGoogleReview[]
+  socialFollows   BubuiSocialFollow[]
   sponsoredSlots  BubuiSponsoredSlot[]
   bannerCampaigns BubuiBannerCampaign[]
   tableSessions   BubuiTableSession[]
@@ -3800,6 +3805,7 @@ model BubuiCustomer {
   pushLogs  BubuiPushLog[]
   reviews   BubuiReview[]
   googleReviews BubuiGoogleReview[]
+  socialFollows BubuiSocialFollow[]
 
   @@index([lastLat, lastLng])
   @@map("BipiCustomer")
@@ -3834,6 +3840,9 @@ model BubuiPurchase {
   // Cuándo se envió el push de "déjanos una reseña en Google" (~10 min tras
   // escanear). null = pendiente de enviar; lo procesa el cron review-requests.
   reviewPushedAt  DateTime?
+  // Cuándo se envió el push de acciones post-compra (~1 h tras la compra
+  // confirmada). null = pendiente; lo procesa el cron de acciones.
+  actionPushedAt  DateTime?
 
   customer BubuiCustomer @relation(fields: [customerId], references: [id], onDelete: Cascade)
   business BubuiBusiness @relation(fields: [businessId], references: [id], onDelete: Cascade)
@@ -4106,6 +4115,22 @@ model BubuiReview {
 // Google" de ese negocio (Google solo permite una reseña por sitio y usuario).
 // Distinto de BubuiReview, que es la valoración interna 1-5 de Bubui.
 model BubuiGoogleReview {
+  id         String   @id @default(cuid())
+  businessId String
+  customerId String
+  createdAt  DateTime @default(now())
+
+  business BubuiBusiness @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  customer BubuiCustomer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@unique([customerId, businessId])
+  @@index([businessId])
+}
+
+// Marca de que un cliente ya SIGUE (verificado) las redes de un negocio. Igual
+// que BubuiGoogleReview: un usuario solo puede seguir una vez en IG/FB, así que
+// tras verificarlo no se le vuelve a ofrecer la acción "seguir" de ese negocio.
+model BubuiSocialFollow {
   id         String   @id @default(cuid())
   businessId String
   customerId String

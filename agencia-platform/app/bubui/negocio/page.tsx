@@ -1493,13 +1493,14 @@ function MesaConfig({ business, token, onSaved }: { business: any; token: string
  *  el comercio no tenga que montar un catálogo. */
 function DiscountsConfig({ business, token, onSaved }: { business: any; token: string; onSaved: () => void }) {
   const [newCust, setNewCust] = useState<number>(business.newCustomerDiscountPct ?? business.defaultDiscountPct ?? 5);
-  const [cross, setCross] = useState<number>(business.crossDiscountPct ?? 8);
-  const [review, setReview] = useState<number>(business.reviewRewardPct ?? 0);
-  const [sharePct, setSharePct] = useState<number>(business.shareOfferPct ?? 0);
+  const [cross, setCross] = useState<number>(business.crossDiscountPct ?? 10);
+  const [review, setReview] = useState<number>(business.reviewRewardPct ?? 5);
+  const [sharePct, setSharePct] = useState<number>(business.shareOfferPct ?? 10);
   const [shareFriends, setShareFriends] = useState<number>(business.shareOfferFriends ?? 5);
   const [shareLabel, setShareLabel] = useState<string>(business.shareOfferLabel ?? "");
-  const [followPct, setFollowPct] = useState<number>(business.ppFollowDiscountPct ?? 0);
-  const [photoPct, setPhotoPct] = useState<number>(business.ppPhotoDiscountPct ?? 0);
+  const [followPct, setFollowPct] = useState<number>(business.ppFollowDiscountPct ?? 5);
+  const [photoPct, setPhotoPct] = useState<number>(business.ppPhotoDiscountPct ?? 5);
+  const [ppEnabled, setPpEnabled] = useState<boolean>(!!business.postPurchasePushEnabled);
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
 
@@ -1518,7 +1519,8 @@ function DiscountsConfig({ business, token, onSaved }: { business: any; token: s
           shareOfferFriends: Number(shareFriends),
           shareOfferLabel: shareLabel.trim() || null,
           ppFollowDiscountPct: Number(followPct),
-          ppPhotoDiscountPct: Number(photoPct)
+          ppPhotoDiscountPct: Number(photoPct),
+          postPurchasePushEnabled: ppEnabled
         })
       });
       setStatus(r.ok ? "Guardado ✓" : "Error al guardar.");
@@ -1533,7 +1535,7 @@ function DiscountsConfig({ business, token, onSaved }: { business: any; token: s
       <div>
         <h3 className="font-bold text-sm">💸 Tus descuentos por acción</h3>
         <p className="text-xs text-black/55 mt-0.5">
-          Define qué descuento se lleva el cliente según lo que hace. Esto es lo que mueve Bubui — no necesitas crear un catálogo.
+          Define qué descuento se lleva el cliente según lo que hace. Esto es lo que mueve Bubui.
         </p>
       </div>
 
@@ -1622,6 +1624,19 @@ function DiscountsConfig({ business, token, onSaved }: { business: any; token: s
           <input type="number" min={3} max={90} value={cross} onChange={(e) => setCross(Number(e.target.value))} className="w-16 px-2 py-1.5 border rounded bg-white text-right" />
           <span className="text-sm font-bold">%</span>
         </div>
+      </div>
+
+      {/* Interruptor del recordatorio post-compra */}
+      <div className="rounded-xl border border-black/10 bg-black/[0.02] p-3">
+        <label className="flex items-start gap-2 text-xs font-semibold cursor-pointer">
+          <input type="checkbox" checked={ppEnabled} onChange={(e) => setPpEnabled(e.target.checked)} className="mt-0.5 accent-pink-600" />
+          <span>
+            ⏰ Recordatorio post-compra (a la hora)
+            <span className="block font-normal text-black/55 mt-0.5">
+              Una hora después de una compra, enviamos al cliente un aviso para que haga una de las acciones de arriba y gane su descuento para la próxima visita. Actívalo cuando quieras empezar a usarlo.
+            </span>
+          </span>
+        </label>
       </div>
 
       {status && <p className="text-xs text-emerald-700">{status}</p>}
