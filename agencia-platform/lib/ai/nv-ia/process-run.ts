@@ -223,20 +223,27 @@ export async function processOneRun(runId: string): Promise<ProcessResult> {
     // que hacer nada: Sonia espera a que Anthropic respire sola.
     // El contador se trackea en el log (pasos type=transient_requeue).
     const MAX_TRANSIENT_REQUEUES = 10;
-    const transientRequeues = Array.isArray(result.log)
-      ? result.log.filter((s: any) => s?.type === "transient_requeue").length
-      : 0;
+    // El contador se lee del log PERSISTIDO del run (run.log), NO del log de
+    // esta ejecución: result.log nace vacío en cada pasada del cron, así que
+    // contarlo desde ahí daba siempre 0 → ni capaba a 10 ni silenciaba el
+    // comentario (bucle infinito + spam). Preservamos los marcadores previos
+    // para que se acumulen y la cuenta avance hasta el cap.
+    const priorMarkers = Array.isArray((run as any).log)
+      ? (run as any).log.filter((s: any) => s?.type === "transient_requeue")
+      : [];
+    const priorRequeues = priorMarkers.length;
     const isTransientOverload =
       result.status === "FAILED" &&
       classifyError(result.error ?? "") === "transient";
 
-    if (isTransientOverload && transientRequeues < MAX_TRANSIENT_REQUEUES) {
+    if (isTransientOverload && priorRequeues < MAX_TRANSIENT_REQUEUES) {
       const newLog = [
         ...(result.log as any[]),
+        ...priorMarkers,
         {
           type: "transient_requeue",
           ts: new Date().toISOString(),
-          message: `Anthropic saturado (intento ${transientRequeues + 1}/${MAX_TRANSIENT_REQUEUES}) — re-encolando para reintento automático vía cron.`,
+          message: `Anthropic error transitorio (intento ${priorRequeues + 1}/${MAX_TRANSIENT_REQUEUES}) — re-encolando vía cron.`,
           error: (result.error ?? "").slice(0, 200)
         }
       ];
@@ -253,11 +260,11 @@ export async function processOneRun(runId: string): Promise<ProcessResult> {
         }
       });
       console.log(
-        `[sonia] run ${runId} → transient overload, re-queued (${transientRequeues + 1}/${MAX_TRANSIENT_REQUEUES})`
+        `[sonia] run ${runId} → transient overload, re-queued (${priorRequeues + 1}/${MAX_TRANSIENT_REQUEUES})`
       );
       // Comentario amable SOLO en el primer requeue, para que el user
       // sepa que no le hemos abandonado. Siguientes requeues son silenciosos.
-      if (transientRequeues === 0) {
+      if (priorRequeues === 0) {
         try {
           const ws = await prisma.workspace.findUnique({
             where: { id: run.workspaceId },
@@ -279,6 +286,32 @@ export async function processOneRun(runId: string): Promise<ProcessResult> {
         } catch {}
       }
       return { runId, status: "PENDING" as any, steps: result.stepsCount };
+    }
+
+    // Reintentos transitorios AGOTADOS: dejamos de re-encolar y avisamos UNA
+    // vez con el error real. Si el mismo error se repite 10 veces no es un
+    // bache pasajero, sino un fallo persistente de la petición concreta.
+    if (isTransientOverload && priorRequeues >= MAX_TRANSIENT_REQUEUES) {
+      try {
+        const ws = await prisma.workspace
+          .findUnique({ where: { id: run.workspaceId }, select: { settings: true } })
+          .catch(() => null);
+        const aiUserId = (ws?.settings as any)?.aiAgent?.userId;
+        if (aiUserId) {
+          await prisma.comment.create({
+            data: {
+              workspaceId: run.workspaceId,
+              authorId: aiUserId,
+              targetType: "TASK",
+              targetId: run.taskId,
+              body:
+                `🛑 He parado tras ${MAX_TRANSIENT_REQUEUES} reintentos: la API de IA devuelve el mismo error una y otra vez para esta tarea, así que no es un bache pasajero. ` +
+                `Suele ocurrir cuando la petición es demasiado grande o tiene contenido que el modelo no puede procesar. ` +
+                `Prueba a acortar o dividir la descripción de la tarea y vuelve a lanzarla. Detalle técnico: ${(result.error ?? "").slice(0, 200)}`
+            }
+          });
+        }
+      } catch {}
     }
 
     await prisma.aiAgentRun.update({
