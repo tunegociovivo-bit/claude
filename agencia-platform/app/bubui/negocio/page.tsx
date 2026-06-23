@@ -1819,6 +1819,27 @@ function MesaTablesPanel({ businessId, token }: { businessId: string; token: str
     }
   }
 
+  async function cancelTable(sessionId: string) {
+    if (!confirm("¿Eliminar esta mesa activa? Se cerrará sin aplicar descuento (úsalo si se quedó colgada por error).")) return;
+    setBusy(sessionId);
+    setMsg(null);
+    try {
+      const r = await fetch(`/api/bubui/business/${businessId}/table/${sessionId}/cancel`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const d = await r.json().catch(() => ({}));
+      if (r.ok) {
+        setMsg("✓ Mesa eliminada.");
+        load();
+      } else {
+        setMsg(d?.error?.message ?? "No se pudo eliminar la mesa.");
+      }
+    } finally {
+      setBusy(null);
+    }
+  }
+
   if (items.length === 0) return null;
   return (
     <section className="bubui-card p-5 space-y-3">
@@ -1847,6 +1868,16 @@ function MesaTablesPanel({ businessId, token }: { businessId: string; token: str
               title={t.everyonePaidEntry ? "Aplicar el descuento" : "Aún faltan aportes en la mesa"}
             >
               {busy === t.id ? "…" : "Verificar y aplicar"}
+            </button>
+          </div>
+          <div className="flex justify-end">
+            <button
+              onClick={() => cancelTable(t.id)}
+              disabled={busy === t.id}
+              className="text-[11px] text-black/45 hover:text-rose-600 disabled:opacity-50"
+              title="Eliminar esta mesa (si se quedó colgada por error)"
+            >
+              🗑️ Eliminar mesa
             </button>
           </div>
         </div>
