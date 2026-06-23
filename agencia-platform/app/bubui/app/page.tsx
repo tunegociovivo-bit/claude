@@ -720,6 +720,24 @@ function OffersFeed({ customer, coords }: { customer: Customer; coords: { lat: n
         <span aria-hidden>⛶</span> Escanear QR de un negocio
       </button>
 
+      {/* Cartel informativo: cómo funcionan los descuentos (al momento + después) */}
+      <div
+        className="rounded-2xl p-4 mb-5 bubui-fade-up bubui-fade-up-2"
+        style={{ background: "linear-gradient(135deg,#fdf2f8,#fff7ed)", border: "1px solid #f7c9dd" }}
+      >
+        <div className="flex items-start gap-3">
+          <span className="text-2xl leading-none" aria-hidden>🎟️</span>
+          <div>
+            <h3 className="font-black text-sm">Escanea tu ticket y ahorra dos veces</h3>
+            <p className="text-[13px] text-black/60 mt-0.5">
+              Al escanear el QR del negocio y tu ticket de compra te llevas el <b>descuento al momento</b>.
+              Y poco después te llega una <b>acción</b> (compartir Bubui, dejar una reseña…) que te
+              desbloquea <b>otro descuento</b> para tu próxima visita. 🎉
+            </p>
+          </div>
+        </div>
+      </div>
+
       {/* Banner promocional */}
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
