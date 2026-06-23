@@ -106,9 +106,9 @@ export default function RegistroNegocio() {
         <span className="bubui-eyebrow">Para negocios</span>
         <h1 className="bubui-wordmark mx-auto justify-center mt-4" style={{ fontSize: 64 }}>bubui</h1>
         <h2 className="text-2xl sm:text-3xl font-black mt-5 tracking-tight leading-tight">
-          Más clientes, más visibilidad y <span style={{ color: "#EC4899" }}>subvenciones</span> para tu negocio.
+          Más clientes, más visibilidad y <span style={{ color: "#EC4899" }}>más subvenciones</span>.
           <br />
-          <span style={{ color: "#EC4899" }}>Todo gratis.</span>
+          Todo lo que necesita tu negocio para crecer. <span style={{ color: "#EC4899" }}>GRATIS</span>
         </h2>
         {/* Tira de 3 beneficios — el gancho de un vistazo */}
         <div className="flex items-center justify-center gap-2 mt-4 flex-wrap text-sm font-bold">
