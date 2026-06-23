@@ -140,16 +140,40 @@ export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api }) 
     }
   }
 
-  let ok = 0;
-  const skipped: { leadId: string; reason: string }[] = [];
-  for (let i = 0; i < orderedIds.length; i++) {
-    try {
-      await enqueueForLead(orderedIds[i], assignment[i]);
-      ok++;
-    } catch (e: any) {
-      skipped.push({ leadId: orderedIds[i], reason: e?.message ?? "error" });
+  // Encolar. El render por lead (consulta a Places + plantilla + variación IA)
+  // es costoso; con muchos leads, hacerlo dentro de la request agota el timeout
+  // del gateway (502). Por eso, a partir de cierto volumen, lo procesamos EN
+  // SEGUNDO PLANO (el servidor de Node es persistente) y respondemos al instante.
+  async function runEnqueue(): Promise<{ ok: number; skipped: { leadId: string; reason: string }[] }> {
+    let ok = 0;
+    const skipped: { leadId: string; reason: string }[] = [];
+    for (let i = 0; i < orderedIds.length; i++) {
+      try {
+        await enqueueForLead(orderedIds[i], assignment[i]);
+        ok++;
+      } catch (e: any) {
+        skipped.push({ leadId: orderedIds[i], reason: e?.message ?? "error" });
+      }
     }
+    return { ok, skipped };
   }
 
+  const BACKGROUND_THRESHOLD = 20;
+  if (orderedIds.length > BACKGROUND_THRESHOLD) {
+    // Sin await: sigue ejecutándose tras responder. Los mensajes van
+    // apareciendo en la cola conforme se procesan (se ven al refrescar).
+    runEnqueue()
+      .then((r) => console.log(`[enqueue-bulk] async OK=${r.ok} skipped=${r.skipped.length} de ${orderedIds.length}`))
+      .catch((e) => console.warn("[enqueue-bulk] async error:", (e as Error)?.message ?? e));
+    return NextResponse.json({
+      async: true,
+      total: parsed.data.leadIds.length,
+      queued: orderedIds.length,
+      templateName: tpl?.name ?? null,
+      replacedQueued
+    });
+  }
+
+  const { ok, skipped } = await runEnqueue();
   return NextResponse.json({ ok, skipped, total: parsed.data.leadIds.length, templateName: tpl?.name ?? null, replacedQueued });
 });

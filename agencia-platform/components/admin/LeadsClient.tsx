@@ -1971,7 +1971,7 @@ function EnqueueModal({
   const usesImage = kind !== "text" && kind !== "voice";
   const [busy, setBusy] = useState(false);
   const [replaceQueued, setReplaceQueued] = useState(false);
-  const [result, setResult] = useState<{ ok: number; skipped: { leadId: string; reason: string }[]; total: number } | null>(null);
+  const [result, setResult] = useState<{ ok?: number; skipped?: { leadId: string; reason: string }[]; total: number; async?: boolean; queued?: number; replacedQueued?: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Coste estimado de la imagen de posicionamiento: 1 consulta a Google Places
   // por lead (para calcular el ranking) ≈ €0.03 c/u.
@@ -2144,13 +2144,21 @@ function EnqueueModal({
         </div>
       ) : (
         <div className="space-y-3">
-          <p className="text-sm">
-            <strong className="text-emerald-700">{result.ok}</strong> encolados de {result.total}.
-            {result.skipped.length > 0 && <span className="text-amber-700"> {result.skipped.length} omitidos.</span>}
-          </p>
-          {result.skipped.length > 0 && (
+          {(result as any).async ? (
+            <p className="text-sm">
+              ⏳ Encolando <strong className="text-brand-700">{(result as any).queued ?? result.total}</strong> lead(s) en segundo plano.
+              Irán apareciendo en la cola en uno o dos minutos (refresca la pestaña Cola). Se respeta el espaciado anti-baneo.
+              {(result as any).replacedQueued > 0 && <span className="text-slate-500"> Se reemplazaron {(result as any).replacedQueued} mensaje(s) pendientes.</span>}
+            </p>
+          ) : (
+            <p className="text-sm">
+              <strong className="text-emerald-700">{result.ok ?? 0}</strong> encolados de {result.total}.
+              {(result.skipped?.length ?? 0) > 0 && <span className="text-amber-700"> {result.skipped!.length} omitidos.</span>}
+            </p>
+          )}
+          {!(result as any).async && (result.skipped?.length ?? 0) > 0 && (
             <div className="max-h-40 overflow-y-auto text-xs bg-slate-50 border rounded p-2 space-y-0.5">
-              {result.skipped.slice(0, 50).map((s) => (
+              {result.skipped!.slice(0, 50).map((s) => (
                 <div key={s.leadId}>
                   <code>{s.leadId.slice(0, 8)}</code>: {s.reason}
                 </div>
