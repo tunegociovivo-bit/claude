@@ -62,7 +62,7 @@ function MesaInner() {
   const [activeCode, setActiveCode] = useState(code);
   const [state, setState] = useState<State | null>(null);
   const [biz, setBiz] = useState<Biz>({});
-  const [mine, setMine] = useState<{ reviewVerified: boolean; socialVerified: boolean; followVerified: boolean } | null>(null);
+  const [mine, setMine] = useState<{ reviewVerified: boolean; socialVerified: boolean; followVerified: boolean; reviewAlreadyDone: boolean } | null>(null);
   const [ticket, setTicket] = useState<number | null>(ticketParam);
   const [err, setErr] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -77,7 +77,7 @@ function MesaInner() {
       const d = await r.json();
       setState(d.state);
       setBiz(d.business ?? {});
-      setMine(d.me ? { reviewVerified: !!d.me.reviewVerified, socialVerified: !!d.me.socialVerified, followVerified: !!d.me.followVerified } : null);
+      setMine(d.me ? { reviewVerified: !!d.me.reviewVerified, socialVerified: !!d.me.socialVerified, followVerified: !!d.me.followVerified, reviewAlreadyDone: !!d.me.reviewAlreadyDone } : null);
     }
   }
 
@@ -187,7 +187,9 @@ function MesaInner() {
     return <div className="p-6 text-center text-sm">Abre Bubui e inicia sesión para usar la Mesa Colectiva.</div>;
   }
 
-  const canReview = biz.actions?.includes("review");
+  // Si ya dejó una reseña de Google verificada de este negocio, no se la
+  // volvemos a ofrecer (Google solo permite una por usuario/sitio).
+  const canReview = biz.actions?.includes("review") && !mine?.reviewAlreadyDone;
   const canPhoto = biz.actions?.includes("photo");
   const canFollow = biz.actions?.includes("follow");
   const canInvite = biz.actions?.includes("share");

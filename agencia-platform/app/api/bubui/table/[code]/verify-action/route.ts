@@ -239,6 +239,17 @@ export async function POST(req: Request, { params }: { params: { code: string } 
     } catch (e: any) {
       return NextResponse.json({ error: { code: "db_update_failed", message: `Guardar acción: ${e?.message ?? e}` } }, { status: 500 });
     }
+    // Reseña de Google VERIFICADA (no provisional): marca para no volver a
+    // pedirle reseñar este negocio (ni aquí ni en el flujo individual).
+    if (action === "review" && !provisional) {
+      await prisma.bubuiGoogleReview
+        .upsert({
+          where: { customerId_businessId: { customerId, businessId: b.id } },
+          create: { customerId, businessId: b.id },
+          update: {}
+        })
+        .catch(() => {});
+    }
   }
 
   let loaded;

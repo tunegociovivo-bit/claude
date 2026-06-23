@@ -28,11 +28,18 @@ export async function GET(req: Request, { params }: { params: { code: string } }
   // Estado PROPIO del comensal que consulta (cada uno ve solo SU aporte), para
   // no confundir el progreso individual con el del grupo.
   let me:
-    | { isNewUser: boolean; contributed: boolean; contributionType: string | null; sharedDone: boolean; reviewDone: boolean; reviewVerified: boolean; socialVerified: boolean; followVerified: boolean }
+    | { isNewUser: boolean; contributed: boolean; contributionType: string | null; sharedDone: boolean; reviewDone: boolean; reviewVerified: boolean; socialVerified: boolean; followVerified: boolean; reviewAlreadyDone: boolean }
     | null = null;
   if (meId && (await customerAuthOk(req, meId))) {
     const p = s.participants.find((pp) => pp.customerId === meId);
-    if (p) me = { isNewUser: p.isNewUser, contributed: p.contributed, contributionType: p.contributionType, sharedDone: p.sharedDone, reviewDone: p.reviewDone, reviewVerified: p.reviewVerified, socialVerified: p.socialVerified, followVerified: p.followVerified };
+    if (p) {
+      // ¿Ya dejó una reseña de Google verificada de este negocio (en cualquier
+      // visita)? Si sí, no le ofrecemos reseñar otra vez.
+      const already = await prisma.bubuiGoogleReview
+        .findUnique({ where: { customerId_businessId: { customerId: meId, businessId: s.business.id } }, select: { id: true } })
+        .catch(() => null);
+      me = { isNewUser: p.isNewUser, contributed: p.contributed, contributionType: p.contributionType, sharedDone: p.sharedDone, reviewDone: p.reviewDone, reviewVerified: p.reviewVerified, socialVerified: p.socialVerified, followVerified: p.followVerified, reviewAlreadyDone: !!already };
+    }
   }
   return NextResponse.json({
     ok: true,
