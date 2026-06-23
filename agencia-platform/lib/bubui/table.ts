@@ -6,6 +6,24 @@
 import { prisma } from "@/lib/db/prisma";
 import { computeMesa, effectiveVeteranShareFriends, type MesaConfig, type MesaParticipant } from "./table-deal";
 
+/**
+ * Auto-expira mesas activas que se quedaron colgadas: las que tienen expiresAt
+ * pasado o llevan más de `maxAgeHours` abiertas sin canjearse. Evita que una
+ * mesa con un error de verificación quede "activa" para siempre. Idempotente.
+ */
+export async function expireStaleTables(maxAgeHours = 12): Promise<{ expired: number }> {
+  const now = new Date();
+  const cutoff = new Date(Date.now() - maxAgeHours * 3_600_000);
+  const r = await prisma.bubuiTableSession.updateMany({
+    where: {
+      status: { in: ["open", "verified"] },
+      OR: [{ expiresAt: { lt: now } }, { createdAt: { lt: cutoff } }]
+    },
+    data: { status: "expired" }
+  });
+  return { expired: r.count };
+}
+
 /** MesaConfig efectiva del negocio (los nº numéricos pueden venir del snapshot). */
 export function mesaConfigFromBusiness(b: any, snapshot?: { shareFriends?: number }): MesaConfig {
   return {

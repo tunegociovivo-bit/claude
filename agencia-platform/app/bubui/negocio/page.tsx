@@ -414,8 +414,8 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
     b.businessType === "restaurante"
       ? { icon: "🍽️", label: "Mesa", desc: "Configura y gestiona tu Mesa Colectiva (descuento de grupo viral)." }
       : b.businessType === "comercio_producto"
-        ? { icon: "🛍️", label: "Catálogo", desc: "Gestiona los productos que ven tus clientes en tu ficha." }
-        : { icon: "📅", label: "Citas", desc: "Tus servicios y las reservas que piden tus clientes." };
+        ? { icon: "💸", label: "Descuentos", desc: "Configura el descuento que ofreces por cada acción del cliente." }
+        : { icon: "💸", label: "Descuentos", desc: "Configura tus descuentos por acción y, si quieres, tus citas." };
   const tabs = [
     { key: "inicio" as const, icon: "🏠", label: "Inicio", desc: "Tu día a día: ventas, compras por confirmar y novedades." },
     { key: "nicho" as const, icon: niche.icon, label: niche.label, desc: niche.desc },
@@ -611,11 +611,34 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
       {/* ───────────── PESTAÑA: MI NICHO ───────────── */}
       {tab === "nicho" && (
         <>
-          {b.businessType === "comercio_producto" && <ProductCatalog businessId={b.id} token={session.token} />}
+          {/* Lo principal para comercio y servicios: descuentos por acción.
+              El catálogo/servicios queda como opcional debajo. */}
+          {(b.businessType === "comercio_producto" || b.businessType === "servicios") && (
+            <Highlight label="⭐ Lo más importante">
+              <DiscountsConfig business={b} token={session.token} onSaved={load} />
+            </Highlight>
+          )}
+          {b.businessType === "comercio_producto" && (
+            <details className="bubui-card p-0 overflow-hidden">
+              <summary className="cursor-pointer px-5 py-3 text-sm font-semibold text-black/70">
+                🛍️ Catálogo de productos (opcional)
+              </summary>
+              <div className="px-1 pb-1">
+                <ProductCatalog businessId={b.id} token={session.token} />
+              </div>
+            </details>
+          )}
           {b.businessType === "servicios" && (
             <>
               <BookingsPanel businessId={b.id} token={session.token} />
-              <ServicesConfig business={b} token={session.token} onSaved={load} />
+              <details className="bubui-card p-0 overflow-hidden">
+                <summary className="cursor-pointer px-5 py-3 text-sm font-semibold text-black/70">
+                  📅 Tus servicios y citas (opcional)
+                </summary>
+                <div className="px-1 pb-1">
+                  <ServicesConfig business={b} token={session.token} onSaved={load} />
+                </div>
+              </details>
             </>
           )}
           {b.businessType === "restaurante" && (
@@ -1469,6 +1492,118 @@ function MesaConfig({ business, token, onSaved }: { business: any; token: string
       {status && <p className="text-xs text-emerald-700">{status}</p>}
       <button onClick={save} disabled={saving} className="bubui-btn w-full text-sm py-2">
         {saving ? "Guardando…" : "Guardar Mesa Colectiva"}
+      </button>
+    </section>
+  );
+}
+
+/** Descuentos por ACCIÓN — el núcleo de Bubui para comercio y servicios.
+ *  Reúne en un sitio los % que ya soporta el modelo (escaneo, reto de
+ *  compartir, reseña, cupón cruzado) con copy orientado a la acción, para que
+ *  el comercio no tenga que montar un catálogo. */
+function DiscountsConfig({ business, token, onSaved }: { business: any; token: string; onSaved: () => void }) {
+  const [scan, setScan] = useState<number>(business.defaultDiscountPct ?? 5);
+  const [cross, setCross] = useState<number>(business.crossDiscountPct ?? 8);
+  const [review, setReview] = useState<number>(business.reviewRewardPct ?? 0);
+  const [sharePct, setSharePct] = useState<number>(business.shareOfferPct ?? 0);
+  const [shareFriends, setShareFriends] = useState<number>(business.shareOfferFriends ?? 5);
+  const [shareLabel, setShareLabel] = useState<string>(business.shareOfferLabel ?? "");
+  const [saving, setSaving] = useState(false);
+  const [status, setStatus] = useState<string | null>(null);
+
+  async function save() {
+    setSaving(true);
+    setStatus(null);
+    try {
+      const r = await fetch(`/api/bubui/business/${business.id}/profile`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          defaultDiscountPct: Number(scan),
+          crossDiscountPct: Number(cross),
+          reviewRewardPct: Number(review),
+          shareOfferPct: Number(sharePct),
+          shareOfferFriends: Number(shareFriends),
+          shareOfferLabel: shareLabel.trim() || null
+        })
+      });
+      setStatus(r.ok ? "Guardado ✓" : "Error al guardar.");
+      if (r.ok) onSaved();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <section className="bubui-card p-5 space-y-3">
+      <div>
+        <h3 className="font-bold text-sm">💸 Tus descuentos por acción</h3>
+        <p className="text-xs text-black/55 mt-0.5">
+          Define qué descuento se lleva el cliente según lo que hace. Esto es lo que mueve Bubui — no necesitas crear un catálogo.
+        </p>
+      </div>
+
+      {/* Escanear QR + comprar */}
+      <div className="rounded-xl border border-black/10 p-3 flex items-center justify-between gap-3">
+        <div>
+          <div className="font-semibold text-sm">📲 Al escanear tu QR y comprar</div>
+          <p className="text-[12px] text-black/55">Descuento base que se lleva cualquier cliente al escanear tu QR en el local.</p>
+        </div>
+        <div className="flex items-center gap-1 shrink-0">
+          <input type="number" min={3} max={90} value={scan} onChange={(e) => setScan(Number(e.target.value))} className="w-16 px-2 py-1.5 border rounded bg-white text-right" />
+          <span className="text-sm font-bold">%</span>
+        </div>
+      </div>
+
+      {/* Reto compartir */}
+      <div className="rounded-xl border border-black/10 p-3 space-y-2">
+        <div>
+          <div className="font-semibold text-sm">🚀 Reto: comparte Bubui (descuento mayor)</div>
+          <p className="text-[12px] text-black/55">Descuento más alto que el cliente desbloquea al compartir Bubui y traer amigos nuevos. 0 = desactivado.</p>
+        </div>
+        <div className="grid grid-cols-3 gap-2 text-xs">
+          <label className="block">
+            <span className="block text-black/60 mb-1">Descuento %</span>
+            <input type="number" min={0} max={90} value={sharePct} onChange={(e) => setSharePct(Number(e.target.value))} className="w-full px-2 py-1.5 border rounded bg-white" />
+          </label>
+          <label className="block">
+            <span className="block text-black/60 mb-1">Amigos a traer</span>
+            <input type="number" min={1} max={20} value={shareFriends} onChange={(e) => setShareFriends(Number(e.target.value))} className="w-full px-2 py-1.5 border rounded bg-white" />
+          </label>
+          <label className="block">
+            <span className="block text-black/60 mb-1">o texto</span>
+            <input value={shareLabel} onChange={(e) => setShareLabel(e.target.value)} placeholder="Ej: Producto gratis" className="w-full px-2 py-1.5 border rounded bg-white" />
+          </label>
+        </div>
+      </div>
+
+      {/* Reseña */}
+      <div className="rounded-xl border border-black/10 p-3 flex items-center justify-between gap-3">
+        <div>
+          <div className="font-semibold text-sm">⭐ Por dejar una reseña</div>
+          <p className="text-[12px] text-black/55">Descuento extra (una sola vez) por reseñar tu negocio. 0 = desactivado.</p>
+        </div>
+        <div className="flex items-center gap-1 shrink-0">
+          <input type="number" min={0} max={90} value={review} onChange={(e) => setReview(Number(e.target.value))} className="w-16 px-2 py-1.5 border rounded bg-white text-right" />
+          <span className="text-sm font-bold">%</span>
+        </div>
+      </div>
+
+      {/* Cupón cruzado */}
+      <div className="rounded-xl border border-black/10 p-3 flex items-center justify-between gap-3">
+        <div>
+          <div className="font-semibold text-sm">🔁 Cupón cruzado de otros negocios</div>
+          <p className="text-[12px] text-black/55">Descuento para clientes que llegan con un cupón de otro comercio Bubui de la zona.</p>
+        </div>
+        <div className="flex items-center gap-1 shrink-0">
+          <input type="number" min={3} max={90} value={cross} onChange={(e) => setCross(Number(e.target.value))} className="w-16 px-2 py-1.5 border rounded bg-white text-right" />
+          <span className="text-sm font-bold">%</span>
+        </div>
+      </div>
+
+      {status && <p className="text-xs text-emerald-700">{status}</p>}
+      <button onClick={save} disabled={saving} className="bubui-btn w-full text-sm py-2">
+        {saving ? "Guardando…" : "Guardar descuentos"}
       </button>
     </section>
   );

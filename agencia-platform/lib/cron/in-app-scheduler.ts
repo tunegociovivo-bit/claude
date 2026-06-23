@@ -38,6 +38,15 @@ export function startInAppScheduler(): void {
       console.warn("[in-app-cron] meta token refresh:", (e as Error).message);
     }
     try {
+      // Bubui: auto-expira mesas colgadas (>12h o pasado su expiresAt) para que
+      // no queden "activas" para siempre tras un error de verificación.
+      const { expireStaleTables } = await import("@/lib/bubui/table");
+      const r = await expireStaleTables(12);
+      if (r.expired > 0) console.log(`[in-app-cron] bubui mesas auto-expiradas: ${r.expired}`);
+    } catch (e) {
+      console.warn("[in-app-cron] bubui mesa expiry:", (e as Error).message);
+    }
+    try {
       // Genera las facturas recurrentes que toque emitir.
       const { runRecurringInvoices } = await import("@/lib/invoicing/recurring");
       const res = await runRecurringInvoices();
