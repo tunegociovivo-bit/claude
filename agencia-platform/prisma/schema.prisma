@@ -3563,12 +3563,12 @@ model BubuiBusiness {
   // Oferta-reto: tras escanear el ticket, al cliente se le crea una oferta
   // MAYOR (shareOfferPct), bloqueada, que solo se activa cuando comparte
   // Bubui y consigue `shareOfferFriends` amigos nuevos verificados. 0 = off.
-  shareOfferPct             Int       @default(10)
+  shareOfferPct             Int       @default(30)
   shareOfferFriends         Int       @default(5)
   shareOfferLabel           String? // etiqueta no-% opcional (ej. "Postre gratis")
   // Descuento de bienvenida para los AMIGOS que el cliente trae (cupón
   // referral_welcome). Si es 0 se usa el de cliente nuevo / por defecto.
-  shareFriendDiscountPct    Int       @default(5)
+  shareFriendDiscountPct    Int       @default(15)
   // Condición para desbloquear el reto de compartir:
   //   false → basta con que los amigos se instalen y verifiquen el teléfono.
   //   true  → además, cada amigo debe GASTAR su cupón (compra confirmada) en
@@ -3738,6 +3738,7 @@ model BubuiBusiness {
   reviews         BubuiReview[]
   googleReviews   BubuiGoogleReview[]
   socialFollows   BubuiSocialFollow[]
+  customDeals     BubuiCustomDeal[]
   sponsoredSlots  BubuiSponsoredSlot[]
   bannerCampaigns BubuiBannerCampaign[]
   tableSessions   BubuiTableSession[]
@@ -4155,6 +4156,31 @@ model BubuiSocialFollow {
 
   @@unique([customerId, businessId])
   @@index([businessId])
+}
+
+/// Reto personalizado que el COMERCIO crea al momento para un cliente concreto
+/// y le envía por WhatsApp (p. ej. "tráeme 3 amigas y te hago 50%; cada amiga
+/// 20%"). El cliente abre el enlace, lo reclama y comparte con sus amigos; al
+/// unirse `friendsRequired` amigos, su descuento (clientDiscountPct) se activa.
+/// Reutiliza el motor de oferta-reto (share_challenge) con un % de amigo propio.
+model BubuiCustomDeal {
+  id                  String    @id @default(cuid())
+  token               String    @unique // identifica el enlace público
+  businessId          String
+  title               String? // texto opcional (ej. "Bono entrenamiento")
+  clientDiscountPct   Int // descuento para el cliente que reclama
+  friendsRequired     Int // nº de amigos que debe traer
+  friendDiscountPct   Int // descuento de bienvenida para cada amigo
+  expiresAt           DateTime
+  claimedByCustomerId String? // cliente que lo reclamó
+  claimedAt           DateTime?
+  offerId             String? // oferta-reto creada al reclamar
+  createdAt           DateTime  @default(now())
+
+  business BubuiBusiness @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@index([claimedByCustomerId])
 }
 
 /// Mesa Colectiva: una mesa de un restaurante que activa un descuento de grupo

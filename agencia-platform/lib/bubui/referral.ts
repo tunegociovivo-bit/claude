@@ -200,7 +200,15 @@ export async function applyReferral(friendId: string, code: string): Promise<voi
   // Cupón de bienvenida para el amigo (en el negocio de origen). El comercio
   // configura este % en "Descuento para los amigos"; si es 0, usamos el de
   // cliente nuevo y, en su defecto, el descuento por defecto.
+  // Si el referidor tiene un RETO PERSONALIZADO activo en este negocio, manda
+  // el % de amigo de ese reto.
+  const activeDeal = await prisma.bubuiCustomDeal.findFirst({
+    where: { businessId: originId, claimedByCustomerId: referrer.id, expiresAt: { gt: new Date() } },
+    orderBy: { claimedAt: "desc" },
+    select: { friendDiscountPct: true }
+  });
   const friendPct =
+    (activeDeal && activeDeal.friendDiscountPct > 0 ? activeDeal.friendDiscountPct : 0) ||
     business.shareFriendDiscountPct ||
     business.newCustomerDiscountPct ||
     business.defaultDiscountPct;
