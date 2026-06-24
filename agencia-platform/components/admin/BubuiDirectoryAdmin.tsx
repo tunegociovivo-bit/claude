@@ -6,7 +6,7 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import PageHeader from "@/components/PageHeader";
-import { Loader2, Store, MapPin, Sparkles, ExternalLink, Star } from "lucide-react";
+import { Loader2, Store, MapPin, Sparkles, ExternalLink, Star, Percent } from "lucide-react";
 
 type Status = {
   activeTotal: number;
@@ -23,7 +23,7 @@ const BUBUI = (process.env.NEXT_PUBLIC_BUBUI_URL || "https://bubui.app").replace
 export default function BubuiDirectoryAdmin() {
   const [status, setStatus] = useState<Status | null>(null);
   const [loading, setLoading] = useState(true);
-  const [busy, setBusy] = useState<null | "gen" | "geo" | "google">(null);
+  const [busy, setBusy] = useState<null | "gen" | "geo" | "google" | "presets">(null);
   const [msg, setMsg] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -68,6 +68,27 @@ export default function BubuiDirectoryAdmin() {
       const j = await r.json().catch(() => ({}));
       if (!r.ok) setMsg(`❌ ${j?.error?.message ?? `Error ${r.status}`}`);
       else setMsg(`✅ Notas de Google actualizadas: ${j.updated}. Pendientes de refrescar: ${j.remaining}.`);
+      await load();
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function applyPresets() {
+    if (!confirm("Aplicar los descuentos por acción preestablecidos a los comercios existentes que aún tienen el valor antiguo (compartir 10/5 · reseña 8 · seguir 5 · foto 5 · cupón 10 · recordatorio post-compra)? No pisa a quien lo haya personalizado.")) return;
+    setBusy("presets");
+    setMsg(null);
+    try {
+      const r = await fetch("/api/v1/admin/bubui/apply-discount-presets", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" }
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) setMsg(`❌ ${j?.error?.message ?? `Error ${r.status}`}`);
+      else {
+        const u = j.updated ?? {};
+        setMsg(`✅ Presets aplicados — compartir: ${u.compartir}, amigos: ${u.amigos}, reseña: ${u.resena}, seguir: ${u.seguir}, foto: ${u.foto}, cupón: ${u.cuponCruzado}, recordatorio: ${u.recordatorioPostCompra}.`);
+      }
       await load();
     } finally {
       setBusy(null);
@@ -131,6 +152,10 @@ export default function BubuiDirectoryAdmin() {
             <button onClick={refreshGoogle} disabled={!!busy} className="inline-flex items-center gap-2 rounded-lg bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-white text-sm font-medium px-4 py-2.5">
               {busy === "google" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Star className="h-4 w-4" />}
               Actualizar notas de Google
+            </button>
+            <button onClick={applyPresets} disabled={!!busy} className="inline-flex items-center gap-2 rounded-lg bg-slate-800 hover:bg-slate-900 disabled:opacity-50 text-white text-sm font-medium px-4 py-2.5">
+              {busy === "presets" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Percent className="h-4 w-4" />}
+              Aplicar presets de descuentos
             </button>
           </div>
           {msg && <p className="mt-3 text-sm text-slate-700">{msg}</p>}
