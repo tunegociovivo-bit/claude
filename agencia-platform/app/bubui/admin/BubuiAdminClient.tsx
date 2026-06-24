@@ -360,9 +360,25 @@ function UsersPanel() {
 function BusinessesPanel() {
   const [rows, setRows] = useState<any[] | null>(null);
   const [err, setErr] = useState("");
+  const [presetsBusy, setPresetsBusy] = useState(false);
+  const [presetsMsg, setPresetsMsg] = useState<string | null>(null);
   useEffect(() => {
     adminFetch("/api/bubui/admin/businesses").then((d) => setRows(d.businesses)).catch((e) => setErr(String(e)));
   }, []);
+  async function applyPresets() {
+    if (!confirm("Aplicar los descuentos por acción preestablecidos a los comercios existentes que aún tienen el valor antiguo (compartir 10/5 · reseña 8 · seguir 5 · foto 5 · cupón 10 · recordatorio post-compra)? No pisa a quien lo haya personalizado.")) return;
+    setPresetsBusy(true);
+    setPresetsMsg(null);
+    try {
+      const j = await adminFetch("/api/bubui/admin/apply-discount-presets", { method: "POST" });
+      const u = j.updated ?? {};
+      setPresetsMsg(`✅ Presets aplicados — compartir: ${u.compartir}, amigos: ${u.amigos}, reseña: ${u.resena}, seguir: ${u.seguir}, foto: ${u.foto}, cupón cruzado: ${u.cuponCruzado}, recordatorio post-compra: ${u.recordatorioPostCompra}.`);
+    } catch (e: any) {
+      setPresetsMsg(`❌ ${e?.message ?? "Error"}`);
+    } finally {
+      setPresetsBusy(false);
+    }
+  }
   async function toggleFeatured(id: string, featured: boolean) {
     setRows((prev) => prev?.map((b) => (b.id === id ? { ...b, featured } : b)) ?? prev);
     try {
@@ -401,6 +417,22 @@ function BusinessesPanel() {
   const pendingPosters = rows.filter((b) => b.posterDeliveryRequestedAt && !b.posterDeliveredAt);
   return (
     <>
+    <section className="bubui-card p-4 mt-4">
+      <h2 className="text-sm font-bold mb-1">⚙️ Descuentos preestablecidos</h2>
+      <p className="text-xs text-black/50 mb-3">
+        Aplica de una vez los % por acción recomendados a los comercios que aún tienen el valor antiguo
+        (compartir 10/5 · reseña 8 · seguir 5 · foto 5 · cupón cruzado 10 · recordatorio post-compra).
+        No pisa a quien lo haya personalizado.
+      </p>
+      <button
+        onClick={applyPresets}
+        disabled={presetsBusy}
+        className="text-[13px] font-bold bg-black text-white rounded-full px-4 py-2 hover:bg-black/80 disabled:opacity-50"
+      >
+        {presetsBusy ? "Aplicando…" : "Aplicar presets de descuentos"}
+      </button>
+      {presetsMsg && <p className="mt-2 text-[12px] text-black/70">{presetsMsg}</p>}
+    </section>
     {pendingPosters.length > 0 && (
       <section className="bubui-card p-4 mt-4 border-2 border-pink-300">
         <h2 className="text-sm font-bold mb-1">🚚 Carteles por entregar ({pendingPosters.length})</h2>

@@ -1,19 +1,25 @@
 /**
- * POST /api/v1/admin/bubui/apply-discount-presets
+ * POST /api/bubui/admin/apply-discount-presets
  *
  * Acción puntual (one-off): aplica los descuentos por acción preestablecidos a
  * los comercios EXISTENTES que aún tienen el valor antiguo por defecto, sin
  * pisar a quien ya lo haya personalizado. Presets:
  *   compartir 10% (5 amigos) · reseña 8% · seguir 5% · foto 5% · cupón 10% ·
  *   recordatorio post-compra activado.
+ *
+ * Auth: sesión NextAuth del Hub con rol ADMIN.
  */
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
-import { withApi } from "@/lib/api/handler";
+import { isBubuiAdmin } from "@/lib/bubui/admin";
 
 export const dynamic = "force-dynamic";
 
-export const POST = withApi({ scope: "*", rate: "admin" }, async () => {
+export async function POST(req: Request) {
+  if (!(await isBubuiAdmin(req))) {
+    return NextResponse.json({ error: { code: "unauthorized", message: "No autorizado" } }, { status: 401 });
+  }
+
   const [share, friends, review, follow, photo, cross, pp] = await prisma.$transaction([
     prisma.bubuiBusiness.updateMany({ where: { shareOfferPct: 0 }, data: { shareOfferPct: 10 } }),
     prisma.bubuiBusiness.updateMany({ where: { shareOfferFriends: 0 }, data: { shareOfferFriends: 5 } }),
@@ -36,4 +42,4 @@ export const POST = withApi({ scope: "*", rate: "admin" }, async () => {
       recordatorioPostCompra: pp.count
     }
   });
-});
+}

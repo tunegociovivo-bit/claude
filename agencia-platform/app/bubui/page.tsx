@@ -60,6 +60,12 @@ export default function BubuiHome() {
             Soy cliente · Abrir app
           </Link>
         </div>
+        <p className="mt-4 text-sm text-black/55 bubui-fade-up bubui-fade-up-4">
+          ¿Ya tienes un negocio en Bubui?{" "}
+          <Link href="/negocios" className="text-pink-600 font-semibold underline">
+            Acceder a mi panel
+          </Link>
+        </p>
       </section>
 
       {/* Cómo funciona */}
@@ -96,6 +102,12 @@ export default function BubuiHome() {
           <Link href="/bubui/registro" className="bubui-btn mt-6 inline-flex">
             Crear cuenta de negocio →
           </Link>
+          <p className="mt-4 text-sm text-black/55">
+            ¿Ya estás dado de alta?{" "}
+            <Link href="/negocios" className="text-pink-600 font-semibold underline">
+              Inicia sesión en tu panel
+            </Link>
+          </p>
         </div>
       </section>
 
