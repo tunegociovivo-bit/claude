@@ -2850,9 +2850,23 @@ function StickerRequest({ business, token, onChanged }: { business: any; token: 
 
   const requested = sent || (!!business.posterDeliveryRequestedAt && !business.posterDeliveredAt);
   if (requested) {
+    const waMsg = encodeURIComponent(
+      "Hola, he solicitado mi cartel QR Bubui para mi negocio pero todavía no lo he recibido"
+    );
+    const waUrl = `https://wa.me/346801678881?text=${waMsg}`;
     return (
-      <div className="mt-3 inline-flex items-center gap-2 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-3 py-1.5">
-        ✅ Pegatina solicitada — te la llevaremos GRATIS a tu local.
+      <div className="mt-3 space-y-2">
+        <div className="inline-flex items-center gap-2 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-3 py-1.5">
+          ✅ Pegatina solicitada — te la llevaremos GRATIS a tu local.
+        </div>
+        <a
+          href={waUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="block text-left text-xs font-semibold text-pink-700 bg-pink-50 border border-pink-200 rounded-xl px-3 py-2.5 hover:bg-pink-100 transition"
+        >
+          ¿Has solicitado que te llevemos el cartel y todavía no lo has recibido? Pincha aquí y solicítalo urgente al equipo de soporte
+        </a>
       </div>
     );
   }
