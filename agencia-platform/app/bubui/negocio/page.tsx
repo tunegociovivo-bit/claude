@@ -3322,6 +3322,32 @@ function SmallStat({ label, value }: { label: string; value: number | string }) 
   );
 }
 
+/** Lista de ventajas del plan Premium. La ficha de Google My Business es el
+ *  producto estrella: para un negocio local es lo que más le mueve la aguja. */
+function PremiumFeatures() {
+  return (
+    <div className="mt-2 space-y-2">
+      <div className="rounded-lg border border-amber-300 bg-amber-50 p-2.5">
+        <div className="flex items-center gap-1.5 text-[11px] font-extrabold uppercase tracking-wide text-amber-700">
+          <span aria-hidden>🌟</span> Producto estrella
+        </div>
+        <div className="mt-0.5 text-sm font-bold text-slate-800">Crecimiento de tu ficha de Google My Business</div>
+        <ul className="mt-1.5 space-y-1 text-xs text-slate-700">
+          <li className="flex gap-1.5"><span className="text-emerald-600">✔</span> Intensificamos la petición de reseñas a los clientes que compran en tu local</li>
+          <li className="flex gap-1.5"><span className="text-emerald-600">✔</span> Gestionamos las respuestas a todas tus reseñas (positivas y negativas)</li>
+          <li className="flex gap-1.5"><span className="text-emerald-600">✔</span> Trabajamos tu ficha para mejorar tu posicionamiento en Google</li>
+        </ul>
+      </div>
+      <ul className="space-y-1 text-xs text-slate-700">
+        <li className="flex gap-1.5"><span className="text-emerald-600">✔</span> 4 push gratis al mes</li>
+        <li className="flex gap-1.5"><span className="text-emerald-600">✔</span> -25% en push extra</li>
+        <li className="flex gap-1.5"><span className="text-emerald-600">✔</span> AI Studio y analítica avanzada</li>
+        <li className="flex gap-1.5"><span className="text-emerald-600">✔</span> Soporte prioritario</li>
+      </ul>
+    </div>
+  );
+}
+
 function PlanCard({ business, token, onChanged }: { business: any; token: string; onChanged: () => void }) {
   const [busy, setBusy] = useState<string | null>(null);
   const cancelAt: string | null = business.subscriptionCancelAt ?? null;
@@ -3387,7 +3413,7 @@ function PlanCard({ business, token, onChanged }: { business: any; token: string
         </div>
       </div>
       {business.plan === "free" && (
-        <div className="grid sm:grid-cols-2 gap-2 mt-3">
+        <div className="grid sm:grid-cols-2 gap-3 mt-3 items-start">
           <button
             onClick={() => upgrade("pro")}
             disabled={busy !== null}
@@ -3399,10 +3425,24 @@ function PlanCard({ business, token, onChanged }: { business: any; token: string
           <button
             onClick={() => upgrade("premium")}
             disabled={busy !== null}
-            className="text-left p-3 rounded-lg border border-rose-300 hover:bg-rose-50 disabled:opacity-50"
+            className="relative text-left p-4 rounded-xl border-2 border-rose-400 bg-gradient-to-br from-rose-50 to-fuchsia-50 hover:from-rose-100 hover:to-fuchsia-100 disabled:opacity-50 shadow-sm"
           >
-            <div className="font-semibold">🔥 Premium · 99€/mes</div>
-            <div className="text-xs text-slate-600 mt-1">+ 4 push gratis/mes · -25% en push extra · soporte prioritario</div>
+            <span className="absolute -top-2.5 right-3 text-[10px] font-extrabold uppercase tracking-wide text-white bg-rose-500 rounded-full px-2 py-0.5 shadow">Recomendado</span>
+            <div className="font-bold text-rose-700">🔥 Premium · 99€/mes</div>
+            <PremiumFeatures />
+          </button>
+        </div>
+      )}
+      {business.plan === "pro" && (
+        <div className="mt-3">
+          <button
+            onClick={() => upgrade("premium")}
+            disabled={busy !== null}
+            className="relative w-full text-left p-4 rounded-xl border-2 border-rose-400 bg-gradient-to-br from-rose-50 to-fuchsia-50 hover:from-rose-100 hover:to-fuchsia-100 disabled:opacity-50 shadow-sm"
+          >
+            <span className="absolute -top-2.5 right-3 text-[10px] font-extrabold uppercase tracking-wide text-white bg-rose-500 rounded-full px-2 py-0.5 shadow">Subir a Premium</span>
+            <div className="font-bold text-rose-700">🔥 Premium · 99€/mes</div>
+            <PremiumFeatures />
           </button>
         </div>
       )}
