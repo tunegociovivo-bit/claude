@@ -105,9 +105,15 @@ export function Onboarding() {
     if (!name.trim()) { Alert.alert("Pon tu nombre"); return; }
     if (phone.trim().length < 6) { Alert.alert("Teléfono inválido"); return; }
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.trim())) { Alert.alert("Email inválido"); return; }
-    if (!/^\d{5}$/.test(postalCode.trim())) { Alert.alert("Código postal", "Indica tu código postal (5 dígitos)"); return; }
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(birthDate.trim())) { Alert.alert("Fecha", "Usa el formato AAAA-MM-DD"); return; }
-    if (!gender) { Alert.alert("Indica tu sexo"); return; }
+    // En iOS, código postal / fecha de nacimiento / sexo son OPCIONALES (lo exige
+    // Apple, guideline 5.1.1(v)). En Android se mantienen OBLIGATORIOS.
+    // Si se rellenan, validamos el formato en ambas plataformas.
+    const requirePersonal = Platform.OS !== "ios";
+    if (postalCode.trim() && !/^\d{5}$/.test(postalCode.trim())) { Alert.alert("Código postal", "Debe tener 5 dígitos"); return; }
+    if (requirePersonal && !/^\d{5}$/.test(postalCode.trim())) { Alert.alert("Código postal", "Indica tu código postal (5 dígitos)"); return; }
+    if (birthDate.trim() && !/^\d{4}-\d{2}-\d{2}$/.test(birthDate.trim())) { Alert.alert("Fecha", "Usa el formato AAAA-MM-DD"); return; }
+    if (requirePersonal && !/^\d{4}-\d{2}-\d{2}$/.test(birthDate.trim())) { Alert.alert("Fecha", "Indica tu fecha de nacimiento"); return; }
+    if (requirePersonal && !gender) { Alert.alert("Indica tu sexo"); return; }
     setBusy(true);
     try {
       await api.requestOtp(phone.trim());
@@ -384,7 +390,7 @@ export function Onboarding() {
           />
           <TextInput
             style={styles.input}
-            placeholder="Código postal"
+            placeholder={Platform.OS === "ios" ? "Código postal (opcional)" : "Código postal"}
             placeholderTextColor={c.grayLight}
             value={postalCode}
             onChangeText={(t) => setPostalCode(t.replace(/[^0-9]/g, "").slice(0, 5))}
@@ -397,7 +403,7 @@ export function Onboarding() {
             activeOpacity={0.7}
           >
             <Text style={{ fontSize: 16, color: birthDate ? c.black : c.grayLight }}>
-              {birthDate ? `📅  ${fmtDateHuman(birthDate)}` : "Fecha de nacimiento"}
+              {birthDate ? `📅  ${fmtDateHuman(birthDate)}` : (Platform.OS === "ios" ? "Fecha de nacimiento (opcional)" : "Fecha de nacimiento")}
             </Text>
           </TouchableOpacity>
           {showDatePicker && (
@@ -412,6 +418,11 @@ export function Onboarding() {
                 if (event.type === "set" && date) setBirthDate(fmtDate(date));
               }}
             />
+          )}
+          {Platform.OS === "ios" && (
+            <Text style={{ fontSize: 12, color: c.grayLight, marginTop: -2 }}>
+              Sexo (opcional)
+            </Text>
           )}
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
             {[

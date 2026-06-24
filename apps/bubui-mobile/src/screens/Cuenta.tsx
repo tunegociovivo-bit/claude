@@ -1,8 +1,8 @@
 import { useCallback, useState } from "react";
-import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Linking } from "react-native";
+import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Linking, Alert } from "react-native";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { CheckSession, saveSession, type Customer } from "../lib/session";
+import { CheckSession, saveSession, clearSession, type Customer } from "../lib/session";
 import { Wordmark } from "../components/Wordmark";
 import { BottomNav } from "../components/BottomNav";
 import { FadeIn } from "../components/FadeIn";
@@ -49,6 +49,44 @@ export function Cuenta() {
   // Nivel del cliente según compras confirmadas (gamificación ligera).
   const purchases = customer?.totalPurchases ?? 0;
   const tier = purchases >= 30 ? "⭐ Miembro Oro" : purchases >= 10 ? "✨ Miembro Plata" : "🌱 Miembro Bronce";
+
+  async function logout() {
+    await clearSession().catch(() => {});
+    nav.reset({ index: 0, routes: [{ name: "Onboarding" }] });
+  }
+
+  async function doDelete(id: string) {
+    try {
+      await api.deleteAccount(id);
+      await clearSession().catch(() => {});
+      Alert.alert("Cuenta eliminada", "Tu cuenta y tus datos se han eliminado.");
+      nav.reset({ index: 0, routes: [{ name: "Onboarding" }] });
+    } catch (e: any) {
+      Alert.alert("Error", e?.message ?? "No se pudo eliminar la cuenta. Inténtalo de nuevo.");
+    }
+  }
+
+  function confirmDelete() {
+    if (!customer) return;
+    const id = customer.customerId;
+    // Apple 5.1.1(v): borrado desde la app con confirmación (doble) y definitivo.
+    Alert.alert(
+      "Eliminar tu cuenta",
+      "Se borrarán de forma permanente tu perfil, tus cupones, tu historial de ahorro y tus datos. Esta acción no se puede deshacer.",
+      [
+        { text: "Cancelar", style: "cancel" },
+        {
+          text: "Eliminar",
+          style: "destructive",
+          onPress: () =>
+            Alert.alert("Confirmación final", "Esto es definitivo. ¿Eliminar la cuenta?", [
+              { text: "Cancelar", style: "cancel" },
+              { text: "Sí, eliminar", style: "destructive", onPress: () => void doDelete(id) }
+            ])
+        }
+      ]
+    );
+  }
 
   return (
     <View style={styles.root}>
@@ -123,6 +161,18 @@ export function Cuenta() {
             <TouchableOpacity style={styles.link} activeOpacity={0.7} onPress={() => Linking.openURL(`${API_BASE}/bubui`)}>
               <Text style={styles.linkIcon}>ℹ️</Text>
               <Text style={styles.linkText}>Cómo funciona Bubui</Text>
+              <Text style={styles.chev}>›</Text>
+            </TouchableOpacity>
+            <View style={styles.divider} />
+            <TouchableOpacity style={styles.link} activeOpacity={0.7} onPress={logout}>
+              <Text style={styles.linkIcon}>🚪</Text>
+              <Text style={styles.linkText}>Cerrar sesión</Text>
+              <Text style={styles.chev}>›</Text>
+            </TouchableOpacity>
+            <View style={styles.divider} />
+            <TouchableOpacity style={styles.link} activeOpacity={0.7} onPress={confirmDelete}>
+              <Text style={styles.linkIcon}>🗑️</Text>
+              <Text style={[styles.linkText, { color: "#dc2626" }]}>Eliminar mi cuenta</Text>
               <Text style={styles.chev}>›</Text>
             </TouchableOpacity>
           </FadeIn>

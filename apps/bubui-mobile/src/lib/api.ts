@@ -130,6 +130,9 @@ export const api = {
       referralWalletExpiresAt?: string | null;
       referralQualifiedCount?: number;
     }>(`/api/bubui/customer/${customerId}`),
+  /** Elimina la cuenta del cliente y todos sus datos (requisito Apple 5.1.1(v)). */
+  deleteAccount: (customerId: string) =>
+    call<{ ok: true }>(`/api/bubui/customer/${customerId}`, { method: "DELETE" }),
   /** Inicia el checkout de Bubui Plus (1€/mes). Devuelve la URL de Stripe que
    *  la app abre en el navegador (el cobro ocurre en web). */
   plusCheckout: (customerId: string) =>
