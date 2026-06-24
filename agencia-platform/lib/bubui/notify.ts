@@ -12,6 +12,7 @@
 
 import { sendPushToBubuiCustomer } from "./push";
 import { sendMobilePushToCustomer } from "./expo-push";
+import { canReceivePush, recordPushSent } from "./push-cap";
 
 export type BubuiNotifyPayload = {
   title: string;
@@ -22,12 +23,19 @@ export type BubuiNotifyPayload = {
   /** URL de imagen grande mostrada en la notificación (rich push). */
   image?: string;
   data?: Record<string, any>;
+  /** Salta el límite diario anti-fatiga (para avisos críticos/transaccionales). */
+  bypassDailyCap?: boolean;
 };
 
 export async function notifyBubuiCustomer(
   customerId: string,
   payload: BubuiNotifyPayload
-): Promise<{ web: number; mobile: number; sent: number }> {
+): Promise<{ web: number; mobile: number; sent: number; capped?: boolean }> {
+  // Anti-fatiga: si el cliente ya alcanzó su tope de push del día, no enviamos
+  // (salvo avisos marcados como críticos con bypassDailyCap).
+  if (!payload.bypassDailyCap && !(await canReceivePush(customerId))) {
+    return { web: 0, mobile: 0, sent: 0, capped: true };
+  }
   const [web, mobile] = await Promise.allSettled([
     sendPushToBubuiCustomer(customerId, payload),
     sendMobilePushToCustomer(customerId, {
@@ -42,5 +50,8 @@ export async function notifyBubuiCustomer(
   const mobileSent = mobile.status === "fulfilled" ? mobile.value.sent : 0;
   if (web.status === "rejected") console.warn("[bubui notify] web push:", web.reason);
   if (mobile.status === "rejected") console.warn("[bubui notify] mobile push:", mobile.reason);
-  return { web: webSent, mobile: mobileSent, sent: webSent + mobileSent };
+  const sent = webSent + mobileSent;
+  // Solo contamos contra el tope si realmente se entregó algo.
+  if (sent > 0 && !payload.bypassDailyCap) await recordPushSent(customerId);
+  return { web: webSent, mobile: mobileSent, sent };
 }

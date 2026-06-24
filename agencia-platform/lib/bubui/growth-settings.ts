@@ -13,10 +13,30 @@ import { prisma } from "@/lib/db/prisma";
 const ALT_MIN_KEY = "challenge_alt_min_referrals";
 const EXPIRY_WARN_KEY = "challenge_expiry_warn_days";
 const EXPIRY_DAYS_KEY = "challenge_expiry_days";
+const MAX_PUSH_PER_DAY_KEY = "max_push_per_day_per_customer";
 
 export const DEFAULT_ALT_MIN_REFERRALS = 10;
 export const DEFAULT_EXPIRY_WARN_DAYS = 3;
 export const DEFAULT_EXPIRY_DAYS = 30;
+// Anti-fatiga: máximo de push que un cliente recibe al día. 0 = sin límite.
+export const DEFAULT_MAX_PUSH_PER_DAY = 3;
+
+export async function getMaxPushPerDay(): Promise<number> {
+  const row = await prisma.bubuiSetting.findUnique({ where: { key: MAX_PUSH_PER_DAY_KEY } });
+  if (!row) return DEFAULT_MAX_PUSH_PER_DAY;
+  const n = Number(row.value);
+  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : DEFAULT_MAX_PUSH_PER_DAY;
+}
+
+export async function setMaxPushPerDay(n: number): Promise<number> {
+  const safe = Number.isFinite(n) && n >= 0 ? Math.floor(n) : DEFAULT_MAX_PUSH_PER_DAY;
+  await prisma.bubuiSetting.upsert({
+    where: { key: MAX_PUSH_PER_DAY_KEY },
+    create: { key: MAX_PUSH_PER_DAY_KEY, value: String(safe) },
+    update: { value: String(safe) }
+  });
+  return safe;
+}
 
 export async function getAltActionMinReferrals(): Promise<number> {
   const row = await prisma.bubuiSetting.findUnique({ where: { key: ALT_MIN_KEY } });

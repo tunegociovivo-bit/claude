@@ -802,6 +802,7 @@ function GrowthConfigPanel() {
   const [altMin, setAltMin] = useState("10");
   const [warnDays, setWarnDays] = useState("3");
   const [expiryDays, setExpiryDays] = useState("30");
+  const [maxPush, setMaxPush] = useState("3");
   const [msg, setMsg] = useState("");
 
   useEffect(() => {
@@ -810,6 +811,7 @@ function GrowthConfigPanel() {
         setAltMin(String(d.altMinReferrals ?? 10));
         setWarnDays(String(d.expiryWarnDays ?? 3));
         setExpiryDays(String(d.expiryDays ?? 30));
+        setMaxPush(String(d.maxPushPerDay ?? 3));
       })
       .catch(() => {});
   }, []);
@@ -822,12 +824,14 @@ function GrowthConfigPanel() {
         body: JSON.stringify({
           altMinReferrals: Math.max(0, parseInt(altMin || "0", 10) || 0),
           expiryWarnDays: Math.max(1, parseInt(warnDays || "1", 10) || 1),
-          expiryDays: Math.max(1, parseInt(expiryDays || "1", 10) || 1)
+          expiryDays: Math.max(1, parseInt(expiryDays || "1", 10) || 1),
+          maxPushPerDay: Math.max(0, parseInt(maxPush || "0", 10) || 0)
         })
       });
       setAltMin(String(d.altMinReferrals ?? 10));
       setWarnDays(String(d.expiryWarnDays ?? 3));
       setExpiryDays(String(d.expiryDays ?? 30));
+      setMaxPush(String(d.maxPushPerDay ?? 3));
       setMsg("Guardado ✓");
     } catch (e) {
       setMsg("Error: " + String(e));
@@ -837,6 +841,19 @@ function GrowthConfigPanel() {
   return (
     <section className="bubui-card p-5 mt-4 max-w-xl">
       <h2 className="text-sm font-bold mb-2">Cupones-reto (crecimiento)</h2>
+
+      <h3 className="text-xs font-bold uppercase tracking-wide text-black/55 mb-1">Máximo de push al día por cliente</h3>
+      <p className="text-[13px] text-black/55 mb-2">
+        Anti-fatiga: cuántas notificaciones push recibe como máximo un usuario al día (entre todos los negocios y avisos).
+        Si recibe demasiadas, acaba borrando la app. <strong>0 = sin límite.</strong> Recomendado: 3.
+      </p>
+      <input
+        className="bubui-input mb-3 mt-1 max-w-[160px]"
+        inputMode="numeric"
+        value={maxPush}
+        onChange={(e) => setMaxPush(e.target.value.replace(/[^0-9]/g, ""))}
+        placeholder="3"
+      />
 
       <h3 className="text-xs font-bold uppercase tracking-wide text-black/55 mb-1">Desbloqueo de acciones alternativas</h3>
       <p className="text-[13px] text-black/55 mb-2">

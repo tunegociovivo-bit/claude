@@ -3769,6 +3769,11 @@ model BubuiCustomer {
   lastLat                   Float?
   lastLng                   Float?
   lastLocationAt            DateTime?
+  // Límite de push por día (anti-fatiga). pushDayKey = "YYYY-MM-DD" (UTC) del
+  // último día contado; pushSentToday = cuántos push recibió ese día. Se
+  // resetea solo al cambiar de día. El tope es configurable por el admin.
+  pushDayKey                String?
+  pushSentToday             Int       @default(0)
   // Métrica showcase.
   totalSaved                Float     @default(0) // €  total ahorrados con Bubui
   totalPurchases            Int       @default(0)

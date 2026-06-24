@@ -18,7 +18,9 @@ import {
   getChallengeExpiryWarnDays,
   setChallengeExpiryWarnDays,
   getChallengeExpiryDays,
-  setChallengeExpiryDays
+  setChallengeExpiryDays,
+  getMaxPushPerDay,
+  setMaxPushPerDay
 } from "@/lib/bubui/growth-settings";
 
 export const dynamic = "force-dynamic";
@@ -26,16 +28,18 @@ export const dynamic = "force-dynamic";
 const schema = z.object({
   altMinReferrals: z.number().int().min(0).max(1000).optional(),
   expiryWarnDays: z.number().int().min(1).max(60).optional(),
-  expiryDays: z.number().int().min(1).max(365).optional()
+  expiryDays: z.number().int().min(1).max(365).optional(),
+  maxPushPerDay: z.number().int().min(0).max(50).optional()
 });
 
 async function readAll() {
-  const [altMinReferrals, expiryWarnDays, expiryDays] = await Promise.all([
+  const [altMinReferrals, expiryWarnDays, expiryDays, maxPushPerDay] = await Promise.all([
     getAltActionMinReferrals(),
     getChallengeExpiryWarnDays(),
-    getChallengeExpiryDays()
+    getChallengeExpiryDays(),
+    getMaxPushPerDay()
   ]);
-  return { altMinReferrals, expiryWarnDays, expiryDays };
+  return { altMinReferrals, expiryWarnDays, expiryDays, maxPushPerDay };
 }
 
 export async function GET(req: Request) {
@@ -56,5 +60,6 @@ export async function PUT(req: Request) {
   if (parsed.data.altMinReferrals !== undefined) await setAltActionMinReferrals(parsed.data.altMinReferrals);
   if (parsed.data.expiryWarnDays !== undefined) await setChallengeExpiryWarnDays(parsed.data.expiryWarnDays);
   if (parsed.data.expiryDays !== undefined) await setChallengeExpiryDays(parsed.data.expiryDays);
+  if (parsed.data.maxPushPerDay !== undefined) await setMaxPushPerDay(parsed.data.maxPushPerDay);
   return NextResponse.json(await readAll());
 }
