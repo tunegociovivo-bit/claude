@@ -464,22 +464,25 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
       </nav>
       <p className="text-xs text-black/55 -mt-1">{cur.desc}</p>
 
-      {/* Activar push del panel en este dispositivo + elegir qué avisos recibir. */}
-      <div className="-mt-1">
-        <div className="flex justify-end">
-          <BubuiBusinessPushButton businessId={b.id} token={session.token} />
+      {/* Activar push del panel en este dispositivo + elegir qué avisos recibir.
+          Solo en la pestaña de Inicio (no satura el resto de pestañas). */}
+      {tab === "inicio" && (
+        <div className="-mt-1">
+          <div className="flex justify-end">
+            <BubuiBusinessPushButton businessId={b.id} token={session.token} />
+          </div>
+          <BubuiAlertPrefs
+            businessId={b.id}
+            token={session.token}
+            initial={{
+              pushOnNewClient: b.pushOnNewClient,
+              pushOnReview: b.pushOnReview,
+              pushOnBooking: b.pushOnBooking,
+              pushOnCoupon: b.pushOnCoupon
+            }}
+          />
         </div>
-        <BubuiAlertPrefs
-          businessId={b.id}
-          token={session.token}
-          initial={{
-            pushOnNewClient: b.pushOnNewClient,
-            pushOnReview: b.pushOnReview,
-            pushOnBooking: b.pushOnBooking,
-            pushOnCoupon: b.pushOnCoupon
-          }}
-        />
-      </div>
+      )}
 
       {/* Avisos (ej. cliente alcanzó 5 referidos) — siempre visibles */}
       {Array.isArray(data.notifications) && data.notifications.length > 0 && (
