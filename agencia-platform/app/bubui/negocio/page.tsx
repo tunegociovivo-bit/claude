@@ -2952,11 +2952,8 @@ function ProfileEditor({ business, token, onSaved }: { business: any; token: str
     longitude: business.longitude ?? "",
     logoUrl: business.logoUrl ?? "",
     brandColor: business.brandColor ?? "#FDF2E1",
-    defaultDiscountPct: business.defaultDiscountPct ?? 5,
-    crossDiscountPct: business.crossDiscountPct ?? 8,
     purchaseMode: business.purchaseMode ?? "express",
     requireTicket: business.requireTicket ?? false,
-    reviewRewardPct: business.reviewRewardPct ?? 0,
     googlePlaceId: business.googlePlaceId ?? "",
     reviewPushEnabled: business.reviewPushEnabled ?? true,
     shareOfferPct: business.shareOfferPct ?? 0,
@@ -3006,11 +3003,8 @@ function ProfileEditor({ business, token, onSaved }: { business: any; token: str
       if (form.longitude !== "" && Number(form.longitude) !== business.longitude) payload.longitude = Number(form.longitude);
       if (form.logoUrl !== business.logoUrl) payload.logoUrl = form.logoUrl || null;
       if (form.brandColor !== business.brandColor) payload.brandColor = form.brandColor || null;
-      if (Number(form.defaultDiscountPct) !== business.defaultDiscountPct) payload.defaultDiscountPct = Number(form.defaultDiscountPct);
-      if (Number(form.crossDiscountPct) !== business.crossDiscountPct) payload.crossDiscountPct = Number(form.crossDiscountPct);
       if (form.purchaseMode !== business.purchaseMode) payload.purchaseMode = form.purchaseMode;
       if (form.requireTicket !== (business.requireTicket ?? false)) payload.requireTicket = form.requireTicket;
-      if (Number(form.reviewRewardPct) !== (business.reviewRewardPct ?? 0)) payload.reviewRewardPct = Number(form.reviewRewardPct);
       if ((form.googlePlaceId || null) !== (business.googlePlaceId || null)) payload.googlePlaceId = form.googlePlaceId.trim() || null;
       if (form.reviewPushEnabled !== (business.reviewPushEnabled ?? true)) payload.reviewPushEnabled = form.reviewPushEnabled;
       if (Number(form.shareOfferPct) !== (business.shareOfferPct ?? 0)) payload.shareOfferPct = Number(form.shareOfferPct);
@@ -3186,40 +3180,6 @@ function ProfileEditor({ business, token, onSaved }: { business: any; token: str
             al escanear y el importe lo lee la IA automáticamente (no se teclea). Evita que se inflen
             importes. Si la IA no puede leerlo, el cliente lo escribe pero el ticket queda guardado.
           </span>
-        </label>
-        <label>
-          <span className="block font-medium mb-1">% descuento al escanear</span>
-          <input
-            type="number"
-            min={3}
-            max={30}
-            value={form.defaultDiscountPct}
-            onChange={(e) => setForm({ ...form, defaultDiscountPct: Number(e.target.value) })}
-            className="w-full px-2 py-1.5 border rounded bg-white"
-          />
-        </label>
-        <label>
-          <span className="block font-medium mb-1">% descuento con cupón cruzado</span>
-          <input
-            type="number"
-            min={3}
-            max={30}
-            value={form.crossDiscountPct}
-            onChange={(e) => setForm({ ...form, crossDiscountPct: Number(e.target.value) })}
-            className="w-full px-2 py-1.5 border rounded bg-white"
-          />
-        </label>
-        <label>
-          <span className="block font-medium mb-1">% extra por dejar reseña</span>
-          <input
-            type="number"
-            min={0}
-            max={30}
-            value={form.reviewRewardPct}
-            onChange={(e) => setForm({ ...form, reviewRewardPct: Number(e.target.value) })}
-            className="w-full px-2 py-1.5 border rounded bg-white"
-          />
-          <span className="block text-[10px] text-slate-500 mt-0.5">0 = sin recompensa</span>
         </label>
         <label className="sm:col-span-2">
           <span className="block font-medium mb-1">Google Place ID (Google My Business)</span>
