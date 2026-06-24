@@ -43,6 +43,7 @@ export async function GET(req: NextRequest) {
   const warnDays = await getChallengeExpiryWarnDays();
   const expirySoonMs = warnDays * 24 * 60 * 60 * 1000;
   let expirySent = 0;
+  let expiryDeferred = 0;
   const expiringSoon = await prisma.bubuiOffer.findMany({
     where: {
       source: "share_challenge",
@@ -69,9 +70,15 @@ export async function GET(req: NextRequest) {
       tag: `share-expiry:${o.id}`,
       data: { type: "share_offer_expiring", offerId: o.id, businessId: o.businessId }
     });
+    // Solo registramos (y damos por avisado) cuando se entregó. Si el cliente ya
+    // llegó a su tope de push del día (r.capped), NO lo marcamos: el cupón sigue
+    // sin aviso y este mismo cron lo reintentará cuando la cuota se resetee
+    // (al día siguiente). Así el aviso de caducidad se APLAZA en vez de perderse.
     if (r.sent > 0) {
       expirySent++;
       await prisma.bubuiPushLog.create({ data: { customerId: o.customerId, kind: "share_expiry", payload: { offerId: o.id, daysLeft } } }).catch(() => {});
+    } else if (r.capped) {
+      expiryDeferred++;
     }
   }
   const locked = await prisma.bubuiOffer.findMany({
@@ -141,5 +148,5 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({ ok: true, lockedOffers: locked.length, customers: byCustomer.size, sent, expirySent });
+  return NextResponse.json({ ok: true, lockedOffers: locked.length, customers: byCustomer.size, sent, expirySent, expiryDeferred });
 }
