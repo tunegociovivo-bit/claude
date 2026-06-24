@@ -3566,6 +3566,15 @@ model BubuiBusiness {
   shareOfferPct             Int       @default(10)
   shareOfferFriends         Int       @default(5)
   shareOfferLabel           String? // etiqueta no-% opcional (ej. "Postre gratis")
+  // Descuento de bienvenida para los AMIGOS que el cliente trae (cupón
+  // referral_welcome). Si es 0 se usa el de cliente nuevo / por defecto.
+  shareFriendDiscountPct    Int       @default(5)
+  // Condición para desbloquear el reto de compartir:
+  //   false → basta con que los amigos se instalen y verifiquen el teléfono.
+  //   true  → además, cada amigo debe GASTAR su cupón (compra confirmada) en
+  //           este negocio para contar. Así el cliente solo disfruta su
+  //           descuento si sus amigos compran de verdad.
+  shareOfferRequiresPurchase Boolean  @default(false)
   // Solicitud de reseña en Google: push automático ~10 min tras escanear,
   // llevando al cliente a dejar reseña en Google (requiere googlePlaceId).
   reviewPushEnabled         Boolean   @default(true)

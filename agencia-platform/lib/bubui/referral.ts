@@ -68,6 +68,35 @@ export async function countVerifiedReferrals(referrerId: string): Promise<number
 }
 
 /**
+ * Amigos referidos (verificados) que ADEMÁS han comprado (compra confirmada) en
+ * un negocio concreto. Es el recuento para el reto cuando el comercio exige que
+ * los amigos gasten su cupón (shareOfferRequiresPurchase).
+ */
+export async function countQualifiedReferrals(referrerId: string, businessId: string): Promise<number> {
+  const friends = await prisma.bubuiCustomer.findMany({
+    where: { referredById: referrerId, phoneVerified: true },
+    select: { id: true }
+  });
+  if (friends.length === 0) return 0;
+  const purchasers = await prisma.bubuiPurchase.findMany({
+    where: { businessId, status: "confirmed", customerId: { in: friends.map((f) => f.id) } },
+    select: { customerId: true },
+    distinct: ["customerId"]
+  });
+  return purchasers.length;
+}
+
+/** Recuento actual de "amigos" para un reto, según el modo del negocio. */
+export async function currentSharesForOffer(
+  referrerId: string,
+  offer: { businessId: string; business?: { shareOfferRequiresPurchase?: boolean } | null }
+): Promise<number> {
+  return offer.business?.shareOfferRequiresPurchase
+    ? countQualifiedReferrals(referrerId, offer.businessId)
+    : countVerifiedReferrals(referrerId);
+}
+
+/**
  * Avisa al negocio de que un cliente REFERIDO (lo invitó otro usuario de Bubui)
  * acaba de venir por PRIMERA vez a su local — la señal de valor que el comercio
  * quiere ver: "Bubui me está trayendo clientes nuevos". Se llama tras crear una
@@ -133,10 +162,11 @@ export async function getReferralInvite(
   if (!referrer?.firstBusinessId) return null;
   const business = await prisma.bubuiBusiness.findUnique({
     where: { id: referrer.firstBusinessId },
-    select: { name: true, city: true, defaultDiscountPct: true, active: true }
+    select: { name: true, city: true, defaultDiscountPct: true, newCustomerDiscountPct: true, shareFriendDiscountPct: true, active: true }
   });
   if (!business || !business.active) return null;
-  return { businessName: business.name, city: business.city, welcomePct: business.defaultDiscountPct };
+  const welcomePct = business.shareFriendDiscountPct || business.newCustomerDiscountPct || business.defaultDiscountPct;
+  return { businessName: business.name, city: business.city, welcomePct };
 }
 
 /**
@@ -167,13 +197,19 @@ export async function applyReferral(friendId: string, code: string): Promise<voi
 
   const exp = new Date(Date.now() + 30 * 86_400_000);
 
-  // Cupón de bienvenida para el amigo (en el negocio de origen).
+  // Cupón de bienvenida para el amigo (en el negocio de origen). El comercio
+  // configura este % en "Descuento para los amigos"; si es 0, usamos el de
+  // cliente nuevo y, en su defecto, el descuento por defecto.
+  const friendPct =
+    business.shareFriendDiscountPct ||
+    business.newCustomerDiscountPct ||
+    business.defaultDiscountPct;
   await prisma.bubuiOffer
     .create({
       data: {
         customerId: friendId,
         businessId: originId,
-        discountPct: business.defaultDiscountPct,
+        discountPct: friendPct,
         triggerBusinessId: "ref:welcome",
         source: "referral_welcome",
         expiresAt: exp

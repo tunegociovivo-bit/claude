@@ -19,7 +19,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { notifyBubuiCustomer } from "@/lib/bubui/notify";
-import { countVerifiedReferrals } from "@/lib/bubui/referral";
+import { countVerifiedReferrals, countQualifiedReferrals } from "@/lib/bubui/referral";
 import { sharesLeft } from "@/lib/bubui/share-offer";
 import { getChallengeExpiryWarnDays } from "@/lib/bubui/growth-settings";
 import { cronAuthOk } from "@/lib/cron-auth";
@@ -89,7 +89,7 @@ export async function GET(req: NextRequest) {
       expiresAt: { gt: new Date(now) },
       createdAt: { lte: new Date(now - MIN_AGE_MS) }
     },
-    include: { business: { select: { name: true } } },
+    include: { business: { select: { name: true, shareOfferRequiresPurchase: true } } },
     orderBy: { createdAt: "asc" },
     take: 500
   });
@@ -115,8 +115,18 @@ export async function GET(req: NextRequest) {
       logs.filter((l) => (l.payload as any)?.offerId === offerId).length;
 
     const verified = await countVerifiedReferrals(customerId);
-    const candidates = offers
-      .map((o) => ({ offer: o, left: sharesLeft(o, verified) }))
+    // Retos que exigen compra: recuento por negocio (amigos que ya compraron).
+    const qmap = new Map<string, number>();
+    const scored = [];
+    for (const o of offers) {
+      let cnt = verified;
+      if (o.business?.shareOfferRequiresPurchase) {
+        if (!qmap.has(o.businessId)) qmap.set(o.businessId, await countQualifiedReferrals(customerId, o.businessId));
+        cnt = qmap.get(o.businessId) ?? 0;
+      }
+      scored.push({ offer: o, left: sharesLeft(o, cnt) });
+    }
+    const candidates = scored
       // left=0 lo resuelve unlockShareChallengeOffers en el próximo referido;
       // aquí solo recordamos retos realmente a medias y bajo el tope.
       .filter((c) => c.left > 0 && remindersFor(c.offer.id) < MAX_PER_OFFER)

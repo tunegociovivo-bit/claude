@@ -54,6 +54,8 @@ const schema = z
     shareOfferPct: z.number().int().min(0).max(MAX_DISCOUNT_PCT).optional(),
     shareOfferFriends: z.number().int().min(1).max(20).optional(),
     shareOfferLabel: z.string().trim().max(60).optional().nullable(),
+    shareFriendDiscountPct: z.number().int().min(0).max(MAX_DISCOUNT_PCT).optional(),
+    shareOfferRequiresPurchase: z.boolean().optional(),
     loyaltyEnabled: z.boolean().optional(),
     loyaltyGoal: z.number().int().min(2).max(20).optional(),
     loyaltyRewardPct: z.number().int().min(0).max(MAX_DISCOUNT_PCT).optional(),

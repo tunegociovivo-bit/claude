@@ -103,6 +103,15 @@ export async function POST(req: Request) {
   void recalculateVisibilityScore(purchase.businessId).catch(() => {});
   void recalculateAmbassadorLevel(purchase.customerId).catch(() => {});
 
+  // Si este comprador fue traído por otro usuario y su negocio de origen exige
+  // que los amigos compren para desbloquear el reto, esta compra puede haber
+  // completado el reto del referidor → intentamos desbloquearlo.
+  if (customer.referredById) {
+    void import("@/lib/bubui/share-offer")
+      .then((m) => m.unlockShareChallengeOffers(customer.referredById!))
+      .catch(() => {});
+  }
+
   // Tarjeta de fidelidad: si esta compra completa el ciclo, otorga el cupón.
   // Best-effort: si falla, la compra ya está confirmada y la siguiente lo
   // intentará al hacer el mod 0 de nuevo. No bloquea respuesta.

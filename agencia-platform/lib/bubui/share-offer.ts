@@ -9,7 +9,7 @@
  * llega al objetivo, la oferta se activa y se le avisa por push.
  */
 import { prisma } from "@/lib/db/prisma";
-import { countVerifiedReferrals } from "./referral";
+import { countVerifiedReferrals, countQualifiedReferrals } from "./referral";
 import { notifyBubuiCustomer } from "./notify";
 
 /** URL del formulario de reseñas de Google con el local preseleccionado. */
@@ -38,13 +38,18 @@ export async function createShareChallengeOffer(args: {
     shareOfferPct: number;
     shareOfferFriends: number;
     shareOfferLabel: string | null;
+    shareOfferRequiresPurchase?: boolean;
   };
   purchaseId: string;
 }): Promise<{ discountPct: number; label: string | null; friends: number; expiresAt: Date } | null> {
   const { customerId, business, purchaseId } = args;
   if (!business.shareOfferPct || business.shareOfferPct <= 0) return null;
   const friends = Math.max(1, business.shareOfferFriends || 5);
-  const baseline = await countVerifiedReferrals(customerId);
+  // El baseline (punto de partida) usa el MISMO criterio que el desbloqueo, para
+  // que solo cuenten los amigos conseguidos a partir de esta compra.
+  const baseline = business.shareOfferRequiresPurchase
+    ? await countQualifiedReferrals(customerId, business.id)
+    : await countVerifiedReferrals(customerId);
   const { getChallengeExpiryDays } = await import("./growth-settings");
   const days = await getChallengeExpiryDays();
   const expiresAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000); // caducidad configurable
@@ -124,14 +129,23 @@ export async function unlockShareChallengeOffers(referrerId: string): Promise<nu
       redeemed: false,
       expiresAt: { gt: new Date() }
     },
-    include: { business: { select: { name: true } } }
+    include: { business: { select: { name: true, shareOfferRequiresPurchase: true } } }
   });
   if (locked.length === 0) return 0;
 
   const verified = await countVerifiedReferrals(referrerId);
+  // Para los retos que exigen compra, recuento cacheado por negocio.
+  const qualifiedByBiz = new Map<string, number>();
   let unlocked = 0;
   for (const offer of locked) {
-    if (sharesLeft(offer, verified) > 0) continue;
+    let current = verified;
+    if (offer.business?.shareOfferRequiresPurchase) {
+      if (!qualifiedByBiz.has(offer.businessId)) {
+        qualifiedByBiz.set(offer.businessId, await countQualifiedReferrals(referrerId, offer.businessId));
+      }
+      current = qualifiedByBiz.get(offer.businessId) ?? 0;
+    }
+    if (sharesLeft(offer, current) > 0) continue;
     // Activa solo si seguía bloqueada (evita doble push en carreras).
     const res = await prisma.bubuiOffer.updateMany({
       where: { id: offer.id, active: false },

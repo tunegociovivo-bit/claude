@@ -13,7 +13,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { haversineMeters } from "@/lib/bubui/core";
 import { customerAuthOk } from "@/lib/bubui/customer-auth";
-import { countVerifiedReferrals } from "@/lib/bubui/referral";
+import { countVerifiedReferrals, countQualifiedReferrals } from "@/lib/bubui/referral";
 import { sharesLeft } from "@/lib/bubui/share-offer";
 import { getAltActionMinReferrals } from "@/lib/bubui/growth-settings";
 import { mesaReviewUrl, mesaReviewPlatformLabel } from "@/lib/bubui/table";
@@ -96,6 +96,7 @@ export async function GET(req: Request) {
           visibilityScore: true,
           plan: true,
           planExpiresAt: true,
+          shareOfferRequiresPurchase: true,
           // Para la activación alternativa de cupones-reto (reseña/foto).
           googlePlaceId: true,
           mesaReviewPlatform: true,
@@ -112,6 +113,15 @@ export async function GET(req: Request) {
   // inicial de cada amigo que ya cuenta + huecos por rellenar).
   const hasLocked = offers.some((o) => !o.active);
   const verifiedNow = hasLocked ? await countVerifiedReferrals(customerId) : 0;
+  // Retos que exigen que los amigos compren: recuento por negocio (amigos que
+  // ya compraron allí). Se calcula solo para los negocios implicados.
+  const qualifiedByBiz = new Map<string, number>();
+  for (const o of offers) {
+    if (o.active || !o.business.shareOfferRequiresPurchase || qualifiedByBiz.has(o.businessId)) continue;
+    qualifiedByBiz.set(o.businessId, await countQualifiedReferrals(customerId, o.businessId));
+  }
+  const sharesCountFor = (o: { active: boolean; businessId: string; business: { shareOfferRequiresPurchase?: boolean | null } }) =>
+    !o.active && o.business.shareOfferRequiresPurchase ? (qualifiedByBiz.get(o.businessId) ?? 0) : verifiedNow;
   // La activación alternativa (reseña/foto) de los cupones-reto se desbloquea al
   // llegar al umbral de amigos dados de alta (configurable por el admin).
   const altMinReferrals = hasLocked ? await getAltActionMinReferrals() : 0;
@@ -147,7 +157,8 @@ export async function GET(req: Request) {
     }
     const hoursLeft = Math.max(0, (o.expiresAt.getTime() - now.getTime()) / (60 * 60 * 1000));
     const locked = !o.active;
-    const left = locked ? sharesLeft(o, verifiedNow) : 0;
+    const cnt = sharesCountFor(o);
+    const left = locked ? sharesLeft(o, cnt) : 0;
     const have = locked ? Math.max(0, o.unlockShares - left) : 0;
     // Referido prioritario: negocios de pago (Pro/Premium) destacan en el feed.
     const priority =

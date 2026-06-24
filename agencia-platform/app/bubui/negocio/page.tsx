@@ -1551,6 +1551,8 @@ function DiscountsConfig({ business, token, onSaved }: { business: any; token: s
   const [sharePct, setSharePct] = useState<number>(business.shareOfferPct ?? 10);
   const [shareFriends, setShareFriends] = useState<number>(business.shareOfferFriends ?? 5);
   const [shareLabel, setShareLabel] = useState<string>(business.shareOfferLabel ?? "");
+  const [shareFriendPct, setShareFriendPct] = useState<number>(business.shareFriendDiscountPct ?? 5);
+  const [shareReqPurchase, setShareReqPurchase] = useState<boolean>(business.shareOfferRequiresPurchase ?? false);
   const [followPct, setFollowPct] = useState<number>(business.ppFollowDiscountPct ?? 5);
   const [photoPct, setPhotoPct] = useState<number>(business.ppPhotoDiscountPct ?? 5);
   const [ppEnabled, setPpEnabled] = useState<boolean>(business.postPurchasePushEnabled ?? true);
@@ -1571,6 +1573,8 @@ function DiscountsConfig({ business, token, onSaved }: { business: any; token: s
           shareOfferPct: Number(sharePct),
           shareOfferFriends: Number(shareFriends),
           shareOfferLabel: shareLabel.trim() || null,
+          shareFriendDiscountPct: Number(shareFriendPct),
+          shareOfferRequiresPurchase: shareReqPurchase,
           ppFollowDiscountPct: Number(followPct),
           ppPhotoDiscountPct: Number(photoPct),
           postPurchasePushEnabled: ppEnabled
@@ -1612,12 +1616,12 @@ function DiscountsConfig({ business, token, onSaved }: { business: any; token: s
       {/* Reto compartir */}
       <div className="rounded-xl border border-black/10 p-3 space-y-2">
         <div>
-          <div className="font-semibold text-sm">🚀 Reto: comparte Bubui (descuento mayor)</div>
-          <p className="text-[12px] text-black/55">Descuento más alto que el cliente desbloquea al compartir Bubui y traer amigos nuevos. 0 = desactivado.</p>
+          <div className="font-semibold text-sm">🚀 Tus clientes te traen nuevos clientes</div>
+          <p className="text-[12px] text-black/55">Ofrece un descuento a tu cliente por un producto o servicio, a cambio de compartir un descuento de tu negocio con sus amigos. 0 = desactivado.</p>
         </div>
-        <div className="grid grid-cols-3 gap-2 text-xs">
+        <div className="grid grid-cols-2 gap-2 text-xs">
           <label className="block">
-            <span className="block text-black/60 mb-1">Descuento %</span>
+            <span className="block text-black/60 mb-1">Descuento cliente %</span>
             <input type="number" min={0} max={90} value={sharePct} onChange={(e) => setSharePct(Number(e.target.value))} className="w-full px-2 py-1.5 border rounded bg-white" />
           </label>
           <label className="block">
@@ -1625,9 +1629,29 @@ function DiscountsConfig({ business, token, onSaved }: { business: any; token: s
             <input type="number" min={1} max={20} value={shareFriends} onChange={(e) => setShareFriends(Number(e.target.value))} className="w-full px-2 py-1.5 border rounded bg-white" />
           </label>
           <label className="block">
-            <span className="block text-black/60 mb-1">o texto</span>
+            <span className="block text-black/60 mb-1">Descuento para los amigos %</span>
+            <input type="number" min={0} max={90} value={shareFriendPct} onChange={(e) => setShareFriendPct(Number(e.target.value))} className="w-full px-2 py-1.5 border rounded bg-white" />
+          </label>
+          <label className="block">
+            <span className="block text-black/60 mb-1">o texto (cliente)</span>
             <input value={shareLabel} onChange={(e) => setShareLabel(e.target.value)} placeholder="Ej: Producto gratis" className="w-full px-2 py-1.5 border rounded bg-white" />
           </label>
+        </div>
+        <p className="text-[11px] text-black/45">El <b>descuento para los amigos</b> es el cupón de bienvenida que recibe cada amigo nuevo que traiga tu cliente.</p>
+
+        {/* Condición de desbloqueo: solo instalar, o instalar + comprar */}
+        <div className="pt-1">
+          <span className="block text-[12px] font-semibold text-black/70 mb-1">¿Cuándo se desbloquea el descuento de tu cliente?</span>
+          <div className="space-y-1.5 text-xs">
+            <label className="flex items-start gap-2 cursor-pointer">
+              <input type="radio" name="shareUnlock" checked={!shareReqPurchase} onChange={() => setShareReqPurchase(false)} className="mt-0.5" />
+              <span>Cuando sus amigos <b>se instalan Bubui y verifican</b> su teléfono.</span>
+            </label>
+            <label className="flex items-start gap-2 cursor-pointer">
+              <input type="radio" name="shareUnlock" checked={shareReqPurchase} onChange={() => setShareReqPurchase(true)} className="mt-0.5" />
+              <span>Cuando sus amigos, además, <b>gastan su cupón comprando</b> en tu negocio (y tú lo confirmas). Así te aseguras de que solo disfruta su descuento si sus amigos compran de verdad.</span>
+            </label>
+          </div>
         </div>
       </div>
 

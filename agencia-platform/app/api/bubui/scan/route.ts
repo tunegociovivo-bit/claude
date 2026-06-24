@@ -278,7 +278,8 @@ export async function POST(req: Request) {
         id: business.id,
         shareOfferPct: business.shareOfferPct,
         shareOfferFriends: business.shareOfferFriends,
-        shareOfferLabel: business.shareOfferLabel
+        shareOfferLabel: business.shareOfferLabel,
+        shareOfferRequiresPurchase: business.shareOfferRequiresPurchase
       },
       purchaseId: purchase.id
     }).catch(() => null);
