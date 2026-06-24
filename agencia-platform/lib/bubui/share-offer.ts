@@ -65,6 +65,7 @@ export async function createShareChallengeOffer(args: {
         active: false,
         unlockShares: friends,
         unlockBaseline: baseline,
+        unlockRequiresPurchase: !!business.shareOfferRequiresPurchase,
         expiresAt
       }
     });
@@ -129,7 +130,7 @@ export async function unlockShareChallengeOffers(referrerId: string): Promise<nu
       redeemed: false,
       expiresAt: { gt: new Date() }
     },
-    include: { business: { select: { name: true, shareOfferRequiresPurchase: true } } }
+    include: { business: { select: { name: true } } }
   });
   if (locked.length === 0) return 0;
 
@@ -139,7 +140,7 @@ export async function unlockShareChallengeOffers(referrerId: string): Promise<nu
   let unlocked = 0;
   for (const offer of locked) {
     let current = verified;
-    if (offer.business?.shareOfferRequiresPurchase) {
+    if (offer.unlockRequiresPurchase) {
       if (!qualifiedByBiz.has(offer.businessId)) {
         qualifiedByBiz.set(offer.businessId, await countQualifiedReferrals(referrerId, offer.businessId));
       }

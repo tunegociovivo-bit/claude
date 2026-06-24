@@ -22,6 +22,7 @@ const schema = z.object({
   friendsRequired: z.number().int().min(1).max(20),
   friendDiscountPct: z.number().int().min(0).max(90),
   title: z.string().trim().max(80).optional().nullable(),
+  requiresPurchase: z.boolean().optional(),
   expiresInDays: z.number().int().min(1).max(120).optional()
 });
 
@@ -47,6 +48,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       clientDiscountPct: d.clientDiscountPct,
       friendsRequired: d.friendsRequired,
       friendDiscountPct: d.friendDiscountPct,
+      requiresPurchase: !!d.requiresPurchase,
       expiresAt: new Date(Date.now() + days * 86_400_000)
     }
   });

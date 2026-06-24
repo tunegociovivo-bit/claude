@@ -89,7 +89,7 @@ export async function GET(req: NextRequest) {
       expiresAt: { gt: new Date(now) },
       createdAt: { lte: new Date(now - MIN_AGE_MS) }
     },
-    include: { business: { select: { name: true, shareOfferRequiresPurchase: true } } },
+    include: { business: { select: { name: true } } },
     orderBy: { createdAt: "asc" },
     take: 500
   });
@@ -120,7 +120,7 @@ export async function GET(req: NextRequest) {
     const scored = [];
     for (const o of offers) {
       let cnt = verified;
-      if (o.business?.shareOfferRequiresPurchase) {
+      if (o.unlockRequiresPurchase) {
         if (!qmap.has(o.businessId)) qmap.set(o.businessId, await countQualifiedReferrals(customerId, o.businessId));
         cnt = qmap.get(o.businessId) ?? 0;
       }

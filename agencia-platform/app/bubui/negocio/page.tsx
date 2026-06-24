@@ -417,7 +417,7 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
       ? { icon: "🍽️", label: "Mesa", desc: "Configura y gestiona tu Mesa Colectiva (descuento de grupo viral)." }
       : b.businessType === "comercio_producto"
         ? { icon: "💸", label: "Descuentos", desc: "Configura el descuento que ofreces por cada acción del cliente." }
-        : { icon: "💸", label: "Descuentos", desc: "Configura tus descuentos por acción y, si quieres, tus citas." };
+        : { icon: "💸", label: "Descuentos", desc: "Configura tus descuentos por cada acción." };
   const tabs = [
     { key: "inicio" as const, icon: "🏠", label: "Inicio", desc: "Tu día a día: ventas, compras por confirmar y novedades." },
     { key: "nicho" as const, icon: niche.icon, label: niche.label, desc: niche.desc },
@@ -632,17 +632,7 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
             </Highlight>
           )}
           {b.businessType === "servicios" && (
-            <>
-              <BookingsPanel businessId={b.id} token={session.token} />
-              <details className="bubui-card p-0 overflow-hidden">
-                <summary className="cursor-pointer px-5 py-3 text-sm font-semibold text-black/70">
-                  📅 Tus servicios y citas (opcional)
-                </summary>
-                <div className="px-1 pb-1">
-                  <ServicesConfig business={b} token={session.token} onSaved={load} />
-                </div>
-              </details>
-            </>
+            <BookingsPanel businessId={b.id} token={session.token} />
           )}
           {b.businessType === "restaurante" && (
             <>
@@ -1551,6 +1541,7 @@ function CustomDealCreator({ businessId, token }: { businessId: string; token: s
   const [friends, setFriends] = useState(3);
   const [friendPct, setFriendPct] = useState(20);
   const [title, setTitle] = useState("");
+  const [reqPurchase, setReqPurchase] = useState(false);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<{ clientUrl: string; whatsappUrl: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -1566,7 +1557,8 @@ function CustomDealCreator({ businessId, token }: { businessId: string; token: s
           clientDiscountPct: Number(clientPct),
           friendsRequired: Number(friends),
           friendDiscountPct: Number(friendPct),
-          title: title.trim() || null
+          title: title.trim() || null,
+          requiresPurchase: reqPurchase
         })
       });
       const j = await r.json();
@@ -1608,6 +1600,19 @@ function CustomDealCreator({ businessId, token }: { businessId: string; token: s
             </label>
           </div>
           <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Concepto (opcional). Ej: Bono de entrenamiento" className="w-full px-2 py-1.5 border rounded bg-white text-sm" />
+          <div className="pt-1">
+            <span className="block text-[12px] font-semibold text-black/70 mb-1">¿Cuándo se desbloquea el descuento de tu cliente?</span>
+            <div className="space-y-1.5 text-xs">
+              <label className="flex items-start gap-2 cursor-pointer">
+                <input type="radio" name="dealUnlock" checked={!reqPurchase} onChange={() => setReqPurchase(false)} className="mt-0.5" />
+                <span>Cuando sus amigos <b>se instalan Bubui y verifican</b> su teléfono.</span>
+              </label>
+              <label className="flex items-start gap-2 cursor-pointer">
+                <input type="radio" name="dealUnlock" checked={reqPurchase} onChange={() => setReqPurchase(true)} className="mt-0.5" />
+                <span>Cuando sus amigos, además, <b>gastan su cupón comprando</b> en tu negocio (y tú lo confirmas).</span>
+              </label>
+            </div>
+          </div>
           <button onClick={create} disabled={busy} className="bubui-btn w-full text-sm py-2">{busy ? "Creando…" : "Crear enlace"}</button>
           {error && <p className="text-rose-600 text-xs">{error}</p>}
         </div>

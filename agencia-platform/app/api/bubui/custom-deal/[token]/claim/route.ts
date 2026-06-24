@@ -12,7 +12,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db/prisma";
 import { customerAuthOk } from "@/lib/bubui/customer-auth";
-import { ensureReferralCode, countVerifiedReferrals } from "@/lib/bubui/referral";
+import { ensureReferralCode, countVerifiedReferrals, countQualifiedReferrals } from "@/lib/bubui/referral";
 import { bubuiUrl } from "@/lib/bubui/url";
 
 export const dynamic = "force-dynamic";
@@ -50,7 +50,10 @@ export async function POST(req: Request, { params }: { params: { token: string }
   }
 
   // Crea la oferta-reto bloqueada para el cliente (reutiliza el motor existente).
-  const baseline = await countVerifiedReferrals(customerId);
+  // El baseline usa el mismo criterio que el desbloqueo (instalar vs comprar).
+  const baseline = deal.requiresPurchase
+    ? await countQualifiedReferrals(customerId, deal.businessId)
+    : await countVerifiedReferrals(customerId);
   const offer = await prisma.bubuiOffer.create({
     data: {
       customerId,
@@ -62,6 +65,7 @@ export async function POST(req: Request, { params }: { params: { token: string }
       active: false,
       unlockShares: Math.max(1, deal.friendsRequired),
       unlockBaseline: baseline,
+      unlockRequiresPurchase: deal.requiresPurchase,
       expiresAt: deal.expiresAt
     }
   });

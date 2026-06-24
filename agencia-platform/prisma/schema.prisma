@@ -3894,6 +3894,10 @@ model BubuiOffer {
   active               Boolean   @default(true)
   unlockShares         Int       @default(0)
   unlockBaseline       Int       @default(0)
+  // Reto: si true, solo cuentan los amigos que ADEMÁS hayan comprado (compra
+  // confirmada) en el negocio. Se estampa al crear la oferta (según el ajuste
+  // del negocio o del reto personalizado). false = basta con instalar+verificar.
+  unlockRequiresPurchase Boolean @default(false)
   // Activación ALTERNATIVA de una oferta-reto (reseña/foto validada por IA), en
   // vez de por amigos. Solo disponible para usuarios con +10 amigos dados de alta.
   activatedByAction    Boolean   @default(false)
@@ -4171,6 +4175,7 @@ model BubuiCustomDeal {
   clientDiscountPct   Int // descuento para el cliente que reclama
   friendsRequired     Int // nº de amigos que debe traer
   friendDiscountPct   Int // descuento de bienvenida para cada amigo
+  requiresPurchase    Boolean   @default(false) // amigos deben comprar para contar
   expiresAt           DateTime
   claimedByCustomerId String? // cliente que lo reclamó
   claimedAt           DateTime?

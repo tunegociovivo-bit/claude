@@ -96,7 +96,6 @@ export async function GET(req: Request) {
           visibilityScore: true,
           plan: true,
           planExpiresAt: true,
-          shareOfferRequiresPurchase: true,
           // Para la activación alternativa de cupones-reto (reseña/foto).
           googlePlaceId: true,
           mesaReviewPlatform: true,
@@ -117,11 +116,11 @@ export async function GET(req: Request) {
   // ya compraron allí). Se calcula solo para los negocios implicados.
   const qualifiedByBiz = new Map<string, number>();
   for (const o of offers) {
-    if (o.active || !o.business.shareOfferRequiresPurchase || qualifiedByBiz.has(o.businessId)) continue;
+    if (o.active || !o.unlockRequiresPurchase || qualifiedByBiz.has(o.businessId)) continue;
     qualifiedByBiz.set(o.businessId, await countQualifiedReferrals(customerId, o.businessId));
   }
-  const sharesCountFor = (o: { active: boolean; businessId: string; business: { shareOfferRequiresPurchase?: boolean | null } }) =>
-    !o.active && o.business.shareOfferRequiresPurchase ? (qualifiedByBiz.get(o.businessId) ?? 0) : verifiedNow;
+  const sharesCountFor = (o: { active: boolean; businessId: string; unlockRequiresPurchase?: boolean | null }) =>
+    !o.active && o.unlockRequiresPurchase ? (qualifiedByBiz.get(o.businessId) ?? 0) : verifiedNow;
   // La activación alternativa (reseña/foto) de los cupones-reto se desbloquea al
   // llegar al umbral de amigos dados de alta (configurable por el admin).
   const altMinReferrals = hasLocked ? await getAltActionMinReferrals() : 0;

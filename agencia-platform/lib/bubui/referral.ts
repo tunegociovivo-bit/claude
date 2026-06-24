@@ -86,16 +86,6 @@ export async function countQualifiedReferrals(referrerId: string, businessId: st
   return purchasers.length;
 }
 
-/** Recuento actual de "amigos" para un reto, según el modo del negocio. */
-export async function currentSharesForOffer(
-  referrerId: string,
-  offer: { businessId: string; business?: { shareOfferRequiresPurchase?: boolean } | null }
-): Promise<number> {
-  return offer.business?.shareOfferRequiresPurchase
-    ? countQualifiedReferrals(referrerId, offer.businessId)
-    : countVerifiedReferrals(referrerId);
-}
-
 /**
  * Avisa al negocio de que un cliente REFERIDO (lo invitó otro usuario de Bubui)
  * acaba de venir por PRIMERA vez a su local — la señal de valor que el comercio
