@@ -1494,13 +1494,13 @@ function MesaConfig({ business, token, onSaved }: { business: any; token: string
 function DiscountsConfig({ business, token, onSaved }: { business: any; token: string; onSaved: () => void }) {
   const [newCust, setNewCust] = useState<number>(business.newCustomerDiscountPct ?? business.defaultDiscountPct ?? 5);
   const [cross, setCross] = useState<number>(business.crossDiscountPct ?? 10);
-  const [review, setReview] = useState<number>(business.reviewRewardPct ?? 5);
+  const [review, setReview] = useState<number>(business.reviewRewardPct ?? 8);
   const [sharePct, setSharePct] = useState<number>(business.shareOfferPct ?? 10);
   const [shareFriends, setShareFriends] = useState<number>(business.shareOfferFriends ?? 5);
   const [shareLabel, setShareLabel] = useState<string>(business.shareOfferLabel ?? "");
   const [followPct, setFollowPct] = useState<number>(business.ppFollowDiscountPct ?? 5);
   const [photoPct, setPhotoPct] = useState<number>(business.ppPhotoDiscountPct ?? 5);
-  const [ppEnabled, setPpEnabled] = useState<boolean>(!!business.postPurchasePushEnabled);
+  const [ppEnabled, setPpEnabled] = useState<boolean>(business.postPurchasePushEnabled ?? true);
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
 

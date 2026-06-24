@@ -3542,7 +3542,7 @@ model BubuiBusiness {
   // % de descuento extra que el negocio regala al cliente cuando deja una
   // reseña. 0 = no se incentivan reseñas. Solo se da una vez por cliente
   // (clave única en BubuiOffer triggerBusinessId="review:<businessId>").
-  reviewRewardPct           Int       @default(5)
+  reviewRewardPct           Int       @default(8)
   // Descuentos por ACCIÓN post-compra (push a la hora). share→shareOfferPct,
   // review→reviewRewardPct; aquí los dos que faltaban:
   ppFollowDiscountPct       Int       @default(5) // seguir en redes (IG/FB)
@@ -3572,7 +3572,7 @@ model BubuiBusiness {
   // Interruptor del push post-compra (a la hora) que ofrece acciones por
   // descuento (compartir/reseña/seguir/foto). Off por defecto: el comercio lo
   // activa cuando quiere usarlo.
-  postPurchasePushEnabled   Boolean   @default(false)
+  postPurchasePushEnabled   Boolean   @default(true)
   // Preferencias de PUSH al panel del dueño: de qué eventos quiere que le
   // avisemos en su dispositivo (el feed "Novedades" del panel siempre los
   // registra; estos flags solo controlan la notificación push).
