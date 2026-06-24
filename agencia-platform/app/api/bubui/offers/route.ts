@@ -94,6 +94,8 @@ export async function GET(req: Request) {
           logoUrl: true,
           brandColor: true,
           visibilityScore: true,
+          plan: true,
+          planExpiresAt: true,
           // Para la activación alternativa de cupones-reto (reseña/foto).
           googlePlaceId: true,
           mesaReviewPlatform: true,
@@ -147,9 +149,14 @@ export async function GET(req: Request) {
     const locked = !o.active;
     const left = locked ? sharesLeft(o, verifiedNow) : 0;
     const have = locked ? Math.max(0, o.unlockShares - left) : 0;
+    // Referido prioritario: negocios de pago (Pro/Premium) destacan en el feed.
+    const priority =
+      (o.business.plan === "pro" || o.business.plan === "premium") &&
+      (!o.business.planExpiresAt || o.business.planExpiresAt.getTime() > now.getTime());
     return {
       offerId: o.id,
       business: o.business,
+      priority,
       discountPct: o.discountPct,
       rewardLabel: o.rewardLabel,
       source: o.source,
@@ -176,6 +183,8 @@ export async function GET(req: Request) {
   // por distancia y score.
   enriched.sort((a, b) => {
     if (a.locked !== b.locked) return a.locked ? -1 : 1;
+    // Referido prioritario: los negocios de pago destacan en posición.
+    if (a.priority !== b.priority) return a.priority ? -1 : 1;
     const aUrgent = a.hoursLeft < 24 ? 0 : 1;
     const bUrgent = b.hoursLeft < 24 ? 0 : 1;
     if (aUrgent !== bUrgent) return aUrgent - bUrgent;

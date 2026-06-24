@@ -34,6 +34,7 @@ type Offer = {
   expiresAt: string;
   hoursLeft: number;
   distanceM: number | null;
+  priority?: boolean;
 };
 
 export default function BubuiApp() {
@@ -876,9 +877,21 @@ function OffersFeed({ customer, coords }: { customer: Customer; coords: { lat: n
       ) : (
         <div className="space-y-3">
           {offers.map((o, i) => (
-            <div key={o.offerId} className={"bubui-photo-card bubui-fade-up " + (i < 4 ? `bubui-fade-up-${i + 1}` : "")}>
+            <div
+              key={o.offerId}
+              className={"bubui-photo-card bubui-fade-up " + (i < 4 ? `bubui-fade-up-${i + 1}` : "")}
+              style={o.priority ? { boxShadow: "0 0 0 2px #f59e0b, 0 6px 18px rgba(245,158,11,.18)" } : undefined}
+            >
               <div className="photo" style={o.business.brandColor ? { background: o.business.brandColor } : undefined}>
                 <div className="discount-tag">{o.rewardLabel ? o.rewardLabel : `-${o.discountPct}%`}</div>
+                {o.priority && (
+                  <div
+                    className="absolute top-2 left-2 text-[10px] font-extrabold uppercase tracking-wide text-white rounded-full px-2 py-0.5 shadow"
+                    style={{ background: "linear-gradient(90deg,#f59e0b,#f97316)" }}
+                  >
+                    ⭐ Destacado
+                  </div>
+                )}
               </div>
               <div className="body">
                 <div className="flex items-start justify-between gap-2">

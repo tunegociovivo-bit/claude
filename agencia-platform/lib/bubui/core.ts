@@ -101,8 +101,15 @@ export async function unlockOffersForPurchase(opts: {
   // ofrecer descuento en otro spa cuando acabas de gastar en un spa).
   const filtered = allNearby.filter((b) => b.category !== opts.triggerCategory);
 
-  // Si tenemos coords, ordenamos por cercanía y nos quedamos con los
-  // de <3km. Si no, mantenemos orden por karma.
+  // Negocios de pago (Pro/Premium) = referido prioritario: aparecen primero
+  // entre los cercanos para destacar sobre el resto de afiliados.
+  const nowTs = Date.now();
+  const isPaid = (b: { plan?: string | null; planExpiresAt?: Date | null }) =>
+    (b.plan === "pro" || b.plan === "premium") &&
+    (!b.planExpiresAt || b.planExpiresAt.getTime() > nowTs);
+
+  // Si tenemos coords, ordenamos por cercanía (con prioridad para los de pago)
+  // y nos quedamos con los de <3km. Si no, ordenamos de pago primero y karma.
   let candidates = filtered;
   if (opts.triggerLat != null && opts.triggerLng != null) {
     candidates = filtered
@@ -114,8 +121,20 @@ export async function unlockOffersForPurchase(opts: {
             : Infinity
       }))
       .filter((x) => x.dist < 3000)
-      .sort((a, b) => a.dist - b.dist)
+      .sort((a, b) => {
+        const pa = isPaid(a.b) ? 0 : 1;
+        const pb = isPaid(b.b) ? 0 : 1;
+        if (pa !== pb) return pa - pb;
+        return a.dist - b.dist;
+      })
       .map((x) => x.b);
+  } else {
+    candidates = [...filtered].sort((a, b) => {
+      const pa = isPaid(a) ? 0 : 1;
+      const pb = isPaid(b) ? 0 : 1;
+      if (pa !== pb) return pa - pb;
+      return b.visibilityScore - a.visibilityScore;
+    });
   }
 
   const targets = candidates.slice(0, 5);

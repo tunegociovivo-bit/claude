@@ -3339,6 +3339,7 @@ function PremiumFeatures() {
         </ul>
       </div>
       <ul className="space-y-1 text-xs text-slate-700">
+        <li className="flex gap-1.5"><span className="text-amber-500">⭐</span> <span><b>Referido prioritario</b> y destacado cuando un cliente compra en otro negocio Bubui</span></li>
         <li className="flex gap-1.5"><span className="text-emerald-600">✔</span> 4 push gratis al mes</li>
         <li className="flex gap-1.5"><span className="text-emerald-600">✔</span> -25% en push extra</li>
         <li className="flex gap-1.5"><span className="text-emerald-600">✔</span> AI Studio y analítica avanzada</li>
@@ -3421,6 +3422,10 @@ function PlanCard({ business, token, onChanged }: { business: any; token: string
           >
             <div className="font-semibold">⭐ Pro · 29€/mes</div>
             <div className="text-xs text-slate-600 mt-1">+ 1 push gratis/mes · AI Studio · analytics avanzado</div>
+            <div className="mt-2 flex gap-1.5 text-xs text-slate-700">
+              <span className="text-amber-500">⭐</span>
+              <span><b>Referido prioritario:</b> tu negocio destaca sobre el resto cuando un cliente compra en otro negocio Bubui.</span>
+            </div>
           </button>
           <button
             onClick={() => upgrade("premium")}
