@@ -640,8 +640,6 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
               <MesaConfig business={b} token={session.token} onSaved={load} />
             </>
           )}
-          {/* Reto personalizado para un cliente concreto (enlace por WhatsApp) */}
-          <CustomDealCreator businessId={b.id} token={session.token} />
         </>
       )}
 
@@ -1532,110 +1530,6 @@ function MesaConfig({ business, token, onSaved }: { business: any; token: string
   );
 }
 
-/** Reto personalizado: el comercio define al momento un descuento para UN
- *  cliente concreto a cambio de traer amigos, y genera un enlace para enviarle
- *  por WhatsApp. Ej: "tráeme 3 amigas → 50% para ti y 20% para cada amiga". */
-function CustomDealCreator({ businessId, token }: { businessId: string; token: string }) {
-  const [open, setOpen] = useState(false);
-  const [clientPct, setClientPct] = useState(50);
-  const [friends, setFriends] = useState(3);
-  const [friendPct, setFriendPct] = useState(20);
-  const [title, setTitle] = useState("");
-  const [reqPurchase, setReqPurchase] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState<{ clientUrl: string; whatsappUrl: string } | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  async function create() {
-    setBusy(true);
-    setError(null);
-    try {
-      const r = await fetch(`/api/bubui/business/${businessId}/custom-deal`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({
-          clientDiscountPct: Number(clientPct),
-          friendsRequired: Number(friends),
-          friendDiscountPct: Number(friendPct),
-          title: title.trim() || null,
-          requiresPurchase: reqPurchase
-        })
-      });
-      const j = await r.json();
-      if (!r.ok) { setError(j?.error?.message ?? `Error ${r.status}`); return; }
-      setResult({ clientUrl: j.clientUrl, whatsappUrl: j.whatsappUrl });
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <section className="bubui-card p-5 space-y-3">
-      <div>
-        <h3 className="font-bold text-sm">🤝 Reto personalizado para un cliente</h3>
-        <p className="text-xs text-black/55 mt-0.5">
-          Crea al momento una oferta para UN cliente a cambio de que traiga amigos, y envíasela por WhatsApp.
-          Ej: «tráeme 3 amigas → 50% para ti y 20% para cada amiga».
-        </p>
-      </div>
-
-      {!open && !result && (
-        <button onClick={() => setOpen(true)} className="bubui-btn text-sm py-2 px-4">Crear un reto y enviarlo</button>
-      )}
-
-      {open && !result && (
-        <div className="space-y-2">
-          <div className="grid grid-cols-3 gap-2 text-xs">
-            <label className="block">
-              <span className="block text-black/60 mb-1">Descuento cliente %</span>
-              <input type="number" min={1} max={90} value={clientPct} onChange={(e) => setClientPct(Number(e.target.value))} className="w-full px-2 py-1.5 border rounded bg-white" />
-            </label>
-            <label className="block">
-              <span className="block text-black/60 mb-1">Amigos a traer</span>
-              <input type="number" min={1} max={20} value={friends} onChange={(e) => setFriends(Number(e.target.value))} className="w-full px-2 py-1.5 border rounded bg-white" />
-            </label>
-            <label className="block">
-              <span className="block text-black/60 mb-1">Descuento amigos %</span>
-              <input type="number" min={0} max={90} value={friendPct} onChange={(e) => setFriendPct(Number(e.target.value))} className="w-full px-2 py-1.5 border rounded bg-white" />
-            </label>
-          </div>
-          <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Concepto (opcional). Ej: Bono de entrenamiento" className="w-full px-2 py-1.5 border rounded bg-white text-sm" />
-          <div className="pt-1">
-            <span className="block text-[12px] font-semibold text-black/70 mb-1">¿Cuándo se desbloquea el descuento de tu cliente?</span>
-            <div className="space-y-1.5 text-xs">
-              <label className="flex items-start gap-2 cursor-pointer">
-                <input type="radio" name="dealUnlock" checked={!reqPurchase} onChange={() => setReqPurchase(false)} className="mt-0.5" />
-                <span>Cuando sus amigos <b>se instalan Bubui y verifican</b> su teléfono.</span>
-              </label>
-              <label className="flex items-start gap-2 cursor-pointer">
-                <input type="radio" name="dealUnlock" checked={reqPurchase} onChange={() => setReqPurchase(true)} className="mt-0.5" />
-                <span>Cuando sus amigos, además, <b>gastan su cupón comprando</b> en tu negocio (y tú lo confirmas).</span>
-              </label>
-            </div>
-          </div>
-          <button onClick={create} disabled={busy} className="bubui-btn w-full text-sm py-2">{busy ? "Creando…" : "Crear enlace"}</button>
-          {error && <p className="text-rose-600 text-xs">{error}</p>}
-        </div>
-      )}
-
-      {result && (
-        <div className="space-y-2">
-          <p className="text-xs text-black/70">✅ Reto creado. Envíaselo a tu cliente:</p>
-          <a href={result.whatsappUrl} target="_blank" rel="noreferrer" className="bubui-btn w-full inline-flex justify-center text-sm py-2">📲 Enviar por WhatsApp</a>
-          <button
-            onClick={() => navigator.clipboard?.writeText(result.clientUrl).then(() => alert("Enlace copiado"))}
-            className="w-full text-sm font-semibold border rounded-full py-2 hover:bg-black/5"
-          >
-            Copiar enlace
-          </button>
-          <p className="text-[11px] text-black/45 break-all">{result.clientUrl}</p>
-          <button onClick={() => { setResult(null); setOpen(true); }} className="text-xs text-pink-600 font-semibold">Crear otro reto</button>
-        </div>
-      )}
-    </section>
-  );
-}
-
 /** Descuentos por ACCIÓN — el núcleo de Bubui para comercio y servicios.
  *  Reúne en un sitio los % que ya soporta el modelo (escaneo, reto de
  *  compartir, reseña, cupón cruzado) con copy orientado a la acción, para que
@@ -1654,6 +1548,35 @@ function DiscountsConfig({ business, token, onSaved }: { business: any; token: s
   const [ppEnabled, setPpEnabled] = useState<boolean>(business.postPurchasePushEnabled ?? true);
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
+  // Generar enlace de reto para enviar a un cliente concreto (usa los valores
+  // de este mismo bloque).
+  const [dealBusy, setDealBusy] = useState(false);
+  const [dealResult, setDealResult] = useState<{ clientUrl: string; whatsappUrl: string } | null>(null);
+  const [dealErr, setDealErr] = useState<string | null>(null);
+
+  async function createDealLink() {
+    if (Number(sharePct) < 1) { setDealErr("Pon un descuento de cliente mayor que 0 para crear el enlace."); return; }
+    setDealBusy(true);
+    setDealErr(null);
+    try {
+      const r = await fetch(`/api/bubui/business/${business.id}/custom-deal`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          clientDiscountPct: Number(sharePct),
+          friendsRequired: Number(shareFriends),
+          friendDiscountPct: Number(shareFriendPct),
+          title: shareLabel.trim() || null,
+          requiresPurchase: shareReqPurchase
+        })
+      });
+      const j = await r.json();
+      if (!r.ok) { setDealErr(j?.error?.message ?? `Error ${r.status}`); return; }
+      setDealResult({ clientUrl: j.clientUrl, whatsappUrl: j.whatsappUrl });
+    } finally {
+      setDealBusy(false);
+    }
+  }
 
   async function save() {
     setSaving(true);
@@ -1748,6 +1671,34 @@ function DiscountsConfig({ business, token, onSaved }: { business: any; token: s
               <span>Cuando sus amigos, además, <b>gastan su cupón comprando</b> en tu negocio (y tú lo confirmas). Así te aseguras de que solo disfruta su descuento si sus amigos compran de verdad.</span>
             </label>
           </div>
+        </div>
+
+        {/* Crear un enlace al momento para enviar a un cliente concreto, con
+            estos mismos valores. */}
+        <div className="pt-2 border-t border-black/10">
+          {!dealResult ? (
+            <>
+              <button
+                onClick={createDealLink}
+                disabled={dealBusy}
+                className="w-full rounded-full bg-gradient-to-r from-pink-600 to-fuchsia-500 text-white text-sm font-extrabold px-4 py-2.5 shadow disabled:opacity-50"
+              >
+                {dealBusy ? "Creando enlace…" : "📲 Crea un enlace ahora para tu cliente y sus amigos"}
+              </button>
+              <p className="text-[11px] text-black/45 mt-1">
+                Genera un enlace con estos valores para enviárselo por WhatsApp a un cliente. Él lo comparte con sus amigos y, al unirse, se activa su descuento.
+              </p>
+              {dealErr && <p className="text-rose-600 text-xs mt-1">{dealErr}</p>}
+            </>
+          ) : (
+            <div className="space-y-2">
+              <p className="text-xs text-black/70">✅ Enlace creado. Envíaselo a tu cliente:</p>
+              <a href={dealResult.whatsappUrl} target="_blank" rel="noreferrer" className="bubui-btn w-full inline-flex justify-center text-sm py-2">📲 Enviar por WhatsApp</a>
+              <button onClick={() => navigator.clipboard?.writeText(dealResult.clientUrl).then(() => alert("Enlace copiado"))} className="w-full text-sm font-semibold border rounded-full py-2 hover:bg-black/5">Copiar enlace</button>
+              <p className="text-[11px] text-black/45 break-all">{dealResult.clientUrl}</p>
+              <button onClick={() => setDealResult(null)} className="text-xs text-pink-600 font-semibold">Crear otro enlace</button>
+            </div>
+          )}
         </div>
       </div>
 

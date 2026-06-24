@@ -366,13 +366,13 @@ function BusinessesPanel() {
     adminFetch("/api/bubui/admin/businesses").then((d) => setRows(d.businesses)).catch((e) => setErr(String(e)));
   }, []);
   async function applyPresets() {
-    if (!confirm("Aplicar los descuentos por acción preestablecidos a los comercios existentes que aún tienen el valor antiguo (compartir 10/5 · reseña 8 · seguir 5 · foto 5 · cupón 10 · recordatorio post-compra)? No pisa a quien lo haya personalizado.")) return;
+    if (!confirm("Aplicar los descuentos preestablecidos a los comercios existentes que aún tienen el valor antiguo (cliente 30 · 5 amigos · amigos 15 · reseña 8 · seguir 5 · foto 5 · cupón 10 · recordatorio post-compra)? No pisa a quien lo haya personalizado.")) return;
     setPresetsBusy(true);
     setPresetsMsg(null);
     try {
       const j = await adminFetch("/api/bubui/admin/apply-discount-presets", { method: "POST" });
       const u = j.updated ?? {};
-      setPresetsMsg(`✅ Presets aplicados — compartir: ${u.compartir}, amigos: ${u.amigos}, reseña: ${u.resena}, seguir: ${u.seguir}, foto: ${u.foto}, cupón cruzado: ${u.cuponCruzado}, recordatorio post-compra: ${u.recordatorioPostCompra}.`);
+      setPresetsMsg(`✅ Presets aplicados — cliente: ${u.compartirCliente}, amigos a traer: ${u.amigos}, descuento amigos: ${u.descuentoAmigos}, reseña: ${u.resena}, seguir: ${u.seguir}, foto: ${u.foto}, cupón cruzado: ${u.cuponCruzado}, recordatorio post-compra: ${u.recordatorioPostCompra}.`);
     } catch (e: any) {
       setPresetsMsg(`❌ ${e?.message ?? "Error"}`);
     } finally {
