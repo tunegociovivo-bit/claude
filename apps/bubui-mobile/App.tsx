@@ -9,7 +9,6 @@ import { Feed } from "./src/screens/Feed";
 import { Descubre } from "./src/screens/Descubre";
 import { Mapa } from "./src/screens/Mapa";
 import { Cuenta } from "./src/screens/Cuenta";
-import { Afiliados } from "./src/screens/Afiliados";
 import { Scan } from "./src/screens/Scan";
 import { Mesa } from "./src/screens/Mesa";
 import { Plus } from "./src/screens/Plus";
@@ -35,7 +34,6 @@ export type RootStackParamList = {
     Descubre: undefined;
     Mapa: undefined;
     Cuenta: undefined;
-    Afiliados: undefined;
     Scan: { businessId: string };
     Mesa: { businessId?: string; code?: string; businessName?: string };
     Plus: undefined;
@@ -115,7 +113,6 @@ function AppInner() {
                                 <Stack.Screen name="Descubre" component={Descubre} />
                                 <Stack.Screen name="Mapa" component={Mapa} />
                                 <Stack.Screen name="Cuenta" component={Cuenta} />
-                                <Stack.Screen name="Afiliados" component={Afiliados} options={{ animation: "slide_from_right" }} />
                                 <Stack.Screen name="Scan" component={Scan} options={{ animation: "slide_from_bottom" }} />
                                 <Stack.Screen name="Mesa" component={Mesa} options={{ animation: "slide_from_bottom" }} />
                                 <Stack.Screen name="Plus" component={Plus} options={{ animation: "slide_from_bottom" }} />

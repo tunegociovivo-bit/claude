@@ -21,6 +21,8 @@ export function Cuenta() {
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [plusActive, setPlusActive] = useState(false);
   const [plusEnabled, setPlusEnabled] = useState(false);
+  const [wallet, setWallet] = useState<{ pct: number; expiresAt: string | null } | null>(null);
+  const [refCode, setRefCode] = useState<string | null>(null);
 
   useFocusEffect(
     useCallback(() => {
@@ -38,9 +40,12 @@ export function Cuenta() {
             setCustomer(updated);
             setPlusActive(!!live.plusActive);
             setPlusEnabled(!!live.plusEnabled);
+            setWallet({ pct: live.referralWalletPct ?? 0, expiresAt: live.referralWalletExpiresAt ?? null });
             await saveSession(updated).catch(() => {});
           })
           .catch(() => {});
+        // Código de referido para el enlace de invitación.
+        api.referral(s.customerId).then((r) => setRefCode(r.code)).catch(() => {});
       })();
     }, [nav])
   );
@@ -53,6 +58,12 @@ export function Cuenta() {
   async function logout() {
     await clearSession().catch(() => {});
     nav.reset({ index: 0, routes: [{ name: "Onboarding" }] });
+  }
+
+  function inviteFriends() {
+    const link = refCode ? `${API_BASE}/bubui/r/${refCode}` : "https://bubui.app";
+    const text = `¡Descubre Bubui y llévate descuentos en negocios del barrio! 🎁 ${link}`;
+    Linking.openURL(`https://wa.me/?text=${encodeURIComponent(text)}`).catch(() => {});
   }
 
   async function doDelete(id: string) {
@@ -119,6 +130,23 @@ export function Cuenta() {
             </View>
           </FadeIn>
 
+          {/* Hucha de referidos: % acumulado por traer amigos, para gastar en
+              el negocio donde te diste de alta. */}
+          {!!wallet && wallet.pct > 0 && (
+            <FadeIn replayOnFocus delay={stagger(1)}>
+              <View style={styles.wallet}>
+                <Text style={styles.walletPct}>{wallet.pct}%</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.walletTitle}>acumulado en tu hucha</Text>
+                  <Text style={styles.walletSub}>
+                    Lo ganas cuando los amigos que invitas se dan de alta. Se aplica en el negocio donde te diste de alta.
+                    {wallet.expiresAt ? ` Caduca el ${new Date(wallet.expiresAt).toLocaleDateString("es-ES")}.` : ""}
+                  </Text>
+                </View>
+              </View>
+            </FadeIn>
+          )}
+
           {/* Bubui Plus — suscripción del usuario (1€/mes). Solo si el admin lo
               tiene activado, o si el usuario ya es Plus (para ver su estado). */}
           {(plusEnabled || plusActive) && (
@@ -140,11 +168,11 @@ export function Cuenta() {
 
           {/* Invita a amigos — acceso destacado al programa de referidos */}
           <FadeIn replayOnFocus delay={stagger(2)}>
-            <Bouncy style={styles.invite} onPress={() => nav.navigate("Afiliados")}>
+            <Bouncy style={styles.invite} onPress={inviteFriends}>
               <Text style={styles.inviteEmoji}>🎁</Text>
               <View style={{ flex: 1 }}>
-                <Text style={styles.inviteTitle}>Invita a tus amigos</Text>
-                <Text style={styles.inviteSub}>Comparte Bubui y gana un megadescuento.</Text>
+                <Text style={styles.inviteTitle}>Invita a tus amigos a Bubui</Text>
+                <Text style={styles.inviteSub}>Compárteles tu enlace por WhatsApp.</Text>
               </View>
               <Text style={styles.inviteChev}>›</Text>
             </Bouncy>
@@ -229,6 +257,10 @@ const makeStyles = (c: Palette) =>
     plusTitle: { fontSize: 15, fontWeight: "900", color: "#FFD56A" },
     plusSub: { fontSize: 12, color: "rgba(255,255,255,0.82)", marginTop: 2, lineHeight: 16 },
     plusChev: { fontSize: 24, color: "#FFD56A", fontWeight: "900" },
+    wallet: { flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: c.pinkWash, borderRadius: radius.lg, borderWidth: 1, borderColor: c.pinkSoft, padding: 16, marginBottom: 16 },
+    walletPct: { fontSize: 32, fontWeight: "900", color: c.pinkDeep, letterSpacing: -1 },
+    walletTitle: { fontSize: 14, fontWeight: "900", color: c.pinkDeep },
+    walletSub: { fontSize: 12, color: c.gray, marginTop: 2, lineHeight: 16 },
     invite: { flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: c.pinkWash, borderRadius: radius.lg, borderWidth: 1, borderColor: c.pinkSoft, padding: 16, marginBottom: 16 },
     inviteEmoji: { fontSize: 26 },
     inviteTitle: { fontSize: 15, fontWeight: "900", color: c.black },

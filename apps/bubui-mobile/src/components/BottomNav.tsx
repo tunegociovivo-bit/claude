@@ -17,7 +17,6 @@ type SectionGate = "discover" | "mapa";
 const TABS: { route: string; label: string; icon: IconName; iconOn: IconName; gate?: SectionGate }[] = [
   { route: "Feed", label: "Inicio", icon: "home-outline", iconOn: "home" },
   { route: "Descubre", label: "Descubre", icon: "compass-outline", iconOn: "compass", gate: "discover" },
-  { route: "Afiliados", label: "Amigos", icon: "gift-outline", iconOn: "gift" },
   { route: "Mapa", label: "Mapa", icon: "map-outline", iconOn: "map", gate: "mapa" },
   { route: "Cuenta", label: "Cuenta", icon: "person-outline", iconOn: "person" }
 ];
