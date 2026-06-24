@@ -96,3 +96,37 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
     }))
   });
 }
+
+/**
+ * DELETE /api/bubui/customer/[id]
+ *
+ * Elimina la cuenta del cliente y todos sus datos (requisito de Apple,
+ * guideline 5.1.1(v): toda app que permite crear cuenta debe permitir
+ * borrarla). Borra primero las tablas dependientes que NO tienen borrado en
+ * cascada y desvincula a los amigos referidos; el resto cae por cascade.
+ *
+ * Auth: token de sesión del propio cliente.
+ */
+export async function DELETE(req: Request, { params }: { params: { id: string } }) {
+  if (!(await customerAuthOk(req, params.id))) {
+    return NextResponse.json({ error: { code: "unauthorized", message: "No autorizado" } }, { status: 401 });
+  }
+  const id = params.id;
+  const exists = await prisma.bubuiCustomer.findUnique({ where: { id }, select: { id: true } });
+  if (!exists) return NextResponse.json({ error: { code: "not_found" } }, { status: 404 });
+
+  await prisma.$transaction([
+    prisma.bubuiPushSubscription.deleteMany({ where: { customerId: id } }),
+    prisma.bubuiMobilePushToken.deleteMany({ where: { customerId: id } }),
+    prisma.bubuiTicketScan.deleteMany({ where: { customerId: id } }),
+    prisma.bubuiTableParticipant.deleteMany({ where: { customerId: id } }),
+    prisma.bubuiBooking.deleteMany({ where: { customerId: id } }),
+    // Desvincula a los clientes que este usuario refirió (no se borran ellos).
+    prisma.bubuiCustomer.updateMany({ where: { referredById: id }, data: { referredById: null } }),
+    // El resto de datos (compras, ofertas, reseñas, follows, push log…) caen
+    // por onDelete: Cascade al borrar el cliente.
+    prisma.bubuiCustomer.delete({ where: { id } })
+  ]);
+
+  return NextResponse.json({ ok: true });
+}

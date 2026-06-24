@@ -25,9 +25,11 @@ const schema = z.object({
   code: z.string().min(4).max(10),
   name: z.string().min(1).max(80),
   email: z.string().email(),
-  birthDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Fecha inválida"),
-  gender: z.enum(["female", "male", "other", "prefer_not"]),
-  postalCode: z.string().regex(/^\d{5}$/, "Código postal inválido").optional(),
+  // Datos opcionales (Apple 5.1.1(v): no pueden ser obligatorios). Si llegan
+  // vacíos los tratamos como ausentes.
+  birthDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Fecha inválida").optional().or(z.literal("")),
+  gender: z.enum(["female", "male", "other", "prefer_not"]).optional().or(z.literal("")),
+  postalCode: z.string().regex(/^\d{5}$/, "Código postal inválido").optional().or(z.literal("")),
   firstBusinessId: z.string().optional(),
   ref: z.string().max(12).optional()
 });
@@ -65,7 +67,14 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: { code: "bad_code", message: "Código incorrecto o caducado. Pide uno nuevo." } }, { status: 401 });
   }
 
-  const profile = { name: d.name, email: d.email, birthDate: d.birthDate, gender: d.gender, postalCode: d.postalCode };
+  // Normaliza opcionales: "" → undefined (no se guarda ni pisa lo existente).
+  const profile = {
+    name: d.name,
+    email: d.email,
+    birthDate: d.birthDate || undefined,
+    gender: (d.gender || undefined) as "female" | "male" | "other" | "prefer_not" | undefined,
+    postalCode: d.postalCode || undefined
+  };
 
   // 1) ¿Existe ya por teléfono? -> login/actualización.
   const byPhone = await prisma.bubuiCustomer.findUnique({ where: { phone } });

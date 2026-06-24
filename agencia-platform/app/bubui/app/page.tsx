@@ -269,9 +269,8 @@ function Signup({ onDone, refCode }: { onDone: (c: Customer) => void; refCode?: 
     e.preventDefault();
     if (!name.trim()) { setError("Pon tu nombre"); return; }
     if (!email.trim()) { setError("El email es obligatorio"); return; }
-    if (!/^\d{5}$/.test(postalCode)) { setError("Indica tu código postal (5 dígitos)"); return; }
-    if (!birthDate) { setError("Indica tu fecha de nacimiento"); return; }
-    if (!gender) { setError("Indica tu sexo"); return; }
+    // Código postal, fecha de nacimiento y sexo son OPCIONALES (Apple 5.1.1(v)).
+    if (postalCode && !/^\d{5}$/.test(postalCode)) { setError("El código postal debe tener 5 dígitos"); return; }
     setBusy(true);
     setError(null);
     try {
@@ -412,19 +411,17 @@ function Signup({ onDone, refCode }: { onDone: (c: Customer) => void; refCode?: 
           <input
             type="text"
             inputMode="numeric"
-            placeholder="Código postal"
+            placeholder="Código postal (opcional)"
             value={postalCode}
             onChange={(e) => setPostalCode(e.target.value.replace(/[^0-9]/g, "").slice(0, 5))}
-            required
             className="bubui-input"
           />
           <label className="block text-xs font-semibold text-black/55">
-            Fecha de nacimiento
+            Fecha de nacimiento <span className="font-normal text-black/40">(opcional)</span>
             <input
               type="date"
               value={birthDate}
               onChange={(e) => setBirthDate(e.target.value)}
-              required
               max={new Date().toISOString().slice(0, 10)}
               className="bubui-input mt-1"
             />
@@ -432,15 +429,17 @@ function Signup({ onDone, refCode }: { onDone: (c: Customer) => void; refCode?: 
           <select
             value={gender}
             onChange={(e) => setGender(e.target.value)}
-            required
             className="bubui-input"
           >
-            <option value="">Sexo…</option>
+            <option value="">Sexo (opcional)…</option>
             <option value="female">Mujer</option>
             <option value="male">Hombre</option>
             <option value="other">Otro</option>
             <option value="prefer_not">Prefiero no decirlo</option>
           </select>
+          <p className="text-[11px] text-black/45 -mt-1">
+            El código postal, la fecha de nacimiento y el sexo son opcionales. Solo los usamos para mostrarte ofertas más cercanas y relevantes.
+          </p>
           {error && <p className="text-rose-700 text-sm">{error}</p>}
           <button type="submit" disabled={busy} className="bubui-btn w-full">
             {busy ? "Enviando…" : "Enviar código SMS"}
@@ -925,6 +924,9 @@ function OffersFeed({ customer, coords }: { customer: Customer; coords: { lat: n
         </div>
       )}
 
+      {/* Cuenta: cerrar sesión + eliminar cuenta (requisito Apple) */}
+      <AccountSection customer={customer} />
+
       {/* Bottom nav (mobile) */}
       <nav className="bubui-bottom-nav">
         <a href="/bubui/app" className="active">
@@ -941,6 +943,77 @@ function OffersFeed({ customer, coords }: { customer: Customer; coords: { lat: n
         </a>
       </nav>
     </main>
+  );
+}
+
+/** Sección de cuenta: cerrar sesión y ELIMINAR cuenta (Apple 5.1.1(v) exige
+ *  que toda app con alta permita borrar la cuenta desde la propia app). */
+function AccountSection({ customer }: { customer: Customer }) {
+  const [deleting, setDeleting] = useState(false);
+
+  function logout() {
+    try {
+      localStorage.removeItem("bubui.customer");
+    } catch {}
+    window.location.href = "/bubui/app";
+  }
+
+  async function deleteAccount() {
+    if (
+      !window.confirm(
+        "¿Eliminar tu cuenta de Bubui?\n\nSe borrarán de forma permanente tu perfil, tus cupones, tu historial de ahorro y tus datos. Esta acción NO se puede deshacer."
+      )
+    ) {
+      return;
+    }
+    if (!window.confirm("Última confirmación: esto es definitivo. ¿Eliminar la cuenta?")) return;
+    setDeleting(true);
+    try {
+      const r = await fetch(`/api/bubui/customer/${customer.customerId}`, {
+        method: "DELETE",
+        headers: customerAuthHeaders()
+      });
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        alert(j?.error?.message ?? `No se pudo eliminar la cuenta (error ${r.status}).`);
+        return;
+      }
+      try {
+        localStorage.removeItem("bubui.customer");
+        localStorage.removeItem("bubui.onboarded");
+      } catch {}
+      alert("Tu cuenta ha sido eliminada.");
+      window.location.href = "/bubui/app";
+    } catch {
+      alert("No se pudo eliminar la cuenta. Inténtalo de nuevo.");
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  return (
+    <section className="mt-8 mb-2 bubui-card p-5">
+      <h3 className="text-sm font-bold mb-1">Tu cuenta</h3>
+      <p className="text-xs text-black/55 mb-3 truncate">{customer.name ? `${customer.name} · ` : ""}Sesión iniciada</p>
+      <div className="flex flex-col gap-2">
+        <button
+          onClick={logout}
+          className="w-full text-sm font-semibold border border-black/15 rounded-full py-2.5 hover:bg-black/5"
+        >
+          Cerrar sesión
+        </button>
+        <button
+          onClick={deleteAccount}
+          disabled={deleting}
+          className="w-full text-sm font-semibold text-rose-600 border border-rose-200 rounded-full py-2.5 hover:bg-rose-50 disabled:opacity-50"
+        >
+          {deleting ? "Eliminando…" : "Eliminar mi cuenta"}
+        </button>
+      </div>
+      <p className="text-[11px] text-black/45 mt-2">
+        Al eliminar tu cuenta se borran permanentemente tus datos, cupones y ahorro.
+      </p>
+    </section>
   );
 }
 
