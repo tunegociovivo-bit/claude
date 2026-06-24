@@ -667,16 +667,17 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
               { key: "fidelizar" as const, icon: "🎁", label: "Fidelizar" }
             ];
             return (
-              <nav className="flex gap-1.5 overflow-x-auto pb-1 -mx-1 px-1">
+              <nav className="grid grid-cols-5 gap-1">
                 {subTabs.map((s) => (
                   <button
                     key={s.key}
                     onClick={() => setCrecerTab(s.key)}
-                    className={`shrink-0 inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-xs font-bold transition ${
+                    className={`flex flex-col items-center justify-center gap-0.5 rounded-xl px-1 py-1.5 text-[10px] font-bold leading-tight transition ${
                       crecerTab === s.key ? "bg-pink-600 text-white shadow" : "bg-black/5 text-black/60 hover:bg-black/10"
                     }`}
                   >
-                    <span>{s.icon}</span> {s.label}
+                    <span className="text-base leading-none">{s.icon}</span>
+                    <span className="truncate w-full text-center">{s.label}</span>
                   </button>
                 ))}
               </nav>
