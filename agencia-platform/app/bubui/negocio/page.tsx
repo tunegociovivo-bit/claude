@@ -2853,7 +2853,7 @@ function StickerRequest({ business, token, onChanged }: { business: any; token: 
     const waMsg = encodeURIComponent(
       "Hola, he solicitado mi cartel QR Bubui para mi negocio pero todavía no lo he recibido"
     );
-    const waUrl = `https://wa.me/346801678881?text=${waMsg}`;
+    const waUrl = `https://wa.me/34680167881?text=${waMsg}`;
     return (
       <div className="mt-3 space-y-2">
         <div className="inline-flex items-center gap-2 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-3 py-1.5">
