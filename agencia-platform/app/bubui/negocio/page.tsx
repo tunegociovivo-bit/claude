@@ -331,7 +331,9 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
   const [loading, setLoading] = useState(true);
   const [loadErr, setLoadErr] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<string | null>(null);
-  const [tab, setTab] = useState<"inicio" | "nicho" | "fidelizar" | "crecer" | "ajustes">("inicio");
+  const [tab, setTab] = useState<"inicio" | "nicho" | "crecer" | "ajustes">("inicio");
+  // Sub-pestañas dentro de "Crecer" (mucho contenido → lo organizamos).
+  const [crecerTab, setCrecerTab] = useState<"captar" | "destacar" | "red" | "analitica" | "fidelizar">("captar");
   // Botón flotante "Anúnciate" — el admin puede apagarlo desde su panel.
   const [anunciateOn, setAnunciateOn] = useState(false);
   useEffect(() => {
@@ -419,8 +421,7 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
   const tabs = [
     { key: "inicio" as const, icon: "🏠", label: "Inicio", desc: "Tu día a día: ventas, compras por confirmar y novedades." },
     { key: "nicho" as const, icon: niche.icon, label: niche.label, desc: niche.desc },
-    { key: "fidelizar" as const, icon: "🎁", label: "Fidelizar", desc: "Haz que vuelvan: sellos, sorteos, cumpleaños y recompensas." },
-    { key: "crecer" as const, icon: "📣", label: "Crecer", desc: "Anúnciate, hazte Pro, destácate y trae clientes nuevos." },
+    { key: "crecer" as const, icon: "🚀", label: "Crecer", desc: "Lo que hace crecer tu negocio: anúnciate, hazte Pro, destácate, trae clientes y fideliza." },
     { key: "ajustes" as const, icon: "⚙️", label: "Ajustes", desc: "Tu ficha, fotos, QR y tipo de negocio." }
   ];
   const cur = tabs.find((t) => t.key === tab) ?? tabs[0];
@@ -437,20 +438,29 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
         <button onClick={onLogout} className="text-xs text-black/45 hover:text-black/70">Cerrar sesión</button>
       </div>
 
-      {/* Barra de pestañas — fija (5 columnas), sin scroll, pegada arriba */}
-      <nav className="sticky top-0 z-20 -mx-4 px-2 py-2 bg-white/95 backdrop-blur border-b grid grid-cols-5 gap-1">
-        {tabs.map((t) => (
-          <button
-            key={t.key}
-            onClick={() => setTab(t.key)}
-            className={`flex flex-col items-center justify-center gap-0.5 py-1.5 rounded-xl text-[10px] font-bold leading-tight transition ${
-              tab === t.key ? "bg-pink-600 text-white" : "text-black/55 hover:bg-black/5"
-            }`}
-          >
-            <span className="text-lg leading-none">{t.icon}</span>
-            <span className="truncate w-full text-center">{t.label}</span>
-          </button>
-        ))}
+      {/* Barra de pestañas — fija (4 columnas), sin scroll, pegada arriba.
+          "Crecer" se resalta siempre (es donde se monetiza). */}
+      <nav className="sticky top-0 z-20 -mx-4 px-2 py-2 bg-white/95 backdrop-blur border-b grid grid-cols-4 gap-1">
+        {tabs.map((t) => {
+          const isCrecer = t.key === "crecer";
+          const active = tab === t.key;
+          const base = "flex flex-col items-center justify-center gap-0.5 py-1.5 rounded-xl text-[10px] font-bold leading-tight transition relative";
+          let cls: string;
+          let style: React.CSSProperties | undefined;
+          if (isCrecer) {
+            // Siempre destacado: degradado y, si activo, con sombra extra.
+            cls = base + " text-white shadow-md" + (active ? " ring-2 ring-amber-300" : "");
+            style = { background: "linear-gradient(135deg,#f59e0b,#ec1c6e)" };
+          } else {
+            cls = base + (active ? " bg-pink-600 text-white" : " text-black/55 hover:bg-black/5");
+          }
+          return (
+            <button key={t.key} onClick={() => setTab(t.key)} className={cls} style={style}>
+              <span className="text-lg leading-none">{t.icon}</span>
+              <span className="truncate w-full text-center">{isCrecer ? "Crecer 💰" : t.label}</span>
+            </button>
+          );
+        })}
       </nav>
       <p className="text-xs text-black/55 -mt-1">{cur.desc}</p>
 
@@ -640,41 +650,79 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
         </>
       )}
 
-      {/* ───────────── PESTAÑA: FIDELIZAR ───────────── */}
-      {tab === "fidelizar" && (
-        <>
-          {/* Tarjeta de sellos — lo que más hace volver al cliente */}
-          <Highlight label="⭐ Lo más usado">
-            <LoyaltyConfig business={b} token={session.token} onSaved={load} />
-          </Highlight>
-          <EngagementConfig business={b} token={session.token} onSaved={load} />
-          {/* Programa de afiliados — lo financia el negocio */}
-          <ReferralConfig business={b} token={session.token} onSaved={load} />
-        </>
-      )}
-
       {/* ───────────── PESTAÑA: CRECER ─────────────
-          Ordenado de más a menos importante; las dos más potentes, resaltadas. */}
+          Mucho contenido → sub-pestañas para no abrumar. Orden: lo que
+          monetiza primero; "Fidelizar" (antes pestaña propia) al final. */}
       {tab === "crecer" && (
         <>
-          {/* 1 · Anúnciate (Push del Día) — la acción estrella */}
-          <Highlight label="⭐ Lo más potente">
-            <PushAdForm businessId={b.id} businessName={b.name} token={session.token} plan={b.plan} />
-          </Highlight>
-          {/* 2 · Hazte Pro / Premium — desbloquea todo */}
-          <Highlight label="💎 Recomendado">
-            <PlanCard business={b} token={session.token} onChanged={load} />
-          </Highlight>
-          {/* 3 · Destácate en la app */}
-          <PromotionPanel business={b} token={session.token} onChanged={load} />
-          {/* 4 · Trae otros negocios → semanas de banner gratis */}
-          <BusinessReferralPanel businessId={b.id} token={session.token} />
-          {/* 5 · Comparte tu página pública (gratis) */}
-          <ShareWidget slug={b.slug} name={b.name} discountPct={b.defaultDiscountPct} />
-          {/* 6 · Mide tu crecimiento */}
-          <PremiumAnalytics businessId={b.id} token={session.token} plan={b.plan} />
-          {/* 7 · Cruces — la mina de datos */}
-          <CrossShopperPanel businessId={b.id} token={session.token} />
+          {(() => {
+            const subTabs = [
+              { key: "captar" as const, icon: "🚀", label: "Captar" },
+              { key: "destacar" as const, icon: "✨", label: "Destacar" },
+              { key: "red" as const, icon: "🔗", label: "Red" },
+              { key: "analitica" as const, icon: "📈", label: "Analítica" },
+              { key: "fidelizar" as const, icon: "🎁", label: "Fidelizar" }
+            ];
+            return (
+              <nav className="flex gap-1.5 overflow-x-auto pb-1 -mx-1 px-1">
+                {subTabs.map((s) => (
+                  <button
+                    key={s.key}
+                    onClick={() => setCrecerTab(s.key)}
+                    className={`shrink-0 inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-xs font-bold transition ${
+                      crecerTab === s.key ? "bg-pink-600 text-white shadow" : "bg-black/5 text-black/60 hover:bg-black/10"
+                    }`}
+                  >
+                    <span>{s.icon}</span> {s.label}
+                  </button>
+                ))}
+              </nav>
+            );
+          })()}
+
+          {/* CAPTAR — lo que monetiza: anúnciate + hazte Pro/Premium */}
+          {crecerTab === "captar" && (
+            <>
+              <Highlight label="⭐ Lo más potente">
+                <PushAdForm businessId={b.id} businessName={b.name} token={session.token} plan={b.plan} />
+              </Highlight>
+              <Highlight label="💎 Recomendado">
+                <PlanCard business={b} token={session.token} onChanged={load} />
+              </Highlight>
+            </>
+          )}
+
+          {/* DESTACAR — visibilidad en la app y página pública */}
+          {crecerTab === "destacar" && (
+            <>
+              <PromotionPanel business={b} token={session.token} onChanged={load} />
+              <ShareWidget slug={b.slug} name={b.name} discountPct={b.defaultDiscountPct} />
+            </>
+          )}
+
+          {/* RED — trae otros negocios y mira los cruces de clientes */}
+          {crecerTab === "red" && (
+            <>
+              <BusinessReferralPanel businessId={b.id} token={session.token} />
+              <CrossShopperPanel businessId={b.id} token={session.token} />
+            </>
+          )}
+
+          {/* ANALÍTICA — mide tu crecimiento */}
+          {crecerTab === "analitica" && (
+            <PremiumAnalytics businessId={b.id} token={session.token} plan={b.plan} />
+          )}
+
+          {/* FIDELIZAR — antes era una pestaña propia; ahora vive aquí, al final */}
+          {crecerTab === "fidelizar" && (
+            <>
+              <Highlight label="⭐ Lo más usado">
+                <LoyaltyConfig business={b} token={session.token} onSaved={load} />
+              </Highlight>
+              <EngagementConfig business={b} token={session.token} onSaved={load} />
+              <ReferralConfig business={b} token={session.token} onSaved={load} />
+            </>
+          )}
         </>
       )}
 
@@ -720,6 +768,7 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
         <button
           onClick={() => {
             setTab("crecer");
+            setCrecerTab("captar");
             window.scrollTo({ top: 0, behavior: "smooth" });
           }}
           aria-label="Anúnciate"
