@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import PageHeader from "@/components/PageHeader";
 import Modal from "@/components/ui/Modal";
 import { Plus, Loader2, Trash2, Edit2, Copy, ExternalLink, Key } from "lucide-react";
@@ -22,7 +22,12 @@ type ReviewClient = {
   recommendedWords: string | null;
   extraInstructions: string | null;
   model: string;
+  gateTarget?: "generator" | "feedback";
+  gateHeader?: string | null;
+  _count?: { opinions: number };
 };
+
+type Opinion = { id: string; name: string | null; body: string; createdAt: string };
 
 const DEFAULT_TOPICS = "Descanso y habitación\nComida y guisos\nEl entorno y naturaleza\nTrato personal y rapidez";
 const DEFAULT_BANNED = "místico, cosmos, aromas, mágico, excelencia";
@@ -36,6 +41,19 @@ export default function ReviewsClient() {
   const [keyModalOpen, setKeyModalOpen] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<ReviewClient | null>(null);
+  // Panel "Enlace inteligente" expandido (id del cliente) + modal de opiniones.
+  const [gateOpenId, setGateOpenId] = useState<string | null>(null);
+  const [opinionsFor, setOpinionsFor] = useState<ReviewClient | null>(null);
+
+  async function patchClient(id: string, data: Record<string, unknown>) {
+    const r = await fetch(`/api/v1/reviews/clients/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data)
+    });
+    if (r.ok) await load();
+    else alert("No se pudo guardar.");
+  }
 
   async function load() {
     setLoading(true);
@@ -136,7 +154,8 @@ export default function ReviewsClient() {
             </thead>
             <tbody className="divide-y">
               {items.map((c) => (
-                <tr key={c.id} className="hover:bg-slate-50">
+                <Fragment key={c.id}>
+                <tr className="hover:bg-slate-50">
                   <td className="px-5 py-3 font-medium">{c.name}</td>
                   <td className="px-3 py-3">
                     <code className="text-xs bg-slate-100 px-1.5 py-0.5 rounded">{c.slug}</code>
@@ -177,8 +196,19 @@ export default function ReviewsClient() {
                   </td>
                   <td className="px-5 py-3 text-right">
                     <button
+                      onClick={() => setGateOpenId(gateOpenId === c.id ? null : c.id)}
+                      className={
+                        "inline-flex items-center gap-1 px-2 py-1 rounded text-xs " +
+                        (gateOpenId === c.id ? "bg-indigo-600 text-white" : "text-indigo-700 hover:bg-indigo-50")
+                      }
+                      title="Enlace inteligente (switch A/B)"
+                    >
+                      <ExternalLink className="h-3.5 w-3.5" />
+                      Enlace
+                    </button>
+                    <button
                       onClick={() => copyEmbed(c.slug)}
-                      className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs text-slate-700 hover:bg-slate-100"
+                      className="ml-1 inline-flex items-center gap-1 px-2 py-1 rounded text-xs text-slate-700 hover:bg-slate-100"
                       title="Copiar iframe"
                     >
                       <Copy className="h-3.5 w-3.5" />
@@ -211,6 +241,19 @@ export default function ReviewsClient() {
                     </button>
                   </td>
                 </tr>
+                {gateOpenId === c.id && (
+                  <tr className="bg-indigo-50/40">
+                    <td colSpan={5} className="px-5 py-4">
+                      <GatePanel
+                        client={c}
+                        onToggle={(t) => patchClient(c.id, { gateTarget: t })}
+                        onSaveHeader={(h) => patchClient(c.id, { gateHeader: h })}
+                        onViewOpinions={() => setOpinionsFor(c)}
+                      />
+                    </td>
+                  </tr>
+                )}
+                </Fragment>
               ))}
             </tbody>
           </table>
@@ -236,7 +279,149 @@ export default function ReviewsClient() {
           load();
         }}
       />
+
+      <OpinionsModal client={opinionsFor} onClose={() => setOpinionsFor(null)} />
     </div>
+  );
+}
+
+/** Panel "Enlace inteligente": switch A/B del enlace principal, cabecera
+ *  editable de la URL A y acceso a las opiniones recibidas. */
+function GatePanel({
+  client,
+  onToggle,
+  onSaveHeader,
+  onViewOpinions
+}: {
+  client: ReviewClient;
+  onToggle: (target: "generator" | "feedback") => void;
+  onSaveHeader: (header: string) => void;
+  onViewOpinions: () => void;
+}) {
+  const target = client.gateTarget ?? "generator";
+  const [header, setHeader] = useState(client.gateHeader ?? "");
+  const [savingHeader, setSavingHeader] = useState(false);
+  const origin = typeof window !== "undefined" ? window.location.origin : "https://hub.negociovivo.app";
+  const mainUrl = `${origin}/g/${client.slug}`;
+  const opinionsCount = client._count?.opinions ?? 0;
+
+  function copyMain() {
+    navigator.clipboard.writeText(mainUrl);
+    alert("Enlace principal copiado:\n" + mainUrl);
+  }
+
+  async function saveHeader() {
+    setSavingHeader(true);
+    await onSaveHeader(header);
+    setSavingHeader(false);
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Enlace principal */}
+      <div>
+        <div className="text-[11px] uppercase tracking-wide text-slate-500 font-semibold mb-1">Enlace principal (compártelo siempre este)</div>
+        <div className="flex items-center gap-2 flex-wrap">
+          <code className="text-xs bg-white border rounded px-2 py-1">{mainUrl}</code>
+          <button onClick={copyMain} className="inline-flex items-center gap-1 text-xs text-indigo-700 hover:underline">
+            <Copy className="h-3.5 w-3.5" /> Copiar
+          </button>
+          <a href={mainUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs text-slate-600 hover:underline">
+            <ExternalLink className="h-3.5 w-3.5" /> Probar
+          </a>
+        </div>
+      </div>
+
+      {/* Switch A/B */}
+      <div>
+        <div className="text-[11px] uppercase tracking-wide text-slate-500 font-semibold mb-1">Ahora mismo el enlace lleva a:</div>
+        <div className="inline-flex rounded-lg border bg-white overflow-hidden">
+          <button
+            onClick={() => onToggle("generator")}
+            className={"px-3 py-1.5 text-xs font-semibold " + (target === "generator" ? "bg-violet-600 text-white" : "text-slate-600 hover:bg-slate-50")}
+          >
+            🤖 Generador IA (B)
+          </button>
+          <button
+            onClick={() => onToggle("feedback")}
+            className={"px-3 py-1.5 text-xs font-semibold " + (target === "feedback" ? "bg-indigo-600 text-white" : "text-slate-600 hover:bg-slate-50")}
+          >
+            📝 Formulario de opinión (A)
+          </button>
+        </div>
+        <p className="text-[11px] text-slate-500 mt-1">
+          {target === "feedback"
+            ? "El enlace principal redirige al formulario de opinión (URL A)."
+            : `El enlace principal redirige al generador de reseñas IA (${origin}/r/${client.slug}).`}
+        </p>
+      </div>
+
+      {/* Cabecera editable de la URL A */}
+      <div>
+        <div className="text-[11px] uppercase tracking-wide text-slate-500 font-semibold mb-1">Texto de cabecera del formulario de opinión (URL A)</div>
+        <textarea
+          value={header}
+          onChange={(e) => setHeader(e.target.value)}
+          rows={4}
+          placeholder="Escribe aquí el texto que verán los usuarios encima del formulario…"
+          className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+        />
+        <div className="flex items-center gap-3 mt-1">
+          <button
+            onClick={saveHeader}
+            disabled={savingHeader}
+            className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-900 text-white text-xs font-semibold disabled:opacity-50"
+          >
+            {savingHeader ? "Guardando…" : "Guardar cabecera"}
+          </button>
+          <a href={`${origin}/g/${client.slug}/opinar`} target="_blank" rel="noreferrer" className="text-xs text-slate-600 hover:underline">
+            Ver formulario A →
+          </a>
+        </div>
+      </div>
+
+      {/* Opiniones recibidas */}
+      <div>
+        <button onClick={onViewOpinions} className="inline-flex items-center gap-1.5 text-sm font-semibold text-indigo-700 hover:underline">
+          💬 Opiniones recibidas ({opinionsCount})
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** Modal que lista las opiniones (URL A) de un cliente. */
+function OpinionsModal({ client, onClose }: { client: ReviewClient | null; onClose: () => void }) {
+  const [items, setItems] = useState<Opinion[] | null>(null);
+  useEffect(() => {
+    if (!client) { setItems(null); return; }
+    setItems(null);
+    fetch(`/api/v1/reviews/clients/${client.id}/opinions`)
+      .then((r) => (r.ok ? r.json() : { items: [] }))
+      .then((d) => setItems(d.items ?? []))
+      .catch(() => setItems([]));
+  }, [client]);
+
+  return (
+    <Modal open={!!client} onClose={onClose} title={client ? `Opiniones — ${client.name}` : "Opiniones"}>
+      {items === null ? (
+        <div className="py-8 text-center text-sm text-slate-500"><Loader2 className="h-4 w-4 animate-spin inline" /> Cargando…</div>
+      ) : items.length === 0 ? (
+        <p className="py-8 text-center text-sm text-slate-500">Aún no hay opiniones.</p>
+      ) : (
+        <div className="space-y-2 max-h-[60vh] overflow-y-auto">
+          {items.map((o) => (
+            <div key={o.id} className="rounded-lg border border-slate-200 p-3">
+              <div className="text-[11px] text-slate-400 mb-1">
+                {o.name ? <span className="font-semibold text-slate-600">{o.name}</span> : "Anónimo"} ·{" "}
+                {new Date(o.createdAt).toLocaleString("es-ES")}
+              </div>
+              <p className="text-sm text-slate-800 whitespace-pre-wrap">{o.body}</p>
+            </div>
+          ))}
+        </div>
+      )}
+    </Modal>
   );
 }
 

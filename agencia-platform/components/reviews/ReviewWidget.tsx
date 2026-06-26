@@ -64,8 +64,15 @@ export default function ReviewWidget({ slug, clientName }: { slug: string; clien
         boxSizing: "border-box"
       }}
     >
-      <div style={{ fontSize: "11px", color: "#64748b", marginBottom: "10px", textTransform: "uppercase", letterSpacing: "0.05em" }}>
-        Deja una reseña sobre {clientName}
+      <div style={{ marginBottom: "12px" }}>
+        <div style={{ fontSize: "11px", color: "#64748b", textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 700, marginBottom: "6px" }}>
+          Sigue los pasos:
+        </div>
+        <ol style={{ margin: 0, padding: 0, listStyle: "none", textAlign: "left", display: "inline-block", color: "#334155", fontSize: "13px", lineHeight: 1.6 }}>
+          <li>1- Dale al botón de “Copiar y opinar”</li>
+          <li>2- Marca 5 estrellas y pega la reseña</li>
+          <li>3- Enviar</li>
+        </ol>
       </div>
 
       {loading && !body ? (

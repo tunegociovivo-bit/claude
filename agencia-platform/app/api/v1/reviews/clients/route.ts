@@ -56,7 +56,8 @@ const reviewClientCreate = z
 export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
   const items = await prisma.reviewClient.findMany({
     where: { workspaceId: api.workspaceId },
-    orderBy: { createdAt: "desc" }
+    orderBy: { createdAt: "desc" },
+    include: { _count: { select: { opinions: true } } }
   });
   return NextResponse.json({ items });
 });

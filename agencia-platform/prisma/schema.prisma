@@ -712,14 +712,37 @@ model ReviewClient {
   recommendedWords  String? // separadas por coma (solo AI_GENERATOR)
   extraInstructions String?    @db.Text // (solo AI_GENERATOR)
   model             String     @default("gpt-4o-mini")
+  // Switch manual A/B del enlace principal (/g/[slug]). El admin lo cambia con
+  // un botón cuando quiere:
+  //   "generator" → el enlace principal redirige a /r/[slug] (generador IA = URL B)
+  //   "feedback"  → redirige a /g/[slug]/opinar (formulario de opinión = URL A)
+  gateTarget        String     @default("generator")
+  // Texto editable de cabecera que se muestra en la URL A (formulario opinión).
+  gateHeader        String?    @db.Text
   createdAt         DateTime   @default(now())
   updatedAt         DateTime   @updatedAt
 
   workspace Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   history   ReviewHistory[]
+  opinions  ReviewOpinion[]
 
   @@unique([workspaceId, slug])
   @@index([workspaceId])
+}
+
+/// Opiniones que dejan los usuarios en la URL "A" (/g/[slug]/opinar): un texto
+/// libre sobre lo escrito en la cabecera editable del cliente. Privadas (las ve
+/// la agencia en el panel), no se publican en ningún sitio externo.
+model ReviewOpinion {
+  id        String   @id @default(cuid())
+  clientId  String
+  name      String?
+  body      String   @db.Text
+  createdAt DateTime @default(now())
+
+  client ReviewClient @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([clientId])
 }
 
 enum ReviewMode {

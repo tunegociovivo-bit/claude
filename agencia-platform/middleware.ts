@@ -26,6 +26,7 @@ const PUBLIC_PATHS = [
   // redirecciones para que el SO los valide.
   "/.well-known/",
   "/r/",
+  "/g/",
   "/v/",
   "/p/",
   "/api/v1/workspace/public",

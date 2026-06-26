@@ -17,7 +17,10 @@ const updateSchema = z.object({
   model: z.enum(["gpt-4o-mini", "gpt-4o", "gpt-4-turbo"]).optional(),
   positiveUrl: z.string().url().optional().or(z.literal("")),
   negativeUrl: z.string().url().optional().or(z.literal("")),
-  placeId: z.string().optional()
+  placeId: z.string().optional(),
+  // Switch manual A/B del enlace principal + cabecera editable de la URL A.
+  gateTarget: z.enum(["generator", "feedback"]).optional(),
+  gateHeader: z.string().max(4000).optional()
 });
 
 export const PATCH = withApi({ scope: "*" }, async (req, { params, api }) => {
@@ -40,6 +43,8 @@ export const PATCH = withApi({ scope: "*" }, async (req, { params, api }) => {
   if (parsed.data.extraInstructions !== undefined) data.extraInstructions = parsed.data.extraInstructions || null;
   if (parsed.data.model !== undefined) data.model = parsed.data.model;
   if (parsed.data.negativeUrl !== undefined) data.negativeUrl = parsed.data.negativeUrl || null;
+  if (parsed.data.gateTarget !== undefined) data.gateTarget = parsed.data.gateTarget;
+  if (parsed.data.gateHeader !== undefined) data.gateHeader = parsed.data.gateHeader || null;
 
   // placeId: extraer ID si el user pegó la URL completa.
   let placeId: string | null | undefined = undefined;
