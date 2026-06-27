@@ -29,7 +29,7 @@ import {
   patchEvent as gcalPatch,
   type GCalEvent
 } from "./client";
-import type { CalendarEvent, GoogleCalendarConnection } from "@prisma/client";
+import type { CalendarEvent, GoogleCalendarConnection, Task } from "@prisma/client";
 
 export type SyncResult = {
   created: number;
@@ -59,6 +59,14 @@ export async function pullForConnection(
     }
 
     for (const e of events) {
+      // Si el evento de Google es el ESPEJO de una tarea del Hub (push
+      // Hub→Google de tareas con fecha), NO lo reimportamos como evento de
+      // calendario: evita duplicados y bucles. La tarea es la fuente de verdad.
+      const taskMirror = await prisma.task.findFirst({
+        where: { googleCalendarId: conn.calendarId, googleEventId: e.id ?? "__none__" },
+        select: { id: true }
+      });
+      if (taskMirror) continue;
       if (e.status === "cancelled") {
         const del = await prisma.calendarEvent.deleteMany({
           where: {
@@ -272,4 +280,143 @@ export async function deleteEventIfConnected(event: {
       });
   if (!conn) return;
   await deleteEventInGoogle(event, conn);
+}
+
+// ===========================================================================
+//  TAREAS → Google Calendar (push). Las tareas del kanban con fecha (dueDate)
+//  se reflejan como eventos en el Google Calendar del usuario conectado. Es
+//  one-way (el Hub manda): el pull ignora estos eventos espejo (ver guard en
+//  pullForConnection) para no duplicarlos como CalendarEvent.
+// ===========================================================================
+
+function mapTaskToGoogle(task: Task): Partial<GCalEvent> {
+  const summary = `📋 ${task.title}`.slice(0, 240);
+  const description = "Tarea de Negocio Vivo Hub";
+  const due = task.dueDate as Date;
+  if (task.dueAllDay) {
+    return {
+      summary,
+      description,
+      start: { date: isoDate(due) },
+      end: { date: isoDate(addDays(due, 1)) } // end.date exclusivo en Google
+    };
+  }
+  return {
+    summary,
+    description,
+    start: { dateTime: due.toISOString() },
+    end: { dateTime: new Date(due.getTime() + 60 * 60 * 1000).toISOString() }
+  };
+}
+
+/** Crea/actualiza el evento espejo de una tarea en Google. */
+export async function pushTaskToGoogle(task: Task, conn: GoogleCalendarConnection): Promise<void> {
+  if (!conn.pushEnabled || !task.dueDate) return;
+  const body = mapTaskToGoogle(task);
+  try {
+    if (task.googleEventId && task.googleCalendarId === conn.calendarId) {
+      await gcalPatch(conn, task.googleEventId, body);
+      await prisma.task.update({ where: { id: task.id }, data: { gcalSyncedAt: new Date() } });
+    } else {
+      const created = await gcalInsert(conn, body);
+      await prisma.task.update({
+        where: { id: task.id },
+        data: {
+          googleEventId: created.id,
+          googleCalendarId: conn.calendarId,
+          googleOwnerUserId: conn.userId,
+          gcalSyncedAt: new Date()
+        }
+      });
+    }
+  } catch (e: any) {
+    console.warn("[gcal push] task", task.id, e?.message ?? e);
+  }
+}
+
+/** Borra el evento espejo de una tarea en Google y desvincula la tarea. */
+export async function deleteTaskInGoogle(
+  task: { id: string; googleEventId: string | null; googleCalendarId: string | null },
+  conn: GoogleCalendarConnection
+): Promise<void> {
+  if (task.googleEventId && task.googleCalendarId === conn.calendarId) {
+    try {
+      await gcalDelete(conn, task.googleEventId);
+    } catch (e: any) {
+      console.warn("[gcal delete] task", task.googleEventId, e?.message ?? e);
+    }
+  }
+  await prisma.task
+    .update({
+      where: { id: task.id },
+      data: { googleEventId: null, googleCalendarId: null, googleOwnerUserId: null, gcalSyncedAt: null }
+    })
+    .catch(() => {});
+}
+
+/** Push instantáneo al crear/editar una tarea. Si la tarea ya no tiene fecha,
+ *  está completada o en papelera, borra su espejo en Google. */
+export async function pushTaskIfConnected(taskId: string): Promise<void> {
+  const task = await prisma.task.findUnique({ where: { id: taskId } });
+  if (!task) return;
+  const conn = task.googleOwnerUserId
+    ? await prisma.googleCalendarConnection.findUnique({
+        where: { userId_workspaceId: { userId: task.googleOwnerUserId, workspaceId: task.workspaceId } }
+      })
+    : await prisma.googleCalendarConnection.findFirst({
+        where: { workspaceId: task.workspaceId, pushEnabled: true }
+      });
+  if (!conn) return;
+  if (!task.dueDate || task.completedAt || task.deletedAt) {
+    await deleteTaskInGoogle(task, conn);
+    return;
+  }
+  await pushTaskToGoogle(task, conn);
+}
+
+/** Backfill/sync periódico de tareas para una conexión (lo llama el cron y el
+ *  callback al conectar). Empuja las tareas con fecha pendientes de sincronizar
+ *  y borra los espejos de las que ya están completadas / sin fecha. */
+export async function pushPendingTasksForConnection(
+  conn: GoogleCalendarConnection
+): Promise<{ pushed: number; deleted: number }> {
+  if (!conn.pushEnabled) return { pushed: 0, deleted: 0 };
+  const windowStart = new Date(Date.now() - 30 * 86_400_000); // hasta 30 días atrás
+
+  // 1) Crear/actualizar: tareas con fecha, activas, de esta conexión (o sin dueño aún).
+  const tasks = await prisma.task.findMany({
+    where: {
+      workspaceId: conn.workspaceId,
+      deletedAt: null,
+      completedAt: null,
+      dueDate: { gte: windowStart },
+      OR: [{ googleEventId: null }, { googleOwnerUserId: conn.userId }]
+    },
+    orderBy: { dueDate: "asc" },
+    take: 400
+  });
+  let pushed = 0;
+  for (const t of tasks) {
+    // Salta si ya está al día (sincronizada después de la última edición).
+    if (t.googleEventId && t.gcalSyncedAt && t.gcalSyncedAt >= t.updatedAt) continue;
+    await pushTaskToGoogle(t, conn);
+    pushed++;
+  }
+
+  // 2) Borrar espejo de tareas que dejaron de cumplir condiciones.
+  const stale = await prisma.task.findMany({
+    where: {
+      workspaceId: conn.workspaceId,
+      googleOwnerUserId: conn.userId,
+      googleEventId: { not: null },
+      OR: [{ completedAt: { not: null } }, { dueDate: null }, { deletedAt: { not: null } }]
+    },
+    take: 400
+  });
+  let deleted = 0;
+  for (const t of stale) {
+    await deleteTaskInGoogle(t, conn);
+    deleted++;
+  }
+  return { pushed, deleted };
 }

@@ -118,5 +118,11 @@ export const POST = withApi({ scope: "tasks:write" }, async (req, { api }) => {
     dueDate: task.dueDate,
     assigneeIds
   });
+  // Espejo en Google Calendar si hay conexión y la tarea tiene fecha.
+  if (task.dueDate) {
+    void import("@/lib/integrations/google-calendar/sync")
+      .then((m) => m.pushTaskIfConnected(task.id))
+      .catch(() => {});
+  }
   return NextResponse.json(task, { status: 201 });
 });

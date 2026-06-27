@@ -72,6 +72,13 @@ export async function GET(req: NextRequest) {
     void createWatchForConnection(conn).catch((e) =>
       console.warn("[gcal watch] no se pudo crear canal:", e?.message ?? e)
     );
+    // Backfill inmediato: empuja las tareas con fecha ya existentes a Google
+    // para que aparezcan al instante (sin esperar al cron de 15 min).
+    if (conn.pushEnabled) {
+      void import("@/lib/integrations/google-calendar/sync")
+        .then((m) => m.pushPendingTasksForConnection(conn))
+        .catch((e) => console.warn("[gcal backfill tasks]", e?.message ?? e));
+    }
     return redirect(`?gcal=connected`);
   } catch (e: any) {
     console.warn("[gcal callback]", e?.message ?? e);

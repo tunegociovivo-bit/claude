@@ -10,7 +10,7 @@
 
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
-import { pullForConnection } from "@/lib/integrations/google-calendar/sync";
+import { pullForConnection, pushPendingTasksForConnection } from "@/lib/integrations/google-calendar/sync";
 import { cronAuthOk } from "@/lib/cron-auth";
 
 export const dynamic = "force-dynamic";
@@ -25,15 +25,18 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
+  // Conexiones con pull O push activos (antes solo pull).
   const connections = await prisma.googleCalendarConnection.findMany({
-    where: { pullEnabled: true }
+    where: { OR: [{ pullEnabled: true }, { pushEnabled: true }] }
   });
 
-  const results: Array<{ id: string; ok: boolean; created?: number; updated?: number; deleted?: number; error?: string }> = [];
+  const results: Array<{ id: string; ok: boolean; created?: number; updated?: number; deleted?: number; tasksPushed?: number; tasksDeleted?: number; error?: string }> = [];
   for (const conn of connections) {
     try {
-      const r = await pullForConnection(conn);
-      results.push({ id: conn.id, ok: true, ...r });
+      const pulled = conn.pullEnabled ? await pullForConnection(conn) : { created: 0, updated: 0, deleted: 0 };
+      // Push Hub→Google de las TAREAS con fecha (incluye backfill de existentes).
+      const tasks = conn.pushEnabled ? await pushPendingTasksForConnection(conn) : { pushed: 0, deleted: 0 };
+      results.push({ id: conn.id, ok: true, ...pulled, tasksPushed: tasks.pushed, tasksDeleted: tasks.deleted });
     } catch (e: any) {
       results.push({ id: conn.id, ok: false, error: String(e?.message ?? e).slice(0, 200) });
     }

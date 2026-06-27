@@ -254,6 +254,11 @@ export const PATCH = withApi({ scope: "tasks:write" }, async (req, { params, api
       })
     }).catch(() => {});
   }
+  // Sincroniza el espejo en Google Calendar (crea/actualiza/borra según fecha
+  // y estado de la tarea).
+  void import("@/lib/integrations/google-calendar/sync")
+    .then((m) => m.pushTaskIfConnected(params.id))
+    .catch(() => {});
   return NextResponse.json(result);
 });
 
@@ -281,5 +286,9 @@ export const DELETE = withApi({ scope: "tasks:write" }, async (req, { params, ap
     title: snapshot?.title
   });
   void deleteEntityIndex("TASK", params.id).catch(() => {});
+  // Borra el espejo de la tarea en Google Calendar si lo tenía.
+  void import("@/lib/integrations/google-calendar/sync")
+    .then((m) => m.pushTaskIfConnected(params.id))
+    .catch(() => {});
   return NextResponse.json({ ok: true });
 });
