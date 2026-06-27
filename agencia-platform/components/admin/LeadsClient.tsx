@@ -6102,11 +6102,19 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
               <button
                 type="button"
                 onClick={async () => {
-                  if (!confirm("¿Mover a la papelera todas las tareas 'Seguir lead interesado' existentes? Son recuperables 30 días.")) return;
-                  const r = await fetch("/api/v1/leads/cleanup-followup-tasks", { method: "POST" });
-                  const j = await r.json().catch(() => ({}));
-                  if (r.ok) alert(`✅ ${j.deleted} tareas movidas a la papelera.`);
-                  else alert("Error: " + (j?.error?.message ?? r.status));
+                  if (!confirm("¿Mover a la papelera las tareas 'Seguir lead interesado' y borrar sus eventos en Google Calendar? Las tareas son recuperables 30 días.")) return;
+                  let deleted = 0;
+                  let purged = 0;
+                  // Repite por lotes hasta que no queden espejos en Google.
+                  for (let i = 0; i < 40; i++) {
+                    const r = await fetch("/api/v1/leads/cleanup-followup-tasks", { method: "POST" });
+                    const j = await r.json().catch(() => ({}));
+                    if (!r.ok) { alert("Error: " + (j?.error?.message ?? r.status)); return; }
+                    deleted += j.deleted ?? 0;
+                    purged += j.purgedFromGoogle ?? 0;
+                    if ((j.remaining ?? 0) <= 0) break;
+                  }
+                  alert(`✅ ${deleted} tareas a la papelera · ${purged} eventos borrados de Google Calendar.`);
                 }}
                 className="mt-2 text-xs font-semibold px-3 py-1.5 rounded-lg border border-rose-200 text-rose-700 hover:bg-rose-50"
               >
