@@ -13,6 +13,38 @@
  */
 
 import { prisma } from "@/lib/db/prisma";
+import { getWhatsappProvider, getSession } from "@/lib/leads/waha";
+
+/**
+ * Estado de conexión en vivo de una sesión WAHA, cacheado 60s para no martillear
+ * la API en cada encolado. Solo "WORKING" cuenta como conectado. Fail-open: si
+ * no se puede consultar, devolvemos `null` (no excluimos el canal) para no parar
+ * los envíos por un fallo de la consulta.
+ */
+const _sessionStatusCache = new Map<string, { status: string | null; at: number }>();
+const SESSION_STATUS_TTL_MS = 60_000;
+
+async function liveSessionConnected(workspaceId: string, name: string): Promise<boolean | null> {
+  const key = `${workspaceId}:${name}`;
+  const cached = _sessionStatusCache.get(key);
+  if (cached && Date.now() - cached.at < SESSION_STATUS_TTL_MS) {
+    return cached.status === null ? null : cached.status === "WORKING";
+  }
+  try {
+    const provider = await getWhatsappProvider(workspaceId);
+    if (provider !== "waha") {
+      _sessionStatusCache.set(key, { status: null, at: Date.now() }); // Evolution: no comprobamos aquí
+      return null;
+    }
+    const s = await getSession({ workspaceId, session: name });
+    const st = String((s as any)?.status ?? "").toUpperCase() || "UNKNOWN";
+    _sessionStatusCache.set(key, { status: st, at: Date.now() });
+    return st === "WORKING";
+  } catch {
+    _sessionStatusCache.set(key, { status: null, at: Date.now() });
+    return null; // fail-open
+  }
+}
 
 export type LeadChannel = {
   name: string; // sesión WAHA o instancia Evolution
@@ -31,8 +63,8 @@ const DEFAULT_CHANNEL_DAILY_LIMIT = 50;
  */
 export function channelWarmupCap(channel: any, leads: any): { cap: number; warming: boolean; dayIndex: number; warmupDays: number } {
   const configured = channel?.dailyLimit ?? DEFAULT_CHANNEL_DAILY_LIMIT;
-  const warmupDays = Number(leads?.warmupDays) || 21;
-  const startCap = Math.min(Number(leads?.warmupStartCap) || 10, configured);
+  const warmupDays = Number(leads?.warmupDays) || 30;
+  const startCap = Math.min(Number(leads?.warmupStartCap) || 5, configured);
   // warmupSince permite reiniciar la rampa (teléfono nuevo O recuperado de un
   // baneo); si no, la fecha de alta.
   const startStr = channel?.warmupSince || channel?.addedAt;
@@ -191,8 +223,18 @@ export async function pickEnqueueChannel(workspaceId: string): Promise<string | 
   const health = await getChannelsHealthMap(workspaceId, channels);
   const notQuarantined = slots.filter((s) => s.key === PRINCIPAL || health.get(s.key) !== "quarantined");
   const candidates = notQuarantined.length > 0 ? notQuarantined : slots;
-  const healthy = candidates.filter((s) => s.key === PRINCIPAL || health.get(s.key) === "healthy");
-  const roster = healthy.length > 0 ? healthy : candidates;
+
+  // Conexión en vivo: excluimos los números cuya sesión de WhatsApp NO está
+  // conectada (Desconectado / sin escanear / caída). Así un número restringido
+  // o caído deja de usarse al instante, en vez de seguir intentándose y
+  // empeorando el baneo. Fail-open: si no se puede comprobar, no se excluye.
+  const connFlags = await Promise.all(
+    candidates.map((s) => (s.key === PRINCIPAL ? Promise.resolve(true) : liveSessionConnected(workspaceId, s.key)))
+  );
+  const connected = candidates.filter((_, i) => connFlags[i] !== false);
+  const usable = connected.length > 0 ? connected : candidates;
+  const healthy = usable.filter((s) => s.key === PRINCIPAL || health.get(s.key) === "healthy");
+  const roster = healthy.length > 0 ? healthy : usable;
   if (roster.length === 1) return roster[0].instanceName;
 
   // Uso de hoy por número (enviados + programados pendientes).

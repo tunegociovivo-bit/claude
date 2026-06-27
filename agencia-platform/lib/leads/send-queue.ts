@@ -102,13 +102,13 @@ const DEFAULTS: LeadsSendSettings = {
   validateWaBeforeSend: true,
   maxPerHour: 10,
   minCoolDownDaysPerRecipient: 7,
-  maxNewChatsPerDay: 25,
+  maxNewChatsPerDay: 15,
   recoveryMode: false,
   recoverySince: null,
   recoveryDurationDays: 14,
   warmupEnabled: true,
-  warmupDays: 21,
-  warmupStartCap: 10,
+  warmupDays: 30,
+  warmupStartCap: 5,
   autoRecoveryEnabled: true,
   dailyJitterPct: 0.15
 };
@@ -195,6 +195,10 @@ export async function getSendSettings(workspaceId: string): Promise<LeadsSendSet
   if (base.warmupEnabled) {
     const cap = await computeWarmupCap(workspaceId, base);
     base.dailyLimit = Math.min(base.dailyLimit, cap);
+    // Durante el calentamiento limitamos también los CHATS NUEVOS (primeros
+    // contactos en frío), que es el principal factor de baneo de un número
+    // nuevo — no solo el volumen total. Los ceñimos al tope bajo de la rampa.
+    base.maxNewChatsPerDay = Math.min(base.maxNewChatsPerDay, cap);
   }
 
   // JITTER: resta un % aleatorio (determinístico por día de Madrid) al tope
