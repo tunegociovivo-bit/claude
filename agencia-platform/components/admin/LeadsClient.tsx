@@ -6099,6 +6099,19 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
                 Cuando un lead responde interesado, crea una tarea en el proyecto «Seguimiento de leads» con recordatorio.
                 <b> Desactivado por defecto</b> (para no llenar la columna). Actívalo cuando quieras volver a generarlas.
               </p>
+              <button
+                type="button"
+                onClick={async () => {
+                  if (!confirm("¿Mover a la papelera todas las tareas 'Seguir lead interesado' existentes? Son recuperables 30 días.")) return;
+                  const r = await fetch("/api/v1/leads/cleanup-followup-tasks", { method: "POST" });
+                  const j = await r.json().catch(() => ({}));
+                  if (r.ok) alert(`✅ ${j.deleted} tareas movidas a la papelera.`);
+                  else alert("Error: " + (j?.error?.message ?? r.status));
+                }}
+                className="mt-2 text-xs font-semibold px-3 py-1.5 rounded-lg border border-rose-200 text-rose-700 hover:bg-rose-50"
+              >
+                🧹 Limpiar las tareas de seguimiento ya creadas
+              </button>
             </div>
             <div className="mt-2 rounded-lg border bg-slate-50/60 p-3">
               <div className="flex items-center justify-between mb-1.5">
