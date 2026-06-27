@@ -78,7 +78,7 @@ export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
     warmupEnabled: s.warmupEnabled ?? true,
     warmupDays: s.warmupDays ?? 30,
     warmupStartCap: s.warmupStartCap ?? 5,
-    warmupChatEnabled: s.warmupChatEnabled ?? false,
+    warmupChatEnabled: s.warmupChatEnabled ?? true,
     principalPhone: s.principalPhone ?? null,
     autoRecoveryEnabled: s.autoRecoveryEnabled ?? true,
     dailyJitterPct: s.dailyJitterPct ?? 0.15,

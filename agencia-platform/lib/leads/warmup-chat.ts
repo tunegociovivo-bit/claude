@@ -45,7 +45,10 @@ export async function runWarmupConversations(): Promise<void> {
 async function runForWorkspace(workspaceId: string): Promise<void> {
   const w = await prisma.workspace.findUnique({ where: { id: workspaceId } });
   const leads: any = (w?.settings as any)?.leads;
-  if (!leads || leads.warmupChatEnabled !== true) return;
+  // Activo por defecto: solo se omite si se desactiva explícitamente. Es seguro
+  // porque más abajo se auto-omite si no hay ≥2 teléfonos o ningún canal en
+  // calentamiento.
+  if (!leads || leads.warmupChatEnabled === false) return;
 
   const channels: any[] = (Array.isArray(leads.channels) ? leads.channels : []).filter(
     (c: any) => c && typeof c.name === "string" && c.name.trim() && c.active !== false
