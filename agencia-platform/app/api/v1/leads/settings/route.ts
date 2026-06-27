@@ -52,6 +52,9 @@ export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
     autoReplyEnabled: !!s.autoReplyEnabled,
     autoReplyText: s.autoReplyText ?? "¡Hola! Gracias por escribir 🙌 Te atiendo enseguida.",
     autoFollowupEnabled: !!s.autoFollowupEnabled,
+    // Crear tarea de seguimiento en el tablero al detectar un lead interesado.
+    // Desactivado por defecto (no llena la columna de Seguimiento).
+    followupTaskEnabled: s.followupTaskEnabled ?? false,
     // Fuentes premium de captación.
     metaAdsConfigured: !!(s.metaAdsTokenEnc || s.metaAdsToken || process.env.META_ADS_TOKEN),
     scrapflyConfigured: !!(s.scrapflyApiKeyEnc || process.env.SCRAPFLY_API_KEY),
@@ -117,6 +120,7 @@ const schema = z.object({
   autoReplyEnabled: z.boolean().optional(),
   autoReplyText: z.string().max(1000).optional(),
   autoFollowupEnabled: z.boolean().optional(),
+  followupTaskEnabled: z.boolean().optional(),
   // Fuentes premium: token de Meta Ad Library y API key de Scrapfly (cifrados).
   metaAdsToken: z.string().max(500).optional(),
   clearMetaAdsToken: z.boolean().optional(),
@@ -254,6 +258,7 @@ export const PATCH = withApi({ scope: "*" }, async (req, { api }) => {
     "autoReplyEnabled",
     "autoReplyText",
     "autoFollowupEnabled",
+    "followupTaskEnabled",
     "sendEnabled",
     "sendPaused",
     "sendWindowStart",

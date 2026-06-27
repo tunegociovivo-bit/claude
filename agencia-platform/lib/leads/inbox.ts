@@ -120,6 +120,15 @@ async function createLeadFollowupTask(opts: {
   text: string;
 }): Promise<void> {
   try {
+    // Interruptor: la creación de tareas de seguimiento al detectar un lead
+    // interesado está DESACTIVADA por defecto. Se activa desde Ajustes de NV
+    // Leads Pro (settings.leads.followupTaskEnabled = true).
+    const ws = await prisma.workspace.findUnique({
+      where: { id: opts.workspaceId },
+      select: { settings: true }
+    });
+    if ((ws?.settings as any)?.leads?.followupTaskEnabled !== true) return;
+
     // Evitar duplicados: si ya hay una tarea de seguimiento abierta para este
     // lead, no creamos otra.
     if (opts.leadId) {

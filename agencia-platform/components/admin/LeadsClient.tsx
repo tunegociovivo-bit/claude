@@ -5670,6 +5670,7 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
       voiceMaxSeconds: s.voiceMaxSeconds,
       autoRecoveryEnabled: s.autoRecoveryEnabled,
       dailyJitterPct: s.dailyJitterPct,
+      followupTaskEnabled: s.followupTaskEnabled,
       channels: Array.isArray(s.channels) ? s.channels : []
     };
     // La clave de Google SOLO se guarda si parece real (AIza…). Esto evita el
@@ -6082,6 +6083,21 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
                 Si un lead caliente se queda en silencio tras tu última respuesta, la IA le manda sola un follow-up suave
                 con cadencia decreciente (24h → 72h → 7 días, máx 3 toques). Se detiene en cuanto el lead responde o pide
                 baja, respeta tu ventana horaria y el anti-baneo. Puedes desactivarlo por conversación desde su chat.
+              </p>
+            </div>
+            <div className="mt-2 rounded-lg border bg-slate-50/60 p-3">
+              <label className="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={!!s.followupTaskEnabled}
+                  onChange={(e) => setField("followupTaskEnabled", e.target.checked)}
+                  className="accent-indigo-600"
+                />
+                📋 Crear tarea de seguimiento al detectar un lead interesado
+              </label>
+              <p className="text-[11px] text-slate-500 mt-1">
+                Cuando un lead responde interesado, crea una tarea en el proyecto «Seguimiento de leads» con recordatorio.
+                <b> Desactivado por defecto</b> (para no llenar la columna). Actívalo cuando quieras volver a generarlas.
               </p>
             </div>
             <div className="mt-2 rounded-lg border bg-slate-50/60 p-3">
