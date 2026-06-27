@@ -74,6 +74,32 @@ const COLOR_ORDER: NoteColor[] = ["amber", "sky", "rose", "emerald", "violet", "
 
 type Note = { id: string; content: string; color: string; order: number };
 
+/** Pie del mini-calendario: estado de la conexión con Google Calendar y acceso
+ *  rápido a /perfil para conectar/gestionar la sincronización bidireccional. */
+function GoogleCalSyncLink() {
+  const [st, setSt] = useState<{ connected: boolean; configured: boolean; email: string | null } | null>(null);
+  useEffect(() => {
+    fetch("/api/v1/me/google-calendar")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => d && setSt({ connected: !!d.connected, configured: !!d.configured, email: d.googleAccountEmail ?? null }))
+      .catch(() => {});
+  }, []);
+  if (!st) return null;
+  return (
+    <a
+      href="/perfil"
+      className="flex items-center gap-1.5 border-t border-slate-700 px-3 py-2 text-[11px] hover:bg-slate-700/50 transition"
+      title="Sincroniza tus tareas con Google Calendar (bidireccional)"
+    >
+      {st.connected ? (
+        <span className="text-emerald-400 truncate">✓ Google Calendar{st.email ? ` · ${st.email}` : " conectado"}</span>
+      ) : (
+        <span className="text-brand-400 font-medium">🔗 Sincronizar con Google Calendar</span>
+      )}
+    </a>
+  );
+}
+
 export default function PanelDock({
   tasks,
   myUserId,
@@ -297,6 +323,9 @@ export default function PanelDock({
             );
           })}
         </div>
+
+        {/* Sincronización con Google Calendar (estado + acceso a /perfil) */}
+        <GoogleCalSyncLink />
 
         {/* Lista del día seleccionado → click abre la tarea */}
         {selectedDay && (
