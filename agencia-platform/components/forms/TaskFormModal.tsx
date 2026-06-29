@@ -704,6 +704,21 @@ export default function TaskFormModal({
     await fetch(`/api/v1/tasks/${id}`, { method: "DELETE" });
   }
 
+  /** Sube (dir=-1) o baja (dir=1) una subtarea y persiste el nuevo orden. */
+  async function moveSubtask(index: number, dir: -1 | 1) {
+    const target = index + dir;
+    if (target < 0 || target >= subtasks.length) return;
+    const reordered = [...subtasks];
+    [reordered[index], reordered[target]] = [reordered[target], reordered[index]];
+    setSubtasks(reordered);
+    // Persistimos órdenes secuenciales (0..n) de toda la lista de una vez.
+    await fetch("/api/v1/tasks/reorder", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ items: reordered.map((s, i) => ({ id: s.id, order: i })) })
+    }).catch(() => {});
+  }
+
   async function openSubtask(subId: string) {
     // Cargar subtarea completa y empujarla a la pila
     const r = await fetch(`/api/v1/tasks/${subId}`);
@@ -1062,13 +1077,33 @@ export default function TaskFormModal({
                 </span>
               </div>
               <div className="space-y-1.5">
-                {subtasks.map((s) => {
+                {subtasks.map((s, idx) => {
                   const done = s.status === "DONE";
                   return (
                     <div
                       key={s.id}
                       className="flex items-center gap-2 group bg-white border rounded-lg px-2.5 py-1.5 hover:border-brand-200"
                     >
+                      <div className="flex flex-col -my-1 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => moveSubtask(idx, -1)}
+                          disabled={idx === 0}
+                          title="Subir"
+                          className="h-3.5 w-4 grid place-items-center rounded text-slate-300 hover:text-brand-600 hover:bg-brand-50 disabled:opacity-0 disabled:pointer-events-none"
+                        >
+                          <ArrowUp className="h-3 w-3" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => moveSubtask(idx, 1)}
+                          disabled={idx === subtasks.length - 1}
+                          title="Bajar"
+                          className="h-3.5 w-4 grid place-items-center rounded text-slate-300 hover:text-brand-600 hover:bg-brand-50 disabled:opacity-0 disabled:pointer-events-none"
+                        >
+                          <ArrowDown className="h-3 w-3" />
+                        </button>
+                      </div>
                       <button
                         type="button"
                         onClick={() => toggleSubtask(s.id, s.status)}

@@ -20,7 +20,7 @@ export const GET = withApi({ scope: "tasks:read" }, async (_req, { params, api }
       client: true,
       assignees: { include: { user: true } },
       tags: { include: { tag: true } },
-      subtasks: true
+      subtasks: { orderBy: [{ order: "asc" }, { createdAt: "asc" }] }
     }
   });
   if (!task) throw new ApiError(404, "not_found", "Tarea no encontrada");
