@@ -197,8 +197,7 @@ export function Feed() {
     if (type === "review" && item.reviewUrl) { Linking.openURL(item.reviewUrl).catch(() => {}); }
     setVerifyingOffer(item.offerId);
     try {
-      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (!perm.granted) { Alert.alert("Permiso necesario", "Necesitamos acceso a tus fotos para subir la captura."); return; }
+      // Photo picker del sistema (Android 13+): NO requiere permiso READ_MEDIA.
       const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.6, base64: true });
       const asset = res.assets?.[0];
       if (res.canceled || !asset?.base64) return;
