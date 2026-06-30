@@ -45,8 +45,13 @@ function imageOf(notification: Notifications.Notification): string | undefined {
 Notifications.setNotificationHandler({
   handleNotification: async (notification) => {
     const hasImage = !!imageOf(notification);
+    // SDK 53 (expo-notifications 0.31) dividió shouldShowAlert en
+    // shouldShowBanner + shouldShowList. Mantenemos shouldShowAlert por
+    // compatibilidad con runtimes antiguos.
     return {
       shouldShowAlert: !hasImage,
+      shouldShowBanner: !hasImage,
+      shouldShowList: !hasImage,
       shouldPlaySound: true,
       shouldSetBadge: false
     };

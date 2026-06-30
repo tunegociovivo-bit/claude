@@ -7,6 +7,7 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
     "scheme": "bubui",
+    "newArchEnabled": false,
     "splash": {
       "image": "./assets/splash.png",
       "resizeMode": "contain",
@@ -47,7 +48,8 @@
         "android.permission.ACCESS_BACKGROUND_LOCATION",
         "android.permission.READ_MEDIA_IMAGES",
         "android.permission.READ_MEDIA_VIDEO",
-        "android.permission.READ_MEDIA_VISUAL_USER_SELECTED"
+        "android.permission.READ_MEDIA_VISUAL_USER_SELECTED",
+        "android.permission.RECORD_AUDIO"
       ],
       "intentFilters": [
         {
@@ -101,13 +103,15 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "Bubui necesita la cámara para escanear el QR de los negocios."
+          "cameraPermission": "Bubui necesita la cámara para escanear el QR de los negocios.",
+          "recordAudioAndroid": false
         }
       ],
       [
         "expo-image-picker",
         {
-          "photosPermission": "Bubui necesita acceso a tus fotos para subir la captura de tu reseña o publicación y validar la acción de la mesa."
+          "photosPermission": "Bubui necesita acceso a tus fotos para subir la captura de tu reseña o publicación y validar la acción de la mesa.",
+          "microphonePermission": false
         }
       ],
       [

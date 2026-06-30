@@ -23,7 +23,14 @@ export function Gradient({
   end?: Point;
 }) {
   return (
-    <LinearGradient colors={colors} start={start} end={end} style={style}>
+    <LinearGradient
+      // expo-linear-gradient v14 (SDK 53) tipa `colors` como tupla de ≥2
+      // colores; nuestras paletas siempre traen 2+, así que casteamos.
+      colors={colors as [string, string, ...string[]]}
+      start={start}
+      end={end}
+      style={style}
+    >
       {children}
     </LinearGradient>
   );
