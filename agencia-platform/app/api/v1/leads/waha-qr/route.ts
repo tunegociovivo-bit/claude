@@ -58,6 +58,23 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
     } catch {
       /* warm-up best-effort: no romper el QR si falla */
     }
+  } else {
+    // Sin session = número PRINCIPAL. (Re)vincularlo por QR es lo típico tras un
+    // baneo (enchufas otra SIM). Sellamos principalSince para reiniciar su rampa
+    // de calentamiento (arranca enviando poco). Debounce 10 min para no
+    // reescribir en cada refresco del QR.
+    try {
+      const ws = await prisma.workspace.findUnique({ where: { id: api.workspaceId } });
+      const settings: any = ws?.settings ?? {};
+      settings.leads = settings.leads ?? {};
+      const since = settings.leads.principalSince ? Date.parse(settings.leads.principalSince) : 0;
+      if (!since || Date.now() - since > 10 * 60 * 1000) {
+        settings.leads.principalSince = new Date().toISOString();
+        await prisma.workspace.update({ where: { id: api.workspaceId }, data: { settings } });
+      }
+    } catch {
+      /* warm-up best-effort: no romper el QR si falla */
+    }
   }
 
   // Evolution: el QR viene como data URL base64 en /instance/connect.

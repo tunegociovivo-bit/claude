@@ -77,6 +77,11 @@ export type LeadsSendSettings = {
   warmupDays: number;
   /** Tope del primer día. */
   warmupStartCap: number;
+  /** Fecha de "nacimiento" del número PRINCIPAL a efectos de calentamiento.
+   *  Se sella al conectar o cambiar el número principal (típico tras un baneo:
+   *  enchufas otra SIM). Así un número nuevo re-caliente desde el arranque en
+   *  vez de heredar la antigüedad del workspace y salir enviando a tope. */
+  principalSince: string | null;
   // ── AUTO-RECUPERACIÓN ──
   /** Si detecta un pico de fallos de envío (señal típica de restricción),
    *  activa solo el modo recuperación automáticamente. */
@@ -94,7 +99,7 @@ const DEFAULTS: LeadsSendSettings = {
   sendWindowStart: "09:00",
   sendWindowEnd: "20:00",
   sendOnWeekends: false,
-  dailyLimit: 80,
+  dailyLimit: 60,
   enableVariations: true,
   sendPaused: false,
   countryCode: "34",
@@ -102,13 +107,14 @@ const DEFAULTS: LeadsSendSettings = {
   validateWaBeforeSend: true,
   maxPerHour: 10,
   minCoolDownDaysPerRecipient: 7,
-  maxNewChatsPerDay: 15,
+  maxNewChatsPerDay: 10,
   recoveryMode: false,
   recoverySince: null,
   recoveryDurationDays: 14,
   warmupEnabled: true,
-  warmupDays: 30,
-  warmupStartCap: 5,
+  warmupDays: 45,
+  warmupStartCap: 3,
+  principalSince: null,
   autoRecoveryEnabled: true,
   dailyJitterPct: 0.15
 };
@@ -149,6 +155,7 @@ export async function getSendSettings(workspaceId: string): Promise<LeadsSendSet
     warmupEnabled: s.warmupEnabled ?? DEFAULTS.warmupEnabled,
     warmupDays: s.warmupDays ?? DEFAULTS.warmupDays,
     warmupStartCap: s.warmupStartCap ?? DEFAULTS.warmupStartCap,
+    principalSince: s.principalSince ?? DEFAULTS.principalSince,
     autoRecoveryEnabled: s.autoRecoveryEnabled ?? DEFAULTS.autoRecoveryEnabled,
     dailyJitterPct: s.dailyJitterPct ?? DEFAULTS.dailyJitterPct
   };
@@ -211,6 +218,15 @@ export async function getSendSettings(workspaceId: string): Promise<LeadsSendSet
     base.dailyLimit = Math.max(1, Math.round(base.dailyLimit - reduction));
   }
 
+  // CHATS EN FRÍO: abrir muchas conversaciones nuevas es el disparador de baneo
+  // nº1 (más que el volumen total). Se mantiene SIEMPRE por debajo del volumen
+  // diario: como máximo el 40% del tope efectivo del día. Así, aunque el usuario
+  // suba maxNewChatsPerDay, nunca supera lo que un humano abriría en un día.
+  base.maxNewChatsPerDay = Math.min(
+    base.maxNewChatsPerDay,
+    Math.max(1, Math.ceil(base.dailyLimit * 0.4))
+  );
+
   // MULTI-NÚMERO: los topes anti-baneo (diario, por hora, nuevas conversaciones)
   // son POR NÚMERO. El principal + los números extra activos reparten el volumen,
   // así que el tope del WORKSPACE es la SUMA: con N números, N× envíos/día. El
@@ -233,13 +249,21 @@ export async function getSendSettings(workspaceId: string): Promise<LeadsSendSet
 
 /** Tope diario efectivo según el "calentamiento" del número. */
 async function computeWarmupCap(workspaceId: string, settings: LeadsSendSettings): Promise<number> {
-  const first = await prisma.leadMessage.findFirst({
-    where: { workspaceId, status: { in: SENT_STATUSES }, sentAt: { not: null } },
-    orderBy: { sentAt: "asc" },
-    select: { sentAt: true }
-  });
-  if (!first?.sentAt) return settings.warmupStartCap; // aún no se ha enviado nada
-  const dayIndex = Math.floor((Date.now() - first.sentAt.getTime()) / 86_400_000) + 1;
+  // Fecha de "nacimiento" del número principal. Prioriza principalSince (se sella
+  // al conectar/cambiar el número principal, típico tras un baneo) para que un
+  // número nuevo re-caliente desde cero, en vez de heredar la antigüedad del
+  // workspace y salir enviando a tope el día 1 (la causa del re-baneo).
+  let birth = settings.principalSince ? Date.parse(settings.principalSince) : NaN;
+  if (Number.isNaN(birth)) {
+    const first = await prisma.leadMessage.findFirst({
+      where: { workspaceId, status: { in: SENT_STATUSES }, sentAt: { not: null } },
+      orderBy: { sentAt: "asc" },
+      select: { sentAt: true }
+    });
+    if (!first?.sentAt) return settings.warmupStartCap; // aún no se ha enviado nada
+    birth = first.sentAt.getTime();
+  }
+  const dayIndex = Math.floor((Date.now() - birth) / 86_400_000) + 1;
   if (dayIndex >= settings.warmupDays) return settings.dailyLimit;
   const ramp =
     settings.warmupStartCap +
