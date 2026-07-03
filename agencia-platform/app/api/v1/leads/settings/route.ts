@@ -71,15 +71,16 @@ export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
     webhookLastEvent: s.webhookLastEvent ?? null,
     maxPerHour: s.maxPerHour ?? 10,
     minCoolDownDaysPerRecipient: s.minCoolDownDaysPerRecipient ?? 7,
-    maxNewChatsPerDay: s.maxNewChatsPerDay ?? 15,
+    maxNewChatsPerDay: s.maxNewChatsPerDay ?? 10,
     recoveryMode: !!s.recoveryMode,
     recoverySince: s.recoverySince ?? null,
     recoveryDurationDays: s.recoveryDurationDays ?? 14,
     warmupEnabled: s.warmupEnabled ?? true,
-    warmupDays: s.warmupDays ?? 30,
-    warmupStartCap: s.warmupStartCap ?? 5,
+    warmupDays: s.warmupDays ?? 45,
+    warmupStartCap: s.warmupStartCap ?? 3,
     warmupChatEnabled: s.warmupChatEnabled ?? true,
     principalPhone: s.principalPhone ?? null,
+    principalSince: s.principalSince ?? null,
     autoRecoveryEnabled: s.autoRecoveryEnabled ?? true,
     dailyJitterPct: s.dailyJitterPct ?? 0.15,
     sendEnabled: s.sendEnabled ?? true,
@@ -89,7 +90,7 @@ export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
     sendDelayMinSec: s.sendDelayMinSec ?? 60,
     sendDelayMaxSec: s.sendDelayMaxSec ?? 180,
     sendOnWeekends: s.sendOnWeekends ?? false,
-    dailyLimit: s.dailyLimit ?? 80,
+    dailyLimit: s.dailyLimit ?? 60,
     enableVariations: s.enableVariations ?? true,
     validateWaBeforeSend: s.validateWaBeforeSend ?? true,
     maxAttempts: s.maxAttempts ?? 3,
@@ -191,6 +192,9 @@ export const PATCH = withApi({ scope: "*" }, async (req, { api }) => {
   const settings: any = ws?.settings ?? {};
   settings.leads = settings.leads ?? {};
   const s = settings.leads;
+  // Número principal ANTES de aplicar cambios: si cambia, reiniciamos su rampa
+  // de calentamiento más abajo (número nuevo tras un baneo → arranca suave).
+  const prevPrincipalPhone = s.principalPhone ?? null;
 
   // Borrar requiere flag explícito clearXxxKey:true. Si solo llega "" o null
   // lo IGNORAMOS — antes esto borraba la key al pulsar Guardar sin tocar el
@@ -301,6 +305,15 @@ export const PATCH = withApi({ scope: "*" }, async (req, { api }) => {
       ...c,
       addedAt: c.addedAt || prevById.get(c.name)?.addedAt || nowIso
     }));
+  }
+  // Número principal: si cambia (típico tras un baneo, cuando enchufas otra
+  // SIM), reinicia su rampa de calentamiento sellando principalSince = ahora,
+  // para que arranque enviando poco e ir subiendo. Si se borra, limpia la marca.
+  if (parsed.data.principalPhone !== undefined) {
+    const norm = (v: any) => String(v ?? "").replace(/\D/g, "");
+    if (norm(parsed.data.principalPhone) !== norm(prevPrincipalPhone)) {
+      s.principalSince = parsed.data.principalPhone ? new Date().toISOString() : null;
+    }
   }
   // Recovery toggle: al activar, sella la fecha de inicio. Al desactivar
   // borra recoverySince para que el siguiente toggle vuelva a empezar.
