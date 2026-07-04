@@ -225,13 +225,27 @@ export async function evoConnect(
     // 2) Si no existe (404), crearla. Evolution v2 a veces devuelve el QR aquí,
     //    pero Baileys lo genera async: si llega vacío, lo recogemos en el bucle.
     if (resp.status === 404) {
+      // Proxy por número (anti-baneo): la instancia sale por su proxy
+      // residencial/móvil en vez de la IP de datacenter del servidor.
+      const { resolveProxyForSession } = await import("./proxy");
+      const ws = await prisma.workspace.findUnique({ where: { id: workspaceId } });
+      const proxy = resolveProxyForSession((ws?.settings as any)?.leads ?? {}, cfg.instance);
       const create = await fetch(`${cfg.baseUrl}/instance/create`, {
         method: "POST",
         headers: headers(cfg.apiKey),
         body: JSON.stringify({
           instanceName: cfg.instance,
           integration: "WHATSAPP-BAILEYS",
-          qrcode: true
+          qrcode: true,
+          ...(proxy
+            ? {
+                proxyHost: proxy.host,
+                proxyPort: proxy.port,
+                proxyProtocol: proxy.protocol,
+                ...(proxy.username ? { proxyUsername: proxy.username } : {}),
+                ...(proxy.password ? { proxyPassword: proxy.password } : {})
+              }
+            : {})
         })
       });
       if (create.ok) {
