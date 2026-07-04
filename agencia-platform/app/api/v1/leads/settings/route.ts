@@ -81,6 +81,7 @@ export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
     warmupChatEnabled: s.warmupChatEnabled ?? true,
     principalPhone: s.principalPhone ?? null,
     principalSince: s.principalSince ?? null,
+    wahaProxy: s.wahaProxy ?? null,
     autoRecoveryEnabled: s.autoRecoveryEnabled ?? true,
     dailyJitterPct: s.dailyJitterPct ?? 0.15,
     sendEnabled: s.sendEnabled ?? true,
@@ -159,6 +160,9 @@ const schema = z.object({
   warmupStartCap: z.number().int().min(1).max(1000).optional(),
   warmupChatEnabled: z.boolean().optional(),
   principalPhone: z.string().max(30).nullable().optional(),
+  // Proxy global por defecto para las sesiones de WhatsApp (anti-baneo: salir por
+  // IP residencial/móvil, no por la del datacenter). Ej: http://user:pass@host:port
+  wahaProxy: z.string().max(200).nullable().optional(),
   autoRecoveryEnabled: z.boolean().optional(),
   dailyJitterPct: z.number().min(0).max(0.5).optional(),
   rotateWebhookToken: z.boolean().optional(),
@@ -175,7 +179,10 @@ const schema = z.object({
         addedAt: z.string().nullable().optional(),
         phone: z.string().max(30).nullable().optional(),
         // Reinicio de la rampa de calentamiento (teléfono nuevo o recuperado).
-        warmupSince: z.string().nullable().optional()
+        warmupSince: z.string().nullable().optional(),
+        // Proxy residencial/móvil específico de ESTE número (prioridad sobre el
+        // global). Cada número con su IP sticky = mucho menos baneo.
+        proxy: z.string().max(200).nullable().optional()
       })
     )
     .max(20)
@@ -283,6 +290,7 @@ export const PATCH = withApi({ scope: "*" }, async (req, { api }) => {
     "warmupStartCap",
     "warmupChatEnabled",
     "principalPhone",
+    "wahaProxy",
     "voiceSpeed",
     "voiceShorten",
     "voiceMaxSeconds",

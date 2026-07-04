@@ -247,10 +247,20 @@ export async function getSession(opts: { workspaceId: string; session?: string }
 
 export async function startSession(opts: { workspaceId: string; session?: string }): Promise<any> {
   const cfg = await getWahaConfig(opts.workspaceId);
+  const sessionName = opts.session ?? cfg.session;
+  // Proxy por número (anti-baneo): cada sesión sale por su propio proxy
+  // residencial/móvil en vez de la IP de datacenter del servidor. Solo se
+  // añade `config` si hay proxy configurado; sin proxy, el body es idéntico
+  // al de siempre (cero cambios para quien no lo use).
+  const { resolveProxyForSession, toWahaProxy } = await import("./proxy");
+  const ws = await prisma.workspace.findUnique({ where: { id: opts.workspaceId } });
+  const proxy = toWahaProxy(resolveProxyForSession((ws?.settings as any)?.leads ?? {}, sessionName));
+  const body: any = { name: sessionName };
+  if (proxy) body.config = { proxy };
   const resp = await fetch(`${cfg.baseUrl}/api/sessions/start`, {
     method: "POST",
     headers: { "Content-Type": "application/json", "X-Api-Key": cfg.apiKey },
-    body: JSON.stringify({ name: opts.session ?? cfg.session })
+    body: JSON.stringify(body)
   });
   if (!resp.ok) {
     const txt = await resp.text();
