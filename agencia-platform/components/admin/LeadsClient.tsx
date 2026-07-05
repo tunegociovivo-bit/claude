@@ -5671,6 +5671,7 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
       autoRecoveryEnabled: s.autoRecoveryEnabled,
       dailyJitterPct: s.dailyJitterPct,
       wahaProxy: s.wahaProxy ?? null,
+      blockLinksInFirstMessage: s.blockLinksInFirstMessage,
       followupTaskEnabled: s.followupTaskEnabled,
       channels: Array.isArray(s.channels) ? s.channels : []
     };
@@ -6474,6 +6475,23 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
               <input type="number" value={s.maxNewChatsPerDay ?? 10} onChange={(e) => setField("maxNewChatsPerDay", Number(e.target.value))} className="w-full px-2 py-1 rounded border" />
             </label>
           </div>
+          <label className="mt-2 flex items-start gap-2 cursor-pointer p-2 rounded-lg border bg-amber-50/50 border-amber-200">
+            <input
+              type="checkbox"
+              checked={s.blockLinksInFirstMessage ?? true}
+              onChange={(e) => setField("blockLinksInFirstMessage", e.target.checked)}
+              className="mt-0.5 accent-amber-600"
+            />
+            <div className="flex-1 text-xs text-amber-900">
+              <strong className="block text-sm">🔗 Bloquear enlaces en el primer mensaje</strong>
+              <p className="mt-1">
+                No envía el <strong>primer</strong> mensaje a un número si lleva un link (un enlace en el
+                opener en frío es de los mayores disparadores de la marca de spam). El mensaje queda como
+                <code> blocked_link</code> —no se envía ni cuenta como fallo— para que quites el link del opener
+                y lo mandes tras la primera respuesta del lead. Recomendado dejarlo activado.
+              </p>
+            </div>
+          </label>
           <div className="mt-3 p-3 rounded-lg border bg-indigo-50/50 border-indigo-200 space-y-2">
             <strong className="block text-sm text-indigo-900">🛡 Proxy / IP de salida por número (anti-baneo clave)</strong>
             <p className="text-[11px] text-indigo-800">

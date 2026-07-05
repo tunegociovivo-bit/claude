@@ -90,7 +90,25 @@ export type LeadsSendSettings = {
   /** Reduce el tope diario un % aleatorio (0–pct) distinto cada día, para que
    *  el volumen no sea idéntico a diario (patrón que delata un bot). */
   dailyJitterPct: number;
+  /** No enviar el PRIMER mensaje a un número si contiene un enlace. Un link en
+   *  el primer contacto en frío es uno de los mayores disparadores de la marca
+   *  de spam de WhatsApp. El mensaje queda como "blocked_link" (no se envía y no
+   *  cuenta como fallo) para que se corrija el opener. */
+  blockLinksInFirstMessage: boolean;
 };
+
+/** Detecta un enlace en el texto (http/https, www., o dominio.tld[/ruta]) con
+ *  una lista acotada de TLDs comunes para minimizar falsos positivos. */
+export function containsLink(text: string): boolean {
+  if (!text) return false;
+  const tlds =
+    "com|es|net|org|io|app|xyz|link|me|info|biz|co|shop|store|online|site|gg|to|ly|page|dev|club";
+  const re = new RegExp(
+    `(https?:\\/\\/\\S+|www\\.\\S+|\\b[a-z0-9-]+\\.(?:${tlds})(?:\\/\\S*)?\\b)`,
+    "i"
+  );
+  return re.test(text);
+}
 
 const DEFAULTS: LeadsSendSettings = {
   sendEnabled: true,
@@ -116,7 +134,8 @@ const DEFAULTS: LeadsSendSettings = {
   warmupStartCap: 3,
   principalSince: null,
   autoRecoveryEnabled: true,
-  dailyJitterPct: 0.15
+  dailyJitterPct: 0.15,
+  blockLinksInFirstMessage: true
 };
 
 /** Límites endurecidos durante el modo recuperación. Se aplican encima de
@@ -157,7 +176,8 @@ export async function getSendSettings(workspaceId: string): Promise<LeadsSendSet
     warmupStartCap: s.warmupStartCap ?? DEFAULTS.warmupStartCap,
     principalSince: s.principalSince ?? DEFAULTS.principalSince,
     autoRecoveryEnabled: s.autoRecoveryEnabled ?? DEFAULTS.autoRecoveryEnabled,
-    dailyJitterPct: s.dailyJitterPct ?? DEFAULTS.dailyJitterPct
+    dailyJitterPct: s.dailyJitterPct ?? DEFAULTS.dailyJitterPct,
+    blockLinksInFirstMessage: s.blockLinksInFirstMessage ?? DEFAULTS.blockLinksInFirstMessage
   };
 
   // Auto-desactiva recoveryMode al pasar el plazo (recoveryDurationDays
@@ -864,6 +884,22 @@ export async function processQueueTick(workspaceId: string): Promise<{
   });
   const isNewConversation = !earlierToThisPhone;
   if (isNewConversation) {
+    // 6.0) ANTI-BANEO: nunca mandar un ENLACE en el PRIMER mensaje a un número.
+    //      Un link en el opener en frío es de los mayores disparadores de la
+    //      marca de spam de WhatsApp. Lo dejamos como "blocked_link" (no se
+    //      envía y NO cuenta como fallo, para no disparar el modo recuperación)
+    //      y no se reintenta: hay que quitar el link del opener.
+    if (settings.blockLinksInFirstMessage && containsLink(msg.renderedMessage)) {
+      await prisma.leadMessage.update({
+        where: { id: msg.id },
+        data: {
+          status: "blocked_link",
+          lastError:
+            "Primer mensaje con enlace: bloqueado (anti-baneo). Quita el link del opener; mándalo tras la primera respuesta del lead."
+        }
+      });
+      return { processed: false, error: "blocked_link_first_message" };
+    }
     // Si la cuenta fallara (DB saturada), asumimos el peor caso (límite
     // alcanzado): mejor retrasar un envío que saltarse el límite anti-baneo.
     const newChatsToday = await countNewConversationsToday(workspaceId).catch((e) => {
