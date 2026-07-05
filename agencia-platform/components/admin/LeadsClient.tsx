@@ -5670,6 +5670,7 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
       voiceMaxSeconds: s.voiceMaxSeconds,
       autoRecoveryEnabled: s.autoRecoveryEnabled,
       dailyJitterPct: s.dailyJitterPct,
+      wahaProxy: s.wahaProxy ?? null,
       followupTaskEnabled: s.followupTaskEnabled,
       channels: Array.isArray(s.channels) ? s.channels : []
     };
@@ -6140,7 +6141,8 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
               ) : (
                 <div className="space-y-1.5">
                   {(s.channels ?? []).map((c: any, i: number) => (
-                    <div key={i} className="flex items-center gap-1.5">
+                    <div key={i} className="space-y-1 border-b border-slate-100 pb-1.5 last:border-0">
+                    <div className="flex items-center gap-1.5">
                       <input
                         value={c.name ?? ""}
                         onChange={(e) => updateChannel(i, { name: e.target.value })}
@@ -6205,6 +6207,14 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
                       >
                         ✕
                       </button>
+                    </div>
+                    <input
+                      value={c.proxy ?? ""}
+                      onChange={(e) => updateChannel(i, { proxy: e.target.value })}
+                      placeholder="proxy de ESTE número — http://user:pass@host:puerto (IP residencial/móvil)"
+                      title="Proxy por el que sale este número a internet. Anti-baneo: cada número con su propia IP residencial/móvil, no la del servidor (datacenter)."
+                      className="w-full px-2 py-1 rounded border bg-white text-[11px] font-mono"
+                    />
                     </div>
                   ))}
                 </div>
@@ -6449,7 +6459,7 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
             <label>Fin ventana <input type="time" value={s.sendWindowEnd ?? "20:00"} onChange={(e) => setField("sendWindowEnd", e.target.value)} className="w-full px-2 py-1 rounded border" /></label>
             <label>Delay min (s) <input type="number" value={s.sendDelayMinSec ?? 60} onChange={(e) => setField("sendDelayMinSec", Number(e.target.value))} className="w-full px-2 py-1 rounded border" /></label>
             <label>Delay max (s) <input type="number" value={s.sendDelayMaxSec ?? 180} onChange={(e) => setField("sendDelayMaxSec", Number(e.target.value))} className="w-full px-2 py-1 rounded border" /></label>
-            <label>Daily limit <input type="number" value={s.dailyLimit ?? 80} onChange={(e) => setField("dailyLimit", Number(e.target.value))} className="w-full px-2 py-1 rounded border" /></label>
+            <label>Daily limit <input type="number" value={s.dailyLimit ?? 60} onChange={(e) => setField("dailyLimit", Number(e.target.value))} className="w-full px-2 py-1 rounded border" /></label>
             <label>Max intentos <input type="number" value={s.maxAttempts ?? 3} onChange={(e) => setField("maxAttempts", Number(e.target.value))} className="w-full px-2 py-1 rounded border" /></label>
             <label title="Tope de mensajes enviados por hora. Anti-baneo: WhatsApp detecta ráfagas como bot.">
               Max/hora
@@ -6461,8 +6471,26 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
             </label>
             <label title="Cap de NUEVAS conversaciones por día. Meta vigila este número más que el total.">
               Max nuevas convos/día
-              <input type="number" value={s.maxNewChatsPerDay ?? 25} onChange={(e) => setField("maxNewChatsPerDay", Number(e.target.value))} className="w-full px-2 py-1 rounded border" />
+              <input type="number" value={s.maxNewChatsPerDay ?? 10} onChange={(e) => setField("maxNewChatsPerDay", Number(e.target.value))} className="w-full px-2 py-1 rounded border" />
             </label>
+          </div>
+          <div className="mt-3 p-3 rounded-lg border bg-indigo-50/50 border-indigo-200 space-y-2">
+            <strong className="block text-sm text-indigo-900">🛡 Proxy / IP de salida por número (anti-baneo clave)</strong>
+            <p className="text-[11px] text-indigo-800">
+              La causa nº1 de baneo rápido no es solo el volumen: es que todos los números salgan por la MISMA IP del servidor (datacenter). WhatsApp penaliza fuerte las IPs de datacenter y el compartir IP entre números. Lo ideal: <strong>cada número con su propio proxy residencial/móvil</strong> (IP fija/sticky). Formato: <code>http://usuario:clave@host:puerto</code> (o <code>socks5://…</code>).
+            </p>
+            <label className="block text-xs text-indigo-900">
+              Proxy global por defecto (para el número principal y los canales sin proxy propio)
+              <input
+                value={s.wahaProxy ?? ""}
+                onChange={(e) => setField("wahaProxy", e.target.value)}
+                placeholder="http://usuario:clave@host:puerto — vacío = sale por la IP del servidor"
+                className="w-full px-2 py-1 rounded border font-mono mt-0.5"
+              />
+            </label>
+            <p className="text-[11px] text-indigo-700">
+              El proxy de cada canal (arriba, bajo cada número) tiene prioridad sobre este global. Al cambiar un proxy, <strong>reconecta ese número (reescanea su QR)</strong> para que la sesión salga por la nueva IP.
+            </p>
           </div>
           <div className="mt-3 p-3 rounded-lg border bg-emerald-50/40 border-emerald-200 space-y-2">
             <label className="flex items-start gap-2 cursor-pointer">
@@ -6484,10 +6512,10 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
             {(s.warmupEnabled ?? true) && (
               <div className="grid grid-cols-2 gap-2 text-xs pl-6">
                 <label>Días de rampa
-                  <input type="number" value={s.warmupDays ?? 21} onChange={(e) => setField("warmupDays", Number(e.target.value))} className="w-full px-2 py-1 rounded border" />
+                  <input type="number" value={s.warmupDays ?? 45} onChange={(e) => setField("warmupDays", Number(e.target.value))} className="w-full px-2 py-1 rounded border" />
                 </label>
                 <label>Tope del primer día
-                  <input type="number" value={s.warmupStartCap ?? 10} onChange={(e) => setField("warmupStartCap", Number(e.target.value))} className="w-full px-2 py-1 rounded border" />
+                  <input type="number" value={s.warmupStartCap ?? 3} onChange={(e) => setField("warmupStartCap", Number(e.target.value))} className="w-full px-2 py-1 rounded border" />
                 </label>
               </div>
             )}
