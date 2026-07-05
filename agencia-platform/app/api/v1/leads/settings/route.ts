@@ -84,6 +84,7 @@ export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
     wahaProxy: s.wahaProxy ?? null,
     autoRecoveryEnabled: s.autoRecoveryEnabled ?? true,
     dailyJitterPct: s.dailyJitterPct ?? 0.15,
+    blockLinksInFirstMessage: s.blockLinksInFirstMessage ?? true,
     sendEnabled: s.sendEnabled ?? true,
     sendPaused: s.sendPaused ?? false,
     sendWindowStart: s.sendWindowStart ?? "09:00",
@@ -165,6 +166,7 @@ const schema = z.object({
   wahaProxy: z.string().max(200).nullable().optional(),
   autoRecoveryEnabled: z.boolean().optional(),
   dailyJitterPct: z.number().min(0).max(0.5).optional(),
+  blockLinksInFirstMessage: z.boolean().optional(),
   rotateWebhookToken: z.boolean().optional(),
   // Multi-número de WhatsApp: lista de sesiones/instancias para repartir envíos.
   channels: z
@@ -296,6 +298,7 @@ export const PATCH = withApi({ scope: "*" }, async (req, { api }) => {
     "voiceMaxSeconds",
     "autoRecoveryEnabled",
     "dailyJitterPct",
+    "blockLinksInFirstMessage",
     "channels"
   ] as const) {
     if (parsed.data[k] !== undefined) s[k] = parsed.data[k];
