@@ -138,7 +138,7 @@ jobs:
           # Si el APK sale firmado con otra clave (p.ej. la de DEBUG, el bug de
           # los builds #6-#8), este paso FALLA en vez de publicar un AAB que
           # Google Play rechazará.
-          EXPECTED="e5b674fc0befafb22e389821d45104219798bb459aff02e030c6b131769f7a06"
+          EXPECTED="7e239a586a72a74b2fc1435ceaf311571f2a07859795eb0328108554a90724fb"
           APKSIGNER="$(ls "$ANDROID_HOME"/build-tools/*/apksigner 2>/dev/null | sort -V | tail -1)"
           if [ -z "$APKSIGNER" ]; then
             echo "::error::No se encontró apksigner en el SDK de Android."
