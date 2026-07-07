@@ -5545,7 +5545,7 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
   const [testingVoice, setTestingVoice] = useState(false);
   const [voiceMsg, setVoiceMsg] = useState<string | null>(null);
   // Resultado de "Probar" proxy por clave ("__global__" o nombre de canal).
-  const [proxyTest, setProxyTest] = useState<Record<string, { loading?: boolean; ok?: boolean; exitIp?: string; ms?: number; error?: string }>>({});
+  const [proxyTest, setProxyTest] = useState<Record<string, { loading?: boolean; ok?: boolean; exitIp?: string; ms?: number; error?: string; checkedAt?: string; justFailed?: boolean }>>({});
   async function testProxy(key: string, proxy: string, channel?: string) {
     setProxyTest((p) => ({ ...p, [key]: { loading: true } }));
     try {
