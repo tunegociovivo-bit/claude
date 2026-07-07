@@ -102,6 +102,7 @@ jobs:
           BUBUI_STORE_PASS: ${{ secrets.BUBUI_KEYSTORE_PASS }}
           BUBUI_KEY_ALIAS: ${{ secrets.BUBUI_KEY_ALIAS }}
         run: |
+          set -euo pipefail
           # Certificado público que Play pide al restablecer la clave de subida.
           keytool -export -rfc \
             -keystore release.keystore \
@@ -110,6 +111,18 @@ jobs:
             -file upload_certificate.pem
           echo "=== Huellas de ESTE keystore (clave de subida del workflow) ==="
           keytool -list -v -keystore release.keystore -alias "$BUBUI_KEY_ALIAS" -storepass "$BUBUI_STORE_PASS" | grep -iE "SHA1|SHA256" || true
+          # Comprobación TEMPRANA (antes de compilar ~20 min): el keystore de los
+          # secrets debe ser la clave de subida registrada en Play Console.
+          EXPECTED_SHA1="84:E7:40:5A:C8:E1:E7:BA:61:6C:E7:93:68:42:08:EA:53:AB:30:BB"
+          GOT_SHA1="$(keytool -list -v -keystore release.keystore -alias "$BUBUI_KEY_ALIAS" -storepass "$BUBUI_STORE_PASS" | grep -im1 'SHA1:' | sed 's/.*SHA1: *//')"
+          if [ "$GOT_SHA1" != "$EXPECTED_SHA1" ]; then
+            echo "::error::El keystore de los secrets NO es la clave de subida registrada en Play Console."
+            echo "::error::  obtenida=$GOT_SHA1"
+            echo "::error::  esperada=$EXPECTED_SHA1"
+            echo "::error::Revisa BUBUI_KEYSTORE_B64 (debe ser bubui-upload-2026.jks en base64)."
+            exit 1
+          fi
+          echo "✅ Keystore correcto (SHA-1 $GOT_SHA1 = certificado de subida de Play Console)."
 
       - name: Compilar APK + AAB (release firmado)
         working-directory: apps/bubui-mobile/android
@@ -134,26 +147,28 @@ jobs:
         working-directory: apps/bubui-mobile/android/app/build/outputs/apk/release
         run: |
           set -euo pipefail
-          # Huella SHA-256 de la clave de subida estable (release.keystore).
+          # Huella SHA-1 del "Certificado de clave de subida" registrado en Play
+          # Console para com.negociovivo.bubui (keystore bubui-upload-2026.jks).
           # Si el APK sale firmado con otra clave (p.ej. la de DEBUG, el bug de
-          # los builds #6-#8), este paso FALLA en vez de publicar un AAB que
-          # Google Play rechazará.
-          EXPECTED="7e239a586a72a74b2fc1435ceaf311571f2a07859795eb0328108554a90724fb"
+          # los builds #6-#8, o el keystore antiguo de EAS F1:C5:F3:F8...), este
+          # paso FALLA en vez de publicar un AAB que Google Play rechazará.
+          # (Mismo certificado que el SHA-256 7e239a58... verificado en build #32.)
+          EXPECTED_SHA1="84e7405ac8e1e7ba616ce793684208ea53ab30bb"
           APKSIGNER="$(ls "$ANDROID_HOME"/build-tools/*/apksigner 2>/dev/null | sort -V | tail -1)"
           if [ -z "$APKSIGNER" ]; then
             echo "::error::No se encontró apksigner en el SDK de Android."
             exit 1
           fi
-          GOT="$("$APKSIGNER" verify --print-certs bubui.apk | grep -i 'SHA-256 digest' | head -1 | awk '{print $NF}')"
-          echo "Huella del APK firmado: $GOT"
-          if [ "$GOT" != "$EXPECTED" ]; then
-            echo "::error::El APK NO está firmado con la clave de subida esperada."
+          "$APKSIGNER" verify --print-certs bubui.apk | grep -iE 'SHA-(1|256) digest' || true
+          GOT="$("$APKSIGNER" verify --print-certs bubui.apk | grep -i 'SHA-1 digest' | head -1 | awk '{print $NF}')"
+          if [ "$GOT" != "$EXPECTED_SHA1" ]; then
+            echo "::error::El APK NO está firmado con la clave de subida registrada en Play Console."
             echo "::error::  obtenida=$GOT"
-            echo "::error::  esperada=$EXPECTED"
-            echo "::error::Probablemente se firmó con la clave de DEBUG. Revisa los secrets y el config plugin."
+            echo "::error::  esperada=$EXPECTED_SHA1"
+            echo "::error::Revisa los secrets (BUBUI_KEYSTORE_B64 debe ser bubui-upload-2026.jks)."
             exit 1
           fi
-          echo "✅ APK firmado correctamente con la clave de subida estable (SHA-256 $GOT)."
+          echo "✅ APK firmado con la clave de subida de Play Console (SHA-1 $GOT)."
 
       - name: Subir APK + AAB como artifacts
         uses: actions/upload-artifact@v4

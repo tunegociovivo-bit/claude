@@ -170,8 +170,8 @@ export function Mesa() {
     if (!customerId) return;
     setBusyAction(type);
     try {
-      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (!perm.granted) { Alert.alert("Permiso necesario", "Necesitamos acceso a tus fotos para subir la captura."); return; }
+      // Selector de fotos del sistema: no requiere el permiso READ_MEDIA_IMAGES
+      // (política de Play de permisos de fotos/vídeos; bloqueado en app.json).
       const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.6, base64: true });
       const asset = res.assets?.[0];
       if (res.canceled || !asset?.base64) return;

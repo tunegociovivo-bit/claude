@@ -29,9 +29,13 @@ El `.aab`/`.apk` se compila **gratis en GitHub Actions** (no usa EAS).
 
 ### Notas
 - El **geofencing está desactivado** (`GEOFENCING_ENABLED = false` en
-  `src/lib/geofence.ts`) y los permisos de ubicación en segundo plano se
-  bloquean en `app.json` (`blockedPermissions`). Reactivar requiere declarar
-  esos permisos en Play (+ vídeo de demostración).
+  `src/lib/geofence.ts`) y los permisos de ubicación en segundo plano
+  (`ACCESS_BACKGROUND_LOCATION`, `FOREGROUND_SERVICE_LOCATION`) se bloquean en
+  `app.json` (`blockedPermissions`). Reactivar requiere aviso destacado en la
+  app + declarar esos permisos en Play (+ vídeo de demostración).
+- **Fotos**: la app usa el **selector de fotos del sistema** (sin permiso
+  `READ_MEDIA_IMAGES`/`READ_MEDIA_VIDEO`; también bloqueados en
+  `blockedPermissions`), cumpliendo la política de permisos de fotos y vídeos.
 - La advertencia de "archivo de desofuscación (R8/ProGuard)" es **ignorable**.
 
 ---
