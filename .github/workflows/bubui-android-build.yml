@@ -152,6 +152,7 @@ jobs:
           # Si el APK sale firmado con otra clave (p.ej. la de DEBUG, el bug de
           # los builds #6-#8, o el keystore antiguo de EAS F1:C5:F3:F8...), este
           # paso FALLA en vez de publicar un AAB que Google Play rechazará.
+          # (Mismo certificado que el SHA-256 7e239a58... verificado en build #32.)
           EXPECTED_SHA1="84e7405ac8e1e7ba616ce793684208ea53ab30bb"
           APKSIGNER="$(ls "$ANDROID_HOME"/build-tools/*/apksigner 2>/dev/null | sort -V | tail -1)"
           if [ -z "$APKSIGNER" ]; then
