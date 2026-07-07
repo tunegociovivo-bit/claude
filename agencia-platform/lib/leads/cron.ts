@@ -73,6 +73,15 @@ export async function runLeadsCronAllWorkspaces(): Promise<any[]> {
       wsReport.execOutreachError = e?.message ?? String(e);
     }
 
+    // 7. Salud de los proxies (throttleado a 15 min): verifica cada proxy
+    //    configurado y guarda su estado para badges/avisos en el panel.
+    try {
+      const { checkAllProxiesForWorkspace } = await import("./proxy");
+      await checkAllProxiesForWorkspace(ws.id);
+    } catch (e: any) {
+      wsReport.proxyCheckError = e?.message ?? String(e);
+    }
+
     report.push(wsReport);
   }
 

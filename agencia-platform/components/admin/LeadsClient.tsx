@@ -5544,6 +5544,34 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
   const [elevenVoiceId, setElevenVoiceId] = useState("");
   const [testingVoice, setTestingVoice] = useState(false);
   const [voiceMsg, setVoiceMsg] = useState<string | null>(null);
+  // Resultado de "Probar" proxy por clave ("__global__" o nombre de canal).
+  const [proxyTest, setProxyTest] = useState<Record<string, { loading?: boolean; ok?: boolean; exitIp?: string; ms?: number; error?: string }>>({});
+  async function testProxy(key: string, proxy: string, channel?: string) {
+    setProxyTest((p) => ({ ...p, [key]: { loading: true } }));
+    try {
+      const r = await fetch("/api/v1/leads/proxy-test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(channel ? { channel } : { proxy })
+      });
+      const j = await r.json().catch(() => ({ ok: false, error: "Respuesta no válida" }));
+      setProxyTest((p) => ({ ...p, [key]: { ...j } }));
+    } catch (e: any) {
+      setProxyTest((p) => ({ ...p, [key]: { ok: false, error: e?.message ?? "Error de red" } }));
+    }
+  }
+  function proxyStatusView(key: string) {
+    const st = proxyTest[key] ?? s?.proxyStatus?.[key];
+    if (!st) return null;
+    if (st.loading) return <span className="text-[11px] text-slate-500 ml-1">probando…</span>;
+    if (st.ok)
+      return (
+        <span className="text-[11px] text-emerald-700 ml-1" title={st.checkedAt ? `Comprobado: ${new Date(st.checkedAt).toLocaleString("es-ES")}` : undefined}>
+          ✅ IP {st.exitIp}{st.ms ? ` · ${st.ms} ms` : ""}
+        </span>
+      );
+    return <span className="text-[11px] text-rose-600 ml-1" title={st.error}>❌ {st.error ?? "no funciona"}</span>;
+  }
   const [health, setHealth] = useState<any[] | null>(null);
   const [loadingHealth, setLoadingHealth] = useState(false);
   // Estado de conexión en vivo por número (sesión WAHA): WORKING / SCAN_QR_CODE / …
@@ -6210,13 +6238,25 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
                         ✕
                       </button>
                     </div>
-                    <input
-                      value={c.proxy ?? ""}
-                      onChange={(e) => updateChannel(i, { proxy: e.target.value })}
-                      placeholder="proxy de ESTE número — http://user:pass@host:puerto (IP residencial/móvil)"
-                      title="Proxy por el que sale este número a internet. Anti-baneo: cada número con su propia IP residencial/móvil, no la del servidor (datacenter)."
-                      className="w-full px-2 py-1 rounded border bg-white text-[11px] font-mono"
-                    />
+                    <div className="flex items-center gap-1.5">
+                      <input
+                        value={c.proxy ?? ""}
+                        onChange={(e) => updateChannel(i, { proxy: e.target.value })}
+                        placeholder="proxy de ESTE número — http://user:pass@host:puerto (IP residencial/móvil)"
+                        title="Proxy por el que sale este número a internet. Anti-baneo: cada número con su propia IP residencial/móvil, no la del servidor (datacenter)."
+                        className="flex-1 min-w-0 px-2 py-1 rounded border bg-white text-[11px] font-mono"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => testProxy(c.name || `#${i}`, c.proxy ?? "")}
+                        disabled={!((c.proxy ?? "").trim()) || proxyTest[c.name || `#${i}`]?.loading}
+                        className="shrink-0 px-2 py-1 rounded border bg-white hover:bg-indigo-50 text-indigo-700 text-[11px] disabled:opacity-40"
+                        title="Verifica que el proxy funciona y muestra la IP de salida"
+                      >
+                        Probar
+                      </button>
+                    </div>
+                    <div>{proxyStatusView(c.name || `#${i}`)}</div>
                     </div>
                   ))}
                 </div>
@@ -6513,18 +6553,40 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
           </label>
           <div className="mt-3 p-3 rounded-lg border bg-indigo-50/50 border-indigo-200 space-y-2">
             <strong className="block text-sm text-indigo-900">🛡 Proxy / IP de salida por número (anti-baneo clave)</strong>
+            {Object.entries(s.proxyStatus ?? {}).filter(([, v]: any) => v && v.ok === false).length > 0 && (
+              <div className="rounded-md border border-rose-300 bg-rose-50 p-2 text-[11px] text-rose-800">
+                <strong>⚠️ Proxy caído:</strong>{" "}
+                {Object.entries(s.proxyStatus ?? {})
+                  .filter(([, v]: any) => v && v.ok === false)
+                  .map(([k]) => (k === "__global__" ? "global" : k))
+                  .join(", ")}
+                . Revisa la IP/credenciales; mientras esté caído, ese número no puede enviar por su proxy.
+              </div>
+            )}
             <p className="text-[11px] text-indigo-800">
               La causa nº1 de baneo rápido no es solo el volumen: es que todos los números salgan por la MISMA IP del servidor (datacenter). WhatsApp penaliza fuerte las IPs de datacenter y el compartir IP entre números. Lo ideal: <strong>cada número con su propio proxy residencial/móvil</strong> (IP fija/sticky). Formato: <code>http://usuario:clave@host:puerto</code> (o <code>socks5://…</code>).
             </p>
             <label className="block text-xs text-indigo-900">
               Proxy global por defecto (para el número principal y los canales sin proxy propio)
-              <input
-                value={s.wahaProxy ?? ""}
-                onChange={(e) => setField("wahaProxy", e.target.value)}
-                placeholder="http://usuario:clave@host:puerto — vacío = sale por la IP del servidor"
-                className="w-full px-2 py-1 rounded border font-mono mt-0.5"
-              />
+              <div className="flex gap-1.5 mt-0.5">
+                <input
+                  value={s.wahaProxy ?? ""}
+                  onChange={(e) => setField("wahaProxy", e.target.value)}
+                  placeholder="http://usuario:clave@host:puerto — vacío = sale por la IP del servidor"
+                  className="flex-1 min-w-0 px-2 py-1 rounded border font-mono"
+                />
+                <button
+                  type="button"
+                  onClick={() => testProxy("__global__", s.wahaProxy ?? "")}
+                  disabled={!((s.wahaProxy ?? "").trim()) || proxyTest["__global__"]?.loading}
+                  className="shrink-0 px-2 py-1 rounded border bg-white hover:bg-indigo-50 text-indigo-700 text-xs disabled:opacity-40"
+                  title="Verifica que el proxy funciona y muestra la IP de salida"
+                >
+                  Probar
+                </button>
+              </div>
             </label>
+            <div>{proxyStatusView("__global__")}</div>
             <p className="text-[11px] text-indigo-700">
               El proxy de cada canal (arriba, bajo cada número) tiene prioridad sobre este global. Al cambiar un proxy, <strong>reconecta ese número (reescanea su QR)</strong> para que la sesión salga por la nueva IP.
             </p>

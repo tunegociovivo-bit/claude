@@ -82,6 +82,7 @@ export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
     principalPhone: s.principalPhone ?? null,
     principalSince: s.principalSince ?? null,
     wahaProxy: s.wahaProxy ?? null,
+    proxyStatus: s.proxyStatus ?? {},
     autoRecoveryEnabled: s.autoRecoveryEnabled ?? true,
     dailyJitterPct: s.dailyJitterPct ?? 0.15,
     blockLinksInFirstMessage: s.blockLinksInFirstMessage ?? true,
