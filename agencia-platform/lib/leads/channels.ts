@@ -152,8 +152,9 @@ const RESOLVED_OK = ["sent", "delivered", "read"];
 
 export async function getChannelHealth(
   workspaceId: string,
-  instanceName: string
-): Promise<{ status: ChannelHealthStatus; ok24h: number; failed24h: number }> {
+  instanceName: string,
+  opts?: { replyGuard?: boolean }
+): Promise<{ status: ChannelHealthStatus; ok24h: number; failed24h: number; sent7d?: number; replies7d?: number }> {
   const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
   const base = { workspaceId, instanceName };
   const [ok24h, failed24h, last3] = await Promise.all([
@@ -178,18 +179,39 @@ export async function getChannelHealth(
   let status: ChannelHealthStatus = "healthy";
   if (last3AllFailed || (attempts >= 5 && failRate >= 0.5)) status = "quarantined";
   else if (attempts >= 4 && failRate >= 0.25) status = "degraded";
-  return { status, ok24h, failed24h };
+
+  // GUARDA POR TASA DE RESPUESTA (opt-in): si en 7 días este número mandó
+  // bastante (≥40) y NO recibió NINGUNA respuesta, lo más probable es que sus
+  // mensajes se ignoren/bloqueen (lista mala o número marcado). Solo DEGRADA
+  // (nunca cuarentena), porque la señal depende de que el webhook atribuya bien
+  // los entrantes (instanceName) y no queremos apartar números sanos por error.
+  let sent7d: number | undefined;
+  let replies7d: number | undefined;
+  if (opts?.replyGuard) {
+    const weekAgo = new Date(Date.now() - 7 * 86_400_000);
+    [sent7d, replies7d] = await Promise.all([
+      prisma.leadMessage.count({
+        where: { ...base, status: { in: RESOLVED_OK }, sentAt: { gte: weekAgo } }
+      }),
+      prisma.leadInboxMessage.count({
+        where: { workspaceId, instanceName, direction: "in", receivedAt: { gte: weekAgo } }
+      })
+    ]);
+    if (status === "healthy" && sent7d >= 40 && replies7d === 0) status = "degraded";
+  }
+  return { status, ok24h, failed24h, sent7d, replies7d };
 }
 
 /** Salud de todos los canales dados (o de los del workspace). */
 export async function getChannelsHealthMap(
   workspaceId: string,
-  channels?: LeadChannel[]
+  channels?: LeadChannel[],
+  opts?: { replyGuard?: boolean }
 ): Promise<Map<string, ChannelHealthStatus>> {
   const list = channels ?? (await getLeadChannels(workspaceId));
   const map = new Map<string, ChannelHealthStatus>();
   for (const c of list) {
-    const h = await getChannelHealth(workspaceId, c.name);
+    const h = await getChannelHealth(workspaceId, c.name, opts);
     map.set(c.name, h.status);
   }
   return map;
@@ -220,7 +242,9 @@ export async function pickEnqueueChannel(workspaceId: string): Promise<string | 
   ];
 
   // Salud: descartamos canales en cuarentena (el principal se asume disponible).
-  const health = await getChannelsHealthMap(workspaceId, channels);
+  const health = await getChannelsHealthMap(workspaceId, channels, {
+    replyGuard: leads.replyRateGuardEnabled === true
+  });
   const notQuarantined = slots.filter((s) => s.key === PRINCIPAL || health.get(s.key) !== "quarantined");
   const candidates = notQuarantined.length > 0 ? notQuarantined : slots;
 
