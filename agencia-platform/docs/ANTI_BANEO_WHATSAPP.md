@@ -21,11 +21,17 @@ no "cero baneos" (imposible en frío sobre WhatsApp, con cualquier proveedor).
 
 ## Proxy: qué contratar y cómo configurarlo
 
-**Tipo (por aguante):**
-1. **Móvil (4G/5G)** — el mejor. IP de operador real. ~40-90 €/mes por puerto.
-   Proveedores: Proxy-Cheap, Proxel, iProxy.online.
-2. **Residencial *sticky* (ISP)** — muy bueno y más barato. IPRoyal (Royal
-   Residential sticky), Soax, Bright Data, Proxy-Cheap residential.
+**Coste — lee esto primero:** para WhatsApp de **texto** el consumo de datos es
+mínimo (KB por mensaje → decenas de MB al mes por número). Por eso los proxies
+**residenciales de pago por GB** salen por **céntimos al mes** y los **móviles
+dedicados (40-90 €/mes por puerto) son sobreingeniería** salvo a mucho volumen.
+
+**Tipo (recomendado → caro):**
+1. **Residencial de pago por GB, sticky** ✅ *recomendado y baratísimo para
+   WhatsApp*: DataImpulse (~1 $/GB), IPRoyal Pay-as-you-go (no caduca), Proxy-Cheap.
+   Una sola cuenta da muchas sesiones sticky (una por número) del mismo saldo.
+2. **Móvil (4G/5G)** — máxima resistencia pero caro; solo compensa a mucho volumen.
+   Alternativa DIY: móviles Android + SIMs con datos (~10-15 €/mes/SIM).
 3. ❌ **Datacenter** — NO. Es lo que quemaba los números.
 
 **Regla de oro:** 1 IP **fija (sticky)** por número. Nunca compartir IP entre números.
@@ -36,6 +42,31 @@ Elige país = país de tus leads (España).
 http://usuario:clave@host:puerto
 socks5://usuario:clave@host:puerto
 ```
+
+### DataImpulse — IP fija por número (dos mecanismos)
+
+Datos base: host `gw.dataimpulse.com`, puerto `823` (HTTP/HTTPS) o `824` (SOCKS5).
+Los parámetros van **dentro del usuario (login)**, añadidos con `__`, en formato
+`clave.valor` y separados por `;`. País España = sufijo `__cr.es`.
+
+**A) `sessid` (session-id) — misma IP ~30 min.** Añade `;sessid.N` al login, con un
+número distinto por cada teléfono. Dura ~30 min de media y, según la propia doc de
+DataImpulse, **no sustituye al modo sticky**: si la IP residencial se cae, la cambian.
+```
+http://LOGIN__cr.es;sessid.1:PASSWORD@gw.dataimpulse.com:823   ← número 1
+http://LOGIN__cr.es;sessid.2:PASSWORD@gw.dataimpulse.com:823   ← número 2
+```
+
+**B) "Pegajoso" (Sticky) por PUERTO — IP estable de larga duración.** En el panel de
+DataImpulse activa el radio **"Pegajoso"**: el puerto cambia al rango **10000+**
+(cada puerto = una sesión sticky más persistente) y aparece **"Session Interval"
+(0-120 min)** que fija cuánto se mantiene la IP antes de rotar — **0 = máxima
+persistencia**.
+
+**Recomendación para WhatsApp** (necesita IP fija estable **de larga duración** por
+número): usa el **modo Pegajoso con Session Interval = 0**, y además un `sessid`
+distinto por número para diferenciarlos. El `sessid.N` solo (mecanismo A, ~30 min)
+es demasiado volátil para un número que debe conservar su IP semanas.
 
 **Cómo meter una IP:**
 1. En el proveedor, crea un endpoint sticky/móvil en España y copia la cadena.
