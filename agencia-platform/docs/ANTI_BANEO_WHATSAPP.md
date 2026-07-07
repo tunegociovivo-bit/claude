@@ -75,6 +75,12 @@ socks5://usuario:clave@host:puerto
   defecto): el primer mensaje a un número que lleve un link queda como
   `blocked_link` (no se envía ni cuenta como fallo). Quita el link del opener y
   mándalo tras la primera respuesta del lead.
+- **Guarda por tasa de respuesta** (`replyRateGuardEnabled`, **OFF por defecto,
+  opt-in**): si un número manda mucho (≥40 en 7 días) y no recibe NINGUNA
+  respuesta, se marca *degradado* y el reparto prioriza los demás (nunca se
+  cuarentena por esto). Actívalo solo cuando confirmes que las respuestas
+  entrantes se atribuyen bien a cada número (columna “respuestas” del panel de
+  salud); si el webhook no atribuye `instanceName`, daría falsos positivos.
 - **Modo recuperación automático**: ante un pico de fallos, endurece límites solo.
 
 ## Lo que la plataforma NO puede hacer por ti
