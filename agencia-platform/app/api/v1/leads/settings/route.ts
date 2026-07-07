@@ -85,6 +85,7 @@ export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
     autoRecoveryEnabled: s.autoRecoveryEnabled ?? true,
     dailyJitterPct: s.dailyJitterPct ?? 0.15,
     blockLinksInFirstMessage: s.blockLinksInFirstMessage ?? true,
+    replyRateGuardEnabled: !!s.replyRateGuardEnabled,
     sendEnabled: s.sendEnabled ?? true,
     sendPaused: s.sendPaused ?? false,
     sendWindowStart: s.sendWindowStart ?? "09:00",
@@ -167,6 +168,7 @@ const schema = z.object({
   autoRecoveryEnabled: z.boolean().optional(),
   dailyJitterPct: z.number().min(0).max(0.5).optional(),
   blockLinksInFirstMessage: z.boolean().optional(),
+  replyRateGuardEnabled: z.boolean().optional(),
   rotateWebhookToken: z.boolean().optional(),
   // Multi-número de WhatsApp: lista de sesiones/instancias para repartir envíos.
   channels: z
@@ -299,6 +301,7 @@ export const PATCH = withApi({ scope: "*" }, async (req, { api }) => {
     "autoRecoveryEnabled",
     "dailyJitterPct",
     "blockLinksInFirstMessage",
+    "replyRateGuardEnabled",
     "channels"
   ] as const) {
     if (parsed.data[k] !== undefined) s[k] = parsed.data[k];

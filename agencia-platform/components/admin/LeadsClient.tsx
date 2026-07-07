@@ -5672,6 +5672,7 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
       dailyJitterPct: s.dailyJitterPct,
       wahaProxy: s.wahaProxy ?? null,
       blockLinksInFirstMessage: s.blockLinksInFirstMessage,
+      replyRateGuardEnabled: s.replyRateGuardEnabled,
       followupTaskEnabled: s.followupTaskEnabled,
       channels: Array.isArray(s.channels) ? s.channels : []
     };
@@ -6489,6 +6490,24 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
                 opener en frío es de los mayores disparadores de la marca de spam). El mensaje queda como
                 <code> blocked_link</code> —no se envía ni cuenta como fallo— para que quites el link del opener
                 y lo mandes tras la primera respuesta del lead. Recomendado dejarlo activado.
+              </p>
+            </div>
+          </label>
+          <label className="mt-2 flex items-start gap-2 cursor-pointer p-2 rounded-lg border bg-amber-50/50 border-amber-200">
+            <input
+              type="checkbox"
+              checked={s.replyRateGuardEnabled ?? false}
+              onChange={(e) => setField("replyRateGuardEnabled", e.target.checked)}
+              className="mt-0.5 accent-amber-600"
+            />
+            <div className="flex-1 text-xs text-amber-900">
+              <strong className="block text-sm">📉 Apartar números que no reciben respuestas</strong>
+              <p className="mt-1">
+                Si un número manda mucho (≥40 en 7 días) y <strong>no recibe NINGUNA respuesta</strong>, se
+                marca como <em>degradado</em> y el reparto prioriza los demás (nunca se cuarentena por esto, para
+                no apartar números sanos por error). <strong>Opt-in</strong>: actívalo solo cuando confirmes que
+                las respuestas entrantes se atribuyen bien a cada número (mira la columna “respuestas” en el
+                panel de salud). Por eso viene desactivado por defecto.
               </p>
             </div>
           </label>

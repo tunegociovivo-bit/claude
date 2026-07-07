@@ -15,6 +15,8 @@ const SENT_OK = ["sent", "delivered", "read"];
 
 export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
   const channels = await getLeadChannels(api.workspaceId);
+  const ws = await prisma.workspace.findUnique({ where: { id: api.workspaceId } });
+  const replyGuard = (ws?.settings as any)?.leads?.replyRateGuardEnabled === true;
 
   const now = Date.now();
   const dayStart = new Date();
@@ -23,20 +25,22 @@ export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
 
   async function statsFor(instanceName: string | null) {
     const base = { workspaceId: api.workspaceId, instanceName };
-    const [sentToday, sent7, delivered7, read7, failed7] = await Promise.all([
+    const [sentToday, sent7, delivered7, read7, failed7, replies7] = await Promise.all([
       prisma.leadMessage.count({ where: { ...base, status: { in: SENT_OK }, sentAt: { gte: dayStart } } }),
       prisma.leadMessage.count({ where: { ...base, status: { in: SENT_OK }, sentAt: { gte: weekAgo } } }),
       prisma.leadMessage.count({ where: { ...base, status: { in: ["delivered", "read"] }, sentAt: { gte: weekAgo } } }),
       prisma.leadMessage.count({ where: { ...base, status: "read", sentAt: { gte: weekAgo } } }),
-      prisma.leadMessage.count({ where: { ...base, status: "failed", createdAt: { gte: weekAgo } } })
+      prisma.leadMessage.count({ where: { ...base, status: "failed", createdAt: { gte: weekAgo } } }),
+      // Respuestas recibidas por ESTE número en 7 días (para la tasa de respuesta).
+      prisma.leadInboxMessage.count({ where: { workspaceId: api.workspaceId, instanceName, direction: "in", receivedAt: { gte: weekAgo } } })
     ]);
-    return { sentToday, sent7, delivered7, read7, failed7 };
+    return { sentToday, sent7, delivered7, read7, failed7, replies7 };
   }
 
   const items = [];
   for (const c of channels) {
     // Estado de salud usado por el reparto/rotación (healthy|degraded|quarantined).
-    const health = await getChannelHealth(api.workspaceId, c.name);
+    const health = await getChannelHealth(api.workspaceId, c.name, { replyGuard });
     items.push({
       name: c.name,
       label: c.label ?? null,
