@@ -6242,7 +6242,7 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
                       <input
                         value={c.proxy ?? ""}
                         onChange={(e) => updateChannel(i, { proxy: e.target.value })}
-                        placeholder="proxy sticky de ESTE número — ej. http://LOGIN__cr.es;sessid.1:PASS@gw.dataimpulse.com:823"
+                        placeholder="proxy sticky de ESTE número — ej. http://LOGIN__cr.es;sessid.1:PASS@gw.dataimpulse.com:10000"
                         title="Proxy por el que sale este número a internet. Anti-baneo: cada número con su propia IP residencial/móvil, no la del servidor (datacenter)."
                         className="flex-1 min-w-0 px-2 py-1 rounded border bg-white text-[11px] font-mono"
                       />
@@ -6567,8 +6567,8 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
               La causa nº1 de baneo rápido no es solo el volumen: es que todos los números salgan por la MISMA IP del servidor (datacenter). WhatsApp penaliza fuerte las IPs de datacenter y el compartir IP entre números. Lo ideal: <strong>cada número con su propio proxy residencial/móvil</strong> (IP fija/sticky). Formato: <code>http://usuario:clave@host:puerto</code> (o <code>socks5://…</code>).
             </p>
             <p className="text-[11px] text-indigo-800">
-              Para WhatsApp basta un <strong>residencial de pago por GB</strong> (gasta céntimos: el texto usa muy pocos datos); el móvil dedicado es caro e innecesario. Con <strong>DataImpulse</strong>, activa el modo <strong>“Pegajoso” (Session Interval 0)</strong> y pon un <code>sessid</code> distinto por número, con España (<code>__cr.es</code>):<br />
-              <code>http://LOGIN__cr.es;sessid.1:PASS@gw.dataimpulse.com:823</code> (nº 1), <code>…;sessid.2…</code> (nº 2)… El <code>sessid</code> solo (sin “Pegajoso”) mantiene la IP ~30 min; el modo Pegajoso la fija mucho más.
+              Para WhatsApp basta un <strong>residencial de pago por GB</strong> (gasta céntimos: el texto usa muy pocos datos); el móvil dedicado es caro e innecesario. Con <strong>DataImpulse</strong>, activa el modo <strong>“Pegajoso” (Session Interval 0)</strong> — el puerto pasa a <strong>10000</strong> — y pon un <code>sessid</code> distinto por número, con España (<code>__cr.es</code>):<br />
+              <code>http://LOGIN__cr.es;sessid.1:PASS@gw.dataimpulse.com:10000</code> (nº 1), <code>…;sessid.2…:10000</code> (nº 2)… El <code>sessid</code> solo en el puerto rotatorio 823 mantiene la IP ~30 min; el modo Pegajoso (10000) la fija mucho más.
             </p>
             <label className="block text-xs text-indigo-900">
               Proxy global por defecto (para el número principal y los canales sin proxy propio)

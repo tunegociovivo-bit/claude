@@ -58,15 +58,20 @@ http://LOGIN__cr.es;sessid.2:PASSWORD@gw.dataimpulse.com:823   ← número 2
 ```
 
 **B) "Pegajoso" (Sticky) por PUERTO — IP estable de larga duración.** En el panel de
-DataImpulse activa el radio **"Pegajoso"**: el puerto cambia al rango **10000+**
-(cada puerto = una sesión sticky más persistente) y aparece **"Session Interval"
-(0-120 min)** que fija cuánto se mantiene la IP antes de rotar — **0 = máxima
-persistencia**.
+DataImpulse activa el radio **"Pegajoso"**: el puerto pasa de `823` (rotatorio) a
+**`10000`** (rango sticky; cada puerto = una sesión más persistente) y aparece
+**"Session Interval" (0-120 min)** que fija cuánto se mantiene la IP antes de rotar
+— **`0` = máxima persistencia**.
 
 **Recomendación para WhatsApp** (necesita IP fija estable **de larga duración** por
-número): usa el **modo Pegajoso con Session Interval = 0**, y además un `sessid`
-distinto por número para diferenciarlos. El `sessid.N` solo (mecanismo A, ~30 min)
-es demasiado volátil para un número que debe conservar su IP semanas.
+número): **modo Pegajoso, Session Interval = 0, puerto `10000`**, y un `sessid`
+distinto por número para diferenciarlos:
+```
+http://LOGIN__cr.es;sessid.1:PASSWORD@gw.dataimpulse.com:10000   ← número 1
+http://LOGIN__cr.es;sessid.2:PASSWORD@gw.dataimpulse.com:10000   ← número 2
+```
+El `sessid.N` solo en el puerto rotatorio `823` (mecanismo A, ~30 min) es demasiado
+volátil para un número que debe conservar su IP semanas.
 
 **Cómo meter una IP:**
 1. En el proveedor, crea un endpoint sticky/móvil en España y copia la cadena.
