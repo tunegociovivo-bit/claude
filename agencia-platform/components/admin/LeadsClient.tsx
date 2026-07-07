@@ -6171,19 +6171,19 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
               ) : (
                 <div className="space-y-1.5">
                   {(s.channels ?? []).map((c: any, i: number) => (
-                    <div key={i} className="space-y-1 border-b border-slate-100 pb-1.5 last:border-0">
-                    <div className="flex items-center gap-1.5">
+                    <div key={i} className="space-y-1 border-b border-slate-100 pb-2 last:border-0">
+                    <div className="flex flex-wrap items-center gap-1.5">
                       <input
                         value={c.name ?? ""}
                         onChange={(e) => updateChannel(i, { name: e.target.value })}
                         placeholder={s.whatsappProvider === "evolution" ? "instancia" : "sesión"}
-                        className="flex-1 min-w-0 px-2 py-1 rounded border bg-white text-xs font-mono"
+                        className="flex-1 min-w-[110px] px-2 py-1 rounded border bg-white text-xs font-mono"
                       />
                       <input
                         value={c.label ?? ""}
                         onChange={(e) => updateChannel(i, { label: e.target.value })}
                         placeholder="etiqueta (opcional)"
-                        className="flex-1 min-w-0 px-2 py-1 rounded border bg-white text-xs"
+                        className="flex-1 min-w-[100px] px-2 py-1 rounded border bg-white text-xs"
                       />
                       <input
                         type="number"
