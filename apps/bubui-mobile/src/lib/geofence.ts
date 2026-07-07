@@ -15,7 +15,10 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 // tiendas (la ubicación en background exige declaración/vídeo en Google Play y
 // justificación del permiso "Siempre" en App Store). La ubicación en PRIMER
 // PLANO (Feed/Descubre/Scan) sigue funcionando. Para reactivar: pon
-// GEOFENCING_ENABLED = true y restaura los permisos de background en app.json.
+// GEOFENCING_ENABLED = true, quita ACCESS_BACKGROUND_LOCATION y
+// FOREGROUND_SERVICE_LOCATION de "blockedPermissions" en app.json, muestra un
+// aviso destacado (prominent disclosure) ANTES de pedir el permiso y declara
+// el uso en Play Console (+ vídeo de demostración).
 const GEOFENCING_ENABLED = false;
 
 export const GEOFENCE_TASK = "bubui-geofence";
