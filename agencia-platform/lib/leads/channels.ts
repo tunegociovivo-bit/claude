@@ -24,7 +24,7 @@ import { getWhatsappProvider, getSession } from "@/lib/leads/waha";
 const _sessionStatusCache = new Map<string, { status: string | null; at: number }>();
 const SESSION_STATUS_TTL_MS = 60_000;
 
-async function liveSessionConnected(workspaceId: string, name: string): Promise<boolean | null> {
+export async function liveSessionConnected(workspaceId: string, name: string): Promise<boolean | null> {
   const key = `${workspaceId}:${name}`;
   const cached = _sessionStatusCache.get(key);
   if (cached && Date.now() - cached.at < SESSION_STATUS_TTL_MS) {

@@ -717,15 +717,23 @@ export async function repaceQueue(opts: {
 
   // REPARTO MULTI-NÚMERO: al reprogramar, distribuimos los mensajes entre el
   // número PRINCIPAL (instanceName null) y los números extra activos (round-robin),
-  // saltando los que estén en cuarentena. Así el volumen no recae en un solo
-  // número (anti-baneo). Si no hay números extra, se deja el principal.
+  // saltando los que estén en cuarentena O DESCONECTADOS. Así el volumen no recae
+  // en un solo número (anti-baneo) y NO se asignan envíos a un número cuya sesión
+  // de WhatsApp no está conectada (que se quedarían fallando). Mismo criterio que
+  // pickEnqueueChannel. Si no hay números extra usables, se deja el principal.
   let roster: (string | null)[] = [null];
   try {
-    const { getLeadChannels, getChannelsHealthMap } = await import("./channels");
+    const { getLeadChannels, getChannelsHealthMap, liveSessionConnected } = await import("./channels");
     const chans = (await getLeadChannels(opts.workspaceId)).filter((c) => c.active !== false);
     if (chans.length > 0) {
       const health = await getChannelsHealthMap(opts.workspaceId, chans);
-      const usable = chans.filter((c) => health.get(c.name) !== "quarantined");
+      const notQuarantined = chans.filter((c) => health.get(c.name) !== "quarantined");
+      // Excluir los desconectados. Fail-open: si no se puede comprobar (null),
+      // no se excluye (no romper el reparto por un fallo de comprobación).
+      const connFlags = await Promise.all(
+        notQuarantined.map((c) => liveSessionConnected(opts.workspaceId, c.name))
+      );
+      const usable = notQuarantined.filter((_, idx) => connFlags[idx] !== false);
       roster = [null, ...usable.map((c) => c.name)];
     }
   } catch {
