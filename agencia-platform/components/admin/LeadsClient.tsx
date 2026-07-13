@@ -6166,6 +6166,23 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
               <p className="text-[11px] text-slate-500 mb-2">
                 Reparte los envíos entre varias {s.whatsappProvider === "evolution" ? "instancias" : "sesiones"} de WhatsApp (más volumen sin quemar un número). Con 0 ó 1 número se usa el de arriba. Cada número escanea su propio WhatsApp en {s.whatsappProvider === "evolution" ? "Evolution" : "WAHA"} con ese nombre.
               </p>
+              {/* Fila del número PRINCIPAL (default): siempre visible, con su estado
+                  de conexión y botón para reconectar, igual que los canales extra. */}
+              <div className="flex flex-wrap items-center gap-1.5 mb-2 pb-2 border-b border-slate-200">
+                <span className="flex-1 min-w-[110px] px-2 py-1 rounded border bg-slate-50 text-xs font-semibold text-slate-700">
+                  Principal <span className="font-mono font-normal text-slate-500">({s.wahaSession ?? "default"})</span>
+                </span>
+                {chanBadge(s.wahaSession ?? "default")}
+                <button
+                  type="button"
+                  onClick={reconnectWaha}
+                  disabled={reconnecting}
+                  className="shrink-0 px-2 py-1 rounded border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-xs disabled:opacity-40"
+                  title="Reconectar el número principal (default): reinicia la sesión y, si hace falta, muestra el QR más abajo."
+                >
+                  📷 Conectar
+                </button>
+              </div>
               {(s.channels ?? []).length === 0 ? (
                 <p className="text-[11px] text-slate-400 italic">Sin números extra.</p>
               ) : (
