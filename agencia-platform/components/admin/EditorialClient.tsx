@@ -2944,6 +2944,15 @@ function PostFormModal({
           />
         )}
 
+        {/* Modificar la imagen actual con un prompt (img2img) */}
+        {isEdit && post && fullPost?.thumbnail && (
+          <EditImageBar
+            postId={post.id}
+            thumbnail={fullPost.thumbnail}
+            onEdited={() => onSaved()}
+          />
+        )}
+
         {/* Generar vídeo con IA (reel/story/video) */}
         {isEdit && post && (
           <GenerateVideoBar postId={post.id} onGenerated={() => onSaved()} />
@@ -3946,6 +3955,101 @@ function RetryVideoButton({ postId, onDone }: { postId: string; onDone: () => vo
           {done}
         </div>
       )}
+    </div>
+  );
+}
+
+/** Barra "Modificar imagen con IA": el usuario escribe qué cambiar de la
+ *  imagen ACTUAL del post (img2img). Conserva composición, marca y texto,
+ *  y aplica solo la modificación pedida. Solo visible si hay thumbnail. */
+function EditImageBar({
+  postId,
+  thumbnail,
+  onEdited
+}: {
+  postId: string;
+  thumbnail: string;
+  onEdited: () => void;
+}) {
+  const [prompt, setPrompt] = useState("");
+  const [quality, setQuality] = useState<"low" | "medium" | "high">("medium");
+  const [running, setRunning] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [done, setDone] = useState(false);
+
+  async function run() {
+    if (!prompt.trim()) return;
+    setRunning(true);
+    setError(null);
+    setDone(false);
+    const r = await fetch(`/api/v1/editorial/posts/${postId}/edit-image`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt: prompt.trim(), quality })
+    });
+    setRunning(false);
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      setError(j?.error?.message ?? `Error ${r.status}`);
+      return;
+    }
+    setDone(true);
+    setPrompt("");
+    onEdited();
+  }
+
+  return (
+    <div className="rounded-lg border bg-violet-50/40 border-violet-200 p-3 space-y-2">
+      <div className="flex items-center gap-2">
+        <Pencil className="h-4 w-4 text-violet-600" />
+        <span className="text-xs font-semibold text-violet-900">Modificar imagen con IA</span>
+      </div>
+      <div className="flex gap-2 items-start">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={thumbnail} alt="Imagen actual" className="h-14 w-14 rounded object-cover border bg-white shrink-0" />
+        <p className="text-[11px] text-slate-600">
+          Escribe qué quieres cambiar de la imagen actual y la IA aplicará <strong>solo ese cambio</strong>,
+          conservando composición, colores, texto y logo. La versión anterior queda guardada en el historial de medios.
+        </p>
+      </div>
+      <textarea
+        value={prompt}
+        onChange={(e) => setPrompt(e.target.value)}
+        rows={2}
+        placeholder='p. ej. "Quita el portátil de la mesa", "Haz el cielo de atardecer", "Que la persona sonría mirando a cámara"'
+        className="w-full px-2 py-1.5 rounded-md border border-slate-200 bg-white text-[12px] focus:outline-none focus:ring-2 focus:ring-violet-400 resize-y"
+      />
+      <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex gap-1">
+          {(["low", "medium", "high"] as const).map((q) => (
+            <button
+              key={q}
+              type="button"
+              onClick={() => setQuality(q)}
+              className={
+                "px-2 py-1 rounded-md text-[11px] border " +
+                (quality === q
+                  ? "bg-violet-100 border-violet-300 text-violet-800 font-medium"
+                  : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50")
+              }
+            >
+              {q === "low" ? "Baja (~$0.02)" : q === "medium" ? "Media (~$0.04)" : "Alta (~$0.17)"}
+            </button>
+          ))}
+        </div>
+        <button
+          type="button"
+          onClick={run}
+          disabled={running || !prompt.trim()}
+          title={!prompt.trim() ? "Escribe primero qué quieres cambiar" : "Modificar la imagen actual"}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-violet-600 hover:bg-violet-700 text-white text-xs font-medium disabled:opacity-50"
+        >
+          {running && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+          {running ? "Modificando…" : "Modificar imagen"}
+        </button>
+      </div>
+      {error && <p className="text-[11px] text-rose-600">{error}</p>}
+      {done && <p className="text-[11px] text-emerald-700">✓ Imagen modificada y asociada al post.</p>}
     </div>
   );
 }

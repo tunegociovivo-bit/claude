@@ -597,3 +597,109 @@ export async function generateImageForPost(opts: GenerateImageOptions): Promise<
 
   return { url, s3Key, prompt, size };
 }
+
+export type EditImageOptions = {
+  workspaceId: string;
+  userId?: string | null;
+  postId: string;
+  /** Instrucción del usuario: qué cambiar de la imagen actual. */
+  prompt: string;
+  quality?: "low" | "medium" | "high";
+};
+
+/**
+ * Modifica la imagen ACTUAL de una publicación (img2img) a partir de una
+ * instrucción libre del usuario ("quita el portátil", "cielo al atardecer"…).
+ * Usa /v1/images/edits con el thumbnail actual como única referencia y un
+ * prompt que ordena aplicar SOLO ese cambio, conservando composición, marca
+ * y texto. La imagen editada se sube a R2 y pasa a ser el nuevo thumbnail
+ * (la anterior se conserva en mediaUrls como histórico).
+ */
+export async function editImageForPost(opts: EditImageOptions): Promise<{
+  url: string;
+  s3Key: string;
+  prompt: string;
+  size: Size;
+}> {
+  if (!isStorageEnabled()) {
+    throw new Error("Storage no configurado. Configura STORAGE_* en env para guardar imágenes generadas.");
+  }
+  const instruction = opts.prompt.trim();
+  if (!instruction) throw new Error("Escribe qué quieres cambiar de la imagen.");
+
+  const post = await prisma.editorialPost.findFirst({
+    where: { id: opts.postId, workspaceId: opts.workspaceId },
+    include: { client: true }
+  });
+  if (!post) throw new Error("Publicación no encontrada");
+  if (!post.thumbnail) {
+    throw new Error("La publicación no tiene imagen todavía. Genera una primero y luego podrás modificarla.");
+  }
+
+  // Mismo tamaño que usaría la generación normal (aspect ratio del post →
+  // dimensiones del cliente → formato), para no deformar la imagen.
+  const client = post.client;
+  const format = ((post.format as EditorialFormat) ?? "imagen") as EditorialFormat;
+  const dims = (client?.dimensionsByFormat as DimensionsByFormat | null) ?? defaultDimensionsByFormat();
+  const arDim = parseAspectRatioDims((post as any).aspectRatio ?? null);
+  const dim = arDim ?? dims[format] ?? dims.imagen;
+  const size = pickOpenAiSize(dim.width, dim.height);
+
+  // La imagen actual es la referencia; el prompt ordena tocar SOLO lo pedido.
+  const prompt = [
+    "You are editing an EXISTING social-media graphic (the provided reference image).",
+    "APPLY ONLY THIS MODIFICATION, requested by the designer:",
+    `"${instruction}"`,
+    "Everything else must stay as close as possible to the original: same composition, framing, subject, people and their faces, colors, lighting and style.",
+    "Any text and logo present in the original must remain IDENTICAL (same wording, spelling, typography and position) unless the modification above explicitly asks to change them.",
+    "Do not add watermarks or new text. Photorealistic quality consistent with the original."
+  ].join("\n");
+
+  const quality = opts.quality ?? "medium";
+  const apiKey = await getOpenAiKeyForWorkspace(opts.workspaceId);
+  const buf = await openaiImagesEdits({
+    apiKey,
+    prompt,
+    size,
+    quality,
+    referenceUrls: [post.thumbnail]
+  });
+
+  const s3Key = buildS3Key({
+    workspaceId: opts.workspaceId,
+    targetType: "editorial",
+    targetId: post.id,
+    filename: `edit-${Date.now()}.png`
+  });
+  await uploadBuffer({ s3Key, body: buf, contentType: "image/png" });
+  const url = await signedDownloadUrl(s3Key);
+
+  // Nuevo thumbnail; la versión anterior queda en mediaUrls como histórico.
+  let mediaUrls: string[] = [];
+  try {
+    mediaUrls = JSON.parse(post.mediaUrls);
+    if (!Array.isArray(mediaUrls)) mediaUrls = [];
+  } catch {
+    mediaUrls = [];
+  }
+  if (!mediaUrls.includes(url)) mediaUrls.unshift(url);
+
+  await prisma.editorialPost.update({
+    where: { id: post.id },
+    data: { thumbnail: url, mediaUrls: JSON.stringify(mediaUrls) }
+  });
+
+  const approxCost = quality === "high" ? 17 : quality === "low" ? 2 : 4;
+  await logAiUsage({
+    workspaceId: opts.workspaceId,
+    userId: opts.userId ?? null,
+    projectId: null,
+    feature: "editorial_edit_image",
+    provider: "openai",
+    model: `gpt-image-2-edits-${quality}-imgedit`,
+    inputTokens: prompt.length,
+    outputTokens: approxCost // hack: coste estimado en céntimos (igual que generate)
+  }).catch(() => {});
+
+  return { url, s3Key, prompt, size };
+}
