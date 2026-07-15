@@ -5757,6 +5757,17 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
   }
   function setField(k: string, v: any) { setS({ ...s, [k]: v }); }
 
+  // WAHA solo admite nombres de sesión con [a-z A-Z 0-9 _ -] (sin espacios ni
+  // tildes). Saneamos al escribir para que el QR no falle con 400 "Session name
+  // can only contain alphanumeric characters...". La descripción va en la etiqueta.
+  function sanitizeSessionName(v: string): string {
+    return (v || "")
+      .normalize("NFD").replace(/[\u0300-\u036f]/g, "") // quita tildes/acentos
+      .replace(/[^a-zA-Z0-9_-]+/g, "-")                 // espacios y otros -> guion
+      .replace(/-{2,}/g, "-")                           // colapsa guiones
+      .replace(/^-+/, "");                              // sin guion al inicio
+  }
+
   function updateChannel(i: number, patch: any) {
     const arr = [...(s.channels ?? [])];
     arr[i] = { ...arr[i], ...patch };
@@ -6192,8 +6203,9 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
                     <div className="flex flex-wrap items-center gap-1.5">
                       <input
                         value={c.name ?? ""}
-                        onChange={(e) => updateChannel(i, { name: e.target.value })}
-                        placeholder={s.whatsappProvider === "evolution" ? "instancia" : "sesión"}
+                        onChange={(e) => updateChannel(i, { name: sanitizeSessionName(e.target.value) })}
+                        placeholder={s.whatsappProvider === "evolution" ? "instancia" : "sesión (sin espacios ni tildes)"}
+                        title="Nombre técnico de la sesión: solo letras, números, guion y guion bajo (sin espacios ni tildes). La descripción (p. ej. 'centro málaga') va en la ETIQUETA de al lado."
                         className="flex-1 min-w-[110px] px-2 py-1 rounded border bg-white text-xs font-mono"
                       />
                       <input
