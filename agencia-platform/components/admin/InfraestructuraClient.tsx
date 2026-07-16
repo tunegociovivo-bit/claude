@@ -38,10 +38,17 @@ type CronHealth = {
 
 type WhatsappHealth = { name: string; label: string | null; status: string };
 
+type ProxyHealth = { key: string; ok: boolean; exitIp: string | null; error: string | null; checkedAt: string | null };
+type SendQueue = { queued: number; sentToday: number; failedToday: number; blockedLink: number };
+type LoggedError = { at: string; where: string; message: string; workspaceId?: string | null };
+
 type Data = {
   platforms: Platform[];
   crons?: CronHealth[];
   whatsapp?: WhatsappHealth[];
+  proxies?: ProxyHealth[];
+  sendQueue?: SendQueue;
+  recentErrors?: LoggedError[];
   codeBackup: { provider: string; repo: string; url: string; note: string };
   dbBackup: { lastAt: string | null; sizeBytes: number | null; manageUrl: string };
 };
@@ -195,6 +202,75 @@ export default function InfraestructuraClient() {
                     </li>
                   );
                 })}
+              </ul>
+            </div>
+          )}
+
+          {/* Cola de envío de WhatsApp (hoy) */}
+          {data.sendQueue && (
+            <div className="bg-white rounded-xl border overflow-hidden">
+              <div className="px-5 py-3 border-b bg-slate-50">
+                <h2 className="font-semibold text-sm text-slate-800">Cola de envío (hoy)</h2>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-5 text-center">
+                <div>
+                  <div className="text-2xl font-semibold text-slate-800">{data.sendQueue.queued}</div>
+                  <div className="text-xs text-slate-500">en cola</div>
+                </div>
+                <div>
+                  <div className="text-2xl font-semibold text-emerald-600">{data.sendQueue.sentToday}</div>
+                  <div className="text-xs text-slate-500">enviados hoy</div>
+                </div>
+                <div>
+                  <div className={`text-2xl font-semibold ${data.sendQueue.failedToday > 0 ? "text-rose-600" : "text-slate-800"}`}>{data.sendQueue.failedToday}</div>
+                  <div className="text-xs text-slate-500">fallidos hoy</div>
+                </div>
+                <div>
+                  <div className={`text-2xl font-semibold ${data.sendQueue.blockedLink > 0 ? "text-amber-600" : "text-slate-800"}`}>{data.sendQueue.blockedLink}</div>
+                  <div className="text-xs text-slate-500">bloq. por enlace</div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Proxies de salida */}
+          {data.proxies && data.proxies.length > 0 && (
+            <div className="bg-white rounded-xl border overflow-hidden">
+              <div className="px-5 py-3 border-b bg-slate-50">
+                <h2 className="font-semibold text-sm text-slate-800">Proxies (IP de salida)</h2>
+              </div>
+              <ul className="divide-y">
+                {data.proxies.map((p) => (
+                  <li key={p.key} className="px-5 py-2.5 flex items-center gap-3 text-sm">
+                    <span className={`h-2.5 w-2.5 rounded-full shrink-0 ${p.ok ? "bg-emerald-500" : "bg-rose-500"}`} />
+                    <span className="flex-1 text-slate-800 font-mono text-xs">{p.key}</span>
+                    <span className="text-xs text-slate-500">
+                      {p.ok ? `IP ${p.exitIp ?? "?"}` : p.error ?? "sin conexión"}
+                      {p.checkedAt ? ` · ${new Date(p.checkedAt).toLocaleTimeString("es-ES")}` : ""}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* Errores recientes */}
+          {data.recentErrors && data.recentErrors.length > 0 && (
+            <div className="bg-white rounded-xl border overflow-hidden">
+              <div className="px-5 py-3 border-b bg-rose-50 flex items-center justify-between">
+                <h2 className="font-semibold text-sm text-rose-900">Errores recientes ({data.recentErrors.length})</h2>
+                <span className="text-[11px] text-rose-700">en memoria · se vacían al reiniciar</span>
+              </div>
+              <ul className="divide-y max-h-80 overflow-auto">
+                {data.recentErrors.map((e, i) => (
+                  <li key={i} className="px-5 py-2 text-xs">
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono text-rose-700">{e.where}</span>
+                      <span className="text-slate-400">{new Date(e.at).toLocaleString("es-ES")}</span>
+                    </div>
+                    <div className="text-slate-600 font-mono whitespace-pre-wrap break-words line-clamp-3">{e.message}</div>
+                  </li>
+                ))}
               </ul>
             </div>
           )}
