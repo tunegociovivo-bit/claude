@@ -50,7 +50,16 @@ type Data = {
   sendQueue?: SendQueue;
   recentErrors?: LoggedError[];
   codeBackup: { provider: string; repo: string; url: string; note: string };
-  dbBackup: { lastAt: string | null; sizeBytes: number | null; manageUrl: string };
+  dbBackup: {
+    lastAt: string | null;
+    lastOkAt?: string | null;
+    sizeBytes: number | null;
+    status?: string | null;
+    errorMessage?: string | null;
+    stale?: boolean;
+    failed?: boolean;
+    manageUrl: string;
+  };
 };
 
 function fmtAgo(min: number | null): string {
@@ -121,10 +130,24 @@ export default function InfraestructuraClient() {
                 {data.dbBackup.lastAt
                   ? `Último backup: ${new Date(data.dbBackup.lastAt).toLocaleString("es-ES")}`
                   : "Aún no hay backups registrados."}
+                {data.dbBackup.status ? ` · ${data.dbBackup.status}` : ""}
                 {data.dbBackup.sizeBytes
                   ? ` · ${(data.dbBackup.sizeBytes / 1024 / 1024).toFixed(1)} MB`
                   : ""}
               </p>
+              {(data.dbBackup.failed || data.dbBackup.stale) && (
+                <div className="mb-2 rounded-md border border-rose-300 bg-rose-50 p-2 text-[11px] text-rose-800 flex items-start gap-1.5">
+                  <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                  <span>
+                    {data.dbBackup.failed
+                      ? `El último backup FALLÓ${data.dbBackup.errorMessage ? `: ${data.dbBackup.errorMessage}` : "."} `
+                      : ""}
+                    {data.dbBackup.stale
+                      ? `No hay un backup completado en las últimas 36h${data.dbBackup.lastOkAt ? ` (último OK: ${new Date(data.dbBackup.lastOkAt).toLocaleString("es-ES")})` : ""}. Revisa el cron de backups.`
+                      : ""}
+                  </span>
+                </div>
+              )}
               <Link
                 href={data.dbBackup.manageUrl}
                 className="inline-flex items-center gap-1.5 text-xs font-medium text-sky-700 hover:text-sky-900"

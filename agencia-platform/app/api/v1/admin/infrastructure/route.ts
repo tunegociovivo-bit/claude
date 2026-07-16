@@ -38,14 +38,27 @@ export const GET = withApi({ scope: "admin" }, async (_req, { api }) => {
   for (const v of validation.valid) liveStatus[v.integration] = "ok";
   for (const i of validation.invalid) liveStatus[i.integration] = "fail";
 
-  // Último backup de BD
-  const lastBackup = await prisma.backupRun
-    .findFirst({
-      where: { workspaceId: api.workspaceId } as any,
-      orderBy: { startedAt: "desc" },
-      select: { startedAt: true, sizeBytes: true } as any
-    })
-    .catch(() => null);
+  // Backups de BD: último intento (cualquier estado) y último COMPLETADO, para
+  // detectar backups fallidos u obsoletos (verificación #17).
+  const [lastBackup, lastOkBackup] = await Promise.all([
+    prisma.backupRun
+      .findFirst({
+        where: { workspaceId: api.workspaceId } as any,
+        orderBy: { startedAt: "desc" },
+        select: { startedAt: true, sizeBytes: true, status: true, errorMessage: true } as any
+      })
+      .catch(() => null),
+    prisma.backupRun
+      .findFirst({
+        where: { workspaceId: api.workspaceId, status: "COMPLETED" } as any,
+        orderBy: { startedAt: "desc" },
+        select: { startedAt: true, sizeBytes: true } as any
+      })
+      .catch(() => null)
+  ]);
+  const lastOkAt = (lastOkBackup as any)?.startedAt ?? null;
+  const backupStale = !lastOkAt || Date.now() - new Date(lastOkAt).getTime() > 36 * 60 * 60 * 1000;
+  const backupFailed = (lastBackup as any)?.status === "FAILED";
 
   // Helper: ¿hay credencial guardada para X?
   const has = (path: () => any) => {
@@ -269,7 +282,12 @@ export const GET = withApi({ scope: "admin" }, async (_req, { api }) => {
     },
     dbBackup: {
       lastAt: (lastBackup as any)?.startedAt ?? null,
+      lastOkAt,
       sizeBytes: (lastBackup as any)?.sizeBytes ?? null,
+      status: (lastBackup as any)?.status ?? null,
+      errorMessage: (lastBackup as any)?.errorMessage ?? null,
+      stale: backupStale,
+      failed: backupFailed,
       manageUrl: "/admin/backups"
     }
   });
