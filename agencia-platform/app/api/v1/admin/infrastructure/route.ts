@@ -17,6 +17,7 @@ import { ApiError } from "@/lib/api/auth";
 import { validateWorkspaceCredentials } from "@/lib/credentials/validate";
 import { getCronsHealth } from "@/lib/cron-monitor";
 import { getLeadChannels, getChannelsHealthMap } from "@/lib/leads/channels";
+import { recentErrors } from "@/lib/monitoring/error-log";
 
 export const dynamic = "force-dynamic";
 
@@ -224,10 +225,42 @@ export const GET = withApi({ scope: "admin" }, async (_req, { api }) => {
     whatsapp = [];
   }
 
+  // Estado de los proxies configurados (del barrido periódico / botón Probar).
+  const proxies = Object.entries((s.leads?.proxyStatus ?? {}) as Record<string, any>).map(
+    ([key, v]) => ({
+      key: key === "__global__" ? "global" : key,
+      ok: !!v?.ok,
+      exitIp: v?.exitIp ?? null,
+      error: v?.error ?? null,
+      checkedAt: v?.checkedAt ?? null
+    })
+  );
+
+  // Foto de la cola de envío de WhatsApp (hoy, día natural UTC — aproximación).
+  const dayStartUtc = new Date();
+  dayStartUtc.setUTCHours(0, 0, 0, 0);
+  const [queued, sentToday, failedToday, blockedLink] = await Promise.all([
+    prisma.leadMessage.count({ where: { workspaceId: api.workspaceId, status: "queued" } }),
+    prisma.leadMessage.count({
+      where: {
+        workspaceId: api.workspaceId,
+        status: { in: ["sent", "delivered", "read"] },
+        sentAt: { gte: dayStartUtc }
+      }
+    }),
+    prisma.leadMessage.count({
+      where: { workspaceId: api.workspaceId, status: "failed", createdAt: { gte: dayStartUtc } }
+    }),
+    prisma.leadMessage.count({ where: { workspaceId: api.workspaceId, status: "blocked_link" } })
+  ]).catch(() => [0, 0, 0, 0]);
+
   return NextResponse.json({
     platforms,
     crons,
     whatsapp,
+    proxies,
+    sendQueue: { queued, sentToday, failedToday, blockedLink },
+    recentErrors: recentErrors(50, api.workspaceId),
     codeBackup: {
       provider: "GitHub",
       repo: githubRepo,

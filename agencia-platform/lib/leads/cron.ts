@@ -10,6 +10,7 @@
  */
 
 import { prisma } from "@/lib/db/prisma";
+import { logError } from "@/lib/monitoring/error-log";
 import { processSearchBatch } from "@/lib/leads/search-manager";
 import { processQueueTick } from "@/lib/leads/send-queue";
 import { processSequencesTick } from "@/lib/leads/sequences";
@@ -36,6 +37,7 @@ export async function runLeadsCronAllWorkspaces(): Promise<any[]> {
       }
     } catch (e: any) {
       wsReport.searchError = e?.message ?? String(e);
+      logError("leads-cron:search", e, ws.id);
     }
 
     // 2. Tick de la cola de envío.
@@ -43,6 +45,7 @@ export async function runLeadsCronAllWorkspaces(): Promise<any[]> {
       wsReport.queue = await processQueueTick(ws.id);
     } catch (e: any) {
       wsReport.queueError = e?.message ?? String(e);
+      logError("leads-cron:queue", e, ws.id);
     }
 
     // 3. Avanzar secuencias activas.
