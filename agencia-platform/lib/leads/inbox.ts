@@ -555,12 +555,17 @@ export async function ingestInbox(opts: {
       },
       update: { reason: classified.reason }
     });
-    // Detener secuencias activas
+    // Detener secuencias activas y marcar el lead como EXCLUIDO (visible en su
+    // ficha, no solo en la lista de opt-out) para que ninguna campaña futura lo
+    // recontacte y para que quede claro en la UI por qué no se le escribe.
     if (leadId) {
       await prisma.leadSequenceAssignment.updateMany({
         where: { leadId, status: "active" },
         data: { status: "stopped", stoppedReason: "opt_out", completedAt: new Date() }
       });
+      await prisma.lead
+        .update({ where: { id: leadId }, data: { contactStatus: "excluded" } })
+        .catch(() => {});
     }
   } else if (["interested", "objection", "info_request"].includes(classified.classification)) {
     // Lead respondió → marcar y parar secuencias
