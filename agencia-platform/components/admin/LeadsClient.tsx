@@ -6356,21 +6356,34 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
                             <th className="py-1 pr-2">Hoy</th>
                             <th className="py-1 pr-2">7d ok</th>
                             <th className="py-1 pr-2">Leídos 7d</th>
+                            <th className="py-1 pr-2">Resp 7d</th>
                             <th className="py-1 pr-2">Fallos 7d</th>
+                            <th className="py-1 pr-2">Riesgo</th>
+                            <th className="py-1 pr-2">IP</th>
                           </tr>
                         </thead>
                         <tbody>
                           {health.map((h, i) => {
                             const burning = h.sent7 > 0 && h.failed7 / (h.sent7 + h.failed7) > 0.3;
+                            const riskCls = h.riskLabel === "alto" ? "bg-rose-100 text-rose-700" : h.riskLabel === "medio" ? "bg-amber-100 text-amber-700" : "bg-emerald-100 text-emerald-700";
                             return (
                               <tr key={i} className="border-t">
                                 <td className="py-1 pr-2 font-mono">{h.label ? `${h.label} (${h.name ?? "—"})` : h.name ?? "Por defecto"}</td>
                                 <td className="py-1 pr-2">{h.sentToday}</td>
                                 <td className="py-1 pr-2">{h.sent7}</td>
                                 <td className="py-1 pr-2">{h.read7}</td>
+                                <td className={"py-1 pr-2 " + (h.sent7 >= 30 && (h.replies7 ?? 0) === 0 ? "text-amber-600 font-semibold" : "")}>{h.replies7 ?? "—"}</td>
                                 <td className={"py-1 pr-2 " + (burning ? "text-rose-600 font-semibold" : "")}>
                                   {h.failed7}{burning ? " ⚠" : ""}
                                 </td>
+                                <td className="py-1 pr-2">
+                                  {h.riskLabel ? (
+                                    <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${riskCls}`} title={`Riesgo ${h.risk}/100${h.ageDays != null ? ` · ${h.ageDays}d de vida` : ""}`}>
+                                      {h.riskLabel} {h.risk}
+                                    </span>
+                                  ) : "—"}
+                                </td>
+                                <td className="py-1 pr-2 font-mono text-[10px] text-slate-500">{h.exitIp ?? (h.hasProxy ? "?" : "sin proxy")}</td>
                               </tr>
                             );
                           })}
