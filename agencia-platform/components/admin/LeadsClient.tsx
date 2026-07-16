@@ -6231,6 +6231,14 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
                       {chanBadge(c.name)}
                       <button
                         type="button"
+                        title={c.active === false ? "Reactivar este número: vuelve a entrar en el reparto de envíos." : "Jubilar este número: lo saca del reparto (deja de enviar) pero conserva su historial y calentamiento. Úsalo con los quemados en vez de borrarlos."}
+                        onClick={() => updateChannel(i, { active: c.active === false })}
+                        className={`shrink-0 text-[10px] px-1.5 py-1 rounded border ${c.active === false ? "border-slate-300 bg-slate-100 text-slate-500" : "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"}`}
+                      >
+                        {c.active === false ? "💤 jubilado" : "✅ en uso"}
+                      </button>
+                      <button
+                        type="button"
                         title="Reiniciar calentamiento: trata este número como nuevo/frágil (recién recuperado de un baneo) y limita sus envíos en rampa unos días."
                         onClick={() => updateChannel(i, { warmupSince: new Date().toISOString() })}
                         className={`shrink-0 text-[10px] px-1.5 py-1 rounded border ${c.warmupSince ? "border-amber-300 bg-amber-50 text-amber-700" : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50"}`}
