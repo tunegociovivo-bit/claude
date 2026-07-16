@@ -18,7 +18,7 @@
 import { prisma } from "@/lib/db/prisma";
 import { getOpenAiKeyForWorkspace } from "@/lib/ai/openai";
 import { generateFreepikImage, pickFreepikSize } from "@/lib/ai/freepik";
-import { isStorageEnabled, uploadBuffer, signedDownloadUrl, buildS3Key } from "@/lib/storage/r2";
+import { isStorageEnabled, uploadBuffer, downloadBuffer, signedDownloadUrl, buildS3Key } from "@/lib/storage/r2";
 import { logAiUsage } from "@/lib/ai/usage";
 import type { DimensionsByFormat, EditorialFormat } from "@/lib/editorial/client-meta";
 import { defaultDimensionsByFormat, visualPatternHint } from "@/lib/editorial/client-meta";
@@ -43,6 +43,9 @@ export async function openaiImagesEdits(opts: {
   size: string;
   quality: "low" | "medium" | "high";
   referenceUrls: string[];
+  /** Referencias ya materializadas en memoria (p. ej. leídas de R2 con el
+   *  SDK, inmunes a URLs firmadas caducadas). Se envían junto a las URLs. */
+  referenceBuffers?: { data: Buffer; contentType?: string }[];
 }): Promise<Buffer> {
   const t0 = Date.now();
   // Descargamos cada ref en paralelo (antes era secuencial — añadía 4-8s
@@ -64,17 +67,24 @@ export async function openaiImagesEdits(opts: {
   const t1 = Date.now();
   console.log(`[openaiImagesEdits] refs descargadas: ${refResults.filter(Boolean).length}/${opts.referenceUrls.length} en ${t1 - t0}ms`);
 
+  const buffers = opts.referenceBuffers ?? [];
   const formData = new FormData();
   formData.append("model", "gpt-image-2");
   formData.append("prompt", opts.prompt);
   formData.append("size", opts.size);
   formData.append("quality", opts.quality);
   formData.append("n", "1");
-  const fieldName = opts.referenceUrls.length > 1 ? "image[]" : "image";
+  const fieldName = opts.referenceUrls.length + buffers.length > 1 ? "image[]" : "image";
   let added = 0;
   for (const r of refResults) {
     if (!r) continue;
     formData.append(fieldName, new Blob([r.ab], { type: r.ct }), `ref-${r.idx}.${r.ext}`);
+    added++;
+  }
+  for (const [i, b] of buffers.entries()) {
+    const ct = b.contentType ?? "image/png";
+    const ext = ct === "image/jpeg" ? "jpg" : ct === "image/webp" ? "webp" : "png";
+    formData.append(fieldName, new Blob([new Uint8Array(b.data)], { type: ct }), `buf-${i}.${ext}`);
     added++;
   }
   if (added === 0) {
@@ -598,6 +608,24 @@ export async function generateImageForPost(opts: GenerateImageOptions): Promise<
   return { url, s3Key, prompt, size };
 }
 
+/**
+ * Extrae la clave S3 de una URL de nuestro storage (pública vía
+ * STORAGE_PUBLIC_URL o firmada de R2/S3, path-style o virtual-host).
+ * Las claves siempre empiezan por el workspaceId (ver buildS3Key), así que
+ * localizamos ese prefijo dentro del pathname. Devuelve null si la URL no
+ * pertenece a nuestro bucket.
+ */
+function s3KeyFromUrl(url: string, workspaceId: string): string | null {
+  try {
+    const path = decodeURIComponent(new URL(url).pathname);
+    const idx = path.indexOf(`${workspaceId}/`);
+    if (idx === -1) return null;
+    return path.slice(idx);
+  } catch {
+    return null;
+  }
+}
+
 export type EditImageOptions = {
   workspaceId: string;
   userId?: string | null;
@@ -655,15 +683,44 @@ export async function editImageForPost(opts: EditImageOptions): Promise<{
     "Do not add watermarks or new text. Photorealistic quality consistent with the original."
   ].join("\n");
 
+  // La imagen actual se lee de R2 por su clave (el SDK usa credenciales, no
+  // caduca) — el thumbnail guardado puede ser una URL firmada ya expirada
+  // aunque el navegador la siga mostrando por caché. Si la URL no es de
+  // nuestro bucket, caemos al fetch por URL como antes.
+  const thumbKey = s3KeyFromUrl(post.thumbnail, opts.workspaceId);
+  let referenceUrls: string[] = [];
+  let referenceBuffers: { data: Buffer; contentType?: string }[] = [];
+  if (thumbKey) {
+    try {
+      referenceBuffers = [{ data: await downloadBuffer(thumbKey), contentType: "image/png" }];
+    } catch (e) {
+      console.error(`[edit-image] downloadBuffer(${thumbKey}) falló, fallback a URL:`, e);
+      referenceUrls = [post.thumbnail];
+    }
+  } else {
+    referenceUrls = [post.thumbnail];
+  }
+
   const quality = opts.quality ?? "medium";
   const apiKey = await getOpenAiKeyForWorkspace(opts.workspaceId);
-  const buf = await openaiImagesEdits({
-    apiKey,
-    prompt,
-    size,
-    quality,
-    referenceUrls: [post.thumbnail]
-  });
+  let buf: Buffer;
+  try {
+    buf = await openaiImagesEdits({
+      apiKey,
+      prompt,
+      size,
+      quality,
+      referenceUrls,
+      referenceBuffers
+    });
+  } catch (e: any) {
+    if (e?.message?.startsWith("Ninguna referencia")) {
+      throw new Error(
+        "No se pudo leer la imagen actual de la publicación (la URL guardada ya no es accesible). Regenera la imagen y vuelve a intentar la modificación."
+      );
+    }
+    throw e;
+  }
 
   const s3Key = buildS3Key({
     workspaceId: opts.workspaceId,
