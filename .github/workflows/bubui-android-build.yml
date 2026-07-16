@@ -143,6 +143,45 @@ jobs:
           cp "$aab" bundle/release/bubui.aab
           echo "AAB: $aab"
 
+      - name: Verificar soporte de páginas de memoria de 16 KB
+        working-directory: apps/bubui-mobile/android/app/build/outputs/apk/release
+        run: |
+          set -euo pipefail
+          # Google Play exige (nov 2025) que las libs nativas de 64 bits tengan
+          # los segmentos ELF LOAD alineados a 16384 bytes. Si alguna queda a
+          # 4 KB (dependencia precompilada vieja), FALLAMOS antes de publicar.
+          rm -rf /tmp/so16k && mkdir -p /tmp/so16k
+          unzip -o -q bubui.apk 'lib/arm64-v8a/*' 'lib/x86_64/*' -d /tmp/so16k || true
+          python3 - <<'EOF'
+          import glob, struct, sys
+          libs = sorted(glob.glob('/tmp/so16k/lib/*/*.so'))
+          if not libs:
+              print('::error::No se encontraron librerías nativas de 64 bits en el APK.')
+              sys.exit(1)
+          bad = []
+          for path in libs:
+              with open(path, 'rb') as f:
+                  data = f.read()
+              e_phoff = struct.unpack_from('<Q', data, 0x20)[0]
+              e_phentsize = struct.unpack_from('<H', data, 0x36)[0]
+              e_phnum = struct.unpack_from('<H', data, 0x38)[0]
+              min_align = None
+              for i in range(e_phnum):
+                  off = e_phoff + i * e_phentsize
+                  p_type = struct.unpack_from('<I', data, off)[0]
+                  if p_type == 1:  # PT_LOAD
+                      p_align = struct.unpack_from('<Q', data, off + 0x30)[0]
+                      min_align = p_align if min_align is None else min(min_align, p_align)
+              status = 'OK' if (min_align or 0) >= 16384 else 'MAL'
+              print(f'{status}  align={min_align}  {path.split("/lib/")[-1]}')
+              if (min_align or 0) < 16384:
+                  bad.append(path)
+          if bad:
+              print(f'::error::{len(bad)}/{len(libs)} librerías nativas NO están alineadas a 16 KB. Google Play rechazará el AAB.')
+              sys.exit(1)
+          print(f'✅ {len(libs)} librerías nativas alineadas a 16 KB — cumple el requisito de Google Play.')
+          EOF
+
       - name: Verificar que el APK quedó firmado con la clave CORRECTA
         working-directory: apps/bubui-mobile/android/app/build/outputs/apk/release
         run: |

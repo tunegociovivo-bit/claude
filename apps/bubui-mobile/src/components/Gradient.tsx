@@ -22,8 +22,10 @@ export function Gradient({
   start?: Point;
   end?: Point;
 }) {
+  // SDK 53: LinearGradient exige tupla de ≥2 colores; nuestra API pública
+  // sigue aceptando string[] y hacemos el cast aquí una sola vez.
   return (
-    <LinearGradient colors={colors} start={start} end={end} style={style}>
+    <LinearGradient colors={colors as [string, string, ...string[]]} start={start} end={end} style={style}>
       {children}
     </LinearGradient>
   );

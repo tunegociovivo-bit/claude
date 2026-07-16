@@ -46,7 +46,10 @@ Notifications.setNotificationHandler({
   handleNotification: async (notification) => {
     const hasImage = !!imageOf(notification);
     return {
-      shouldShowAlert: !hasImage,
+      // SDK 53: shouldShowAlert se divide en banner (heads-up) + list
+      // (centro de notificaciones). Mantenemos el comportamiento anterior.
+      shouldShowBanner: !hasImage,
+      shouldShowList: !hasImage,
       shouldPlaySound: true,
       shouldSetBadge: false
     };
