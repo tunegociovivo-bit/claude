@@ -19,6 +19,7 @@ import { prisma } from "@/lib/db/prisma";
 import { getOpenAiKeyForWorkspace } from "@/lib/ai/openai";
 import { generateFreepikImage, pickFreepikSize } from "@/lib/ai/freepik";
 import { isStorageEnabled, uploadBuffer, signedDownloadUrl, buildS3Key } from "@/lib/storage/r2";
+import { resignUrlLong } from "@/lib/storage/resign";
 import { logAiUsage } from "@/lib/ai/usage";
 import type { DimensionsByFormat, EditorialFormat } from "@/lib/editorial/client-meta";
 import { defaultDimensionsByFormat, visualPatternHint } from "@/lib/editorial/client-meta";
@@ -657,12 +658,16 @@ export async function editImageForPost(opts: EditImageOptions): Promise<{
 
   const quality = opts.quality ?? "medium";
   const apiKey = await getOpenAiKeyForWorkspace(opts.workspaceId);
+  // El thumbnail guardado suele ser una URL firmada de R2 que CADUCA: si ha
+  // expirado, el fetch da 403 y saltaba "Ninguna referencia se pudo descargar".
+  // La re-firmamos con validez larga antes de pasarla como referencia.
+  const refUrl = (await resignUrlLong(post.thumbnail).catch(() => null)) || post.thumbnail;
   const buf = await openaiImagesEdits({
     apiKey,
     prompt,
     size,
     quality,
-    referenceUrls: [post.thumbnail]
+    referenceUrls: [refUrl]
   });
 
   const s3Key = buildS3Key({
