@@ -48,16 +48,27 @@ export async function openaiImagesEdits(opts: {
   const t0 = Date.now();
   // Descargamos cada ref en paralelo (antes era secuencial — añadía 4-8s
   // por imagen). Con AbortSignal de 15s para no quedarnos colgados.
+  const refReasons: string[] = [];
   const refResults = await Promise.all(
     opts.referenceUrls.map(async (url, i) => {
       try {
         const r = await fetch(url, { signal: AbortSignal.timeout(15000) });
-        if (!r.ok) return null;
+        if (!r.ok) {
+          refReasons.push(`HTTP ${r.status}`);
+          return null;
+        }
         const ab = await r.arrayBuffer();
         const ct = (r.headers.get("content-type") ?? "image/png").split(";")[0].trim();
+        // Si el "content-type" no es imagen (p.ej. una página de error XML/HTML
+        // de R2, o un JSON de 403), la ref no sirve aunque el HTTP sea 200.
+        if (!ct.startsWith("image/") || ab.byteLength < 100) {
+          refReasons.push(`respuesta no-imagen (${ct}, ${ab.byteLength}b)`);
+          return null;
+        }
         const ext = ct === "image/jpeg" ? "jpg" : ct === "image/webp" ? "webp" : "png";
         return { idx: i, ab, ct, ext };
-      } catch {
+      } catch (e: any) {
+        refReasons.push(e?.name === "TimeoutError" ? "timeout 15s" : e?.message ?? "error de red");
         return null;
       }
     })
@@ -79,7 +90,10 @@ export async function openaiImagesEdits(opts: {
     added++;
   }
   if (added === 0) {
-    throw new Error("Ninguna referencia se pudo descargar. Comprueba que las URLs de las refs visuales son accesibles.");
+    const why = refReasons.length ? ` Motivo: ${refReasons.join("; ")}.` : "";
+    throw new Error(
+      `Ninguna referencia se pudo descargar. Comprueba que las URLs de las refs visuales son accesibles.${why}`
+    );
   }
 
   const t2 = Date.now();
