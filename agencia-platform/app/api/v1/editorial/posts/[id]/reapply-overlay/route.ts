@@ -17,6 +17,7 @@ import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { composeOverlay } from "@/lib/editorial/overlay";
 import { isStorageEnabled, uploadBuffer, signedDownloadUrl, buildS3Key } from "@/lib/storage/r2";
+import { resignUrlLong } from "@/lib/storage/resign";
 
 const schema = z.object({
   headlines: z.array(z.string()).max(3).optional(),
@@ -52,10 +53,16 @@ export const POST = withApi({ scope: "*" }, async (req, { params, api }) => {
     headlines = lines.slice(0, 2);
   }
 
+  // El thumbnail y el logo son URLs firmadas de R2 que caducan en 1h: re-firmar
+  // antes de componer para que composeOverlay pueda descargarlas.
+  const imageUrl = (await resignUrlLong(post.thumbnail).catch(() => null)) || post.thumbnail;
+  const rawLogo = parsed.data.logoVisible ? post.client?.logoUrl ?? null : null;
+  const logoUrl = rawLogo ? (await resignUrlLong(rawLogo).catch(() => null)) || rawLogo : null;
+
   try {
     const buf = await composeOverlay({
-      imageUrl: post.thumbnail,
-      logoUrl: parsed.data.logoVisible ? post.client?.logoUrl ?? null : null,
+      imageUrl,
+      logoUrl,
       logoPosition: (post.client?.logoPosition as any) ?? "br",
       headlines,
       primary: post.client?.brandColorPrimary,
