@@ -16,8 +16,14 @@ export const DELETE = withApi({ scope: "*" }, async (_req, { api, params }) => {
   if (msg.status === "sending") {
     throw new ApiError(409, "in_flight", "Mensaje en envío; espera a que termine");
   }
+  // Los mensajes EN COLA van a la papelera (cancelled) y se pueden restaurar.
+  // Los ya procesados (fallidos, bloqueados, enviados) se borran de verdad.
+  if (msg.status === "queued") {
+    await prisma.leadMessage.update({ where: { id }, data: { status: "cancelled" } });
+    return NextResponse.json({ ok: true, soft: true, id });
+  }
   await prisma.leadMessage.delete({ where: { id } });
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, soft: false, id });
 });
 
 const patchSchema = z

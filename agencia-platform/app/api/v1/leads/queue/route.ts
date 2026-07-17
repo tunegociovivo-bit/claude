@@ -11,7 +11,9 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
   const url = new URL(req.url);
   const status = url.searchParams.get("status") ?? undefined;
   const where: any = { workspaceId: api.workspaceId };
+  // Por defecto la papelera (cancelled) NO se muestra; solo si se pide explícito.
   if (status) where.status = status;
+  else where.status = { not: "cancelled" };
   const items = await prisma.leadMessage.findMany({
     where,
     orderBy: [{ status: "asc" }, { scheduledAt: "asc" }],
@@ -77,12 +79,44 @@ export const DELETE = withApi({ scope: "*" }, async (req, { api }) => {
   const body = await req.json().catch(() => null);
   const parsed = bulkDeleteSchema.safeParse(body);
   if (!parsed.success) throw new ApiError(400, "validation_error", parsed.error.message);
-  const out = await prisma.leadMessage.deleteMany({
-    where: {
-      id: { in: parsed.data.ids },
-      workspaceId: api.workspaceId,
-      status: { not: "sending" }
-    }
+  const ids = parsed.data.ids;
+  // Los que están EN COLA → papelera (cancelled), restaurables con "Deshacer".
+  // El resto (fallidos, bloqueados, enviados) → borrado real. "sending" se salta.
+  const queued = await prisma.leadMessage.findMany({
+    where: { id: { in: ids }, workspaceId: api.workspaceId, status: "queued" },
+    select: { id: true }
   });
-  return NextResponse.json({ deleted: out.count });
+  const cancelledIds = queued.map((q) => q.id);
+  const [cancelled, deleted] = await Promise.all([
+    cancelledIds.length
+      ? prisma.leadMessage.updateMany({
+          where: { id: { in: cancelledIds }, workspaceId: api.workspaceId },
+          data: { status: "cancelled" }
+        })
+      : Promise.resolve({ count: 0 }),
+    prisma.leadMessage.deleteMany({
+      where: { id: { in: ids }, workspaceId: api.workspaceId, status: { notIn: ["sending", "queued"] } }
+    })
+  ]);
+  return NextResponse.json({
+    cancelled: cancelled.count,
+    deleted: deleted.count,
+    cancelledIds,
+    // compat: el total "quitado de la cola" para UIs antiguas
+    removed: cancelled.count + deleted.count
+  });
+});
+
+const restoreSchema = z.object({ ids: z.array(z.string().min(1)).min(1).max(500) });
+
+/** Restaurar de la papelera: mensajes cancelados vuelven a la cola (queued). */
+export const POST = withApi({ scope: "*" }, async (req, { api }) => {
+  const body = await req.json().catch(() => null);
+  const parsed = restoreSchema.safeParse(body);
+  if (!parsed.success) throw new ApiError(400, "validation_error", parsed.error.message);
+  const out = await prisma.leadMessage.updateMany({
+    where: { id: { in: parsed.data.ids }, workspaceId: api.workspaceId, status: "cancelled" },
+    data: { status: "queued" }
+  });
+  return NextResponse.json({ restored: out.count });
 });
