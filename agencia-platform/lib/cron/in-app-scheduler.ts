@@ -118,5 +118,19 @@ export function startInAppScheduler(): void {
   setTimeout(leadsTick, 90_000);
   setInterval(leadsTick, LEADS_TICK_MS);
 
-  console.log("[in-app-cron] planificador interno activo (general 5 min · leads 1 min).");
+  // Google Posts programados: publica en las fichas los GmbPost vencidos. Cada
+  // 5 min es de sobra (la precisión de un post no requiere el minuto).
+  const GMB_TICK_MS = 5 * 60 * 1000;
+  async function gmbTick() {
+    try {
+      const { publishScheduledGmbPosts } = await import("@/lib/gmb/publish-scheduled");
+      await publishScheduledGmbPosts();
+    } catch (e) {
+      console.warn("[in-app-cron] gmb-posts:", (e as Error).message);
+    }
+  }
+  setTimeout(gmbTick, 120_000);
+  setInterval(gmbTick, GMB_TICK_MS);
+
+  console.log("[in-app-cron] planificador interno activo (general 5 min · leads 1 min · gmb-posts 5 min).");
 }
