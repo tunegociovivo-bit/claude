@@ -132,5 +132,20 @@ export function startInAppScheduler(): void {
   setTimeout(gmbTick, 120_000);
   setInterval(gmbTick, GMB_TICK_MS);
 
-  console.log("[in-app-cron] planificador interno activo (general 5 min · leads 1 min · gmb-posts 5 min).");
+  // Watchdog de sesiones WAHA: reinicia las que se caen (STOPPED). Cada 3 min.
+  const WAHA_WATCHDOG_MS = 3 * 60 * 1000;
+  async function wahaWatchdogTick() {
+    try {
+      const { autoRestartDownSessionsAllWorkspaces } = await import("@/lib/leads/session-watchdog");
+      await autoRestartDownSessionsAllWorkspaces();
+    } catch (e) {
+      console.warn("[in-app-cron] waha-watchdog:", (e as Error).message);
+    }
+  }
+  setTimeout(wahaWatchdogTick, 150_000);
+  setInterval(wahaWatchdogTick, WAHA_WATCHDOG_MS);
+
+  console.log(
+    "[in-app-cron] planificador interno activo (general 5 min · leads 1 min · gmb-posts 5 min · waha-watchdog 3 min)."
+  );
 }
