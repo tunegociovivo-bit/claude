@@ -2629,6 +2629,21 @@ function QueueTable({ loading, items, onChanged }: { loading: boolean; items: Qu
       onChanged();
     }
   }
+  async function retryOne(id: string) {
+    setSendingNowId(id);
+    try {
+      const r = await fetch("/api/v1/leads/queue/retry-failed", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: [id] })
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) alert(d?.message ?? "No se pudo reintentar.");
+      onChanged();
+    } finally {
+      setSendingNowId(null);
+    }
+  }
   async function sendNow(id: string) {
     if (!confirm("¿Enviar ESTE mensaje ahora mismo? Se salta la ventana horaria y el delay anti-spam.")) return;
     setSendingNowId(id);
@@ -3089,6 +3104,16 @@ function QueueTable({ loading, items, onChanged }: { loading: boolean; items: Qu
                           title="Enviar ahora (ignora ventana y delay)"
                         >
                           {sendingNowId === m.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />}
+                        </button>
+                      )}
+                      {m.status === "failed" && (
+                        <button
+                          onClick={() => retryOne(m.id)}
+                          disabled={sendingNowId === m.id}
+                          className="mr-1 inline-flex items-center justify-center p-1.5 rounded text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 disabled:opacity-40"
+                          title="Reintentar este mensaje fallido (vuelve a la cola)"
+                        >
+                          {sendingNowId === m.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
                         </button>
                       )}
                       <button

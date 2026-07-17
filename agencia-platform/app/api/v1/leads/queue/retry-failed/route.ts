@@ -7,7 +7,9 @@ const schema = z
   .object({
     // Si true, solo re-encola los que fallaron por el (falso) "Número sin
     // WhatsApp". Si false/omitido, re-encola TODOS los failed.
-    onlyNoWhatsapp: z.boolean().optional()
+    onlyNoWhatsapp: z.boolean().optional(),
+    // Reintentar SOLO estos mensajes fallidos (dead-letter, reintento por fila).
+    ids: z.array(z.string().min(1)).min(1).max(500).optional()
   })
   .nullable()
   .optional();
@@ -23,9 +25,11 @@ export const POST = withApi({ scope: "*" }, async (req, { api }) => {
   const body = await req.json().catch(() => null);
   const parsed = schema.safeParse(body);
   const onlyNoWa = parsed.success && parsed.data?.onlyNoWhatsapp === true;
+  const onlyIds = parsed.success ? parsed.data?.ids : undefined;
 
   const where: any = { workspaceId: api.workspaceId, status: "failed" };
   if (onlyNoWa) where.lastError = "Número sin WhatsApp";
+  if (onlyIds && onlyIds.length) where.id = { in: onlyIds };
 
   const failed = await prisma.leadMessage.findMany({
     where,
