@@ -42,7 +42,7 @@ export default function RichTextEditor({
       Placeholder.configure({ placeholder }),
       TaskList,
       TaskItem.configure({ nested: true }),
-      Link.configure({ openOnClick: false, autolink: true }),
+      Link.configure({ openOnClick: true, autolink: true, linkOnPaste: true }),
       Image.configure({ inline: false, allowBase64: false }),
       SlashCommands,
       Mention.configure({
@@ -101,8 +101,34 @@ function parseInitial(content: any) {
       content: content
         .split("\n")
         .filter(Boolean)
-        .map((line) => ({ type: "paragraph", content: [{ type: "text", text: line }] }))
+        .map((line) => ({ type: "paragraph", content: textToTiptapNodes(line) }))
     };
   }
   return content;
+}
+
+/** Texto plano → nodos TipTap con las URLs (http/https/www) marcadas como
+ *  enlace, para que las descripciones importadas con URLs sueltas sean
+ *  clicables (openOnClick). No genera nodos de texto vacíos. */
+function textToTiptapNodes(line: string): any[] {
+  const nodes: any[] = [];
+  const re = /(https?:\/\/[^\s]+|www\.[^\s]+)/gi;
+  let last = 0;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(line))) {
+    if (m.index > last) nodes.push({ type: "text", text: line.slice(last, m.index) });
+    let url = m[0];
+    let tail = "";
+    const t = url.match(/[).,;:!?]+$/);
+    if (t) {
+      tail = t[0];
+      url = url.slice(0, -tail.length);
+    }
+    const href = url.startsWith("http") ? url : `https://${url}`;
+    nodes.push({ type: "text", text: url, marks: [{ type: "link", attrs: { href } }] });
+    if (tail) nodes.push({ type: "text", text: tail });
+    last = m.index + m[0].length;
+  }
+  if (last < line.length) nodes.push({ type: "text", text: line.slice(last) });
+  return nodes.length ? nodes : [{ type: "text", text: line }];
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { X } from "lucide-react";
 import clsx from "clsx";
 
@@ -19,6 +19,7 @@ export default function Modal({
   footer?: ReactNode;
   size?: "sm" | "md" | "lg" | "xl";
 }) {
+  const scrollRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -29,6 +30,20 @@ export default function Modal({
       document.body.style.overflow = "";
     };
   }, [open, onClose]);
+
+  // Al abrir, empezar SIEMPRE por arriba. Algunos editores (tiptap) roban el
+  // foco al montar y el navegador baja el scroll al fondo; reseteamos en los
+  // primeros frames tras abrir para que se vea la parte superior de la tarea.
+  useEffect(() => {
+    if (!open) return;
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollTop = 0;
+    const r = requestAnimationFrame(() => { el.scrollTop = 0; });
+    const t1 = setTimeout(() => { el.scrollTop = 0; }, 60);
+    const t2 = setTimeout(() => { el.scrollTop = 0; }, 180);
+    return () => { cancelAnimationFrame(r); clearTimeout(t1); clearTimeout(t2); };
+  }, [open]);
 
   if (!open) return null;
 
@@ -62,7 +77,7 @@ export default function Modal({
             <X className="h-5 w-5" />
           </button>
         </div>
-        <div className="flex-1 overflow-y-auto px-4 sm:px-5 py-4">{children}</div>
+        <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 sm:px-5 py-4">{children}</div>
         {footer && (
           <div className="px-4 sm:px-5 py-3 border-t bg-slate-50 sm:rounded-b-2xl flex flex-wrap items-center justify-end gap-2 shrink-0">
             {footer}

@@ -8,6 +8,44 @@ import Image from "@tiptap/extension-image";
 import Mention from "@tiptap/extension-mention";
 import { Node, mergeAttributes } from "@tiptap/core";
 import Lightbox from "@/components/Lightbox";
+import type { ReactNode } from "react";
+
+/** Convierte un texto plano en nodos React con los enlaces (http/https/www)
+ *  clicables. La puntuación final típica (.,;:) no se incluye en el enlace. */
+function linkify(text: string): ReactNode[] {
+  const out: ReactNode[] = [];
+  const re = /(https?:\/\/[^\s<]+|www\.[^\s<]+)/gi;
+  let last = 0;
+  let key = 0;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text))) {
+    if (m.index > last) out.push(text.slice(last, m.index));
+    let url = m[0];
+    let tail = "";
+    const trail = url.match(/[).,;:!?]+$/);
+    if (trail) {
+      tail = trail[0];
+      url = url.slice(0, -tail.length);
+    }
+    const href = url.startsWith("http") ? url : `https://${url}`;
+    out.push(
+      <a
+        key={key++}
+        href={href}
+        target="_blank"
+        rel="noreferrer"
+        className="text-brand-600 underline break-all"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {url}
+      </a>
+    );
+    if (tail) out.push(tail);
+    last = m.index + m[0].length;
+  }
+  if (last < text.length) out.push(text.slice(last));
+  return out;
+}
 
 /**
  * Nodo `iframe` para embeber vídeos (Loom, YouTube, Vimeo) dentro
@@ -152,7 +190,7 @@ export default function CommentRenderer({ body, bodyJson }: { body: string; body
         {parsed && !isEmptyDoc ? (
           <EditorContent editor={editor} />
         ) : body ? (
-          <p className="text-sm text-slate-700 whitespace-pre-wrap">{body}</p>
+          <p className="text-sm text-slate-700 whitespace-pre-wrap">{linkify(body)}</p>
         ) : (
           <p className="text-xs text-slate-400 italic">(Comentario sin contenido visible)</p>
         )}
