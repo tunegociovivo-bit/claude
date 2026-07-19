@@ -69,7 +69,7 @@ export default function CommentEditor({
           "prose prose-sm prose-slate max-w-none focus:outline-none min-h-[80px] " +
           "[&_p]:my-1.5 [&_p]:leading-relaxed " +
           "[&_ul]:list-disc [&_ul]:ml-5 [&_ol]:list-decimal [&_ol]:ml-5 " +
-          "[&_a]:text-brand-600 [&_a]:underline " +
+          "[&_a]:text-brand-600 [&_a]:underline [&_a]:cursor-pointer " +
           "[&_img]:max-w-full [&_img]:rounded-md [&_img]:my-2"
       }
     }

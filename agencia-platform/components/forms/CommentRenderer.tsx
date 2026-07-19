@@ -34,7 +34,7 @@ function linkify(text: string): ReactNode[] {
         href={href}
         target="_blank"
         rel="noreferrer"
-        className="text-brand-600 underline break-all"
+        className="text-brand-600 underline break-all cursor-pointer"
         onClick={(e) => e.stopPropagation()}
       >
         {url}
@@ -149,7 +149,7 @@ export default function CommentRenderer({ body, bodyJson }: { body: string; body
           "[&_h3]:text-sm [&_h3]:font-semibold [&_h3]:mt-2 [&_h3]:mb-1 [&_h3]:text-slate-800 " +
           "[&_ul]:list-disc [&_ul]:ml-5 [&_ol]:list-decimal [&_ol]:ml-5 " +
           "[&_blockquote]:border-l-2 [&_blockquote]:border-slate-300 [&_blockquote]:pl-3 [&_blockquote]:my-2 [&_blockquote]:text-slate-600 [&_blockquote]:text-[12px] " +
-          "[&_a]:text-brand-600 [&_a]:underline " +
+          "[&_a]:text-brand-600 [&_a]:underline [&_a]:cursor-pointer " +
           "[&_img]:max-w-full [&_img]:rounded-md [&_img]:my-2 [&_img]:cursor-zoom-in"
       }
     }

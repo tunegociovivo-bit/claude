@@ -69,7 +69,7 @@ export default function RichTextEditor({
           "[&_ul]:list-disc [&_ul]:ml-5 [&_ol]:list-decimal [&_ol]:ml-5 " +
           "[&_blockquote]:border-l-4 [&_blockquote]:border-slate-300 [&_blockquote]:pl-3 [&_blockquote]:italic [&_blockquote]:text-slate-600 " +
           "[&_code]:bg-slate-100 [&_code]:px-1 [&_code]:py-0.5 [&_code]:rounded [&_code]:text-[12px] " +
-          "[&_a]:text-brand-600 [&_a]:underline " +
+          "[&_a]:text-brand-600 [&_a]:underline [&_a]:cursor-pointer " +
           "[&_ul[data-type='taskList']]:list-none [&_ul[data-type='taskList']]:ml-0 " +
           "[&_li[data-type='taskItem']]:flex [&_li[data-type='taskItem']]:gap-2 [&_li[data-type='taskItem']]:items-start"
       }
