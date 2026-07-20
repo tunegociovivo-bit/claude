@@ -1129,7 +1129,7 @@ export async function sendMessageById(
     }
     await prisma.leadMessage.update({
       where: { id: msg.id },
-      data: { status: "sent", sentAt: new Date(), externalMessageId: out.messageId }
+      data: { status: "sent", sentAt: new Date(), externalMessageId: out.messageId, lastError: null }
     });
     await prisma.lead.updateMany({
       where: { id: msg.leadId, contactStatus: "pending" },
@@ -1138,10 +1138,22 @@ export async function sendMessageById(
     return { processed: true, messageId: msg.id, status: "sent" };
   } catch (e: any) {
     const errStr = String(e?.message ?? e);
-    // Sesión caída (422 "session not working", etc.): NO es fallo del mensaje.
-    // Lo devolvemos a la cola sin quemar intentos para que se reenvíe en cuanto
-    // el número se reconecte, en vez de marcar la campaña entera como failed.
-    if (SESSION_DOWN_RE.test(errStr)) {
+    // Sesión caída: NO es fallo del mensaje; se devuelve a la cola sin quemar
+    // intentos para reenviarlo al reconectar. PERO no nos fiamos solo del texto
+    // del error (el JSON de WAHA puede contener "session"/"status" y dar falsos
+    // "desconectado" con la sesión WORKING — visto: Ajustes la ve conectada pero
+    // la cola decía desconectado). Comprobamos el ESTADO REAL de la sesión.
+    let sessName: string | null = msg.instanceName ?? null;
+    if (!sessName) {
+      try {
+        sessName = (await getWahaConfig(workspaceId)).session;
+      } catch {
+        /* dejamos null */
+      }
+    }
+    const working = sessName ? await sessionWorking(workspaceId, sessName) : null;
+    const reallyDown = working === false || (working === null && SESSION_DOWN_RE.test(errStr));
+    if (reallyDown) {
       await prisma.leadMessage.update({
         where: { id: msg.id },
         data: {
@@ -1153,6 +1165,8 @@ export async function sendMessageById(
       });
       return { processed: false, messageId: msg.id, status: "session_down" };
     }
+    // La sesión está WORKING pero el envío falló: es un fallo REAL (no
+    // "desconectado"). Cae al manejo normal de fallo con el error de verdad.
     const newAttempts = msg.sendAttempts + 1;
     const maxed = newAttempts >= settings.maxAttempts;
     await prisma.leadMessage.update({
