@@ -5603,12 +5603,31 @@ function NewSearchModal({ open, onClose, onSaved }: { open: boolean; onClose: ()
               className="mt-0.5 accent-emerald-600"
             />
             <div className="flex-1">
-              <span className="text-xs font-medium text-slate-800">🗺️ Búsqueda por cuadrícula (máxima cobertura)</span>
+              <span className="text-xs font-medium text-slate-800">🗺️ Búsqueda por cuadrícula (cobertura densa del núcleo)</span>
               <p className="text-[11px] text-slate-500">
                 Divide la zona en una rejilla y consulta cada celda para superar el tope de ~60
-                de Google. Captura <strong>muchos más negocios</strong>. En "Toda España" busca en
-                <strong> todos los municipios del país</strong> (~8.000) → cobertura total, pero
-                tarda y consume muchas más llamadas a la API.
+                de Google, <strong>denso en el núcleo urbano</strong>.
+                {scope === "spain" ? (
+                  <>
+                    {" "}En "Toda España" busca en <strong>todos los municipios del país</strong> (~8.000)
+                    → cobertura total, pero tarda y consume muchas más llamadas.
+                  </>
+                ) : municipality ? (
+                  <>
+                    {" "}En una ciudad concreta <strong>multiplica</strong> las consultas (≈49 celdas
+                    frente a 1 sin cuadrícula): más cobertura y más coste.
+                  </>
+                ) : provName ? (
+                  <>
+                    {" "}Ojo: a nivel <strong>provincia sale MÁS BARATA</strong> — usa 64 celdas fijas
+                    frente a las {municipalitiesForProvince(provName).length.toLocaleString("es")} consultas
+                    de "un pueblo por municipio" del modo normal. A cambio es más densa en el área
+                    metropolitana pero puede dejar fuera pueblos alejados. Para barrer <strong>todos los
+                    pueblos</strong>, déjala sin marcar.
+                  </>
+                ) : (
+                  <> Captura <strong>muchos más negocios</strong> en zonas densas.</>
+                )}
               </p>
             </div>
           </label>
