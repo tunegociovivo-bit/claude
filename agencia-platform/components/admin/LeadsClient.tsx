@@ -3678,6 +3678,42 @@ function InboxChat({
     }
   }
 
+  async function blockForever() {
+    if (!selected) return;
+    const who = threadMeta.leadName || threadMeta.displayName || selected;
+    if (
+      !confirm(
+        `¿Bloquear a "${who}" PARA SIEMPRE?\n\nSe cancelan sus mensajes en cola, se paran sus secuencias y su negocio queda EXCLUIDO: no se le volverá a contactar aunque reaparezca en futuras búsquedas.`
+      )
+    )
+      return;
+    setSavingMeta(true);
+    try {
+      const r = await fetch("/api/v1/leads/inbox/block", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone: selected, leadId: threadMeta.leadId ?? undefined })
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        alert(d?.message ?? d?.error?.message ?? "No se pudo bloquear.");
+        return;
+      }
+      alert(
+        `✅ Bloqueado "${d.businessName || who}".\n` +
+          `· ${d.optoutPhones?.length ?? 0} teléfono(s) en opt-out\n` +
+          `· ${d.canceledMessages ?? 0} mensaje(s) cancelado(s) en cola\n` +
+          `· ${d.stoppedSequences ?? 0} secuencia(s) detenida(s)\n` +
+          `${d.excludedLead ? "· Negocio marcado como EXCLUIDO (no reaparece en búsquedas)" : ""}`
+      );
+      setThreadMeta((m) => ({ ...m, optedOut: true, status: "not_interested", autoFollowupOff: true }));
+      void loadThread(selected);
+      void loadConvs();
+    } finally {
+      setSavingMeta(false);
+    }
+  }
+
   if (loading && !convsLoaded) return <Loading />;
 
   if (convsLoaded && convs.length === 0) {
@@ -4003,6 +4039,18 @@ function InboxChat({
                   </button>
                 ))}
                 <span className="flex-1" />
+                <button
+                  onClick={() => void blockForever()}
+                  disabled={savingMeta || threadMeta.optedOut}
+                  className="text-[11px] px-2 py-0.5 rounded-md border bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100 font-medium disabled:opacity-50"
+                  title={
+                    threadMeta.optedOut
+                      ? "Ya está bloqueado (opt-out)"
+                      : "Bloquear PARA SIEMPRE: cancela su cola, para secuencias y excluye el negocio de futuras búsquedas"
+                  }
+                >
+                  {threadMeta.optedOut ? "🚫 Bloqueado" : "🚫 Bloquear para siempre"}
+                </button>
                 <button
                   onClick={() => void saveMeta({ archived: !threadMeta.archived })}
                   disabled={savingMeta}

@@ -1136,6 +1136,25 @@ export async function processQueueTick(workspaceId: string): Promise<{
   });
   if (!msg) return { processed: false };
 
+  // 4.5) VETO/OPT-OUT — red de seguridad FINAL: aunque el mensaje se encolara
+  //      antes de que el lead pidiera la baja (o se bloqueara su negocio), NUNCA
+  //      se envía a un teléfono en opt-out ni a un lead marcado como "excluded".
+  //      Se cancela (estado terminal, no se reintenta).
+  const [optoutRow, leadRow] = await Promise.all([
+    prisma.leadOptout.findUnique({
+      where: { workspaceId_phone: { workspaceId, phone: msg.phoneNormalized } },
+      select: { id: true }
+    }),
+    prisma.lead.findUnique({ where: { id: msg.leadId }, select: { contactStatus: true } })
+  ]);
+  if (optoutRow || leadRow?.contactStatus === "excluded") {
+    await prisma.leadMessage.update({
+      where: { id: msg.id },
+      data: { status: "canceled", lastError: "Cancelado: el destinatario pidió no ser contactado (opt-out) o el lead está bloqueado." }
+    });
+    return { processed: false, error: "recipient_opted_out" };
+  }
+
   // 5) Cool-down POR DESTINATARIO: no contactar dos veces al mismo número
   //    dentro de la ventana configurada (default 7 días). Re-encolamos el
   //    mensaje para más tarde y seguimos al siguiente; no es un fallo del

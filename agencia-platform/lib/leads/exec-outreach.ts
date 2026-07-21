@@ -115,12 +115,27 @@ export async function processExecOutreachTick(workspaceId: string): Promise<{ pr
 
   const lead = await prisma.lead.findFirst({
     where: { id: row.leadId, workspaceId },
-    select: { name: true, category: true, contactStatus: true }
+    select: { name: true, category: true, contactStatus: true, phone: true, internationalPhone: true }
   });
-  // Si el lead ya avanzó en el funnel, paramos la secuencia.
-  if (!lead || ["client", "responded", "discarded"].includes(lead.contactStatus)) {
+  // Si el lead ya avanzó en el funnel O está EXCLUIDO (opt-out / bloqueo), paramos.
+  if (!lead || ["client", "responded", "discarded", "excluded"].includes(lead.contactStatus)) {
     await prisma.leadExecOutreach.update({ where: { id: row.id }, data: { status: "stopped" } });
-    return { processed: false, error: "lead_advanced" };
+    return { processed: false, error: lead?.contactStatus === "excluded" ? "lead_blocked" : "lead_advanced" };
+  }
+  // Veto por teléfono: si alguno de sus números está en opt-out, no contactar.
+  const { normalizePhone } = await import("./waha");
+  const phones = [lead.internationalPhone, lead.phone]
+    .map((p) => normalizePhone(p))
+    .filter(Boolean) as string[];
+  if (phones.length) {
+    const veto = await prisma.leadOptout.findFirst({
+      where: { workspaceId, phone: { in: phones } },
+      select: { id: true }
+    });
+    if (veto) {
+      await prisma.leadExecOutreach.update({ where: { id: row.id }, data: { status: "stopped" } });
+      return { processed: false, error: "recipient_opted_out" };
+    }
   }
 
   const stepDef = STEPS[row.step];

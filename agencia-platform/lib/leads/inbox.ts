@@ -544,28 +544,20 @@ export async function ingestInbox(opts: {
 
   // Acciones según clasificación
   if (classified.classification === "opt_out") {
-    await prisma.leadOptout.upsert({
-      where: { workspaceId_phone: { workspaceId: opts.workspaceId, phone: phoneNormalized } },
-      create: {
+    // BLOQUEO TOTAL: opt-out por todos sus teléfonos, cancela mensajes en cola,
+    // para secuencias/exec-outreach y marca el negocio EXCLUIDO para que ninguna
+    // búsqueda futura lo recontacte (haga la búsqueda que haga).
+    try {
+      const { blockLeadCompletely } = await import("./optout");
+      await blockLeadCompletely({
         workspaceId: opts.workspaceId,
         phone: phoneNormalized,
         leadId,
-        reason: classified.reason,
+        reason: classified.reason ?? "Solicitó no ser contactado (opt-out)",
         source: useIA ? "ai_classification" : "manual"
-      },
-      update: { reason: classified.reason }
-    });
-    // Detener secuencias activas y marcar el lead como EXCLUIDO (visible en su
-    // ficha, no solo en la lista de opt-out) para que ninguna campaña futura lo
-    // recontacte y para que quede claro en la UI por qué no se le escribe.
-    if (leadId) {
-      await prisma.leadSequenceAssignment.updateMany({
-        where: { leadId, status: "active" },
-        data: { status: "stopped", stoppedReason: "opt_out", completedAt: new Date() }
       });
-      await prisma.lead
-        .update({ where: { id: leadId }, data: { contactStatus: "excluded" } })
-        .catch(() => {});
+    } catch (e: any) {
+      console.warn("[inbox opt-out block]", e?.message ?? e);
     }
   } else if (["interested", "objection", "info_request"].includes(classified.classification)) {
     // Lead respondió → marcar y parar secuencias

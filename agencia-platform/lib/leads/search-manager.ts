@@ -666,7 +666,10 @@ async function upsertLead(opts: {
     where: { workspaceId_placeId: { workspaceId: opts.workspaceId, placeId: r.placeId } },
     select: { contactStatus: true, notes: true }
   });
-  const preserveStatuses = new Set(["contacted", "responded", "client", "discarded"]);
+  // "excluded" incluido: un lead vetado (opt-out / lista negra) NUNCA debe
+  // volver a "pending" porque una re-búsqueda re-encuentre el mismo negocio.
+  // Sin esto, "no volver a contactar" se perdía en la siguiente captación.
+  const preserveStatuses = new Set(["contacted", "responded", "client", "discarded", "excluded"]);
   const updateData: any = { ...data, aiOpener: null, aiOpenerGeneratedAt: null };
   if (existing && preserveStatuses.has(existing.contactStatus)) {
     updateData.contactStatus = existing.contactStatus;
