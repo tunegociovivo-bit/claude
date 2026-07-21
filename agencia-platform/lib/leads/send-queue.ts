@@ -939,12 +939,28 @@ export async function diagnoseQueue(workspaceId: string): Promise<{
         blocker = "primer mensaje con enlace (bloqueado anti-baneo)";
       }
     }
-    // canal desconectado
+    // canal desconectado / inexistente
     if (blocker === "listo para enviar") {
       const chan = m.instanceName ?? cfgSession;
-      const sess = sessions.find((s) => s.name === chan);
-      if (sess && sess.connected === false) {
-        blocker = anyConnected ? "canal caído (se reasignaría a otro conectado)" : "canal caído y NINGUNO conectado";
+      let sess = sessions.find((s) => s.name === chan);
+      // El canal asignado puede NO estar en la lista (instanceName obsoleto de un
+      // número borrado/renombrado en WAHA, p.ej. "ZTE …"). Lo probamos al vuelo.
+      let connected = sess?.connected ?? null;
+      let status = sess?.status ?? "no está en la lista de números";
+      if (!sess) {
+        try {
+          const s = await getSession({ workspaceId, session: chan });
+          status = String((s as any)?.status ?? "").toUpperCase() || "SIN_ESTADO";
+          connected = status === "WORKING";
+        } catch {
+          connected = false; // 404 / inexistente → tratamos como caído
+          status = "sesión inexistente (404)";
+        }
+      }
+      if (connected === false) {
+        blocker = anyConnected
+          ? `canal "${chan}" caído/inexistente (${status}) → se reasignará a uno conectado`
+          : `canal "${chan}" caído y NINGUNO conectado`;
       }
     }
     sample.push({
@@ -1274,22 +1290,44 @@ export async function sendMessageById(
     // working") cuando un número se desconecta.
     const preferred = msg.instanceName ?? cfg.session;
     const pref = await sessionWorking(workspaceId, preferred);
-    if (pref === false) {
+    // Reasignamos si el canal asignado NO está confirmado conectado. Esto cubre
+    // dos casos que antes se trataban distinto y dejaban mensajes clavados:
+    //   • pref === false  → la sesión existe pero está caída (STOPPED/FAILED…).
+    //   • pref === null   → la sesión NO existe / da 404 (número borrado o
+    //     renombrado en WAHA). Antes solo reaccionábamos a `false`, así que un
+    //     mensaje pegado a un canal fantasma ("ZTE …" que ya no existe)
+    //     reintentaba ETERNAMENTE contra una sesión muerta en vez de saltar a
+    //     otro número conectado. Ahora, si hay algún canal CONFIRMADO conectado,
+    //     movemos el mensaje ahí (el de menos uso hoy, para repartir carga).
+    if (pref !== true) {
       const extraNames = (await getLeadChannels(workspaceId)).map((c) => c.name).filter(Boolean);
       const candidates = [cfg.session, ...extraNames].filter(
         (v, i, a) => v && v !== preferred && a.indexOf(v) === i
       );
+      // Solo canales EXPLÍCITAMENTE conectados (true). Entre ellos, el de menos
+      // envíos hoy → reparto anti-baneo en vez de amontonar todo en el primero.
+      const dayStart = new Date();
+      dayStart.setHours(0, 0, 0, 0);
       let chosen: string | null = null;
+      let chosenUsed = Number.POSITIVE_INFINITY;
       for (const cand of candidates) {
-        if ((await sessionWorking(workspaceId, cand)) === true) {
+        if ((await sessionWorking(workspaceId, cand)) !== true) continue;
+        const inst = cand === cfg.session ? null : cand;
+        const used = await prisma.leadMessage
+          .count({ where: { workspaceId, instanceName: inst, status: { in: SENT_STATUSES }, sentAt: { gte: dayStart } } })
+          .catch(() => 0);
+        if (used < chosenUsed) {
+          chosenUsed = used;
           chosen = cand;
-          break;
         }
       }
       if (chosen) {
+        console.warn(`[send-queue] canal "${preferred}" no conectado (${pref === false ? "caído" : "inexistente/404"}); mensaje ${msg.id} reasignado a "${chosen}"`);
         msg.instanceName = chosen === cfg.session ? null : chosen;
         await prisma.leadMessage.update({ where: { id: msg.id }, data: { instanceName: msg.instanceName } });
-      } else {
+      } else if (pref === false) {
+        // El asignado está caído y NO hay ningún otro confirmado conectado:
+        // dejar en cola sin quemar intentos con aviso claro.
         await prisma.leadMessage.update({
           where: { id: msg.id },
           data: {
@@ -1301,6 +1339,9 @@ export async function sendMessageById(
         });
         return { processed: false, messageId: msg.id, status: "no_session" };
       }
+      // Si pref === null (no se pudo determinar) y no encontramos alternativa
+      // confirmada, seguimos con el canal original (fail-open): puede ser un
+      // fallo puntual de la comprobación y no queremos parar los envíos.
     }
 
     if (settings.validateWaBeforeSend) {
