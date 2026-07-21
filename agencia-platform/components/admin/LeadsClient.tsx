@@ -2583,7 +2583,12 @@ function QueueTable({ loading, items, onChanged }: { loading: boolean; items: Qu
           hourly_limit_reached: "Tope POR HORA alcanzado (anti-baneo). Vuelve a la próxima hora.",
           recipient_cooldown: "Este número recibió un mensaje hace poco; reprogramado tras el cool-down configurado.",
           new_chats_daily_cap: "Tope de NUEVAS conversaciones por hoy alcanzado. Reprogramado para mañana.",
-          pacing_wait: "Aún no toca: hay que esperar el delay mínimo desde el último envío."
+          pacing_wait: "Aún no toca: hay que esperar el delay mínimo desde el último envío.",
+          session_down: "El número asignado no está conectado en WhatsApp ahora mismo; se reintenta al reconectar.",
+          no_session: "No hay NINGÚN número conectado para enviar. Reconecta un número en Ajustes → Conectar.",
+          auto_recovery_triggered: "Modo recuperación ACTIVO por un pico de fallos: límites endurecidos temporalmente. Revisa Ajustes → recuperación.",
+          blocked_link_first_message: "El primer mensaje llevaba un enlace y se bloqueó (anti-baneo). Quita el link del opener.",
+          warmup_cap_deferred: "El número está en calentamiento y ya llegó a su cupo de hoy; reprogramado para mañana."
         };
         const human = code && reasons[code] ? reasons[code] : code
           ? `No procesado: ${code}`

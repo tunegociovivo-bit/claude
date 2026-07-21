@@ -752,6 +752,9 @@ export async function repaceQueue(opts: {
       where: { id: m.id },
       data: {
         scheduledAt: slot,
+        // Al reprogramar, limpiamos el aviso viejo (p.ej. "desconectado")
+        // para que no quede colgado un error obsoleto de un intento anterior.
+        lastError: null,
         ...(distribute ? { instanceName: roster[i % roster.length] } : {})
       }
     });
