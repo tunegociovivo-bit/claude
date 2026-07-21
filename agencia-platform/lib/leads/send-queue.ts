@@ -795,6 +795,26 @@ export async function processQueueTick(workspaceId: string): Promise<{
   status?: string;
   error?: string;
 }> {
+  // AUTO-RECUPERACIÓN de mensajes atascados en "sending": si el proceso murió a
+  // mitad de un envío, el mensaje se quedaba "sending" para siempre (ni se
+  // enviaba ni se reintentaba). Los que lleven >10 min en "sending" (o sin marca
+  // de fecha — huérfanos antiguos) vuelven a la cola. El margen de 10 min evita
+  // tocar el que se esté enviando AHORA (su sendingStartedAt ≈ now), así que no
+  // hay riesgo de doble envío.
+  await prisma.leadMessage
+    .updateMany({
+      where: {
+        workspaceId,
+        status: "sending",
+        OR: [
+          { sendingStartedAt: null },
+          { sendingStartedAt: { lt: new Date(Date.now() - 10 * 60 * 1000) } }
+        ]
+      },
+      data: { status: "queued", scheduledAt: new Date(), sendingStartedAt: null }
+    })
+    .catch(() => {});
+
   const settings = await getSendSettings(workspaceId);
   if (!settings.sendEnabled || settings.sendPaused) {
     return { processed: false, error: "queue_paused" };
@@ -954,7 +974,7 @@ export async function sendMessageById(
 
   await prisma.leadMessage.update({
     where: { id: msg.id },
-    data: { status: "sending", sendAttempts: msg.sendAttempts + 1 }
+    data: { status: "sending", sendAttempts: msg.sendAttempts + 1, sendingStartedAt: new Date() }
   });
 
   // Rotación por salud: si el número asignado está en cuarentena (quemado o

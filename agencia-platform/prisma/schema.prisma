@@ -1059,6 +1059,10 @@ model LeadMessage {
   status            String    @default("queued") // queued|sending|sent|failed|delivered|read
   scheduledAt       DateTime?
   sentAt            DateTime?
+  // Momento en que el mensaje pasó a "sending". Sirve para recuperar los que se
+  // quedan atascados (proceso muerto a mitad de envío): si llevan >10 min en
+  // "sending", el tick los devuelve a la cola para reintentarse.
+  sendingStartedAt  DateTime?
   sendAttempts      Int       @default(0)
   lastError         String?   @db.Text
   externalMessageId String?
