@@ -792,6 +792,255 @@ export async function rescheduleMessage(opts: {
   });
   return { id: opts.id, scheduledAt: opts.scheduledAt };
 }
+/**
+ * DIAGNÓSTICO de la cola: en UNA sola llamada evalúa TODOS los gates anti-baneo
+ * y devuelve un veredicto en lenguaje llano de por qué (no) se está enviando.
+ * Pensado para el botón "Diagnóstico" de la UI: evita tener que pulsar
+ * "Procesar siguiente" mensaje a mensaje para adivinar qué lo bloquea.
+ */
+export async function diagnoseQueue(workspaceId: string): Promise<{
+  verdict: string;
+  detail: string;
+  now: string;
+  insideWindow: boolean;
+  settings: {
+    sendEnabled: boolean;
+    sendPaused: boolean;
+    dailyLimitEffective: number;
+    maxPerHour: number;
+    cooldownDays: number;
+    maxNewChatsPerDay: number;
+    window: string;
+    sendOnWeekends: boolean;
+    recoveryMode: boolean;
+    warmupCap: number | null;
+  };
+  counters: {
+    sentToday: number;
+    sentLastHour: number;
+    newChatsToday: number;
+    lastSentAt: string | null;
+  };
+  queue: {
+    queued: number;
+    dueNow: number;
+    future: number;
+    sending: number;
+    failed: number;
+    blockedLink: number;
+    nextScheduledAt: string | null;
+  };
+  sessions: { name: string; role: string; connected: boolean | null; status: string }[];
+  sample: { phone: string; channel: string; blocker: string }[];
+}> {
+  const settings = await getSendSettings(workspaceId);
+  const now = new Date();
+  const mp = getMadridParts(now);
+  const nowStr = `${String(mp.day).padStart(2, "0")}/${String(mp.month).padStart(2, "0")} ${String(mp.hour).padStart(2, "0")}:${String(mp.minute).padStart(2, "0")} (Madrid)`;
+  const insideWindow = isInsideWindow(settings, now);
+
+  const [sentToday, sentLastHour, newChatsToday, lastSent] = await Promise.all([
+    countSentToday(workspaceId),
+    countSentInWindow(workspaceId, 60),
+    countNewConversationsToday(workspaceId).catch(() => 0),
+    prisma.leadMessage.findFirst({
+      where: { workspaceId, status: { in: SENT_STATUSES }, sentAt: { not: null } },
+      orderBy: { sentAt: "desc" },
+      select: { sentAt: true }
+    })
+  ]);
+
+  const [queuedTotal, dueNow, sendingCount, failedCount, blockedLinkCount, nextMsg] = await Promise.all([
+    prisma.leadMessage.count({ where: { workspaceId, status: "queued" } }),
+    prisma.leadMessage.count({ where: { workspaceId, status: "queued", scheduledAt: { lte: now } } }),
+    prisma.leadMessage.count({ where: { workspaceId, status: "sending" } }),
+    prisma.leadMessage.count({ where: { workspaceId, status: "failed" } }),
+    prisma.leadMessage.count({ where: { workspaceId, status: "blocked_link" } }),
+    prisma.leadMessage.findFirst({
+      where: { workspaceId, status: "queued" },
+      orderBy: { scheduledAt: "asc" },
+      select: { scheduledAt: true }
+    })
+  ]);
+  const future = queuedTotal - dueNow;
+
+  // Warmup cap efectivo (informativo).
+  let warmupCap: number | null = null;
+  try {
+    warmupCap = settings.warmupEnabled ? await computeWarmupCap(workspaceId, settings) : null;
+  } catch {
+    warmupCap = null;
+  }
+
+  // Estado en vivo de todas las sesiones (principal + canales extra).
+  const sessions: { name: string; role: string; connected: boolean | null; status: string }[] = [];
+  let cfgSession = "default";
+  try {
+    cfgSession = (await getWahaConfig(workspaceId)).session;
+  } catch {
+    /* noop */
+  }
+  async function probe(name: string, role: string) {
+    let status = "desconocido";
+    let connected: boolean | null = null;
+    try {
+      const s = await getSession({ workspaceId, session: name });
+      status = String((s as any)?.status ?? "").toUpperCase() || "SIN_ESTADO";
+      connected = status === "WORKING";
+    } catch (e: any) {
+      status = `error: ${String(e?.message ?? e).slice(0, 40)}`;
+      connected = null;
+    }
+    sessions.push({ name, role, connected, status });
+  }
+  await probe(cfgSession, "Principal");
+  const channels = await getLeadChannels(workspaceId).catch(() => []);
+  for (const c of channels) {
+    if (c.name && c.name !== cfgSession) {
+      await probe(c.name, c.active === false ? "Extra (inactivo)" : "Extra");
+    }
+  }
+  const anyConnected = sessions.some((s) => s.connected === true);
+
+  // Muestra: para los primeros mensajes vencidos, qué gate los bloquearía.
+  const sample: { phone: string; channel: string; blocker: string }[] = [];
+  const dueMsgs = await prisma.leadMessage.findMany({
+    where: { workspaceId, status: "queued", scheduledAt: { lte: now } },
+    orderBy: { scheduledAt: "asc" },
+    take: 8,
+    select: { id: true, phoneNormalized: true, instanceName: true, renderedMessage: true }
+  });
+  const cooldownDays = settings.minCoolDownDaysPerRecipient;
+  const cutoff = new Date(now.getTime() - cooldownDays * 86_400_000);
+  for (const m of dueMsgs) {
+    let blocker = "listo para enviar";
+    // cool-down
+    if (cooldownDays > 0) {
+      const recent = await prisma.leadMessage.findFirst({
+        where: {
+          workspaceId,
+          phoneNormalized: m.phoneNormalized,
+          id: { not: m.id },
+          status: { in: SENT_STATUSES },
+          sentAt: { gte: cutoff }
+        },
+        select: { sentAt: true }
+      });
+      if (recent) blocker = `en cool-down (contactado hace <${cooldownDays}d)`;
+    }
+    // nueva conversación + link
+    if (blocker === "listo para enviar") {
+      const prior = await prisma.leadMessage.findFirst({
+        where: { workspaceId, phoneNormalized: m.phoneNormalized, id: { not: m.id }, status: { in: SENT_STATUSES } },
+        select: { id: true }
+      });
+      const isNew = !prior;
+      if (isNew && settings.blockLinksInFirstMessage && containsLink(m.renderedMessage)) {
+        blocker = "primer mensaje con enlace (bloqueado anti-baneo)";
+      }
+    }
+    // canal desconectado
+    if (blocker === "listo para enviar") {
+      const chan = m.instanceName ?? cfgSession;
+      const sess = sessions.find((s) => s.name === chan);
+      if (sess && sess.connected === false) {
+        blocker = anyConnected ? "canal caído (se reasignaría a otro conectado)" : "canal caído y NINGUNO conectado";
+      }
+    }
+    sample.push({
+      phone: m.phoneNormalized,
+      channel: m.instanceName ?? "Principal",
+      blocker
+    });
+  }
+
+  // ── Veredicto: el primer gate que corta el envío AHORA ──
+  let verdict = "La cola puede enviar ahora mismo.";
+  let detail = "Si aun así no salen mensajes, revisa la muestra de abajo.";
+  if (!settings.sendEnabled || settings.sendPaused) {
+    verdict = "La cola está EN PAUSA.";
+    detail = "Actívala en Ajustes (Envío activado / quitar pausa).";
+  } else if (!insideWindow) {
+    verdict = "Fuera de la ventana de envío.";
+    detail = `Ahora son las ${nowStr}. La ventana es ${settings.sendWindowStart}–${settings.sendWindowEnd}${settings.sendOnWeekends ? "" : ", solo entre semana"}. No se envía hasta que vuelva a estar dentro.`;
+  } else if (!anyConnected) {
+    verdict = "Ningún número de WhatsApp está conectado.";
+    detail = `Sesiones: ${sessions.map((s) => `${s.name} (${s.status})`).join(", ")}. Reconecta al menos una en Ajustes → Conectar (escanear QR).`;
+  } else if (sentToday >= settings.dailyLimit) {
+    verdict = "Tope diario alcanzado.";
+    detail = `Ya se han enviado ${sentToday}/${settings.dailyLimit} hoy. Reanuda mañana o sube el tope en Ajustes.`;
+  } else if (sentLastHour >= settings.maxPerHour) {
+    verdict = "Tope por hora alcanzado.";
+    detail = `${sentLastHour}/${settings.maxPerHour} en la última hora. Se reanuda en cuanto pase la hora.`;
+  } else if (lastSent?.sentAt && (now.getTime() - lastSent.sentAt.getTime()) / 1000 < settings.sendDelayMinSec) {
+    verdict = "Esperando la cadencia mínima entre envíos.";
+    detail = `Faltan unos segundos desde el último envío (delay mínimo ${settings.sendDelayMinSec}s).`;
+  } else if (queuedTotal === 0) {
+    verdict = "No hay mensajes en cola.";
+    detail = "Encola mensajes desde la lista de leads o una búsqueda.";
+  } else if (dueNow === 0) {
+    verdict = "Todos los mensajes están programados para MÁS TARDE.";
+    detail = `Hay ${future} en cola, el próximo el ${nextMsg?.scheduledAt ? new Date(nextMsg.scheduledAt).toLocaleString("es-ES", { timeZone: TZ }) : "?"}. Pulsa "Reprogramar cola" para adelantarlos a ahora.`;
+  } else {
+    // Hay vencidos: mira si TODOS los de la muestra están bloqueados y por qué.
+    const blockers = sample.filter((s) => s.blocker !== "listo para enviar");
+    if (blockers.length === sample.length && sample.length > 0) {
+      const cool = blockers.filter((b) => b.blocker.includes("cool-down")).length;
+      const link = blockers.filter((b) => b.blocker.includes("enlace")).length;
+      const down = blockers.filter((b) => b.blocker.includes("NINGUNO")).length;
+      if (down > 0) {
+        verdict = "Los mensajes vencidos van a números caídos.";
+        detail = "Reconecta el número o pulsa Reprogramar cola para repartirlos a un número conectado.";
+      } else if (cool >= link) {
+        verdict = "Todos los mensajes vencidos están en cool-down.";
+        detail = `Sus destinatarios fueron contactados hace menos de ${cooldownDays} días. Baja "días entre contactos al mismo número" en Ajustes o espera. Se irán liberando solos.`;
+      } else {
+        verdict = "Los openers vencidos llevan un enlace y están bloqueados.";
+        detail = "Quita el enlace del primer mensaje (plantilla): un link en el primer contacto en frío es de los mayores disparadores de baneo.";
+      }
+    } else {
+      verdict = `Hay ${dueNow} mensaje(s) listos: la cola enviará en el próximo tick (cada minuto).`;
+      detail = "Si no ves envíos en 1–2 min, mira la muestra: alguno puede caer en un gate al intentarlo.";
+    }
+  }
+
+  return {
+    verdict,
+    detail,
+    now: nowStr,
+    insideWindow,
+    settings: {
+      sendEnabled: settings.sendEnabled,
+      sendPaused: settings.sendPaused,
+      dailyLimitEffective: settings.dailyLimit,
+      maxPerHour: settings.maxPerHour,
+      cooldownDays,
+      maxNewChatsPerDay: settings.maxNewChatsPerDay,
+      window: `${settings.sendWindowStart}–${settings.sendWindowEnd}`,
+      sendOnWeekends: settings.sendOnWeekends,
+      recoveryMode: settings.recoveryMode,
+      warmupCap
+    },
+    counters: {
+      sentToday,
+      sentLastHour,
+      newChatsToday,
+      lastSentAt: lastSent?.sentAt ? new Date(lastSent.sentAt).toLocaleString("es-ES", { timeZone: TZ }) : null
+    },
+    queue: {
+      queued: queuedTotal,
+      dueNow,
+      future,
+      sending: sendingCount,
+      failed: failedCount,
+      blockedLink: blockedLinkCount,
+      nextScheduledAt: nextMsg?.scheduledAt ? new Date(nextMsg.scheduledAt).toLocaleString("es-ES", { timeZone: TZ }) : null
+    },
+    sessions,
+    sample
+  };
+}
+
 export async function processQueueTick(workspaceId: string): Promise<{
   processed: boolean;
   messageId?: string;

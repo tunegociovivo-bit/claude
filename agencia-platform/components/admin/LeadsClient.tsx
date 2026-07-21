@@ -2358,6 +2358,8 @@ function SearchesTable({ loading, items, onChanged }: { loading: boolean; items:
 function QueueTable({ loading, items, onChanged }: { loading: boolean; items: QueueRow[]; onChanged: () => void }) {
   const [processing, setProcessing] = useState(false);
   const [tickResult, setTickResult] = useState<{ kind: "ok" | "warn" | "error"; text: string } | null>(null);
+  const [diag, setDiag] = useState<any | null>(null);
+  const [diagLoading, setDiagLoading] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const [sendingNowId, setSendingNowId] = useState<string | null>(null);
@@ -2602,6 +2604,23 @@ function QueueTable({ loading, items, onChanged }: { loading: boolean; items: Qu
       onChanged();
     }
   }
+  async function runDiagnose() {
+    setDiagLoading(true);
+    setDiag(null);
+    try {
+      const r = await fetch("/api/v1/leads/queue/diagnose");
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        setTickResult({ kind: "error", text: d?.message ?? `Error HTTP ${r.status}` });
+      } else {
+        setDiag(d);
+      }
+    } catch (e: any) {
+      setTickResult({ kind: "error", text: e?.message ?? "Error de red" });
+    } finally {
+      setDiagLoading(false);
+    }
+  }
   async function retryFailed() {
     const failedCount = items.filter((m) => m.status === "failed").length;
     if (
@@ -2821,6 +2840,15 @@ function QueueTable({ loading, items, onChanged }: { loading: boolean; items: Qu
           Procesar siguiente
         </button>
         <button
+          onClick={runDiagnose}
+          disabled={diagLoading}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-sky-300 bg-sky-50 hover:bg-sky-100 text-sky-700 text-xs disabled:opacity-50"
+          title="Revisa de una vez TODOS los motivos por los que la cola podría no estar enviando (pausa, ventana horaria, topes, cool-down, conexión de cada número, enlaces en el opener) y da un veredicto claro."
+        >
+          {diagLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "🩺"}
+          Diagnóstico
+        </button>
+        <button
           onClick={refreshRendered}
           disabled={processing}
           className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-700 text-xs disabled:opacity-50"
@@ -2941,6 +2969,112 @@ function QueueTable({ loading, items, onChanged }: { loading: boolean; items: Qu
           }
         >
           {tickResult.text}
+        </div>
+      )}
+      {diag && (
+        <div className="rounded-lg border border-sky-200 bg-sky-50/60 p-3 text-xs space-y-3">
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <div className="font-semibold text-sky-900 text-sm">🩺 {diag.verdict}</div>
+              <div className="text-slate-700 mt-0.5">{diag.detail}</div>
+            </div>
+            <button
+              onClick={() => setDiag(null)}
+              className="shrink-0 text-slate-400 hover:text-slate-700 text-base leading-none"
+              title="Cerrar"
+            >
+              ✕
+            </button>
+          </div>
+
+          {/* Sesiones (números) */}
+          <div>
+            <div className="font-medium text-slate-600 mb-1">Números de WhatsApp</div>
+            <div className="flex flex-wrap gap-1.5">
+              {diag.sessions?.map((s: any, i: number) => (
+                <span
+                  key={i}
+                  className={
+                    "inline-flex items-center gap-1 px-2 py-0.5 rounded-full border " +
+                    (s.connected === true
+                      ? "bg-emerald-50 border-emerald-300 text-emerald-800"
+                      : s.connected === false
+                        ? "bg-rose-50 border-rose-300 text-rose-800"
+                        : "bg-slate-50 border-slate-300 text-slate-600")
+                  }
+                  title={s.status}
+                >
+                  {s.connected === true ? "🟢" : s.connected === false ? "🔴" : "⚪️"} {s.name} · {s.role}{" "}
+                  <span className="opacity-70">({s.status})</span>
+                </span>
+              ))}
+            </div>
+          </div>
+
+          {/* Contadores + cola */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            {[
+              ["Ahora", diag.now + (diag.insideWindow ? " · en ventana ✅" : " · fuera de ventana ⛔")],
+              ["Ventana", `${diag.settings.window}${diag.settings.sendOnWeekends ? "" : " (L-V)"}`],
+              ["Enviados hoy", `${diag.counters.sentToday} / ${diag.settings.dailyLimitEffective}`],
+              ["Última hora", `${diag.counters.sentLastHour} / ${diag.settings.maxPerHour}`],
+              ["Cool-down", `${diag.settings.cooldownDays} días`],
+              ["Chats nuevos/día", `${diag.counters.newChatsToday} / ${diag.settings.maxNewChatsPerDay}`],
+              ["En cola (vencidos)", `${diag.queue.queued} (${diag.queue.dueNow} listos)`],
+              ["Último envío", diag.counters.lastSentAt ?? "—"]
+            ].map(([k, v], i) => (
+              <div key={i} className="rounded border border-sky-100 bg-white px-2 py-1">
+                <div className="text-[10px] uppercase tracking-wide text-slate-400">{k}</div>
+                <div className="text-slate-800 font-medium">{v}</div>
+              </div>
+            ))}
+          </div>
+          {(diag.settings.recoveryMode || diag.queue.failed > 0 || diag.queue.blockedLink > 0 || diag.queue.sending > 0) && (
+            <div className="flex flex-wrap gap-2 text-[11px]">
+              {diag.settings.recoveryMode && (
+                <span className="px-2 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-300">
+                  ⚠️ Modo recuperación ACTIVO (límites endurecidos)
+                </span>
+              )}
+              {diag.settings.warmupCap != null && (
+                <span className="px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200">
+                  🔥 Calentamiento: tope efectivo {diag.settings.warmupCap}/día
+                </span>
+              )}
+              {diag.queue.sending > 0 && (
+                <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 border">{diag.queue.sending} en “enviando”</span>
+              )}
+              {diag.queue.failed > 0 && (
+                <span className="px-2 py-0.5 rounded bg-rose-50 text-rose-700 border border-rose-200">{diag.queue.failed} fallidos</span>
+              )}
+              {diag.queue.blockedLink > 0 && (
+                <span className="px-2 py-0.5 rounded bg-orange-50 text-orange-700 border border-orange-200">{diag.queue.blockedLink} bloqueados por enlace</span>
+              )}
+            </div>
+          )}
+
+          {/* Muestra de mensajes vencidos y su bloqueo */}
+          {diag.sample?.length > 0 && (
+            <div>
+              <div className="font-medium text-slate-600 mb-1">Próximos mensajes vencidos</div>
+              <div className="space-y-0.5">
+                {diag.sample.map((s: any, i: number) => (
+                  <div key={i} className="flex items-center justify-between gap-2 bg-white rounded border border-sky-100 px-2 py-1">
+                    <span className="font-mono text-slate-700">{s.phone}</span>
+                    <span className="text-slate-400">{s.channel}</span>
+                    <span
+                      className={
+                        "font-medium " +
+                        (s.blocker === "listo para enviar" ? "text-emerald-700" : "text-amber-700")
+                      }
+                    >
+                      {s.blocker}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
       {items.length === 0 ? (
