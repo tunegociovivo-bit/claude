@@ -147,6 +147,17 @@ const URGENCY_COLORS: Record<string, string> = {
 
 export default function LeadsClient() {
   const [tab, setTab] = useState<Tab>("leads");
+  // Deep-link: abrir directamente una conversación de WhatsApp desde una tarea
+  // creada en el generador de leads (/admin/leads?tab=inbox&phone=…).
+  const [deepLinkPhone, setDeepLinkPhone] = useState<string | null>(null);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const sp = new URLSearchParams(window.location.search);
+    const t = sp.get("tab");
+    const phone = sp.get("phone");
+    if (t === "inbox") setTab("inbox");
+    if (phone) setDeepLinkPhone(phone);
+  }, []);
   const [recoveryInfo, setRecoveryInfo] = useState<{ active: boolean; since: string | null; days: number } | null>(null);
   const [leads, setLeads] = useState<Lead[]>([]);
   // Total real de leads que cumplen el filtro en BD (la tabla carga por
@@ -501,7 +512,7 @@ export default function LeadsClient() {
 
       {tab === "searches" && <SearchesTable loading={loading} items={searches} onChanged={load} />}
       {tab === "queue" && <QueueTable loading={loading} items={queue} onChanged={load} />}
-      {tab === "inbox" && <InboxChat loading={loading} diagnostics={inboxDiag} />}
+      {tab === "inbox" && <InboxChat loading={loading} diagnostics={inboxDiag} initialPhone={deepLinkPhone} />}
       {tab === "sequences" && <SequencesView />}
       {tab === "templates" && <TemplatesTable loading={loading} items={templates} onChanged={load} />}
       {tab === "exclusions" && <ExclusionsView />}
@@ -3497,14 +3508,32 @@ const CLASS_CHIP: Record<string, { label: string; cls: string }> = {
  *  (la respuesta sale por el mismo número al que escribió el lead). */
 function InboxChat({
   loading,
-  diagnostics
+  diagnostics,
+  initialPhone
 }: {
   loading: boolean;
   diagnostics: { webhookLastHit: string | null; webhookLastEvent: string | null; webhookLastDecision?: string | null; webhookLastFrom?: string | null; webhookLastBody?: string | null; webhookLastKeys?: string | null; webhookLastMsgAt?: string | null; webhookLastMsgDecision?: string | null; webhookLastMsgEvent?: string | null; webhookLastMsgFrom?: string | null; webhookLastMsgBody?: string | null; webhookLastMsgPayloadKeys?: string | null; webhookMe?: string | null; webhookSession?: string | null };
+  initialPhone?: string | null;
 }) {
   const [convs, setConvs] = useState<Conversation[]>([]);
   const [convsLoaded, setConvsLoaded] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
+  // Deep-link: si venimos de una tarea (?phone=…), abrir esa conversación al
+  // entrar. Solo una vez.
+  const deepLinkedRef = useRef(false);
+  useEffect(() => {
+    if (deepLinkedRef.current || !initialPhone) return;
+    deepLinkedRef.current = true;
+    setSelected(initialPhone);
+  }, [initialPhone]);
+  // Crear tarea desde la conversación (modal).
+  const [ctOpen, setCtOpen] = useState(false);
+  const [ctLoading, setCtLoading] = useState(false);
+  const [ctCreating, setCtCreating] = useState(false);
+  const [ctTitle, setCtTitle] = useState("");
+  const [ctProjectId, setCtProjectId] = useState("");
+  const [ctStatus, setCtStatus] = useState("");
+  const [ctProjects, setCtProjects] = useState<{ id: string; name: string; columns: { id: string; label: string }[] }[]>([]);
   // Canales (números de WhatsApp) para mostrar con nombre legible cuál gestiona
   // cada lead. channelLabel = helper local que usa este estado.
   const [channels, setChannels] = useState<{ name: string; label?: string | null }[]>([]);
@@ -3750,6 +3779,67 @@ function InboxChat({
     }
   }
 
+  async function openCreateTask() {
+    if (!selected) return;
+    setCtOpen(true);
+    setCtLoading(true);
+    setCtProjects([]);
+    setCtTitle("");
+    try {
+      const qs = new URLSearchParams({ phone: selected });
+      if (threadMeta.leadId) qs.set("leadId", threadMeta.leadId);
+      const r = await fetch(`/api/v1/leads/inbox/create-task?${qs.toString()}`);
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        alert(d?.message ?? d?.error?.message ?? "No se pudo preparar la tarea.");
+        setCtOpen(false);
+        return;
+      }
+      setCtProjects(d.projects ?? []);
+      setCtTitle(d.suggestedTitle ?? "");
+      setCtProjectId(d.defaultProjectId ?? d.projects?.[0]?.id ?? "");
+      setCtStatus(d.defaultStatus ?? "");
+    } catch (e: any) {
+      alert(e?.message ?? "Error de red");
+      setCtOpen(false);
+    } finally {
+      setCtLoading(false);
+    }
+  }
+  async function submitCreateTask() {
+    if (!selected || !ctTitle.trim()) return;
+    setCtCreating(true);
+    try {
+      const r = await fetch("/api/v1/leads/inbox/create-task", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          phone: selected,
+          leadId: threadMeta.leadId ?? undefined,
+          projectId: ctProjectId || undefined,
+          status: ctStatus || undefined,
+          title: ctTitle.trim()
+        })
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        alert(d?.message ?? d?.error?.message ?? "No se pudo crear la tarea.");
+        return;
+      }
+      setCtOpen(false);
+      if (d.taskUrl && confirm("✅ Tarea creada. ¿Abrirla ahora?")) {
+        window.open(d.taskUrl, "_blank");
+      }
+    } catch (e: any) {
+      alert(e?.message ?? "Error de red");
+    } finally {
+      setCtCreating(false);
+    }
+  }
+
+  // Columnas del proyecto seleccionado en el modal.
+  const ctColumns = ctProjects.find((p) => p.id === ctProjectId)?.columns ?? [];
+
   if (loading && !convsLoaded) return <Loading />;
 
   if (convsLoaded && convs.length === 0) {
@@ -3758,7 +3848,12 @@ function InboxChat({
     return <InboxList loading={false} items={[]} diagnostics={diagnostics} />;
   }
 
-  const sel = convs.find((c) => c.phone === selected) ?? null;
+  // Fallback sintético cuando el teléfono seleccionado no está en la lista
+  // (p. ej. deep-link desde una tarea, o filtrado): así el panel de la
+  // conversación se renderiza igual y loadThread rellena los datos.
+  const sel =
+    convs.find((c) => c.phone === selected) ??
+    (selected ? ({ phone: selected } as unknown as Conversation) : null);
 
   // Aplica búsqueda + filtros + orden a la lista (no toca el servidor).
   const PR_RANK: Record<string, number> = { alta: 0, media: 1, baja: 2, none: 3 };
@@ -3798,6 +3893,78 @@ function InboxChat({
 
   return (
     <div className="bg-white rounded-xl border overflow-hidden grid grid-cols-1 md:grid-cols-[320px_1fr]" style={{ height: "72vh" }}>
+      {ctOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => !ctCreating && setCtOpen(false)}>
+          <div className="w-full max-w-md rounded-xl bg-white shadow-xl p-4 space-y-3" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <h3 className="font-semibold text-slate-800">＋ Crear tarea del lead</h3>
+              <button onClick={() => setCtOpen(false)} className="text-slate-400 hover:text-slate-700">✕</button>
+            </div>
+            {ctLoading ? (
+              <div className="flex items-center gap-2 text-sm text-slate-500 py-6 justify-center">
+                <Loader2 className="h-4 w-4 animate-spin" /> Generando título con IA…
+              </div>
+            ) : (
+              <>
+                <label className="block">
+                  <span className="text-[11px] font-medium text-slate-600">Título (generado por IA, editable)</span>
+                  <textarea
+                    value={ctTitle}
+                    onChange={(e) => setCtTitle(e.target.value)}
+                    rows={2}
+                    className="mt-1 w-full text-sm border rounded-md px-2 py-1.5 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                  />
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <label className="block">
+                    <span className="text-[11px] font-medium text-slate-600">Proyecto</span>
+                    <select
+                      value={ctProjectId}
+                      onChange={(e) => {
+                        setCtProjectId(e.target.value);
+                        const cols = ctProjects.find((p) => p.id === e.target.value)?.columns ?? [];
+                        // Al cambiar de proyecto, intenta mantener "REUNIONES…" si existe.
+                        const reu = cols.find((c) => c.label.toUpperCase().includes("REUNIONES"));
+                        setCtStatus(reu?.id ?? cols[0]?.id ?? "");
+                      }}
+                      className="mt-1 w-full text-sm border rounded-md px-2 py-1.5 bg-white"
+                    >
+                      {ctProjects.map((p) => (
+                        <option key={p.id} value={p.id}>{p.name}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="block">
+                    <span className="text-[11px] font-medium text-slate-600">Columna</span>
+                    <select
+                      value={ctStatus}
+                      onChange={(e) => setCtStatus(e.target.value)}
+                      className="mt-1 w-full text-sm border rounded-md px-2 py-1.5 bg-white"
+                    >
+                      {ctColumns.map((c) => (
+                        <option key={c.id} value={c.id}>{c.label}</option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+                <p className="text-[11px] text-slate-400">
+                  La tarea se marcará en verde (🟢 Lead Pro) y tendrá un botón para volver a esta conversación.
+                </p>
+                <div className="flex justify-end gap-2 pt-1">
+                  <button onClick={() => setCtOpen(false)} className="px-3 py-1.5 text-xs rounded-md border hover:bg-slate-50">Cancelar</button>
+                  <button
+                    onClick={() => void submitCreateTask()}
+                    disabled={ctCreating || !ctTitle.trim()}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50"
+                  >
+                    {ctCreating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "＋"} Crear tarea
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
       {/* Lista de conversaciones */}
       <div className={`border-r overflow-y-auto ${selected ? "hidden md:block" : ""}`}>
         {/* Barra de búsqueda + filtros + orden */}
@@ -4075,6 +4242,14 @@ function InboxChat({
                   </button>
                 ))}
                 <span className="flex-1" />
+                <button
+                  onClick={() => void openCreateTask()}
+                  disabled={savingMeta}
+                  className="text-[11px] px-2 py-0.5 rounded-md border bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100 font-medium disabled:opacity-50"
+                  title="Crear una tarea sobre este lead (proyecto y columna por defecto: NEGOCIO VIVO GENERAL · REUNIONES Y LLAMADAS). La IA genera el título con el teléfono."
+                >
+                  ＋ Crear tarea
+                </button>
                 <button
                   onClick={() => void blockForever()}
                   disabled={savingMeta || threadMeta.optedOut}

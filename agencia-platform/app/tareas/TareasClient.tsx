@@ -2365,7 +2365,9 @@ function TaskCard({
                    // chequeados antes).
               : "bg-white",
         isOverlay ? "shadow-2xl rotate-2 border-brand-400" : alarmLevel === "none" && !aiStatus && "hover:shadow-sm hover:border-brand-200",
-        isSelected && !aiStatus && "border-brand-400 ring-2 ring-brand-300/50"
+        isSelected && !aiStatus && "border-brand-400 ring-2 ring-brand-300/50",
+        // Viene del generador de leads (WhatsApp): acento verde a la izquierda.
+        task.leadMeta && alarmLevel === "none" && "border-l-4 border-l-emerald-500"
       )}
     >
       {aiStatus && (
@@ -2390,6 +2392,27 @@ function TaskCard({
           onClick={(e) => e.stopPropagation()}
           className="absolute top-2 right-2 h-4 w-4"
         />
+      )}
+      {task.leadMeta && (
+        <div className="mb-2 flex items-center gap-1.5 flex-wrap">
+          <span
+            className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 ring-1 ring-emerald-200"
+            title={`Tarea creada desde el generador de leads (WhatsApp)${task.leadMeta.phone ? ` · ${task.leadMeta.phone}` : ""}`}
+          >
+            🟢 Lead Pro
+          </span>
+          {task.leadMeta.inboxUrl && (
+            <a
+              href={task.leadMeta.inboxUrl}
+              onClick={(e) => e.stopPropagation()}
+              onPointerDown={(e) => e.stopPropagation()}
+              className="inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 hover:bg-slate-200"
+              title="Abrir la conversación de WhatsApp de este lead"
+            >
+              💬 Ver conversación
+            </a>
+          )}
+        </div>
       )}
       {/* Botón copiar URL — aparece en hover. No interfiere con drag&drop
           ni con la apertura del modal porque hace stopPropagation. */}

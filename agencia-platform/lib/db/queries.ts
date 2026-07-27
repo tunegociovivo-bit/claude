@@ -104,7 +104,20 @@ export type UiTask = (typeof mockTasks)[number] & {
   /** Próxima ejecución programada (ISO). Si recurrence != "none" y esto es
    *  null, la recurrencia está PAUSADA (el cron solo dispara con fecha <= now). */
   recurrenceNextAt?: string | null;
+  /** Si la tarea se creó desde el generador de leads (WhatsApp), sus datos para
+   *  pintar el acento verde en la tarjeta y el botón "Ver conversación". */
+  leadMeta?: { phone?: string; name?: string | null; inboxUrl?: string } | null;
 };
+
+/** Extrae los datos de lead de customData (source="leads"). */
+function extractLeadMeta(customData: any): UiTask["leadMeta"] {
+  if (!customData || customData.source !== "leads") return null;
+  return {
+    phone: customData.leadPhone ?? undefined,
+    name: customData.leadName ?? null,
+    inboxUrl: customData.leadInboxUrl ?? undefined
+  };
+}
 export type UiProject = (typeof mockProjects)[number];
 export type UiEvent = (typeof mockEvents)[number];
 export type UiMember = (typeof mockTeam)[number];
@@ -331,7 +344,8 @@ export async function getTasksForUi(): Promise<UiTask[]> {
         recurrence: (r as any).recurrence ?? "none",
         recurrenceNextAt: (r as any).recurrenceNextAt
           ? ((r as any).recurrenceNextAt as Date).toISOString()
-          : null
+          : null,
+        leadMeta: extractLeadMeta((r as any).customData)
       };
     });
   }, mockTasks);
