@@ -9,6 +9,7 @@ import CommentEditor from "@/components/forms/CommentEditor";
 import CommentRenderer from "@/components/forms/CommentRenderer";
 import MeetingRecorder from "@/components/forms/MeetingRecorder";
 import type { MentionCandidate } from "@/components/forms/mentionSuggestion";
+import LeadConversationEmbed from "@/components/leads/LeadConversationEmbed";
 import type { UiProject, UiMember, UiTask } from "@/lib/db/queries";
 import { RECURRENCE_OPTIONS } from "@/lib/tasks/recurrence";
 import { Loader2, Trash2, MessageSquare, X, CheckSquare, Check, ArrowLeft, ExternalLink, Mic, RefreshCw, Bot, Square, Zap, ArrowUp, ArrowDown } from "lucide-react";
@@ -493,8 +494,15 @@ export default function TaskFormModal({
       // usuario no eligió plantilla, o si la quitó (volver a "en
       // blanco") tras seleccionarla.
       templateId: selectedTemplateId || null,
+      // Preservamos customData de plantilla; y SIEMPRE el de las tareas que
+      // vienen del generador de leads (source="leads"), o al guardar se perdería
+      // la marca verde y el enlace a la conversación.
       customData:
-        selectedTemplateId && Object.keys(customData).length > 0 ? customData : null,
+        selectedTemplateId && Object.keys(customData).length > 0
+          ? customData
+          : (customData as any)?.source === "leads"
+            ? customData
+            : null,
       flashTasks,
       recurrence
     };
@@ -764,6 +772,14 @@ export default function TaskFormModal({
         { id: "DONE", label: "Hecha", color: "", order: 3 }
       ];
 
+  // Tarea creada desde el generador de leads (WhatsApp): teléfono del lead para
+  // embeber la conversación arriba. Viene de currentTask.leadMeta (abierta desde
+  // la tarjeta) o del customData cargado (abierta por ?task=).
+  const leadPhone: string | null =
+    ((currentTask as any)?.leadMeta?.phone as string | undefined) ||
+    ((customData as any)?.source === "leads" ? ((customData as any).leadPhone as string) : null) ||
+    null;
+
   return (
     <Modal
       open={open}
@@ -847,6 +863,14 @@ export default function TaskFormModal({
           <ArrowLeft className="h-3.5 w-3.5" />
           Volver a "{parentInStack.title}"
         </button>
+      )}
+      {leadPhone && (
+        <div className="mb-4">
+          <div className="mb-1.5 inline-flex items-center gap-1.5 text-[11px] font-semibold text-emerald-700">
+            🟢 Tarea del generador de leads
+          </div>
+          <LeadConversationEmbed phone={leadPhone} />
+        </div>
       )}
       <form id="task-form" onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-[1fr_240px] gap-6">
         <div className="space-y-4 min-w-0">
