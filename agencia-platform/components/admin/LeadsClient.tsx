@@ -2584,6 +2584,8 @@ function QueueTable({ loading, items, onChanged }: { loading: boolean; items: Qu
           daily_limit_reached: "Tope diario alcanzado.",
           hourly_limit_reached: "Tope POR HORA alcanzado (anti-baneo). Vuelve a la próxima hora.",
           recipient_cooldown: "Este número recibió un mensaje hace poco; reprogramado tras el cool-down configurado.",
+          recipient_opted_out: "El destinatario pidió no ser contactado (opt-out) o el lead está bloqueado; mensaje cancelado.",
+          no_eligible_due: "Todos los mensajes vencidos están en cool-down. Pulsa \"⏫ Priorizar cola\" para adelantar leads nuevos (o espera: se reordena solo).",
           new_chats_daily_cap: "Tope de NUEVAS conversaciones por hoy alcanzado. Reprogramado para mañana.",
           pacing_wait: "Aún no toca: hay que esperar el delay mínimo desde el último envío.",
           session_down: "El número asignado no está conectado en WhatsApp ahora mismo; se reintenta al reconectar.",
@@ -2596,6 +2598,31 @@ function QueueTable({ loading, items, onChanged }: { loading: boolean; items: Qu
           ? `No procesado: ${code}`
           : "Nada que procesar ahora (revisa la fecha programada de los mensajes).";
         setTickResult({ kind: "warn", text: human });
+      }
+    } catch (e: any) {
+      setTickResult({ kind: "error", text: e?.message ?? "Error de red" });
+    } finally {
+      setProcessing(false);
+      onChanged();
+    }
+  }
+  async function prioritize() {
+    setProcessing(true);
+    setTickResult(null);
+    try {
+      const r = await fetch("/api/v1/leads/queue/prioritize", { method: "POST" });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        setTickResult({ kind: "error", text: d?.message ?? `Error HTTP ${r.status}` });
+      } else {
+        setTickResult({
+          kind: "ok",
+          text:
+            `✓ Cola reordenada: ${d.newContacts ?? 0} nunca contactados + ${d.recontacts ?? 0} fuera de cool-down al frente` +
+            ` · ${d.parkedCooldown ?? 0} en cool-down aparcados` +
+            (d.canceled ? ` · ${d.canceled} cancelados (opt-out)` : "") +
+            `. Empezará a enviar los nuevos en el próximo minuto.`
+        });
       }
     } catch (e: any) {
       setTickResult({ kind: "error", text: e?.message ?? "Error de red" });
@@ -2847,6 +2874,15 @@ function QueueTable({ loading, items, onChanged }: { loading: boolean; items: Qu
         >
           {diagLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "🩺"}
           Diagnóstico
+        </button>
+        <button
+          onClick={prioritize}
+          disabled={processing}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-violet-300 bg-violet-50 hover:bg-violet-100 text-violet-700 text-xs disabled:opacity-50"
+          title="Reordena la cola: pone al frente los leads NUNCA contactados y los que ya salieron del cool-down, y aparca los que están en cool-down. Hace que la cola envíe con volumen en vez de a goteo. No cambia topes ni ventana."
+        >
+          {processing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "⏫"}
+          Priorizar cola
         </button>
         <button
           onClick={refreshRendered}

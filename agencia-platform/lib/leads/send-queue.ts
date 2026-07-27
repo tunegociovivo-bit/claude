@@ -1126,118 +1126,266 @@ export async function processQueueTick(workspaceId: string): Promise<{
     }
   }
 
-  const msg = await prisma.leadMessage.findFirst({
-    where: {
-      workspaceId,
-      status: "queued",
-      scheduledAt: { lte: now }
-    },
-    orderBy: { scheduledAt: "asc" }
+  // ── SELECCIÓN CON SALTA-ADELANTE + PRIORIDAD ──
+  // Antes se cogía 1 mensaje y, si estaba en cool-down, se aparcaba y se hacía
+  // return: el minuto se gastaba SIN enviar. Con casi toda la lista en cool-down
+  // eso provocaba goteo. Ahora cargamos un LOTE de vencidos, lo clasificamos con
+  // pocas queries y enviamos el primer ELEGIBLE (priorizando NUNCA CONTACTADOS),
+  // aparcando de paso los que estén en cool-down y cancelando los vetados. El
+  // volumen sigue siendo 1 envío por tick (pacing anti-baneo intacto).
+  const BATCH = 50;
+  const due = await prisma.leadMessage.findMany({
+    where: { workspaceId, status: "queued", scheduledAt: { lte: now } },
+    orderBy: { scheduledAt: "asc" },
+    take: BATCH,
+    select: { id: true, leadId: true, phoneNormalized: true, renderedMessage: true }
   });
-  if (!msg) return { processed: false };
+  if (due.length === 0) return { processed: false };
 
-  // 4.5) VETO/OPT-OUT — red de seguridad FINAL: aunque el mensaje se encolara
-  //      antes de que el lead pidiera la baja (o se bloqueara su negocio), NUNCA
-  //      se envía a un teléfono en opt-out ni a un lead marcado como "excluded".
-  //      Se cancela (estado terminal, no se reintenta).
-  const [optoutRow, leadRow] = await Promise.all([
-    prisma.leadOptout.findUnique({
-      where: { workspaceId_phone: { workspaceId, phone: msg.phoneNormalized } },
-      select: { id: true }
-    }),
-    prisma.lead.findUnique({ where: { id: msg.leadId }, select: { contactStatus: true } })
-  ]);
-  if (optoutRow || leadRow?.contactStatus === "excluded") {
-    await prisma.leadMessage.update({
-      where: { id: msg.id },
-      data: { status: "canceled", lastError: "Cancelado: el destinatario pidió no ser contactado (opt-out) o el lead está bloqueado." }
-    });
-    return { processed: false, error: "recipient_opted_out" };
-  }
-
-  // 5) Cool-down POR DESTINATARIO: no contactar dos veces al mismo número
-  //    dentro de la ventana configurada (default 7 días). Re-encolamos el
-  //    mensaje para más tarde y seguimos al siguiente; no es un fallo del
-  //    propio envío.
   const cooldownDays = settings.minCoolDownDaysPerRecipient;
-  if (cooldownDays > 0) {
-    const cutoff = new Date(now.getTime() - cooldownDays * 86_400_000);
-    const recent = await prisma.leadMessage.findFirst({
-      where: {
-        workspaceId,
-        phoneNormalized: msg.phoneNormalized,
-        id: { not: msg.id },
-        status: { in: SENT_STATUSES },
-        sentAt: { gte: cutoff }
-      },
-      select: { sentAt: true }
-    });
-    if (recent) {
-      const nextAllowed = new Date(
-        (recent.sentAt?.getTime() ?? now.getTime()) + cooldownDays * 86_400_000
-      );
-      await prisma.leadMessage.update({
-        where: { id: msg.id },
-        data: { scheduledAt: nextAllowed }
-      });
-      return { processed: false, error: "recipient_cooldown" };
+  const phones = [...new Set(due.map((m) => m.phoneNormalized))];
+  const leadIds = [...new Set(due.map((m) => m.leadId))];
+
+  // Clasificación de TODO el lote con 3 consultas (sin N+1):
+  //  - opt-out por teléfono, leads excluidos, y el último envío por teléfono
+  //    (sirve para "nunca contactado" vs "en cool-down" vs "fuera de cool-down").
+  const [optouts, excludedLeads, lastSentRows] = await Promise.all([
+    prisma.leadOptout.findMany({ where: { workspaceId, phone: { in: phones } }, select: { phone: true } }),
+    prisma.lead.findMany({ where: { id: { in: leadIds }, contactStatus: "excluded" }, select: { id: true } }),
+    prisma.leadMessage.groupBy({
+      by: ["phoneNormalized"],
+      where: { workspaceId, phoneNormalized: { in: phones }, status: { in: SENT_STATUSES } },
+      _max: { sentAt: true }
+    })
+  ]);
+  const optoutSet = new Set(optouts.map((o) => o.phone));
+  const excludedSet = new Set(excludedLeads.map((l) => l.id));
+  const lastSentByPhone = new Map<string, Date>();
+  for (const r of lastSentRows) if (r._max.sentAt) lastSentByPhone.set(r.phoneNormalized, r._max.sentAt);
+
+  const cutoffMs = now.getTime() - cooldownDays * 86_400_000;
+
+  // ¿Tope de NUEVAS conversaciones alcanzado hoy? Se calcula una sola vez (solo
+  // afecta a los nunca-contactados; los re-contactos fuera de cool-down no).
+  const newChatsToday = await countNewConversationsToday(workspaceId).catch(() => Number.MAX_SAFE_INTEGER);
+  const newChatsCapReached = newChatsToday >= settings.maxNewChatsPerDay;
+
+  const toCancel: string[] = [];
+  const toBlockLink: string[] = [];
+  const toPark: { id: string; at: Date }[] = [];
+  const toDefer: string[] = [];
+  let targetNew: (typeof due)[number] | null = null; // nunca contactado (1ª prioridad)
+  let targetRecontact: (typeof due)[number] | null = null; // fuera de cool-down (2ª)
+
+  for (const m of due) {
+    // Veto: opt-out o lead bloqueado → cancelar (terminal, no se reintenta).
+    if (optoutSet.has(m.phoneNormalized) || excludedSet.has(m.leadId)) {
+      toCancel.push(m.id);
+      continue;
+    }
+    const lastSent = lastSentByPhone.get(m.phoneNormalized);
+    const neverContacted = !lastSent;
+    // En cool-down → aparcar a último_envío + cooldown (fecha real).
+    if (!neverContacted && cooldownDays > 0 && lastSent!.getTime() >= cutoffMs) {
+      toPark.push({ id: m.id, at: new Date(lastSent!.getTime() + cooldownDays * 86_400_000) });
+      continue;
+    }
+    if (neverContacted) {
+      // Enlace en el PRIMER mensaje → bloqueado (anti-baneo), no se reintenta.
+      if (settings.blockLinksInFirstMessage && containsLink(m.renderedMessage)) {
+        toBlockLink.push(m.id);
+        continue;
+      }
+      // Tope de chats nuevos alcanzado → aplazar a mañana.
+      if (newChatsCapReached) {
+        toDefer.push(m.id);
+        continue;
+      }
+      if (!targetNew) targetNew = m; // primer nunca-contactado elegible
+    } else if (!targetRecontact) {
+      targetRecontact = m; // primer re-contacto fuera de cool-down elegible
     }
   }
 
-  // 6) Cap de NUEVAS conversaciones por día. Una "nueva conversación" es
-  //    un envío a un número al que no se le había escrito antes. Meta
-  //    vigila este número más que el volumen total: si abres 80 chats
-  //    nuevos en un día, te marcan como bot.
-  const earlierToThisPhone = await prisma.leadMessage.findFirst({
-    where: {
-      workspaceId,
-      phoneNormalized: msg.phoneNormalized,
-      id: { not: msg.id },
-      status: { in: SENT_STATUSES }
-    },
-    select: { id: true }
-  });
-  const isNewConversation = !earlierToThisPhone;
-  if (isNewConversation) {
-    // 6.0) ANTI-BANEO: nunca mandar un ENLACE en el PRIMER mensaje a un número.
-    //      Un link en el opener en frío es de los mayores disparadores de la
-    //      marca de spam de WhatsApp. Lo dejamos como "blocked_link" (no se
-    //      envía y NO cuenta como fallo, para no disparar el modo recuperación)
-    //      y no se reintenta: hay que quitar el link del opener.
-    if (settings.blockLinksInFirstMessage && containsLink(msg.renderedMessage)) {
-      await prisma.leadMessage.update({
-        where: { id: msg.id },
+  // Efectos secundarios (limpiar el frente de la cola). Se aplican SIEMPRE, se
+  // haya encontrado elegible o no, para que estos mensajes dejen de estar
+  // "vencidos" y no se re-escaneen tick tras tick.
+  if (toCancel.length) {
+    await prisma.leadMessage
+      .updateMany({
+        where: { id: { in: toCancel }, workspaceId },
+        data: { status: "canceled", lastError: "Cancelado: opt-out / lead excluido." }
+      })
+      .catch(() => {});
+  }
+  if (toBlockLink.length) {
+    await prisma.leadMessage
+      .updateMany({
+        where: { id: { in: toBlockLink }, workspaceId },
         data: {
           status: "blocked_link",
           lastError:
             "Primer mensaje con enlace: bloqueado (anti-baneo). Quita el link del opener; mándalo tras la primera respuesta del lead."
         }
-      });
-      return { processed: false, error: "blocked_link_first_message" };
+      })
+      .catch(() => {});
+  }
+  for (const p of toPark) {
+    await prisma.leadMessage.update({ where: { id: p.id }, data: { scheduledAt: p.at } }).catch(() => {});
+  }
+  if (toDefer.length) {
+    const mp = getMadridParts(now);
+    const tomorrow9 = new Date(madridWallToDate(mp.year, mp.month, mp.day, 9, 0).getTime() + 24 * 60 * 60 * 1000);
+    await prisma.leadMessage
+      .updateMany({ where: { id: { in: toDefer }, workspaceId }, data: { scheduledAt: tomorrow9 } })
+      .catch(() => {});
+  }
+
+  // Enviar el elegible de MAYOR prioridad: nunca contactado antes que re-contacto.
+  const chosen = targetNew ?? targetRecontact;
+  if (!chosen) {
+    // Ningún vencido es elegible ahora (todos en cool-down / capados / vetados).
+    // El cron dispara el reordenador (prioritizeQueue) al ver este código, para
+    // adelantar leads nuevos y que la cola drene con volumen.
+    return { processed: false, error: toDefer.length ? "new_chats_daily_cap" : "no_eligible_due" };
+  }
+  return sendMessageById(workspaceId, chosen.id, { settings });
+}
+
+/**
+ * REORDENADOR de la cola por prioridad (lo que evita el goteo cuando gran parte
+ * de la lista está en cool-down). Reparte los `scheduledAt` de los mensajes en
+ * cola así:
+ *   1. NUNCA contactados  → primeros, en slots desde ahora (espaciado anti-baneo).
+ *   2. Fuera de cool-down → después.
+ *   3. En cool-down       → aparcados a `último_envío + cooldown` (no compiten).
+ *   4. Opt-out / excluido → cancelados.
+ * Con esto los elegibles quedan vencidos y al frente, y el tick los envía con
+ * volumen en vez de a goteo. NO cambia topes/ventana/pacing: solo el ORDEN.
+ */
+export async function prioritizeQueue(workspaceId: string): Promise<{
+  eligible: number;
+  newContacts: number;
+  recontacts: number;
+  parkedCooldown: number;
+  canceled: number;
+}> {
+  const settings = await getSendSettings(workspaceId);
+  const cooldownDays = settings.minCoolDownDaysPerRecipient;
+
+  const queued = await prisma.leadMessage.findMany({
+    where: { workspaceId, status: "queued" },
+    orderBy: [{ scheduledAt: "asc" }, { createdAt: "asc" }],
+    select: { id: true, phoneNormalized: true, leadId: true }
+  });
+  if (queued.length === 0) {
+    return { eligible: 0, newContacts: 0, recontacts: 0, parkedCooldown: 0, canceled: 0 };
+  }
+
+  const phones = [...new Set(queued.map((m) => m.phoneNormalized))];
+  const leadIds = [...new Set(queued.map((m) => m.leadId))];
+  const [optouts, excludedLeads, lastSentRows] = await Promise.all([
+    prisma.leadOptout.findMany({ where: { workspaceId, phone: { in: phones } }, select: { phone: true } }),
+    prisma.lead.findMany({ where: { id: { in: leadIds }, contactStatus: "excluded" }, select: { id: true } }),
+    prisma.leadMessage.groupBy({
+      by: ["phoneNormalized"],
+      where: { workspaceId, phoneNormalized: { in: phones }, status: { in: SENT_STATUSES } },
+      _max: { sentAt: true }
+    })
+  ]);
+  const optoutSet = new Set(optouts.map((o) => o.phone));
+  const excludedSet = new Set(excludedLeads.map((l) => l.id));
+  const lastSentByPhone = new Map<string, Date>();
+  for (const r of lastSentRows) if (r._max.sentAt) lastSentByPhone.set(r.phoneNormalized, r._max.sentAt);
+
+  const cutoffMs = Date.now() - cooldownDays * 86_400_000;
+  const cancelIds: string[] = [];
+  const parks: { id: string; at: Date }[] = [];
+  const newContactIds: string[] = [];
+  const recontactIds: string[] = [];
+
+  for (const m of queued) {
+    if (optoutSet.has(m.phoneNormalized) || excludedSet.has(m.leadId)) {
+      cancelIds.push(m.id);
+      continue;
     }
-    // Si la cuenta fallara (DB saturada), asumimos el peor caso (límite
-    // alcanzado): mejor retrasar un envío que saltarse el límite anti-baneo.
-    const newChatsToday = await countNewConversationsToday(workspaceId).catch((e) => {
-      console.error("[send-queue] countNewConversationsToday falló, aplico límite por seguridad:", e?.message ?? e);
-      return Number.MAX_SAFE_INTEGER;
+    const lastSent = lastSentByPhone.get(m.phoneNormalized);
+    if (!lastSent) {
+      newContactIds.push(m.id);
+      continue;
+    }
+    if (cooldownDays > 0 && lastSent.getTime() >= cutoffMs) {
+      parks.push({ id: m.id, at: new Date(lastSent.getTime() + cooldownDays * 86_400_000) });
+      continue;
+    }
+    recontactIds.push(m.id);
+  }
+
+  if (cancelIds.length) {
+    await prisma.leadMessage
+      .updateMany({
+        where: { id: { in: cancelIds }, workspaceId },
+        data: { status: "canceled", lastError: "Cancelado: opt-out / lead excluido." }
+      })
+      .catch(() => {});
+  }
+  for (const p of parks) {
+    await prisma.leadMessage.update({ where: { id: p.id }, data: { scheduledAt: p.at, lastError: null } }).catch(() => {});
+  }
+
+  // Reprogramar los ELEGIBLES desde ahora, nunca-contactados primero.
+  const orderedEligible = [...newContactIds, ...recontactIds];
+  if (orderedEligible.length) {
+    // Apartamos su scheduledAt (null) para que computeNextSlot no los cuente en
+    // su posición vieja al aplicar el tope diario.
+    await prisma.leadMessage.updateMany({
+      where: { id: { in: orderedEligible }, workspaceId },
+      data: { scheduledAt: null }
     });
-    if (newChatsToday >= settings.maxNewChatsPerDay) {
-      // Reprograma este mensaje al primer slot de mañana en ventana.
-      const tomorrowSlot = await computeNextSlot({
-        workspaceId,
-        desired: new Date(now.getTime() + 1 * 60_000),
-        settings
-      });
-      const tomorrow = new Date(tomorrowSlot.getTime() + 24 * 60 * 60 * 1000);
+
+    // Roster multi-número (mismo criterio que repaceQueue): principal + extras
+    // sanos y conectados.
+    let roster: (string | null)[] = [null];
+    try {
+      const { getLeadChannels, getChannelsHealthMap, liveSessionConnected } = await import("./channels");
+      const chans = (await getLeadChannels(workspaceId)).filter((c) => c.active !== false);
+      if (chans.length > 0) {
+        const health = await getChannelsHealthMap(workspaceId, chans);
+        const notQ = chans.filter((c) => health.get(c.name) !== "quarantined");
+        const flags = await Promise.all(notQ.map((c) => liveSessionConnected(workspaceId, c.name)));
+        const usable = notQ.filter((_, i) => flags[i] !== false);
+        roster = [null, ...usable.map((c) => c.name)];
+      }
+    } catch {
+      roster = [null];
+    }
+    const distribute = roster.length > 1;
+
+    let prev = new Date();
+    let isFirst = true;
+    let i = 0;
+    for (const id of orderedEligible) {
+      const gapSec =
+        settings.sendDelayMinSec + Math.random() * Math.max(0, settings.sendDelayMaxSec - settings.sendDelayMinSec);
+      const desired = isFirst ? new Date() : new Date(prev.getTime() + gapSec * 1000);
+      const slot = await computeNextSlot({ workspaceId, desired, settings });
       await prisma.leadMessage.update({
-        where: { id: msg.id },
-        data: { scheduledAt: tomorrow }
+        where: { id },
+        data: { scheduledAt: slot, lastError: null, ...(distribute ? { instanceName: roster[i % roster.length] } : {}) }
       });
-      return { processed: false, error: "new_chats_daily_cap" };
+      prev = slot;
+      isFirst = false;
+      i++;
     }
   }
 
-  return sendMessageById(workspaceId, msg.id, { settings });
+  return {
+    eligible: orderedEligible.length,
+    newContacts: newContactIds.length,
+    recontacts: recontactIds.length,
+    parkedCooldown: parks.length,
+    canceled: cancelIds.length
+  };
 }
 
 /**

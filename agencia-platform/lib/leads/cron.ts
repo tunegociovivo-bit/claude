@@ -12,7 +12,14 @@
 import { prisma } from "@/lib/db/prisma";
 import { logError } from "@/lib/monitoring/error-log";
 import { processSearchBatch } from "@/lib/leads/search-manager";
-import { processQueueTick } from "@/lib/leads/send-queue";
+import { processQueueTick, prioritizeQueue } from "@/lib/leads/send-queue";
+
+// Throttle del reordenador automático por workspace: solo se re-prioriza como
+// mucho una vez cada 10 min, para no reescribir cientos de scheduledAt cada
+// minuto. Se resetea al redesplegar (aceptable). El disparador es que el tick
+// no encuentre NINGÚN elegible vencido ("no_eligible_due").
+const _lastPrioritizeAt = new Map<string, number>();
+const PRIORITIZE_THROTTLE_MS = 10 * 60 * 1000;
 import { processSequencesTick } from "@/lib/leads/sequences";
 import { processBroadcastTick } from "@/lib/leads/broadcast";
 import { processAutoFollowupTick } from "@/lib/leads/auto-followup";
@@ -43,6 +50,16 @@ export async function runLeadsCronAllWorkspaces(): Promise<any[]> {
     // 2. Tick de la cola de envío.
     try {
       wsReport.queue = await processQueueTick(ws.id);
+      // REORDENADOR AUTOMÁTICO: si no había ningún elegible vencido (toda la
+      // cola vencida está en cool-down), re-priorizamos para adelantar los leads
+      // nunca-contactados y que la cola drene con volumen. Throttleado a 10 min.
+      if (wsReport.queue?.error === "no_eligible_due") {
+        const last = _lastPrioritizeAt.get(ws.id) ?? 0;
+        if (Date.now() - last > PRIORITIZE_THROTTLE_MS) {
+          _lastPrioritizeAt.set(ws.id, Date.now());
+          wsReport.prioritized = await prioritizeQueue(ws.id);
+        }
+      }
     } catch (e: any) {
       wsReport.queueError = e?.message ?? String(e);
       logError("leads-cron:queue", e, ws.id);
