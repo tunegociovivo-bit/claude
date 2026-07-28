@@ -1,0 +1,34 @@
+name: NV Leads · cola de envío (backstop)
+# Dispara la cola de envío de WhatsApp de forma FIABLE, independientemente del
+# planificador interno del proceso Node (que puede caerse tras un reinicio del
+# contenedor). GitHub Actions solo permite schedule mínimo de 5 min, así que
+# dentro de cada run llamamos al endpoint ~1 vez por minuto durante 5 minutos.
+#
+# Es idempotente y SEGURO aunque el planificador interno también esté vivo: cada
+# tick pasa por los topes anti-baneo (ventana, tope diario/horario, pacing,
+# cool-down), así que un tick "de más" no envía de más — como mucho devuelve
+# "pacing_wait" y no hace nada.
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+# Evita solapamiento entre runs (si uno tarda, el siguiente espera/cancela).
+concurrency:
+  group: leads-send-queue
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Tick de la cola cada ~60s durante 5 min
+        run: |
+          for i in $(seq 1 5); do
+            echo "· tick $i/5 $(date -u +%H:%M:%S)"
+            curl -fsS --max-time 120 --retry 3 --retry-delay 5 --retry-all-errors -X POST \
+              -H "Authorization: Bearer ${{ secrets.INTERNAL_CRON_TOKEN || secrets.CRON_SECRET }}" \
+              https://hub.negociovivo.app/api/v1/internal/leads-cron \
+              -o /dev/null -w "  http_%{http_code}\n" || echo "  (tick falló, sigo)"
+            if [ "$i" -lt 5 ]; then sleep 55; fi
+          done
