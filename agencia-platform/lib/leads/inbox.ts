@@ -269,6 +269,20 @@ export async function ingestInbox(opts: {
   const rawPhone = String(opts.fromPhone).replace(/@.*$/, "");
   const phoneNormalized = normalizePhone(rawPhone, countryCode) ?? rawPhone;
 
+  // ¿El mensaje viene de UNO DE NUESTROS PROPIOS teléfonos? El calentamiento
+  // (warmup-chat) manda mensajes entre nuestros números para ganar reputación;
+  // esos NO son leads. Si el remitente es un número nuestro, NO auto-respondemos
+  // ni avisamos de "interesado" (era el ruido que llegaba al teléfono principal).
+  const _leadsCfg: any = (ws?.settings as any)?.leads ?? {};
+  const _ownPhones = new Set<string>();
+  for (const c of Array.isArray(_leadsCfg.channels) ? _leadsCfg.channels : []) {
+    const n = c?.phone ? normalizePhone(String(c.phone), countryCode) : null;
+    if (n) _ownPhones.add(n);
+  }
+  const _principal = _leadsCfg.principalPhone ? normalizePhone(String(_leadsCfg.principalPhone), countryCode) : null;
+  if (_principal) _ownPhones.add(_principal);
+  const isInternalContact = _ownPhones.has(phoneNormalized);
+
   // Dedupe: WAHA puede entregar el MISMO mensaje por dos eventos (message y
   // message.any) con idéntico payload.id, duplicando cada entrante. Filtro
   // por id y, como ambos eventos llegan casi en paralelo (el check por id
@@ -477,7 +491,7 @@ export async function ingestInbox(opts: {
   // Auto-respuesta al PRIMER mensaje de un teléfono (capta el momento caliente
   // aunque no estés). Solo si está activada, no es una baja, y no le hemos
   // escrito antes desde el inbox. Fire-and-forget.
-  if (classified.classification !== "opt_out" && classified.classification !== "auto_reply") {
+  if (!isInternalContact && classified.classification !== "opt_out" && classified.classification !== "auto_reply") {
     void (async () => {
       try {
         const leads: any = (ws?.settings as any)?.leads ?? {};
@@ -524,7 +538,7 @@ export async function ingestInbox(opts: {
   // Co-piloto IA: puntúa la conversación (prob. de cierre) y deja un borrador
   // de respuesta listo. Solo en mensajes que merecen seguimiento (no bajas /
   // auto-replies). Fire-and-forget: no bloquea el webhook ni cuesta en off-topic.
-  if (useIA && ["interested", "objection", "info_request", "positive_no"].includes(classified.classification)) {
+  if (!isInternalContact && useIA && ["interested", "objection", "info_request", "positive_no"].includes(classified.classification)) {
     void import("./inbox-ai")
       .then((m) => m.analyzeConversation(opts.workspaceId, phoneNormalized))
       .catch((e) => console.warn("[inbox-ai]", e?.message ?? e));
@@ -559,7 +573,7 @@ export async function ingestInbox(opts: {
     } catch (e: any) {
       console.warn("[inbox opt-out block]", e?.message ?? e);
     }
-  } else if (["interested", "objection", "info_request"].includes(classified.classification)) {
+  } else if (!isInternalContact && ["interested", "objection", "info_request"].includes(classified.classification)) {
     // Lead respondió → marcar y parar secuencias
     if (leadId) {
       await prisma.lead.update({
@@ -645,6 +659,8 @@ export async function ingestInbox(opts: {
       if (notifyTo) {
         const notifyNormalized = normalizePhone(notifyTo, countryCode);
         if (notifyNormalized) {
+          const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "https://hub.negociovivo.app";
+          const convUrl = `${baseUrl}/admin/leads?tab=inbox&phone=${encodeURIComponent(phoneNormalized)}`;
           const summary = [
             `🔥 Lead interesado`,
             leadName ? `• Negocio: ${leadName}` : null,
@@ -654,7 +670,8 @@ export async function ingestInbox(opts: {
               ? `• Confianza IA: ${Math.round(classified.confidence * 100)}%`
               : null,
             ``,
-            `Abre la conversación en el Hub para responder.`
+            `👉 Responder aquí:`,
+            convUrl
           ]
             .filter(Boolean)
             .join("\n");
