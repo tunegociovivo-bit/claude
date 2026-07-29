@@ -6349,6 +6349,71 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
     await tick();
     pollRef.current = setInterval(tick, 3000);
   }
+  // REINICIO TOTAL: borra y recrea la sesión en WAHA para desatascar un STARTING
+  // clavado / FAILED, sin panel de WAHA. Tras esto hay que reescanear el QR.
+  async function resetWahaSession(session?: string) {
+    const label = session ? `el número "${session}"` : "el número principal (default)";
+    if (
+      !confirm(
+        `¿REINICIO TOTAL de ${label}?\n\nBorra la vinculación en WAHA y la recrea de cero para desatascarla (STARTING clavado / FAILED).\n\n⚠️ Tendrás que ESCANEAR EL QR de nuevo.`
+      )
+    )
+      return;
+    // Para un canal extra hay que tenerlo guardado en Ajustes (el endpoint lo exige).
+    if (session) {
+      const ok = await save();
+      if (!ok) return;
+    }
+    setReconnecting(true);
+    setWahaTest(null);
+    try {
+      const url = "/api/v1/leads/waha-reset" + (session ? `?session=${encodeURIComponent(session)}` : "");
+      const r = await fetch(url, { method: "POST" });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j.ok) {
+        const msg = j?.message ?? j?.error?.message ?? "No se pudo reiniciar la sesión.";
+        if (session) setChannelQrErr(msg);
+        else setWahaTest({ ok: false, message: msg });
+        setReconnecting(false);
+        return;
+      }
+    } catch (e: any) {
+      const msg = `No se pudo reiniciar: ${e?.message ?? e}`;
+      if (session) setChannelQrErr(msg);
+      else setWahaTest({ ok: false, message: msg });
+      setReconnecting(false);
+      return;
+    }
+    if (session) {
+      // Abrir/refrescar el QR de ese canal.
+      setChannelQrErr(null);
+      setChannelQrNonce((n) => n + 1);
+      setChannelQr(session);
+      setReconnecting(false);
+      return;
+    }
+    // Principal: sondear estado + refrescar QR (igual que reconnectWaha).
+    stopPoll();
+    let ticks = 0;
+    const tick = async () => {
+      ticks++;
+      setQrError(null);
+      setQrNonce((n) => n + 1);
+      try {
+        const r = await fetch("/api/v1/leads/waha-test");
+        const j = await r.json();
+        setWahaTest(j);
+        if (j.ok || ticks > 60) {
+          stopPoll();
+          setReconnecting(false);
+        }
+      } catch {
+        /* sigue sondeando */
+      }
+    };
+    await tick();
+    pollRef.current = setInterval(tick, 3000);
+  }
   return (
     <Modal open={open} onClose={onClose} title="Ajustes NV Leads Pro" size="lg" footer={
       <>
@@ -6674,6 +6739,15 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
                 >
                   📷 Conectar
                 </button>
+                <button
+                  type="button"
+                  onClick={() => void resetWahaSession()}
+                  disabled={reconnecting}
+                  className="shrink-0 px-2 py-1 rounded border border-rose-300 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs disabled:opacity-40"
+                  title="Reinicio TOTAL: borra y recrea la sesión en WAHA para desatascarla cuando se queda clavada en STARTING o en FAILED. Tendrás que reescanear el QR."
+                >
+                  🧹 Reinicio total
+                </button>
               </div>
               {(s.channels ?? []).length === 0 ? (
                 <p className="text-[11px] text-slate-400 italic">Sin números extra.</p>
@@ -6746,6 +6820,15 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
                         title="Conectar este número: escanea su QR con el móvil de la SIM (solo una vez). Guarda los ajustes antes."
                       >
                         📷 Conectar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void resetWahaSession(c.name)}
+                        disabled={!c.name?.trim() || saving || reconnecting}
+                        className="px-2 py-1 rounded border border-rose-300 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs disabled:opacity-40"
+                        title="Reinicio TOTAL de este número: borra y recrea su sesión en WAHA para desatascarla. Tendrás que reescanear el QR."
+                      >
+                        🧹 Reinicio
                       </button>
                       <button
                         type="button"

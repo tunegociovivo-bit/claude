@@ -270,6 +270,62 @@ export async function startSession(opts: { workspaceId: string; session?: string
 }
 
 /**
+ * REINICIO TOTAL de una sesión WAHA: la desvincula y la recrea desde cero para
+ * salir de estados atascados (STARTING clavado, FAILED con auth rota) sin tocar
+ * el panel de WAHA. Secuencia: logout (limpia la auth) → DELETE (borra la
+ * sesión) → crea de nuevo con start:true (arranca → SCAN_QR_CODE). Después hay
+ * que reescanear el QR. Devuelve el estado resultante.
+ */
+export async function resetSession(opts: { workspaceId: string; session?: string }): Promise<{ status: string | null }> {
+  const cfg = await getWahaConfig(opts.workspaceId);
+  const sessionName = opts.session ?? cfg.session;
+  const s = encodeURIComponent(sessionName);
+  const jsonHeaders = { "Content-Type": "application/json", "X-Api-Key": cfg.apiKey };
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+  // Mantiene el proxy anti-baneo de la sesión al recrearla (si lo hubiera).
+  const { resolveProxyForSession, toWahaProxy } = await import("./proxy");
+  const ws = await prisma.workspace.findUnique({ where: { id: opts.workspaceId } });
+  const proxy = toWahaProxy(resolveProxyForSession((ws?.settings as any)?.leads ?? {}, sessionName));
+
+  // 1) logout (limpia auth). 2) DELETE (borra la sesión). Best-effort: si no
+  //    existe o falla, seguimos igualmente a la recreación.
+  await fetch(`${cfg.baseUrl}/api/sessions/${s}/logout`, { method: "POST", headers: jsonHeaders }).catch(() => {});
+  await sleep(500);
+  await fetch(`${cfg.baseUrl}/api/sessions/${s}`, { method: "DELETE", headers: jsonHeaders }).catch(() => {});
+  await sleep(500);
+
+  // 3) Recrear + arrancar. Si el servidor es WAHA Core (1 solo número) devolverá
+  //    error para canales extra; lo propagamos con un mensaje claro.
+  const body: any = { name: sessionName, start: true };
+  if (proxy) body.config = { proxy };
+  const create = await fetch(`${cfg.baseUrl}/api/sessions`, {
+    method: "POST",
+    headers: jsonHeaders,
+    body: JSON.stringify(body)
+  });
+  if (!create.ok) {
+    const t = (await create.text().catch(() => "")).replace(/\s+/g, " ").slice(0, 240);
+    if (/WAHA Core|PLUS version|more then one|more than one/i.test(t)) {
+      throw new Error("Tu servidor WAHA es la versión Core (gratuita): solo permite 1 número. Para varios necesitas WAHA Plus.");
+    }
+    // Fallback: puede que ya exista (carrera) → intenta arrancarla directamente.
+    await fetch(`${cfg.baseUrl}/api/sessions/${s}/start`, { method: "POST", headers: jsonHeaders }).catch(() => {});
+  }
+
+  // Da un margen a que arranque y consulta el estado resultante.
+  await sleep(1500);
+  let status: string | null = null;
+  try {
+    const sresp = await fetch(`${cfg.baseUrl}/api/sessions/${s}`, { headers: { "X-Api-Key": cfg.apiKey } });
+    if (sresp.ok) status = String((await sresp.json().catch(() => null))?.status ?? "").toUpperCase() || null;
+  } catch {
+    /* estado desconocido: el cliente reintentará el QR */
+  }
+  return { status };
+}
+
+/**
  * Devuelve la URL del QR para escanear y vincular el dispositivo.
  * El cliente debe hacer GET con header X-Api-Key.
  */
