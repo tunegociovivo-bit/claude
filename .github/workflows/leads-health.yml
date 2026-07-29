@@ -7,6 +7,7 @@ name: NV Leads · salud de WAHA (health-check)
 # Ojo: este cron ya existia en la app pero NADIE lo llamaba desde fuera. Por eso
 # la caida del 2026-07-29 (WAHA desactualizado, todas las sesiones en bucle
 # STARTING -> FAILED) paso horas desapercibida.
+# Ademas, si el cron no responde, este workflow avisa por WhatsApp (CallMeBot).
 on:
   schedule:
     - cron: "*/10 * * * *"
@@ -21,4 +22,15 @@ jobs:
           curl -fsSL --retry 4 --retry-delay 30 --retry-all-errors -X GET \
             -H "Authorization: Bearer ${{ secrets.INTERNAL_CRON_TOKEN || secrets.CRON_SECRET }}" \
             https://hub.negociovivo.app/api/cron/leads-health
+
+      - name: Aviso por WhatsApp si el cron no responde
+        if: failure()
+        env:
+          CALLMEBOT_APIKEY: ${{ secrets.CALLMEBOT_APIKEY }}
+        run: |
+          if [ -z "$CALLMEBOT_APIKEY" ]; then echo "Sin CALLMEBOT_APIKEY, no se envia aviso"; exit 0; fi
+          curl -sS -G "https://api.callmebot.com/whatsapp.php" \
+            --data-urlencode "phone=+34680167881" \
+            --data-urlencode "text=Negocio Vivo - Leads. El cron de salud de WAHA no responde. Revisa el Hub y el servidor de WAHA." \
+            --data-urlencode "apikey=$CALLMEBOT_APIKEY" || true
 
