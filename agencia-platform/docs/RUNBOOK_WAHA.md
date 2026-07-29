@@ -79,3 +79,26 @@ La consola VNC de Hetzner no envía los símbolos que necesitan mayúscula, así
 que ahí no se pueden escribir tuberías, redirecciones ni dos puntos y depurar
 se vuelve muy lento. Merece la pena habilitar SSH por Tailscale: ya hay un
 contenedor de Tailscale corriendo en la máquina.
+
+## Avisos por WhatsApp
+
+Los avisos llegan por WhatsApp al +34 680 167 881 a traves de CallMeBot, una
+pasarela externa. Se hace asi a proposito: si el aviso saliera por nuestro
+propio WhatsApp, en esta misma averia no llegaria nunca.
+
+Alta (una sola vez, desde ese movil):
+
+1. Guardar el contacto +34 644 97 54 14.
+2. Enviarle por WhatsApp el texto `I allow callmebot to send me messages`.
+3. El bot responde con un APIKEY.
+4. Pegar ese APIKEY en dos sitios:
+   - Railway, servicio del Hub, Variables: `CALLMEBOT_APIKEY`.
+   - GitHub, Settings, Secrets and variables, Actions: `CALLMEBOT_APIKEY`.
+
+Para cambiar de numero basta con anadir `ALERT_WHATSAPP_PHONE` en Railway y
+editar el `phone` del paso de aviso en `.github/workflows/leads-health.yml`.
+
+Que se avisa: caida detectada en la primera comprobacion fallida, cola pausada
+a los 30 minutos, recuperacion, y ademas el propio workflow avisa si el Hub no
+contesta. El envio vive en `agencia-platform/lib/alerts/whatsapp.ts` y nunca
+rompe el cron: si falta el APIKEY solo deja un aviso en el log.
