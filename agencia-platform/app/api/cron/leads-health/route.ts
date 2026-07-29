@@ -21,6 +21,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { cronAuthOk } from "@/lib/cron-auth";
+import { sendWhatsappAlert } from "@/lib/alerts/whatsapp";
 
 const DOWN_THRESHOLD_MS = 30 * 60 * 1000;
 
@@ -73,6 +74,7 @@ export async function GET(req: NextRequest) {
     let wasDownLongEnough = false;
     if (okNow) {
       health.lastOkAt = now.toISOString();
+      health.downNotified = false;
       // Si estaba pausado por nosotros, despausamos y avisamos del recovery.
       if (health.pausedByHealth) {
         leads.sendPaused = false;
@@ -82,6 +84,15 @@ export async function GET(req: NextRequest) {
       }
     } else {
       if (!health.lastDownAt) health.lastDownAt = now.toISOString();
+      // Aviso inmediato en la primera deteccion (no esperamos a los 30 min).
+      if (!health.downNotified) {
+        health.downNotified = true;
+        action = "down";
+        await notifyAdmins(
+          ws.id,
+          "🔴 WAHA no responde OK. Lo compruebo cada 10 min; si sigue asi 30 min pauso la cola de envios."
+        );
+      }
       const downSince = new Date(health.lastDownAt).getTime();
       wasDownLongEnough = now.getTime() - downSince > DOWN_THRESHOLD_MS;
       if (wasDownLongEnough && !health.pausedByHealth) {
@@ -111,6 +122,8 @@ async function notifyAdmins(workspaceId: string, body: string): Promise<void> {
       select: { settings: true }
     });
     const settings: any = ws?.settings ?? {};
+    // Canal de aviso INDEPENDIENTE de WAHA (ver lib/alerts/whatsapp.ts).
+    await sendWhatsappAlert("Negocio Vivo - Leads. " + body);
     const admins = await prisma.membership.findMany({
       where: { workspaceId, role: "ADMIN" },
       select: { userId: true }
