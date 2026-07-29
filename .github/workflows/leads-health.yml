@@ -1,0 +1,24 @@
+name: NV Leads · salud de WAHA (health-check)
+# Corre cada 10 min. Llama al cron /api/cron/leads-health, que comprueba que la
+# sesion de WAHA responde WORKING. Si lleva mas de 30 min caida, pausa la cola
+# de envios automaticamente y avisa a los admins (panel + push + Telegram si
+# esta configurado). Al recuperarse, despausa y avisa del recovery.
+#
+# Ojo: este cron ya existia en la app pero NADIE lo llamaba desde fuera. Por eso
+# la caida del 2026-07-29 (WAHA desactualizado, todas las sesiones en bucle
+# STARTING -> FAILED) paso horas desapercibida.
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping endpoint cron
+        run: |
+          curl -fsSL --retry 4 --retry-delay 30 --retry-all-errors -X GET \
+            -H "Authorization: Bearer ${{ secrets.INTERNAL_CRON_TOKEN || secrets.CRON_SECRET }}" \
+            https://hub.negociovivo.app/api/cron/leads-health
+
