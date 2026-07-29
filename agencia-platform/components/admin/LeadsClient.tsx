@@ -6351,11 +6351,13 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
   }
   // REINICIO TOTAL: borra y recrea la sesión en WAHA para desatascar un STARTING
   // clavado / FAILED, sin panel de WAHA. Tras esto hay que reescanear el QR.
-  async function resetWahaSession(session?: string) {
+  async function resetWahaSession(session?: string, noProxy?: boolean) {
     const label = session ? `el número "${session}"` : "el número principal (default)";
     if (
       !confirm(
-        `¿REINICIO TOTAL de ${label}?\n\nBorra la vinculación en WAHA y la recrea de cero para desatascarla (STARTING clavado / FAILED).\n\n⚠️ Tendrás que ESCANEAR EL QR de nuevo.`
+        `¿REINICIO TOTAL de ${label}${noProxy ? " SIN PROXY" : ""}?\n\nBorra la vinculación en WAHA y la recrea de cero para desatascarla (STARTING clavado / FAILED).${
+          noProxy ? "\n\nSe recrea SIN proxy: si con esto sí sale el QR, el problema era el proxy." : ""
+        }\n\n⚠️ Tendrás que ESCANEAR EL QR de nuevo.`
       )
     )
       return;
@@ -6367,7 +6369,11 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
     setReconnecting(true);
     setWahaTest(null);
     try {
-      const url = "/api/v1/leads/waha-reset" + (session ? `?session=${encodeURIComponent(session)}` : "");
+      const params = new URLSearchParams();
+      if (session) params.set("session", session);
+      if (noProxy) params.set("noProxy", "1");
+      const qs = params.toString();
+      const url = "/api/v1/leads/waha-reset" + (qs ? `?${qs}` : "");
       const r = await fetch(url, { method: "POST" });
       const j = await r.json().catch(() => ({}));
       if (!r.ok || !j.ok) {
@@ -6747,6 +6753,15 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
                   title="Reinicio TOTAL: borra y recrea la sesión en WAHA para desatascarla cuando se queda clavada en STARTING o en FAILED. Tendrás que reescanear el QR."
                 >
                   🧹 Reinicio total
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void resetWahaSession(undefined, true)}
+                  disabled={reconnecting}
+                  className="shrink-0 px-2 py-1 rounded border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-700 text-xs disabled:opacity-40"
+                  title="Reinicio total SIN proxy: recrea la sesión sin proxy. Si con esto SÍ aparece el QR, el problema era el proxy (DataImpulse) colgando el arranque."
+                >
+                  🧹 Sin proxy
                 </button>
               </div>
               {(s.channels ?? []).length === 0 ? (

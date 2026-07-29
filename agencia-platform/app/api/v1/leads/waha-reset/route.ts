@@ -26,7 +26,9 @@ export const POST = withApi({ scope: "*" }, async (req, { api }) => {
     throw new ApiError(400, "not_waha", "El reinicio total solo aplica a WAHA (Evolution se reconecta desde su propio flujo).");
   }
 
-  const requested = new URL(req.url).searchParams.get("session")?.trim() || null;
+  const url = new URL(req.url);
+  const requested = url.searchParams.get("session")?.trim() || null;
+  const noProxy = url.searchParams.get("noProxy") === "1";
 
   // Un canal concreto debe estar dado de alta en Ajustes.
   if (requested) {
@@ -38,10 +40,11 @@ export const POST = withApi({ scope: "*" }, async (req, { api }) => {
   }
 
   try {
-    const { status } = await resetSession({ workspaceId: api.workspaceId, session: requested ?? undefined });
+    const { status } = await resetSession({ workspaceId: api.workspaceId, session: requested ?? undefined, noProxy });
     return NextResponse.json({
       ok: true,
       status,
+      noProxy,
       message:
         status === "SCAN_QR_CODE"
           ? "Sesión reiniciada. Escanea el QR para vincular."

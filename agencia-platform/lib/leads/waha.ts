@@ -276,17 +276,27 @@ export async function startSession(opts: { workspaceId: string; session?: string
  * sesión) → crea de nuevo con start:true (arranca → SCAN_QR_CODE). Después hay
  * que reescanear el QR. Devuelve el estado resultante.
  */
-export async function resetSession(opts: { workspaceId: string; session?: string }): Promise<{ status: string | null }> {
+export async function resetSession(opts: {
+  workspaceId: string;
+  session?: string;
+  /** Recrea la sesión SIN proxy. Útil para diagnosticar un STARTING clavado: un
+   *  proxy que no conecta con WhatsApp deja el motor NOWEB colgado en STARTING. */
+  noProxy?: boolean;
+}): Promise<{ status: string | null }> {
   const cfg = await getWahaConfig(opts.workspaceId);
   const sessionName = opts.session ?? cfg.session;
   const s = encodeURIComponent(sessionName);
   const jsonHeaders = { "Content-Type": "application/json", "X-Api-Key": cfg.apiKey };
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-  // Mantiene el proxy anti-baneo de la sesión al recrearla (si lo hubiera).
-  const { resolveProxyForSession, toWahaProxy } = await import("./proxy");
-  const ws = await prisma.workspace.findUnique({ where: { id: opts.workspaceId } });
-  const proxy = toWahaProxy(resolveProxyForSession((ws?.settings as any)?.leads ?? {}, sessionName));
+  // Mantiene el proxy anti-baneo de la sesión al recrearla (si lo hubiera),
+  // salvo que se pida explícitamente SIN proxy (diagnóstico de STARTING clavado).
+  let proxy: { server: string; username?: string; password?: string } | undefined = undefined;
+  if (!opts.noProxy) {
+    const { resolveProxyForSession, toWahaProxy } = await import("./proxy");
+    const ws = await prisma.workspace.findUnique({ where: { id: opts.workspaceId } });
+    proxy = toWahaProxy(resolveProxyForSession((ws?.settings as any)?.leads ?? {}, sessionName));
+  }
 
   // 1) logout (limpia auth). 2) DELETE (borra la sesión). Best-effort: si no
   //    existe o falla, seguimos igualmente a la recreación.
