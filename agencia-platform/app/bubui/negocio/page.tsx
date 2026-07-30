@@ -1559,6 +1559,7 @@ function DiscountsConfig({ business, token, onSaved }: { business: any; token: s
   const [shareFriends, setShareFriends] = useState<number>(business.shareOfferFriends ?? 5);
   const [shareLabel, setShareLabel] = useState<string>(business.shareOfferLabel ?? "");
   const [shareFriendPct, setShareFriendPct] = useState<number>(business.shareFriendDiscountPct ?? 15);
+  const [shareFriendLabel, setShareFriendLabel] = useState<string>(business.shareFriendLabel ?? "");
   const [shareReqPurchase, setShareReqPurchase] = useState<boolean>(business.shareOfferRequiresPurchase ?? false);
   const [followPct, setFollowPct] = useState<number>(business.ppFollowDiscountPct ?? 5);
   const [photoPct, setPhotoPct] = useState<number>(business.ppPhotoDiscountPct ?? 5);
@@ -1584,6 +1585,7 @@ function DiscountsConfig({ business, token, onSaved }: { business: any; token: s
           friendsRequired: Number(shareFriends),
           friendDiscountPct: Number(shareFriendPct),
           title: shareLabel.trim() || null,
+          friendTitle: shareFriendLabel.trim() || null,
           requiresPurchase: shareReqPurchase
         })
       });
@@ -1610,6 +1612,7 @@ function DiscountsConfig({ business, token, onSaved }: { business: any; token: s
           shareOfferFriends: Number(shareFriends),
           shareOfferLabel: shareLabel.trim() || null,
           shareFriendDiscountPct: Number(shareFriendPct),
+          shareFriendLabel: shareFriendLabel.trim() || null,
           shareOfferRequiresPurchase: shareReqPurchase,
           ppFollowDiscountPct: Number(followPct),
           ppPhotoDiscountPct: Number(photoPct),
@@ -1669,11 +1672,25 @@ function DiscountsConfig({ business, token, onSaved }: { business: any; token: s
             <input type="number" min={0} max={90} value={shareFriendPct} onChange={(e) => setShareFriendPct(Number(e.target.value))} className="w-full px-2 py-1.5 border rounded bg-white" />
           </label>
           <label className="block">
-            <span className="block text-black/60 mb-1">o texto (cliente)</span>
-            <input value={shareLabel} onChange={(e) => setShareLabel(e.target.value)} placeholder="Ej: Producto gratis" className="w-full px-2 py-1.5 border rounded bg-white" />
+            <span className="block text-black/60 mb-1">¿En qué se aplica el descuento de tu cliente? <span className="text-black/40">(opcional)</span></span>
+            <input value={shareLabel} onChange={(e) => setShareLabel(e.target.value)} placeholder="Ej: entrenamiento online" className="w-full px-2 py-1.5 border rounded bg-white" />
+          </label>
+          <label className="block">
+            <span className="block text-black/60 mb-1">¿En qué se aplica el de los amigos? <span className="text-black/40">(opcional)</span></span>
+            <input value={shareFriendLabel} onChange={(e) => setShareFriendLabel(e.target.value)} placeholder="Ej: suplementos deportivos" className="w-full px-2 py-1.5 border rounded bg-white" />
           </label>
         </div>
-        <p className="text-[11px] text-black/45">El <b>descuento para los amigos</b> es el cupón de bienvenida que recibe cada amigo nuevo que traiga tu cliente.</p>
+        <p className="text-[11px] text-black/45">El <b>descuento para los amigos</b> es el cupón de bienvenida que recibe cada amigo nuevo que traiga tu cliente. Si dejas los "¿en qué?" vacíos, el descuento es genérico (en todo el negocio).</p>
+
+        {/* Vista previa EN VIVO del mensaje de WhatsApp que recibirá el
+            cliente. Misma plantilla que construye el backend en
+            /custom-deal — si cambias una, cambia la otra. */}
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50/50 p-3">
+          <span className="block text-[12px] font-semibold text-emerald-900 mb-1.5">💬 Así verá tu cliente el mensaje de WhatsApp:</span>
+          <div className="rounded-lg bg-white border border-emerald-100 px-3 py-2 text-[12.5px] leading-relaxed whitespace-pre-line shadow-sm">
+            {`¡Te he preparado un reto en Bubui! 🎁\n\nSi traes a ${shareFriends} ${Number(shareFriends) === 1 ? "amigo/a" : "amigos/as"}, tú te llevas ${sharePct}% de descuento${shareLabel.trim() ? ` en ${shareLabel.trim()}` : ""} y cada amigo/a un ${shareFriendPct}%${shareFriendLabel.trim() ? ` en ${shareFriendLabel.trim()}` : ""}.\n\nAcéptalo y compártelo aquí: bubui.app/reto/…`}
+          </div>
+        </div>
 
         {/* Condición de desbloqueo: solo instalar, o instalar + comprar */}
         <div className="pt-1">
