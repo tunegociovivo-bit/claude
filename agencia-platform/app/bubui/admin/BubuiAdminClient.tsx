@@ -423,7 +423,8 @@ function BusinessesPanel() {
       });
       localStorage.setItem(
         "bubui.business",
-        JSON.stringify({ businessId: j.businessId, name: j.name, token: j.token })
+        // admin:true → el panel del negocio muestra el aviso "Modo administrador".
+        JSON.stringify({ businessId: j.businessId, name: j.name, token: j.token, admin: true })
       );
       window.open("/bubui/negocio", "_blank");
     } catch (e: any) {

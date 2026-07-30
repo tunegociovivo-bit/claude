@@ -14,7 +14,9 @@ import BubuiAlertPrefs from "./BubuiAlertPrefs";
 import BubuiMesaBills from "./BubuiMesaBills";
 import BubuiPendingProofs from "./BubuiPendingProofs";
 
-type Session = { businessId: string; name: string; token: string };
+// `admin: true` marca una sesión de impersonación creada desde el panel de
+// administración (botón "⚙️ Entrar" en Comercios) — muestra el aviso arriba.
+type Session = { businessId: string; name: string; token: string; admin?: boolean };
 
 export default function NegocioPanel() {
   const [session, setSession] = useState<Session | null>(null);
@@ -81,6 +83,21 @@ export default function NegocioPanel() {
   }
   return (
     <>
+      {session.admin && (
+        <div className="sticky top-0 z-50 bg-amber-400 text-black text-sm font-semibold px-4 py-2 flex items-center justify-between gap-3 shadow">
+          <span>
+            🛠️ Modo administrador — estás viendo el panel de <b>{session.name}</b> como admin de Bubui.
+            Todo lo que cambies se aplica a este negocio.
+          </span>
+          <button
+            type="button"
+            onClick={() => { setSession(null); setPending(false); localStorage.removeItem("bubui.business"); }}
+            className="shrink-0 rounded-lg bg-black text-white text-xs font-bold px-3 py-1.5 hover:bg-black/80"
+          >
+            Salir del modo admin
+          </button>
+        </div>
+      )}
       {pending && (
         <ActivateGate
           session={session}
