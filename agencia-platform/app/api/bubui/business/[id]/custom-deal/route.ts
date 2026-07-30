@@ -23,6 +23,10 @@ const schema = z.object({
   friendDiscountPct: z.number().int().min(0).max(90),
   title: z.string().trim().max(80).optional().nullable(),
   friendTitle: z.string().trim().max(80).optional().nullable(),
+  // Texto del mensaje de WhatsApp escrito/editado por el dueño en el panel.
+  // Si no llega, se genera la plantilla por defecto. El enlace del reto se
+  // añade SIEMPRE al final aquí (así no se puede perder ni manipular).
+  message: z.string().trim().max(600).optional().nullable(),
   requiresPurchase: z.boolean().optional(),
   expiresInDays: z.number().int().min(1).max(120).optional()
 });
@@ -56,16 +60,17 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   });
 
   const clientUrl = bubuiUrl(`/reto/${token}`);
-  // OJO: el panel del negocio muestra una VISTA PREVIA de este mensaje
-  // (bloque "Tus clientes te traen nuevos clientes"). Si cambias la
-  // plantilla aquí, actualiza también la del panel para que coincidan.
+  // OJO: el panel del negocio autogenera esta MISMA plantilla en su editor
+  // de mensaje (bloque "Tus clientes te traen nuevos clientes"). Si cambias
+  // la plantilla aquí, actualiza también la del panel para que coincidan.
   const friendTitle = d.friendTitle?.trim() || null;
-  const waText =
+  const body =
+    d.message?.trim() ||
     `¡Te he preparado un reto en Bubui! 🎁\n\n` +
-    `Si traes a ${d.friendsRequired} ${d.friendsRequired === 1 ? "amigo/a" : "amigos/as"}, tú te llevas ` +
-    `${d.clientDiscountPct}% de descuento${d.title ? ` en ${d.title}` : ""} y cada ` +
-    `amigo/a un ${d.friendDiscountPct}%${friendTitle ? ` en ${friendTitle}` : ""}.\n\n` +
-    `Acéptalo y compártelo aquí: ${clientUrl}`;
+      `Si traes a ${d.friendsRequired} ${d.friendsRequired === 1 ? "amigo/a" : "amigos/as"}, tú te llevas ` +
+      `${d.clientDiscountPct}% de descuento${d.title ? ` en ${d.title}` : ""} y cada ` +
+      `amigo/a un ${d.friendDiscountPct}%${friendTitle ? ` en ${friendTitle}` : ""}.`;
+  const waText = `${body}\n\nAcéptalo y compártelo aquí: ${clientUrl}`;
   const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(waText)}`;
 
   return NextResponse.json({ ok: true, token: deal.token, clientUrl, whatsappUrl }, { status: 201 });
