@@ -123,6 +123,19 @@ type QueueRow = {
 
 type Tab = "leads" | "searches" | "queue" | "inbox" | "sequences" | "templates" | "exclusions" | "analytics" | "map" | "settings";
 
+/** ¿Este mensaje de la cola se ENVIÓ hoy? (día natural local del navegador —
+ *  España ≈ Madrid). Para resaltar en verde los envíos del día. */
+function isSentTodayRow(m: QueueRow): boolean {
+  if (!m.sentAt || !["sent", "delivered", "read"].includes(m.status)) return false;
+  const d = new Date(m.sentAt);
+  const now = new Date();
+  return (
+    d.getFullYear() === now.getFullYear() &&
+    d.getMonth() === now.getMonth() &&
+    d.getDate() === now.getDate()
+  );
+}
+
 // Tamaño de página de la tabla de leads. Una búsqueda "Toda España" puede
 // devolver más de mil leads; se cargan de LEADS_PAGE en LEADS_PAGE con el
 // botón "Cargar más" para no traerlos todos de golpe.
@@ -2975,6 +2988,14 @@ function QueueTable({ loading, items, onChanged }: { loading: boolean; items: Qu
           </button>
         )}
         <span className="text-xs text-slate-500">{items.length} mensajes en cola/historial</span>
+        {(() => {
+          const sentToday = items.filter(isSentTodayRow).length;
+          return sentToday > 0 ? (
+            <span className="inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300">
+              ✅ {sentToday} enviados hoy
+            </span>
+          ) : null;
+        })()}
       </div>
       {repaceOpen && (
         <div className="flex flex-wrap items-center gap-2 rounded-md border border-indigo-200 bg-indigo-50/60 px-3 py-2.5">
@@ -3152,8 +3173,16 @@ function QueueTable({ loading, items, onChanged }: { loading: boolean; items: Qu
             <tbody className="divide-y">
               {items.map((m) => {
                 const rowDeletable = m.status !== "sending";
+                const sentToday = isSentTodayRow(m);
                 return (
-                  <tr key={m.id} className="hover:bg-slate-50">
+                  <tr
+                    key={m.id}
+                    className={
+                      sentToday
+                        ? "bg-emerald-100 hover:bg-emerald-200 border-l-4 border-emerald-500"
+                        : "hover:bg-slate-50"
+                    }
+                  >
                     <td className="px-3 py-2">
                       <input
                         type="checkbox"
