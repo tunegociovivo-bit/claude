@@ -22,6 +22,7 @@ const schema = z.object({
   friendsRequired: z.number().int().min(1).max(20),
   friendDiscountPct: z.number().int().min(0).max(90),
   title: z.string().trim().max(80).optional().nullable(),
+  friendTitle: z.string().trim().max(80).optional().nullable(),
   requiresPurchase: z.boolean().optional(),
   expiresInDays: z.number().int().min(1).max(120).optional()
 });
@@ -45,6 +46,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       token,
       businessId: params.id,
       title: d.title?.trim() || null,
+      friendTitle: d.friendTitle?.trim() || null,
       clientDiscountPct: d.clientDiscountPct,
       friendsRequired: d.friendsRequired,
       friendDiscountPct: d.friendDiscountPct,
@@ -54,11 +56,15 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   });
 
   const clientUrl = bubuiUrl(`/reto/${token}`);
+  // OJO: el panel del negocio muestra una VISTA PREVIA de este mensaje
+  // (bloque "Tus clientes te traen nuevos clientes"). Si cambias la
+  // plantilla aquí, actualiza también la del panel para que coincidan.
+  const friendTitle = d.friendTitle?.trim() || null;
   const waText =
     `¡Te he preparado un reto en Bubui! 🎁\n\n` +
     `Si traes a ${d.friendsRequired} ${d.friendsRequired === 1 ? "amigo/a" : "amigos/as"}, tú te llevas ` +
     `${d.clientDiscountPct}% de descuento${d.title ? ` en ${d.title}` : ""} y cada ` +
-    `${d.friendsRequired === 1 ? "amigo/a" : "amigo/a"} un ${d.friendDiscountPct}%.\n\n` +
+    `amigo/a un ${d.friendDiscountPct}%${friendTitle ? ` en ${friendTitle}` : ""}.\n\n` +
     `Acéptalo y compártelo aquí: ${clientUrl}`;
   const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(waText)}`;
 

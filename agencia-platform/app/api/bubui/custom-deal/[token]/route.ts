@@ -26,6 +26,7 @@ export async function GET(_req: Request, { params }: { params: { token: string }
     clientDiscountPct: deal.clientDiscountPct,
     friendsRequired: deal.friendsRequired,
     friendDiscountPct: deal.friendDiscountPct,
+    friendTitle: deal.friendTitle,
     expired,
     claimed: !!deal.claimedByCustomerId,
     claimedByMe: false

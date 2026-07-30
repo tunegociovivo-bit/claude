@@ -16,6 +16,7 @@ type Deal = {
   clientDiscountPct: number;
   friendsRequired: number;
   friendDiscountPct: number;
+  friendTitle: string | null;
   expired: boolean;
   claimed: boolean;
 };
@@ -109,7 +110,7 @@ export default function RetoClient({ token }: { token: string }) {
 
   // Éxito: muestro el enlace para compartir con amigos.
   if (shareUrl) {
-    const waText = `¡Únete a Bubui y consigue un ${deal.friendDiscountPct}% en ${deal.businessName}! 🎁 Usa mi enlace: ${shareUrl}`;
+    const waText = `¡Únete a Bubui y consigue un ${deal.friendDiscountPct}%${deal.friendTitle ? ` en ${deal.friendTitle}` : ""} en ${deal.businessName}! 🎁 Usa mi enlace: ${shareUrl}`;
     const waShare = `https://wa.me/?text=${encodeURIComponent(waText)}`;
     return (
       <Shell>
@@ -118,7 +119,7 @@ export default function RetoClient({ token }: { token: string }) {
           <h1 className="text-xl font-black">¡Reto aceptado!</h1>
           <p className="text-sm text-black/70">
             Comparte tu enlace con tus amigos/as. Cuando se unan <b>{deal.friendsRequired}</b>, se activa tu{" "}
-            <b>{deal.clientDiscountPct}%{deal.title ? ` en ${deal.title}` : ""}</b>. Cada amigo/a recibe un <b>{deal.friendDiscountPct}%</b>.
+            <b>{deal.clientDiscountPct}%{deal.title ? ` en ${deal.title}` : ""}</b>. Cada amigo/a recibe un <b>{deal.friendDiscountPct}%{deal.friendTitle ? ` en ${deal.friendTitle}` : ""}</b>.
           </p>
           <a href={waShare} target="_blank" rel="noreferrer" className="bubui-btn w-full inline-flex justify-center">📲 Compartir por WhatsApp</a>
           <button
@@ -141,7 +142,7 @@ export default function RetoClient({ token }: { token: string }) {
         <p className="text-sm text-black/70 mt-2">
           Trae a <b>{deal.friendsRequired}</b> {deal.friendsRequired === 1 ? "amigo/a" : "amigos/as"} y consigue{" "}
           <b className="text-pink-600">{deal.clientDiscountPct}%{deal.title ? ` en ${deal.title}` : " de descuento"}</b>.
-          Cada {deal.friendsRequired === 1 ? "amigo/a" : "amigo/a"} se lleva un <b>{deal.friendDiscountPct}%</b>.
+          Cada {deal.friendsRequired === 1 ? "amigo/a" : "amigo/a"} se lleva un <b>{deal.friendDiscountPct}%{deal.friendTitle ? ` en ${deal.friendTitle}` : ""}</b>.
         </p>
       </div>
 

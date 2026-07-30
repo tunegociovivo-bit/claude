@@ -3599,10 +3599,12 @@ model BubuiBusiness {
   // Bubui y consigue `shareOfferFriends` amigos nuevos verificados. 0 = off.
   shareOfferPct             Int       @default(30)
   shareOfferFriends         Int       @default(5)
-  shareOfferLabel           String? // etiqueta no-% opcional (ej. "Postre gratis")
+  shareOfferLabel           String? // en qué se aplica el descuento del cliente (ej. "entrenamiento online")
   // Descuento de bienvenida para los AMIGOS que el cliente trae (cupón
   // referral_welcome). Si es 0 se usa el de cliente nuevo / por defecto.
   shareFriendDiscountPct    Int       @default(15)
+  // En qué se aplica el descuento de los amigos (ej. "suplementos deportivos").
+  shareFriendLabel          String?
   // Condición para desbloquear el reto de compartir:
   //   false → basta con que los amigos se instalen y verifiquen el teléfono.
   //   true  → además, cada amigo debe GASTAR su cupón (compra confirmada) en
@@ -4205,10 +4207,11 @@ model BubuiCustomDeal {
   id                  String    @id @default(cuid())
   token               String    @unique // identifica el enlace público
   businessId          String
-  title               String? // texto opcional (ej. "Bono entrenamiento")
+  title               String? // en qué se aplica el descuento del cliente (ej. "entrenamiento online")
   clientDiscountPct   Int // descuento para el cliente que reclama
   friendsRequired     Int // nº de amigos que debe traer
   friendDiscountPct   Int // descuento de bienvenida para cada amigo
+  friendTitle         String? // en qué se aplica el de los amigos (ej. "suplementos deportivos")
   requiresPurchase    Boolean   @default(false) // amigos deben comprar para contar
   expiresAt           DateTime
   claimedByCustomerId String? // cliente que lo reclamó

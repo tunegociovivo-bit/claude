@@ -136,6 +136,8 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
       shareOfferPct: business.shareOfferPct,
       shareOfferFriends: business.shareOfferFriends,
       shareOfferLabel: business.shareOfferLabel,
+      shareFriendDiscountPct: business.shareFriendDiscountPct,
+      shareFriendLabel: business.shareFriendLabel,
       // Sin esto, el panel guardaba el radio "instalar vs comprar" pero al
       // recargar volvía a marcar el default (el PATCH sí persistía el valor).
       shareOfferRequiresPurchase: business.shareOfferRequiresPurchase,
