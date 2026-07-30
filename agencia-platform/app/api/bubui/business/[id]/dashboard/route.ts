@@ -136,6 +136,9 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
       shareOfferPct: business.shareOfferPct,
       shareOfferFriends: business.shareOfferFriends,
       shareOfferLabel: business.shareOfferLabel,
+      // Sin esto, el panel guardaba el radio "instalar vs comprar" pero al
+      // recargar volvía a marcar el default (el PATCH sí persistía el valor).
+      shareOfferRequiresPurchase: business.shareOfferRequiresPurchase,
       // Entrega de la pegatina/cartel QR (CTA "te la llevamos gratis").
       posterDeliveryRequestedAt: business.posterDeliveryRequestedAt,
       posterDeliveredAt: business.posterDeliveredAt,
