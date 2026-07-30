@@ -27,7 +27,10 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
     category: b.category,
     requireTicket: b.requireTicket,
     businessType: b.businessType,
-    // La app ofrece la Mesa Colectiva tras escanear el QR del local si está activa.
-    mesaEnabled: !!b.mesaEnabled
+    // La app ofrece la Mesa Colectiva tras escanear el QR del local si está
+    // activa. Es una función SOLO de restaurantes: si el negocio cambió de
+    // tipo, el flag puede quedar huérfano a true en BD (el panel oculta el
+    // interruptor para no-restaurantes), así que lo filtramos aquí.
+    mesaEnabled: !!b.mesaEnabled && b.businessType === "restaurante"
   });
 }

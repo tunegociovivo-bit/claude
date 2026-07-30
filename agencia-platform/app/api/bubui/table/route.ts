@@ -33,7 +33,11 @@ export async function POST(req: Request) {
     prisma.bubuiCustomer.findUnique({ where: { id: d.customerId } })
   ]);
   if (!business || !customer) return NextResponse.json({ error: { code: "not_found" } }, { status: 404 });
-  if (!business.mesaEnabled) return NextResponse.json({ error: { code: "mesa_off", message: "Este negocio no tiene Mesa Colectiva activa." } }, { status: 409 });
+  // La Mesa Colectiva es solo de restaurantes: ignoramos un mesaEnabled
+  // huérfano si el negocio ya no es de ese tipo (mismo criterio que /public).
+  if (!business.mesaEnabled || business.businessType !== "restaurante") {
+    return NextResponse.json({ error: { code: "mesa_off", message: "Este negocio no tiene Mesa Colectiva activa." } }, { status: 409 });
+  }
 
   // Código único entre sesiones abiertas (reintenta si choca).
   let code = genTableCode();
