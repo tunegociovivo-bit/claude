@@ -412,6 +412,24 @@ function BusinessesPanel() {
       setRows((prev) => prev?.map((b) => (b.id === id ? { ...b, category: prevCat } : b)) ?? prev);
     }
   }
+  // Entrar en el panel del negocio como si fueras el dueño (impersonación
+  // admin): pide una sesión al backend, la guarda en el localStorage que
+  // usa /bubui/negocio (mismo dominio) y abre el panel en otra pestaña.
+  async function enterAsBusiness(id: string) {
+    try {
+      const j = await adminFetch("/api/bubui/admin/impersonate", {
+        method: "POST",
+        body: JSON.stringify({ businessId: id })
+      });
+      localStorage.setItem(
+        "bubui.business",
+        JSON.stringify({ businessId: j.businessId, name: j.name, token: j.token })
+      );
+      window.open("/bubui/negocio", "_blank");
+    } catch (e: any) {
+      alert(e?.message ?? "No se pudo entrar en el negocio");
+    }
+  }
   if (err) return <p className="text-rose-700 text-sm mt-4">{err}</p>;
   if (!rows) return <div className="bubui-skeleton h-40 mt-4" />;
   const pendingPosters = rows.filter((b) => b.posterDeliveryRequestedAt && !b.posterDeliveredAt);
@@ -484,7 +502,7 @@ function BusinessesPanel() {
       <table className="w-full text-[13px]" style={{ borderCollapse: "collapse" }}>
         <thead>
           <tr>
-            {["Destacar", "Nombre", "Categoría", "Ciudad", "Dueño", "Teléfono", "Plan", "Ofertas", "Compras", "Activo", "Ubicación", "Cartel"].map((h) => (
+            {["Destacar", "Nombre", "Categoría", "Ciudad", "Dueño", "Teléfono", "Plan", "Ofertas", "Compras", "Activo", "Ubicación", "Cartel", "Panel"].map((h) => (
               <th key={h} className="text-left p-2 border-b-2 border-black/10 whitespace-nowrap text-black/55">{h}</th>
             ))}
           </tr>
@@ -533,6 +551,16 @@ function BusinessesPanel() {
               </td>
               <td className="p-2 border-b border-black/5 whitespace-nowrap">
                 <a href={`/api/bubui/business/${b.id}/poster.png`} target="_blank" rel="noreferrer" className="text-pink-600" title="Imprimir cartel QR">🖨️</a>
+              </td>
+              <td className="p-2 border-b border-black/5 whitespace-nowrap">
+                <button
+                  type="button"
+                  onClick={() => enterAsBusiness(b.id)}
+                  className="rounded-lg bg-pink-600 hover:bg-pink-700 text-white text-[12px] font-semibold px-2.5 py-1"
+                  title={`Entrar en el panel de ${b.name} como dueño y configurarlo todo`}
+                >
+                  ⚙️ Entrar
+                </button>
               </td>
             </tr>
           ))}
