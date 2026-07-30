@@ -134,6 +134,13 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     );
   }
 
+  // La Mesa Colectiva es solo de restaurantes: si el negocio cambia a otro
+  // tipo, apagamos el flag para que no quede huérfano a true en BD (el panel
+  // oculta el interruptor para no-restaurantes y no podría desactivarse).
+  if (data.businessType && data.businessType !== "restaurante") {
+    data.mesaEnabled = false;
+  }
+
   const updated = await prisma.bubuiBusiness.update({
     where: { id: params.id },
     data
