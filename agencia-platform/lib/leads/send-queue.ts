@@ -799,6 +799,7 @@ export async function rescheduleMessage(opts: {
  * "Procesar siguiente" mensaje a mensaje para adivinar qué lo bloquea.
  */
 export async function diagnoseQueue(workspaceId: string): Promise<{
+  health: "ok" | "waiting" | "stopped" | "idle";
   verdict: string;
   detail: string;
   now: string;
@@ -820,6 +821,7 @@ export async function diagnoseQueue(workspaceId: string): Promise<{
     sentLastHour: number;
     newChatsToday: number;
     lastSentAt: string | null;
+    lastSentAtISO: string | null;
   };
   queue: {
     queued: number;
