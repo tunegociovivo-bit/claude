@@ -1020,7 +1020,28 @@ export async function diagnoseQueue(workspaceId: string): Promise<{
     }
   }
 
+  // Semáforo para la barra de estado en vivo de la UI: ok (enviando) · waiting
+  // (en espera por ventana/topes/cool-down/futuro) · stopped (pausa o sin número)
+  // · idle (cola vacía). Deriva de las mismas señales que el veredicto.
+  const anyConn = sessions.some((s) => s.connected === true);
+  let health: "ok" | "waiting" | "stopped" | "idle";
+  if (!settings.sendEnabled || settings.sendPaused || !anyConn) {
+    health = "stopped";
+  } else if (queuedTotal === 0) {
+    health = "idle";
+  } else if (
+    !insideWindow ||
+    sentToday >= settings.dailyLimit ||
+    sentLastHour >= settings.maxPerHour ||
+    dueNow === 0
+  ) {
+    health = "waiting";
+  } else {
+    health = sample.some((sm) => sm.blocker === "listo para enviar") ? "ok" : "waiting";
+  }
+
   return {
+    health,
     verdict,
     detail,
     now: nowStr,
@@ -1041,7 +1062,8 @@ export async function diagnoseQueue(workspaceId: string): Promise<{
       sentToday,
       sentLastHour,
       newChatsToday,
-      lastSentAt: lastSent?.sentAt ? new Date(lastSent.sentAt).toLocaleString("es-ES", { timeZone: TZ }) : null
+      lastSentAt: lastSent?.sentAt ? new Date(lastSent.sentAt).toLocaleString("es-ES", { timeZone: TZ }) : null,
+      lastSentAtISO: lastSent?.sentAt ? new Date(lastSent.sentAt).toISOString() : null
     },
     queue: {
       queued: queuedTotal,

@@ -2379,6 +2379,119 @@ function SearchesTable({ loading, items, onChanged }: { loading: boolean; items:
 
 // ============ COLA DE ENVÍO ============
 
+/** Barra de estado EN VIVO de la cola: se autoactualiza y dice de un vistazo si
+ *  se está enviando (🟢), en espera (🟡) o parado (🔴), con el motivo y los
+ *  números clave. Así siempre sabes si sale tráfico sin pulsar Diagnóstico. */
+function QueueLiveStatus() {
+  const [d, setD] = useState<any | null>(null);
+  const [err, setErr] = useState(false);
+  const [tick, setTick] = useState(0); // fuerza recálculo del "hace X" cada minuto
+
+  async function load() {
+    try {
+      const r = await fetch("/api/v1/leads/queue/diagnose");
+      if (!r.ok) {
+        setErr(true);
+        return;
+      }
+      setErr(false);
+      setD(await r.json());
+    } catch {
+      setErr(true);
+    }
+  }
+  useEffect(() => {
+    void load();
+    const i = setInterval(() => void load(), 45_000);
+    const t = setInterval(() => setTick((n) => n + 1), 60_000);
+    return () => {
+      clearInterval(i);
+      clearInterval(t);
+    };
+  }, []);
+
+  if (err && !d) {
+    return (
+      <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500">
+        Estado de la cola no disponible ahora mismo.
+      </div>
+    );
+  }
+  if (!d) {
+    return (
+      <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-400 inline-flex items-center gap-2">
+        <Loader2 className="h-3.5 w-3.5 animate-spin" /> Comprobando estado de la cola…
+      </div>
+    );
+  }
+
+  const health: string = d.health ?? "waiting";
+  const theme =
+    health === "ok"
+      ? { box: "border-emerald-300 bg-emerald-50", pill: "bg-emerald-600 text-white", dot: "🟢", label: "Enviando" }
+      : health === "stopped"
+        ? { box: "border-rose-300 bg-rose-50", pill: "bg-rose-600 text-white", dot: "🔴", label: "Parado" }
+        : health === "idle"
+          ? { box: "border-slate-300 bg-slate-50", pill: "bg-slate-500 text-white", dot: "⚪", label: "Sin cola" }
+          : { box: "border-amber-300 bg-amber-50", pill: "bg-amber-500 text-white", dot: "🟡", label: "En espera" };
+
+  // "hace X" desde el último envío real (tick fuerza refresco cada minuto).
+  const iso: string | null = d.counters?.lastSentAtISO ?? null;
+  let ago = "—";
+  if (iso) {
+    void tick; // dependencia visual
+    const secs = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 1000));
+    ago = secs < 90 ? `hace ${secs}s` : secs < 5400 ? `hace ${Math.round(secs / 60)} min` : secs < 172800 ? `hace ${Math.round(secs / 3600)} h` : `hace ${Math.round(secs / 86400)} d`;
+  }
+  const connected = (d.sessions ?? []).filter((s: any) => s.connected === true).length;
+  const totalSess = (d.sessions ?? []).length;
+
+  return (
+    <div className={"rounded-lg border p-3 " + theme.box}>
+      <div className="flex items-start gap-2 flex-wrap">
+        <span className={"shrink-0 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold " + theme.pill}>
+          {theme.dot} {theme.label}
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-semibold text-slate-800">{d.verdict}</div>
+          {d.detail && <div className="text-[11px] text-slate-600 mt-0.5">{d.detail}</div>}
+        </div>
+        <button
+          onClick={() => void load()}
+          className="shrink-0 text-[11px] text-slate-500 hover:text-slate-800 border rounded px-2 py-0.5 bg-white/60"
+          title="Actualizar ahora"
+        >
+          ↻ Actualizar
+        </button>
+      </div>
+      <div className="mt-2 grid grid-cols-2 sm:grid-cols-4 gap-2">
+        {[
+          ["Enviados hoy", `${d.counters?.sentToday ?? 0} / ${d.settings?.dailyLimitEffective ?? "?"}`],
+          ["Último envío", ago],
+          ["En cola (vencidos)", `${d.queue?.queued ?? 0} (${d.queue?.dueNow ?? 0} listos)`],
+          ["Números conectados", `${connected} / ${totalSess}`]
+        ].map(([k, v], i) => (
+          <div key={i} className="rounded border border-white/70 bg-white/70 px-2 py-1">
+            <div className="text-[10px] uppercase tracking-wide text-slate-400">{k}</div>
+            <div className="text-slate-800 font-medium text-sm">{v}</div>
+          </div>
+        ))}
+      </div>
+      {(d.sessions ?? []).some((s: any) => s.connected === false) && (
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {(d.sessions ?? [])
+            .filter((s: any) => s.connected === false)
+            .map((s: any, i: number) => (
+              <span key={i} className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-rose-50 border border-rose-300 text-rose-700">
+                🔴 {s.name} ({s.status})
+              </span>
+            ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function QueueTable({ loading, items, onChanged }: { loading: boolean; items: QueueRow[]; onChanged: () => void }) {
   const [processing, setProcessing] = useState(false);
   const [tickResult, setTickResult] = useState<{ kind: "ok" | "warn" | "error"; text: string } | null>(null);
@@ -2869,6 +2982,7 @@ function QueueTable({ loading, items, onChanged }: { loading: boolean; items: Qu
   if (loading) return <Loading />;
   return (
     <div className="space-y-3">
+      <QueueLiveStatus />
       {lastTrashed.length > 0 && (
         <div className="flex items-center justify-between gap-2 rounded-md border border-slate-300 bg-slate-50 px-3 py-2 text-xs">
           <span>🗑 {lastTrashed.length} mensaje{lastTrashed.length === 1 ? "" : "s"} en la papelera (no se enviarán).</span>
