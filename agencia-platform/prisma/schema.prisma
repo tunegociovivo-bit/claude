@@ -4212,6 +4212,7 @@ model BubuiCustomDeal {
   friendsRequired     Int // nº de amigos que debe traer
   friendDiscountPct   Int // descuento de bienvenida para cada amigo
   friendTitle         String? // en qué se aplica el de los amigos (ej. "suplementos deportivos")
+  message             String? // mensaje personalizado del dueño; la página /reto lo muestra tal cual
   requiresPurchase    Boolean   @default(false) // amigos deben comprar para contar
   expiresAt           DateTime
   claimedByCustomerId String? // cliente que lo reclamó
