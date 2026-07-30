@@ -1581,6 +1581,15 @@ function DiscountsConfig({ business, token, onSaved }: { business: any; token: s
   const [dealResult, setDealResult] = useState<{ clientUrl: string; whatsappUrl: string } | null>(null);
   const [dealErr, setDealErr] = useState<string | null>(null);
 
+  // Si el dueño cambia cualquier valor o el mensaje DESPUÉS de crear un
+  // enlace, ese enlace queda obsoleto (el reto guarda un snapshot) →
+  // lo retiramos para que genere uno nuevo con los datos frescos.
+  useEffect(() => {
+    setDealResult(null);
+    setDealErr(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sharePct, shareFriends, shareFriendPct, shareLabel, shareFriendLabel, shareReqPurchase, waMsg, waMsgEdited]);
+
   async function createDealLink() {
     if (Number(sharePct) < 1) { setDealErr("Pon un descuento de cliente mayor que 0 para crear el enlace."); return; }
     setDealBusy(true);
@@ -1595,9 +1604,10 @@ function DiscountsConfig({ business, token, onSaved }: { business: any; token: s
           friendDiscountPct: Number(shareFriendPct),
           title: shareLabel.trim() || null,
           friendTitle: shareFriendLabel.trim() || null,
-          // El texto del mensaje (editado o autogenerado); el backend añade
-          // el enlace del reto al final.
-          message: (waMsgEdited ? waMsg : autoWaMsg).trim() || null,
+          // Solo si el dueño personalizó el texto: el backend lo usa para el
+          // WhatsApp Y lo muestra en la página /reto (añade el enlace al
+          // final él mismo). Sin personalizar, plantilla estándar.
+          message: waMsgEdited ? waMsg.trim() || null : null,
           requiresPurchase: shareReqPurchase
         })
       });

@@ -17,6 +17,7 @@ type Deal = {
   friendsRequired: number;
   friendDiscountPct: number;
   friendTitle: string | null;
+  message: string | null;
   expired: boolean;
   claimed: boolean;
 };
@@ -139,11 +140,17 @@ export default function RetoClient({ token }: { token: string }) {
       <div className="text-center mb-4">
         <div className="text-3xl mb-1">🎁</div>
         <h1 className="text-xl font-black leading-tight">{deal.businessName} te propone un reto</h1>
-        <p className="text-sm text-black/70 mt-2">
-          Trae a <b>{deal.friendsRequired}</b> {deal.friendsRequired === 1 ? "amigo/a" : "amigos/as"} y consigue{" "}
-          <b className="text-pink-600">{deal.clientDiscountPct}%{deal.title ? ` en ${deal.title}` : " de descuento"}</b>.
-          Cada {deal.friendsRequired === 1 ? "amigo/a" : "amigo/a"} se lleva un <b>{deal.friendDiscountPct}%{deal.friendTitle ? ` en ${deal.friendTitle}` : ""}</b>.
-        </p>
+        {deal.message ? (
+          // El negocio personalizó el mensaje: lo mostramos tal cual, para
+          // que coincida con lo que el cliente leyó en WhatsApp.
+          <p className="text-sm text-black/70 mt-2 whitespace-pre-line">{deal.message}</p>
+        ) : (
+          <p className="text-sm text-black/70 mt-2">
+            Trae a <b>{deal.friendsRequired}</b> {deal.friendsRequired === 1 ? "amigo/a" : "amigos/as"} y consigue{" "}
+            <b className="text-pink-600">{deal.clientDiscountPct}%{deal.title ? ` en ${deal.title}` : " de descuento"}</b>.
+            Cada {deal.friendsRequired === 1 ? "amigo/a" : "amigo/a"} se lleva un <b>{deal.friendDiscountPct}%{deal.friendTitle ? ` en ${deal.friendTitle}` : ""}</b>.
+          </p>
+        )}
       </div>
 
       {session ? (

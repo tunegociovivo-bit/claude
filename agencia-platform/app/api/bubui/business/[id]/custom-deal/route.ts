@@ -51,6 +51,9 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       businessId: params.id,
       title: d.title?.trim() || null,
       friendTitle: d.friendTitle?.trim() || null,
+      // Solo persistimos el mensaje si el dueño lo personalizó: la página
+      // /reto lo muestra tal cual; sin él usa su texto estructurado.
+      message: d.message?.trim() || null,
       clientDiscountPct: d.clientDiscountPct,
       friendsRequired: d.friendsRequired,
       friendDiscountPct: d.friendDiscountPct,
