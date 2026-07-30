@@ -10,15 +10,34 @@ const SENT_OK = ["sent", "delivered", "read"];
 export const GET = withApi({ scope: "*" }, async (req, { api }) => {
   const url = new URL(req.url);
   const status = url.searchParams.get("status") ?? undefined;
-  const where: any = { workspaceId: api.workspaceId };
-  // Por defecto la papelera (cancelled) NO se muestra; solo si se pide explícito.
-  if (status) where.status = status;
-  else where.status = { not: "cancelled" };
-  const items = await prisma.leadMessage.findMany({
-    where,
-    orderBy: [{ status: "asc" }, { scheduledAt: "asc" }],
-    take: 200
-  });
+
+  let items: any[];
+  if (status) {
+    // Filtro explícito por un estado concreto.
+    items = await prisma.leadMessage.findMany({
+      where: { workspaceId: api.workspaceId, status },
+      orderBy: [{ status: "asc" }, { scheduledAt: "asc" }],
+      take: 200
+    });
+  } else {
+    // Vista por defecto: los ENVIADOS recientes PRIMERO (para verlos de un
+    // vistazo — los de hoy salen resaltados en verde), y debajo la cola por
+    // llegar. Antes se ordenaba por estado con tope 200; con 200+ en cola, los
+    // enviados nunca entraban en la lista y parecía que no se había enviado nada.
+    const [recentSent, rest] = await Promise.all([
+      prisma.leadMessage.findMany({
+        where: { workspaceId: api.workspaceId, status: { in: SENT_OK }, sentAt: { not: null } },
+        orderBy: { sentAt: "desc" },
+        take: 120
+      }),
+      prisma.leadMessage.findMany({
+        where: { workspaceId: api.workspaceId, status: { notIn: ["cancelled", ...SENT_OK] } },
+        orderBy: [{ status: "asc" }, { scheduledAt: "asc" }],
+        take: 200
+      })
+    ]);
+    items = [...recentSent, ...rest];
+  }
 
   // Anotación de calentamiento: por cada mensaje EN COLA marcamos si su teléfono
   // está calentando y si ese mensaje entra en el cupo del día de ese teléfono
