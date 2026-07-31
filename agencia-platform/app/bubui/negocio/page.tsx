@@ -4173,13 +4173,11 @@ function ActiveChallengesPanel({ businessId, token }: { businessId: string; toke
         alert(j?.error?.message ?? "No se pudo enviar el recordatorio.");
         return;
       }
-      // WhatsApp de un toque (el push ya se ha enviado en el servidor).
-      if (j.whatsappUrl) {
-        if (confirm(`✅ Aviso enviado por la app (push).\n\n¿Enviarle también el recordatorio por WhatsApp?`)) {
-          window.open(j.whatsappUrl, "_blank");
-        }
+      // Push automático + WhatsApp automático (lo manda Sonia desde el default).
+      if (j.whatsappSent) {
+        alert("✅ Recordatorio enviado: push en la app + WhatsApp (Sonia, número principal).");
       } else {
-        alert("✅ Aviso enviado por la app (push). Este cliente no tiene teléfono para WhatsApp.");
+        alert(`✅ Push enviado en la app.\n⚠️ El WhatsApp no salió${j.whatsappError ? `: ${j.whatsappError}` : ""}.`);
       }
     } finally {
       setRemindingId(null);

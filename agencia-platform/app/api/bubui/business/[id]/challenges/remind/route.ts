@@ -13,6 +13,7 @@ import { notifyBubuiCustomer } from "@/lib/bubui/notify";
 import { countVerifiedReferrals, countQualifiedReferrals } from "@/lib/bubui/referral";
 import { sharesLeft } from "@/lib/bubui/share-offer";
 import { bubuiUrl } from "@/lib/bubui/url";
+import { normalizePhone, sendText } from "@/lib/leads/waha";
 
 export const dynamic = "force-dynamic";
 
@@ -65,11 +66,27 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     link: "/bubui/app/afiliados"
   }).catch(() => ({ sent: 0 }) as any);
 
-  // Enlace wa.me para que el dueño lo mande también por WhatsApp.
+  // WhatsApp AUTOMÁTICO: lo manda Sonia desde el número DEFAULT (sesión
+  // principal de WAHA), usando el workspace de Negocio Vivo (el más antiguo,
+  // que es el que tiene WhatsApp configurado — mismo patrón que subvenciones).
   const shareUrl = customer?.referralCode ? bubuiUrl(`/r/${customer.referralCode}`) : bubuiUrl("/app");
   const waText = `¡Hola${customer?.name ? ` ${customer.name}` : ""}! ${body}\n\nTu enlace para invitar: ${shareUrl}`;
-  const digits = (customer?.phone ?? "").replace(/[^0-9]/g, "");
-  const whatsappUrl = digits ? `https://wa.me/${digits}?text=${encodeURIComponent(waText)}` : null;
+  const phone = normalizePhone(customer?.phone ?? null);
 
-  return NextResponse.json({ ok: true, pushSent: (push as any)?.sent ?? 0, whatsappUrl });
+  let whatsappSent = false;
+  let whatsappError: string | null = null;
+  if (!phone) {
+    whatsappError = "El cliente no tiene teléfono válido.";
+  } else {
+    try {
+      const ws = await prisma.workspace.findFirst({ orderBy: { createdAt: "asc" }, select: { id: true } });
+      if (!ws) throw new Error("No hay workspace con WhatsApp configurado.");
+      await sendText({ workspaceId: ws.id, phoneNormalized: phone, text: waText }); // sin session → default
+      whatsappSent = true;
+    } catch (e: any) {
+      whatsappError = e?.message ?? String(e);
+    }
+  }
+
+  return NextResponse.json({ ok: true, pushSent: (push as any)?.sent ?? 0, whatsappSent, whatsappError });
 }
