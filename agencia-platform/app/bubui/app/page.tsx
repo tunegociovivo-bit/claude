@@ -611,6 +611,30 @@ function OffersFeed({ customer, coords }: { customer: Customer; coords: { lat: n
     })();
   }, [customer.customerId, coords]);
 
+  // Cupón de amigo para clientes YA REGISTRADOS: si el cliente abrió un enlace de
+  // invitación (/r/<code>) estando ya logueado, no pasó por el alta (donde se
+  // aplica el referido), así que su cupón de bienvenida nunca se creaba. Aquí,
+  // al tener sesión + un ref guardado, lo aplicamos una vez (idempotente).
+  useEffect(() => {
+    if (!customer?.customerId) return;
+    let ref: string | null = null;
+    try {
+      ref = localStorage.getItem("bubui.ref");
+    } catch {}
+    if (!ref) return;
+    fetch("/api/bubui/customer/apply-ref", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...customerAuthHeaders() },
+      body: JSON.stringify({ customerId: customer.customerId, ref })
+    })
+      .then(() => {
+        try {
+          localStorage.removeItem("bubui.ref");
+        } catch {}
+      })
+      .catch(() => {});
+  }, [customer.customerId]);
+
   // Estado de push: ¿el navegador soporta?, ¿el cliente ya aceptó?
   useEffect(() => {
     if (typeof window === "undefined") return;

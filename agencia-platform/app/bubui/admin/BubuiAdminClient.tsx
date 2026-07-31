@@ -311,7 +311,7 @@ function UsersPanel() {
       <table className="w-full text-[13px]" style={{ borderCollapse: "collapse" }}>
         <thead>
           <tr>
-            {["Nombre", "Teléfono", "Email", "Sexo", "Nacim.", "CP", "Ahorrado", "Compras", "Nivel", "Versión", "Ubicación", "Alta"].map((h) => (
+            {["Nombre", "Fecha alta", "Teléfono", "Email", "Sexo", "Nacim.", "CP", "Ahorrado", "Compras", "Nivel", "Versión", "Ubicación"].map((h) => (
               <th key={h} className="text-left p-2 border-b-2 border-black/10 whitespace-nowrap text-black/55">{h}</th>
             ))}
           </tr>
@@ -320,6 +320,7 @@ function UsersPanel() {
           {rows.map((c) => (
             <tr key={c.id}>
               <td className="p-2 border-b border-black/5 whitespace-nowrap">{c.name ?? "—"}</td>
+              <td className="p-2 border-b border-black/5 whitespace-nowrap font-medium" title={c.createdAt ? new Date(c.createdAt).toLocaleString("es-ES") : ""}>{c.createdAt ? new Date(c.createdAt).toLocaleDateString("es-ES") : "—"}</td>
               <td className="p-2 border-b border-black/5 whitespace-nowrap">{c.phone ?? "—"}</td>
               <td className="p-2 border-b border-black/5 whitespace-nowrap">{c.email ?? "—"}</td>
               <td className="p-2 border-b border-black/5 whitespace-nowrap">{c.gender ?? "—"}</td>
@@ -347,7 +348,6 @@ function UsersPanel() {
                   <a href={`https://www.google.com/maps?q=${c.lastLat},${c.lastLng}`} target="_blank" rel="noreferrer" className="text-pink-600">ver</a>
                 ) : "—"}
               </td>
-              <td className="p-2 border-b border-black/5 whitespace-nowrap">{c.createdAt ? new Date(c.createdAt).toLocaleDateString("es-ES") : "—"}</td>
             </tr>
           ))}
         </tbody>

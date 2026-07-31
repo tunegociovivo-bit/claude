@@ -14,6 +14,7 @@ import { prisma } from "@/lib/db/prisma";
 import { customerAuthOk } from "@/lib/bubui/customer-auth";
 import { ensureReferralCode, countVerifiedReferrals, countQualifiedReferrals } from "@/lib/bubui/referral";
 import { bubuiUrl } from "@/lib/bubui/url";
+import { alertBusiness } from "@/lib/bubui/business-push";
 
 export const dynamic = "force-dynamic";
 
@@ -80,6 +81,21 @@ export async function POST(req: Request, { params }: { params: { token: string }
     where: { id: deal.id },
     data: { claimedByCustomerId: customerId, claimedAt: new Date(), offerId: offer.id }
   });
+
+  // Aviso al DUEÑO: un cliente acaba de ACEPTAR el reto (panel + push).
+  void (async () => {
+    const cust = await prisma.bubuiCustomer.findUnique({
+      where: { id: customerId },
+      select: { name: true, phone: true }
+    });
+    const who = cust?.name?.trim() || cust?.phone || "Un cliente";
+    await alertBusiness(deal.businessId, {
+      type: "challenge_accepted",
+      message: `🎯 ${who} ha aceptado tu reto: traer ${deal.friendsRequired} ${deal.friendsRequired === 1 ? "amigo" : "amigos"} para ganar ${deal.clientDiscountPct}% de descuento.`,
+      pushTitle: "Reto aceptado 🎯",
+      link: "/bubui/negocio"
+    }).catch(() => {});
+  })();
 
   return NextResponse.json({
     ok: true, referralCode: code, shareUrl,

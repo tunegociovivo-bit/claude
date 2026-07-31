@@ -2,7 +2,6 @@ import type { Metadata, Viewport } from "next";
 import { Poppins } from "next/font/google";
 import "../globals.css";
 import "./bubui.css";
-import InstallPrompt from "./InstallPrompt";
 import { BubuiErrorBoundary } from "./BubuiErrorBoundary";
 
 // Poppins se carga solo dentro de /bubui (no contamina el Hub).
@@ -75,7 +74,6 @@ export default function BubuiLayout({ children }: { children: React.ReactNode })
         <span className="mx-2">·</span>
         Ahorra. Disfruta. Apoya local. · Piloto en Benalmádena · Una app de Negocio Vivo
       </footer>
-      <InstallPrompt />
     </div>
   );
 }

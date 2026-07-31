@@ -1580,6 +1580,8 @@ function DiscountsConfig({ business, token, onSaved }: { business: any; token: s
   const [dealBusy, setDealBusy] = useState(false);
   const [dealResult, setDealResult] = useState<{ clientUrl: string; whatsappUrl: string } | null>(null);
   const [dealErr, setDealErr] = useState<string | null>(null);
+  // Caducidad del reto (días para completarlo). Menos días = más urgencia.
+  const [dealDays, setDealDays] = useState<number>(15);
 
   // Si el dueño cambia cualquier valor o el mensaje DESPUÉS de crear un
   // enlace, ese enlace queda obsoleto (el reto guarda un snapshot) →
@@ -1608,7 +1610,8 @@ function DiscountsConfig({ business, token, onSaved }: { business: any; token: s
           // WhatsApp Y lo muestra en la página /reto (añade el enlace al
           // final él mismo). Sin personalizar, plantilla estándar.
           message: waMsgEdited ? waMsg.trim() || null : null,
-          requiresPurchase: shareReqPurchase
+          requiresPurchase: shareReqPurchase,
+          expiresInDays: Number(dealDays) || 15
         })
       });
       const j = await r.json();
@@ -1756,6 +1759,27 @@ function DiscountsConfig({ business, token, onSaved }: { business: any; token: s
           </div>
         </div>
 
+        {/* Caducidad del reto: cuántos días tiene el cliente para completarlo.
+            Menos días = más urgencia para que lo cumpla cuanto antes. */}
+        <div className="pt-2">
+          <label className="block text-sm font-semibold text-black/70 mb-1">
+            ⏳ Días para completar el reto
+          </label>
+          <div className="flex items-center gap-2">
+            <input
+              type="number"
+              min={1}
+              max={120}
+              value={dealDays}
+              onChange={(e) => setDealDays(Math.max(1, Math.min(120, Number(e.target.value) || 15)))}
+              className="w-24 rounded-lg border border-black/15 px-3 py-2 text-sm"
+            />
+            <span className="text-xs text-black/50">
+              días. Pasado ese plazo el reto caduca y deja de poder completarse.
+            </span>
+          </div>
+        </div>
+
         {/* Crear un enlace al momento para enviar a un cliente concreto, con
             estos mismos valores. */}
         <div className="pt-2 border-t border-black/10">
@@ -1784,6 +1808,9 @@ function DiscountsConfig({ business, token, onSaved }: { business: any; token: s
           )}
         </div>
       </div>
+
+      {/* Panel de retos activos: clientes con un reto en marcha + recordatorio. */}
+      <ActiveChallengesPanel businessId={business.id} token={token} />
 
       {/* Reseña */}
       <div className="rounded-xl border border-black/10 p-3 flex items-center justify-between gap-3">
@@ -4104,6 +4131,115 @@ function MiniMetric({ label, value }: { label: string; value: number | string })
     <div className="rounded-xl bg-pink-50/60 border border-pink-100 p-2.5 text-center">
       <div className="text-[10px] uppercase tracking-wide text-black/55 font-bold">{label}</div>
       <div className="text-lg font-black mt-0.5">{value}</div>
+    </div>
+  );
+}
+
+/**
+ * Panel "Retos activos": clientes con un reto en marcha (share_challenge sin
+ * caducar), su progreso (amigos traídos / requeridos) y un botón para
+ * recordarles que lo completen (push automático + WhatsApp de un toque).
+ */
+function ActiveChallengesPanel({ businessId, token }: { businessId: string; token: string }) {
+  const [items, setItems] = useState<any[] | null>(null);
+  const [remindingId, setRemindingId] = useState<string | null>(null);
+
+  async function load() {
+    try {
+      const r = await fetch(`/api/bubui/business/${businessId}/challenges`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (r.ok) setItems((await r.json()).items ?? []);
+      else setItems([]);
+    } catch {
+      setItems([]);
+    }
+  }
+  useEffect(() => {
+    void load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [businessId]);
+
+  async function remind(customerId: string) {
+    setRemindingId(customerId);
+    try {
+      const r = await fetch(`/api/bubui/business/${businessId}/challenges/remind`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ customerId })
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        alert(j?.error?.message ?? "No se pudo enviar el recordatorio.");
+        return;
+      }
+      // WhatsApp de un toque (el push ya se ha enviado en el servidor).
+      if (j.whatsappUrl) {
+        if (confirm(`✅ Aviso enviado por la app (push).\n\n¿Enviarle también el recordatorio por WhatsApp?`)) {
+          window.open(j.whatsappUrl, "_blank");
+        }
+      } else {
+        alert("✅ Aviso enviado por la app (push). Este cliente no tiene teléfono para WhatsApp.");
+      }
+    } finally {
+      setRemindingId(null);
+    }
+  }
+
+  if (items === null) {
+    return <div className="rounded-xl border border-black/10 p-3 text-sm text-black/50">Cargando retos activos…</div>;
+  }
+
+  return (
+    <div className="rounded-xl border border-black/10 p-3">
+      <div className="flex items-center justify-between gap-2 mb-2">
+        <div className="font-semibold text-sm">🎯 Retos activos ({items.length})</div>
+        <button onClick={() => void load()} className="text-[11px] text-pink-600 font-semibold">↻ Actualizar</button>
+      </div>
+      {items.length === 0 ? (
+        <p className="text-[12px] text-black/50">
+          Nadie tiene un reto en marcha ahora mismo. Cuando un cliente acepte un reto, aparecerá aquí con su progreso.
+        </p>
+      ) : (
+        <div className="space-y-2">
+          {items.map((c) => {
+            const done = c.done ?? 0;
+            const need = c.need ?? 0;
+            const pct = need > 0 ? Math.min(100, Math.round((done / need) * 100)) : 0;
+            const complete = c.left === 0;
+            const exp = c.expiresAt ? new Date(c.expiresAt) : null;
+            const daysLeft = exp ? Math.max(0, Math.ceil((exp.getTime() - Date.now()) / 86_400_000)) : null;
+            return (
+              <div key={c.offerId} className="rounded-lg border border-black/10 p-2.5">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="font-semibold text-sm truncate">{c.name || c.phone || "Cliente"}</div>
+                    <div className="text-[11px] text-black/50">
+                      Premio: {c.rewardLabel ? `${c.rewardLabel} · ` : ""}{c.discountPct}%
+                      {daysLeft != null ? ` · caduca en ${daysLeft} ${daysLeft === 1 ? "día" : "días"}` : ""}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => void remind(c.customerId)}
+                    disabled={remindingId === c.customerId}
+                    className="shrink-0 text-xs font-bold px-3 py-1.5 rounded-full bg-pink-600 text-white hover:bg-pink-700 disabled:opacity-50"
+                  >
+                    {remindingId === c.customerId ? "Enviando…" : "🔔 Recordar"}
+                  </button>
+                </div>
+                <div className="mt-1.5 flex items-center gap-2">
+                  <div className="flex-1 h-2 rounded-full bg-black/10 overflow-hidden">
+                    <div className={"h-full " + (complete ? "bg-emerald-500" : "bg-pink-500")} style={{ width: `${pct}%` }} />
+                  </div>
+                  <span className={"text-[11px] font-bold " + (complete ? "text-emerald-600" : "text-black/60")}>
+                    {complete ? "¡Completado!" : `${done}/${need} amigos`}
+                  </span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
