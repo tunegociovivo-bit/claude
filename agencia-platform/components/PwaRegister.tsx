@@ -74,7 +74,10 @@ export default function PwaRegister() {
         /; wv\)/.test(ua) ||
         new URLSearchParams(window.location.search).has("embed") ||
         sessionStorage.getItem("bubuiEmbed") === "1" ||
-        document.body.classList.contains("bubui-embedded");
+        document.body.classList.contains("bubui-embedded") ||
+        // Nunca ofrecer "Instalar app" en ninguna página de Bubui (reto, enlace,
+        // app…): estorba en las páginas públicas de conversión.
+        window.location.pathname.startsWith("/bubui");
       setEmbedded(emb);
     } catch {
       // no-op

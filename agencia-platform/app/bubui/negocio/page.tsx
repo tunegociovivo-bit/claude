@@ -4143,6 +4143,7 @@ function MiniMetric({ label, value }: { label: string; value: number | string })
 function ActiveChallengesPanel({ businessId, token }: { businessId: string; token: string }) {
   const [items, setItems] = useState<any[] | null>(null);
   const [remindingId, setRemindingId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   async function load() {
     try {
@@ -4184,6 +4185,25 @@ function ActiveChallengesPanel({ businessId, token }: { businessId: string; toke
     }
   }
 
+  async function deleteChallenge(offerId: string, who: string) {
+    if (!confirm(`¿Eliminar el reto de ${who}? Desaparece de la lista y el cliente deja de tenerlo activo. Esta acción no se puede deshacer.`)) return;
+    setDeletingId(offerId);
+    try {
+      const r = await fetch(`/api/bubui/business/${businessId}/challenges/${offerId}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        alert(j?.error?.message ?? "No se pudo eliminar el reto.");
+        return;
+      }
+      setItems((prev) => (prev ? prev.filter((x) => x.offerId !== offerId) : prev));
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
   if (items === null) {
     return <div className="rounded-xl border border-black/10 p-3 text-sm text-black/50">Cargando retos activos…</div>;
   }
@@ -4217,13 +4237,23 @@ function ActiveChallengesPanel({ businessId, token }: { businessId: string; toke
                       {daysLeft != null ? ` · caduca en ${daysLeft} ${daysLeft === 1 ? "día" : "días"}` : ""}
                     </div>
                   </div>
-                  <button
-                    onClick={() => void remind(c.customerId)}
-                    disabled={remindingId === c.customerId}
-                    className="shrink-0 text-xs font-bold px-3 py-1.5 rounded-full bg-pink-600 text-white hover:bg-pink-700 disabled:opacity-50"
-                  >
-                    {remindingId === c.customerId ? "Enviando…" : "🔔 Recordar"}
-                  </button>
+                  <div className="shrink-0 flex items-center gap-1.5">
+                    <button
+                      onClick={() => void remind(c.customerId)}
+                      disabled={remindingId === c.customerId}
+                      className="text-xs font-bold px-3 py-1.5 rounded-full bg-pink-600 text-white hover:bg-pink-700 disabled:opacity-50"
+                    >
+                      {remindingId === c.customerId ? "Enviando…" : "🔔 Recordar"}
+                    </button>
+                    <button
+                      onClick={() => void deleteChallenge(c.offerId, c.name || c.phone || "este cliente")}
+                      disabled={deletingId === c.offerId}
+                      title="Eliminar este reto"
+                      className="text-xs px-2 py-1.5 rounded-full border border-rose-200 text-rose-600 hover:bg-rose-50 disabled:opacity-50"
+                    >
+                      {deletingId === c.offerId ? "…" : "🗑"}
+                    </button>
+                  </div>
                 </div>
                 <div className="mt-1.5 flex items-center gap-2">
                   <div className="flex-1 h-2 rounded-full bg-black/10 overflow-hidden">
