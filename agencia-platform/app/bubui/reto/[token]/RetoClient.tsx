@@ -23,10 +23,21 @@ type Deal = {
 };
 type Session = { customerId: string; name?: string; token: string };
 
+const ANDROID_PACKAGE = "com.negociovivo.bubui";
+const PLAY_URL = (token: string) =>
+  `https://play.google.com/store/apps/details?id=${ANDROID_PACKAGE}&referrer=${encodeURIComponent(`reto_${token}`)}`;
+// App Store (iPhone): se rellena al publicar vía NEXT_PUBLIC_BUBUI_IOS_URL.
+const APPSTORE_URL = process.env.NEXT_PUBLIC_BUBUI_IOS_URL || "";
+
 export default function RetoClient({ token }: { token: string }) {
   const [deal, setDeal] = useState<Deal | null>(null);
   const [loadErr, setLoadErr] = useState<string | null>(null);
   const [session, setSession] = useState<Session | null>(null);
+  // Flujo por defecto: aceptar EN LA APP. "web" es el respaldo temporal (Fase 1)
+  // mientras la nueva app se publica en las tiendas; luego se retira.
+  const [mode, setMode] = useState<"app" | "web">("app");
+  const [os, setOs] = useState<"android" | "ios" | "other">("other");
+  const [triedApp, setTriedApp] = useState(false);
   const [step, setStep] = useState<"form" | "code">("form");
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
@@ -45,7 +56,25 @@ export default function RetoClient({ token }: { token: string }) {
       const raw = localStorage.getItem("bubui.customer");
       if (raw) setSession(JSON.parse(raw));
     } catch {}
+    try {
+      const ua = navigator.userAgent || "";
+      setOs(/Android/i.test(ua) ? "android" : /iPhone|iPad|iPod/i.test(ua) ? "ios" : "other");
+    } catch {}
   }, [token]);
+
+  // Intenta abrir la app instalada por deep link; si la pestaña sigue visible
+  // pasado un momento, es que no está instalada → mostramos tienda/instalar.
+  function openApp() {
+    setTriedApp(false);
+    let abort = false;
+    const onHide = () => { abort = true; };
+    document.addEventListener("visibilitychange", onHide);
+    window.setTimeout(() => {
+      document.removeEventListener("visibilitychange", onHide);
+      if (!abort && !document.hidden) setTriedApp(true);
+    }, 1500);
+    try { window.location.href = `bubui://reto/${token}`; } catch { setTriedApp(true); }
+  }
 
   function authHeaders(s: Session) {
     return { "Content-Type": "application/json", Authorization: `Bearer ${s.customerId}:${s.token}` };
@@ -153,7 +182,35 @@ export default function RetoClient({ token }: { token: string }) {
         )}
       </div>
 
-      {session ? (
+      {mode === "app" ? (
+        <div className="space-y-3">
+          <button onClick={openApp} className="bubui-btn w-full">📲 Aceptar reto en la app</button>
+          <p className="text-[11px] text-black/50 text-center">
+            Para aceptar el reto necesitas la app de Bubui. Si ya la tienes, se abrirá; si no, instálala gratis y el reto se activará al registrarte.
+          </p>
+          {(triedApp || os === "other") && (
+            <div className="space-y-2 pt-1">
+              {os !== "ios" && (
+                <a href={PLAY_URL(token)} className="w-full inline-flex justify-center text-sm font-semibold border rounded-full py-2.5 hover:bg-black/5">⬇️ Instalar en Android (Google Play)</a>
+              )}
+              {os !== "android" && APPSTORE_URL && (
+                <a href={APPSTORE_URL} className="w-full inline-flex justify-center text-sm font-semibold border rounded-full py-2.5 hover:bg-black/5">⬇️ Instalar en iPhone (App Store)</a>
+              )}
+              {os === "ios" && (
+                <p className="text-[11px] text-black/50 text-center">
+                  Instala Bubui desde la App Store y, cuando la tengas, <b>vuelve a pulsar este enlace</b> para aceptar el reto.
+                </p>
+              )}
+              <button onClick={openApp} className="w-full text-xs text-black/50">↻ Ya tengo la app — abrirla</button>
+            </div>
+          )}
+          {/* Respaldo TEMPORAL (Fase 1): aceptar sin la app hasta que la nueva
+              versión esté publicada en las tiendas. Se retira en Fase 2. */}
+          <button onClick={() => setMode("web")} className="w-full text-[11px] text-black/35 underline">
+            Continuar sin la app (temporal)
+          </button>
+        </div>
+      ) : session ? (
         <button onClick={() => claim(session)} disabled={busy} className="bubui-btn w-full">
           {busy ? "Aceptando…" : "Aceptar reto"}
         </button>

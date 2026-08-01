@@ -16,6 +16,7 @@ import { Negocio, type NegocioParam } from "./src/screens/Negocio"
 import { CheckSession } from "./src/lib/session";
 import { setupNotificationTapHandler } from "./src/lib/push";
 import { initReferralCapture } from "./src/lib/referral-pending";
+import { initDealCapture, claimPendingDeal } from "./src/lib/deal-pending";
 import { ErrorBoundary } from "./src/components/ErrorBoundary";
 import { useAppFonts, applyPoppinsToTextDefaults } from "./src/lib/fonts";
 import { ThemeProvider, useThemeMeta } from "./src/lib/theme";
@@ -79,6 +80,9 @@ function AppInner() {
         (async () => {
                 const session = await CheckSession();
                 setInitial(session ? "Feed" : "Onboarding");
+                // Si ya hay sesión y el cliente venía de un enlace de reto (deep
+                // link o Install Referrer), lo reclamamos al arrancar.
+                if (session) void claimPendingDeal(session.customerId);
         })();
   }, []);
 
@@ -87,6 +91,9 @@ function AppInner() {
 
   // Captura el código de referido (deep link + Install Referrer de Android).
   useEffect(() => initReferralCapture(), []);
+
+  // Captura el token del RETO (deep link + Install Referrer de Android).
+  useEffect(() => initDealCapture(), []);
 
   if (!initial) return <Splash />; // fontsLoaded check removed for simulator build
 
