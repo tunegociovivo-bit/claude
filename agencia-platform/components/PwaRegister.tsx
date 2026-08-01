@@ -75,8 +75,10 @@ export default function PwaRegister() {
         new URLSearchParams(window.location.search).has("embed") ||
         sessionStorage.getItem("bubuiEmbed") === "1" ||
         document.body.classList.contains("bubui-embedded") ||
-        // Nunca ofrecer "Instalar app" en ninguna página de Bubui (reto, enlace,
-        // app…): estorba en las páginas públicas de conversión.
+        // Nunca ofrecer "Instalar app" en ninguna página de Bubui: estorba en la
+        // conversión. Cubre AMBOS casos: el dominio propio bubui.app (donde la
+        // ruta es /reto, /app… sin prefijo) y hub.negociovivo.app/bubui/…
+        /(^|\.)bubui\./i.test(window.location.hostname) ||
         window.location.pathname.startsWith("/bubui");
       setEmbedded(emb);
     } catch {
