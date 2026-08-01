@@ -33,9 +33,10 @@ export default function RetoClient({ token }: { token: string }) {
   const [deal, setDeal] = useState<Deal | null>(null);
   const [loadErr, setLoadErr] = useState<string | null>(null);
   const [session, setSession] = useState<Session | null>(null);
-  // Flujo por defecto: aceptar EN LA APP. "web" es el respaldo temporal (Fase 1)
-  // mientras la nueva app se publica en las tiendas; luego se retira.
-  const [mode, setMode] = useState<"app" | "web">("app");
+  // Fase 2: el reto SOLO se acepta desde la app (mode fijo "app"). El código del
+  // flujo web sigue en el archivo pero queda inalcanzable; para reactivarlo,
+  // volver a exponer setMode + el botón "Continuar sin la app".
+  const [mode] = useState<"app" | "web">("app");
   const [os, setOs] = useState<"android" | "ios" | "other">("other");
   const [triedApp, setTriedApp] = useState(false);
   const [step, setStep] = useState<"form" | "code">("form");
@@ -204,11 +205,10 @@ export default function RetoClient({ token }: { token: string }) {
               <button onClick={openApp} className="w-full text-xs text-black/50">↻ Ya tengo la app — abrirla</button>
             </div>
           )}
-          {/* Respaldo TEMPORAL (Fase 1): aceptar sin la app hasta que la nueva
-              versión esté publicada en las tiendas. Se retira en Fase 2. */}
-          <button onClick={() => setMode("web")} className="w-full text-[11px] text-black/35 underline">
-            Continuar sin la app (temporal)
-          </button>
+          {/* Fase 2: el reto SOLO se acepta desde la app instalada. El respaldo
+              web se ha retirado a propósito (era temporal durante la revisión de
+              tiendas). Para reactivarlo, volver a poner aquí el botón que hacía
+              setMode("web"). */}
         </div>
       ) : session ? (
         <button onClick={() => claim(session)} disabled={busy} className="bubui-btn w-full">
