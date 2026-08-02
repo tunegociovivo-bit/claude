@@ -13,7 +13,8 @@ import { Scan } from "./src/screens/Scan";
 import { Mesa } from "./src/screens/Mesa";
 import { Plus } from "./src/screens/Plus";
 import { Negocio, type NegocioParam } from "./src/screens/Negocio"
-import { CheckSession } from "./src/lib/session";
+import { CheckSession, clearSession } from "./src/lib/session";
+import { setOnAuthExpired } from "./src/lib/api";
 import { setupNotificationTapHandler } from "./src/lib/push";
 import { initReferralCapture } from "./src/lib/referral-pending";
 import { initDealCapture, claimPendingDeal } from "./src/lib/deal-pending";
@@ -94,6 +95,10 @@ function AppInner() {
 
   // Captura el token del RETO (deep link + Install Referrer de Android).
   useEffect(() => initDealCapture(), []);
+
+  // Token caducado (401): cerramos sesión para que la app pida re-login en vez
+  // de mostrar un genérico "servidor no responde".
+  useEffect(() => setOnAuthExpired(() => { void clearSession(); }), []);
 
   if (!initial) return <Splash />; // fontsLoaded check removed for simulator build
 
