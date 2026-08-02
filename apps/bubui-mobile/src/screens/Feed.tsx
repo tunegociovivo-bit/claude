@@ -157,9 +157,14 @@ export function Feed() {
               discountPct: o.discountPct
             }))
           ).catch(() => {});
-        } catch {
-          // No borramos lo ya cargado: mostramos aviso de red y dejamos reintentar.
-          setNetError(true);
+        } catch (e: any) {
+          if (e?.code === "auth") {
+            // Sesión caducada → a re-login (la sesión ya se limpió en el 401).
+            nav.reset({ index: 0, routes: [{ name: "Onboarding" }] });
+          } else {
+            // No borramos lo ya cargado: mostramos aviso de red y dejamos reintentar.
+            setNetError(true);
+          }
         }
       } else {
         // Invitado (sin cuenta): solo contenido público — catálogo de negocios

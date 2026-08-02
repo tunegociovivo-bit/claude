@@ -127,7 +127,10 @@ export function Scan() {
       nav.replace("Mesa", { code: mesa[1].toUpperCase() });
       return;
     }
-    const m = /\/bubui\/scan\/([a-z0-9_-]+)/i.exec(result.data);
+    // QR de negocio. Acepta AMBAS formas: la URL limpia del dominio propio
+    // (bubui.app/scan/<id>) y la del Hub (hub.negociovivo.app/bubui/scan/<id>),
+    // además del deep link (bubui://scan/<id> · bubui://bubui/scan/<id>).
+    const m = /(?:\/|^)(?:bubui\/)?scan\/([a-z0-9_-]+)/i.exec(result.data);
     if (m) {
       sfx.tap();
       setBusinessId(m[1]);

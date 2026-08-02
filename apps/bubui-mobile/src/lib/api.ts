@@ -66,16 +66,54 @@ function authHeaders(): Record<string, string> {
   return auth ? { Authorization: `Bearer ${auth.customerId}:${auth.token}` } : {};
 }
 
+// Callback global cuando el token caduca (401): la app lo usa para cerrar sesión
+// y mandar a re-login, en vez de mostrar un genérico "servidor no responde".
+let onAuthExpired: (() => void) | null = null;
+export function setOnAuthExpired(cb: (() => void) | null): void {
+  onAuthExpired = cb;
+}
+
+const REQUEST_TIMEOUT_MS = 12_000;
+
 async function call<T = any>(path: string, init: RequestInit = {}): Promise<T> {
-  const r = await fetch(`${API_BASE}${path}`, {
-    ...init,
-    headers: { "Content-Type": "application/json", ...authHeaders(), ...(init.headers ?? {}) }
-  });
-  if (!r.ok) {
-    const j = await r.json().catch(() => ({}));
-    throw new Error(j?.error?.message ?? `HTTP ${r.status}`);
+  const method = (init.method ?? "GET").toUpperCase();
+  // Reintento automático SOLO en peticiones seguras (GET/HEAD): un microcorte de
+  // red no debe dejar la pantalla con "sin conexión". Los POST no se reintentan
+  // (evita duplicar altas/compras).
+  const maxAttempts = method === "GET" || method === "HEAD" ? 2 : 1;
+  let lastErr: any = null;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), REQUEST_TIMEOUT_MS);
+    try {
+      const r = await fetch(`${API_BASE}${path}`, {
+        ...init,
+        signal: ctrl.signal,
+        headers: { "Content-Type": "application/json", ...authHeaders(), ...(init.headers ?? {}) }
+      });
+      clearTimeout(timer);
+      if (r.status === 401) {
+        auth = null;
+        try { onAuthExpired?.(); } catch {}
+        throw Object.assign(new Error("Tu sesión ha caducado. Vuelve a entrar."), { code: "auth" });
+      }
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        throw new Error(j?.error?.message ?? `HTTP ${r.status}`);
+      }
+      return r.json();
+    } catch (e: any) {
+      clearTimeout(timer);
+      lastErr = e;
+      // Solo reintentamos fallos de RED/timeout (no auth ni respuestas 4xx/5xx
+      // del servidor, que ya se lanzaron arriba y reintentar no arregla).
+      const isNetwork =
+        e?.name === "AbortError" || e?.name === "TypeError" || /network request failed|failed to fetch/i.test(String(e?.message));
+      if (e?.code === "auth" || !isNetwork || attempt >= maxAttempts) throw e;
+      await new Promise((res) => setTimeout(res, 800));
+    }
   }
-  return r.json();
+  throw lastErr;
 }
 
 export const api = {
