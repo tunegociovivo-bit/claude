@@ -133,6 +133,7 @@
         }
       ],
       "./plugins/withReleaseSigning",
+      "./plugins/withFmtConstevalFix",
       "./plugins/withOptionalGoogleServices",
       "./plugins/withIosNotificationServiceExtension"
     ],
