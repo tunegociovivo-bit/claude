@@ -13,6 +13,12 @@ const ASC_ISSUER_ID = process.env.ASC_ISSUER_ID;
 const APPLE_TEAM_ID = process.env.APPLE_TEAM_ID;
 const RUNNER_TEMP = process.env.RUNNER_TEMP || '/tmp';
 const BUNDLE_ID = 'com.negociovivo.bubui';
+// Extensión de notificaciones (plugins/withIosNotificationServiceExtension.js):
+// es un target propio y necesita SU bundle id y SU provisioning profile.
+const NSE_TARGET = 'BubuiNotificationService';
+const NSE_BUNDLE_ID = BUNDLE_ID + '.' + NSE_TARGET;
+// Nombre del target principal generado por expo prebuild (app.json "name").
+const MAIN_TARGET = 'Bubui';
 const CERT_PASSWORD = 'bubui2026';
 const CREDS_DIR = path.join(process.cwd(), 'ios-creds');
 
@@ -139,53 +145,79 @@ async function main() {
   }
   console.log('P12 created, size:', fs.statSync(p12Path).size);
 
-  // Step 3: Get Bundle ID resource ID
-  console.log('Getting bundle ID resource...');
-  const bundleResp = await apiRequest('GET', '/v1/bundleIds?filter[identifier]=' + BUNDLE_ID + '&filter[platform]=IOS', null, jwt);
-  if (!bundleResp.data || bundleResp.data.length === 0) {
-    console.error('Bundle ID not found:', BUNDLE_ID);
-    process.exit(1);
-  }
-  const bundleResourceId = bundleResp.data[0].id;
-  console.log('Bundle ID resource:', bundleResourceId);
-
-  // Step 4: Create provisioning profile
-  console.log('Creating provisioning profile...');
-  const profileName = 'EAS Bubui Production ' + Date.now();
-  const profileResp = await apiRequest('POST', '/v1/profiles', {
-    data: {
-      type: 'profiles',
-      attributes: { name: profileName, profileType: 'IOS_APP_STORE' },
-      relationships: {
-        bundleId: { data: { type: 'bundleIds', id: bundleResourceId } },
-        certificates: { data: [{ type: 'certificates', id: certId }] }
-      }
+  // Step 3: Resolve (or register) the Bundle ID resources for BOTH targets.
+  // La app principal ya existe en el portal; el de la extensión de
+  // notificaciones se registra aquí la primera vez.
+  async function getOrCreateBundleId(identifier, name) {
+    const found = await apiRequest('GET', '/v1/bundleIds?filter[identifier]=' + identifier + '&filter[platform]=IOS', null, jwt);
+    // El filtro de la API hace substring-match: exige coincidencia exacta.
+    const exact = (found.data || []).find((b) => b.attributes && b.attributes.identifier === identifier);
+    if (exact) {
+      console.log('Bundle ID exists:', identifier, '→', exact.id);
+      return exact.id;
     }
-  }, jwt);
-
-  if (profileResp.errors) {
-    console.error('Profile error:', JSON.stringify(profileResp.errors));
-    process.exit(1);
+    console.log('Registering bundle ID:', identifier);
+    const created = await apiRequest('POST', '/v1/bundleIds', {
+      data: { type: 'bundleIds', attributes: { identifier: identifier, name: name, platform: 'IOS' } }
+    }, jwt);
+    if (created.errors) {
+      console.error('Bundle ID registration error:', JSON.stringify(created.errors));
+      process.exit(1);
+    }
+    console.log('Bundle ID registered:', identifier, '→', created.data.id);
+    return created.data.id;
   }
 
-  const profileContent = profileResp.data.attributes.profileContent;
-  const profileUUID = profileResp.data.attributes.uuid;
-  const profPath = path.join(CREDS_DIR, 'app.mobileprovision');
-  fs.writeFileSync(profPath, Buffer.from(profileContent, 'base64'));
-  console.log('Provisioning profile saved, UUID:', profileUUID, 'size:', fs.statSync(profPath).size);
+  const mainBundleResourceId = await getOrCreateBundleId(BUNDLE_ID, 'Bubui');
+  const nseBundleResourceId = await getOrCreateBundleId(NSE_BUNDLE_ID, 'Bubui Notification Service');
 
-  // Step 5: Write credentials.json
+  // Step 4: Create one App Store provisioning profile per target (mismo cert).
+  async function createProfile(label, bundleResourceId, fileName) {
+    console.log('Creating provisioning profile for', label, '...');
+    const profileResp = await apiRequest('POST', '/v1/profiles', {
+      data: {
+        type: 'profiles',
+        attributes: { name: 'EAS Bubui ' + label + ' ' + Date.now(), profileType: 'IOS_APP_STORE' },
+        relationships: {
+          bundleId: { data: { type: 'bundleIds', id: bundleResourceId } },
+          certificates: { data: [{ type: 'certificates', id: certId }] }
+        }
+      }
+    }, jwt);
+    if (profileResp.errors) {
+      console.error('Profile error (' + label + '):', JSON.stringify(profileResp.errors));
+      process.exit(1);
+    }
+    const profPath = path.join(CREDS_DIR, fileName);
+    fs.writeFileSync(profPath, Buffer.from(profileResp.data.attributes.profileContent, 'base64'));
+    console.log('Profile saved (' + label + '), UUID:', profileResp.data.attributes.uuid, 'size:', fs.statSync(profPath).size);
+  }
+
+  await createProfile('Production', mainBundleResourceId, 'app.mobileprovision');
+  await createProfile('NSE', nseBundleResourceId, 'nse.mobileprovision');
+
+  // Step 5: Write credentials.json MULTI-TARGET: las claves deben coincidir
+  // con los nombres de target del proyecto Xcode que genera expo prebuild
+  // (app principal = app.json "name"; extensión = TARGET_NAME del plugin
+  // withIosNotificationServiceExtension).
+  const distributionCertificate = {
+    path: 'ios-creds/cert.p12',
+    password: CERT_PASSWORD
+  };
   const credsJson = {
     ios: {
-      distributionCertificate: {
-        path: 'ios-creds/cert.p12',
-        password: CERT_PASSWORD
+      [MAIN_TARGET]: {
+        distributionCertificate: distributionCertificate,
+        provisioningProfilePath: 'ios-creds/app.mobileprovision'
       },
-      provisioningProfilePath: 'ios-creds/app.mobileprovision'
+      [NSE_TARGET]: {
+        distributionCertificate: distributionCertificate,
+        provisioningProfilePath: 'ios-creds/nse.mobileprovision'
+      }
     }
   };
   fs.writeFileSync('credentials.json', JSON.stringify(credsJson, null, 2));
-  console.log('credentials.json written');
+  console.log('credentials.json written (multi-target: ' + MAIN_TARGET + ' + ' + NSE_TARGET + ')');
   console.log('All iOS credentials generated successfully!');
 }
 
