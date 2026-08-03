@@ -30,7 +30,8 @@
       },
       "ios": {
         "buildConfiguration": "Release",
-        "credentialsSource": "local"
+        "credentialsSource": "local",
+        "image": "macos-tahoe-26.5-xcode-26.6"
       }
     }
   },
