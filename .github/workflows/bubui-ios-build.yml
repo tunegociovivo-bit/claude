@@ -71,7 +71,18 @@ jobs:
       - name: Submit to TestFlight
         if: ${{ inputs.target == 'testflight' && inputs.submit }}
         env:
-          EXPO_ASC_API_KEY_PATH: ${{ runner.temp }}/asc-api-key.p8
-          EXPO_ASC_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
-          EXPO_ASC_ISSUER_ID: ${{ secrets.ASC_API_KEY_ISSUER_ID }}
-        run: eas submit --platform ios --latest --non-interactive
+          ASC_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_API_KEY_ISSUER_ID }}
+        # eas submit NO lee variables EXPO_ASC_*: la ASC API key se configura
+        # en eas.json (submit.production.ios). Copiamos la .p8 ya escrita a la
+        # ruta que espera eas.json y sincronizamos keyId/issuerId con los
+        # MISMOS secrets usados para firmar, por si la clave rota algún día.
+        run: |
+          cp "$RUNNER_TEMP/asc-api-key.p8" ./asc-api-key.p8
+          tmp=$(mktemp)
+          jq --arg kid "$ASC_KEY_ID" --arg iss "$ASC_ISSUER_ID" \
+            '.submit.production.ios.ascApiKeyPath = "./asc-api-key.p8"
+             | .submit.production.ios.ascApiKeyId = $kid
+             | .submit.production.ios.ascApiKeyIssuerId = $iss' \
+            eas.json > "$tmp" && mv "$tmp" eas.json
+          eas submit --platform ios --latest --non-interactive
