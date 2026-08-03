@@ -30,8 +30,7 @@
       },
       "ios": {
         "buildConfiguration": "Release",
-        "credentialsSource": "local",
-        "image": "macos-sequoia-15.2-xcode-16.2"
+        "credentialsSource": "local"
       }
     }
   },
