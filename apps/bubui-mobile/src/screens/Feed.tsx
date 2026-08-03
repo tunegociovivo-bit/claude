@@ -17,6 +17,7 @@ import { sfx } from "../lib/sound";
 import { stagger } from "../lib/anim";
 import { useTheme, type Palette, radius, shadow, gradients } from "../lib/theme";
 import { registerExpoPushForCustomer } from "../lib/push";
+import { claimPendingDeal, onDealClaimed } from "../lib/deal-pending";
 import { startBubuiGeofencing } from "../lib/geofence";
 
 type Offer = {
@@ -142,6 +143,10 @@ export function Feed() {
       if (c) {
         // Usuario registrado: sus cupones personalizados + push + geocercas.
         registerExpoPushForCustomer(c.customerId).catch(() => {});
+        // Reto pendiente sin reclamar (p. ej. el reclamo inmediato del deep
+        // link falló por red): reintenta ANTES de pedir las ofertas para que
+        // el cupón nuevo salga ya en esta carga. No-op si no hay pendiente.
+        await claimPendingDeal(c.customerId).catch(() => {});
         try {
           const r = await api.offers(c.customerId, lat, lng);
           const items: Offer[] = r.items ?? [];
@@ -223,6 +228,11 @@ export function Feed() {
   }
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
+
+  // Cuando un reto del deep link termina de reclamarse (puede resolver DESPUÉS
+  // de la carga inicial del Feed), recargamos para que el cupón aparezca al
+  // momento, sin esperar a un pull-to-refresh.
+  useEffect(() => onDealClaimed(() => load()), [load]);
 
   // Refresca al volver de segundo plano (desbloquear el móvil / volver a la
   // app): useFocusEffect NO se dispara en ese caso, así que sin esto la

@@ -1,6 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Linking, Platform } from "react-native";
 import { api } from "./api";
+import { CheckSession } from "./session";
 
 /**
  * Captura y reclamo de RETOS (custom-deal) para la app nativa. Espejo de
@@ -45,7 +46,17 @@ export async function clearPendingDeal(): Promise<void> {
 
 async function captureFromUrl(url: string | null): Promise<void> {
   const token = parseDealFromString(url);
-  if (token) await storePendingDeal(token); // deep link = intención directa, prevalece
+  if (!token) return;
+  await storePendingDeal(token); // deep link = intención directa, prevalece
+  // Reclamo INMEDIATO si ya hay sesión. Antes solo se reclamaba al arrancar
+  // con sesión, y había una carrera: el reclamo del arranque corría antes de
+  // que getInitialURL() hubiera guardado el token (y con la app en segundo
+  // plano ni siquiera había arranque) → el reto no aparecía hasta el
+  // siguiente arranque en frío.
+  try {
+    const s = await CheckSession();
+    if (s) await claimPendingDeal(s.customerId);
+  } catch {}
 }
 
 /** Android: lee el Install Referrer una sola vez (instalación diferida). */
@@ -80,6 +91,17 @@ export function initDealCapture(): void {
 }
 
 /**
+ * Suscripción a "reto reclamado": el Feed la usa para recargar las ofertas en
+ * cuanto un reclamo termina bien (sin esperar al siguiente focus/refresh).
+ * Devuelve la función de desuscripción.
+ */
+const claimedListeners = new Set<() => void>();
+export function onDealClaimed(fn: () => void): () => void {
+  claimedListeners.add(fn);
+  return () => claimedListeners.delete(fn);
+}
+
+/**
  * Reclama el reto pendiente (si lo hay) para el cliente con sesión. Requiere que
  * el auth ya esté fijado (saveSession/CheckSession lo hacen). Si falla, deja el
  * pendiente para reintentar en el próximo arranque.
@@ -90,6 +112,7 @@ export async function claimPendingDeal(customerId: string): Promise<void> {
   try {
     await api.claimDeal(token, customerId);
     await clearPendingDeal();
+    claimedListeners.forEach((fn) => { try { fn(); } catch {} });
   } catch {
     // se reintentará al próximo arranque con sesión
   }
