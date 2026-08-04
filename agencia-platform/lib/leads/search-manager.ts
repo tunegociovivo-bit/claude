@@ -19,7 +19,7 @@ import { municipalitiesForProvince } from "./spain-municipalities";
 import { expandKeyword } from "./synonyms";
 import { classifyLeadsRelevance, type RelevanceVerdict } from "./relevance";
 import { collectFromSource, type LeadSourceKey } from "./sources";
-import { startExecOutreach } from "./exec-outreach";
+import { startExecOutreach, draftJobsReview } from "./exec-outreach";
 
 /**
  * Arranca la secuencia de email automática para los leads de la fuente "jobs"
@@ -38,17 +38,44 @@ async function startJobsOutreach(workspaceId: string, searchId: string): Promise
 
   const leads = await prisma.lead.findMany({
     where: { workspaceId, searchId, contactStatus: "pending", email: { not: null } },
-    select: { id: true, email: true },
+    select: { id: true, email: true, name: true, category: true, rawData: true },
     take: 100
   });
   let started = 0;
-  for (const l of leads) {
-    try {
-      await startExecOutreach({ workspaceId, leadId: l.id, email: l.email, mode });
-      started++;
-    } catch (err) {
-      console.error("[search-manager jobs] startExecOutreach error:", err);
+
+  // Modo AUTOMÁTICO: arranca la secuencia; el primer email sale en el cron.
+  if (mode === "auto") {
+    for (const l of leads) {
+      try {
+        await startExecOutreach({ workspaceId, leadId: l.id, email: l.email, mode });
+        started++;
+      } catch (err) {
+        console.error("[search-manager jobs] startExecOutreach error:", err);
+      }
     }
+    return started;
+  }
+
+  // Modo REVISIÓN: redacta YA el email de cada empresa y déjalo en la cola de
+  // revisión, para que el usuario lo vea al terminar la búsqueda (sin esperar al
+  // cron). En tandas de 5 para no disparar la latencia con muchas empresas.
+  const CHUNK = 5;
+  for (let i = 0; i < leads.length; i += CHUNK) {
+    const slice = leads.slice(i, i + CHUNK);
+    const done = await Promise.all(
+      slice.map(async (l) => {
+        const rd: any = l.rawData ?? {};
+        const jobTitle = typeof rd?.jobTitle === "string" ? rd.jobTitle : null;
+        try {
+          await draftJobsReview({ workspaceId, leadId: l.id, email: l.email as string, company: l.name, sector: l.category, jobTitle });
+          return true;
+        } catch (err) {
+          console.error("[search-manager jobs] draftJobsReview error:", err);
+          return false;
+        }
+      })
+    );
+    started += done.filter(Boolean).length;
   }
   return started;
 }

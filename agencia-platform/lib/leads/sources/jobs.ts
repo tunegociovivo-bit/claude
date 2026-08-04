@@ -17,6 +17,8 @@
  */
 
 import type { PlacesResult } from "../google-places";
+import { SPAIN_PROVINCES, findProvince } from "../spain-provinces";
+import { municipalitiesForProvince } from "../spain-municipalities";
 
 /** Descarga HTML a través de Scrapfly (render JS, IP española, anti-bot). */
 async function scrapflyFetch(url: string, apiKey: string): Promise<string> {
@@ -78,14 +80,20 @@ export function parseLinkedInCards(html: string): RawOffer[] {
  */
 async function collectLinkedIn(keyword: string, location: string, apiKey: string): Promise<RawOffer[]> {
   const out: RawOffer[] = [];
-  const loc = location.trim() || "España";
+  // Ámbito geográfico. Si el usuario pidió una provincia/ciudad, acotamos a
+  // "<zona>, España" (LinkedIn geolocaliza el texto). Si no, forzamos España a
+  // nivel país con su geoId — SIN esto la API "guest" devuelve ofertas de todo
+  // el mundo (el bug de empresas de EE. UU.).
+  const wanted = location.trim();
+  const loc = wanted ? `${wanted}, España` : "España";
+  const geoParam = wanted ? "" : `&geoId=${LINKEDIN_SPAIN_GEOID}`;
   // La API "guest" pagina de 10 en 10 con `start`. Tomamos 3 páginas (~30
   // ofertas) para acotar el coste de Scrapfly.
   for (const start of [0, 10, 20]) {
     if (out.length >= 40) break;
     const url =
       `https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?keywords=${encodeURIComponent(keyword)}` +
-      `&location=${encodeURIComponent(loc)}&start=${start}`;
+      `&location=${encodeURIComponent(loc)}${geoParam}&start=${start}`;
     let html = "";
     try {
       html = await scrapflyFetch(url, apiKey);
@@ -104,7 +112,7 @@ async function collectLinkedIn(keyword: string, location: string, apiKey: string
  * schema.org `JobPosting` con `hiringOrganization`. Parseamos esos bloques de
  * la página de resultados (best-effort: si no hay JSON-LD, no aporta).
  */
-async function collectInfoJobs(keyword: string, location: string, apiKey: string): Promise<RawOffer[]> {
+async function collectInfoJobs(keyword: string, apiKey: string): Promise<RawOffer[]> {
   const kwSlug = keyword.trim().toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
   const url = `https://www.infojobs.net/ofertas-trabajo/${encodeURIComponent(kwSlug || "marketing")}`;
   let html = "";
@@ -113,7 +121,9 @@ async function collectInfoJobs(keyword: string, location: string, apiKey: string
   } catch {
     return [];
   }
-  return parseInfoJobsJsonLd(html, location);
+  // Sin fallbackLocation: no inventamos la provincia para las ofertas sin
+  // localidad (así el geofiltro por provincia no las da por válidas a ciegas).
+  return parseInfoJobsJsonLd(html);
 }
 
 /**
@@ -166,6 +176,66 @@ function companyKey(name: string): string {
   return name.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
 }
 
+// ── Geofiltro España + provincia/ciudad ───────────────────────────────────
+// LinkedIn "jobs guest" devuelve ofertas de TODO el mundo si no se acota bien
+// (de ahí el bug de empresas de EE. UU.). Acotamos la consulta a España y,
+// además, filtramos por texto de ubicación como red de seguridad.
+
+/** geoId de España en LinkedIn (fuerza el ámbito país en la API guest). */
+const LINKEDIN_SPAIN_GEOID = "105646813";
+
+/** Normaliza para comparar ubicaciones (minúsculas, sin acentos). */
+function norm(s: string | null | undefined): string {
+  return (s ?? "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim();
+}
+
+// Tokens que delatan que una oferta está EN ESPAÑA: nombre y capital de cada
+// provincia. Se usan como señal positiva cuando la tarjeta no dice "España".
+const SPAIN_TOKENS: string[] = (() => {
+  const t = new Set<string>();
+  for (const p of SPAIN_PROVINCES) {
+    t.add(norm(p.name));
+    t.add(norm(p.capital));
+  }
+  t.delete("");
+  return [...t];
+})();
+
+// Marcadores de OTRO país: si aparecen, la oferta NO es de España (evita falsos
+// positivos como "Toledo, Ohio" o "Valencia, California").
+const FOREIGN_MARKERS = [
+  "united states", "estados unidos", "united kingdom", "reino unido", "france",
+  "francia", "deutschland", "alemania", "italia", "italy", "portugal", "argentina",
+  "mexico", "colombia", "chile", "peru", "venezuela", "ecuador", "brasil", "brazil",
+  "netherlands", "ireland", "irlanda", "poland", "polonia", ", oh", ", ny", ", ca",
+  ", tx", ", fl", ", il"
+];
+
+/** ¿La ubicación de la oferta está en España? (InfoJobs siempre lo está.) */
+function isInSpain(loc: string | null, board: string): boolean {
+  if (board === "infojobs") return true;
+  const n = norm(loc);
+  if (!n) return false;
+  if (FOREIGN_MARKERS.some((f) => n.includes(f))) return false;
+  if (/\bespana\b|\bspain\b/.test(n)) return true;
+  return SPAIN_TOKENS.some((tok) => tok && n.includes(tok));
+}
+
+/** Tokens aceptables para la provincia/ciudad pedida (incluye sus municipios). */
+function wantedTokens(wanted: string): string[] {
+  const w = wanted.trim();
+  if (!w) return [];
+  const set = new Set<string>([norm(w)]);
+  const prov = findProvince(w);
+  if (prov) {
+    set.add(norm(prov.name));
+    set.add(norm(prov.capital));
+    for (const m of municipalitiesForProvince(prov.name)) set.add(norm(m));
+  }
+  set.delete("");
+  return [...set];
+}
+
 export async function collectJobs(opts: {
   keyword: string;
   location: string;
@@ -176,15 +246,30 @@ export async function collectJobs(opts: {
     throw new Error("La fuente Empleos necesita la API key de Scrapfly. Configúrala en Ajustes de Leads.");
   }
   const keyword = opts.keyword.trim() || "marketing";
+  // Zona pedida: en scope "spain" no hay provincia (toda España); en "custom"
+  // el usuario elige provincia/ciudad y filtramos por ella.
+  const wanted = opts.scope === "spain" ? "" : opts.location.trim();
   // Ejecuta ambos portales en paralelo; cada uno es best-effort.
   const [li, ij] = await Promise.all([
-    collectLinkedIn(keyword, opts.location, opts.apiKey).catch(() => [] as RawOffer[]),
-    collectInfoJobs(keyword, opts.location, opts.apiKey).catch(() => [] as RawOffer[])
+    collectLinkedIn(keyword, wanted, opts.apiKey).catch(() => [] as RawOffer[]),
+    collectInfoJobs(keyword, opts.apiKey).catch(() => [] as RawOffer[])
   ]);
+
+  // Geofiltro: (1) descarta ofertas que no sean de España (arregla el bug de
+  // empresas de EE. UU. que colaba LinkedIn); (2) si se pidió una provincia/
+  // ciudad, exige que la oferta encaje con esa zona (o sus municipios).
+  const wantTokens = wantedTokens(wanted);
+  const inScope = (o: RawOffer): boolean => {
+    if (!isInSpain(o.location, o.board)) return false;
+    if (wantTokens.length === 0) return true;
+    const n = norm(o.location);
+    return !!n && wantTokens.some((t) => n.includes(t));
+  };
 
   // Dedup por empresa (una empresa puede tener varias ofertas → 1 lead).
   const byCompany = new Map<string, RawOffer>();
   for (const o of [...li, ...ij]) {
+    if (!inScope(o)) continue;
     const key = companyKey(o.company);
     if (!key || key.length < 2) continue;
     if (!byCompany.has(key)) byCompany.set(key, o);

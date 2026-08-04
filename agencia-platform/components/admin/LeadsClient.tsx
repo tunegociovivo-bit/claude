@@ -2524,6 +2524,11 @@ function JobsReviewPanel() {
   const [items, setItems] = useState<any[] | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [edits, setEdits] = useState<Record<string, { subject: string; body: string }>>({});
+  // Selección múltiple para enviar/descartar en lote.
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
+  // Empresas de la fuente jobs sin email de contacto (no se les puede enviar).
+  const [noEmail, setNoEmail] = useState(0);
 
   async function loadMode() {
     try {
@@ -2537,7 +2542,19 @@ function JobsReviewPanel() {
   async function loadItems() {
     try {
       const r = await fetch("/api/v1/leads/jobs-review");
-      if (r.ok) setItems((await r.json()).items ?? []);
+      if (r.ok) {
+        const j = await r.json();
+        const list = j.items ?? [];
+        setItems(list);
+        setNoEmail(j.noEmailCount ?? 0);
+        // Poda la selección a los ids que siguen en la cola.
+        setSelected((prev) => {
+          const ids = new Set(list.map((it: any) => it.id));
+          const next = new Set<string>();
+          prev.forEach((id) => ids.has(id) && next.add(id));
+          return next;
+        });
+      }
     } catch {}
   }
   useEffect(() => {
@@ -2546,6 +2563,53 @@ function JobsReviewPanel() {
     const i = setInterval(() => void loadItems(), 60_000);
     return () => clearInterval(i);
   }, []);
+
+  function toggleSel(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }
+  function toggleAll() {
+    setSelected((prev) => {
+      const all = items ?? [];
+      if (prev.size === all.length) return new Set();
+      return new Set(all.map((it) => it.id));
+    });
+  }
+
+  async function bulkAct(action: "approve" | "reject") {
+    const ids = [...selected];
+    if (ids.length === 0) return;
+    if (action === "reject" && !confirm(`¿Descartar ${ids.length} email(s)? No se enviarán y se detendrá su secuencia.`)) return;
+    if (action === "approve" && !confirm(`¿Enviar ${ids.length} email(s) seleccionado(s)? Se enviarán con el texto (editado) actual.`)) return;
+    setBulkBusy(true);
+    try {
+      const payloadItems = ids.map((id) => {
+        if (action === "reject") return { id };
+        const it = (items ?? []).find((x) => x.id === id);
+        const e = edits[id] ?? { subject: it?.subject ?? "", body: it?.body ?? "" };
+        return { id, subject: e.subject, body: e.body };
+      });
+      const r = await fetch("/api/v1/leads/jobs-review", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, items: payloadItems })
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        alert(j?.error?.message ?? "No se pudo completar la acción en lote.");
+        return;
+      }
+      if (j.failed > 0) {
+        alert(`${j.ok} correcto(s), ${j.failed} con error. Los que fallaron siguen en la cola.`);
+      }
+      await loadItems();
+    } finally {
+      setBulkBusy(false);
+    }
+  }
 
   async function setModeRemote(next: "auto" | "review") {
     setSavingMode(true);
@@ -2578,12 +2642,18 @@ function JobsReviewPanel() {
         return;
       }
       setItems((prev) => (prev ?? []).filter((it) => it.id !== id));
+      setSelected((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
     } finally {
       setBusyId(null);
     }
   }
 
   const pending = items?.length ?? 0;
+  const allSelected = pending > 0 && selected.size === pending;
   // Si no hay modo cargado aún y no hay nada pendiente, no ocupamos espacio.
   if (mode === null && pending === 0) return null;
 
@@ -2616,24 +2686,64 @@ function JobsReviewPanel() {
       <div className="text-[11px] text-slate-600 mt-1">
         {mode === "auto"
           ? "Modo automático: al encontrar una empresa con oferta de marketing/IA y su email, el primer correo sale solo (con pie de baja RGPD)."
-          : "Modo revisión: los correos se redactan con IA y quedan aquí para que los apruebes (o edites) antes de enviarse. Ideal para validar al principio."}
+          : "Modo revisión: al terminar la búsqueda, los correos se redactan con IA y quedan aquí. Selecciona con las casillas cuáles enviar, edítalos a tu gusto y descarta los que no te interesen. Nada sale sin tu visto bueno."}
       </div>
+      {noEmail > 0 && (
+        <div className="text-[11px] text-amber-700 mt-1">
+          ℹ️ Además hay <strong>{noEmail}</strong> empresa(s) con vacante pero <strong>sin email de contacto</strong> localizable, así que no aparecen aquí (no se les puede enviar email). Puedes contactarlas por teléfono/LinkedIn desde la cola de leads.
+        </div>
+      )}
+
+      {/* Barra de acciones en lote */}
+      {pending > 0 && (
+        <div className="mt-3 flex items-center gap-2 flex-wrap rounded-md border border-indigo-200 bg-white/70 px-2.5 py-1.5">
+          <label className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-700 cursor-pointer">
+            <input type="checkbox" checked={allSelected} onChange={toggleAll} className="accent-indigo-600" />
+            {allSelected ? "Quitar selección" : "Seleccionar todo"}
+          </label>
+          <span className="text-[11px] text-slate-500">{selected.size} de {pending} seleccionado(s)</span>
+          <div className="flex-1" />
+          <button
+            onClick={() => void bulkAct("approve")}
+            disabled={bulkBusy || selected.size === 0}
+            className="inline-flex items-center gap-1 rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-40"
+          >
+            {bulkBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "📤"} Enviar seleccionados ({selected.size})
+          </button>
+          <button
+            onClick={() => void bulkAct("reject")}
+            disabled={bulkBusy || selected.size === 0}
+            className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-40"
+          >
+            🗑 Descartar seleccionados
+          </button>
+        </div>
+      )}
 
       {pending > 0 && (
         <div className="mt-3 space-y-3">
           {(items ?? []).map((it) => {
             const e = edits[it.id] ?? { subject: it.subject ?? "", body: it.body ?? "" };
+            const checked = selected.has(it.id);
             return (
-              <div key={it.id} className="rounded-md border border-slate-200 bg-white p-3">
-                <div className="flex items-center justify-between gap-2 flex-wrap">
-                  <div className="min-w-0">
-                    <div className="text-sm font-semibold text-slate-800 truncate">{it.company}</div>
-                    <div className="text-[11px] text-slate-500 truncate">
-                      → {it.email}
-                      {it.jobTitle ? ` · Vacante: ${it.jobTitle}` : ""}
-                      {it.website ? ` · ${it.website}` : ""}
-                    </div>
-                  </div>
+              <div key={it.id} className={"rounded-md border bg-white p-3 " + (checked ? "border-indigo-400 ring-1 ring-indigo-200" : "border-slate-200")}>
+                <div className="flex items-start justify-between gap-2 flex-wrap">
+                  <label className="flex items-start gap-2 min-w-0 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => toggleSel(it.id)}
+                      className="mt-0.5 accent-indigo-600"
+                    />
+                    <span className="min-w-0">
+                      <span className="block text-sm font-semibold text-slate-800 truncate">{it.company}</span>
+                      <span className="block text-[11px] text-slate-500 truncate">
+                        → {it.email}
+                        {it.jobTitle ? ` · Vacante: ${it.jobTitle}` : ""}
+                        {it.website ? ` · ${it.website}` : ""}
+                      </span>
+                    </span>
+                  </label>
                   {it.jobUrl && (
                     <a href={it.jobUrl} target="_blank" rel="noreferrer" className="text-[11px] text-indigo-600 hover:underline shrink-0">
                       Ver oferta ↗
@@ -5926,8 +6036,8 @@ function NewSearchModal({ open, onClose, onSaved }: { open: boolean; onClose: ()
 
   async function save() {
     if (!keyword.trim()) { setError("Falta el keyword / nicho a buscar"); return; }
-    // places exige localidad en scope custom (también si lanzamos "todas").
-    if ((source === "places" || allSources) && scope === "custom" && !location.trim()) {
+    // places y jobs exigen localidad en scope custom (también si lanzamos "todas").
+    if ((source === "places" || source === "jobs" || allSources) && scope === "custom" && !location.trim()) {
       setError("Falta la provincia / localidad");
       return;
     }
@@ -6103,6 +6213,39 @@ function NewSearchModal({ open, onClose, onSaved }: { open: boolean; onClose: ()
             placeholder="Provincia (opcional, filtra registro mercantil)"
             className="w-full px-3 py-2 rounded-lg border bg-white text-sm"
           />
+        )}
+        {source === "jobs" && scope === "custom" && (
+          <div className="space-y-2">
+            <label className="block text-xs font-medium text-slate-700 mb-1">Provincia / localidad</label>
+            <select
+              value={PROVINCE_NAMES.includes(location) ? location : ""}
+              onChange={(e) => {
+                setProvince(e.target.value);
+                setMunicipality("");
+                setLocation(e.target.value);
+              }}
+              className="w-full px-3 py-2 rounded-lg border bg-white text-sm"
+            >
+              <option value="">— Elige provincia —</option>
+              {PROVINCE_NAMES.map((p) => (
+                <option key={p} value={p}>{p}</option>
+              ))}
+            </select>
+            <input
+              value={location}
+              onChange={(e) => {
+                setLocation(e.target.value);
+                setProvince("");
+                setMunicipality("");
+              }}
+              placeholder="…o escribe la provincia / ciudad a mano (ej: Málaga)"
+              className="w-full px-3 py-2 rounded-lg border bg-white text-sm"
+            />
+            <p className="text-[11px] text-slate-500">
+              Solo se traerán ofertas de empresas <strong>en España</strong> y, si eliges zona, de esa
+              provincia/ciudad (incluye sus municipios). Déjalo en "Toda España" para no filtrar por zona.
+            </p>
+          </div>
         )}
         <label className="flex items-start gap-2 p-2 rounded-md border bg-slate-50/60 cursor-pointer">
           <input

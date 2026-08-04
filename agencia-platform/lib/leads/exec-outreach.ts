@@ -49,6 +49,54 @@ export async function startExecOutreach(opts: {
   return { id: row.id };
 }
 
+/**
+ * Redacta YA el email frío para una empresa de la fuente "jobs" y lo deja en la
+ * cola de revisión (pending_review) sin esperar al cron. Así, en cuanto la
+ * búsqueda termina, el usuario ve TODAS las ofertas con su borrador listo para
+ * revisar, editar y elegir cuáles enviar. Si la redacción con IA falla, cae de
+ * vuelta a una fila "active" en modo review para que el cron lo redacte luego.
+ */
+export async function draftJobsReview(opts: {
+  workspaceId: string;
+  leadId: string;
+  email: string;
+  company: string;
+  sector?: string | null;
+  jobTitle?: string | null;
+}): Promise<{ drafted: boolean }> {
+  const now = new Date();
+  try {
+    const mail = await writeEmail({
+      workspaceId: opts.workspaceId,
+      company: opts.company,
+      sector: opts.sector,
+      touch: 1,
+      jobTitle: opts.jobTitle ?? null
+    });
+    const log = [{ at: now.toISOString(), channel: "email_drafted", to: opts.email, subject: mail.subject }];
+    const common = {
+      email: opts.email,
+      step: 0,
+      status: "pending_review",
+      mode: "review" as const,
+      draftSubject: mail.subject,
+      draftBody: mail.body,
+      nextAt: now,
+      log
+    };
+    await prisma.leadExecOutreach.upsert({
+      where: { workspaceId_leadId: { workspaceId: opts.workspaceId, leadId: opts.leadId } },
+      create: { workspaceId: opts.workspaceId, leadId: opts.leadId, ...common },
+      update: common
+    });
+    return { drafted: true };
+  } catch {
+    // Fallback: fila activa en modo review → el cron redactará en el próximo tick.
+    await startExecOutreach({ workspaceId: opts.workspaceId, leadId: opts.leadId, email: opts.email, mode: "review" });
+    return { drafted: false };
+  }
+}
+
 export async function stopExecOutreach(workspaceId: string, leadId: string): Promise<void> {
   await prisma.leadExecOutreach.updateMany({
     where: { workspaceId, leadId, status: "active" },
