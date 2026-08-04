@@ -831,6 +831,7 @@ export async function diagnoseQueue(workspaceId: string): Promise<{
     failed: number;
     blockedLink: number;
     nextScheduledAt: string | null;
+    nextScheduledAtISO: string | null;
   };
   sessions: { name: string; role: string; connected: boolean | null; status: string }[];
   sample: { phone: string; channel: string; blocker: string }[];
@@ -1074,7 +1075,8 @@ export async function diagnoseQueue(workspaceId: string): Promise<{
       sending: sendingCount,
       failed: failedCount,
       blockedLink: blockedLinkCount,
-      nextScheduledAt: nextMsg?.scheduledAt ? new Date(nextMsg.scheduledAt).toLocaleString("es-ES", { timeZone: TZ }) : null
+      nextScheduledAt: nextMsg?.scheduledAt ? new Date(nextMsg.scheduledAt).toLocaleString("es-ES", { timeZone: TZ }) : null,
+      nextScheduledAtISO: nextMsg?.scheduledAt ? new Date(nextMsg.scheduledAt).toISOString() : null
     },
     sessions,
     sample

@@ -2446,6 +2446,26 @@ function QueueLiveStatus() {
   const connected = (d.sessions ?? []).filter((s: any) => s.connected === true).length;
   const totalSess = (d.sessions ?? []).length;
 
+  // Hora del PRÓXIMO envío programado. Si ya hay vencidos (dueNow>0) el próximo
+  // sale en el tick actual → "ahora". Si no, mostramos la hora exacta (y el día
+  // si no es hoy) del mensaje encolado más cercano.
+  const dueNow: number = d.queue?.dueNow ?? 0;
+  const queued: number = d.queue?.queued ?? 0;
+  const nextISO: string | null = d.queue?.nextScheduledAtISO ?? null;
+  let nextSend = "—";
+  if (queued === 0) {
+    nextSend = "sin cola";
+  } else if (dueNow > 0) {
+    nextSend = "ahora";
+  } else if (nextISO) {
+    void tick; // refresca el "hoy/mañana" al pasar de día
+    const dt = new Date(nextISO);
+    const hhmm = dt.toLocaleTimeString("es-ES", { timeZone: "Europe/Madrid", hour: "2-digit", minute: "2-digit" });
+    const dayNext = dt.toLocaleDateString("es-ES", { timeZone: "Europe/Madrid" });
+    const dayNow = new Date().toLocaleDateString("es-ES", { timeZone: "Europe/Madrid" });
+    nextSend = dayNext === dayNow ? hhmm : `${dt.toLocaleDateString("es-ES", { timeZone: "Europe/Madrid", day: "2-digit", month: "2-digit" })} ${hhmm}`;
+  }
+
   return (
     <div className={"rounded-lg border p-3 " + theme.box}>
       <div className="flex items-start gap-2 flex-wrap">
@@ -2464,10 +2484,11 @@ function QueueLiveStatus() {
           ↻ Actualizar
         </button>
       </div>
-      <div className="mt-2 grid grid-cols-2 sm:grid-cols-4 gap-2">
+      <div className="mt-2 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
         {[
           ["Enviados hoy", `${d.counters?.sentToday ?? 0} / ${d.settings?.dailyLimitEffective ?? "?"}`],
           ["Último envío", ago],
+          ["Próximo envío", nextSend],
           ["En cola (vencidos)", `${d.queue?.queued ?? 0} (${d.queue?.dueNow ?? 0} listos)`],
           ["Números conectados", `${connected} / ${totalSess}`]
         ].map(([k, v], i) => (
