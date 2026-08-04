@@ -65,10 +65,13 @@ empresa para ofrecerle captación de clientes, reseñas y fidelización. Redacta
   valor y un cierre con propuesta de llamada de 10 min. Nada de adjuntos ni promesas vacías.
 - No inventes datos, cifras ni precios. Devuelve SOLO el JSON {subject, body}.`;
 
-async function writeEmail(opts: { workspaceId: string; company: string; sector?: string | null; director?: string | null; touch: number }): Promise<{ subject: string; body: string }> {
+async function writeEmail(opts: { workspaceId: string; company: string; sector?: string | null; director?: string | null; touch: number; jobTitle?: string | null }): Promise<{ subject: string; body: string }> {
   const ctx = [
     `Empresa: ${opts.company}`,
     opts.sector ? `Sector: ${opts.sector}` : null,
+    opts.jobTitle
+      ? `IMPORTANTE: la empresa tiene AHORA MISMO una oferta de empleo abierta para el puesto "${opts.jobTitle}". Enfoca el email en esa vacante: menciónala con naturalidad y ofrece que Negocio Vivo cubra esa función de marketing/IA como servicio externo (resultados desde el primer mes, sin coste de contratación, alta laboral ni formación). Tono de ayuda, sin presionar ni criticar que contraten.`
+      : null,
     opts.director ? `Directivo: ${opts.director}` : "Directivo: máximo responsable",
     opts.touch > 1 ? `Es un email de SEGUIMIENTO (toque ${opts.touch}); cambia el enfoque y sé aún más breve.` : null
   ]
@@ -115,7 +118,7 @@ export async function processExecOutreachTick(workspaceId: string): Promise<{ pr
 
   const lead = await prisma.lead.findFirst({
     where: { id: row.leadId, workspaceId },
-    select: { name: true, category: true, contactStatus: true, phone: true, internationalPhone: true }
+    select: { name: true, category: true, contactStatus: true, phone: true, internationalPhone: true, rawData: true }
   });
   // Si el lead ya avanzó en el funnel O está EXCLUIDO (opt-out / bloqueo), paramos.
   if (!lead || ["client", "responded", "discarded", "excluded"].includes(lead.contactStatus)) {
@@ -151,8 +154,12 @@ export async function processExecOutreachTick(workspaceId: string): Promise<{ pr
   try {
     if (stepDef.channel === "email") {
       const emailTouch = STEPS.slice(0, row.step + 1).filter((s) => s.channel === "email").length;
+      // Ángulo "vacante": si el lead viene de la fuente jobs, mencionamos el
+      // puesto abierto para ofrecerlo como servicio externo.
+      const rd: any = lead.rawData ?? {};
+      const jobTitle = rd?.source === "jobs" && typeof rd?.jobTitle === "string" ? rd.jobTitle : null;
       if (row.email && isEmailEnabled()) {
-        const mail = await writeEmail({ workspaceId, company: lead.name, sector: lead.category, director: row.directorName, touch: emailTouch });
+        const mail = await writeEmail({ workspaceId, company: lead.name, sector: lead.category, director: row.directorName, touch: emailTouch, jobTitle });
         const out = await sendEmail({ to: row.email, subject: mail.subject, html: emailHtml(mail.body), text: mail.body });
         log.push({ at: now.toISOString(), channel: "email", to: row.email, subject: mail.subject, id: out.id });
       } else {

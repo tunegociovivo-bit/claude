@@ -15,6 +15,7 @@ import { collectBorme } from "./borme";
 import { collectMetaAds } from "./meta-ads";
 import { collectBdns } from "./bdns";
 import { scrapeDirectory } from "./scrape";
+import { collectJobs } from "./jobs";
 import { detectSector } from "../ticket-score";
 
 export type LeadSourceKey =
@@ -22,6 +23,7 @@ export type LeadSourceKey =
   | "borme"
   | "bdns"
   | "meta_ads"
+  | "jobs"
   | "trustpilot"
   | "doctoralia"
   | "idealista"
@@ -128,6 +130,16 @@ export async function collectFromSource(
         );
       }
       return collectMetaAds({ keyword: ctx.keyword, location: ctx.location, token, workspaceId: ctx.workspaceId });
+    }
+    case "jobs": {
+      // Empresas con una oferta de empleo de marketing/IA abierta. Las ofertas
+      // no traen email ni web fiable: enriquecemos web+teléfono con Places y
+      // luego sacamos el email de contacto de la web (para el outreach por email).
+      const key = await scrapflyKey(ctx.workspaceId);
+      if (!key) throw new Error("La fuente Empleos necesita la API key de Scrapfly. Configúrala en Ajustes de Leads.");
+      const raw = await collectJobs({ keyword: ctx.keyword, location: ctx.location, apiKey: key, scope: ctx.scope });
+      const withPhones = await enrichMissingPhones(ctx.workspaceId, raw);
+      return enrichEmails(withPhones);
     }
     case "doctoralia": {
       const key = await scrapflyKey(ctx.workspaceId);
@@ -237,6 +249,26 @@ async function enrichMissingPhones(workspaceId: string, leads: PlacesResult[], m
   return leads;
 }
 
+/**
+ * Rellena el EMAIL de contacto de los leads que tienen web pero aún no tienen
+ * email (típico de la fuente jobs tras enriquecer la web con Places). Baja la
+ * web y extrae el email publicado (contacto / aviso legal). Best-effort y
+ * acotado por coste; lo guarda en rawData.email para que upsertLead lo persista.
+ */
+async function enrichEmails(leads: PlacesResult[], max = 40): Promise<PlacesResult[]> {
+  const { extractEmailsFromWebsite } = await import("../email-extract");
+  const targets = leads.filter((l) => l.website && !(l.rawData as any)?.email).slice(0, max);
+  for (const lead of targets) {
+    try {
+      const emails = await extractEmailsFromWebsite(lead.website as string);
+      if (emails[0]) (lead.rawData as any).email = emails[0];
+    } catch {
+      // sin web accesible / sin email publicado → se queda sin email
+    }
+  }
+  return leads;
+}
+
 export const LEAD_SOURCE_META: Record<LeadSourceKey, { label: string; status: "ready" | "stub"; help: string }> = {
   places: { label: "Google Places", status: "ready", help: "Negocios listados en Google Maps." },
   borme: {
@@ -256,6 +288,12 @@ export const LEAD_SOURCE_META: Record<LeadSourceKey, { label: string; status: "r
     status: "ready",
     help:
       "Negocios que YA pagan anuncios en Facebook/Instagram por tu sector → ticket alto y abiertos a marketing. Requiere META_ADS_TOKEN. El teléfono se enriquece después con Google Places."
+  },
+  jobs: {
+    label: "Empleos (buscan marketing/IA)",
+    status: "ready",
+    help:
+      "Empresas con una oferta de empleo ABIERTA de marketing o IA (LinkedIn + InfoJobs) → ya tienen presupuesto y necesidad. Les llega un EMAIL automático ofreciendo hacerlo como servicio, mencionando su vacante. Requiere la API key de Scrapfly y RESEND_API_KEY para el envío. Keyword = puesto (p.ej. \"marketing\", \"community manager\", \"inteligencia artificial\")."
   },
   trustpilot: {
     label: "Trustpilot (reseñas bajas)",
@@ -297,6 +335,6 @@ export async function availableSources(
   if (opts.hasLocation) out.unshift("places"); // places necesita localidad
   const [meta, scrap] = await Promise.all([metaAdsToken(workspaceId), scrapflyKey(workspaceId)]);
   if (meta) out.push("meta_ads");
-  if (scrap) out.push("doctoralia", "idealista", "fotocasa");
+  if (scrap) out.push("doctoralia", "idealista", "fotocasa", "jobs");
   return out;
 }

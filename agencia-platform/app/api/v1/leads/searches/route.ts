@@ -14,7 +14,7 @@ const createSchema = z.object({
   municipality: z.string().max(120).optional(),
   scope: z.enum(["custom", "spain"]).default("custom"),
   source: z
-    .enum(["all", "places", "borme", "bdns", "meta_ads", "trustpilot", "doctoralia", "idealista", "fotocasa", "linkedin"])
+    .enum(["all", "places", "borme", "bdns", "meta_ads", "jobs", "trustpilot", "doctoralia", "idealista", "fotocasa", "linkedin"])
     .optional()
     .default("places"),
   skipExisting: z.boolean().optional().default(false),

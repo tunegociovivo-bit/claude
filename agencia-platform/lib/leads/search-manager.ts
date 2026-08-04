@@ -19,6 +19,32 @@ import { municipalitiesForProvince } from "./spain-municipalities";
 import { expandKeyword } from "./synonyms";
 import { classifyLeadsRelevance, type RelevanceVerdict } from "./relevance";
 import { collectFromSource, type LeadSourceKey } from "./sources";
+import { startExecOutreach } from "./exec-outreach";
+
+/**
+ * Arranca la secuencia de email automática para los leads de la fuente "jobs"
+ * recién insertados en esta búsqueda que tengan email y sigan pendientes.
+ * El primer email sale en el siguiente tick del cron (nextAt = ahora). El
+ * cuerpo menciona la vacante concreta (se lee rawData.jobTitle al enviar).
+ * Acotado por seguridad para no disparar cientos de secuencias de golpe.
+ */
+async function startJobsOutreach(workspaceId: string, searchId: string): Promise<number> {
+  const leads = await prisma.lead.findMany({
+    where: { workspaceId, searchId, contactStatus: "pending", email: { not: null } },
+    select: { id: true, email: true },
+    take: 100
+  });
+  let started = 0;
+  for (const l of leads) {
+    try {
+      await startExecOutreach({ workspaceId, leadId: l.id, email: l.email });
+      started++;
+    } catch (err) {
+      console.error("[search-manager jobs] startExecOutreach error:", err);
+    }
+  }
+  return started;
+}
 
 /** Clave de caché de barridos: normaliza keyword/área (minúsculas, espacios). */
 function normKey(s: string): string {
@@ -449,7 +475,10 @@ async function processNonPlacesBatch(opts: {
     const valid = results.filter((r) => !!r.placeId);
     // En BDNS el keyword es un importe mínimo (no un nicho), así que el filtro
     // de relevancia IA no aplica: marcaría todo como irrelevante. Lo saltamos.
-    const skipRelevance = source === "bdns" || !/[a-záéíóúñ]/i.test(search.keyword ?? "");
+    // jobs: el "lead" es la EMPRESA que contrata, no el puesto; el keyword ya
+    // filtró por marketing/IA en el propio portal. Clasificar la empresa por el
+    // keyword marcaría todo como irrelevante, así que lo saltamos (como bdns).
+    const skipRelevance = source === "bdns" || source === "jobs" || !/[a-záéíóúñ]/i.test(search.keyword ?? "");
     const verdicts = skipRelevance
       ? new Map<string, RelevanceVerdict>()
       : await classifyLeadsRelevance({
@@ -485,6 +514,17 @@ async function processNonPlacesBatch(opts: {
         else leadsInserted++;
       } catch (err) {
         console.error(`[search-manager ${source}] upsert lead error:`, err);
+      }
+    }
+
+    // jobs: envío automático. Arranca la secuencia de email a las empresas con
+    // oferta abierta de marketing/IA cuyo email hemos podido extraer.
+    if (source === "jobs" && leadsInserted > 0) {
+      try {
+        const started = await startJobsOutreach(opts.workspaceId, search.id);
+        console.log(`[search-manager jobs] outreach iniciado para ${started} empresa(s)`);
+      } catch (err) {
+        console.error("[search-manager jobs] startJobsOutreach error:", err);
       }
     }
   }
@@ -635,6 +675,9 @@ async function upsertLead(opts: {
     phone: r.phone,
     internationalPhone: r.internationalPhone,
     website: r.website,
+    // Email de contacto si la fuente lo trae (jobs lo extrae de la web). En el
+    // update, undefined NO sobreescribe un email ya existente.
+    email: (r.rawData as any)?.email ?? undefined,
     category: r.category,
     types: r.types,
     latitude: r.latitude,
