@@ -1319,7 +1319,13 @@ model LeadExecOutreach {
   email        String? // destinatario corporativo
   directorName String?
   step         Int      @default(0)
-  status       String   @default("active") // active | done | stopped
+  status       String   @default("active") // active | done | stopped | pending_review
+  // Modo de envío: "auto" envía el email en el tick; "review" redacta el email
+  // y lo deja en pending_review para que un admin lo apruebe antes de enviar.
+  mode         String   @default("auto") // auto | review
+  // Borrador del email pendiente de aprobación (solo en modo review).
+  draftSubject String?
+  draftBody    String?  @db.Text
   nextAt       DateTime @default(now())
   log          Json? // pasos ejecutados [{at, channel, detail}]
   createdAt    DateTime @default(now())

@@ -87,6 +87,9 @@ export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
     dailyJitterPct: s.dailyJitterPct ?? 0.15,
     blockLinksInFirstMessage: s.blockLinksInFirstMessage ?? true,
     replyRateGuardEnabled: !!s.replyRateGuardEnabled,
+    // Módulo Empleos: si true (por defecto), los emails a empresas que contratan
+    // se redactan y quedan pendientes de aprobación manual antes de enviarse.
+    jobsReviewMode: s.jobsReviewMode ?? true,
     sendEnabled: s.sendEnabled ?? true,
     sendPaused: s.sendPaused ?? false,
     sendWindowStart: s.sendWindowStart ?? "09:00",
@@ -170,6 +173,7 @@ const schema = z.object({
   dailyJitterPct: z.number().min(0).max(0.5).optional(),
   blockLinksInFirstMessage: z.boolean().optional(),
   replyRateGuardEnabled: z.boolean().optional(),
+  jobsReviewMode: z.boolean().optional(),
   rotateWebhookToken: z.boolean().optional(),
   // Multi-número de WhatsApp: lista de sesiones/instancias para repartir envíos.
   channels: z
@@ -303,6 +307,7 @@ export const PATCH = withApi({ scope: "*" }, async (req, { api }) => {
     "dailyJitterPct",
     "blockLinksInFirstMessage",
     "replyRateGuardEnabled",
+    "jobsReviewMode",
     "channels"
   ] as const) {
     if (parsed.data[k] !== undefined) s[k] = parsed.data[k];

@@ -2513,6 +2513,171 @@ function QueueLiveStatus() {
   );
 }
 
+/**
+ * Panel del módulo Empleos: toggle Automático / Revisar antes de enviar + cola
+ * de emails redactados pendientes de aprobación (modo revisión). Cada email es
+ * editable antes de aprobarlo. Solo se muestra expandido si hay algo que revisar.
+ */
+function JobsReviewPanel() {
+  const [mode, setMode] = useState<"auto" | "review" | null>(null);
+  const [savingMode, setSavingMode] = useState(false);
+  const [items, setItems] = useState<any[] | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [edits, setEdits] = useState<Record<string, { subject: string; body: string }>>({});
+
+  async function loadMode() {
+    try {
+      const r = await fetch("/api/v1/leads/settings");
+      if (r.ok) {
+        const j = await r.json();
+        setMode(j.jobsReviewMode === false ? "auto" : "review");
+      }
+    } catch {}
+  }
+  async function loadItems() {
+    try {
+      const r = await fetch("/api/v1/leads/jobs-review");
+      if (r.ok) setItems((await r.json()).items ?? []);
+    } catch {}
+  }
+  useEffect(() => {
+    void loadMode();
+    void loadItems();
+    const i = setInterval(() => void loadItems(), 60_000);
+    return () => clearInterval(i);
+  }, []);
+
+  async function setModeRemote(next: "auto" | "review") {
+    setSavingMode(true);
+    try {
+      const r = await fetch("/api/v1/leads/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jobsReviewMode: next === "review" })
+      });
+      if (r.ok) setMode(next);
+      else alert("No se pudo cambiar el modo.");
+    } finally {
+      setSavingMode(false);
+    }
+  }
+
+  async function act(id: string, action: "approve" | "reject") {
+    if (action === "reject" && !confirm("¿Descartar este email? No se enviará y se detendrá la secuencia de esta empresa.")) return;
+    setBusyId(id);
+    try {
+      const e = edits[id];
+      const r = await fetch(`/api/v1/leads/jobs-review/${id}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(action === "approve" ? { action, subject: e?.subject, body: e?.body } : { action })
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        alert(j?.error?.message ?? "No se pudo completar la acción.");
+        return;
+      }
+      setItems((prev) => (prev ?? []).filter((it) => it.id !== id));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  const pending = items?.length ?? 0;
+  // Si no hay modo cargado aún y no hay nada pendiente, no ocupamos espacio.
+  if (mode === null && pending === 0) return null;
+
+  return (
+    <div className="rounded-lg border border-indigo-200 bg-indigo-50/60 p-3">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <div className="text-sm font-semibold text-slate-800">
+          📧 Empleos — emails a empresas que buscan marketing/IA
+          {pending > 0 && <span className="ml-2 inline-flex items-center rounded-full bg-indigo-600 px-2 py-0.5 text-[11px] font-bold text-white">{pending} por revisar</span>}
+        </div>
+        <div className="inline-flex rounded-md border border-indigo-300 overflow-hidden text-xs">
+          <button
+            onClick={() => void setModeRemote("review")}
+            disabled={savingMode || mode === "review"}
+            className={"px-2.5 py-1 " + (mode === "review" ? "bg-indigo-600 text-white font-semibold" : "bg-white text-slate-600 hover:bg-indigo-100")}
+            title="Los emails se redactan y esperan tu aprobación antes de enviarse"
+          >
+            Revisar antes de enviar
+          </button>
+          <button
+            onClick={() => void setModeRemote("auto")}
+            disabled={savingMode || mode === "auto"}
+            className={"px-2.5 py-1 border-l border-indigo-300 " + (mode === "auto" ? "bg-emerald-600 text-white font-semibold" : "bg-white text-slate-600 hover:bg-emerald-50")}
+            title="Los emails se envían solos en cuanto se encuentra la empresa y su email"
+          >
+            Automático
+          </button>
+        </div>
+      </div>
+      <div className="text-[11px] text-slate-600 mt-1">
+        {mode === "auto"
+          ? "Modo automático: al encontrar una empresa con oferta de marketing/IA y su email, el primer correo sale solo (con pie de baja RGPD)."
+          : "Modo revisión: los correos se redactan con IA y quedan aquí para que los apruebes (o edites) antes de enviarse. Ideal para validar al principio."}
+      </div>
+
+      {pending > 0 && (
+        <div className="mt-3 space-y-3">
+          {(items ?? []).map((it) => {
+            const e = edits[it.id] ?? { subject: it.subject ?? "", body: it.body ?? "" };
+            return (
+              <div key={it.id} className="rounded-md border border-slate-200 bg-white p-3">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <div className="min-w-0">
+                    <div className="text-sm font-semibold text-slate-800 truncate">{it.company}</div>
+                    <div className="text-[11px] text-slate-500 truncate">
+                      → {it.email}
+                      {it.jobTitle ? ` · Vacante: ${it.jobTitle}` : ""}
+                      {it.website ? ` · ${it.website}` : ""}
+                    </div>
+                  </div>
+                  {it.jobUrl && (
+                    <a href={it.jobUrl} target="_blank" rel="noreferrer" className="text-[11px] text-indigo-600 hover:underline shrink-0">
+                      Ver oferta ↗
+                    </a>
+                  )}
+                </div>
+                <input
+                  value={e.subject}
+                  onChange={(ev) => setEdits((p) => ({ ...p, [it.id]: { subject: ev.target.value, body: e.body } }))}
+                  className="mt-2 w-full rounded border border-slate-300 px-2 py-1 text-sm font-medium"
+                  placeholder="Asunto"
+                />
+                <textarea
+                  value={e.body}
+                  onChange={(ev) => setEdits((p) => ({ ...p, [it.id]: { subject: e.subject, body: ev.target.value } }))}
+                  rows={6}
+                  className="mt-1.5 w-full rounded border border-slate-300 px-2 py-1 text-sm leading-relaxed"
+                  placeholder="Cuerpo del email"
+                />
+                <div className="mt-2 flex items-center gap-2">
+                  <button
+                    onClick={() => void act(it.id, "approve")}
+                    disabled={busyId === it.id || !e.subject.trim() || !e.body.trim()}
+                    className="inline-flex items-center gap-1 rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+                  >
+                    {busyId === it.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "✅"} Aprobar y enviar
+                  </button>
+                  <button
+                    onClick={() => void act(it.id, "reject")}
+                    disabled={busyId === it.id}
+                    className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+                  >
+                    🗑 Descartar
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function QueueTable({ loading, items, onChanged }: { loading: boolean; items: QueueRow[]; onChanged: () => void }) {
   const [processing, setProcessing] = useState(false);
   const [tickResult, setTickResult] = useState<{ kind: "ok" | "warn" | "error"; text: string } | null>(null);
@@ -3004,6 +3169,7 @@ function QueueTable({ loading, items, onChanged }: { loading: boolean; items: Qu
   return (
     <div className="space-y-3">
       <QueueLiveStatus />
+      <JobsReviewPanel />
       {lastTrashed.length > 0 && (
         <div className="flex items-center justify-between gap-2 rounded-md border border-slate-300 bg-slate-50 px-3 py-2 text-xs">
           <span>🗑 {lastTrashed.length} mensaje{lastTrashed.length === 1 ? "" : "s"} en la papelera (no se enviarán).</span>

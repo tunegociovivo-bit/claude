@@ -27,7 +27,10 @@ export async function startExecOutreach(opts: {
   leadId: string;
   email?: string | null;
   directorName?: string | null;
+  /** "review" redacta el email y lo deja para aprobación manual antes de enviar. */
+  mode?: "auto" | "review";
 }): Promise<{ id: string }> {
+  const mode = opts.mode ?? "auto";
   const row = await prisma.leadExecOutreach.upsert({
     where: { workspaceId_leadId: { workspaceId: opts.workspaceId, leadId: opts.leadId } },
     create: {
@@ -37,10 +40,11 @@ export async function startExecOutreach(opts: {
       directorName: opts.directorName ?? null,
       step: 0,
       status: "active",
+      mode,
       nextAt: new Date(),
       log: []
     },
-    update: { email: opts.email ?? undefined, directorName: opts.directorName ?? undefined, step: 0, status: "active", nextAt: new Date(), log: [] }
+    update: { email: opts.email ?? undefined, directorName: opts.directorName ?? undefined, step: 0, status: "active", mode, draftSubject: null, draftBody: null, nextAt: new Date(), log: [] }
   });
   return { id: row.id };
 }
@@ -158,6 +162,18 @@ export async function processExecOutreachTick(workspaceId: string): Promise<{ pr
       // puesto abierto para ofrecerlo como servicio externo.
       const rd: any = lead.rawData ?? {};
       const jobTitle = rd?.source === "jobs" && typeof rd?.jobTitle === "string" ? rd.jobTitle : null;
+      // Modo REVISIÓN: redacta el email y lo deja pendiente de aprobación. No
+      // envía ni avanza de paso; espera a que un admin lo apruebe (o descarte).
+      if (row.mode === "review" && row.email && isEmailEnabled()) {
+        const mail = await writeEmail({ workspaceId, company: lead.name, sector: lead.category, director: row.directorName, touch: emailTouch, jobTitle });
+        log.push({ at: now.toISOString(), channel: "email_drafted", to: row.email, subject: mail.subject });
+        await prisma.leadExecOutreach.update({
+          where: { id: row.id },
+          data: { status: "pending_review", draftSubject: mail.subject, draftBody: mail.body, log }
+        });
+        await notifyAdmins(workspaceId, `📝 Email listo para revisar: ${lead.name}${row.email ? ` (${row.email})` : ""}. Apruébalo para enviarlo.`, "/admin/leads?tab=jobs-review", `exec-review-${row.id}`);
+        return { processed: true, leadId: row.leadId, channel: "email_review" };
+      }
       if (row.email && isEmailEnabled()) {
         const mail = await writeEmail({ workspaceId, company: lead.name, sector: lead.category, director: row.directorName, touch: emailTouch, jobTitle });
         const out = await sendEmail({ to: row.email, subject: mail.subject, html: emailHtml(mail.body), text: mail.body });
@@ -191,4 +207,105 @@ export async function processExecOutreachTick(workspaceId: string): Promise<{ pr
     });
   }
   return { processed: true, leadId: row.leadId, channel: channelDone };
+}
+
+/** Un email pendiente de revisión (modo review), con el borrador y el contexto. */
+export type PendingReviewItem = {
+  id: string;
+  leadId: string;
+  email: string | null;
+  subject: string | null;
+  body: string | null;
+  company: string;
+  category: string | null;
+  website: string | null;
+  phone: string | null;
+  jobTitle: string | null;
+  jobUrl: string | null;
+  createdAt: string;
+};
+
+/** Lista los emails redactados que esperan aprobación manual en el workspace. */
+export async function listPendingReview(workspaceId: string): Promise<PendingReviewItem[]> {
+  const rows = await prisma.leadExecOutreach.findMany({
+    where: { workspaceId, status: "pending_review" },
+    orderBy: { updatedAt: "asc" },
+    take: 200,
+    select: {
+      id: true,
+      leadId: true,
+      email: true,
+      draftSubject: true,
+      draftBody: true,
+      updatedAt: true,
+      lead: { select: { name: true, category: true, website: true, phone: true, rawData: true } }
+    }
+  });
+  return rows.map((r) => {
+    const rd: any = r.lead?.rawData ?? {};
+    return {
+      id: r.id,
+      leadId: r.leadId,
+      email: r.email,
+      subject: r.draftSubject,
+      body: r.draftBody,
+      company: r.lead?.name ?? "",
+      category: r.lead?.category ?? null,
+      website: r.lead?.website ?? null,
+      phone: r.lead?.phone ?? null,
+      jobTitle: typeof rd?.jobTitle === "string" ? rd.jobTitle : null,
+      jobUrl: typeof rd?.jobUrl === "string" ? rd.jobUrl : null,
+      createdAt: r.updatedAt.toISOString()
+    };
+  });
+}
+
+/**
+ * Aprueba un email pendiente: lo envía (con el texto editado si se pasa),
+ * marca el lead como contactado y avanza la secuencia al siguiente paso.
+ */
+export async function approveExecOutreach(
+  workspaceId: string,
+  id: string,
+  edit?: { subject?: string; body?: string }
+): Promise<{ sent: boolean }> {
+  const row = await prisma.leadExecOutreach.findFirst({ where: { id, workspaceId, status: "pending_review" } });
+  if (!row) throw new Error("No hay un email pendiente de revisión con ese id.");
+  if (!row.email) throw new Error("Este contacto no tiene email destinatario.");
+  if (!isEmailEnabled()) throw new Error("El envío de email no está configurado (falta RESEND_API_KEY).");
+  const subject = (edit?.subject ?? row.draftSubject ?? "").trim();
+  const body = (edit?.body ?? row.draftBody ?? "").trim();
+  if (!subject || !body) throw new Error("El borrador del email está vacío.");
+
+  const out = await sendEmail({ to: row.email, subject, html: emailHtml(body), text: body });
+  const now = new Date();
+  const log: any[] = Array.isArray(row.log) ? row.log : [];
+  log.push({ at: now.toISOString(), channel: "email", to: row.email, subject, id: out.id, approved: true });
+
+  // Marca el lead como contactado (sin degradar estados más avanzados).
+  await prisma.lead.updateMany({
+    where: { id: row.leadId, workspaceId, contactStatus: { notIn: ["client", "responded", "discarded", "excluded"] } },
+    data: { contactStatus: "contacted" }
+  });
+
+  // Avanza la secuencia igual que tras un envío automático.
+  const next = row.step + 1;
+  if (next >= STEPS.length) {
+    await prisma.leadExecOutreach.update({ where: { id: row.id }, data: { status: "done", step: next, draftSubject: null, draftBody: null, log } });
+  } else {
+    const deltaDays = STEPS[next].day - STEPS[row.step].day;
+    await prisma.leadExecOutreach.update({
+      where: { id: row.id },
+      data: { status: "active", step: next, nextAt: new Date(now.getTime() + Math.max(1, deltaDays) * 86_400_000), draftSubject: null, draftBody: null, log }
+    });
+  }
+  return { sent: true };
+}
+
+/** Descarta un email pendiente de revisión y detiene su secuencia. */
+export async function rejectExecOutreach(workspaceId: string, id: string): Promise<void> {
+  await prisma.leadExecOutreach.updateMany({
+    where: { id, workspaceId, status: "pending_review" },
+    data: { status: "stopped", draftSubject: null, draftBody: null }
+  });
 }

@@ -29,6 +29,13 @@ import { startExecOutreach } from "./exec-outreach";
  * Acotado por seguridad para no disparar cientos de secuencias de golpe.
  */
 async function startJobsOutreach(workspaceId: string, searchId: string): Promise<number> {
+  // Modo de envío del módulo Empleos. Por defecto "review" (revisar antes de
+  // enviar): más seguro para validar que todo funciona al principio. El usuario
+  // lo cambia a automático desde Ajustes cuando quiera.
+  const ws = await prisma.workspace.findUnique({ where: { id: workspaceId }, select: { settings: true } });
+  const reviewMode = (ws?.settings as any)?.leads?.jobsReviewMode;
+  const mode: "auto" | "review" = reviewMode === false ? "auto" : "review";
+
   const leads = await prisma.lead.findMany({
     where: { workspaceId, searchId, contactStatus: "pending", email: { not: null } },
     select: { id: true, email: true },
@@ -37,7 +44,7 @@ async function startJobsOutreach(workspaceId: string, searchId: string): Promise
   let started = 0;
   for (const l of leads) {
     try {
-      await startExecOutreach({ workspaceId, leadId: l.id, email: l.email });
+      await startExecOutreach({ workspaceId, leadId: l.id, email: l.email, mode });
       started++;
     } catch (err) {
       console.error("[search-manager jobs] startExecOutreach error:", err);

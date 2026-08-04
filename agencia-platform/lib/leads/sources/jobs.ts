@@ -43,7 +43,34 @@ function stripTags(s: string): string {
     .trim();
 }
 
-type RawOffer = { company: string; jobTitle: string | null; location: string | null; jobUrl: string | null; companyUrl: string | null; board: string };
+export type RawOffer = { company: string; jobTitle: string | null; location: string | null; jobUrl: string | null; companyUrl: string | null; board: string };
+
+/**
+ * Parsea las tarjetas de oferta del HTML de la API "jobs guest" de LinkedIn.
+ * Función PURA (sin red) para poder testearla con HTML de muestra.
+ */
+export function parseLinkedInCards(html: string): RawOffer[] {
+  const out: RawOffer[] = [];
+  const cards = html.split(/<li[\s>]/i).slice(1);
+  for (const card of cards) {
+    const title = pick(card, /base-search-card__title[^>]*>([\s\S]*?)<\/h3>/i);
+    const subtitle = pick(card, /base-search-card__subtitle[^>]*>([\s\S]*?)<\/h4>/i);
+    const company = subtitle ? stripTags(subtitle) : null;
+    if (!company) continue;
+    const loc2 = pick(card, /job-search-card__location[^>]*>([\s\S]*?)<\/span>/i);
+    const jobUrl = pickAttr(card, /base-card__full-link[^>]*href="([^"]+)"/i) ?? pickAttr(card, /href="(https:\/\/[a-z.]*linkedin\.com\/jobs\/view\/[^"]+)"/i);
+    const companyUrl = subtitle ? pickAttr(subtitle, /href="([^"]*\/company\/[^"]+)"/i) : null;
+    out.push({
+      company,
+      jobTitle: title ? stripTags(title) : null,
+      location: loc2 ? stripTags(loc2) : null,
+      jobUrl: jobUrl ? jobUrl.split("?")[0] : null,
+      companyUrl: companyUrl ? companyUrl.split("?")[0] : null,
+      board: "linkedin"
+    });
+  }
+  return out;
+}
 
 /**
  * LinkedIn "jobs guest" API (sin login): devuelve tarjetas de oferta con
@@ -65,25 +92,9 @@ async function collectLinkedIn(keyword: string, location: string, apiKey: string
     } catch {
       break; // si una página falla, no insistimos
     }
-    const cards = html.split(/<li[\s>]/i).slice(1);
+    const cards = parseLinkedInCards(html);
     if (cards.length === 0) break;
-    for (const card of cards) {
-      const title = pick(card, /base-search-card__title[^>]*>([\s\S]*?)<\/h3>/i);
-      const subtitle = pick(card, /base-search-card__subtitle[^>]*>([\s\S]*?)<\/h4>/i);
-      const company = subtitle ? stripTags(subtitle) : null;
-      if (!company) continue;
-      const loc2 = pick(card, /job-search-card__location[^>]*>([\s\S]*?)<\/span>/i);
-      const jobUrl = pickAttr(card, /base-card__full-link[^>]*href="([^"]+)"/i) ?? pickAttr(card, /href="(https:\/\/[a-z.]*linkedin\.com\/jobs\/view\/[^"]+)"/i);
-      const companyUrl = subtitle ? pickAttr(subtitle, /href="([^"]*\/company\/[^"]+)"/i) : null;
-      out.push({
-        company,
-        jobTitle: title ? stripTags(title) : null,
-        location: loc2 ? stripTags(loc2) : null,
-        jobUrl: jobUrl ? jobUrl.split("?")[0] : null,
-        companyUrl: companyUrl ? companyUrl.split("?")[0] : null,
-        board: "linkedin"
-      });
-    }
+    out.push(...cards);
   }
   return out;
 }
@@ -102,6 +113,14 @@ async function collectInfoJobs(keyword: string, location: string, apiKey: string
   } catch {
     return [];
   }
+  return parseInfoJobsJsonLd(html, location);
+}
+
+/**
+ * Extrae ofertas de los bloques JSON-LD `JobPosting` de una página de InfoJobs.
+ * Función PURA (sin red) para poder testearla con HTML de muestra.
+ */
+export function parseInfoJobsJsonLd(html: string, fallbackLocation = ""): RawOffer[] {
   const out: RawOffer[] = [];
   const re = /<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
   let m: RegExpExecArray | null;
@@ -123,7 +142,7 @@ async function collectInfoJobs(keyword: string, location: string, apiKey: string
       out.push({
         company,
         jobTitle: typeof n?.title === "string" ? n.title.trim() : null,
-        location: typeof city === "string" ? city : location.trim() || null,
+        location: typeof city === "string" ? city : fallbackLocation.trim() || null,
         jobUrl: typeof n?.url === "string" ? n.url : null,
         companyUrl: typeof n?.hiringOrganization?.sameAs === "string" ? n.hiringOrganization.sameAs : null,
         board: "infojobs"
