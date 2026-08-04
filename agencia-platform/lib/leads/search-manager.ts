@@ -66,8 +66,9 @@ async function startJobsOutreach(workspaceId: string, searchId: string): Promise
       slice.map(async (l) => {
         const rd: any = l.rawData ?? {};
         const jobTitle = typeof rd?.jobTitle === "string" ? rd.jobTitle : null;
+        const jobDescription = typeof rd?.jobDescription === "string" ? rd.jobDescription : null;
         try {
-          await draftJobsReview({ workspaceId, leadId: l.id, email: l.email as string, company: l.name, sector: l.category, jobTitle });
+          await draftJobsReview({ workspaceId, leadId: l.id, email: l.email as string, company: l.name, sector: l.category, jobTitle, jobDescription });
           return true;
         } catch (err) {
           console.error("[search-manager jobs] draftJobsReview error:", err);

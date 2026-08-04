@@ -45,7 +45,37 @@ function stripTags(s: string): string {
     .trim();
 }
 
-export type RawOffer = { company: string; jobTitle: string | null; location: string | null; jobUrl: string | null; companyUrl: string | null; board: string };
+export type RawOffer = { company: string; jobTitle: string | null; location: string | null; jobUrl: string | null; companyUrl: string | null; board: string; description?: string | null };
+
+// ── Filtro de PUESTO relevante (marketing / IA) ───────────────────────────
+// La búsqueda por keyword en los portales trae de todo (recepcionista,
+// comercial, dependiente…). Solo nos interesan empresas que contratan un puesto
+// de marketing o IA — es lo que podemos ofrecer como servicio. Filtramos por el
+// título de la oferta con una lista de términos afines.
+const ROLE_ALLOW = new RegExp(
+  [
+    "marketing", "marketer", "\\bdigital\\b", "community", "redes sociales", "social media",
+    "social ads", "gestion de redes", "gestor de redes", "publicidad", "publicitari",
+    "\\bseo\\b", "\\bsem\\b", "\\bppc\\b", "\\bsea\\b", "adwords", "google ads", "meta ads",
+    "paid media", "trafficker", "growth", "performance", "contenidos", "contenido",
+    "\\bcontent\\b", "copywrit", "\\bcopy\\b", "branding", "\\bmarca\\b", "ecommerce",
+    "e-commerce", "comercio electronico", "\\bcrm\\b", "email marketing", "inbound",
+    "comunicacion", "inteligencia artificial", "\\bia\\b", "machine learning", "\\bai\\b",
+    "data scientist", "cientifico de datos", "analista de datos", "big data", "data analyst",
+    "diseno grafico", "diseno digital"
+  ].join("|"),
+  "i"
+);
+// Falsos positivos de "digital"/"comunicacion" que NO son marketing (telecom).
+const ROLE_BLOCK = /telecomunic|comunicaciones moviles|instalador|fibra optica/i;
+
+/** ¿El título de la oferta es de un puesto de marketing / IA? */
+export function isMarketingRole(jobTitle: string | null | undefined): boolean {
+  const n = norm(jobTitle);
+  if (!n) return false;
+  if (ROLE_BLOCK.test(n)) return false;
+  return ROLE_ALLOW.test(n);
+}
 
 /**
  * Parsea las tarjetas de oferta del HTML de la API "jobs guest" de LinkedIn.
@@ -155,7 +185,8 @@ export function parseInfoJobsJsonLd(html: string, fallbackLocation = ""): RawOff
         location: typeof city === "string" ? city : fallbackLocation.trim() || null,
         jobUrl: typeof n?.url === "string" ? n.url : null,
         companyUrl: typeof n?.hiringOrganization?.sameAs === "string" ? n.hiringOrganization.sameAs : null,
-        board: "infojobs"
+        board: "infojobs",
+        description: typeof n?.description === "string" ? stripTags(n.description).slice(0, 1800) : null
       });
     }
   }
@@ -221,6 +252,48 @@ function isInSpain(loc: string | null, board: string): boolean {
   return SPAIN_TOKENS.some((tok) => tok && n.includes(tok));
 }
 
+/**
+ * Baja la ficha de una oferta y extrae el texto de la descripción, para que el
+ * usuario lea la oferta sin abrir el enlace. Estrategia uniforme: JSON-LD
+ * `JobPosting.description` (lo incluyen tanto LinkedIn como InfoJobs en la ficha)
+ * y, como respaldo, el bloque de texto de la descripción de LinkedIn. Best-effort.
+ */
+async function fetchJobDescription(jobUrl: string, apiKey: string): Promise<string | null> {
+  let html = "";
+  try {
+    html = await scrapflyFetch(jobUrl, apiKey);
+  } catch {
+    return null;
+  }
+  const re = /<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(html))) {
+    try {
+      const parsed = JSON.parse(m[1].trim());
+      const nodes: any[] = Array.isArray(parsed) ? parsed : parsed?.["@graph"] ? parsed["@graph"] : [parsed];
+      for (const n of nodes) {
+        const t = n?.["@type"];
+        const types = Array.isArray(t) ? t : [t];
+        if (types.some((x: any) => typeof x === "string" && x.toLowerCase() === "jobposting") && typeof n?.description === "string") {
+          const txt = stripTags(n.description);
+          if (txt.length > 40) return txt.slice(0, 1800);
+        }
+      }
+    } catch {
+      // JSON-LD inválido → probamos el siguiente bloque
+    }
+  }
+  // Respaldo: markup de descripción de LinkedIn.
+  const li =
+    pick(html, /show-more-less-html__markup[^>]*>([\s\S]*?)<\/(?:div|section)>/i) ||
+    pick(html, /description__text[^>]*>([\s\S]*?)<\/(?:div|section)>/i);
+  if (li) {
+    const t = stripTags(li);
+    if (t.length > 40) return t.slice(0, 1800);
+  }
+  return null;
+}
+
 /** Tokens aceptables para la provincia/ciudad pedida (incluye sus municipios). */
 function wantedTokens(wanted: string): string[] {
   const w = wanted.trim();
@@ -260,19 +333,39 @@ export async function collectJobs(opts: {
   // ciudad, exige que la oferta encaje con esa zona (o sus municipios).
   const wantTokens = wantedTokens(wanted);
   const inScope = (o: RawOffer): boolean => {
+    // Solo puestos de marketing / IA (fuera recepcionista, comercial, etc.).
+    if (!isMarketingRole(o.jobTitle)) return false;
     if (!isInSpain(o.location, o.board)) return false;
     if (wantTokens.length === 0) return true;
     const n = norm(o.location);
     return !!n && wantTokens.some((t) => n.includes(t));
   };
 
-  // Dedup por empresa (una empresa puede tener varias ofertas → 1 lead).
+  // Dedup por empresa (una empresa puede tener varias ofertas → 1 lead). El
+  // filtro de puesto se aplica ANTES del dedup: si una empresa tiene una vacante
+  // de marketing y otra de recepcionista, nos quedamos con la de marketing.
   const byCompany = new Map<string, RawOffer>();
   for (const o of [...li, ...ij]) {
     if (!inScope(o)) continue;
     const key = companyKey(o.company);
     if (!key || key.length < 2) continue;
     if (!byCompany.has(key)) byCompany.set(key, o);
+  }
+
+  // Descripción de la oferta: para leerla sin abrir el enlace. La que no la trае
+  // (LinkedIn no la da en el listado) se baja de su ficha, best-effort y acotado
+  // por coste (cada descarga es una llamada a Scrapfly).
+  const entries = [...byCompany.values()];
+  const MAX_DESC = 40;
+  const DESC_CHUNK = 5;
+  const toFetch = entries.filter((o) => !o.description && o.jobUrl).slice(0, MAX_DESC);
+  for (let i = 0; i < toFetch.length; i += DESC_CHUNK) {
+    const slice = toFetch.slice(i, i + DESC_CHUNK);
+    await Promise.all(
+      slice.map(async (o) => {
+        o.description = await fetchJobDescription(o.jobUrl as string, opts.apiKey).catch(() => null);
+      })
+    );
   }
 
   const out: PlacesResult[] = [];
@@ -300,7 +393,8 @@ export async function collectJobs(opts: {
         jobTitle: o.jobTitle,
         jobUrl: o.jobUrl,
         companyUrl: o.companyUrl,
-        board: o.board
+        board: o.board,
+        jobDescription: o.description ?? null
       }
     });
   }

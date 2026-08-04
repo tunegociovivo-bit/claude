@@ -63,6 +63,7 @@ export async function draftJobsReview(opts: {
   company: string;
   sector?: string | null;
   jobTitle?: string | null;
+  jobDescription?: string | null;
 }): Promise<{ drafted: boolean }> {
   const now = new Date();
   try {
@@ -71,7 +72,8 @@ export async function draftJobsReview(opts: {
       company: opts.company,
       sector: opts.sector,
       touch: 1,
-      jobTitle: opts.jobTitle ?? null
+      jobTitle: opts.jobTitle ?? null,
+      jobDescription: opts.jobDescription ?? null
     });
     const log = [{ at: now.toISOString(), channel: "email_drafted", to: opts.email, subject: mail.subject }];
     const common = {
@@ -141,8 +143,9 @@ export async function generateJobsReviewDrafts(
       slice.map(async (l) => {
         const rd: any = l.rawData ?? {};
         const jobTitle = typeof rd?.jobTitle === "string" ? rd.jobTitle : null;
+        const jobDescription = typeof rd?.jobDescription === "string" ? rd.jobDescription : null;
         try {
-          await draftJobsReview({ workspaceId, leadId: l.id, email: l.email as string, company: l.name, sector: l.category, jobTitle });
+          await draftJobsReview({ workspaceId, leadId: l.id, email: l.email as string, company: l.name, sector: l.category, jobTitle, jobDescription });
           return true;
         } catch {
           return false;
@@ -174,12 +177,15 @@ empresa para ofrecerle captación de clientes, reseñas y fidelización. Redacta
   valor y un cierre con propuesta de llamada de 10 min. Nada de adjuntos ni promesas vacías.
 - No inventes datos, cifras ni precios. Devuelve SOLO el JSON {subject, body}.`;
 
-async function writeEmail(opts: { workspaceId: string; company: string; sector?: string | null; director?: string | null; touch: number; jobTitle?: string | null }): Promise<{ subject: string; body: string }> {
+async function writeEmail(opts: { workspaceId: string; company: string; sector?: string | null; director?: string | null; touch: number; jobTitle?: string | null; jobDescription?: string | null }): Promise<{ subject: string; body: string }> {
   const ctx = [
     `Empresa: ${opts.company}`,
     opts.sector ? `Sector: ${opts.sector}` : null,
     opts.jobTitle
       ? `IMPORTANTE: la empresa tiene AHORA MISMO una oferta de empleo abierta para el puesto "${opts.jobTitle}". Enfoca el email en esa vacante: menciónala con naturalidad y ofrece que Negocio Vivo cubra esa función de marketing/IA como servicio externo (resultados desde el primer mes, sin coste de contratación, alta laboral ni formación). Tono de ayuda, sin presionar ni criticar que contraten.`
+      : null,
+    opts.jobDescription
+      ? `Contexto de la oferta (úsalo para personalizar SIN copiarlo literal ni inventar nada que no aparezca): «${opts.jobDescription.slice(0, 600)}»`
       : null,
     opts.director ? `Directivo: ${opts.director}` : "Directivo: máximo responsable",
     opts.touch > 1 ? `Es un email de SEGUIMIENTO (toque ${opts.touch}); cambia el enfoque y sé aún más breve.` : null
@@ -267,10 +273,11 @@ export async function processExecOutreachTick(workspaceId: string): Promise<{ pr
       // puesto abierto para ofrecerlo como servicio externo.
       const rd: any = lead.rawData ?? {};
       const jobTitle = rd?.source === "jobs" && typeof rd?.jobTitle === "string" ? rd.jobTitle : null;
+      const jobDescription = rd?.source === "jobs" && typeof rd?.jobDescription === "string" ? rd.jobDescription : null;
       // Modo REVISIÓN: redacta el email y lo deja pendiente de aprobación. No
       // envía ni avanza de paso; espera a que un admin lo apruebe (o descarte).
       if (row.mode === "review" && row.email && isEmailEnabled()) {
-        const mail = await writeEmail({ workspaceId, company: lead.name, sector: lead.category, director: row.directorName, touch: emailTouch, jobTitle });
+        const mail = await writeEmail({ workspaceId, company: lead.name, sector: lead.category, director: row.directorName, touch: emailTouch, jobTitle, jobDescription });
         log.push({ at: now.toISOString(), channel: "email_drafted", to: row.email, subject: mail.subject });
         await prisma.leadExecOutreach.update({
           where: { id: row.id },
@@ -280,7 +287,7 @@ export async function processExecOutreachTick(workspaceId: string): Promise<{ pr
         return { processed: true, leadId: row.leadId, channel: "email_review" };
       }
       if (row.email && isEmailEnabled()) {
-        const mail = await writeEmail({ workspaceId, company: lead.name, sector: lead.category, director: row.directorName, touch: emailTouch, jobTitle });
+        const mail = await writeEmail({ workspaceId, company: lead.name, sector: lead.category, director: row.directorName, touch: emailTouch, jobTitle, jobDescription });
         const out = await sendEmail({ to: row.email, subject: mail.subject, html: emailHtml(mail.body), text: mail.body });
         log.push({ at: now.toISOString(), channel: "email", to: row.email, subject: mail.subject, id: out.id });
       } else {
@@ -327,6 +334,7 @@ export type PendingReviewItem = {
   phone: string | null;
   jobTitle: string | null;
   jobUrl: string | null;
+  jobDescription: string | null;
   createdAt: string;
 };
 
@@ -360,6 +368,7 @@ export async function listPendingReview(workspaceId: string): Promise<PendingRev
       phone: r.lead?.phone ?? null,
       jobTitle: typeof rd?.jobTitle === "string" ? rd.jobTitle : null,
       jobUrl: typeof rd?.jobUrl === "string" ? rd.jobUrl : null,
+      jobDescription: typeof rd?.jobDescription === "string" ? rd.jobDescription : null,
       createdAt: r.updatedAt.toISOString()
     };
   });

@@ -2795,6 +2795,21 @@ function JobsReviewPanel() {
                     </a>
                   )}
                 </div>
+                {/* Texto de la oferta, para leerla sin abrir el enlace. */}
+                {it.jobDescription ? (
+                  <details className="mt-2 rounded border border-slate-200 bg-slate-50/70" open>
+                    <summary className="cursor-pointer select-none px-2 py-1 text-[11px] font-semibold text-slate-600">
+                      📄 Oferta de empleo
+                    </summary>
+                    <div className="max-h-44 overflow-y-auto whitespace-pre-line px-2.5 pb-2 text-[12px] leading-relaxed text-slate-700">
+                      {it.jobDescription}
+                    </div>
+                  </details>
+                ) : (
+                  <div className="mt-2 text-[11px] text-slate-400">
+                    (No se pudo extraer el texto de la oferta; ábrela con "Ver oferta ↗")
+                  </div>
+                )}
                 <input
                   value={e.subject}
                   onChange={(ev) => setEdits((p) => ({ ...p, [it.id]: { subject: ev.target.value, body: e.body } }))}
