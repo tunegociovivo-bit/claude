@@ -34,7 +34,7 @@ function isPainNow(l: { rating: number | null; reviewsCount: number }): boolean 
 }
 import {
   Loader2, Plus, Search, Inbox, ListChecks, BarChart3, MessageCircle,
-  Settings as SettingsIcon, Ban, GitBranch, Send, RefreshCw, Download, Play, Pause, Trash2, Pencil, Zap, CalendarClock, Eye
+  Settings as SettingsIcon, Ban, GitBranch, Send, RefreshCw, Download, Play, Pause, Trash2, Pencil, Zap, CalendarClock, Eye, Mail
 } from "lucide-react";
 
 type Lead = {
@@ -121,7 +121,7 @@ type QueueRow = {
   channelCap?: number;
 };
 
-type Tab = "leads" | "searches" | "queue" | "inbox" | "sequences" | "templates" | "exclusions" | "analytics" | "map" | "settings";
+type Tab = "leads" | "searches" | "queue" | "jobs-review" | "inbox" | "sequences" | "templates" | "exclusions" | "analytics" | "map" | "settings";
 
 /** ¿Este mensaje de la cola se ENVIÓ hoy? (día natural local del navegador —
  *  España ≈ Madrid). Para resaltar en verde los envíos del día. */
@@ -169,6 +169,8 @@ export default function LeadsClient() {
     const t = sp.get("tab");
     const phone = sp.get("phone");
     if (t === "inbox") setTab("inbox");
+    // La notificación "Email listo para revisar" enlaza a ?tab=jobs-review.
+    if (t === "jobs-review") setTab("jobs-review");
     if (phone) setDeepLinkPhone(phone);
   }, []);
   const [recoveryInfo, setRecoveryInfo] = useState<{ active: boolean; since: string | null; days: number } | null>(null);
@@ -525,6 +527,7 @@ export default function LeadsClient() {
 
       {tab === "searches" && <SearchesTable loading={loading} items={searches} onChanged={load} />}
       {tab === "queue" && <QueueTable loading={loading} items={queue} onChanged={load} />}
+      {tab === "jobs-review" && <JobsReviewPanel />}
       {tab === "inbox" && <InboxChat loading={loading} diagnostics={inboxDiag} initialPhone={deepLinkPhone} />}
       {tab === "sequences" && <SequencesView />}
       {tab === "templates" && <TemplatesTable loading={loading} items={templates} onChanged={load} />}
@@ -843,6 +846,7 @@ const LEADS_TAB_DEFS: { key: Tab; label: string; icon: React.ReactNode }[] = [
   { key: "leads",      label: "Leads",       icon: <BarChart3 className="h-3.5 w-3.5" /> },
   { key: "searches",   label: "Búsquedas",   icon: <Search className="h-3.5 w-3.5" /> },
   { key: "queue",      label: "Cola envío",  icon: <Send className="h-3.5 w-3.5" /> },
+  { key: "jobs-review", label: "📧 Empleos", icon: <Mail className="h-3.5 w-3.5" /> },
   { key: "inbox",      label: "Inbox",       icon: <Inbox className="h-3.5 w-3.5" /> },
   { key: "sequences",  label: "Secuencias",  icon: <GitBranch className="h-3.5 w-3.5" /> },
   { key: "templates",  label: "Plantillas",  icon: <ListChecks className="h-3.5 w-3.5" /> },
@@ -2527,6 +2531,7 @@ function JobsReviewPanel() {
   // Selección múltiple para enviar/descartar en lote.
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
+  const [generating, setGenerating] = useState(false);
   // Empresas de la fuente jobs sin email de contacto (no se les puede enviar).
   const [noEmail, setNoEmail] = useState(0);
 
@@ -2577,6 +2582,28 @@ function JobsReviewPanel() {
       if (prev.size === all.length) return new Set();
       return new Set(all.map((it) => it.id));
     });
+  }
+
+  async function generateDrafts() {
+    setGenerating(true);
+    try {
+      const r = await fetch("/api/v1/leads/jobs-review/generate", { method: "POST" });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        alert(j?.error?.message ?? "No se pudieron generar los borradores.");
+        return;
+      }
+      await loadItems();
+      if ((j.drafted ?? 0) === 0) {
+        alert(
+          j.candidates === 0
+            ? "No hay empresas de Empleos con email de contacto todavía. Lanza una búsqueda de la fuente Empleos primero."
+            : "Todas las empresas con email ya tenían su borrador o secuencia. Nada nuevo que generar."
+        );
+      }
+    } finally {
+      setGenerating(false);
+    }
   }
 
   async function bulkAct(action: "approve" | "reject") {
@@ -2654,8 +2681,6 @@ function JobsReviewPanel() {
 
   const pending = items?.length ?? 0;
   const allSelected = pending > 0 && selected.size === pending;
-  // Si no hay modo cargado aún y no hay nada pendiente, no ocupamos espacio.
-  if (mode === null && pending === 0) return null;
 
   return (
     <div className="rounded-lg border border-indigo-200 bg-indigo-50/60 p-3">
@@ -2664,6 +2689,15 @@ function JobsReviewPanel() {
           📧 Empleos — emails a empresas que buscan marketing/IA
           {pending > 0 && <span className="ml-2 inline-flex items-center rounded-full bg-indigo-600 px-2 py-0.5 text-[11px] font-bold text-white">{pending} por revisar</span>}
         </div>
+        <div className="flex items-center gap-2 flex-wrap">
+        <button
+          onClick={() => void generateDrafts()}
+          disabled={generating}
+          className="inline-flex items-center gap-1 rounded-md border border-indigo-300 bg-white px-2.5 py-1 text-xs font-medium text-indigo-700 hover:bg-indigo-100 disabled:opacity-50"
+          title="Redacta con IA el email de las empresas de Empleos que tengan email y aún no tengan borrador"
+        >
+          {generating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "🪄"} Generar borradores
+        </button>
         <div className="inline-flex rounded-md border border-indigo-300 overflow-hidden text-xs">
           <button
             onClick={() => void setModeRemote("review")}
@@ -2682,6 +2716,7 @@ function JobsReviewPanel() {
             Automático
           </button>
         </div>
+        </div>
       </div>
       <div className="text-[11px] text-slate-600 mt-1">
         {mode === "auto"
@@ -2691,6 +2726,16 @@ function JobsReviewPanel() {
       {noEmail > 0 && (
         <div className="text-[11px] text-amber-700 mt-1">
           ℹ️ Además hay <strong>{noEmail}</strong> empresa(s) con vacante pero <strong>sin email de contacto</strong> localizable, así que no aparecen aquí (no se les puede enviar email). Puedes contactarlas por teléfono/LinkedIn desde la cola de leads.
+        </div>
+      )}
+
+      {/* Estado vacío: nada pendiente de revisar */}
+      {items !== null && pending === 0 && (
+        <div className="mt-3 rounded-md border border-dashed border-indigo-200 bg-white/60 px-3 py-4 text-center text-xs text-slate-600">
+          No hay emails pendientes de revisar ahora mismo.
+          {noEmail === 0 && " Lanza una búsqueda de la fuente Empleos (con provincia) y, al completarse, sus borradores aparecerán aquí."}
+          <br />
+          Si acabas de completar una búsqueda y no ves nada, pulsa <strong>🪄 Generar borradores</strong> para redactarlos ahora.
         </div>
       )}
 
@@ -3279,7 +3324,6 @@ function QueueTable({ loading, items, onChanged }: { loading: boolean; items: Qu
   return (
     <div className="space-y-3">
       <QueueLiveStatus />
-      <JobsReviewPanel />
       {lastTrashed.length > 0 && (
         <div className="flex items-center justify-between gap-2 rounded-md border border-slate-300 bg-slate-50 px-3 py-2 text-xs">
           <span>🗑 {lastTrashed.length} mensaje{lastTrashed.length === 1 ? "" : "s"} en la papelera (no se enviarán).</span>

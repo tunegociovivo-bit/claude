@@ -97,6 +97,63 @@ export async function draftJobsReview(opts: {
   }
 }
 
+/**
+ * Redacta borradores de revisión para TODAS las empresas de la fuente jobs que
+ * tengan email y aún no tengan una secuencia (ni borrador) — botón "Generar
+ * borradores" del panel Empleos. Cubre búsquedas antiguas o casos en los que el
+ * borrado automático no llegó a crearse. No re-redacta lo ya descartado ni lo ya
+ * pendiente. Acotado por `limit` para no disparar la latencia/coste.
+ */
+export async function generateJobsReviewDrafts(
+  workspaceId: string,
+  limit = 60
+): Promise<{ drafted: number; candidates: number; alreadyHandled: number }> {
+  let leads: { id: string; email: string | null; name: string; category: string | null; rawData: any }[] = [];
+  try {
+    leads = await prisma.lead.findMany({
+      where: {
+        workspaceId,
+        email: { not: null },
+        contactStatus: "pending",
+        rawData: { path: ["source"], equals: "jobs" }
+      },
+      select: { id: true, email: true, name: true, category: true, rawData: true },
+      take: 300
+    });
+  } catch {
+    leads = [];
+  }
+  if (leads.length === 0) return { drafted: 0, candidates: 0, alreadyHandled: 0 };
+
+  // Salta las empresas que ya tienen secuencia/borrador (o que se descartaron).
+  const existing = await prisma.leadExecOutreach.findMany({
+    where: { workspaceId, leadId: { in: leads.map((l) => l.id) } },
+    select: { leadId: true }
+  });
+  const handled = new Set(existing.map((e) => e.leadId));
+  const pending = leads.filter((l) => !handled.has(l.id)).slice(0, limit);
+
+  let drafted = 0;
+  const CHUNK = 5;
+  for (let i = 0; i < pending.length; i += CHUNK) {
+    const slice = pending.slice(i, i + CHUNK);
+    const res = await Promise.all(
+      slice.map(async (l) => {
+        const rd: any = l.rawData ?? {};
+        const jobTitle = typeof rd?.jobTitle === "string" ? rd.jobTitle : null;
+        try {
+          await draftJobsReview({ workspaceId, leadId: l.id, email: l.email as string, company: l.name, sector: l.category, jobTitle });
+          return true;
+        } catch {
+          return false;
+        }
+      })
+    );
+    drafted += res.filter(Boolean).length;
+  }
+  return { drafted, candidates: leads.length, alreadyHandled: handled.size };
+}
+
 export async function stopExecOutreach(workspaceId: string, leadId: string): Promise<void> {
   await prisma.leadExecOutreach.updateMany({
     where: { workspaceId, leadId, status: "active" },
