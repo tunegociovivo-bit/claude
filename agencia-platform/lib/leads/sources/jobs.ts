@@ -69,6 +69,11 @@ const ROLE_ALLOW = new RegExp(
 // Falsos positivos de "digital"/"comunicacion" que NO son marketing (telecom).
 const ROLE_BLOCK = /telecomunic|comunicaciones moviles|instalador|fibra optica/i;
 
+// Consultas por defecto cuando el usuario NO indica un puesto: captan empresas
+// de CUALQUIER sector que contraten marketing/IA. El filtro isMarketingRole luego
+// se queda solo con los títulos afines.
+const DEFAULT_ROLE_QUERIES = ["marketing", "community manager", "inteligencia artificial"];
+
 /** ¿El título de la oferta es de un puesto de marketing / IA? */
 export function isMarketingRole(jobTitle: string | null | undefined): boolean {
   const n = norm(jobTitle);
@@ -318,15 +323,23 @@ export async function collectJobs(opts: {
   if (!opts.apiKey) {
     throw new Error("La fuente Empleos necesita la API key de Scrapfly. Configúrala en Ajustes de Leads.");
   }
-  const keyword = opts.keyword.trim() || "marketing";
+  // Puesto(s) a buscar. Si el usuario no indica ninguno, usamos un set por
+  // defecto para captar empresas de CUALQUIER sector que contraten marketing/IA.
+  const queries = opts.keyword.trim() ? [opts.keyword.trim()] : DEFAULT_ROLE_QUERIES;
   // Zona pedida: en scope "spain" no hay provincia (toda España); en "custom"
   // el usuario elige provincia/ciudad y filtramos por ella.
   const wanted = opts.scope === "spain" ? "" : opts.location.trim();
-  // Ejecuta ambos portales en paralelo; cada uno es best-effort.
-  const [li, ij] = await Promise.all([
-    collectLinkedIn(keyword, wanted, opts.apiKey).catch(() => [] as RawOffer[]),
-    collectInfoJobs(keyword, opts.apiKey).catch(() => [] as RawOffer[])
-  ]);
+  // Ejecuta cada consulta en ambos portales (best-effort) y fusiona.
+  const li: RawOffer[] = [];
+  const ij: RawOffer[] = [];
+  for (const q of queries) {
+    const [liQ, ijQ] = await Promise.all([
+      collectLinkedIn(q, wanted, opts.apiKey).catch(() => [] as RawOffer[]),
+      collectInfoJobs(q, opts.apiKey).catch(() => [] as RawOffer[])
+    ]);
+    li.push(...liQ);
+    ij.push(...ijQ);
+  }
 
   // Geofiltro: (1) descarta ofertas que no sean de España (arregla el bug de
   // empresas de EE. UU. que colaba LinkedIn); (2) si se pidió una provincia/

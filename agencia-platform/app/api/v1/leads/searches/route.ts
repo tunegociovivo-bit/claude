@@ -7,7 +7,9 @@ import { startSearch } from "@/lib/leads/search-manager";
 import { availableSources } from "@/lib/leads/sources";
 
 const createSchema = z.object({
-  keyword: z.string().min(2).max(120),
+  // Empleos admite keyword vacío (= todos los puestos de marketing/IA). El resto
+  // de fuentes exigen un nicho: se valida por fuente en el handler.
+  keyword: z.string().max(120).optional().default(""),
   location: z.string().max(120).optional().default(""),
   // Municipio concreto (opcional). Si llega, se busca a fondo solo ahí. Si no
   // llega y `location` es una provincia, se iteran TODOS sus municipios.
@@ -39,6 +41,12 @@ export const POST = withApi({ scope: "*" }, async (req, { api }) => {
   const body = await req.json().catch(() => null);
   const parsed = createSchema.safeParse(body);
   if (!parsed.success) throw new ApiError(400, "validation_error", parsed.error.message);
+
+  // Keyword: obligatorio salvo para "jobs" (Empleos), donde vacío = todos los
+  // puestos de marketing/IA. "all" también lo exige (places/borme lo necesitan).
+  if (parsed.data.source !== "jobs" && parsed.data.keyword.trim().length < 2) {
+    throw new ApiError(400, "missing_keyword", "Falta el keyword / nicho a buscar");
+  }
 
   // 🌐 "Atacar con todas las fuentes": crea una búsqueda por cada fuente lista
   // en este workspace (salta las que necesiten una key sin configurar).

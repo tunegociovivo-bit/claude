@@ -2271,7 +2271,7 @@ function SearchesTable({ loading, items, onChanged }: { loading: boolean; items:
             const bigSearch = totalQueries > 20; // solo lo mostramos si tiene sentido
             return (
               <tr key={s.id} className="hover:bg-slate-50">
-                <td className="px-3 py-2 font-medium">{s.keyword}</td>
+                <td className="px-3 py-2 font-medium">{s.keyword || <span className="text-slate-500 italic">marketing/IA (todos)</span>}</td>
                 <td className="px-3 py-2 text-slate-600">{s.location}</td>
                 <td className="px-3 py-2 text-xs text-slate-500">{s.scope === "spain" ? "Toda España" : "Provincia"}</td>
                 <td className="px-3 py-2 min-w-[160px]">
@@ -6094,7 +6094,9 @@ function NewSearchModal({ open, onClose, onSaved }: { open: boolean; onClose: ()
   }
 
   async function save() {
-    if (!keyword.trim()) { setError("Falta el keyword / nicho a buscar"); return; }
+    // Empleos no exige keyword: vacío = todos los puestos de marketing/IA. El
+    // resto de fuentes (y "todas") sí necesitan un nicho.
+    if (!keyword.trim() && !(source === "jobs" && !allSources)) { setError("Falta el keyword / nicho a buscar"); return; }
     // places y jobs exigen localidad en scope custom (también si lanzamos "todas").
     if ((source === "places" || source === "jobs" || allSources) && scope === "custom" && !location.trim()) {
       setError("Falta la provincia / localidad");
@@ -6171,27 +6173,46 @@ function NewSearchModal({ open, onClose, onSaved }: { open: boolean; onClose: ()
           </p>
         </div>
         <div>
-          <label className="block text-xs font-medium text-slate-700 mb-1">Tipo de negocio</label>
-          <select
-            value={ALL_BUSINESS_TYPES_SET.has(keyword) ? keyword : ""}
-            onChange={(e) => setKeyword(e.target.value)}
-            className="w-full px-3 py-2 rounded-lg border bg-white text-sm"
-          >
-            <option value="">— Elige un tipo de negocio o escríbelo abajo —</option>
-            {BUSINESS_TYPE_GROUPS.map((g) => (
-              <optgroup key={g.group} label={g.group}>
-                {g.types.map((t) => (
-                  <option key={t} value={t}>{t}</option>
-                ))}
-              </optgroup>
-            ))}
-          </select>
+          <label className="block text-xs font-medium text-slate-700 mb-1">
+            {source === "jobs" ? "Puesto a buscar (opcional)" : "Tipo de negocio"}
+          </label>
+          {/* El selector de "tipo de negocio" (dentista, plomero…) no aplica a
+              Empleos: ahí el keyword es el PUESTO, no el nicho de la empresa. */}
+          {source !== "jobs" && (
+            <select
+              value={ALL_BUSINESS_TYPES_SET.has(keyword) ? keyword : ""}
+              onChange={(e) => setKeyword(e.target.value)}
+              className="w-full px-3 py-2 rounded-lg border bg-white text-sm"
+            >
+              <option value="">— Elige un tipo de negocio o escríbelo abajo —</option>
+              {BUSINESS_TYPE_GROUPS.map((g) => (
+                <optgroup key={g.group} label={g.group}>
+                  {g.types.map((t) => (
+                    <option key={t} value={t}>{t}</option>
+                  ))}
+                </optgroup>
+              ))}
+            </select>
+          )}
           <input
             value={keyword}
             onChange={(e) => setKeyword(e.target.value)}
-            placeholder={source === "borme" ? "Sector / palabra clave (filtra empresas del BORME)" : "…o escribe la palabra clave (ej: plomero, dentista, abogado)"}
-            className="w-full mt-2 px-3 py-2 rounded-lg border bg-white text-sm"
+            placeholder={
+              source === "borme"
+                ? "Sector / palabra clave (filtra empresas del BORME)"
+                : source === "jobs"
+                  ? "Puesto: marketing, community manager, IA… (vacío = todos los de marketing/IA)"
+                  : "…o escribe la palabra clave (ej: plomero, dentista, abogado)"
+            }
+            className={"w-full px-3 py-2 rounded-lg border bg-white text-sm " + (source === "jobs" ? "" : "mt-2")}
           />
+          {source === "jobs" && (
+            <p className="text-[11px] text-slate-500 mt-1">
+              Déjalo <strong>vacío</strong> para captar empresas de <strong>cualquier sector</strong> que
+              contraten marketing/IA (community manager, publicidad, SEO/SEM, growth, IA, data…). O escribe un
+              puesto concreto para acotar.
+            </p>
+          )}
         </div>
         <div>
           <label className="block text-xs font-medium text-slate-700 mb-1">
