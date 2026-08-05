@@ -44,13 +44,28 @@ export type WhatsappSettings = {
   autoReplyEnabled: boolean; // si SONIA responde automáticamente
 };
 
+export type BrandingSettings = {
+  // Logo del negocio como data URL (PNG/JPG/WebP ≤ 500KB). Se guarda en BD para
+  // no depender del disco efímero de Railway.
+  logoDataUrl: string;
+};
+
 export type WorkspaceSettings = {
+  // "sonia" es el nombre técnico histórico de la config del asistente; el
+  // nombre visible del asistente es PAULA.
   sonia: SoniaSettings;
   whatsapp: WhatsappSettings;
+  branding: BrandingSettings;
   vapiWebhookToken: string;
   whatsappWebhookToken: string;
   pipeline: { columns: PipelineColumn[] };
 };
+
+// Saludo por defecto de la época en que el asistente se llamaba Sonia. Solo
+// este texto EXACTO migra al saludo de Paula; cualquier saludo personalizado
+// se respeta tal cual.
+const LEGACY_DEFAULT_FIRST_MESSAGE =
+  "Hola, soy Sonia, la asistente virtual. ¿En qué puedo ayudarte?";
 
 export const DEFAULT_SONIA: SoniaSettings = {
   businessName: "",
@@ -58,7 +73,7 @@ export const DEFAULT_SONIA: SoniaSettings = {
   openingHours: "Lunes a viernes de 9:00 a 18:00",
   promptExtra: "",
   slotMinutes: 30,
-  firstMessage: "Hola, soy Sonia, la asistente virtual. ¿En qué puedo ayudarte?",
+  firstMessage: "Hola, soy Paula, la asistente virtual. ¿En qué puedo ayudarte?",
   vapiModelProvider: "anthropic",
   vapiModel: "claude-sonnet-4-5",
   vapiVoiceProvider: "11labs",
@@ -75,9 +90,17 @@ export const DEFAULT_WHATSAPP: WhatsappSettings = {
 
 export function readSettings(raw: unknown): WorkspaceSettings {
   const s = (raw && typeof raw === "object" ? raw : {}) as Record<string, any>;
+  const sonia: SoniaSettings = { ...DEFAULT_SONIA, ...(s.sonia ?? {}) };
+  if (sonia.firstMessage === LEGACY_DEFAULT_FIRST_MESSAGE) {
+    sonia.firstMessage = DEFAULT_SONIA.firstMessage;
+  }
   return {
-    sonia: { ...DEFAULT_SONIA, ...(s.sonia ?? {}) },
+    sonia,
     whatsapp: { ...DEFAULT_WHATSAPP, ...(s.whatsapp ?? {}) },
+    branding: {
+      logoDataUrl:
+        typeof s.branding?.logoDataUrl === "string" ? s.branding.logoDataUrl : "",
+    },
     vapiWebhookToken: typeof s.vapiWebhookToken === "string" ? s.vapiWebhookToken : "",
     whatsappWebhookToken:
       typeof s.whatsappWebhookToken === "string" ? s.whatsappWebhookToken : "",
@@ -108,6 +131,7 @@ export async function saveWorkspaceSettings(
     ...patch,
     sonia: { ...current.sonia, ...(patch.sonia ?? {}) },
     whatsapp: { ...current.whatsapp, ...(patch.whatsapp ?? {}) },
+    branding: { ...current.branding, ...(patch.branding ?? {}) },
     pipeline: patch.pipeline ?? current.pipeline,
   };
   await prisma.workspace.update({

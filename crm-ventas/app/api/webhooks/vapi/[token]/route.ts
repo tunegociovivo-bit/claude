@@ -45,7 +45,7 @@ function buildAssistant(settings: WorkspaceSettings, token: string) {
   const s = settings.sonia;
   const baseUrl = publicBaseUrl();
   return {
-    name: `Sonia — ${s.businessName || "recepción"}`,
+    name: `Paula — ${s.businessName || "recepción"}`,
     firstMessage: s.firstMessage,
     model: {
       provider: s.vapiModelProvider,

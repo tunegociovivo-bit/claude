@@ -236,9 +236,9 @@ function DetailModal({
           {a.customerPhone && <Row label="Teléfono">{a.customerPhone}</Row>}
           <Row label="Origen">
             {a.source === "llamada"
-              ? "📞 Llamada (SONIA)"
+              ? "📞 Llamada (PAULA)"
               : a.source === "whatsapp"
-                ? "💬 WhatsApp (SONIA)"
+                ? "💬 WhatsApp (PAULA)"
                 : "Manual"}
           </Row>
           <Row label="Estado">{a.status}</Row>

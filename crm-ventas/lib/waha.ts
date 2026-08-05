@@ -14,12 +14,54 @@ export class WhatsappNotConfiguredError extends Error {
   }
 }
 
+export class WahaUrlNotAllowedError extends Error {
+  constructor() {
+    super(
+      "La URL de WAHA no está en la lista de orígenes permitidos (WAHA_ALLOWED_ORIGINS)"
+    );
+  }
+}
+
+// Anti-SSRF: el CRM solo habla con los servidores WAHA declarados en
+// WAHA_ALLOWED_ORIGINS (lista de orígenes separada por comas). Así un
+// wahaUrl manipulado no puede usarse para alcanzar servicios internos.
+const DEFAULT_WAHA_ALLOWED_ORIGINS = "http://116.203.16.76:3000";
+
+export function allowedWahaOrigins(): Set<string> {
+  const raw = process.env.WAHA_ALLOWED_ORIGINS || DEFAULT_WAHA_ALLOWED_ORIGINS;
+  const origins = new Set<string>();
+  for (const item of raw.split(",")) {
+    const v = item.trim();
+    if (!v) continue;
+    try {
+      origins.add(new URL(v).origin);
+    } catch {
+      // Entradas mal formadas se ignoran (mejor una lista corta que abrirla)
+    }
+  }
+  return origins;
+}
+
+// Valida una URL de WAHA y devuelve la base normalizada (sin barra final).
+// Rechaza credenciales embebidas (userinfo) y orígenes fuera de la lista.
+export function assertAllowedWahaUrl(raw: string): string {
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new WahaUrlNotAllowedError();
+  }
+  if (url.username || url.password) throw new WahaUrlNotAllowedError();
+  if (!allowedWahaOrigins().has(url.origin)) throw new WahaUrlNotAllowedError();
+  return raw.replace(/\/+$/, "");
+}
+
 export async function getWahaConfig(workspaceId: string): Promise<WahaConfig> {
   const settings = await getWorkspaceSettings(workspaceId);
   const w = settings.whatsapp;
   if (!w.wahaUrl) throw new WhatsappNotConfiguredError();
   return {
-    baseUrl: w.wahaUrl.replace(/\/$/, ""),
+    baseUrl: assertAllowedWahaUrl(w.wahaUrl),
     apiKey: w.wahaApiKeyEnc ? decryptSecret(w.wahaApiKeyEnc) : "",
     session: w.wahaSession || "default",
     countryCode: w.countryCode || "34",
@@ -58,6 +100,7 @@ export async function sendText(opts: {
       chatId: toChatId(opts.to),
       text: opts.text,
     }),
+    redirect: "error",
     signal: AbortSignal.timeout(30_000),
   });
   if (!res.ok) {
@@ -77,10 +120,14 @@ export async function sendText(opts: {
 export async function getSessionStatus(workspaceId: string): Promise<string | null> {
   try {
     const cfg = await getWahaConfig(workspaceId);
-    const res = await fetch(`${cfg.baseUrl}/api/sessions/${cfg.session}`, {
-      headers: headers(cfg),
-      signal: AbortSignal.timeout(10_000),
-    });
+    const res = await fetch(
+      `${cfg.baseUrl}/api/sessions/${encodeURIComponent(cfg.session)}`,
+      {
+        headers: headers(cfg),
+        redirect: "error",
+        signal: AbortSignal.timeout(10_000),
+      }
+    );
     if (!res.ok) return null;
     const data = await res.json().catch(() => null);
     return data?.status ?? null;

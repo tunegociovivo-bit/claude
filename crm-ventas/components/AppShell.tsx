@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
+import { useEffect, useState } from "react";
 import clsx from "clsx";
 import {
   KanbanSquare,
@@ -23,16 +24,34 @@ const NAV = [
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const [logo, setLogo] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch("/api/v1/settings/logo", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => setLogo(d?.logoDataUrl ?? null))
+      .catch(() => undefined);
+  }, []);
+
   return (
     <div className="flex min-h-screen">
       <aside className="flex w-56 shrink-0 flex-col border-r border-slate-200 bg-white">
         <div className="flex items-center gap-2 px-4 py-5">
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand-500 font-bold text-white">
-            S
-          </div>
+          {logo ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={logo}
+              alt="Logo del negocio"
+              className="h-9 w-9 rounded-xl object-cover"
+            />
+          ) : (
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand-500 font-bold text-white">
+              P
+            </div>
+          )}
           <div>
             <div className="text-sm font-semibold leading-tight">CRM Ventas</div>
-            <div className="text-xs text-slate-500">SONIA</div>
+            <div className="text-xs text-slate-500">PAULA</div>
           </div>
         </div>
         <nav className="flex-1 space-y-1 px-2">

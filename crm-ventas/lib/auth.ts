@@ -51,10 +51,18 @@ export const authOptions: NextAuthOptions = {
 };
 
 // Devuelve el workspaceId de la sesión actual o lanza 401 (vía throw).
+// Revalida contra BD que el usuario sigue existiendo en ese workspace: un JWT
+// de un usuario eliminado deja de servir en la siguiente petición.
 export async function requireWorkspaceId(): Promise<string> {
   const session = await getServerSession(authOptions);
   const workspaceId = (session?.user as any)?.workspaceId as string | undefined;
-  if (!workspaceId) throw new Error("UNAUTHORIZED");
+  const userId = (session?.user as any)?.id as string | undefined;
+  if (!workspaceId || !userId) throw new Error("UNAUTHORIZED");
+  const exists = await prisma.user.findFirst({
+    where: { id: userId, workspaceId },
+    select: { id: true },
+  });
+  if (!exists) throw new Error("UNAUTHORIZED");
   return workspaceId;
 }
 
@@ -82,4 +90,20 @@ export function unauthorized() {
 
 export function forbidden() {
   return Response.json({ error: "Solo un administrador puede realizar esta acción" }, { status: 403 });
+}
+
+// Las mutaciones de la API solo se aceptan desde el propio frontend. Si el
+// navegador manda Origin, debe coincidir con el host de la petición o con la
+// URL pública configurada (detrás del proxy de Railway pueden diferir).
+export function isSameOrigin(request: Request): boolean {
+  const origin = request.headers.get("origin");
+  if (!origin) return true;
+  try {
+    const allowed = new Set([new URL(request.url).origin]);
+    const publicUrl = process.env.PUBLIC_APP_URL || process.env.NEXTAUTH_URL;
+    if (publicUrl) allowed.add(new URL(publicUrl).origin);
+    return allowed.has(new URL(origin).origin);
+  } catch {
+    return false;
+  }
 }

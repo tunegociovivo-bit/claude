@@ -30,7 +30,7 @@ export default function LlamadasClient({ calls }: { calls: Call[] }) {
   return (
     <div>
       <div className="mb-4">
-        <h1 className="text-xl font-semibold">Llamadas recibidas por SONIA</h1>
+        <h1 className="text-xl font-semibold">Llamadas recibidas por PAULA</h1>
         <p className="text-sm text-slate-500">
           Transcripción y resumen de cada llamada atendida por la IA
         </p>
@@ -39,7 +39,7 @@ export default function LlamadasClient({ calls }: { calls: Call[] }) {
       {calls.length === 0 ? (
         <div className="card p-10 text-center text-sm text-slate-500">
           Todavía no hay llamadas. Cuando alguien llame al número del negocio,
-          SONIA contestará y la llamada aparecerá aquí.
+          PAULA contestará y la llamada aparecerá aquí.
         </div>
       ) : (
         <div className="card divide-y divide-slate-100">

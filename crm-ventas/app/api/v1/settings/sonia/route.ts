@@ -7,7 +7,7 @@ import {
   saveWorkspaceSettings,
   publicBaseUrl,
 } from "@/lib/settings";
-import { getSessionStatus } from "@/lib/waha";
+import { assertAllowedWahaUrl, getSessionStatus, WahaUrlNotAllowedError } from "@/lib/waha";
 
 // Configuración de SONIA por cliente: prompt, negocio, Vapi, WhatsApp.
 export async function GET() {
@@ -91,6 +91,19 @@ export async function PUT(req: NextRequest) {
   }
   const current = await getWorkspaceSettings(workspaceId);
   const { whatsapp, sonia } = parsed.data;
+
+  // Anti-SSRF: solo se aceptan URLs de WAHA dentro de la lista de orígenes
+  // permitidos (WAHA_ALLOWED_ORIGINS). Vacío = desconfigurar, permitido.
+  if (whatsapp?.wahaUrl) {
+    try {
+      assertAllowedWahaUrl(whatsapp.wahaUrl);
+    } catch (err) {
+      if (err instanceof WahaUrlNotAllowedError) {
+        return NextResponse.json({ error: err.message }, { status: 400 });
+      }
+      throw err;
+    }
+  }
 
   const whatsappPatch: any = { ...whatsapp };
   if (whatsapp && "wahaApiKey" in whatsapp) {

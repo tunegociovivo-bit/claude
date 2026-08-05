@@ -153,7 +153,7 @@ export default function ConversacionesClient() {
                     >
                       {m.meta?.sonia && (
                         <span className="mb-1 flex items-center gap-1 text-xs opacity-75">
-                          <Bot size={12} /> SONIA
+                          <Bot size={12} /> PAULA
                         </span>
                       )}
                       {m.body}

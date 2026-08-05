@@ -304,7 +304,7 @@ export default function PipelineClient({
       <div className="mb-4 flex items-center justify-between">
         <h1 className="text-xl font-semibold">Pipeline</h1>
         <p className="text-sm text-slate-500">
-          Las citas que agenda SONIA aparecen en la columna «Citas»
+          Las citas que agenda PAULA aparecen en la columna «Citas»
         </p>
       </div>
       <DndContext

@@ -167,7 +167,7 @@ export function buildSoniaSystemPrompt(
       : "Estás atendiendo una conversación de WHATSAPP. Responde en mensajes breves y claros, sin markdown pesado.";
 
   return [
-    `Eres Sonia, la recepcionista virtual de ${s.businessName || "este negocio"}.`,
+    `Eres Paula, la recepcionista virtual de ${s.businessName || "este negocio"}.`,
     canal,
     `Hoy es ${hoy}.`,
     "",

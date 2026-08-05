@@ -3,6 +3,9 @@
 import { useEffect, useState } from "react";
 import { Check, Copy } from "lucide-react";
 import VapiPhoneConnectionCard from "@/components/VapiPhoneConnectionCard";
+import WahaConnectionCard from "@/components/WahaConnectionCard";
+import UsersCard from "@/components/UsersCard";
+import LogoCard from "@/components/LogoCard";
 
 type SettingsData = {
   sonia: {
@@ -126,7 +129,7 @@ export default function AjustesClient() {
   return (
     <div className="max-w-3xl space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold">Ajustes de SONIA</h1>
+        <h1 className="text-xl font-semibold">Ajustes de PAULA</h1>
         <button className="btn-primary" onClick={save} disabled={saving}>
           {saving ? "Guardando…" : saved ? "✓ Guardado" : "Guardar cambios"}
         </button>
@@ -145,7 +148,7 @@ export default function AjustesClient() {
         </Field>
         <Field
           label="Información del negocio"
-          hint="Todo lo que SONIA puede contar: servicios, precios, dirección, preguntas frecuentes…"
+          hint="Todo lo que PAULA puede contar: servicios, precios, dirección, preguntas frecuentes…"
         >
           <textarea
             className="input"
@@ -300,8 +303,9 @@ export default function AjustesClient() {
             checked={data.whatsapp.autoReplyEnabled}
             onChange={(e) => patchWhatsapp("autoReplyEnabled", e.target.checked)}
           />
-          SONIA responde automáticamente a los mensajes entrantes
+          PAULA responde automáticamente a los mensajes entrantes
         </label>
+        <WahaConnectionCard />
         <div className="rounded-lg bg-slate-50 p-4 text-sm">
           <p className="mb-2 font-medium">Webhook a configurar en WAHA</p>
           <p className="mb-2 text-xs text-slate-500">
@@ -316,6 +320,9 @@ export default function AjustesClient() {
           </div>
         </div>
       </section>
+
+      <LogoCard />
+      <UsersCard />
     </div>
   );
 }
