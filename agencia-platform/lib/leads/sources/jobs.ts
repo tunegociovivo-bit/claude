@@ -20,15 +20,38 @@ import type { PlacesResult } from "../google-places";
 import { SPAIN_PROVINCES, findProvince } from "../spain-provinces";
 import { municipalitiesForProvince } from "../spain-municipalities";
 
-/** Descarga HTML a través de Scrapfly (render JS, IP española, anti-bot). */
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Descarga HTML a través de Scrapfly (render JS, IP española, anti-bot).
+ * Reintenta ante 429 (límite de concurrencia del plan) y errores 5xx/red con
+ * espera creciente, para no tumbar la búsqueda por un pico transitorio.
+ */
 async function scrapflyFetch(url: string, apiKey: string): Promise<string> {
   const api = `https://api.scrapfly.io/scrape?key=${encodeURIComponent(apiKey)}&asp=true&render_js=true&country=es&url=${encodeURIComponent(url)}`;
-  const resp = await fetch(api, { signal: AbortSignal.timeout(45000) });
-  const data: any = await resp.json().catch(() => null);
-  if (!resp.ok) throw new Error(`Scrapfly ${resp.status}: ${data?.message ?? "error"}`);
-  const html = data?.result?.content;
-  if (typeof html !== "string" || !html) throw new Error("Scrapfly: respuesta sin contenido");
-  return html;
+  let lastErr: Error = new Error("Scrapfly: error desconocido");
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt > 0) await sleep(attempt * 2500); // 2,5s, 5s
+    let resp: Response;
+    try {
+      resp = await fetch(api, { signal: AbortSignal.timeout(45000) });
+    } catch (e: any) {
+      lastErr = new Error(`Scrapfly red: ${e?.message ?? e}`);
+      continue; // timeout / error de red → reintenta
+    }
+    // 429 (concurrencia) y 5xx → transitorios: reintenta.
+    if (resp.status === 429 || resp.status >= 500) {
+      const d: any = await resp.json().catch(() => null);
+      lastErr = new Error(`Scrapfly ${resp.status}: ${d?.message ?? "error"}`);
+      continue;
+    }
+    const data: any = await resp.json().catch(() => null);
+    if (!resp.ok) throw new Error(`Scrapfly ${resp.status}: ${data?.message ?? "error"}`);
+    const html = data?.result?.content;
+    if (typeof html !== "string" || !html) throw new Error("Scrapfly: respuesta sin contenido");
+    return html;
+  }
+  throw lastErr;
 }
 
 /** Quita etiquetas HTML y decodifica las entidades más comunes. */
@@ -339,7 +362,9 @@ export async function collectJobs(opts: {
   let errCalls = 0;
   let lastErr = "";
   const linkedInJobs = queries.flatMap((q) => areas.map((area) => ({ q, area })));
-  const CONC = 6;
+  // Concurrencia BAJA: Scrapfly limita las peticiones simultáneas por plan y
+  // devuelve 429 si te pasas. 2 en paralelo es lo que toleró el plan actual.
+  const CONC = 2;
   const runChunked = async <T,>(items: T[], fn: (it: T) => Promise<void>) => {
     for (let i = 0; i < items.length; i += CONC) {
       await Promise.all(items.slice(i, i + CONC).map(fn));
