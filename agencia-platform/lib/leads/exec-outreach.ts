@@ -170,19 +170,27 @@ const EMAIL_SCHEMA = {
   required: ["subject", "body"]
 };
 
-const EMAIL_SYSTEM = `Eres un consultor de marketing local (Negocio Vivo) que escribe a un DIRECTIVO de una
-empresa para ofrecerle captación de clientes, reseñas y fidelización. Redacta un EMAIL frío B2B:
-- Español de España, trato de usted, profesional y directo. Asunto corto y concreto (sin clickbait).
-- Cuerpo de 4-6 líneas: motivo concreto (oportunidad/problema típico de su sector), una frase de
-  valor y un cierre con propuesta de llamada de 10 min. Nada de adjuntos ni promesas vacías.
-- No inventes datos, cifras ni precios. Devuelve SOLO el JSON {subject, body}.`;
+const EMAIL_SYSTEM = `Eres un consultor de Negocio Vivo, una AGENCIA de marketing digital, que escribe a un
+DIRECTIVO para ofrecer sus servicios. Redacta un EMAIL frío B2B:
+- Español de España, trato de usted CONSISTENTE (no mezcles usted/vosotros), profesional y directo.
+  Asunto corto y concreto (sin clickbait).
+- Cuerpo de 5-7 líneas: motivo concreto (oportunidad/problema de su sector o su vacante), la propuesta
+  de valor y un cierre con una llamada de 10 min. Nada de adjuntos ni promesas vacías.
+- DIFERENCIADOR CLAVE (inclúyelo SIEMPRE, redactado con naturalidad y elegancia, integrado en el
+  discurso, NO como lista ni de forma grandilocuente): deja claro que contratar a Negocio Vivo NO es
+  lo mismo que contratar a una sola persona. Somos una agencia con infraestructura detrás: herramientas
+  especializadas para cada tarea de marketing digital con las que conseguimos resultados excelentes, y
+  un equipo propio de IA para analítica, para la toma de decisiones en campañas de pago y para implantar
+  sistemas que mejoran sus procesos y les facilitan el trabajo del día a día. La idea a transmitir: por
+  el coste (o menos) de un empleado, obtienen un equipo y una tecnología que una sola persona no puede dar.
+- No inventes datos, cifras, clientes ni precios concretos. Devuelve SOLO el JSON {subject, body}.`;
 
 async function writeEmail(opts: { workspaceId: string; company: string; sector?: string | null; director?: string | null; touch: number; jobTitle?: string | null; jobDescription?: string | null }): Promise<{ subject: string; body: string }> {
   const ctx = [
     `Empresa: ${opts.company}`,
     opts.sector ? `Sector: ${opts.sector}` : null,
     opts.jobTitle
-      ? `IMPORTANTE: la empresa tiene AHORA MISMO una oferta de empleo abierta para el puesto "${opts.jobTitle}". Enfoca el email en esa vacante: menciónala con naturalidad y ofrece que Negocio Vivo cubra esa función de marketing/IA como servicio externo (resultados desde el primer mes, sin coste de contratación, alta laboral ni formación). Tono de ayuda, sin presionar ni criticar que contraten.`
+      ? `IMPORTANTE: la empresa tiene AHORA MISMO una oferta de empleo abierta para el puesto "${opts.jobTitle}". Enfoca el email en esa vacante: menciónala con naturalidad y ofrece que Negocio Vivo cubra esa función de marketing/IA como servicio externo (resultados desde el primer mes, sin coste de contratación, alta laboral ni formación). Contrasta con tacto que, en lugar de fichar a UNA sola persona para ese puesto, con la agencia tienen detrás un equipo con herramientas e IA especializadas. Tono de ayuda, sin presionar ni criticar que contraten.`
       : null,
     opts.jobDescription
       ? `Contexto de la oferta (úsalo para personalizar SIN copiarlo literal ni inventar nada que no aparezca): «${opts.jobDescription.slice(0, 600)}»`
@@ -198,7 +206,7 @@ async function writeEmail(opts: { workspaceId: string; company: string; sector?:
     system: EMAIL_SYSTEM,
     user: `${ctx}\n\nEscribe el email:`,
     schema: EMAIL_SCHEMA,
-    maxTokens: 500
+    maxTokens: 650
   });
 }
 
@@ -414,6 +422,35 @@ export async function approveExecOutreach(
     });
   }
   return { sent: true };
+}
+
+/**
+ * Vuelve a redactar con IA el borrador de un email en revisión (mismo lead), para
+ * aplicar cambios de mensaje/discurso a los borradores ya creados. Actualiza el
+ * borrador guardado y lo devuelve.
+ */
+export async function regenerateReviewDraft(workspaceId: string, id: string): Promise<{ subject: string; body: string }> {
+  const row = await prisma.leadExecOutreach.findFirst({ where: { id, workspaceId, status: "pending_review" } });
+  if (!row) throw new Error("No hay un email pendiente de revisión con ese id.");
+  const lead = await prisma.lead.findFirst({
+    where: { id: row.leadId, workspaceId },
+    select: { name: true, category: true, rawData: true }
+  });
+  if (!lead) throw new Error("Lead no encontrado.");
+  const rd: any = lead.rawData ?? {};
+  const jobTitle = typeof rd?.jobTitle === "string" ? rd.jobTitle : null;
+  const jobDescription = typeof rd?.jobDescription === "string" ? rd.jobDescription : null;
+  const mail = await writeEmail({
+    workspaceId,
+    company: lead.name,
+    sector: lead.category,
+    director: row.directorName,
+    touch: 1,
+    jobTitle,
+    jobDescription
+  });
+  await prisma.leadExecOutreach.update({ where: { id: row.id }, data: { draftSubject: mail.subject, draftBody: mail.body } });
+  return mail;
 }
 
 /** Descarta un email pendiente de revisión y detiene su secuencia. */

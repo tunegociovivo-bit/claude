@@ -2641,6 +2641,7 @@ function JobsReviewPanel() {
   const [savingMode, setSavingMode] = useState(false);
   const [items, setItems] = useState<any[] | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [regenId, setRegenId] = useState<string | null>(null);
   const [edits, setEdits] = useState<Record<string, { subject: string; body: string }>>({});
   // Selección múltiple para enviar/descartar en lote.
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -2782,6 +2783,23 @@ function JobsReviewPanel() {
       else alert("No se pudo cambiar el modo.");
     } finally {
       setSavingMode(false);
+    }
+  }
+
+  async function regen(id: string) {
+    setRegenId(id);
+    try {
+      const r = await fetch(`/api/v1/leads/jobs-review/${id}/regenerate`, { method: "POST" });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        alert(j?.error?.message ?? "No se pudo regenerar el email.");
+        return;
+      }
+      // Refresca el texto mostrado (edits) y el guardado (items).
+      setEdits((p) => ({ ...p, [id]: { subject: j.subject ?? "", body: j.body ?? "" } }));
+      setItems((prev) => (prev ?? []).map((it) => (it.id === id ? { ...it, subject: j.subject, body: j.body } : it)));
+    } finally {
+      setRegenId(null);
     }
   }
 
@@ -2977,6 +2995,14 @@ function JobsReviewPanel() {
                     className="inline-flex items-center gap-1 rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
                   >
                     {busyId === it.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "✅"} Aprobar y enviar
+                  </button>
+                  <button
+                    onClick={() => void regen(it.id)}
+                    disabled={regenId === it.id || busyId === it.id}
+                    className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+                    title="Vuelve a redactar el email con IA (aplica el mensaje/discurso actual)"
+                  >
+                    {regenId === it.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "🔄"} Regenerar
                   </button>
                   <button
                     onClick={() => void act(it.id, "reject")}
