@@ -2534,6 +2534,24 @@ function JobsReviewPanel() {
   const [generating, setGenerating] = useState(false);
   // Empresas de la fuente jobs sin email de contacto (no se les puede enviar).
   const [noEmail, setNoEmail] = useState(0);
+  // Texto de la oferta cargado bajo demanda (LinkedIn no lo trae en la búsqueda).
+  const [descs, setDescs] = useState<Record<string, string>>({});
+  const [descBusy, setDescBusy] = useState<string | null>(null);
+
+  async function loadDesc(id: string) {
+    setDescBusy(id);
+    try {
+      const r = await fetch(`/api/v1/leads/jobs-review/${id}/description`, { method: "POST" });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        alert(j?.error?.message ?? "No se pudo cargar el texto de la oferta.");
+        return;
+      }
+      setDescs((p) => ({ ...p, [id]: j.description || "(La oferta no expone texto legible; ábrela con “Ver oferta ↗”)" }));
+    } finally {
+      setDescBusy(null);
+    }
+  }
 
   async function loadMode() {
     try {
@@ -2795,21 +2813,35 @@ function JobsReviewPanel() {
                     </a>
                   )}
                 </div>
-                {/* Texto de la oferta, para leerla sin abrir el enlace. */}
-                {it.jobDescription ? (
-                  <details className="mt-2 rounded border border-slate-200 bg-slate-50/70" open>
-                    <summary className="cursor-pointer select-none px-2 py-1 text-[11px] font-semibold text-slate-600">
-                      📄 Oferta de empleo
-                    </summary>
-                    <div className="max-h-44 overflow-y-auto whitespace-pre-line px-2.5 pb-2 text-[12px] leading-relaxed text-slate-700">
-                      {it.jobDescription}
-                    </div>
-                  </details>
-                ) : (
-                  <div className="mt-2 text-[11px] text-slate-400">
-                    (No se pudo extraer el texto de la oferta; ábrela con "Ver oferta ↗")
-                  </div>
-                )}
+                {/* Texto de la oferta, para leerla sin abrir el enlace. InfoJobs
+                    lo trae ya; LinkedIn se carga bajo demanda con el botón. */}
+                {(() => {
+                  const desc = it.jobDescription ?? descs[it.id] ?? null;
+                  if (desc) {
+                    return (
+                      <details className="mt-2 rounded border border-slate-200 bg-slate-50/70" open>
+                        <summary className="cursor-pointer select-none px-2 py-1 text-[11px] font-semibold text-slate-600">
+                          📄 Oferta de empleo
+                        </summary>
+                        <div className="max-h-44 overflow-y-auto whitespace-pre-line px-2.5 pb-2 text-[12px] leading-relaxed text-slate-700">
+                          {desc}
+                        </div>
+                      </details>
+                    );
+                  }
+                  if (it.jobUrl) {
+                    return (
+                      <button
+                        onClick={() => void loadDesc(it.id)}
+                        disabled={descBusy === it.id}
+                        className="mt-2 inline-flex items-center gap-1 rounded border border-slate-300 bg-white px-2 py-1 text-[11px] font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+                      >
+                        {descBusy === it.id ? <Loader2 className="h-3 w-3 animate-spin" /> : "📄"} Cargar texto de la oferta
+                      </button>
+                    );
+                  }
+                  return null;
+                })()}
                 <input
                   value={e.subject}
                   onChange={(ev) => setEdits((p) => ({ ...p, [it.id]: { subject: ev.target.value, body: e.body } }))}

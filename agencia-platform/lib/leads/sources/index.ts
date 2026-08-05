@@ -44,7 +44,7 @@ async function metaAdsToken(workspaceId: string): Promise<string | null> {
 }
 
 /** API key de Scrapfly: env primero, si no, Ajustes del workspace (cifrado). */
-async function scrapflyKey(workspaceId: string): Promise<string | null> {
+export async function scrapflyKey(workspaceId: string): Promise<string | null> {
   const env = process.env.SCRAPFLY_API_KEY;
   if (env) return env;
   const ws = await prisma.workspace.findUnique({ where: { id: workspaceId }, select: { settings: true } });

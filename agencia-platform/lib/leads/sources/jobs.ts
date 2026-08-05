@@ -113,27 +113,25 @@ export function parseLinkedInCards(html: string): RawOffer[] {
  * LinkedIn "jobs guest" API (sin login): devuelve tarjetas de oferta con
  * empresa + puesto + ubicación + enlace. Es la fuente más fiable de parsear.
  */
-async function collectLinkedIn(keyword: string, location: string, apiKey: string): Promise<RawOffer[]> {
+async function collectLinkedIn(keyword: string, location: string, apiKey: string, maxPages = 3): Promise<RawOffer[]> {
   const out: RawOffer[] = [];
-  // Ámbito geográfico. Si el usuario pidió una provincia/ciudad, acotamos a
-  // "<zona>, España" (LinkedIn geolocaliza el texto). Si no, forzamos España a
-  // nivel país con su geoId — SIN esto la API "guest" devuelve ofertas de todo
-  // el mundo (el bug de empresas de EE. UU.).
-  const wanted = location.trim();
-  const loc = wanted ? `${wanted}, España` : "España";
-  const geoParam = wanted ? "" : `&geoId=${LINKEDIN_SPAIN_GEOID}`;
-  // La API "guest" pagina de 10 en 10 con `start`. Tomamos 3 páginas (~30
-  // ofertas) para acotar el coste de Scrapfly.
-  for (const start of [0, 10, 20]) {
+  // Ámbito geográfico por TEXTO de ubicación ("<zona>, España"). Es el método
+  // probado que sí devuelve resultados españoles; el post-filtro isInSpain hace
+  // de red de seguridad. Para "toda España" el llamador itera varias ciudades.
+  const loc = location.trim() ? `${location.trim()}, España` : "España";
+  // La API "guest" pagina de 10 en 10 con `start`.
+  const starts = [0, 10, 20].slice(0, Math.max(1, maxPages));
+  for (const start of starts) {
     if (out.length >= 40) break;
     const url =
       `https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?keywords=${encodeURIComponent(keyword)}` +
-      `&location=${encodeURIComponent(loc)}${geoParam}&start=${start}`;
+      `&location=${encodeURIComponent(loc)}&start=${start}`;
     let html = "";
     try {
       html = await scrapflyFetch(url, apiKey);
-    } catch {
-      break; // si una página falla, no insistimos
+    } catch (e) {
+      if (start === 0) throw e; // la 1ª página falla → es un fallo real (Scrapfly)
+      break; // paginación parcial: paramos sin romper
     }
     const cards = parseLinkedInCards(html);
     if (cards.length === 0) break;
@@ -150,12 +148,7 @@ async function collectLinkedIn(keyword: string, location: string, apiKey: string
 async function collectInfoJobs(keyword: string, apiKey: string): Promise<RawOffer[]> {
   const kwSlug = keyword.trim().toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
   const url = `https://www.infojobs.net/ofertas-trabajo/${encodeURIComponent(kwSlug || "marketing")}`;
-  let html = "";
-  try {
-    html = await scrapflyFetch(url, apiKey);
-  } catch {
-    return [];
-  }
+  const html = await scrapflyFetch(url, apiKey); // deja propagar el fallo al llamador
   // Sin fallbackLocation: no inventamos la provincia para las ofertas sin
   // localidad (así el geofiltro por provincia no las da por válidas a ciegas).
   return parseInfoJobsJsonLd(html);
@@ -217,8 +210,10 @@ function companyKey(name: string): string {
 // (de ahí el bug de empresas de EE. UU.). Acotamos la consulta a España y,
 // además, filtramos por texto de ubicación como red de seguridad.
 
-/** geoId de España en LinkedIn (fuerza el ámbito país en la API guest). */
-const LINKEDIN_SPAIN_GEOID = "105646813";
+// Ciudades para el barrido "toda España": las áreas metropolitanas con más
+// oferta de empleo. LinkedIn geolocaliza por texto ("Madrid, España"), que es el
+// método probado. Cubre el grueso del mercado sin disparar el nº de llamadas.
+const SPAIN_METROS = ["Madrid", "Barcelona", "Valencia", "Sevilla", "Málaga", "Bilbao"];
 
 /** Normaliza para comparar ubicaciones (minúsculas, sin acentos). */
 function norm(s: string | null | undefined): string {
@@ -263,7 +258,7 @@ function isInSpain(loc: string | null, board: string): boolean {
  * `JobPosting.description` (lo incluyen tanto LinkedIn como InfoJobs en la ficha)
  * y, como respaldo, el bloque de texto de la descripción de LinkedIn. Best-effort.
  */
-async function fetchJobDescription(jobUrl: string, apiKey: string): Promise<string | null> {
+export async function fetchJobDescription(jobUrl: string, apiKey: string): Promise<string | null> {
   let html = "";
   try {
     html = await scrapflyFetch(jobUrl, apiKey);
@@ -329,16 +324,48 @@ export async function collectJobs(opts: {
   // Zona pedida: en scope "spain" no hay provincia (toda España); en "custom"
   // el usuario elige provincia/ciudad y filtramos por ella.
   const wanted = opts.scope === "spain" ? "" : opts.location.trim();
-  // Ejecuta cada consulta en ambos portales (best-effort) y fusiona.
+  // Áreas a barrer en LinkedIn: en "custom" solo la zona pedida (3 páginas);
+  // en "toda España" iteramos las metrópolis principales (1 página cada una)
+  // — el método por TEXTO de ciudad es el que de verdad devuelve resultados.
+  const areas = opts.scope === "spain" ? SPAIN_METROS : [wanted];
+  const liPages = opts.scope === "spain" ? 1 : 3;
+
+  // Recogida con concurrencia acotada y CONTEO de errores: si TODO falla (0
+  // respuestas OK), lanzamos el error para que la búsqueda salga FAILED con el
+  // motivo (antes se tragaba y salía "COMPLETED · 0 leads" sin pista).
   const li: RawOffer[] = [];
   const ij: RawOffer[] = [];
-  for (const q of queries) {
-    const [liQ, ijQ] = await Promise.all([
-      collectLinkedIn(q, wanted, opts.apiKey).catch(() => [] as RawOffer[]),
-      collectInfoJobs(q, opts.apiKey).catch(() => [] as RawOffer[])
-    ]);
-    li.push(...liQ);
-    ij.push(...ijQ);
+  let okCalls = 0;
+  let errCalls = 0;
+  let lastErr = "";
+  const linkedInJobs = queries.flatMap((q) => areas.map((area) => ({ q, area })));
+  const CONC = 6;
+  const runChunked = async <T,>(items: T[], fn: (it: T) => Promise<void>) => {
+    for (let i = 0; i < items.length; i += CONC) {
+      await Promise.all(items.slice(i, i + CONC).map(fn));
+    }
+  };
+  await runChunked(linkedInJobs, async ({ q, area }) => {
+    try {
+      li.push(...(await collectLinkedIn(q, area, opts.apiKey, liPages)));
+      okCalls++;
+    } catch (e: any) {
+      errCalls++;
+      lastErr = String(e?.message ?? e);
+    }
+  });
+  // InfoJobs es nacional (no por ciudad): una consulta por keyword.
+  await runChunked(queries, async (q) => {
+    try {
+      ij.push(...(await collectInfoJobs(q, opts.apiKey)));
+      okCalls++;
+    } catch (e: any) {
+      errCalls++;
+      lastErr = String(e?.message ?? e);
+    }
+  });
+  if (okCalls === 0 && errCalls > 0) {
+    throw new Error(`No se pudo scrapear ninguna oferta (Scrapfly): ${lastErr}`);
   }
 
   // Geofiltro: (1) descarta ofertas que no sean de España (arregla el bug de
@@ -365,21 +392,10 @@ export async function collectJobs(opts: {
     if (!byCompany.has(key)) byCompany.set(key, o);
   }
 
-  // Descripción de la oferta: para leerla sin abrir el enlace. La que no la trае
-  // (LinkedIn no la da en el listado) se baja de su ficha, best-effort y acotado
-  // por coste (cada descarga es una llamada a Scrapfly).
-  const entries = [...byCompany.values()];
-  const MAX_DESC = 40;
-  const DESC_CHUNK = 5;
-  const toFetch = entries.filter((o) => !o.description && o.jobUrl).slice(0, MAX_DESC);
-  for (let i = 0; i < toFetch.length; i += DESC_CHUNK) {
-    const slice = toFetch.slice(i, i + DESC_CHUNK);
-    await Promise.all(
-      slice.map(async (o) => {
-        o.description = await fetchJobDescription(o.jobUrl as string, opts.apiKey).catch(() => null);
-      })
-    );
-  }
+  // La descripción de la oferta NO se baja aquí (sería 1 llamada extra de Scrapfly
+  // por empresa → lento y caro en barridos grandes). InfoJobs ya la trae gratis en
+  // su JSON-LD; la de LinkedIn se carga BAJO DEMANDA al desplegar la oferta en el
+  // panel (endpoint jobs-review/[id]/description).
 
   const out: PlacesResult[] = [];
   for (const [key, o] of byCompany) {
