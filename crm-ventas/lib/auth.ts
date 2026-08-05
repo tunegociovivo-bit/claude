@@ -58,6 +58,28 @@ export async function requireWorkspaceId(): Promise<string> {
   return workspaceId;
 }
 
+export async function requireWorkspaceAdmin(): Promise<{
+  workspaceId: string;
+  userId: string;
+}> {
+  const session = await getServerSession(authOptions);
+  const workspaceId = (session?.user as any)?.workspaceId as string | undefined;
+  const userId = (session?.user as any)?.id as string | undefined;
+  if (!workspaceId || !userId) throw new Error("UNAUTHORIZED");
+
+  // Revalidamos el rol en BD para que una sesión antigua no conserve permisos.
+  const user = await prisma.user.findFirst({
+    where: { id: userId, workspaceId },
+    select: { role: true },
+  });
+  if (!user || user.role !== "ADMIN") throw new Error("FORBIDDEN");
+  return { workspaceId, userId };
+}
+
 export function unauthorized() {
   return Response.json({ error: "No autorizado" }, { status: 401 });
+}
+
+export function forbidden() {
+  return Response.json({ error: "Solo un administrador puede realizar esta acción" }, { status: 403 });
 }

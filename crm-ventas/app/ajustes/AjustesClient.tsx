@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Check, Copy } from "lucide-react";
+import VapiPhoneConnectionCard from "@/components/VapiPhoneConnectionCard";
 
 type SettingsData = {
   sonia: {
@@ -223,6 +224,7 @@ export default function AjustesClient() {
             />
           </Field>
         </div>
+        <VapiPhoneConnectionCard />
         <div className="rounded-lg bg-slate-50 p-4 text-sm">
           <p className="mb-2 font-medium">Cómo conectar el teléfono</p>
           <ol className="list-inside list-decimal space-y-1 text-slate-600">

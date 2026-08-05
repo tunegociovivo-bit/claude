@@ -22,6 +22,27 @@ model Workspace {
   appointments Appointment[]
   messages     Message[]
   calls        Call[]
+  vapiPhoneConnection VapiPhoneConnection?
+}
+
+// Número de Vapi aprovisionado desde el CRM. La relación 1:1 limita v1 a un
+// único número por negocio; las credenciales del proveedor nunca se persisten.
+model VapiPhoneConnection {
+  id                String   @id @default(cuid())
+  workspaceId       String   @unique
+  mode              String
+  status            String   @default("PENDING")
+  providerKind      String?
+  vapiPhoneNumberId String?  @unique
+  e164              String?
+  label             String?
+  operationKey      String   @unique
+  lastErrorCode     String?
+  lastErrorMessage  String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 }
 
 model User {
