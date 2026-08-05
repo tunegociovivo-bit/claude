@@ -1,0 +1,129 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Un Workspace = un cliente del CRM (multi-tenant). Su configuración de SONIA
+// (prompt, teléfono, WhatsApp, columnas del pipeline) vive en `settings`.
+model Workspace {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  settings  Json     @default("{}")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users        User[]
+  contacts     Contact[]
+  appointments Appointment[]
+  messages     Message[]
+  calls        Call[]
+}
+
+model User {
+  id           String   @id @default(cuid())
+  workspaceId  String
+  email        String   @unique
+  passwordHash String
+  name         String?
+  role         String   @default("ADMIN") // ADMIN | MEMBER
+  createdAt    DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+}
+
+// Tarjeta del pipeline. `stage` es el id de columna del kanban
+// (nuevos | conversacion | citas | cerrados por defecto).
+model Contact {
+  id          String   @id @default(cuid())
+  workspaceId String
+  name        String
+  phone       String?
+  email       String?
+  stage       String   @default("nuevos")
+  order       Int      @default(0)
+  source      String   @default("manual") // manual | whatsapp | llamada
+  notes       String?  @db.Text
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace    Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  appointments Appointment[]
+  messages     Message[]
+  calls        Call[]
+
+  @@index([workspaceId, stage])
+  @@index([workspaceId, phone])
+}
+
+model Appointment {
+  id            String   @id @default(cuid())
+  workspaceId   String
+  contactId     String?
+  title         String?
+  customerName  String
+  customerPhone String?
+  startsAt      DateTime
+  durationMin   Int      @default(30)
+  status        String   @default("confirmada") // confirmada | pendiente | cancelada
+  source        String   @default("manual") // manual | whatsapp | llamada
+  notes         String?  @db.Text
+  callId        String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  contact   Contact?  @relation(fields: [contactId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, startsAt])
+}
+
+// Hilo de WhatsApp (entrantes y salientes) por teléfono.
+model Message {
+  id          String   @id @default(cuid())
+  workspaceId String
+  contactId   String?
+  phone       String // teléfono normalizado (sin +) o chatId @lid
+  direction   String // in | out
+  body        String   @db.Text
+  externalId  String?
+  meta        Json?
+  createdAt   DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  contact   Contact?  @relation(fields: [contactId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, phone, createdAt])
+  @@index([workspaceId, externalId])
+}
+
+// Registro de llamadas recibidas por SONIA (Vapi inbound).
+model Call {
+  id             String   @id @default(cuid())
+  workspaceId    String
+  contactId      String?
+  provider       String   @default("vapi")
+  providerCallId String?
+  fromNumber     String?
+  toNumber       String?
+  status         String   @default("en-curso") // en-curso | finalizada | fallida
+  endedReason    String?
+  durationSec    Int?
+  transcript     String?  @db.Text
+  summary        String?  @db.Text
+  recordingUrl   String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  contact   Contact?  @relation(fields: [contactId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, createdAt])
+  @@index([providerCallId])
+}
