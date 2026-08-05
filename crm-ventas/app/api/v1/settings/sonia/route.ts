@@ -1,13 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { requireWorkspaceId, unauthorized } from "@/lib/auth";
-import { encryptSecret, maskSecret, decryptSecret, randomToken } from "@/lib/crypto";
+import { randomToken } from "@/lib/crypto";
 import {
   getWorkspaceSettings,
   saveWorkspaceSettings,
   publicBaseUrl,
 } from "@/lib/settings";
-import { assertAllowedWahaUrl, getSessionStatus, WahaUrlNotAllowedError } from "@/lib/waha";
 
 // Configuración de SONIA por cliente: prompt, negocio, Vapi, WhatsApp.
 export async function GET() {
@@ -28,25 +27,20 @@ export async function GET() {
   }
 
   const base = publicBaseUrl();
-  const wahaStatus = settings.whatsapp.wahaUrl
-    ? await getSessionStatus(workspaceId)
-    : null;
 
+  // La fontanería de WAHA (URL, API key, sesión, estado) no se expone al
+  // cliente: la conexión se gestiona con el flujo de QR (waha-connection) y
+  // las credenciales viven cifradas en BD para uso exclusivo del servidor.
   return NextResponse.json({
     sonia: settings.sonia,
     whatsapp: {
-      ...settings.whatsapp,
-      wahaApiKeyEnc: undefined,
-      wahaApiKeyMasked: settings.whatsapp.wahaApiKeyEnc
-        ? maskSecret(decryptSecret(settings.whatsapp.wahaApiKeyEnc))
-        : "",
+      countryCode: settings.whatsapp.countryCode,
+      autoReplyEnabled: settings.whatsapp.autoReplyEnabled,
     },
     pipeline: settings.pipeline,
     webhooks: {
       vapi: `${base}/api/webhooks/vapi/${settings.vapiWebhookToken}`,
-      whatsapp: `${base}/api/webhooks/whatsapp/${settings.whatsappWebhookToken}`,
     },
-    wahaStatus,
   });
 }
 
@@ -66,11 +60,10 @@ const putSchema = z.object({
     })
     .partial()
     .optional(),
+  // URL, API key y sesión de WAHA NO se aceptan desde el cliente: se
+  // aprovisionan server-side y se conservan tal cual en BD.
   whatsapp: z
     .object({
-      wahaUrl: z.string().max(500),
-      wahaApiKey: z.string().max(500), // en claro; se cifra aquí
-      wahaSession: z.string().max(100),
       countryCode: z.string().max(4),
       autoReplyEnabled: z.boolean(),
     })
@@ -92,30 +85,11 @@ export async function PUT(req: NextRequest) {
   const current = await getWorkspaceSettings(workspaceId);
   const { whatsapp, sonia } = parsed.data;
 
-  // Anti-SSRF: solo se aceptan URLs de WAHA dentro de la lista de orígenes
-  // permitidos (WAHA_ALLOWED_ORIGINS). Vacío = desconfigurar, permitido.
-  if (whatsapp?.wahaUrl) {
-    try {
-      assertAllowedWahaUrl(whatsapp.wahaUrl);
-    } catch (err) {
-      if (err instanceof WahaUrlNotAllowedError) {
-        return NextResponse.json({ error: err.message }, { status: 400 });
-      }
-      throw err;
-    }
-  }
-
-  const whatsappPatch: any = { ...whatsapp };
-  if (whatsapp && "wahaApiKey" in whatsapp) {
-    whatsappPatch.wahaApiKeyEnc = whatsapp.wahaApiKey
-      ? encryptSecret(whatsapp.wahaApiKey)
-      : "";
-    delete whatsappPatch.wahaApiKey;
-  }
-
+  // Solo campos funcionales: la fontanería de WAHA (URL/key/sesión) nunca se
+  // toca desde aquí, así que lo guardado en BD se conserva intacto.
   await saveWorkspaceSettings(workspaceId, {
     sonia: { ...current.sonia, ...(sonia ?? {}) },
-    whatsapp: { ...current.whatsapp, ...whatsappPatch },
+    whatsapp: { ...current.whatsapp, ...(whatsapp ?? {}) },
   });
   return NextResponse.json({ ok: true });
 }

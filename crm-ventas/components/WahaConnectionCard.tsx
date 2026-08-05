@@ -140,8 +140,8 @@ export default function WahaConnectionCard() {
 
       {connection && !connection.configured && (
         <p className="mt-3 rounded-md bg-amber-50 p-3 text-sm text-amber-800">
-          Guarda primero la URL y la API key de WAHA (arriba) para poder vincular
-          el WhatsApp.
+          El servicio de WhatsApp de este negocio aún no está aprovisionado.
+          Contacta con Negocio Vivo para activarlo.
         </p>
       )}
 

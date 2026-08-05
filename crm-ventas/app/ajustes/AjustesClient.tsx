@@ -21,14 +21,10 @@ type SettingsData = {
     vapiVoiceId: string;
   };
   whatsapp: {
-    wahaUrl: string;
-    wahaSession: string;
     countryCode: string;
     autoReplyEnabled: boolean;
-    wahaApiKeyMasked: string;
   };
-  webhooks: { vapi: string; whatsapp: string };
-  wahaStatus: string | null;
+  webhooks: { vapi: string };
 };
 
 function CopyButton({ value }: { value: string }) {
@@ -68,7 +64,6 @@ function Field({
 
 export default function AjustesClient() {
   const [data, setData] = useState<SettingsData | null>(null);
-  const [wahaApiKey, setWahaApiKey] = useState("");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -101,16 +96,13 @@ export default function AjustesClient() {
     if (!data) return;
     setSaving(true);
     setError(null);
-    const body: any = {
+    const body = {
       sonia: data.sonia,
       whatsapp: {
-        wahaUrl: data.whatsapp.wahaUrl,
-        wahaSession: data.whatsapp.wahaSession,
         countryCode: data.whatsapp.countryCode,
         autoReplyEnabled: data.whatsapp.autoReplyEnabled,
       },
     };
-    if (wahaApiKey) body.whatsapp.wahaApiKey = wahaApiKey;
     const res = await fetch("/api/v1/settings/sonia", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
@@ -121,7 +113,6 @@ export default function AjustesClient() {
       setError("No se pudo guardar");
       return;
     }
-    setWahaApiKey("");
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   }
@@ -249,47 +240,13 @@ export default function AjustesClient() {
       </section>
 
       <section className="card space-y-4 p-6">
-        <div className="flex items-center justify-between">
-          <h2 className="font-semibold">WhatsApp (WAHA)</h2>
-          {data.wahaStatus && (
-            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs">
-              Sesión: <b>{data.wahaStatus}</b>
-            </span>
-          )}
-        </div>
+        <h2 className="font-semibold">WhatsApp</h2>
+        <WahaConnectionCard />
         <div className="grid grid-cols-2 gap-4">
-          <Field label="URL de WAHA">
-            <input
-              className="input"
-              value={data.whatsapp.wahaUrl}
-              onChange={(e) => patchWhatsapp("wahaUrl", e.target.value)}
-              placeholder="https://waha.midominio.com"
-            />
-          </Field>
           <Field
-            label="API Key de WAHA"
-            hint={
-              data.whatsapp.wahaApiKeyMasked
-                ? `Guardada: ${data.whatsapp.wahaApiKeyMasked} (deja vacío para no cambiarla)`
-                : "Se guarda cifrada"
-            }
+            label="Prefijo de país por defecto"
+            hint="Se usa para completar teléfonos sin prefijo (34 = España)"
           >
-            <input
-              className="input"
-              type="password"
-              value={wahaApiKey}
-              onChange={(e) => setWahaApiKey(e.target.value)}
-              placeholder="••••••••"
-            />
-          </Field>
-          <Field label="Sesión">
-            <input
-              className="input"
-              value={data.whatsapp.wahaSession}
-              onChange={(e) => patchWhatsapp("wahaSession", e.target.value)}
-            />
-          </Field>
-          <Field label="Prefijo de país por defecto">
             <input
               className="input"
               value={data.whatsapp.countryCode}
@@ -305,20 +262,6 @@ export default function AjustesClient() {
           />
           PAULA responde automáticamente a los mensajes entrantes
         </label>
-        <WahaConnectionCard />
-        <div className="rounded-lg bg-slate-50 p-4 text-sm">
-          <p className="mb-2 font-medium">Webhook a configurar en WAHA</p>
-          <p className="mb-2 text-xs text-slate-500">
-            Eventos: <code>message</code>, <code>message.any</code>,{" "}
-            <code>message.ack</code>
-          </p>
-          <div className="flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1">
-            <code className="min-w-0 flex-1 truncate text-xs">
-              {data.webhooks.whatsapp}
-            </code>
-            <CopyButton value={data.webhooks.whatsapp} />
-          </div>
-        </div>
       </section>
 
       <LogoCard />

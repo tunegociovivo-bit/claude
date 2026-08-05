@@ -91,7 +91,7 @@ async function wahaCtx(workspaceId: string): Promise<WahaCtx> {
   const w = settings.whatsapp;
   if (!w.wahaUrl || !w.wahaApiKeyEnc) {
     throw new WahaSelfServiceError(
-      "Configura y guarda primero la URL y la API key de WAHA",
+      "El servicio de WhatsApp aún no está aprovisionado para este negocio",
       409
     );
   }
