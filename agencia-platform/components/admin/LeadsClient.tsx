@@ -2536,6 +2536,7 @@ function JobsInboxConfig({ onIngested }: { onIngested: () => void }) {
   const [enabled, setEnabled] = useState(false);
   const [saving, setSaving] = useState(false);
   const [ingesting, setIngesting] = useState(false);
+  const [testing, setTesting] = useState(false);
   const [msg, setMsg] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
 
   async function load() {
@@ -2564,6 +2565,22 @@ function JobsInboxConfig({ onIngested }: { onIngested: () => void }) {
       setMsg({ kind: "ok", text: "Guardado." });
       void load();
     } finally { setSaving(false); }
+  }
+
+  async function testConn() {
+    setTesting(true);
+    setMsg(null);
+    try {
+      const body: any = { host, port: Number(port) || 993 };
+      // Si hay credenciales en el formulario, probamos esas; si no, las guardadas.
+      if (user.trim()) body.user = user.trim();
+      if (pass.trim()) body.password = pass.trim();
+      const r = await fetch("/api/v1/leads/jobs-inbox/test", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) { setMsg({ kind: "err", text: j?.error?.message ?? "Error al probar la conexión." }); return; }
+      if (!j.ok) { setMsg({ kind: "err", text: j.error ?? "No conecta." }); return; }
+      setMsg({ kind: "ok", text: `✅ Conecta. ${j.unseen ?? 0} correo(s) sin leer · ${j.jobUnseen ?? 0} de portales de empleo pendientes de procesar.` });
+    } finally { setTesting(false); }
   }
 
   async function ingestNow() {
@@ -2604,6 +2621,9 @@ function JobsInboxConfig({ onIngested }: { onIngested: () => void }) {
         <div className="flex items-center gap-2 flex-wrap">
           <button onClick={() => void save()} disabled={saving} className="inline-flex items-center gap-1 rounded-md bg-slate-700 px-2.5 py-1 text-xs font-semibold text-white hover:bg-slate-800 disabled:opacity-50">
             {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />} Guardar
+          </button>
+          <button onClick={() => void testConn()} disabled={testing} className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50" title="Verifica que el buzón conecta (separa un fallo de credenciales de uno de extracción)">
+            {testing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "🔌"} Probar conexión
           </button>
           <button onClick={() => void ingestNow()} disabled={ingesting || !cfg?.jobsInboxConfigured} className="inline-flex items-center gap-1 rounded-md bg-indigo-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-indigo-700 disabled:opacity-50" title={cfg?.jobsInboxConfigured ? "Lee ahora las alertas nuevas del buzón" : "Guarda primero los datos del buzón"}>
             {ingesting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "📥"} Revisar alertas ahora

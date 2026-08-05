@@ -51,6 +51,65 @@ export async function getJobsInboxConfig(workspaceId: string): Promise<JobsInbox
   };
 }
 
+/**
+ * Prueba la conexión IMAP del buzón (sin procesar nada): verifica credenciales y
+ * cuenta cuántos correos no leídos hay y cuántos son de portales de empleo. Sirve
+ * para separar un fallo de credenciales de un fallo de extracción. Admite
+ * credenciales "en caliente" (del formulario, antes de guardar).
+ */
+export async function testJobsInbox(
+  workspaceId: string,
+  override?: { host?: string; port?: number; user?: string; pass?: string }
+): Promise<{ ok: boolean; error?: string; unseen?: number; jobUnseen?: number }> {
+  let cfg = await getJobsInboxConfig(workspaceId);
+  if (override?.user && override?.pass) {
+    cfg = {
+      host: (override.host || cfg?.host || "imap.gmail.com").trim(),
+      port: override.port || cfg?.port || 993,
+      user: override.user.trim(),
+      pass: override.pass,
+      enabled: cfg?.enabled ?? false
+    };
+  }
+  if (!cfg) return { ok: false, error: "Buzón no configurado. Guarda el correo y la contraseña de aplicación primero." };
+
+  const { ImapFlow } = await import("imapflow");
+  const client = new ImapFlow({
+    host: cfg.host,
+    port: cfg.port,
+    secure: cfg.port === 993,
+    auth: { user: cfg.user, pass: cfg.pass },
+    logger: false,
+    ...IMAP_TIMEOUTS
+  });
+  try {
+    await withTimeout(client.connect(), 15000, "IMAP");
+  } catch (e: any) {
+    const detail = e?.authenticationFailed ? " (autenticación rechazada — activa IMAP y usa una contraseña de aplicación, no la del correo)" : "";
+    return { ok: false, error: `IMAP: ${String(e?.message ?? e).slice(0, 180)}${detail}` };
+  }
+  try {
+    const lock = await client.getMailboxLock("INBOX");
+    try {
+      const uids = (await client.search({ seen: false }, { uid: true })) || [];
+      let jobUnseen = 0;
+      for (const uid of uids.slice(0, 60)) {
+        const msg = await client.fetchOne(String(uid), { envelope: true }, { uid: true });
+        if (!msg || typeof msg === "boolean") continue;
+        const fromAddr = ((msg.envelope as any)?.from ?? []).map((a: any) => a.address ?? "").join(",").toLowerCase();
+        if (JOB_SENDERS.some((d) => fromAddr.includes(d))) jobUnseen++;
+      }
+      return { ok: true, unseen: uids.length, jobUnseen };
+    } finally {
+      lock.release();
+    }
+  } catch (e: any) {
+    return { ok: false, error: `IMAP: ${String(e?.message ?? e).slice(0, 180)}` };
+  } finally {
+    await client.logout().catch(() => {});
+  }
+}
+
 const EXTRACT_SCHEMA = {
   type: "object",
   properties: {
