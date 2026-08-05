@@ -422,35 +422,53 @@ export async function collectJobs(opts: {
   // su JSON-LD; la de LinkedIn se carga BAJO DEMANDA al desplegar la oferta en el
   // panel (endpoint jobs-review/[id]/description).
 
-  const out: PlacesResult[] = [];
-  for (const [key, o] of byCompany) {
-    out.push({
-      placeId: `jobs:${key}`,
-      name: o.company,
-      formattedAddress: o.location,
-      province: o.location || opts.location.trim() || null,
-      types: ["jobs.listing"],
-      category: "Empresa que contrata marketing/IA",
-      latitude: null,
-      longitude: null,
-      rating: null,
-      userRatingCount: 0,
-      priceLevel: null,
-      businessStatus: "OPERATIONAL",
-      gmbUrl: null,
-      website: null,
-      phone: null,
-      internationalPhone: null,
-      rawData: {
-        source: "jobs",
-        jobsOutreach: true, // marca para arrancar la secuencia de email
-        jobTitle: o.jobTitle,
-        jobUrl: o.jobUrl,
-        companyUrl: o.companyUrl,
-        board: o.board,
-        jobDescription: o.description ?? null
-      }
-    });
+  return [...byCompany.values()].map((o) => offerToPlaces(o, opts.location.trim()));
+}
+
+/** Mapea una oferta a un lead (PlacesResult) de la fuente jobs. */
+export function offerToPlaces(o: RawOffer, fallbackLocation = ""): PlacesResult {
+  const key = companyKey(o.company);
+  return {
+    placeId: `jobs:${key}`,
+    name: o.company,
+    formattedAddress: o.location,
+    province: o.location || fallbackLocation || null,
+    types: ["jobs.listing"],
+    category: "Empresa que contrata marketing/IA",
+    latitude: null,
+    longitude: null,
+    rating: null,
+    userRatingCount: 0,
+    priceLevel: null,
+    businessStatus: "OPERATIONAL",
+    gmbUrl: null,
+    website: null,
+    phone: null,
+    internationalPhone: null,
+    rawData: {
+      source: "jobs",
+      jobsOutreach: true, // marca para arrancar la secuencia de email
+      jobTitle: o.jobTitle,
+      jobUrl: o.jobUrl,
+      companyUrl: o.companyUrl,
+      board: o.board,
+      jobDescription: o.description ?? null
+    }
+  };
+}
+
+/**
+ * Convierte ofertas SUELTAS (p.ej. de la bandeja de alertas por email) en leads:
+ * filtra a puestos de marketing/IA, deduplica por empresa y mapea. Sin geofiltro
+ * (las alertas ya vienen acotadas por la zona configurada en el portal).
+ */
+export function offersToLeadResults(offers: RawOffer[], fallbackLocation = ""): PlacesResult[] {
+  const byCompany = new Map<string, RawOffer>();
+  for (const o of offers) {
+    if (!isMarketingRole(o.jobTitle)) continue;
+    const key = companyKey(o.company);
+    if (!key || key.length < 2) continue;
+    if (!byCompany.has(key)) byCompany.set(key, o);
   }
-  return out;
+  return [...byCompany.values()].map((o) => offerToPlaces(o, fallbackLocation));
 }

@@ -18,7 +18,9 @@ import { SPAIN_PROVINCES, findProvince } from "./spain-provinces";
 import { municipalitiesForProvince } from "./spain-municipalities";
 import { expandKeyword } from "./synonyms";
 import { classifyLeadsRelevance, type RelevanceVerdict } from "./relevance";
-import { collectFromSource, type LeadSourceKey } from "./sources";
+import { collectFromSource, enrichJobsResults, type LeadSourceKey } from "./sources";
+import { offersToLeadResults } from "./sources/jobs";
+import { fetchJobAlertOffers } from "./sources/jobs-inbox";
 import { startExecOutreach, draftJobsReview } from "./exec-outreach";
 
 /**
@@ -36,11 +38,20 @@ async function startJobsOutreach(workspaceId: string, searchId: string): Promise
   const reviewMode = (ws?.settings as any)?.leads?.jobsReviewMode;
   const mode: "auto" | "review" = reviewMode === false ? "auto" : "review";
 
-  const leads = await prisma.lead.findMany({
+  const candidates = await prisma.lead.findMany({
     where: { workspaceId, searchId, contactStatus: "pending", email: { not: null } },
     select: { id: true, email: true, name: true, category: true, rawData: true },
     take: 100
   });
+  // Idempotencia: salta los leads que YA tienen secuencia/borrador (o que se
+  // descartaron). Clave para la bandeja de alertas, cuya "búsqueda" se reutiliza
+  // en cada pasada — sin esto se re-redactarían los ya gestionados.
+  const already = await prisma.leadExecOutreach.findMany({
+    where: { workspaceId, leadId: { in: candidates.map((l) => l.id) } },
+    select: { leadId: true }
+  });
+  const handled = new Set(already.map((e) => e.leadId));
+  const leads = candidates.filter((l) => !handled.has(l.id));
   let started = 0;
 
   // Modo AUTOMÁTICO: arranca la secuencia; el primer email sale en el cron.
@@ -79,6 +90,84 @@ async function startJobsOutreach(workspaceId: string, searchId: string): Promise
     started += done.filter(Boolean).length;
   }
   return started;
+}
+
+/**
+ * Ingesta de la BANDEJA DE ALERTAS de empleo (IMAP): lee los emails de alerta
+ * nuevos, extrae las ofertas, las convierte en leads (marketing/IA), enriquece
+ * contacto y arranca la revisión de emails — todo SIN gastar créditos de scraping.
+ * Idempotente: los emails se marcan leídos y los leads se deduplican por empresa.
+ */
+export async function ingestJobsInbox(
+  workspaceId: string
+): Promise<{ emails: number; offers: number; ingested: number; error?: string }> {
+  const { offers, emails, error } = await fetchJobAlertOffers(workspaceId);
+  if (error && offers.length === 0) return { emails, offers: 0, ingested: 0, error };
+
+  // Ofertas → leads (filtra puestos de marketing/IA + dedup por empresa) y
+  // enriquece teléfono/web/email (Places + web), igual que el scraper.
+  const mapped = offersToLeadResults(offers);
+  if (mapped.length === 0) return { emails, offers: offers.length, ingested: 0, error };
+  const enriched = await enrichJobsResults(workspaceId, mapped);
+
+  // Contenedor de búsqueda persistente para los leads de la bandeja.
+  let search = await prisma.leadSearch.findFirst({
+    where: { workspaceId, source: "jobs", location: "Bandeja de alertas" } as any
+  });
+  if (!search) {
+    search = await prisma.leadSearch.create({
+      data: {
+        workspaceId,
+        keyword: "Alertas de empleo",
+        location: "Bandeja de alertas",
+        scope: "custom",
+        source: "jobs",
+        totalProvinces: 1,
+        processedProvinces: 1,
+        status: "COMPLETED",
+        sourceConfig: { inbox: true }
+      } as any
+    });
+  }
+
+  const multiSet = await computeMultiLocationSet(workspaceId, enriched);
+  let ingested = 0;
+  let position = 1;
+  for (const r of enriched) {
+    try {
+      const out = await upsertLead({
+        workspaceId,
+        searchId: search.id,
+        province: r.province ?? "España",
+        position: position++,
+        r,
+        aiRelevance: null,
+        skipExisting: false,
+        multiLocation: multiSet.has((r.name ?? "").trim())
+      });
+      if (!out?.skipped) ingested++;
+    } catch (err) {
+      console.error("[jobs-inbox] upsert lead error:", err);
+    }
+  }
+
+  // Redacta/arranca el outreach de revisión para los nuevos leads con email.
+  try {
+    await startJobsOutreach(workspaceId, search.id);
+  } catch (err) {
+    console.error("[jobs-inbox] startJobsOutreach error:", err);
+  }
+
+  // Sella la última ejecución (para mostrarla en Ajustes).
+  try {
+    const ws = await prisma.workspace.findUnique({ where: { id: workspaceId }, select: { settings: true } });
+    const settings: any = ws?.settings ?? {};
+    settings.leads = settings.leads ?? {};
+    settings.leads.jobsInboxLastRun = new Date().toISOString();
+    await prisma.workspace.update({ where: { id: workspaceId }, data: { settings } });
+  } catch {}
+
+  return { emails, offers: offers.length, ingested, error };
 }
 
 /** Clave de caché de barridos: normaliza keyword/área (minúsculas, espacios). */

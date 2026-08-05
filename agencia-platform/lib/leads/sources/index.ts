@@ -138,8 +138,7 @@ export async function collectFromSource(
       const key = await scrapflyKey(ctx.workspaceId);
       if (!key) throw new Error("La fuente Empleos necesita la API key de Scrapfly. Configúrala en Ajustes de Leads.");
       const raw = await collectJobs({ keyword: ctx.keyword, location: ctx.location, apiKey: key, scope: ctx.scope });
-      const withPhones = await enrichMissingPhones(ctx.workspaceId, raw);
-      return enrichEmails(withPhones);
+      return enrichJobsResults(ctx.workspaceId, raw);
     }
     case "doctoralia": {
       const key = await scrapflyKey(ctx.workspaceId);
@@ -210,6 +209,16 @@ function slug(s: string): string {
     .replace(/[̀-ͯ]/g, "")
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
+}
+
+/**
+ * Enriquecimiento completo de leads de la fuente jobs: teléfono+web con Google
+ * Places y luego email de contacto desde la web. Compartido entre el scraper
+ * (collectFromSource "jobs") y la bandeja de alertas por email.
+ */
+export async function enrichJobsResults(workspaceId: string, raw: PlacesResult[]): Promise<PlacesResult[]> {
+  const withPhones = await enrichMissingPhones(workspaceId, raw);
+  return enrichEmails(withPhones);
 }
 
 /**

@@ -2522,6 +2522,100 @@ function QueueLiveStatus() {
  * de emails redactados pendientes de aprobación (modo revisión). Cada email es
  * editable antes de aprobarlo. Solo se muestra expandido si hay algo que revisar.
  */
+/**
+ * Config de la BANDEJA DE ALERTAS de empleo (IMAP): en vez de scrapear, el
+ * sistema lee un buzón donde llegan las alertas de LinkedIn/InfoJobs. Sin
+ * créditos de scraping. Incluye botón para revisar el buzón al momento.
+ */
+function JobsInboxConfig({ onIngested }: { onIngested: () => void }) {
+  const [cfg, setCfg] = useState<any | null>(null);
+  const [user, setUser] = useState("");
+  const [pass, setPass] = useState("");
+  const [host, setHost] = useState("imap.gmail.com");
+  const [port, setPort] = useState(993);
+  const [enabled, setEnabled] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [ingesting, setIngesting] = useState(false);
+  const [msg, setMsg] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
+
+  async function load() {
+    try {
+      const r = await fetch("/api/v1/leads/settings");
+      if (!r.ok) return;
+      const j = await r.json();
+      setCfg(j);
+      setUser(j.jobsInboxUser ?? "");
+      setHost(j.jobsInboxHost ?? "imap.gmail.com");
+      setPort(j.jobsInboxPort ?? 993);
+      setEnabled(!!j.jobsInboxEnabled);
+    } catch {}
+  }
+  useEffect(() => { void load(); }, []);
+
+  async function save() {
+    setSaving(true);
+    setMsg(null);
+    try {
+      const body: any = { jobsInboxUser: user, jobsInboxHost: host, jobsInboxPort: Number(port) || 993, jobsInboxEnabled: enabled };
+      if (pass.trim()) body.jobsInboxPassword = pass.trim();
+      const r = await fetch("/api/v1/leads/settings", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      if (!r.ok) { const j = await r.json().catch(() => ({})); setMsg({ kind: "err", text: j?.error?.message ?? "No se pudo guardar." }); return; }
+      setPass("");
+      setMsg({ kind: "ok", text: "Guardado." });
+      void load();
+    } finally { setSaving(false); }
+  }
+
+  async function ingestNow() {
+    setIngesting(true);
+    setMsg(null);
+    try {
+      const r = await fetch("/api/v1/leads/jobs-inbox/ingest", { method: "POST" });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) { setMsg({ kind: "err", text: j?.error?.message ?? "Error al revisar el buzón." }); return; }
+      if (j.error) { setMsg({ kind: "err", text: j.error }); return; }
+      setMsg({ kind: "ok", text: `Revisado: ${j.emails} email(s) de alerta · ${j.offers} oferta(s) · ${j.ingested} empresa(s) nueva(s).` });
+      onIngested();
+      void load();
+    } finally { setIngesting(false); }
+  }
+
+  return (
+    <details className="mt-2 rounded-md border border-slate-200 bg-white/70">
+      <summary className="cursor-pointer select-none px-2.5 py-1.5 text-xs font-semibold text-slate-700">
+        📥 Bandeja de alertas (sin scraping){cfg?.jobsInboxConfigured ? " · configurada" : " · sin configurar"}
+      </summary>
+      <div className="px-2.5 pb-2.5 space-y-2">
+        <p className="text-[11px] text-slate-500">
+          Crea un buzón (p.ej. un Gmail), configura ahí las <strong>alertas de empleo</strong> de LinkedIn/InfoJobs
+          con tu zona y "marketing/IA", y pega aquí sus datos IMAP. El sistema leerá esas alertas y creará los leads
+          <strong> sin gastar créditos de scraping</strong>. En Gmail: activa IMAP y usa una <strong>contraseña de aplicación</strong>.
+        </p>
+        <div className="grid grid-cols-2 gap-2">
+          <input value={user} onChange={(e) => setUser(e.target.value)} placeholder="Correo del buzón (usuario IMAP)" className="col-span-2 px-2 py-1 rounded border border-slate-300 text-sm" />
+          <input value={pass} onChange={(e) => setPass(e.target.value)} type="password" placeholder={cfg?.jobsInboxConfigured ? "Contraseña de aplicación (•••• guardada)" : "Contraseña de aplicación"} className="col-span-2 px-2 py-1 rounded border border-slate-300 text-sm" />
+          <input value={host} onChange={(e) => setHost(e.target.value)} placeholder="Host IMAP" className="px-2 py-1 rounded border border-slate-300 text-sm" />
+          <input value={port} onChange={(e) => setPort(Number(e.target.value) || 993)} type="number" placeholder="Puerto" className="px-2 py-1 rounded border border-slate-300 text-sm" />
+        </div>
+        <label className="flex items-center gap-2 text-xs text-slate-700">
+          <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} className="accent-indigo-600" />
+          Revisar el buzón automáticamente cada ~30 min
+        </label>
+        <div className="flex items-center gap-2 flex-wrap">
+          <button onClick={() => void save()} disabled={saving} className="inline-flex items-center gap-1 rounded-md bg-slate-700 px-2.5 py-1 text-xs font-semibold text-white hover:bg-slate-800 disabled:opacity-50">
+            {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />} Guardar
+          </button>
+          <button onClick={() => void ingestNow()} disabled={ingesting || !cfg?.jobsInboxConfigured} className="inline-flex items-center gap-1 rounded-md bg-indigo-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-indigo-700 disabled:opacity-50" title={cfg?.jobsInboxConfigured ? "Lee ahora las alertas nuevas del buzón" : "Guarda primero los datos del buzón"}>
+            {ingesting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "📥"} Revisar alertas ahora
+          </button>
+          {cfg?.jobsInboxLastRun && <span className="text-[11px] text-slate-400">Última: {new Date(cfg.jobsInboxLastRun).toLocaleString("es-ES")}</span>}
+        </div>
+        {msg && <div className={"text-[11px] " + (msg.kind === "ok" ? "text-emerald-700" : "text-rose-700")}>{msg.text}</div>}
+      </div>
+    </details>
+  );
+}
+
 function JobsReviewPanel() {
   const [mode, setMode] = useState<"auto" | "review" | null>(null);
   const [savingMode, setSavingMode] = useState(false);
@@ -2741,6 +2835,7 @@ function JobsReviewPanel() {
           ? "Modo automático: al encontrar una empresa con oferta de marketing/IA y su email, el primer correo sale solo (con pie de baja RGPD)."
           : "Modo revisión: al terminar la búsqueda, los correos se redactan con IA y quedan aquí. Selecciona con las casillas cuáles enviar, edítalos a tu gusto y descarta los que no te interesen. Nada sale sin tu visto bueno."}
       </div>
+      <JobsInboxConfig onIngested={() => void loadItems()} />
       {noEmail > 0 && (
         <div className="text-[11px] text-amber-700 mt-1">
           ℹ️ Además hay <strong>{noEmail}</strong> empresa(s) con vacante pero <strong>sin email de contacto</strong> localizable, así que no aparecen aquí (no se les puede enviar email). Puedes contactarlas por teléfono/LinkedIn desde la cola de leads.

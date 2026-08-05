@@ -20,10 +20,16 @@ import { processQueueTick, prioritizeQueue } from "@/lib/leads/send-queue";
 // no encuentre NINGÚN elegible vencido ("no_eligible_due").
 const _lastPrioritizeAt = new Map<string, number>();
 const PRIORITIZE_THROTTLE_MS = 10 * 60 * 1000;
+// Bandeja de alertas de empleo (IMAP): se revisa como mucho cada 30 min por
+// workspace (las alertas llegan a lo sumo cada pocas horas). Se resetea al
+// redesplegar (aceptable).
+const _lastJobsInboxAt = new Map<string, number>();
+const JOBS_INBOX_THROTTLE_MS = 30 * 60 * 1000;
 import { processSequencesTick } from "@/lib/leads/sequences";
 import { processBroadcastTick } from "@/lib/leads/broadcast";
 import { processAutoFollowupTick } from "@/lib/leads/auto-followup";
 import { processExecOutreachTick } from "@/lib/leads/exec-outreach";
+import { ingestJobsInbox } from "@/lib/leads/search-manager";
 
 export async function runLeadsCronAllWorkspaces(): Promise<any[]> {
   const workspaces = await prisma.workspace.findMany({ select: { id: true } });
@@ -91,6 +97,20 @@ export async function runLeadsCronAllWorkspaces(): Promise<any[]> {
       wsReport.execOutreach = await processExecOutreachTick(ws.id);
     } catch (e: any) {
       wsReport.execOutreachError = e?.message ?? String(e);
+    }
+
+    // 6b. Bandeja de alertas de empleo (IMAP): lee alertas nuevas y crea leads.
+    //     Throttleado a 30 min y solo si el workspace la tiene activada.
+    try {
+      const wsRow = await prisma.workspace.findUnique({ where: { id: ws.id }, select: { settings: true } });
+      const enabled = !!(wsRow?.settings as any)?.leads?.jobsInboxEnabled;
+      const last = _lastJobsInboxAt.get(ws.id) ?? 0;
+      if (enabled && Date.now() - last > JOBS_INBOX_THROTTLE_MS) {
+        _lastJobsInboxAt.set(ws.id, Date.now());
+        wsReport.jobsInbox = await ingestJobsInbox(ws.id);
+      }
+    } catch (e: any) {
+      wsReport.jobsInboxError = e?.message ?? String(e);
     }
 
     // 7. Salud de los proxies (throttleado a 15 min): verifica cada proxy

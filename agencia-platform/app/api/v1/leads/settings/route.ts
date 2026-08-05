@@ -90,6 +90,14 @@ export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
     // Módulo Empleos: si true (por defecto), los emails a empresas que contratan
     // se redactan y quedan pendientes de aprobación manual antes de enviarse.
     jobsReviewMode: s.jobsReviewMode ?? true,
+    // Bandeja de alertas de empleo (IMAP): en vez de scrapear, el sistema lee
+    // los emails de alerta de LinkedIn/InfoJobs de un buzón dedicado.
+    jobsInboxEnabled: !!s.jobsInboxEnabled,
+    jobsInboxHost: s.jobsInboxHost ?? "imap.gmail.com",
+    jobsInboxPort: s.jobsInboxPort ?? 993,
+    jobsInboxUser: s.jobsInboxUser ?? "",
+    jobsInboxConfigured: !!s.jobsInboxPassEnc,
+    jobsInboxLastRun: s.jobsInboxLastRun ?? null,
     sendEnabled: s.sendEnabled ?? true,
     sendPaused: s.sendPaused ?? false,
     sendWindowStart: s.sendWindowStart ?? "09:00",
@@ -174,6 +182,13 @@ const schema = z.object({
   blockLinksInFirstMessage: z.boolean().optional(),
   replyRateGuardEnabled: z.boolean().optional(),
   jobsReviewMode: z.boolean().optional(),
+  // Bandeja de alertas de empleo (IMAP de solo lectura).
+  jobsInboxEnabled: z.boolean().optional(),
+  jobsInboxHost: z.string().max(120).optional(),
+  jobsInboxPort: z.number().int().min(1).max(65535).optional(),
+  jobsInboxUser: z.string().max(200).optional(),
+  jobsInboxPassword: z.string().max(400).optional(),
+  clearJobsInbox: z.boolean().optional(),
   rotateWebhookToken: z.boolean().optional(),
   // Multi-número de WhatsApp: lista de sesiones/instancias para repartir envíos.
   channels: z
@@ -248,6 +263,14 @@ export const PATCH = withApi({ scope: "*" }, async (req, { api }) => {
   } else if (typeof parsed.data.scrapflyApiKey === "string" && parsed.data.scrapflyApiKey.trim()) {
     s.scrapflyApiKeyEnc = encryptSecret(parsed.data.scrapflyApiKey.trim());
   }
+  // Bandeja de alertas de empleo (contraseña de aplicación IMAP, cifrada).
+  if (parsed.data.clearJobsInbox) {
+    delete s.jobsInboxPassEnc;
+    delete s.jobsInboxUser;
+    s.jobsInboxEnabled = false;
+  } else if (typeof parsed.data.jobsInboxPassword === "string" && parsed.data.jobsInboxPassword.trim()) {
+    s.jobsInboxPassEnc = encryptSecret(parsed.data.jobsInboxPassword.trim());
+  }
   if (parsed.data.clearHunterApiKey) {
     delete s.hunterApiKeyEnc;
   } else if (typeof parsed.data.hunterApiKey === "string" && parsed.data.hunterApiKey.trim()) {
@@ -308,6 +331,10 @@ export const PATCH = withApi({ scope: "*" }, async (req, { api }) => {
     "blockLinksInFirstMessage",
     "replyRateGuardEnabled",
     "jobsReviewMode",
+    "jobsInboxEnabled",
+    "jobsInboxHost",
+    "jobsInboxPort",
+    "jobsInboxUser",
     "channels"
   ] as const) {
     if (parsed.data[k] !== undefined) s[k] = parsed.data[k];
