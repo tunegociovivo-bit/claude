@@ -187,6 +187,21 @@ DIRECTIVO para ofrecer sus servicios. Redacta un EMAIL frío B2B:
   el coste (o menos) de un empleado, obtienen un equipo y una tecnología que una sola persona no puede dar.
 - No inventes datos, cifras, clientes ni precios concretos. Devuelve SOLO el JSON {subject, body}.`;
 
+/**
+ * Detecta si la oferta está en inglés o en español (heurística por palabras
+ * función, que son las que mejor distinguen idioma). Se usa para forzar el
+ * idioma del email — más fiable que dejar que el modelo lo infiera de un prompt
+ * mayormente en español. Ante la duda, español.
+ */
+export function detectOfferLang(text: string): "en" | "es" {
+  const t = " " + (text || "").toLowerCase().replace(/[^a-záéíóúñ&\s]/gi, " ") + " ";
+  const en = (t.match(/\b(the|and|you|your|we|our|for|with|of|to|will|are|is|be|as|at|role|team|content|social|media|skills?|experience|about|what|looking|join|head|lead|manager|officer|marketing|growth|senior|junior)\b/g) || []).length;
+  const es = (t.match(/\b(de|que|para|el|la|los|las|con|y|un|una|en|por|del|se|su|sus|buscamos|empresa|puesto|experiencia|equipo|trabajo|contenidos?|responsable|gesti[oó]n|conocimientos?)\b/g) || []).length;
+  if (es === 0 && en >= 1) return "en";
+  if (en > es * 1.5 && en >= 2) return "en";
+  return "es";
+}
+
 async function writeEmail(opts: { workspaceId: string; company: string; sector?: string | null; director?: string | null; touch: number; jobTitle?: string | null; jobDescription?: string | null }): Promise<{ subject: string; body: string }> {
   const ctx = [
     `Empresa: ${opts.company}`,
@@ -202,11 +217,18 @@ async function writeEmail(opts: { workspaceId: string; company: string; sector?:
   ]
     .filter(Boolean)
     .join("\n");
+  // Idioma FORZADO según la oferta (título + descripción). Es una orden explícita
+  // porque el resto del prompt va en español y, si no, el modelo tira a español.
+  const lang = detectOfferLang(`${opts.jobTitle ?? ""}. ${opts.jobDescription ?? ""}`);
+  const langDirective =
+    lang === "en"
+      ? "IDIOMA OBLIGATORIO: la oferta está en INGLÉS → escribe TODO el email (subject y body) EN INGLÉS, con registro profesional. No uses español."
+      : "IDIOMA OBLIGATORIO: escribe TODO el email (asunto y cuerpo) en ESPAÑOL de España.";
   return completeJson<{ subject: string; body: string }>({
     workspaceId: opts.workspaceId,
     model: "claude-haiku-4-5-20251001",
     system: EMAIL_SYSTEM,
-    user: `${ctx}\n\nEscribe el email:`,
+    user: `${langDirective}\n\n${ctx}\n\nEscribe el email:`,
     schema: EMAIL_SCHEMA,
     maxTokens: 650
   });

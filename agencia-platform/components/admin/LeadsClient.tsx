@@ -2643,6 +2643,8 @@ function JobsReviewPanel() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [regenId, setRegenId] = useState<string | null>(null);
   const [edits, setEdits] = useState<Record<string, { subject: string; body: string }>>({});
+  // Confirmación de envío (para verificar de un vistazo que salió).
+  const [sentMsg, setSentMsg] = useState<string | null>(null);
   // Selección múltiple para enviar/descartar en lote.
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
@@ -2779,6 +2781,9 @@ function JobsReviewPanel() {
       if (j.failed > 0) {
         alert(`${j.ok} correcto(s), ${j.failed} con error. Los que fallaron siguen en la cola.`);
       }
+      if (action === "approve" && j.ok > 0) {
+        setSentMsg(`✅ ${j.ok} email(s) enviado(s). Quedan registrados y esas empresas pasan a "Contactado".`);
+      }
       await loadItems();
     } finally {
       setBulkBusy(false);
@@ -2831,6 +2836,10 @@ function JobsReviewPanel() {
       if (!r.ok) {
         alert(j?.error?.message ?? "No se pudo completar la acción.");
         return;
+      }
+      if (action === "approve") {
+        const co = (items ?? []).find((it) => it.id === id)?.company ?? "la empresa";
+        setSentMsg(`✅ Email enviado a ${co}. Queda registrado y la empresa pasa a "Contactado".`);
       }
       setItems((prev) => (prev ?? []).filter((it) => it.id !== id));
       setSelected((prev) => {
@@ -2887,6 +2896,12 @@ function JobsReviewPanel() {
           ? "Modo automático: al encontrar una empresa con oferta de marketing/IA y su email, el primer correo sale solo (con pie de baja RGPD)."
           : "Modo revisión: al terminar la búsqueda, los correos se redactan con IA y quedan aquí. Selecciona con las casillas cuáles enviar, edítalos a tu gusto y descarta los que no te interesen. Nada sale sin tu visto bueno."}
       </div>
+      {sentMsg && (
+        <div className="mt-2 flex items-center justify-between gap-2 rounded-md border border-emerald-300 bg-emerald-50 px-2.5 py-1.5 text-[11px] text-emerald-800">
+          <span>{sentMsg}</span>
+          <button onClick={() => setSentMsg(null)} className="text-emerald-700 hover:text-emerald-900" title="Cerrar">✕</button>
+        </div>
+      )}
       <JobsInboxConfig onIngested={() => void loadItems()} />
       {noEmail > 0 && (
         <div className="text-[11px] text-amber-700 mt-1 flex items-center gap-2 flex-wrap">
