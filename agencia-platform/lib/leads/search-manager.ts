@@ -170,6 +170,78 @@ export async function ingestJobsInbox(
   return { emails, offers: offers.length, ingested, error };
 }
 
+/**
+ * Re-enriquece los leads de la fuente jobs que se quedaron SIN email: vuelve a
+ * buscar web+teléfono (Places) y email (web, con el extractor mejorado). A las
+ * que ahora sí tienen email, les redacta el borrador de revisión. Para recuperar
+ * empresas detectadas en pasadas anteriores cuando aún no dábamos con su email.
+ */
+export async function reEnrichJobsLeads(workspaceId: string): Promise<{ scanned: number; emailsFound: number; drafted: number }> {
+  const leads = await prisma.lead.findMany({
+    where: { workspaceId, email: null, contactStatus: "pending", rawData: { path: ["source"], equals: "jobs" } } as any,
+    take: 50,
+    select: { id: true, name: true, province: true, website: true, phone: true, internationalPhone: true, category: true, rawData: true }
+  });
+  if (leads.length === 0) return { scanned: 0, emailsFound: 0, drafted: 0 };
+
+  const pr: PlacesResult[] = leads.map((l) => ({
+    placeId: `jobs:reenrich:${l.id}`,
+    name: l.name,
+    formattedAddress: null,
+    province: l.province,
+    types: ["jobs.listing"],
+    category: l.category,
+    latitude: null,
+    longitude: null,
+    rating: null,
+    userRatingCount: 0,
+    priceLevel: null,
+    businessStatus: "OPERATIONAL",
+    gmbUrl: null,
+    website: l.website,
+    phone: l.phone,
+    internationalPhone: l.internationalPhone,
+    rawData: { ...((l.rawData as any) ?? {}) }
+  }));
+  const enriched = await enrichJobsResults(workspaceId, pr);
+
+  let emailsFound = 0;
+  const nowEmailed: { id: string; email: string; name: string; category: string | null; rawData: any }[] = [];
+  for (let i = 0; i < leads.length; i++) {
+    const e = enriched[i];
+    const rd: any = e?.rawData ?? {};
+    const email = typeof rd.email === "string" ? rd.email : null;
+    const data: any = {};
+    if (email) { data.email = email; emailsFound++; }
+    if (!leads[i].website && e?.website) data.website = e.website;
+    if (!leads[i].phone && e?.phone) { data.phone = e.phone; data.internationalPhone = e.internationalPhone; }
+    if (Object.keys(data).length) await prisma.lead.update({ where: { id: leads[i].id }, data }).catch(() => {});
+    if (email) nowEmailed.push({ id: leads[i].id, email, name: leads[i].name, category: leads[i].category, rawData: rd });
+  }
+
+  // Redacta el borrador de revisión para las que ahora tienen email y aún no
+  // tienen secuencia (respeta lo ya gestionado/descartado).
+  let drafted = 0;
+  if (nowEmailed.length > 0) {
+    const already = await prisma.leadExecOutreach.findMany({
+      where: { workspaceId, leadId: { in: nowEmailed.map((l) => l.id) } },
+      select: { leadId: true }
+    });
+    const handled = new Set(already.map((e) => e.leadId));
+    for (const l of nowEmailed.filter((x) => !handled.has(x.id))) {
+      const jobTitle = typeof l.rawData?.jobTitle === "string" ? l.rawData.jobTitle : null;
+      const jobDescription = typeof l.rawData?.jobDescription === "string" ? l.rawData.jobDescription : null;
+      try {
+        await draftJobsReview({ workspaceId, leadId: l.id, email: l.email, company: l.name, sector: l.category, jobTitle, jobDescription });
+        drafted++;
+      } catch (err) {
+        console.error("[jobs-reenrich] draftJobsReview error:", err);
+      }
+    }
+  }
+  return { scanned: leads.length, emailsFound, drafted };
+}
+
 /** Clave de caché de barridos: normaliza keyword/área (minúsculas, espacios). */
 function normKey(s: string): string {
   return (s ?? "").toLowerCase().replace(/\s+/g, " ").trim();

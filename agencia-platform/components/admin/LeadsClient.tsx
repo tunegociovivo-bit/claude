@@ -2717,6 +2717,20 @@ function JobsReviewPanel() {
     });
   }
 
+  const [reenriching, setReenriching] = useState(false);
+  async function reenrich() {
+    setReenriching(true);
+    try {
+      const r = await fetch("/api/v1/leads/jobs-reenrich", { method: "POST" });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) { alert(j?.error?.message ?? "No se pudo re-buscar el email."); return; }
+      await loadItems();
+      alert(`Revisadas ${j.scanned} empresa(s) sin email: encontrado email en ${j.emailsFound}, ${j.drafted} borrador(es) nuevo(s) en la cola.`);
+    } finally {
+      setReenriching(false);
+    }
+  }
+
   async function generateDrafts() {
     setGenerating(true);
     try {
@@ -2875,8 +2889,18 @@ function JobsReviewPanel() {
       </div>
       <JobsInboxConfig onIngested={() => void loadItems()} />
       {noEmail > 0 && (
-        <div className="text-[11px] text-amber-700 mt-1">
-          ℹ️ Además hay <strong>{noEmail}</strong> empresa(s) con vacante pero <strong>sin email de contacto</strong> localizable, así que no aparecen aquí (no se les puede enviar email). Puedes contactarlas por teléfono/LinkedIn desde la cola de leads.
+        <div className="text-[11px] text-amber-700 mt-1 flex items-center gap-2 flex-wrap">
+          <span>
+            ℹ️ Además hay <strong>{noEmail}</strong> empresa(s) con vacante pero <strong>sin email de contacto</strong> localizable (por teléfono/LinkedIn desde la cola de leads).
+          </span>
+          <button
+            onClick={() => void reenrich()}
+            disabled={reenriching}
+            className="inline-flex items-center gap-1 rounded border border-amber-300 bg-white px-2 py-0.5 text-[11px] font-medium text-amber-800 hover:bg-amber-50 disabled:opacity-50"
+            title="Vuelve a buscar el email de contacto de esas empresas (extractor mejorado)"
+          >
+            {reenriching ? <Loader2 className="h-3 w-3 animate-spin" /> : "🔍"} Buscar su email
+          </button>
         </div>
       )}
 

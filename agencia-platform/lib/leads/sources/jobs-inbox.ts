@@ -121,7 +121,8 @@ const EXTRACT_SCHEMA = {
           company: { type: "string" },
           jobTitle: { type: "string" },
           location: { type: "string" },
-          jobUrl: { type: "string" }
+          jobUrl: { type: "string" },
+          description: { type: "string" }
         },
         required: ["company"]
       }
@@ -136,6 +137,7 @@ un portal de empleo (LinkedIn, InfoJobs, Indeed…). Devuelve TODAS las ofertas 
 - jobTitle: el puesto.
 - location: ciudad/provincia si aparece.
 - jobUrl: el enlace a la oferta si aparece (el href del puesto).
+- description: si el email incluye texto de la oferta, un extracto (tal cual, en su idioma original — no traduzcas).
 Ignora cabeceras, pies, banners, "ver más ofertas", enlaces de baja y publicidad. No inventes empresas.
 Si el email no lista ofertas, devuelve {"offers": []}. Devuelve SOLO el JSON.`;
 
@@ -167,7 +169,7 @@ async function extractOffers(workspaceId: string, email: { from: string; subject
       jobUrl: typeof o.jobUrl === "string" && /^https?:\/\//.test(o.jobUrl) ? o.jobUrl : null,
       companyUrl: null,
       board,
-      description: null
+      description: typeof o.description === "string" && o.description.trim() ? o.description.trim().slice(0, 1800) : null
     }));
 }
 

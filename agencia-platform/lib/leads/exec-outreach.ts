@@ -172,8 +172,10 @@ const EMAIL_SCHEMA = {
 
 const EMAIL_SYSTEM = `Eres un consultor de Negocio Vivo, una AGENCIA de marketing digital, que escribe a un
 DIRECTIVO para ofrecer sus servicios. Redacta un EMAIL frío B2B:
-- Español de España, trato de usted CONSISTENTE (no mezcles usted/vosotros), profesional y directo.
-  Asunto corto y concreto (sin clickbait).
+- IDIOMA: redacta el email (asunto y cuerpo) en el MISMO idioma en que esté escrita la OFERTA de empleo
+  del contexto. Si la oferta está en inglés → email en inglés; si en español → español de España; etc.
+  Si no hay pistas de idioma, usa español de España. Trato formal y consistente (usted en español; el
+  registro formal equivalente en el idioma que toque). Asunto corto y concreto (sin clickbait).
 - Cuerpo de 5-7 líneas: motivo concreto (oportunidad/problema de su sector o su vacante), la propuesta
   de valor y un cierre con una llamada de 10 min. Nada de adjuntos ni promesas vacías.
 - DIFERENCIADOR CLAVE (inclúyelo SIEMPRE, redactado con naturalidad y elegancia, integrado en el
