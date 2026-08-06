@@ -13,6 +13,7 @@
  * el usuario elige → se analiza la red de cada una → informe + email a la central.
  */
 
+import { prisma } from "@/lib/db/prisma";
 import { completeJson } from "@/lib/ai/anthropic";
 import { placesTextSearch, type PlacesResult } from "../google-places";
 import { extractEmailsFromWebsite } from "../email-extract";
@@ -111,7 +112,7 @@ const BRANDS_SCHEMA = {
 export async function discoverFranchiseBrands(
   workspaceId: string,
   niche: string
-): Promise<{ brands: { name: string; sampleCount: number }[]; proposed: number; placesErrors: number }> {
+): Promise<{ brands: { name: string; sampleCount: number; contacted?: boolean }[]; proposed: number; placesErrors: number }> {
   let proposed: string[] = [];
   try {
     const res = await completeJson<{ brands?: string[] }>({
@@ -134,13 +135,32 @@ export async function discoverFranchiseBrands(
   // Verificación: la marca debe aparecer como cadena (≥2 fichas) en Places, con
   // reintento ante 429. Contamos los fallos de Places para poder distinguir
   // "la IA propuso pocas" de "Google nos limitó por cuota" (antes era invisible).
-  const verified: { name: string; sampleCount: number }[] = [];
+  const verified: { name: string; sampleCount: number; contacted?: boolean }[] = [];
   let placesErrors = 0;
   for (const name of proposed) {
     const { count, errored } = await verifyBrandCount(workspaceId, name);
     if (errored) placesErrors++;
     if (count >= 2) verified.push({ name, sampleCount: count });
   }
+
+  // Marca las centrales YA CONTACTADAS (para no insistir ni gastar créditos
+  // re-analizándolas). El lead de la central tiene placeId "franchise:<slug>".
+  try {
+    const byPlace = new Map(verified.map((v) => [`franchise:${slug(v.name)}`, v]));
+    const leads = await prisma.lead.findMany({
+      where: { workspaceId, placeId: { in: [...byPlace.keys()] } },
+      select: { placeId: true, contactStatus: true }
+    });
+    for (const l of leads) {
+      if (["contacted", "responded", "client"].includes(l.contactStatus)) {
+        const v = byPlace.get(l.placeId);
+        if (v) v.contacted = true;
+      }
+    }
+  } catch {
+    // best-effort: si falla la consulta, simplemente no marcamos
+  }
+
   return { brands: verified, proposed: proposed.length, placesErrors };
 }
 

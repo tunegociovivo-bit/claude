@@ -258,7 +258,7 @@ export async function analyzeFranchises(
   workspaceId: string,
   brands: string[],
   location?: string
-): Promise<{ results: { brand: string; sampled: number; metrics: any | null; emailed: boolean; email: string | null; contact?: any; error?: string }[] }> {
+): Promise<{ results: { brand: string; sampled: number; metrics: any | null; emailed: boolean; email: string | null; contact?: any; status?: string; contactedAt?: string | null; error?: string }[] }> {
   // Contenedor de búsqueda persistente para los leads de franquicias.
   let search = await prisma.leadSearch.findFirst({
     where: { workspaceId, source: "franchises", location: "Franquicias" } as any
@@ -279,13 +279,13 @@ export async function analyzeFranchises(
     });
   }
 
-  const results: { brand: string; sampled: number; metrics: any | null; emailed: boolean; email: string | null; contact?: any; error?: string }[] = [];
+  const results: { brand: string; sampled: number; metrics: any | null; emailed: boolean; email: string | null; contact?: any; status?: string; contactedAt?: string | null; error?: string }[] = [];
   let position = 1;
   for (const brand of brands.slice(0, 12)) {
     try {
       const a = await analyzeFranchiseNetwork(workspaceId, brand, location);
       if (!a) {
-        results.push({ brand, sampled: 0, metrics: null, emailed: false, email: null, error: "No se encontró red suficiente en Google (mín. 3 fichas)." });
+        results.push({ brand, sampled: 0, metrics: null, emailed: false, email: null, status: "no_network", error: "No se encontró red suficiente en Google (mín. 3 fichas)." });
         continue;
       }
       await upsertLead({
@@ -299,19 +299,33 @@ export async function analyzeFranchises(
       });
       const lead = await prisma.lead.findUnique({
         where: { workspaceId_placeId: { workspaceId, placeId: a.central.placeId } },
-        select: { id: true }
+        select: { id: true, contactStatus: true }
       });
       let emailed = false;
-      if (lead && a.email && a.subject && a.body) {
-        const existing = await prisma.leadExecOutreach.findFirst({ where: { workspaceId, leadId: lead.id }, select: { id: true } });
-        if (!existing) {
+      // Estado claro para NO insistir: ya contactada (email enviado) / borrador en
+      // cola (aún no enviado) / borrador creado ahora / sin email.
+      let status = "no_email";
+      let contactedAt: string | null = null;
+      if (lead) {
+        const already = await prisma.leadExecOutreach.findFirst({
+          where: { workspaceId, leadId: lead.id },
+          select: { status: true, updatedAt: true }
+        });
+        const isSent = ["contacted", "responded", "client"].includes(lead.contactStatus) || (already && already.status !== "pending_review");
+        if (isSent) {
+          status = "contacted";
+          contactedAt = already?.updatedAt ? already.updatedAt.toISOString() : null;
+        } else if (already) {
+          status = "draft_pending"; // ya tiene borrador esperando aprobación
+        } else if (a.email && a.subject && a.body) {
           await saveReviewDraft(workspaceId, lead.id, a.email, a.subject, a.body);
           emailed = true;
+          status = "drafted_now";
         }
       }
-      results.push({ brand, sampled: a.metrics.sampled, metrics: a.metrics, emailed, email: a.email, contact: a.contact });
+      results.push({ brand, sampled: a.metrics.sampled, metrics: a.metrics, emailed, email: a.email, contact: a.contact, status, contactedAt });
     } catch (err: any) {
-      results.push({ brand, sampled: 0, metrics: null, emailed: false, email: null, error: String(err?.message ?? err).slice(0, 160) });
+      results.push({ brand, sampled: 0, metrics: null, emailed: false, email: null, status: "error", error: String(err?.message ?? err).slice(0, 160) });
     }
   }
   return { results };

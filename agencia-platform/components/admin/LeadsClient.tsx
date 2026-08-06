@@ -2696,7 +2696,7 @@ function DecisionMakerKeys() {
 function FranchisesView() {
   const [niche, setNiche] = useState("");
   const [location, setLocation] = useState("");
-  const [brands, setBrands] = useState<{ name: string; sampleCount: number; checked: boolean }[] | null>(null);
+  const [brands, setBrands] = useState<{ name: string; sampleCount: number; checked: boolean; contacted?: boolean }[] | null>(null);
   const [discovering, setDiscovering] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
   const [results, setResults] = useState<any[] | null>(null);
@@ -2710,7 +2710,8 @@ function FranchisesView() {
       const r = await fetch("/api/v1/leads/franchises/discover", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ niche: niche.trim() }) });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) { setErr(j?.error?.message ?? "Error al buscar franquicias."); return; }
-      const list = (j.brands ?? []).map((b: any) => ({ name: b.name, sampleCount: b.sampleCount, checked: true }));
+      // Las ya contactadas NO se marcan por defecto (evita re-insistir/gastar créditos).
+      const list = (j.brands ?? []).map((b: any) => ({ name: b.name, sampleCount: b.sampleCount, contacted: !!b.contacted, checked: !b.contacted }));
       setBrands(list);
       setDiag({ proposed: j.proposed ?? list.length, verified: list.length, placesErrors: j.placesErrors ?? 0 });
       if (list.length === 0) {
@@ -2779,9 +2780,12 @@ function FranchisesView() {
           </div>
           <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-1.5">
             {brands.map((b) => (
-              <label key={b.name} className="flex items-center gap-2 p-2 rounded border bg-slate-50/60 cursor-pointer text-sm">
+              <label key={b.name} className={"flex items-center gap-2 p-2 rounded border cursor-pointer text-sm " + (b.contacted ? "bg-rose-50/60 border-rose-200" : "bg-slate-50/60")}>
                 <input type="checkbox" checked={b.checked} onChange={() => toggle(b.name)} className="accent-violet-600" />
                 <span className="flex-1 truncate">{b.name}</span>
+                {b.contacted && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-rose-100 border border-rose-300 px-2 py-0.5 text-[10px] font-semibold text-rose-700">⛔ Ya contactada</span>
+                )}
                 <span className="text-[11px] text-slate-400">{b.sampleCount}+ fichas</span>
               </label>
             ))}
@@ -2799,10 +2803,20 @@ function FranchisesView() {
                   <div className="text-sm font-semibold text-slate-800">{r.brand}</div>
                   {r.error ? (
                     <span className="text-[11px] text-amber-700">{r.error}</span>
-                  ) : (
-                    <span className={"text-[11px] " + (r.emailed ? "text-emerald-700" : "text-slate-500")}>
-                      {r.emailed ? "✅ Email en la cola de revisión" : r.email ? "Email hallado (ya tenía secuencia)" : "Sin email de central localizable"}
+                  ) : r.status === "contacted" ? (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-rose-100 border border-rose-300 px-2 py-0.5 text-[11px] font-semibold text-rose-700">
+                      ⛔ Ya contactada — no insistir{r.contactedAt ? ` (${new Date(r.contactedAt).toLocaleDateString("es-ES")})` : ""}
                     </span>
+                  ) : r.status === "draft_pending" ? (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 border border-amber-300 px-2 py-0.5 text-[11px] font-semibold text-amber-800">
+                      📝 Ya tiene borrador en la cola (sin enviar)
+                    </span>
+                  ) : r.status === "drafted_now" || r.emailed ? (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 border border-emerald-300 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
+                      ✅ Email creado en la cola de revisión
+                    </span>
+                  ) : (
+                    <span className="text-[11px] text-slate-500">Sin email de central localizable</span>
                   )}
                 </div>
                 {r.metrics && (
