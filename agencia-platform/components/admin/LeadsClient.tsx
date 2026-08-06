@@ -3188,6 +3188,11 @@ function JobsReviewPanel() {
                         {it.jobTitle ? ` · Vacante: ${it.jobTitle}` : ""}
                         {it.website ? ` · ${it.website}` : ""}
                       </span>
+                      {Array.isArray(it.bccEmails) && it.bccEmails.length > 0 && (
+                        <span className="block text-[11px] text-violet-700" title={it.bccEmails.join(", ")}>
+                          🔒 CCO a {it.bccEmails.length} directivo(s) de marketing más
+                        </span>
+                      )}
                     </span>
                   </label>
                   <div className="flex items-center gap-2 shrink-0">

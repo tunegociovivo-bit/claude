@@ -155,6 +155,43 @@ export async function findMarketingContactByDomain(workspaceId: string, domain: 
   return out;
 }
 
+export type MarketingEmail = { email: string; name: string | null; role: string | null };
+
+/**
+ * Recopila VARIOS emails de directivos de marketing de una empresa por su dominio
+ * (Hunter dept. marketing + Apollo decisores con email), deduplicados y ordenados
+ * por relevancia. Para poner a todos en copia oculta y asegurar que llega a la
+ * persona correcta. Best-effort; devuelve [] si no hay keys o resultados.
+ */
+export async function findMarketingEmailsByDomain(workspaceId: string, domain: string, max = 10): Promise<MarketingEmail[]> {
+  const clean = domain.replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0].trim();
+  if (!clean) return [];
+  const { apolloKey, hunterKey } = await resolveContactKeys(workspaceId);
+  if (!apolloKey && !hunterKey) return [];
+  const byEmail = new Map<string, MarketingEmail>();
+
+  if (hunterKey) {
+    try {
+      const people = await hunterDomainSearch({ domain: clean, apiKey: hunterKey, department: "marketing", limit: 20 });
+      for (const p of people.filter((x) => x.email).sort((a, b) => (b.confidence ?? 0) - (a.confidence ?? 0))) {
+        const k = p.email.toLowerCase();
+        if (!byEmail.has(k)) byEmail.set(k, { email: p.email, name: p.name || null, role: p.position || null });
+      }
+    } catch {}
+  }
+  if (apolloKey) {
+    try {
+      const people = await apolloFindDecisionMakers({ domain: clean, apiKey: apolloKey, titles: MARKETING_TITLES, limit: 15 });
+      for (const p of people) {
+        if (!p.email) continue;
+        const k = p.email.toLowerCase();
+        if (!byEmail.has(k)) byEmail.set(k, { email: p.email, name: p.name || null, role: p.title || null });
+      }
+    } catch {}
+  }
+  return [...byEmail.values()].slice(0, max);
+}
+
 /** Verifica si un email existe / es entregable. Devuelve estado + score. */
 export async function hunterVerifyEmail(opts: { email: string; apiKey: string }): Promise<EmailVerdict | null> {
   try {

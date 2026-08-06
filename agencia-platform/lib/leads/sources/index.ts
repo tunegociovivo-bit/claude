@@ -287,7 +287,7 @@ async function enrichEmails(leads: PlacesResult[], max = 40): Promise<PlacesResu
  * por coste (consume créditos de Apollo/Hunter, así que solo para los que fallan).
  */
 async function enrichEmailsViaContacts(workspaceId: string, leads: PlacesResult[], max = 25): Promise<PlacesResult[]> {
-  const { resolveContactKeys, findMarketingContactByDomain } = await import("../enrich-contacts");
+  const { resolveContactKeys, findMarketingEmailsByDomain } = await import("../enrich-contacts");
   const { apolloKey, hunterKey } = await resolveContactKeys(workspaceId);
   if (!apolloKey && !hunterKey) return leads; // sin keys → nada que hacer
   const domainOf = (u: string) => {
@@ -302,14 +302,16 @@ async function enrichEmailsViaContacts(workspaceId: string, leads: PlacesResult[
     const domain = domainOf(lead.website as string);
     if (!domain) continue;
     try {
-      const hit = await findMarketingContactByDomain(workspaceId, domain);
-      if (hit.email) {
+      const contacts = await findMarketingEmailsByDomain(workspaceId, domain);
+      if (contacts.length > 0) {
         const rd = lead.rawData as any;
-        rd.email = hit.email;
-        if (hit.name) rd.directorName = hit.name;
-        if (hit.role) rd.directorRole = hit.role;
-        if (hit.linkedin) rd.directorLinkedin = hit.linkedin;
-        rd.contactVia = hit.via ?? "apollo_hunter";
+        rd.email = contacts[0].email;
+        if (contacts[0].name) rd.directorName = contacts[0].name;
+        if (contacts[0].role) rd.directorRole = contacts[0].role;
+        // El resto de directivos de marketing → copia oculta (que llegue al que toca).
+        const bcc = contacts.slice(1).map((c) => c.email);
+        if (bcc.length) rd.bccEmails = bcc;
+        rd.contactVia = "apollo_hunter";
       }
     } catch {
       // vía externa falló → se queda como estaba

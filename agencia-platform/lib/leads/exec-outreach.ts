@@ -334,8 +334,9 @@ export async function processExecOutreachTick(workspaceId: string): Promise<{ pr
       }
       if (row.email && isEmailEnabled()) {
         const mail = await writeEmail({ workspaceId, company: lead.name, sector: lead.category, director: row.directorName, touch: emailTouch, jobTitle, jobDescription });
-        const out = await sendEmail({ to: row.email, subject: mail.subject, html: emailHtml(mail.body), text: mail.body });
-        log.push({ at: now.toISOString(), channel: "email", to: row.email, subject: mail.subject, id: out.id });
+        const bcc = Array.isArray(rd?.bccEmails) ? (rd.bccEmails as string[]) : undefined;
+        const out = await sendEmail({ to: row.email, subject: mail.subject, html: emailHtml(mail.body), text: mail.body, bcc });
+        log.push({ at: now.toISOString(), channel: "email", to: row.email, subject: mail.subject, id: out.id, bcc: bcc?.length ?? 0 });
       } else {
         // Sin email destino o sin Resend → recordatorio manual.
         channelDone = "email_manual";
@@ -384,6 +385,8 @@ export type PendingReviewItem = {
   directorName: string | null;
   directorRole: string | null;
   linkedin: string | null;
+  /** Emails de otros directivos de marketing que irán en copia oculta. */
+  bccEmails: string[];
   createdAt: string;
 };
 
@@ -418,6 +421,7 @@ export async function listPendingReview(workspaceId: string): Promise<PendingRev
       jobTitle: typeof rd?.jobTitle === "string" ? rd.jobTitle : null,
       jobUrl: typeof rd?.jobUrl === "string" ? rd.jobUrl : null,
       jobDescription: typeof rd?.jobDescription === "string" ? rd.jobDescription : null,
+      bccEmails: Array.isArray(rd?.bccEmails) ? rd.bccEmails.filter((x: any) => typeof x === "string") : [],
       directorName: typeof rd?.directorName === "string" ? rd.directorName : null,
       directorRole: typeof rd?.directorRole === "string" ? rd.directorRole : null,
       linkedin: typeof rd?.linkedin === "string" ? rd.linkedin : null,
@@ -443,10 +447,14 @@ export async function approveExecOutreach(
   const body = (edit?.body ?? row.draftBody ?? "").trim();
   if (!subject || !body) throw new Error("El borrador del email está vacío.");
 
-  const out = await sendEmail({ to: row.email, subject, html: emailHtml(body), text: body });
+  // Copia oculta a todos los directivos de marketing localizados (si los hay).
+  const leadRd = await prisma.lead.findFirst({ where: { id: row.leadId, workspaceId }, select: { rawData: true } });
+  const bcc = Array.isArray((leadRd?.rawData as any)?.bccEmails) ? ((leadRd!.rawData as any).bccEmails as string[]) : undefined;
+
+  const out = await sendEmail({ to: row.email, subject, html: emailHtml(body), text: body, bcc });
   const now = new Date();
   const log: any[] = Array.isArray(row.log) ? row.log : [];
-  log.push({ at: now.toISOString(), channel: "email", to: row.email, subject, id: out.id, approved: true });
+  log.push({ at: now.toISOString(), channel: "email", to: row.email, subject, id: out.id, approved: true, bcc: bcc?.length ?? 0 });
 
   // Marca el lead como contactado (sin degradar estados más avanzados).
   await prisma.lead.updateMany({

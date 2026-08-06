@@ -17,7 +17,7 @@ import { prisma } from "@/lib/db/prisma";
 import { completeJson } from "@/lib/ai/anthropic";
 import { placesTextSearch, type PlacesResult } from "../google-places";
 import { extractEmailsFromWebsite } from "../email-extract";
-import { apolloFindDecisionMakers, hunterDomainSearch, hunterFindEmail, resolveContactKeys } from "../enrich-contacts";
+import { apolloFindDecisionMakers, hunterDomainSearch, hunterFindEmail, resolveContactKeys, findMarketingEmailsByDomain } from "../enrich-contacts";
 
 // Cargos de marketing/expansión para buscar al DECISOR en la central.
 const MARKETING_TITLES = [
@@ -291,10 +291,14 @@ export async function analyzeFranchiseNetwork(
   const contact: MarketingContact = domain
     ? await findMarketingContact(workspaceId, domain).catch(() => ({ email: null, name: null, role: null, linkedin: null }))
     : { email: null, name: null, role: null, linkedin: null };
-  let email: string | null = contact.email;
+  // TODOS los directivos de marketing (para copia oculta): que llegue al que toca.
+  const marketingEmails = domain ? await findMarketingEmailsByDomain(workspaceId, domain).catch(() => []) : [];
+  let email: string | null = contact.email ?? marketingEmails[0]?.email ?? null;
   if (!email && site) {
     try { const emails = await extractEmailsFromWebsite(site); email = emails[0] ?? null; } catch { email = null; }
   }
+  // BCC = todos los emails de marketing menos el destinatario principal.
+  const bccEmails = marketingEmails.map((c) => c.email).filter((e) => e.toLowerCase() !== (email ?? "").toLowerCase());
   let subject: string | undefined;
   let body: string | undefined;
   try {
@@ -328,6 +332,8 @@ export async function analyzeFranchiseNetwork(
       jobDescription: report,
       reportText: report,
       email: email ?? undefined,
+      // Copia oculta a TODOS los directivos de marketing localizados.
+      bccEmails: bccEmails.length ? bccEmails : undefined,
       // Decisor de marketing localizado (para el mensaje y el LinkedIn manual).
       directorName: contact.name ?? undefined,
       directorRole: contact.role ?? undefined,
