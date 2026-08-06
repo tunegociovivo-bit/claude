@@ -66,6 +66,33 @@ function slug(s: string): string {
   return s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
 }
 
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Verifica una marca en Places con REINTENTO (Places puede devolver 429 por
+ * cuota/rate y, sin reintentar, la marca se caía en silencio → resultados
+ * inconsistentes). Cuenta fichas cuyo nombre contiene la marca completa o su
+ * token más distintivo (tolerante a "Gelateria Sicilia Centro").
+ */
+async function verifyBrandCount(workspaceId: string, name: string): Promise<number> {
+  const nslug = slug(name);
+  const distinctive = nslug.split("-").filter((t) => t.length >= 4).sort((a, b) => b.length - a.length)[0] ?? nslug;
+  let hits: PlacesResult[] | null = null;
+  for (let attempt = 0; attempt < 3 && hits === null; attempt++) {
+    if (attempt > 0) await sleep(attempt * 1500); // 1,5s, 3s ante 429/cuota
+    try {
+      hits = await placesTextSearch({ workspaceId, query: name, maxPages: 1, pageSize: 20, regionCode: "ES", languageCode: "es" });
+    } catch {
+      hits = null;
+    }
+  }
+  if (!hits) return 0;
+  return hits.filter((h) => {
+    const hs = slug(h.name);
+    return hs.includes(nslug) || (distinctive.length >= 4 && hs.includes(distinctive));
+  }).length;
+}
+
 const BRANDS_SCHEMA = {
   type: "object",
   properties: { brands: { type: "array", items: { type: "string" } } },
@@ -87,10 +114,10 @@ export async function discoverFranchiseBrands(
       workspaceId,
       model: "claude-haiku-4-5-20251001",
       system:
-        "Devuelve marcas de FRANQUICIA reales que operan en ESPAÑA en el nicho indicado, con red de varios locales. Solo nombres de marca reales y actuales, NO inventes. Máximo 18. Devuelve SOLO el JSON {brands:[...]}.",
-      user: `Nicho: ${niche}\n\nMarcas de franquicia en España de ese nicho:`,
+        "Devuelve las PRINCIPALES marcas de FRANQUICIA o cadena reales y conocidas que operan en ESPAÑA en el nicho indicado, con red de varios locales. Incluye tanto las grandes como las medianas/regionales. Solo nombres de marca reales y actuales, NO inventes. Entre 12 y 25. Devuelve SOLO el JSON {brands:[...]}.",
+      user: `Nicho: ${niche}\n\nMarcas de franquicia/cadena en España de ese nicho:`,
       schema: BRANDS_SCHEMA,
-      maxTokens: 400
+      maxTokens: 500
     });
     proposed = Array.isArray(res?.brands) ? res.brands.filter((b) => typeof b === "string" && b.trim()).map((b) => b.trim()) : [];
   } catch {
@@ -98,20 +125,14 @@ export async function discoverFranchiseBrands(
   }
   // Dedup por slug.
   const seen = new Set<string>();
-  proposed = proposed.filter((b) => { const k = slug(b); if (!k || seen.has(k)) return false; seen.add(k); return true; }).slice(0, 18);
+  proposed = proposed.filter((b) => { const k = slug(b); if (!k || seen.has(k)) return false; seen.add(k); return true; }).slice(0, 25);
 
-  // Verificación: la marca debe aparecer como cadena (≥3 fichas) en Places.
+  // Verificación: la marca debe aparecer como cadena (≥2 fichas) en Places, con
+  // reintento ante 429 (evita que la cuota tumbe resultados en silencio).
   const verified: { name: string; sampleCount: number }[] = [];
   for (const name of proposed) {
-    try {
-      const hits = await placesTextSearch({ workspaceId, query: name, maxPages: 1, pageSize: 20 });
-      // Cuenta fichas cuyo nombre contiene la marca completa (evita falsos positivos).
-      const nslug = slug(name);
-      const count = hits.filter((h) => slug(h.name).includes(nslug)).length;
-      if (count >= 3) verified.push({ name, sampleCount: count });
-    } catch {
-      // sin key de Places / error → saltar
-    }
+    const count = await verifyBrandCount(workspaceId, name);
+    if (count >= 2) verified.push({ name, sampleCount: count });
   }
   return { brands: verified };
 }
