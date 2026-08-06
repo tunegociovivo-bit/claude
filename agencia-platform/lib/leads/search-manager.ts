@@ -21,7 +21,8 @@ import { classifyLeadsRelevance, type RelevanceVerdict } from "./relevance";
 import { collectFromSource, enrichJobsResults, type LeadSourceKey } from "./sources";
 import { offersToLeadResults } from "./sources/jobs";
 import { fetchJobAlertOffers } from "./sources/jobs-inbox";
-import { startExecOutreach, draftJobsReview } from "./exec-outreach";
+import { analyzeFranchiseNetwork } from "./sources/franchises";
+import { startExecOutreach, draftJobsReview, saveReviewDraft } from "./exec-outreach";
 
 /**
  * Arranca la secuencia de email automática para los leads de la fuente "jobs"
@@ -240,6 +241,75 @@ export async function reEnrichJobsLeads(workspaceId: string): Promise<{ scanned:
     }
   }
   return { scanned: leads.length, emailsFound, drafted };
+}
+
+/**
+ * Analiza las franquicias seleccionadas: por cada marca, muestrea su red en
+ * Google, genera el informe de salud + el email a la central, crea el lead
+ * (la central) y deja el email en la cola de revisión. Devuelve un resumen por
+ * marca para la UI. Reutiliza upsertLead + la cola de revisión existentes.
+ */
+export async function analyzeFranchises(
+  workspaceId: string,
+  brands: string[],
+  location?: string
+): Promise<{ results: { brand: string; sampled: number; metrics: any | null; emailed: boolean; email: string | null; error?: string }[] }> {
+  // Contenedor de búsqueda persistente para los leads de franquicias.
+  let search = await prisma.leadSearch.findFirst({
+    where: { workspaceId, source: "franchises", location: "Franquicias" } as any
+  });
+  if (!search) {
+    search = await prisma.leadSearch.create({
+      data: {
+        workspaceId,
+        keyword: "Franquicias (central)",
+        location: "Franquicias",
+        scope: "custom",
+        source: "franchises",
+        totalProvinces: 1,
+        processedProvinces: 1,
+        status: "COMPLETED",
+        sourceConfig: { franchises: true }
+      } as any
+    });
+  }
+
+  const results: { brand: string; sampled: number; metrics: any | null; emailed: boolean; email: string | null; error?: string }[] = [];
+  let position = 1;
+  for (const brand of brands.slice(0, 12)) {
+    try {
+      const a = await analyzeFranchiseNetwork(workspaceId, brand, location);
+      if (!a) {
+        results.push({ brand, sampled: 0, metrics: null, emailed: false, email: null, error: "No se encontró red suficiente en Google (mín. 3 fichas)." });
+        continue;
+      }
+      await upsertLead({
+        workspaceId,
+        searchId: search.id,
+        province: a.central.province ?? "España",
+        position: position++,
+        r: a.central,
+        aiRelevance: null,
+        skipExisting: false
+      });
+      const lead = await prisma.lead.findUnique({
+        where: { workspaceId_placeId: { workspaceId, placeId: a.central.placeId } },
+        select: { id: true }
+      });
+      let emailed = false;
+      if (lead && a.email && a.subject && a.body) {
+        const existing = await prisma.leadExecOutreach.findFirst({ where: { workspaceId, leadId: lead.id }, select: { id: true } });
+        if (!existing) {
+          await saveReviewDraft(workspaceId, lead.id, a.email, a.subject, a.body);
+          emailed = true;
+        }
+      }
+      results.push({ brand, sampled: a.metrics.sampled, metrics: a.metrics, emailed, email: a.email });
+    } catch (err: any) {
+      results.push({ brand, sampled: 0, metrics: null, emailed: false, email: null, error: String(err?.message ?? err).slice(0, 160) });
+    }
+  }
+  return { results };
 }
 
 /** Clave de caché de barridos: normaliza keyword/área (minúsculas, espacios). */

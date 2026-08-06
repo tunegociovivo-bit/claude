@@ -65,7 +65,6 @@ export async function draftJobsReview(opts: {
   jobTitle?: string | null;
   jobDescription?: string | null;
 }): Promise<{ drafted: boolean }> {
-  const now = new Date();
   try {
     const mail = await writeEmail({
       workspaceId: opts.workspaceId,
@@ -75,28 +74,36 @@ export async function draftJobsReview(opts: {
       jobTitle: opts.jobTitle ?? null,
       jobDescription: opts.jobDescription ?? null
     });
-    const log = [{ at: now.toISOString(), channel: "email_drafted", to: opts.email, subject: mail.subject }];
-    const common = {
-      email: opts.email,
-      step: 0,
-      status: "pending_review",
-      mode: "review" as const,
-      draftSubject: mail.subject,
-      draftBody: mail.body,
-      nextAt: now,
-      log
-    };
-    await prisma.leadExecOutreach.upsert({
-      where: { workspaceId_leadId: { workspaceId: opts.workspaceId, leadId: opts.leadId } },
-      create: { workspaceId: opts.workspaceId, leadId: opts.leadId, ...common },
-      update: common
-    });
+    await saveReviewDraft(opts.workspaceId, opts.leadId, opts.email, mail.subject, mail.body);
     return { drafted: true };
   } catch {
     // Fallback: fila activa en modo review → el cron redactará en el próximo tick.
     await startExecOutreach({ workspaceId: opts.workspaceId, leadId: opts.leadId, email: opts.email, mode: "review" });
     return { drafted: false };
   }
+}
+
+/**
+ * Guarda un borrador de email en la cola de revisión (pending_review) con el
+ * asunto y cuerpo dados. Genérico: lo usan tanto Empleos como Franquicias.
+ */
+export async function saveReviewDraft(workspaceId: string, leadId: string, email: string, subject: string, body: string): Promise<void> {
+  const now = new Date();
+  const common = {
+    email,
+    step: 0,
+    status: "pending_review",
+    mode: "review" as const,
+    draftSubject: subject,
+    draftBody: body,
+    nextAt: now,
+    log: [{ at: now.toISOString(), channel: "email_drafted", to: email, subject }]
+  };
+  await prisma.leadExecOutreach.upsert({
+    where: { workspaceId_leadId: { workspaceId, leadId } },
+    create: { workspaceId, leadId, ...common },
+    update: common
+  });
 }
 
 /**
