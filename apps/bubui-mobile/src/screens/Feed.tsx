@@ -18,6 +18,7 @@ import { stagger } from "../lib/anim";
 import { useTheme, type Palette, radius, shadow, gradients } from "../lib/theme";
 import { registerExpoPushForCustomer } from "../lib/push";
 import { claimPendingDeal, onDealClaimed } from "../lib/deal-pending";
+import { applyPendingRef } from "../lib/referral-pending";
 import { startBubuiGeofencing } from "../lib/geofence";
 
 type Offer = {
@@ -44,6 +45,9 @@ type Offer = {
   friendsNeeded?: number;
   sharesLeft?: number;
   friendsJoined?: string[]; // iniciales de los amigos que ya cuentan
+  // Amigos ya registrados con el enlace (pueden no contar aún si el reto
+  // exige que gasten su cupón comprando).
+  friendsRegistered?: number;
   // Activación alternativa por acción (reseña/foto), validada por IA.
   altActionsUnlocked?: boolean;
   altMinReferrals?: number;
@@ -147,6 +151,9 @@ export function Feed() {
         // link falló por red): reintenta ANTES de pedir las ofertas para que
         // el cupón nuevo salga ya en esta carga. No-op si no hay pendiente.
         await claimPendingDeal(c.customerId).catch(() => {});
+        // Ídem con el código de referido: si la vinculación del alta se
+        // perdió (fallo silencioso o Install Referrer tardío), se reintenta.
+        await applyPendingRef(c.customerId).catch(() => {});
         try {
           const r = await api.offers(c.customerId, lat, lng);
           const items: Offer[] = r.items ?? [];
@@ -391,6 +398,20 @@ export function Feed() {
                     })}
                   </View>
                 )}
+                {/* Desbloqueo por COMPRA: los amigos registrados aún no llenan
+                    huecos (cuentan al gastar su cupón). Sin este aviso, el
+                    cliente veía "nada" aunque sus amigos ya se hubieran
+                    registrado con su enlace. */}
+                {!!item.friendsRegistered &&
+                  item.friendsRegistered > (item.friendsJoined?.length ?? 0) && (
+                    <Text style={styles.challengePending}>
+                      ✓ {item.friendsRegistered} amig{item.friendsRegistered === 1 ? "o/a" : "os/as"} ya
+                      registrad{item.friendsRegistered === 1 ? "o/a" : "os/as"} con tu enlace —{" "}
+                      {item.friendsJoined?.length != null && item.friendsJoined.length < item.friendsRegistered
+                        ? "contarán en cuanto gasten su cupón en el negocio."
+                        : "¡sigue así!"}
+                    </Text>
+                  )}
                 <Bouncy
                   style={styles.challengeBtn}
                   onPress={() => {
@@ -542,6 +563,7 @@ const makeStyles = (c: Palette) =>
     challengeReward: { fontSize: 13, fontWeight: "800", color: c.pink },
     challengeMsg: { fontSize: 13, color: c.black, marginTop: 8, marginBottom: 10 },
     slotsRow: { flexDirection: "row", gap: 8, marginBottom: 12, flexWrap: "wrap" },
+    challengePending: { fontSize: 12, color: c.gray, marginTop: -4, marginBottom: 10, lineHeight: 16 },
     slot: { width: 34, height: 34, borderRadius: 17, alignItems: "center", justifyContent: "center" },
     slotFilled: { backgroundColor: c.pink },
     slotEmpty: { borderWidth: 2, borderColor: c.pink, borderStyle: "dashed", backgroundColor: "transparent" },

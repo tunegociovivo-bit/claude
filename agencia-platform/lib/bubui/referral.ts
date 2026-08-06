@@ -180,7 +180,18 @@ export async function applyReferral(friendId: string, code: string): Promise<voi
   // el ÚNICO premio por compartir — el descuento de mesa NO se gana compartiendo).
   await import("./wallet").then((m) => m.creditReferrerWallet(referrer.id)).catch(() => {});
 
-  const originId = referrer.firstBusinessId;
+  // Negocio de origen: quien financia los premios. Si el referidor aún no
+  // tiene firstBusinessId (p. ej. entró por un enlace de reto y algo impidió
+  // fijarlo), usamos el negocio de su reto activo más reciente.
+  let originId = referrer.firstBusinessId;
+  if (!originId) {
+    const lastDeal = await prisma.bubuiCustomDeal.findFirst({
+      where: { claimedByCustomerId: referrer.id, expiresAt: { gt: new Date() } },
+      orderBy: { claimedAt: "desc" },
+      select: { businessId: true }
+    });
+    originId = lastDeal?.businessId ?? null;
+  }
   if (!originId) return; // sin negocio de origen no hay quien financie premios
   const business = await prisma.bubuiBusiness.findUnique({ where: { id: originId } });
   if (!business || !business.referralEnabled) return;
