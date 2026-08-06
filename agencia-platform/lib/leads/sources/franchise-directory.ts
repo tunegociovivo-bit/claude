@@ -66,7 +66,7 @@ export function pickBestEmail(emails: string[], corporateWeb: string | null): st
   return role ?? emails[0];
 }
 
-type DirectoryConfig = { name: string; listUrl: string; host: string; detailPathRe: RegExp; scrapfly?: boolean };
+type DirectoryConfig = { name: string; listUrl: string; host: string; detailPathRe: RegExp; scrapfly?: boolean; paginate?: boolean };
 
 // Directorios soportados. Se pueden añadir más con su listado + host + patrón de ruta.
 const DIRECTORIES: DirectoryConfig[] = [
@@ -74,16 +74,37 @@ const DIRECTORIES: DirectoryConfig[] = [
     name: "Feria Franquicias Online",
     listUrl: "https://feriafranquiciasonline.es/firmas-expositoras/",
     host: "feriafranquiciasonline.es",
-    detailPathRe: /^\/firmas-expositoras\/[a-z0-9-]+\/?$/i
+    detailPathRe: /^\/firmas-expositoras\/[a-z0-9-]+\/?$/i,
+    paginate: true
   },
   {
     name: "AEF",
     listUrl: "https://www.aefranquicia.es/ensenas/",
     host: "aefranquicia.es",
     detailPathRe: /^\/ensenas\/[a-z0-9-]+\/?$/i,
-    scrapfly: true
+    scrapfly: true,
+    paginate: true
   }
 ];
+
+/** Recorre las páginas del listado (paginación WordPress /page/N/) acumulando
+ *  enlaces a fichas, hasta que una página no aporte ninguna nueva o falle. */
+async function collectListingUrls(dir: DirectoryConfig, workspaceId: string, max: number): Promise<{ listOk: boolean; urls: string[] }> {
+  const all = new Set<string>();
+  const maxPages = dir.paginate ? 15 : 1;
+  let listOk = false;
+  for (let p = 1; p <= maxPages && all.size < max; p++) {
+    const url = p === 1 ? dir.listUrl : `${dir.listUrl.replace(/\/$/, "")}/page/${p}/`;
+    const html = await fetchHtml(url, workspaceId, dir.scrapfly);
+    if (!html) { if (p === 1) return { listOk: false, urls: [] }; break; }
+    listOk = true;
+    const found = discoverDetailUrls(html, dir.listUrl, dir.host, dir.detailPathRe);
+    const before = all.size;
+    found.forEach((u) => all.add(u));
+    if (all.size === before) break; // página sin fichas nuevas → fin de la paginación
+  }
+  return { listOk, urls: [...all].slice(0, max) };
+}
 
 async function plainFetch(url: string): Promise<string> {
   try {
@@ -234,7 +255,7 @@ export async function crawlFranchiseDirectories(
   workspaceId: string,
   opts?: { max?: number; only?: string }
 ): Promise<{ contacts: DirectoryContact[]; scanned: number; errors: number; perDirectory: { name: string; listOk: boolean; fichas: number; contacts: number; withEmail: number }[] }> {
-  const max = Math.min(opts?.max ?? 40, 80);
+  const max = Math.min(opts?.max ?? 40, 150);
   const contacts: DirectoryContact[] = [];
   const perDirectory: { name: string; listOk: boolean; fichas: number; contacts: number; withEmail: number }[] = [];
   let scanned = 0;
@@ -244,10 +265,9 @@ export async function crawlFranchiseDirectories(
     if (opts?.only && dir.name !== opts.only) continue;
     const stat = { name: dir.name, listOk: false, fichas: 0, contacts: 0, withEmail: 0 };
     perDirectory.push(stat);
-    const listHtml = await fetchHtml(dir.listUrl, workspaceId, dir.scrapfly);
-    if (!listHtml) { errors++; continue; } // el listado no se pudo descargar
+    const { listOk, urls } = await collectListingUrls(dir, workspaceId, max);
+    if (!listOk) { errors++; continue; } // el listado no se pudo descargar
     stat.listOk = true;
-    const urls = discoverDetailUrls(listHtml, dir.listUrl, dir.host, dir.detailPathRe).slice(0, max);
     stat.fichas = urls.length;
     const CHUNK = 3;
     for (let i = 0; i < urls.length; i += CHUNK) {
@@ -265,5 +285,7 @@ export async function crawlFranchiseDirectories(
       for (const c of found) if (c) { contacts.push(c); stat.contacts++; if (c.email) stat.withEmail++; }
     }
   }
+  // Las que tienen email primero (para trabajar con las que funcionan).
+  contacts.sort((a, b) => (a.email ? 0 : 1) - (b.email ? 0 : 1));
   return { contacts, scanned, errors, perDirectory };
 }

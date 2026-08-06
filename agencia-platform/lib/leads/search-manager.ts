@@ -341,7 +341,7 @@ export async function importFranchiseDirectory(
   workspaceId: string
 ): Promise<{ imported: number; withEmail: number; scanned: number; contacts: any[]; perDirectory: any[] }> {
   const { crawlFranchiseDirectories } = await import("./sources/franchise-directory");
-  const { contacts, scanned, perDirectory } = await crawlFranchiseDirectories(workspaceId, { max: 60 });
+  const { contacts, scanned, perDirectory } = await crawlFranchiseDirectories(workspaceId, { max: 120 });
 
   const search = await getOrCreateFranchiseSearch(workspaceId);
   const slugify = (s: string) => s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
