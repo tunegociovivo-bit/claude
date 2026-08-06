@@ -183,9 +183,26 @@ export async function findMarketingEmailsByDomain(workspaceId: string, domain: s
     try {
       const people = await apolloFindDecisionMakers({ domain: clean, apiKey: apolloKey, titles: MARKETING_TITLES, limit: 15 });
       for (const p of people) {
-        if (!p.email) continue;
-        const k = p.email.toLowerCase();
-        if (!byEmail.has(k)) byEmail.set(k, { email: p.email, name: p.name || null, role: p.title || null });
+        if (p.email) {
+          const k = p.email.toLowerCase();
+          if (!byEmail.has(k)) byEmail.set(k, { email: p.email, name: p.name || null, role: p.title || null });
+          continue;
+        }
+        // Apollo tiene el NOMBRE pero no el email → lo recuperamos con el
+        // email-finder de Hunter (nombre + dominio → email verificado). Así
+        // sumamos directivos que solo aparecían en LinkedIn, sin LinkedIn de pago.
+        if (p.name && hunterKey && byEmail.size < max) {
+          const tokens = p.name.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").split(/[\s-]+/).filter(Boolean);
+          if (tokens.length >= 2) {
+            try {
+              const v = await hunterFindEmail({ domain: clean, firstName: tokens[0], lastName: tokens[tokens.length - 1], apiKey: hunterKey });
+              if (v?.email) {
+                const k = v.email.toLowerCase();
+                if (!byEmail.has(k)) byEmail.set(k, { email: v.email, name: p.name || null, role: p.title || null });
+              }
+            } catch {}
+          }
+        }
       }
     } catch {}
   }
