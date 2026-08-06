@@ -21,11 +21,50 @@ export type DirectoryContact = {
   role: string | null;
   phone: string | null;
   email: string | null;
+  /** Todos los emails corporativos hallados en la ficha (para copia oculta). */
+  emails: string[];
   corporateWeb: string | null;
   sector: string | null;
   sourceUrl: string;
   directory: string;
 };
+
+const EMAIL_RE = /[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}/gi;
+// Emails que NO son de la franquicia: los del propio directorio/portal y ruido.
+const DIRECTORY_DOMAINS = ["feriafranquiciasonline.es", "aefranquicia.es", "tormo.com", "mundofranquicia.com", "quefranquicia.com", "franquiciadores.com"];
+const EMAIL_JUNK = /(sentry|wixpress|example\.com|\.png|\.jpg|\.jpeg|\.gif|\.webp|godaddy|cloudflare|domain\.com|email\.com|wordpress|@2x|@3x|tu-?dominio)/i;
+// Buzones de contacto de franquicia que priorizamos como destinatario principal.
+const ROLE_PREFIX = /^(expansion|expansión|franquicias|desarrollo|marketing|comunicacion|comunicación|info|hola|contacto|contact)@/i;
+
+/** Extrae emails corporativos de la ficha (mailto + texto), sin los del portal. */
+export function extractFichaEmails(rawHtml: string): string[] {
+  const set = new Set<string>();
+  const add = (raw: string) => {
+    const e = raw.trim().toLowerCase().replace(/^mailto:/, "").replace(/[).,;:]+$/, "");
+    if (!/^[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}$/.test(e)) return;
+    if (EMAIL_JUNK.test(e)) return;
+    const dom = e.split("@")[1] ?? "";
+    if (DIRECTORY_DOMAINS.some((d) => dom === d || dom.endsWith("." + d))) return; // email del portal → fuera
+    set.add(e);
+  };
+  for (const m of rawHtml.matchAll(/mailto:([^"'?>\s]+)/gi)) add(m[1]);
+  for (const m of rawHtml.matchAll(EMAIL_RE)) add(m[0]);
+  return [...set];
+}
+
+/** Elige el mejor email (dominio corporativo + buzón de expansión/marketing). */
+export function pickBestEmail(emails: string[], corporateWeb: string | null): string | null {
+  if (emails.length === 0) return null;
+  const domain = corporateWeb ? corporateWeb.replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0].toLowerCase() : null;
+  if (domain) {
+    const ownRole = emails.find((e) => e.endsWith("@" + domain) && ROLE_PREFIX.test(e));
+    if (ownRole) return ownRole;
+    const own = emails.find((e) => e.endsWith("@" + domain));
+    if (own) return own;
+  }
+  const role = emails.find((e) => ROLE_PREFIX.test(e));
+  return role ?? emails[0];
+}
 
 type DirectoryConfig = { name: string; listUrl: string; detailPattern: RegExp; scrapfly?: boolean };
 
@@ -44,20 +83,21 @@ const DIRECTORIES: DirectoryConfig[] = [
   }
 ];
 
-/** Descarga HTML: fetch normal con UA de navegador; si falla y hay Scrapfly, vía Scrapfly. */
-async function fetchHtml(url: string, workspaceId: string, useScrapfly?: boolean): Promise<string> {
-  if (!useScrapfly) {
-    try {
-      const resp = await fetch(url, {
-        headers: { "User-Agent": "Mozilla/5.0 (compatible; NegocioVivoBot/1.0)", Accept: "text/html" },
-        signal: AbortSignal.timeout(15000),
-        redirect: "follow"
-      });
-      if (resp.ok) return (await resp.text()).slice(0, 600_000);
-    } catch {
-      // cae a Scrapfly abajo
-    }
+async function plainFetch(url: string): Promise<string> {
+  try {
+    const resp = await fetch(url, {
+      headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36", Accept: "text/html" },
+      signal: AbortSignal.timeout(15000),
+      redirect: "follow"
+    });
+    if (!resp.ok) return "";
+    return (await resp.text()).slice(0, 800_000);
+  } catch {
+    return "";
   }
+}
+
+async function scrapflyFetchHtml(url: string, workspaceId: string): Promise<string> {
   const key = await scrapflyKey(workspaceId);
   if (!key) return "";
   try {
@@ -65,10 +105,21 @@ async function fetchHtml(url: string, workspaceId: string, useScrapfly?: boolean
     const resp = await fetch(api, { signal: AbortSignal.timeout(45000) });
     const data: any = await resp.json().catch(() => null);
     const html = data?.result?.content;
-    return typeof html === "string" ? html.slice(0, 600_000) : "";
+    return typeof html === "string" ? html.slice(0, 800_000) : "";
   } catch {
     return "";
   }
+}
+
+/** Descarga HTML probando ambas vías. Si el portal bloquea (503/anti-bot), Scrapfly
+ *  con render_js lo resuelve. `preferScrapfly` invierte el orden para portales JS. */
+async function fetchHtml(url: string, workspaceId: string, preferScrapfly?: boolean): Promise<string> {
+  const order: ("plain" | "scrapfly")[] = preferScrapfly ? ["scrapfly", "plain"] : ["plain", "scrapfly"];
+  for (const mode of order) {
+    const html = mode === "plain" ? await plainFetch(url) : await scrapflyFetchHtml(url, workspaceId);
+    if (html && html.length > 300) return html;
+  }
+  return "";
 }
 
 /** Enlaces a fichas de franquicia dentro del listado (deduplicados). */
@@ -120,14 +171,26 @@ async function extractContact(workspaceId: string, html: string, url: string, di
   }
   if (!r?.brand || !String(r.brand).trim()) return null;
   const str = (v: any) => (typeof v === "string" && v.trim() ? v.trim() : null);
-  const email = str(r.email);
+  const corporateWeb = str(r.corporateWeb);
+  // Emails REALES de la ficha por regex (mailto + texto), sin los del portal.
+  const fichaEmails = extractFichaEmails(html);
+  // Añade el email que sacó la IA si es válido y no es del portal.
+  const aiEmail = str(r.email);
+  if (aiEmail && /^[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}$/i.test(aiEmail)) {
+    const dom = aiEmail.toLowerCase().split("@")[1] ?? "";
+    if (!DIRECTORY_DOMAINS.some((d) => dom === d || dom.endsWith("." + d)) && !fichaEmails.includes(aiEmail.toLowerCase())) {
+      fichaEmails.push(aiEmail.toLowerCase());
+    }
+  }
+  const best = pickBestEmail(fichaEmails, corporateWeb);
   return {
     brand: String(r.brand).trim(),
     contactName: str(r.contactName),
     role: str(r.role),
     phone: str(r.phone),
-    email: email && /@/.test(email) ? email : null,
-    corporateWeb: str(r.corporateWeb),
+    email: best,
+    emails: fichaEmails,
+    corporateWeb,
     sector: str(r.sector),
     sourceUrl: url,
     directory

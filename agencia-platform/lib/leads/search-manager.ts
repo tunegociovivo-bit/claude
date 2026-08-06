@@ -376,6 +376,10 @@ export async function importFranchiseDirectory(
         brand: c.brand,
         sector: c.sector ?? undefined,
         email: c.email ?? undefined,
+        // Otros emails de la ficha → copia oculta.
+        bccEmails: Array.isArray(c.emails) && c.emails.length > 1
+          ? c.emails.filter((e: string) => e.toLowerCase() !== (c.email ?? "").toLowerCase())
+          : undefined,
         directorName: c.contactName ?? undefined,
         directorRole: c.role ?? undefined,
         contactVerified: !!c.email
