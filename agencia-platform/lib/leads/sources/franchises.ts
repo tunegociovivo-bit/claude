@@ -16,6 +16,51 @@
 import { completeJson } from "@/lib/ai/anthropic";
 import { placesTextSearch, type PlacesResult } from "../google-places";
 import { extractEmailsFromWebsite } from "../email-extract";
+import { apolloFindDecisionMakers, hunterDomainSearch, hunterFindEmail, resolveContactKeys } from "../enrich-contacts";
+
+// Cargos de marketing/expansión para buscar al DECISOR en la central.
+const MARKETING_TITLES = [
+  "marketing", "chief marketing officer", "cmo", "marketing director", "director de marketing",
+  "responsable de marketing", "head of marketing", "marketing manager", "brand", "brand manager",
+  "comunicación", "communications", "digital marketing", "growth", "expansión", "expansion", "franchise development"
+];
+
+export type MarketingContact = { email: string | null; name: string | null; role: string | null; linkedin: string | null };
+
+/**
+ * Encuentra al RESPONSABLE DE MARKETING/EXPANSIÓN de la central por el dominio:
+ * Hunter Domain Search (departamento marketing → email real) + Apollo (nombre,
+ * cargo y LinkedIn). Si hay nombre pero no email, prueba Hunter email-finder.
+ */
+async function findMarketingContact(workspaceId: string, domain: string): Promise<MarketingContact> {
+  const { apolloKey, hunterKey } = await resolveContactKeys(workspaceId);
+  const out: MarketingContact = { email: null, name: null, role: null, linkedin: null };
+
+  if (hunterKey) {
+    const people = await hunterDomainSearch({ domain, apiKey: hunterKey, department: "marketing", limit: 10 });
+    const best = people.filter((p) => p.email).sort((a, b) => (b.confidence ?? 0) - (a.confidence ?? 0))[0];
+    if (best) { out.email = best.email; out.name = best.name || null; out.role = best.position || null; }
+  }
+  if (apolloKey) {
+    const people = await apolloFindDecisionMakers({ domain, apiKey: apolloKey, titles: MARKETING_TITLES, limit: 5 });
+    const best = people[0];
+    if (best) {
+      out.linkedin = best.linkedin;
+      if (!out.name) out.name = best.name;
+      if (!out.role) out.role = best.title;
+      if (!out.email && best.email) out.email = best.email;
+    }
+  }
+  // Nombre sin email → intenta el email-finder de Hunter.
+  if (!out.email && out.name && hunterKey) {
+    const tokens = out.name.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").split(/[\s-]+/).filter(Boolean);
+    if (tokens.length >= 2) {
+      const v = await hunterFindEmail({ domain, firstName: tokens[0], lastName: tokens[tokens.length - 1], apiKey: hunterKey });
+      if (v) out.email = v.email;
+    }
+  }
+  return out;
+}
 
 function slug(s: string): string {
   return s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
@@ -138,12 +183,15 @@ Redacta un EMAIL frío B2B, español de España, trato de usted consistente, pro
 - Cierre con propuesta de enviar el informe completo de su red y una llamada de 15 min.
 - No inventes datos, clientes ni precios. Devuelve SOLO el JSON {subject, body}.`;
 
-async function writeFranchiseEmail(workspaceId: string, brand: string, report: string): Promise<{ subject: string; body: string }> {
+async function writeFranchiseEmail(workspaceId: string, brand: string, report: string, contact?: MarketingContact): Promise<{ subject: string; body: string }> {
+  const who = contact?.name
+    ? `Destinatario: ${contact.role ? contact.role + " — " : ""}${contact.name}. Dirígete a esta persona por su nombre, con naturalidad.`
+    : `Destinatario: el responsable de marketing/expansión de la central (nombre desconocido).`;
   return completeJson<{ subject: string; body: string }>({
     workspaceId,
     model: "claude-haiku-4-5-20251001",
     system: FRANCHISE_SYSTEM,
-    user: `Franquicia (central): ${brand}\n\nAnálisis de su red (usa estas cifras, no inventes otras):\n${report}\n\nEscribe el email al responsable de marketing/expansión de la central:`,
+    user: `Franquicia (central): ${brand}\n${who}\n\nAnálisis de su red (usa estas cifras, no inventes otras):\n${report}\n\nEscribe el email:`,
     schema: EMAIL_SCHEMA,
     maxTokens: 700
   });
@@ -174,7 +222,7 @@ export async function analyzeFranchiseNetwork(
   workspaceId: string,
   brand: string,
   location?: string
-): Promise<{ central: PlacesResult; metrics: NetworkMetrics; report: string; email: string | null; subject?: string; body?: string } | null> {
+): Promise<{ central: PlacesResult; metrics: NetworkMetrics; report: string; email: string | null; contact: MarketingContact; subject?: string; body?: string } | null> {
   const query = location && location.trim() ? `${brand} ${location.trim()}` : brand;
   let locs: PlacesResult[] = [];
   try {
@@ -189,14 +237,20 @@ export async function analyzeFranchiseNetwork(
   const metrics = computeMetrics(locs);
   const report = buildReport(brand, metrics);
   const site = modalWebsite(locs);
-  let email: string | null = null;
-  if (site) {
+  const domain = site ? site.replace(/^https?:\/\//, "").replace(/\/.*$/, "").replace(/^www\./, "") : null;
+
+  // 1º el DECISOR de marketing (Apollo/Hunter); si no, email genérico de la web.
+  const contact: MarketingContact = domain
+    ? await findMarketingContact(workspaceId, domain).catch(() => ({ email: null, name: null, role: null, linkedin: null }))
+    : { email: null, name: null, role: null, linkedin: null };
+  let email: string | null = contact.email;
+  if (!email && site) {
     try { const emails = await extractEmailsFromWebsite(site); email = emails[0] ?? null; } catch { email = null; }
   }
   let subject: string | undefined;
   let body: string | undefined;
   try {
-    const mail = await writeFranchiseEmail(workspaceId, brand, report);
+    const mail = await writeFranchiseEmail(workspaceId, brand, report, contact);
     subject = mail.subject;
     body = mail.body;
   } catch { /* si la IA falla, se persiste el lead sin borrador */ }
@@ -225,8 +279,12 @@ export async function analyzeFranchiseNetwork(
       // El informe se muestra en la tarjeta de revisión (campo jobDescription).
       jobDescription: report,
       reportText: report,
-      email: email ?? undefined
+      email: email ?? undefined,
+      // Decisor de marketing localizado (para el mensaje y el LinkedIn manual).
+      directorName: contact.name ?? undefined,
+      directorRole: contact.role ?? undefined,
+      linkedin: contact.linkedin ?? undefined
     }
   };
-  return { central, metrics, report, email, subject, body };
+  return { central, metrics, report, email, contact, subject, body };
 }

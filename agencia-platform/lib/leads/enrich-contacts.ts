@@ -11,15 +11,17 @@
 export type ApolloPerson = { name: string; title: string | null; linkedin: string | null; email: string | null };
 export type EmailVerdict = { email: string; status: string; score: number | null };
 
-/** Busca decisores de una empresa por dominio (cargos senior). Best-effort. */
-export async function apolloFindDecisionMakers(opts: { domain: string; apiKey: string; limit?: number }): Promise<ApolloPerson[]> {
+/** Busca decisores de una empresa por dominio (cargos senior). Best-effort.
+ *  `titles` acota por cargo (p.ej. marketing/expansión) — Apollo los trata como OR. */
+export async function apolloFindDecisionMakers(opts: { domain: string; apiKey: string; limit?: number; titles?: string[] }): Promise<ApolloPerson[]> {
   try {
     const resp = await fetch("https://api.apollo.io/api/v1/mixed_people/search", {
       method: "POST",
       headers: { "Content-Type": "application/json", "Cache-Control": "no-cache", "X-Api-Key": opts.apiKey },
       body: JSON.stringify({
         q_organization_domains: opts.domain,
-        person_seniorities: ["owner", "founder", "c_suite", "partner", "vp", "head", "director"],
+        person_seniorities: ["owner", "founder", "c_suite", "partner", "vp", "head", "director", "manager"],
+        ...(opts.titles && opts.titles.length ? { person_titles: opts.titles } : {}),
         page: 1,
         per_page: Math.min(opts.limit ?? 5, 10)
       }),
@@ -41,6 +43,43 @@ export async function apolloFindDecisionMakers(opts: { domain: string; apiKey: s
   } catch {
     return [];
   }
+}
+
+export type HunterPerson = { name: string; position: string | null; email: string; department: string | null; confidence: number | null };
+
+/** Busca personas de un dominio (opcionalmente de un DEPARTAMENTO, p.ej.
+ *  "marketing") con su email real, vía Hunter Domain Search. Best-effort. */
+export async function hunterDomainSearch(opts: { domain: string; apiKey: string; department?: string; limit?: number }): Promise<HunterPerson[]> {
+  try {
+    const dep = opts.department ? `&department=${encodeURIComponent(opts.department)}` : "";
+    const url = `https://api.hunter.io/v2/domain-search?domain=${encodeURIComponent(opts.domain)}${dep}&limit=${opts.limit ?? 10}&api_key=${encodeURIComponent(opts.apiKey)}`;
+    const resp = await fetch(url, { signal: AbortSignal.timeout(15000) });
+    const data: any = await resp.json().catch(() => null);
+    if (!resp.ok) return [];
+    const emails: any[] = Array.isArray(data?.data?.emails) ? data.data.emails : [];
+    return emails
+      .filter((e) => e?.value)
+      .map((e) => ({
+        name: [e.first_name, e.last_name].filter(Boolean).join(" ").trim(),
+        position: e.position ?? null,
+        email: e.value as string,
+        department: e.department ?? null,
+        confidence: typeof e.confidence === "number" ? e.confidence : null
+      }));
+  } catch {
+    return [];
+  }
+}
+
+/** Resuelve las API keys de Apollo/Hunter (env o Ajustes cifrados del workspace). */
+export async function resolveContactKeys(workspaceId: string): Promise<{ apolloKey: string | null; hunterKey: string | null }> {
+  const { prisma } = await import("@/lib/db/prisma");
+  const { decryptSecret } = await import("@/lib/ai/crypto");
+  const ws = await prisma.workspace.findUnique({ where: { id: workspaceId }, select: { settings: true } });
+  const s: any = (ws?.settings as any)?.leads ?? {};
+  const apolloKey = process.env.APOLLO_API_KEY || (s.apolloApiKeyEnc ? decryptSecret(s.apolloApiKeyEnc) : null);
+  const hunterKey = process.env.HUNTER_API_KEY || (s.hunterApiKeyEnc ? decryptSecret(s.hunterApiKeyEnc) : null);
+  return { apolloKey: apolloKey || null, hunterKey: hunterKey || null };
 }
 
 /** Email más probable (dominio + nombre + apellido) vía Hunter, con score. */

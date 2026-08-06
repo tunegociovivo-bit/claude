@@ -253,7 +253,7 @@ export async function analyzeFranchises(
   workspaceId: string,
   brands: string[],
   location?: string
-): Promise<{ results: { brand: string; sampled: number; metrics: any | null; emailed: boolean; email: string | null; error?: string }[] }> {
+): Promise<{ results: { brand: string; sampled: number; metrics: any | null; emailed: boolean; email: string | null; contact?: any; error?: string }[] }> {
   // Contenedor de búsqueda persistente para los leads de franquicias.
   let search = await prisma.leadSearch.findFirst({
     where: { workspaceId, source: "franchises", location: "Franquicias" } as any
@@ -274,7 +274,7 @@ export async function analyzeFranchises(
     });
   }
 
-  const results: { brand: string; sampled: number; metrics: any | null; emailed: boolean; email: string | null; error?: string }[] = [];
+  const results: { brand: string; sampled: number; metrics: any | null; emailed: boolean; email: string | null; contact?: any; error?: string }[] = [];
   let position = 1;
   for (const brand of brands.slice(0, 12)) {
     try {
@@ -304,7 +304,7 @@ export async function analyzeFranchises(
           emailed = true;
         }
       }
-      results.push({ brand, sampled: a.metrics.sampled, metrics: a.metrics, emailed, email: a.email });
+      results.push({ brand, sampled: a.metrics.sampled, metrics: a.metrics, emailed, email: a.email, contact: a.contact });
     } catch (err: any) {
       results.push({ brand, sampled: 0, metrics: null, emailed: false, email: null, error: String(err?.message ?? err).slice(0, 160) });
     }

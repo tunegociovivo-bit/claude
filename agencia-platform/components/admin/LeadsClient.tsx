@@ -2644,6 +2644,55 @@ function JobsInboxConfig({ onIngested }: { onIngested: () => void }) {
  * central en la cola de revisión. Enfocado a la CENTRAL (gestión de todas las
  * fichas con GMB HUB), no al franquiciado suelto.
  */
+/** Config de las keys de Apollo/Hunter (para localizar al responsable de marketing). */
+function DecisionMakerKeys() {
+  const [cfg, setCfg] = useState<any | null>(null);
+  const [hunter, setHunter] = useState("");
+  const [apollo, setApollo] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  async function load() {
+    try { const r = await fetch("/api/v1/leads/settings"); if (r.ok) setCfg(await r.json()); } catch {}
+  }
+  useEffect(() => { void load(); }, []);
+  async function save() {
+    setSaving(true); setMsg(null);
+    try {
+      const body: any = {};
+      if (hunter.trim()) body.hunterApiKey = hunter.trim();
+      if (apollo.trim()) body.apolloApiKey = apollo.trim();
+      const r = await fetch("/api/v1/leads/settings", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      if (!r.ok) { const j = await r.json().catch(() => ({})); setMsg(j?.error?.message ?? "No se pudo guardar."); return; }
+      setHunter(""); setApollo(""); setMsg("Guardado."); void load();
+    } finally { setSaving(false); }
+  }
+  return (
+    <details className="rounded-lg border border-slate-200 bg-white p-3">
+      <summary className="cursor-pointer select-none text-sm font-semibold text-slate-700">
+        ⚙️ Contacto del decisor — Apollo / Hunter
+        {cfg && <span className="ml-2 text-[11px] font-normal text-slate-500">{cfg.apolloConfigured ? "Apollo ✓" : "Apollo ✗"} · {cfg.hunterConfigured ? "Hunter ✓" : "Hunter ✗"}</span>}
+      </summary>
+      <div className="mt-2 space-y-2">
+        <p className="text-[11px] text-slate-500">
+          Para llegar al <strong>responsable de marketing</strong> de la central (no a <code>info@</code>) hace falta un proveedor de contactos B2B.
+          <strong> Hunter</strong> da el email real por dominio+departamento; <strong>Apollo</strong> da nombre, cargo y LinkedIn. Con al menos uno ya funciona.
+          Tienen límites/coste de créditos. Sin ninguno, se usa el email genérico de la web.
+        </p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <input value={hunter} onChange={(e) => setHunter(e.target.value)} type="password" placeholder={cfg?.hunterConfigured ? "Hunter API key (•••• guardada)" : "Hunter API key"} className="px-2 py-1 rounded border border-slate-300 text-sm" />
+          <input value={apollo} onChange={(e) => setApollo(e.target.value)} type="password" placeholder={cfg?.apolloConfigured ? "Apollo API key (•••• guardada)" : "Apollo API key"} className="px-2 py-1 rounded border border-slate-300 text-sm" />
+        </div>
+        <div className="flex items-center gap-2">
+          <button onClick={() => void save()} disabled={saving} className="inline-flex items-center gap-1 rounded-md bg-slate-700 px-2.5 py-1 text-xs font-semibold text-white hover:bg-slate-800 disabled:opacity-50">
+            {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />} Guardar
+          </button>
+          {msg && <span className="text-[11px] text-emerald-700">{msg}</span>}
+        </div>
+      </div>
+    </details>
+  );
+}
+
 function FranchisesView() {
   const [niche, setNiche] = useState("");
   const [location, setLocation] = useState("");
@@ -2704,6 +2753,8 @@ function FranchisesView() {
         {err && <div className="mt-2 text-[11px] text-rose-700">{err}</div>}
       </div>
 
+      <DecisionMakerKeys />
+
       {brands && brands.length > 0 && (
         <div className="rounded-lg border border-slate-200 bg-white p-3">
           <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -2744,6 +2795,15 @@ function FranchisesView() {
                   <div className="mt-1 text-[11px] text-slate-600">
                     {r.metrics.sampled} fichas · media {r.metrics.avgRating ?? "—"}★ (de {r.metrics.minRating ?? "—"} a {r.metrics.maxRating ?? "—"}) ·
                     {" "}{r.metrics.lowRatingPct}% bajo 3,5★ · {r.metrics.noWebsitePct}% sin web · {r.metrics.noReviewsPct}% casi sin reseñas
+                  </div>
+                )}
+                {(r.contact?.name || r.contact?.email || r.contact?.linkedin) && (
+                  <div className="mt-1 text-[11px] text-slate-700 flex items-center gap-2 flex-wrap">
+                    <span className="font-medium">👤 {r.contact?.name ?? "Responsable de marketing"}{r.contact?.role ? ` · ${r.contact.role}` : ""}</span>
+                    {r.contact?.email && <span className="text-slate-500">{r.contact.email}</span>}
+                    {r.contact?.linkedin && (
+                      <a href={r.contact.linkedin} target="_blank" rel="noreferrer" className="text-violet-600 hover:underline">LinkedIn ↗</a>
+                    )}
                   </div>
                 )}
               </div>
@@ -3096,16 +3156,24 @@ function JobsReviewPanel() {
                       <span className="block text-sm font-semibold text-slate-800 truncate">{it.company}</span>
                       <span className="block text-[11px] text-slate-500 truncate">
                         → {it.email}
+                        {it.directorName ? ` · 👤 ${it.directorName}${it.directorRole ? ` (${it.directorRole})` : ""}` : ""}
                         {it.jobTitle ? ` · Vacante: ${it.jobTitle}` : ""}
                         {it.website ? ` · ${it.website}` : ""}
                       </span>
                     </span>
                   </label>
-                  {it.jobUrl && (
-                    <a href={it.jobUrl} target="_blank" rel="noreferrer" className="text-[11px] text-indigo-600 hover:underline shrink-0">
-                      Ver oferta ↗
-                    </a>
-                  )}
+                  <div className="flex items-center gap-2 shrink-0">
+                    {it.linkedin && (
+                      <a href={it.linkedin} target="_blank" rel="noreferrer" className="text-[11px] text-violet-600 hover:underline">
+                        LinkedIn ↗
+                      </a>
+                    )}
+                    {it.jobUrl && (
+                      <a href={it.jobUrl} target="_blank" rel="noreferrer" className="text-[11px] text-indigo-600 hover:underline">
+                        Ver oferta ↗
+                      </a>
+                    )}
+                  </div>
                 </div>
                 {/* Texto de la oferta, para leerla sin abrir el enlace. InfoJobs
                     lo trae ya; LinkedIn se carga bajo demanda con el botón. */}

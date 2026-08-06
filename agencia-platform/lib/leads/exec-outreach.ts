@@ -374,6 +374,9 @@ export type PendingReviewItem = {
   jobTitle: string | null;
   jobUrl: string | null;
   jobDescription: string | null;
+  directorName: string | null;
+  directorRole: string | null;
+  linkedin: string | null;
   createdAt: string;
 };
 
@@ -408,6 +411,9 @@ export async function listPendingReview(workspaceId: string): Promise<PendingRev
       jobTitle: typeof rd?.jobTitle === "string" ? rd.jobTitle : null,
       jobUrl: typeof rd?.jobUrl === "string" ? rd.jobUrl : null,
       jobDescription: typeof rd?.jobDescription === "string" ? rd.jobDescription : null,
+      directorName: typeof rd?.directorName === "string" ? rd.directorName : null,
+      directorRole: typeof rd?.directorRole === "string" ? rd.directorRole : null,
+      linkedin: typeof rd?.linkedin === "string" ? rd.linkedin : null,
       createdAt: r.updatedAt.toISOString()
     };
   });
