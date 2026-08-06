@@ -66,19 +66,21 @@ export function pickBestEmail(emails: string[], corporateWeb: string | null): st
   return role ?? emails[0];
 }
 
-type DirectoryConfig = { name: string; listUrl: string; detailPattern: RegExp; scrapfly?: boolean };
+type DirectoryConfig = { name: string; listUrl: string; host: string; detailPathRe: RegExp; scrapfly?: boolean };
 
-// Directorios soportados. Se pueden añadir más con solo su listado + patrón de ficha.
+// Directorios soportados. Se pueden añadir más con su listado + host + patrón de ruta.
 const DIRECTORIES: DirectoryConfig[] = [
   {
     name: "Feria Franquicias Online",
     listUrl: "https://feriafranquiciasonline.es/firmas-expositoras/",
-    detailPattern: /https?:\/\/feriafranquiciasonline\.es\/firmas-expositoras\/[a-z0-9-]+\/?/gi
+    host: "feriafranquiciasonline.es",
+    detailPathRe: /^\/firmas-expositoras\/[a-z0-9-]+\/?$/i
   },
   {
     name: "AEF",
     listUrl: "https://www.aefranquicia.es/ensenas/",
-    detailPattern: /https?:\/\/(?:www\.)?aefranquicia\.es\/ensenas\/[a-z0-9-]+\/?/gi,
+    host: "aefranquicia.es",
+    detailPathRe: /^\/ensenas\/[a-z0-9-]+\/?$/i,
     scrapfly: true
   }
 ];
@@ -122,13 +124,25 @@ async function fetchHtml(url: string, workspaceId: string, preferScrapfly?: bool
   return "";
 }
 
-/** Enlaces a fichas de franquicia dentro del listado (deduplicados). */
-export function discoverDetailUrls(html: string, pattern: RegExp, listUrl: string): string[] {
+/**
+ * Enlaces a fichas de franquicia dentro del listado (deduplicados). Resuelve
+ * enlaces RELATIVOS ("/ensenas/fersay/") contra la URL base — clave: muchos
+ * portales no usan URLs absolutas y por eso antes no salía ninguna ficha.
+ */
+export function discoverDetailUrls(html: string, base: string, host: string, pathRe: RegExp): string[] {
   const out = new Set<string>();
-  for (const m of html.matchAll(pattern)) {
-    const u = m[0].replace(/\/$/, "");
-    if (u === listUrl.replace(/\/$/, "")) continue; // no el propio listado
-    out.add(u);
+  const basePath = (() => { try { return new URL(base).pathname.replace(/\/$/, ""); } catch { return ""; } })();
+  for (const m of html.matchAll(/<a\b[^>]*href=["']([^"'#\s]+)["']/gi)) {
+    let abs: URL;
+    try {
+      abs = new URL(m[1], base);
+    } catch {
+      continue;
+    }
+    if (abs.hostname.replace(/^www\./, "") !== host) continue;
+    if (!pathRe.test(abs.pathname)) continue;
+    if (abs.pathname.replace(/\/$/, "") === basePath) continue; // no el propio listado
+    out.add(`${abs.origin}${abs.pathname.replace(/\/$/, "")}`);
   }
   return [...out];
 }
@@ -219,17 +233,22 @@ async function enrichContactEmail(workspaceId: string, c: DirectoryContact): Pro
 export async function crawlFranchiseDirectories(
   workspaceId: string,
   opts?: { max?: number; only?: string }
-): Promise<{ contacts: DirectoryContact[]; scanned: number; errors: number }> {
+): Promise<{ contacts: DirectoryContact[]; scanned: number; errors: number; perDirectory: { name: string; listOk: boolean; fichas: number; contacts: number; withEmail: number }[] }> {
   const max = Math.min(opts?.max ?? 40, 80);
   const contacts: DirectoryContact[] = [];
+  const perDirectory: { name: string; listOk: boolean; fichas: number; contacts: number; withEmail: number }[] = [];
   let scanned = 0;
   let errors = 0;
 
   for (const dir of DIRECTORIES) {
     if (opts?.only && dir.name !== opts.only) continue;
+    const stat = { name: dir.name, listOk: false, fichas: 0, contacts: 0, withEmail: 0 };
+    perDirectory.push(stat);
     const listHtml = await fetchHtml(dir.listUrl, workspaceId, dir.scrapfly);
-    if (!listHtml) { errors++; continue; }
-    const urls = discoverDetailUrls(listHtml, dir.detailPattern, dir.listUrl).slice(0, max);
+    if (!listHtml) { errors++; continue; } // el listado no se pudo descargar
+    stat.listOk = true;
+    const urls = discoverDetailUrls(listHtml, dir.listUrl, dir.host, dir.detailPathRe).slice(0, max);
+    stat.fichas = urls.length;
     const CHUNK = 3;
     for (let i = 0; i < urls.length; i += CHUNK) {
       const slice = urls.slice(i, i + CHUNK);
@@ -243,8 +262,8 @@ export async function crawlFranchiseDirectories(
           return c;
         })
       );
-      for (const c of found) if (c) contacts.push(c);
+      for (const c of found) if (c) { contacts.push(c); stat.contacts++; if (c.email) stat.withEmail++; }
     }
   }
-  return { contacts, scanned, errors };
+  return { contacts, scanned, errors, perDirectory };
 }

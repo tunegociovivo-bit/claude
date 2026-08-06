@@ -2798,6 +2798,15 @@ function FranchisesView() {
             <div className="text-[11px] text-slate-600 mb-1">
               Analizadas {dirResult.scanned} fichas · <strong>{dirResult.imported}</strong> importadas · <strong className="text-emerald-700">{dirResult.withEmail}</strong> con email
             </div>
+            {Array.isArray((dirResult as any).perDirectory) && (
+              <div className="text-[10px] text-slate-500 mb-1">
+                {(dirResult as any).perDirectory.map((d: any, i: number) => (
+                  <span key={i} className="mr-2">
+                    {d.name}: {d.listOk ? `${d.fichas} fichas · ${d.withEmail} con email` : <span className="text-rose-600">no se pudo leer el listado</span>}
+                  </span>
+                ))}
+              </div>
+            )}
             <div className="space-y-1 max-h-72 overflow-y-auto">
               {(dirResult.contacts ?? []).map((c: any, i: number) => (
                 <div key={i} className={"rounded border px-2.5 py-1.5 text-[11px] " + (c.email ? "border-emerald-200 bg-white" : "border-slate-200 bg-slate-50/60")}>
