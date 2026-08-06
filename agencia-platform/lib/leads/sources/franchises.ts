@@ -74,23 +74,27 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
  * inconsistentes). Cuenta fichas cuyo nombre contiene la marca completa o su
  * token más distintivo (tolerante a "Gelateria Sicilia Centro").
  */
-async function verifyBrandCount(workspaceId: string, name: string): Promise<number> {
+async function verifyBrandCount(workspaceId: string, name: string): Promise<{ count: number; errored: boolean }> {
   const nslug = slug(name);
   const distinctive = nslug.split("-").filter((t) => t.length >= 4).sort((a, b) => b.length - a.length)[0] ?? nslug;
   let hits: PlacesResult[] | null = null;
+  let lastError = false;
   for (let attempt = 0; attempt < 3 && hits === null; attempt++) {
     if (attempt > 0) await sleep(attempt * 1500); // 1,5s, 3s ante 429/cuota
     try {
       hits = await placesTextSearch({ workspaceId, query: name, maxPages: 1, pageSize: 20, regionCode: "ES", languageCode: "es" });
+      lastError = false;
     } catch {
       hits = null;
+      lastError = true;
     }
   }
-  if (!hits) return 0;
-  return hits.filter((h) => {
+  if (!hits) return { count: 0, errored: lastError };
+  const count = hits.filter((h) => {
     const hs = slug(h.name);
     return hs.includes(nslug) || (distinctive.length >= 4 && hs.includes(distinctive));
   }).length;
+  return { count, errored: false };
 }
 
 const BRANDS_SCHEMA = {
@@ -107,7 +111,7 @@ const BRANDS_SCHEMA = {
 export async function discoverFranchiseBrands(
   workspaceId: string,
   niche: string
-): Promise<{ brands: { name: string; sampleCount: number }[] }> {
+): Promise<{ brands: { name: string; sampleCount: number }[]; proposed: number; placesErrors: number }> {
   let proposed: string[] = [];
   try {
     const res = await completeJson<{ brands?: string[] }>({
@@ -128,13 +132,16 @@ export async function discoverFranchiseBrands(
   proposed = proposed.filter((b) => { const k = slug(b); if (!k || seen.has(k)) return false; seen.add(k); return true; }).slice(0, 25);
 
   // Verificación: la marca debe aparecer como cadena (≥2 fichas) en Places, con
-  // reintento ante 429 (evita que la cuota tumbe resultados en silencio).
+  // reintento ante 429. Contamos los fallos de Places para poder distinguir
+  // "la IA propuso pocas" de "Google nos limitó por cuota" (antes era invisible).
   const verified: { name: string; sampleCount: number }[] = [];
+  let placesErrors = 0;
   for (const name of proposed) {
-    const count = await verifyBrandCount(workspaceId, name);
+    const { count, errored } = await verifyBrandCount(workspaceId, name);
+    if (errored) placesErrors++;
     if (count >= 2) verified.push({ name, sampleCount: count });
   }
-  return { brands: verified };
+  return { brands: verified, proposed: proposed.length, placesErrors };
 }
 
 export type NetworkMetrics = {

@@ -2701,17 +2701,25 @@ function FranchisesView() {
   const [analyzing, setAnalyzing] = useState(false);
   const [results, setResults] = useState<any[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [diag, setDiag] = useState<{ proposed: number; verified: number; placesErrors: number } | null>(null);
 
   async function discover() {
     if (niche.trim().length < 2) { setErr("Escribe un nicho (ej: heladerías, ópticas, gimnasios)."); return; }
-    setDiscovering(true); setErr(null); setResults(null);
+    setDiscovering(true); setErr(null); setResults(null); setDiag(null);
     try {
       const r = await fetch("/api/v1/leads/franchises/discover", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ niche: niche.trim() }) });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) { setErr(j?.error?.message ?? "Error al buscar franquicias."); return; }
       const list = (j.brands ?? []).map((b: any) => ({ name: b.name, sampleCount: b.sampleCount, checked: true }));
       setBrands(list);
-      if (list.length === 0) setErr("No se han verificado franquicias de ese nicho. Prueba otro término.");
+      setDiag({ proposed: j.proposed ?? list.length, verified: list.length, placesErrors: j.placesErrors ?? 0 });
+      if (list.length === 0) {
+        setErr(
+          (j.placesErrors ?? 0) > 0
+            ? `Google Places no respondió (cuota/límite) en ${j.placesErrors} de ${j.proposed} marcas propuestas. Revisa la cuota/billing de Places en Google Cloud y reintenta.`
+            : "No se han verificado franquicias de ese nicho. Prueba otro término."
+        );
+      }
     } finally { setDiscovering(false); }
   }
 
@@ -2751,6 +2759,12 @@ function FranchisesView() {
         </div>
         <input value={location} onChange={(e) => setLocation(e.target.value)} placeholder="Provincia/zona (opcional; vacío = toda España)" className="mt-2 w-full px-3 py-2 rounded-lg border bg-white text-sm" />
         {err && <div className="mt-2 text-[11px] text-rose-700">{err}</div>}
+        {diag && (
+          <div className="mt-2 text-[11px] text-slate-500">
+            IA propuso <strong>{diag.proposed}</strong> · verificadas en Google <strong>{diag.verified}</strong>
+            {diag.placesErrors > 0 && <span className="text-amber-700"> · Google no respondió en <strong>{diag.placesErrors}</strong> (cuota/límite de Places)</span>}
+          </div>
+        )}
       </div>
 
       <DecisionMakerKeys />

@@ -95,6 +95,66 @@ export async function hunterFindEmail(opts: { domain: string; firstName: string;
   }
 }
 
+// Cargos de marketing/comunicación/crecimiento para localizar al DECISOR.
+const MARKETING_TITLES = [
+  "marketing", "chief marketing officer", "cmo", "marketing director", "director de marketing",
+  "responsable de marketing", "head of marketing", "marketing manager", "brand", "brand manager",
+  "comunicación", "communications", "digital marketing", "growth"
+];
+
+export type ContactHit = { email: string | null; name: string | null; role: string | null; linkedin: string | null; via: string | null };
+
+/**
+ * Localiza el mejor email de contacto de una empresa por su DOMINIO, priorizando
+ * al responsable de MARKETING. Combina varias vías (Hunter dept. marketing →
+ * Apollo decisores → Hunter cualquier dept. → email-finder por nombre). Cada vía
+ * es best-effort; si no hay keys o no encuentra, devuelve nulos.
+ */
+export async function findMarketingContactByDomain(workspaceId: string, domain: string): Promise<ContactHit> {
+  const out: ContactHit = { email: null, name: null, role: null, linkedin: null, via: null };
+  const clean = domain.replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0].trim();
+  if (!clean) return out;
+  const { apolloKey, hunterKey } = await resolveContactKeys(workspaceId);
+  if (!apolloKey && !hunterKey) return out;
+
+  // 1) Hunter: departamento marketing primero, luego cualquier departamento.
+  if (hunterKey) {
+    try {
+      let people = await hunterDomainSearch({ domain: clean, apiKey: hunterKey, department: "marketing", limit: 10 });
+      let best = people.filter((p) => p.email).sort((a, b) => (b.confidence ?? 0) - (a.confidence ?? 0))[0];
+      if (!best) {
+        people = await hunterDomainSearch({ domain: clean, apiKey: hunterKey, limit: 10 });
+        best = people.filter((p) => p.email).sort((a, b) => (b.confidence ?? 0) - (a.confidence ?? 0))[0];
+      }
+      if (best) { out.email = best.email; out.name = best.name || null; out.role = best.position || null; out.via = "hunter"; }
+    } catch {}
+  }
+  // 2) Apollo: decisor de marketing (nombre, cargo, LinkedIn; a veces email).
+  if (apolloKey) {
+    try {
+      const people = await apolloFindDecisionMakers({ domain: clean, apiKey: apolloKey, titles: MARKETING_TITLES, limit: 5 });
+      const p = people[0];
+      if (p) {
+        out.linkedin = out.linkedin ?? p.linkedin;
+        out.name = out.name ?? p.name;
+        out.role = out.role ?? p.title;
+        if (!out.email && p.email) { out.email = p.email; out.via = "apollo"; }
+      }
+    } catch {}
+  }
+  // 3) Nombre sin email → email-finder de Hunter (patrón del dominio verificado).
+  if (!out.email && out.name && hunterKey) {
+    try {
+      const tokens = out.name.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").split(/[\s-]+/).filter(Boolean);
+      if (tokens.length >= 2) {
+        const v = await hunterFindEmail({ domain: clean, firstName: tokens[0], lastName: tokens[tokens.length - 1], apiKey: hunterKey });
+        if (v) { out.email = v.email; out.via = "hunter_finder"; }
+      }
+    } catch {}
+  }
+  return out;
+}
+
 /** Verifica si un email existe / es entregable. Devuelve estado + score. */
 export async function hunterVerifyEmail(opts: { email: string; apiKey: string }): Promise<EmailVerdict | null> {
   try {
