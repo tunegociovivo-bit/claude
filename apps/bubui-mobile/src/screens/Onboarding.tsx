@@ -9,7 +9,7 @@ import * as Location from "expo-location";
 import * as Notifications from "expo-notifications";
 import { api } from "../lib/api";
 import { saveSession } from "../lib/session";
-import { getPendingRef, clearPendingRef } from "../lib/referral-pending";
+import { getPendingRef, applyPendingRef } from "../lib/referral-pending";
 import { claimPendingDeal } from "../lib/deal-pending";
 import { Wordmark } from "../components/Wordmark";
 import { useTheme, type Palette, radius, shadow } from "../lib/theme";
@@ -141,7 +141,10 @@ export function Onboarding() {
         postalCode: postalCode.trim(),
         ref
       });
-      void clearPendingRef(); // alta vinculada: el código ya no hace falta
+      // OJO: NO limpiamos el ref pendiente aquí — la vinculación de
+      // verify-otp puede fallar silenciosamente en el servidor. El Feed
+      // reintenta con applyPendingRef (idempotente) y limpia al confirmar.
+      void applyPendingRef(r.customerId);
       void claimPendingDeal(r.customerId); // reclama el reto si venía de un enlace
       try { await Location.requestForegroundPermissionsAsync(); } catch {}
       try { await Notifications.requestPermissionsAsync(); } catch {}

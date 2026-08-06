@@ -1,5 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Linking, Platform } from "react-native";
+import { api } from "./api";
+import { CheckSession } from "./session";
 
 /**
  * Captura del código de referido para la app nativa.
@@ -46,7 +48,31 @@ async function storeIfEmpty(code: string): Promise<void> {
 
 async function captureFromUrl(url: string | null): Promise<void> {
   const code = parseRefFromString(url);
-  if (code) await storePendingRef(code); // deep link = intención directa, prevalece
+  if (!code) return;
+  await storePendingRef(code); // deep link = intención directa, prevalece
+  // Con sesión ya iniciada, vincula al momento (mismo patrón que los retos).
+  try {
+    const s = await CheckSession();
+    if (s) await applyPendingRef(s.customerId);
+  } catch {}
+}
+
+/**
+ * Reintenta vincular el código pendiente con el cliente ya registrado. El
+ * camino normal es enviarlo en verify-otp, pero esa vinculación puede
+ * perderse (fallo de red/BD silencioso, o Install Referrer que llega tarde).
+ * applyReferral es idempotente en el servidor: llamar de más no duplica.
+ * Solo se limpia el pendiente cuando el servidor confirma.
+ */
+export async function applyPendingRef(customerId: string): Promise<void> {
+  const code = await getPendingRef();
+  if (!code) return;
+  try {
+    await api.applyReferral(customerId, code);
+    await clearPendingRef();
+  } catch {
+    // se reintentará en la próxima carga del Feed
+  }
 }
 
 /** Android: lee el Install Referrer una sola vez (instalación diferida). */

@@ -177,6 +177,10 @@ export async function GET(req: Request) {
       locked,
       friendsNeeded: locked ? o.unlockShares : 0,
       sharesLeft: left,
+      // Con desbloqueo por COMPRA, los amigos registrados aún no cuentan
+      // (cuentan al gastar su cupón) — este campo permite a la app mostrar
+      // "N amigos registrados, pendientes de compra" en vez de nada.
+      friendsRegistered: locked ? verifiedNow : 0,
       // Reto visible: iniciales de los amigos que ya cuentan para ESTE reto.
       friendsJoined: locked ? friendInitials.slice(0, have) : [],
       // Activación alternativa por acción (reseña/foto) — solo cupones-reto y
