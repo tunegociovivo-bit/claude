@@ -79,8 +79,9 @@ async function startJobsOutreach(workspaceId: string, searchId: string): Promise
         const rd: any = l.rawData ?? {};
         const jobTitle = typeof rd?.jobTitle === "string" ? rd.jobTitle : null;
         const jobDescription = typeof rd?.jobDescription === "string" ? rd.jobDescription : null;
+        const director = typeof rd?.directorName === "string" ? rd.directorName : null;
         try {
-          await draftJobsReview({ workspaceId, leadId: l.id, email: l.email as string, company: l.name, sector: l.category, jobTitle, jobDescription });
+          await draftJobsReview({ workspaceId, leadId: l.id, email: l.email as string, company: l.name, sector: l.category, jobTitle, jobDescription, director });
           return true;
         } catch (err) {
           console.error("[search-manager jobs] draftJobsReview error:", err);
@@ -216,6 +217,9 @@ export async function reEnrichJobsLeads(workspaceId: string): Promise<{ scanned:
     if (email) { data.email = email; emailsFound++; }
     if (!leads[i].website && e?.website) data.website = e.website;
     if (!leads[i].phone && e?.phone) { data.phone = e.phone; data.internationalPhone = e.internationalPhone; }
+    // Persiste el rawData enriquecido (incluye directorName/role/via de Apollo/
+    // Hunter) para que el saludo por nombre sobreviva a "Regenerar".
+    if (email && typeof rd.directorName === "string") data.rawData = rd;
     if (Object.keys(data).length) await prisma.lead.update({ where: { id: leads[i].id }, data }).catch(() => {});
     if (email) nowEmailed.push({ id: leads[i].id, email, name: leads[i].name, category: leads[i].category, rawData: rd });
   }
@@ -232,8 +236,9 @@ export async function reEnrichJobsLeads(workspaceId: string): Promise<{ scanned:
     for (const l of nowEmailed.filter((x) => !handled.has(x.id))) {
       const jobTitle = typeof l.rawData?.jobTitle === "string" ? l.rawData.jobTitle : null;
       const jobDescription = typeof l.rawData?.jobDescription === "string" ? l.rawData.jobDescription : null;
+      const director = typeof l.rawData?.directorName === "string" ? l.rawData.directorName : null;
       try {
-        await draftJobsReview({ workspaceId, leadId: l.id, email: l.email, company: l.name, sector: l.category, jobTitle, jobDescription });
+        await draftJobsReview({ workspaceId, leadId: l.id, email: l.email, company: l.name, sector: l.category, jobTitle, jobDescription, director });
         drafted++;
       } catch (err) {
         console.error("[jobs-reenrich] draftJobsReview error:", err);

@@ -64,21 +64,24 @@ export async function draftJobsReview(opts: {
   sector?: string | null;
   jobTitle?: string | null;
   jobDescription?: string | null;
+  /** Nombre del decisor (Apollo/Hunter) para dirigir el email por su nombre. */
+  director?: string | null;
 }): Promise<{ drafted: boolean }> {
   try {
     const mail = await writeEmail({
       workspaceId: opts.workspaceId,
       company: opts.company,
       sector: opts.sector,
+      director: opts.director ?? null,
       touch: 1,
       jobTitle: opts.jobTitle ?? null,
       jobDescription: opts.jobDescription ?? null
     });
-    await saveReviewDraft(opts.workspaceId, opts.leadId, opts.email, mail.subject, mail.body);
+    await saveReviewDraft(opts.workspaceId, opts.leadId, opts.email, mail.subject, mail.body, opts.director ?? null);
     return { drafted: true };
   } catch {
     // Fallback: fila activa en modo review → el cron redactará en el próximo tick.
-    await startExecOutreach({ workspaceId: opts.workspaceId, leadId: opts.leadId, email: opts.email, mode: "review" });
+    await startExecOutreach({ workspaceId: opts.workspaceId, leadId: opts.leadId, email: opts.email, directorName: opts.director ?? null, mode: "review" });
     return { drafted: false };
   }
 }
@@ -87,7 +90,7 @@ export async function draftJobsReview(opts: {
  * Guarda un borrador de email en la cola de revisión (pending_review) con el
  * asunto y cuerpo dados. Genérico: lo usan tanto Empleos como Franquicias.
  */
-export async function saveReviewDraft(workspaceId: string, leadId: string, email: string, subject: string, body: string): Promise<void> {
+export async function saveReviewDraft(workspaceId: string, leadId: string, email: string, subject: string, body: string, directorName?: string | null): Promise<void> {
   const now = new Date();
   const common = {
     email,
@@ -96,6 +99,8 @@ export async function saveReviewDraft(workspaceId: string, leadId: string, email
     mode: "review" as const,
     draftSubject: subject,
     draftBody: body,
+    // Guardamos el nombre del decisor para que "Regenerar" mantenga el saludo.
+    ...(directorName ? { directorName } : {}),
     nextAt: now,
     log: [{ at: now.toISOString(), channel: "email_drafted", to: email, subject }]
   };
@@ -219,7 +224,9 @@ async function writeEmail(opts: { workspaceId: string; company: string; sector?:
     opts.jobDescription
       ? `Contexto de la oferta (úsalo para personalizar SIN copiarlo literal ni inventar nada que no aparezca): «${opts.jobDescription.slice(0, 600)}»`
       : null,
-    opts.director ? `Directivo: ${opts.director}` : "Directivo: máximo responsable",
+    opts.director
+      ? `Destinatario: ${opts.director} (responsable de marketing). DIRÍGETE A ÉL/ELLA POR SU NOMBRE en el saludo (p. ej. "Estimado/a ${opts.director.split(/\s+/)[0]}," en español, o "Hi ${opts.director.split(/\s+/)[0]}," / "Dear ${opts.director.split(/\s+/)[0]}," en inglés). Usa solo el nombre de pila, no el apellido.`
+      : "Destinatario: máximo responsable (saludo genérico, sin nombre).",
     opts.touch > 1 ? `Es un email de SEGUIMIENTO (toque ${opts.touch}); cambia el enfoque y sé aún más breve.` : null
   ]
     .filter(Boolean)
@@ -477,11 +484,13 @@ export async function regenerateReviewDraft(workspaceId: string, id: string): Pr
   const rd: any = lead.rawData ?? {};
   const jobTitle = typeof rd?.jobTitle === "string" ? rd.jobTitle : null;
   const jobDescription = typeof rd?.jobDescription === "string" ? rd.jobDescription : null;
+  // Decisor: el de la fila, o (borradores antiguos) el capturado en rawData.
+  const director = row.directorName ?? (typeof rd?.directorName === "string" ? rd.directorName : null);
   const mail = await writeEmail({
     workspaceId,
     company: lead.name,
     sector: lead.category,
-    director: row.directorName,
+    director,
     touch: 1,
     jobTitle,
     jobDescription
