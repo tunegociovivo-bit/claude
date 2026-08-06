@@ -331,6 +331,88 @@ export async function analyzeFranchises(
   return { results };
 }
 
+/**
+ * Importa franquicias desde los DIRECTORIOS (portales de franquicias): scrapea las
+ * fichas, saca el contacto de expansión/marketing (con email deducido por Hunter si
+ * falta) y las guarda como leads de central con CONTACTO VERIFICADO. Devuelve la
+ * lista para mostrarla — "trabajar con emails que funcionan".
+ */
+export async function importFranchiseDirectory(
+  workspaceId: string
+): Promise<{ imported: number; withEmail: number; scanned: number; contacts: any[] }> {
+  const { crawlFranchiseDirectories } = await import("./sources/franchise-directory");
+  const { contacts, scanned } = await crawlFranchiseDirectories(workspaceId, { max: 50 });
+
+  const search = await getOrCreateFranchiseSearch(workspaceId);
+  const slugify = (s: string) => s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  let imported = 0;
+  let withEmail = 0;
+  let position = 1;
+  for (const c of contacts) {
+    const key = slugify(c.brand);
+    if (!key) continue;
+    const central: PlacesResult = {
+      placeId: `franchise:${key}`,
+      name: c.brand,
+      formattedAddress: null,
+      province: "España",
+      types: ["franchise.central"],
+      category: "Central de franquicia",
+      latitude: null,
+      longitude: null,
+      rating: null,
+      userRatingCount: 0,
+      priceLevel: null,
+      businessStatus: "OPERATIONAL",
+      gmbUrl: null,
+      website: c.corporateWeb,
+      phone: c.phone,
+      internationalPhone: null,
+      rawData: {
+        source: "franchises",
+        contactSource: "directory",
+        directory: c.directory,
+        directoryUrl: c.sourceUrl,
+        brand: c.brand,
+        sector: c.sector ?? undefined,
+        email: c.email ?? undefined,
+        directorName: c.contactName ?? undefined,
+        directorRole: c.role ?? undefined,
+        contactVerified: !!c.email
+      }
+    };
+    try {
+      await upsertLead({ workspaceId, searchId: search.id, province: "España", position: position++, r: central, aiRelevance: null, skipExisting: false });
+      imported++;
+      if (c.email) withEmail++;
+    } catch (err) {
+      console.error("[franchise-directory] upsert error:", err);
+    }
+  }
+  return { imported, withEmail, scanned, contacts };
+}
+
+/** Contenedor de búsqueda persistente para los leads de franquicias. */
+async function getOrCreateFranchiseSearch(workspaceId: string) {
+  let search = await prisma.leadSearch.findFirst({ where: { workspaceId, source: "franchises", location: "Franquicias" } as any });
+  if (!search) {
+    search = await prisma.leadSearch.create({
+      data: {
+        workspaceId,
+        keyword: "Franquicias (central)",
+        location: "Franquicias",
+        scope: "custom",
+        source: "franchises",
+        totalProvinces: 1,
+        processedProvinces: 1,
+        status: "COMPLETED",
+        sourceConfig: { franchises: true }
+      } as any
+    });
+  }
+  return search;
+}
+
 /** Clave de caché de barridos: normaliza keyword/área (minúsculas, espacios). */
 function normKey(s: string): string {
   return (s ?? "").toLowerCase().replace(/\s+/g, " ").trim();

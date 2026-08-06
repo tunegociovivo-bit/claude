@@ -2702,6 +2702,19 @@ function FranchisesView() {
   const [results, setResults] = useState<any[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [diag, setDiag] = useState<{ proposed: number; verified: number; placesErrors: number } | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [dirResult, setDirResult] = useState<{ imported: number; withEmail: number; scanned: number; contacts: any[] } | null>(null);
+
+  async function importDirectory() {
+    setImporting(true);
+    setErr(null);
+    try {
+      const r = await fetch("/api/v1/leads/franchises/import-directory", { method: "POST" });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) { setErr(j?.error?.message ?? "Error al importar del directorio."); return; }
+      setDirResult(j);
+    } finally { setImporting(false); }
+  }
 
   async function discover() {
     if (niche.trim().length < 2) { setErr("Escribe un nicho (ej: heladerías, ópticas, gimnasios)."); return; }
@@ -2764,6 +2777,43 @@ function FranchisesView() {
           <div className="mt-2 text-[11px] text-slate-500">
             IA propuso <strong>{diag.proposed}</strong> · verificadas en Google <strong>{diag.verified}</strong>
             {diag.placesErrors > 0 && <span className="text-amber-700"> · Google no respondió en <strong>{diag.placesErrors}</strong> (cuota/límite de Places)</span>}
+          </div>
+        )}
+      </div>
+
+      {/* Vía "a lo seguro": importar franquicias con contacto REAL de los directorios. */}
+      <div className="rounded-lg border border-emerald-200 bg-emerald-50/60 p-3">
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <div className="text-sm font-semibold text-slate-800">📇 Franquicias con contacto verificado (directorios)</div>
+          <button onClick={() => void importDirectory()} disabled={importing} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium disabled:opacity-50">
+            {importing ? <Loader2 className="h-4 w-4 animate-spin" /> : "📇"} Importar del directorio
+          </button>
+        </div>
+        <p className="text-[11px] text-slate-600 mt-1">
+          Scrapea los portales de franquicias (nombre, persona de contacto de expansión/marketing, teléfono, web) y
+          deduce el email con Hunter. Trabajas directamente con las que tienen <strong>contacto que funciona</strong>.
+        </p>
+        {dirResult && (
+          <div className="mt-2">
+            <div className="text-[11px] text-slate-600 mb-1">
+              Analizadas {dirResult.scanned} fichas · <strong>{dirResult.imported}</strong> importadas · <strong className="text-emerald-700">{dirResult.withEmail}</strong> con email
+            </div>
+            <div className="space-y-1 max-h-72 overflow-y-auto">
+              {(dirResult.contacts ?? []).map((c: any, i: number) => (
+                <div key={i} className={"rounded border px-2.5 py-1.5 text-[11px] " + (c.email ? "border-emerald-200 bg-white" : "border-slate-200 bg-slate-50/60")}>
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <span className="font-semibold text-slate-800">{c.brand}{c.sector ? ` · ${c.sector}` : ""}</span>
+                    {c.email ? <span className="text-emerald-700">✅ {c.email}</span> : <span className="text-slate-400">sin email</span>}
+                  </div>
+                  <div className="text-slate-500">
+                    {c.contactName ? `👤 ${c.contactName}${c.role ? ` (${c.role})` : ""}` : "sin contacto"}
+                    {c.phone ? ` · ${c.phone}` : ""}
+                    {c.corporateWeb ? ` · ${c.corporateWeb}` : ""}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <p className="text-[10px] text-slate-500 mt-1">Guardadas como leads de central. Analiza una marca arriba para generar su informe + email a ese contacto.</p>
           </div>
         )}
       </div>
