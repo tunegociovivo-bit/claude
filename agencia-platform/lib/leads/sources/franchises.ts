@@ -292,7 +292,9 @@ export async function analyzeFranchiseNetwork(
     ? await findMarketingContact(workspaceId, domain).catch(() => ({ email: null, name: null, role: null, linkedin: null }))
     : { email: null, name: null, role: null, linkedin: null };
   // TODOS los directivos de marketing (para copia oculta): que llegue al que toca.
-  const marketingEmails = domain ? await findMarketingEmailsByDomain(workspaceId, domain).catch(() => []) : [];
+  // Pasamos la MARCA para que Hunter resuelva el dominio corporativo de la central
+  // (las fichas de Google suelen apuntar a franquiciados, Glovo, Instagram…).
+  const marketingEmails = await findMarketingEmailsByDomain(workspaceId, domain ?? "", 10, brand).catch(() => []);
   let email: string | null = contact.email ?? marketingEmails[0]?.email ?? null;
   if (!email && site) {
     try { const emails = await extractEmailsFromWebsite(site); email = emails[0] ?? null; } catch { email = null; }
@@ -335,8 +337,8 @@ export async function analyzeFranchiseNetwork(
       // Copia oculta a TODOS los directivos de marketing localizados.
       bccEmails: bccEmails.length ? bccEmails : undefined,
       // Decisor de marketing localizado (para el mensaje y el LinkedIn manual).
-      directorName: contact.name ?? undefined,
-      directorRole: contact.role ?? undefined,
+      directorName: contact.name ?? marketingEmails[0]?.name ?? undefined,
+      directorRole: contact.role ?? marketingEmails[0]?.role ?? undefined,
       linkedin: contact.linkedin ?? undefined
     }
   };

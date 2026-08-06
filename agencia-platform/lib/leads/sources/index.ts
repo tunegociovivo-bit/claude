@@ -302,7 +302,7 @@ async function enrichEmailsViaContacts(workspaceId: string, leads: PlacesResult[
     const domain = domainOf(lead.website as string);
     if (!domain) continue;
     try {
-      const contacts = await findMarketingEmailsByDomain(workspaceId, domain);
+      const contacts = await findMarketingEmailsByDomain(workspaceId, domain, 10, lead.name);
       if (contacts.length > 0) {
         const rd = lead.rawData as any;
         rd.email = contacts[0].email;

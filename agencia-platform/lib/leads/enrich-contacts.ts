@@ -71,6 +71,36 @@ export async function hunterDomainSearch(opts: { domain: string; apiKey: string;
   }
 }
 
+/**
+ * Busca por NOMBRE DE EMPRESA (no dominio): Hunter resuelve el dominio corporativo
+ * y devuelve sus emails. Clave para franquicias/centrales, donde el dominio de las
+ * fichas de Google suele ser de un franquiciado, Glovo, Instagram… y no el de la
+ * central. Devuelve el dominio resuelto + las personas.
+ */
+export async function hunterCompanySearch(opts: { company: string; apiKey: string; department?: string; limit?: number }): Promise<{ domain: string | null; people: HunterPerson[] }> {
+  try {
+    const dep = opts.department ? `&department=${encodeURIComponent(opts.department)}` : "";
+    const url = `https://api.hunter.io/v2/domain-search?company=${encodeURIComponent(opts.company)}${dep}&limit=${opts.limit ?? 15}&api_key=${encodeURIComponent(opts.apiKey)}`;
+    const resp = await fetch(url, { signal: AbortSignal.timeout(15000) });
+    const data: any = await resp.json().catch(() => null);
+    if (!resp.ok) return { domain: null, people: [] };
+    const domain = typeof data?.data?.domain === "string" ? data.data.domain : null;
+    const emails: any[] = Array.isArray(data?.data?.emails) ? data.data.emails : [];
+    const people = emails
+      .filter((e) => e?.value)
+      .map((e) => ({
+        name: [e.first_name, e.last_name].filter(Boolean).join(" ").trim(),
+        position: e.position ?? null,
+        email: e.value as string,
+        department: e.department ?? null,
+        confidence: typeof e.confidence === "number" ? e.confidence : null
+      }));
+    return { domain, people };
+  } catch {
+    return { domain: null, people: [] };
+  }
+}
+
 /** Resuelve las API keys de Apollo/Hunter (env o Ajustes cifrados del workspace). */
 export async function resolveContactKeys(workspaceId: string): Promise<{ apolloKey: string | null; hunterKey: string | null }> {
   const { prisma } = await import("@/lib/db/prisma");
@@ -163,25 +193,39 @@ export type MarketingEmail = { email: string; name: string | null; role: string 
  * por relevancia. Para poner a todos en copia oculta y asegurar que llega a la
  * persona correcta. Best-effort; devuelve [] si no hay keys o resultados.
  */
-export async function findMarketingEmailsByDomain(workspaceId: string, domain: string, max = 10): Promise<MarketingEmail[]> {
-  const clean = domain.replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0].trim();
-  if (!clean) return [];
+export async function findMarketingEmailsByDomain(workspaceId: string, domain: string, max = 10, companyName?: string): Promise<MarketingEmail[]> {
+  const clean = (domain || "").replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0].trim();
+  if (!clean && !companyName) return [];
   const { apolloKey, hunterKey } = await resolveContactKeys(workspaceId);
   if (!apolloKey && !hunterKey) return [];
   const byEmail = new Map<string, MarketingEmail>();
+  // Dominio de trabajo: el de las fichas, pero si buscamos por marca dejamos que
+  // Hunter resuelva el dominio corporativo real (más fiable para centrales).
+  let workingDomain = clean;
 
-  if (hunterKey) {
+  if (companyName && hunterKey) {
     try {
-      const people = await hunterDomainSearch({ domain: clean, apiKey: hunterKey, department: "marketing", limit: 20 });
+      const cs = await hunterCompanySearch({ company: companyName, apiKey: hunterKey, department: "marketing", limit: 20 });
+      if (cs.domain) workingDomain = cs.domain; // preferimos el dominio resuelto por marca
+      for (const p of cs.people.filter((x) => x.email).sort((a, b) => (b.confidence ?? 0) - (a.confidence ?? 0))) {
+        const k = p.email.toLowerCase();
+        if (!byEmail.has(k)) byEmail.set(k, { email: p.email, name: p.name || null, role: p.position || null });
+      }
+    } catch {}
+  }
+
+  if (workingDomain && hunterKey) {
+    try {
+      const people = await hunterDomainSearch({ domain: workingDomain, apiKey: hunterKey, department: "marketing", limit: 20 });
       for (const p of people.filter((x) => x.email).sort((a, b) => (b.confidence ?? 0) - (a.confidence ?? 0))) {
         const k = p.email.toLowerCase();
         if (!byEmail.has(k)) byEmail.set(k, { email: p.email, name: p.name || null, role: p.position || null });
       }
     } catch {}
   }
-  if (apolloKey) {
+  if (workingDomain && apolloKey) {
     try {
-      const people = await apolloFindDecisionMakers({ domain: clean, apiKey: apolloKey, titles: MARKETING_TITLES, limit: 15 });
+      const people = await apolloFindDecisionMakers({ domain: workingDomain, apiKey: apolloKey, titles: MARKETING_TITLES, limit: 15 });
       for (const p of people) {
         if (p.email) {
           const k = p.email.toLowerCase();
@@ -195,7 +239,7 @@ export async function findMarketingEmailsByDomain(workspaceId: string, domain: s
           const tokens = p.name.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").split(/[\s-]+/).filter(Boolean);
           if (tokens.length >= 2) {
             try {
-              const v = await hunterFindEmail({ domain: clean, firstName: tokens[0], lastName: tokens[tokens.length - 1], apiKey: hunterKey });
+              const v = await hunterFindEmail({ domain: workingDomain, firstName: tokens[0], lastName: tokens[tokens.length - 1], apiKey: hunterKey });
               if (v?.email) {
                 const k = v.email.toLowerCase();
                 if (!byEmail.has(k)) byEmail.set(k, { email: v.email, name: p.name || null, role: p.title || null });
