@@ -9,7 +9,7 @@ import * as Location from "expo-location";
 import * as Notifications from "expo-notifications";
 import { api } from "../lib/api";
 import { saveSession } from "../lib/session";
-import { getPendingRef, applyPendingRef } from "../lib/referral-pending";
+import { getPendingRef, applyPendingRef, waitForReferrerCapture } from "../lib/referral-pending";
 import { claimPendingDeal } from "../lib/deal-pending";
 import { Wordmark } from "../components/Wordmark";
 import { useTheme, type Palette, radius, shadow } from "../lib/theme";
@@ -130,6 +130,9 @@ export function Onboarding() {
   async function verify() {
     setBusy(true);
     try {
+      // Espera ACOTADA (≤2,5s) a que la captura del Install Referrer termine
+      // antes de concluir que no hay código — cierra la carrera captura/alta.
+      await waitForReferrerCapture();
       const ref = (await getPendingRef()) ?? undefined;
       const r = await api.verifyOtp({
         phone: phone.trim(),

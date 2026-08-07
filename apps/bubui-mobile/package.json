@@ -11,7 +11,8 @@
     "web": "expo start --web",
     "prebuild": "expo prebuild",
     "build:android": "eas build -p android",
-    "build:ios": "eas build -p ios"
+    "build:ios": "eas build -p ios",
+    "test": "vitest run"
   },
   "dependencies": {
     "@expo-google-fonts/poppins": "^0.4.1",
@@ -48,6 +49,7 @@
     "@babel/core": "^7.20.0",
     "@types/react": "~19.0.10",
     "patch-package": "^8.0.1",
-    "typescript": "~5.8.3"
+    "typescript": "~5.8.3",
+    "vitest": "^4.1.10"
   }
 }

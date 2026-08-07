@@ -21,6 +21,21 @@ import { CheckSession } from "./session";
 const KEY = "bubui.pendingRef";
 const IR_DONE = "bubui.installReferrerChecked";
 
+// Readiness del referrer: el alta espera (acotado) a que la captura termine
+// antes de concluir que no hay código — evita la carrera captura/registro
+// sin bloquear la UX (el fallback IP del servidor sigue de segunda red).
+let irSignal: (() => void) | null = null;
+const irReady = new Promise<void>((res) => { irSignal = res; });
+function signalReferrerDone(): void { try { irSignal?.(); } catch {} irSignal = null; }
+export async function waitForReferrerCapture(maxMs = 2500): Promise<void> {
+  await Promise.race([irReady, new Promise<void>((res) => setTimeout(res, maxMs))]);
+}
+
+// Carga perezosa del módulo nativo, inyectable para poder testear la captura
+// (en vitest/ESM no existe require; en la app real Metro sí lo provee).
+let pirLoader: () => any = () => require("react-native-play-install-referrer");
+export function _setPirLoaderForTests(fn: () => any): void { pirLoader = fn; }
+
 /** Extrae un código de referido (4-10 alfanum.) de una URL o cadena referrer. */
 export function parseRefFromString(s: string | null | undefined): string | null {
   if (!s) return null;
@@ -50,6 +65,7 @@ async function captureFromUrl(url: string | null): Promise<void> {
   const code = parseRefFromString(url);
   if (!code) return;
   await storePendingRef(code); // deep link = intención directa, prevalece
+  signalReferrerDone(); // ya hay código: el alta no necesita esperar más
   // Con sesión ya iniciada, vincula al momento (mismo patrón que los retos).
   try {
     const s = await CheckSession();
@@ -69,11 +85,12 @@ export async function applyPendingRef(customerId: string): Promise<void> {
   if (!code) return;
   try {
     const r = await api.applyReferral(customerId, code);
-    // Solo limpiamos con un resultado CONFIRMADO: vinculado, o no-op
-    // definitivo (código inválido, autorreferencia, ya referido a otro…).
-    // Un fallo transitorio del servidor (linked sin cupón, sin origen aún)
-    // conserva el pendiente y se reintenta en la próxima carga del Feed.
-    if (r?.linked || r?.terminal) await clearPendingRef();
+    // Solo limpiamos con un resultado TERMINAL (vinculado y completo, o
+    // no-op definitivo: código inválido, autorreferencia, ya referido a
+    // otro). Un 2xx transitorio (linked sin cupón aún — no_origin_yet,
+    // welcome_offer_failed) CONSERVA el pendiente para que el siguiente
+    // reintento repare el cupón.
+    if (r?.terminal) await clearPendingRef();
   } catch {
     // se reintentará en la próxima carga del Feed
   }
@@ -86,24 +103,26 @@ export async function applyPendingRef(customerId: string): Promise<void> {
  *  puntual perdía el referrer para siempre). */
 async function captureInstallReferrerOnce(): Promise<void> {
   try {
-    if (await AsyncStorage.getItem(IR_DONE)) return;
+    if (await AsyncStorage.getItem(IR_DONE)) { signalReferrerDone(); return; }
     let mod: any = null;
     try {
       // Carga perezosa: si el módulo nativo no está, no rompe nada (y no
       // marcamos DONE: puede estar disponible en un build posterior).
-      mod = require("react-native-play-install-referrer");
+      mod = pirLoader();
     } catch {
+      signalReferrerDone(); // sin módulo no habrá referrer en esta sesión
       return;
     }
     const PIR = mod?.PlayInstallReferrer ?? mod?.default ?? mod;
-    if (!PIR?.getInstallReferrerInfo) return;
+    if (!PIR?.getInstallReferrerInfo) { signalReferrerDone(); return; }
     PIR.getInstallReferrerInfo((info: any, err: any) => {
-      if (err) return; // transitorio → reintento en el próximo arranque
+      if (err) { signalReferrerDone(); return; } // transitorio → reintento en el próximo arranque
       void AsyncStorage.setItem(IR_DONE, "1").catch(() => {});
       const code = parseRefFromString(info?.installReferrer);
-      if (!code) return;
+      if (!code) { signalReferrerDone(); return; }
       void (async () => {
         await storeIfEmpty(code);
+        signalReferrerDone(); // código ya persistido → el alta puede leerlo
         // Referrer tardío con sesión ya iniciada (o carrera con el alta):
         // aplica al momento en vez de esperar a la próxima carga del Feed.
         try {
@@ -123,4 +142,5 @@ export function initReferralCapture(): void {
   Linking.getInitialURL().then(captureFromUrl).catch(() => {});
   Linking.addEventListener("url", (e) => { void captureFromUrl(e.url); });
   if (Platform.OS === "android") void captureInstallReferrerOnce();
+  else signalReferrerDone(); // sin Install Referrer fuera de Android
 }
