@@ -88,7 +88,7 @@ export async function importTwilioPhone(input: {
     method: "POST",
     body: JSON.stringify({
       provider: "twilio",
-      twilioPhoneNumber: input.number,
+      number: input.number,
       twilioAccountSid: input.accountSid,
       twilioAuthToken: input.authToken,
       smsEnabled: false,
