@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { forbidden, requireWorkspaceAdmin, requireWorkspaceId, unauthorized } from "@/lib/auth";
+import { forbidden, isSameOrigin, requireWorkspaceAdmin, requireWorkspaceId, unauthorized } from "@/lib/auth";
 import { getVapiPhoneConnection, provisionVapiPhone, vapiSelfServiceEnabled } from "@/lib/vapi/phone-connection";
 import { VapiApiError } from "@/lib/vapi/client";
 import { provisionVapiPhoneSchema } from "@/lib/vapi/schemas";
@@ -23,8 +23,7 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const origin = request.headers.get("origin");
-    if (origin && new URL(origin).origin !== new URL(request.url).origin) return forbidden();
+    if (!isSameOrigin(request)) return forbidden();
     const { workspaceId } = await requireWorkspaceAdmin();
     const operationKey = z.string().uuid().parse(request.headers.get("idempotency-key"));
     const input = provisionVapiPhoneSchema.parse(await request.json());
