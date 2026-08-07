@@ -4209,6 +4209,20 @@ model BubuiSocialFollow {
 /// 20%"). El cliente abre el enlace, lo reclama y comparte con sus amigos; al
 /// unirse `friendsRequired` amigos, su descuento (clientDiscountPct) se activa.
 /// Reutiliza el motor de oferta-reto (share_challenge) con un % de amigo propio.
+// Clic en un enlace de invitación (/bubui/r/<code>): atribución de RESERVA
+// por coincidencia de IP (estilo Branch/AppsFlyer). Si el amigo instala la
+// app sin pasar por el Install Referrer de Play (p. ej. la buscó a mano),
+// verify-otp busca un clic reciente desde la misma IP y aplica ese código.
+model BubuiReferralClick {
+  id        String   @id @default(cuid())
+  code      String
+  ipHash    String // sha256 de la IP — no guardamos la IP en claro
+  ua        String? // plataforma coarse (android/ios/other) para afinar el match
+  createdAt DateTime @default(now())
+
+  @@index([ipHash, createdAt])
+}
+
 model BubuiCustomDeal {
   id                  String    @id @default(cuid())
   token               String    @unique // identifica el enlace público
