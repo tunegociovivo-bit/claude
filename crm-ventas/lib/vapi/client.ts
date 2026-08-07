@@ -97,6 +97,12 @@ export async function importTwilioPhone(input: {
   });
 }
 
+// Lectura del recurso para validar registros manuales: existe y su número
+// coincide con el puente declarado. No modifica nada en Vapi.
+export async function getVapiPhone(id: string): Promise<VapiPhone> {
+  return vapiFetch(`/phone-number/${encodeURIComponent(id)}`, { method: "GET" });
+}
+
 export async function configureInboundPhone(id: string, serverUrl: string): Promise<void> {
   await vapiFetch(`/phone-number/${encodeURIComponent(id)}`, {
     method: "PATCH",

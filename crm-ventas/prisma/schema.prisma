@@ -27,6 +27,8 @@ model Workspace {
 
 // Número de Vapi aprovisionado desde el CRM. La relación 1:1 limita v1 a un
 // único número por negocio; las credenciales del proveedor nunca se persisten.
+// mode MANAGED: el cliente solo indica su móvil público (publicE164) y
+// Negocio Vivo crea el número puente (bridgeE164) y lo registra aquí.
 model VapiPhoneConnection {
   id                String   @id @default(cuid())
   workspaceId       String   @unique
@@ -35,10 +37,17 @@ model VapiPhoneConnection {
   providerKind      String?
   vapiPhoneNumberId String?  @unique
   e164              String?
+  publicE164        String?
+  bridgeE164        String?
   label             String?
   operationKey      String   @unique
   lastErrorCode     String?
   lastErrorMessage  String?
+  // Aviso operativo a Negocio Vivo: último móvil notificado con éxito. Si
+  // difiere de publicE164, hay un aviso pendiente que se reintenta al guardar.
+  notifiedE164      String?
+  notifiedAt        DateTime?
+  notifyError       String?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 

@@ -84,6 +84,26 @@ export async function requireWorkspaceAdmin(): Promise<{
   return { workspaceId, userId };
 }
 
+// Operador de Negocio Vivo (rol global, distinto del ADMIN de workspace).
+// Fail-closed: si NV_OPERATOR_EMAILS está vacío o sin definir, NADIE es
+// operador. Se revalida contra BD que el usuario sigue existiendo.
+export async function requireOperator(): Promise<{ userId: string; email: string }> {
+  const session = await getServerSession(authOptions);
+  const email = session?.user?.email?.toLowerCase().trim();
+  const userId = (session?.user as any)?.id as string | undefined;
+  if (!email || !userId) throw new Error("UNAUTHORIZED");
+  const allowed = new Set(
+    (process.env.NV_OPERATOR_EMAILS || "")
+      .split(",")
+      .map((value) => value.toLowerCase().trim())
+      .filter(Boolean)
+  );
+  if (!allowed.has(email)) throw new Error("FORBIDDEN");
+  const user = await prisma.user.findFirst({ where: { id: userId, email }, select: { id: true } });
+  if (!user) throw new Error("UNAUTHORIZED");
+  return { userId, email };
+}
+
 export function unauthorized() {
   return Response.json({ error: "No autorizado" }, { status: 401 });
 }

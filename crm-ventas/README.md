@@ -79,7 +79,9 @@ Login inicial: `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD` (por defecto
 
 Ver `.env.example`. Resumen: `DATABASE_URL`, `NEXTAUTH_URL`,
 `NEXTAUTH_SECRET`, `ENCRYPTION_KEY`, `PUBLIC_APP_URL`, `ANTHROPIC_API_KEY`,
-`SONIA_MODEL` (opcional), `SEED_*`.
+`SONIA_MODEL` (opcional), `SEED_*`, `NV_OPERATOR_EMAILS` (operadores del panel
+interno de teléfonos; vacío = nadie), `RESEND_API_KEY` + `PHONE_NOTIFY_TO`
+(aviso operativo al guardar el teléfono; por defecto `info@negociovivo.com`).
 
 ## Ampliaciones previstas
 

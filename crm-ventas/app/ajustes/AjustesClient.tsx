@@ -2,7 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { Check, Copy } from "lucide-react";
-import VapiPhoneConnectionCard from "@/components/VapiPhoneConnectionCard";
+import BusinessPhoneCard from "@/components/BusinessPhoneCard";
+import PhoneActivationGuide from "@/components/PhoneActivationGuide";
+import OperatorPhoneCard from "@/components/OperatorPhoneCard";
 import WahaConnectionCard from "@/components/WahaConnectionCard";
 import UsersCard from "@/components/UsersCard";
 import LogoCard from "@/components/LogoCard";
@@ -218,26 +220,22 @@ export default function AjustesClient() {
             />
           </Field>
         </div>
-        <VapiPhoneConnectionCard />
-        <div className="rounded-lg bg-slate-50 p-4 text-sm">
-          <p className="mb-2 font-medium">Cómo conectar el teléfono</p>
-          <ol className="list-inside list-decimal space-y-1 text-slate-600">
-            <li>Crea una cuenta en Vapi y compra/importa un número para este cliente.</li>
-            <li>
-              En el número, en «Inbound Settings», deja el asistente vacío y pega esta
-              URL como <b>Server URL</b>:
-            </li>
-          </ol>
+        <BusinessPhoneCard />
+        <PhoneActivationGuide />
+        <details className="rounded-lg border border-slate-200 p-3 text-sm">
+          <summary className="cursor-pointer text-xs font-medium text-slate-500">Datos técnicos (soporte Negocio Vivo)</summary>
+          <p className="mt-2 text-xs text-slate-500">
+            URL que debe recibir cada llamada (Server URL del número, con el asistente vacío). La usa Negocio Vivo al
+            conectar la línea; el prompt vive en este CRM, no en Vapi.
+          </p>
           <div className="mt-2 flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1">
             <code className="min-w-0 flex-1 truncate text-xs">{data.webhooks.vapi}</code>
             <CopyButton value={data.webhooks.vapi} />
           </div>
-          <p className="mt-2 text-xs text-slate-500">
-            El CRM responderá a cada llamada con el asistente configurado arriba (el
-            prompt vive aquí, no en Vapi).
-          </p>
-        </div>
+        </details>
       </section>
+
+      <OperatorPhoneCard />
 
       <section className="card space-y-4 p-6">
         <h2 className="font-semibold">WhatsApp</h2>

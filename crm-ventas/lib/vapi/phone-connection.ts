@@ -1,9 +1,10 @@
 import "server-only";
-import { randomBytes } from "crypto";
+import { randomBytes, randomUUID } from "crypto";
 import { prisma } from "@/lib/prisma";
 import { getWorkspaceSettings, publicBaseUrl, saveWorkspaceSettings } from "@/lib/settings";
-import { configureInboundPhone, createManagedPhone, importTwilioPhone, VapiApiError } from "@/lib/vapi/client";
-import type { ProvisionVapiPhoneInput } from "@/lib/vapi/schemas";
+import { configureInboundPhone, createManagedPhone, getVapiPhone, importTwilioPhone, VapiApiError } from "@/lib/vapi/client";
+import type { BusinessPhoneInput, OperatorRegisterPhoneInput, ProvisionVapiPhoneInput } from "@/lib/vapi/schemas";
+import { opsEmailRecipient, sendOpsEmail } from "@/lib/notify-email";
 
 const BUILTIN_PROTECTED_IDS = new Set(["63901b3b-f92a-4f63-8461-5e48f21ff719"]);
 const BUILTIN_PROTECTED_NUMBERS = new Set(["+34613068550"]);
@@ -48,12 +49,188 @@ export async function getVapiPhoneConnection(workspaceId: string) {
     status: row.status,
     providerKind: row.providerKind,
     e164: row.e164,
+    publicE164: row.publicE164,
+    // Al cliente nunca se le muestran ids de Vapi ni el detalle del puente;
+    // solo el hecho de que la infraestructura existe (para su checklist).
+    infrastructureReady: Boolean(row.vapiPhoneNumberId),
     label: row.label,
     lastErrorMessage: row.lastErrorMessage,
+    notifyPending: Boolean(row.publicE164 && row.publicE164 !== row.notifiedE164),
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     releasable: isReleasable(row),
   };
+}
+
+// ---------- Flujo comercial: el cliente solo indica su móvil público ----------
+
+// Aviso operativo a Negocio Vivo. Deduplicado por notifiedE164: solo se envía
+// cuando el móvil guardado difiere del último notificado con éxito, y un fallo
+// deja el aviso pendiente (se reintenta en el siguiente guardado). Nunca lanza:
+// el cambio del cliente jamás se pierde por un problema de email.
+async function notifyOperatorOfPhoneRequest(rowId: string, workspaceId: string, requestedBy?: string | null) {
+  const row = await prisma.vapiPhoneConnection.findUnique({ where: { id: rowId } });
+  if (!row?.publicE164 || row.publicE164 === row.notifiedE164) return;
+  const workspace = await prisma.workspace.findUnique({ where: { id: workspaceId }, select: { name: true } });
+  const when = new Date();
+  const result = await sendOpsEmail({
+    subject: `CRM Ventas: activar teléfono de «${workspace?.name || workspaceId}»`,
+    rows: [
+      ["Negocio", workspace?.name || "(sin nombre)"],
+      ["Teléfono del negocio", row.publicE164],
+      ["Workspace", workspaceId],
+      ["Solicitado por", requestedBy || "(no disponible)"],
+      ["Fecha/hora", when.toISOString()],
+      ["Siguiente paso", "Crear número puente Twilio Voice, conectarlo a Vapi y registrar el ID en el CRM (Ajustes → Operador)"],
+    ],
+    actionUrl: `${publicBaseUrl()}/ajustes`,
+    actionLabel: "Abrir Ajustes del CRM",
+  });
+  await prisma.vapiPhoneConnection
+    .update({
+      where: { id: rowId },
+      data: result.ok
+        ? { notifiedE164: row.publicE164, notifiedAt: when, notifyError: null }
+        : { notifyError: result.error },
+    })
+    .catch(() => undefined);
+  if (!result.ok) {
+    // Registro seguro: código de error y destinatario, nunca claves ni cuerpos.
+    console.error(`[business-phone] aviso a ${opsEmailRecipient()} pendiente (${result.error}) para workspace ${workspaceId}`);
+  }
+}
+
+// Guarda (o corrige) el móvil público del negocio. Sin credenciales de ningún
+// proveedor: la infraestructura la crea Negocio Vivo aparte.
+export async function saveBusinessPhone(workspaceId: string, input: BusinessPhoneInput, requestedBy?: string | null) {
+  if (isProtected(null, input.phoneNumber)) {
+    throw new VapiApiError("PROTECTED_PHONE", "Ese número está protegido y no puede usarse aquí", 403);
+  }
+  const existing = await prisma.vapiPhoneConnection.findUnique({ where: { workspaceId } });
+  if (existing && existing.status === "PROVISIONING") {
+    throw new VapiApiError("PHONE_BUSY", "Hay una operación en curso; espera a que termine", 409);
+  }
+  if (existing && existing.status === "FAILED" && !isReleasable(existing)) {
+    throw new VapiApiError(
+      "PHONE_NEEDS_RECONCILIATION",
+      "El intento anterior requiere revisión de Negocio Vivo antes de continuar",
+      409
+    );
+  }
+  let row;
+  if (!existing) {
+    row = await prisma.vapiPhoneConnection.create({
+      data: { workspaceId, operationKey: randomUUID(), mode: "MANAGED", status: "REQUESTED", publicE164: input.phoneNumber, label: input.label },
+    });
+  } else {
+    // Cambiar el móvil de una conexión ya activa vuelve a "pendiente": el
+    // desvío del móvil nuevo tiene que configurarse y probarse otra vez.
+    // Un FAILED liberable se corrige aquí directamente (no dejó recursos).
+    const changed = existing.publicE164 !== input.phoneNumber;
+    row = await prisma.vapiPhoneConnection.update({
+      where: { id: existing.id },
+      data: {
+        mode: existing.vapiPhoneNumberId ? existing.mode : "MANAGED",
+        publicE164: input.phoneNumber,
+        label: input.label ?? existing.label,
+        status: existing.status === "ACTIVE" && !changed ? "ACTIVE" : "REQUESTED",
+        lastErrorCode: null,
+        lastErrorMessage: null,
+      },
+    });
+  }
+  await notifyOperatorOfPhoneRequest(row.id, workspaceId, requestedBy);
+  return getVapiPhoneConnection(workspaceId);
+}
+
+// ---------- Flujo interno de Negocio Vivo (operador) ----------
+
+// Registra una infraestructura YA creada a mano (puente Twilio + número en
+// Vapi) y la asigna a un workspace. Valida contra Vapi que el recurso existe y
+// coincide con el puente declarado; nunca toca el número protegido de SONIA.
+export async function operatorRegisterPhoneInfra(input: OperatorRegisterPhoneInput) {
+  if (isProtected(input.vapiPhoneNumberId, input.bridgeE164) || (input.publicE164 && isProtected(null, input.publicE164))) {
+    throw new VapiApiError("PROTECTED_PHONE", "Ese recurso está protegido y no puede asignarse", 403);
+  }
+  const workspace = await prisma.workspace.findUnique({ where: { id: input.workspaceId }, select: { id: true } });
+  if (!workspace) throw new VapiApiError("WORKSPACE_NOT_FOUND", "Ese workspace no existe", 404);
+  const other = await prisma.vapiPhoneConnection.findFirst({
+    where: { vapiPhoneNumberId: input.vapiPhoneNumberId, NOT: { workspaceId: input.workspaceId } },
+    select: { workspaceId: true },
+  });
+  if (other) {
+    throw new VapiApiError("PHONE_TAKEN", "Ese número de Vapi ya está asignado a otro negocio", 409);
+  }
+  let phone;
+  try {
+    phone = await getVapiPhone(input.vapiPhoneNumberId);
+  } catch (error) {
+    if (error instanceof VapiApiError && error.code === "VAPI_404") {
+      throw new VapiApiError("VAPI_PHONE_NOT_FOUND", "Ese id no existe en la cuenta de Vapi", 404);
+    }
+    throw error;
+  }
+  // Doble comprobación con la respuesta real de Vapi (id/número devueltos).
+  if (isProtected(phone.id, phone.number)) {
+    throw new VapiApiError("PROTECTED_PHONE", "Ese recurso está protegido y no puede asignarse", 403);
+  }
+  if (phone.number && phone.number !== input.bridgeE164) {
+    throw new VapiApiError("PHONE_MISMATCH", `El número del recurso en Vapi (${phone.number}) no coincide con el puente indicado`, 409);
+  }
+  if (!phone.number) {
+    throw new VapiApiError("PHONE_MISMATCH", "El recurso de Vapi no tiene número; revisa el id", 409);
+  }
+  if (input.configureInbound) {
+    await configureInboundPhone(input.vapiPhoneNumberId, await webhookUrl(input.workspaceId));
+  }
+  const existing = await prisma.vapiPhoneConnection.findUnique({ where: { workspaceId: input.workspaceId } });
+  const status = input.activate ? "ACTIVE" : existing?.status === "ACTIVE" ? "ACTIVE" : "REQUESTED";
+  const data = {
+    mode: "MANAGED",
+    providerKind: "twilio",
+    status,
+    vapiPhoneNumberId: input.vapiPhoneNumberId,
+    e164: input.bridgeE164,
+    bridgeE164: input.bridgeE164,
+    publicE164: input.publicE164 ?? existing?.publicE164 ?? null,
+    label: input.label ?? existing?.label ?? null,
+    lastErrorCode: null,
+    lastErrorMessage: null,
+  };
+  if (existing) {
+    await prisma.vapiPhoneConnection.update({ where: { id: existing.id }, data });
+  } else {
+    await prisma.vapiPhoneConnection.create({ data: { workspaceId: input.workspaceId, operationKey: randomUUID(), ...data } });
+  }
+  return getVapiPhoneConnection(input.workspaceId);
+}
+
+// Vista de operador: todos los negocios con el estado de su teléfono, para
+// atender solicitudes pendientes. Incluye el detalle técnico que al cliente
+// no se le muestra (id de Vapi, puente, aviso pendiente).
+export async function listPhoneConnectionsForOperator() {
+  const workspaces = await prisma.workspace.findMany({
+    select: { id: true, name: true, vapiPhoneConnection: true },
+    orderBy: { createdAt: "asc" },
+    take: 200,
+  });
+  return workspaces.map((workspace) => {
+    const row = workspace.vapiPhoneConnection;
+    return {
+      workspaceId: workspace.id,
+      workspaceName: workspace.name,
+      status: row?.status ?? null,
+      mode: row?.mode ?? null,
+      publicE164: row?.publicE164 ?? null,
+      bridgeE164: row?.bridgeE164 ?? null,
+      vapiPhoneNumberId: row?.vapiPhoneNumberId ?? null,
+      label: row?.label ?? null,
+      lastErrorMessage: row?.lastErrorMessage ?? null,
+      notifyPending: Boolean(row?.publicE164 && row.publicE164 !== row.notifiedE164),
+      notifyError: row?.notifyError ?? null,
+      updatedAt: row?.updatedAt ?? null,
+    };
+  });
 }
 
 export async function releaseFailedVapiPhoneAttempt(workspaceId: string) {
