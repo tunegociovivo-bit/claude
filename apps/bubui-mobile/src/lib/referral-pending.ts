@@ -68,21 +68,29 @@ export async function applyPendingRef(customerId: string): Promise<void> {
   const code = await getPendingRef();
   if (!code) return;
   try {
-    await api.applyReferral(customerId, code);
-    await clearPendingRef();
+    const r = await api.applyReferral(customerId, code);
+    // Solo limpiamos con un resultado CONFIRMADO: vinculado, o no-op
+    // definitivo (código inválido, autorreferencia, ya referido a otro…).
+    // Un fallo transitorio del servidor (linked sin cupón, sin origen aún)
+    // conserva el pendiente y se reintenta en la próxima carga del Feed.
+    if (r?.linked || r?.terminal) await clearPendingRef();
   } catch {
     // se reintentará en la próxima carga del Feed
   }
 }
 
-/** Android: lee el Install Referrer una sola vez (instalación diferida). */
+/** Android: lee el Install Referrer (instalación diferida). IR_DONE se marca
+ *  SOLO tras una respuesta terminal válida del API de Play — un error
+ *  transitorio o el módulo ausente dejan el flag sin poner y se reintenta en
+ *  el siguiente arranque (antes se marcaba antes del callback y un fallo
+ *  puntual perdía el referrer para siempre). */
 async function captureInstallReferrerOnce(): Promise<void> {
   try {
     if (await AsyncStorage.getItem(IR_DONE)) return;
-    await AsyncStorage.setItem(IR_DONE, "1");
     let mod: any = null;
     try {
-      // Carga perezosa: si el módulo nativo no está, no rompe nada.
+      // Carga perezosa: si el módulo nativo no está, no rompe nada (y no
+      // marcamos DONE: puede estar disponible en un build posterior).
       mod = require("react-native-play-install-referrer");
     } catch {
       return;
@@ -90,9 +98,19 @@ async function captureInstallReferrerOnce(): Promise<void> {
     const PIR = mod?.PlayInstallReferrer ?? mod?.default ?? mod;
     if (!PIR?.getInstallReferrerInfo) return;
     PIR.getInstallReferrerInfo((info: any, err: any) => {
-      if (err) return;
+      if (err) return; // transitorio → reintento en el próximo arranque
+      void AsyncStorage.setItem(IR_DONE, "1").catch(() => {});
       const code = parseRefFromString(info?.installReferrer);
-      if (code) void storeIfEmpty(code);
+      if (!code) return;
+      void (async () => {
+        await storeIfEmpty(code);
+        // Referrer tardío con sesión ya iniciada (o carrera con el alta):
+        // aplica al momento en vez de esperar a la próxima carga del Feed.
+        try {
+          const s = await CheckSession();
+          if (s) await applyPendingRef(s.customerId);
+        } catch {}
+      })();
     });
   } catch {}
 }

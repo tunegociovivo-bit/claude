@@ -58,8 +58,15 @@ async function linkReferral(customerId: string, ref: string | undefined, headers
     code = await findRecentReferralClick(headers).catch(() => null);
     via = "ip-fallback";
   }
-  console.log(`[verify-otp] referral customer=${customerId} via=${via} code=${code ?? "NONE"}`);
-  if (code) await applyReferral(customerId, code).catch((e) => console.error("[verify-otp] applyReferral falló:", e?.message));
+  if (!code) {
+    console.log(`[verify-otp] referral customer=${customerId} via=${via} code=NONE`);
+    return;
+  }
+  const result = await applyReferral(customerId, code).catch((e) => {
+    console.error("[verify-otp] applyReferral falló:", e?.message);
+    return null;
+  });
+  console.log(`[verify-otp] referral customer=${customerId} via=${via} code=${code} →`, JSON.stringify(result));
 }
 
 export async function POST(req: Request) {

@@ -31,6 +31,7 @@ export async function POST(req: Request) {
   if (!(await customerAuthOk(req, d.customerId))) {
     return NextResponse.json({ error: { code: "unauthorized" } }, { status: 401 });
   }
-  await applyReferral(d.customerId, d.code);
-  return NextResponse.json({ ok: true });
+  const result = await applyReferral(d.customerId, d.code);
+  console.log(`[apply-referral] customer=${d.customerId} code=${d.code} →`, JSON.stringify(result));
+  return NextResponse.json({ ok: true, ...result });
 }
