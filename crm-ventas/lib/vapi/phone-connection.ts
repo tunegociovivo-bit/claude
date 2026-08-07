@@ -33,11 +33,45 @@ async function webhookUrl(workspaceId: string) {
   return `${publicBaseUrl()}/api/webhooks/vapi/${token}`;
 }
 
+// Un intento FAILED solo es liberable si no consta ningún recurso externo:
+// ni id de número en Vapi ni e164. Si hay cualquiera de los dos, Vapi pudo
+// crear (o tocar) algo real y hace falta reconciliación manual.
+function isReleasable(row: { status: string; vapiPhoneNumberId: string | null; e164: string | null }) {
+  return row.status === "FAILED" && !row.vapiPhoneNumberId && !row.e164;
+}
+
 export async function getVapiPhoneConnection(workspaceId: string) {
-  return prisma.vapiPhoneConnection.findUnique({
-    where: { workspaceId },
-    select: { mode: true, status: true, providerKind: true, e164: true, label: true, lastErrorMessage: true, createdAt: true, updatedAt: true },
-  });
+  const row = await prisma.vapiPhoneConnection.findUnique({ where: { workspaceId } });
+  if (!row) return null;
+  return {
+    mode: row.mode,
+    status: row.status,
+    providerKind: row.providerKind,
+    e164: row.e164,
+    label: row.label,
+    lastErrorMessage: row.lastErrorMessage,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+    releasable: isReleasable(row),
+  };
+}
+
+export async function releaseFailedVapiPhoneAttempt(workspaceId: string) {
+  const row = await prisma.vapiPhoneConnection.findUnique({ where: { workspaceId } });
+  if (!row) throw new VapiApiError("PHONE_NOT_FOUND", "No hay ningún intento que liberar", 404);
+  if (row.status !== "FAILED") {
+    throw new VapiApiError("PHONE_NOT_RELEASABLE", "Solo puede liberarse un intento fallido", 409);
+  }
+  if (!isReleasable(row)) {
+    // No se borra nada en Vapi desde aquí: si quedó un recurso externo, debe
+    // reconciliarlo Negocio Vivo a mano antes de liberar el workspace.
+    throw new VapiApiError(
+      "PHONE_NEEDS_RECONCILIATION",
+      "El intento dejó recursos creados en Vapi y requiere reconciliación manual de Negocio Vivo",
+      409
+    );
+  }
+  await prisma.vapiPhoneConnection.delete({ where: { id: row.id } });
 }
 
 export async function provisionVapiPhone(workspaceId: string, input: ProvisionVapiPhoneInput, operationKey: string) {
@@ -55,7 +89,9 @@ export async function provisionVapiPhone(workspaceId: string, input: ProvisionVa
     // perdiera la respuesta). Bloqueamos nuevos intentos para evitar duplicados
     // y costes; Negocio Vivo debe reconciliarlo antes de liberar el workspace.
     const message = existing.status === "FAILED"
-      ? "El intento anterior requiere revisión de Negocio Vivo antes de reintentarlo"
+      ? (isReleasable(existing)
+        ? "El intento anterior falló; usa «Corregir datos y volver a intentar» para liberarlo antes de reintentar"
+        : "El intento anterior requiere revisión de Negocio Vivo antes de reintentarlo")
       : "Este negocio ya tiene un número asignado";
     throw new VapiApiError("PHONE_ALREADY_EXISTS", message, 409);
   }

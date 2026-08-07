@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { forbidden, isSameOrigin, requireWorkspaceAdmin, requireWorkspaceId, unauthorized } from "@/lib/auth";
-import { getVapiPhoneConnection, provisionVapiPhone, vapiSelfServiceEnabled } from "@/lib/vapi/phone-connection";
+import { getVapiPhoneConnection, provisionVapiPhone, releaseFailedVapiPhoneAttempt, vapiSelfServiceEnabled } from "@/lib/vapi/phone-connection";
 import { VapiApiError } from "@/lib/vapi/client";
 import { provisionVapiPhoneSchema } from "@/lib/vapi/schemas";
 
@@ -36,5 +36,21 @@ export async function POST(request: Request) {
     if (error instanceof VapiApiError) return Response.json({ error: error.message, code: error.code }, { status: error.status });
     if ((error as any)?.code === "P2002") return Response.json({ error: "Ya existe una operación o número para este negocio" }, { status: 409 });
     return Response.json({ error: "No se pudo configurar el número" }, { status: 500 });
+  }
+}
+
+// Libera un intento FAILED sin recursos externos para que el administrador
+// pueda corregir los datos y volver a intentarlo. Nunca toca nada en Vapi.
+export async function DELETE(request: Request) {
+  try {
+    if (!isSameOrigin(request)) return forbidden();
+    const { workspaceId } = await requireWorkspaceAdmin();
+    await releaseFailedVapiPhoneAttempt(workspaceId);
+    return Response.json({ ok: true });
+  } catch (error) {
+    const auth = authError(error);
+    if (auth) return auth;
+    if (error instanceof VapiApiError) return Response.json({ error: error.message, code: error.code }, { status: error.status });
+    return Response.json({ error: "No se pudo liberar el intento" }, { status: 500 });
   }
 }

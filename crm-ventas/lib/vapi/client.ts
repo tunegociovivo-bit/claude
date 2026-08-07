@@ -8,6 +8,39 @@ export class VapiApiError extends Error {
   }
 }
 
+const MAX_ERROR_DETAIL_LENGTH = 300;
+
+// Cualquier texto que devuelva Vapi puede citar credenciales que nosotros
+// mismos enviamos (Account SID, tokens); se enmascaran antes de guardar o
+// registrar nada. Los cuerpos de petición no se registran nunca.
+function redactSecrets(text: string): string {
+  return text
+    .replace(/AC[0-9a-fA-F]{32}/g, "AC…[oculto]")
+    .replace(/\b[0-9a-fA-F]{30,}\b/g, "[oculto]")
+    .replace(/Bearer\s+\S+/gi, "Bearer [oculto]");
+}
+
+function collectMessages(value: unknown, depth = 0): string[] {
+  if (value == null || depth > 3) return [];
+  if (typeof value === "string") return value.trim() ? [value.trim()] : [];
+  if (Array.isArray(value)) return value.flatMap((item) => collectMessages(item, depth + 1));
+  if (typeof value === "object") {
+    return ["message", "error", "errors", "issues", "detail", "details"].flatMap((key) =>
+      key in (value as Record<string, unknown>) ? collectMessages((value as Record<string, unknown>)[key], depth + 1) : []
+    );
+  }
+  return [];
+}
+
+// Formas habituales de error de Vapi: { message: string | string[] },
+// { error: { message } }, { errors: [...] } o { issues: [...] }.
+export function extractVapiErrorDetail(body: unknown): string | null {
+  const messages = Array.from(new Set(collectMessages(body)));
+  if (!messages.length) return null;
+  const detail = redactSecrets(messages.join(" · "));
+  return detail.length > MAX_ERROR_DETAIL_LENGTH ? `${detail.slice(0, MAX_ERROR_DETAIL_LENGTH - 1)}…` : detail;
+}
+
 async function vapiFetch(path: string, init: RequestInit): Promise<any> {
   const apiKey = process.env.VAPI_API_KEY;
   if (!apiKey) throw new VapiApiError("VAPI_NOT_CONFIGURED", "Vapi no está configurado", 503);
@@ -22,12 +55,16 @@ async function vapiFetch(path: string, init: RequestInit): Promise<any> {
     });
     if (!response.ok) {
       const body = await response.json().catch(() => null);
-      const message = typeof body?.message === "string" ? body.message : "Vapi no pudo completar la operación";
-      throw new VapiApiError(`VAPI_${response.status}`, message, response.status >= 500 ? 502 : 400);
+      const detail = extractVapiErrorDetail(body);
+      const code = `VAPI_${response.status}`;
+      console.error(`[vapi] ${init.method || "GET"} ${path} → ${response.status} (${code})${detail ? ` — ${detail}` : " — sin detalle en la respuesta"}`);
+      const message = detail ? `Vapi rechazó la operación: ${detail}` : "Vapi no pudo completar la operación";
+      throw new VapiApiError(code, message, response.status >= 500 ? 502 : 400);
     }
     return response.json();
   } catch (error) {
     if (error instanceof VapiApiError) throw error;
+    console.error(`[vapi] ${init.method || "GET"} ${path} → fallo de red o timeout (${(error as Error)?.name || "Error"})`);
     throw new VapiApiError("VAPI_UNAVAILABLE", "No se pudo conectar con Vapi");
   } finally {
     clearTimeout(timer);
