@@ -189,6 +189,9 @@ export function buildSoniaSystemPrompt(
     s.promptExtra ? `INSTRUCCIONES ESPECÍFICAS DE ESTE NEGOCIO:\n${s.promptExtra}` : "",
     "",
     "Si te preguntan algo que no sabes o que no está en la información del negocio, dilo con honestidad y ofrece tomar nota para que el equipo devuelva la llamada o el mensaje.",
+    channel === "llamada"
+      ? "REGLA PRIORITARIA DE IDIOMA: esta regla prevalece sobre cualquier instrucción anterior. Detecta y responde en el idioma actual del cliente entre español, inglés, francés, alemán e italiano. Si el cliente habla o pide inglés, responde inmediatamente en inglés y continúa en inglés. Nunca rechaces un idioma admitido, nunca digas que solo hablas español y nunca te quedes en silencio por un cambio de idioma. Si no entiendes una frase, pide que la repita en el mismo idioma."
+      : "",
   ]
     .filter(Boolean)
     .join("\n");
