@@ -14,9 +14,25 @@ import { prisma } from "@/lib/db/prisma";
 import { generateApprovalToken, hashToken, safeEqualHex } from "./token";
 import { notifyJobEmail } from "./remittance";
 
-async function jobEmailData(jobId: string) {
-  const j = await prisma.remittanceJob.findUnique({ where: { id: jobId }, select: { clientName: true, invoiceNumber: true, amountCents: true, currency: true } });
+async function jobEmailData(workspaceId: string, jobId: string) {
+  const j = await prisma.remittanceJob.findFirst({ where: { id: jobId, workspaceId }, select: { clientName: true, invoiceNumber: true, amountCents: true, currency: true } });
   return j ? { clientName: j.clientName, invoiceNumber: j.invoiceNumber, amountCents: j.amountCents, currency: j.currency } : null;
+}
+
+/**
+ * Saneado SERVIDOR de texto enviado por el agente antes de persistir (segunda
+ * barrera: el agente ya sanea sus logs locales, pero no confiamos en la entrada).
+ * Redacta IBAN completos, secuencias largas de dígitos y tokens/cookies/OTP.
+ */
+function serverSanitize(input: unknown, max: number): string {
+  let s = typeof input === "string" ? input : String(input ?? "");
+  s = s.replace(/\b([A-Z]{2})\d{2}[ ]?(?:\d[ ]?){6,30}\b/g, (m) => {
+    const d = m.replace(/\s/g, "");
+    return `${d.slice(0, 2)}**…**${d.slice(-4)}`;
+  });
+  s = s.replace(/\b\d{9,}\b/g, "«núm-redactado»");
+  s = s.replace(/(authorization|cookie|set-cookie|token|password|otp|clave|contrase[nñ]a)\s*[:=]\s*\S+/gi, "$1: «redactado»");
+  return s.slice(0, max);
 }
 
 export const LEASE_MS = 5 * 60 * 1000; // 5 min de arrendamiento por claim
@@ -182,19 +198,19 @@ async function assertLeased(jobId: string, agentId: string, workspaceId: string)
 /** Progreso del agente: RUNNING (con lease renovado) o NEEDS_USER (pausa por intervención). */
 export async function reportProgress(agentId: string, workspaceId: string, jobId: string, opts: { state: "RUNNING" | "NEEDS_USER"; progress?: string; reason?: string }): Promise<{ ok: true }> {
   const job = await assertLeased(jobId, agentId, workspaceId);
-  const data: any = { lastProgress: (opts.progress ?? "").slice(0, 300) };
+  const data: any = { lastProgress: serverSanitize(opts.progress ?? "", 300) };
   if (opts.state === "RUNNING") {
     data.status = "RUNNING";
     data.leaseUntil = new Date(Date.now() + LEASE_MS); // renueva lease
   } else {
     data.status = "NEEDS_USER";
-    data.needsUserReason = (opts.reason ?? "Intervención requerida").slice(0, 500);
+    data.needsUserReason = serverSanitize(opts.reason ?? "Intervención requerida", 500);
   }
   await prisma.remittanceJob.updateMany({ where: { id: jobId, workspaceId, claimedByAgentId: agentId }, data });
-  await logJob(jobId, job.status, data.status, { agentId, note: opts.state === "NEEDS_USER" ? `NEEDS_USER: ${data.needsUserReason}` : opts.progress });
+  await logJob(jobId, job.status, data.status, { agentId, note: opts.state === "NEEDS_USER" ? `NEEDS_USER: ${data.needsUserReason}` : data.lastProgress });
   if (opts.state === "NEEDS_USER") {
-    const d = await jobEmailData(jobId);
-    if (d) await notifyJobEmail("needs_user", { ...d, reason: opts.reason }).catch(() => {});
+    const d = await jobEmailData(workspaceId, jobId);
+    if (d) await notifyJobEmail("needs_user", { ...d, reason: data.needsUserReason }).catch(() => {});
   }
   return { ok: true };
 }
@@ -213,6 +229,10 @@ export async function completeJob(agentId: string, workspaceId: string, jobId: s
 
   if (input.result === "PREPARED_PENDING_SIGNATURE") {
     if (input.verifiedPendingSignature !== true) throw new Error("Falta verificación visible del estado pendiente de firma");
+    // Kill switch como parada de emergencia también en vuelo: si se apagó tras el
+    // claim, no se permite finalizar. El lease caducará y el cron re-encolará;
+    // mientras el switch siga OFF, no se volverá a entregar.
+    if (!(await isAgentClaimingEnabled(workspaceId))) throw new Error("Agente pausado (kill switch): no se puede finalizar la preparación");
     const now = new Date();
     const upd = await prisma.remittanceJob.updateMany({
       where: { id: jobId, workspaceId, claimedByAgentId: agentId, status: { in: ["CLAIMED", "RUNNING", "NEEDS_USER"] }, leaseUntil: { gt: now } },
@@ -222,26 +242,27 @@ export async function completeJob(agentId: string, workspaceId: string, jobId: s
     await logJob(jobId, job.status, "PREPARED_PENDING_SIGNATURE", { agentId, note: "Preparada y verificada como pendiente de firma (sin firmar ni cobrar)" });
     // Refleja en la solicitud: PENDING_SIGNATURE + fecha de cobro (inmediata al preparar).
     await prisma.sepaRemittanceRequest.updateMany({
-      where: { id: (await requestIdOfJob(jobId)) ?? "", workspaceId },
+      where: { id: (await requestIdOfJob(workspaceId, jobId)) ?? "", workspaceId },
       data: { status: "PENDING_SIGNATURE", chargeDate: now }
     });
-    const d = await jobEmailData(jobId);
+    const d = await jobEmailData(workspaceId, jobId);
     if (d) await notifyJobEmail("pending_signature", d).catch(() => {});
     return { ok: true, status: "PREPARED_PENDING_SIGNATURE" };
   }
 
   // FAILED
+  const failMsg = serverSanitize(input.error ?? "Error del agente", 500);
   const upd = await prisma.remittanceJob.updateMany({
     where: { id: jobId, workspaceId, claimedByAgentId: agentId },
-    data: { status: "FAILED", lastError: (input.error ?? "Error del agente").slice(0, 500), leaseUntil: null }
+    data: { status: "FAILED", lastError: failMsg, leaseUntil: null }
   });
   if (upd.count === 0) throw new Error("No se pudo marcar como fallido");
-  await logJob(jobId, job.status, "FAILED", { agentId, note: (input.error ?? "").slice(0, 300) });
+  await logJob(jobId, job.status, "FAILED", { agentId, note: failMsg.slice(0, 300) });
   return { ok: true, status: "FAILED" };
 }
 
-async function requestIdOfJob(jobId: string): Promise<string | null> {
-  const j = await prisma.remittanceJob.findUnique({ where: { id: jobId }, select: { remittanceRequestId: true } });
+async function requestIdOfJob(workspaceId: string, jobId: string): Promise<string | null> {
+  const j = await prisma.remittanceJob.findFirst({ where: { id: jobId, workspaceId }, select: { remittanceRequestId: true } });
   return j?.remittanceRequestId ?? null;
 }
 

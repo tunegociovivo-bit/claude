@@ -90,10 +90,18 @@ export class LiveSantanderAdapter implements SantanderAdapter {
       }
       await hooks.onProgress("VALIDATE_MATCH", "Importe y cliente cotejados con lo autorizado");
 
-      // 8) Preparar para firma — con barrera anti-firma sobre la etiqueta de la acción.
-      const prepareLabel = S.prepareAction.role?.name ?? S.prepareAction.text ?? S.prepareAction.describe;
-      if (isForbiddenActionLabel(prepareLabel)) {
-        return this.pause(hooks, `La acción de preparar ("${prepareLabel}") parece de FIRMA. Abortado por seguridad: el agente nunca firma.`);
+      // 8) Preparar para firma — barrera anti-firma sobre la etiqueta CONFIGURADA
+      //    y sobre el texto/accesible EN VIVO del elemento (no basta con el mapeo).
+      const configuredLabel = S.prepareAction.role?.name ?? S.prepareAction.text ?? "";
+      if (configuredLabel && isForbiddenActionLabel(configuredLabel)) {
+        return this.pause(hooks, `La acción de preparar ("${configuredLabel}") parece de FIRMA. Abortado por seguridad: el agente nunca firma.`);
+      }
+      const liveLabel = await this.actionLabel(page, S.prepareAction);
+      if (!liveLabel) {
+        return this.pause(hooks, "No pude leer la etiqueta del botón de preparar para verificar que NO es de firma. Abortado por seguridad.");
+      }
+      if (isForbiddenActionLabel(liveLabel)) {
+        return this.pause(hooks, `El botón de preparar muestra "${liveLabel}" (parece FIRMA). Abortado por seguridad: el agente nunca firma.`);
       }
       if (!(await this.click(page, S.prepareAction))) return this.pause(hooks, "No encuentro la acción para dejar la remesa lista para firma.");
       await hooks.onProgress("PREPARE_FOR_SIGNATURE", "Remesa dejada lista para firma (sin firmar)");
@@ -163,6 +171,29 @@ export class LiveSantanderAdapter implements SantanderAdapter {
       const el = this.locator(page, spec).first();
       await el.waitFor({ state: "visible", timeout: STEP_TIMEOUT_MS });
       return ((await el.textContent()) ?? "").trim();
+    } catch { return null; }
+  }
+
+  /**
+   * Etiqueta EN VIVO de un elemento accionable: reúne texto visible, aria-label,
+   * title y value. Sirve para la barrera anti-firma (no fiarse solo del mapeo).
+   * Devuelve null si no puede leer ninguna etiqueta verificable.
+   */
+  private async actionLabel(page: any, spec: SelectorSpec): Promise<string | null> {
+    try {
+      const el = this.locator(page, spec).first();
+      await el.waitFor({ state: "visible", timeout: STEP_TIMEOUT_MS });
+      const parts: string[] = [];
+      for (const src of [
+        () => el.textContent(),
+        () => el.getAttribute("aria-label"),
+        () => el.getAttribute("title"),
+        () => el.getAttribute("value")
+      ]) {
+        try { const v = (await src()) ?? ""; if (v) parts.push(String(v)); } catch { /* ignore */ }
+      }
+      const label = parts.join(" ").replace(/\s+/g, " ").trim();
+      return label.length ? label : null;
     } catch { return null; }
   }
 
