@@ -55,19 +55,8 @@ function buildAssistant(settings: WorkspaceSettings, token: string) {
       ],
       tools: vapiTools(baseUrl, token),
     },
-    // Vapi Voice V2 detecta el idioma automáticamente y suena más natural que
-    // la voz Azure anterior, especialmente al cambiar de idioma en una llamada.
-    voice: { provider: "vapi", voiceId: "Layla", version: 2, language: "auto" },
-    transcriber: {
-      provider: "deepgram",
-      model: "flux-general-multi",
-      language: "multi",
-      eotThreshold: 0.7,
-      eotTimeoutMs: 3500,
-      fallbackPlan: { autoFallback: { enabled: true } },
-    },
-    startSpeakingPlan: { waitSeconds: 0.35 },
-    stopSpeakingPlan: { numWords: 3, backoffSeconds: 0.8 },
+    voice: { provider: s.vapiVoiceProvider, voiceId: s.vapiVoiceId, speed: 1.12 },
+    transcriber: { provider: "deepgram", model: "nova-3", language: "multi" },
     analysisPlan: {
       summaryPlan: {
         enabled: true,
