@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { prisma } from "@/lib/prisma";
 import {
   appointmentsOfDay,
+  availableSlotsOfDay,
   bookAppointment,
   cancelAppointmentByPhoneAndTime,
 } from "@/lib/appointments";
@@ -18,7 +19,7 @@ export const SONIA_TOOL_SCHEMAS = [
   {
     name: "consultar_disponibilidad",
     description:
-      "Consulta las citas ya ocupadas de un día concreto para poder ofrecer huecos libres. Úsala SIEMPRE antes de proponer o confirmar una hora.",
+      "Calcula los huecos en los que cabe completa una cita de la duración solicitada. Úsala SIEMPRE antes de proponer o confirmar una hora y ofrece sólo valores de huecos_libres.",
     input_schema: {
       type: "object" as const,
       properties: {
@@ -26,14 +27,20 @@ export const SONIA_TOOL_SCHEMAS = [
           type: "string",
           description: "Día a consultar en formato YYYY-MM-DD",
         },
+        duracion_min: {
+          type: "integer",
+          minimum: 15,
+          maximum: 240,
+          description: "Duración total solicitada por el cliente, en minutos",
+        },
       },
-      required: ["fecha"],
+      required: ["fecha", "duracion_min"],
     },
   },
   {
     name: "agendar_cita",
     description:
-      "Crea una cita confirmada. Antes de llamarla debes tener: nombre del cliente, teléfono, y fecha y hora exactas confirmadas por el cliente. Nunca inventes datos.",
+      "Crea una cita confirmada. Llámala una sola vez y únicamente cuando tengas tratamiento, duración, nombre, teléfono y una fecha y hora elegida de huecos_libres. Nunca inventes datos.",
     input_schema: {
       type: "object" as const,
       properties: {
@@ -46,12 +53,18 @@ export const SONIA_TOOL_SCHEMAS = [
           type: "string",
           description: "Fecha y hora de inicio en formato ISO, p.ej. 2026-08-10T17:00:00",
         },
+        duracion_min: {
+          type: "integer",
+          minimum: 15,
+          maximum: 240,
+          description: "Duración total confirmada por el cliente, en minutos",
+        },
         notas: {
           type: "string",
-          description: "Motivo de la cita u observaciones (opcional)",
+          description: "Tratamiento solicitado y cualquier observación relevante",
         },
       },
-      required: ["nombre", "telefono", "fecha_hora"],
+      required: ["nombre", "telefono", "fecha_hora", "duracion_min", "notas"],
     },
   },
   {
@@ -84,13 +97,24 @@ export async function executeSoniaTool(opts: {
   try {
     if (name === "consultar_disponibilidad") {
       const fecha = String(input.fecha ?? "");
+      const durationMin = Number(input.duracion_min);
+      if (!Number.isInteger(durationMin) || durationMin < 15 || durationMin > 240) {
+        return JSON.stringify({ error: "Indica una duración válida entre 15 y 240 minutos" });
+      }
       const citas = await appointmentsOfDay(workspaceId, fecha);
       if (citas === null) return JSON.stringify({ error: "Fecha no válida, usa YYYY-MM-DD" });
+      const available = await availableSlotsOfDay({
+        workspaceId,
+        dateISO: fecha,
+        durationMin,
+        openingHours: settings.sonia.openingHours,
+      });
       return JSON.stringify({
         fecha,
         horario_negocio: settings.sonia.openingHours,
-        duracion_cita_min: settings.sonia.slotMinutes,
-        ocupado: citas.map((c) => ({
+        duracion_solicitada_min: durationMin,
+        huecos_libres: available,
+        ocupado: citas.map((c: { startsAt: Date; durationMin: number }) => ({
           inicio: c.startsAt.toISOString(),
           duracion_min: c.durationMin,
         })),
@@ -107,6 +131,7 @@ export async function executeSoniaTool(opts: {
         customerName: String(input.nombre ?? "").trim() || "Sin nombre",
         customerPhone: telefono,
         datetimeISO: String(input.fecha_hora ?? ""),
+        durationMin: Number(input.duracion_min),
         notes: input.notas ? String(input.notas) : undefined,
         source: opts.channel,
         callId: opts.callId,
@@ -176,11 +201,12 @@ export function buildSoniaSystemPrompt(
     "2. Agendar, consultar o cancelar citas.",
     "",
     "Cómo agendar una cita:",
-    "1) Averigua qué día quiere el cliente y usa consultar_disponibilidad para ver los huecos ocupados.",
-    `2) Propón horas libres dentro del horario del negocio (${s.openingHours}).`,
+    "1) Antes de consultar o prometer una hora, averigua el tratamiento y su duración total. Si hay opciones (por ejemplo 60 o 90 minutos), pregunta cuál quiere.",
+    "2) Usa consultar_disponibilidad con la fecha y la duración. Ofrece EXCLUSIVAMENTE horas incluidas en huecos_libres; nunca calcules ni inventes horas por tu cuenta.",
     "3) Pide nombre y teléfono si no los tienes. Nunca inventes ninguno de los dos.",
-    "4) Confirma en voz alta fecha, hora y nombre, y solo entonces llama a agendar_cita.",
-    "5) Si agendar_cita devuelve error u ocupado, NO digas que está confirmada: ofrece otra hora.",
+    "4) Cuando el cliente elija una hora libre y ya tengas tratamiento, duración, nombre y teléfono, llama UNA SOLA VEZ a agendar_cita incluyendo duracion_min y el tratamiento en notas.",
+    "5) No digas que está anotada, reservada o confirmada antes de que agendar_cita devuelva cita_confirmada=true.",
+    "6) Si agendar_cita devuelve error u ocupado, NO crees otra reserva ni digas que está confirmada: vuelve a consultar disponibilidad con la duración completa y ofrece sólo huecos_libres.",
     "",
     `INFORMACIÓN DEL NEGOCIO:\n${s.businessInfo || "(sin información adicional)"}`,
     "",
