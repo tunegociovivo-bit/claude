@@ -41,6 +41,8 @@ ok(!evaluateCandidacy({ ...base, totalCents: 0 }).eligible, "Excluye importe no 
 ok(!evaluateCandidacy({ ...base, clientId: null }).eligible, "Excluye sin cliente");
 ok(!evaluateCandidacy({ ...base, number: "R-2026-0007" }).eligible, 'Excluye número que empieza por "R-"');
 ok(!evaluateCandidacy({ ...base, type: "RECTIFICATIVA" }).eligible, "Excluye rectificativa");
+ok(!evaluateCandidacy({ ...base, type: "PROFORMA" }).eligible, "Excluye proforma");
+ok(!evaluateCandidacy({ ...base, type: "PRESUPUESTO" }).eligible, "Excluye presupuesto");
 ok(!evaluateCandidacy({ ...base, hasExistingRequest: true }).eligible, "Excluye con remesa previa");
 ok(!evaluateCandidacy({ ...base, clientSepaEnabled: false }).eligible, "Excluye cliente NO habilitado (opt-in)");
 ok(isNegocioVivoIssuer("negocio vivo s.c.a.") === true, "isNegocioVivoIssuer case-insensitive");

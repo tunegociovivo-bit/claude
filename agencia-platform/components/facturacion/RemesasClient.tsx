@@ -79,7 +79,7 @@ function RequestsTab() {
       const r = await fetch("/api/v1/facturacion/remesas/scan", { method: "POST" });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) { setMsg(j?.error?.message ?? j?.message ?? "Error al buscar candidatas"); return; }
-      setMsg(`Analizadas ${j.scanned} candidatas · ${j.created} solicitudes creadas · ${j.skipped} ya existían/no elegibles.`);
+      setMsg(`Examinadas ${j.examined} facturas · ${j.eligible} elegibles · ${j.created} solicitudes creadas · ${j.skipped} ya existían/omitidas.`);
       await load();
     } finally { setScanning(false); }
   }

@@ -228,8 +228,11 @@ export default function ClientFormModal({
       });
       if (!rs.ok) {
         setSaving(false);
+        // Los datos base ya se guardaron; refrescamos para que la UI no diverja
+        // y mostramos el error solo del bloque SEPA.
+        router.refresh();
         const j = await rs.json().catch(() => ({}));
-        return setError(j?.error?.message || j?.message || `Error SEPA ${rs.status}`);
+        return setError((j?.error?.message || j?.message || `Error SEPA ${rs.status}`) + " (los datos generales sí se guardaron)");
       }
     }
     setSaving(false);
@@ -524,7 +527,7 @@ export default function ClientFormModal({
               </div>
             </section>
 
-            {isEdit && (
+            {isEdit && isAdmin && (
               <section className="rounded-lg border border-emerald-200 bg-emerald-50/40 p-3">
                 <h3 className="text-sm font-semibold text-slate-800 mb-1">Cobro por adeudo SEPA</h3>
                 <p className="text-[11px] text-amber-700 mb-2">

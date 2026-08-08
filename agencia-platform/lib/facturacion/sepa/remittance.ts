@@ -62,6 +62,7 @@ export async function findCandidateInvoices(
       workspaceId,
       issuerId: nv.id,
       deletedAt: null,
+      type: "NORMAL", // solo facturas fiscales normales (no proforma/presupuesto/rectificativa)
       status: "ISSUED",
       totalCents: { gt: 0 },
       paidAt: null,
@@ -140,13 +141,6 @@ export async function createRequestForInvoice(
   const nv = await getNegocioVivoIssuer(workspaceId);
   if (!nv) throw new Error("No existe la empresa emisora Negocio Vivo S.C.A. en este workspace.");
 
-  // Ya existe → idempotente.
-  const prev = await prisma.sepaRemittanceRequest.findUnique({
-    where: { workspaceId_companyId_invoiceId: { workspaceId, companyId: nv.id, invoiceId } },
-    select: { id: true }
-  });
-  if (prev) return { created: false, requestId: prev.id };
-
   const inv = await prisma.invoice.findFirst({
     where: { id: invoiceId, workspaceId, deletedAt: null },
     select: {
@@ -174,6 +168,36 @@ export async function createRequestForInvoice(
 
   const { token, tokenHash } = generateApprovalToken();
   const expiresAt = new Date(Date.now() + TOKEN_TTL_MS);
+
+  // ¿Ya existe una solicitud para esta factura? (unique companyId+invoiceId)
+  const prev = await prisma.sepaRemittanceRequest.findUnique({
+    where: { workspaceId_companyId_invoiceId: { workspaceId, companyId: nv.id, invoiceId } },
+    select: { id: true, status: true }
+  });
+  if (prev) {
+    // Solo re-armamos las caducadas/fallidas (nuevo enlace); el resto es idempotente
+    // (una decidida/pendiente/aprobada NO se recrea; una RECHAZADA se respeta).
+    if (prev.status === "EXPIRED" || prev.status === "FAILED") {
+      await prisma.sepaRemittanceRequest.update({
+        where: { id: prev.id },
+        data: {
+          status: "PENDING_APPROVAL",
+          tokenHash,
+          tokenExpiresAt: expiresAt,
+          tokenUsedAt: null,
+          amountCents: inv.totalCents,
+          mandateRef: inv.client?.sepaMandateRef ?? null,
+          ibanMasked: inv.client?.sepaIbanMasked ?? null,
+          providerStatus: getSantanderProviderStatus(),
+          lastError: null
+        }
+      });
+      await logEvent(prev.id, prev.status, "PENDING_APPROVAL", createdById, "Solicitud re-armada (nuevo enlace)");
+      await notifyApproval(prev.id, token, inv, createdById);
+      return { created: true, requestId: prev.id };
+    }
+    return { created: false, requestId: prev.id };
+  }
 
   let requestId: string;
   try {
@@ -212,19 +236,32 @@ export async function createRequestForInvoice(
   }
 
   await logEvent(requestId, null, "PENDING_APPROVAL", createdById, "Solicitud creada");
-  await sendApprovalEmail({
-    to: approvalRecipient(),
-    token,
-    clientName: inv.client?.name ?? "",
-    invoiceNumber: inv.number,
-    amountCents: inv.totalCents,
-    currency: inv.currency
-  }).catch((err) => {
-    // No perdemos la solicitud si el email falla; queda registrado.
-    void logEvent(requestId, "PENDING_APPROVAL", "PENDING_APPROVAL", createdById, "Fallo al enviar email", String(err?.message ?? err));
-  });
-
+  await notifyApproval(requestId, token, inv, createdById);
   return { created: true, requestId };
+}
+
+/**
+ * Envía el email de aprobación y AUDITA el resultado (enviado / RESEND
+ * desactivado / error), para que siempre haya traza de por qué llegó o no.
+ */
+async function notifyApproval(requestId: string, token: string, inv: any, createdById?: string | null): Promise<void> {
+  if (!isEmailEnabled()) {
+    await logEvent(requestId, "PENDING_APPROVAL", "PENDING_APPROVAL", createdById, "Email NO enviado: RESEND no configurado");
+    return;
+  }
+  try {
+    await sendApprovalEmail({
+      to: approvalRecipient(),
+      token,
+      clientName: inv.client?.name ?? "",
+      invoiceNumber: inv.number,
+      amountCents: inv.totalCents,
+      currency: inv.currency
+    });
+    await logEvent(requestId, "PENDING_APPROVAL", "PENDING_APPROVAL", createdById, `Email de aprobación enviado a ${approvalRecipient()}`);
+  } catch (err: any) {
+    await logEvent(requestId, "PENDING_APPROVAL", "PENDING_APPROVAL", createdById, "Fallo al enviar email", String(err?.message ?? err));
+  }
 }
 
 /** Crea solicitudes para todas las candidatas elegibles (acotado). */
@@ -232,12 +269,13 @@ export async function createRequestsForCandidates(
   workspaceId: string,
   createdById?: string | null,
   opts?: { max?: number }
-): Promise<{ created: number; skipped: number; scanned: number }> {
+): Promise<{ created: number; skipped: number; examined: number; eligible: number }> {
   const max = Math.min(opts?.max ?? 50, 200);
-  const candidates = (await findCandidateInvoices(workspaceId, { take: 300 })).filter((c) => c.eligible).slice(0, max);
+  const all = await findCandidateInvoices(workspaceId, { take: 300 });
+  const eligible = all.filter((c) => c.eligible).slice(0, max);
   let created = 0;
   let skipped = 0;
-  for (const cand of candidates) {
+  for (const cand of eligible) {
     try {
       const r = await createRequestForInvoice(workspaceId, cand.invoiceId, createdById);
       if (r.created) created++;
@@ -246,7 +284,7 @@ export async function createRequestsForCandidates(
       skipped++;
     }
   }
-  return { created, skipped, scanned: candidates.length };
+  return { created, skipped, examined: all.length, eligible: eligible.length };
 }
 
 function fmtAmount(cents: number, currency: string): string {

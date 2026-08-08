@@ -68,7 +68,8 @@ export function evaluateCandidacy(input: CandidacyInput): CandidacyResult {
   const num = (input.number ?? "").trim();
   if (!num) reasons.push("Sin número de factura");
   if (/^r-/i.test(num)) reasons.push('El número empieza por "R-"');
-  if (norm(input.type) === "rectificativa") reasons.push("Es rectificativa");
+  // Solo facturas fiscales NORMALES: nunca rectificativas, proformas ni presupuestos.
+  if (norm(input.type) !== "normal") reasons.push("No es una factura normal (proforma/presupuesto/rectificativa)");
 
   if (input.hasExistingRequest) reasons.push("Ya tiene una remesa/solicitud");
 
