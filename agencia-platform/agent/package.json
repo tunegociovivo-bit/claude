@@ -1,0 +1,29 @@
+{
+  "name": "negociovivo-bank-agent",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Agente bancario LOCAL de Negocio Vivo. Prepara remesas SEPA en Santander Empresas y las deja PENDIENTES DE FIRMA. Nunca firma, nunca cobra, nunca maneja credenciales.",
+  "type": "module",
+  "bin": {
+    "nv-bank-agent": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "dev": "tsx src/index.ts",
+    "doctor": "tsx src/index.ts --doctor",
+    "record": "tsx src/index.ts --record",
+    "test": "tsx test/run.ts"
+  },
+  "dependencies": {
+    "playwright-core": "^1.47.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.0",
+    "typescript": "^5.5.0",
+    "@types/node": "^22.0.0"
+  },
+  "engines": {
+    "node": ">=18.17"
+  }
+}

@@ -321,6 +321,28 @@ function escapeHtml(s: string): string {
   return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c] as string));
 }
 
+/**
+ * Emails del ciclo del TRABAJO bancario (fase 2). SANEADOS: nunca datos bancarios
+ * ni credenciales. Best-effort (no rompe el flujo si falla o si RESEND está off).
+ */
+export async function notifyJobEmail(
+  kind: "created" | "needs_user" | "pending_signature",
+  data: { clientName: string; invoiceNumber: string | null; amountCents: number; currency: string; reason?: string }
+): Promise<void> {
+  if (!isEmailEnabled()) return;
+  const amount = fmtAmount(data.amountCents, data.currency);
+  const who = `${escapeHtml(data.clientName)} · ${escapeHtml(data.invoiceNumber ?? "—")} · ${amount}`;
+  const map = {
+    created: { subject: `Remesa aprobada · trabajo en cola · ${data.clientName}`, body: `La remesa ha sido aprobada y hay un trabajo bancario en cola para el agente local. No se firma ni se cobra: se dejará PENDIENTE DE FIRMA.` },
+    needs_user: { subject: `⚠️ Remesa SEPA requiere intervención · ${data.clientName}`, body: `El agente ha pausado y necesita tu intervención${data.reason ? `: ${escapeHtml(data.reason)}` : ""}. Abre Santander en tu Chrome y continúa/verifica manualmente.` },
+    pending_signature: { subject: `Remesa SEPA PREPARADA · pendiente de firma · ${data.clientName}`, body: `El agente ha preparado la remesa y la ha dejado PENDIENTE DE FIRMA (no la ha firmado ni cobrado). Revisa y firma tú en Santander.` }
+  }[kind];
+  const html = `<div style="font-family:Arial,sans-serif;font-size:14px;color:#222;line-height:1.5">
+    <p>${map.body}</p><p><strong>${who}</strong></p>
+    <p style="font-size:12px;color:#888">El agente nunca firma, confirma ni cobra. Sin datos bancarios en este email.</p></div>`;
+  await sendEmail({ to: approvalRecipient(), subject: map.subject, html, text: `${map.body}\n${data.clientName} · ${data.invoiceNumber ?? "—"} · ${amount}` });
+}
+
 export type TokenLookup =
   | { ok: true; request: any }
   | { ok: false; reason: "not_found" | "used" | "expired" | "not_pending" };
@@ -372,6 +394,18 @@ export async function decideByToken(
   if (updated.count === 0) return { ok: false, reason: "already_decided" };
 
   await logEvent(req.id, "PENDING_APPROVAL", target, opts.userId, opts.action === "reject" ? opts.reason : "Aprobada (no firma ni cobra)");
+
+  // Al APROBAR: crea el trabajo bancario (fase 2) vinculado a los datos autorizados
+  // y avisa por email. NO firma ni cobra; el agente lo dejará pendiente de firma.
+  if (opts.action === "approve") {
+    try {
+      const { createJobForApprovedRequest } = await import("./agent");
+      await createJobForApprovedRequest(workspaceId, req.id);
+    } catch (e) {
+      await logEvent(req.id, "APPROVED", "APPROVED", opts.userId, "Aviso: no se pudo crear el trabajo bancario", String((e as any)?.message ?? e));
+    }
+    await notifyJobEmail("created", req).catch(() => {});
+  }
   return { ok: true, status: target as "APPROVED" | "REJECTED" };
 }
 

@@ -233,6 +233,8 @@ model Workspace {
   searchEmbeddings          SearchEmbedding[]
   metaConnections           MetaConnection[]
   sepaRemittanceRequests    SepaRemittanceRequest[]
+  bankAgents                BankAgent[]
+  remittanceJobs            RemittanceJob[]
   metaCampaigns             MetaCampaign[]
   aiAgentRuns               AiAgentRun[]
   aiDrafts                  AiDraft[]
@@ -996,6 +998,109 @@ model SepaRemittanceEvent {
   request SepaRemittanceRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
 
   @@index([requestId])
+}
+
+// ====================================================================
+// FASE 2 — AGENTE BANCARIO LOCAL + COLA DE TRABAJOS
+// ====================================================================
+// El agente NUNCA firma ni cobra: prepara la remesa y la deja PENDIENTE DE FIRMA.
+// No maneja credenciales (el usuario inicia sesión él mismo en su Chrome).
+
+// Agente local enrolado. Se autentica con un token cuyo HASH se guarda (revocable).
+model BankAgent {
+  id            String    @id @default(cuid())
+  workspaceId   String
+  name          String
+  tokenHash     String    @unique // sha256 del token de enrolamiento (revocable)
+  status        String    @default("ACTIVE") // ACTIVE | REVOKED
+  version       String?
+  platform      String?
+  lastHeartbeatAt DateTime?
+  createdById   String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  revokedAt     DateTime?
+
+  workspace Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  jobs      RemittanceJob[]
+
+  @@index([workspaceId, status])
+  @@index([tokenHash])
+}
+
+enum RemittanceJobStatus {
+  PENDING
+  CLAIMED
+  RUNNING
+  NEEDS_USER
+  PREPARED_PENDING_SIGNATURE
+  FAILED
+  CANCELLED
+}
+
+// Trabajo bancario derivado de una solicitud APROBADA. Vincula los datos
+// AUTORIZADOS exactos (factura, cliente, importe, fecha) — el agente debe
+// verificar que coinciden en pantalla o pausar (NEEDS_USER).
+model RemittanceJob {
+  id                  String @id @default(cuid())
+  workspaceId         String
+  remittanceRequestId String @unique // una remesa → un trabajo (un solo uso)
+  invoiceId           String
+  clientId            String
+  companyId           String
+
+  status RemittanceJobStatus @default(PENDING)
+
+  // Datos AUTORIZADOS (binding de la aprobación de un solo uso).
+  invoiceNumber String?
+  clientName    String
+  amountCents   Int
+  currency      String  @default("EUR")
+  chargeDate    DateTime? // fecha de cobro autorizada (inmediata al preparar)
+  mandateRef    String?
+  ibanMasked    String? // enmascarado; nunca el IBAN completo
+
+  // Idempotencia y bloqueo de doble ejecución.
+  idempotencyKey String @unique
+
+  // Lease / reclamación por el agente.
+  claimedByAgentId String?
+  leaseUntil       DateTime?
+  attempts         Int     @default(0)
+  maxAttempts      Int     @default(3)
+
+  // Progreso/estado (SANEADO, sin datos sensibles).
+  lastProgress    String?
+  needsUserReason String? @db.Text
+  lastError       String? @db.Text
+  resultRef       String? // referencia no sensible de la remesa preparada
+
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  agent     BankAgent?          @relation(fields: [claimedByAgentId], references: [id])
+  events    RemittanceJobEvent[]
+
+  @@index([workspaceId, status])
+  @@index([status, leaseUntil])
+}
+
+// Auditoría del trabajo (saneada: nunca credenciales ni datos bancarios).
+model RemittanceJobEvent {
+  id        String   @id @default(cuid())
+  jobId     String
+  agentId   String?
+  userId    String?
+  fromStatus String?
+  toStatus   String
+  note      String?  @db.Text
+  createdAt DateTime @default(now())
+
+  job RemittanceJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@index([jobId])
 }
 
 // ====================================================================
