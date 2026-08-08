@@ -51,6 +51,13 @@ type ClientPayload = {
   servicios?: ServicioKey[];
   kitDigital?: boolean;
   prioridad?: Prioridad;
+  // Cobro por adeudo SEPA (opt-in, solo admin). El IBAN completo NUNCA se guarda.
+  sepaEnabled?: boolean;
+  sepaMandateRef?: string | null;
+  sepaMandateActive?: boolean;
+  sepaSantanderTemplate?: string | null;
+  sepaIbanMasked?: string | null;
+  sepaIbanInput?: string; // transitorio: IBAN a enmascarar en el guardado
   // Datos fiscales (gestor de facturas)
   legalName?: string | null;
   taxId?: string | null;
@@ -128,7 +135,13 @@ export default function ClientFormModal({
               ...(client ?? { name: "" }),
               ...full,
               servicios: Array.isArray(full.servicios) ? full.servicios : [],
-              kitDigital: Boolean(full.kitDigital)
+              kitDigital: Boolean(full.kitDigital),
+              sepaEnabled: Boolean(full.sepaEnabled),
+              sepaMandateRef: full.sepaMandateRef ?? null,
+              sepaMandateActive: Boolean(full.sepaMandateActive),
+              sepaSantanderTemplate: full.sepaSantanderTemplate ?? null,
+              sepaIbanMasked: full.sepaIbanMasked ?? null,
+              sepaIbanInput: ""
             });
           } else {
             setForm(client ?? { name: "", status: "ACTIVE", mrr: 0 });
@@ -193,11 +206,36 @@ export default function ClientFormModal({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload)
     });
-    setSaving(false);
     if (!r.ok) {
+      setSaving(false);
       const j = await r.json().catch(() => ({}));
       return setError(j.message || `Error ${r.status}`);
     }
+    // Config SEPA: solo admin, editando, y por el endpoint admin dedicado
+    // (reutiliza validación, permisos y enmascarado; el IBAN completo no se guarda).
+    if (isPatch && isAdmin && mode !== "notes") {
+      const sepaBody: any = {
+        sepaEnabled: Boolean(form.sepaEnabled),
+        sepaMandateRef: form.sepaMandateRef ?? null,
+        sepaMandateActive: Boolean(form.sepaMandateActive),
+        sepaSantanderTemplate: form.sepaSantanderTemplate ?? null
+      };
+      if (form.sepaIbanInput && form.sepaIbanInput.trim()) sepaBody.iban = form.sepaIbanInput.trim();
+      const rs = await fetch(`/api/v1/facturacion/clients-sepa/${client!.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(sepaBody)
+      });
+      if (!rs.ok) {
+        setSaving(false);
+        // Los datos base ya se guardaron; refrescamos para que la UI no diverja
+        // y mostramos el error solo del bloque SEPA.
+        router.refresh();
+        const j = await rs.json().catch(() => ({}));
+        return setError((j?.error?.message || j?.message || `Error SEPA ${rs.status}`) + " (los datos generales sí se guardaron)");
+      }
+    }
+    setSaving(false);
     router.refresh();
     onClose();
   }
@@ -488,6 +526,28 @@ export default function ClientFormModal({
                 </select>
               </div>
             </section>
+
+            {isEdit && isAdmin && (
+              <section className="rounded-lg border border-emerald-200 bg-emerald-50/40 p-3">
+                <h3 className="text-sm font-semibold text-slate-800 mb-1">Cobro por adeudo SEPA</h3>
+                <p className="text-[11px] text-amber-700 mb-2">
+                  Opt-in: desactivado por defecto. El IBAN completo nunca se guarda (solo enmascarado).
+                </p>
+                <label className="flex items-center gap-2 text-sm mb-2">
+                  <input type="checkbox" checked={!!form.sepaEnabled} onChange={(e) => update("sepaEnabled", e.target.checked)} className="accent-emerald-600" />
+                  Habilitado para incluir en remesas SEPA
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <input value={form.sepaMandateRef ?? ""} onChange={(e) => update("sepaMandateRef", e.target.value)} placeholder="Referencia de mandato SEPA" className="px-3 py-1.5 rounded-lg border bg-white text-sm" />
+                  <input value={form.sepaSantanderTemplate ?? ""} onChange={(e) => update("sepaSantanderTemplate", e.target.value)} placeholder="Plantilla/ref. recurrente Santander" className="px-3 py-1.5 rounded-lg border bg-white text-sm" />
+                  <label className="flex items-center gap-2 text-sm">
+                    <input type="checkbox" checked={!!form.sepaMandateActive} onChange={(e) => update("sepaMandateActive", e.target.checked)} className="accent-emerald-600" />
+                    Mandato activo
+                  </label>
+                  <input value={form.sepaIbanInput ?? ""} onChange={(e) => update("sepaIbanInput", e.target.value)} placeholder={form.sepaIbanMasked ? `Guardado: ${form.sepaIbanMasked}` : "IBAN (se guarda enmascarado)"} className="px-3 py-1.5 rounded-lg border bg-white text-sm" />
+                </div>
+              </section>
+            )}
           </>
         )}
 
