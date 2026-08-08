@@ -163,7 +163,7 @@ export function buildSoniaSystemPrompt(
   });
   const canal =
     channel === "llamada"
-      ? "Estás atendiendo una LLAMADA TELEFÓNICA. Habla de forma natural, frases cortas, sin listas ni formato. No deletrees salvo que te lo pidan."
+      ? "Estás atendiendo una LLAMADA TELEFÓNICA. Habla de forma natural, con frases cortas, sin listas ni formato. No deletrees salvo que te lo pidan. Responde en español por defecto. Detecta el idioma de la persona y contesta siempre en ese mismo idioma si es español, inglés, francés, alemán o italiano. Si te pide expresamente uno de esos idiomas, cambia inmediatamente y mantén ese idioma hasta que solicite otro. Nunca digas que solo puedes hablar español."
       : "Estás atendiendo una conversación de WHATSAPP. Responde en mensajes breves y claros, sin markdown pesado.";
 
   return [

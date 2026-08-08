@@ -55,8 +55,21 @@ function buildAssistant(settings: WorkspaceSettings, token: string) {
       ],
       tools: vapiTools(baseUrl, token),
     },
-    voice: { provider: s.vapiVoiceProvider, voiceId: s.vapiVoiceId },
-    transcriber: { provider: "deepgram", model: "nova-2", language: "es" },
+    voice: { provider: s.vapiVoiceProvider, voiceId: s.vapiVoiceId, speed: 1.12 },
+    transcriber: { provider: "deepgram", model: "nova-3", language: "multi" },
+    analysisPlan: {
+      summaryPlan: {
+        enabled: true,
+        messages: [
+          {
+            role: "system",
+            content:
+              "Resume la llamada en español, aunque la conversación haya sido en otro idioma. Escribe un párrafo breve y útil para el equipo del negocio, indicando qué necesitaba el cliente y el resultado de la llamada.",
+          },
+        ],
+      },
+    },
+    artifactPlan: { recordingEnabled: true },
     server: { url: `${baseUrl}/api/webhooks/vapi/${token}` },
   };
 }
@@ -162,8 +175,13 @@ export async function POST(
     const transcript =
       message?.artifact?.transcript ?? message?.transcript ?? null;
     const summary = message?.analysis?.summary ?? message?.summary ?? null;
+    const recordingCandidates = [
+      message?.artifact?.recording,
+      message?.artifact?.recordingUrl,
+      message?.recordingUrl,
+    ];
     const recordingUrl =
-      message?.artifact?.recordingUrl ?? message?.recordingUrl ?? null;
+      recordingCandidates.find((value): value is string => typeof value === "string") ?? null;
     const endedReason = message?.endedReason ?? null;
     const durationSec = Math.round(
       Number(message?.durationSeconds ?? message?.call?.duration ?? 0)
@@ -194,20 +212,10 @@ export async function POST(
     };
 
     if (providerCallId) {
-      const updated = await prisma.call.updateMany({
+      await prisma.call.updateMany({
         where: { providerCallId },
         data,
       });
-      if (updated.count === 0) {
-        await prisma.call.create({
-          data: {
-            workspaceId: ws.id,
-            providerCallId,
-            fromNumber: String(fromRaw) || null,
-            ...data,
-          },
-        });
-      }
     }
     return NextResponse.json({ ok: true });
   }

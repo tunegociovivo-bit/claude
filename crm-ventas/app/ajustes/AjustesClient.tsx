@@ -1,10 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Check, Copy } from "lucide-react";
 import BusinessPhoneCard from "@/components/BusinessPhoneCard";
-import PhoneActivationGuide from "@/components/PhoneActivationGuide";
-import OperatorPhoneCard from "@/components/OperatorPhoneCard";
 import WahaConnectionCard from "@/components/WahaConnectionCard";
 import UsersCard from "@/components/UsersCard";
 import LogoCard from "@/components/LogoCard";
@@ -28,23 +25,6 @@ type SettingsData = {
   };
   webhooks: { vapi: string };
 };
-
-function CopyButton({ value }: { value: string }) {
-  const [copied, setCopied] = useState(false);
-  return (
-    <button
-      type="button"
-      className="btn-ghost shrink-0"
-      onClick={async () => {
-        await navigator.clipboard.writeText(value);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 1500);
-      }}
-    >
-      {copied ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
-    </button>
-  );
-}
 
 function Field({
   label,
@@ -190,52 +170,11 @@ export default function AjustesClient() {
             onChange={(e) => patchSonia("firstMessage", e.target.value)}
           />
         </Field>
-        <div className="grid grid-cols-2 gap-4">
-          <Field label="Proveedor del modelo" hint='Normalmente "anthropic"'>
-            <input
-              className="input"
-              value={data.sonia.vapiModelProvider}
-              onChange={(e) => patchSonia("vapiModelProvider", e.target.value)}
-            />
-          </Field>
-          <Field label="Modelo">
-            <input
-              className="input"
-              value={data.sonia.vapiModel}
-              onChange={(e) => patchSonia("vapiModel", e.target.value)}
-            />
-          </Field>
-          <Field label="Proveedor de voz" hint='Normalmente "11labs"'>
-            <input
-              className="input"
-              value={data.sonia.vapiVoiceProvider}
-              onChange={(e) => patchSonia("vapiVoiceProvider", e.target.value)}
-            />
-          </Field>
-          <Field label="Voice ID">
-            <input
-              className="input"
-              value={data.sonia.vapiVoiceId}
-              onChange={(e) => patchSonia("vapiVoiceId", e.target.value)}
-            />
-          </Field>
-        </div>
+        <p className="text-xs text-slate-500">
+          Paula detecta y atiende en español, inglés, francés, alemán e italiano. Los resúmenes se guardan siempre en español.
+        </p>
         <BusinessPhoneCard />
-        <PhoneActivationGuide />
-        <details className="rounded-lg border border-slate-200 p-3 text-sm">
-          <summary className="cursor-pointer text-xs font-medium text-slate-500">Datos técnicos (soporte Negocio Vivo)</summary>
-          <p className="mt-2 text-xs text-slate-500">
-            URL que debe recibir cada llamada (Server URL del número, con el asistente vacío). La usa Negocio Vivo al
-            conectar la línea; el prompt vive en este CRM, no en Vapi.
-          </p>
-          <div className="mt-2 flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1">
-            <code className="min-w-0 flex-1 truncate text-xs">{data.webhooks.vapi}</code>
-            <CopyButton value={data.webhooks.vapi} />
-          </div>
-        </details>
       </section>
-
-      <OperatorPhoneCard />
 
       <section className="card space-y-4 p-6">
         <h2 className="font-semibold">WhatsApp</h2>

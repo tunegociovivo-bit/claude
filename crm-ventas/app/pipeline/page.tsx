@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { getWorkspaceSettings } from "@/lib/settings";
 import AppShell from "@/components/AppShell";
 import PipelineClient from "./PipelineClient";
+import { classifyCallIntent } from "@/lib/calls";
 
 export const dynamic = "force-dynamic";
 
@@ -25,6 +26,11 @@ export default async function PipelinePage() {
           take: 1,
           select: { startsAt: true },
         },
+        calls: {
+          orderBy: { createdAt: "desc" },
+          take: 1,
+          select: { summary: true, transcript: true },
+        },
       },
     }),
   ]);
@@ -37,6 +43,8 @@ export default async function PipelinePage() {
     order: c.order,
     source: c.source,
     nextAppointment: c.appointments[0]?.startsAt?.toISOString() ?? null,
+    callSummary: c.calls[0]?.summary ?? null,
+    callIntent: classifyCallIntent(c.calls[0]?.summary ?? null, c.calls[0]?.transcript ?? null),
   }));
 
   return (

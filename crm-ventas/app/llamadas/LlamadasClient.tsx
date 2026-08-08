@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Phone, PhoneOff, ChevronDown, ChevronUp, Play } from "lucide-react";
+import { Phone, PhoneOff, ChevronDown, ChevronUp, Play, Trash2 } from "lucide-react";
 import clsx from "clsx";
 
 type Call = {
@@ -25,31 +25,63 @@ function fmtDuration(sec: number | null) {
 }
 
 export default function LlamadasClient({ calls }: { calls: Call[] }) {
+  const [items, setItems] = useState(calls);
   const [open, setOpen] = useState<string | null>(null);
+
+  async function removeCall(id: string) {
+    if (!confirm("¿Eliminar esta llamada?")) return;
+    const response = await fetch(`/api/v1/calls/${id}`, { method: "DELETE" });
+    if (response.ok) setItems((current) => current.filter((call) => call.id !== id));
+    else {
+      const body = await response.json().catch(() => null);
+      alert(body?.error ?? "No se pudo eliminar la llamada.");
+    }
+  }
+
+  async function removeAllCalls() {
+    if (!confirm("¿Eliminar todas las llamadas? Esta acción no se puede deshacer.")) return;
+    const response = await fetch("/api/v1/calls", { method: "DELETE" });
+    if (response.ok) {
+      setItems((current) => current.filter((call) => call.status === "en-curso"));
+      setOpen(null);
+    } else alert("No se pudieron eliminar las llamadas.");
+  }
 
   return (
     <div>
-      <div className="mb-4">
+      <div className="mb-4 flex items-start justify-between gap-4">
+        <div>
         <h1 className="text-xl font-semibold">Llamadas recibidas por PAULA</h1>
         <p className="text-sm text-slate-500">
           Transcripción y resumen de cada llamada atendida por la IA
         </p>
+        </div>
+        {items.length > 0 && (
+          <button className="btn-ghost inline-flex items-center gap-2 text-red-600" onClick={removeAllCalls}>
+            <Trash2 size={15} /> Eliminar todas
+          </button>
+        )}
       </div>
 
-      {calls.length === 0 ? (
+      {items.length === 0 ? (
         <div className="card p-10 text-center text-sm text-slate-500">
           Todavía no hay llamadas. Cuando alguien llame al número del negocio,
           PAULA contestará y la llamada aparecerá aquí.
         </div>
       ) : (
         <div className="card divide-y divide-slate-100">
-          {calls.map((c) => {
+          {items.map((c) => {
             const failed = c.status === "fallida";
             const expanded = open === c.id;
             return (
               <div key={c.id}>
-                <button
+                <div
+                  role="button"
+                  tabIndex={0}
                   onClick={() => setOpen(expanded ? null : c.id)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") setOpen(expanded ? null : c.id);
+                  }}
                   className="flex w-full items-center gap-4 px-4 py-3 text-left hover:bg-slate-50"
                 >
                   <span
@@ -79,8 +111,19 @@ export default function LlamadasClient({ calls }: { calls: Call[] }) {
                     </div>
                     <div>{fmtDuration(c.durationSec)}</div>
                   </div>
+                  <button
+                    type="button"
+                    title="Eliminar llamada"
+                    className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      removeCall(c.id);
+                    }}
+                  >
+                    <Trash2 size={15} />
+                  </button>
                   {expanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-                </button>
+                </div>
                 {expanded && (
                   <div className="space-y-3 bg-slate-50/60 px-4 py-4 text-sm">
                     {c.summary && (
@@ -91,9 +134,9 @@ export default function LlamadasClient({ calls }: { calls: Call[] }) {
                         <p>{c.summary}</p>
                       </div>
                     )}
-                    {c.recordingUrl && (
+                    {(c.recordingUrl || c.status === "finalizada") && (
                       <a
-                        href={c.recordingUrl}
+                        href={`/api/v1/calls/${c.id}/recording`}
                         target="_blank"
                         rel="noreferrer"
                         className="inline-flex items-center gap-2 text-brand-600 hover:underline"

@@ -30,6 +30,8 @@ type Card = {
   order: number;
   source: string;
   nextAppointment: string | null;
+  callSummary: string | null;
+  callIntent: string | null;
 };
 
 const SOURCE_ICON: Record<string, React.ReactNode> = {
@@ -90,6 +92,14 @@ function ContactCard({
           <CalendarClock size={12} />
           {fmtDate(card.nextAppointment)}
         </div>
+      )}
+      {card.callIntent && (
+        <div className="mt-2 inline-flex rounded-md bg-amber-50 px-2 py-1 text-[11px] font-semibold text-amber-800">
+          {card.callIntent}
+        </div>
+      )}
+      {card.callSummary && (
+        <p className="mt-2 line-clamp-3 text-xs leading-5 text-slate-600">{card.callSummary}</p>
       )}
     </div>
   );
@@ -294,6 +304,8 @@ export default function PipelineClient({
           order: contact.order,
           source: contact.source,
           nextAppointment: null,
+          callSummary: null,
+          callIntent: null,
         },
       ]);
     }

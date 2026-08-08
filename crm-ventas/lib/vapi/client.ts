@@ -109,3 +109,36 @@ export async function configureInboundPhone(id: string, serverUrl: string): Prom
     body: JSON.stringify({ assistantId: null, server: { url: serverUrl } }),
   });
 }
+
+// Las grabaciones de Vapi son privadas. Este endpoint devuelve una URL firmada
+// de corta duración; nunca se expone la clave privada al navegador.
+export async function getVapiRecordingUrl(callId: string): Promise<string> {
+  const apiKey = process.env.VAPI_API_KEY;
+  if (!apiKey) throw new VapiApiError("VAPI_NOT_CONFIGURED", "Vapi no está configurado", 503);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 15_000);
+  try {
+    const response = await fetch(
+      `https://api.vapi.ai/call/${encodeURIComponent(callId)}/mono-recording`,
+      {
+        method: "GET",
+        headers: { Authorization: `Bearer ${apiKey}` },
+        redirect: "manual",
+        cache: "no-store",
+        signal: controller.signal,
+      }
+    );
+    const location = response.headers.get("location");
+    if (response.status >= 300 && response.status < 400 && location) return location;
+    throw new VapiApiError(
+      `VAPI_${response.status}`,
+      response.status === 404 ? "La grabación ya no está disponible" : "No se pudo abrir la grabación",
+      response.status === 404 ? 404 : 502
+    );
+  } catch (error) {
+    if (error instanceof VapiApiError) throw error;
+    throw new VapiApiError("VAPI_UNAVAILABLE", "No se pudo conectar con Vapi");
+  } finally {
+    clearTimeout(timer);
+  }
+}
