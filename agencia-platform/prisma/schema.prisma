@@ -232,6 +232,7 @@ model Workspace {
   emailAccounts             EmailAccount[]
   searchEmbeddings          SearchEmbedding[]
   metaConnections           MetaConnection[]
+  sepaRemittanceRequests    SepaRemittanceRequest[]
   metaCampaigns             MetaCampaign[]
   aiAgentRuns               AiAgentRun[]
   aiDrafts                  AiDraft[]
@@ -502,6 +503,16 @@ model Client {
   servicios   Json?
   // Bono Kit Digital (ayudas Red.es). Boolean para reporting.
   kitDigital  Boolean         @default(false)
+
+  // ----- Cobro por adeudo SEPA (opt-in, DESACTIVADO por defecto) -----
+  // El ~90% cobra por adeudo, pero por seguridad cada cliente debe habilitarse
+  // EXPRESAMENTE. Nunca se guardan credenciales bancarias: solo referencias y el
+  // IBAN ENMASCARADO (p.ej. "ES**...**3456") para mostrar en pantalla.
+  sepaEnabled            Boolean  @default(false) // habilitado para incluir en remesas
+  sepaMandateRef         String? // referencia del mandato SEPA
+  sepaMandateActive      Boolean  @default(false) // estado del mandato (activo/inactivo)
+  sepaSantanderTemplate  String? // plantilla/referencia recurrente en Santander
+  sepaIbanMasked         String? // IBAN enmascarado (NUNCA el IBAN completo)
   // Prioridad para el equipo interno (no es lo mismo que status).
   // ALTA → urgencia visual (rojo/rose en listados).
   // NORMAL → default.
@@ -899,6 +910,92 @@ model ClientApprovalDecision {
 
   @@index([linkId, postId])
   @@index([postId])
+}
+
+// ====================================================================
+// REMESAS DE ADEUDOS SEPA — aprobación (SOLO Negocio Vivo S.C.A.)
+// ====================================================================
+// Estados del ciclo de una solicitud de remesa. Aprobar NO firma ni cobra:
+// deja la solicitud lista para preparar/reemitir en Santander y, finalmente,
+// pendiente de firma. SIGNED solo por conciliación/actualización manual.
+enum SepaRemittanceStatus {
+  PENDING_APPROVAL
+  APPROVED
+  PREPARING
+  PENDING_SIGNATURE
+  SIGNED
+  REJECTED
+  EXPIRED
+  FAILED
+}
+
+model SepaRemittanceRequest {
+  id          String @id @default(cuid())
+  workspaceId String
+  // Empresa emisora (debe ser Negocio Vivo S.C.A.) y factura/cliente origen.
+  companyId String // InvoiceIssuer.id de Negocio Vivo
+  invoiceId String
+  clientId  String
+
+  status SepaRemittanceStatus @default(PENDING_APPROVAL)
+
+  // Snapshot para mostrar sin joins ni recalcular (rendimiento + auditoría).
+  companyName   String
+  clientName    String
+  invoiceNumber String?
+  amountCents   Int    @default(0)
+  currency      String @default("EUR")
+  mandateRef    String? // referencia de mandato SEPA en el momento de crear
+  ibanMasked    String? // IBAN enmascarado (nunca completo)
+
+  // Token de aprobación de UN SOLO USO: se guarda SOLO el hash (sha256).
+  tokenHash      String    @unique
+  tokenExpiresAt DateTime
+  tokenUsedAt    DateTime?
+
+  // Trazas de decisión.
+  approvedById String?
+  approvedAt   DateTime?
+  rejectedById String?
+  rejectedAt   DateTime?
+  rejectReason String?   @db.Text
+
+  // Fecha de cobro (inmediata al preparar en el futuro).
+  chargeDate DateTime?
+
+  // Estado del proveedor (adapter Santander). "NOT_CONFIGURED" mientras no haya
+  // integración oficial. Nunca se ejecuta un cobro real en esta implementación.
+  providerStatus String  @default("NOT_CONFIGURED")
+  lastError      String? @db.Text
+
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace Workspace                @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  events    SepaRemittanceEvent[]
+
+  // Control ESTRICTO de duplicados: una remesa por (empresa, factura).
+  @@unique([workspaceId, companyId, invoiceId])
+  @@index([workspaceId, status])
+  @@index([tokenHash])
+  @@index([invoiceId])
+}
+
+// Auditoría: cada transición de estado con usuario, fecha y error.
+model SepaRemittanceEvent {
+  id        String  @id @default(cuid())
+  requestId String
+  fromStatus String?
+  toStatus   String
+  userId     String?
+  note       String? @db.Text
+  error      String? @db.Text
+  createdAt  DateTime @default(now())
+
+  request SepaRemittanceRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  @@index([requestId])
 }
 
 // ====================================================================
