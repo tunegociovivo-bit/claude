@@ -55,7 +55,9 @@ function buildAssistant(settings: WorkspaceSettings, token: string) {
       ],
       tools: vapiTools(baseUrl, token),
     },
-    voice: { provider: s.vapiVoiceProvider, voiceId: s.vapiVoiceId, speed: 1.12 },
+    // Voz V2 con detección automática: puede reproducir la respuesta de Paula
+    // en los cinco idiomas sin quedar fijada al locale español de Azure.
+    voice: { provider: "vapi", voiceId: "Layla", version: 2, language: "auto" },
     transcriber: { provider: "deepgram", model: "nova-3", language: "multi" },
     analysisPlan: {
       summaryPlan: {
