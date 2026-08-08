@@ -74,6 +74,27 @@ Cambios de esquema **aditivos** (campos SEPA en `Client`, modelos
 Se aplican con el flujo del proyecto: `prisma db push` (al arrancar) tras
 `prisma generate`. No borra ni modifica datos existentes.
 
+## Investigación de integración con Santander (estado: NOT_CONFIGURED)
+Conclusión tras revisar los canales oficiales: **no existe una API pública self-service
+para ENVIAR remesas de adeudos SEPA** (cobros por acreedor) en Santander España.
+- **PSD2/XS2A** (vía Redsys) cubre información de cuentas e **iniciación de pagos**
+  (transferencias), **no** el envío de remesas de adeudos de un acreedor.
+- El envío real de adeudos se hace por: (a) **fichero Norma 19 / `pain.008`** (formato
+  AEB) subido **a mano** en el portal *Santander Empresas*, o (b) **EBICS / host-to-host
+  de Santander CIB**, que **requiere contrato comercial y credenciales** provistas por el
+  banco (no auto-servicio).
+- **No** se usa scraping, ni lectura de contraseñas/cookies/OTP, ni se automatiza el
+  portal. Nada de eso está implementado ni se hará por esas vías.
+
+**Ruta recomendada (futura, fuera de este PR):** que el paso "preparar" **genere el
+fichero `pain.008` (Norma 19)** con los mandatos/creditor-id — un fichero estándar que
+**no necesita credenciales bancarias** — para subirlo manualmente en Santander Empresas;
+o, si se firma un acuerdo EBICS/host-to-host, implementar ahí el envío real. Hasta
+entonces el adapter permanece `NOT_CONFIGURED` y **aprobar no firma ni cobra**.
+
+Fuentes: portal desarrolladores `developers-sandbox.bancosantander.es`, API market
+`apimarket.santandercib.com`, PSD2/XS2A Redsys `market.apis-i.redsys.es/psd2/xs2a/nodos/santander`.
+
 ## Limitaciones (a propósito)
 - **No** hay integración real con Santander: preparar/firmar/cobrar **no** está
   implementado (adapter `NOT_CONFIGURED`). Aprobar es un paso previo e independiente.
