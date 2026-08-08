@@ -7,6 +7,7 @@
  */
 import { prisma } from "@/lib/db/prisma";
 import { expireStaleRequests, createRequestsForCandidates } from "./remittance";
+import { reclaimExpiredLeases } from "./agent";
 
 export async function runSepaCronAllWorkspaces(): Promise<any[]> {
   const workspaces = await prisma.workspace.findMany({ select: { id: true } });
@@ -18,6 +19,11 @@ export async function runSepaCronAllWorkspaces(): Promise<any[]> {
       r.expired = await expireStaleRequests(ws.id);
     } catch (e: any) {
       r.expireError = String(e?.message ?? e);
+    }
+    try {
+      r.leases = await reclaimExpiredLeases(ws.id); // re-encola trabajos con lease caducado
+    } catch (e: any) {
+      r.leaseError = String(e?.message ?? e);
     }
     if (autoScan) {
       try {
