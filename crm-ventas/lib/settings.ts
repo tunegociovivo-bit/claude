@@ -11,13 +11,26 @@ export type PipelineColumn = {
 
 // La columna "citas" es fija: ahí aterrizan los contactos cuando SONIA agenda una cita.
 export const DEFAULT_COLUMNS: PipelineColumn[] = [
-  { id: "nuevos", label: "Nuevos", color: "#64748b", order: 0 },
-  { id: "conversacion", label: "En conversación", color: "#f59e0b", order: 1 },
-  { id: "citas", label: "Citas", color: "#2f6bff", order: 2 },
-  { id: "cerrados", label: "Cerrados", color: "#10b981", order: 3 },
+  { id: "nuevos", label: "Llamadas", color: "#64748b", order: 0 },
+  { id: "conversacion", label: "WhatsApp", color: "#f59e0b", order: 1 },
+  { id: "citas", label: "Citas pendientes de pago", color: "#2f6bff", order: 2 },
+  { id: "cerrados", label: "Citas confirmadas", color: "#10b981", order: 3 },
 ];
 
+const PIPELINE_LABELS: Record<string, string> = Object.fromEntries(
+  DEFAULT_COLUMNS.map(({ id, label }) => [id, label])
+);
+
+const LEGACY_PIPELINE_LABELS: Record<string, string[]> = {
+  nuevos: ["Nuevos"],
+  conversacion: ["En conversación"],
+  citas: ["Citas"],
+  cerrados: ["Cerrados"],
+};
+
 export type SoniaSettings = {
+  agentName: string;
+  websiteUrl: string;
   businessName: string;
   // Información del negocio que SONIA puede consultar y dar por teléfono/WhatsApp
   businessInfo: string;
@@ -68,6 +81,8 @@ const LEGACY_DEFAULT_FIRST_MESSAGE =
   "Hola, soy Sonia, la asistente virtual. ¿En qué puedo ayudarte?";
 
 export const DEFAULT_SONIA: SoniaSettings = {
+  agentName: "Paula",
+  websiteUrl: "",
   businessName: "",
   businessInfo: "",
   openingHours: "Lunes a viernes de 9:00 a 18:00",
@@ -107,7 +122,12 @@ export function readSettings(raw: unknown): WorkspaceSettings {
     pipeline: {
       columns:
         Array.isArray(s.pipeline?.columns) && s.pipeline.columns.length > 0
-          ? s.pipeline.columns
+          ? s.pipeline.columns.map((column: PipelineColumn) => ({
+              ...column,
+              label: LEGACY_PIPELINE_LABELS[column.id]?.includes(column.label)
+                ? PIPELINE_LABELS[column.id]
+                : column.label,
+            }))
           : DEFAULT_COLUMNS,
     },
   };

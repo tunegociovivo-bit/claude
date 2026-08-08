@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Phone, PhoneOff, ChevronDown, ChevronUp, Play, Trash2 } from "lucide-react";
 import clsx from "clsx";
+import { useAgentName } from "@/components/AgentNameContext";
 
 type Call = {
   id: string;
@@ -25,6 +26,7 @@ function fmtDuration(sec: number | null) {
 }
 
 export default function LlamadasClient({ calls }: { calls: Call[] }) {
+  const agentName = useAgentName();
   const [items, setItems] = useState(calls);
   const [open, setOpen] = useState<string | null>(null);
 
@@ -51,7 +53,7 @@ export default function LlamadasClient({ calls }: { calls: Call[] }) {
     <div>
       <div className="mb-4 flex items-start justify-between gap-4">
         <div>
-        <h1 className="text-xl font-semibold">Llamadas recibidas por PAULA</h1>
+        <h1 className="text-xl font-semibold">Llamadas recibidas por {agentName}</h1>
         <p className="text-sm text-slate-500">
           Transcripción y resumen de cada llamada atendida por la IA
         </p>
@@ -66,7 +68,7 @@ export default function LlamadasClient({ calls }: { calls: Call[] }) {
       {items.length === 0 ? (
         <div className="card p-10 text-center text-sm text-slate-500">
           Todavía no hay llamadas. Cuando alguien llame al número del negocio,
-          PAULA contestará y la llamada aparecerá aquí.
+          {agentName} contestará y la llamada aparecerá aquí.
         </div>
       ) : (
         <div className="card divide-y divide-slate-100">

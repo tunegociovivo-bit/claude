@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
+import { useAgentName } from "@/components/AgentNameContext";
 
 // Tarjeta comercial del teléfono: el cliente solo indica su móvil público.
 // Sin credenciales ni jerga técnica; la infraestructura la monta Negocio Vivo.
@@ -47,6 +48,7 @@ function Step({ done, active, title, detail }: { done: boolean; active?: boolean
 }
 
 export default function BusinessPhoneCard() {
+  const agentName = useAgentName();
   const [connection, setConnection] = useState<Connection | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -134,16 +136,16 @@ export default function BusinessPhoneCard() {
               done={connection.infrastructureReady}
               active={!connection.infrastructureReady}
               title="Negocio Vivo prepara tu línea de llamadas"
-              detail={connection.infrastructureReady ? "La línea para PAULA ya está creada." : "Estamos creando la línea que atenderá PAULA. Te avisaremos."}
+              detail={connection.infrastructureReady ? `La línea para ${agentName} ya está creada.` : `Estamos creando la línea que atenderá ${agentName}. Te avisaremos.`}
             />
             <Step
               done={state === "ACTIVE"}
               active={connection.infrastructureReady && state !== "ACTIVE"}
               title="Activar el desvío y probar juntos"
-              detail={state === "ACTIVE" ? "PAULA ya atiende las llamadas de tu número." : "Cuando la línea esté lista te guiamos para activar el desvío desde tu móvil y hacemos una llamada de prueba."}
+              detail={state === "ACTIVE" ? `${agentName} ya atiende las llamadas de tu número.` : "Cuando la línea esté lista te guiamos para activar el desvío desde tu móvil y hacemos una llamada de prueba."}
             />
           </ol>
-          {state === "ACTIVE" && <p className="rounded-md bg-emerald-50 p-3 text-sm text-emerald-800">Todo listo: las llamadas a tu número las atiende PAULA y tu WhatsApp sigue en tu móvil de siempre.</p>}
+          {state === "ACTIVE" && <p className="rounded-md bg-emerald-50 p-3 text-sm text-emerald-800">Todo listo: las llamadas a tu número las atiende {agentName} y tu WhatsApp sigue en tu móvil de siempre.</p>}
           <button type="button" className="btn-ghost text-xs" onClick={() => setEditing(true)}>Cambiar el número</button>
         </div>
       )}

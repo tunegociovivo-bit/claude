@@ -18,6 +18,8 @@ export default function LogoCard() {
 
   useEffect(() => {
     void load();
+    window.addEventListener("business-logo-changed", load);
+    return () => window.removeEventListener("business-logo-changed", load);
   }, [load]);
 
   async function upload(file: File) {

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Send, Bot, RefreshCw } from "lucide-react";
 import clsx from "clsx";
+import { useAgentName } from "@/components/AgentNameContext";
 
 type Thread = {
   phone: string;
@@ -21,6 +22,7 @@ type Msg = {
 };
 
 export default function ConversacionesClient() {
+  const agentName = useAgentName();
   const [threads, setThreads] = useState<Thread[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [messages, setMessages] = useState<Msg[]>([]);
@@ -153,7 +155,7 @@ export default function ConversacionesClient() {
                     >
                       {m.meta?.sonia && (
                         <span className="mb-1 flex items-center gap-1 text-xs opacity-75">
-                          <Bot size={12} /> PAULA
+                          <Bot size={12} /> {agentName.toUpperCase()}
                         </span>
                       )}
                       {m.body}

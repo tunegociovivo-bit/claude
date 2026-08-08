@@ -47,6 +47,8 @@ export async function GET() {
 const putSchema = z.object({
   sonia: z
     .object({
+      agentName: z.string().trim().min(1).max(50),
+      websiteUrl: z.string().max(500),
       businessName: z.string().max(200),
       businessInfo: z.string().max(20000),
       openingHours: z.string().max(500),

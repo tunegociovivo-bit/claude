@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useAgentName } from "@/components/AgentNameContext";
 
 type Connection = {
   configured: boolean;
@@ -23,6 +24,7 @@ const STATUS_LABEL: Record<string, string> = {
 // proxy same-origin del CRM: la URL y la API key de WAHA nunca tocan el
 // navegador. El nombre de sesión lo decide el servidor (paula-<workspace>).
 export default function WahaConnectionCard() {
+  const agentName = useAgentName();
   const [connection, setConnection] = useState<Connection | null>(null);
   const [forbidden, setForbidden] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -148,7 +150,7 @@ export default function WahaConnectionCard() {
       {status === "WORKING" && (
         <div className="mt-3 rounded-md bg-emerald-50 p-3 text-sm text-emerald-800">
           WhatsApp conectado{connection?.phone ? <> con el número <b>+{connection.phone}</b></> : null}.
-          PAULA ya puede recibir y responder mensajes.
+          {agentName} ya puede recibir y responder mensajes.
         </div>
       )}
 

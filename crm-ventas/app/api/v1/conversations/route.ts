@@ -70,10 +70,17 @@ export async function POST(req: NextRequest) {
       where: { workspaceId, phone },
       select: { id: true },
     });
+    const previous = contact
+      ? null
+      : await prisma.message.findFirst({
+          where: { workspaceId, phone, contactId: { not: null } },
+          orderBy: { createdAt: "desc" },
+          select: { contactId: true },
+        });
     const message = await prisma.message.create({
       data: {
         workspaceId,
-        contactId: contact?.id,
+        contactId: contact?.id ?? previous?.contactId,
         phone,
         direction: "out",
         body: text,

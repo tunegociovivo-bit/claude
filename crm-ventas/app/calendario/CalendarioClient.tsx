@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight, Phone, MessageCircle, Plus, X } from "lucide-react";
 import clsx from "clsx";
+import { useAgentName } from "@/components/AgentNameContext";
 
 type Appointment = {
   id: string;
@@ -38,6 +39,7 @@ function dayKey(d: Date) {
 }
 
 export default function CalendarioClient() {
+  const agentName = useAgentName();
   const today = new Date();
   const [year, setYear] = useState(today.getFullYear());
   const [month, setMonth] = useState(today.getMonth());
@@ -186,6 +188,7 @@ export default function CalendarioClient() {
       {selected && (
         <DetailModal
           appointment={selected}
+          agentName={agentName}
           onClose={() => setSelected(null)}
           onCancel={() => cancelAppointment(selected.id)}
         />
@@ -206,10 +209,12 @@ export default function CalendarioClient() {
 
 function DetailModal({
   appointment: a,
+  agentName,
   onClose,
   onCancel,
 }: {
   appointment: Appointment;
+  agentName: string;
   onClose: () => void;
   onCancel: () => void;
 }) {
@@ -236,9 +241,9 @@ function DetailModal({
           {a.customerPhone && <Row label="Teléfono">{a.customerPhone}</Row>}
           <Row label="Origen">
             {a.source === "llamada"
-              ? "📞 Llamada (PAULA)"
+              ? `📞 Llamada (${agentName.toUpperCase()})`
               : a.source === "whatsapp"
-                ? "💬 WhatsApp (PAULA)"
+                ? `💬 WhatsApp (${agentName.toUpperCase()})`
                 : "Manual"}
           </Row>
           <Row label="Estado">{a.status}</Row>

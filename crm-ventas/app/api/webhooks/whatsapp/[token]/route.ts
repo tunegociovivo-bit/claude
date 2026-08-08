@@ -46,6 +46,26 @@ function extractMessageId(payload: any): string {
   ).toString();
 }
 
+function extractAlternatePhone(payload: any, countryCode: string): string | null {
+  const candidates = [
+    payload?._data?.Info?.SenderAlt,
+    payload?._data?.Info?.RemoteJidAlt,
+    payload?._data?.senderAlt,
+    payload?.senderAlt,
+    payload?.remoteJidAlt,
+  ];
+  for (const candidate of candidates) {
+    const raw = String(candidate ?? "");
+    if (!raw || raw.includes("@lid")) continue;
+    const normalized = normalizePhone(
+      raw.replace(/@(c\.us|s\.whatsapp\.net)$/, ""),
+      countryCode
+    );
+    if (normalized) return normalized;
+  }
+  return null;
+}
+
 export async function POST(
   req: NextRequest,
   { params }: { params: { token: string } }
@@ -92,10 +112,13 @@ export async function POST(
     // Grupos fuera del alcance del CRM
     return NextResponse.json({ ok: true });
   }
-  const phone = threadRaw.includes("@lid")
+  const threadPhone = threadRaw.includes("@lid")
     ? threadRaw
     : normalizePhone(threadRaw.replace(/@c\.us$/, ""), ws.settings.whatsapp.countryCode);
-  if (!phone) return NextResponse.json({ ok: true });
+  if (!threadPhone) return NextResponse.json({ ok: true });
+  const contactPhone = threadRaw.includes("@lid")
+    ? extractAlternatePhone(payload, ws.settings.whatsapp.countryCode) ?? threadPhone
+    : threadPhone;
 
   // Deduplicación por id externo (WAHA puede reenviar el mismo evento)
   if (externalId) {
@@ -108,10 +131,16 @@ export async function POST(
 
   // Mensaje que hemos enviado nosotros desde el teléfono → registrar y salir
   if (fromMe) {
+    const previous = await prisma.message.findFirst({
+      where: { workspaceId: ws.id, phone: threadPhone, contactId: { not: null } },
+      orderBy: { createdAt: "desc" },
+      select: { contactId: true },
+    });
     await prisma.message.create({
       data: {
         workspaceId: ws.id,
-        phone,
+        contactId: previous?.contactId,
+        phone: threadPhone,
         direction: "out",
         body: text,
         externalId: externalId || null,
@@ -125,12 +154,35 @@ export async function POST(
   const pushName: string | undefined =
     payload?._data?.notifyName ?? payload?.pushName ?? undefined;
 
-  const contact = await findOrCreateContactByPhone({
-    workspaceId: ws.id,
-    phone,
-    name: pushName,
-    source: "whatsapp",
+  const previousThreadMessage = await prisma.message.findFirst({
+    where: { workspaceId: ws.id, phone: threadPhone, contactId: { not: null } },
+    orderBy: { createdAt: "desc" },
+    include: { contact: true },
   });
+  let contact = previousThreadMessage?.contact ?? null;
+  if (contact) {
+    const shouldUpdatePhone =
+      contactPhone !== threadPhone && (!contact.phone || contact.phone === threadPhone);
+    const shouldUpdateName = Boolean(
+      pushName && (!contact.name || contact.name === contact.phone || contact.name.includes("@lid"))
+    );
+    if (shouldUpdatePhone || shouldUpdateName) {
+      contact = await prisma.contact.update({
+        where: { id: contact.id },
+        data: {
+          ...(shouldUpdatePhone ? { phone: contactPhone } : {}),
+          ...(shouldUpdateName ? { name: pushName!.trim() } : {}),
+        },
+      });
+    }
+  } else {
+    contact = await findOrCreateContactByPhone({
+      workspaceId: ws.id,
+      phone: contactPhone,
+      name: pushName,
+      source: "whatsapp",
+    });
+  }
   // Si estaba en "nuevos", pasa a "En conversación"
   if (contact.stage === "nuevos") {
     await moveContactToStage(contact.id, "conversacion");
@@ -140,7 +192,7 @@ export async function POST(
     data: {
       workspaceId: ws.id,
       contactId: contact.id,
-      phone,
+      phone: threadPhone,
       direction: "in",
       body: text,
       externalId: externalId || null,
@@ -154,7 +206,7 @@ export async function POST(
       const reply = await runSoniaWhatsappAgent({
         workspaceId: ws.id,
         settings: ws.settings,
-        phone,
+        phone: threadPhone,
       });
       if (reply) {
         // Responder SIEMPRE al chatId original (crítico con @lid)
@@ -163,7 +215,7 @@ export async function POST(
           data: {
             workspaceId: ws.id,
             contactId: contact.id,
-            phone,
+            phone: threadPhone,
             direction: "out",
             body: reply,
             externalId: sent.messageId,

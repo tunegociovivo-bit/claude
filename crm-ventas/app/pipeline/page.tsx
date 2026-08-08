@@ -42,6 +42,7 @@ export default async function PipelinePage() {
     stage: c.stage,
     order: c.order,
     source: c.source,
+    notes: c.notes,
     nextAppointment: c.appointments[0]?.startsAt?.toISOString() ?? null,
     callSummary: c.calls[0]?.summary ?? null,
     callIntent: classifyCallIntent(c.calls[0]?.summary ?? null, c.calls[0]?.transcript ?? null),

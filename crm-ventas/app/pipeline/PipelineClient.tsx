@@ -18,9 +18,10 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { CalendarClock, MessageCircle, Phone, Plus, Trash2 } from "lucide-react";
+import { CalendarClock, MessageCircle, Pencil, Phone, Plus, Trash2, X } from "lucide-react";
 import clsx from "clsx";
 import type { PipelineColumn } from "@/lib/settings";
+import { useAgentName } from "@/components/AgentNameContext";
 
 type Card = {
   id: string;
@@ -29,6 +30,7 @@ type Card = {
   stage: string;
   order: number;
   source: string;
+  notes: string | null;
   nextAppointment: string | null;
   callSummary: string | null;
   callIntent: string | null;
@@ -51,10 +53,12 @@ function fmtDate(iso: string) {
 function ContactCard({
   card,
   onDelete,
+  onEdit,
   dragging,
 }: {
   card: Card;
   onDelete?: (id: string) => void;
+  onEdit?: (card: Card) => void;
   dragging?: boolean;
 }) {
   return (
@@ -73,6 +77,19 @@ function ContactCard({
         </div>
         <div className="flex items-center gap-1">
           {SOURCE_ICON[card.source]}
+          {onEdit && (
+            <button
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                onEdit(card);
+              }}
+              className="text-slate-300 hover:text-brand-600"
+              title="Editar contacto"
+            >
+              <Pencil size={13} />
+            </button>
+          )}
           {onDelete && (
             <button
               onClick={(e) => {
@@ -101,6 +118,11 @@ function ContactCard({
       {card.callSummary && (
         <p className="mt-2 line-clamp-3 text-xs leading-5 text-slate-600">{card.callSummary}</p>
       )}
+      {card.notes && (
+        <p className="mt-2 whitespace-pre-wrap rounded-md bg-slate-50 px-2 py-1.5 text-xs leading-5 text-slate-600">
+          {card.notes}
+        </p>
+      )}
     </div>
   );
 }
@@ -108,9 +130,11 @@ function ContactCard({
 function SortableCard({
   card,
   onDelete,
+  onEdit,
 }: {
   card: Card;
   onDelete: (id: string) => void;
+  onEdit: (card: Card) => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: card.id, data: { type: "card", card } });
@@ -122,7 +146,7 @@ function SortableCard({
       {...attributes}
       {...listeners}
     >
-      <ContactCard card={card} onDelete={onDelete} />
+      <ContactCard card={card} onDelete={onDelete} onEdit={onEdit} />
     </div>
   );
 }
@@ -131,11 +155,13 @@ function Column({
   column,
   cards,
   onDelete,
+  onEdit,
   onAdd,
 }: {
   column: PipelineColumn;
   cards: Card[];
   onDelete: (id: string) => void;
+  onEdit: (card: Card) => void;
   onAdd: (stage: string) => void;
 }) {
   const { setNodeRef } = useDroppable({
@@ -169,7 +195,7 @@ function Column({
       >
         <div ref={setNodeRef} className="flex min-h-[60px] flex-1 flex-col gap-2 p-1">
           {cards.map((card) => (
-            <SortableCard key={card.id} card={card} onDelete={onDelete} />
+            <SortableCard key={card.id} card={card} onDelete={onDelete} onEdit={onEdit} />
           ))}
         </div>
       </SortableContext>
@@ -185,7 +211,13 @@ export default function PipelineClient({
   initialCards: Card[];
 }) {
   const [cards, setCards] = useState<Card[]>(initialCards);
+  const agentName = useAgentName();
   const [active, setActive] = useState<Card | null>(null);
+  const [editing, setEditing] = useState<Card | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editPhone, setEditPhone] = useState("");
+  const [editNotes, setEditNotes] = useState("");
+  const [saving, setSaving] = useState(false);
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } })
   );
@@ -283,6 +315,40 @@ export default function PipelineClient({
     await fetch(`/api/v1/contacts/${id}`, { method: "DELETE" });
   }
 
+  function onEdit(card: Card) {
+    setEditing(card);
+    setEditName(card.name);
+    setEditPhone(card.phone?.includes("@lid") ? "" : card.phone ?? "");
+    setEditNotes(card.notes ?? "");
+  }
+
+  async function saveEdit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!editing || !editName.trim()) return;
+    setSaving(true);
+    try {
+      const payload = {
+        name: editName.trim(),
+        phone: editPhone.trim() || null,
+        notes: editNotes.trim() || null,
+      };
+      const res = await fetch(`/api/v1/contacts/${editing.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) throw new Error("save-failed");
+      setCards((prev) =>
+        prev.map((card) => (card.id === editing.id ? { ...card, ...payload } : card))
+      );
+      setEditing(null);
+    } catch {
+      alert("No se han podido guardar los cambios.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function onAdd(stage: string) {
     const name = prompt("Nombre del contacto:");
     if (!name) return;
@@ -306,6 +372,7 @@ export default function PipelineClient({
           nextAppointment: null,
           callSummary: null,
           callIntent: null,
+          notes: contact.notes,
         },
       ]);
     }
@@ -316,7 +383,7 @@ export default function PipelineClient({
       <div className="mb-4 flex items-center justify-between">
         <h1 className="text-xl font-semibold">Pipeline</h1>
         <p className="text-sm text-slate-500">
-          Las citas que agenda PAULA aparecen en la columna «Citas»
+          Las citas que agenda {agentName} aparecen en «Citas pendientes de pago»
         </p>
       </div>
       <DndContext
@@ -332,6 +399,7 @@ export default function PipelineClient({
               column={col}
               cards={byColumn.get(col.id) ?? []}
               onDelete={onDelete}
+              onEdit={onEdit}
               onAdd={onAdd}
             />
           ))}
@@ -340,6 +408,36 @@ export default function PipelineClient({
           {active ? <ContactCard card={active} dragging /> : null}
         </DragOverlay>
       </DndContext>
+      {editing && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
+          <form onSubmit={saveEdit} className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl">
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="text-lg font-semibold">Editar contacto</h2>
+              <button type="button" onClick={() => setEditing(null)} className="text-slate-400 hover:text-slate-700">
+                <X size={20} />
+              </button>
+            </div>
+            <label className="mb-3 block text-sm font-medium text-slate-700">
+              Nombre
+              <input value={editName} onChange={(e) => setEditName(e.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 font-normal outline-none focus:border-brand-500" required autoFocus />
+            </label>
+            <label className="mb-3 block text-sm font-medium text-slate-700">
+              Teléfono
+              <input value={editPhone} onChange={(e) => setEditPhone(e.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 font-normal outline-none focus:border-brand-500" placeholder="+34 600 000 000" />
+            </label>
+            <label className="block text-sm font-medium text-slate-700">
+              Información adicional
+              <textarea value={editNotes} onChange={(e) => setEditNotes(e.target.value)} className="mt-1 min-h-28 w-full resize-y rounded-lg border border-slate-300 px-3 py-2 font-normal outline-none focus:border-brand-500" placeholder="Añade aquí preferencias, contexto o cualquier dato útil…" />
+            </label>
+            <div className="mt-5 flex justify-end gap-2">
+              <button type="button" onClick={() => setEditing(null)} className="rounded-lg px-4 py-2 text-sm text-slate-600 hover:bg-slate-100">Cancelar</button>
+              <button disabled={saving} className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-60">
+                {saving ? "Guardando…" : "Guardar cambios"}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
     </div>
   );
 }

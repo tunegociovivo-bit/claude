@@ -8,6 +8,8 @@ import LogoCard from "@/components/LogoCard";
 
 type SettingsData = {
   sonia: {
+    agentName: string;
+    websiteUrl: string;
     businessName: string;
     businessInfo: string;
     openingHours: string;
@@ -47,6 +49,8 @@ function Field({
 export default function AjustesClient() {
   const [data, setData] = useState<SettingsData | null>(null);
   const [saving, setSaving] = useState(false);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [analyzedLogo, setAnalyzedLogo] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -74,6 +78,21 @@ export default function AjustesClient() {
     setData((d) => (d ? { ...d, whatsapp: { ...d.whatsapp, [key]: value } } : d));
   }
 
+  function changeAgentName(value: string) {
+    setData((current) => {
+      if (!current) return current;
+      const previous = current.sonia.agentName || "Paula";
+      const firstMessage = current.sonia.firstMessage.replace(
+        /^(Hola, soy )[^,]+,/i,
+        `$1${value || previous},`
+      );
+      return {
+        ...current,
+        sonia: { ...current.sonia, agentName: value, firstMessage },
+      };
+    });
+  }
+
   async function save() {
     if (!data) return;
     setSaving(true);
@@ -95,19 +114,100 @@ export default function AjustesClient() {
       setError("No se pudo guardar");
       return;
     }
+    if (analyzedLogo) {
+      const [header, encoded] = analyzedLogo.split(",", 2);
+      const mime = header.match(/^data:([^;]+);base64$/)?.[1];
+      if (mime && encoded) {
+        const bytes = Uint8Array.from(atob(encoded), (character) => character.charCodeAt(0));
+        const form = new FormData();
+        form.append("logo", new File([bytes], "logo-web", { type: mime }));
+        const logoResponse = await fetch("/api/v1/settings/logo", { method: "POST", body: form });
+        if (!logoResponse.ok) {
+          setError("Los textos se guardaron, pero no se pudo guardar el logo detectado.");
+          return;
+        }
+        setAnalyzedLogo(null);
+        window.dispatchEvent(new Event("business-logo-changed"));
+      }
+    }
     setSaved(true);
+    window.dispatchEvent(
+      new CustomEvent("agent-name-changed", { detail: data.sonia.agentName.trim() })
+    );
     setTimeout(() => setSaved(false), 2000);
+  }
+
+  async function analyzeWebsite() {
+    if (!data) return;
+    const url = data.sonia.websiteUrl.trim();
+    if (!url) {
+      setError("Introduce primero la página web del negocio.");
+      return;
+    }
+    setAnalyzing(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/v1/settings/analyze-website", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url, agentName: data.sonia.agentName }),
+      });
+      const result = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(result?.error || "No se pudo analizar la web.");
+      setData((current) =>
+        current
+          ? {
+              ...current,
+              sonia: {
+                ...current.sonia,
+                websiteUrl: result.websiteUrl,
+                businessName: result.businessName || current.sonia.businessName,
+                businessInfo: result.businessInfo,
+                promptExtra: result.promptExtra,
+                firstMessage: result.firstMessage,
+              },
+            }
+          : current
+      );
+      setAnalyzedLogo(result.logoDataUrl ?? null);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "No se pudo analizar la web.");
+    } finally {
+      setAnalyzing(false);
+    }
   }
 
   return (
     <div className="max-w-3xl space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold">Ajustes de PAULA</h1>
+        <h1 className="text-xl font-semibold">Ajustes de {data.sonia.agentName}</h1>
         <button className="btn-primary" onClick={save} disabled={saving}>
           {saving ? "Guardando…" : saved ? "✓ Guardado" : "Guardar cambios"}
         </button>
       </div>
       {error && <p className="text-sm text-red-600">{error}</p>}
+
+      <section className="card p-6">
+        <Field
+          label="NOMBRE DEL AGENTE IA"
+          hint="Este nombre se actualizará en el asistente de llamadas, WhatsApp y el CRM."
+        >
+          <input
+            className="input"
+            value={data.sonia.agentName}
+            onChange={(e) => changeAgentName(e.target.value)}
+            placeholder="Paula"
+            maxLength={50}
+          />
+        </Field>
+        {analyzedLogo && (
+          <div className="flex items-center gap-3 rounded-lg bg-slate-50 p-3 text-sm text-slate-600">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={analyzedLogo} alt="Logo detectado" className="h-12 w-12 rounded-lg object-contain" />
+            Logo detectado. Se aplicará al guardar los cambios.
+          </div>
+        )}
+      </section>
 
       <section className="card space-y-4 p-6">
         <h2 className="font-semibold">Negocio y prompt</h2>
@@ -120,8 +220,25 @@ export default function AjustesClient() {
           />
         </Field>
         <Field
+          label="Página web de la empresa"
+          hint="Analizaremos las páginas públicas del sitio para preparar una propuesta que podrás revisar antes de guardar."
+        >
+          <div className="flex gap-2">
+            <input
+              className="input flex-1"
+              type="url"
+              value={data.sonia.websiteUrl}
+              onChange={(e) => patchSonia("websiteUrl", e.target.value)}
+              placeholder="https://www.miempresa.com"
+            />
+            <button type="button" className="btn-primary whitespace-nowrap" onClick={analyzeWebsite} disabled={analyzing}>
+              {analyzing ? "Analizando…" : "Analizar web y preparar agente"}
+            </button>
+          </div>
+        </Field>
+        <Field
           label="Información del negocio"
-          hint="Todo lo que PAULA puede contar: servicios, precios, dirección, preguntas frecuentes…"
+          hint={`Todo lo que ${data.sonia.agentName} puede contar: servicios, precios, dirección, preguntas frecuentes…`}
         >
           <textarea
             className="input"
@@ -130,24 +247,6 @@ export default function AjustesClient() {
             onChange={(e) => patchSonia("businessInfo", e.target.value)}
           />
         </Field>
-        <div className="grid grid-cols-2 gap-4">
-          <Field label="Horario">
-            <input
-              className="input"
-              value={data.sonia.openingHours}
-              onChange={(e) => patchSonia("openingHours", e.target.value)}
-            />
-          </Field>
-          <Field label="Duración de cita (min)">
-            <input
-              className="input"
-              type="number"
-              min={5}
-              value={data.sonia.slotMinutes}
-              onChange={(e) => patchSonia("slotMinutes", Number(e.target.value))}
-            />
-          </Field>
-        </div>
         <Field
           label="Instrucciones específicas (prompt del cliente)"
           hint="Instrucciones extra para este negocio: tono, qué no decir, cómo tratar casos especiales…"
@@ -171,7 +270,7 @@ export default function AjustesClient() {
           />
         </Field>
         <p className="text-xs text-slate-500">
-          Paula detecta y atiende en español, inglés, francés, alemán e italiano. Los resúmenes se guardan siempre en español.
+          {data.sonia.agentName} detecta y atiende en español, inglés, francés, alemán e italiano. Los resúmenes se guardan siempre en español.
         </p>
         <BusinessPhoneCard />
       </section>
@@ -197,7 +296,7 @@ export default function AjustesClient() {
             checked={data.whatsapp.autoReplyEnabled}
             onChange={(e) => patchWhatsapp("autoReplyEnabled", e.target.checked)}
           />
-          PAULA responde automáticamente a los mensajes entrantes
+          {data.sonia.agentName.toUpperCase()} responde automáticamente a los mensajes entrantes
         </label>
       </section>
 
