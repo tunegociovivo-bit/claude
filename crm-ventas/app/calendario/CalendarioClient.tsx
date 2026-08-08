@@ -93,13 +93,13 @@ export default function CalendarioClient() {
 
   return (
     <div>
-      <div className="mb-4 flex items-center justify-between">
+      <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-xl font-semibold">Calendario</h1>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center justify-between gap-1 sm:justify-start sm:gap-2">
           <button className="btn-ghost" onClick={() => nav(-1)}>
             <ChevronLeft size={16} />
           </button>
-          <span className="w-44 text-center text-sm font-semibold">
+          <span className="flex-1 text-center text-sm font-semibold sm:w-44 sm:flex-none">
             {MONTHS[month]} {year}
           </span>
           <button className="btn-ghost" onClick={() => nav(1)}>
@@ -125,7 +125,7 @@ export default function CalendarioClient() {
               <div
                 key={k}
                 className={clsx(
-                  "group min-h-[110px] border-b border-r border-slate-100 p-1.5",
+                  "group min-h-[76px] min-w-0 border-b border-r border-slate-100 p-1 sm:min-h-[110px] sm:p-1.5",
                   !date && "bg-slate-50/50"
                 )}
               >
@@ -144,7 +144,7 @@ export default function CalendarioClient() {
                       </span>
                       <button
                         onClick={() => setCreating(k)}
-                        className="hidden text-slate-300 hover:text-brand-600 group-hover:block"
+                        className="flex h-6 w-6 items-center justify-center text-slate-400 hover:text-brand-600"
                         title="Nueva cita"
                       >
                         <Plus size={14} />
@@ -156,16 +156,16 @@ export default function CalendarioClient() {
                           key={a.id}
                           onClick={() => setSelected(a)}
                           className={clsx(
-                            "flex w-full items-center gap-1 truncate rounded-md px-1.5 py-1 text-left text-xs font-medium",
+                            "flex w-full items-center justify-center gap-1 truncate rounded-md px-0.5 py-1 text-left text-[10px] font-medium sm:justify-start sm:px-1.5 sm:text-xs",
                             a.status === "cancelada"
                               ? "bg-slate-100 text-slate-400 line-through"
                               : "bg-brand-50 text-brand-700 hover:bg-brand-100"
                           )}
                         >
                           {a.source === "llamada" ? (
-                            <Phone size={11} className="shrink-0" />
+                            <Phone size={11} className="hidden shrink-0 sm:block" />
                           ) : a.source === "whatsapp" ? (
-                            <MessageCircle size={11} className="shrink-0" />
+                            <MessageCircle size={11} className="hidden shrink-0 sm:block" />
                           ) : null}
                           <span className="shrink-0">
                             {new Date(a.startsAt).toLocaleTimeString("es-ES", {
@@ -173,7 +173,7 @@ export default function CalendarioClient() {
                               minute: "2-digit",
                             })}
                           </span>
-                          <span className="truncate">{a.customerName}</span>
+                          <span className="hidden truncate lg:inline">{a.customerName}</span>
                         </button>
                       ))}
                     </div>
@@ -220,7 +220,7 @@ function DetailModal({
 }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4" onClick={onClose}>
-      <div className="card w-full max-w-md p-6" onClick={(e) => e.stopPropagation()}>
+      <div className="card max-h-[calc(100dvh-2rem)] w-full max-w-md overflow-y-auto p-4 sm:p-6" onClick={(e) => e.stopPropagation()}>
         <div className="mb-4 flex items-start justify-between">
           <h2 className="text-lg font-semibold">{a.customerName}</h2>
           <button onClick={onClose} className="text-slate-400 hover:text-slate-600">
@@ -312,7 +312,7 @@ function CreateModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4" onClick={onClose}>
-      <form className="card w-full max-w-md space-y-3 p-6" onClick={(e) => e.stopPropagation()} onSubmit={submit}>
+      <form className="card max-h-[calc(100dvh-2rem)] w-full max-w-md space-y-3 overflow-y-auto p-4 sm:p-6" onClick={(e) => e.stopPropagation()} onSubmit={submit}>
         <div className="flex items-start justify-between">
           <h2 className="text-lg font-semibold">Nueva cita — {day}</h2>
           <button type="button" onClick={onClose} className="text-slate-400 hover:text-slate-600">

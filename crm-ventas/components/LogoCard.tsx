@@ -56,14 +56,14 @@ export default function LogoCard() {
   if (forbidden) return null;
 
   return (
-    <section className="card space-y-4 p-6">
+    <section className="card space-y-4 p-4 sm:p-6">
       <div>
         <h2 className="font-semibold">Logo del negocio</h2>
         <p className="text-xs text-slate-500">
           Aparece en el menú lateral. PNG, JPG o WebP de hasta 500KB.
         </p>
       </div>
-      <div className="flex items-center gap-4">
+      <div className="flex flex-col items-start gap-4 sm:flex-row sm:items-center">
         {logo ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={logo} alt="Logo del negocio" className="h-14 w-14 rounded-xl object-cover" />
@@ -72,7 +72,7 @@ export default function LogoCard() {
             P
           </div>
         )}
-        <div className="space-x-2">
+        <div className="flex w-full flex-wrap gap-2 sm:w-auto">
           <label className="btn-primary inline-flex cursor-pointer">
             {busy ? "Un momento…" : logo ? "Cambiar logo" : "Subir logo"}
             <input

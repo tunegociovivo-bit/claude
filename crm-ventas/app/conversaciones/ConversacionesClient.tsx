@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Send, Bot, RefreshCw } from "lucide-react";
+import { ArrowLeft, Send, Bot, RefreshCw } from "lucide-react";
 import clsx from "clsx";
 import { useAgentName } from "@/components/AgentNameContext";
 
@@ -81,15 +81,15 @@ export default function ConversacionesClient() {
   const selectedThread = threads.find((t) => t.phone === selected);
 
   return (
-    <div className="flex h-[calc(100vh-3rem)] flex-col">
-      <div className="mb-4 flex items-center justify-between">
-        <h1 className="text-xl font-semibold">Conversaciones de WhatsApp</h1>
+    <div className="flex h-[calc(100dvh-10.5rem)] flex-col md:h-[calc(100vh-3rem)] md:min-h-[28rem]">
+      <div className="mb-3 flex items-center justify-between sm:mb-4">
+        <h1 className="text-lg font-semibold sm:text-xl">Conversaciones de WhatsApp</h1>
         <button className="btn-ghost" onClick={loadThreads} title="Recargar">
           <RefreshCw size={15} />
         </button>
       </div>
       <div className="card flex min-h-0 flex-1 overflow-hidden">
-        <aside className="w-72 shrink-0 overflow-y-auto border-r border-slate-200">
+        <aside className={clsx("w-full shrink-0 overflow-y-auto md:w-72 md:border-r md:border-slate-200", selected && "hidden md:block")}>
           {threads.length === 0 && (
             <p className="p-4 text-sm text-slate-500">
               Aún no hay conversaciones. Cuando alguien escriba al WhatsApp del
@@ -123,20 +123,25 @@ export default function ConversacionesClient() {
             </button>
           ))}
         </aside>
-        <section className="flex min-w-0 flex-1 flex-col">
+        <section className={clsx("min-w-0 flex-1 flex-col", selected ? "flex" : "hidden md:flex")}>
           {!selected ? (
             <div className="flex flex-1 items-center justify-center text-sm text-slate-400">
               Selecciona una conversación
             </div>
           ) : (
             <>
-              <div className="border-b border-slate-200 px-4 py-3">
-                <div className="text-sm font-semibold">
+              <div className="flex items-center gap-2 border-b border-slate-200 px-3 py-3 sm:px-4">
+                <button type="button" onClick={() => setSelected(null)} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 md:hidden" aria-label="Volver a conversaciones">
+                  <ArrowLeft size={18} />
+                </button>
+                <div className="min-w-0">
+                <div className="truncate text-sm font-semibold">
                   {selectedThread?.contact?.name ?? selected}
                 </div>
-                <div className="text-xs text-slate-500">{selected}</div>
+                <div className="truncate text-xs text-slate-500">{selected}</div>
+                </div>
               </div>
-              <div className="flex-1 space-y-2 overflow-y-auto bg-slate-50/50 p-4">
+              <div className="flex-1 space-y-2 overflow-y-auto bg-slate-50/50 p-3 sm:p-4">
                 {messages.map((m) => (
                   <div
                     key={m.id}
@@ -147,7 +152,7 @@ export default function ConversacionesClient() {
                   >
                     <div
                       className={clsx(
-                        "max-w-[75%] whitespace-pre-wrap rounded-2xl px-3 py-2 text-sm",
+                        "max-w-[88%] whitespace-pre-wrap break-words rounded-2xl px-3 py-2 text-sm sm:max-w-[75%]",
                         m.direction === "out"
                           ? "bg-brand-500 text-white"
                           : "bg-white shadow-sm"

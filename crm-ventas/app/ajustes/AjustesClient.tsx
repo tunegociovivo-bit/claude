@@ -179,15 +179,15 @@ export default function AjustesClient() {
 
   return (
     <div className="max-w-3xl space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-xl font-semibold">Ajustes de {data.sonia.agentName}</h1>
-        <button className="btn-primary" onClick={save} disabled={saving}>
+        <button className="btn-primary w-full sm:w-auto" onClick={save} disabled={saving}>
           {saving ? "Guardando…" : saved ? "✓ Guardado" : "Guardar cambios"}
         </button>
       </div>
       {error && <p className="text-sm text-red-600">{error}</p>}
 
-      <section className="card p-6">
+      <section className="card p-4 sm:p-6">
         <Field
           label="NOMBRE DEL AGENTE IA"
           hint="Este nombre se actualizará en el asistente de llamadas, WhatsApp y el CRM."
@@ -209,7 +209,7 @@ export default function AjustesClient() {
         )}
       </section>
 
-      <section className="card space-y-4 p-6">
+      <section className="card space-y-4 p-4 sm:p-6">
         <h2 className="font-semibold">Negocio y prompt</h2>
         <Field label="Nombre del negocio">
           <input
@@ -223,7 +223,7 @@ export default function AjustesClient() {
           label="Página web de la empresa"
           hint="Analizaremos las páginas públicas del sitio para preparar una propuesta que podrás revisar antes de guardar."
         >
-          <div className="flex gap-2">
+          <div className="flex flex-col gap-2 sm:flex-row">
             <input
               className="input flex-1"
               type="url"
@@ -231,7 +231,7 @@ export default function AjustesClient() {
               onChange={(e) => patchSonia("websiteUrl", e.target.value)}
               placeholder="https://www.miempresa.com"
             />
-            <button type="button" className="btn-primary whitespace-nowrap" onClick={analyzeWebsite} disabled={analyzing}>
+            <button type="button" className="btn-primary w-full whitespace-nowrap sm:w-auto" onClick={analyzeWebsite} disabled={analyzing}>
               {analyzing ? "Analizando…" : "Analizar web y preparar agente"}
             </button>
           </div>
@@ -260,7 +260,7 @@ export default function AjustesClient() {
         </Field>
       </section>
 
-      <section className="card space-y-4 p-6">
+      <section className="card space-y-4 p-4 sm:p-6">
         <h2 className="font-semibold">Llamadas (Vapi)</h2>
         <Field label="Saludo inicial de la llamada">
           <input
@@ -275,10 +275,10 @@ export default function AjustesClient() {
         <BusinessPhoneCard />
       </section>
 
-      <section className="card space-y-4 p-6">
+      <section className="card space-y-4 p-4 sm:p-6">
         <h2 className="font-semibold">WhatsApp</h2>
         <WahaConnectionCard />
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid gap-4 sm:grid-cols-2">
           <Field
             label="Prefijo de país por defecto"
             hint="Se usa para completar teléfonos sin prefijo (34 = España)"

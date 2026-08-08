@@ -18,7 +18,7 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { CalendarClock, MessageCircle, Pencil, Phone, Plus, Trash2, X } from "lucide-react";
+import { CalendarClock, GripVertical, MessageCircle, Pencil, Phone, Plus, Trash2, X } from "lucide-react";
 import clsx from "clsx";
 import type { PipelineColumn } from "@/lib/settings";
 import { useAgentName } from "@/components/AgentNameContext";
@@ -54,11 +54,13 @@ function ContactCard({
   card,
   onDelete,
   onEdit,
+  dragHandleProps,
   dragging,
 }: {
   card: Card;
   onDelete?: (id: string) => void;
   onEdit?: (card: Card) => void;
+  dragHandleProps?: React.HTMLAttributes<HTMLButtonElement>;
   dragging?: boolean;
 }) {
   return (
@@ -77,6 +79,11 @@ function ContactCard({
         </div>
         <div className="flex items-center gap-1">
           {SOURCE_ICON[card.source]}
+          {dragHandleProps && (
+            <button {...dragHandleProps} className="flex h-8 w-8 touch-none items-center justify-center rounded-md text-slate-400 hover:bg-slate-100" title="Mover tarjeta" aria-label="Mover tarjeta">
+              <GripVertical size={14} />
+            </button>
+          )}
           {onEdit && (
             <button
               onPointerDown={(e) => e.stopPropagation()}
@@ -84,7 +91,7 @@ function ContactCard({
                 e.stopPropagation();
                 onEdit(card);
               }}
-              className="text-slate-300 hover:text-brand-600"
+              className="flex h-8 w-8 items-center justify-center rounded-md text-slate-400 hover:bg-brand-50 hover:text-brand-600"
               title="Editar contacto"
             >
               <Pencil size={13} />
@@ -96,7 +103,7 @@ function ContactCard({
                 e.stopPropagation();
                 onDelete(card.id);
               }}
-              className="hidden text-slate-300 hover:text-red-500 group-hover:block"
+              className="flex h-8 w-8 items-center justify-center rounded-md text-slate-400 hover:bg-red-50 hover:text-red-500 md:hidden md:group-hover:flex"
               title="Eliminar"
             >
               <Trash2 size={13} />
@@ -144,9 +151,8 @@ function SortableCard({
       style={{ transform: CSS.Transform.toString(transform), transition }}
       className={clsx(isDragging && "opacity-40")}
       {...attributes}
-      {...listeners}
     >
-      <ContactCard card={card} onDelete={onDelete} onEdit={onEdit} />
+      <ContactCard card={card} onDelete={onDelete} onEdit={onEdit} dragHandleProps={listeners} />
     </div>
   );
 }
@@ -169,7 +175,7 @@ function Column({
     data: { type: "column", columnId: column.id },
   });
   return (
-    <div className="flex w-72 shrink-0 flex-col rounded-xl bg-slate-100/70 p-2">
+    <div className="flex w-[84vw] max-w-sm shrink-0 snap-center flex-col rounded-xl bg-slate-100/70 p-2 sm:w-72">
       <div className="mb-2 flex items-center justify-between px-2 pt-1">
         <div className="flex items-center gap-2">
           <span
@@ -380,9 +386,9 @@ export default function PipelineClient({
 
   return (
     <div>
-      <div className="mb-4 flex items-center justify-between">
+      <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-xl font-semibold">Pipeline</h1>
-        <p className="text-sm text-slate-500">
+        <p className="text-xs text-slate-500 sm:text-sm">
           Las citas que agenda {agentName} aparecen en «Citas pendientes de pago»
         </p>
       </div>
@@ -392,7 +398,7 @@ export default function PipelineClient({
         onDragOver={onDragOver}
         onDragEnd={onDragEnd}
       >
-        <div className="flex gap-4 overflow-x-auto pb-4">
+        <div className="-mx-3 flex snap-x snap-mandatory gap-3 overflow-x-auto px-3 pb-4 sm:mx-0 sm:gap-4 sm:px-0">
           {columns.map((col) => (
             <Column
               key={col.id}
@@ -410,7 +416,7 @@ export default function PipelineClient({
       </DndContext>
       {editing && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
-          <form onSubmit={saveEdit} className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl">
+          <form onSubmit={saveEdit} className="max-h-[calc(100dvh-2rem)] w-full max-w-md overflow-y-auto rounded-2xl bg-white p-4 shadow-xl sm:p-5">
             <div className="mb-4 flex items-center justify-between">
               <h2 className="text-lg font-semibold">Editar contacto</h2>
               <button type="button" onClick={() => setEditing(null)} className="text-slate-400 hover:text-slate-700">

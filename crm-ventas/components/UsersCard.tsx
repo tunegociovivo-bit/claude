@@ -81,7 +81,7 @@ export default function UsersCard() {
   if (forbidden) return null;
 
   return (
-    <section className="card space-y-4 p-6">
+    <section className="card space-y-4 p-4 sm:p-6">
       <div>
         <h2 className="font-semibold">Usuarios</h2>
         <p className="text-xs text-slate-500">
@@ -94,7 +94,7 @@ export default function UsersCard() {
       ) : (
         <ul className="divide-y divide-slate-100 rounded-lg border border-slate-200">
           {users.map((u) => (
-            <li key={u.id} className="flex items-center gap-3 px-3 py-2 text-sm">
+            <li key={u.id} className="flex flex-wrap items-center gap-2 px-3 py-2 text-sm sm:flex-nowrap sm:gap-3">
               <div className="min-w-0 flex-1">
                 <p className="truncate font-medium">{u.name || u.email}</p>
                 <p className="truncate text-xs text-slate-500">{u.email}</p>

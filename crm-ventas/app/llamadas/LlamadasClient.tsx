@@ -51,7 +51,7 @@ export default function LlamadasClient({ calls }: { calls: Call[] }) {
 
   return (
     <div>
-      <div className="mb-4 flex items-start justify-between gap-4">
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
         <h1 className="text-xl font-semibold">Llamadas recibidas por {agentName}</h1>
         <p className="text-sm text-slate-500">
@@ -59,14 +59,14 @@ export default function LlamadasClient({ calls }: { calls: Call[] }) {
         </p>
         </div>
         {items.length > 0 && (
-          <button className="btn-ghost inline-flex items-center gap-2 text-red-600" onClick={removeAllCalls}>
+          <button className="btn-ghost w-full text-red-600 sm:w-auto" onClick={removeAllCalls}>
             <Trash2 size={15} /> Eliminar todas
           </button>
         )}
       </div>
 
       {items.length === 0 ? (
-        <div className="card p-10 text-center text-sm text-slate-500">
+        <div className="card p-6 text-center text-sm text-slate-500 sm:p-10">
           Todavía no hay llamadas. Cuando alguien llame al número del negocio,
           {agentName} contestará y la llamada aparecerá aquí.
         </div>
@@ -84,7 +84,7 @@ export default function LlamadasClient({ calls }: { calls: Call[] }) {
                   onKeyDown={(event) => {
                     if (event.key === "Enter" || event.key === " ") setOpen(expanded ? null : c.id);
                   }}
-                  className="flex w-full items-center gap-4 px-4 py-3 text-left hover:bg-slate-50"
+                  className="flex w-full flex-wrap items-center gap-2 px-3 py-3 text-left hover:bg-slate-50 sm:flex-nowrap sm:gap-4 sm:px-4"
                 >
                   <span
                     className={clsx(
@@ -102,7 +102,7 @@ export default function LlamadasClient({ calls }: { calls: Call[] }) {
                       {c.summary ?? c.endedReason ?? c.status}
                     </div>
                   </div>
-                  <div className="shrink-0 text-right text-xs text-slate-500">
+                  <div className="order-last ml-11 w-full text-left text-xs text-slate-500 sm:order-none sm:ml-0 sm:w-auto sm:shrink-0 sm:text-right">
                     <div>
                       {new Date(c.createdAt).toLocaleString("es-ES", {
                         day: "2-digit",
@@ -127,7 +127,7 @@ export default function LlamadasClient({ calls }: { calls: Call[] }) {
                   {expanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
                 </div>
                 {expanded && (
-                  <div className="space-y-3 bg-slate-50/60 px-4 py-4 text-sm">
+                  <div className="space-y-3 bg-slate-50/60 px-3 py-4 text-sm sm:px-4">
                     {c.summary && (
                       <div>
                         <div className="mb-1 text-xs font-semibold uppercase text-slate-400">
