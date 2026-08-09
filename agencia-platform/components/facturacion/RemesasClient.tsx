@@ -42,8 +42,8 @@ export default function RemesasClient({ providerStatus, issuerMissing }: { provi
         </div>
       )}
       {providerStatus !== "CONFIGURED" && (
-        <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-          ⚠️ <strong>Integración Santander pendiente de configurar.</strong> Aprobar una remesa NO firma ni ejecuta el cobro: solo la deja lista. La preparación/firma real en el banco no está disponible todavía.
+        <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-800">
+          <strong>Santander funciona mediante el agente local.</strong> Al aprobar, el agente prepara la remesa en el navegador y la deja pendiente de firma. Nunca firma ni ejecuta el cobro por ti.
         </div>
       )}
       <div className="inline-flex rounded-lg border bg-white overflow-hidden text-sm">

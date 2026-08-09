@@ -23,7 +23,7 @@ $aclGrant = $env:USERNAME + ':(F)'
 if ($LASTEXITCODE -ne 0) { throw "Agent build failed" }
 
 if ($AutoStart) {
-  $taskArgument = '/c cd /d "' + $agentRoot + '" && node dist/index.js'
+  $taskArgument = '/c cd /d "' + $agentRoot + '" && node --use-system-ca dist/index.js'
   $action = New-ScheduledTaskAction -Execute "cmd.exe" -Argument $taskArgument
   $trigger = New-ScheduledTaskTrigger -AtLogOn
   $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)
