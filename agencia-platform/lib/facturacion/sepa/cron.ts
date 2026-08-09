@@ -8,13 +8,22 @@
 import { prisma } from "@/lib/db/prisma";
 import { expireStaleRequests, createRequestsForCandidates } from "./remittance";
 import { reclaimExpiredLeases } from "./agent";
+import { syncApprovedHoldedInvoices } from "./holded-auto-sync";
 
 export async function runSepaCronAllWorkspaces(): Promise<any[]> {
   const workspaces = await prisma.workspace.findMany({ select: { id: true } });
+  // Opt-in de producción: evita activar emails para otros workspaces o para
+  // candidatas históricas durante un despliegue.
   const autoScan = process.env.SEPA_AUTO_SCAN === "true";
   const report: any[] = [];
   for (const ws of workspaces) {
     const r: any = { workspaceId: ws.id };
+    try {
+      r.holded = await syncApprovedHoldedInvoices(ws.id);
+    } catch (e: any) {
+      // Un fallo de Holded no impide caducar enlaces ni recuperar leases.
+      r.holdedError = String(e?.message ?? e);
+    }
     try {
       r.expired = await expireStaleRequests(ws.id);
     } catch (e: any) {

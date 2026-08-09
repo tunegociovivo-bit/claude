@@ -9,7 +9,7 @@ name: Facturación · remesas SEPA (cron)
 # aunque el cron no llegue a ejecutarse.
 on:
   schedule:
-    - cron: "0 * * * *" # cada hora
+    - cron: "*/5 * * * *" # cada 5 minutos: sincroniza Holded y busca candidatas
   workflow_dispatch:
 
 concurrency:

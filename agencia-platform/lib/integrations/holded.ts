@@ -93,9 +93,15 @@ export async function holdedListInvoices(opts: {
   workspaceId: string;
   status?: number; // si se omite, todas
   limit?: number;
+  startTimestamp?: number;
+  endTimestamp?: number;
+  sort?: "created-asc" | "created-desc";
 }): Promise<HoldedInvoice[]> {
   const params = new URLSearchParams();
   if (opts.status !== undefined) params.set("status", String(opts.status));
+  if (opts.startTimestamp !== undefined) params.set("starttmp", String(opts.startTimestamp));
+  if (opts.endTimestamp !== undefined) params.set("endtmp", String(opts.endTimestamp));
+  if (opts.sort) params.set("sort", opts.sort);
   const qs = params.toString();
   const data = await holdedFetch<HoldedInvoice[]>(
     opts.workspaceId,

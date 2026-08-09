@@ -61,13 +61,24 @@ function mapStatus(s?: number): string {
   if (s === 1) return "PAID";
   if (s === 4) return "DRAFT";
   if (s === 3) return "CANCELLED";
-  return "ISSUED";
+  if (s === 0 || s === 2) return "ISSUED";
+  // Fail closed: un estado nuevo o ausente nunca entra en una remesa.
+  return "UNKNOWN";
 }
 
 /** Facturas de Holded → InvoiceInput. El total de Holded ya incluye IVA, así
  *  que lo tratamos como total (taxRate 0 para preservar el importe exacto). */
-export async function holdedInvoicesAsInputs(workspaceId: string): Promise<InvoiceInput[]> {
-  const invoices = await holdedListInvoices({ workspaceId, limit: 5000 });
+export async function holdedInvoicesAsInputs(
+  workspaceId: string,
+  options: { startTimestamp?: number; endTimestamp?: number } = {}
+): Promise<InvoiceInput[]> {
+  const invoices = await holdedListInvoices({
+    workspaceId,
+    limit: 5000,
+    startTimestamp: options.startTimestamp,
+    endTimestamp: options.endTimestamp,
+    sort: "created-desc"
+  });
   return invoices.map((i) => {
     const totalCents = typeof i.total === "number" ? Math.round(i.total * 100) : undefined;
     const currency = (i.currency ?? "EUR").toUpperCase().includes("USD") ? "USD" : "EUR";

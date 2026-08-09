@@ -1,6 +1,7 @@
 /**
  * Cron interno de remesas SEPA. Protegido por Bearer INTERNAL_CRON_TOKEN.
- * Caduca enlaces vencidos y (si SEPA_AUTO_SCAN=true) detecta candidatas.
+ * Sincroniza Holded, caduca enlaces vencidos y detecta candidatas.
+ * SEPA_AUTO_SCAN=false funciona como interruptor de emergencia.
  * Pensado para llamarse periódicamente desde el cron de Railway/GitHub Actions.
  */
 import { NextRequest, NextResponse } from "next/server";
