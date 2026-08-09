@@ -18,6 +18,7 @@ export interface ClaimedJob {
   currency: string;
   mandateRef: string | null;
   ibanMasked: string | null;
+  santanderTemplate: string | null;
   leaseUntil: string;
 }
 

@@ -35,6 +35,7 @@ export interface LiveOptions {
 
 export class LiveSantanderAdapter implements SantanderAdapter {
   private browser: any = null;
+  private currentTemplate = "";
 
   constructor(private opts: LiveOptions) {}
 
@@ -70,40 +71,42 @@ export class LiveSantanderAdapter implements SantanderAdapter {
       if (!(await this.click(page, S.remittancesNav))) return this.pause(hooks, "No encuentro el acceso a remesas/adeudos (posible cambio de interfaz).");
       await hooks.onProgress("OPEN_REMITTANCES", "Sección de remesas abierta");
 
-      // 5) Seleccionar y duplicar la remesa anterior.
-      if (!(await this.click(page, S.previousRemittance))) return this.pause(hooks, "No encuentro la remesa recurrente anterior para reutilizar.");
-      await hooks.onProgress("SELECT_PREVIOUS", "Remesa anterior localizada");
-      if (!(await this.click(page, S.duplicateAction))) return this.pause(hooks, "No encuentro la acción de duplicar/reutilizar la remesa anterior.");
-      await hooks.onProgress("DUPLICATE_PREVIOUS", "Remesa anterior duplicada para reutilizar");
+      if (!job.santanderTemplate?.trim()) {
+        return this.pause(hooks, `El cliente "${job.clientName}" no tiene configurado el nombre exacto de su remesa recurrente en Santander.`);
+      }
+      this.currentTemplate = job.santanderTemplate.trim();
 
-      // 6) Editar SOLO datos autorizados.
+      // 5) Seleccionar y EDITAR la remesa anterior. No se duplica.
+      if (!(await this.visible(page, S.previousRemittance))) return this.pause(hooks, "No encuentro la remesa recurrente anterior para reutilizar.");
+      await hooks.onProgress("SELECT_PREVIOUS", "Remesa anterior localizada");
+      if (!(await this.click(page, S.rowMenuAction))) return this.pause(hooks, "No encuentro el menú de acciones de la remesa recurrente.");
+      if (!(await this.click(page, S.editAction))) return this.pause(hooks, "No encuentro la acción Editar.");
+      await hooks.onProgress("EDIT_PREVIOUS", "Remesa anterior abierta en modo edición");
+
+      // 6) Cambiar SOLO la fecha de cobro a hoy. Importe, concepto e IBAN se conservan.
       const amount = (job.amountCents / 100).toFixed(2);
-      if (!(await this.fill(page, S.amountField, amount))) return this.pause(hooks, "No pude editar el importe (campo no encontrado).");
-      if (S.chargeDateField) await this.fill(page, S.chargeDateField, ""); // fecha la valida/ajusta el usuario si aplica
-      if (S.conceptField && job.invoiceNumber) await this.fill(page, S.conceptField, `Factura ${job.invoiceNumber}`);
-      await hooks.onProgress("EDIT_AUTHORIZED", "Datos autorizados actualizados (importe/concepto)");
+      if (!(await this.click(page, S.modifyRemittanceAction))) return this.pause(hooks, "No encuentro Modificar en Datos de la remesa.");
+      const today = new Intl.DateTimeFormat("es-ES", { day: "2-digit", month: "2-digit", year: "numeric" }).format(new Date());
+      if (!(await this.fill(page, S.chargeDateField, today))) return this.pause(hooks, "No pude actualizar la fecha de cobro.");
+      await hooks.onProgress("EDIT_AUTHORIZED", `Fecha de cobro actualizada a ${today}; importe y concepto sin modificar`);
+      if (!(await this.click(page, S.continueAction))) return this.pause(hooks, "No encuentro Continuar hacia Órdenes.");
 
       // 7) Cotejo obligatorio importe/cliente antes de preparar.
       const shownClient = await this.text(page, S.clientLabel);
       if (shownClient && job.clientName && !normalize(shownClient).includes(normalize(job.clientName)) && !normalize(job.clientName).includes(normalize(shownClient))) {
         return this.pause(hooks, `Discrepancia de cliente: portal "${shownClient}" vs autorizado "${job.clientName}".`);
       }
+      const shownAmount = await this.text(page, S.amountLabel);
+      if (!shownAmount || !this.amountMatches(shownAmount, amount)) {
+        return this.pause(hooks, `Discrepancia de importe: portal "${shownAmount ?? "no visible"}" vs autorizado "${amount} EUR".`);
+      }
       await hooks.onProgress("VALIDATE_MATCH", "Importe y cliente cotejados con lo autorizado");
 
-      // 8) Preparar para firma — barrera anti-firma sobre la etiqueta CONFIGURADA
-      //    y sobre el texto/accesible EN VIVO del elemento (no basta con el mapeo).
-      const configuredLabel = S.prepareAction.role?.name ?? S.prepareAction.text ?? "";
-      if (configuredLabel && isForbiddenActionLabel(configuredLabel)) {
-        return this.pause(hooks, `La acción de preparar ("${configuredLabel}") parece de FIRMA. Abortado por seguridad: el agente nunca firma.`);
-      }
-      const liveLabel = await this.actionLabel(page, S.prepareAction);
-      if (!liveLabel) {
-        return this.pause(hooks, "No pude leer la etiqueta del botón de preparar para verificar que NO es de firma. Abortado por seguridad.");
-      }
-      if (isForbiddenActionLabel(liveLabel)) {
-        return this.pause(hooks, `El botón de preparar muestra "${liveLabel}" (parece FIRMA). Abortado por seguridad: el agente nunca firma.`);
-      }
-      if (!(await this.click(page, S.prepareAction))) return this.pause(hooks, "No encuentro la acción para dejar la remesa lista para firma.");
+      if (!(await this.click(page, S.continueAction))) return this.pause(hooks, "No encuentro Continuar hacia Resumen.");
+      if (!(await this.safeClick(page, S.firstSendAction))) return this.pause(hooks, "No encuentro el primer Enviar o su etiqueta no es segura.");
+      if (!(await this.click(page, S.directDebitOption))) return this.pause(hooks, "No encuentro Domiciliaciones SEPA CORE/COR1.");
+      if (!(await this.safeClick(page, S.acceptAction))) return this.pause(hooks, "No encuentro Aceptar.");
+      if (!(await this.safeClick(page, S.secondSendAction))) return this.pause(hooks, "No encuentro el segundo Enviar o su etiqueta no es segura.");
       await hooks.onProgress("PREPARE_FOR_SIGNATURE", "Remesa dejada lista para firma (sin firmar)");
 
       // 9) Verificación visual del estado pendiente de firma.
@@ -111,6 +114,9 @@ export class LiveSantanderAdapter implements SantanderAdapter {
         return this.pause(hooks, "No pude verificar visualmente el estado 'pendiente de firma'. Revísalo tú antes de firmar.");
       }
       await hooks.onProgress("VERIFY_PENDING", "Estado 'pendiente de firma' verificado");
+      if (!(await this.safeClick(page, S.signLaterAction, true))) {
+        return this.pause(hooks, "La remesa está pendiente de firma, pero no pude pulsar Firmar luego. No se ha firmado.");
+      }
 
       return { kind: "PREPARED", resultRef: `live:${job.jobId}` };
     } catch (e: any) {
@@ -134,11 +140,32 @@ export class LiveSantanderAdapter implements SantanderAdapter {
   }
 
   private locator(page: any, spec: SelectorSpec): any {
-    if (spec.css) return page.locator(spec.css);
-    if (spec.role) return page.getByRole(spec.role.role, spec.role.name ? { name: spec.role.name } : undefined);
-    if (spec.text) return page.getByText(spec.text, { exact: false });
-    if (spec.xpath) return page.locator(`xpath=${spec.xpath}`);
+    const expand = (value?: string) => value?.replaceAll("{{template}}", this.currentTemplate);
+    if (spec.css) return page.locator(expand(spec.css));
+    if (spec.role) return page.getByRole(spec.role.role, spec.role.name ? { name: expand(spec.role.name) } : undefined);
+    if (spec.text) return page.getByText(expand(spec.text), { exact: false });
+    if (spec.xpath) return page.locator(`xpath=${expand(spec.xpath)}`);
     throw new Error(`Selector sin localizador utilizable: ${spec.describe}`);
+  }
+
+  private amountMatches(shown: string, expected: string): boolean {
+    const token = shown.replace(/\s/g, "").match(/\d[\d.,]*/)?.[0];
+    if (!token) return false;
+    const normalized = token.includes(",")
+      ? token.replace(/\./g, "").replace(",", ".")
+      : token;
+    const shownCents = Math.round(Number(normalized) * 100);
+    const expectedCents = Math.round(Number(expected) * 100);
+    return Number.isFinite(shownCents) && shownCents === expectedCents;
+  }
+
+  private async safeClick(page: any, spec: SelectorSpec, allowSignLater = false): Promise<boolean> {
+    const label = await this.actionLabel(page, spec);
+    if (!label) return false;
+    if (allowSignLater) {
+      if (!/firmar\s+luego/i.test(label)) return false;
+    } else if (isForbiddenActionLabel(label)) return false;
+    return this.click(page, spec);
   }
 
   private async visible(page: any, spec: SelectorSpec): Promise<boolean> {

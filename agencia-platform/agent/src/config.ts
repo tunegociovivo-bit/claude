@@ -63,7 +63,7 @@ export function loadConfig(pkgVersion: string): AgentConfig {
 
   const hubUrl = pick(json, "HUB_URL", "hubUrl");
   const agentToken = pick(json, "AGENT_TOKEN", "agentToken");
-  const santanderOrigin = pick(json, "SANTANDER_ORIGIN", "santanderOrigin", "https://empresas.santander.es")!;
+  const santanderOrigin = pick(json, "SANTANDER_ORIGIN", "santanderOrigin", "https://empresas3.gruposantander.es")!;
   const chromeCdpUrl = pick(json, "CHROME_CDP_URL", "chromeCdpUrl", "http://127.0.0.1:9222")!;
   const santanderMode = (pick(json, "SANTANDER_MODE", "santanderMode", "mock") as SantanderMode);
   const selectorsFile = pick(json, "SELECTORS_FILE", "selectorsFile", "./selectors.json")!;

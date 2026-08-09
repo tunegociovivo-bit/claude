@@ -3,10 +3,9 @@
  * (ClientInput / InvoiceInput), reutilizando el mismo pipeline de
  * preview/aplicación que la importación por archivo.
  */
-import { holdedListContacts, holdedListInvoices } from "@/lib/integrations/holded";
+import { holdedGetContact, holdedGetInvoice, holdedListContacts, holdedListInvoices, type HoldedInvoice } from "@/lib/integrations/holded";
 import type { ClientInput } from "./clients";
 import type { InvoiceInput } from "./invoices";
-import { holdedGetContact } from "@/lib/integrations/holded";
 
 /** Lee la dirección de facturación (billAddress) de un objeto Holded. */
 function applyBillAddress(input: ClientInput, c: any): void {
@@ -79,7 +78,24 @@ export async function holdedInvoicesAsInputs(
     endTimestamp: options.endTimestamp,
     sort: "created-desc"
   });
-  return invoices.map((i) => {
+  const enriched = await Promise.all(invoices.map(async (invoice) => {
+    if (invoice.contactName?.trim()) return invoice;
+    try {
+      const detail = await holdedGetInvoice({ workspaceId, invoiceId: invoice.id });
+      if (detail.contactName?.trim()) return { ...invoice, ...detail };
+      const contactId = detail.contact || invoice.contact;
+      if (!contactId) return { ...invoice, ...detail };
+      const contact = await holdedGetContact(workspaceId, contactId);
+      const contactName = String(contact?.name ?? contact?.tradeName ?? contact?.tradename ?? "").trim();
+      return { ...invoice, ...detail, contactName: contactName || undefined } as HoldedInvoice;
+    } catch {
+      // La ausencia de nombre no debe impedir importar la factura. La siguiente
+      // sincronización volverá a intentar completar el dato.
+      return invoice;
+    }
+  }));
+
+  return enriched.map((i) => {
     const totalCents = typeof i.total === "number" ? Math.round(i.total * 100) : undefined;
     const currency = (i.currency ?? "EUR").toUpperCase().includes("USD") ? "USD" : "EUR";
     return {

@@ -146,6 +146,7 @@ export type ClaimedJob = {
   currency: string;
   mandateRef: string | null;
   ibanMasked: string | null;
+  santanderTemplate: string | null;
   leaseUntil: string;
 };
 
@@ -173,12 +174,18 @@ export async function claimNextJob(agentId: string, workspaceId: string): Promis
       await logJob(candidate.id, "PENDING", "CLAIMED", { agentId, note: "Reclamado por el agente" });
       const job = await prisma.remittanceJob.findUnique({
         where: { id: candidate.id },
-        select: { id: true, invoiceNumber: true, clientName: true, amountCents: true, currency: true, mandateRef: true, ibanMasked: true, leaseUntil: true }
+        select: { id: true, clientId: true, invoiceNumber: true, clientName: true, amountCents: true, currency: true, mandateRef: true, ibanMasked: true, leaseUntil: true }
       });
       if (!job) return null;
+      const client = await prisma.client.findFirst({
+        where: { id: job.clientId, workspaceId, deletedAt: null },
+        select: { sepaSantanderTemplate: true }
+      });
       return {
         jobId: job.id, invoiceNumber: job.invoiceNumber, clientName: job.clientName, amountCents: job.amountCents,
-        currency: job.currency, mandateRef: job.mandateRef, ibanMasked: job.ibanMasked, leaseUntil: job.leaseUntil!.toISOString()
+        currency: job.currency, mandateRef: job.mandateRef, ibanMasked: job.ibanMasked,
+        santanderTemplate: client?.sepaSantanderTemplate ?? null,
+        leaseUntil: job.leaseUntil!.toISOString()
       };
     }
     // otro agente ganó → reintenta con el siguiente
