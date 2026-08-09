@@ -74,7 +74,8 @@ export class Runner {
     this.log.info(`Trabajo reclamado ${job.jobId} · ${job.clientName} · ${(job.amountCents / 100).toFixed(2)} ${job.currency}`);
     const authorized: AuthorizedJob = {
       jobId: job.jobId, invoiceNumber: job.invoiceNumber, clientName: job.clientName,
-      amountCents: job.amountCents, currency: job.currency, mandateRef: job.mandateRef, ibanMasked: job.ibanMasked
+      amountCents: job.amountCents, currency: job.currency, mandateRef: job.mandateRef,
+      ibanMasked: job.ibanMasked, santanderTemplate: job.santanderTemplate
     };
 
     const adapter = this.makeAdapter();

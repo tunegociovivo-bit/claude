@@ -19,6 +19,8 @@ export interface AuthorizedJob {
   currency: string;
   mandateRef: string | null;
   ibanMasked: string | null;
+  /** Nombre exacto de la remesa recurrente que se edita en Santander. */
+  santanderTemplate: string | null;
 }
 
 /** Estados de la máquina del adaptador. */
@@ -28,8 +30,8 @@ export type AdapterState =
   | "CHECK_SESSION"          // ¿el usuario ya ha iniciado sesión? (no la hacemos nosotros)
   | "OPEN_REMITTANCES"       // ir a la sección de remesas/adeudos
   | "SELECT_PREVIOUS"        // localizar la remesa recurrente anterior para reutilizar
-  | "DUPLICATE_PREVIOUS"     // duplicar/reutilizar la anterior
-  | "EDIT_AUTHORIZED"        // cambiar SOLO datos autorizados (importe/fecha/concepto)
+  | "EDIT_PREVIOUS"          // editar la anterior (no duplicarla)
+  | "EDIT_AUTHORIZED"        // cambiar SOLO la fecha de cobro
   | "VALIDATE_MATCH"         // cotejar importe/cliente/IBAN con lo autorizado
   | "PREPARE_FOR_SIGNATURE"  // dejar lista para firma (SIN firmar)
   | "VERIFY_PENDING"         // verificar visualmente el estado "pendiente de firma"
@@ -69,7 +71,7 @@ export const FORBIDDEN_ACTION_PATTERNS: RegExp[] = [
   /\benviar al banco\b/i,
   /\bejecutar\b/i,
   /\bpagar\b/i,
-  /\bconfirmar y enviar\b/i,
+  /\bfirmar ahora\b/i,
   /\bsign\b/i
 ];
 

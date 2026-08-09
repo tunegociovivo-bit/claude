@@ -22,7 +22,8 @@ function ok(name: string, cond: boolean, detail = "") {
 
 const JOB: AuthorizedJob = {
   jobId: "job_1", invoiceNumber: "F-2026-001", clientName: "Cliente Demo SL",
-  amountCents: 12345, currency: "EUR", mandateRef: "MND-001", ibanMasked: "ES**…**1234"
+  amountCents: 12345, currency: "EUR", mandateRef: "MND-001", ibanMasked: "ES**…**1234",
+  santanderTemplate: "Cliente Demo"
 };
 
 function recordingHooks() {
