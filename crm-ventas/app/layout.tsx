@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "CRM Ventas — PAULA",
+  title: "CRM Ventas | Negocio Vivo",
   description: "CRM con recepcionista IA: llamadas, WhatsApp, citas y calendario",
 };
 
