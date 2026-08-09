@@ -18,7 +18,7 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { CalendarClock, GripVertical, MessageCircle, Pencil, Phone, Plus, Trash2, X } from "lucide-react";
+import { CalendarClock, MessageCircle, Pencil, Phone, Plus, Trash2, X } from "lucide-react";
 import clsx from "clsx";
 import type { PipelineColumn } from "@/lib/settings";
 import { useAgentName } from "@/components/AgentNameContext";
@@ -54,13 +54,11 @@ function ContactCard({
   card,
   onDelete,
   onEdit,
-  dragHandleProps,
   dragging,
 }: {
   card: Card;
   onDelete?: (id: string) => void;
   onEdit?: (card: Card) => void;
-  dragHandleProps?: React.HTMLAttributes<HTMLButtonElement>;
   dragging?: boolean;
 }) {
   return (
@@ -79,11 +77,6 @@ function ContactCard({
         </div>
         <div className="flex items-center gap-1">
           {SOURCE_ICON[card.source]}
-          {dragHandleProps && (
-            <button {...dragHandleProps} className="flex h-8 w-8 touch-none items-center justify-center rounded-md text-slate-400 hover:bg-slate-100" title="Mover tarjeta" aria-label="Mover tarjeta">
-              <GripVertical size={14} />
-            </button>
-          )}
           {onEdit && (
             <button
               onPointerDown={(e) => e.stopPropagation()}
@@ -99,6 +92,7 @@ function ContactCard({
           )}
           {onDelete && (
             <button
+              onPointerDown={(e) => e.stopPropagation()}
               onClick={(e) => {
                 e.stopPropagation();
                 onDelete(card.id);
@@ -149,10 +143,11 @@ function SortableCard({
     <div
       ref={setNodeRef}
       style={{ transform: CSS.Transform.toString(transform), transition }}
-      className={clsx(isDragging && "opacity-40")}
+      className={clsx("touch-none", isDragging && "opacity-40")}
       {...attributes}
+      {...listeners}
     >
-      <ContactCard card={card} onDelete={onDelete} onEdit={onEdit} dragHandleProps={listeners} />
+      <ContactCard card={card} onDelete={onDelete} onEdit={onEdit} />
     </div>
   );
 }
@@ -225,7 +220,9 @@ export default function PipelineClient({
   const [editNotes, setEditNotes] = useState("");
   const [saving, setSaving] = useState(false);
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 6 } })
+    useSensor(PointerSensor, {
+      activationConstraint: { delay: 180, tolerance: 8 },
+    })
   );
 
   const byColumn = useMemo(() => {

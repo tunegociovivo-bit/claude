@@ -33,11 +33,13 @@ export default function LoginPage() {
     <main className="flex min-h-screen items-center justify-center p-4">
       <div className="card w-full max-w-sm p-8">
         <div className="mb-6 text-center">
-          <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-brand-500 text-xl font-bold text-white">
-            P
-          </div>
+          <img
+            src="https://www.negociovivo.com/wp-content/uploads/2020/08/negociovivo.png"
+            alt="Negocio Vivo"
+            className="mx-auto mb-3 h-16 w-16 rounded-2xl object-contain"
+          />
           <h1 className="text-xl font-semibold">CRM Ventas</h1>
-          <p className="text-sm text-slate-500">Recepcionista IA · PAULA</p>
+          <p className="text-sm text-slate-500">Recepcionista IA</p>
         </div>
         <form onSubmit={onSubmit} className="space-y-3">
           <input
