@@ -20,8 +20,9 @@
  */
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const ROOT = new URL("..", import.meta.url).pathname;
+const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const API_DIR = join(ROOT, "app", "api");
 
 // Rutas donde el patrón es correcto a propósito (explica el motivo).
@@ -52,7 +53,7 @@ function* walk(dir) {
 
 const findings = [];
 for (const file of walk(API_DIR)) {
-  const rel = relative(ROOT, file);
+  const rel = relative(ROOT, file).replaceAll("\\", "/");
   if (ALLOWLIST.has(rel)) continue;
   const src = readFileSync(file, "utf8");
   // Los crons protegidos por CRON_SECRET operan sobre TODOS los workspaces

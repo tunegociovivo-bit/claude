@@ -20,10 +20,6 @@ type MonthSummary = {
 // Las 4 empresas iniciales (para detectar si falta crearlas).
 const DEFAULT_NAMES = ["Negocio Vivo S.C.A.", "Pronsia S.L.", "LemonRoi L.L.C.", "Rixus Solutions L.L.C."];
 
-// Cuenta como "facturado" lo que no es presupuesto/proforma ni borrador/anulada.
-const REAL_TYPES_EXCLUDED = ["PRESUPUESTO", "PROFORMA"];
-const NON_BILLED_STATUS = ["DRAFT", "CANCELLED", "REJECTED"];
-
 type ClientLite = { id: string; name: string; taxId: string | null };
 type Issuer = {
   id: string;
@@ -137,30 +133,23 @@ export default function FacturacionClient({
     }
     let aborted = false;
     (async () => {
+      const now = new Date();
+      const monthStartDate = new Date(now.getFullYear(), now.getMonth(), 1);
       const [ir, er] = await Promise.all([
-        fetch(`/api/v1/invoices?issuerId=${selectedId}`, { cache: "no-store" }),
+        fetch(`/api/v1/invoices/summary?issuerId=${selectedId}&from=${monthStartDate.toISOString()}`, { cache: "no-store" }),
         fetch(`/api/v1/expenses?issuerId=${selectedId}`, { cache: "no-store" })
       ]);
       if (aborted) return;
-      const items: any[] = ir.ok ? (await ir.json()).items ?? [] : [];
+      const invoiceSummary: any = ir.ok ? await ir.json() : {};
       const expItems: any[] = er.ok ? (await er.json()).items ?? [] : [];
-      const now = new Date();
       const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
-      const real = items.filter(
-        (i) =>
-          !REAL_TYPES_EXCLUDED.includes(i.type) &&
-          !NON_BILLED_STATUS.includes(i.status) &&
-          new Date(i.issueDate).getTime() >= monthStart
-      );
-      const facturado = real.reduce((s, i) => s + (i.totalCents ?? 0), 0);
-      const cobrado = real.filter((i) => i.status === "PAID").reduce((s, i) => s + (i.totalCents ?? 0), 0);
-      const pendiente = real
-        .filter((i) => i.status === "ISSUED")
-        .reduce((s, i) => s + ((i.totalCents ?? 0) - (i.paidCents ?? 0)), 0);
+      const facturado = invoiceSummary.issuedCents ?? 0;
+      const cobrado = invoiceSummary.collectedCents ?? 0;
+      const pendiente = invoiceSummary.outstandingCents ?? 0;
       const gastos = expItems
         .filter((e) => new Date(e.date).getTime() >= monthStart)
         .reduce((s, e) => s + (e.totalCents ?? 0), 0);
-      if (!aborted) setSummary({ facturado, cobrado, pendiente, count: real.length, gastos, resultado: facturado - gastos });
+      if (!aborted) setSummary({ facturado, cobrado, pendiente, count: invoiceSummary.documentCount ?? 0, gastos, resultado: facturado - gastos });
     })();
     return () => {
       aborted = true;

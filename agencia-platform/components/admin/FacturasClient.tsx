@@ -26,7 +26,9 @@ import {
   Pencil,
   CreditCard,
   X,
-  Repeat
+  Repeat,
+  AlertTriangle,
+  Clock3
 } from "lucide-react";
 
 type ClientLite = { id: string; name: string; taxId: string | null };
@@ -64,6 +66,18 @@ type InvoiceRow = {
   recurring: boolean;
   client: { id: string; name: string } | null;
   issuer: { id: string; name: string } | null;
+};
+
+type InvoiceSummary = {
+  issuedCents: number;
+  collectedCents: number;
+  outstandingCents: number;
+  overdueCents: number;
+  dueSoonCents: number;
+  draftCents: number;
+  documentCount: number;
+  overdueCount: number;
+  dueSoonCount: number;
 };
 
 const STATUS_STYLE: Record<string, string> = {
@@ -113,6 +127,11 @@ export default function FacturasClient({
   const [typeFilter, setTypeFilter] = useState<string>("");
   const [statusFilter, setStatusFilter] = useState<string>("");
   const [q, setQ] = useState("");
+  const [debouncedQ, setDebouncedQ] = useState("");
+  const [page, setPage] = useState(1);
+  const [pages, setPages] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [summary, setSummary] = useState<InvoiceSummary | null>(null);
   const [editing, setEditing] = useState<InvoiceRow | "new" | null>(null);
   const [issuersOpen, setIssuersOpen] = useState(false);
 
@@ -123,21 +142,43 @@ export default function FacturasClient({
       if (typeFilter) params.set("type", typeFilter);
       if (statusFilter) params.set("status", statusFilter);
       if (lockedIssuerId) params.set("issuerId", lockedIssuerId);
-      if (q.trim()) params.set("q", q.trim());
+      if (debouncedQ) params.set("q", debouncedQ);
+      params.set("page", String(page));
+      params.set("pageSize", "50");
       const r = await fetch(`/api/v1/invoices?${params.toString()}`, { cache: "no-store" });
       if (r.ok) {
         const data = await r.json();
         setInvoices(data.items ?? []);
+        setPages(data.pagination?.pages ?? 1);
+        setTotal(data.pagination?.total ?? data.items?.length ?? 0);
         onInvoicesChanged?.();
       }
     } finally {
       setLoading(false);
     }
-  }, [typeFilter, statusFilter, q, lockedIssuerId, onInvoicesChanged]);
+  }, [typeFilter, statusFilter, debouncedQ, page, lockedIssuerId, onInvoicesChanged]);
 
   useEffect(() => {
     loadInvoices();
   }, [loadInvoices]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedQ(q.trim()), 300);
+    return () => window.clearTimeout(timer);
+  }, [q]);
+
+  useEffect(() => setPage(1), [typeFilter, statusFilter, debouncedQ, lockedIssuerId]);
+
+  const loadSummary = useCallback(async () => {
+    const params = new URLSearchParams();
+    if (lockedIssuerId) params.set("issuerId", lockedIssuerId);
+    const response = await fetch(`/api/v1/invoices/summary?${params.toString()}`, { cache: "no-store" });
+    if (response.ok) setSummary(await response.json());
+  }, [lockedIssuerId]);
+
+  useEffect(() => {
+    loadSummary();
+  }, [loadSummary]);
 
   const reloadIssuers = useCallback(async () => {
     const r = await fetch("/api/v1/invoice-issuers", { cache: "no-store" });
@@ -156,15 +197,9 @@ export default function FacturasClient({
       alert(j?.error?.message ?? j?.message ?? `Error ${r.status}`);
       return null;
     }
+    void loadSummary();
     return r.json().catch(() => ({}));
   }
-
-  const totalsByStatus = useMemo(() => {
-    const issued = invoices.filter((i) => i.status === "ISSUED");
-    const paid = invoices.filter((i) => i.status === "PAID");
-    const sum = (arr: InvoiceRow[]) => arr.reduce((s, i) => s + i.totalCents, 0);
-    return { pending: sum(issued), paid: sum(paid), pendingCount: issued.length, paidCount: paid.length };
-  }, [invoices]);
 
   return (
     <div>
@@ -216,22 +251,43 @@ export default function FacturasClient({
       </div>
 
       {/* KPIs */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-4">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-4">
         <div className="bg-white border rounded-xl p-3">
           <div className="text-xs text-slate-500">Pendiente de cobro</div>
-          <div className="text-lg font-bold text-blue-700">{formatMoney(totalsByStatus.pending)}</div>
-          <div className="text-[11px] text-slate-400">{totalsByStatus.pendingCount} emitidas</div>
+          <div className="text-lg font-bold text-blue-700">{formatMoney(summary?.outstandingCents ?? 0)}</div>
+          <div className="text-[11px] text-slate-400">Saldo real, descontando cobros parciales</div>
         </div>
         <div className="bg-white border rounded-xl p-3">
           <div className="text-xs text-slate-500">Cobrado</div>
-          <div className="text-lg font-bold text-emerald-700">{formatMoney(totalsByStatus.paid)}</div>
-          <div className="text-[11px] text-slate-400">{totalsByStatus.paidCount} pagadas</div>
+          <div className="text-lg font-bold text-emerald-700">{formatMoney(summary?.collectedCents ?? 0)}</div>
+          <div className="text-[11px] text-slate-400">Cobros totales y parciales</div>
+        </div>
+        <div className="bg-rose-50 border border-rose-200 rounded-xl p-3">
+          <div className="text-xs text-rose-700 flex items-center gap-1"><AlertTriangle className="h-3.5 w-3.5" /> Vencido</div>
+          <div className="text-lg font-bold text-rose-700">{formatMoney(summary?.overdueCents ?? 0)}</div>
+          <div className="text-[11px] text-rose-500">{summary?.overdueCount ?? 0} factura(s)</div>
+        </div>
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-3">
+          <div className="text-xs text-amber-700 flex items-center gap-1"><Clock3 className="h-3.5 w-3.5" /> Vence en 7 días</div>
+          <div className="text-lg font-bold text-amber-700">{formatMoney(summary?.dueSoonCents ?? 0)}</div>
+          <div className="text-[11px] text-amber-600">{summary?.dueSoonCount ?? 0} factura(s)</div>
         </div>
         <div className="bg-white border rounded-xl p-3">
-          <div className="text-xs text-slate-500">Documentos</div>
-          <div className="text-lg font-bold">{invoices.length}</div>
+          <div className="text-xs text-slate-500">Borradores</div>
+          <div className="text-lg font-bold">{formatMoney(summary?.draftCents ?? 0)}</div>
+          <div className="text-[11px] text-slate-400">{summary?.documentCount ?? total} documentos facturables</div>
         </div>
       </div>
+
+      {pages > 1 && (
+        <div className="mt-3 flex items-center justify-between text-sm text-slate-600">
+          <span>{total} documentos · Página {page} de {pages}</span>
+          <div className="flex gap-2">
+            <button className="border rounded-lg px-3 py-1.5 disabled:opacity-40" disabled={page <= 1 || loading} onClick={() => setPage((value) => value - 1)}>Anterior</button>
+            <button className="border rounded-lg px-3 py-1.5 disabled:opacity-40" disabled={page >= pages || loading} onClick={() => setPage((value) => value + 1)}>Siguiente</button>
+          </div>
+        </div>
+      )}
 
       {/* Table */}
       <div className="bg-white border rounded-xl overflow-hidden">

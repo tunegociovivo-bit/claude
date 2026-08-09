@@ -14,6 +14,8 @@ export const GET = withApi({ scope: "*", rate: "admin" }, async (req, { api }) =
   const clientId = url.searchParams.get("clientId") ?? undefined;
   const issuerId = url.searchParams.get("issuerId") ?? undefined;
   const q = url.searchParams.get("q")?.trim();
+  const page = Math.max(Number(url.searchParams.get("page")) || 1, 1);
+  const pageSize = Math.min(Math.max(Number(url.searchParams.get("pageSize")) || 50, 10), 100);
 
   const where: any = { workspaceId: api.workspaceId, deletedAt: null };
   if (type) where.type = type;
@@ -27,7 +29,8 @@ export const GET = withApi({ scope: "*", rate: "admin" }, async (req, { api }) =
     ];
   }
 
-  const items = await prisma.invoice.findMany({
+  const [items, total] = await prisma.$transaction([
+    prisma.invoice.findMany({
     where,
     select: {
       id: true,
@@ -47,9 +50,12 @@ export const GET = withApi({ scope: "*", rate: "admin" }, async (req, { api }) =
       issuer: { select: { id: true, name: true } }
     },
     orderBy: [{ issueDate: "desc" }, { createdAt: "desc" }],
-    take: 500
-  });
-  return NextResponse.json({ items });
+      skip: (page - 1) * pageSize,
+      take: pageSize
+    }),
+    prisma.invoice.count({ where })
+  ]);
+  return NextResponse.json({ items, pagination: { page, pageSize, total, pages: Math.ceil(total / pageSize) } });
 });
 
 export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api }) => {
