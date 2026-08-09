@@ -1,61 +1,91 @@
 "use client";
 
 /**
- * Redirección del enlace de invitación. Separada en cliente para que la página
- * (server) pueda generar metadata OG (preview rico en WhatsApp).
+ * Acción del enlace de invitación (/bubui/r/<code>).
  *
- * Estrategia de atribución por plataforma:
- *  - Móvil con la app instalada → abre la app vía deep link (bubui://r/<code>),
- *    que captura el código y lo vincula al alta.
- *  - Android sin la app → Play Store con &referrer=ref_<code>; al instalar, el
- *    Install Referrer recupera el código (atribución diferida).
- *  - iOS sin app / escritorio → PWA (/bubui/app?ref=<code>), que ya atribuye.
+ * ANTES: redirección automática por JS (deep link → timeout → Play). Dentro
+ * del navegador de WhatsApp, el intento de deep link podía disparar
+ * visibilitychange y CANCELAR el fallback → el amigo se quedaba en una
+ * página muerta e instalaba la app a mano, SIN atribución. Por eso el nivel
+ * cliente→amigos perdía referidos.
+ *
+ * AHORA (mismo patrón que /reto, que funciona):
+ *  1. Al cargar: registra el clic en el servidor (atribución de reserva por
+ *     IP — funciona aunque TODO lo demás falle) y guarda el código en
+ *     localStorage (atribución PWA).
+ *  2. Intenta abrir la app instalada UNA vez; si la página sigue visible,
+ *     muestra BOTONES explícitos: "Instalar en Google Play" es un enlace
+ *     real con &referrer= (clic del usuario = atribución fiable) y "Ya
+ *     tengo la app" reintenta el deep link.
  */
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
 const ANDROID_PACKAGE = "com.negociovivo.bubui";
 
 export default function ReferralRedirect({ code }: { code: string }) {
   const router = useRouter();
+  const [os, setOs] = useState<"android" | "ios" | "other">("other");
+  const [triedApp, setTriedApp] = useState(false);
+
+  const deepLink = `bubui://r/${encodeURIComponent(code)}`;
+  const playStore = `https://play.google.com/store/apps/details?id=${ANDROID_PACKAGE}&referrer=${encodeURIComponent(`ref_${code}`)}`;
+  const pwa = `/bubui/app?ref=${encodeURIComponent(code ?? "")}`;
+
+  function tryOpenApp() {
+    setTriedApp(false);
+    let opened = false;
+    const onHide = () => { if (document.hidden) opened = true; };
+    document.addEventListener("visibilitychange", onHide);
+    window.setTimeout(() => {
+      document.removeEventListener("visibilitychange", onHide);
+      if (!opened && !document.hidden) setTriedApp(true); // sin app → botones
+    }, 1500);
+    try { window.location.href = deepLink; } catch { setTriedApp(true); }
+  }
+
   useEffect(() => {
-    try {
-      if (code) localStorage.setItem("bubui.ref", code);
-    } catch {}
+    if (!code) { router.replace(pwa); return; }
+    try { localStorage.setItem("bubui.ref", code); } catch {}
+    // Atribución de reserva por IP: aunque el amigo acabe instalando la app
+    // a mano desde Play, el registro lo vinculará igual.
+    fetch("/api/bubui/referral-click", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code })
+    }).catch(() => {});
 
     const ua = typeof navigator !== "undefined" ? navigator.userAgent : "";
     const isAndroid = /android/i.test(ua);
     const isIOS = /iphone|ipad|ipod/i.test(ua);
-    const isMobile = isAndroid || isIOS;
-    const pwa = `/bubui/app?ref=${encodeURIComponent(code ?? "")}`;
+    if (!isAndroid && !isIOS) { router.replace(pwa); return; } // escritorio → PWA
+    setOs(isAndroid ? "android" : "ios");
+    tryOpenApp(); // con la app instalada, entra directo
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [code]);
 
-    if (!isMobile || !code) {
-      router.replace(pwa);
-      return;
-    }
+  if (!triedApp) return null; // abriendo la app / esperando el intento
 
-    // Intenta abrir la app instalada con el código.
-    const deepLink = `bubui://r/${encodeURIComponent(code)}`;
-    const playStore = `https://play.google.com/store/apps/details?id=${ANDROID_PACKAGE}&referrer=${encodeURIComponent(`ref_${code}`)}`;
-
-    // Si la app abre, la pestaña se oculta → cancelamos el fallback.
-    let cancelled = false;
-    const onHide = () => { if (document.hidden) cancelled = true; };
-    document.addEventListener("visibilitychange", onHide);
-
-    const fallback = setTimeout(() => {
-      if (cancelled) return;
-      if (isAndroid) window.location.href = playStore; // sin app → Play (con referrer)
-      else router.replace(pwa); // iOS sin app → PWA
-    }, 1300);
-
-    try { window.location.href = deepLink; } catch {}
-
-    return () => {
-      clearTimeout(fallback);
-      document.removeEventListener("visibilitychange", onHide);
-    };
-  }, [code, router]);
-
-  return null;
+  return (
+    <div className="mt-8 space-y-3">
+      {os === "android" ? (
+        <a href={playStore} className="bubui-btn w-full inline-flex justify-center">
+          ⬇️ Instalar en Android (Google Play)
+        </a>
+      ) : (
+        <button onClick={() => router.replace(pwa)} className="bubui-btn w-full">
+          🎁 Conseguir mi cupón
+        </button>
+      )}
+      <button
+        onClick={tryOpenApp}
+        className="w-full text-sm font-semibold text-pink-600 py-2"
+      >
+        ↻ Ya tengo la app — abrirla
+      </button>
+      <p className="text-[12px] text-black/45 leading-snug">
+        Instala Bubui gratis y tu cupón de bienvenida se activará solo al registrarte.
+      </p>
+    </div>
+  );
 }

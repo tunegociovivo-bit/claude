@@ -1,0 +1,14 @@
+{
+  "_comment": "EJEMPLO ILUSTRATIVO. Estos selectores son ficticios y NO corresponden al portal real de Santander. El fichero real (selectors.json) se genera con 'npm run record' en una sesión supervisada por el usuario. No copies esto a producción.",
+  "sessionReady": { "css": "[data-testid=\"user-menu\"]", "describe": "Menú de usuario visible tras login" },
+  "remittancesNav": { "css": "a[href*=\"remesas\"]", "text": "Remesas", "describe": "Acceso a remesas/adeudos" },
+  "previousRemittance": { "css": "table.remesas tbody tr:first-child", "describe": "Remesa recurrente anterior" },
+  "duplicateAction": { "css": "button[data-action=\"duplicar\"]", "text": "Duplicar", "describe": "Duplicar/reutilizar remesa anterior" },
+  "amountField": { "css": "input[name=\"importe\"]", "describe": "Campo de importe" },
+  "chargeDateField": { "css": "input[name=\"fechaCargo\"]", "describe": "Campo de fecha de cargo" },
+  "conceptField": { "css": "input[name=\"concepto\"]", "describe": "Campo de concepto" },
+  "clientLabel": { "css": "[data-testid=\"deudor-nombre\"]", "describe": "Nombre del deudor mostrado" },
+  "ibanLabel": { "css": "[data-testid=\"deudor-iban\"]", "describe": "IBAN enmascarado del deudor" },
+  "prepareAction": { "css": "button[data-action=\"guardar\"]", "text": "Guardar", "describe": "Deja la remesa lista para firma (NO firma)" },
+  "pendingSignatureIndicator": { "css": "[data-status=\"pendiente-firma\"]", "text": "Pendiente de firma", "describe": "Indicador de estado pendiente de firma" }
+}

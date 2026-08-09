@@ -21,7 +21,8 @@ import { classifyLeadsRelevance, type RelevanceVerdict } from "./relevance";
 import { collectFromSource, enrichJobsResults, type LeadSourceKey } from "./sources";
 import { offersToLeadResults } from "./sources/jobs";
 import { fetchJobAlertOffers } from "./sources/jobs-inbox";
-import { startExecOutreach, draftJobsReview } from "./exec-outreach";
+import { analyzeFranchiseNetwork } from "./sources/franchises";
+import { startExecOutreach, draftJobsReview, saveReviewDraft } from "./exec-outreach";
 
 /**
  * Arranca la secuencia de email automática para los leads de la fuente "jobs"
@@ -78,8 +79,9 @@ async function startJobsOutreach(workspaceId: string, searchId: string): Promise
         const rd: any = l.rawData ?? {};
         const jobTitle = typeof rd?.jobTitle === "string" ? rd.jobTitle : null;
         const jobDescription = typeof rd?.jobDescription === "string" ? rd.jobDescription : null;
+        const director = typeof rd?.directorName === "string" ? rd.directorName : null;
         try {
-          await draftJobsReview({ workspaceId, leadId: l.id, email: l.email as string, company: l.name, sector: l.category, jobTitle, jobDescription });
+          await draftJobsReview({ workspaceId, leadId: l.id, email: l.email as string, company: l.name, sector: l.category, jobTitle, jobDescription, director });
           return true;
         } catch (err) {
           console.error("[search-manager jobs] draftJobsReview error:", err);
@@ -168,6 +170,251 @@ export async function ingestJobsInbox(
   } catch {}
 
   return { emails, offers: offers.length, ingested, error };
+}
+
+/**
+ * Re-enriquece los leads de la fuente jobs que se quedaron SIN email: vuelve a
+ * buscar web+teléfono (Places) y email (web, con el extractor mejorado). A las
+ * que ahora sí tienen email, les redacta el borrador de revisión. Para recuperar
+ * empresas detectadas en pasadas anteriores cuando aún no dábamos con su email.
+ */
+export async function reEnrichJobsLeads(workspaceId: string): Promise<{ scanned: number; emailsFound: number; drafted: number }> {
+  const leads = await prisma.lead.findMany({
+    where: { workspaceId, email: null, contactStatus: "pending", rawData: { path: ["source"], equals: "jobs" } } as any,
+    take: 50,
+    select: { id: true, name: true, province: true, website: true, phone: true, internationalPhone: true, category: true, rawData: true }
+  });
+  if (leads.length === 0) return { scanned: 0, emailsFound: 0, drafted: 0 };
+
+  const pr: PlacesResult[] = leads.map((l) => ({
+    placeId: `jobs:reenrich:${l.id}`,
+    name: l.name,
+    formattedAddress: null,
+    province: l.province,
+    types: ["jobs.listing"],
+    category: l.category,
+    latitude: null,
+    longitude: null,
+    rating: null,
+    userRatingCount: 0,
+    priceLevel: null,
+    businessStatus: "OPERATIONAL",
+    gmbUrl: null,
+    website: l.website,
+    phone: l.phone,
+    internationalPhone: l.internationalPhone,
+    rawData: { ...((l.rawData as any) ?? {}) }
+  }));
+  const enriched = await enrichJobsResults(workspaceId, pr);
+
+  let emailsFound = 0;
+  const nowEmailed: { id: string; email: string; name: string; category: string | null; rawData: any }[] = [];
+  for (let i = 0; i < leads.length; i++) {
+    const e = enriched[i];
+    const rd: any = e?.rawData ?? {};
+    const email = typeof rd.email === "string" ? rd.email : null;
+    const data: any = {};
+    if (email) { data.email = email; emailsFound++; }
+    if (!leads[i].website && e?.website) data.website = e.website;
+    if (!leads[i].phone && e?.phone) { data.phone = e.phone; data.internationalPhone = e.internationalPhone; }
+    // Persiste el rawData enriquecido (incluye directorName/role/via de Apollo/
+    // Hunter) para que el saludo por nombre sobreviva a "Regenerar".
+    if (email && typeof rd.directorName === "string") data.rawData = rd;
+    if (Object.keys(data).length) await prisma.lead.update({ where: { id: leads[i].id }, data }).catch(() => {});
+    if (email) nowEmailed.push({ id: leads[i].id, email, name: leads[i].name, category: leads[i].category, rawData: rd });
+  }
+
+  // Redacta el borrador de revisión para las que ahora tienen email y aún no
+  // tienen secuencia (respeta lo ya gestionado/descartado).
+  let drafted = 0;
+  if (nowEmailed.length > 0) {
+    const already = await prisma.leadExecOutreach.findMany({
+      where: { workspaceId, leadId: { in: nowEmailed.map((l) => l.id) } },
+      select: { leadId: true }
+    });
+    const handled = new Set(already.map((e) => e.leadId));
+    for (const l of nowEmailed.filter((x) => !handled.has(x.id))) {
+      const jobTitle = typeof l.rawData?.jobTitle === "string" ? l.rawData.jobTitle : null;
+      const jobDescription = typeof l.rawData?.jobDescription === "string" ? l.rawData.jobDescription : null;
+      const director = typeof l.rawData?.directorName === "string" ? l.rawData.directorName : null;
+      try {
+        await draftJobsReview({ workspaceId, leadId: l.id, email: l.email, company: l.name, sector: l.category, jobTitle, jobDescription, director });
+        drafted++;
+      } catch (err) {
+        console.error("[jobs-reenrich] draftJobsReview error:", err);
+      }
+    }
+  }
+  return { scanned: leads.length, emailsFound, drafted };
+}
+
+/**
+ * Analiza las franquicias seleccionadas: por cada marca, muestrea su red en
+ * Google, genera el informe de salud + el email a la central, crea el lead
+ * (la central) y deja el email en la cola de revisión. Devuelve un resumen por
+ * marca para la UI. Reutiliza upsertLead + la cola de revisión existentes.
+ */
+export async function analyzeFranchises(
+  workspaceId: string,
+  brands: string[],
+  location?: string
+): Promise<{ results: { brand: string; sampled: number; metrics: any | null; emailed: boolean; email: string | null; contact?: any; status?: string; contactedAt?: string | null; error?: string }[] }> {
+  // Contenedor de búsqueda persistente para los leads de franquicias.
+  let search = await prisma.leadSearch.findFirst({
+    where: { workspaceId, source: "franchises", location: "Franquicias" } as any
+  });
+  if (!search) {
+    search = await prisma.leadSearch.create({
+      data: {
+        workspaceId,
+        keyword: "Franquicias (central)",
+        location: "Franquicias",
+        scope: "custom",
+        source: "franchises",
+        totalProvinces: 1,
+        processedProvinces: 1,
+        status: "COMPLETED",
+        sourceConfig: { franchises: true }
+      } as any
+    });
+  }
+
+  const results: { brand: string; sampled: number; metrics: any | null; emailed: boolean; email: string | null; contact?: any; status?: string; contactedAt?: string | null; error?: string }[] = [];
+  let position = 1;
+  for (const brand of brands.slice(0, 12)) {
+    try {
+      const a = await analyzeFranchiseNetwork(workspaceId, brand, location);
+      if (!a) {
+        results.push({ brand, sampled: 0, metrics: null, emailed: false, email: null, status: "no_network", error: "No se encontró red suficiente en Google (mín. 3 fichas)." });
+        continue;
+      }
+      await upsertLead({
+        workspaceId,
+        searchId: search.id,
+        province: a.central.province ?? "España",
+        position: position++,
+        r: a.central,
+        aiRelevance: null,
+        skipExisting: false
+      });
+      const lead = await prisma.lead.findUnique({
+        where: { workspaceId_placeId: { workspaceId, placeId: a.central.placeId } },
+        select: { id: true, contactStatus: true }
+      });
+      let emailed = false;
+      // Estado claro para NO insistir: ya contactada (email enviado) / borrador en
+      // cola (aún no enviado) / borrador creado ahora / sin email.
+      let status = "no_email";
+      let contactedAt: string | null = null;
+      if (lead) {
+        const already = await prisma.leadExecOutreach.findFirst({
+          where: { workspaceId, leadId: lead.id },
+          select: { status: true, updatedAt: true }
+        });
+        const isSent = ["contacted", "responded", "client"].includes(lead.contactStatus) || (already && already.status !== "pending_review");
+        if (isSent) {
+          status = "contacted";
+          contactedAt = already?.updatedAt ? already.updatedAt.toISOString() : null;
+        } else if (already) {
+          status = "draft_pending"; // ya tiene borrador esperando aprobación
+        } else if (a.email && a.subject && a.body) {
+          await saveReviewDraft(workspaceId, lead.id, a.email, a.subject, a.body);
+          emailed = true;
+          status = "drafted_now";
+        }
+      }
+      results.push({ brand, sampled: a.metrics.sampled, metrics: a.metrics, emailed, email: a.email, contact: a.contact, status, contactedAt });
+    } catch (err: any) {
+      results.push({ brand, sampled: 0, metrics: null, emailed: false, email: null, status: "error", error: String(err?.message ?? err).slice(0, 160) });
+    }
+  }
+  return { results };
+}
+
+/**
+ * Importa franquicias desde los DIRECTORIOS (portales de franquicias): scrapea las
+ * fichas, saca el contacto de expansión/marketing (con email deducido por Hunter si
+ * falta) y las guarda como leads de central con CONTACTO VERIFICADO. Devuelve la
+ * lista para mostrarla — "trabajar con emails que funcionan".
+ */
+export async function importFranchiseDirectory(
+  workspaceId: string
+): Promise<{ imported: number; withEmail: number; scanned: number; contacts: any[]; perDirectory: any[] }> {
+  const { crawlFranchiseDirectories } = await import("./sources/franchise-directory");
+  const { contacts, scanned, perDirectory } = await crawlFranchiseDirectories(workspaceId, { max: 120 });
+
+  const search = await getOrCreateFranchiseSearch(workspaceId);
+  const slugify = (s: string) => s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  let imported = 0;
+  let withEmail = 0;
+  let position = 1;
+  for (const c of contacts) {
+    const key = slugify(c.brand);
+    if (!key) continue;
+    const central: PlacesResult = {
+      placeId: `franchise:${key}`,
+      name: c.brand,
+      formattedAddress: null,
+      province: "España",
+      types: ["franchise.central"],
+      category: "Central de franquicia",
+      latitude: null,
+      longitude: null,
+      rating: null,
+      userRatingCount: 0,
+      priceLevel: null,
+      businessStatus: "OPERATIONAL",
+      gmbUrl: null,
+      website: c.corporateWeb,
+      phone: c.phone,
+      internationalPhone: null,
+      rawData: {
+        source: "franchises",
+        contactSource: "directory",
+        directory: c.directory,
+        directoryUrl: c.sourceUrl,
+        brand: c.brand,
+        sector: c.sector ?? undefined,
+        email: c.email ?? undefined,
+        // Otros emails de la ficha → copia oculta.
+        bccEmails: Array.isArray(c.emails) && c.emails.length > 1
+          ? c.emails.filter((e: string) => e.toLowerCase() !== (c.email ?? "").toLowerCase())
+          : undefined,
+        directorName: c.contactName ?? undefined,
+        directorRole: c.role ?? undefined,
+        contactVerified: !!c.email
+      }
+    };
+    try {
+      await upsertLead({ workspaceId, searchId: search.id, province: "España", position: position++, r: central, aiRelevance: null, skipExisting: false });
+      imported++;
+      if (c.email) withEmail++;
+    } catch (err) {
+      console.error("[franchise-directory] upsert error:", err);
+    }
+  }
+  return { imported, withEmail, scanned, contacts, perDirectory };
+}
+
+/** Contenedor de búsqueda persistente para los leads de franquicias. */
+async function getOrCreateFranchiseSearch(workspaceId: string) {
+  let search = await prisma.leadSearch.findFirst({ where: { workspaceId, source: "franchises", location: "Franquicias" } as any });
+  if (!search) {
+    search = await prisma.leadSearch.create({
+      data: {
+        workspaceId,
+        keyword: "Franquicias (central)",
+        location: "Franquicias",
+        scope: "custom",
+        source: "franchises",
+        totalProvinces: 1,
+        processedProvinces: 1,
+        status: "COMPLETED",
+        sourceConfig: { franchises: true }
+      } as any
+    });
+  }
+  return search;
 }
 
 /** Clave de caché de barridos: normaliza keyword/área (minúsculas, espacios). */

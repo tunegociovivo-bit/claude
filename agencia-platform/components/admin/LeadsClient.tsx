@@ -34,7 +34,7 @@ function isPainNow(l: { rating: number | null; reviewsCount: number }): boolean 
 }
 import {
   Loader2, Plus, Search, Inbox, ListChecks, BarChart3, MessageCircle,
-  Settings as SettingsIcon, Ban, GitBranch, Send, RefreshCw, Download, Play, Pause, Trash2, Pencil, Zap, CalendarClock, Eye, Mail
+  Settings as SettingsIcon, Ban, GitBranch, Send, RefreshCw, Download, Play, Pause, Trash2, Pencil, Zap, CalendarClock, Eye, Mail, Building2
 } from "lucide-react";
 
 type Lead = {
@@ -121,7 +121,7 @@ type QueueRow = {
   channelCap?: number;
 };
 
-type Tab = "leads" | "searches" | "queue" | "jobs-review" | "inbox" | "sequences" | "templates" | "exclusions" | "analytics" | "map" | "settings";
+type Tab = "leads" | "searches" | "queue" | "jobs-review" | "franchises" | "inbox" | "sequences" | "templates" | "exclusions" | "analytics" | "map" | "settings";
 
 /** ¿Este mensaje de la cola se ENVIÓ hoy? (día natural local del navegador —
  *  España ≈ Madrid). Para resaltar en verde los envíos del día. */
@@ -528,6 +528,7 @@ export default function LeadsClient() {
       {tab === "searches" && <SearchesTable loading={loading} items={searches} onChanged={load} />}
       {tab === "queue" && <QueueTable loading={loading} items={queue} onChanged={load} />}
       {tab === "jobs-review" && <JobsReviewPanel />}
+      {tab === "franchises" && <FranchisesView />}
       {tab === "inbox" && <InboxChat loading={loading} diagnostics={inboxDiag} initialPhone={deepLinkPhone} />}
       {tab === "sequences" && <SequencesView />}
       {tab === "templates" && <TemplatesTable loading={loading} items={templates} onChanged={load} />}
@@ -847,6 +848,7 @@ const LEADS_TAB_DEFS: { key: Tab; label: string; icon: React.ReactNode }[] = [
   { key: "searches",   label: "Búsquedas",   icon: <Search className="h-3.5 w-3.5" /> },
   { key: "queue",      label: "Cola envío",  icon: <Send className="h-3.5 w-3.5" /> },
   { key: "jobs-review", label: "📧 Empleos", icon: <Mail className="h-3.5 w-3.5" /> },
+  { key: "franchises", label: "🏢 Franquicias", icon: <Building2 className="h-3.5 w-3.5" /> },
   { key: "inbox",      label: "Inbox",       icon: <Inbox className="h-3.5 w-3.5" /> },
   { key: "sequences",  label: "Secuencias",  icon: <GitBranch className="h-3.5 w-3.5" /> },
   { key: "templates",  label: "Plantillas",  icon: <ListChecks className="h-3.5 w-3.5" /> },
@@ -2536,6 +2538,7 @@ function JobsInboxConfig({ onIngested }: { onIngested: () => void }) {
   const [enabled, setEnabled] = useState(false);
   const [saving, setSaving] = useState(false);
   const [ingesting, setIngesting] = useState(false);
+  const [testing, setTesting] = useState(false);
   const [msg, setMsg] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
 
   async function load() {
@@ -2564,6 +2567,22 @@ function JobsInboxConfig({ onIngested }: { onIngested: () => void }) {
       setMsg({ kind: "ok", text: "Guardado." });
       void load();
     } finally { setSaving(false); }
+  }
+
+  async function testConn() {
+    setTesting(true);
+    setMsg(null);
+    try {
+      const body: any = { host, port: Number(port) || 993 };
+      // Si hay credenciales en el formulario, probamos esas; si no, las guardadas.
+      if (user.trim()) body.user = user.trim();
+      if (pass.trim()) body.password = pass.trim();
+      const r = await fetch("/api/v1/leads/jobs-inbox/test", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) { setMsg({ kind: "err", text: j?.error?.message ?? "Error al probar la conexión." }); return; }
+      if (!j.ok) { setMsg({ kind: "err", text: j.error ?? "No conecta." }); return; }
+      setMsg({ kind: "ok", text: `✅ Conecta. ${j.unseen ?? 0} correo(s) sin leer · ${j.jobUnseen ?? 0} de portales de empleo pendientes de procesar.` });
+    } finally { setTesting(false); }
   }
 
   async function ingestNow() {
@@ -2605,6 +2624,9 @@ function JobsInboxConfig({ onIngested }: { onIngested: () => void }) {
           <button onClick={() => void save()} disabled={saving} className="inline-flex items-center gap-1 rounded-md bg-slate-700 px-2.5 py-1 text-xs font-semibold text-white hover:bg-slate-800 disabled:opacity-50">
             {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />} Guardar
           </button>
+          <button onClick={() => void testConn()} disabled={testing} className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50" title="Verifica que el buzón conecta (separa un fallo de credenciales de uno de extracción)">
+            {testing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "🔌"} Probar conexión
+          </button>
           <button onClick={() => void ingestNow()} disabled={ingesting || !cfg?.jobsInboxConfigured} className="inline-flex items-center gap-1 rounded-md bg-indigo-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-indigo-700 disabled:opacity-50" title={cfg?.jobsInboxConfigured ? "Lee ahora las alertas nuevas del buzón" : "Guarda primero los datos del buzón"}>
             {ingesting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "📥"} Revisar alertas ahora
           </button>
@@ -2616,12 +2638,282 @@ function JobsInboxConfig({ onIngested }: { onIngested: () => void }) {
   );
 }
 
+/**
+ * Módulo Franquicias: nicho → IA propone marcas (verificadas) → eliges → se
+ * analiza la salud de red de cada una (Google Maps) → informe + email a la
+ * central en la cola de revisión. Enfocado a la CENTRAL (gestión de todas las
+ * fichas con GMB HUB), no al franquiciado suelto.
+ */
+/** Config de las keys de Apollo/Hunter (para localizar al responsable de marketing). */
+function DecisionMakerKeys() {
+  const [cfg, setCfg] = useState<any | null>(null);
+  const [hunter, setHunter] = useState("");
+  const [apollo, setApollo] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  async function load() {
+    try { const r = await fetch("/api/v1/leads/settings"); if (r.ok) setCfg(await r.json()); } catch {}
+  }
+  useEffect(() => { void load(); }, []);
+  async function save() {
+    setSaving(true); setMsg(null);
+    try {
+      const body: any = {};
+      if (hunter.trim()) body.hunterApiKey = hunter.trim();
+      if (apollo.trim()) body.apolloApiKey = apollo.trim();
+      const r = await fetch("/api/v1/leads/settings", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      if (!r.ok) { const j = await r.json().catch(() => ({})); setMsg(j?.error?.message ?? "No se pudo guardar."); return; }
+      setHunter(""); setApollo(""); setMsg("Guardado."); void load();
+    } finally { setSaving(false); }
+  }
+  return (
+    <details className="rounded-lg border border-slate-200 bg-white p-3">
+      <summary className="cursor-pointer select-none text-sm font-semibold text-slate-700">
+        ⚙️ Contacto del decisor — Apollo / Hunter
+        {cfg && <span className="ml-2 text-[11px] font-normal text-slate-500">{cfg.apolloConfigured ? "Apollo ✓" : "Apollo ✗"} · {cfg.hunterConfigured ? "Hunter ✓" : "Hunter ✗"}</span>}
+      </summary>
+      <div className="mt-2 space-y-2">
+        <p className="text-[11px] text-slate-500">
+          Para llegar al <strong>responsable de marketing</strong> de la central (no a <code>info@</code>) hace falta un proveedor de contactos B2B.
+          <strong> Hunter</strong> da el email real por dominio+departamento; <strong>Apollo</strong> da nombre, cargo y LinkedIn. Con al menos uno ya funciona.
+          Tienen límites/coste de créditos. Sin ninguno, se usa el email genérico de la web.
+        </p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <input value={hunter} onChange={(e) => setHunter(e.target.value)} type="password" placeholder={cfg?.hunterConfigured ? "Hunter API key (•••• guardada)" : "Hunter API key"} className="px-2 py-1 rounded border border-slate-300 text-sm" />
+          <input value={apollo} onChange={(e) => setApollo(e.target.value)} type="password" placeholder={cfg?.apolloConfigured ? "Apollo API key (•••• guardada)" : "Apollo API key"} className="px-2 py-1 rounded border border-slate-300 text-sm" />
+        </div>
+        <div className="flex items-center gap-2">
+          <button onClick={() => void save()} disabled={saving} className="inline-flex items-center gap-1 rounded-md bg-slate-700 px-2.5 py-1 text-xs font-semibold text-white hover:bg-slate-800 disabled:opacity-50">
+            {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />} Guardar
+          </button>
+          {msg && <span className="text-[11px] text-emerald-700">{msg}</span>}
+        </div>
+      </div>
+    </details>
+  );
+}
+
+function FranchisesView() {
+  const [niche, setNiche] = useState("");
+  const [location, setLocation] = useState("");
+  const [brands, setBrands] = useState<{ name: string; sampleCount: number; checked: boolean; contacted?: boolean }[] | null>(null);
+  const [discovering, setDiscovering] = useState(false);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [results, setResults] = useState<any[] | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [diag, setDiag] = useState<{ proposed: number; verified: number; placesErrors: number } | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [dirResult, setDirResult] = useState<{ imported: number; withEmail: number; scanned: number; contacts: any[] } | null>(null);
+
+  async function importDirectory() {
+    setImporting(true);
+    setErr(null);
+    try {
+      const r = await fetch("/api/v1/leads/franchises/import-directory", { method: "POST" });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) { setErr(j?.error?.message ?? "Error al importar del directorio."); return; }
+      setDirResult(j);
+    } finally { setImporting(false); }
+  }
+
+  async function discover() {
+    if (niche.trim().length < 2) { setErr("Escribe un nicho (ej: heladerías, ópticas, gimnasios)."); return; }
+    setDiscovering(true); setErr(null); setResults(null); setDiag(null);
+    try {
+      const r = await fetch("/api/v1/leads/franchises/discover", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ niche: niche.trim() }) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) { setErr(j?.error?.message ?? "Error al buscar franquicias."); return; }
+      // Las ya contactadas NO se marcan por defecto (evita re-insistir/gastar créditos).
+      const list = (j.brands ?? []).map((b: any) => ({ name: b.name, sampleCount: b.sampleCount, contacted: !!b.contacted, checked: !b.contacted }));
+      setBrands(list);
+      setDiag({ proposed: j.proposed ?? list.length, verified: list.length, placesErrors: j.placesErrors ?? 0 });
+      if (list.length === 0) {
+        setErr(
+          (j.placesErrors ?? 0) > 0
+            ? `Google Places no respondió (cuota/límite) en ${j.placesErrors} de ${j.proposed} marcas propuestas. Revisa la cuota/billing de Places en Google Cloud y reintenta.`
+            : "No se han verificado franquicias de ese nicho. Prueba otro término."
+        );
+      }
+    } finally { setDiscovering(false); }
+  }
+
+  function toggle(name: string) {
+    setBrands((prev) => (prev ?? []).map((b) => (b.name === name ? { ...b, checked: !b.checked } : b)));
+  }
+
+  async function analyze() {
+    const selected = (brands ?? []).filter((b) => b.checked).map((b) => b.name);
+    if (selected.length === 0) { setErr("Selecciona al menos una franquicia."); return; }
+    setAnalyzing(true); setErr(null);
+    try {
+      const r = await fetch("/api/v1/leads/franchises/analyze", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ brands: selected, location: location.trim() || undefined }) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) { setErr(j?.error?.message ?? "Error al analizar."); return; }
+      setResults(j.results ?? []);
+    } finally { setAnalyzing(false); }
+  }
+
+  const selCount = (brands ?? []).filter((b) => b.checked).length;
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-lg border border-violet-200 bg-violet-50/60 p-3">
+        <div className="text-sm font-semibold text-slate-800">🏢 Franquicias — captar la CENTRAL (gestión de toda la red con GMB HUB)</div>
+        <p className="text-[11px] text-slate-600 mt-1">
+          Elige un nicho → la IA propone franquicias reales (verificadas en Google) → seleccionas → analizamos la
+          <strong> salud de red</strong> de cada marca (dispersión de valoraciones, fichas sin web, locales invisibles…)
+          y redactamos el <strong>informe + email a la central</strong> ofreciendo gestionar todas sus fichas de forma
+          centralizada. Los emails quedan en <strong>📧 Empleos → cola de revisión</strong> para que los apruebes.
+        </p>
+        <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-2">
+          <input value={niche} onChange={(e) => setNiche(e.target.value)} placeholder="Nicho (ej: heladerías, ópticas, gimnasios)" className="sm:col-span-2 px-3 py-2 rounded-lg border bg-white text-sm" />
+          <button onClick={() => void discover()} disabled={discovering} className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-violet-600 hover:bg-violet-700 text-white text-sm font-medium disabled:opacity-50">
+            {discovering ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />} Buscar franquicias
+          </button>
+        </div>
+        <input value={location} onChange={(e) => setLocation(e.target.value)} placeholder="Provincia/zona (opcional; vacío = toda España)" className="mt-2 w-full px-3 py-2 rounded-lg border bg-white text-sm" />
+        {err && <div className="mt-2 text-[11px] text-rose-700">{err}</div>}
+        {diag && (
+          <div className="mt-2 text-[11px] text-slate-500">
+            IA propuso <strong>{diag.proposed}</strong> · verificadas en Google <strong>{diag.verified}</strong>
+            {diag.placesErrors > 0 && <span className="text-amber-700"> · Google no respondió en <strong>{diag.placesErrors}</strong> (cuota/límite de Places)</span>}
+          </div>
+        )}
+      </div>
+
+      {/* Vía "a lo seguro": importar franquicias con contacto REAL de los directorios. */}
+      <div className="rounded-lg border border-emerald-200 bg-emerald-50/60 p-3">
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <div className="text-sm font-semibold text-slate-800">📇 Franquicias con contacto verificado (directorios)</div>
+          <button onClick={() => void importDirectory()} disabled={importing} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium disabled:opacity-50">
+            {importing ? <Loader2 className="h-4 w-4 animate-spin" /> : "📇"} Importar del directorio
+          </button>
+        </div>
+        <p className="text-[11px] text-slate-600 mt-1">
+          Scrapea los portales de franquicias (nombre, persona de contacto de expansión/marketing, teléfono, web) y
+          deduce el email con Hunter. Trabajas directamente con las que tienen <strong>contacto que funciona</strong>.
+        </p>
+        {dirResult && (
+          <div className="mt-2">
+            <div className="text-[11px] text-slate-600 mb-1">
+              Analizadas {dirResult.scanned} fichas · <strong>{dirResult.imported}</strong> importadas · <strong className="text-emerald-700">{dirResult.withEmail}</strong> con email
+            </div>
+            {Array.isArray((dirResult as any).perDirectory) && (
+              <div className="text-[10px] text-slate-500 mb-1">
+                {(dirResult as any).perDirectory.map((d: any, i: number) => (
+                  <span key={i} className="mr-2">
+                    {d.name}: {d.listOk ? `${d.fichas} fichas · ${d.withEmail} con email` : <span className="text-rose-600">no se pudo leer el listado</span>}
+                  </span>
+                ))}
+              </div>
+            )}
+            <div className="space-y-1 max-h-72 overflow-y-auto">
+              {(dirResult.contacts ?? []).map((c: any, i: number) => (
+                <div key={i} className={"rounded border px-2.5 py-1.5 text-[11px] " + (c.email ? "border-emerald-200 bg-white" : "border-slate-200 bg-slate-50/60")}>
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <span className="font-semibold text-slate-800">{c.brand}{c.sector ? ` · ${c.sector}` : ""}</span>
+                    {c.email ? <span className="text-emerald-700">✅ {c.email}</span> : <span className="text-slate-400">sin email</span>}
+                  </div>
+                  <div className="text-slate-500">
+                    {c.contactName ? `👤 ${c.contactName}${c.role ? ` (${c.role})` : ""}` : "sin contacto"}
+                    {c.phone ? ` · ${c.phone}` : ""}
+                    {c.corporateWeb ? ` · ${c.corporateWeb}` : ""}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <p className="text-[10px] text-slate-500 mt-1">Guardadas como leads de central. Analiza una marca arriba para generar su informe + email a ese contacto.</p>
+          </div>
+        )}
+      </div>
+
+      <DecisionMakerKeys />
+
+      {brands && brands.length > 0 && (
+        <div className="rounded-lg border border-slate-200 bg-white p-3">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <div className="text-sm font-semibold text-slate-800">Franquicias encontradas ({brands.length})</div>
+            <button onClick={() => void analyze()} disabled={analyzing || selCount === 0} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium disabled:opacity-50">
+              {analyzing ? <Loader2 className="h-4 w-4 animate-spin" /> : "🔬"} Analizar seleccionadas ({selCount})
+            </button>
+          </div>
+          <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+            {brands.map((b) => (
+              <label key={b.name} className={"flex items-center gap-2 p-2 rounded border cursor-pointer text-sm " + (b.contacted ? "bg-rose-50/60 border-rose-200" : "bg-slate-50/60")}>
+                <input type="checkbox" checked={b.checked} onChange={() => toggle(b.name)} className="accent-violet-600" />
+                <span className="flex-1 truncate">{b.name}</span>
+                {b.contacted && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-rose-100 border border-rose-300 px-2 py-0.5 text-[10px] font-semibold text-rose-700">⛔ Ya contactada</span>
+                )}
+                <span className="text-[11px] text-slate-400">{b.sampleCount}+ fichas</span>
+              </label>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {results && (
+        <div className="rounded-lg border border-slate-200 bg-white p-3">
+          <div className="text-sm font-semibold text-slate-800 mb-2">Resultado del análisis</div>
+          <div className="space-y-2">
+            {results.map((r) => (
+              <div key={r.brand} className="rounded-md border border-slate-200 p-2.5">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <div className="text-sm font-semibold text-slate-800">{r.brand}</div>
+                  {r.error ? (
+                    <span className="text-[11px] text-amber-700">{r.error}</span>
+                  ) : r.status === "contacted" ? (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-rose-100 border border-rose-300 px-2 py-0.5 text-[11px] font-semibold text-rose-700">
+                      ⛔ Ya contactada — no insistir{r.contactedAt ? ` (${new Date(r.contactedAt).toLocaleDateString("es-ES")})` : ""}
+                    </span>
+                  ) : r.status === "draft_pending" ? (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 border border-amber-300 px-2 py-0.5 text-[11px] font-semibold text-amber-800">
+                      📝 Ya tiene borrador en la cola (sin enviar)
+                    </span>
+                  ) : r.status === "drafted_now" || r.emailed ? (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 border border-emerald-300 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
+                      ✅ Email creado en la cola de revisión
+                    </span>
+                  ) : (
+                    <span className="text-[11px] text-slate-500">Sin email de central localizable</span>
+                  )}
+                </div>
+                {r.metrics && (
+                  <div className="mt-1 text-[11px] text-slate-600">
+                    {r.metrics.sampled} fichas · media {r.metrics.avgRating ?? "—"}★ (de {r.metrics.minRating ?? "—"} a {r.metrics.maxRating ?? "—"}) ·
+                    {" "}{r.metrics.lowRatingPct}% bajo 3,5★ · {r.metrics.noWebsitePct}% sin web · {r.metrics.noReviewsPct}% casi sin reseñas
+                  </div>
+                )}
+                {(r.contact?.name || r.contact?.email || r.contact?.linkedin) && (
+                  <div className="mt-1 text-[11px] text-slate-700 flex items-center gap-2 flex-wrap">
+                    <span className="font-medium">👤 {r.contact?.name ?? "Responsable de marketing"}{r.contact?.role ? ` · ${r.contact.role}` : ""}</span>
+                    {r.contact?.email && <span className="text-slate-500">{r.contact.email}</span>}
+                    {r.contact?.linkedin && (
+                      <a href={r.contact.linkedin} target="_blank" rel="noreferrer" className="text-violet-600 hover:underline">LinkedIn ↗</a>
+                    )}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+          <p className="mt-2 text-[11px] text-slate-500">
+            Los emails redactados están en <strong>📧 Empleos → cola de revisión</strong> (misma cola): ahí los editas, apruebas y envías.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function JobsReviewPanel() {
   const [mode, setMode] = useState<"auto" | "review" | null>(null);
   const [savingMode, setSavingMode] = useState(false);
   const [items, setItems] = useState<any[] | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [regenId, setRegenId] = useState<string | null>(null);
   const [edits, setEdits] = useState<Record<string, { subject: string; body: string }>>({});
+  // Confirmación de envío (para verificar de un vistazo que salió).
+  const [sentMsg, setSentMsg] = useState<string | null>(null);
   // Selección múltiple para enviar/descartar en lote.
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
@@ -2696,6 +2988,20 @@ function JobsReviewPanel() {
     });
   }
 
+  const [reenriching, setReenriching] = useState(false);
+  async function reenrich() {
+    setReenriching(true);
+    try {
+      const r = await fetch("/api/v1/leads/jobs-reenrich", { method: "POST" });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) { alert(j?.error?.message ?? "No se pudo re-buscar el email."); return; }
+      await loadItems();
+      alert(`Revisadas ${j.scanned} empresa(s) sin email: encontrado email en ${j.emailsFound}, ${j.drafted} borrador(es) nuevo(s) en la cola.`);
+    } finally {
+      setReenriching(false);
+    }
+  }
+
   async function generateDrafts() {
     setGenerating(true);
     try {
@@ -2744,6 +3050,9 @@ function JobsReviewPanel() {
       if (j.failed > 0) {
         alert(`${j.ok} correcto(s), ${j.failed} con error. Los que fallaron siguen en la cola.`);
       }
+      if (action === "approve" && j.ok > 0) {
+        setSentMsg(`✅ ${j.ok} email(s) enviado(s). Quedan registrados y esas empresas pasan a "Contactado".`);
+      }
       await loadItems();
     } finally {
       setBulkBusy(false);
@@ -2765,6 +3074,23 @@ function JobsReviewPanel() {
     }
   }
 
+  async function regen(id: string) {
+    setRegenId(id);
+    try {
+      const r = await fetch(`/api/v1/leads/jobs-review/${id}/regenerate`, { method: "POST" });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        alert(j?.error?.message ?? "No se pudo regenerar el email.");
+        return;
+      }
+      // Refresca el texto mostrado (edits) y el guardado (items).
+      setEdits((p) => ({ ...p, [id]: { subject: j.subject ?? "", body: j.body ?? "" } }));
+      setItems((prev) => (prev ?? []).map((it) => (it.id === id ? { ...it, subject: j.subject, body: j.body } : it)));
+    } finally {
+      setRegenId(null);
+    }
+  }
+
   async function act(id: string, action: "approve" | "reject") {
     if (action === "reject" && !confirm("¿Descartar este email? No se enviará y se detendrá la secuencia de esta empresa.")) return;
     setBusyId(id);
@@ -2779,6 +3105,10 @@ function JobsReviewPanel() {
       if (!r.ok) {
         alert(j?.error?.message ?? "No se pudo completar la acción.");
         return;
+      }
+      if (action === "approve") {
+        const co = (items ?? []).find((it) => it.id === id)?.company ?? "la empresa";
+        setSentMsg(`✅ Email enviado a ${co}. Queda registrado y la empresa pasa a "Contactado".`);
       }
       setItems((prev) => (prev ?? []).filter((it) => it.id !== id));
       setSelected((prev) => {
@@ -2835,10 +3165,26 @@ function JobsReviewPanel() {
           ? "Modo automático: al encontrar una empresa con oferta de marketing/IA y su email, el primer correo sale solo (con pie de baja RGPD)."
           : "Modo revisión: al terminar la búsqueda, los correos se redactan con IA y quedan aquí. Selecciona con las casillas cuáles enviar, edítalos a tu gusto y descarta los que no te interesen. Nada sale sin tu visto bueno."}
       </div>
+      {sentMsg && (
+        <div className="mt-2 flex items-center justify-between gap-2 rounded-md border border-emerald-300 bg-emerald-50 px-2.5 py-1.5 text-[11px] text-emerald-800">
+          <span>{sentMsg}</span>
+          <button onClick={() => setSentMsg(null)} className="text-emerald-700 hover:text-emerald-900" title="Cerrar">✕</button>
+        </div>
+      )}
       <JobsInboxConfig onIngested={() => void loadItems()} />
       {noEmail > 0 && (
-        <div className="text-[11px] text-amber-700 mt-1">
-          ℹ️ Además hay <strong>{noEmail}</strong> empresa(s) con vacante pero <strong>sin email de contacto</strong> localizable, así que no aparecen aquí (no se les puede enviar email). Puedes contactarlas por teléfono/LinkedIn desde la cola de leads.
+        <div className="text-[11px] text-amber-700 mt-1 flex items-center gap-2 flex-wrap">
+          <span>
+            ℹ️ Además hay <strong>{noEmail}</strong> empresa(s) con vacante pero <strong>sin email de contacto</strong> localizable (por teléfono/LinkedIn desde la cola de leads).
+          </span>
+          <button
+            onClick={() => void reenrich()}
+            disabled={reenriching}
+            className="inline-flex items-center gap-1 rounded border border-amber-300 bg-white px-2 py-0.5 text-[11px] font-medium text-amber-800 hover:bg-amber-50 disabled:opacity-50"
+            title="Vuelve a buscar el email de contacto de esas empresas (extractor mejorado)"
+          >
+            {reenriching ? <Loader2 className="h-3 w-3 animate-spin" /> : "🔍"} Buscar su email
+          </button>
         </div>
       )}
 
@@ -2897,16 +3243,29 @@ function JobsReviewPanel() {
                       <span className="block text-sm font-semibold text-slate-800 truncate">{it.company}</span>
                       <span className="block text-[11px] text-slate-500 truncate">
                         → {it.email}
+                        {it.directorName ? ` · 👤 ${it.directorName}${it.directorRole ? ` (${it.directorRole})` : ""}` : ""}
                         {it.jobTitle ? ` · Vacante: ${it.jobTitle}` : ""}
                         {it.website ? ` · ${it.website}` : ""}
                       </span>
+                      {Array.isArray(it.bccEmails) && it.bccEmails.length > 0 && (
+                        <span className="block text-[11px] text-violet-700" title={it.bccEmails.join(", ")}>
+                          🔒 CCO a {it.bccEmails.length} directivo(s) de marketing más
+                        </span>
+                      )}
                     </span>
                   </label>
-                  {it.jobUrl && (
-                    <a href={it.jobUrl} target="_blank" rel="noreferrer" className="text-[11px] text-indigo-600 hover:underline shrink-0">
-                      Ver oferta ↗
-                    </a>
-                  )}
+                  <div className="flex items-center gap-2 shrink-0">
+                    {it.linkedin && (
+                      <a href={it.linkedin} target="_blank" rel="noreferrer" className="text-[11px] text-violet-600 hover:underline">
+                        LinkedIn ↗
+                      </a>
+                    )}
+                    {it.jobUrl && (
+                      <a href={it.jobUrl} target="_blank" rel="noreferrer" className="text-[11px] text-indigo-600 hover:underline">
+                        Ver oferta ↗
+                      </a>
+                    )}
+                  </div>
                 </div>
                 {/* Texto de la oferta, para leerla sin abrir el enlace. InfoJobs
                     lo trae ya; LinkedIn se carga bajo demanda con el botón. */}
@@ -2916,7 +3275,7 @@ function JobsReviewPanel() {
                     return (
                       <details className="mt-2 rounded border border-slate-200 bg-slate-50/70" open>
                         <summary className="cursor-pointer select-none px-2 py-1 text-[11px] font-semibold text-slate-600">
-                          📄 Oferta de empleo
+                          {it.jobTitle ? "📄 Oferta de empleo" : "📊 Informe de red"}
                         </summary>
                         <div className="max-h-44 overflow-y-auto whitespace-pre-line px-2.5 pb-2 text-[12px] leading-relaxed text-slate-700">
                           {desc}
@@ -2957,6 +3316,14 @@ function JobsReviewPanel() {
                     className="inline-flex items-center gap-1 rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
                   >
                     {busyId === it.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "✅"} Aprobar y enviar
+                  </button>
+                  <button
+                    onClick={() => void regen(it.id)}
+                    disabled={regenId === it.id || busyId === it.id}
+                    className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+                    title="Vuelve a redactar el email con IA (aplica el mensaje/discurso actual)"
+                  >
+                    {regenId === it.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "🔄"} Regenerar
                   </button>
                   <button
                     onClick={() => void act(it.id, "reject")}

@@ -56,16 +56,20 @@ export async function sendEmail(opts: {
   subject: string;
   html: string;
   text?: string;
+  /** Copia oculta: p.ej. todos los directivos de marketing de la empresa. */
+  bcc?: string | string[];
 }): Promise<{ id: string }> {
   if (!isEmailEnabled()) {
     throw new Error("Email no configurado. Define RESEND_API_KEY.");
   }
+  const bccList = (Array.isArray(opts.bcc) ? opts.bcc : opts.bcc ? [opts.bcc] : []).filter(Boolean);
   const payload = JSON.stringify({
     from: getFromAddress(),
     to: Array.isArray(opts.to) ? opts.to : [opts.to],
     subject: opts.subject,
     html: opts.html,
-    text: opts.text
+    text: opts.text,
+    ...(bccList.length ? { bcc: bccList } : {})
   });
   // Reintentos con backoff ante fallos transitorios (429 rate limit, 5xx,
   // timeouts de red). Los 4xx deterministas (400/401/403/422) no se reintentan.

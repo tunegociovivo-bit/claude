@@ -15,6 +15,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db/prisma";
 import { toE164, checkVerification } from "@/lib/bubui/twilio";
 import { ensureReferralCode, applyReferral } from "@/lib/bubui/referral";
+import { findRecentReferralClick } from "@/lib/bubui/referral-click";
 import { issueCustomerToken } from "@/lib/bubui/customer-auth";
 import { rateLimit } from "@/lib/api/rate-limit";
 
@@ -41,6 +42,31 @@ async function sessionFrom(c: { id: string; name: string | null; totalSaved: num
     { ok: true, reused, customerId: c.id, name: c.name, totalSaved: c.totalSaved, totalPurchases: c.totalPurchases, token },
     { status }
   );
+}
+
+
+/**
+ * Vincula el referido en el alta. Prioridad: el `ref` que trae la app
+ * (Install Referrer / deep link); si no llega, atribución de RESERVA por IP
+ * (clic reciente en /bubui/r/<code> desde la misma IP). Con log para poder
+ * diagnosticar en Railway qué camino se usó.
+ */
+async function linkReferral(customerId: string, ref: string | undefined, headers: Headers): Promise<void> {
+  let code = ref ?? null;
+  let via = "app";
+  if (!code) {
+    code = await findRecentReferralClick(headers).catch(() => null);
+    via = "ip-fallback";
+  }
+  if (!code) {
+    console.log(`[verify-otp] referral customer=${customerId} via=${via} code=NONE`);
+    return;
+  }
+  const result = await applyReferral(customerId, code).catch((e) => {
+    console.error("[verify-otp] applyReferral falló:", e?.message);
+    return null;
+  });
+  console.log(`[verify-otp] referral customer=${customerId} via=${via} code=${code} →`, JSON.stringify(result));
 }
 
 export async function POST(req: Request) {
@@ -98,7 +124,7 @@ export async function POST(req: Request) {
     }
     const merged = await prisma.bubuiCustomer.update({ where: { id: byEmail.id }, data: { phone, phoneVerified: true, ...profile } });
     await ensureReferralCode(merged.id);
-    if (d.ref) await applyReferral(merged.id, d.ref).catch(() => {});
+    await linkReferral(merged.id, d.ref, req.headers);
     return sessionFrom(merged, true);
   }
 
@@ -108,7 +134,7 @@ export async function POST(req: Request) {
       data: { phone, phoneVerified: true, ...profile, firstBusinessId: d.firstBusinessId ?? null }
     });
     await ensureReferralCode(created.id);
-    if (d.ref) await applyReferral(created.id, d.ref).catch(() => {});
+    await linkReferral(created.id, d.ref, req.headers);
     return sessionFrom(created, false, 201);
   } catch (e: any) {
     if (e?.code === "P2002") {

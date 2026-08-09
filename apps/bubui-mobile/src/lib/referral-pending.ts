@@ -1,5 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Linking, Platform } from "react-native";
+import { api } from "./api";
+import { CheckSession } from "./session";
 
 /**
  * Captura del código de referido para la app nativa.
@@ -18,6 +20,21 @@ import { Linking, Platform } from "react-native";
 
 const KEY = "bubui.pendingRef";
 const IR_DONE = "bubui.installReferrerChecked";
+
+// Readiness del referrer: el alta espera (acotado) a que la captura termine
+// antes de concluir que no hay código — evita la carrera captura/registro
+// sin bloquear la UX (el fallback IP del servidor sigue de segunda red).
+let irSignal: (() => void) | null = null;
+const irReady = new Promise<void>((res) => { irSignal = res; });
+function signalReferrerDone(): void { try { irSignal?.(); } catch {} irSignal = null; }
+export async function waitForReferrerCapture(maxMs = 2500): Promise<void> {
+  await Promise.race([irReady, new Promise<void>((res) => setTimeout(res, maxMs))]);
+}
+
+// Carga perezosa del módulo nativo, inyectable para poder testear la captura
+// (en vitest/ESM no existe require; en la app real Metro sí lo provee).
+let pirLoader: () => any = () => require("react-native-play-install-referrer");
+export function _setPirLoaderForTests(fn: () => any): void { pirLoader = fn; }
 
 /** Extrae un código de referido (4-10 alfanum.) de una URL o cadena referrer. */
 export function parseRefFromString(s: string | null | undefined): string | null {
@@ -46,27 +63,73 @@ async function storeIfEmpty(code: string): Promise<void> {
 
 async function captureFromUrl(url: string | null): Promise<void> {
   const code = parseRefFromString(url);
-  if (code) await storePendingRef(code); // deep link = intención directa, prevalece
+  if (!code) return;
+  await storePendingRef(code); // deep link = intención directa, prevalece
+  signalReferrerDone(); // ya hay código: el alta no necesita esperar más
+  // Con sesión ya iniciada, vincula al momento (mismo patrón que los retos).
+  try {
+    const s = await CheckSession();
+    if (s) await applyPendingRef(s.customerId);
+  } catch {}
 }
 
-/** Android: lee el Install Referrer una sola vez (instalación diferida). */
+/**
+ * Reintenta vincular el código pendiente con el cliente ya registrado. El
+ * camino normal es enviarlo en verify-otp, pero esa vinculación puede
+ * perderse (fallo de red/BD silencioso, o Install Referrer que llega tarde).
+ * applyReferral es idempotente en el servidor: llamar de más no duplica.
+ * Solo se limpia el pendiente cuando el servidor confirma.
+ */
+export async function applyPendingRef(customerId: string): Promise<void> {
+  const code = await getPendingRef();
+  if (!code) return;
+  try {
+    const r = await api.applyReferral(customerId, code);
+    // Solo limpiamos con un resultado TERMINAL (vinculado y completo, o
+    // no-op definitivo: código inválido, autorreferencia, ya referido a
+    // otro). Un 2xx transitorio (linked sin cupón aún — no_origin_yet,
+    // welcome_offer_failed) CONSERVA el pendiente para que el siguiente
+    // reintento repare el cupón.
+    if (r?.terminal) await clearPendingRef();
+  } catch {
+    // se reintentará en la próxima carga del Feed
+  }
+}
+
+/** Android: lee el Install Referrer (instalación diferida). IR_DONE se marca
+ *  SOLO tras una respuesta terminal válida del API de Play — un error
+ *  transitorio o el módulo ausente dejan el flag sin poner y se reintenta en
+ *  el siguiente arranque (antes se marcaba antes del callback y un fallo
+ *  puntual perdía el referrer para siempre). */
 async function captureInstallReferrerOnce(): Promise<void> {
   try {
-    if (await AsyncStorage.getItem(IR_DONE)) return;
-    await AsyncStorage.setItem(IR_DONE, "1");
+    if (await AsyncStorage.getItem(IR_DONE)) { signalReferrerDone(); return; }
     let mod: any = null;
     try {
-      // Carga perezosa: si el módulo nativo no está, no rompe nada.
-      mod = require("react-native-play-install-referrer");
+      // Carga perezosa: si el módulo nativo no está, no rompe nada (y no
+      // marcamos DONE: puede estar disponible en un build posterior).
+      mod = pirLoader();
     } catch {
+      signalReferrerDone(); // sin módulo no habrá referrer en esta sesión
       return;
     }
     const PIR = mod?.PlayInstallReferrer ?? mod?.default ?? mod;
-    if (!PIR?.getInstallReferrerInfo) return;
+    if (!PIR?.getInstallReferrerInfo) { signalReferrerDone(); return; }
     PIR.getInstallReferrerInfo((info: any, err: any) => {
-      if (err) return;
+      if (err) { signalReferrerDone(); return; } // transitorio → reintento en el próximo arranque
+      void AsyncStorage.setItem(IR_DONE, "1").catch(() => {});
       const code = parseRefFromString(info?.installReferrer);
-      if (code) void storeIfEmpty(code);
+      if (!code) { signalReferrerDone(); return; }
+      void (async () => {
+        await storeIfEmpty(code);
+        signalReferrerDone(); // código ya persistido → el alta puede leerlo
+        // Referrer tardío con sesión ya iniciada (o carrera con el alta):
+        // aplica al momento en vez de esperar a la próxima carga del Feed.
+        try {
+          const s = await CheckSession();
+          if (s) await applyPendingRef(s.customerId);
+        } catch {}
+      })();
     });
   } catch {}
 }
@@ -79,4 +142,5 @@ export function initReferralCapture(): void {
   Linking.getInitialURL().then(captureFromUrl).catch(() => {});
   Linking.addEventListener("url", (e) => { void captureFromUrl(e.url); });
   if (Platform.OS === "android") void captureInstallReferrerOnce();
+  else signalReferrerDone(); // sin Install Referrer fuera de Android
 }

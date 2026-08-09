@@ -34,6 +34,11 @@ export default async function FacturacionPage() {
         title="Facturación"
         description="Elige primero la empresa con la que vas a facturar. Después emite facturas, presupuestos, rectificativas y proformas — recurrentes, multi-divisa, Stripe y Factura-e."
       />
+      <div className="mb-3">
+        <a href="/facturacion/remesas" className="inline-flex items-center gap-1.5 rounded-lg border border-brand-200 bg-brand-50 px-3 py-1.5 text-sm font-medium text-brand-700 hover:bg-brand-100">
+          🏦 Remesas de adeudos SEPA
+        </a>
+      </div>
       <FacturacionClient clients={clients} initialIssuers={issuers as any} />
     </div>
   );

@@ -218,7 +218,8 @@ function slug(s: string): string {
  */
 export async function enrichJobsResults(workspaceId: string, raw: PlacesResult[]): Promise<PlacesResult[]> {
   const withPhones = await enrichMissingPhones(workspaceId, raw);
-  return enrichEmails(withPhones);
+  const withWebEmails = await enrichEmails(withPhones); // gratis: email publicado en la web
+  return enrichEmailsViaContacts(workspaceId, withWebEmails); // fallback: Apollo/Hunter (decisor de marketing)
 }
 
 /**
@@ -273,6 +274,47 @@ async function enrichEmails(leads: PlacesResult[], max = 40): Promise<PlacesResu
       if (emails[0]) (lead.rawData as any).email = emails[0];
     } catch {
       // sin web accesible / sin email publicado → se queda sin email
+    }
+  }
+  return leads;
+}
+
+/**
+ * FALLBACK de email con Apollo/Hunter: para los leads que siguen SIN email tras
+ * la web, busca por el DOMINIO al responsable de marketing (Hunter dept. marketing
+ * + Apollo decisores + email-finder). Sube mucho la tasa de acierto y además nos
+ * da al DECISOR (mejor que un info@ genérico). Solo corre si hay keys y acotado
+ * por coste (consume créditos de Apollo/Hunter, así que solo para los que fallan).
+ */
+async function enrichEmailsViaContacts(workspaceId: string, leads: PlacesResult[], max = 25): Promise<PlacesResult[]> {
+  const { resolveContactKeys, findMarketingEmailsByDomain } = await import("../enrich-contacts");
+  const { apolloKey, hunterKey } = await resolveContactKeys(workspaceId);
+  if (!apolloKey && !hunterKey) return leads; // sin keys → nada que hacer
+  const domainOf = (u: string) => {
+    try {
+      return new URL(/^https?:/.test(u) ? u : `https://${u}`).hostname.replace(/^www\./, "") || null;
+    } catch {
+      return null;
+    }
+  };
+  const targets = leads.filter((l) => l.website && !(l.rawData as any)?.email).slice(0, max);
+  for (const lead of targets) {
+    const domain = domainOf(lead.website as string);
+    if (!domain) continue;
+    try {
+      const contacts = await findMarketingEmailsByDomain(workspaceId, domain, 10, lead.name);
+      if (contacts.length > 0) {
+        const rd = lead.rawData as any;
+        rd.email = contacts[0].email;
+        if (contacts[0].name) rd.directorName = contacts[0].name;
+        if (contacts[0].role) rd.directorRole = contacts[0].role;
+        // El resto de directivos de marketing → copia oculta (que llegue al que toca).
+        const bcc = contacts.slice(1).map((c) => c.email);
+        if (bcc.length) rd.bccEmails = bcc;
+        rd.contactVia = "apollo_hunter";
+      }
+    } catch {
+      // vía externa falló → se queda como estaba
     }
   }
   return leads;

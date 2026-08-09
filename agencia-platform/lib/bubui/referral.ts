@@ -159,31 +159,79 @@ export async function getReferralInvite(
   return { businessName: business.name, city: business.city, welcomePct };
 }
 
+/** Resultado verificable de applyReferral: la app conserva el código
+ *  pendiente hasta ver linked o terminal (los no-op definitivos no se
+ *  reintentan; los transitorios sí). */
+export type ApplyReferralResult = {
+  linked: boolean; // el amigo queda (o ya estaba) vinculado a ESTE referidor
+  terminal: boolean; // true = reintentar no puede mejorar el resultado
+  reason: string;
+  referrerId?: string;
+  welcomeOfferCreated?: boolean;
+};
+
 /**
  * Vincula un amigo recién verificado a su referidor (por código) y aplica
  * recompensas: cupón de bienvenida al amigo + cupones de hito al referidor.
- * Es idempotente (no duplica premios).
+ * Idempotente y REPARATIVO: si el amigo ya estaba vinculado a este referidor
+ * pero el cupón de bienvenida no llegó a crearse (fallo posterior), el
+ * reintento repara el cupón en vez de salir por referredById.
  */
-export async function applyReferral(friendId: string, code: string): Promise<void> {
+export async function applyReferral(friendId: string, code: string): Promise<ApplyReferralResult> {
   const referrer = await prisma.bubuiCustomer.findUnique({
     where: { referralCode: code.toUpperCase() },
     select: { id: true, firstBusinessId: true }
   });
-  if (!referrer || referrer.id === friendId) return;
+  if (!referrer) return { linked: false, terminal: true, reason: "invalid_code" };
+  if (referrer.id === friendId) return { linked: false, terminal: true, reason: "self_referral" };
 
-  // Vincula (solo si el amigo aún no tenía referidor).
   const friend = await prisma.bubuiCustomer.findUnique({ where: { id: friendId }, select: { referredById: true } });
-  if (friend?.referredById) return; // ya estaba referido
-  await prisma.bubuiCustomer.update({ where: { id: friendId }, data: { referredById: referrer.id } });
+  if (!friend) return { linked: false, terminal: true, reason: "friend_not_found" };
+  if (friend.referredById && friend.referredById !== referrer.id) {
+    return { linked: false, terminal: true, reason: "already_referred_other", referrerId: friend.referredById };
+  }
+  const newlyLinked = !friend.referredById;
+  if (newlyLinked) {
+    // updateMany con guard = link atómico (no pisa un vínculo concurrente).
+    const upd = await prisma.bubuiCustomer.updateMany({
+      where: { id: friendId, referredById: null },
+      data: { referredById: referrer.id }
+    });
+    if (upd.count === 0) {
+      const again = await prisma.bubuiCustomer.findUnique({ where: { id: friendId }, select: { referredById: true } });
+      if (again?.referredById !== referrer.id) {
+        return { linked: false, terminal: true, reason: "already_referred_other", referrerId: again?.referredById ?? undefined };
+      }
+    }
+  }
 
-  // Hucha de referidos: +% al referidor por cada amigo que se da de alta (este es
-  // el ÚNICO premio por compartir — el descuento de mesa NO se gana compartiendo).
-  await import("./wallet").then((m) => m.creditReferrerWallet(referrer.id)).catch(() => {});
+  // Hucha de referidos: solo en el vínculo nuevo (los reintentos reparan el
+  // cupón, no duplican la hucha).
+  if (newlyLinked) {
+    await import("./wallet").then((m) => m.creditReferrerWallet(referrer.id)).catch(() => {});
+  }
 
-  const originId = referrer.firstBusinessId;
-  if (!originId) return; // sin negocio de origen no hay quien financie premios
+  // Negocio de origen: quien financia los premios. Si el referidor aún no
+  // tiene firstBusinessId (p. ej. entró por un enlace de reto y algo impidió
+  // fijarlo), usamos el negocio de su reto activo más reciente.
+  let originId = referrer.firstBusinessId;
+  if (!originId) {
+    const lastDeal = await prisma.bubuiCustomDeal.findFirst({
+      where: { claimedByCustomerId: referrer.id, expiresAt: { gt: new Date() } },
+      orderBy: { claimedAt: "desc" },
+      select: { businessId: true }
+    });
+    originId = lastDeal?.businessId ?? null;
+  }
+  if (!originId) {
+    // Aún no hay negocio de origen (p. ej. reclamará el reto después) →
+    // transitorio: el reintento posterior podrá crear el cupón.
+    return { linked: true, terminal: false, reason: "no_origin_yet", referrerId: referrer.id, welcomeOfferCreated: false };
+  }
   const business = await prisma.bubuiBusiness.findUnique({ where: { id: originId } });
-  if (!business || !business.referralEnabled) return;
+  if (!business || !business.referralEnabled) {
+    return { linked: true, terminal: true, reason: "referrals_disabled", referrerId: referrer.id, welcomeOfferCreated: false };
+  }
 
   const exp = new Date(Date.now() + 30 * 86_400_000);
 
@@ -202,8 +250,9 @@ export async function applyReferral(friendId: string, code: string): Promise<voi
     business.shareFriendDiscountPct ||
     business.newCustomerDiscountPct ||
     business.defaultDiscountPct;
-  await prisma.bubuiOffer
-    .create({
+  let welcomeOfferCreated = false;
+  try {
+    await prisma.bubuiOffer.create({
       data: {
         customerId: friendId,
         businessId: originId,
@@ -212,8 +261,17 @@ export async function applyReferral(friendId: string, code: string): Promise<voi
         source: "referral_welcome",
         expiresAt: exp
       }
-    })
-    .catch(() => {});
+    });
+    welcomeOfferCreated = true;
+  } catch (e: any) {
+    if (e?.code === "P2002") {
+      welcomeOfferCreated = true; // ya existía de un intento anterior
+    } else {
+      console.error("[applyReferral] cupón de bienvenida falló:", e?.message);
+      // Transitorio: conservar linked pero NO terminal → la app reintenta.
+      return { linked: true, terminal: false, reason: "welcome_offer_failed", referrerId: referrer.id, welcomeOfferCreated: false };
+    }
+  }
 
   // Recompensas de hito para el referidor.
   const count = await countVerifiedReferrals(referrer.id);
@@ -269,4 +327,12 @@ export async function applyReferral(friendId: string, code: string): Promise<voi
   await import("./share-offer")
     .then((m) => m.unlockShareChallengeOffers(referrer.id))
     .catch(() => {});
+
+  return {
+    linked: true,
+    terminal: true,
+    reason: newlyLinked ? "linked" : "repaired",
+    referrerId: referrer.id,
+    welcomeOfferCreated
+  };
 }

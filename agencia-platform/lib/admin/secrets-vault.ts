@@ -66,6 +66,16 @@ async function collectSecrets(
   // Leads / WhatsApp
   addEnc("waha_key", "WAHA API key", "WhatsApp", s.leads?.wahaApiKey);
   add("waha_url", "WAHA URL", "WhatsApp", s.leads?.wahaUrl);
+  addEnc("evolution_key", "Evolution API key", "WhatsApp", s.leads?.evolutionApiKey);
+
+  // Leads / captación (fuentes y enriquecimiento de contacto)
+  addEnc("google_places", "Google Places API key", "Leads / captación", s.leads?.googleApiKey);
+  addEnc("scrapfly", "Scrapfly API key", "Leads / captación", s.leads?.scrapflyApiKeyEnc);
+  addEnc("hunter", "Hunter API key (decisores)", "Leads / captación", s.leads?.hunterApiKeyEnc);
+  addEnc("apollo", "Apollo API key (decisores)", "Leads / captación", s.leads?.apolloApiKeyEnc);
+  addEnc("meta_ads_leads", "Meta Ad Library token", "Leads / captación", s.leads?.metaAdsTokenEnc);
+  addEnc("elevenlabs_leads", "ElevenLabs API key (voz)", "Leads / captación", s.leads?.elevenLabsApiKeyEnc);
+  addEnc("jobs_inbox_imap", "Bandeja de alertas — contraseña IMAP", "Leads / captación", s.leads?.jobsInboxPassEnc);
 
   // Credenciales ad-hoc (META_ADS_TOKEN, etc.) — guardadas como
   // { enc } por clave en settings.adhocCredentials.

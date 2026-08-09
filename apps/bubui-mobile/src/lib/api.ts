@@ -148,6 +148,13 @@ export const api = {
       "/api/bubui/customer/login",
       { method: "POST", body: JSON.stringify({ phone, code }) }
     ),
+  /** Reintenta vincular el código de referido tras el alta (idempotente).
+   *  linked/terminal deciden si la app puede descartar el código pendiente. */
+  applyReferral: (customerId: string, code: string) =>
+    call<{ ok: boolean; linked?: boolean; terminal?: boolean; reason?: string; welcomeOfferCreated?: boolean }>(`/api/bubui/customer/apply-referral`, {
+      method: "POST",
+      body: JSON.stringify({ customerId, code })
+    }),
   /** Reclama un RETO (custom-deal) para el cliente con sesión. Requiere auth. */
   claimDeal: (token: string, customerId: string) =>
     call<{ ok: boolean; shareUrl?: string }>(`/api/bubui/custom-deal/${token}/claim`, {

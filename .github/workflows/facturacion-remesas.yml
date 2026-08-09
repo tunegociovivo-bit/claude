@@ -1,0 +1,28 @@
+name: Facturación · remesas SEPA (cron)
+# Caduca los enlaces de aprobación vencidos (24 h) de forma fiable, independiente
+# del planificador interno. Idempotente y SEGURO: NO firma ni cobra nada. Si
+# SEPA_AUTO_SCAN=true (variable de entorno del servidor, OFF por defecto) también
+# detectaría candidatas; mientras esté OFF, este cron solo marca EXPIRED.
+#
+# Nota: la seguridad NO depende de este cron — la caducidad del token se verifica
+# en vivo al abrir/decidir el enlace, así que un enlace vencido nunca es usable
+# aunque el cron no llegue a ejecutarse.
+on:
+  schedule:
+    - cron: "*/5 * * * *" # cada 5 minutos: sincroniza Holded y busca candidatas
+  workflow_dispatch:
+
+concurrency:
+  group: facturacion-remesas
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Tick de remesas SEPA
+        run: |
+          curl -fsS --max-time 120 --retry 3 --retry-delay 5 --retry-all-errors -X POST \
+            -H "Authorization: Bearer ${{ secrets.INTERNAL_CRON_TOKEN || secrets.CRON_SECRET }}" \
+            https://hub.negociovivo.app/api/v1/internal/facturacion-cron \
+            -o /dev/null -w "  http_%{http_code}\n"

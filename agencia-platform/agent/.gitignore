@@ -1,0 +1,7 @@
+# Secretos y estado local del agente — NUNCA se versionan.
+.env
+agent.config.json
+selectors.json
+logs/
+node_modules/
+dist/

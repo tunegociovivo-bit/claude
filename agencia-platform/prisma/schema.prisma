@@ -232,6 +232,9 @@ model Workspace {
   emailAccounts             EmailAccount[]
   searchEmbeddings          SearchEmbedding[]
   metaConnections           MetaConnection[]
+  sepaRemittanceRequests    SepaRemittanceRequest[]
+  bankAgents                BankAgent[]
+  remittanceJobs            RemittanceJob[]
   metaCampaigns             MetaCampaign[]
   aiAgentRuns               AiAgentRun[]
   aiDrafts                  AiDraft[]
@@ -502,6 +505,16 @@ model Client {
   servicios   Json?
   // Bono Kit Digital (ayudas Red.es). Boolean para reporting.
   kitDigital  Boolean         @default(false)
+
+  // ----- Cobro por adeudo SEPA (opt-in, DESACTIVADO por defecto) -----
+  // El ~90% cobra por adeudo, pero por seguridad cada cliente debe habilitarse
+  // EXPRESAMENTE. Nunca se guardan credenciales bancarias: solo referencias y el
+  // IBAN ENMASCARADO (p.ej. "ES**...**3456") para mostrar en pantalla.
+  sepaEnabled            Boolean  @default(false) // habilitado para incluir en remesas
+  sepaMandateRef         String? // referencia del mandato SEPA
+  sepaMandateActive      Boolean  @default(false) // estado del mandato (activo/inactivo)
+  sepaSantanderTemplate  String? // plantilla/referencia recurrente en Santander
+  sepaIbanMasked         String? // IBAN enmascarado (NUNCA el IBAN completo)
   // Prioridad para el equipo interno (no es lo mismo que status).
   // ALTA → urgencia visual (rojo/rose en listados).
   // NORMAL → default.
@@ -899,6 +912,195 @@ model ClientApprovalDecision {
 
   @@index([linkId, postId])
   @@index([postId])
+}
+
+// ====================================================================
+// REMESAS DE ADEUDOS SEPA — aprobación (SOLO Negocio Vivo S.C.A.)
+// ====================================================================
+// Estados del ciclo de una solicitud de remesa. Aprobar NO firma ni cobra:
+// deja la solicitud lista para preparar/reemitir en Santander y, finalmente,
+// pendiente de firma. SIGNED solo por conciliación/actualización manual.
+enum SepaRemittanceStatus {
+  PENDING_APPROVAL
+  APPROVED
+  PREPARING
+  PENDING_SIGNATURE
+  SIGNED
+  REJECTED
+  EXPIRED
+  FAILED
+}
+
+model SepaRemittanceRequest {
+  id          String @id @default(cuid())
+  workspaceId String
+  // Empresa emisora (debe ser Negocio Vivo S.C.A.) y factura/cliente origen.
+  companyId String // InvoiceIssuer.id de Negocio Vivo
+  invoiceId String
+  clientId  String
+
+  status SepaRemittanceStatus @default(PENDING_APPROVAL)
+
+  // Snapshot para mostrar sin joins ni recalcular (rendimiento + auditoría).
+  companyName   String
+  clientName    String
+  invoiceNumber String?
+  amountCents   Int    @default(0)
+  currency      String @default("EUR")
+  mandateRef    String? // referencia de mandato SEPA en el momento de crear
+  ibanMasked    String? // IBAN enmascarado (nunca completo)
+
+  // Token de aprobación de UN SOLO USO: se guarda SOLO el hash (sha256).
+  tokenHash      String    @unique
+  tokenExpiresAt DateTime
+  tokenUsedAt    DateTime?
+
+  // Trazas de decisión.
+  approvedById String?
+  approvedAt   DateTime?
+  rejectedById String?
+  rejectedAt   DateTime?
+  rejectReason String?   @db.Text
+
+  // Fecha de cobro (inmediata al preparar en el futuro).
+  chargeDate DateTime?
+
+  // Estado del proveedor (adapter Santander). "NOT_CONFIGURED" mientras no haya
+  // integración oficial. Nunca se ejecuta un cobro real en esta implementación.
+  providerStatus String  @default("NOT_CONFIGURED")
+  lastError      String? @db.Text
+
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace Workspace                @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  events    SepaRemittanceEvent[]
+
+  // Control ESTRICTO de duplicados: una remesa por (empresa, factura).
+  @@unique([workspaceId, companyId, invoiceId])
+  @@index([workspaceId, status])
+  @@index([tokenHash])
+  @@index([invoiceId])
+}
+
+// Auditoría: cada transición de estado con usuario, fecha y error.
+model SepaRemittanceEvent {
+  id        String  @id @default(cuid())
+  requestId String
+  fromStatus String?
+  toStatus   String
+  userId     String?
+  note       String? @db.Text
+  error      String? @db.Text
+  createdAt  DateTime @default(now())
+
+  request SepaRemittanceRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  @@index([requestId])
+}
+
+// ====================================================================
+// FASE 2 — AGENTE BANCARIO LOCAL + COLA DE TRABAJOS
+// ====================================================================
+// El agente NUNCA firma ni cobra: prepara la remesa y la deja PENDIENTE DE FIRMA.
+// No maneja credenciales (el usuario inicia sesión él mismo en su Chrome).
+
+// Agente local enrolado. Se autentica con un token cuyo HASH se guarda (revocable).
+model BankAgent {
+  id            String    @id @default(cuid())
+  workspaceId   String
+  name          String
+  tokenHash     String    @unique // sha256 del token de enrolamiento (revocable)
+  status        String    @default("ACTIVE") // ACTIVE | REVOKED
+  version       String?
+  platform      String?
+  lastHeartbeatAt DateTime?
+  createdById   String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  revokedAt     DateTime?
+
+  workspace Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  jobs      RemittanceJob[]
+
+  @@index([workspaceId, status])
+  @@index([tokenHash])
+}
+
+enum RemittanceJobStatus {
+  PENDING
+  CLAIMED
+  RUNNING
+  NEEDS_USER
+  PREPARED_PENDING_SIGNATURE
+  FAILED
+  CANCELLED
+}
+
+// Trabajo bancario derivado de una solicitud APROBADA. Vincula los datos
+// AUTORIZADOS exactos (factura, cliente, importe, fecha) — el agente debe
+// verificar que coinciden en pantalla o pausar (NEEDS_USER).
+model RemittanceJob {
+  id                  String @id @default(cuid())
+  workspaceId         String
+  remittanceRequestId String @unique // una remesa → un trabajo (un solo uso)
+  invoiceId           String
+  clientId            String
+  companyId           String
+
+  status RemittanceJobStatus @default(PENDING)
+
+  // Datos AUTORIZADOS (binding de la aprobación de un solo uso).
+  invoiceNumber String?
+  clientName    String
+  amountCents   Int
+  currency      String  @default("EUR")
+  chargeDate    DateTime? // fecha de cobro autorizada (inmediata al preparar)
+  mandateRef    String?
+  ibanMasked    String? // enmascarado; nunca el IBAN completo
+
+  // Idempotencia y bloqueo de doble ejecución.
+  idempotencyKey String @unique
+
+  // Lease / reclamación por el agente.
+  claimedByAgentId String?
+  leaseUntil       DateTime?
+  attempts         Int     @default(0)
+  maxAttempts      Int     @default(3)
+
+  // Progreso/estado (SANEADO, sin datos sensibles).
+  lastProgress    String?
+  needsUserReason String? @db.Text
+  lastError       String? @db.Text
+  resultRef       String? // referencia no sensible de la remesa preparada
+
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  agent     BankAgent?          @relation(fields: [claimedByAgentId], references: [id])
+  events    RemittanceJobEvent[]
+
+  @@index([workspaceId, status])
+  @@index([status, leaseUntil])
+}
+
+// Auditoría del trabajo (saneada: nunca credenciales ni datos bancarios).
+model RemittanceJobEvent {
+  id        String   @id @default(cuid())
+  jobId     String
+  agentId   String?
+  userId    String?
+  fromStatus String?
+  toStatus   String
+  note      String?  @db.Text
+  createdAt DateTime @default(now())
+
+  job RemittanceJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@index([jobId])
 }
 
 // ====================================================================
@@ -4209,6 +4411,20 @@ model BubuiSocialFollow {
 /// 20%"). El cliente abre el enlace, lo reclama y comparte con sus amigos; al
 /// unirse `friendsRequired` amigos, su descuento (clientDiscountPct) se activa.
 /// Reutiliza el motor de oferta-reto (share_challenge) con un % de amigo propio.
+// Clic en un enlace de invitación (/bubui/r/<code>): atribución de RESERVA
+// por coincidencia de IP (estilo Branch/AppsFlyer). Si el amigo instala la
+// app sin pasar por el Install Referrer de Play (p. ej. la buscó a mano),
+// verify-otp busca un clic reciente desde la misma IP y aplica ese código.
+model BubuiReferralClick {
+  id        String   @id @default(cuid())
+  code      String
+  ipHash    String // sha256 de la IP — no guardamos la IP en claro
+  ua        String? // plataforma coarse (android/ios/other) para afinar el match
+  createdAt DateTime @default(now())
+
+  @@index([ipHash, createdAt])
+}
+
 model BubuiCustomDeal {
   id                  String    @id @default(cuid())
   token               String    @unique // identifica el enlace público

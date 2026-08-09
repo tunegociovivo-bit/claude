@@ -64,39 +64,51 @@ export async function draftJobsReview(opts: {
   sector?: string | null;
   jobTitle?: string | null;
   jobDescription?: string | null;
+  /** Nombre del decisor (Apollo/Hunter) para dirigir el email por su nombre. */
+  director?: string | null;
 }): Promise<{ drafted: boolean }> {
-  const now = new Date();
   try {
     const mail = await writeEmail({
       workspaceId: opts.workspaceId,
       company: opts.company,
       sector: opts.sector,
+      director: opts.director ?? null,
       touch: 1,
       jobTitle: opts.jobTitle ?? null,
       jobDescription: opts.jobDescription ?? null
     });
-    const log = [{ at: now.toISOString(), channel: "email_drafted", to: opts.email, subject: mail.subject }];
-    const common = {
-      email: opts.email,
-      step: 0,
-      status: "pending_review",
-      mode: "review" as const,
-      draftSubject: mail.subject,
-      draftBody: mail.body,
-      nextAt: now,
-      log
-    };
-    await prisma.leadExecOutreach.upsert({
-      where: { workspaceId_leadId: { workspaceId: opts.workspaceId, leadId: opts.leadId } },
-      create: { workspaceId: opts.workspaceId, leadId: opts.leadId, ...common },
-      update: common
-    });
+    await saveReviewDraft(opts.workspaceId, opts.leadId, opts.email, mail.subject, mail.body, opts.director ?? null);
     return { drafted: true };
   } catch {
     // Fallback: fila activa en modo review → el cron redactará en el próximo tick.
-    await startExecOutreach({ workspaceId: opts.workspaceId, leadId: opts.leadId, email: opts.email, mode: "review" });
+    await startExecOutreach({ workspaceId: opts.workspaceId, leadId: opts.leadId, email: opts.email, directorName: opts.director ?? null, mode: "review" });
     return { drafted: false };
   }
+}
+
+/**
+ * Guarda un borrador de email en la cola de revisión (pending_review) con el
+ * asunto y cuerpo dados. Genérico: lo usan tanto Empleos como Franquicias.
+ */
+export async function saveReviewDraft(workspaceId: string, leadId: string, email: string, subject: string, body: string, directorName?: string | null): Promise<void> {
+  const now = new Date();
+  const common = {
+    email,
+    step: 0,
+    status: "pending_review",
+    mode: "review" as const,
+    draftSubject: subject,
+    draftBody: body,
+    // Guardamos el nombre del decisor para que "Regenerar" mantenga el saludo.
+    ...(directorName ? { directorName } : {}),
+    nextAt: now,
+    log: [{ at: now.toISOString(), channel: "email_drafted", to: email, subject }]
+  };
+  await prisma.leadExecOutreach.upsert({
+    where: { workspaceId_leadId: { workspaceId, leadId } },
+    create: { workspaceId, leadId, ...common },
+    update: common
+  });
 }
 
 /**
@@ -170,35 +182,69 @@ const EMAIL_SCHEMA = {
   required: ["subject", "body"]
 };
 
-const EMAIL_SYSTEM = `Eres un consultor de marketing local (Negocio Vivo) que escribe a un DIRECTIVO de una
-empresa para ofrecerle captación de clientes, reseñas y fidelización. Redacta un EMAIL frío B2B:
-- Español de España, trato de usted, profesional y directo. Asunto corto y concreto (sin clickbait).
-- Cuerpo de 4-6 líneas: motivo concreto (oportunidad/problema típico de su sector), una frase de
-  valor y un cierre con propuesta de llamada de 10 min. Nada de adjuntos ni promesas vacías.
-- No inventes datos, cifras ni precios. Devuelve SOLO el JSON {subject, body}.`;
+const EMAIL_SYSTEM = `Eres un consultor de Negocio Vivo, una AGENCIA de marketing digital, que escribe a un
+DIRECTIVO para ofrecer sus servicios. Redacta un EMAIL frío B2B:
+- IDIOMA: redacta el email (asunto y cuerpo) en el MISMO idioma en que esté escrita la OFERTA de empleo
+  del contexto. Si la oferta está en inglés → email en inglés; si en español → español de España; etc.
+  Si no hay pistas de idioma, usa español de España. Trato formal y consistente (usted en español; el
+  registro formal equivalente en el idioma que toque). Asunto corto y concreto (sin clickbait).
+- Cuerpo de 5-7 líneas: motivo concreto (oportunidad/problema de su sector o su vacante), la propuesta
+  de valor y un cierre con una llamada de 10 min. Nada de adjuntos ni promesas vacías.
+- DIFERENCIADOR CLAVE (inclúyelo SIEMPRE, redactado con naturalidad y elegancia, integrado en el
+  discurso, NO como lista ni de forma grandilocuente): deja claro que contratar a Negocio Vivo NO es
+  lo mismo que contratar a una sola persona. Somos una agencia con infraestructura detrás: herramientas
+  especializadas para cada tarea de marketing digital con las que conseguimos resultados excelentes, y
+  un equipo propio de IA para analítica, para la toma de decisiones en campañas de pago y para implantar
+  sistemas que mejoran sus procesos y les facilitan el trabajo del día a día. La idea a transmitir: por
+  el coste (o menos) de un empleado, obtienen un equipo y una tecnología que una sola persona no puede dar.
+- No inventes datos, cifras, clientes ni precios concretos. Devuelve SOLO el JSON {subject, body}.`;
+
+/**
+ * Detecta si la oferta está en inglés o en español (heurística por palabras
+ * función, que son las que mejor distinguen idioma). Se usa para forzar el
+ * idioma del email — más fiable que dejar que el modelo lo infiera de un prompt
+ * mayormente en español. Ante la duda, español.
+ */
+export function detectOfferLang(text: string): "en" | "es" {
+  const t = " " + (text || "").toLowerCase().replace(/[^a-záéíóúñ&\s]/gi, " ") + " ";
+  const en = (t.match(/\b(the|and|you|your|we|our|for|with|of|to|will|are|is|be|as|at|role|team|content|social|media|skills?|experience|about|what|looking|join|head|lead|manager|officer|marketing|growth|senior|junior)\b/g) || []).length;
+  const es = (t.match(/\b(de|que|para|el|la|los|las|con|y|un|una|en|por|del|se|su|sus|buscamos|empresa|puesto|experiencia|equipo|trabajo|contenidos?|responsable|gesti[oó]n|conocimientos?)\b/g) || []).length;
+  if (es === 0 && en >= 1) return "en";
+  if (en > es * 1.5 && en >= 2) return "en";
+  return "es";
+}
 
 async function writeEmail(opts: { workspaceId: string; company: string; sector?: string | null; director?: string | null; touch: number; jobTitle?: string | null; jobDescription?: string | null }): Promise<{ subject: string; body: string }> {
   const ctx = [
     `Empresa: ${opts.company}`,
     opts.sector ? `Sector: ${opts.sector}` : null,
     opts.jobTitle
-      ? `IMPORTANTE: la empresa tiene AHORA MISMO una oferta de empleo abierta para el puesto "${opts.jobTitle}". Enfoca el email en esa vacante: menciónala con naturalidad y ofrece que Negocio Vivo cubra esa función de marketing/IA como servicio externo (resultados desde el primer mes, sin coste de contratación, alta laboral ni formación). Tono de ayuda, sin presionar ni criticar que contraten.`
+      ? `IMPORTANTE: la empresa tiene AHORA MISMO una oferta de empleo abierta para el puesto "${opts.jobTitle}". Enfoca el email en esa vacante: menciónala con naturalidad y ofrece que Negocio Vivo cubra esa función de marketing/IA como servicio externo (resultados desde el primer mes, sin coste de contratación, alta laboral ni formación). Contrasta con tacto que, en lugar de fichar a UNA sola persona para ese puesto, con la agencia tienen detrás un equipo con herramientas e IA especializadas. Tono de ayuda, sin presionar ni criticar que contraten.`
       : null,
     opts.jobDescription
       ? `Contexto de la oferta (úsalo para personalizar SIN copiarlo literal ni inventar nada que no aparezca): «${opts.jobDescription.slice(0, 600)}»`
       : null,
-    opts.director ? `Directivo: ${opts.director}` : "Directivo: máximo responsable",
+    opts.director
+      ? `Destinatario: ${opts.director} (responsable de marketing). DIRÍGETE A ÉL/ELLA POR SU NOMBRE en el saludo (p. ej. "Estimado/a ${opts.director.split(/\s+/)[0]}," en español, o "Hi ${opts.director.split(/\s+/)[0]}," / "Dear ${opts.director.split(/\s+/)[0]}," en inglés). Usa solo el nombre de pila, no el apellido.`
+      : "Destinatario: máximo responsable (saludo genérico, sin nombre).",
     opts.touch > 1 ? `Es un email de SEGUIMIENTO (toque ${opts.touch}); cambia el enfoque y sé aún más breve.` : null
   ]
     .filter(Boolean)
     .join("\n");
+  // Idioma FORZADO según la oferta (título + descripción). Es una orden explícita
+  // porque el resto del prompt va en español y, si no, el modelo tira a español.
+  const lang = detectOfferLang(`${opts.jobTitle ?? ""}. ${opts.jobDescription ?? ""}`);
+  const langDirective =
+    lang === "en"
+      ? "IDIOMA OBLIGATORIO: la oferta está en INGLÉS → escribe TODO el email (subject y body) EN INGLÉS, con registro profesional. No uses español."
+      : "IDIOMA OBLIGATORIO: escribe TODO el email (asunto y cuerpo) en ESPAÑOL de España.";
   return completeJson<{ subject: string; body: string }>({
     workspaceId: opts.workspaceId,
     model: "claude-haiku-4-5-20251001",
     system: EMAIL_SYSTEM,
-    user: `${ctx}\n\nEscribe el email:`,
+    user: `${langDirective}\n\n${ctx}\n\nEscribe el email:`,
     schema: EMAIL_SCHEMA,
-    maxTokens: 500
+    maxTokens: 650
   });
 }
 
@@ -288,8 +334,9 @@ export async function processExecOutreachTick(workspaceId: string): Promise<{ pr
       }
       if (row.email && isEmailEnabled()) {
         const mail = await writeEmail({ workspaceId, company: lead.name, sector: lead.category, director: row.directorName, touch: emailTouch, jobTitle, jobDescription });
-        const out = await sendEmail({ to: row.email, subject: mail.subject, html: emailHtml(mail.body), text: mail.body });
-        log.push({ at: now.toISOString(), channel: "email", to: row.email, subject: mail.subject, id: out.id });
+        const bcc = Array.isArray(rd?.bccEmails) ? (rd.bccEmails as string[]) : undefined;
+        const out = await sendEmail({ to: row.email, subject: mail.subject, html: emailHtml(mail.body), text: mail.body, bcc });
+        log.push({ at: now.toISOString(), channel: "email", to: row.email, subject: mail.subject, id: out.id, bcc: bcc?.length ?? 0 });
       } else {
         // Sin email destino o sin Resend → recordatorio manual.
         channelDone = "email_manual";
@@ -335,6 +382,11 @@ export type PendingReviewItem = {
   jobTitle: string | null;
   jobUrl: string | null;
   jobDescription: string | null;
+  directorName: string | null;
+  directorRole: string | null;
+  linkedin: string | null;
+  /** Emails de otros directivos de marketing que irán en copia oculta. */
+  bccEmails: string[];
   createdAt: string;
 };
 
@@ -369,6 +421,10 @@ export async function listPendingReview(workspaceId: string): Promise<PendingRev
       jobTitle: typeof rd?.jobTitle === "string" ? rd.jobTitle : null,
       jobUrl: typeof rd?.jobUrl === "string" ? rd.jobUrl : null,
       jobDescription: typeof rd?.jobDescription === "string" ? rd.jobDescription : null,
+      bccEmails: Array.isArray(rd?.bccEmails) ? rd.bccEmails.filter((x: any) => typeof x === "string") : [],
+      directorName: typeof rd?.directorName === "string" ? rd.directorName : null,
+      directorRole: typeof rd?.directorRole === "string" ? rd.directorRole : null,
+      linkedin: typeof rd?.linkedin === "string" ? rd.linkedin : null,
       createdAt: r.updatedAt.toISOString()
     };
   });
@@ -391,10 +447,14 @@ export async function approveExecOutreach(
   const body = (edit?.body ?? row.draftBody ?? "").trim();
   if (!subject || !body) throw new Error("El borrador del email está vacío.");
 
-  const out = await sendEmail({ to: row.email, subject, html: emailHtml(body), text: body });
+  // Copia oculta a todos los directivos de marketing localizados (si los hay).
+  const leadRd = await prisma.lead.findFirst({ where: { id: row.leadId, workspaceId }, select: { rawData: true } });
+  const bcc = Array.isArray((leadRd?.rawData as any)?.bccEmails) ? ((leadRd!.rawData as any).bccEmails as string[]) : undefined;
+
+  const out = await sendEmail({ to: row.email, subject, html: emailHtml(body), text: body, bcc });
   const now = new Date();
   const log: any[] = Array.isArray(row.log) ? row.log : [];
-  log.push({ at: now.toISOString(), channel: "email", to: row.email, subject, id: out.id, approved: true });
+  log.push({ at: now.toISOString(), channel: "email", to: row.email, subject, id: out.id, approved: true, bcc: bcc?.length ?? 0 });
 
   // Marca el lead como contactado (sin degradar estados más avanzados).
   await prisma.lead.updateMany({
@@ -414,6 +474,37 @@ export async function approveExecOutreach(
     });
   }
   return { sent: true };
+}
+
+/**
+ * Vuelve a redactar con IA el borrador de un email en revisión (mismo lead), para
+ * aplicar cambios de mensaje/discurso a los borradores ya creados. Actualiza el
+ * borrador guardado y lo devuelve.
+ */
+export async function regenerateReviewDraft(workspaceId: string, id: string): Promise<{ subject: string; body: string }> {
+  const row = await prisma.leadExecOutreach.findFirst({ where: { id, workspaceId, status: "pending_review" } });
+  if (!row) throw new Error("No hay un email pendiente de revisión con ese id.");
+  const lead = await prisma.lead.findFirst({
+    where: { id: row.leadId, workspaceId },
+    select: { name: true, category: true, rawData: true }
+  });
+  if (!lead) throw new Error("Lead no encontrado.");
+  const rd: any = lead.rawData ?? {};
+  const jobTitle = typeof rd?.jobTitle === "string" ? rd.jobTitle : null;
+  const jobDescription = typeof rd?.jobDescription === "string" ? rd.jobDescription : null;
+  // Decisor: el de la fila, o (borradores antiguos) el capturado en rawData.
+  const director = row.directorName ?? (typeof rd?.directorName === "string" ? rd.directorName : null);
+  const mail = await writeEmail({
+    workspaceId,
+    company: lead.name,
+    sector: lead.category,
+    director,
+    touch: 1,
+    jobTitle,
+    jobDescription
+  });
+  await prisma.leadExecOutreach.update({ where: { id: row.id }, data: { draftSubject: mail.subject, draftBody: mail.body } });
+  return mail;
 }
 
 /** Descarta un email pendiente de revisión y detiene su secuencia. */
