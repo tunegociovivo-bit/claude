@@ -14,6 +14,11 @@ export const dynamic = "force-dynamic";
 export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api }) => {
   await requireAdmin(api);
   assertSameOrigin(req);
-  const res = await createRequestsForCandidates(api.workspaceId, api.userId, { max: 100 });
+  // El botón manual comparte la misma protección que el cron: solo facturas
+  // recién importadas. Evita reactivar históricos al habilitar un cliente SEPA.
+  const res = await createRequestsForCandidates(api.workspaceId, api.userId, {
+    max: 100,
+    createdAfter: new Date(Date.now() - 10 * 60 * 1000)
+  });
   return NextResponse.json({ ok: true, ...res });
 });
