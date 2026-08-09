@@ -15,6 +15,7 @@ import { customerAuthOk } from "@/lib/bubui/customer-auth";
 import { ensureReferralCode, countVerifiedReferrals, countQualifiedReferrals } from "@/lib/bubui/referral";
 import { bubuiUrl } from "@/lib/bubui/url";
 import { alertBusiness } from "@/lib/bubui/business-push";
+import { recordDealTrace } from "@/lib/bubui/deal-trace";
 
 export const dynamic = "force-dynamic";
 
@@ -44,6 +45,7 @@ export async function POST(req: Request, { params }: { params: { token: string }
     if (deal.claimedByCustomerId !== customerId) {
       return NextResponse.json({ error: { code: "already_claimed", message: "Este reto ya lo reclamó otra persona" } }, { status: 409 });
     }
+    void recordDealTrace({ token: params.token, stage: "web_claim_ok", source: "server" });
     return NextResponse.json({
       ok: true, alreadyClaimed: true, referralCode: code, shareUrl,
       clientDiscountPct: deal.clientDiscountPct, friendsRequired: deal.friendsRequired, friendDiscountPct: deal.friendDiscountPct
@@ -97,6 +99,7 @@ export async function POST(req: Request, { params }: { params: { token: string }
     }).catch(() => {});
   })();
 
+  void recordDealTrace({ token: params.token, stage: "web_claim_ok", source: "server" });
   return NextResponse.json({
     ok: true, referralCode: code, shareUrl,
     clientDiscountPct: deal.clientDiscountPct, friendsRequired: deal.friendsRequired, friendDiscountPct: deal.friendDiscountPct

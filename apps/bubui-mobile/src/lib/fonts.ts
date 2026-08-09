@@ -22,7 +22,16 @@ import {
   Poppins_800ExtraBold,
   Poppins_900Black
 } from "@expo-google-fonts/poppins";
+import Ionicons from "@expo/vector-icons/Ionicons";
 
+// CAUSA RAÍZ de los iconos en blanco (menú inferior/FAB) en el build Android:
+// solo se embebía la fuente Ionicons vía el config plugin (expo-font), pero NUNCA
+// se CARGABA en tiempo de ejecución, y @expo/vector-icons necesita que la fuente
+// esté registrada en el gestor de fuentes de RN para pintar los glifos (PUA). Al
+// no cargarla, los <Ionicons> salían vacíos aunque el .ttf estuviera en el APK.
+// Solución: cargar Ionicons.font en el arranque (junto a Poppins) y esperar a
+// que estén listas antes de renderizar la UI. No se "tapa" nada: se carga la
+// fuente real de los iconos.
 export function useAppFonts() {
   return useFonts({
     Poppins_400Regular,
@@ -30,7 +39,9 @@ export function useAppFonts() {
     Poppins_600SemiBold,
     Poppins_700Bold,
     Poppins_800ExtraBold,
-    Poppins_900Black
+    Poppins_900Black,
+    // Registra la fuente de iconos (equivale a Ionicons.loadFont()).
+    ...Ionicons.font
   });
 }
 
