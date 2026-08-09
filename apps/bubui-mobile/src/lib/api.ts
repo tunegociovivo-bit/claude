@@ -176,12 +176,21 @@ export const api = {
       body: JSON.stringify({ customerId })
     }),
   /** Traza SEGURA (sin PII) de una etapa del flujo del reto, para diagnosticar
-   *  dónde se corta la cadena. Best-effort: nunca rompe el flujo si falla. */
-  traceDeal: (token: string, stage: string, extra?: Record<string, string | number | boolean>) =>
-    call<{ ok: boolean }>(`/api/bubui/deal-trace`, {
-      method: "POST",
-      body: JSON.stringify({ token, stage, platform: Platform.OS, appBuild: APP_BUILD, ...(extra ?? {}) })
-    }).catch(() => ({ ok: false })),
+   *  dónde se corta la cadena. Best-effort y DESACOPLADA de la auth: usa fetch
+   *  directo (no `call`) para que un eventual 401 NUNCA dispare el cierre de
+   *  sesión global (onAuthExpired). Nunca rompe el flujo si falla. */
+  traceDeal: async (token: string, stage: string, extra?: Record<string, string | number | boolean>) => {
+    try {
+      await fetch(`${API_BASE}/api/bubui/deal-trace`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token, stage, platform: Platform.OS, appBuild: APP_BUILD, ...(extra ?? {}) })
+      });
+    } catch {
+      /* observabilidad best-effort: se ignora cualquier fallo */
+    }
+    return { ok: true };
+  },
   // Stats vivas del cliente (total ahorrado, compras…). El total guardado en
   // la sesión local se queda obsoleto en cuanto el negocio confirma una
   // compra; esto lo refresca.

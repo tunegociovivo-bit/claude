@@ -148,10 +148,18 @@ export async function claimPendingDeal(customerId: string): Promise<void> {
   if (!token) return;
   void api.traceDeal(token, "app_claim_attempt");
   try {
-    await api.claimDeal(token, customerId);
-    await clearPendingDeal();
-    void api.traceDeal(token, "app_claim_ok");
-    claimedListeners.forEach((fn) => { try { fn(); } catch {} });
+    const res = await api.claimDeal(token, customerId);
+    // Solo descartamos el pendiente con CONFIRMACIÓN SEMÁNTICA REAL del servidor
+    // (cuerpo ok:true = reto reclamado/ya-mío). Un 2xx sin ok, o cualquier fallo
+    // (red/5xx/401/expirado/reclamado-por-otro), CONSERVA el pendiente para
+    // reintentar en el próximo arranque; nunca se pierde por un falso positivo.
+    if (res?.ok === true) {
+      await clearPendingDeal();
+      void api.traceDeal(token, "app_claim_ok");
+      claimedListeners.forEach((fn) => { try { fn(); } catch {} });
+    } else {
+      void api.traceDeal(token, "app_claim_retry_later");
+    }
   } catch {
     void api.traceDeal(token, "app_claim_retry_later");
     // se reintentará al próximo arranque con sesión

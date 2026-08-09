@@ -94,6 +94,24 @@ describe("CASO REAL: desinstalada → Play → primer arranque → alta → clai
     expect(await m2.getPendingDeal()).toBe(TOKEN);
   });
 
+  it("waitForDealCapture BLOQUEA hasta que el token está guardado (cierra la carrera con el alta)", async () => {
+    // El callback del Install Referrer llega con retardo: el alta debe esperar
+    // a que la captura termine ANTES de leer el token, no resolver en vacío.
+    let fire: any = null;
+    H.pir.getInstallReferrerInfo.mockImplementation((cb: any) => { fire = cb; });
+    const m = await freshModule();
+    m.initDealCapture();
+    let resolvedToken: string | null = "NO_RESUELTO";
+    const waiter = m.waitForDealCapture().then(async () => { resolvedToken = await m.getPendingDeal(); });
+    await flush();
+    // Aún no ha llegado el referrer → la espera NO debe haber resuelto con token.
+    expect(resolvedToken).toBe("NO_RESUELTO");
+    fire({ installReferrer: `reto_${TOKEN}` }, null); // ahora responde Play
+    await waiter;
+    // Al resolver la espera, el token ya está persistido (no hay carrera perdida).
+    expect(resolvedToken).toBe(TOKEN);
+  });
+
   it("Install Referrer TARDÍO con sesión ya iniciada: reclama al momento (sin esperar a otro arranque)", async () => {
     let fire: any = null;
     H.pir.getInstallReferrerInfo.mockImplementation((cb: any) => { fire = cb; });
@@ -132,6 +150,14 @@ describe("claimPendingDeal — semántica de reintento", () => {
     H.api.claimDeal.mockRejectedValue(new Error("network"));
     await m.claimPendingDeal("cust-1");
     expect(await m.getPendingDeal()).toBe(TOKEN); // no se pierde
+  });
+
+  it("2xx SIN ok:true → NO borra el pendiente (solo confirmación semántica real)", async () => {
+    const m = await freshModule();
+    await m.storePendingDeal(TOKEN);
+    H.api.claimDeal.mockResolvedValue({ ok: false } as any);
+    await m.claimPendingDeal("cust-1");
+    expect(await m.getPendingDeal()).toBe(TOKEN); // conserva → reintento
   });
 
   it("claim OK → limpia el pendiente y notifica a los listeners (Feed)", async () => {
