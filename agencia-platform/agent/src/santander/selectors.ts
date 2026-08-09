@@ -20,6 +20,8 @@ export interface SelectorSpec {
   role?: { role: string; name?: string };
   text?: string;
   xpath?: string;
+  /** Restringe un selector CSS a un contenedor con este texto. */
+  hasText?: string;
   /** Descripción legible para logs y para el modo grabación. */
   describe: string;
 }
