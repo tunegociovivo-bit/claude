@@ -36,7 +36,12 @@ export async function runSepaCronAllWorkspaces(): Promise<any[]> {
     }
     if (autoScan) {
       try {
-        r.scan = await createRequestsForCandidates(ws.id, null, { max: 50 });
+        // El cron solo notifica facturas recién sincronizadas. El escaneo
+        // manual del HUB conserva la capacidad de revisar candidatas antiguas.
+        r.scan = await createRequestsForCandidates(ws.id, null, {
+          max: 50,
+          createdAfter: new Date(Date.now() - 10 * 60 * 1000)
+        });
       } catch (e: any) {
         r.scanError = String(e?.message ?? e);
       }

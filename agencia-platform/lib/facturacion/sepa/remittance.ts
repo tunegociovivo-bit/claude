@@ -51,7 +51,7 @@ export type CandidateInvoice = {
  */
 export async function findCandidateInvoices(
   workspaceId: string,
-  opts?: { take?: number; skip?: number }
+  opts?: { take?: number; skip?: number; createdAfter?: Date }
 ): Promise<CandidateInvoice[]> {
   const nv = await getNegocioVivoIssuer(workspaceId);
   if (!nv) return [];
@@ -67,7 +67,8 @@ export async function findCandidateInvoices(
       totalCents: { gt: 0 },
       paidAt: null,
       clientId: { not: null },
-      number: { not: null }
+      number: { not: null },
+      ...(opts?.createdAfter ? { createdAt: { gte: opts.createdAfter } } : {})
     },
     orderBy: { issueDate: "desc" },
     take,
@@ -268,10 +269,10 @@ async function notifyApproval(requestId: string, token: string, inv: any, create
 export async function createRequestsForCandidates(
   workspaceId: string,
   createdById?: string | null,
-  opts?: { max?: number }
+  opts?: { max?: number; createdAfter?: Date }
 ): Promise<{ created: number; skipped: number; examined: number; eligible: number }> {
   const max = Math.min(opts?.max ?? 50, 200);
-  const all = await findCandidateInvoices(workspaceId, { take: 300 });
+  const all = await findCandidateInvoices(workspaceId, { take: 300, createdAfter: opts?.createdAfter });
   const eligible = all.filter((c) => c.eligible).slice(0, max);
   let created = 0;
   let skipped = 0;
