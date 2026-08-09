@@ -4448,6 +4448,22 @@ model BubuiCustomDeal {
   @@index([claimedByCustomerId])
 }
 
+// Traza SEGURA del flujo de un reto (custom-deal), correlada por token+etapa,
+// para diagnosticar dónde se corta la cadena WhatsApp→Play→app→alta→claim.
+// NO guarda IP ni PII: el `token` es el identificador PÚBLICO del enlace del
+// reto (no es un secreto ni un dato personal). Solo etapa/plataforma/build.
+model BubuiDealTrace {
+  id        String   @id @default(cuid())
+  token     String // token público del reto (correlación)
+  stage     String // p.ej. web_page_view, app_capture_install_referrer, app_claim_ok
+  platform  String? // web | android | ios
+  appBuild  String? // versionCode/buildNumber si viene de la app
+  source    String? // server | client
+  createdAt DateTime @default(now())
+
+  @@index([token, createdAt])
+}
+
 /// Mesa Colectiva: una mesa de un restaurante que activa un descuento de grupo
 /// viral. El anfitrión la crea y su app muestra un QR de mesa; los demás
 /// comensales lo escanean para unirse (ventana de unión). El % sube si todos

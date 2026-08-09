@@ -10,7 +10,7 @@ import * as Notifications from "expo-notifications";
 import { api } from "../lib/api";
 import { saveSession } from "../lib/session";
 import { getPendingRef, applyPendingRef, waitForReferrerCapture } from "../lib/referral-pending";
-import { claimPendingDeal } from "../lib/deal-pending";
+import { claimPendingDeal, getPendingDeal, waitForDealCapture } from "../lib/deal-pending";
 import { Wordmark } from "../components/Wordmark";
 import { useTheme, type Palette, radius, shadow } from "../lib/theme";
 import { Video, ResizeMode } from "expo-av";
@@ -42,6 +42,33 @@ export function Onboarding() {
   // Si se entra con `start: "register"` (p. ej. invitado pulsando "Cuenta"),
   // saltamos el vídeo y vamos directos a la pantalla de registro.
   const [step, setStep] = useState(route.params?.start === "register" ? INTRO_STEP_COUNT : 0);
+  // Reto pendiente (llega de un enlace WhatsApp→Play o deep link). Si lo hay, el
+  // alta es OBLIGATORIA para reclamarlo: se salta el vídeo, se va directo al
+  // registro, se muestra el contexto del reto y se OCULTA "Explorar sin cuenta".
+  type PendingDeal = { token: string; businessName: string; clientDiscountPct: number; title: string | null; friendsRequired: number };
+  const [pendingDeal, setPendingDeal] = useState<PendingDeal | null>(null);
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      // Espera (acotada) a que la captura del token termine antes de decidir.
+      await waitForDealCapture();
+      const token = await getPendingDeal();
+      if (!token || !alive) return;
+      // Vamos directos al registro (nunca invitado con un reto pendiente).
+      setStep(INTRO_STEP_COUNT + 1);
+      setOtpStep("form");
+      try {
+        const d = await api.getCustomDeal(token);
+        if (!alive || !d) return;
+        void api.traceDeal(token, "app_onboarding_shown");
+        setPendingDeal({ token, businessName: d.businessName, clientDiscountPct: d.clientDiscountPct, title: d.title, friendsRequired: d.friendsRequired });
+      } catch {
+        // Aunque no podamos cargar el detalle, mantenemos el registro forzado.
+        if (alive) setPendingDeal({ token, businessName: "el negocio", clientDiscountPct: 0, title: null, friendsRequired: 0 });
+      }
+    })();
+    return () => { alive = false; };
+  }, []);
   // Animación de "latido" para llamar la atención sobre el CTA "Empezar ahora".
   const ctaPulse = useRef(new Animated.Value(1)).current;
   useEffect(() => {
@@ -93,7 +120,8 @@ export function Onboarding() {
         totalPurchases: r.totalPurchases ?? 0,
         token: r.token
       });
-      void claimPendingDeal(r.customerId); // reclama el reto si venía de un enlace
+      await waitForDealCapture();
+      await claimPendingDeal(r.customerId); // reclama el reto si venía de un enlace
       sfx.tap();
       nav.reset({ index: 0, routes: [{ name: "Feed" }] });
     } catch (e: any) {
@@ -148,7 +176,11 @@ export function Onboarding() {
       // verify-otp puede fallar silenciosamente en el servidor. El Feed
       // reintenta con applyPendingRef (idempotente) y limpia al confirmar.
       void applyPendingRef(r.customerId);
-      void claimPendingDeal(r.customerId); // reclama el reto si venía de un enlace
+      // Reto: espera (acotada) a que la captura del token termine ANTES de
+      // reclamar, para cerrar la carrera captura/alta (antes se reclamaba sin
+      // esperar y en instalación diferida el token aún no estaba guardado).
+      await waitForDealCapture();
+      await claimPendingDeal(r.customerId);
       try { await Location.requestForegroundPermissionsAsync(); } catch {}
       try { await Notifications.requestPermissionsAsync(); } catch {}
       await saveSession({
@@ -267,14 +299,19 @@ export function Onboarding() {
         </TouchableOpacity>
 
         {/* Explorar sin registrarse: ver negocios y ofertas del mapa sin cuenta.
-            El registro solo se pide al canjear/escanear o guardar (Apple 5.1.1). */}
-        <TouchableOpacity
-          style={styles.guestBtn}
-          onPress={() => { sfx.tap(); nav.reset({ index: 0, routes: [{ name: "Feed" }] }); }}
-          activeOpacity={0.8}
-        >
-          <Text style={styles.guestBtnText}>Explorar sin cuenta</Text>
-        </TouchableOpacity>
+            El registro solo se pide al canjear/escanear o guardar (Apple 5.1.1).
+            OJO: si hay un RETO pendiente, NO se ofrece invitado — el alta es
+            necesaria para reclamarlo (si no, el usuario entra como invitado con
+            0 cupones y pierde el reto, que fue justo el fallo reportado). */}
+        {!pendingDeal && (
+          <TouchableOpacity
+            style={styles.guestBtn}
+            onPress={() => { sfx.tap(); nav.reset({ index: 0, routes: [{ name: "Feed" }] }); }}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.guestBtnText}>Explorar sin cuenta</Text>
+          </TouchableOpacity>
+        )}
 
         {/* CTA secundaria: alta de negocio */}
         <View style={styles.bizRow}>
@@ -369,6 +406,19 @@ export function Onboarding() {
         <Wordmark size={64} />
         <Text style={styles.tag}>Ahorra. Disfruta. Apoya local.</Text>
       </View>
+
+      {pendingDeal && (
+        <View style={styles.retoBanner}>
+          <Text style={styles.retoBannerEmoji}>🎁</Text>
+          <Text style={styles.retoBannerText}>
+            <Text style={{ fontWeight: "900" }}>{pendingDeal.businessName}</Text> te propone un reto
+            {pendingDeal.clientDiscountPct ? (
+              <Text>: consigue un <Text style={{ fontWeight: "900" }}>{pendingDeal.clientDiscountPct}%{pendingDeal.title ? ` en ${pendingDeal.title}` : ""}</Text></Text>
+            ) : null}
+            . Regístrate para reclamarlo.
+          </Text>
+        </View>
+      )}
 
       {otpStep === "form" ? (
         <View style={styles.card}>
@@ -654,6 +704,22 @@ const makeStyles = (c: Palette) =>
       fontSize: 14,
       letterSpacing: 0.2
     },
+
+    // Banner del reto pendiente (alta obligatoria para reclamarlo)
+    retoBanner: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 10,
+      backgroundColor: c.white,
+      borderWidth: 1.5,
+      borderColor: c.pink,
+      borderRadius: radius.lg,
+      padding: 14,
+      marginTop: 18,
+      ...shadow.card
+    },
+    retoBannerEmoji: { fontSize: 26 },
+    retoBannerText: { flex: 1, fontSize: 13, lineHeight: 18, color: c.black },
 
     // Signup
     signupRoot: { paddingTop: 80, paddingHorizontal: 24, paddingBottom: 60, backgroundColor: c.bg, flexGrow: 1 },

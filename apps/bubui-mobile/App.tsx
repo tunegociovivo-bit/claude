@@ -74,7 +74,15 @@ const linking = {
 
 function AppInner() {
     const [initial, setInitial] = useState<keyof RootStackParamList | null>(null);
-    const [fontsLoaded] = useAppFonts();
+    const [fontsLoaded, fontsError] = useAppFonts();
+    // Salvaguarda: si la carga de fuentes tarda o falla (p. ej. simulador),
+    // arrancamos igualmente pasado un margen para no quedarnos en el Splash.
+    const [fontsTimedOut, setFontsTimedOut] = useState(false);
+    useEffect(() => {
+        const t = setTimeout(() => setFontsTimedOut(true), 4000);
+        return () => clearTimeout(t);
+    }, []);
+    const fontsReady = fontsLoaded || !!fontsError || fontsTimedOut;
     const { colors, dark } = useThemeMeta();
 
   useEffect(() => {
@@ -100,7 +108,10 @@ function AppInner() {
   // de mostrar un genérico "servidor no responde".
   useEffect(() => setOnAuthExpired(() => { void clearSession(); }), []);
 
-  if (!initial) return <Splash />; // fontsLoaded check removed for simulator build
+  // Esperamos a sesión Y fuentes (Poppins + Ionicons) para que el menú inferior
+  // pinte sus iconos desde el primer render. `fontsReady` incluye timeout/errores
+  // para no bloquear el arranque si la carga de fuentes fallara.
+  if (!initial || !fontsReady) return <Splash />;
 
   const navTheme: Theme = {
         ...(dark ? DarkTheme : DefaultTheme),

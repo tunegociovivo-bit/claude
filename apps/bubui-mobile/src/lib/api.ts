@@ -155,12 +155,33 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ customerId, code })
     }),
+  /** Info pública de un RETO (custom-deal) para mostrar contexto en el alta. */
+  getCustomDeal: (token: string) =>
+    call<{
+      token: string;
+      businessName: string;
+      city: string | null;
+      title: string | null;
+      clientDiscountPct: number;
+      friendsRequired: number;
+      friendDiscountPct: number;
+      friendTitle: string | null;
+      expired: boolean;
+      claimed: boolean;
+    }>(`/api/bubui/custom-deal/${token}`),
   /** Reclama un RETO (custom-deal) para el cliente con sesión. Requiere auth. */
   claimDeal: (token: string, customerId: string) =>
     call<{ ok: boolean; shareUrl?: string }>(`/api/bubui/custom-deal/${token}/claim`, {
       method: "POST",
       body: JSON.stringify({ customerId })
     }),
+  /** Traza SEGURA (sin PII) de una etapa del flujo del reto, para diagnosticar
+   *  dónde se corta la cadena. Best-effort: nunca rompe el flujo si falla. */
+  traceDeal: (token: string, stage: string, extra?: Record<string, string | number | boolean>) =>
+    call<{ ok: boolean }>(`/api/bubui/deal-trace`, {
+      method: "POST",
+      body: JSON.stringify({ token, stage, platform: Platform.OS, appBuild: APP_BUILD, ...(extra ?? {}) })
+    }).catch(() => ({ ok: false })),
   // Stats vivas del cliente (total ahorrado, compras…). El total guardado en
   // la sesión local se queda obsoleto en cuanto el negocio confirma una
   // compra; esto lo refresca.
