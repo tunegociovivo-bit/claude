@@ -12,7 +12,7 @@ import { MockSantanderAdapter, type MockAnomaly } from "../src/santander/mock.js
 import { isForbiddenActionLabel } from "../src/santander/types.js";
 import type { AdapterHooks, AuthorizedJob } from "../src/santander/types.js";
 import { sanitize } from "../src/logger.js";
-import { decideLoginAction, formatSantanderAmount, isAuthenticatedSantanderUrl, isEnvioremFrameUrl, isRemittanceGeneratorUrl, isSafeReconnectLabel, numericPageLabels, parseDisplayedAmountCents, shouldWaitForAmountConfirmation, shouldWaitForRemittanceList, uniqueVisibleIndex, validateAccessKey } from "../src/santander/login.js";
+import { decideLoginAction, formatSantanderAmount, isAuthenticatedSantanderUrl, isEnvioremFrameUrl, isRemittanceGeneratorUrl, isSafeBasicPaymentsLabel, isSafeReconnectLabel, numericPageLabels, parseDisplayedAmountCents, shouldWaitForAmountConfirmation, shouldWaitForRemittanceList, uniqueVisibleIndex, validateAccessKey } from "../src/santander/login.js";
 
 let passed = 0;
 let failed = 0;
@@ -93,6 +93,7 @@ async function main() {
   ok("selecciona la única opción visible", uniqueVisibleIndex([false, true, false]) === 1);
   ok("rechaza opciones visibles ambiguas", uniqueVisibleIndex([true, false, true]) === null);
   ok("rechaza si ninguna opción está visible", uniqueVisibleIndex([false, false]) === null);
+  ok("solo acepta la categoría exacta de cobros básicos", isSafeBasicPaymentsLabel("Pagos y cobros básicos") && !isSafeBasicPaymentsLabel("Pagos internacionales"));
 
   console.log("Máquina de estados y seguridad del agente:");
 
