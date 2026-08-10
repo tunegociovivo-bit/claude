@@ -107,6 +107,7 @@ async function main() {
   ok("espera opciones que Santander renderiza con retraso", shouldRetryVisibleOption(false, 0, 30) && !shouldRetryVisibleOption(true, 0, 30) && !shouldRetryVisibleOption(false, 30, 30));
   ok("acepta la tarjeta segura de generación de remesas", isSafeRemittanceGenerationLabel("Generación de remesas"));
   ok("tolera el texto corto histórico de la tarjeta", isSafeRemittanceGenerationLabel("Generación"));
+  ok("acepta la etiqueta completa actual de la tarjeta", isSafeRemittanceGenerationLabel("Generación Herramienta para crear tus ficheros de remesas"));
   ok("rechaza tarjetas de firma o pagos", !isSafeRemittanceGenerationLabel("Generación y firma") && !isSafeRemittanceGenerationLabel("Generación de pagos"));
 
   console.log("Máquina de estados y seguridad del agente:");
