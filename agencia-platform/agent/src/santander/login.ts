@@ -88,3 +88,7 @@ export function isEnvioremFrameUrl(currentUrl: string, allowedOrigin: string): b
     return current.protocol === "https:" && current.origin === allowed.origin && current.pathname.startsWith("/paas/enviorem/");
   } catch { return false; }
 }
+
+export function shouldWaitForRemittanceList(templateVisible: boolean, pageLabels: string[], attempt: number, maxAttempts: number): boolean {
+  return !templateVisible && pageLabels.length === 0 && attempt < maxAttempts;
+}

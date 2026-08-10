@@ -19,7 +19,7 @@
 import type { AuthorizedJob, AdapterHooks, SantanderAdapter, StepOutcome } from "./types.js";
 import { isForbiddenActionLabel } from "./types.js";
 import { loadSelectors, type SantanderSelectors, type SelectorSpec } from "./selectors.js";
-import { decideLoginAction, formatSantanderAmount, isAuthenticatedSantanderUrl, isEnvioremFrameUrl, isRemittanceGeneratorUrl, isSafeReconnectLabel, numericPageLabels, parseDisplayedAmountCents, shouldWaitForAmountConfirmation } from "./login.js";
+import { decideLoginAction, formatSantanderAmount, isAuthenticatedSantanderUrl, isEnvioremFrameUrl, isRemittanceGeneratorUrl, isSafeReconnectLabel, numericPageLabels, parseDisplayedAmountCents, shouldWaitForAmountConfirmation, shouldWaitForRemittanceList } from "./login.js";
 import { hasEncryptedCredential, readEncryptedAccessKey } from "../credential-store.js";
 
 const STEP_TIMEOUT_MS = 15000;
@@ -265,8 +265,14 @@ export class LiveSantanderAdapter implements SantanderAdapter {
   }
 
   private async locatePreviousRemittance(app: any, spec: SelectorSpec): Promise<boolean> {
-    if (await this.locator(app, spec).first().isVisible().catch(() => false)) return true;
-    const labels = numericPageLabels(await app.locator("a").allTextContents().catch(() => []));
+    let labels: string[] = [];
+    for (let attempt = 0; attempt <= 20; attempt++) {
+      const templateVisible = await this.locator(app, spec).first().isVisible().catch(() => false);
+      if (templateVisible) return true;
+      labels = numericPageLabels(await app.locator("a").allTextContents().catch(() => []));
+      if (!shouldWaitForRemittanceList(templateVisible, labels, attempt, 20)) break;
+      await app.waitForTimeout(500);
+    }
     for (const label of labels) {
       const link = app.getByRole("link", { name: label, exact: true });
       if (await link.count() !== 1) continue;
