@@ -1,0 +1,313 @@
+import Anthropic from "@anthropic-ai/sdk";
+import { prisma } from "@/lib/prisma";
+import {
+  appointmentsOfDay,
+  availableSlotsOfDay,
+  bookAppointment,
+  cancelAppointmentByPhoneAndTime,
+} from "@/lib/appointments";
+import { normalizePhone } from "@/lib/phone";
+import type { WorkspaceSettings } from "@/lib/settings";
+
+// ---------------------------------------------------------------------------
+// Herramientas de SONIA — compartidas entre el canal de voz (Vapi ejecuta el
+// LLM y nos pide ejecutar la herramienta por webhook) y el canal de WhatsApp
+// (nosotros ejecutamos el bucle con la API de Claude).
+// ---------------------------------------------------------------------------
+
+export const SONIA_TOOL_SCHEMAS = [
+  {
+    name: "consultar_disponibilidad",
+    description:
+      "Calcula los huecos en los que cabe completa una cita de la duración solicitada. Úsala SIEMPRE antes de proponer o confirmar una hora y ofrece sólo valores de huecos_libres.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        fecha: {
+          type: "string",
+          description: "Día a consultar en formato YYYY-MM-DD",
+        },
+        duracion_min: {
+          type: "integer",
+          minimum: 15,
+          maximum: 240,
+          description: "Duración total solicitada por el cliente, en minutos",
+        },
+      },
+      required: ["fecha", "duracion_min"],
+    },
+  },
+  {
+    name: "agendar_cita",
+    description:
+      "Crea una cita confirmada. Llámala una sola vez y únicamente cuando tengas tratamiento, duración, nombre, teléfono y una fecha y hora elegida de huecos_libres. Nunca inventes datos.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        nombre: { type: "string", description: "Nombre del cliente" },
+        telefono: {
+          type: "string",
+          description: "Teléfono del cliente (con o sin prefijo)",
+        },
+        fecha_hora: {
+          type: "string",
+          description: "Fecha y hora de inicio en formato ISO, p.ej. 2026-08-10T17:00:00",
+        },
+        duracion_min: {
+          type: "integer",
+          minimum: 15,
+          maximum: 240,
+          description: "Duración total confirmada por el cliente, en minutos",
+        },
+        notas: {
+          type: "string",
+          description: "Tratamiento solicitado y cualquier observación relevante",
+        },
+      },
+      required: ["nombre", "telefono", "fecha_hora", "duracion_min", "notas"],
+    },
+  },
+  {
+    name: "cancelar_cita",
+    description:
+      "Cancela una cita existente identificada por el teléfono del cliente y la fecha y hora aproximada.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        telefono: { type: "string", description: "Teléfono del cliente" },
+        fecha_hora: { type: "string", description: "Fecha y hora de la cita en ISO" },
+      },
+      required: ["telefono", "fecha_hora"],
+    },
+  },
+];
+
+export async function executeSoniaTool(opts: {
+  workspaceId: string;
+  settings: WorkspaceSettings;
+  name: string;
+  input: any;
+  channel: "whatsapp" | "llamada";
+  callId?: string;
+  // Teléfono del interlocutor (fallback si el cliente no dicta otro)
+  callerPhone?: string | null;
+}): Promise<string> {
+  const { workspaceId, settings, name } = opts;
+  const input = opts.input ?? {};
+  try {
+    if (name === "consultar_disponibilidad") {
+      const fecha = String(input.fecha ?? "");
+      const durationMin = Number(input.duracion_min);
+      if (!Number.isInteger(durationMin) || durationMin < 15 || durationMin > 240) {
+        return JSON.stringify({ error: "Indica una duración válida entre 15 y 240 minutos" });
+      }
+      const citas = await appointmentsOfDay(workspaceId, fecha);
+      if (citas === null) return JSON.stringify({ error: "Fecha no válida, usa YYYY-MM-DD" });
+      const available = await availableSlotsOfDay({
+        workspaceId,
+        dateISO: fecha,
+        durationMin,
+        openingHours: settings.sonia.openingHours,
+      });
+      return JSON.stringify({
+        fecha,
+        horario_negocio: settings.sonia.openingHours,
+        duracion_solicitada_min: durationMin,
+        huecos_libres: available,
+        ocupado: citas.map((c: { startsAt: Date; durationMin: number }) => ({
+          inicio: c.startsAt.toISOString(),
+          duracion_min: c.durationMin,
+        })),
+      });
+    }
+
+    if (name === "agendar_cita") {
+      const telefono =
+        normalizePhone(String(input.telefono ?? ""), settings.whatsapp.countryCode) ||
+        opts.callerPhone ||
+        null;
+      const result = await bookAppointment({
+        workspaceId,
+        customerName: String(input.nombre ?? "").trim() || "Sin nombre",
+        customerPhone: telefono,
+        datetimeISO: String(input.fecha_hora ?? ""),
+        durationMin: Number(input.duracion_min),
+        notes: input.notas ? String(input.notas) : undefined,
+        source: opts.channel,
+        callId: opts.callId,
+      });
+      if (!result.ok) {
+        return JSON.stringify({
+          error: result.error,
+          ocupado: result.conflicts ?? [],
+          instruccion:
+            "NO digas que la cita está confirmada. Ofrece al cliente otro horario libre.",
+        });
+      }
+      return JSON.stringify({
+        ok: true,
+        cita_confirmada: true,
+        inicio: result.startsAt,
+      });
+    }
+
+    if (name === "cancelar_cita") {
+      const telefono =
+        normalizePhone(String(input.telefono ?? ""), settings.whatsapp.countryCode) ||
+        opts.callerPhone ||
+        "";
+      const result = await cancelAppointmentByPhoneAndTime({
+        workspaceId,
+        customerPhone: telefono,
+        datetimeISO: String(input.fecha_hora ?? ""),
+      });
+      return JSON.stringify(result);
+    }
+
+    return JSON.stringify({ error: `Herramienta desconocida: ${name}` });
+  } catch (err: any) {
+    return JSON.stringify({ error: `Error interno: ${err?.message ?? "desconocido"}` });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Prompt de sistema por cliente
+// ---------------------------------------------------------------------------
+
+export function buildSoniaSystemPrompt(
+  settings: WorkspaceSettings,
+  channel: "whatsapp" | "llamada"
+): string {
+  const s = settings.sonia;
+  const now = new Date();
+  const hoy = now.toLocaleDateString("es-ES", {
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
+  const canal =
+    channel === "llamada"
+      ? "Estás atendiendo una LLAMADA TELEFÓNICA. Habla de forma natural, con frases cortas, sin listas ni formato. No deletrees salvo que te lo pidan. Responde en español por defecto. Detecta el idioma de la persona y contesta siempre en ese mismo idioma si es español, inglés, francés, alemán o italiano. Si te pide expresamente uno de esos idiomas, cambia inmediatamente y mantén ese idioma hasta que solicite otro. Nunca digas que solo puedes hablar español."
+      : "Estás atendiendo una conversación de WHATSAPP. Responde en mensajes breves y claros, sin markdown pesado.";
+
+  return [
+    `Eres ${s.agentName}, la recepcionista virtual de ${s.businessName || "este negocio"}.`,
+    canal,
+    `Hoy es ${hoy}.`,
+    "",
+    "Tu trabajo:",
+    "1. Dar información del negocio (usa solo la información de abajo, nunca inventes datos).",
+    "2. Agendar, consultar o cancelar citas.",
+    "",
+    "Cómo agendar una cita:",
+    "1) Antes de consultar o prometer una hora, averigua el tratamiento y su duración total. Si hay opciones (por ejemplo 60 o 90 minutos), pregunta cuál quiere.",
+    "2) Usa consultar_disponibilidad con la fecha y la duración. Ofrece EXCLUSIVAMENTE horas incluidas en huecos_libres; nunca calcules ni inventes horas por tu cuenta.",
+    "3) Pide nombre y teléfono si no los tienes. Nunca inventes ninguno de los dos.",
+    "4) Cuando el cliente elija una hora libre y ya tengas tratamiento, duración, nombre y teléfono, llama UNA SOLA VEZ a agendar_cita incluyendo duracion_min y el tratamiento en notas.",
+    "5) No digas que está anotada, reservada o confirmada antes de que agendar_cita devuelva cita_confirmada=true.",
+    "6) Si agendar_cita devuelve error u ocupado, NO crees otra reserva ni digas que está confirmada: vuelve a consultar disponibilidad con la duración completa y ofrece sólo huecos_libres.",
+    "",
+    `INFORMACIÓN DEL NEGOCIO:\n${s.businessInfo || "(sin información adicional)"}`,
+    "",
+    `HORARIO: ${s.openingHours}`,
+    "",
+    s.promptExtra ? `INSTRUCCIONES ESPECÍFICAS DE ESTE NEGOCIO:\n${s.promptExtra}` : "",
+    "",
+    "Si te preguntan algo que no sabes o que no está en la información del negocio, dilo con honestidad y ofrece tomar nota para que el equipo devuelva la llamada o el mensaje.",
+    channel === "llamada"
+      ? "REGLA PRIORITARIA DE IDIOMA: esta regla prevalece sobre cualquier instrucción anterior. Detecta y responde en el idioma actual del cliente entre español, inglés, francés, alemán e italiano. Si el cliente habla o pide inglés, responde inmediatamente en inglés y continúa en inglés. Nunca rechaces un idioma admitido, nunca digas que solo hablas español y nunca te quedes en silencio por un cambio de idioma. Si no entiendes una frase, pide que la repita en el mismo idioma."
+      : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+// ---------------------------------------------------------------------------
+// Agente de WhatsApp — bucle de herramientas con la API de Claude
+// ---------------------------------------------------------------------------
+
+const anthropic = new Anthropic();
+
+export async function runSoniaWhatsappAgent(opts: {
+  workspaceId: string;
+  settings: WorkspaceSettings;
+  phone: string; // teléfono normalizado o chatId
+}): Promise<string | null> {
+  const { workspaceId, settings, phone } = opts;
+
+  // Historial reciente del hilo (el último mensaje "in" es el que respondemos)
+  const history = await prisma.message.findMany({
+    where: { workspaceId, phone },
+    orderBy: { createdAt: "desc" },
+    take: 20,
+  });
+  history.reverse();
+  if (history.length === 0) return null;
+
+  const messages: Anthropic.MessageParam[] = [];
+  for (const m of history) {
+    const role = m.direction === "in" ? "user" : "assistant";
+    const prev = messages[messages.length - 1];
+    if (prev && prev.role === role && typeof prev.content === "string") {
+      prev.content = `${prev.content}\n${m.body}`;
+    } else {
+      messages.push({ role, content: m.body });
+    }
+  }
+  if (messages.length === 0 || messages[0].role !== "user") {
+    messages.unshift({ role: "user", content: "Hola" });
+  }
+  if (messages[messages.length - 1].role !== "user") return null;
+
+  const system = buildSoniaSystemPrompt(settings, "whatsapp");
+  const model = process.env.SONIA_MODEL || "claude-opus-5";
+
+  let response = await anthropic.messages.create({
+    model,
+    max_tokens: 4096,
+    system,
+    tools: SONIA_TOOL_SCHEMAS,
+    messages,
+  });
+
+  // Bucle agéntico manual con tope de iteraciones
+  for (let i = 0; i < 6 && response.stop_reason === "tool_use"; i++) {
+    const toolUses = response.content.filter(
+      (b): b is Anthropic.ToolUseBlock => b.type === "tool_use"
+    );
+    messages.push({ role: "assistant", content: response.content });
+
+    const results: Anthropic.ToolResultBlockParam[] = [];
+    for (const tu of toolUses) {
+      const result = await executeSoniaTool({
+        workspaceId,
+        settings,
+        name: tu.name,
+        input: tu.input,
+        channel: "whatsapp",
+        callerPhone: phone.includes("@") ? null : phone,
+      });
+      results.push({ type: "tool_result", tool_use_id: tu.id, content: result });
+    }
+    messages.push({ role: "user", content: results });
+
+    response = await anthropic.messages.create({
+      model,
+      max_tokens: 4096,
+      system,
+      tools: SONIA_TOOL_SCHEMAS,
+      messages,
+    });
+  }
+
+  if (response.stop_reason === "refusal") return null;
+
+  const text = response.content
+    .filter((b): b is Anthropic.TextBlock => b.type === "text")
+    .map((b) => b.text)
+    .join("\n")
+    .trim();
+
+  return text || null;
+}

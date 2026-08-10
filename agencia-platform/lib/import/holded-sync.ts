@@ -3,10 +3,47 @@
  * (ClientInput / InvoiceInput), reutilizando el mismo pipeline de
  * preview/aplicación que la importación por archivo.
  */
-import { holdedListContacts, holdedListInvoices } from "@/lib/integrations/holded";
+import { holdedGetContact, holdedGetInvoice, holdedListContacts, holdedListInvoices, type HoldedInvoice } from "@/lib/integrations/holded";
 import type { ClientInput } from "./clients";
 import type { InvoiceInput } from "./invoices";
-import { holdedGetContact } from "@/lib/integrations/holded";
+
+function firstNonEmpty(...values: unknown[]): string {
+  for (const value of values) {
+    const normalized = String(value ?? "").trim();
+    if (normalized) return normalized;
+  }
+  return "";
+}
+
+function contactNameFrom(value: any): string {
+  if (!value || typeof value !== "object") return "";
+  return firstNonEmpty(value.name, value.contactName, value.tradeName, value.tradename);
+}
+
+function invoiceContactId(invoice: any): string {
+  const contact = invoice?.contact;
+  if (typeof contact === "string") return contact.trim();
+  if (contact && typeof contact === "object") return String(contact.id ?? contact._id ?? "").trim();
+  return String(invoice?.contactId ?? invoice?.contactid ?? invoice?.contact_id ?? "").trim();
+}
+
+/** Resuelve las variantes que Holded usa según el tipo/antigüedad del documento. */
+export function embeddedInvoiceContactName(invoice: any): string {
+  return firstNonEmpty(invoice?.contactName, invoice?.contactname) || contactNameFrom(invoice?.contact);
+}
+
+async function mapWithConcurrency<T, R>(items: T[], concurrency: number, mapper: (item: T, index: number) => Promise<R>): Promise<R[]> {
+  const output = new Array<R>(items.length);
+  let next = 0;
+  async function worker(): Promise<void> {
+    while (next < items.length) {
+      const index = next++;
+      output[index] = await mapper(items[index], index);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, () => worker()));
+  return output;
+}
 
 /** Lee la dirección de facturación (billAddress) de un objeto Holded. */
 function applyBillAddress(input: ClientInput, c: any): void {
@@ -79,7 +116,36 @@ export async function holdedInvoicesAsInputs(
     endTimestamp: options.endTimestamp,
     sort: "created-desc"
   });
-  return invoices.map((i) => {
+  const missingName = invoices.some((invoice) => !embeddedInvoiceContactName(invoice));
+  const contacts = missingName ? await holdedListContacts({ workspaceId, limit: 5000 }).catch(() => []) : [];
+  const contactsById = new Map(contacts.map((contact) => [String(contact.id), contact]));
+  let detailFetches = 0;
+  const MAX_INVOICE_DETAILS = 250;
+  const enriched = await mapWithConcurrency(invoices, 10, async (invoice) => {
+    const embeddedName = embeddedInvoiceContactName(invoice);
+    if (embeddedName) return { ...invoice, contactName: embeddedName };
+    const listedContactId = invoiceContactId(invoice);
+    const listedContactName = contactNameFrom(contactsById.get(listedContactId));
+    if (listedContactName) return { ...invoice, contactName: listedContactName };
+    if (detailFetches >= MAX_INVOICE_DETAILS) return invoice;
+    detailFetches++;
+    try {
+      const detail = await holdedGetInvoice({ workspaceId, invoiceId: invoice.id });
+      const detailName = embeddedInvoiceContactName(detail);
+      if (detailName) return { ...invoice, ...detail, contactName: detailName };
+      const contactId = invoiceContactId(detail) || listedContactId;
+      if (!contactId) return { ...invoice, ...detail };
+      const contact = contactsById.get(contactId) ?? await holdedGetContact(workspaceId, contactId);
+      const contactName = contactNameFrom(contact);
+      return { ...invoice, ...detail, contactName: contactName || undefined } as HoldedInvoice;
+    } catch {
+      // La ausencia de nombre no debe impedir importar la factura. La siguiente
+      // sincronización volverá a intentar completar el dato.
+      return invoice;
+    }
+  });
+
+  return enriched.map((i) => {
     const totalCents = typeof i.total === "number" ? Math.round(i.total * 100) : undefined;
     const currency = (i.currency ?? "EUR").toUpperCase().includes("USD") ? "USD" : "EUR";
     return {

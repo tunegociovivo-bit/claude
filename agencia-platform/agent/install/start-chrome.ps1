@@ -26,4 +26,4 @@ if (-not (Test-Path $UserDataDir)) { New-Item -ItemType Directory -Path $UserDat
 
 Write-Host "Abriendo Chrome con depuración remota en el puerto $Port…"
 Write-Host "Inicia sesión TÚ en Santander Empresas en esta ventana. El agente solo la conducirá; nunca firma."
-& $chrome "--remote-debugging-port=$Port" "--user-data-dir=$UserDataDir" "https://empresas.santander.es"
+Start-Process -FilePath $chrome -ArgumentList "--remote-debugging-port=$Port", "--user-data-dir=$UserDataDir", "https://empresas3.gruposantander.es" -WindowStyle Normal

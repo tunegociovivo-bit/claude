@@ -21,15 +21,21 @@ interface Step {
 const STEPS: Step[] = [
   { key: "sessionReady", prompt: "Un elemento visible SOLO tras iniciar sesión (p. ej. tu nombre o el menú principal)." },
   { key: "remittancesNav", prompt: "El acceso/menú a Remesas o Adeudos SEPA (Norma 19 / recibos)." },
-  { key: "previousRemittance", prompt: "La remesa recurrente ANTERIOR que se reutilizará." },
-  { key: "duplicateAction", prompt: "El botón/acción para DUPLICAR o reutilizar esa remesa anterior." },
-  { key: "amountField", prompt: "El campo editable del IMPORTE." },
-  { key: "chargeDateField", prompt: "El campo editable de FECHA de cargo (opcional).", optional: true },
-  { key: "conceptField", prompt: "El campo editable de CONCEPTO/referencia (opcional).", optional: true },
+  { key: "previousRemittance", prompt: "El nombre de la remesa recurrente ANTERIOR. Sustituye luego el texto por {{template}}." },
+  { key: "rowMenuAction", prompt: "El menú de tres puntos de la fila de esa remesa." },
+  { key: "editAction", prompt: "La acción EDITAR. Nunca Duplicar." },
+  { key: "modifyRemittanceAction", prompt: "Modificar, dentro de Datos de la remesa." },
+  { key: "chargeDateField", prompt: "El campo editable FECHA DE COBRO." },
+  { key: "continueAction", prompt: "El botón CONTINUAR." },
+  { key: "amountLabel", prompt: "El IMPORTE mostrado para cotejo; no se editará." },
   { key: "clientLabel", prompt: "El elemento que muestra el CLIENTE/deudor (para cotejo)." },
   { key: "ibanLabel", prompt: "El elemento que muestra el IBAN del deudor, enmascarado (opcional).", optional: true },
-  { key: "prepareAction", prompt: "La acción que deja la remesa LISTA PARA FIRMA sin firmar (p. ej. 'Guardar'/'Preparar'). NUNCA 'Firmar'." },
-  { key: "pendingSignatureIndicator", prompt: "El indicador/badge que confirma el estado 'PENDIENTE DE FIRMA'." }
+  { key: "firstSendAction", prompt: "El primer botón ENVIAR del resumen." },
+  { key: "directDebitOption", prompt: "La opción Domiciliaciones (SEPA CORE/COR1)." },
+  { key: "acceptAction", prompt: "El botón ACEPTAR." },
+  { key: "secondSendAction", prompt: "El segundo botón ENVIAR de Envío Domiciliaciones." },
+  { key: "pendingSignatureIndicator", prompt: "El texto que confirma Operaciones pendientes de firma." },
+  { key: "signLaterAction", prompt: "El botón FIRMAR LUEGO. Nunca Firmar ahora." }
 ];
 
 // Algoritmo in-page para calcular un selector estable del elemento pulsado.

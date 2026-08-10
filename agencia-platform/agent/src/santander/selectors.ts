@@ -20,6 +20,8 @@ export interface SelectorSpec {
   role?: { role: string; name?: string };
   text?: string;
   xpath?: string;
+  /** Restringe un selector CSS a un contenedor con este texto. */
+  hasText?: string;
   /** Descripción legible para logs y para el modo grabación. */
   describe: string;
 }
@@ -31,14 +33,18 @@ export interface SantanderSelectors {
   remittancesNav: SelectorSpec;
   /** Localizador de la remesa recurrente ANTERIOR (para reutilizar). */
   previousRemittance: SelectorSpec;
-  /** Acción "duplicar/reutilizar" de la remesa anterior. */
-  duplicateAction: SelectorSpec;
-  /** Campo de importe editable. */
-  amountField: SelectorSpec;
-  /** Campo de fecha de cargo editable. */
-  chargeDateField?: SelectorSpec;
-  /** Campo de concepto/referencia editable. */
-  conceptField?: SelectorSpec;
+  /** Menú contextual de la fila localizada. */
+  rowMenuAction: SelectorSpec;
+  /** Acción "Editar" (nunca "Duplicar"). */
+  editAction: SelectorSpec;
+  /** Acción "Modificar" dentro de Datos de la remesa. */
+  modifyRemittanceAction: SelectorSpec;
+  /** Campo de fecha de cobro editable. */
+  chargeDateField: SelectorSpec;
+  /** Continuar entre pasos del generador. */
+  continueAction: SelectorSpec;
+  /** Importe mostrado, solo para cotejo: nunca se modifica. */
+  amountLabel: SelectorSpec;
   /** Elemento que muestra el cliente/deudor (para cotejo). */
   clientLabel: SelectorSpec;
   /** Elemento que muestra el IBAN (enmascarado) del deudor (para cotejo). */
@@ -47,14 +53,21 @@ export interface SantanderSelectors {
    * Acción que deja la remesa LISTA para firma SIN firmarla (p. ej. "Guardar",
    * "Preparar", "Añadir a firmas pendientes"). NUNCA debe ser "Firmar".
    */
-  prepareAction: SelectorSpec;
+  firstSendAction: SelectorSpec;
+  directDebitOption: SelectorSpec;
+  acceptAction: SelectorSpec;
+  secondSendAction: SelectorSpec;
   /** Elemento/badge que confirma visualmente el estado "pendiente de firma". */
   pendingSignatureIndicator: SelectorSpec;
+  /** Salida segura del diálogo: "Firmar luego". */
+  signLaterAction: SelectorSpec;
 }
 
 const REQUIRED_KEYS: (keyof SantanderSelectors)[] = [
-  "sessionReady", "remittancesNav", "previousRemittance", "duplicateAction",
-  "amountField", "clientLabel", "prepareAction", "pendingSignatureIndicator"
+  "sessionReady", "remittancesNav", "previousRemittance", "rowMenuAction", "editAction",
+  "modifyRemittanceAction", "chargeDateField", "continueAction", "amountLabel", "clientLabel",
+  "firstSendAction", "directDebitOption", "acceptAction", "secondSendAction",
+  "pendingSignatureIndicator", "signLaterAction"
 ];
 
 export type SelectorsResult =

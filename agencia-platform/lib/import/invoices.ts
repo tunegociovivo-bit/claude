@@ -275,21 +275,23 @@ export async function buildInvoicePlan(workspaceId: string, inputs: InvoiceInput
     const totals = computeTotals([line]);
     const currency = input.currency || "EUR";
 
+    const tax = normTaxId(input.clientTaxId);
+    const match = (tax && byTax.get(tax)) || (input.clientName ? byName.get(norm(input.clientName)) : null) || null;
     const numKey = input.number?.trim().toLowerCase();
     if (numKey && (existingNumbers.has(numKey) || seenInFile.has(numKey))) {
       items.push({
         input,
         action: "skip",
         reason: "Factura duplicada (mismo número)",
+        clientMatchId: match?.id,
+        clientMatchName: match?.name,
+        clientUnmatched: !match,
         computedTotalCents: totals.totalCents,
         currency
       });
       continue;
     }
     if (numKey) seenInFile.add(numKey);
-
-    const tax = normTaxId(input.clientTaxId);
-    const match = (tax && byTax.get(tax)) || (input.clientName ? byName.get(norm(input.clientName)) : null) || null;
 
     items.push({
       input,
@@ -324,6 +326,31 @@ export async function applyInvoiceImport(
   let skipped = 0;
   for (const item of plan) {
     if (item.action === "skip") {
+      // Holded puede omitir el nombre en la respuesta de listado. Cuando una
+      // sincronización posterior ya lo conoce, repara el snapshot de la factura
+      // existente sin crear duplicados ni tocar un cliente correcto.
+      if (item.input.number && item.input.clientName) {
+        const existing = await prisma.invoice.findFirst({
+          where: { workspaceId, number: { equals: item.input.number, mode: "insensitive" }, deletedAt: null },
+          select: { id: true, clientId: true, clientSnapshot: true }
+        });
+        const currentName = String((existing?.clientSnapshot as any)?.name ?? "").trim();
+        if (existing && !currentName) {
+          const client = item.clientMatchId
+            ? await prisma.client.findUnique({ where: { id: item.clientMatchId } })
+            : null;
+          const clientSnap = client
+            ? snapshotClient(client)
+            : { name: item.input.clientName, taxId: item.input.clientTaxId ?? null, countryCode: "ESP" };
+          await prisma.invoice.update({
+            where: { id: existing.id },
+            data: {
+              clientId: existing.clientId ?? item.clientMatchId ?? null,
+              clientSnapshot: clientSnap as any
+            }
+          });
+        }
+      }
       skipped++;
       continue;
     }
