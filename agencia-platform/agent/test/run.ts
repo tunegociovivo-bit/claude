@@ -82,6 +82,7 @@ async function main() {
   ok("rechaza controles no numéricos o con otro rol", !isSafePaginationControl("button", "Enviar") && !isSafePaginationControl("menuitem", "4"));
   ok("reconoce el marco interno del generador de adeudos", isRemittanceGeneratorUrl("https://empresas3.gruposantander.es/paas/genweb/nwe-gw-19-ui/#!/generator/charges/debtsSEPA/all", safeLogin.allowedOrigin));
   ok("rechaza un generador fuera del dominio oficial", !isRemittanceGeneratorUrl("https://evil.example/paas/genweb/nwe-gw-19-ui/#!/generator/charges/debtsSEPA/all", safeLogin.allowedOrigin));
+  ok("rechaza la pantalla de error como listado de remesas", !isRemittanceGeneratorUrl("https://empresas3.gruposantander.es/paas/genweb/nwe-gw-19-ui/#!/generator/charges/debtsSEPA/error", safeLogin.allowedOrigin));
   ok("construye la ruta oficial directa al generador", buildRemittanceGeneratorUrl(safeLogin.allowedOrigin) === "https://empresas3.gruposantander.es/paas/genweb/nwe-gw-19-ui/#!/generator/charges/debtsSEPA/all");
   let rejectedGeneratorOrigin = false;
   try { buildRemittanceGeneratorUrl("http://empresas3.gruposantander.es"); } catch { rejectedGeneratorOrigin = true; }
