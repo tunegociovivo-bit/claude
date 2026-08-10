@@ -12,7 +12,8 @@ try {
 } finally {
   if ($ptr -ne [IntPtr]::Zero) { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr) }
 }
-$secure | ConvertFrom-SecureString | Set-Content -LiteralPath $credentialFile -Encoding ASCII
+$encrypted = $secure | ConvertFrom-SecureString
+Set-Content -LiteralPath $credentialFile -Value $encrypted -Encoding ASCII -NoNewline
 $acl = Get-Acl -LiteralPath $credentialFile
 $acl.SetAccessRuleProtection($true, $false)
 $rule = New-Object System.Security.AccessControl.FileSystemAccessRule($env:USERNAME, "FullControl", "Allow")
