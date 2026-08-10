@@ -64,7 +64,8 @@ export class Runner {
       return new LiveSantanderAdapter({
         cdpUrl: this.cfg.chromeCdpUrl,
         santanderOrigin: this.cfg.santanderOrigin,
-        selectorsFile: this.cfg.selectorsFile
+        selectorsFile: this.cfg.selectorsFile,
+        credentialFile: this.cfg.santanderCredentialFile
       });
     }
     return new MockSantanderAdapter();

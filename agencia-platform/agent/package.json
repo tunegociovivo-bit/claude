@@ -2,7 +2,7 @@
   "name": "negociovivo-bank-agent",
   "version": "0.1.0",
   "private": true,
-  "description": "Agente bancario LOCAL de Negocio Vivo. Prepara remesas SEPA en Santander Empresas y las deja PENDIENTES DE FIRMA. Nunca firma, nunca cobra, nunca maneja credenciales.",
+  "description": "Agente bancario LOCAL de Negocio Vivo. Prepara remesas SEPA en Santander Empresas y las deja PENDIENTES DE FIRMA. Nunca firma; la clave se cifra localmente con Windows.",
   "type": "module",
   "bin": {
     "nv-bank-agent": "dist/index.js"

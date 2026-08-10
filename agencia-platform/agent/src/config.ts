@@ -19,6 +19,7 @@ export interface AgentConfig {
   chromeCdpUrl: string;
   santanderMode: SantanderMode;
   selectorsFile: string;
+  santanderCredentialFile: string;
   heartbeatSeconds: number;
   pollSeconds: number;
   logLevel: "info" | "debug";
@@ -67,6 +68,8 @@ export function loadConfig(pkgVersion: string): AgentConfig {
   const chromeCdpUrl = pick(json, "CHROME_CDP_URL", "chromeCdpUrl", "http://127.0.0.1:9222")!;
   const santanderMode = (pick(json, "SANTANDER_MODE", "santanderMode", "mock") as SantanderMode);
   const selectorsFile = pick(json, "SELECTORS_FILE", "selectorsFile", "./selectors.json")!;
+  const defaultCredentialFile = resolve(process.env.LOCALAPPDATA || process.cwd(), "NegocioVivoBankAgent", "santander-access-key.dpapi");
+  const santanderCredentialFile = pick(json, "SANTANDER_CREDENTIAL_FILE", "santanderCredentialFile", defaultCredentialFile)!;
   const heartbeatSeconds = Number(pick(json, "HEARTBEAT_SECONDS", "heartbeatSeconds", "30"));
   const pollSeconds = Number(pick(json, "POLL_SECONDS", "pollSeconds", "15"));
   const logLevel = (pick(json, "LOG_LEVEL", "logLevel", "info") as "info" | "debug");
@@ -86,6 +89,7 @@ export function loadConfig(pkgVersion: string): AgentConfig {
     chromeCdpUrl,
     santanderMode,
     selectorsFile,
+    santanderCredentialFile,
     heartbeatSeconds: Number.isFinite(heartbeatSeconds) && heartbeatSeconds > 0 ? heartbeatSeconds : 30,
     pollSeconds: Number.isFinite(pollSeconds) && pollSeconds > 0 ? pollSeconds : 15,
     logLevel: logLevel === "debug" ? "debug" : "info",

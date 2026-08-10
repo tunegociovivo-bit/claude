@@ -19,6 +19,8 @@
 import type { AuthorizedJob, AdapterHooks, SantanderAdapter, StepOutcome } from "./types.js";
 import { isForbiddenActionLabel } from "./types.js";
 import { loadSelectors, type SantanderSelectors, type SelectorSpec } from "./selectors.js";
+import { decideLoginAction } from "./login.js";
+import { hasEncryptedCredential, readEncryptedAccessKey } from "../credential-store.js";
 
 const STEP_TIMEOUT_MS = 15000;
 
@@ -31,6 +33,7 @@ export interface LiveOptions {
   cdpUrl: string;
   santanderOrigin: string;
   selectorsFile: string;
+  credentialFile: string;
 }
 
 export class LiveSantanderAdapter implements SantanderAdapter {
@@ -52,6 +55,13 @@ export class LiveSantanderAdapter implements SantanderAdapter {
       const { chromium } = await import("playwright-core");
       this.browser = await chromium.connectOverCDP(this.opts.cdpUrl);
       page = await this.findSantanderPage();
+      if (!page) {
+        const context = this.browser.contexts()[0];
+        if (context) {
+          page = await context.newPage();
+          await page.goto(`${this.opts.santanderOrigin}/paas/loginnwe/`, { waitUntil: "domcontentloaded", timeout: STEP_TIMEOUT_MS });
+        }
+      }
     } catch (e: any) {
       return this.pause(hooks, `No se pudo conectar al Chrome visible (CDP). Abre Chrome con --remote-debugging-port y ve a Santander. Detalle: ${e?.message ?? e}`);
     }
@@ -64,7 +74,9 @@ export class LiveSantanderAdapter implements SantanderAdapter {
 
       // 3) Sesión lista (no la iniciamos nosotros).
       if (!(await this.visible(page, S.sessionReady))) {
-        return this.pause(hooks, "No detecto una sesión iniciada en Santander. Inicia sesión tú (usuario/contraseña/OTP) y reanuda el trabajo.");
+        const loginResult = await this.trySavedLogin(page, S);
+        if (!loginResult.ok) return this.pause(hooks, loginResult.reason);
+        await hooks.onProgress("CHECK_SESSION", "Acceso solicitado en el dominio oficial de Santander");
       }
       await hooks.onProgress("CHECK_SESSION", "Sesión iniciada detectada");
 
@@ -142,6 +154,44 @@ export class LiveSantanderAdapter implements SantanderAdapter {
       }
     }
     return null;
+  }
+
+  private async trySavedLogin(page: any, selectors: SantanderSelectors): Promise<{ ok: true } | { ok: false; reason: string }> {
+    const fields = page.locator('input[type="text"]');
+    const visibleFields: any[] = [];
+    for (let i = 0; i < await fields.count(); i++) {
+      const field = fields.nth(i);
+      if (await field.isVisible().catch(() => false)) visibleFields.push(field);
+    }
+    const rememberedUser = await page.getByText(/cambiar usuario/i).first().isVisible().catch(() => false);
+    const action = decideLoginAction({
+      currentUrl: page.url(),
+      allowedOrigin: this.opts.santanderOrigin,
+      visibleKeyFields: visibleFields.length,
+      rememberedUser,
+      hasStoredCredential: hasEncryptedCredential(this.opts.credentialFile)
+    });
+    if (action !== "SUBMIT_SAVED_KEY") {
+      return { ok: false, reason: "El acceso automático no cumple las garantías: dominio oficial, usuario recordado, ocho casillas y clave local cifrada. Revisa la configuración." };
+    }
+
+    let key = "";
+    try {
+      key = readEncryptedAccessKey(this.opts.credentialFile);
+      for (let i = 0; i < visibleFields.length; i++) await visibleFields[i].fill(key[i]);
+      key = "";
+      const enter = page.getByRole("button", { name: /^entrar$/i });
+      if (await enter.count() !== 1) return { ok: false, reason: "No encuentro un único botón Entrar verificable en Santander." };
+      await enter.click({ timeout: STEP_TIMEOUT_MS });
+      if (!(await this.visible(page, selectors.sessionReady))) {
+        return { ok: false, reason: "Santander requiere OTP, confirmación móvil o intervención. Autorízalo en tu teléfono y reanuda el trabajo." };
+      }
+      return { ok: true };
+    } catch {
+      return { ok: false, reason: "No se pudo usar la clave cifrada local. Vuelve a configurarla en este PC." };
+    } finally {
+      key = "";
+    }
   }
 
   private locator(page: any, spec: SelectorSpec): any {
