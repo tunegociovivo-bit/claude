@@ -27,7 +27,8 @@ import {
   X,
   Repeat,
   AlertTriangle,
-  Clock3
+  Clock3,
+  Mail
 } from "lucide-react";
 
 type ClientLite = { id: string; name: string; taxId: string | null };
@@ -90,6 +91,18 @@ type PaymentRecord = {
   reversesPaymentId: string | null;
 };
 
+type InvoiceDeliveryRow = {
+  id: string;
+  kind: string;
+  recipient: string;
+  subject: string;
+  status: string;
+  sentAt: string | null;
+  deliveredAt: string | null;
+  createdAt: string;
+  error: string | null;
+};
+
 const STATUS_STYLE: Record<string, string> = {
   DRAFT: "bg-slate-100 text-slate-600",
   ISSUED: "bg-blue-50 text-blue-700",
@@ -144,7 +157,9 @@ export default function FacturasClient({
   const [summary, setSummary] = useState<InvoiceSummary | null>(null);
   const [editing, setEditing] = useState<InvoiceRow | "new" | null>(null);
   const [collecting, setCollecting] = useState<InvoiceRow | null>(null);
+  const [emailing, setEmailing] = useState<InvoiceRow | null>(null);
   const [issuersOpen, setIssuersOpen] = useState(false);
+  const [remindersEnabled, setRemindersEnabled] = useState(false);
 
   const loadInvoices = useCallback(async () => {
     setLoading(true);
@@ -191,6 +206,22 @@ export default function FacturasClient({
     loadSummary();
   }, [loadSummary]);
 
+  useEffect(() => {
+    fetch("/api/v1/invoices/reminder-settings", { cache: "no-store" })
+      .then((response) => response.ok ? response.json() : null)
+      .then((body) => body && setRemindersEnabled(body.enabled === true))
+      .catch(() => {});
+  }, []);
+
+  async function toggleReminders() {
+    const enabled = !remindersEnabled;
+    if (enabled && !confirm("¿Activar recordatorios automáticos a clientes 3 días antes y 1, 7 y 15 días después del vencimiento?")) return;
+    const response = await fetch("/api/v1/invoices/reminder-settings", {
+      method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ enabled })
+    });
+    if (response.ok) setRemindersEnabled(enabled);
+  }
+
   const reloadIssuers = useCallback(async () => {
     const r = await fetch("/api/v1/invoice-issuers", { cache: "no-store" });
     if (r.ok) setIssuers((await r.json()).items ?? []);
@@ -227,6 +258,9 @@ export default function FacturasClient({
           className="inline-flex items-center gap-1.5 bg-white border text-sm px-3 py-2 rounded-lg hover:bg-slate-50"
         >
           <Building2 className="h-4 w-4" /> Emisores ({issuers.length})
+        </button>
+        <button onClick={toggleReminders} className={`inline-flex items-center gap-1.5 border text-sm px-3 py-2 rounded-lg ${remindersEnabled ? "bg-emerald-50 border-emerald-200 text-emerald-700" : "bg-white hover:bg-slate-50"}`}>
+          <Clock3 className="h-4 w-4" /> Recordatorios {remindersEnabled ? "activos" : "inactivos"}
         </button>
         <div className="flex-1" />
         <select
@@ -358,6 +392,11 @@ export default function FacturasClient({
                       >
                         <Download className="h-4 w-4" />
                       </IconBtn>
+                      {(["ISSUED", "PAID"].includes(inv.status)) && (
+                        <IconBtn title="Enviar por email e historial" onClick={() => setEmailing(inv)}>
+                          <Mail className="h-4 w-4 text-blue-600" />
+                        </IconBtn>
+                      )}
                       <IconBtn
                         title="Duplicar"
                         onClick={async () => {
@@ -435,6 +474,8 @@ export default function FacturasClient({
         />
       )}
 
+      {emailing && <InvoiceEmailModal invoice={emailing} onClose={() => setEmailing(null)} />}
+
       {issuersOpen && (
         <IssuersModal
           issuers={issuers}
@@ -457,6 +498,75 @@ function IconBtn({ children, title, onClick }: { children: React.ReactNode; titl
 // ──────────────────────────────────────────────────────────────────
 // Modal de creación / edición de factura
 // ──────────────────────────────────────────────────────────────────
+function InvoiceEmailModal({ invoice, onClose }: { invoice: InvoiceRow; onClose: () => void }) {
+  const [recipient, setRecipient] = useState("");
+  const [deliveries, setDeliveries] = useState<InvoiceDeliveryRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [sending, setSending] = useState(false);
+  const [operationId, setOperationId] = useState(() => crypto.randomUUID());
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const response = await fetch(`/api/v1/invoices/${invoice.id}/deliveries`, { cache: "no-store" });
+      if (response.ok) setDeliveries((await response.json()).deliveries ?? []);
+    } finally { setLoading(false); }
+  }, [invoice.id]);
+
+  useEffect(() => { void load(); }, [load]);
+
+  async function send() {
+    const target = recipient.trim();
+    if (!confirm(`¿Enviar ${invoice.number} ${target ? `a ${target}` : "al email fiscal del cliente"}?`)) return;
+    setSending(true);
+    try {
+      const response = await fetch(`/api/v1/invoices/${invoice.id}/send`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...(target ? { recipient: target } : {}), operationId })
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) return alert(body?.message ?? body?.error?.message ?? `Error ${response.status}`);
+      setRecipient("");
+      setOperationId(crypto.randomUUID());
+      await load();
+    } finally { setSending(false); }
+  }
+
+  const statusLabel: Record<string, string> = {
+    PENDING: "Preparando", SENT: "Enviado", DELIVERED: "Entregado", DELAYED: "Demorado",
+    BOUNCED: "Rebotado", COMPLAINED: "Marcado como spam", FAILED: "Fallido", UNKNOWN: "Confirmación pendiente"
+  };
+  return <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
+    <div className="bg-white rounded-2xl shadow-xl w-full max-w-xl">
+      <div className="flex items-center justify-between px-5 py-4 border-b">
+        <div><h2 className="font-semibold">Envíos de {invoice.number}</h2><p className="text-xs text-slate-500">Factura por email y seguimiento de entrega</p></div>
+        <button onClick={onClose} className="p-1 rounded-md hover:bg-slate-100"><X className="h-5 w-5" /></button>
+      </div>
+      <div className="p-5 space-y-4">
+        <div className="flex gap-2">
+          <input type="email" value={recipient} onChange={(e) => setRecipient(e.target.value)} placeholder="Email alternativo (vacío = email fiscal)" className="flex-1 px-3 py-2 rounded-lg border text-sm" />
+          <button disabled={sending} onClick={send} className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm disabled:opacity-50">{sending ? "Enviando…" : "Enviar"}</button>
+        </div>
+        <p className="text-[11px] text-slate-400">Antes de enviar se pide confirmación. Un doble clic no genera dos correos.</p>
+        <div className="border-t pt-4">
+          <h3 className="text-sm font-semibold mb-2">Historial</h3>
+          {loading ? <p className="text-xs text-slate-400">Cargando…</p> : deliveries.length === 0 ? <p className="text-xs text-slate-400">Aún no hay envíos.</p> : (
+            <div className="space-y-2 max-h-64 overflow-y-auto">
+              {deliveries.map((delivery) => <div key={delivery.id} className="rounded-lg border p-3 text-xs">
+                <div className="flex justify-between gap-3"><strong>{delivery.kind === "REMINDER" ? "Recordatorio" : "Factura"}</strong><span className={delivery.status === "DELIVERED" ? "text-emerald-600" : ["FAILED", "BOUNCED", "COMPLAINED"].includes(delivery.status) ? "text-rose-600" : delivery.status === "UNKNOWN" ? "text-amber-600" : "text-blue-600"}>{statusLabel[delivery.status] ?? delivery.status}</span></div>
+                <div className="text-slate-500 mt-1">{delivery.recipient} · {new Date(delivery.createdAt).toLocaleString("es-ES")}</div>
+                {delivery.error && <div className="text-rose-500 mt-1">{delivery.error}</div>}
+              </div>)}
+            </div>
+          )}
+        </div>
+      </div>
+      <div className="flex justify-end px-5 py-3 border-t"><button onClick={onClose} className="text-sm px-3 py-2 rounded-lg border">Cerrar</button></div>
+    </div>
+  </div>;
+}
+
 function PaymentModal({ invoice, onClose, onSaved }: { invoice: InvoiceRow; onClose: () => void; onSaved: () => void }) {
   const outstandingCents = Math.max(invoice.totalCents - invoice.paidCents, 0);
   const [amount, setAmount] = useState((outstandingCents / 100).toFixed(2));

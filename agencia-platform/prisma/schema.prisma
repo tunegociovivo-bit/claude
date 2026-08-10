@@ -189,6 +189,7 @@ model Workspace {
   slug      String   @unique
   logo      String?
   settings  Json? // { ai: { anthropicApiKey: "...", defaultModel: "..." }, ... }
+  invoiceRemindersEnabled Boolean @default(false)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -253,6 +254,7 @@ model Workspace {
   invoices                  Invoice[]
   invoicePayments           InvoicePayment[]
   invoiceEvents             InvoiceEvent[]
+  invoiceDeliveries         InvoiceDelivery[]
   invoiceIssuers            InvoiceIssuer[]
   invoiceCounters           InvoiceCounter[]
   expenses                  Expense[]
@@ -444,6 +446,7 @@ model Invoice {
   client    Client?          @relation(fields: [clientId], references: [id])
   payments  InvoicePayment[]
   events    InvoiceEvent[]
+  deliveries InvoiceDelivery[]
 
   @@unique([workspaceId, number])
   @@unique([workspaceId, id])
@@ -493,6 +496,52 @@ model InvoiceEvent {
 
   @@index([workspaceId, invoiceId, createdAt])
   @@index([invoiceId])
+}
+
+// Envíos de facturas y recordatorios. El dedupeKey evita que un cron o un
+// doble clic envíen dos veces el mismo mensaje lógico.
+model InvoiceDelivery {
+  id              String   @id @default(cuid())
+  workspaceId     String
+  invoiceId       String
+  kind            String   @default("INVOICE") // INVOICE | REMINDER
+  reminderKey     String?
+  recipient       String
+  subject         String
+  status          String   @default("PENDING") // PENDING | SENT | DELIVERED | DELAYED | BOUNCED | COMPLAINED | FAILED | UNKNOWN
+  provider        String   @default("RESEND")
+  providerId      String?  @unique
+  dedupeKey       String   @unique
+  error           String?  @db.Text
+  createdById     String?
+  sentAt          DateTime?
+  deliveredAt     DateTime?
+  providerEventAt DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  workspace Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  invoice   Invoice                @relation(fields: [workspaceId, invoiceId], references: [workspaceId, id], onDelete: Cascade)
+  events    InvoiceDeliveryEvent[]
+
+  @@index([workspaceId, invoiceId, createdAt])
+  @@index([status])
+}
+
+// Resend entrega webhooks al menos una vez y sin orden garantizado. Guardar
+// cada svix-id permite ignorar reintentos y mantener el historial completo.
+model InvoiceDeliveryEvent {
+  id         String   @id @default(cuid())
+  deliveryId String
+  webhookId  String   @unique
+  type       String
+  eventAt    DateTime
+  payload    Json?
+  createdAt  DateTime @default(now())
+
+  delivery InvoiceDelivery @relation(fields: [deliveryId], references: [id], onDelete: Cascade)
+
+  @@index([deliveryId, eventAt])
 }
 
 model Membership {

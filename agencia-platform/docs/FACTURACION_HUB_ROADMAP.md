@@ -29,8 +29,8 @@ Holded debe funcionar como fuente externa durante la transición, no como núcle
 
 - [x] Registro de cobros parciales, método, fecha, referencia, notas y reversos auditables.
 - [ ] Conciliación bancaria asistida de los cobros registrados.
-- Envío de factura por email desde el HUB y seguimiento de entrega.
-- Recordatorios automáticos antes y después del vencimiento.
+- [x] Envío de factura por email desde el HUB y seguimiento de entrega, rebote y fallo.
+- [x] Recordatorios automáticos opt-in antes y después del vencimiento, con deduplicación.
 - Plantillas recurrentes con calendario, vista previa y control de errores.
 - Abonos parciales y rectificativas vinculadas correctamente.
 - Catálogo de productos/servicios, precios e impuestos habituales.

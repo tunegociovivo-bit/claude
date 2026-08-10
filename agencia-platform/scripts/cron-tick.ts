@@ -59,6 +59,7 @@ async function main() {
   // (solo revisa búsquedas vencidas cada ~6 h), así que es seguro llamarlo
   // en cada tick.
   if (CRON_SECRET) await hit("GET", "/api/cron/leads-monitor", CRON_SECRET);
+  if (CRON_SECRET || INTERNAL) await hit("GET", "/api/cron/invoice-reminders", CRON_SECRET || INTERNAL);
 }
 
 main();

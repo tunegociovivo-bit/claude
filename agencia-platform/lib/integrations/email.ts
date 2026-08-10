@@ -121,6 +121,9 @@ export async function sendViaResend(opts: {
   subject: string;
   text?: string;
   html?: string;
+  /** Resend conserva la clave 24 h y devuelve el mismo envío en reintentos. */
+  idempotencyKey?: string;
+  tags?: Array<{ name: string; value: string }>;
 }): Promise<{ id: string }> {
   const apiKey = opts.apiKey ?? process.env.RESEND_API_KEY;
   if (!apiKey) {
@@ -135,18 +138,29 @@ export async function sendViaResend(opts: {
   if (opts.replyTo) payload.reply_to = opts.replyTo;
   if (opts.html) payload.html = opts.html;
   if (opts.text || !opts.html) payload.text = opts.text ?? "";
-  const resp = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify(payload)
-  });
+  if (opts.tags?.length) payload.tags = opts.tags;
+  let resp: Response;
+  try {
+    resp = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+        ...(opts.idempotencyKey ? { "Idempotency-Key": opts.idempotencyKey.slice(0, 256) } : {})
+      },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(15_000)
+    });
+  } catch (cause) {
+    const error: any = new Error(`Resend: resultado desconocido (${String((cause as Error)?.message ?? cause)})`);
+    error.deliveryOutcome = "UNKNOWN";
+    throw error;
+  }
   if (!resp.ok) {
     const body = await resp.text().catch(() => "");
     const err: any = new Error(`Resend ${resp.status}: ${body.slice(0, 220)}`);
     err.resendStatus = resp.status;
+    err.deliveryOutcome = resp.status >= 400 && resp.status < 500 && resp.status !== 409 ? "REJECTED" : "UNKNOWN";
     // Resend devuelve 403/422 cuando el dominio del "from" no está verificado.
     err.domainNotVerified =
       resp.status === 403 || /domain is not verified|not verified|validation_error/i.test(body);
