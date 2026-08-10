@@ -62,6 +62,7 @@ type InvoiceRow = {
   totalCents: number;
   paidCents: number;
   recurring: boolean;
+  clientSnapshot: { name?: string } | null;
   client: { id: string; name: string } | null;
   issuer: { id: string; name: string } | null;
 };
@@ -269,7 +270,7 @@ export default function FacturasClient({
                     </div>
                     <div className="text-[11px] text-slate-400">{TYPE_LABEL[inv.type as InvoiceType] ?? inv.type}</div>
                   </td>
-                  <td className="px-3 py-2">{inv.client?.name ?? "—"}</td>
+                  <td className="px-3 py-2">{inv.client?.name ?? inv.clientSnapshot?.name ?? "—"}</td>
                   <td className="px-3 py-2 text-slate-500">{toDateInput(inv.issueDate)}</td>
                   <td className="px-3 py-2 text-right font-medium">{formatMoney(inv.totalCents, inv.currency)}</td>
                   <td className="px-3 py-2">

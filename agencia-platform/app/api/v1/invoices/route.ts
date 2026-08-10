@@ -43,6 +43,7 @@ export const GET = withApi({ scope: "*", rate: "admin" }, async (req, { api }) =
       paidCents: true,
       recurring: true,
       paidAt: true,
+      clientSnapshot: true,
       client: { select: { id: true, name: true } },
       issuer: { select: { id: true, name: true } }
     },
