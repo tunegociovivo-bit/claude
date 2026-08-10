@@ -8,7 +8,8 @@
     "start": "prisma db push --skip-generate && next start",
     "lint": "next lint",
     "db:seed": "tsx prisma/seed.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:agent": "tsx --test tests/agent-regressions.test.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

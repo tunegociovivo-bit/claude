@@ -2,12 +2,46 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { findOrCreateContactByPhone, moveContactToStage } from "@/lib/contacts";
 import { normalizePhone } from "@/lib/phone";
-import { runSoniaWhatsappAgent } from "@/lib/ai/sonia";
+import { runSoniaWhatsappAgent, whatsappFallbackReply } from "@/lib/ai/sonia";
 import { sendText } from "@/lib/waha";
-import { findWorkspaceByToken } from "@/lib/settings";
+import { findWorkspaceByToken, type WorkspaceSettings } from "@/lib/settings";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
+
+async function sendAutomaticReply(opts: {
+  workspaceId: string;
+  settings: WorkspaceSettings;
+  phone: string;
+  chatId: string;
+  contactId: string;
+  firstContact: boolean;
+}) {
+  let reply: string;
+  try {
+    reply = (await runSoniaWhatsappAgent({
+      workspaceId: opts.workspaceId,
+      settings: opts.settings,
+      phone: opts.phone,
+    })) ?? "";
+  } catch (err: any) {
+    console.error("[sonia-whatsapp] IA no disponible, usando respuesta segura:", err?.message);
+    reply = whatsappFallbackReply(opts.settings, opts.firstContact);
+  }
+  if (!reply?.trim()) reply = whatsappFallbackReply(opts.settings, opts.firstContact);
+  const sent = await sendText({ workspaceId: opts.workspaceId, to: opts.chatId, text: reply });
+  await prisma.message.create({
+    data: {
+      workspaceId: opts.workspaceId,
+      contactId: opts.contactId,
+      phone: opts.phone,
+      direction: "out",
+      body: reply,
+      externalId: sent.messageId,
+      meta: { sonia: true },
+    },
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Webhook de WAHA (WhatsApp). En WAHA se configura:
@@ -124,9 +158,22 @@ export async function POST(
   if (externalId) {
     const dupe = await prisma.message.findFirst({
       where: { workspaceId: ws.id, externalId },
-      select: { id: true },
+      select: { id: true, direction: true, phone: true, contactId: true, meta: true },
     });
-    if (dupe) return NextResponse.json({ ok: true, duplicate: true });
+    if (dupe) {
+      const meta = (dupe.meta ?? {}) as Record<string, unknown>;
+      if (!fromMe && ws.settings.whatsapp.autoReplyEnabled && dupe.direction === "in" && dupe.contactId && meta.autoReplyStatus === "pending") {
+        try {
+          await sendAutomaticReply({ workspaceId: ws.id, settings: ws.settings, phone: dupe.phone, chatId: threadRaw, contactId: dupe.contactId, firstContact: false });
+          await prisma.message.update({ where: { id: dupe.id }, data: { meta: { ...meta, autoReplyStatus: "replied" } } });
+          return NextResponse.json({ ok: true, duplicate: true, replied: true });
+        } catch (err: any) {
+          console.error("[sonia-whatsapp] reintento fallido:", err?.message);
+          return NextResponse.json({ error: "No se pudo enviar la respuesta; reintentar" }, { status: 503, headers: { "Retry-After": "3" } });
+        }
+      }
+      return NextResponse.json({ ok: true, duplicate: true });
+    }
   }
 
   // Mensaje que hemos enviado nosotros desde el teléfono → registrar y salir
@@ -188,7 +235,7 @@ export async function POST(
     await moveContactToStage(contact.id, "conversacion");
   }
 
-  await prisma.message.create({
+  const incomingMessage = await prisma.message.create({
     data: {
       workspaceId: ws.id,
       contactId: contact.id,
@@ -196,36 +243,36 @@ export async function POST(
       direction: "in",
       body: text,
       externalId: externalId || null,
-      meta: { pushName: pushName ?? null, from: rawFrom },
+      meta: { pushName: pushName ?? null, from: rawFrom, autoReplyStatus: ws.settings.whatsapp.autoReplyEnabled ? "processing" : "disabled" },
     },
   });
 
   // Respuesta automática de SONIA
   if (ws.settings.whatsapp.autoReplyEnabled) {
     try {
-      const reply = await runSoniaWhatsappAgent({
+      await sendAutomaticReply({
         workspaceId: ws.id,
         settings: ws.settings,
         phone: threadPhone,
+        chatId: threadRaw,
+        contactId: contact.id,
+        firstContact: !previousThreadMessage,
       });
-      if (reply) {
-        // Responder SIEMPRE al chatId original (crítico con @lid)
-        const sent = await sendText({ workspaceId: ws.id, to: threadRaw, text: reply });
-        await prisma.message.create({
-          data: {
-            workspaceId: ws.id,
-            contactId: contact.id,
-            phone: threadPhone,
-            direction: "out",
-            body: reply,
-            externalId: sent.messageId,
-            meta: { sonia: true },
-          },
-        });
-      }
+      await prisma.message.update({
+        where: { id: incomingMessage.id },
+        data: { meta: { pushName: pushName ?? null, from: rawFrom, autoReplyStatus: "replied" } },
+      });
     } catch (err: any) {
-      // No romper el webhook: WAHA reintentaría y duplicaría el procesado.
-      console.error("[sonia-whatsapp] error respondiendo:", err?.message);
+      // Un 503 hace que WAHA reintente; la deduplicación retomará solo el envío pendiente.
+      await prisma.message.update({
+        where: { id: incomingMessage.id },
+        data: { meta: { pushName: pushName ?? null, from: rawFrom, autoReplyStatus: "pending" } },
+      });
+      console.error("[sonia-whatsapp] no se pudo enviar; solicitando reintento:", err?.message);
+      return NextResponse.json(
+        { error: "No se pudo enviar la respuesta; reintentar" },
+        { status: 503, headers: { "Retry-After": "3" } }
+      );
     }
   }
 

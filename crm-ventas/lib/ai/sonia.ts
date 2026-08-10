@@ -33,6 +33,11 @@ export const SONIA_TOOL_SCHEMAS = [
           maximum: 240,
           description: "Duración total solicitada por el cliente, en minutos",
         },
+        despues_de: {
+          type: "string",
+          description:
+            "Opcional. Hora HH:mm a partir de la que buscar más alternativas cuando el cliente rechaza las primeras.",
+        },
       },
       required: ["fecha", "duracion_min"],
     },
@@ -82,6 +87,17 @@ export const SONIA_TOOL_SCHEMAS = [
   },
 ];
 
+export function selectAvailableSlots(available: string[], after?: string) {
+  const match = String(after ?? "").match(/^(\d{2}):(\d{2})$/);
+  const minTime = match ? Number(match[1]) * 60 + Number(match[2]) : null;
+  const filtered = available.filter((slot) => {
+    if (minTime === null) return true;
+    const time = slot.match(/T(\d{2}):(\d{2})/);
+    return Boolean(time && Number(time[1]) * 60 + Number(time[2]) > minTime);
+  });
+  return { suggested: filtered.slice(0, 3), hasMore: filtered.length > 3 };
+}
+
 export async function executeSoniaTool(opts: {
   workspaceId: string;
   settings: WorkspaceSettings;
@@ -109,11 +125,15 @@ export async function executeSoniaTool(opts: {
         durationMin,
         openingHours: settings.sonia.openingHours,
       });
+      const { suggested, hasMore } = selectAvailableSlots(available ?? [], input.despues_de);
       return JSON.stringify({
         fecha,
         horario_negocio: settings.sonia.openingHours,
         duracion_solicitada_min: durationMin,
-        huecos_libres: available,
+        huecos_libres: suggested,
+        hay_mas_huecos: hasMore,
+        instruccion:
+          "Ofrece como máximo estas tres horas. Si ninguna sirve, vuelve a consultar indicando despues_de con la última hora ofrecida.",
         ocupado: citas.map((c: { startsAt: Date; durationMin: number }) => ({
           inicio: c.startsAt.toISOString(),
           duracion_min: c.durationMin,
@@ -188,8 +208,8 @@ export function buildSoniaSystemPrompt(
   });
   const canal =
     channel === "llamada"
-      ? "Estás atendiendo una LLAMADA TELEFÓNICA. Habla de forma natural, con frases cortas, sin listas ni formato. No deletrees salvo que te lo pidan. Responde en español por defecto. Detecta el idioma de la persona y contesta siempre en ese mismo idioma si es español, inglés, francés, alemán o italiano. Si te pide expresamente uno de esos idiomas, cambia inmediatamente y mantén ese idioma hasta que solicite otro. Nunca digas que solo puedes hablar español."
-      : "Estás atendiendo una conversación de WHATSAPP. Responde en mensajes breves y claros, sin markdown pesado.";
+      ? "Estás atendiendo una LLAMADA TELEFÓNICA. Habla de forma natural, con frases cortas, sin listas ni formato. No deletrees salvo que te lo pidan. Responde en español por defecto. Detecta el idioma de la persona y contesta siempre en ese mismo idioma si es español, inglés, francés, alemán o italiano. Si te pide expresamente uno de esos idiomas, cambia inmediatamente y mantén ese idioma hasta que solicite otro. Nunca digas que solo puedes hablar español. Para evitar errores de pronunciación, no uses la palabra «genial»: usa «perfecto» o «de acuerdo»."
+      : "Estás atendiendo una conversación de WHATSAPP. Responde siempre al último mensaje en uno o dos párrafos breves y claros, sin markdown pesado.";
 
   return [
     `Eres ${s.agentName}, la recepcionista virtual de ${s.businessName || "este negocio"}.`,
@@ -199,11 +219,13 @@ export function buildSoniaSystemPrompt(
     "Tu trabajo:",
     "1. Dar información del negocio (usa solo la información de abajo, nunca inventes datos).",
     "2. Agendar, consultar o cancelar citas.",
+    "3. Informar de promociones, descuentos, bonos, packs y sus enlaces exactos cuando aparezcan en la información del negocio.",
+    "No eres una asistente de cultura general. Rechaza de forma breve preguntas ajenas al negocio (por ejemplo, capitales, noticias, matemáticas o curiosidades) y reconduce la conversación a los servicios del negocio.",
     "",
     "Cómo agendar una cita:",
     "1) Antes de consultar o prometer una hora, averigua el tratamiento y su duración total. Si hay opciones (por ejemplo 60 o 90 minutos), pregunta cuál quiere.",
-    "2) Usa consultar_disponibilidad con la fecha y la duración. Ofrece EXCLUSIVAMENTE horas incluidas en huecos_libres; nunca calcules ni inventes horas por tu cuenta.",
-    "3) Pide nombre y teléfono si no los tienes. Nunca inventes ninguno de los dos.",
+    "2) Usa consultar_disponibilidad con la fecha y la duración. Ofrece EXCLUSIVAMENTE horas incluidas en huecos_libres; nunca calcules ni inventes horas por tu cuenta. Ofrece un máximo de tres opciones por turno. Si no le sirven, consulta los siguientes huecos usando despues_de.",
+    "3) Pide nombre y teléfono si no los tienes. Nunca inventes ninguno de los dos. En llamada, pide el teléfono dígito a dígito y, al confirmarlo, pronuncia cada cifra por separado en grupos cortos; nunca lo leas como una cantidad grande.",
     "4) Cuando el cliente elija una hora libre y ya tengas tratamiento, duración, nombre y teléfono, llama UNA SOLA VEZ a agendar_cita incluyendo duracion_min y el tratamiento en notas.",
     "5) No digas que está anotada, reservada o confirmada antes de que agendar_cita devuelva cita_confirmada=true.",
     "6) Si agendar_cita devuelve error u ocupado, NO crees otra reserva ni digas que está confirmada: vuelve a consultar disponibilidad con la duración completa y ofrece sólo huecos_libres.",
@@ -214,6 +236,10 @@ export function buildSoniaSystemPrompt(
     "",
     s.promptExtra ? `INSTRUCCIONES ESPECÍFICAS DE ESTE NEGOCIO:\n${s.promptExtra}` : "",
     "",
+    "PROMOCIONES Y ENLACES: busca primero en la información del negocio cualquier promoción, descuento, bono, pack o URL relacionada. Si existe, explica el beneficio y comparte la URL exacta; nunca digas que no hay promociones sin comprobar esa información. En llamada, pronuncia la URL despacio por partes, diciendo «punto» y «barra» de forma clara.",
+    channel === "llamada"
+      ? "PRONUNCIACIÓN DE HORAS: escribe y di siempre las horas con palabras naturales. Ejemplos obligatorios: 9:30 = «nueve y media»; 9:15 = «nueve y cuarto»; 9:45 = «diez menos cuarto»; 10:00 = «las diez». Nunca digas «nueve medio», «nueve treinta» ni leas 9:30 como números separados."
+      : "",
     "Si te preguntan algo que no sabes o que no está en la información del negocio, dilo con honestidad y ofrece tomar nota para que el equipo devuelva la llamada o el mensaje.",
     channel === "llamada"
       ? "REGLA PRIORITARIA DE IDIOMA: esta regla prevalece sobre cualquier instrucción anterior. Detecta y responde en el idioma actual del cliente entre español, inglés, francés, alemán e italiano. Si el cliente habla o pide inglés, responde inmediatamente en inglés y continúa en inglés. Nunca rechaces un idioma admitido, nunca digas que solo hablas español y nunca te quedes en silencio por un cambio de idioma. Si no entiendes una frase, pide que la repita en el mismo idioma."
@@ -227,7 +253,11 @@ export function buildSoniaSystemPrompt(
 // Agente de WhatsApp — bucle de herramientas con la API de Claude
 // ---------------------------------------------------------------------------
 
-const anthropic = new Anthropic();
+export function whatsappFallbackReply(settings: WorkspaceSettings, firstContact: boolean) {
+  return firstContact
+    ? `Hola, soy ${settings.sonia.agentName}, la asistente virtual de ${settings.sonia.businessName || "este negocio"}. ¿En qué puedo ayudarte?`
+    : "Perdona, he tenido un problema momentáneo al procesar tu mensaje. ¿Puedes repetírmelo, por favor?";
+}
 
 export async function runSoniaWhatsappAgent(opts: {
   workspaceId: string;
@@ -262,17 +292,18 @@ export async function runSoniaWhatsappAgent(opts: {
 
   const system = buildSoniaSystemPrompt(settings, "whatsapp");
   const model = process.env.SONIA_MODEL || "claude-opus-5";
+  const anthropic = new Anthropic({ timeout: 25_000, maxRetries: 0 });
 
   let response = await anthropic.messages.create({
     model,
-    max_tokens: 4096,
+    max_tokens: 900,
     system,
     tools: SONIA_TOOL_SCHEMAS,
     messages,
   });
 
   // Bucle agéntico manual con tope de iteraciones
-  for (let i = 0; i < 6 && response.stop_reason === "tool_use"; i++) {
+  for (let i = 0; i < 3 && response.stop_reason === "tool_use"; i++) {
     const toolUses = response.content.filter(
       (b): b is Anthropic.ToolUseBlock => b.type === "tool_use"
     );
@@ -294,7 +325,7 @@ export async function runSoniaWhatsappAgent(opts: {
 
     response = await anthropic.messages.create({
       model,
-      max_tokens: 4096,
+      max_tokens: 900,
       system,
       tools: SONIA_TOOL_SCHEMAS,
       messages,
