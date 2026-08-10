@@ -64,7 +64,8 @@ export function isRemittanceGeneratorUrl(currentUrl: string, allowedOrigin: stri
     return current.protocol === "https:"
       && current.origin === allowed.origin
       && current.pathname.startsWith("/paas/genweb/")
-      && current.hash.includes("/generator/charges/debtsSEPA/");
+      && current.hash.includes("/generator/charges/debtsSEPA/")
+      && !current.hash.endsWith("/error");
   } catch { return false; }
 }
 
@@ -128,5 +129,7 @@ export function shouldRetryVisibleOption(found: boolean, attempt: number, maxAtt
 
 export function isSafeRemittanceGenerationLabel(label: string): boolean {
   const normalized = label.trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/\s+/g, " ");
-  return normalized === "generacion" || normalized === "generacion de remesas";
+  return normalized === "generacion"
+    || normalized === "generacion de remesas"
+    || normalized === "generacion herramienta para crear tus ficheros de remesas";
 }
