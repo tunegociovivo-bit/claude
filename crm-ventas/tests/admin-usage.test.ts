@@ -5,6 +5,7 @@ import {
   composeAgentPrompt,
   normalizeGlobalPrompt,
   normalizeAdminNotes,
+  normalizeClientName,
 } from "../lib/admin/usage";
 
 test("calcula el coste diario usando coste real y estimaciones solo cuando faltan datos", () => {
@@ -37,4 +38,10 @@ test("normaliza el prompt general y limita su tamaño", () => {
 test("normaliza las notas internas del cliente y limita su tamaño", () => {
   assert.equal(normalizeAdminNotes("  Cliente prioritario  "), "Cliente prioritario");
   assert.equal(normalizeAdminNotes("x".repeat(10_000)).length, 4_000);
+});
+
+test("exige un nombre de cliente válido y lo limita", () => {
+  assert.equal(normalizeClientName("  Clínica Centro  "), "Clínica Centro");
+  assert.equal(normalizeClientName("x".repeat(300)).length, 120);
+  assert.equal(normalizeClientName("   "), "");
 });
