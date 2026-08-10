@@ -12,6 +12,7 @@ import { MockSantanderAdapter, type MockAnomaly } from "../src/santander/mock.js
 import { isForbiddenActionLabel } from "../src/santander/types.js";
 import type { AdapterHooks, AuthorizedJob } from "../src/santander/types.js";
 import { sanitize } from "../src/logger.js";
+import { decideLoginAction, validateAccessKey } from "../src/santander/login.js";
 
 let passed = 0;
 let failed = 0;
@@ -46,6 +47,31 @@ async function runScenario(anomaly: MockAnomaly, opts?: any) {
 }
 
 async function main() {
+  console.log("Acceso seguro a Santander:");
+  ok("acepta una clave de acceso de ocho caracteres", validateAccessKey("12345678") === "12345678");
+  for (const candidate of ["", "1234567", "123456789", "1234 678", "1234\n678"]) {
+    let rejected = false;
+    try { validateAccessKey(candidate); } catch (error) {
+      rejected = true;
+      ok("el error no revela la clave", !String(error).includes(candidate) || candidate.length === 0);
+    }
+    ok(`rechaza clave inválida de longitud ${candidate.length}`, rejected);
+  }
+
+  const safeLogin = {
+    currentUrl: "https://empresas3.gruposantander.es/paas/loginnwe/",
+    allowedOrigin: "https://empresas3.gruposantander.es",
+    visibleKeyFields: 8,
+    rememberedUser: true,
+    hasStoredCredential: true
+  };
+  ok("autoriza el relleno solo en el login oficial", decideLoginAction(safeLogin) === "SUBMIT_SAVED_KEY");
+  ok("rechaza un dominio parecido", decideLoginAction({ ...safeLogin, currentUrl: "https://empresas3.gruposantander.es.ejemplo.com/paas/loginnwe/" }) === "PAUSE");
+  ok("rechaza HTTP", decideLoginAction({ ...safeLogin, currentUrl: "http://empresas3.gruposantander.es/paas/loginnwe/" }) === "PAUSE");
+  ok("rechaza una pantalla que no tenga ocho casillas", decideLoginAction({ ...safeLogin, visibleKeyFields: 7 }) === "PAUSE");
+  ok("requiere que Santander recuerde el usuario", decideLoginAction({ ...safeLogin, rememberedUser: false }) === "PAUSE");
+  ok("requiere una credencial local cifrada", decideLoginAction({ ...safeLogin, hasStoredCredential: false }) === "PAUSE");
+
   console.log("Máquina de estados y seguridad del agente:");
 
   // 1) Camino feliz → PREPARED, nunca firma.
