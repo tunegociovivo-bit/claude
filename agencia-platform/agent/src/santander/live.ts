@@ -19,7 +19,7 @@
 import type { AuthorizedJob, AdapterHooks, SantanderAdapter, StepOutcome } from "./types.js";
 import { isForbiddenActionLabel } from "./types.js";
 import { loadSelectors, type SantanderSelectors, type SelectorSpec } from "./selectors.js";
-import { decideLoginAction, formatSantanderAmount, isAuthenticatedSantanderUrl, isEnvioremFrameUrl, isRemittanceGeneratorUrl, isSafeBasicPaymentsLabel, isSafeReconnectLabel, numericPageLabels, parseDisplayedAmountCents, shouldWaitForAmountConfirmation, shouldWaitForRemittanceList, uniqueVisibleIndex } from "./login.js";
+import { decideLoginAction, formatSantanderAmount, isAuthenticatedSantanderUrl, isEnvioremFrameUrl, isRemittanceGeneratorUrl, isSafeBasicPaymentsLabel, isSafeReconnectLabel, isSafeRemittanceGenerationLabel, numericPageLabels, parseDisplayedAmountCents, shouldWaitForAmountConfirmation, shouldWaitForRemittanceList, uniqueVisibleIndex } from "./login.js";
 import { hasEncryptedCredential, readEncryptedAccessKey } from "../credential-store.js";
 
 const STEP_TIMEOUT_MS = 15000;
@@ -84,8 +84,11 @@ export class LiveSantanderAdapter implements SantanderAdapter {
       await page.goto(`${this.opts.santanderOrigin}/paas/nwe/app/portal/distribuidoras/remesas`, { waitUntil: "domcontentloaded", timeout: STEP_TIMEOUT_MS });
       const portal = await this.findAppFrame(page);
       if (!portal) return this.pause(hooks, "No encuentro el marco interno oficial de remesas.");
-      if (!(await this.click(portal, S.remittancesNav))) return this.pause(hooks, "No encuentro la tarjeta Generación de remesas (posible cambio de interfaz).");
-      const app = await this.findGeneratorFrame(page);
+      let app = await this.findGeneratorFrame(page, 4);
+      if (!app) {
+        if (!(await this.clickRemittanceGeneration(portal, S.remittancesNav))) return this.pause(hooks, "No encuentro una entrada visible y segura a Generación de remesas (posible cambio de interfaz).");
+        app = await this.findGeneratorFrame(page);
+      }
       if (!app) return this.pause(hooks, "No encuentro el listado interno oficial de adeudos SEPA.");
       await hooks.onProgress("OPEN_REMITTANCES", "Sección de remesas abierta");
 
@@ -248,8 +251,8 @@ export class LiveSantanderAdapter implements SantanderAdapter {
     return null;
   }
 
-  private async findGeneratorFrame(page: any): Promise<any | null> {
-    for (let attempt = 0; attempt < 40; attempt++) {
+  private async findGeneratorFrame(page: any, maxAttempts = 40): Promise<any | null> {
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
       const frame = page.frames().find((candidate: any) => isRemittanceGeneratorUrl(String(candidate.url?.() ?? ""), this.opts.santanderOrigin));
       if (frame) return frame;
       await page.waitForTimeout(250);
@@ -345,6 +348,34 @@ export class LiveSantanderAdapter implements SantanderAdapter {
       await candidate.click({ timeout: STEP_TIMEOUT_MS });
       return true;
     } catch { return false; }
+  }
+
+  private async clickRemittanceGeneration(page: any, spec: SelectorSpec): Promise<boolean> {
+    for (let attempt = 0; attempt < 30; attempt++) {
+      const mapped = this.locator(page, spec);
+      for (let index = 0; index < await mapped.count(); index++) {
+        const candidate = mapped.nth(index);
+        if (!await candidate.isVisible().catch(() => false)) continue;
+        const label = (await candidate.innerText().catch(() => "")).trim();
+        if (!isSafeRemittanceGenerationLabel(label)) continue;
+        await candidate.click({ timeout: STEP_TIMEOUT_MS });
+        return true;
+      }
+
+      const semantic = page.getByText(/^\s*Generaci(?:ó|o)n(?: de remesas)?\s*$/i);
+      const visibility: boolean[] = [];
+      for (let index = 0; index < await semantic.count(); index++) visibility.push(await semantic.nth(index).isVisible().catch(() => false));
+      const unique = uniqueVisibleIndex(visibility);
+      if (unique !== null) {
+        const candidate = semantic.nth(unique);
+        if (isSafeRemittanceGenerationLabel(await candidate.innerText())) {
+          await candidate.click({ timeout: STEP_TIMEOUT_MS });
+          return true;
+        }
+      }
+      await page.waitForTimeout(500);
+    }
+    return false;
   }
 
   private async fill(page: any, spec: SelectorSpec, value: string): Promise<boolean> {

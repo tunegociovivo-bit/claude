@@ -101,3 +101,8 @@ export function uniqueVisibleIndex(visibility: boolean[]): number | null {
 export function isSafeBasicPaymentsLabel(label: string): boolean {
   return label.trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase() === "pagos y cobros basicos";
 }
+
+export function isSafeRemittanceGenerationLabel(label: string): boolean {
+  const normalized = label.trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/\s+/g, " ");
+  return normalized === "generacion" || normalized === "generacion de remesas";
+}
