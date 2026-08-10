@@ -12,7 +12,7 @@ import { MockSantanderAdapter, type MockAnomaly } from "../src/santander/mock.js
 import { isForbiddenActionLabel } from "../src/santander/types.js";
 import type { AdapterHooks, AuthorizedJob } from "../src/santander/types.js";
 import { sanitize } from "../src/logger.js";
-import { buildRemittanceGeneratorUrl, canContinueToDirectDebit, decideLoginAction, formatSantanderAmount, hasVerifiedPendingSignature, isAuthenticatedSantanderUrl, isEnvioremFrameUrl, isRemittanceGeneratorUrl, isSafeBasicPaymentsLabel, isSafePaginationControl, isSafeReconnectLabel, isSafeRemittanceGenerationLabel, numericPageLabels, parseDisplayedAmountCents, shouldAttemptSavedLogin, shouldRetryVisibleOption, shouldWaitForAmountConfirmation, shouldWaitForRemittanceList, uniqueVisibleIndex, validateAccessKey } from "../src/santander/login.js";
+import { buildRemittanceGeneratorUrl, canContinueToDirectDebit, classifyLoginCompletion, decideLoginAction, formatSantanderAmount, hasVerifiedPendingSignature, isAuthenticatedSantanderUrl, isEnvioremFrameUrl, isRemittanceGeneratorUrl, isSafeBasicPaymentsLabel, isSafePaginationControl, isSafeReconnectLabel, isSafeRemittanceGenerationLabel, numericPageLabels, parseDisplayedAmountCents, shouldAttemptSavedLogin, shouldRetryVisibleOption, shouldWaitForAmountConfirmation, shouldWaitForLoginCompletion, shouldWaitForRemittanceList, uniqueVisibleIndex, validateAccessKey } from "../src/santander/login.js";
 
 let passed = 0;
 let failed = 0;
@@ -77,6 +77,11 @@ async function main() {
   ok("no acepta una aplicación en un dominio parecido", !isAuthenticatedSantanderUrl("https://empresas3.gruposantander.es.ejemplo.com/paas/nwe/app/posglobal", safeLogin.allowedOrigin));
   ok("no confía solo en una URL autenticada si falta la marca visual de sesión", shouldAttemptSavedLogin(false));
   ok("no intenta acceder de nuevo si la sesión está verificada visualmente", !shouldAttemptSavedLogin(true));
+  ok("espera mientras Santander completa el acceso", shouldWaitForLoginCompletion(false, false, 0, 30));
+  ok("deja de esperar al detectar la sesión por URL", !shouldWaitForLoginCompletion(false, true, 1, 30));
+  ok("limita la espera de acceso", !shouldWaitForLoginCompletion(false, false, 30, 30));
+  ok("no atribuye a OTP un acceso que no se completó", classifyLoginCompletion(false, false) === "LOGIN_NOT_COMPLETED");
+  ok("reconoce una sesión completada por marca visual", classifyLoginCompletion(true, false) === "AUTHENTICATED");
   ok("ordena y limita enlaces de paginación", JSON.stringify(numericPageLabels(["3", "1", "13", "2", "3", "0", "101", "Enviar"])) === JSON.stringify(["1", "2", "3", "13"]));
   ok("acepta paginación numérica como enlace o botón", isSafePaginationControl("link", "4") && isSafePaginationControl("button", "4"));
   ok("rechaza controles no numéricos o con otro rol", !isSafePaginationControl("button", "Enviar") && !isSafePaginationControl("menuitem", "4"));
