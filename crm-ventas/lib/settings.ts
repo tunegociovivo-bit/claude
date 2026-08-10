@@ -170,7 +170,7 @@ export async function findWorkspaceByToken(
   const field = kind === "vapi" ? "vapiWebhookToken" : "whatsappWebhookToken";
   // El token va indexado dentro del JSON: filtramos en SQL por igualdad de campo JSON.
   const rows = await prisma.workspace.findMany({
-    where: { settings: { path: [field], equals: token } },
+    where: { settings: { path: [field], equals: token }, isBlocked: false },
     select: { id: true, settings: true },
     take: 1,
   });

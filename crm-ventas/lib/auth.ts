@@ -4,6 +4,15 @@ import CredentialsProvider from "next-auth/providers/credentials";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 
+export function isOperatorEmail(email: string | null | undefined) {
+  if (!email) return false;
+  return (process.env.NV_OPERATOR_EMAILS || "")
+    .split(",")
+    .map((value) => value.toLowerCase().trim())
+    .filter(Boolean)
+    .includes(email.toLowerCase().trim());
+}
+
 export const authOptions: NextAuthOptions = {
   session: { strategy: "jwt" },
   pages: { signIn: "/login" },
@@ -18,8 +27,8 @@ export const authOptions: NextAuthOptions = {
         const email = credentials?.email?.toLowerCase().trim();
         const password = credentials?.password;
         if (!email || !password) return null;
-        const user = await prisma.user.findUnique({ where: { email } });
-        if (!user) return null;
+        const user = await prisma.user.findUnique({ where: { email }, include: { workspace: true } });
+        if (!user || (user.workspace.isBlocked && !isOperatorEmail(user.email))) return null;
         const ok = await bcrypt.compare(password, user.passwordHash);
         if (!ok) return null;
         return {
@@ -59,7 +68,7 @@ export async function requireWorkspaceId(): Promise<string> {
   const userId = (session?.user as any)?.id as string | undefined;
   if (!workspaceId || !userId) throw new Error("UNAUTHORIZED");
   const exists = await prisma.user.findFirst({
-    where: { id: userId, workspaceId },
+    where: { id: userId, workspaceId, workspace: { isBlocked: false } },
     select: { id: true },
   });
   if (!exists) throw new Error("UNAUTHORIZED");
@@ -77,7 +86,7 @@ export async function requireWorkspaceAdmin(): Promise<{
 
   // Revalidamos el rol en BD para que una sesión antigua no conserve permisos.
   const user = await prisma.user.findFirst({
-    where: { id: userId, workspaceId },
+    where: { id: userId, workspaceId, workspace: { isBlocked: false } },
     select: { role: true },
   });
   if (!user || user.role !== "ADMIN") throw new Error("FORBIDDEN");
@@ -92,13 +101,7 @@ export async function requireOperator(): Promise<{ userId: string; email: string
   const email = session?.user?.email?.toLowerCase().trim();
   const userId = (session?.user as any)?.id as string | undefined;
   if (!email || !userId) throw new Error("UNAUTHORIZED");
-  const allowed = new Set(
-    (process.env.NV_OPERATOR_EMAILS || "")
-      .split(",")
-      .map((value) => value.toLowerCase().trim())
-      .filter(Boolean)
-  );
-  if (!allowed.has(email)) throw new Error("FORBIDDEN");
+  if (!isOperatorEmail(email)) throw new Error("FORBIDDEN");
   const user = await prisma.user.findFirst({ where: { id: userId, email }, select: { id: true } });
   if (!user) throw new Error("UNAUTHORIZED");
   return { userId, email };

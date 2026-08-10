@@ -8,6 +8,8 @@ import {
 } from "@/lib/appointments";
 import { normalizePhone } from "@/lib/phone";
 import type { WorkspaceSettings } from "@/lib/settings";
+import { composeAgentPrompt } from "@/lib/admin/usage";
+import { getGlobalPrompt } from "@/lib/admin/config";
 
 // ---------------------------------------------------------------------------
 // Herramientas de SONIA — compartidas entre el canal de voz (Vapi ejecuta el
@@ -196,7 +198,8 @@ export async function executeSoniaTool(opts: {
 
 export function buildSoniaSystemPrompt(
   settings: WorkspaceSettings,
-  channel: "whatsapp" | "llamada"
+  channel: "whatsapp" | "llamada",
+  globalPrompt = ""
 ): string {
   const s = settings.sonia;
   const now = new Date();
@@ -234,7 +237,7 @@ export function buildSoniaSystemPrompt(
     "",
     `HORARIO: ${s.openingHours}`,
     "",
-    s.promptExtra ? `INSTRUCCIONES ESPECÍFICAS DE ESTE NEGOCIO:\n${s.promptExtra}` : "",
+    composeAgentPrompt(globalPrompt, s.promptExtra),
     "",
     "PROMOCIONES Y ENLACES: busca primero en la información del negocio cualquier promoción, descuento, bono, pack o URL relacionada. Si existe, explica el beneficio y comparte la URL exacta; nunca digas que no hay promociones sin comprobar esa información. En llamada, pronuncia la URL despacio por partes, diciendo «punto» y «barra» de forma clara.",
     channel === "llamada"
@@ -290,7 +293,7 @@ export async function runSoniaWhatsappAgent(opts: {
   }
   if (messages[messages.length - 1].role !== "user") return null;
 
-  const system = buildSoniaSystemPrompt(settings, "whatsapp");
+  const system = buildSoniaSystemPrompt(settings, "whatsapp", await getGlobalPrompt());
   const model = process.env.SONIA_MODEL || "claude-opus-5";
   const anthropic = new Anthropic({ timeout: 25_000, maxRetries: 0 });
 

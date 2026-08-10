@@ -16,6 +16,8 @@ model Workspace {
   settings  Json     @default("{}")
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  isBlocked Boolean  @default(false)
+  blockedAt DateTime?
 
   users        User[]
   contacts     Contact[]
@@ -23,6 +25,12 @@ model Workspace {
   messages     Message[]
   calls        Call[]
   vapiPhoneConnection VapiPhoneConnection?
+}
+
+model GlobalAdminConfig {
+  id           String   @id @default("global")
+  globalPrompt String   @default("") @db.Text
+  updatedAt    DateTime @updatedAt
 }
 
 // Número de Vapi aprovisionado desde el CRM. La relación 1:1 limita v1 a un
@@ -145,6 +153,7 @@ model Call {
   status         String   @default("en-curso") // en-curso | finalizada | fallida
   endedReason    String?
   durationSec    Int?
+  providerCost   Float?
   transcript     String?  @db.Text
   summary        String?  @db.Text
   recordingUrl   String?

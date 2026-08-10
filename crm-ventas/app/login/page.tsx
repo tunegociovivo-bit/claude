@@ -25,7 +25,8 @@ export default function LoginPage() {
       setError("Email o contraseña incorrectos");
       return;
     }
-    router.push("/pipeline");
+    const admin = await fetch("/api/v1/admin/me", { cache: "no-store" }).catch(() => null);
+    router.push(admin?.ok ? "/admin" : "/pipeline");
     router.refresh();
   }
 

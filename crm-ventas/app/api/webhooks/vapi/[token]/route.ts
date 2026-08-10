@@ -12,6 +12,7 @@ import {
   publicBaseUrl,
   type WorkspaceSettings,
 } from "@/lib/settings";
+import { getGlobalPrompt } from "@/lib/admin/config";
 
 export const dynamic = "force-dynamic";
 
@@ -41,7 +42,7 @@ function vapiTools(baseUrl: string, token: string) {
   }));
 }
 
-function buildAssistant(settings: WorkspaceSettings, token: string) {
+function buildAssistant(settings: WorkspaceSettings, token: string, globalPrompt: string) {
   const s = settings.sonia;
   const baseUrl = publicBaseUrl();
   return {
@@ -51,7 +52,7 @@ function buildAssistant(settings: WorkspaceSettings, token: string) {
       provider: s.vapiModelProvider,
       model: s.vapiModel,
       messages: [
-        { role: "system", content: buildSoniaSystemPrompt(settings, "llamada") },
+        { role: "system", content: buildSoniaSystemPrompt(settings, "llamada", globalPrompt) },
       ],
       tools: vapiTools(baseUrl, token),
     },
@@ -115,7 +116,7 @@ export async function POST(
   // 1) Vapi pide el asistente para una llamada entrante
   if (type === "assistant-request") {
     await upsertCall(ws.id, call);
-    return NextResponse.json({ assistant: buildAssistant(ws.settings, params.token) });
+    return NextResponse.json({ assistant: buildAssistant(ws.settings, params.token, await getGlobalPrompt()) });
   }
 
   // 2) Vapi pide ejecutar herramientas durante la llamada
@@ -188,6 +189,8 @@ export async function POST(
     const durationSec = Math.round(
       Number(message?.durationSeconds ?? message?.call?.duration ?? 0)
     );
+    const providerCostRaw = message?.cost ?? call?.cost;
+    const providerCost = Number.isFinite(Number(providerCostRaw)) ? Number(providerCostRaw) : null;
 
     const fromRaw = call?.customer?.number ?? "";
     const phone = normalizePhone(String(fromRaw), ws.settings.whatsapp.countryCode);
@@ -207,6 +210,7 @@ export async function POST(
       status: failed ? "fallida" : "finalizada",
       endedReason,
       durationSec: durationSec || null,
+      providerCost,
       transcript,
       summary,
       recordingUrl,

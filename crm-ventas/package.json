@@ -9,7 +9,7 @@
     "lint": "next lint",
     "db:seed": "tsx prisma/seed.ts",
     "typecheck": "tsc --noEmit",
-    "test:agent": "tsx --test tests/agent-regressions.test.ts"
+    "test:agent": "tsx --test tests/*.test.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
