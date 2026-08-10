@@ -12,7 +12,7 @@ import { MockSantanderAdapter, type MockAnomaly } from "../src/santander/mock.js
 import { isForbiddenActionLabel } from "../src/santander/types.js";
 import type { AdapterHooks, AuthorizedJob } from "../src/santander/types.js";
 import { sanitize } from "../src/logger.js";
-import { buildRemittanceGeneratorUrl, decideLoginAction, formatSantanderAmount, isAuthenticatedSantanderUrl, isEnvioremFrameUrl, isRemittanceGeneratorUrl, isSafeBasicPaymentsLabel, isSafeReconnectLabel, isSafeRemittanceGenerationLabel, numericPageLabels, parseDisplayedAmountCents, shouldAttemptSavedLogin, shouldWaitForAmountConfirmation, shouldWaitForRemittanceList, uniqueVisibleIndex, validateAccessKey } from "../src/santander/login.js";
+import { buildRemittanceGeneratorUrl, decideLoginAction, formatSantanderAmount, isAuthenticatedSantanderUrl, isEnvioremFrameUrl, isRemittanceGeneratorUrl, isSafeBasicPaymentsLabel, isSafePaginationControl, isSafeReconnectLabel, isSafeRemittanceGenerationLabel, numericPageLabels, parseDisplayedAmountCents, shouldAttemptSavedLogin, shouldWaitForAmountConfirmation, shouldWaitForRemittanceList, uniqueVisibleIndex, validateAccessKey } from "../src/santander/login.js";
 
 let passed = 0;
 let failed = 0;
@@ -78,6 +78,8 @@ async function main() {
   ok("no confía solo en una URL autenticada si falta la marca visual de sesión", shouldAttemptSavedLogin(false));
   ok("no intenta acceder de nuevo si la sesión está verificada visualmente", !shouldAttemptSavedLogin(true));
   ok("ordena y limita enlaces de paginación", JSON.stringify(numericPageLabels(["3", "1", "13", "2", "3", "0", "101", "Enviar"])) === JSON.stringify(["1", "2", "3", "13"]));
+  ok("acepta paginación numérica como enlace o botón", isSafePaginationControl("link", "4") && isSafePaginationControl("button", "4"));
+  ok("rechaza controles no numéricos o con otro rol", !isSafePaginationControl("button", "Enviar") && !isSafePaginationControl("menuitem", "4"));
   ok("reconoce el marco interno del generador de adeudos", isRemittanceGeneratorUrl("https://empresas3.gruposantander.es/paas/genweb/nwe-gw-19-ui/#!/generator/charges/debtsSEPA/all", safeLogin.allowedOrigin));
   ok("rechaza un generador fuera del dominio oficial", !isRemittanceGeneratorUrl("https://evil.example/paas/genweb/nwe-gw-19-ui/#!/generator/charges/debtsSEPA/all", safeLogin.allowedOrigin));
   ok("construye la ruta oficial directa al generador", buildRemittanceGeneratorUrl(safeLogin.allowedOrigin) === "https://empresas3.gruposantander.es/paas/genweb/nwe-gw-19-ui/#!/generator/charges/debtsSEPA/all");
