@@ -127,6 +127,10 @@ export function shouldRetryVisibleOption(found: boolean, attempt: number, maxAtt
   return !found && attempt < maxAttempts;
 }
 
+export function hasVerifiedPendingSignature(generatorVisible: boolean, sendFrameVisible: boolean): boolean {
+  return generatorVisible || sendFrameVisible;
+}
+
 export function isSafeRemittanceGenerationLabel(label: string): boolean {
   const normalized = label.trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/\s+/g, " ");
   return normalized === "generacion"

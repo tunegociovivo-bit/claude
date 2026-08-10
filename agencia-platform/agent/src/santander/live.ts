@@ -19,7 +19,7 @@
 import type { AuthorizedJob, AdapterHooks, SantanderAdapter, StepOutcome } from "./types.js";
 import { isForbiddenActionLabel } from "./types.js";
 import { loadSelectors, type SantanderSelectors, type SelectorSpec } from "./selectors.js";
-import { canContinueToDirectDebit, decideLoginAction, formatSantanderAmount, isAuthenticatedSantanderUrl, isEnvioremFrameUrl, isRemittanceGeneratorUrl, isSafeBasicPaymentsLabel, isSafePaginationControl, isSafeReconnectLabel, isSafeRemittanceGenerationLabel, numericPageLabels, parseDisplayedAmountCents, shouldAttemptSavedLogin, shouldRetryVisibleOption, shouldWaitForAmountConfirmation, shouldWaitForRemittanceList, uniqueVisibleIndex } from "./login.js";
+import { canContinueToDirectDebit, decideLoginAction, formatSantanderAmount, hasVerifiedPendingSignature, isAuthenticatedSantanderUrl, isEnvioremFrameUrl, isRemittanceGeneratorUrl, isSafeBasicPaymentsLabel, isSafePaginationControl, isSafeReconnectLabel, isSafeRemittanceGenerationLabel, numericPageLabels, parseDisplayedAmountCents, shouldAttemptSavedLogin, shouldRetryVisibleOption, shouldWaitForAmountConfirmation, shouldWaitForRemittanceList, uniqueVisibleIndex } from "./login.js";
 import { hasEncryptedCredential, readEncryptedAccessKey } from "../credential-store.js";
 
 const STEP_TIMEOUT_MS = 15000;
@@ -151,11 +151,14 @@ export class LiveSantanderAdapter implements SantanderAdapter {
       await hooks.onProgress("PREPARE_FOR_SIGNATURE", "Remesa dejada lista para firma (sin firmar)");
 
       // 9) Verificación visual del estado pendiente de firma.
-      if (!(await this.visible(app, S.pendingSignatureIndicator))) {
+      const pendingInGenerator = await this.visible(app, S.pendingSignatureIndicator);
+      const pendingInSendFrame = pendingInGenerator ? false : await this.visible(sendFrame, S.pendingSignatureIndicator);
+      if (!hasVerifiedPendingSignature(pendingInGenerator, pendingInSendFrame)) {
         return this.pause(hooks, "No pude verificar visualmente el estado 'pendiente de firma'. Revísalo tú antes de firmar.");
       }
       await hooks.onProgress("VERIFY_PENDING", "Estado 'pendiente de firma' verificado");
-      if (!(await this.safeClick(app, S.signLaterAction, true))) {
+      const confirmationFrame = pendingInSendFrame ? sendFrame : app;
+      if (!(await this.safeClick(confirmationFrame, S.signLaterAction, true))) {
         return this.pause(hooks, "La remesa está pendiente de firma, pero no pude pulsar Firmar luego. No se ha firmado.");
       }
 
