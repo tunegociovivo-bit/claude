@@ -19,7 +19,7 @@
 import type { AuthorizedJob, AdapterHooks, SantanderAdapter, StepOutcome } from "./types.js";
 import { isForbiddenActionLabel } from "./types.js";
 import { loadSelectors, type SantanderSelectors, type SelectorSpec } from "./selectors.js";
-import { amountEditIsConfirmed, canContinueToDirectDebit, classifyLoginCompletion, decideLoginAction, formatSantanderAmount, hasVerifiedPendingSignature, isAuthenticatedSantanderUrl, isEnvioremFrameUrl, isRemittanceGeneratorUrl, isSafeBasicPaymentsLabel, isSafePaginationControl, isSafeReconnectLabel, isSafeRemittanceGenerationLabel, numericPageLabels, parseDisplayedAmountCents, shouldAttemptSavedLogin, shouldRetryVisibleOption, shouldWaitForLoginCompletion, shouldWaitForRemittanceList, uniqueVisibleIndex } from "./login.js";
+import { amountFieldIsConfirmed, amountSummaryIsConfirmed, canContinueToDirectDebit, classifyLoginCompletion, decideLoginAction, formatSantanderAmount, hasVerifiedPendingSignature, isAuthenticatedSantanderUrl, isEnvioremFrameUrl, isRemittanceGeneratorUrl, isSafeBasicPaymentsLabel, isSafePaginationControl, isSafeReconnectLabel, isSafeRemittanceGenerationLabel, numericPageLabels, parseDisplayedAmountCents, shouldAttemptSavedLogin, shouldRetryVisibleOption, shouldWaitForLoginCompletion, shouldWaitForRemittanceList, uniqueVisibleIndex } from "./login.js";
 import { hasEncryptedCredential, readEncryptedAccessKey } from "../credential-store.js";
 
 const STEP_TIMEOUT_MS = 15000;
@@ -130,23 +130,28 @@ export class LiveSantanderAdapter implements SantanderAdapter {
           element.blur();
         });
         let fieldAmount = "";
-        for (let attempt = 0; attempt <= 20; attempt++) {
+        for (let attempt = 0; attempt <= 10; attempt++) {
           fieldAmount = await amountFields.inputValue().catch(() => "");
-          shownAmount = await this.text(app, S.amountLabel);
-          if (amountEditIsConfirmed(fieldAmount, shownAmount ?? "", job.amountCents)) break;
+          if (amountFieldIsConfirmed(fieldAmount, job.amountCents)) break;
           await app.waitForTimeout(500);
         }
-        if (!amountEditIsConfirmed(fieldAmount, shownAmount ?? "", job.amountCents)) {
-          return this.pause(hooks, `Santander no confirmó el nuevo importe: campo "${fieldAmount || "no visible"}", total "${shownAmount ?? "no visible"}", autorizado "${amount} EUR".`);
+        if (!amountFieldIsConfirmed(fieldAmount, job.amountCents)) {
+          return this.pause(hooks, `Santander no confirmó el nuevo importe en el campo editable: "${fieldAmount || "no visible"}" vs autorizado "${amount} EUR".`);
         }
         await hooks.onProgress("EDIT_AUTHORIZED", `Importe actualizado al total autorizado de ${amount} EUR`);
       }
-      if (!shownAmount || !this.amountMatches(shownAmount, amount)) {
-        return this.pause(hooks, `Discrepancia de importe: portal "${shownAmount ?? "no visible"}" vs autorizado "${amount} EUR".`);
-      }
-      await hooks.onProgress("VALIDATE_MATCH", "Importe y cliente cotejados con lo autorizado");
-
       if (!(await this.click(app, S.continueAction))) return this.pause(hooks, "No encuentro Continuar hacia Resumen.");
+      shownAmount = null;
+      for (let attempt = 0; attempt <= 20; attempt++) {
+        shownAmount = await this.visibleTextNow(app, S.amountLabel);
+        if (amountSummaryIsConfirmed(shownAmount ?? "", job.amountCents)) break;
+        await app.waitForTimeout(500);
+      }
+      if (!amountSummaryIsConfirmed(shownAmount ?? "", job.amountCents)) {
+        return this.pause(hooks, `Discrepancia de importe en Resumen: portal "${shownAmount ?? "no visible"}" vs autorizado "${amount} EUR".`);
+      }
+      await hooks.onProgress("VALIDATE_MATCH", "Importe y cliente cotejados con lo autorizado en Resumen");
+
       if (!(await this.safeClick(app, S.firstSendAction))) return this.pause(hooks, "No encuentro el primer Enviar o su etiqueta no es segura.");
       const sendFrame = await this.findEnvioremFrame(page);
       if (!sendFrame) return this.pause(hooks, "No encuentro el marco oficial de selección del tipo de envío.");
@@ -436,6 +441,17 @@ export class LiveSantanderAdapter implements SantanderAdapter {
       const el = this.locator(page, spec).first();
       await el.waitFor({ state: "visible", timeout: STEP_TIMEOUT_MS });
       return ((await el.textContent()) ?? "").trim();
+    } catch { return null; }
+  }
+
+  private async visibleTextNow(page: any, spec: SelectorSpec): Promise<string | null> {
+    try {
+      const matches = this.locator(page, spec);
+      for (let index = 0; index < await matches.count(); index++) {
+        const candidate = matches.nth(index);
+        if (await candidate.isVisible().catch(() => false)) return ((await candidate.textContent()) ?? "").trim();
+      }
+      return null;
     } catch { return null; }
   }
 

@@ -100,9 +100,12 @@ export function parseDisplayedAmountCents(shown: string): number | null {
   return Number.isFinite(value) ? value : null;
 }
 
-export function amountEditIsConfirmed(fieldValue: string, totalText: string, expectedCents: number): boolean {
-  return parseDisplayedAmountCents(fieldValue) === expectedCents
-    && parseDisplayedAmountCents(totalText) === expectedCents;
+export function amountFieldIsConfirmed(fieldValue: string, expectedCents: number): boolean {
+  return parseDisplayedAmountCents(fieldValue) === expectedCents;
+}
+
+export function amountSummaryIsConfirmed(totalText: string, expectedCents: number): boolean {
+  return parseDisplayedAmountCents(totalText) === expectedCents;
 }
 
 export function isSafeReconnectLabel(label: string): boolean {
