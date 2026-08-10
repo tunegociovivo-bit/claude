@@ -19,7 +19,7 @@
 import type { AuthorizedJob, AdapterHooks, SantanderAdapter, StepOutcome } from "./types.js";
 import { isForbiddenActionLabel } from "./types.js";
 import { loadSelectors, type SantanderSelectors, type SelectorSpec } from "./selectors.js";
-import { canContinueToDirectDebit, decideLoginAction, formatSantanderAmount, hasVerifiedPendingSignature, isAuthenticatedSantanderUrl, isEnvioremFrameUrl, isRemittanceGeneratorUrl, isSafeBasicPaymentsLabel, isSafePaginationControl, isSafeReconnectLabel, isSafeRemittanceGenerationLabel, numericPageLabels, parseDisplayedAmountCents, shouldAttemptSavedLogin, shouldRetryVisibleOption, shouldWaitForAmountConfirmation, shouldWaitForRemittanceList, uniqueVisibleIndex } from "./login.js";
+import { canContinueToDirectDebit, classifyLoginCompletion, decideLoginAction, formatSantanderAmount, hasVerifiedPendingSignature, isAuthenticatedSantanderUrl, isEnvioremFrameUrl, isRemittanceGeneratorUrl, isSafeBasicPaymentsLabel, isSafePaginationControl, isSafeReconnectLabel, isSafeRemittanceGenerationLabel, numericPageLabels, parseDisplayedAmountCents, shouldAttemptSavedLogin, shouldRetryVisibleOption, shouldWaitForAmountConfirmation, shouldWaitForLoginCompletion, shouldWaitForRemittanceList, uniqueVisibleIndex } from "./login.js";
 import { hasEncryptedCredential, readEncryptedAccessKey } from "../credential-store.js";
 
 const STEP_TIMEOUT_MS = 15000;
@@ -221,8 +221,16 @@ export class LiveSantanderAdapter implements SantanderAdapter {
       const enter = page.getByRole("button", { name: /^entrar$/i });
       if (await enter.count() !== 1) return { ok: false, reason: "No encuentro un único botón Entrar verificable en Santander." };
       await enter.click({ timeout: STEP_TIMEOUT_MS });
-      if (!(await this.visible(page, selectors.sessionReady)) && !isAuthenticatedSantanderUrl(page.url(), this.opts.santanderOrigin)) {
-        return { ok: false, reason: "Santander requiere OTP, confirmación móvil o intervención. Autorízalo en tu teléfono y reanuda el trabajo." };
+      let sessionReady = false;
+      let authenticatedUrl = false;
+      for (let attempt = 0; attempt <= 30; attempt++) {
+        sessionReady = await this.locator(page, selectors.sessionReady).first().isVisible().catch(() => false);
+        authenticatedUrl = isAuthenticatedSantanderUrl(page.url(), this.opts.santanderOrigin);
+        if (!shouldWaitForLoginCompletion(sessionReady, authenticatedUrl, attempt, 30)) break;
+        await page.waitForTimeout(500);
+      }
+      if (classifyLoginCompletion(sessionReady, authenticatedUrl) !== "AUTHENTICATED") {
+        return { ok: false, reason: "Santander no completó el acceso automático. Revisa la pantalla de inicio de sesión, el usuario recordado y la clave local antes de reintentar." };
       }
       return { ok: true };
     } catch {

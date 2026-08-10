@@ -45,6 +45,16 @@ export function shouldAttemptSavedLogin(sessionReadyVisible: boolean): boolean {
   return !sessionReadyVisible;
 }
 
+export type LoginCompletion = "AUTHENTICATED" | "LOGIN_NOT_COMPLETED";
+
+export function classifyLoginCompletion(sessionReadyVisible: boolean, authenticatedUrl: boolean): LoginCompletion {
+  return sessionReadyVisible || authenticatedUrl ? "AUTHENTICATED" : "LOGIN_NOT_COMPLETED";
+}
+
+export function shouldWaitForLoginCompletion(sessionReadyVisible: boolean, authenticatedUrl: boolean, attempt: number, maxAttempts: number): boolean {
+  return classifyLoginCompletion(sessionReadyVisible, authenticatedUrl) !== "AUTHENTICATED" && attempt < maxAttempts;
+}
+
 export function numericPageLabels(labels: string[]): string[] {
   return [...new Set(labels.map((label) => label.trim()).filter((label) => /^\d{1,3}$/.test(label)))]
     .map(Number)
