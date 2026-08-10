@@ -28,6 +28,10 @@ export function normalizeAdminNotes(value: unknown) {
   return String(value ?? "").trim().slice(0, 4_000);
 }
 
+export function normalizeClientName(value: unknown) {
+  return String(value ?? "").trim().slice(0, 120);
+}
+
 export function composeAgentPrompt(globalPrompt: string, clientPrompt: string) {
   const common = normalizeGlobalPrompt(globalPrompt);
   return [

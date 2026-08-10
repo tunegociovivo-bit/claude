@@ -22,6 +22,7 @@ export default function AdminDashboard() {
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState("");
   const [notes, setNotes] = useState<Record<string, string>>({});
+  const [names, setNames] = useState<Record<string, string>>({});
 
   async function load() {
     const response = await fetch("/api/v1/admin/overview", { cache: "no-store" });
@@ -29,6 +30,7 @@ export default function AdminDashboard() {
     const next = await response.json();
     setData(next); setPrompt(next.globalPrompt ?? "");
     setNotes(Object.fromEntries(next.clients.map((client: Client) => [client.id, client.adminNotes ?? ""])));
+    setNames(Object.fromEntries(next.clients.map((client: Client) => [client.id, client.name])));
   }
   useEffect(() => { void load(); }, []);
   const totals = useMemo(() => (data?.clients ?? []).reduce((acc, client) => ({
@@ -69,6 +71,18 @@ export default function AdminDashboard() {
     if (response.ok) await load();
   }
 
+  async function saveName(client: Client) {
+    const name = (names[client.id] ?? "").trim();
+    if (!name) { setNotice("El nombre del cliente no puede estar vacío."); return; }
+    setBusy(`name:${client.id}`); setNotice("");
+    const response = await fetch(`/api/v1/admin/clients/${client.id}`, {
+      method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }),
+    });
+    setBusy(null);
+    setNotice(response.ok ? "Nombre del cliente actualizado." : "No se pudo cambiar el nombre.");
+    if (response.ok) await load();
+  }
+
   return (
     <main className="min-h-screen bg-slate-50">
       <header className="border-b border-slate-200 bg-white">
@@ -98,7 +112,7 @@ export default function AdminDashboard() {
           <div className="grid gap-4 lg:grid-cols-2">
             {(data?.clients ?? []).map((client) => (
               <article key={client.id} className={`card p-5 ${client.isBlocked ? "border-red-200 bg-red-50/40" : ""}`}>
-                <div className="flex items-start gap-3"><div className="min-w-0 flex-1"><div className="flex items-center gap-2"><h3 className="truncate font-semibold">{client.name}</h3>{client.isBlocked ? <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">Bloqueado</span> : <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700">Activo</span>}</div><p className="truncate text-sm text-slate-500">{client.email}</p></div><button disabled={busy === client.id} onClick={() => toggle(client)} className={`rounded-lg px-3 py-2 text-sm font-medium ${client.isBlocked ? "bg-emerald-600 text-white" : "bg-red-600 text-white"}`}>{client.isBlocked ? <><CheckCircle2 className="mr-1 inline" size={15} />Activar</> : <><Ban className="mr-1 inline" size={15} />Bloquear</>}</button></div>
+                <div className="flex items-start gap-3"><div className="min-w-0 flex-1"><div className="flex flex-col gap-2 sm:flex-row sm:items-center"><input aria-label={`Nombre de ${client.name}`} className="input min-w-0 flex-1 font-semibold" maxLength={120} value={names[client.id] ?? ""} onChange={(event) => setNames((current) => ({ ...current, [client.id]: event.target.value }))} /><button className="btn-ghost shrink-0" disabled={busy === `name:${client.id}`} onClick={() => saveName(client)}>{busy === `name:${client.id}` ? "Guardando…" : "Guardar nombre"}</button>{client.isBlocked ? <span className="w-fit rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">Bloqueado</span> : <span className="w-fit rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700">Activo</span>}</div><p className="mt-1 truncate text-sm text-slate-500">{client.email}</p></div><button disabled={busy === client.id} onClick={() => toggle(client)} className={`rounded-lg px-3 py-2 text-sm font-medium ${client.isBlocked ? "bg-emerald-600 text-white" : "bg-red-600 text-white"}`}>{client.isBlocked ? <><CheckCircle2 className="mr-1 inline" size={15} />Activar</> : <><Ban className="mr-1 inline" size={15} />Bloquear</>}</button></div>
                 <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">{[["Llamadas", client.callsToday], ["Minutos", client.minutesToday], ["WhatsApp", client.whatsappToday], ["Coste", money(client.totalCost)]].map(([label, value]) => <div key={label} className="rounded-xl bg-white p-3 ring-1 ring-slate-100"><p className="text-xs text-slate-500">{label}</p><p className="font-semibold">{value}</p></div>)}</div>
                 <p className="mt-3 text-xs text-slate-400">Voz {money(client.callCost)} · WhatsApp {money(client.whatsappCost)}</p>
                 <div className="mt-4 border-t border-slate-100 pt-4">
