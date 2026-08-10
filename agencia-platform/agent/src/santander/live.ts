@@ -19,7 +19,7 @@
 import type { AuthorizedJob, AdapterHooks, SantanderAdapter, StepOutcome } from "./types.js";
 import { isForbiddenActionLabel } from "./types.js";
 import { loadSelectors, type SantanderSelectors, type SelectorSpec } from "./selectors.js";
-import { buildRemittanceGeneratorUrl, decideLoginAction, formatSantanderAmount, isAuthenticatedSantanderUrl, isEnvioremFrameUrl, isRemittanceGeneratorUrl, isSafeBasicPaymentsLabel, isSafePaginationControl, isSafeReconnectLabel, isSafeRemittanceGenerationLabel, numericPageLabels, parseDisplayedAmountCents, shouldAttemptSavedLogin, shouldWaitForAmountConfirmation, shouldWaitForRemittanceList, uniqueVisibleIndex } from "./login.js";
+import { buildRemittanceGeneratorUrl, canContinueToDirectDebit, decideLoginAction, formatSantanderAmount, isAuthenticatedSantanderUrl, isEnvioremFrameUrl, isRemittanceGeneratorUrl, isSafeBasicPaymentsLabel, isSafePaginationControl, isSafeReconnectLabel, isSafeRemittanceGenerationLabel, numericPageLabels, parseDisplayedAmountCents, shouldAttemptSavedLogin, shouldWaitForAmountConfirmation, shouldWaitForRemittanceList, uniqueVisibleIndex } from "./login.js";
 import { hasEncryptedCredential, readEncryptedAccessKey } from "../credential-store.js";
 
 const STEP_TIMEOUT_MS = 15000;
@@ -145,8 +145,9 @@ export class LiveSantanderAdapter implements SantanderAdapter {
       if (!(await this.safeClick(app, S.firstSendAction))) return this.pause(hooks, "No encuentro el primer Enviar o su etiqueta no es segura.");
       const sendFrame = await this.findEnvioremFrame(page);
       if (!sendFrame) return this.pause(hooks, "No encuentro el marco oficial de selección del tipo de envío.");
-      if (!(await this.clickBasicPayments(sendFrame, S.basicPaymentsOption))) return this.pause(hooks, "No encuentro una única opción visible y segura de Pagos y cobros básicos.");
+      const categoryOpened = await this.clickBasicPayments(sendFrame, S.basicPaymentsOption);
       await sendFrame.waitForTimeout(300);
+      if (!canContinueToDirectDebit(categoryOpened, await this.hasUniqueVisible(sendFrame, S.directDebitOption))) return this.pause(hooks, "No encuentro Pagos y cobros básicos ni una opción única de adeudos ya visible.");
       if (!(await this.clickUniqueVisible(sendFrame, S.directDebitOption))) return this.pause(hooks, "No encuentro una única opción visible de Domiciliaciones SEPA CORE/COR1.");
       if (!(await this.safeClick(sendFrame, S.acceptAction))) return this.pause(hooks, "No encuentro Aceptar.");
       if (!(await this.safeClick(sendFrame, S.secondSendAction))) return this.pause(hooks, "No encuentro el segundo Enviar o su etiqueta no es segura.");
@@ -347,6 +348,13 @@ export class LiveSantanderAdapter implements SantanderAdapter {
       await matches.nth(index).click({ timeout: STEP_TIMEOUT_MS });
       return true;
     } catch { return false; }
+  }
+
+  private async hasUniqueVisible(page: any, spec: SelectorSpec): Promise<boolean> {
+    const matches = this.locator(page, spec);
+    const visibility: boolean[] = [];
+    for (let index = 0; index < await matches.count(); index++) visibility.push(await matches.nth(index).isVisible().catch(() => false));
+    return uniqueVisibleIndex(visibility) !== null;
   }
 
   private async clickBasicPayments(page: any, spec: SelectorSpec): Promise<boolean> {
