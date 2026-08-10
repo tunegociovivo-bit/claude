@@ -169,6 +169,78 @@ export async function generateJobsReviewDrafts(
   return { drafted, candidates: leads.length, alreadyHandled: handled.size };
 }
 
+/**
+ * Franquicias — borradores de email bajo demanda (los leads de este origen NO
+ * admiten WhatsApp). Recorre las centrales con email y sin contactar, redacta
+ * el email (con el informe de red si el análisis lo dejó en rawData; si no,
+ * versión sin cifras que ofrece el análisis gratuito) y lo deja en la MISMA
+ * cola de revisión que Empleos (LeadExecOutreach pending_review): ahí se
+ * edita, aprueba y envía. Dedupe: no toca leads con secuencia/borrador previo
+ * (cualquier estado) ni con contactStatus distinto de "pending".
+ */
+export async function generateFranchiseReviewDrafts(
+  workspaceId: string,
+  limit = 60
+): Promise<{ drafted: number; candidates: number; alreadyHandled: number; withoutEmail: number }> {
+  const { writeFranchiseEmail } = await import("./sources/franchises");
+  let leads: { id: string; email: string | null; name: string; category: string | null; rawData: any }[] = [];
+  let withoutEmail = 0;
+  try {
+    const all = await prisma.lead.findMany({
+      where: {
+        workspaceId,
+        contactStatus: "pending",
+        rawData: { path: ["source"], equals: "franchises" }
+      },
+      select: { id: true, email: true, name: true, category: true, rawData: true },
+      take: 300
+    });
+    withoutEmail = all.filter((l) => !l.email).length;
+    leads = all.filter((l) => Boolean(l.email));
+  } catch {
+    leads = [];
+  }
+  if (leads.length === 0) return { drafted: 0, candidates: 0, alreadyHandled: 0, withoutEmail };
+
+  const existing = await prisma.leadExecOutreach.findMany({
+    where: { workspaceId, leadId: { in: leads.map((l) => l.id) } },
+    select: { leadId: true }
+  });
+  const handled = new Set(existing.map((e) => e.leadId));
+  const pending = leads.filter((l) => !handled.has(l.id)).slice(0, limit);
+
+  let drafted = 0;
+  const CHUNK = 5;
+  for (let i = 0; i < pending.length; i += CHUNK) {
+    const slice = pending.slice(i, i + CHUNK);
+    const res = await Promise.all(
+      slice.map(async (l) => {
+        const rd: any = l.rawData ?? {};
+        const brand = typeof rd?.brand === "string" && rd.brand.trim() ? rd.brand : l.name;
+        const report = typeof rd?.reportText === "string" && rd.reportText.trim() ? rd.reportText : null;
+        const director = typeof rd?.directorName === "string" ? rd.directorName : null;
+        const role = typeof rd?.directorRole === "string" ? rd.directorRole : null;
+        const sector = typeof rd?.sector === "string" ? rd.sector : l.category;
+        try {
+          const mail = await writeFranchiseEmail(
+            workspaceId,
+            brand,
+            report,
+            { email: null, name: director, role, linkedin: null },
+            sector
+          );
+          await saveReviewDraft(workspaceId, l.id, l.email as string, mail.subject, mail.body, director);
+          return true;
+        } catch {
+          return false;
+        }
+      })
+    );
+    drafted += res.filter(Boolean).length;
+  }
+  return { drafted, candidates: leads.length, alreadyHandled: handled.size, withoutEmail };
+}
+
 export async function stopExecOutreach(workspaceId: string, leadId: string): Promise<void> {
   await prisma.leadExecOutreach.updateMany({
     where: { workspaceId, leadId, status: "active" },

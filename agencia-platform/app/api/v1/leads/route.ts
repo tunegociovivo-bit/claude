@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
 import { SENT_STATUSES } from "@/lib/leads/send-queue";
+import { isEmailOnlyLead } from "@/lib/leads/email-only";
 
 export const GET = withApi({ scope: "*" }, async (req, { api }) => {
   const url = new URL(req.url);
@@ -47,9 +48,12 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
     const rows = await prisma.lead.findMany({
       where,
       orderBy,
-      select: { id: true, phone: true, contactStatus: true, rating: true, reviewsCount: true }
+      select: { id: true, phone: true, contactStatus: true, rating: true, reviewsCount: true, placeId: true, search: { select: { source: true } } }
     });
-    return NextResponse.json({ items: rows, total: rows.length });
+    // emailOnly: orígenes que no admiten WhatsApp (el "Seleccionar todos" de la
+    // tabla debe saltárselos igual que las filas visibles).
+    const items = rows.map(({ placeId, search, ...rest }) => ({ ...rest, emailOnly: isEmailOnlyLead({ placeId, search }) }));
+    return NextResponse.json({ items, total: items.length });
   }
 
   // Total real de leads que cumplen el filtro (para el contador "X de Y" y
@@ -80,7 +84,8 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
       hasWhatsapp: true,
       latitude: true,
       longitude: true,
-      search: { select: { keyword: true, location: true } },
+      placeId: true,
+      search: { select: { keyword: true, location: true, source: true } },
       _count: {
         select: {
           // Solo mensajes que SALIERON de verdad por WhatsApp (incluye los
@@ -100,12 +105,15 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
   });
   // Aplana _count.messages → messagesSent y derivado nextScheduledAt.
   const flat = items.map((l) => {
-    const { _count, messages, search, ...rest } = l as any;
+    const { _count, messages, search, placeId, ...rest } = l as any;
     const next = Array.isArray(messages) && messages.length > 0 ? messages[0] : null;
     return {
       ...rest,
       searchQuery: search?.keyword ?? null,
       searchLocation: search?.location ?? null,
+      // Origen solo-email (Franquicias): la tabla desactiva WhatsApp y ofrece
+      // generar borradores de email en su lugar.
+      emailOnly: isEmailOnlyLead({ placeId, search }),
       messagesSent: _count?.messages ?? 0,
       nextScheduledAt: next?.scheduledAt ?? null
     };

@@ -18,6 +18,7 @@ import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { enqueueMessage } from "@/lib/leads/send-queue";
+import { EMAIL_ONLY_REASON, isEmailOnlyLead } from "@/lib/leads/email-only";
 
 const FORMAT = z.enum(["text", "ranking", "text_then_image", "voice", "voice_image"]);
 
@@ -91,10 +92,16 @@ export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api }) 
   }
 
   // Orden por urgencia/score (los más calientes primero).
-  const leadsForOrder = await prisma.lead.findMany({
+  const allLeads = await prisma.lead.findMany({
     where: { id: { in: parsed.data.leadIds }, workspaceId: api.workspaceId },
-    select: { id: true, score: true, urgency: true }
+    select: { id: true, score: true, urgency: true, placeId: true, rawData: true, search: { select: { source: true } } }
   });
+  // Orígenes solo-email (Franquicias): fuera ANTES de encolar, con aviso claro.
+  // enqueueMessage también los rechaza (cierre central); esto evita meterlos en
+  // el bucle y da un conteo legible en la respuesta.
+  const emailOnly = allLeads.filter((l) => isEmailOnlyLead(l));
+  const leadsForOrder = allLeads.filter((l) => !isEmailOnlyLead(l));
+  const emailOnlySkipped = emailOnly.map((l) => ({ leadId: l.id, reason: EMAIL_ONLY_REASON }));
   const URGENCY_RANK: Record<string, number> = { critica: 0, alta: 1, media: 2, baja: 3, descartar: 4 };
   const orderedIds = leadsForOrder
     .slice()
@@ -106,7 +113,8 @@ export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api }) 
     })
     .map((l) => l.id);
   const known = new Set(orderedIds);
-  for (const id of parsed.data.leadIds) if (!known.has(id)) orderedIds.push(id);
+  const emailOnlyIds = new Set(emailOnly.map((l) => l.id));
+  for (const id of parsed.data.leadIds) if (!known.has(id) && !emailOnlyIds.has(id)) orderedIds.push(id);
 
   // Reemplazar: borra lo pendiente (status "queued") de estos leads para poder
   // reencolar con otro formato. No toca "sending"/"sent".
@@ -170,10 +178,18 @@ export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api }) 
       total: parsed.data.leadIds.length,
       queued: orderedIds.length,
       templateName: tpl?.name ?? null,
-      replacedQueued
+      replacedQueued,
+      emailOnlySkipped: emailOnlySkipped.length
     });
   }
 
   const { ok, skipped } = await runEnqueue();
-  return NextResponse.json({ ok, skipped, total: parsed.data.leadIds.length, templateName: tpl?.name ?? null, replacedQueued });
+  return NextResponse.json({
+    ok,
+    skipped: [...emailOnlySkipped, ...skipped],
+    total: parsed.data.leadIds.length,
+    templateName: tpl?.name ?? null,
+    replacedQueued,
+    emailOnlySkipped: emailOnlySkipped.length
+  });
 });

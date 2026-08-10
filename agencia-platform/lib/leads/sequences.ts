@@ -8,6 +8,7 @@
 
 import { prisma } from "@/lib/db/prisma";
 import { enqueueMessage } from "./send-queue";
+import { EMAIL_ONLY_REASON, isEmailOnlyLead } from "./email-only";
 
 export async function enrollLeadInSequence(opts: {
   workspaceId: string;
@@ -16,9 +17,12 @@ export async function enrollLeadInSequence(opts: {
 }): Promise<{ assignmentId: string; firstMessageId: string | null }> {
   const lead = await prisma.lead.findFirst({
     where: { id: opts.leadId, workspaceId: opts.workspaceId },
-    select: { id: true, contactStatus: true }
+    select: { id: true, contactStatus: true, placeId: true, rawData: true, search: { select: { source: true } } }
   });
   if (!lead) throw new Error("Lead no encontrado");
+  // Bloqueo temprano: mejor rechazar el enrolamiento entero que crear la
+  // asignación y que el paso 0 (WhatsApp) falle después.
+  if (isEmailOnlyLead(lead)) throw new Error(EMAIL_ONLY_REASON);
   if (["excluded", "discarded"].includes(lead.contactStatus)) {
     throw new Error("Lead excluido o descartado");
   }

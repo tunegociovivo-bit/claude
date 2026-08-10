@@ -53,6 +53,9 @@ type Lead = {
   contactStatus: string;
   aiOpener: string | null;
   hasWhatsapp: boolean;
+  // Origen solo-email (Franquicias): sin WhatsApp; se contacta por la cola de
+  // revisión de email.
+  emailOnly?: boolean;
   messagesSent: number;
   nextScheduledAt: string | null;
 };
@@ -64,6 +67,7 @@ type MinimalLead = {
   contactStatus: string;
   rating: number | null;
   reviewsCount: number;
+  emailOnly?: boolean;
 };
 
 type SearchRow = {
@@ -983,6 +987,9 @@ function LeadsTable({
   const [enqueueKind, setEnqueueKind] = useState<"text" | "ranking">("text");
   const [enrollOpen, setEnrollOpen] = useState(false);
   const [detailLeadId, setDetailLeadId] = useState<string | null>(null);
+  // CTA de Franquicias (origen solo-email): generar borradores en la cola.
+  const [draftingEmails, setDraftingEmails] = useState(false);
+  const [draftResult, setDraftResult] = useState<string | null>(null);
 
   // Al cambiar los filtros, limpia la selección (no al solo cargar más páginas).
   useEffect(() => {
@@ -990,10 +997,11 @@ function LeadsTable({
     setAllMatchingSelected(false);
   }, [resetKey]);
 
-  // Contactable por WhatsApp = solo móviles (6xx/7xx) no excluidos/descartados.
+  // Contactable por WhatsApp = solo móviles (6xx/7xx) no excluidos/descartados
+  // y de un origen que ADMITA WhatsApp (Franquicias no: solo email).
   // Acepta tanto el lead completo como la forma reducida de "Seleccionar todos".
-  const canContact = (l: { phone: string | null; contactStatus: string }) =>
-    phoneKind(l.phone) === "mobile" && !["excluded", "discarded"].includes(l.contactStatus);
+  const canContact = (l: { phone: string | null; contactStatus: string; emailOnly?: boolean }) =>
+    !l.emailOnly && phoneKind(l.phone) === "mobile" && !["excluded", "discarded"].includes(l.contactStatus);
 
   function clearSelection() {
     setSelected(new Set());
@@ -1042,8 +1050,42 @@ function LeadsTable({
     setSelected(allSelected ? new Set() : new Set(contactable.map((l) => l.id)));
   }
 
+  const emailOnlyCount = items.filter((l) => l.emailOnly).length;
+
+  async function generateFranchiseDrafts() {
+    setDraftingEmails(true);
+    setDraftResult(null);
+    try {
+      const r = await fetch("/api/v1/leads/franchises/draft-emails", { method: "POST" });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) { setDraftResult(j?.error?.message ?? "No se pudieron generar los borradores."); return; }
+      setDraftResult(
+        `✅ ${j.drafted ?? 0} borrador(es) creados · ${j.alreadyHandled ?? 0} ya tenían borrador/contacto · ${j.withoutEmail ?? 0} sin email. ` +
+          `Revísalos y envíalos en 📧 Empleos → cola de revisión.`
+      );
+    } finally {
+      setDraftingEmails(false);
+    }
+  }
+
   return (
     <div className="space-y-2">
+      {/* Origen solo-email (Franquicias): aquí no hay WhatsApp a propósito. */}
+      {emailOnlyCount > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-2 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2 text-sm text-emerald-900">
+          <span>
+            ✉️ {emailOnlyCount} lead(s) de <strong>Franquicias</strong> en esta vista: este origen se contacta por <strong>email</strong>, no por WhatsApp.
+          </span>
+          <button
+            onClick={() => void generateFranchiseDrafts()}
+            disabled={draftingEmails}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-medium disabled:opacity-50"
+          >
+            {draftingEmails ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "✉️"} Generar borradores de email
+          </button>
+          {draftResult && <span className="w-full text-xs text-emerald-800">{draftResult}</span>}
+        </div>
+      )}
       {/* Prompt estilo Gmail: cuando ya están marcados todos los contactables
           visibles y hay más en otras páginas, ofrece seleccionarlos todos. */}
       {!allMatchingSelected && allSelected && hasMoreMatching && (
@@ -1135,7 +1177,7 @@ function LeadsTable({
                       checked={selected.has(l.id)}
                       onChange={() => toggle(l.id)}
                       className="accent-brand-600 disabled:opacity-30"
-                      title={rowContactable ? "" : "Sin teléfono o excluido/descartado"}
+                      title={rowContactable ? "" : l.emailOnly ? "Origen Franquicias: se contacta por email, no por WhatsApp" : "Sin teléfono o excluido/descartado"}
                     />
                   </td>
                   <td className="px-3 py-2 max-w-xs truncate font-medium" title={l.name}>
@@ -1187,7 +1229,9 @@ function LeadsTable({
                       </span>
                     )}
                   </td>
-                  <td className="px-3 py-2 text-center">{l.hasWhatsapp ? "✓" : "—"}</td>
+                  <td className="px-3 py-2 text-center">
+                    {l.emailOnly ? <span title="Origen Franquicias: contacto por email">✉️</span> : l.hasWhatsapp ? "✓" : "—"}
+                  </td>
                   <td className="px-3 py-2">
                     {l.nextScheduledAt ? (
                       <span className="text-[11px] text-slate-600" title={new Date(l.nextScheduledAt).toLocaleString("es-ES")}>
@@ -2179,11 +2223,17 @@ function EnqueueModal({
               ⏳ Encolando <strong className="text-brand-700">{(result as any).queued ?? result.total}</strong> lead(s) en segundo plano.
               Irán apareciendo en la cola en uno o dos minutos (refresca la pestaña Cola). Se respeta el espaciado anti-baneo.
               {(result as any).replacedQueued > 0 && <span className="text-slate-500"> Se reemplazaron {(result as any).replacedQueued} mensaje(s) pendientes.</span>}
+              {((result as any).emailOnlySkipped ?? 0) > 0 && (
+                <span className="text-amber-700"> ✉️ {(result as any).emailOnlySkipped} de Franquicias omitidos: ese origen se contacta por email.</span>
+              )}
             </p>
           ) : (
             <p className="text-sm">
               <strong className="text-emerald-700">{result.ok ?? 0}</strong> encolados de {result.total}.
               {(result.skipped?.length ?? 0) > 0 && <span className="text-amber-700"> {result.skipped!.length} omitidos.</span>}
+              {((result as any).emailOnlySkipped ?? 0) > 0 && (
+                <span className="text-amber-700"> (✉️ {(result as any).emailOnlySkipped} de Franquicias: se contactan por email)</span>
+              )}
             </p>
           )}
           {!(result as any).async && (result.skipped?.length ?? 0) > 0 && (

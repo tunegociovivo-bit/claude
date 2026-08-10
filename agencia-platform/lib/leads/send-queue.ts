@@ -13,6 +13,7 @@ import { generateVoiceMp3 } from "./voice-tts";
 import { pickEnqueueChannel, reassignIfQuarantined, getLeadChannels, warmupReroute } from "./channels";
 import { getCompetitorRanking, rankingAutoCaption } from "./competitors";
 import { renderRankingPng } from "./ranking-card";
+import { EMAIL_ONLY_REASON, isEmailOnlyLead } from "./email-only";
 
 /** ¿La sesión WAHA está conectada (WORKING)? null si no se puede determinar. */
 async function sessionWorking(workspaceId: string, session: string): Promise<boolean | null> {
@@ -553,10 +554,14 @@ export async function enqueueMessage(opts: {
       id: true, phone: true, internationalPhone: true, contactStatus: true,
       placeId: true, name: true, category: true, types: true, province: true,
       formattedAddress: true, address: true, latitude: true, longitude: true,
-      rating: true, reviewsCount: true
+      rating: true, reviewsCount: true,
+      rawData: true, search: { select: { source: true } }
     }
   });
   if (!lead) throw new Error("Lead no encontrado");
+  // Cierre CENTRAL: todo encolado de WhatsApp (bulk, individual, secuencias)
+  // pasa por aquí; los orígenes solo-email (Franquicias) se rechazan siempre.
+  if (isEmailOnlyLead(lead)) throw new Error(EMAIL_ONLY_REASON);
   if (["excluded", "discarded"].includes(lead.contactStatus)) {
     throw new Error("Lead excluido o descartado");
   }

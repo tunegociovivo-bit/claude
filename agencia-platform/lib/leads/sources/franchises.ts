@@ -231,15 +231,27 @@ Redacta un EMAIL frío B2B, español de España, trato de usted consistente, pro
 - Cierre con propuesta de enviar el informe completo de su red y una llamada de 15 min.
 - No inventes datos, clientes ni precios. Devuelve SOLO el JSON {subject, body}.`;
 
-async function writeFranchiseEmail(workspaceId: string, brand: string, report: string, contact?: MarketingContact): Promise<{ subject: string; body: string }> {
+// report null = contacto importado del directorio SIN análisis de red todavía:
+// el email no puede citar cifras y ofrece el análisis gratuito como gancho.
+// (Exportada: también la usa el generador de borradores de exec-outreach.)
+export async function writeFranchiseEmail(
+  workspaceId: string,
+  brand: string,
+  report: string | null,
+  contact?: MarketingContact,
+  sector?: string | null
+): Promise<{ subject: string; body: string }> {
   const who = contact?.name
     ? `Destinatario: ${contact.role ? contact.role + " — " : ""}${contact.name}. Dirígete a esta persona por su nombre, con naturalidad.`
     : `Destinatario: el responsable de marketing/expansión de la central (nombre desconocido).`;
+  const context = report
+    ? `Análisis de su red (usa estas cifras, no inventes otras):\n${report}`
+    : `Todavía NO hay análisis de red: NO cites ninguna cifra ni métrica concreta de su red.${sector ? ` Sector de la franquicia: ${sector}.` : ""} Apóyate en el problema TÍPICO de las redes de franquicia (cada local gestiona su ficha de Google por su cuenta → valoraciones y respuestas incoherentes que dañan la marca) y ofrece como gancho un ANÁLISIS GRATUITO de la salud de su red, local a local.`;
   return completeJson<{ subject: string; body: string }>({
     workspaceId,
     model: "claude-haiku-4-5-20251001",
     system: FRANCHISE_SYSTEM,
-    user: `Franquicia (central): ${brand}\n${who}\n\nAnálisis de su red (usa estas cifras, no inventes otras):\n${report}\n\nEscribe el email:`,
+    user: `Franquicia (central): ${brand}\n${who}\n\n${context}\n\nEscribe el email:`,
     schema: EMAIL_SCHEMA,
     maxTokens: 700
   });
