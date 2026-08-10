@@ -12,7 +12,7 @@ import { MockSantanderAdapter, type MockAnomaly } from "../src/santander/mock.js
 import { isForbiddenActionLabel } from "../src/santander/types.js";
 import type { AdapterHooks, AuthorizedJob } from "../src/santander/types.js";
 import { sanitize } from "../src/logger.js";
-import { buildRemittanceGeneratorUrl, decideLoginAction, formatSantanderAmount, isAuthenticatedSantanderUrl, isEnvioremFrameUrl, isRemittanceGeneratorUrl, isSafeBasicPaymentsLabel, isSafePaginationControl, isSafeReconnectLabel, isSafeRemittanceGenerationLabel, numericPageLabels, parseDisplayedAmountCents, shouldAttemptSavedLogin, shouldWaitForAmountConfirmation, shouldWaitForRemittanceList, uniqueVisibleIndex, validateAccessKey } from "../src/santander/login.js";
+import { buildRemittanceGeneratorUrl, canContinueToDirectDebit, decideLoginAction, formatSantanderAmount, isAuthenticatedSantanderUrl, isEnvioremFrameUrl, isRemittanceGeneratorUrl, isSafeBasicPaymentsLabel, isSafePaginationControl, isSafeReconnectLabel, isSafeRemittanceGenerationLabel, numericPageLabels, parseDisplayedAmountCents, shouldAttemptSavedLogin, shouldWaitForAmountConfirmation, shouldWaitForRemittanceList, uniqueVisibleIndex, validateAccessKey } from "../src/santander/login.js";
 
 let passed = 0;
 let failed = 0;
@@ -102,6 +102,8 @@ async function main() {
   ok("rechaza opciones visibles ambiguas", uniqueVisibleIndex([true, false, true]) === null);
   ok("rechaza si ninguna opción está visible", uniqueVisibleIndex([false, false]) === null);
   ok("solo acepta la categoría exacta de cobros básicos", isSafeBasicPaymentsLabel("Pagos y cobros básicos") && !isSafeBasicPaymentsLabel("Pagos internacionales"));
+  ok("continúa si la categoría ya está abierta y el adeudo es único", canContinueToDirectDebit(false, true));
+  ok("se detiene si no abrió la categoría ni ve un adeudo único", !canContinueToDirectDebit(false, false));
   ok("acepta la tarjeta segura de generación de remesas", isSafeRemittanceGenerationLabel("Generación de remesas"));
   ok("tolera el texto corto histórico de la tarjeta", isSafeRemittanceGenerationLabel("Generación"));
   ok("rechaza tarjetas de firma o pagos", !isSafeRemittanceGenerationLabel("Generación y firma") && !isSafeRemittanceGenerationLabel("Generación de pagos"));
