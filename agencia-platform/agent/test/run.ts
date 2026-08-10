@@ -12,7 +12,7 @@ import { MockSantanderAdapter, type MockAnomaly } from "../src/santander/mock.js
 import { isForbiddenActionLabel } from "../src/santander/types.js";
 import type { AdapterHooks, AuthorizedJob } from "../src/santander/types.js";
 import { sanitize } from "../src/logger.js";
-import { decideLoginAction, formatSantanderAmount, isAuthenticatedSantanderUrl, isEnvioremFrameUrl, isRemittanceGeneratorUrl, isSafeReconnectLabel, numericPageLabels, parseDisplayedAmountCents, shouldWaitForAmountConfirmation, validateAccessKey } from "../src/santander/login.js";
+import { decideLoginAction, formatSantanderAmount, isAuthenticatedSantanderUrl, isEnvioremFrameUrl, isRemittanceGeneratorUrl, isSafeReconnectLabel, numericPageLabels, parseDisplayedAmountCents, shouldWaitForAmountConfirmation, shouldWaitForRemittanceList, validateAccessKey } from "../src/santander/login.js";
 
 let passed = 0;
 let failed = 0;
@@ -87,6 +87,9 @@ async function main() {
   ok("limita la espera del importe", !shouldWaitForAmountConfirmation(18150, 24200, 10, 10));
   ok("reconoce el marco oficial de envío", isEnvioremFrameUrl("https://empresas3.gruposantander.es/paas/enviorem/#/remesas", safeLogin.allowedOrigin));
   ok("rechaza un marco de envío ajeno", !isEnvioremFrameUrl("https://evil.example/paas/enviorem/#/remesas", safeLogin.allowedOrigin));
+  ok("espera si la tabla aún no ha cargado", shouldWaitForRemittanceList(false, [], 0, 20));
+  ok("deja de esperar al aparecer la paginación", !shouldWaitForRemittanceList(false, ["1", "2"], 1, 20));
+  ok("limita la espera de la tabla", !shouldWaitForRemittanceList(false, [], 20, 20));
 
   console.log("Máquina de estados y seguridad del agente:");
 
