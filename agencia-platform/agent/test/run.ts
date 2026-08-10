@@ -12,7 +12,7 @@ import { MockSantanderAdapter, type MockAnomaly } from "../src/santander/mock.js
 import { isForbiddenActionLabel } from "../src/santander/types.js";
 import type { AdapterHooks, AuthorizedJob } from "../src/santander/types.js";
 import { sanitize } from "../src/logger.js";
-import { decideLoginAction, formatSantanderAmount, isAuthenticatedSantanderUrl, isEnvioremFrameUrl, isRemittanceGeneratorUrl, isSafeBasicPaymentsLabel, isSafeReconnectLabel, isSafeRemittanceGenerationLabel, numericPageLabels, parseDisplayedAmountCents, shouldAttemptSavedLogin, shouldWaitForAmountConfirmation, shouldWaitForRemittanceList, uniqueVisibleIndex, validateAccessKey } from "../src/santander/login.js";
+import { buildRemittanceGeneratorUrl, decideLoginAction, formatSantanderAmount, isAuthenticatedSantanderUrl, isEnvioremFrameUrl, isRemittanceGeneratorUrl, isSafeBasicPaymentsLabel, isSafeReconnectLabel, isSafeRemittanceGenerationLabel, numericPageLabels, parseDisplayedAmountCents, shouldAttemptSavedLogin, shouldWaitForAmountConfirmation, shouldWaitForRemittanceList, uniqueVisibleIndex, validateAccessKey } from "../src/santander/login.js";
 
 let passed = 0;
 let failed = 0;
@@ -80,6 +80,10 @@ async function main() {
   ok("ordena y limita enlaces de paginación", JSON.stringify(numericPageLabels(["3", "1", "13", "2", "3", "0", "101", "Enviar"])) === JSON.stringify(["1", "2", "3", "13"]));
   ok("reconoce el marco interno del generador de adeudos", isRemittanceGeneratorUrl("https://empresas3.gruposantander.es/paas/genweb/nwe-gw-19-ui/#!/generator/charges/debtsSEPA/all", safeLogin.allowedOrigin));
   ok("rechaza un generador fuera del dominio oficial", !isRemittanceGeneratorUrl("https://evil.example/paas/genweb/nwe-gw-19-ui/#!/generator/charges/debtsSEPA/all", safeLogin.allowedOrigin));
+  ok("construye la ruta oficial directa al generador", buildRemittanceGeneratorUrl(safeLogin.allowedOrigin) === "https://empresas3.gruposantander.es/paas/genweb/nwe-gw-19-ui/#!/generator/charges/debtsSEPA/all");
+  let rejectedGeneratorOrigin = false;
+  try { buildRemittanceGeneratorUrl("http://empresas3.gruposantander.es"); } catch { rejectedGeneratorOrigin = true; }
+  ok("rechaza construir el generador sobre un origen no HTTPS", rejectedGeneratorOrigin);
   ok("formatea el importe autorizado para Santander", formatSantanderAmount(24200) === "242,00");
   ok("interpreta un importe europeo de Santander", parseDisplayedAmountCents("1.234,56 EUR") === 123456);
   ok("rechaza un importe no verificable", parseDisplayedAmountCents("no visible") === null);
