@@ -2,7 +2,7 @@ import { prisma } from "@/lib/db/prisma";
 import { completeJson } from "@/lib/ai/anthropic";
 import { computeTotals, type InvoiceLine } from "@/lib/invoicing/core";
 import { snapshotIssuer, snapshotClient } from "@/lib/invoicing/persist";
-import { pickHeaderRow, norm, normTaxId, parseAmountToCents, parseDateFlexible, pickRate } from "./shared";
+import { pickHeaderRow, norm, normTaxId, nameTokens, nameSimilarity, parseAmountToCents, parseDateFlexible, pickRate } from "./shared";
 import { tabularToText, type ParsedFile, type Tabular } from "./parse";
 
 export type InvoiceInput = {
@@ -251,13 +251,15 @@ export async function buildInvoicePlan(workspaceId: string, inputs: InvoiceInput
     where: { workspaceId, deletedAt: null },
     select: { id: true, name: true, taxId: true }
   });
-  const byTax = new Map<string, (typeof clients)[number]>();
-  const byName = new Map<string, (typeof clients)[number]>();
+  const byTax = new Map<string, (typeof clients)[number] | null>();
+  const byName = new Map<string, (typeof clients)[number] | null>();
   for (const c of clients) {
     const t = normTaxId(c.taxId);
-    if (t) byTax.set(t, c);
-    byName.set(norm(c.name), c);
+    if (t) byTax.set(t, byTax.has(t) ? null : c);
+    const normalizedName = norm(c.name);
+    byName.set(normalizedName, byName.has(normalizedName) ? null : c);
   }
+  const tokenizedClients = clients.map((client) => ({ client, tokens: nameTokens(client.name) }));
 
   const existingNumbers = new Set(
     (
@@ -276,7 +278,24 @@ export async function buildInvoicePlan(workspaceId: string, inputs: InvoiceInput
     const currency = input.currency || "EUR";
 
     const tax = normTaxId(input.clientTaxId);
-    const match = (tax && byTax.get(tax)) || (input.clientName ? byName.get(norm(input.clientName)) : null) || null;
+    let match = (tax && byTax.get(tax)) || (input.clientName ? byName.get(norm(input.clientName)) : null) || null;
+    if (!match && input.clientName) {
+      const inputTokens = nameTokens(input.clientName);
+      let best: { client: (typeof clients)[number]; score: number } | null = null;
+      let ambiguous = false;
+      for (const candidate of tokenizedClients) {
+        const score = nameSimilarity(inputTokens, candidate.tokens);
+        const sharedLong = inputTokens.some((token) => token.length >= 4 && candidate.tokens.includes(token));
+        if (score < 0.6 || !sharedLong) continue;
+        if (!best || score > best.score) {
+          best = { client: candidate.client, score };
+          ambiguous = false;
+        } else if (score === best.score && candidate.client.id !== best.client.id) {
+          ambiguous = true;
+        }
+      }
+      match = best && !ambiguous ? best.client : null;
+    }
     const numKey = input.number?.trim().toLowerCase();
     if (numKey && (existingNumbers.has(numKey) || seenInFile.has(numKey))) {
       items.push({
@@ -332,21 +351,27 @@ export async function applyInvoiceImport(
       if (item.input.number && item.input.clientName) {
         const existing = await prisma.invoice.findFirst({
           where: { workspaceId, number: { equals: item.input.number, mode: "insensitive" }, deletedAt: null },
-          select: { id: true, clientId: true, clientSnapshot: true }
+          select: { id: true, clientId: true, clientSnapshot: true, updatedAt: true }
         });
         const currentName = String((existing?.clientSnapshot as any)?.name ?? "").trim();
-        if (existing && !currentName) {
+        const needsClientLink = !!existing && !existing.clientId && !!item.clientMatchId;
+        if (existing && (!currentName || needsClientLink)) {
           const client = item.clientMatchId
             ? await prisma.client.findUnique({ where: { id: item.clientMatchId } })
             : null;
           const clientSnap = client
             ? snapshotClient(client)
             : { name: item.input.clientName, taxId: item.input.clientTaxId ?? null, countryCode: "ESP" };
-          await prisma.invoice.update({
-            where: { id: existing.id },
+          await prisma.invoice.updateMany({
+            where: {
+              id: existing.id,
+              workspaceId,
+              updatedAt: existing.updatedAt,
+              ...(needsClientLink ? { clientId: null } : {})
+            },
             data: {
               clientId: existing.clientId ?? item.clientMatchId ?? null,
-              clientSnapshot: clientSnap as any
+              ...(!currentName ? { clientSnapshot: clientSnap as any } : {})
             }
           });
         }
@@ -411,7 +436,10 @@ export async function repairExistingInvoiceClients(
         where: { workspaceId, number: { equals: item.input.number!, mode: "insensitive" }, deletedAt: null },
         select: { id: true, clientId: true, clientSnapshot: true, updatedAt: true }
       });
-      if (!existing || String((existing.clientSnapshot as any)?.name ?? "").trim()) return false;
+      if (!existing) return false;
+      const currentName = String((existing.clientSnapshot as any)?.name ?? "").trim();
+      const needsClientLink = !existing.clientId && !!item.clientMatchId;
+      if (currentName && !needsClientLink) return false;
 
       // Si ya existe vínculo, es la fuente de verdad; nunca mezclar su ID con
       // el snapshot de otro match obtenido por nombre.
@@ -425,8 +453,16 @@ export async function repairExistingInvoiceClients(
       const result = await tx.invoice.updateMany({
         // `updatedAt` funciona como guarda optimista: si otro proceso reparó
         // la factura tras leerla, no sobrescribimos su corrección.
-        where: { id: existing.id, workspaceId, updatedAt: existing.updatedAt },
-        data: { clientId: resolvedClientId, clientSnapshot: clientSnap as any }
+        where: {
+          id: existing.id,
+          workspaceId,
+          updatedAt: existing.updatedAt,
+          ...(!existing.clientId ? { clientId: null } : {})
+        },
+        data: {
+          clientId: resolvedClientId,
+          ...(!currentName ? { clientSnapshot: clientSnap as any } : {})
+        }
       });
       return result.count === 1;
     });
