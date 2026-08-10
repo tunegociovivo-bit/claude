@@ -19,7 +19,7 @@
 import type { AuthorizedJob, AdapterHooks, SantanderAdapter, StepOutcome } from "./types.js";
 import { isForbiddenActionLabel } from "./types.js";
 import { loadSelectors, type SantanderSelectors, type SelectorSpec } from "./selectors.js";
-import { decideLoginAction, isAuthenticatedSantanderUrl } from "./login.js";
+import { decideLoginAction, isAuthenticatedSantanderUrl, numericPageLabels } from "./login.js";
 import { hasEncryptedCredential, readEncryptedAccessKey } from "../credential-store.js";
 
 const STEP_TIMEOUT_MS = 15000;
@@ -94,7 +94,7 @@ export class LiveSantanderAdapter implements SantanderAdapter {
       this.currentClient = job.clientName.trim();
 
       // 5) Seleccionar y EDITAR la remesa anterior. No se duplica.
-      if (!(await this.visible(app, S.previousRemittance))) return this.pause(hooks, "No encuentro la remesa recurrente anterior para reutilizar.");
+      if (!(await this.locatePreviousRemittance(app, S.previousRemittance))) return this.pause(hooks, "No encuentro la remesa recurrente anterior para reutilizar tras revisar todas las páginas.");
       await hooks.onProgress("SELECT_PREVIOUS", "Remesa anterior localizada");
       if (!(await this.click(app, S.rowMenuAction))) return this.pause(hooks, "No encuentro el menú de acciones de la remesa recurrente.");
       if (!(await this.click(app, S.editAction))) return this.pause(hooks, "No encuentro la acción Editar.");
@@ -219,6 +219,19 @@ export class LiveSantanderAdapter implements SantanderAdapter {
       await page.waitForTimeout(250);
     }
     return null;
+  }
+
+  private async locatePreviousRemittance(app: any, spec: SelectorSpec): Promise<boolean> {
+    if (await this.locator(app, spec).first().isVisible().catch(() => false)) return true;
+    const labels = numericPageLabels(await app.locator("a").allTextContents().catch(() => []));
+    for (const label of labels) {
+      const link = app.getByRole("link", { name: label, exact: true });
+      if (await link.count() !== 1) continue;
+      await link.click({ timeout: STEP_TIMEOUT_MS });
+      await app.waitForTimeout(350);
+      if (await this.locator(app, spec).first().isVisible().catch(() => false)) return true;
+    }
+    return false;
   }
 
   private amountMatches(shown: string, expected: string): boolean {

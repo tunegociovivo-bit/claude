@@ -40,3 +40,11 @@ export function isAuthenticatedSantanderUrl(currentUrl: string, allowedOrigin: s
     return false;
   }
 }
+
+export function numericPageLabels(labels: string[]): string[] {
+  return [...new Set(labels.map((label) => label.trim()).filter((label) => /^\d{1,3}$/.test(label)))]
+    .map(Number)
+    .filter((page) => page >= 1 && page <= 100)
+    .sort((a, b) => a - b)
+    .map(String);
+}
