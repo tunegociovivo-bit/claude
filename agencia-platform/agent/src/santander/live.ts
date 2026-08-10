@@ -19,7 +19,7 @@
 import type { AuthorizedJob, AdapterHooks, SantanderAdapter, StepOutcome } from "./types.js";
 import { isForbiddenActionLabel } from "./types.js";
 import { loadSelectors, type SantanderSelectors, type SelectorSpec } from "./selectors.js";
-import { decideLoginAction, isAuthenticatedSantanderUrl, numericPageLabels } from "./login.js";
+import { decideLoginAction, isAuthenticatedSantanderUrl, isRemittanceGeneratorUrl, numericPageLabels } from "./login.js";
 import { hasEncryptedCredential, readEncryptedAccessKey } from "../credential-store.js";
 
 const STEP_TIMEOUT_MS = 15000;
@@ -82,9 +82,11 @@ export class LiveSantanderAdapter implements SantanderAdapter {
 
       // 4) Navegar a la portada oficial de remesas y entrar en Generación.
       await page.goto(`${this.opts.santanderOrigin}/paas/nwe/app/portal/distribuidoras/remesas`, { waitUntil: "domcontentloaded", timeout: STEP_TIMEOUT_MS });
-      const app = await this.findAppFrame(page);
-      if (!app) return this.pause(hooks, "No encuentro el marco interno oficial de remesas.");
-      if (!(await this.click(app, S.remittancesNav))) return this.pause(hooks, "No encuentro la tarjeta Generación de remesas (posible cambio de interfaz).");
+      const portal = await this.findAppFrame(page);
+      if (!portal) return this.pause(hooks, "No encuentro el marco interno oficial de remesas.");
+      if (!(await this.click(portal, S.remittancesNav))) return this.pause(hooks, "No encuentro la tarjeta Generación de remesas (posible cambio de interfaz).");
+      const app = await this.findGeneratorFrame(page);
+      if (!app) return this.pause(hooks, "No encuentro el listado interno oficial de adeudos SEPA.");
       await hooks.onProgress("OPEN_REMITTANCES", "Sección de remesas abierta");
 
       if (!job.santanderTemplate?.trim()) {
@@ -215,6 +217,15 @@ export class LiveSantanderAdapter implements SantanderAdapter {
         const url = String(f.url?.() ?? "").toLowerCase();
         return url.startsWith(origin) && url.includes("/paas/portal/distribuidoras/remesas");
       });
+      if (frame) return frame;
+      await page.waitForTimeout(250);
+    }
+    return null;
+  }
+
+  private async findGeneratorFrame(page: any): Promise<any | null> {
+    for (let attempt = 0; attempt < 40; attempt++) {
+      const frame = page.frames().find((candidate: any) => isRemittanceGeneratorUrl(String(candidate.url?.() ?? ""), this.opts.santanderOrigin));
       if (frame) return frame;
       await page.waitForTimeout(250);
     }

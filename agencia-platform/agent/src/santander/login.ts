@@ -48,3 +48,14 @@ export function numericPageLabels(labels: string[]): string[] {
     .sort((a, b) => a - b)
     .map(String);
 }
+
+export function isRemittanceGeneratorUrl(currentUrl: string, allowedOrigin: string): boolean {
+  try {
+    const current = new URL(currentUrl);
+    const allowed = new URL(allowedOrigin);
+    return current.protocol === "https:"
+      && current.origin === allowed.origin
+      && current.pathname.startsWith("/paas/genweb/")
+      && current.hash.includes("/generator/charges/debtsSEPA/");
+  } catch { return false; }
+}
