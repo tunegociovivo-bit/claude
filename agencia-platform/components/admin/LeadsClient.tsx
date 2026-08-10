@@ -8,6 +8,7 @@ import { BUSINESS_TYPE_GROUPS, ALL_BUSINESS_TYPES } from "@/lib/leads/business-t
 import { PROVINCE_NAMES } from "@/lib/leads/spain-provinces";
 import { municipalitiesForProvince } from "@/lib/leads/spain-municipalities";
 import { localDayRangeUtc } from "@/lib/leads/local-day";
+import { isSearchable, normalizeSearch, MIN_SEARCH_CHARS } from "@/lib/leads/inbox-conversations";
 
 // Para saber si el keyword actual coincide con un tipo del desplegable (y
 // reflejarlo seleccionado) sin recalcular el array en cada render.
@@ -4490,6 +4491,8 @@ type Conversation = {
   instanceName: string | null;
   classification: string | null;
   optedOut?: boolean; // bloqueado para siempre (opt-out real)
+  matchSnippet?: string | null; // fragmento del mensaje que casó con la búsqueda
+  matchSource?: string | null; // "inbound" | "outbound"
 };
 
 /** Qué teléfono mostrar: el del lead vinculado, el real que mande WAHA, o un
@@ -4503,6 +4506,26 @@ function channelLabelOf(channels: { name: string; label?: string | null }[], nam
   if (!name) return "Principal";
   const c = channels.find((x) => x.name === name);
   return c?.label?.trim() || name;
+}
+
+/** Resalta (en negrita) las apariciones de `term` dentro de `text`, sin
+ *  distinguir mayúsculas. Escapa los caracteres especiales del término. */
+function Highlighted({ text, term }: { text: string; term: string }) {
+  const t = (term ?? "").replace(/\s+/g, " ").trim();
+  if (!t) return <>{text}</>;
+  const esc = t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const parts = text.split(new RegExp(`(${esc})`, "ig"));
+  return (
+    <>
+      {parts.map((p, i) =>
+        p.toLowerCase() === t.toLowerCase() ? (
+          <mark key={i} className="bg-yellow-200 text-slate-900 rounded px-0.5">{p}</mark>
+        ) : (
+          <span key={i}>{p}</span>
+        )
+      )}
+    </>
+  );
 }
 
 const STATUS_CHIP: Record<string, { label: string; cls: string }> = {
@@ -4591,6 +4614,16 @@ function InboxChat({
   const channelLabel = (name: string | null | undefined) => channelLabelOf(channels, name);
   // Filtros y orden de la lista (clave para no ahogarse con volumen).
   const [search, setSearch] = useState("");
+  // Búsqueda por CONTENIDO de mensaje (server-side). `search` se debouncea a
+  // `qDebounced` para no lanzar una petición por tecla; un contador de secuencia
+  // + AbortController descartan respuestas antiguas (resultados obsoletos).
+  const [qDebounced, setQDebounced] = useState("");
+  useEffect(() => {
+    const t = setTimeout(() => setQDebounced(search), 350);
+    return () => clearTimeout(t);
+  }, [search]);
+  const convsReqSeq = useRef(0);
+  const convsAbortRef = useRef<AbortController | null>(null);
   const [fPriority, setFPriority] = useState<string>("all"); // all|alta|media|baja
   const [fClass, setFClass] = useState<string>("all"); // all|interested|info_request|objection|opt_out
   const [fUnread, setFUnread] = useState(false);
@@ -4639,23 +4672,35 @@ function InboxChat({
   const bottomRef = useRef<HTMLDivElement>(null);
 
   async function loadConvs() {
+    const q = new URLSearchParams();
+    if (fAccount !== "all") q.set("account", fAccount);
+    if (fBlocked !== "all") q.set("blocked", fBlocked);
+    if (fExactDate) {
+      const range = localDayRangeUtc(fExactDate);
+      if (range) { q.set("dateFrom", range.from); q.set("dateTo", range.to); }
+    }
+    // Solo se busca por texto a partir del mínimo de caracteres (el aviso al
+    // usuario se muestra por debajo). Se envía el término normalizado.
+    if (isSearchable(qDebounced)) q.set("q", normalizeSearch(qDebounced));
+    const qs = q.toString();
+    // Cancela cualquier petición anterior en vuelo y marca esta como la última.
+    convsAbortRef.current?.abort();
+    const ctrl = new AbortController();
+    convsAbortRef.current = ctrl;
+    const seq = ++convsReqSeq.current;
     try {
-      const q = new URLSearchParams();
-      if (fAccount !== "all") q.set("account", fAccount);
-      if (fBlocked !== "all") q.set("blocked", fBlocked);
-      if (fExactDate) {
-        const range = localDayRangeUtc(fExactDate);
-        if (range) { q.set("dateFrom", range.from); q.set("dateTo", range.to); }
-      }
-      const qs = q.toString();
-      const r = await fetch(`/api/v1/leads/inbox/conversations${qs ? `?${qs}` : ""}`);
+      const r = await fetch(`/api/v1/leads/inbox/conversations${qs ? `?${qs}` : ""}`, { signal: ctrl.signal });
       if (r.ok) {
         const d = await r.json();
+        // Descarta respuestas obsoletas: solo aplica si sigue siendo la última.
+        if (seq !== convsReqSeq.current) return;
         setConvs(d.items ?? []);
         if (Array.isArray(d.accounts)) setAccounts(d.accounts);
       }
+    } catch {
+      /* abortada o error de red: se ignora (el intervalo reintenta) */
     } finally {
-      setConvsLoaded(true);
+      if (seq === convsReqSeq.current) setConvsLoaded(true);
     }
   }
   async function loadThread(phone: string) {
@@ -4699,7 +4744,7 @@ function InboxChat({
     const i = setInterval(loadConvs, 12_000);
     return () => clearInterval(i);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fAccount, fBlocked, fExactDate]);
+  }, [fAccount, fBlocked, fExactDate, qDebounced]);
   useEffect(() => {
     if (!selected) return;
     loadThread(selected);
@@ -4935,11 +4980,9 @@ function InboxChat({
         const inAt = c.lastInboundAt ? new Date(c.lastInboundAt).getTime() : null;
         if (inAt === null || inAt < cutoff) return false;
       }
-      if (search.trim()) {
-        const q = search.toLowerCase();
-        const hay = `${c.leadName ?? ""} ${c.displayName ?? ""} ${c.phone} ${c.realPhone ?? ""} ${c.leadPhone ?? ""} ${c.note ?? ""} ${c.lastBody}`.toLowerCase();
-        if (!hay.includes(q)) return false;
-      }
+      // La búsqueda por texto es SERVER-SIDE (busca en TODOS los mensajes,
+      // entrantes y salientes, no solo en los cargados). Aquí no se filtra por
+      // `search` para no ocultar coincidencias en mensajes antiguos.
       return true;
     })
     .sort((a, b) => {
@@ -4951,7 +4994,7 @@ function InboxChat({
       // priority (por defecto): alta primero, luego reciente
       return (PR_RANK[a.priority] ?? 3) - (PR_RANK[b.priority] ?? 3) || new Date(b.lastAt).getTime() - new Date(a.lastAt).getTime();
     });
-  const activeFilters = (fPriority !== "all" ? 1 : 0) + (fStatus !== "all" ? 1 : 0) + (fClass !== "all" ? 1 : 0) + (fUnread ? 1 : 0) + (fDate !== "all" ? 1 : 0) + (search.trim() ? 1 : 0) + (fAccount !== "all" ? 1 : 0) + (fExactDate ? 1 : 0) + (fBlocked !== "all" ? 1 : 0);
+  const activeFilters = (fPriority !== "all" ? 1 : 0) + (fStatus !== "all" ? 1 : 0) + (fClass !== "all" ? 1 : 0) + (fUnread ? 1 : 0) + (fDate !== "all" ? 1 : 0) + (isSearchable(search) ? 1 : 0) + (fAccount !== "all" ? 1 : 0) + (fExactDate ? 1 : 0) + (fBlocked !== "all" ? 1 : 0);
 
   return (
     <div className="bg-white rounded-xl border overflow-hidden grid grid-cols-1 md:grid-cols-[320px_1fr]" style={{ height: "72vh" }}>
@@ -5034,9 +5077,17 @@ function InboxChat({
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="🔎 Buscar nombre, teléfono, nota…"
+            placeholder="🔎 Buscar por nombre, teléfono o texto de un mensaje…"
             className="w-full text-xs px-2.5 py-1.5 rounded-md border bg-slate-50"
           />
+          {search.trim().length > 0 && !isSearchable(search) && (
+            <p className="text-[10px] text-amber-600 -mt-0.5">
+              Escribe al menos {MIN_SEARCH_CHARS} caracteres para buscar dentro de los mensajes.
+            </p>
+          )}
+          {isSearchable(search) && search !== qDebounced && (
+            <p className="text-[10px] text-slate-400 -mt-0.5">Buscando…</p>
+          )}
           <div className="flex items-center gap-1 flex-wrap">
             {/* Prioridad */}
             {([["all", "Todas"], ["alta", "🔴"], ["media", "🟡"], ["baja", "⚪"]] as const).map(([v, lbl]) => (
@@ -5211,7 +5262,9 @@ function InboxChat({
                 <span className={`text-sm font-semibold truncate flex items-center gap-1 ${notInterested ? "text-rose-400 line-through" : "text-slate-800"}`}>
                   {notInterested && <span className="no-underline" title="No interesado">❌</span>}
                   {c.optedOut && <span className="no-underline" title="Bloqueado para siempre">🚫</span>}
-                  {c.leadName || c.displayName || c.phone}
+                  {isSearchable(qDebounced)
+                    ? <Highlighted text={c.leadName || c.displayName || c.phone} term={qDebounced} />
+                    : (c.leadName || c.displayName || c.phone)}
                 </span>
                 <span className="flex items-center gap-1 shrink-0">
                   {c.aiCallNow && (
@@ -5251,6 +5304,12 @@ function InboxChat({
                   </span>
                 )}
               </div>
+              {c.matchSnippet && (
+                <div className="mt-1 text-[11px] text-slate-600 bg-yellow-50 border border-yellow-200 rounded px-1.5 py-1 leading-snug">
+                  <span className="text-slate-400">{c.matchSource === "outbound" ? "🔎 en tu mensaje: " : "🔎 en un mensaje: "}</span>
+                  <Highlighted text={c.matchSnippet} term={qDebounced} />
+                </div>
+              )}
               {c.note && (
                 <div className="mt-1 text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded px-1.5 py-1 leading-snug">
                   📝 {c.note}

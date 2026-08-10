@@ -61,14 +61,25 @@ export type Conv = {
   classification: string | null;
   /** Estado persistido real de "Bloquear para siempre" (opt-out del negocio). */
   optedOut: boolean;
+  /** Fragmento de un mensaje que coincidió con la búsqueda (para explicar por
+   *  qué aparece la conversación). null si no hubo búsqueda de texto o el match
+   *  fue por nombre/teléfono. */
+  matchSnippet?: string | null;
+  /** Origen del match: "inbound" | "outbound" | null. */
+  matchSource?: string | null;
 };
 
 export type BlockedFilter = "all" | "blocked" | "unblocked";
+
+export type MatchInfo = { snippet: string; source: "inbound" | "outbound" };
 
 export type BuildOpts = {
   optoutPhones: Set<string>;
   optoutLeadIds: Set<string>;
   blocked?: BlockedFilter;
+  /** Fragmentos coincidentes por teléfono / por leadId (búsqueda por texto). */
+  snippetByPhone?: Map<string, MatchInfo>;
+  snippetByLeadId?: Map<string, MatchInfo>;
 };
 
 const RANK: Record<string, number> = { alta: 0, media: 1, baja: 2, none: 3 };
@@ -140,6 +151,19 @@ export function buildConversations(msgs: RawInboxMsg[], metas: RawConvMeta[], op
   if (blocked === "blocked") items = items.filter((c) => c.optedOut);
   else if (blocked === "unblocked") items = items.filter((c) => !c.optedOut);
 
+  // Adjunta el fragmento coincidente (por teléfono, o por leadId si el match
+  // vino de un mensaje de campaña vinculado por lead). Sirve para explicar en la
+  // fila POR QUÉ apareció la conversación al buscar por texto.
+  if (opts.snippetByPhone || opts.snippetByLeadId) {
+    for (const c of items) {
+      const hit = opts.snippetByPhone?.get(c.phone) ?? (c.leadId ? opts.snippetByLeadId?.get(c.leadId) : undefined);
+      if (hit) {
+        c.matchSnippet = hit.snippet;
+        c.matchSource = hit.source;
+      }
+    }
+  }
+
   items.sort((a, b) => (RANK[a.priority] ?? 3) - (RANK[b.priority] ?? 3) || new Date(b.lastAt).getTime() - new Date(a.lastAt).getTime());
   return items;
 }
@@ -170,4 +194,101 @@ export function accountOptionsFromGroups(groups: { instanceName: string | null }
   ).sort((a, b) => a.localeCompare(b));
   const hasDefault = groups.some((g) => g.instanceName === null);
   return hasDefault ? [DEFAULT_ACCOUNT, ...named] : named;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// BÚSQUEDA POR CONTENIDO DE MENSAJE (server-side, en LeadMessage + LeadInboxMessage)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Mínimo de caracteres (tras normalizar) para lanzar la búsqueda por texto.
+ * Motivo: un término de 1-2 caracteres casa con casi todo y obliga a escanear el
+ * texto de todos los mensajes del workspace (LeadInboxMessage.body/renderedMessage
+ * son @db.Text, sin índice de subcadena), lo que es caro. Con 3 el coste ya es
+ * razonable para el volumen actual. El cliente muestra un aviso por debajo de él.
+ */
+export const MIN_SEARCH_CHARS = 3;
+
+/** Normaliza el término: recorta, colapsa espacios internos y pasa a minúsculas. */
+export function normalizeSearch(raw: string | null | undefined): string {
+  return (raw ?? "").replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+/** ¿El término tiene longitud suficiente para buscar? */
+export function isSearchable(raw: string | null | undefined): boolean {
+  return normalizeSearch(raw).length >= MIN_SEARCH_CHARS;
+}
+
+/**
+ * Extrae un fragmento legible alrededor de la primera coincidencia (sin
+ * distinguir mayúsculas). Devuelve null si el término no aparece.
+ */
+export function makeSnippet(text: string | null | undefined, term: string, radius = 40): string | null {
+  if (!text) return null;
+  const t = normalizeSearch(term);
+  if (!t) return null;
+  const hayNorm = text.replace(/\s+/g, " ");
+  const idx = hayNorm.toLowerCase().indexOf(t);
+  if (idx === -1) return null;
+  const start = Math.max(0, idx - radius);
+  const end = Math.min(hayNorm.length, idx + t.length + radius);
+  const pre = start > 0 ? "…" : "";
+  const post = end < hayNorm.length ? "…" : "";
+  return `${pre}${hayNorm.slice(start, end).trim()}${post}`;
+}
+
+// Filas mínimas que las consultas de búsqueda devuelven (ya filtradas por la BD).
+export type SearchInboxRow = { phoneNormalized: string | null; fromPhone: string; leadId: string | null; body: string };
+export type SearchOutboundRow = { phoneNormalized: string | null; leadId: string | null; renderedMessage: string };
+
+/**
+ * Agrega las filas ya casadas por la BD en conjuntos de teléfonos/leadIds y un
+ * fragmento representativo por conversación. La coincidencia se re-verifica aquí
+ * (indexOf normalizado) para que sea determinista y testeable, y para respetar
+ * la normalización de espacios del término.
+ */
+export function collectSearchMatches(
+  rows: { inbox: SearchInboxRow[]; outbound: SearchOutboundRow[] },
+  term: string
+): { matchedPhones: Set<string>; matchedLeadIds: Set<string>; snippetByPhone: Map<string, MatchInfo>; snippetByLeadId: Map<string, MatchInfo> } {
+  const matchedPhones = new Set<string>();
+  const matchedLeadIds = new Set<string>();
+  const snippetByPhone = new Map<string, MatchInfo>();
+  const snippetByLeadId = new Map<string, MatchInfo>();
+
+  for (const r of rows.inbox) {
+    const snip = makeSnippet(r.body, term);
+    if (!snip) continue;
+    const phone = r.phoneNormalized ?? r.fromPhone;
+    if (phone) {
+      matchedPhones.add(phone);
+      if (!snippetByPhone.has(phone)) snippetByPhone.set(phone, { snippet: snip, source: "inbound" });
+    }
+    if (r.leadId) {
+      matchedLeadIds.add(r.leadId);
+      if (!snippetByLeadId.has(r.leadId)) snippetByLeadId.set(r.leadId, { snippet: snip, source: "inbound" });
+    }
+  }
+  for (const r of rows.outbound) {
+    const snip = makeSnippet(r.renderedMessage, term);
+    if (!snip) continue;
+    if (r.phoneNormalized) {
+      matchedPhones.add(r.phoneNormalized);
+      if (!snippetByPhone.has(r.phoneNormalized)) snippetByPhone.set(r.phoneNormalized, { snippet: snip, source: "outbound" });
+    }
+    if (r.leadId) {
+      matchedLeadIds.add(r.leadId);
+      if (!snippetByLeadId.has(r.leadId)) snippetByLeadId.set(r.leadId, { snippet: snip, source: "outbound" });
+    }
+  }
+  return { matchedPhones, matchedLeadIds, snippetByPhone, snippetByLeadId };
+}
+
+/** `where` (scoped por workspace) para buscar en LeadInboxMessage.body. */
+export function searchWhereInbox(workspaceId: string, term: string): Record<string, any> {
+  return { workspaceId, body: { contains: normalizeSearch(term), mode: "insensitive" } };
+}
+/** `where` (scoped por workspace) para buscar en LeadMessage.renderedMessage. */
+export function searchWhereOutbound(workspaceId: string, term: string): Record<string, any> {
+  return { workspaceId, renderedMessage: { contains: normalizeSearch(term), mode: "insensitive" } };
 }
