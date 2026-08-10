@@ -19,7 +19,7 @@
 import type { AuthorizedJob, AdapterHooks, SantanderAdapter, StepOutcome } from "./types.js";
 import { isForbiddenActionLabel } from "./types.js";
 import { loadSelectors, type SantanderSelectors, type SelectorSpec } from "./selectors.js";
-import { buildRemittanceGeneratorUrl, canContinueToDirectDebit, decideLoginAction, formatSantanderAmount, isAuthenticatedSantanderUrl, isEnvioremFrameUrl, isRemittanceGeneratorUrl, isSafeBasicPaymentsLabel, isSafePaginationControl, isSafeReconnectLabel, isSafeRemittanceGenerationLabel, numericPageLabels, parseDisplayedAmountCents, shouldAttemptSavedLogin, shouldWaitForAmountConfirmation, shouldWaitForRemittanceList, uniqueVisibleIndex } from "./login.js";
+import { buildRemittanceGeneratorUrl, canContinueToDirectDebit, decideLoginAction, formatSantanderAmount, isAuthenticatedSantanderUrl, isEnvioremFrameUrl, isRemittanceGeneratorUrl, isSafeBasicPaymentsLabel, isSafePaginationControl, isSafeReconnectLabel, isSafeRemittanceGenerationLabel, numericPageLabels, parseDisplayedAmountCents, shouldAttemptSavedLogin, shouldRetryVisibleOption, shouldWaitForAmountConfirmation, shouldWaitForRemittanceList, uniqueVisibleIndex } from "./login.js";
 import { hasEncryptedCredential, readEncryptedAccessKey } from "../credential-store.js";
 
 const STEP_TIMEOUT_MS = 15000;
@@ -359,15 +359,22 @@ export class LiveSantanderAdapter implements SantanderAdapter {
 
   private async clickBasicPayments(page: any, spec: SelectorSpec): Promise<boolean> {
     try {
-      const matches = this.locator(page, spec);
-      const visibility: boolean[] = [];
-      for (let index = 0; index < await matches.count(); index++) visibility.push(await matches.nth(index).isVisible().catch(() => false));
-      const index = uniqueVisibleIndex(visibility);
-      if (index === null) return false;
-      const candidate = matches.nth(index);
-      if (!isSafeBasicPaymentsLabel(await candidate.innerText())) return false;
-      await candidate.click({ timeout: STEP_TIMEOUT_MS });
-      return true;
+      for (let attempt = 0; attempt <= 30; attempt++) {
+        const matches = this.locator(page, spec);
+        const visibility: boolean[] = [];
+        for (let index = 0; index < await matches.count(); index++) visibility.push(await matches.nth(index).isVisible().catch(() => false));
+        const index = uniqueVisibleIndex(visibility);
+        const found = index !== null;
+        if (found) {
+          const candidate = matches.nth(index!);
+          if (!isSafeBasicPaymentsLabel(await candidate.innerText())) return false;
+          await candidate.click({ timeout: STEP_TIMEOUT_MS });
+          return true;
+        }
+        if (!shouldRetryVisibleOption(found, attempt, 30)) break;
+        await page.waitForTimeout(500);
+      }
+      return false;
     } catch { return false; }
   }
 

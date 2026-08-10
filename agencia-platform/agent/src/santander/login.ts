@@ -122,6 +122,10 @@ export function canContinueToDirectDebit(categoryOpened: boolean, uniqueDirectDe
   return categoryOpened || uniqueDirectDebitVisible;
 }
 
+export function shouldRetryVisibleOption(found: boolean, attempt: number, maxAttempts: number): boolean {
+  return !found && attempt < maxAttempts;
+}
+
 export function isSafeRemittanceGenerationLabel(label: string): boolean {
   const normalized = label.trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/\s+/g, " ");
   return normalized === "generacion" || normalized === "generacion de remesas";
