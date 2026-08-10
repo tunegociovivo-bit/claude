@@ -277,6 +277,17 @@ export function Onboarding() {
           <Text style={styles.tag}>Ahorra. Disfruta. Apoya local.</Text>
         </View>
 
+        {pendingDeal && (
+          <View style={[styles.retoBanner, { marginTop: 0, marginBottom: 16 }]}>
+            <Text style={styles.retoBannerEmoji}>🎁</Text>
+            <Text style={styles.retoBannerText}>
+              <Text style={{ fontWeight: "900" }}>{pendingDeal.businessName}</Text> te propone un reto
+              {pendingDeal.clientDiscountPct ? <Text>: <Text style={{ fontWeight: "900" }}>{pendingDeal.clientDiscountPct}%{pendingDeal.title ? ` en ${pendingDeal.title}` : ""}</Text></Text> : null}
+              . <Text style={{ fontWeight: "800" }}>Crea tu cuenta para reclamarlo.</Text>
+            </Text>
+          </View>
+        )}
+
         {/* CTA principal: tarjeta hero para alta de cliente */}
         <TouchableOpacity
           style={styles.heroCard}

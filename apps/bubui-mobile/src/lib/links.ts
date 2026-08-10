@@ -10,6 +10,18 @@
 import { Linking } from "react-native";
 import { API_BASE } from "./api";
 
+/**
+ * ¿Es esta ruta/enlace un enlace de RETO (/reto/<token>)? Devuelve el token o
+ * null. Se usa para que el linking de React Navigation NO intente enrutar /reto
+ * a una pantalla inexistente: el token lo captura deal-pending por los eventos
+ * de Linking, y la pantalla inicial (Onboarding/Feed) hace el resto.
+ */
+export function retoTokenFromPath(pathOrUrl: string | null | undefined): string | null {
+  if (!pathOrUrl) return null;
+  const m = /\/reto\/([a-f0-9]{12,40})/i.exec(pathOrUrl);
+  return m ? m[1].toLowerCase() : null;
+}
+
 /** Normaliza el enlace de la oferta a una URL abrible. */
 export function resolveLink(link: unknown): string | null {
   if (typeof link !== "string" || !link.trim()) return null;

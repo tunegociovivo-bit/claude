@@ -18,6 +18,7 @@ import { setOnAuthExpired } from "./src/lib/api";
 import { setupNotificationTapHandler } from "./src/lib/push";
 import { initReferralCapture } from "./src/lib/referral-pending";
 import { initDealCapture, claimPendingDeal, traceLifecycle } from "./src/lib/deal-pending";
+import { retoTokenFromPath } from "./src/lib/links";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { ErrorBoundary } from "./src/components/ErrorBoundary";
 import { useAppFonts, applyPoppinsToTextDefaults } from "./src/lib/fonts";
@@ -69,6 +70,12 @@ const linking = {
     // para que tanto los QR de bubui.app como los de hub abran la pantalla Scan.
     getStateFromPath: (path: string, options: Parameters<typeof getStateFromPath>[1]) => {
           const normalized = path.replace(/^\/?bubui\//, "/");
+          // /reto/<token>: NO hay pantalla de reto. Devolvemos undefined a
+          // propósito → React Navigation se queda en la ruta INICIAL
+          // (Onboarding sin sesión / Feed con sesión), nunca en una ruta
+          // inexistente. El token lo captura deal-pending (eventos de Linking) y
+          // el arranque muestra el reto o lo reclama.
+          if (retoTokenFromPath(normalized)) return undefined;
           return getStateFromPath(normalized, options);
     }
 };
