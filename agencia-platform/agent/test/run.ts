@@ -12,7 +12,7 @@ import { MockSantanderAdapter, type MockAnomaly } from "../src/santander/mock.js
 import { isForbiddenActionLabel } from "../src/santander/types.js";
 import type { AdapterHooks, AuthorizedJob } from "../src/santander/types.js";
 import { sanitize } from "../src/logger.js";
-import { decideLoginAction, isAuthenticatedSantanderUrl, validateAccessKey } from "../src/santander/login.js";
+import { decideLoginAction, isAuthenticatedSantanderUrl, numericPageLabels, validateAccessKey } from "../src/santander/login.js";
 
 let passed = 0;
 let failed = 0;
@@ -75,6 +75,7 @@ async function main() {
   ok("reconoce el módulo autenticado de remesas", isAuthenticatedSantanderUrl("https://empresas3.gruposantander.es/paas/nwe/app/portal/distribuidoras/remesas", safeLogin.allowedOrigin));
   ok("no confunde el login con una sesión autenticada", !isAuthenticatedSantanderUrl(safeLogin.currentUrl, safeLogin.allowedOrigin));
   ok("no acepta una aplicación en un dominio parecido", !isAuthenticatedSantanderUrl("https://empresas3.gruposantander.es.ejemplo.com/paas/nwe/app/posglobal", safeLogin.allowedOrigin));
+  ok("ordena y limita enlaces de paginación", JSON.stringify(numericPageLabels(["3", "1", "13", "2", "3", "0", "101", "Enviar"])) === JSON.stringify(["1", "2", "3", "13"]));
 
   console.log("Máquina de estados y seguridad del agente:");
 
