@@ -184,3 +184,39 @@ describe("observabilidad", () => {
     expect(stages).toContain("app_claim_ok");
   });
 });
+
+describe("REACCIÓN a captura TARDÍA (fix de la carrera del onboarding)", () => {
+  it("onDealCaptured avisa cuando el Install Referrer llega DESPUÉS del arranque", async () => {
+    let fire: any = null;
+    H.pir.getInstallReferrerInfo.mockImplementation((cb: any) => { fire = cb; }); // no dispara aún
+    const m = await freshModule();
+    const seen: string[] = [];
+    const off = m.onDealCaptured((t: string) => seen.push(t));
+    m.initDealCapture();
+    await flush();
+    expect(seen).toEqual([]); // el referrer aún no ha llegado → nadie avisado
+    fire({ installReferrer: `reto_${TOKEN}` }, null); // llega TARDE
+    await flush();
+    expect(seen).toEqual([TOKEN]); // el onboarding puede reaccionar ahora
+    off();
+  });
+
+  it("traza diagnóstica app_ref_no_token cuando el referrer no lleva reto", async () => {
+    H.pir.getInstallReferrerInfo.mockImplementation((cb: any) => cb({ installReferrer: "utm_source=google-play&utm_medium=organic" }, null));
+    const m = await freshModule();
+    m.initDealCapture();
+    await flush();
+    const stages = H.api.traceDeal.mock.calls.map((c: any[]) => c[1]);
+    expect(stages).toContain("app_ref_no_token");
+    expect(await m.getPendingDeal()).toBeNull();
+  });
+
+  it("traza diagnóstica app_ref_no_module si el módulo nativo no está en el build", async () => {
+    const m = await freshModule();
+    m._setPirLoaderForTests(() => { throw new Error("module missing"); });
+    m.initDealCapture();
+    await flush();
+    const stages = H.api.traceDeal.mock.calls.map((c: any[]) => c[1]);
+    expect(stages).toContain("app_ref_no_module");
+  });
+});

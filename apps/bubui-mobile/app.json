@@ -64,6 +64,16 @@
               "scheme": "https",
               "host": "www.bubui.app",
               "pathPrefix": "/scan"
+            },
+            {
+              "scheme": "https",
+              "host": "bubui.app",
+              "pathPrefix": "/reto"
+            },
+            {
+              "scheme": "https",
+              "host": "www.bubui.app",
+              "pathPrefix": "/reto"
             }
           ],
           "category": [

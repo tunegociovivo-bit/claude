@@ -17,7 +17,8 @@ import { CheckSession, clearSession } from "./src/lib/session";
 import { setOnAuthExpired } from "./src/lib/api";
 import { setupNotificationTapHandler } from "./src/lib/push";
 import { initReferralCapture } from "./src/lib/referral-pending";
-import { initDealCapture, claimPendingDeal } from "./src/lib/deal-pending";
+import { initDealCapture, claimPendingDeal, traceLifecycle } from "./src/lib/deal-pending";
+import Ionicons from "@expo/vector-icons/Ionicons";
 import { ErrorBoundary } from "./src/components/ErrorBoundary";
 import { useAppFonts, applyPoppinsToTextDefaults } from "./src/lib/fonts";
 import { ThemeProvider, useThemeMeta } from "./src/lib/theme";
@@ -103,6 +104,18 @@ function AppInner() {
 
   // Captura el token del RETO (deep link + Install Referrer de Android).
   useEffect(() => initDealCapture(), []);
+
+  // DIAGNÓSTICO (sin PII) para probar en producción qué está pasando de verdad:
+  //  - app_started: confirma QUÉ build/plataforma arranca (si no aparece, el AAB
+  //    instalado NO tiene este código → build obsoleto).
+  //  - app_iconfont_ok/fail: confirma si la fuente Ionicons carga en RELEASE (si
+  //    falla, ese es el motivo real de los iconos en blanco, no una suposición).
+  useEffect(() => {
+    traceLifecycle("app_started");
+    Ionicons.loadFont()
+      .then(() => traceLifecycle("app_iconfont_ok"))
+      .catch(() => traceLifecycle("app_iconfont_fail"));
+  }, []);
 
   // Token caducado (401): cerramos sesión para que la app pida re-login en vez
   // de mostrar un genérico "servidor no responde".

@@ -10,7 +10,7 @@ import * as Notifications from "expo-notifications";
 import { api } from "../lib/api";
 import { saveSession } from "../lib/session";
 import { getPendingRef, applyPendingRef, waitForReferrerCapture } from "../lib/referral-pending";
-import { claimPendingDeal, getPendingDeal, waitForDealCapture } from "../lib/deal-pending";
+import { claimPendingDeal, getPendingDeal, waitForDealCapture, onDealCaptured } from "../lib/deal-pending";
 import { Wordmark } from "../components/Wordmark";
 import { useTheme, type Palette, radius, shadow } from "../lib/theme";
 import { Video, ResizeMode } from "expo-av";
@@ -49,13 +49,13 @@ export function Onboarding() {
   const [pendingDeal, setPendingDeal] = useState<PendingDeal | null>(null);
   useEffect(() => {
     let alive = true;
-    (async () => {
-      // Espera (acotada) a que la captura del token termine antes de decidir.
-      await waitForDealCapture();
-      const token = await getPendingDeal();
-      if (!token || !alive) return;
-      // Vamos directos al registro (nunca invitado con un reto pendiente).
-      setStep(INTRO_STEP_COUNT + 1);
+    let applied = false;
+    // Carga el contexto del reto y fuerza el registro. Idempotente: si ya se
+    // aplicó (o el detalle no cambia), no rehace el salto de pantalla.
+    async function applyDeal(token: string) {
+      if (!alive || applied) return;
+      applied = true;
+      setStep(INTRO_STEP_COUNT + 1); // directo al registro (nunca invitado)
       setOtpStep("form");
       try {
         const d = await api.getCustomDeal(token);
@@ -63,11 +63,20 @@ export function Onboarding() {
         void api.traceDeal(token, "app_onboarding_shown");
         setPendingDeal({ token, businessName: d.businessName, clientDiscountPct: d.clientDiscountPct, title: d.title, friendsRequired: d.friendsRequired });
       } catch {
-        // Aunque no podamos cargar el detalle, mantenemos el registro forzado.
         if (alive) setPendingDeal({ token, businessName: "el negocio", clientDiscountPct: 0, title: null, friendsRequired: 0 });
       }
+    }
+    // 1) Lectura inicial (acotada) tras la captura.
+    (async () => {
+      await waitForDealCapture();
+      const token = await getPendingDeal();
+      if (token) await applyDeal(token);
     })();
-    return () => { alive = false; };
+    // 2) REACCIÓN a una captura TARDÍA: si el Install Referrer llega después del
+    //    primer render (más lento que la espera acotada), el onboarding igualmente
+    //    pasa a registro y muestra el reto — antes se quedaba en invitado.
+    const off = onDealCaptured((token) => { void applyDeal(token); });
+    return () => { alive = false; off(); };
   }, []);
   // Animación de "latido" para llamar la atención sobre el CTA "Empezar ahora".
   const ctaPulse = useRef(new Animated.Value(1)).current;

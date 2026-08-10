@@ -28,6 +28,30 @@ import { CheckSession } from "./session";
 const KEY = "bubui.pendingDeal";
 const IR_DONE = "bubui.installReferrerDealChecked";
 
+// "Token" centinela (16 hex) para eventos de CICLO DE VIDA/diagnóstico que no van
+// ligados a un reto concreto (arranque de la app, estado del Install Referrer,
+// carga de la fuente de iconos). Permite ver en BubuiDealTrace, consultando este
+// bucket, QUÉ build está corriendo de verdad y si el referrer/iconos funcionan.
+export const APP_LIFECYCLE_TOKEN = "0000000000000000";
+
+// Suscripción a "reto CAPTURADO" (token guardado). La usa el onboarding para
+// REACCIONAR si el Install Referrer llega TARDE (tras el primer render): antes se
+// leía el pendiente una sola vez al montar y, si el referrer tardaba más que la
+// espera, el onboarding se quedaba con el botón de invitado (reto perdido).
+const capturedListeners = new Set<(token: string) => void>();
+export function onDealCaptured(fn: (token: string) => void): () => void {
+  capturedListeners.add(fn);
+  return () => capturedListeners.delete(fn);
+}
+function notifyDealCaptured(token: string): void {
+  capturedListeners.forEach((fn) => { try { fn(token); } catch {} });
+}
+
+/** Traza de diagnóstico de ciclo de vida (sin PII), en el bucket centinela. */
+export function traceLifecycle(stage: string): void {
+  void api.traceDeal(APP_LIFECYCLE_TOKEN, stage);
+}
+
 // Readiness de la captura del reto: el alta espera (acotado) a que termine.
 let irSignal: (() => void) | null = null;
 const irReady = new Promise<void>((res) => { irSignal = res; });
@@ -71,6 +95,7 @@ async function captureFromUrl(url: string | null): Promise<void> {
   if (!token) return;
   await storePendingDeal(token); // deep link = intención directa, prevalece
   signalDealCaptureDone(); // ya hay token: el alta no necesita esperar más
+  notifyDealCaptured(token); // el onboarding reacciona aunque llegue tarde
   void api.traceDeal(token, "app_capture_deeplink");
   // Reclamo INMEDIATO si ya hay sesión (evita esperar al siguiente arranque).
   try {
@@ -91,19 +116,27 @@ async function captureInstallReferrerOnce(): Promise<void> {
     try {
       mod = pirLoader();
     } catch {
+      traceLifecycle("app_ref_no_module"); // el módulo nativo no está en el build
       signalDealCaptureDone(); // sin módulo no habrá referrer en esta sesión
       return;
     }
     const PIR = mod?.PlayInstallReferrer ?? mod?.default ?? mod;
-    if (!PIR?.getInstallReferrerInfo) { signalDealCaptureDone(); return; }
+    if (!PIR?.getInstallReferrerInfo) { traceLifecycle("app_ref_no_api"); signalDealCaptureDone(); return; }
     PIR.getInstallReferrerInfo((info: any, err: any) => {
-      if (err) { signalDealCaptureDone(); return; } // transitorio → reintento próximo arranque
+      if (err) { traceLifecycle("app_ref_error"); signalDealCaptureDone(); return; } // transitorio → reintento próximo arranque
       void AsyncStorage.setItem(IR_DONE, "1").catch(() => {});
       const token = parseDealFromString(info?.installReferrer);
-      if (!token) { signalDealCaptureDone(); return; }
+      if (!token) {
+        // Llegó un referrer pero SIN token de reto (p. ej. instalación orgánica
+        // o el enlace no llevaba &referrer=reto_…). Clave para el diagnóstico.
+        traceLifecycle("app_ref_no_token");
+        signalDealCaptureDone();
+        return;
+      }
       void (async () => {
         await storeIfEmpty(token);
         signalDealCaptureDone(); // token persistido → el alta puede leerlo
+        notifyDealCaptured(token); // el onboarding reacciona aunque sea tardío
         void api.traceDeal(token, "app_capture_install_referrer");
         // Referrer tardío con sesión ya iniciada: aplica al momento.
         try {
@@ -113,6 +146,7 @@ async function captureInstallReferrerOnce(): Promise<void> {
       })();
     });
   } catch {
+    traceLifecycle("app_ref_exception");
     signalDealCaptureDone();
   }
 }
