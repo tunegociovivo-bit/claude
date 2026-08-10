@@ -64,6 +64,14 @@ export function isRemittanceGeneratorUrl(currentUrl: string, allowedOrigin: stri
   } catch { return false; }
 }
 
+export function buildRemittanceGeneratorUrl(allowedOrigin: string): string {
+  const allowed = new URL(allowedOrigin);
+  if (allowed.protocol !== "https:" || allowed.username || allowed.password || allowed.search || allowed.hash || (allowed.pathname !== "/" && allowed.pathname !== "")) {
+    throw new Error("El origen oficial de Santander no es válido para abrir el generador.");
+  }
+  return `${allowed.origin}/paas/genweb/nwe-gw-19-ui/#!/generator/charges/debtsSEPA/all`;
+}
+
 export function formatSantanderAmount(amountCents: number): string {
   if (!Number.isSafeInteger(amountCents) || amountCents < 0) throw new Error("Importe autorizado inválido.");
   return (amountCents / 100).toFixed(2).replace(".", ",");

@@ -19,7 +19,7 @@
 import type { AuthorizedJob, AdapterHooks, SantanderAdapter, StepOutcome } from "./types.js";
 import { isForbiddenActionLabel } from "./types.js";
 import { loadSelectors, type SantanderSelectors, type SelectorSpec } from "./selectors.js";
-import { decideLoginAction, formatSantanderAmount, isAuthenticatedSantanderUrl, isEnvioremFrameUrl, isRemittanceGeneratorUrl, isSafeBasicPaymentsLabel, isSafeReconnectLabel, isSafeRemittanceGenerationLabel, numericPageLabels, parseDisplayedAmountCents, shouldAttemptSavedLogin, shouldWaitForAmountConfirmation, shouldWaitForRemittanceList, uniqueVisibleIndex } from "./login.js";
+import { buildRemittanceGeneratorUrl, decideLoginAction, formatSantanderAmount, isAuthenticatedSantanderUrl, isEnvioremFrameUrl, isRemittanceGeneratorUrl, isSafeBasicPaymentsLabel, isSafeReconnectLabel, isSafeRemittanceGenerationLabel, numericPageLabels, parseDisplayedAmountCents, shouldAttemptSavedLogin, shouldWaitForAmountConfirmation, shouldWaitForRemittanceList, uniqueVisibleIndex } from "./login.js";
 import { hasEncryptedCredential, readEncryptedAccessKey } from "../credential-store.js";
 
 const STEP_TIMEOUT_MS = 15000;
@@ -86,7 +86,10 @@ export class LiveSantanderAdapter implements SantanderAdapter {
       if (!portal) return this.pause(hooks, "No encuentro el marco interno oficial de remesas.");
       let app = await this.findGeneratorFrame(page, 4);
       if (!app) {
-        if (!(await this.clickRemittanceGeneration(portal, S.remittancesNav))) return this.pause(hooks, "No encuentro una entrada visible y segura a Generación de remesas (posible cambio de interfaz).");
+        const openedFromCard = await this.clickRemittanceGeneration(portal, S.remittancesNav);
+        if (!openedFromCard) {
+          await page.goto(buildRemittanceGeneratorUrl(this.opts.santanderOrigin), { waitUntil: "domcontentloaded", timeout: STEP_TIMEOUT_MS });
+        }
         app = await this.findGeneratorFrame(page);
       }
       if (!app) return this.pause(hooks, "No encuentro el listado interno oficial de adeudos SEPA.");
