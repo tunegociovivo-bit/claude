@@ -19,7 +19,7 @@
 import type { AuthorizedJob, AdapterHooks, SantanderAdapter, StepOutcome } from "./types.js";
 import { isForbiddenActionLabel } from "./types.js";
 import { loadSelectors, type SantanderSelectors, type SelectorSpec } from "./selectors.js";
-import { canContinueToDirectDebit, classifyLoginCompletion, decideLoginAction, formatSantanderAmount, hasVerifiedPendingSignature, isAuthenticatedSantanderUrl, isEnvioremFrameUrl, isRemittanceGeneratorUrl, isSafeBasicPaymentsLabel, isSafePaginationControl, isSafeReconnectLabel, isSafeRemittanceGenerationLabel, numericPageLabels, parseDisplayedAmountCents, shouldAttemptSavedLogin, shouldRetryVisibleOption, shouldWaitForAmountConfirmation, shouldWaitForLoginCompletion, shouldWaitForRemittanceList, uniqueVisibleIndex } from "./login.js";
+import { amountEditIsConfirmed, canContinueToDirectDebit, classifyLoginCompletion, decideLoginAction, formatSantanderAmount, hasVerifiedPendingSignature, isAuthenticatedSantanderUrl, isEnvioremFrameUrl, isRemittanceGeneratorUrl, isSafeBasicPaymentsLabel, isSafePaginationControl, isSafeReconnectLabel, isSafeRemittanceGenerationLabel, numericPageLabels, parseDisplayedAmountCents, shouldAttemptSavedLogin, shouldRetryVisibleOption, shouldWaitForLoginCompletion, shouldWaitForRemittanceList, uniqueVisibleIndex } from "./login.js";
 import { hasEncryptedCredential, readEncryptedAccessKey } from "../credential-store.js";
 
 const STEP_TIMEOUT_MS = 15000;
@@ -122,14 +122,22 @@ export class LiveSantanderAdapter implements SantanderAdapter {
       if (parseDisplayedAmountCents(shownAmount ?? "") !== job.amountCents) {
         const amountFields = this.locator(app, S.amountField);
         if (await amountFields.count() !== 1) return this.pause(hooks, "No encuentro un único campo de importe verificable para la orden recurrente.");
-        await amountFields.click({ timeout: STEP_TIMEOUT_MS });
-        await amountFields.press("Control+A", { timeout: STEP_TIMEOUT_MS });
-        await amountFields.pressSequentially(formatSantanderAmount(job.amountCents), { delay: 60 });
-        await amountFields.press("Tab", { timeout: STEP_TIMEOUT_MS });
-        for (let attempt = 0; attempt <= 10; attempt++) {
+        const targetAmount = formatSantanderAmount(job.amountCents);
+        await amountFields.fill(targetAmount, { timeout: STEP_TIMEOUT_MS });
+        await amountFields.evaluate((element: HTMLInputElement) => {
+          element.dispatchEvent(new Event("input", { bubbles: true }));
+          element.dispatchEvent(new Event("change", { bubbles: true }));
+          element.blur();
+        });
+        let fieldAmount = "";
+        for (let attempt = 0; attempt <= 20; attempt++) {
+          fieldAmount = await amountFields.inputValue().catch(() => "");
           shownAmount = await this.text(app, S.amountLabel);
-          if (!shouldWaitForAmountConfirmation(parseDisplayedAmountCents(shownAmount ?? ""), job.amountCents, attempt, 10)) break;
+          if (amountEditIsConfirmed(fieldAmount, shownAmount ?? "", job.amountCents)) break;
           await app.waitForTimeout(500);
+        }
+        if (!amountEditIsConfirmed(fieldAmount, shownAmount ?? "", job.amountCents)) {
+          return this.pause(hooks, `Santander no confirmó el nuevo importe: campo "${fieldAmount || "no visible"}", total "${shownAmount ?? "no visible"}", autorizado "${amount} EUR".`);
         }
         await hooks.onProgress("EDIT_AUTHORIZED", `Importe actualizado al total autorizado de ${amount} EUR`);
       }

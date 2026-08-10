@@ -100,6 +100,11 @@ export function parseDisplayedAmountCents(shown: string): number | null {
   return Number.isFinite(value) ? value : null;
 }
 
+export function amountEditIsConfirmed(fieldValue: string, totalText: string, expectedCents: number): boolean {
+  return parseDisplayedAmountCents(fieldValue) === expectedCents
+    && parseDisplayedAmountCents(totalText) === expectedCents;
+}
+
 export function isSafeReconnectLabel(label: string): boolean {
   return label.trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase() === "volver a conectar";
 }
