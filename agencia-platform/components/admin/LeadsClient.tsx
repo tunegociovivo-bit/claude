@@ -7,6 +7,7 @@ import { SectionBoundary } from "@/components/admin/SectionBoundary";
 import { BUSINESS_TYPE_GROUPS, ALL_BUSINESS_TYPES } from "@/lib/leads/business-types";
 import { PROVINCE_NAMES } from "@/lib/leads/spain-provinces";
 import { municipalitiesForProvince } from "@/lib/leads/spain-municipalities";
+import { localDayRangeUtc } from "@/lib/leads/local-day";
 
 // Para saber si el keyword actual coincide con un tipo del desplegable (y
 // reflejarlo seleccionado) sin recalcular el array en cada render.
@@ -4488,6 +4489,7 @@ type Conversation = {
   unread: number;
   instanceName: string | null;
   classification: string | null;
+  optedOut?: boolean; // bloqueado para siempre (opt-out real)
 };
 
 /** Qué teléfono mostrar: el del lead vinculado, el real que mande WAHA, o un
@@ -4594,6 +4596,11 @@ function InboxChat({
   const [fUnread, setFUnread] = useState(false);
   const [fStatus, setFStatus] = useState<string>("all"); // all|pending|followup|resolved
   const [fDate, setFDate] = useState<"all" | "today" | "7d" | "30d">("all"); // por actividad reciente
+  // Filtros server-side (se re-consultan al servidor, no se filtran en cliente):
+  const [fAccount, setFAccount] = useState<string>("all"); // cuenta/número de WhatsApp (instanceName)
+  const [accounts, setAccounts] = useState<string[]>([]); // opciones reales disponibles
+  const [fExactDate, setFExactDate] = useState<string>(""); // YYYY-MM-DD (día local exacto)
+  const [fBlocked, setFBlocked] = useState<"all" | "blocked" | "unblocked">("all");
   const [showArchived, setShowArchived] = useState(false);
   const [sortBy, setSortBy] = useState<"hot" | "priority" | "recent" | "unread">("hot");
   const [showBroadcast, setShowBroadcast] = useState(false);
@@ -4633,10 +4640,19 @@ function InboxChat({
 
   async function loadConvs() {
     try {
-      const r = await fetch("/api/v1/leads/inbox/conversations");
+      const q = new URLSearchParams();
+      if (fAccount !== "all") q.set("account", fAccount);
+      if (fBlocked !== "all") q.set("blocked", fBlocked);
+      if (fExactDate) {
+        const range = localDayRangeUtc(fExactDate);
+        if (range) { q.set("dateFrom", range.from); q.set("dateTo", range.to); }
+      }
+      const qs = q.toString();
+      const r = await fetch(`/api/v1/leads/inbox/conversations${qs ? `?${qs}` : ""}`);
       if (r.ok) {
         const d = await r.json();
         setConvs(d.items ?? []);
+        if (Array.isArray(d.accounts)) setAccounts(d.accounts);
       }
     } finally {
       setConvsLoaded(true);
@@ -4676,11 +4692,14 @@ function InboxChat({
   }
 
   // Carga + refresco suave (las respuestas de leads llegan en cualquier momento).
+  // Se re-consulta al servidor cuando cambia un filtro server-side (cuenta,
+  // bloqueado, fecha exacta) para no filtrar en cliente sobre datos incompletos.
   useEffect(() => {
     loadConvs();
     const i = setInterval(loadConvs, 12_000);
     return () => clearInterval(i);
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fAccount, fBlocked, fExactDate]);
   useEffect(() => {
     if (!selected) return;
     loadThread(selected);
@@ -4932,7 +4951,7 @@ function InboxChat({
       // priority (por defecto): alta primero, luego reciente
       return (PR_RANK[a.priority] ?? 3) - (PR_RANK[b.priority] ?? 3) || new Date(b.lastAt).getTime() - new Date(a.lastAt).getTime();
     });
-  const activeFilters = (fPriority !== "all" ? 1 : 0) + (fStatus !== "all" ? 1 : 0) + (fClass !== "all" ? 1 : 0) + (fUnread ? 1 : 0) + (fDate !== "all" ? 1 : 0) + (search.trim() ? 1 : 0);
+  const activeFilters = (fPriority !== "all" ? 1 : 0) + (fStatus !== "all" ? 1 : 0) + (fClass !== "all" ? 1 : 0) + (fUnread ? 1 : 0) + (fDate !== "all" ? 1 : 0) + (search.trim() ? 1 : 0) + (fAccount !== "all" ? 1 : 0) + (fExactDate ? 1 : 0) + (fBlocked !== "all" ? 1 : 0);
 
   return (
     <div className="bg-white rounded-xl border overflow-hidden grid grid-cols-1 md:grid-cols-[320px_1fr]" style={{ height: "72vh" }}>
@@ -5045,10 +5064,56 @@ function InboxChat({
                 key={v}
                 onClick={() => {
                   setFDate(v);
-                  // Al filtrar por fecha, ordena por más reciente arriba.
-                  if (v !== "all") setSortBy("recent");
+                  // Los accesos rápidos y la fecha exacta son excluyentes.
+                  if (v !== "all") { setSortBy("recent"); setFExactDate(""); }
                 }}
                 className={`text-[11px] px-1.5 py-0.5 rounded border ${fDate === v ? "bg-indigo-600 text-white border-indigo-600" : "bg-white text-slate-500 border-slate-200 hover:bg-slate-50"}`}
+              >
+                {lbl}
+              </button>
+            ))}
+            {/* Fecha EXACTA (día local; server-side, sin errores de huso). */}
+            <input
+              type="date"
+              value={fExactDate}
+              onChange={(e) => {
+                setFExactDate(e.target.value);
+                // Excluyente con los accesos rápidos.
+                if (e.target.value) { setFDate("all"); setSortBy("recent"); }
+              }}
+              className={`text-[11px] px-1.5 py-0.5 rounded border ${fExactDate ? "bg-indigo-600 text-white border-indigo-600" : "bg-white text-slate-500 border-slate-200"}`}
+              title="Filtrar por un día exacto"
+            />
+            {fExactDate && (
+              <button
+                onClick={() => setFExactDate("")}
+                className="text-[11px] px-1.5 py-0.5 rounded border bg-white text-slate-500 border-slate-200 hover:bg-slate-50"
+                title="Quitar la fecha exacta"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+          {/* Cuenta de WhatsApp que gestionó la conversación (opciones reales) + Bloqueados */}
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <select
+              value={fAccount}
+              onChange={(e) => setFAccount(e.target.value)}
+              className="text-[11px] px-1.5 py-1 rounded border bg-white"
+              title="Filtrar por la cuenta/número de WhatsApp que gestionó la conversación"
+            >
+              <option value="all">📱 Todas las cuentas</option>
+              {accounts.map((a) => (
+                <option key={a} value={a}>{a === "__default__" ? "Principal (default)" : channelLabel(a)}</option>
+              ))}
+            </select>
+            <span className="w-px h-4 bg-slate-200 mx-0.5" />
+            {([["all", "Todos"], ["blocked", "🚫 Bloqueados"], ["unblocked", "No bloqueados"]] as const).map(([v, lbl]) => (
+              <button
+                key={v}
+                onClick={() => setFBlocked(v)}
+                className={`text-[11px] px-1.5 py-0.5 rounded border ${fBlocked === v ? "bg-rose-600 text-white border-rose-600" : "bg-white text-slate-500 border-slate-200 hover:bg-slate-50"}`}
+                title="Mostrar según el estado real de 'Bloquear para siempre'"
               >
                 {lbl}
               </button>
@@ -5099,7 +5164,7 @@ function InboxChat({
           </div>
           {activeFilters > 0 && (
             <button
-              onClick={() => { setSearch(""); setFPriority("all"); setFClass("all"); setFUnread(false); setFStatus("all"); setFDate("all"); }}
+              onClick={() => { setSearch(""); setFPriority("all"); setFClass("all"); setFUnread(false); setFStatus("all"); setFDate("all"); setFAccount("all"); setFExactDate(""); setFBlocked("all"); }}
               className="text-[11px] text-rose-600 hover:underline"
             >
               ✕ Quitar filtros ({visibleConvs.length} de {convs.length})
@@ -5145,6 +5210,7 @@ function InboxChat({
               <div className="flex items-center justify-between gap-2">
                 <span className={`text-sm font-semibold truncate flex items-center gap-1 ${notInterested ? "text-rose-400 line-through" : "text-slate-800"}`}>
                   {notInterested && <span className="no-underline" title="No interesado">❌</span>}
+                  {c.optedOut && <span className="no-underline" title="Bloqueado para siempre">🚫</span>}
                   {c.leadName || c.displayName || c.phone}
                 </span>
                 <span className="flex items-center gap-1 shrink-0">
