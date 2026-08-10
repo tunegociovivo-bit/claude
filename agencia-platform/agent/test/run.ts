@@ -12,7 +12,7 @@ import { MockSantanderAdapter, type MockAnomaly } from "../src/santander/mock.js
 import { isForbiddenActionLabel } from "../src/santander/types.js";
 import type { AdapterHooks, AuthorizedJob } from "../src/santander/types.js";
 import { sanitize } from "../src/logger.js";
-import { buildRemittanceGeneratorUrl, canContinueToDirectDebit, classifyLoginCompletion, decideLoginAction, formatSantanderAmount, hasVerifiedPendingSignature, isAuthenticatedSantanderUrl, isEnvioremFrameUrl, isRemittanceGeneratorUrl, isSafeBasicPaymentsLabel, isSafePaginationControl, isSafeReconnectLabel, isSafeRemittanceGenerationLabel, numericPageLabels, parseDisplayedAmountCents, shouldAttemptSavedLogin, shouldRetryVisibleOption, shouldWaitForAmountConfirmation, shouldWaitForLoginCompletion, shouldWaitForRemittanceList, uniqueVisibleIndex, validateAccessKey } from "../src/santander/login.js";
+import { amountEditIsConfirmed, buildRemittanceGeneratorUrl, canContinueToDirectDebit, classifyLoginCompletion, decideLoginAction, formatSantanderAmount, hasVerifiedPendingSignature, isAuthenticatedSantanderUrl, isEnvioremFrameUrl, isRemittanceGeneratorUrl, isSafeBasicPaymentsLabel, isSafePaginationControl, isSafeReconnectLabel, isSafeRemittanceGenerationLabel, numericPageLabels, parseDisplayedAmountCents, shouldAttemptSavedLogin, shouldRetryVisibleOption, shouldWaitForAmountConfirmation, shouldWaitForLoginCompletion, shouldWaitForRemittanceList, uniqueVisibleIndex, validateAccessKey } from "../src/santander/login.js";
 
 let passed = 0;
 let failed = 0;
@@ -95,6 +95,9 @@ async function main() {
   ok("formatea el importe autorizado para Santander", formatSantanderAmount(24200) === "242,00");
   ok("interpreta un importe europeo de Santander", parseDisplayedAmountCents("1.234,56 EUR") === 123456);
   ok("rechaza un importe no verificable", parseDisplayedAmountCents("no visible") === null);
+  ok("confirma la edición solo si campo y total coinciden", amountEditIsConfirmed("363,00", "363,00 EUR", 36300));
+  ok("rechaza un total antiguo aunque el campo ya cambió", !amountEditIsConfirmed("363,00", "544,50 EUR", 36300));
+  ok("rechaza un campo que no registró el nuevo importe", !amountEditIsConfirmed("544,50", "363,00 EUR", 36300));
   ok("solo acepta la acción exacta Volver a conectar", isSafeReconnectLabel("Volver a conectar") && !isSafeReconnectLabel("Conectar y firmar"));
   ok("espera la confirmación asíncrona del importe", shouldWaitForAmountConfirmation(18150, 24200, 0, 10));
   ok("deja de esperar cuando Santander confirma", !shouldWaitForAmountConfirmation(24200, 24200, 1, 10));
