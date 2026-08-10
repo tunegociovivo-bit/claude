@@ -6,6 +6,9 @@ import {
   normalizeGlobalPrompt,
   normalizeAdminNotes,
   normalizeClientName,
+  normalizeClientEmail,
+  createWorkspaceSlug,
+  validateInitialPassword,
 } from "../lib/admin/usage";
 
 test("calcula el coste diario usando coste real y estimaciones solo cuando faltan datos", () => {
@@ -44,4 +47,13 @@ test("exige un nombre de cliente válido y lo limita", () => {
   assert.equal(normalizeClientName("  Clínica Centro  "), "Clínica Centro");
   assert.equal(normalizeClientName("x".repeat(300)).length, 120);
   assert.equal(normalizeClientName("   "), "");
+});
+
+test("prepara los datos necesarios para crear un CRM de cliente", () => {
+  assert.equal(normalizeClientEmail("  CLIENTE@EMPRESA.COM "), "cliente@empresa.com");
+  assert.equal(normalizeClientEmail("correo-invalido"), "");
+  assert.equal(createWorkspaceSlug("Clinica Malaga & Salud"), "clinica-malaga-salud");
+  assert.equal(createWorkspaceSlug("---"), "cliente");
+  assert.equal(validateInitialPassword("segura123"), true);
+  assert.equal(validateInitialPassword("corta"), false);
 });
