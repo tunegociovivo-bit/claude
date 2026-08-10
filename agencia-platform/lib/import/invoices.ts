@@ -396,3 +396,41 @@ export async function applyInvoiceImport(
   }
   return { created, skipped };
 }
+
+/** Completa únicamente el cliente de facturas ya existentes; nunca crea documentos. */
+export async function repairExistingInvoiceClients(
+  workspaceId: string,
+  inputs: InvoiceInput[]
+): Promise<{ examined: number; repaired: number }> {
+  const plan = await buildInvoicePlan(workspaceId, inputs);
+  const duplicates = plan.filter((item) => item.action === "skip" && item.input.number && item.input.clientName);
+  let repaired = 0;
+  for (const item of duplicates) {
+    const changed = await prisma.$transaction(async (tx) => {
+      const existing = await tx.invoice.findFirst({
+        where: { workspaceId, number: { equals: item.input.number!, mode: "insensitive" }, deletedAt: null },
+        select: { id: true, clientId: true, clientSnapshot: true, updatedAt: true }
+      });
+      if (!existing || String((existing.clientSnapshot as any)?.name ?? "").trim()) return false;
+
+      // Si ya existe vínculo, es la fuente de verdad; nunca mezclar su ID con
+      // el snapshot de otro match obtenido por nombre.
+      const resolvedClientId = existing.clientId ?? item.clientMatchId ?? null;
+      const client = resolvedClientId
+        ? await tx.client.findFirst({ where: { id: resolvedClientId, workspaceId, deletedAt: null } })
+        : null;
+      const clientSnap = client
+        ? snapshotClient(client)
+        : { name: item.input.clientName!, taxId: item.input.clientTaxId ?? null, countryCode: "ESP" };
+      const result = await tx.invoice.updateMany({
+        // `updatedAt` funciona como guarda optimista: si otro proceso reparó
+        // la factura tras leerla, no sobrescribimos su corrección.
+        where: { id: existing.id, workspaceId, updatedAt: existing.updatedAt },
+        data: { clientId: resolvedClientId, clientSnapshot: clientSnap as any }
+      });
+      return result.count === 1;
+    });
+    if (changed) repaired++;
+  }
+  return { examined: duplicates.length, repaired };
+}

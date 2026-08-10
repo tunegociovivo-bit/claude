@@ -26,6 +26,7 @@ type InvoicePlanItem = {
 
 type PreviewResp = {
   entity: Entity;
+  source?: string;
   format: string;
   count: number;
   inputs: any[];
@@ -65,6 +66,7 @@ export default function ImporterClient({
   const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
   const [applying, setApplying] = useState(false);
+  const [repairing, setRepairing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [preview, setPreview] = useState<PreviewResp | null>(null);
   const [selected, setSelected] = useState<Set<number>>(new Set());
@@ -165,6 +167,26 @@ export default function ImporterClient({
       setError(e?.message ?? "Error al importar");
     } finally {
       setApplying(false);
+    }
+  }
+
+  async function repairExistingClients() {
+    if (!preview || preview.source !== "holded" || preview.entity !== "invoices") return;
+    setRepairing(true);
+    setError(null);
+    try {
+      const r = await fetch("/api/v1/admin/import/holded/repair-invoice-clients", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ inputs: preview.inputs })
+      });
+      const data = await r.json();
+      if (!r.ok) return setError(data?.error?.message ?? data?.message ?? `Error ${r.status}`);
+      setResult(`Reparación completada: ${data.repaired} nombres de cliente completados; no se creó ninguna factura.`);
+    } catch (e: any) {
+      setError(e?.message ?? "Error al reparar los nombres de cliente");
+    } finally {
+      setRepairing(false);
     }
   }
 
@@ -303,6 +325,16 @@ export default function ImporterClient({
             {entity === "clients" && <Badge color="slate">{counts.noop} sin cambios</Badge>}
             <Badge color="slate">{counts.skip} omitidas</Badge>
             <div className="flex-1" />
+            {preview.source === "holded" && entity === "invoices" && counts.skip > 0 && (
+              <button
+                onClick={repairExistingClients}
+                disabled={repairing}
+                className="inline-flex items-center gap-1.5 border border-brand-600 text-brand-700 px-3 py-1.5 rounded-lg hover:bg-brand-50 disabled:opacity-50"
+              >
+                {repairing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Users className="h-4 w-4" />}
+                Reparar nombres existentes
+              </button>
+            )}
             <button
               onClick={apply}
               disabled={applying || selected.size === 0}
