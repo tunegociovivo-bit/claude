@@ -12,7 +12,7 @@ import { MockSantanderAdapter, type MockAnomaly } from "../src/santander/mock.js
 import { isForbiddenActionLabel } from "../src/santander/types.js";
 import type { AdapterHooks, AuthorizedJob } from "../src/santander/types.js";
 import { sanitize } from "../src/logger.js";
-import { buildRemittanceGeneratorUrl, canContinueToDirectDebit, decideLoginAction, formatSantanderAmount, isAuthenticatedSantanderUrl, isEnvioremFrameUrl, isRemittanceGeneratorUrl, isSafeBasicPaymentsLabel, isSafePaginationControl, isSafeReconnectLabel, isSafeRemittanceGenerationLabel, numericPageLabels, parseDisplayedAmountCents, shouldAttemptSavedLogin, shouldRetryVisibleOption, shouldWaitForAmountConfirmation, shouldWaitForRemittanceList, uniqueVisibleIndex, validateAccessKey } from "../src/santander/login.js";
+import { buildRemittanceGeneratorUrl, canContinueToDirectDebit, decideLoginAction, formatSantanderAmount, hasVerifiedPendingSignature, isAuthenticatedSantanderUrl, isEnvioremFrameUrl, isRemittanceGeneratorUrl, isSafeBasicPaymentsLabel, isSafePaginationControl, isSafeReconnectLabel, isSafeRemittanceGenerationLabel, numericPageLabels, parseDisplayedAmountCents, shouldAttemptSavedLogin, shouldRetryVisibleOption, shouldWaitForAmountConfirmation, shouldWaitForRemittanceList, uniqueVisibleIndex, validateAccessKey } from "../src/santander/login.js";
 
 let passed = 0;
 let failed = 0;
@@ -106,6 +106,7 @@ async function main() {
   ok("continúa si la categoría ya está abierta y el adeudo es único", canContinueToDirectDebit(false, true));
   ok("se detiene si no abrió la categoría ni ve un adeudo único", !canContinueToDirectDebit(false, false));
   ok("espera opciones que Santander renderiza con retraso", shouldRetryVisibleOption(false, 0, 30) && !shouldRetryVisibleOption(true, 0, 30) && !shouldRetryVisibleOption(false, 30, 30));
+  ok("acepta la confirmación pendiente en el marco final de envío", hasVerifiedPendingSignature(false, true) && !hasVerifiedPendingSignature(false, false));
   ok("acepta la tarjeta segura de generación de remesas", isSafeRemittanceGenerationLabel("Generación de remesas"));
   ok("tolera el texto corto histórico de la tarjeta", isSafeRemittanceGenerationLabel("Generación"));
   ok("acepta la etiqueta completa actual de la tarjeta", isSafeRemittanceGenerationLabel("Generación Herramienta para crear tus ficheros de remesas"));
