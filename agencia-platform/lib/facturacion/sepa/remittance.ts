@@ -417,7 +417,7 @@ export type TokenLookup =
 export async function getRequestByToken(workspaceId: string, token: string): Promise<TokenLookup> {
   const th = hashToken(token);
   const req = await prisma.sepaRemittanceRequest.findUnique({ where: { tokenHash: th } });
-  if (!req || req.workspaceId !== workspaceId || !safeEqualHex(req.tokenHash, th)) return { ok: false, reason: "not_found" };
+  if (!req || req.workspaceId !== workspaceId || req.archivedAt || !safeEqualHex(req.tokenHash, th)) return { ok: false, reason: "not_found" };
   if (req.tokenUsedAt) return { ok: false, reason: "used" };
   if (req.tokenExpiresAt.getTime() < Date.now()) return { ok: false, reason: "expired" };
   if (req.status !== "PENDING_APPROVAL") return { ok: false, reason: "not_pending" };
@@ -441,7 +441,7 @@ export async function decideByToken(
 ): Promise<DecisionResult> {
   const th = hashToken(token);
   const req = await prisma.sepaRemittanceRequest.findUnique({ where: { tokenHash: th } });
-  if (!req || req.workspaceId !== workspaceId || !safeEqualHex(req.tokenHash, th)) return { ok: false, reason: "not_found" };
+  if (!req || req.workspaceId !== workspaceId || req.archivedAt || !safeEqualHex(req.tokenHash, th)) return { ok: false, reason: "not_found" };
   if (req.tokenUsedAt) return { ok: false, reason: "used" };
   if (req.tokenExpiresAt.getTime() < Date.now()) return { ok: false, reason: "expired" };
   if (req.status !== "PENDING_APPROVAL") return { ok: false, reason: "already_decided" };
@@ -451,7 +451,7 @@ export async function decideByToken(
 
   // Guarda atómica: solo actualiza si SIGUE pendiente y sin usar y sin caducar.
   const updated = await prisma.sepaRemittanceRequest.updateMany({
-    where: { id: req.id, workspaceId, status: "PENDING_APPROVAL", tokenUsedAt: null, tokenExpiresAt: { gt: now } },
+    where: { id: req.id, workspaceId, archivedAt: null, status: "PENDING_APPROVAL", tokenUsedAt: null, tokenExpiresAt: { gt: now } },
     data:
       opts.action === "approve"
         ? { status: "APPROVED", tokenUsedAt: now, approvedById: opts.userId, approvedAt: now }
@@ -500,7 +500,7 @@ export async function listRequests(
 ): Promise<{ items: any[]; total: number; page: number; pageSize: number }> {
   const page = Math.max(1, opts?.page ?? 1);
   const pageSize = Math.min(opts?.pageSize ?? 25, 100);
-  const where: any = { workspaceId };
+  const where: any = { workspaceId, archivedAt: null };
   if (opts?.status) where.status = opts.status;
   const [items, total] = await Promise.all([
     prisma.sepaRemittanceRequest.findMany({

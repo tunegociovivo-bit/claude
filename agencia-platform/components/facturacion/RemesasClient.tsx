@@ -62,6 +62,7 @@ function RequestsTab() {
   const [status, setStatus] = useState("");
   const [loading, setLoading] = useState(false);
   const [scanning, setScanning] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
 
   async function load() {
@@ -85,6 +86,20 @@ function RequestsTab() {
     } finally { setScanning(false); }
   }
 
+  async function removeRequest(item: Req) {
+    const label = `${item.clientName} · ${item.invoiceNumber ?? "sin número"} · ${STATUS_LABEL[item.status] ?? item.status}`;
+    if (!confirm(`¿Eliminar esta solicitud del listado de remesas?\n\n${label}\n\nLa factura original no se elimina y el historial interno se conserva por seguridad.`)) return;
+    setDeletingId(item.id);
+    setMsg(null);
+    try {
+      const r = await fetch(`/api/v1/facturacion/remesas/${encodeURIComponent(item.id)}`, { method: "DELETE" });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) { setMsg(j?.error?.message ?? j?.message ?? "No se pudo eliminar la solicitud"); return; }
+      setMsg(`Solicitud eliminada: ${item.invoiceNumber ?? item.clientName}.`);
+      await load();
+    } finally { setDeletingId(null); }
+  }
+
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-2 flex-wrap">
@@ -101,13 +116,13 @@ function RequestsTab() {
       <div className="overflow-x-auto rounded-lg border bg-white">
         <table className="w-full text-sm">
           <thead className="bg-slate-50 text-left text-xs text-slate-500">
-            <tr><th className="px-3 py-2">Cliente</th><th className="px-3 py-2">Factura</th><th className="px-3 py-2">Importe</th><th className="px-3 py-2">Mandato / IBAN</th><th className="px-3 py-2">Estado</th><th className="px-3 py-2">Creada</th></tr>
+            <tr><th className="px-3 py-2">Cliente</th><th className="px-3 py-2">Factura</th><th className="px-3 py-2">Importe</th><th className="px-3 py-2">Mandato / IBAN</th><th className="px-3 py-2">Estado</th><th className="px-3 py-2">Creada</th><th className="px-3 py-2 text-right">Acciones</th></tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={6} className="px-3 py-6 text-center text-slate-400">Cargando…</td></tr>
+              <tr><td colSpan={7} className="px-3 py-6 text-center text-slate-400">Cargando…</td></tr>
             ) : items.length === 0 ? (
-              <tr><td colSpan={6} className="px-3 py-6 text-center text-slate-400">Sin solicitudes. Pulsa "Buscar candidatas".</td></tr>
+              <tr><td colSpan={7} className="px-3 py-6 text-center text-slate-400">Sin solicitudes. Pulsa "Buscar candidatas".</td></tr>
             ) : items.map((it) => (
               <tr key={it.id} className="border-t">
                 <td className="px-3 py-2 font-medium">{it.clientName}</td>
@@ -116,6 +131,15 @@ function RequestsTab() {
                 <td className="px-3 py-2 text-xs text-slate-500">{it.mandateRef ?? "—"}{it.ibanMasked ? ` · ${it.ibanMasked}` : ""}</td>
                 <td className="px-3 py-2"><span className={"inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold " + (STATUS_CLASS[it.status] ?? "bg-slate-100")}>{STATUS_LABEL[it.status] ?? it.status}</span>{it.status === "REJECTED" && it.rejectReason ? <div className="text-[10px] text-rose-600 mt-0.5">{it.rejectReason}</div> : null}</td>
                 <td className="px-3 py-2 text-xs text-slate-500">{new Date(it.createdAt).toLocaleDateString("es-ES")}</td>
+                <td className="px-3 py-2 text-right">
+                  <button
+                    onClick={() => void removeRequest(it)}
+                    disabled={deletingId === it.id}
+                    className="rounded border border-rose-200 px-2 py-1 text-xs font-medium text-rose-700 hover:bg-rose-50 disabled:opacity-50"
+                  >
+                    {deletingId === it.id ? "Eliminando…" : "Eliminar"}
+                  </button>
+                </td>
               </tr>
             ))}
           </tbody>

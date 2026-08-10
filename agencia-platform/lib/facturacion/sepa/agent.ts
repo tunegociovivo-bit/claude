@@ -101,16 +101,18 @@ async function logJob(jobId: string, from: string | null, to: string, opts?: { a
  * los datos autorizados. Se llama al aprobar. Un solo trabajo por remesa.
  */
 export async function createJobForApprovedRequest(workspaceId: string, remittanceRequestId: string): Promise<{ created: boolean; jobId: string } | null> {
-  const req = await prisma.sepaRemittanceRequest.findFirst({
-    where: { id: remittanceRequestId, workspaceId },
-    select: { id: true, status: true, companyId: true, invoiceId: true, clientId: true, invoiceNumber: true, clientName: true, amountCents: true, currency: true, mandateRef: true, ibanMasked: true }
-  });
-  if (!req || req.status !== "APPROVED") return null;
-  const existing = await prisma.remittanceJob.findUnique({ where: { remittanceRequestId }, select: { id: true } });
-  if (existing) return { created: false, jobId: existing.id };
   try {
-    const job = await prisma.remittanceJob.create({
-      data: {
+    const result = await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT "id" FROM "SepaRemittanceRequest" WHERE "id" = ${remittanceRequestId} AND "workspaceId" = ${workspaceId} FOR UPDATE`;
+      const req = await tx.sepaRemittanceRequest.findFirst({
+        where: { id: remittanceRequestId, workspaceId, status: "APPROVED", archivedAt: null },
+        select: { id: true, companyId: true, invoiceId: true, clientId: true, invoiceNumber: true, clientName: true, amountCents: true, currency: true, mandateRef: true, ibanMasked: true }
+      });
+      if (!req) return null;
+      const existing = await tx.remittanceJob.findUnique({ where: { remittanceRequestId }, select: { id: true } });
+      if (existing) return { created: false, jobId: existing.id };
+      const job = await tx.remittanceJob.create({
+        data: {
         workspaceId,
         remittanceRequestId,
         invoiceId: req.invoiceId,
@@ -124,11 +126,13 @@ export async function createJobForApprovedRequest(workspaceId: string, remittanc
         mandateRef: req.mandateRef,
         ibanMasked: req.ibanMasked,
         idempotencyKey: `sepa-job:${remittanceRequestId}`
-      },
-      select: { id: true }
+        },
+        select: { id: true }
+      });
+      return { created: true, jobId: job.id };
     });
-    await logJob(job.id, null, "PENDING", { note: "Trabajo creado tras aprobación" });
-    return { created: true, jobId: job.id };
+    if (result?.created) await logJob(result.jobId, null, "PENDING", { note: "Trabajo creado tras aprobación" });
+    return result;
   } catch (e: any) {
     if (e?.code === "P2002") {
       const ex = await prisma.remittanceJob.findUnique({ where: { remittanceRequestId }, select: { id: true } });
@@ -162,9 +166,19 @@ export async function claimNextJob(agentId: string, workspaceId: string): Promis
     const candidate = await prisma.remittanceJob.findFirst({
       where: { workspaceId, status: "PENDING" },
       orderBy: { createdAt: "asc" },
-      select: { id: true }
+      select: { id: true, remittanceRequestId: true }
     });
     if (!candidate) return null;
+    const visibleRequest = await prisma.sepaRemittanceRequest.count({
+      where: { id: candidate.remittanceRequestId, workspaceId, archivedAt: null }
+    });
+    if (visibleRequest === 0) {
+      await prisma.remittanceJob.updateMany({
+        where: { id: candidate.id, workspaceId, status: "PENDING" },
+        data: { status: "CANCELLED", leaseUntil: null }
+      });
+      continue;
+    }
     const leaseUntil = new Date(now.getTime() + LEASE_MS);
     const upd = await prisma.remittanceJob.updateMany({
       where: { id: candidate.id, workspaceId, status: "PENDING" },
@@ -205,6 +219,7 @@ async function assertLeased(jobId: string, agentId: string, workspaceId: string)
 /** Progreso del agente: RUNNING (con lease renovado) o NEEDS_USER (pausa por intervención). */
 export async function reportProgress(agentId: string, workspaceId: string, jobId: string, opts: { state: "RUNNING" | "NEEDS_USER"; progress?: string; reason?: string }): Promise<{ ok: true }> {
   const job = await assertLeased(jobId, agentId, workspaceId);
+  const now = new Date();
   const data: any = { lastProgress: serverSanitize(opts.progress ?? "", 300) };
   if (opts.state === "RUNNING") {
     data.status = "RUNNING";
@@ -213,7 +228,17 @@ export async function reportProgress(agentId: string, workspaceId: string, jobId
     data.status = "NEEDS_USER";
     data.needsUserReason = serverSanitize(opts.reason ?? "Intervención requerida", 500);
   }
-  await prisma.remittanceJob.updateMany({ where: { id: jobId, workspaceId, claimedByAgentId: agentId }, data });
+  const updated = await prisma.remittanceJob.updateMany({
+    where: {
+      id: jobId,
+      workspaceId,
+      claimedByAgentId: agentId,
+      status: { in: ["CLAIMED", "RUNNING", "NEEDS_USER"] },
+      leaseUntil: { gt: now }
+    },
+    data
+  });
+  if (updated.count !== 1) throw new Error("El trabajo ya no está activo o fue cancelado");
   await logJob(jobId, job.status, data.status, { agentId, note: opts.state === "NEEDS_USER" ? `NEEDS_USER: ${data.needsUserReason}` : data.lastProgress });
   if (opts.state === "NEEDS_USER") {
     const d = await jobEmailData(workspaceId, jobId);
@@ -243,7 +268,7 @@ export async function completeJob(agentId: string, workspaceId: string, jobId: s
     const now = new Date();
     const upd = await prisma.remittanceJob.updateMany({
       where: { id: jobId, workspaceId, claimedByAgentId: agentId, status: { in: ["CLAIMED", "RUNNING", "NEEDS_USER"] }, leaseUntil: { gt: now } },
-      data: { status: "PREPARED_PENDING_SIGNATURE", resultRef: (input.resultRef ?? "").slice(0, 120) || null, leaseUntil: null }
+      data: { status: "PREPARED_PENDING_SIGNATURE", resultRef: (input.resultRef ?? "").slice(0, 120) || null, claimedByAgentId: null, leaseUntil: null }
     });
     if (upd.count === 0) throw new Error("No se pudo cerrar (lease caducado o ya cerrado)");
     await logJob(jobId, job.status, "PREPARED_PENDING_SIGNATURE", { agentId, note: "Preparada y verificada como pendiente de firma (sin firmar ni cobrar)" });
@@ -260,8 +285,14 @@ export async function completeJob(agentId: string, workspaceId: string, jobId: s
   // FAILED
   const failMsg = serverSanitize(input.error ?? "Error del agente", 500);
   const upd = await prisma.remittanceJob.updateMany({
-    where: { id: jobId, workspaceId, claimedByAgentId: agentId },
-    data: { status: "FAILED", lastError: failMsg, leaseUntil: null }
+    where: {
+      id: jobId,
+      workspaceId,
+      claimedByAgentId: agentId,
+      status: { in: ["CLAIMED", "RUNNING", "NEEDS_USER"] },
+      leaseUntil: { gt: new Date() }
+    },
+    data: { status: "FAILED", lastError: failMsg, claimedByAgentId: null, leaseUntil: null }
   });
   if (upd.count === 0) throw new Error("No se pudo marcar como fallido");
   await logJob(jobId, job.status, "FAILED", { agentId, note: failMsg.slice(0, 300) });
@@ -284,11 +315,19 @@ export async function reclaimExpiredLeases(workspaceId: string): Promise<{ reque
   let failed = 0;
   for (const j of stale) {
     if (j.attempts >= j.maxAttempts) {
-      await prisma.remittanceJob.updateMany({ where: { id: j.id, workspaceId }, data: { status: "FAILED", lastError: "Lease caducado; agotados los intentos", leaseUntil: null } });
+      const updated = await prisma.remittanceJob.updateMany({
+        where: { id: j.id, workspaceId, status: j.status, leaseUntil: { lt: now } },
+        data: { status: "FAILED", lastError: "Lease caducado; agotados los intentos", claimedByAgentId: null, leaseUntil: null }
+      });
+      if (updated.count !== 1) continue;
       await logJob(j.id, j.status, "FAILED", { note: "Lease caducado, sin reintentos" });
       failed++;
     } else {
-      await prisma.remittanceJob.updateMany({ where: { id: j.id, workspaceId }, data: { status: "PENDING", claimedByAgentId: null, leaseUntil: null } });
+      const updated = await prisma.remittanceJob.updateMany({
+        where: { id: j.id, workspaceId, status: j.status, leaseUntil: { lt: now } },
+        data: { status: "PENDING", claimedByAgentId: null, leaseUntil: null }
+      });
+      if (updated.count !== 1) continue;
       await logJob(j.id, j.status, "PENDING", { note: "Re-encolado (lease caducado)" });
       requeued++;
     }
@@ -298,11 +337,21 @@ export async function reclaimExpiredLeases(workspaceId: string): Promise<{ reque
 
 /** Admin: reintentar (a PENDING) un trabajo FAILED/CANCELLED. */
 export async function retryJob(workspaceId: string, jobId: string, userId?: string | null): Promise<void> {
-  const job = await prisma.remittanceJob.findFirst({ where: { id: jobId, workspaceId }, select: { id: true, status: true } });
-  if (!job) throw new Error("Trabajo no encontrado");
-  if (!["FAILED", "CANCELLED", "NEEDS_USER"].includes(job.status)) throw new Error("Solo se reintentan trabajos fallidos/cancelados/en pausa");
-  await prisma.remittanceJob.updateMany({ where: { id: jobId, workspaceId }, data: { status: "PENDING", claimedByAgentId: null, leaseUntil: null, attempts: 0, lastError: null, needsUserReason: null } });
-  await logJob(jobId, job.status, "PENDING", { userId, note: "Reintento manual (admin)" });
+  const previousStatus = await prisma.$transaction(async (tx) => {
+    const job = await tx.remittanceJob.findFirst({ where: { id: jobId, workspaceId }, select: { id: true, status: true, remittanceRequestId: true } });
+    if (!job) throw new Error("Trabajo no encontrado");
+    await tx.$queryRaw`SELECT "id" FROM "SepaRemittanceRequest" WHERE "id" = ${job.remittanceRequestId} AND "workspaceId" = ${workspaceId} FOR UPDATE`;
+    const visibleRequest = await tx.sepaRemittanceRequest.count({ where: { id: job.remittanceRequestId, workspaceId, archivedAt: null } });
+    if (visibleRequest === 0) throw new Error("No se puede reintentar una solicitud eliminada");
+    if (!["FAILED", "CANCELLED", "NEEDS_USER"].includes(job.status)) throw new Error("Solo se reintentan trabajos fallidos/cancelados/en pausa");
+    const updated = await tx.remittanceJob.updateMany({
+      where: { id: jobId, workspaceId, status: { in: ["FAILED", "CANCELLED", "NEEDS_USER"] } },
+      data: { status: "PENDING", claimedByAgentId: null, leaseUntil: null, attempts: 0, lastError: null, needsUserReason: null }
+    });
+    if (updated.count !== 1) throw new Error("El trabajo cambió mientras se reintentaba");
+    return job.status;
+  });
+  await logJob(jobId, previousStatus, "PENDING", { userId, note: "Reintento manual (admin)" });
 }
 
 /** Admin: cancelar un trabajo (si no está ya preparado/pendiente de firma). */
@@ -310,7 +359,11 @@ export async function cancelJob(workspaceId: string, jobId: string, userId?: str
   const job = await prisma.remittanceJob.findFirst({ where: { id: jobId, workspaceId }, select: { id: true, status: true } });
   if (!job) throw new Error("Trabajo no encontrado");
   if (job.status === "PREPARED_PENDING_SIGNATURE") throw new Error("No se cancela un trabajo ya pendiente de firma");
-  await prisma.remittanceJob.updateMany({ where: { id: jobId, workspaceId }, data: { status: "CANCELLED", leaseUntil: null } });
+  const updated = await prisma.remittanceJob.updateMany({
+    where: { id: jobId, workspaceId, status: { in: ["PENDING", "CLAIMED", "RUNNING", "NEEDS_USER", "FAILED", "CANCELLED"] } },
+    data: { status: "CANCELLED", claimedByAgentId: null, leaseUntil: null }
+  });
+  if (updated.count !== 1) throw new Error("El trabajo cambió mientras se cancelaba");
   await logJob(jobId, job.status, "CANCELLED", { userId, note: "Cancelado (admin)" });
 }
 

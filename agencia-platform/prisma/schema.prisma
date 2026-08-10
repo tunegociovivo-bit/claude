@@ -973,6 +973,8 @@ model SepaRemittanceRequest {
   createdById String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+  archivedAt  DateTime?
+  archivedById String?
 
   workspace Workspace                @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   events    SepaRemittanceEvent[]
@@ -980,6 +982,7 @@ model SepaRemittanceRequest {
   // Control ESTRICTO de duplicados: una remesa por (empresa, factura).
   @@unique([workspaceId, companyId, invoiceId])
   @@index([workspaceId, status])
+  @@index([workspaceId, archivedAt])
   @@index([tokenHash])
   @@index([invoiceId])
 }
