@@ -99,6 +99,57 @@ describe("aislamiento multi-tenant en las cláusulas where", () => {
   });
 });
 
+describe("REGRESIÓN incidencia producción — frase larga con coma/apóstrofo/espacios (mensaje antiguo)", () => {
+  // Texto EXACTO que el usuario intentaba encontrar para bloquear al lead.
+  const INCIDENT = "Oye es la segunda vez q me escribes sin permiso alguno , la próxima vez q me mandes un mensaje te denuncio";
+  const OLD_DATE = new Date("2025-11-02T09:15:00Z"); // mensaje ANTIGUO
+
+  it("localiza el mensaje ENTRANTE por la frase completa y por un fragmento parcial", () => {
+    const inbox = [{ phoneNormalized: "34611223344", fromPhone: "34611223344", leadId: "lead-x", body: INCIDENT }];
+    // Frase completa
+    let r = collectSearchMatches({ inbox, outbound: [] }, INCIDENT);
+    expect(r.matchedPhones.has("34611223344")).toBe(true);
+    expect(r.matchedLeadIds.has("lead-x")).toBe(true);
+    expect(r.snippetByPhone.get("34611223344")?.snippet).toContain("denuncio");
+    // Fragmento parcial en medio de la frase
+    r = collectSearchMatches({ inbox, outbound: [] }, "permiso alguno , la próxima vez");
+    expect(r.matchedPhones.has("34611223344")).toBe(true);
+    // Insensible a mayúsculas
+    r = collectSearchMatches({ inbox, outbound: [] }, "TE DENUNCIO");
+    expect(r.matchedPhones.has("34611223344")).toBe(true);
+  });
+
+  it("tolera apóstrofo, coma y espacios múltiples en el término (normalización)", () => {
+    const body = "D'acord, ho farem demà al matí , sense falta";
+    const inbox = [{ phoneNormalized: "34600000001", fromPhone: "34600000001", leadId: null, body }];
+    const r = collectSearchMatches({ inbox, outbound: [] }, "  D'acord,   ho farem  ");
+    expect(r.matchedPhones.has("34600000001")).toBe(true);
+    expect(r.snippetByPhone.get("34600000001")?.snippet.toLowerCase()).toContain("d'acord");
+  });
+
+  it("el where de búsqueda usa el término normalizado (minúsculas, espacios colapsados) + workspace", () => {
+    const w = searchWhereInbox("ws-neg", "  Oye   es la  SEGUNDA vez ");
+    expect(w.workspaceId).toBe("ws-neg");
+    expect(w.body).toEqual({ contains: "oye es la segunda vez", mode: "insensitive" });
+  });
+
+  it("un mensaje ANTIGUO sigue apareciendo como conversación con su fragmento", () => {
+    const oldMsg: RawInboxMsg = {
+      phoneNormalized: "34611223344", fromPhone: "34611223344", direction: "in", body: INCIDENT,
+      meta: null, read: true, instanceName: "sonia4", classification: null, receivedAt: OLD_DATE,
+      lead: { id: "lead-x", name: "Anónimo", phone: "34611223344" }
+    };
+    const snip = makeSnippet(INCIDENT, "te denuncio")!;
+    const items = buildConversations([oldMsg], [], {
+      optoutPhones: new Set(), optoutLeadIds: new Set(),
+      snippetByPhone: new Map([["34611223344", { snippet: snip, source: "inbound" }]])
+    });
+    expect(items).toHaveLength(1);
+    expect(items[0].lastInboundAt).toBe(OLD_DATE.toISOString());
+    expect(items[0].matchSnippet).toContain("denuncio");
+  });
+});
+
 describe("buildConversations — adjunta el fragmento a la conversación", () => {
   const now = new Date("2026-06-15T12:00:00Z");
   const mkMsg = (phone: string, body: string, leadId: string | null): RawInboxMsg => ({
