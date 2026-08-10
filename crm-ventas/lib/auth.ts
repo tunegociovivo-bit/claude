@@ -6,7 +6,7 @@ import { prisma } from "@/lib/prisma";
 
 export function isOperatorEmail(email: string | null | undefined) {
   if (!email) return false;
-  return (process.env.NV_OPERATOR_EMAILS || "")
+  return (process.env.NV_OPERATOR_EMAILS || "tunegociovivo@gmail.com")
     .split(",")
     .map((value) => value.toLowerCase().trim())
     .filter(Boolean)
