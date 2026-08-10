@@ -19,7 +19,7 @@
 import type { AuthorizedJob, AdapterHooks, SantanderAdapter, StepOutcome } from "./types.js";
 import { isForbiddenActionLabel } from "./types.js";
 import { loadSelectors, type SantanderSelectors, type SelectorSpec } from "./selectors.js";
-import { buildRemittanceGeneratorUrl, decideLoginAction, formatSantanderAmount, isAuthenticatedSantanderUrl, isEnvioremFrameUrl, isRemittanceGeneratorUrl, isSafeBasicPaymentsLabel, isSafeReconnectLabel, isSafeRemittanceGenerationLabel, numericPageLabels, parseDisplayedAmountCents, shouldAttemptSavedLogin, shouldWaitForAmountConfirmation, shouldWaitForRemittanceList, uniqueVisibleIndex } from "./login.js";
+import { buildRemittanceGeneratorUrl, decideLoginAction, formatSantanderAmount, isAuthenticatedSantanderUrl, isEnvioremFrameUrl, isRemittanceGeneratorUrl, isSafeBasicPaymentsLabel, isSafePaginationControl, isSafeReconnectLabel, isSafeRemittanceGenerationLabel, numericPageLabels, parseDisplayedAmountCents, shouldAttemptSavedLogin, shouldWaitForAmountConfirmation, shouldWaitForRemittanceList, uniqueVisibleIndex } from "./login.js";
 import { hasEncryptedCredential, readEncryptedAccessKey } from "../credential-store.js";
 
 const STEP_TIMEOUT_MS = 15000;
@@ -281,14 +281,20 @@ export class LiveSantanderAdapter implements SantanderAdapter {
     for (let attempt = 0; attempt <= 20; attempt++) {
       const templateVisible = await this.locator(app, spec).first().isVisible().catch(() => false);
       if (templateVisible) return true;
-      labels = numericPageLabels(await app.locator("a").allTextContents().catch(() => []));
+      labels = numericPageLabels(await app.locator("a, button").allTextContents().catch(() => []));
       if (!shouldWaitForRemittanceList(templateVisible, labels, attempt, 20)) break;
       await app.waitForTimeout(500);
     }
     for (const label of labels) {
-      const link = app.getByRole("link", { name: label, exact: true });
-      if (await link.count() !== 1) continue;
-      await link.click({ timeout: STEP_TIMEOUT_MS });
+      const controls = app.locator("a, button").filter({ hasText: new RegExp(`^\\s*${label}\\s*$`) });
+      const visibility: boolean[] = [];
+      for (let index = 0; index < await controls.count(); index++) visibility.push(await controls.nth(index).isVisible().catch(() => false));
+      const index = uniqueVisibleIndex(visibility);
+      if (index === null) continue;
+      const control = controls.nth(index);
+      const role = (await control.getAttribute("role")) ?? await control.evaluate((element: Element) => element.tagName.toLowerCase() === "a" ? "link" : "button");
+      if (!isSafePaginationControl(role, label)) continue;
+      await control.click({ timeout: STEP_TIMEOUT_MS });
       await app.waitForTimeout(350);
       if (await this.locator(app, spec).first().isVisible().catch(() => false)) return true;
     }

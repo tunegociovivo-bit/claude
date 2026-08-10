@@ -53,6 +53,10 @@ export function numericPageLabels(labels: string[]): string[] {
     .map(String);
 }
 
+export function isSafePaginationControl(role: string, label: string): boolean {
+  return (role === "link" || role === "button") && /^\d{1,3}$/.test(label.trim()) && Number(label.trim()) >= 1 && Number(label.trim()) <= 100;
+}
+
 export function isRemittanceGeneratorUrl(currentUrl: string, allowedOrigin: string): boolean {
   try {
     const current = new URL(currentUrl);
