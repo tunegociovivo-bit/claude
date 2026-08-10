@@ -19,7 +19,7 @@
 import type { AuthorizedJob, AdapterHooks, SantanderAdapter, StepOutcome } from "./types.js";
 import { isForbiddenActionLabel } from "./types.js";
 import { loadSelectors, type SantanderSelectors, type SelectorSpec } from "./selectors.js";
-import { decideLoginAction } from "./login.js";
+import { decideLoginAction, isAuthenticatedSantanderUrl } from "./login.js";
 import { hasEncryptedCredential, readEncryptedAccessKey } from "../credential-store.js";
 
 const STEP_TIMEOUT_MS = 15000;
@@ -73,7 +73,7 @@ export class LiveSantanderAdapter implements SantanderAdapter {
       await hooks.onProgress("CHECK_ALLOWLIST", "Pestaña en dominio oficial verificada");
 
       // 3) Sesión lista (no la iniciamos nosotros).
-      if (!(await this.visible(page, S.sessionReady))) {
+      if (!(await this.visible(page, S.sessionReady)) && !isAuthenticatedSantanderUrl(page.url(), this.opts.santanderOrigin)) {
         const loginResult = await this.trySavedLogin(page, S);
         if (!loginResult.ok) return this.pause(hooks, loginResult.reason);
         await hooks.onProgress("CHECK_SESSION", "Acceso solicitado en el dominio oficial de Santander");
@@ -183,7 +183,7 @@ export class LiveSantanderAdapter implements SantanderAdapter {
       const enter = page.getByRole("button", { name: /^entrar$/i });
       if (await enter.count() !== 1) return { ok: false, reason: "No encuentro un único botón Entrar verificable en Santander." };
       await enter.click({ timeout: STEP_TIMEOUT_MS });
-      if (!(await this.visible(page, selectors.sessionReady))) {
+      if (!(await this.visible(page, selectors.sessionReady)) && !isAuthenticatedSantanderUrl(page.url(), this.opts.santanderOrigin)) {
         return { ok: false, reason: "Santander requiere OTP, confirmación móvil o intervención. Autorízalo en tu teléfono y reanuda el trabajo." };
       }
       return { ok: true };

@@ -27,3 +27,16 @@ export function decideLoginAction(facts: LoginFacts): LoginAction {
       ? "SUBMIT_SAVED_KEY" : "PAUSE";
   } catch { return "PAUSE"; }
 }
+
+export function isAuthenticatedSantanderUrl(currentUrl: string, allowedOrigin: string): boolean {
+  try {
+    const current = new URL(currentUrl);
+    const allowed = new URL(allowedOrigin);
+    return current.protocol === "https:"
+      && allowed.protocol === "https:"
+      && current.origin === allowed.origin
+      && current.pathname.startsWith("/paas/nwe/app/");
+  } catch {
+    return false;
+  }
+}
