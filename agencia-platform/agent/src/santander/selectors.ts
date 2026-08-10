@@ -45,6 +45,8 @@ export interface SantanderSelectors {
   continueAction: SelectorSpec;
   /** Importe mostrado, solo para cotejo: nunca se modifica. */
   amountLabel: SelectorSpec;
+  /** Campo de importe de la única orden recurrente, modificable al total autorizado. */
+  amountField: SelectorSpec;
   /** Elemento que muestra el cliente/deudor (para cotejo). */
   clientLabel: SelectorSpec;
   /** Elemento que muestra el IBAN (enmascarado) del deudor (para cotejo). */
@@ -65,7 +67,7 @@ export interface SantanderSelectors {
 
 const REQUIRED_KEYS: (keyof SantanderSelectors)[] = [
   "sessionReady", "remittancesNav", "previousRemittance", "rowMenuAction", "editAction",
-  "modifyRemittanceAction", "chargeDateField", "continueAction", "amountLabel", "clientLabel",
+  "modifyRemittanceAction", "chargeDateField", "continueAction", "amountLabel", "amountField", "clientLabel",
   "firstSendAction", "directDebitOption", "acceptAction", "secondSendAction",
   "pendingSignatureIndicator", "signLaterAction"
 ];

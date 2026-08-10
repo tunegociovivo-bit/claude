@@ -19,7 +19,7 @@
 import type { AuthorizedJob, AdapterHooks, SantanderAdapter, StepOutcome } from "./types.js";
 import { isForbiddenActionLabel } from "./types.js";
 import { loadSelectors, type SantanderSelectors, type SelectorSpec } from "./selectors.js";
-import { decideLoginAction, isAuthenticatedSantanderUrl, isRemittanceGeneratorUrl, numericPageLabels } from "./login.js";
+import { decideLoginAction, formatSantanderAmount, isAuthenticatedSantanderUrl, isRemittanceGeneratorUrl, numericPageLabels, parseDisplayedAmountCents } from "./login.js";
 import { hasEncryptedCredential, readEncryptedAccessKey } from "../credential-store.js";
 
 const STEP_TIMEOUT_MS = 15000;
@@ -115,7 +115,16 @@ export class LiveSantanderAdapter implements SantanderAdapter {
       if (shownClient && job.clientName && !normalize(shownClient).includes(normalize(job.clientName)) && !normalize(job.clientName).includes(normalize(shownClient))) {
         return this.pause(hooks, `Discrepancia de cliente: portal "${shownClient}" vs autorizado "${job.clientName}".`);
       }
-      const shownAmount = await this.text(app, S.amountLabel);
+      let shownAmount = await this.text(app, S.amountLabel);
+      if (parseDisplayedAmountCents(shownAmount ?? "") !== job.amountCents) {
+        const amountFields = this.locator(app, S.amountField);
+        if (await amountFields.count() !== 1) return this.pause(hooks, "No encuentro un único campo de importe verificable para la orden recurrente.");
+        await amountFields.fill(formatSantanderAmount(job.amountCents), { timeout: STEP_TIMEOUT_MS });
+        await amountFields.press("Tab", { timeout: STEP_TIMEOUT_MS });
+        await app.waitForTimeout(500);
+        shownAmount = await this.text(app, S.amountLabel);
+        await hooks.onProgress("EDIT_AUTHORIZED", `Importe actualizado al total autorizado de ${amount} EUR`);
+      }
       if (!shownAmount || !this.amountMatches(shownAmount, amount)) {
         return this.pause(hooks, `Discrepancia de importe: portal "${shownAmount ?? "no visible"}" vs autorizado "${amount} EUR".`);
       }

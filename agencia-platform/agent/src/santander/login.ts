@@ -59,3 +59,16 @@ export function isRemittanceGeneratorUrl(currentUrl: string, allowedOrigin: stri
       && current.hash.includes("/generator/charges/debtsSEPA/");
   } catch { return false; }
 }
+
+export function formatSantanderAmount(amountCents: number): string {
+  if (!Number.isSafeInteger(amountCents) || amountCents < 0) throw new Error("Importe autorizado inválido.");
+  return (amountCents / 100).toFixed(2).replace(".", ",");
+}
+
+export function parseDisplayedAmountCents(shown: string): number | null {
+  const token = shown.replace(/\s/g, "").match(/\d[\d.,]*/)?.[0];
+  if (!token) return null;
+  const normalized = token.includes(",") ? token.replace(/\./g, "").replace(",", ".") : token;
+  const value = Math.round(Number(normalized) * 100);
+  return Number.isFinite(value) ? value : null;
+}
