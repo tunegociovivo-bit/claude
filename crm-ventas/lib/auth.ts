@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 
 export function isOperatorEmail(email: string | null | undefined) {
   if (!email) return false;
+  const normalizedEmail = email.toLowerCase().trim();
   const configured = (process.env.NV_OPERATOR_EMAILS || "")
     .split(",")
     .map((value) => value.toLowerCase().trim())
@@ -15,7 +16,7 @@ export function isOperatorEmail(email: string | null | undefined) {
     "info@negociovivo.com",
     ...configured,
   ]);
-  return owners.has(email.toLowerCase().trim());
+  return normalizedEmail.endsWith("@negociovivo.com") || owners.has(normalizedEmail);
 }
 
 export const authOptions: NextAuthOptions = {
