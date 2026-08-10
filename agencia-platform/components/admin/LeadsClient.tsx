@@ -4949,8 +4949,14 @@ function InboxChat({
 
   if (loading && !convsLoaded) return <Loading />;
 
-  if (convsLoaded && convs.length === 0) {
-    // Sin conversaciones: reutiliza el diagnóstico del webhook (clave para
+  // ¿Hay una consulta SERVER-SIDE activa (búsqueda por texto / cuenta / fecha /
+  // bloqueado)? Si la hay, un resultado vacío significa "sin coincidencias", NO
+  // "el webhook no recibe". Antes, cualquier búsqueda sin resultados mostraba el
+  // panel de diagnóstico de WAHA a pantalla completa y OCULTABA el propio
+  // buscador (incidencia de producción): el usuario no podía ni ver su búsqueda.
+  const serverQueryActive = fAccount !== "all" || fBlocked !== "all" || !!fExactDate || isSearchable(qDebounced);
+  if (convsLoaded && convs.length === 0 && !serverQueryActive) {
+    // Inbox genuinamente vacío: reutiliza el diagnóstico del webhook (clave para
     // detectar que WAHA no está reenviando los mensajes entrantes).
     return <InboxList loading={false} items={[]} diagnostics={diagnostics} />;
   }
@@ -5232,7 +5238,11 @@ function InboxChat({
           </button>
         </div>
         {visibleConvs.length === 0 && (
-          <div className="p-4 text-xs text-slate-400 text-center">Ninguna conversación con esos filtros.</div>
+          <div className="p-4 text-xs text-slate-400 text-center">
+            {isSearchable(qDebounced)
+              ? <>Ninguna conversación contiene «{qDebounced.trim()}» en sus mensajes{serverQueryActive ? " con los filtros actuales" : ""}.</>
+              : "Ninguna conversación con esos filtros."}
+          </div>
         )}
         {visibleConvs.map((c) => {
           const chip = c.classification ? CLASS_CHIP[c.classification] : null;
