@@ -26,6 +26,21 @@ model Workspace {
   messages     Message[]
   calls        Call[]
   vapiPhoneConnection VapiPhoneConnection?
+  googleCalendarConnection GoogleCalendarConnection?
+}
+
+model GoogleCalendarConnection {
+  id              String   @id @default(cuid())
+  workspaceId     String   @unique
+  googleEmail     String?
+  calendarId      String   @default("primary")
+  refreshTokenEnc String   @db.Text
+  accessTokenEnc  String?  @db.Text
+  expiresAt       DateTime?
+  connectedAt     DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 }
 
 model GlobalAdminConfig {
@@ -116,6 +131,7 @@ model Appointment {
   callId        String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
+  googleEventId String?
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   contact   Contact?  @relation(fields: [contactId], references: [id], onDelete: SetNull)

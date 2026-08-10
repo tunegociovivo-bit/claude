@@ -5,6 +5,7 @@ import BusinessPhoneCard from "@/components/BusinessPhoneCard";
 import WahaConnectionCard from "@/components/WahaConnectionCard";
 import UsersCard from "@/components/UsersCard";
 import LogoCard from "@/components/LogoCard";
+import GoogleCalendarCard from "@/components/GoogleCalendarCard";
 
 type SettingsData = {
   sonia: {
@@ -300,6 +301,7 @@ export default function AjustesClient() {
         </label>
       </section>
 
+      <GoogleCalendarCard />
       <LogoCard />
       <UsersCard />
     </div>

@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { findOrCreateContactByPhone, moveContactToStage } from "@/lib/contacts";
 import { getWorkspaceSettings } from "@/lib/settings";
+import { syncAppointmentToGoogle } from "@/lib/google-calendar";
 
 export type BookingResult =
   | { ok: true; appointmentId: string; startsAt: string }
@@ -297,6 +298,11 @@ export async function bookAppointment(opts: {
   }, { timeout: 10_000 });
 
   if (result.ok && contactId) await moveContactToStage(contactId, "citas");
+  if (result.ok) {
+    await syncAppointmentToGoogle(opts.workspaceId, result.appointmentId).catch((error) =>
+      console.error("[google-calendar] sincronización de cita:", error)
+    );
+  }
 
   return result;
 }
@@ -324,5 +330,8 @@ export async function cancelAppointmentByPhoneAndTime(opts: {
     where: { id: appt.id },
     data: { status: "cancelada" },
   });
+  await syncAppointmentToGoogle(opts.workspaceId, appt.id).catch((error) =>
+    console.error("[google-calendar] cancelación:", error)
+  );
   return { ok: true };
 }
