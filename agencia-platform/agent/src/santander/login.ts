@@ -92,3 +92,8 @@ export function isEnvioremFrameUrl(currentUrl: string, allowedOrigin: string): b
 export function shouldWaitForRemittanceList(templateVisible: boolean, pageLabels: string[], attempt: number, maxAttempts: number): boolean {
   return !templateVisible && pageLabels.length === 0 && attempt < maxAttempts;
 }
+
+export function uniqueVisibleIndex(visibility: boolean[]): number | null {
+  const indexes = visibility.map((visible, index) => visible ? index : -1).filter((index) => index >= 0);
+  return indexes.length === 1 ? indexes[0] : null;
+}

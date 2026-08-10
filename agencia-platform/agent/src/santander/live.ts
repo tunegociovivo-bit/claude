@@ -19,7 +19,7 @@
 import type { AuthorizedJob, AdapterHooks, SantanderAdapter, StepOutcome } from "./types.js";
 import { isForbiddenActionLabel } from "./types.js";
 import { loadSelectors, type SantanderSelectors, type SelectorSpec } from "./selectors.js";
-import { decideLoginAction, formatSantanderAmount, isAuthenticatedSantanderUrl, isEnvioremFrameUrl, isRemittanceGeneratorUrl, isSafeReconnectLabel, numericPageLabels, parseDisplayedAmountCents, shouldWaitForAmountConfirmation, shouldWaitForRemittanceList } from "./login.js";
+import { decideLoginAction, formatSantanderAmount, isAuthenticatedSantanderUrl, isEnvioremFrameUrl, isRemittanceGeneratorUrl, isSafeReconnectLabel, numericPageLabels, parseDisplayedAmountCents, shouldWaitForAmountConfirmation, shouldWaitForRemittanceList, uniqueVisibleIndex } from "./login.js";
 import { hasEncryptedCredential, readEncryptedAccessKey } from "../credential-store.js";
 
 const STEP_TIMEOUT_MS = 15000;
@@ -139,7 +139,7 @@ export class LiveSantanderAdapter implements SantanderAdapter {
       if (!(await this.safeClick(app, S.firstSendAction))) return this.pause(hooks, "No encuentro el primer Enviar o su etiqueta no es segura.");
       const sendFrame = await this.findEnvioremFrame(page);
       if (!sendFrame) return this.pause(hooks, "No encuentro el marco oficial de selección del tipo de envío.");
-      if (!(await this.click(sendFrame, S.directDebitOption))) return this.pause(hooks, "No encuentro Domiciliaciones SEPA CORE/COR1.");
+      if (!(await this.clickUniqueVisible(sendFrame, S.directDebitOption))) return this.pause(hooks, "No encuentro una única opción visible de Domiciliaciones SEPA CORE/COR1.");
       if (!(await this.safeClick(sendFrame, S.acceptAction))) return this.pause(hooks, "No encuentro Aceptar.");
       if (!(await this.safeClick(sendFrame, S.secondSendAction))) return this.pause(hooks, "No encuentro el segundo Enviar o su etiqueta no es segura.");
       await hooks.onProgress("PREPARE_FOR_SIGNATURE", "Remesa dejada lista para firma (sin firmar)");
@@ -315,6 +315,18 @@ export class LiveSantanderAdapter implements SantanderAdapter {
       const el = this.locator(page, spec).first();
       await el.waitFor({ state: "visible", timeout: STEP_TIMEOUT_MS });
       await el.click({ timeout: STEP_TIMEOUT_MS });
+      return true;
+    } catch { return false; }
+  }
+
+  private async clickUniqueVisible(page: any, spec: SelectorSpec): Promise<boolean> {
+    try {
+      const matches = this.locator(page, spec);
+      const visibility: boolean[] = [];
+      for (let index = 0; index < await matches.count(); index++) visibility.push(await matches.nth(index).isVisible().catch(() => false));
+      const index = uniqueVisibleIndex(visibility);
+      if (index === null) return false;
+      await matches.nth(index).click({ timeout: STEP_TIMEOUT_MS });
       return true;
     } catch { return false; }
   }
