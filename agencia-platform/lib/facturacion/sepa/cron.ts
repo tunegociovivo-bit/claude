@@ -9,6 +9,7 @@ import { prisma } from "@/lib/db/prisma";
 import { expireStaleRequests, createRequestsForCandidates } from "./remittance";
 import { reclaimExpiredLeases } from "./agent";
 import { syncApprovedHoldedInvoices } from "./holded-auto-sync";
+import { madridBusinessDayWindow } from "./recency";
 
 export async function runSepaCronAllWorkspaces(): Promise<any[]> {
   const workspaces = await prisma.workspace.findMany({ select: { id: true } });
@@ -36,11 +37,15 @@ export async function runSepaCronAllWorkspaces(): Promise<any[]> {
     }
     if (autoScan) {
       try {
-        // El cron solo notifica facturas recién sincronizadas. El escaneo
-        // manual del HUB conserva la capacidad de revisar candidatas antiguas.
+        // El cron solo notifica facturas emitidas hoy (fecha fiscal real),
+        // aunque una sincronización haya importado documentos históricos.
+        // Incluye ayer como recuperación ante una caída o una factura emitida
+        // cerca de medianoche; el límite superior excluye fechas futuras.
+        const window = madridBusinessDayWindow(new Date(), 1);
         r.scan = await createRequestsForCandidates(ws.id, null, {
           max: 50,
-          createdAfter: new Date(Date.now() - 10 * 60 * 1000)
+          issuedAfter: window.start,
+          issuedBefore: window.end
         });
       } catch (e: any) {
         r.scanError = String(e?.message ?? e);

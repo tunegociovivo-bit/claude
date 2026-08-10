@@ -13,6 +13,7 @@ import { sendEmail, isEmailEnabled } from "@/lib/integrations/email";
 import { generateApprovalToken, hashToken, safeEqualHex, TOKEN_TTL_MS } from "./token";
 import { evaluateCandidacy, NEGOCIO_VIVO_ISSUER_NAME } from "./candidates";
 import { getSantanderProviderStatus } from "./santander-provider";
+import { madridBusinessDayWindow } from "./recency";
 
 /** Destinatario del email de aprobación (configurable). */
 function approvalRecipient(): string {
@@ -51,7 +52,7 @@ export type CandidateInvoice = {
  */
 export async function findCandidateInvoices(
   workspaceId: string,
-  opts?: { take?: number; skip?: number; createdAfter?: Date }
+  opts?: { take?: number; skip?: number; issuedAfter?: Date; issuedBefore?: Date }
 ): Promise<CandidateInvoice[]> {
   const nv = await getNegocioVivoIssuer(workspaceId);
   if (!nv) return [];
@@ -68,7 +69,9 @@ export async function findCandidateInvoices(
       paidAt: null,
       clientId: { not: null },
       number: { not: null },
-      ...(opts?.createdAfter ? { createdAt: { gte: opts.createdAfter } } : {})
+      ...(opts?.issuedAfter || opts?.issuedBefore
+        ? { issueDate: { ...(opts.issuedAfter ? { gte: opts.issuedAfter } : {}), ...(opts.issuedBefore ? { lt: opts.issuedBefore } : {}) } }
+        : {})
     },
     orderBy: { issueDate: "desc" },
     take,
@@ -269,10 +272,16 @@ async function notifyApproval(requestId: string, token: string, inv: any, create
 export async function createRequestsForCandidates(
   workspaceId: string,
   createdById?: string | null,
-  opts?: { max?: number; createdAfter?: Date }
-): Promise<{ created: number; skipped: number; examined: number; eligible: number }> {
+  opts?: { max?: number; issuedAfter?: Date; issuedBefore?: Date }
+): Promise<{ created: number; skipped: number; examined: number; eligible: number; invalidated: number }> {
   const max = Math.min(opts?.max ?? 50, 200);
-  const all = await findCandidateInvoices(workspaceId, { take: 300, createdAfter: opts?.createdAfter });
+  // Defensa central: ningún caller puede omitir por accidente el límite de
+  // fecha y volver a convertir una importación histórica en remesa nueva.
+  const defaultWindow = madridBusinessDayWindow();
+  const issuedAfter = opts?.issuedAfter ?? defaultWindow.start;
+  const issuedBefore = opts?.issuedBefore ?? defaultWindow.end;
+  const invalidated = await invalidateKnownFalseHistoricalRequests(workspaceId, createdById);
+  const all = await findCandidateInvoices(workspaceId, { take: 300, issuedAfter, issuedBefore });
   const eligible = all.filter((c) => c.eligible).slice(0, max);
   let created = 0;
   let skipped = 0;
@@ -285,7 +294,63 @@ export async function createRequestsForCandidates(
       skipped++;
     }
   }
-  return { created, skipped, examined: all.length, eligible: eligible.length };
+  return { created, skipped, examined: all.length, eligible: eligible.length, invalidated };
+}
+
+// Incidente confirmado el 10/08/2026. La limpieza se limita a estas dos
+// solicitudes concretas para no invalidar remesas históricas deliberadas.
+const KNOWN_FALSE_HISTORICAL_REQUESTS = [
+  { invoiceNumber: "FAC-003005", clientName: "2M2 ROPA DE TRABAJO, S.L.", amountCents: 24200 },
+  { invoiceNumber: "FAC-002859", clientName: "Chuthatip Soichampa", amountCents: 14520 }
+] as const;
+
+// Ventana del incidente conocido. Es deliberadamente finita: esta limpieza no
+// debe convertirse en una regla permanente para facturas históricas legítimas.
+const FALSE_IMPORT_INCIDENT_START = new Date("2026-08-09T22:00:00.000Z");
+const FALSE_IMPORT_INCIDENT_END = new Date("2026-08-10T22:00:00.000Z");
+
+async function invalidateKnownFalseHistoricalRequests(
+  workspaceId: string,
+  userId?: string | null
+): Promise<number> {
+  const pending = await prisma.sepaRemittanceRequest.findMany({
+    where: {
+        workspaceId,
+        status: "PENDING_APPROVAL",
+        createdAt: { gte: FALSE_IMPORT_INCIDENT_START, lt: FALSE_IMPORT_INCIDENT_END },
+        OR: KNOWN_FALSE_HISTORICAL_REQUESTS.map((item) => ({
+          invoiceNumber: { equals: item.invoiceNumber, mode: "insensitive" as const },
+          clientName: { equals: item.clientName, mode: "insensitive" as const },
+          amountCents: item.amountCents
+        }))
+    },
+    select: { id: true }
+  });
+  let invalidated = 0;
+  for (const request of pending) {
+    const now = new Date();
+    const result = await prisma.sepaRemittanceRequest.updateMany({
+      where: { id: request.id, workspaceId, status: "PENDING_APPROVAL" },
+      data: {
+        status: "REJECTED",
+        rejectedAt: now,
+        rejectedById: userId ?? null,
+        rejectReason: "Factura histórica importada hoy; no fue emitida en la fecha del escaneo.",
+        tokenUsedAt: now
+      }
+    });
+    if (result.count === 1) {
+      invalidated++;
+      await logEvent(
+        request.id,
+        "PENDING_APPROVAL",
+        "REJECTED",
+        userId,
+        "Invalidada automáticamente: fecha de emisión anterior al día del escaneo"
+      );
+    }
+  }
+  return invalidated;
 }
 
 function fmtAmount(cents: number, currency: string): string {
