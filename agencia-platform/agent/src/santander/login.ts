@@ -76,3 +76,7 @@ export function parseDisplayedAmountCents(shown: string): number | null {
 export function isSafeReconnectLabel(label: string): boolean {
   return label.trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase() === "volver a conectar";
 }
+
+export function shouldWaitForAmountConfirmation(currentCents: number | null, expectedCents: number, attempt: number, maxAttempts: number): boolean {
+  return currentCents !== expectedCents && attempt < maxAttempts;
+}
