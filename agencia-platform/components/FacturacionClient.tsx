@@ -1,11 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Building2, Users, X, Loader2, Search, Check, FileText, Wallet, Upload, Download } from "lucide-react";
+import { Building2, Users, X, Loader2, Search, Check, FileText, Wallet, Upload, Download, Landmark } from "lucide-react";
 import { formatMoney } from "@/lib/invoicing/core";
 import FacturasClient from "@/components/admin/FacturasClient";
 import GastosClient from "@/components/GastosClient";
 import ImporterClient from "@/components/admin/ImporterClient";
+import ReconciliationClient from "@/components/facturacion/ReconciliationClient";
 
 const MONTH_LABEL = new Intl.DateTimeFormat("es-ES", { month: "long", year: "numeric" });
 type MonthSummary = {
@@ -70,7 +71,7 @@ export default function FacturacionClient({
     }
   }
   const [seeding, setSeeding] = useState(false);
-  const [tab, setTab] = useState<"facturas" | "gastos" | "importar">("facturas");
+  const [tab, setTab] = useState<"facturas" | "gastos" | "importar" | "conciliacion">("facturas");
 
   const missingDefaults = DEFAULT_NAMES.filter(
     (n) => !issuers.some((i) => i.name.toLowerCase().trim() === n.toLowerCase().trim())
@@ -299,11 +300,16 @@ export default function FacturacionClient({
           <TabButton active={tab === "importar"} onClick={() => setTab("importar")} icon={<Upload className="h-4 w-4" />}>
             Importar facturas
           </TabButton>
+          <TabButton active={tab === "conciliacion"} onClick={() => setTab("conciliacion")} icon={<Landmark className="h-4 w-4" />}>
+            Conciliación bancaria
+          </TabButton>
         </div>
       )}
 
       {/* Contenido de la pestaña activa, limitado a la empresa elegida */}
-      {tab === "gastos" && selected ? (
+      {tab === "conciliacion" && selected ? (
+        <ReconciliationClient />
+      ) : tab === "gastos" && selected ? (
         <GastosClient key={`g-${selected.id}`} issuerId={selected.id} onExpensesChanged={bump} />
       ) : tab === "importar" && selected ? (
         <div className="space-y-3">

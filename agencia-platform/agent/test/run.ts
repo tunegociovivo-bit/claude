@@ -12,6 +12,7 @@ import { MockSantanderAdapter, type MockAnomaly } from "../src/santander/mock.js
 import { isForbiddenActionLabel } from "../src/santander/types.js";
 import type { AdapterHooks, AuthorizedJob } from "../src/santander/types.js";
 import { sanitize } from "../src/logger.js";
+import { parseSantanderMovementText } from "../src/santander/reconciliation.js";
 import { amountFieldIsConfirmed, amountSummaryIsConfirmed, buildRemittanceGeneratorUrl, canContinueToDirectDebit, classifyLoginCompletion, decideLoginAction, formatSantanderAmount, hasVerifiedPendingSignature, isAuthenticatedSantanderUrl, isEnvioremFrameUrl, isRemittanceGeneratorUrl, isSafeBasicPaymentsLabel, isSafePaginationControl, isSafeReconnectLabel, isSafeRemittanceGenerationLabel, numericPageLabels, parseDisplayedAmountCents, shouldAttemptSavedLogin, shouldRetryVisibleOption, shouldWaitForAmountConfirmation, shouldWaitForLoginCompletion, shouldWaitForRemittanceList, uniqueVisibleIndex, validateAccessKey } from "../src/santander/login.js";
 
 let passed = 0;
@@ -47,6 +48,11 @@ async function runScenario(anomaly: MockAnomaly, opts?: any) {
 }
 
 async function main() {
+  console.log("Conciliación de cobros:");
+  const incoming = parseSantanderMovementText("10/08/2026 RS ADVOCATS Cobro FAC-003024 +363,00 EUR");
+  ok("lee un abono Santander", incoming?.amountCents === 36300 && incoming.reference.includes("FAC-003024"));
+  ok("ignora un cargo Santander", parseSantanderMovementText("10/08/2026 COMISIÓN -12,00 EUR") === null);
+
   console.log("Acceso seguro a Santander:");
   ok("acepta una clave de acceso de ocho caracteres", validateAccessKey("12345678") === "12345678");
   for (const candidate of ["", "1234567", "123456789", "1234 678", "1234\n678"]) {

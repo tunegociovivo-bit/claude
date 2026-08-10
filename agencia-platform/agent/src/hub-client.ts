@@ -22,6 +22,12 @@ export interface ClaimedJob {
   leaseUntil: string;
 }
 
+export interface ReconciliationConfig {
+  enabled: boolean;
+  startsAt: string;
+  pollMinutes: number;
+}
+
 export class HubClient {
   constructor(private cfg: AgentConfig) {}
 
@@ -42,6 +48,11 @@ export class HubClient {
     });
     const json = await res.json().catch(() => ({}));
     return { status: res.status, json };
+  }
+
+  private async get(path: string): Promise<{ status: number; json: any }> {
+    const res = await fetch(this.base(path), { headers: { Authorization: `Bearer ${this.cfg.agentToken}` } });
+    return { status: res.status, json: await res.json().catch(() => ({})) };
   }
 
   async heartbeat(): Promise<boolean> {
@@ -74,5 +85,16 @@ export class HubClient {
   async completeFailed(jobId: string, error: string): Promise<void> {
     const { status } = await this.post(`/jobs/${jobId}/complete`, { result: "FAILED", error });
     if (status !== 200) throw new Error(`complete(failed) falló (${status})`);
+  }
+
+  async reconciliationConfig(): Promise<ReconciliationConfig | null> {
+    const { status, json } = await this.get("/reconciliation/config");
+    return status === 200 ? json as ReconciliationConfig : null;
+  }
+
+  async reportMovements(movements: any[]): Promise<{ imported: number; matched: number }> {
+    const { status, json } = await this.post("/reconciliation/transactions", { movements });
+    if (status !== 200) throw new Error(`reconciliation falló (${status})`);
+    return { imported: Number(json.imported ?? 0), matched: Number(json.matched ?? 0) };
   }
 }
