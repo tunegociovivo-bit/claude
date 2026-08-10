@@ -19,7 +19,7 @@
 import type { AuthorizedJob, AdapterHooks, SantanderAdapter, StepOutcome } from "./types.js";
 import { isForbiddenActionLabel } from "./types.js";
 import { loadSelectors, type SantanderSelectors, type SelectorSpec } from "./selectors.js";
-import { decideLoginAction, formatSantanderAmount, isAuthenticatedSantanderUrl, isRemittanceGeneratorUrl, numericPageLabels, parseDisplayedAmountCents } from "./login.js";
+import { decideLoginAction, formatSantanderAmount, isAuthenticatedSantanderUrl, isRemittanceGeneratorUrl, isSafeReconnectLabel, numericPageLabels, parseDisplayedAmountCents } from "./login.js";
 import { hasEncryptedCredential, readEncryptedAccessKey } from "../credential-store.js";
 
 const STEP_TIMEOUT_MS = 15000;
@@ -168,6 +168,13 @@ export class LiveSantanderAdapter implements SantanderAdapter {
   }
 
   private async trySavedLogin(page: any, selectors: SantanderSelectors): Promise<{ ok: true } | { ok: false; reason: string }> {
+    const reconnect = page.getByRole("button", { name: /^volver a conectar$/i });
+    if (await reconnect.count() === 1 && await reconnect.isVisible().catch(() => false)) {
+      const label = (await reconnect.innerText()).trim();
+      if (!isSafeReconnectLabel(label)) return { ok: false, reason: "La ventana de sesión caducada no ofrece una reconexión segura verificable." };
+      await reconnect.click({ timeout: STEP_TIMEOUT_MS });
+      await page.waitForTimeout(500);
+    }
     const fields = page.locator('input[type="text"]');
     const visibleFields: any[] = [];
     for (let i = 0; i < await fields.count(); i++) {

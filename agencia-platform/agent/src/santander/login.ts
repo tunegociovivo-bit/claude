@@ -72,3 +72,7 @@ export function parseDisplayedAmountCents(shown: string): number | null {
   const value = Math.round(Number(normalized) * 100);
   return Number.isFinite(value) ? value : null;
 }
+
+export function isSafeReconnectLabel(label: string): boolean {
+  return label.trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase() === "volver a conectar";
+}
