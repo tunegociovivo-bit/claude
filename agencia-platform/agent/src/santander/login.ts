@@ -80,3 +80,11 @@ export function isSafeReconnectLabel(label: string): boolean {
 export function shouldWaitForAmountConfirmation(currentCents: number | null, expectedCents: number, attempt: number, maxAttempts: number): boolean {
   return currentCents !== expectedCents && attempt < maxAttempts;
 }
+
+export function isEnvioremFrameUrl(currentUrl: string, allowedOrigin: string): boolean {
+  try {
+    const current = new URL(currentUrl);
+    const allowed = new URL(allowedOrigin);
+    return current.protocol === "https:" && current.origin === allowed.origin && current.pathname.startsWith("/paas/enviorem/");
+  } catch { return false; }
+}

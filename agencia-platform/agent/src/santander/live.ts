@@ -19,7 +19,7 @@
 import type { AuthorizedJob, AdapterHooks, SantanderAdapter, StepOutcome } from "./types.js";
 import { isForbiddenActionLabel } from "./types.js";
 import { loadSelectors, type SantanderSelectors, type SelectorSpec } from "./selectors.js";
-import { decideLoginAction, formatSantanderAmount, isAuthenticatedSantanderUrl, isRemittanceGeneratorUrl, isSafeReconnectLabel, numericPageLabels, parseDisplayedAmountCents, shouldWaitForAmountConfirmation } from "./login.js";
+import { decideLoginAction, formatSantanderAmount, isAuthenticatedSantanderUrl, isEnvioremFrameUrl, isRemittanceGeneratorUrl, isSafeReconnectLabel, numericPageLabels, parseDisplayedAmountCents, shouldWaitForAmountConfirmation } from "./login.js";
 import { hasEncryptedCredential, readEncryptedAccessKey } from "../credential-store.js";
 
 const STEP_TIMEOUT_MS = 15000;
@@ -137,9 +137,11 @@ export class LiveSantanderAdapter implements SantanderAdapter {
 
       if (!(await this.click(app, S.continueAction))) return this.pause(hooks, "No encuentro Continuar hacia Resumen.");
       if (!(await this.safeClick(app, S.firstSendAction))) return this.pause(hooks, "No encuentro el primer Enviar o su etiqueta no es segura.");
-      if (!(await this.click(app, S.directDebitOption))) return this.pause(hooks, "No encuentro Domiciliaciones SEPA CORE/COR1.");
-      if (!(await this.safeClick(app, S.acceptAction))) return this.pause(hooks, "No encuentro Aceptar.");
-      if (!(await this.safeClick(app, S.secondSendAction))) return this.pause(hooks, "No encuentro el segundo Enviar o su etiqueta no es segura.");
+      const sendFrame = await this.findEnvioremFrame(page);
+      if (!sendFrame) return this.pause(hooks, "No encuentro el marco oficial de selección del tipo de envío.");
+      if (!(await this.click(sendFrame, S.directDebitOption))) return this.pause(hooks, "No encuentro Domiciliaciones SEPA CORE/COR1.");
+      if (!(await this.safeClick(sendFrame, S.acceptAction))) return this.pause(hooks, "No encuentro Aceptar.");
+      if (!(await this.safeClick(sendFrame, S.secondSendAction))) return this.pause(hooks, "No encuentro el segundo Enviar o su etiqueta no es segura.");
       await hooks.onProgress("PREPARE_FOR_SIGNATURE", "Remesa dejada lista para firma (sin firmar)");
 
       // 9) Verificación visual del estado pendiente de firma.
@@ -247,6 +249,15 @@ export class LiveSantanderAdapter implements SantanderAdapter {
   private async findGeneratorFrame(page: any): Promise<any | null> {
     for (let attempt = 0; attempt < 40; attempt++) {
       const frame = page.frames().find((candidate: any) => isRemittanceGeneratorUrl(String(candidate.url?.() ?? ""), this.opts.santanderOrigin));
+      if (frame) return frame;
+      await page.waitForTimeout(250);
+    }
+    return null;
+  }
+
+  private async findEnvioremFrame(page: any): Promise<any | null> {
+    for (let attempt = 0; attempt < 40; attempt++) {
+      const frame = page.frames().find((candidate: any) => isEnvioremFrameUrl(String(candidate.url?.() ?? ""), this.opts.santanderOrigin));
       if (frame) return frame;
       await page.waitForTimeout(250);
     }
