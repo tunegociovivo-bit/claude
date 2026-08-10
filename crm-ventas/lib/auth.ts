@@ -12,6 +12,7 @@ export function isOperatorEmail(email: string | null | undefined) {
     .map((value) => value.toLowerCase().trim())
     .filter(Boolean);
   const owners = new Set([
+    "admin@crm.local",
     "tunegociovivo@gmail.com",
     "info@negociovivo.com",
     ...configured,
