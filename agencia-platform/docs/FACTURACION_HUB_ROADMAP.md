@@ -21,13 +21,14 @@ Holded debe funcionar como fuente externa durante la transición, no como núcle
 - [x] Cobros parciales incluidos en el saldo real.
 - [x] Vencimientos y alertas de los próximos siete días.
 - [x] Paginación y búsqueda eficiente.
-- [ ] Registro inmutable de eventos de factura (creación, emisión, envío, cobro y rectificación).
+- [x] Registro inmutable de eventos de factura (creación, emisión, cambios de estado, cobro y anulación).
 - [ ] Validación fiscal completa antes de emitir, con lista de errores accionable.
 - [ ] Bloqueo transaccional de numeración y prueba de concurrencia.
 
 ## Fase 2 — operación diaria
 
-- Registro de cobros parciales, métodos, fecha, referencia y conciliación.
+- [x] Registro de cobros parciales, método, fecha, referencia, notas y reversos auditables.
+- [ ] Conciliación bancaria asistida de los cobros registrados.
 - Envío de factura por email desde el HUB y seguimiento de entrega.
 - Recordatorios automáticos antes y después del vencimiento.
 - Plantillas recurrentes con calendario, vista previa y control de errores.

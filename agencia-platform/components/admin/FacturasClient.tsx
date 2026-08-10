@@ -21,7 +21,6 @@ import {
   FileText,
   Download,
   Copy,
-  CheckCircle2,
   Trash2,
   Pencil,
   CreditCard,
@@ -80,6 +79,17 @@ type InvoiceSummary = {
   dueSoonCount: number;
 };
 
+type PaymentRecord = {
+  id: string;
+  kind: "PAYMENT" | "REVERSAL";
+  amountCents: number;
+  occurredAt: string;
+  method: keyof typeof PAYMENT_METHOD_LABEL;
+  reference: string | null;
+  notes: string | null;
+  reversesPaymentId: string | null;
+};
+
 const STATUS_STYLE: Record<string, string> = {
   DRAFT: "bg-slate-100 text-slate-600",
   ISSUED: "bg-blue-50 text-blue-700",
@@ -133,6 +143,7 @@ export default function FacturasClient({
   const [total, setTotal] = useState(0);
   const [summary, setSummary] = useState<InvoiceSummary | null>(null);
   const [editing, setEditing] = useState<InvoiceRow | "new" | null>(null);
+  const [collecting, setCollecting] = useState<InvoiceRow | null>(null);
   const [issuersOpen, setIssuersOpen] = useState(false);
 
   const loadInvoices = useCallback(async () => {
@@ -356,15 +367,12 @@ export default function FacturasClient({
                       >
                         <Copy className="h-4 w-4" />
                       </IconBtn>
-                      {inv.status !== "PAID" && (
+                      {(["ISSUED", "PAID"].includes(inv.status)) && (
                         <IconBtn
-                          title="Marcar como pagada"
-                          onClick={async () => {
-                            await action(`/api/v1/invoices/${inv.id}/mark-paid`);
-                            loadInvoices();
-                          }}
+                          title={inv.paidCents > 0 ? "Cobros e historial" : "Registrar cobro"}
+                          onClick={() => setCollecting(inv)}
                         >
-                          <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                          <CreditCard className="h-4 w-4 text-emerald-600" />
                         </IconBtn>
                       )}
                       {inv.paymentMethod === "STRIPE" && inv.status !== "PAID" && (
@@ -415,6 +423,18 @@ export default function FacturasClient({
         />
       )}
 
+      {collecting && (
+        <PaymentModal
+          invoice={collecting}
+          onClose={() => setCollecting(null)}
+          onSaved={() => {
+            setCollecting(null);
+            void loadInvoices();
+            void loadSummary();
+          }}
+        />
+      )}
+
       {issuersOpen && (
         <IssuersModal
           issuers={issuers}
@@ -437,6 +457,147 @@ function IconBtn({ children, title, onClick }: { children: React.ReactNode; titl
 // ──────────────────────────────────────────────────────────────────
 // Modal de creación / edición de factura
 // ──────────────────────────────────────────────────────────────────
+function PaymentModal({ invoice, onClose, onSaved }: { invoice: InvoiceRow; onClose: () => void; onSaved: () => void }) {
+  const outstandingCents = Math.max(invoice.totalCents - invoice.paidCents, 0);
+  const [amount, setAmount] = useState((outstandingCents / 100).toFixed(2));
+  const [occurredAt, setOccurredAt] = useState(toDateInput(new Date()));
+  const [method, setMethod] = useState(invoice.paymentMethod || "TRANSFER");
+  const [reference, setReference] = useState("");
+  const [notes, setNotes] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [payments, setPayments] = useState<PaymentRecord[]>([]);
+  const [loadingPayments, setLoadingPayments] = useState(true);
+
+  const loadPayments = useCallback(async () => {
+    setLoadingPayments(true);
+    try {
+      const response = await fetch(`/api/v1/invoices/${invoice.id}/payments`, { cache: "no-store" });
+      if (response.ok) setPayments((await response.json()).payments ?? []);
+    } finally {
+      setLoadingPayments(false);
+    }
+  }, [invoice.id]);
+
+  useEffect(() => { void loadPayments(); }, [loadPayments]);
+
+  async function reverse(payment: PaymentRecord) {
+    const reason = prompt("Motivo de la reversión (quedará en el historial):");
+    if (reason === null) return;
+    if (reason.trim().length < 3) return alert("Indica un motivo de al menos 3 caracteres.");
+    const response = await fetch(`/api/v1/invoices/${invoice.id}/payments/${payment.id}/reverse`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reason: reason.trim() })
+    });
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      return alert(body?.message ?? body?.error?.message ?? `Error ${response.status}`);
+    }
+    onSaved();
+  }
+
+  async function save() {
+    const amountCents = Math.round(Number(amount.replace(",", ".")) * 100);
+    if (!Number.isInteger(amountCents) || amountCents <= 0 || amountCents > outstandingCents) {
+      return alert("Introduce un importe válido que no supere el saldo pendiente.");
+    }
+    setSaving(true);
+    try {
+      const response = await fetch(`/api/v1/invoices/${invoice.id}/payments`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          amountCents,
+          occurredAt: new Date(`${occurredAt}T12:00:00`).toISOString(),
+          method,
+          reference: reference || null,
+          notes: notes || null
+        })
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        return alert(body?.message ?? body?.error?.message ?? `Error ${response.status}`);
+      }
+      onSaved();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const inputCls = "w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500";
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg">
+        <div className="flex items-center justify-between px-5 py-4 border-b">
+          <div>
+            <h2 className="font-semibold">Cobros de la factura</h2>
+            <p className="text-xs text-slate-500">{invoice.number} · {invoice.client?.name ?? "Sin cliente"}</p>
+          </div>
+          <button onClick={onClose} className="p-1 rounded-md hover:bg-slate-100"><X className="h-5 w-5" /></button>
+        </div>
+        <div className="p-5 space-y-4">
+          <div className="rounded-xl bg-slate-50 p-3 flex justify-between text-sm">
+            <span className="text-slate-500">Saldo pendiente</span>
+            <strong>{formatMoney(outstandingCents, invoice.currency)}</strong>
+          </div>
+          {outstandingCents > 0 && <><div className="grid grid-cols-2 gap-3">
+            <label className="text-xs text-slate-500">Importe
+              <input autoFocus value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="decimal" className={`${inputCls} mt-1`} />
+            </label>
+            <label className="text-xs text-slate-500">Fecha del cobro
+              <input type="date" value={occurredAt} onChange={(e) => setOccurredAt(e.target.value)} className={`${inputCls} mt-1`} />
+            </label>
+          </div>
+          <label className="block text-xs text-slate-500">Método
+            <select value={method} onChange={(e) => setMethod(e.target.value)} className={`${inputCls} mt-1`}>
+              {PAYMENT_METHODS.map((value) => <option key={value} value={value}>{PAYMENT_METHOD_LABEL[value]}</option>)}
+            </select>
+          </label>
+          <label className="block text-xs text-slate-500">Referencia bancaria o recibo
+            <input value={reference} onChange={(e) => setReference(e.target.value)} className={`${inputCls} mt-1`} />
+          </label>
+          <label className="block text-xs text-slate-500">Notas internas
+            <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} className={`${inputCls} mt-1`} />
+          </label>
+          </>}
+
+          <div className="border-t pt-4">
+            <h3 className="text-sm font-semibold mb-2">Historial inmutable</h3>
+            {loadingPayments ? <p className="text-xs text-slate-400">Cargando cobros…</p> : payments.length === 0 ? (
+              <p className="text-xs text-slate-400">Todavía no hay movimientos.</p>
+            ) : (
+              <div className="space-y-2 max-h-48 overflow-y-auto">
+                {payments.map((payment) => {
+                  const reversed = payment.kind === "PAYMENT" && payments.some((item) => item.reversesPaymentId === payment.id);
+                  return <div key={payment.id} className="flex items-start justify-between gap-3 rounded-lg border p-2.5 text-xs">
+                    <div>
+                      <div className="font-medium">
+                        {payment.kind === "REVERSAL" ? "Reversión" : "Cobro"} · {formatMoney(Math.abs(payment.amountCents), invoice.currency)}
+                      </div>
+                      <div className="text-slate-500">{toDateInput(payment.occurredAt)} · {PAYMENT_METHOD_LABEL[payment.method] ?? payment.method}</div>
+                      {(payment.reference || payment.notes) && <div className="text-slate-400 mt-0.5">{payment.reference || payment.notes}</div>}
+                    </div>
+                    {payment.kind === "PAYMENT" && !reversed && (
+                      <button onClick={() => reverse(payment)} className="text-rose-600 hover:underline">Revertir</button>
+                    )}
+                    {reversed && <span className="text-slate-400">Revertido</span>}
+                  </div>;
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+        <div className="flex justify-end gap-2 px-5 py-3 border-t">
+          <button onClick={onClose} className="text-sm px-3 py-2 rounded-lg border hover:bg-slate-50">Cancelar</button>
+          {outstandingCents > 0 && <button disabled={saving} onClick={save} className="text-sm px-4 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50">
+            {saving ? "Guardando…" : "Registrar cobro"}
+          </button>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function InvoiceFormModal({
   invoice,
   clients,

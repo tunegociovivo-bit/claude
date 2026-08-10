@@ -65,8 +65,18 @@ export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api }) 
   if (!parsed.success) throw new ApiError(400, "validation_error", parsed.error.message);
 
   const data = await buildInvoiceData({ workspaceId: api.workspaceId, input: parsed.data });
-  const invoice = await prisma.invoice.create({
-    data: { ...data, workspaceId: api.workspaceId }
+  const invoice = await prisma.$transaction(async (tx) => {
+    const created = await tx.invoice.create({ data: { ...data, workspaceId: api.workspaceId } });
+    await tx.invoiceEvent.create({
+      data: {
+        workspaceId: api.workspaceId,
+        invoiceId: created.id,
+        type: created.number ? "INVOICE_ISSUED" : "INVOICE_CREATED",
+        actorId: api.userId,
+        data: { status: created.status, number: created.number }
+      }
+    });
+    return created;
   });
   return NextResponse.json(invoice, { status: 201 });
 });
