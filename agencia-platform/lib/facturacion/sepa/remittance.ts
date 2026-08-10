@@ -465,8 +465,12 @@ export async function decideByToken(
   // y avisa por email. NO firma ni cobra; el agente lo dejará pendiente de firma.
   if (opts.action === "approve") {
     try {
-      const { createJobForApprovedRequest } = await import("./agent");
+      const { createJobForApprovedRequest, setAgentClaimingEnabled } = await import("./agent");
       await createJobForApprovedRequest(workspaceId, req.id);
+      // Aprobar expresamente una remesa autoriza también que el agente local
+      // recoja ese trabajo. Así el enlace del email arranca el flujo completo,
+      // aunque el interruptor estuviera pausado. Nunca autoriza la firma.
+      await setAgentClaimingEnabled(workspaceId, true);
     } catch (e) {
       await logEvent(req.id, "APPROVED", "APPROVED", opts.userId, "Aviso: no se pudo crear el trabajo bancario", String((e as any)?.message ?? e));
     }

@@ -323,6 +323,10 @@ function AgentTab() {
     } finally { setBusyJob(null); }
   }
 
+  function isLoginIntervention(job: Job) {
+    return job.status === "NEEDS_USER" && /sesi[oó]n iniciada|inicia sesi[oó]n|usuario\/contrase/i.test(job.needsUserReason ?? "");
+  }
+
   async function toggleLog(id: string) {
     if (openLog === id) { setOpenLog(null); return; }
     setOpenLog(id); setLogItems([]);
@@ -339,8 +343,8 @@ function AgentTab() {
             <div className="font-semibold text-slate-800">Interruptor del agente (kill switch)</div>
             <div className="text-xs text-slate-500 mt-0.5">
               {enabled === null ? "Cargando…" : enabled
-                ? "Habilitado: los agentes online pueden reclamar y preparar trabajos (nunca firman)."
-                : "Pausado: ningún agente reclama trabajos. Estado seguro por defecto."}
+                ? "Habilitado: los agentes online pueden reclamar y preparar trabajos (nunca firman). Cada aprobación por email lo habilita automáticamente."
+                : "Pausado: ningún agente reclama trabajos. Al aprobar una remesa por email se habilitará automáticamente."}
             </div>
           </div>
           <button
@@ -432,7 +436,7 @@ function AgentTab() {
                     <td className="px-3 py-2 text-xs text-slate-500">{j.attempts}</td>
                     <td className="px-3 py-2 text-right whitespace-nowrap">
                       <button onClick={() => void toggleLog(j.id)} className="px-2 py-1 rounded border text-xs hover:bg-slate-50">Log</button>
-                      {["FAILED", "CANCELLED", "NEEDS_USER"].includes(j.status) && <button onClick={() => void jobAction(j.id, "retry")} disabled={busyJob === j.id} className="ml-1 px-2 py-1 rounded border text-xs text-sky-700 hover:bg-sky-50 disabled:opacity-50">Reintentar</button>}
+                      {["FAILED", "CANCELLED", "NEEDS_USER"].includes(j.status) && <button onClick={() => void jobAction(j.id, "retry")} disabled={busyJob === j.id} className="ml-1 px-2 py-1 rounded border text-xs text-sky-700 hover:bg-sky-50 disabled:opacity-50">{isLoginIntervention(j) ? "Ya inicié sesión · reintentar" : "Reintentar"}</button>}
                       {j.status !== "PREPARED_PENDING_SIGNATURE" && j.status !== "CANCELLED" && <button onClick={() => void jobAction(j.id, "cancel")} disabled={busyJob === j.id} className="ml-1 px-2 py-1 rounded border text-xs text-rose-700 hover:bg-rose-50 disabled:opacity-50">Cancelar</button>}
                     </td>
                   </tr>
