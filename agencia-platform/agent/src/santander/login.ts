@@ -41,6 +41,10 @@ export function isAuthenticatedSantanderUrl(currentUrl: string, allowedOrigin: s
   }
 }
 
+export function shouldAttemptSavedLogin(sessionReadyVisible: boolean): boolean {
+  return !sessionReadyVisible;
+}
+
 export function numericPageLabels(labels: string[]): string[] {
   return [...new Set(labels.map((label) => label.trim()).filter((label) => /^\d{1,3}$/.test(label)))]
     .map(Number)

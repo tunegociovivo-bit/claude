@@ -19,7 +19,7 @@
 import type { AuthorizedJob, AdapterHooks, SantanderAdapter, StepOutcome } from "./types.js";
 import { isForbiddenActionLabel } from "./types.js";
 import { loadSelectors, type SantanderSelectors, type SelectorSpec } from "./selectors.js";
-import { decideLoginAction, formatSantanderAmount, isAuthenticatedSantanderUrl, isEnvioremFrameUrl, isRemittanceGeneratorUrl, isSafeBasicPaymentsLabel, isSafeReconnectLabel, isSafeRemittanceGenerationLabel, numericPageLabels, parseDisplayedAmountCents, shouldWaitForAmountConfirmation, shouldWaitForRemittanceList, uniqueVisibleIndex } from "./login.js";
+import { decideLoginAction, formatSantanderAmount, isAuthenticatedSantanderUrl, isEnvioremFrameUrl, isRemittanceGeneratorUrl, isSafeBasicPaymentsLabel, isSafeReconnectLabel, isSafeRemittanceGenerationLabel, numericPageLabels, parseDisplayedAmountCents, shouldAttemptSavedLogin, shouldWaitForAmountConfirmation, shouldWaitForRemittanceList, uniqueVisibleIndex } from "./login.js";
 import { hasEncryptedCredential, readEncryptedAccessKey } from "../credential-store.js";
 
 const STEP_TIMEOUT_MS = 15000;
@@ -73,7 +73,7 @@ export class LiveSantanderAdapter implements SantanderAdapter {
       await hooks.onProgress("CHECK_ALLOWLIST", "Pestaña en dominio oficial verificada");
 
       // 3) Sesión lista (no la iniciamos nosotros).
-      if (!(await this.visible(page, S.sessionReady)) && !isAuthenticatedSantanderUrl(page.url(), this.opts.santanderOrigin)) {
+      if (shouldAttemptSavedLogin(await this.visible(page, S.sessionReady))) {
         const loginResult = await this.trySavedLogin(page, S);
         if (!loginResult.ok) return this.pause(hooks, loginResult.reason);
         await hooks.onProgress("CHECK_SESSION", "Acceso solicitado en el dominio oficial de Santander");
@@ -168,15 +168,19 @@ export class LiveSantanderAdapter implements SantanderAdapter {
 
   private async findSantanderPage(): Promise<any> {
     const origin = this.opts.santanderOrigin.toLowerCase();
+    const candidates: any[] = [];
     for (const ctx of this.browser.contexts()) {
       for (const p of ctx.pages()) {
         try {
           const url = (p.url() || "").toLowerCase();
-          if (url.startsWith(origin)) return p;
+          if (url.startsWith(origin)) candidates.push(p);
         } catch { /* ignore */ }
       }
     }
-    return null;
+    return candidates.find((candidate) => isAuthenticatedSantanderUrl(candidate.url(), this.opts.santanderOrigin))
+      ?? candidates.find((candidate) => candidate.url().toLowerCase().startsWith(`${origin}/paas/loginnwe/`))
+      ?? candidates[0]
+      ?? null;
   }
 
   private async trySavedLogin(page: any, selectors: SantanderSelectors): Promise<{ ok: true } | { ok: false; reason: string }> {
