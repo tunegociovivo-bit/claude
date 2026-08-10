@@ -97,3 +97,7 @@ export function uniqueVisibleIndex(visibility: boolean[]): number | null {
   const indexes = visibility.map((visible, index) => visible ? index : -1).filter((index) => index >= 0);
   return indexes.length === 1 ? indexes[0] : null;
 }
+
+export function isSafeBasicPaymentsLabel(label: string): boolean {
+  return label.trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase() === "pagos y cobros basicos";
+}

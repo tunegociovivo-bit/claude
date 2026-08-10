@@ -139,6 +139,8 @@ export class LiveSantanderAdapter implements SantanderAdapter {
       if (!(await this.safeClick(app, S.firstSendAction))) return this.pause(hooks, "No encuentro el primer Enviar o su etiqueta no es segura.");
       const sendFrame = await this.findEnvioremFrame(page);
       if (!sendFrame) return this.pause(hooks, "No encuentro el marco oficial de selección del tipo de envío.");
+      if (!(await this.safeClick(sendFrame, S.basicPaymentsOption))) return this.pause(hooks, "No encuentro Pagos y cobros básicos o su etiqueta no es segura.");
+      await sendFrame.waitForTimeout(300);
       if (!(await this.clickUniqueVisible(sendFrame, S.directDebitOption))) return this.pause(hooks, "No encuentro una única opción visible de Domiciliaciones SEPA CORE/COR1.");
       if (!(await this.safeClick(sendFrame, S.acceptAction))) return this.pause(hooks, "No encuentro Aceptar.");
       if (!(await this.safeClick(sendFrame, S.secondSendAction))) return this.pause(hooks, "No encuentro el segundo Enviar o su etiqueta no es segura.");

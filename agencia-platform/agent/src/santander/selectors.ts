@@ -56,6 +56,7 @@ export interface SantanderSelectors {
    * "Preparar", "Añadir a firmas pendientes"). NUNCA debe ser "Firmar".
    */
   firstSendAction: SelectorSpec;
+  basicPaymentsOption: SelectorSpec;
   directDebitOption: SelectorSpec;
   acceptAction: SelectorSpec;
   secondSendAction: SelectorSpec;
@@ -68,7 +69,7 @@ export interface SantanderSelectors {
 const REQUIRED_KEYS: (keyof SantanderSelectors)[] = [
   "sessionReady", "remittancesNav", "previousRemittance", "rowMenuAction", "editAction",
   "modifyRemittanceAction", "chargeDateField", "continueAction", "amountLabel", "amountField", "clientLabel",
-  "firstSendAction", "directDebitOption", "acceptAction", "secondSendAction",
+  "firstSendAction", "basicPaymentsOption", "directDebitOption", "acceptAction", "secondSendAction",
   "pendingSignatureIndicator", "signLaterAction"
 ];
 
