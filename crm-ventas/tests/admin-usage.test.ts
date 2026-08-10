@@ -4,6 +4,7 @@ import {
   calculateDailyCost,
   composeAgentPrompt,
   normalizeGlobalPrompt,
+  normalizeAdminNotes,
 } from "../lib/admin/usage";
 
 test("calcula el coste diario usando coste real y estimaciones solo cuando faltan datos", () => {
@@ -31,4 +32,9 @@ test("el prompt general se añade al prompt de cada cliente con prioridad explí
 test("normaliza el prompt general y limita su tamaño", () => {
   assert.equal(normalizeGlobalPrompt("  Norma común  "), "Norma común");
   assert.equal(normalizeGlobalPrompt("x".repeat(20_000)).length, 12_000);
+});
+
+test("normaliza las notas internas del cliente y limita su tamaño", () => {
+  assert.equal(normalizeAdminNotes("  Cliente prioritario  "), "Cliente prioritario");
+  assert.equal(normalizeAdminNotes("x".repeat(10_000)).length, 4_000);
 });
