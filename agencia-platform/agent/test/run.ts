@@ -12,7 +12,7 @@ import { MockSantanderAdapter, type MockAnomaly } from "../src/santander/mock.js
 import { isForbiddenActionLabel } from "../src/santander/types.js";
 import type { AdapterHooks, AuthorizedJob } from "../src/santander/types.js";
 import { sanitize } from "../src/logger.js";
-import { decideLoginAction, formatSantanderAmount, isAuthenticatedSantanderUrl, isRemittanceGeneratorUrl, isSafeReconnectLabel, numericPageLabels, parseDisplayedAmountCents, validateAccessKey } from "../src/santander/login.js";
+import { decideLoginAction, formatSantanderAmount, isAuthenticatedSantanderUrl, isRemittanceGeneratorUrl, isSafeReconnectLabel, numericPageLabels, parseDisplayedAmountCents, shouldWaitForAmountConfirmation, validateAccessKey } from "../src/santander/login.js";
 
 let passed = 0;
 let failed = 0;
@@ -82,6 +82,9 @@ async function main() {
   ok("interpreta un importe europeo de Santander", parseDisplayedAmountCents("1.234,56 EUR") === 123456);
   ok("rechaza un importe no verificable", parseDisplayedAmountCents("no visible") === null);
   ok("solo acepta la acción exacta Volver a conectar", isSafeReconnectLabel("Volver a conectar") && !isSafeReconnectLabel("Conectar y firmar"));
+  ok("espera la confirmación asíncrona del importe", shouldWaitForAmountConfirmation(18150, 24200, 0, 10));
+  ok("deja de esperar cuando Santander confirma", !shouldWaitForAmountConfirmation(24200, 24200, 1, 10));
+  ok("limita la espera del importe", !shouldWaitForAmountConfirmation(18150, 24200, 10, 10));
 
   console.log("Máquina de estados y seguridad del agente:");
 
