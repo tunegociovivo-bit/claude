@@ -18,7 +18,19 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
-import { buildConversations, resolveAccountWhere, accountOptionsFromGroups, type BlockedFilter } from "@/lib/leads/inbox-conversations";
+import {
+  buildConversations,
+  resolveAccountWhere,
+  accountOptionsFromGroups,
+  isSearchable,
+  normalizeSearch,
+  collectSearchMatches,
+  searchWhereInbox,
+  searchWhereOutbound,
+  MIN_SEARCH_CHARS,
+  type BlockedFilter,
+  type MatchInfo
+} from "@/lib/leads/inbox-conversations";
 
 export const dynamic = "force-dynamic";
 
@@ -55,12 +67,75 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
   const to = toParam ? new Date(toParam) : null;
   const hasDate = !!(from && to && !isNaN(from.getTime()) && !isNaN(to.getTime()));
 
+  // Búsqueda por CONTENIDO de mensaje (en LeadInboxMessage + LeadMessage). Se
+  // resuelve en servidor: primero se localizan los teléfonos/leads cuyo texto
+  // (entrante o saliente, también antiguo) casa; luego se agrupan SUS mensajes.
+  const rawQ = url.searchParams.get("q");
+  const searching = isSearchable(rawQ);
+  const term = normalizeSearch(rawQ);
+
+  let snippetByPhone: Map<string, MatchInfo> | undefined;
+  let snippetByLeadId: Map<string, MatchInfo> | undefined;
+  let searchRestriction: any = null;
+
+  if (searching) {
+    const SEARCH_TAKE = 2000; // tope defensivo por consulta de búsqueda
+    // Contenido de mensajes (entrantes + salientes) → con fragmento.
+    // Identidad (nombre de lead / teléfono / alias de la conversación) → sin
+    // fragmento, para no perder la búsqueda por "quién" que ya existía.
+    const [inboxHits, outboundHits, leadHits, metaHits] = await Promise.all([
+      prisma.leadInboxMessage.findMany({
+        where: searchWhereInbox(api.workspaceId, term),
+        select: { phoneNormalized: true, fromPhone: true, leadId: true, body: true },
+        take: SEARCH_TAKE
+      }),
+      prisma.leadMessage.findMany({
+        where: searchWhereOutbound(api.workspaceId, term),
+        select: { phoneNormalized: true, leadId: true, renderedMessage: true },
+        take: SEARCH_TAKE
+      }),
+      prisma.lead.findMany({
+        where: { workspaceId: api.workspaceId, OR: [{ name: { contains: term, mode: "insensitive" } }, { phone: { contains: term } }] },
+        select: { id: true },
+        take: SEARCH_TAKE
+      }),
+      prisma.leadConversationMeta.findMany({
+        where: { workspaceId: api.workspaceId, displayName: { contains: term, mode: "insensitive" } },
+        select: { phone: true },
+        take: SEARCH_TAKE
+      })
+    ]);
+    const matches = collectSearchMatches({ inbox: inboxHits, outbound: outboundHits }, term);
+    // Añade los aciertos por identidad (sin fragmento).
+    for (const l of leadHits) matches.matchedLeadIds.add(l.id);
+    for (const mt of metaHits) if (mt.phone) matches.matchedPhones.add(mt.phone);
+    snippetByPhone = matches.snippetByPhone;
+    snippetByLeadId = matches.snippetByLeadId;
+
+    const phones = [...matches.matchedPhones];
+    const leadIds = [...matches.matchedLeadIds];
+    if (phones.length === 0 && leadIds.length === 0) {
+      // Nada casa → devolvemos vacío (con las opciones de cuenta reales).
+      const accountsEmpty = accountOptionsFromGroups([
+        ...(await prisma.leadInboxMessage.groupBy({ by: ["instanceName"], where: { workspaceId: api.workspaceId } })),
+        ...(await prisma.leadMessage.groupBy({ by: ["instanceName"], where: { workspaceId: api.workspaceId } }))
+      ]);
+      return NextResponse.json({ items: [], accounts: accountsEmpty, total: 0, totalUnread: 0, search: { applied: true, min: MIN_SEARCH_CHARS, term } });
+    }
+    // Restringe el agrupado a las conversaciones que casaron (por teléfono o lead).
+    const or: any[] = [];
+    if (phones.length) or.push({ phoneNormalized: { in: phones } }, { fromPhone: { in: phones } });
+    if (leadIds.length) or.push({ leadId: { in: leadIds } });
+    searchRestriction = { OR: or };
+  }
+
   const msgWhere: any = { workspaceId: api.workspaceId, ...resolveAccountWhere(account) };
   if (hasDate) msgWhere.receivedAt = { gte: from, lt: to };
+  if (searchRestriction) msgWhere.AND = [searchRestriction];
 
-  // Un día concreto está acotado → ampliamos el tope para no perder convos de
-  // ese día; sin fecha, el corte habitual de recientes.
-  const take = hasDate ? 5000 : 1000;
+  // Un día concreto (o una búsqueda) están acotados → ampliamos el tope para no
+  // perder convos; sin fecha ni búsqueda, el corte habitual de recientes.
+  const take = hasDate || searching ? 5000 : 1000;
 
   const [msgs, metas, optouts, inboxAccounts, outboundAccounts] = await Promise.all([
     prisma.leadInboxMessage.findMany({
@@ -80,7 +155,13 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
   const optoutPhones = new Set(optouts.map((o) => o.phone));
   const optoutLeadIds = new Set(optouts.filter((o) => o.leadId).map((o) => o.leadId as string));
 
-  const items = buildConversations(msgs as any, metas as any, { optoutPhones, optoutLeadIds, blocked });
+  const items = buildConversations(msgs as any, metas as any, {
+    optoutPhones,
+    optoutLeadIds,
+    blocked,
+    snippetByPhone,
+    snippetByLeadId
+  });
 
   const accounts = accountOptionsFromGroups([...inboxAccounts, ...outboundAccounts]);
 
@@ -88,6 +169,7 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
     items,
     accounts,
     total: items.length,
-    totalUnread: items.reduce((s, c) => s + c.unread, 0)
+    totalUnread: items.reduce((s, c) => s + c.unread, 0),
+    search: searching ? { applied: true, min: MIN_SEARCH_CHARS, term } : { applied: false, min: MIN_SEARCH_CHARS }
   });
 });
