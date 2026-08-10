@@ -367,6 +367,28 @@ export async function cancelJob(workspaceId: string, jobId: string, userId?: str
   await logJob(jobId, job.status, "CANCELLED", { userId, note: "Cancelado (admin)" });
 }
 
+const DELETABLE_BANK_JOB_STATUSES = new Set(["PENDING", "NEEDS_USER", "FAILED", "CANCELLED"]);
+
+export function canDeleteBankJobStatus(status: string): boolean {
+  return DELETABLE_BANK_JOB_STATUSES.has(status);
+}
+
+/** Admin: elimina definitivamente un trabajo inactivo y sus eventos de auditoría. */
+export async function deleteJob(workspaceId: string, jobId: string): Promise<void> {
+  const job = await prisma.remittanceJob.findFirst({
+    where: { id: jobId, workspaceId },
+    select: { id: true, status: true }
+  });
+  if (!job) throw new Error("Trabajo no encontrado");
+  if (!canDeleteBankJobStatus(job.status)) {
+    throw new Error("Solo se eliminan trabajos en cola, en pausa, fallidos o cancelados");
+  }
+  const deleted = await prisma.remittanceJob.deleteMany({
+    where: { id: jobId, workspaceId, status: { in: [...DELETABLE_BANK_JOB_STATUSES] as any } }
+  });
+  if (deleted.count !== 1) throw new Error("El trabajo cambió mientras se eliminaba");
+}
+
 /** Listado de trabajos (paginado) para la UI admin. */
 export async function listJobs(workspaceId: string, opts?: { status?: string; page?: number; pageSize?: number }) {
   const page = Math.max(1, opts?.page ?? 1);

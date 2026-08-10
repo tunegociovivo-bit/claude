@@ -323,6 +323,18 @@ function AgentTab() {
     } finally { setBusyJob(null); }
   }
 
+  async function deleteBankJob(id: string) {
+    if (!confirm("Eliminar definitivamente este trabajo bancario y su historial. Esta acción no modifica ninguna remesa que ya exista en Santander. ¿Continuar?")) return;
+    setBusyJob(id);
+    try {
+      const r = await fetch(`/api/v1/facturacion/jobs/${id}`, { method: "DELETE" });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) { alert(j?.error?.message ?? "No se pudo eliminar el trabajo"); return; }
+      if (openLog === id) setOpenLog(null);
+      await loadAll();
+    } finally { setBusyJob(null); }
+  }
+
   function isLoginIntervention(job: Job) {
     return job.status === "NEEDS_USER" && /sesi[oó]n iniciada|inicia sesi[oó]n|usuario\/contrase/i.test(job.needsUserReason ?? "");
   }
@@ -438,6 +450,7 @@ function AgentTab() {
                       <button onClick={() => void toggleLog(j.id)} className="px-2 py-1 rounded border text-xs hover:bg-slate-50">Log</button>
                       {["FAILED", "CANCELLED", "NEEDS_USER"].includes(j.status) && <button onClick={() => void jobAction(j.id, "retry")} disabled={busyJob === j.id} className="ml-1 px-2 py-1 rounded border text-xs text-sky-700 hover:bg-sky-50 disabled:opacity-50">{isLoginIntervention(j) ? "Ya inicié sesión · reintentar" : "Reintentar"}</button>}
                       {j.status !== "PREPARED_PENDING_SIGNATURE" && j.status !== "CANCELLED" && <button onClick={() => void jobAction(j.id, "cancel")} disabled={busyJob === j.id} className="ml-1 px-2 py-1 rounded border text-xs text-rose-700 hover:bg-rose-50 disabled:opacity-50">Cancelar</button>}
+                      {["PENDING", "NEEDS_USER", "FAILED", "CANCELLED"].includes(j.status) && <button onClick={() => void deleteBankJob(j.id)} disabled={busyJob === j.id} className="ml-1 px-2 py-1 rounded border text-xs text-rose-800 hover:bg-rose-50 disabled:opacity-50">Eliminar</button>}
                     </td>
                   </tr>
                   {openLog === j.id && (
