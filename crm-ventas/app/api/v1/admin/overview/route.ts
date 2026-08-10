@@ -21,6 +21,7 @@ export async function GET() {
   const since = madridDayStart();
   const callMinuteRate = Number(process.env.ADMIN_CALL_COST_PER_MINUTE || 0.15);
   const whatsappMessageRate = Number(process.env.ADMIN_WHATSAPP_COST_PER_MESSAGE || 0.005);
+  const usdToEurRate = Number(process.env.ADMIN_USD_TO_EUR_RATE || 0.86);
   const workspaces = await prisma.workspace.findMany({
     orderBy: { name: "asc" },
     include: {
@@ -31,7 +32,10 @@ export async function GET() {
   });
   const clients = workspaces.map((workspace) => {
     const cost = calculateDailyCost({
-      calls: workspace.calls,
+      calls: workspace.calls.map((call) => ({
+        ...call,
+        providerCost: typeof call.providerCost === "number" ? call.providerCost * usdToEurRate : null,
+      })),
       inboundWhatsappMessages: workspace.messages.length,
       callMinuteRate,
       whatsappMessageRate,
@@ -42,6 +46,7 @@ export async function GET() {
       slug: workspace.slug,
       email: workspace.users[0]?.email ?? "—",
       isBlocked: workspace.isBlocked,
+      adminNotes: workspace.adminNotes ?? "",
       callsToday: workspace.calls.length,
       whatsappToday: workspace.messages.length,
       minutesToday: Math.round(workspace.calls.reduce((sum, call) => sum + (call.durationSec ?? 0), 0) / 6) / 10,
@@ -50,7 +55,7 @@ export async function GET() {
   });
   return NextResponse.json({
     since: since.toISOString(),
-    currency: process.env.ADMIN_COST_CURRENCY || "USD",
+    currency: "EUR",
     rates: { callMinuteRate, whatsappMessageRate },
     globalPrompt: await getGlobalPrompt(),
     clients,

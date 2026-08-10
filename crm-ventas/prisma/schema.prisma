@@ -18,6 +18,7 @@ model Workspace {
   updatedAt DateTime @updatedAt
   isBlocked Boolean  @default(false)
   blockedAt DateTime?
+  adminNotes String?  @db.Text
 
   users        User[]
   contacts     Contact[]
