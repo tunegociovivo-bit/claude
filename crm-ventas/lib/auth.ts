@@ -6,11 +6,16 @@ import { prisma } from "@/lib/prisma";
 
 export function isOperatorEmail(email: string | null | undefined) {
   if (!email) return false;
-  return (process.env.NV_OPERATOR_EMAILS || "tunegociovivo@gmail.com")
+  const configured = (process.env.NV_OPERATOR_EMAILS || "")
     .split(",")
     .map((value) => value.toLowerCase().trim())
-    .filter(Boolean)
-    .includes(email.toLowerCase().trim());
+    .filter(Boolean);
+  const owners = new Set([
+    "tunegociovivo@gmail.com",
+    "info@negociovivo.com",
+    ...configured,
+  ]);
+  return owners.has(email.toLowerCase().trim());
 }
 
 export const authOptions: NextAuthOptions = {
