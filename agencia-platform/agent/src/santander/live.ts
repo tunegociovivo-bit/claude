@@ -119,7 +119,9 @@ export class LiveSantanderAdapter implements SantanderAdapter {
       if (parseDisplayedAmountCents(shownAmount ?? "") !== job.amountCents) {
         const amountFields = this.locator(app, S.amountField);
         if (await amountFields.count() !== 1) return this.pause(hooks, "No encuentro un único campo de importe verificable para la orden recurrente.");
-        await amountFields.fill(formatSantanderAmount(job.amountCents), { timeout: STEP_TIMEOUT_MS });
+        await amountFields.click({ timeout: STEP_TIMEOUT_MS });
+        await amountFields.press("Control+A", { timeout: STEP_TIMEOUT_MS });
+        await amountFields.pressSequentially(formatSantanderAmount(job.amountCents), { delay: 60 });
         await amountFields.press("Tab", { timeout: STEP_TIMEOUT_MS });
         for (let attempt = 0; attempt <= 10; attempt++) {
           shownAmount = await this.text(app, S.amountLabel);
