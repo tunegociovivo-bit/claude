@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { signOut } from "next-auth/react";
-import { Ban, Bot, Building2, CheckCircle2, LogOut, MessageCircle, Phone, RefreshCw, Wallet } from "lucide-react";
+import { Ban, Bot, Building2, CheckCircle2, LogOut, MessageCircle, Phone, Plus, RefreshCw, Wallet } from "lucide-react";
 
 type Client = {
   id: string; name: string; slug: string; email: string; isBlocked: boolean; adminNotes: string;
@@ -23,6 +23,8 @@ export default function AdminDashboard() {
   const [notice, setNotice] = useState("");
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [names, setNames] = useState<Record<string, string>>({});
+  const [showCreate, setShowCreate] = useState(false);
+  const [newClient, setNewClient] = useState({ name: "", contactName: "", email: "", password: "" });
 
   async function load() {
     const response = await fetch("/api/v1/admin/overview", { cache: "no-store" });
@@ -83,6 +85,19 @@ export default function AdminDashboard() {
     if (response.ok) await load();
   }
 
+  async function createClient(event: React.FormEvent) {
+    event.preventDefault(); setBusy("create"); setNotice("");
+    const response = await fetch("/api/v1/admin/clients", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(newClient),
+    });
+    const result = await response.json().catch(() => ({}));
+    setBusy(null);
+    if (!response.ok) { setNotice(result.error || "No se pudo crear el cliente."); return; }
+    setNotice(`CRM de ${newClient.name} creado. Ya puede acceder con ${newClient.email}.`);
+    setNewClient({ name: "", contactName: "", email: "", password: "" }); setShowCreate(false);
+    await load();
+  }
+
   return (
     <main className="min-h-screen bg-slate-50">
       <header className="border-b border-slate-200 bg-white">
@@ -108,7 +123,15 @@ export default function AdminDashboard() {
         </section>
 
         <section>
-          <div className="mb-3 flex items-center gap-2"><Building2 size={19} /><h2 className="font-semibold">Clientes ({data?.clients.length ?? 0})</h2></div>
+          <div className="mb-3 flex flex-wrap items-center gap-2"><Building2 size={19} /><h2 className="font-semibold">Clientes ({data?.clients.length ?? 0})</h2><button className="btn-primary ml-auto" onClick={() => setShowCreate((value) => !value)}><Plus className="mr-1 inline" size={16} />{showCreate ? "Cancelar" : "Añadir cliente"}</button></div>
+          {showCreate && <form onSubmit={createClient} className="card mb-4 grid gap-4 p-5 sm:grid-cols-2">
+            <div className="sm:col-span-2"><h3 className="font-semibold">Crear nuevo CRM de ventas</h3><p className="text-sm text-slate-500">Se creará un espacio independiente y un usuario administrador para el cliente.</p></div>
+            <label className="text-sm font-medium text-slate-700">Nombre principal del cliente<input className="input mt-1" required maxLength={120} value={newClient.name} onChange={(event) => setNewClient((current) => ({ ...current, name: event.target.value }))} placeholder="Empresa o nombre comercial" /></label>
+            <label className="text-sm font-medium text-slate-700">Persona de contacto<input className="input mt-1" maxLength={120} value={newClient.contactName} onChange={(event) => setNewClient((current) => ({ ...current, contactName: event.target.value }))} placeholder="Nombre del administrador" /></label>
+            <label className="text-sm font-medium text-slate-700">Correo de acceso<input className="input mt-1" required type="email" autoComplete="off" value={newClient.email} onChange={(event) => setNewClient((current) => ({ ...current, email: event.target.value }))} placeholder="cliente@empresa.com" /></label>
+            <label className="text-sm font-medium text-slate-700">Contraseña inicial<input className="input mt-1" required type="password" minLength={8} maxLength={128} autoComplete="new-password" value={newClient.password} onChange={(event) => setNewClient((current) => ({ ...current, password: event.target.value }))} placeholder="Mínimo 8 caracteres" /></label>
+            <div className="sm:col-span-2"><button className="btn-primary" disabled={busy === "create"} type="submit">{busy === "create" ? "Creando CRM…" : "Crear cliente y CRM"}</button></div>
+          </form>}
           <div className="grid gap-4 lg:grid-cols-2">
             {(data?.clients ?? []).map((client) => (
               <article key={client.id} className={`card p-5 ${client.isBlocked ? "border-red-200 bg-red-50/40" : ""}`}>

@@ -32,6 +32,26 @@ export function normalizeClientName(value: unknown) {
   return String(value ?? "").trim().slice(0, 120);
 }
 
+export function normalizeClientEmail(value: unknown) {
+  const email = String(value ?? "").trim().toLowerCase().slice(0, 254);
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : "";
+}
+
+export function createWorkspaceSlug(value: unknown) {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "")
+    .slice(0, 80) || "cliente";
+}
+
+export function validateInitialPassword(value: unknown) {
+  return typeof value === "string" && value.length >= 8 && value.length <= 128;
+}
+
 export function composeAgentPrompt(globalPrompt: string, clientPrompt: string) {
   const common = normalizeGlobalPrompt(globalPrompt);
   return [
