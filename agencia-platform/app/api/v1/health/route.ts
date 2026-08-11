@@ -26,12 +26,11 @@ export async function GET() {
       ts: new Date().toISOString()
     });
   } catch (e: any) {
+    // Endpoint público (healthcheck de Railway): no filtramos el detalle del
+    // error (podría revelar host/driver de la BD). El detalle va a logs.
+    console.error("[health] database_unreachable:", e?.message ?? String(e));
     return NextResponse.json(
-      {
-        ok: false,
-        error: "database_unreachable",
-        message: e?.message?.slice(0, 200) ?? String(e)
-      },
+      { ok: false, error: "database_unreachable" },
       { status: 503 }
     );
   }
