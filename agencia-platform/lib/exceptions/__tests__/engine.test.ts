@@ -56,10 +56,12 @@ describe("fromAiRuns", () => {
 });
 
 describe("fromInvoices", () => {
-  it("solo vencidas ISSUED con saldo; severidad por antigüedad", () => {
+  it("solo vencidas ISSUED con saldo; severidad por impacto (mora × importe)", () => {
     const items = fromInvoices(
       [
-        { id: "i1", number: "F-1", status: "ISSUED", totalCents: 10000, paidCents: 0, dueDate: daysAgo(40), clientId: "c1" },
+        // 40 días + importe alto (3000€) → critical
+        { id: "i1", number: "F-1", status: "ISSUED", totalCents: 300000, paidCents: 0, dueDate: daysAgo(40), clientId: "c1", clientName: "Acme" },
+        // 3 días + importe bajo (100€) → low
         { id: "i2", number: "F-2", status: "ISSUED", totalCents: 10000, paidCents: 0, dueDate: daysAgo(3), clientId: "c2" },
         { id: "i3", number: "F-3", status: "PAID", totalCents: 10000, paidCents: 10000, dueDate: daysAgo(40), clientId: "c3" },
         { id: "i4", number: "F-4", status: "DRAFT", totalCents: 10000, paidCents: 0, dueDate: daysAgo(40), clientId: "c4" }
@@ -67,30 +69,44 @@ describe("fromInvoices", () => {
       NOW
     );
     expect(items.map((i) => i.id)).toEqual(["invoice:i1", "invoice:i2"]);
-    expect(items[0].severity).toBe("critical"); // 40 días
-    expect(items[1].severity).toBe("medium"); // 3 días
-    expect(items[0].clientId).toBe("c1");
+    expect(items[0].severity).toBe("critical"); // 40d + alto
+    expect(items[0].amountBand).toBe("alto");
+    expect(items[0].clientName).toBe("Acme");
+    expect(items[1].severity).toBe("low"); // 3d + bajo
   });
 });
 
 describe("fromTasks", () => {
-  it("solo vencidas abiertas", () => {
+  it("solo vencidas abiertas; severidad por recencia (fresca = urgente, no por edad)", () => {
     const items = fromTasks(
       [
-        { id: "t1", title: "A", dueDate: daysAgo(10), completedAt: null, clientId: "c1" },
+        { id: "t1", title: "A", dueDate: daysAgo(3), completedAt: null, clientId: null }, // fresca sin cliente
         { id: "t2", title: "B", dueDate: daysAgo(10), completedAt: daysAgo(1), clientId: "c1" }, // hecha
-        { id: "t3", title: "C", dueDate: new Date(NOW.getTime() + 86_400_000), completedAt: null, clientId: null } // futura
+        { id: "t3", title: "C", dueDate: new Date(NOW.getTime() + 86_400_000), completedAt: null, clientId: null }, // futura
+        { id: "t4", title: "D", dueDate: daysAgo(400), completedAt: null, clientId: null } // antiquísima
       ],
       NOW
     );
-    expect(items.map((i) => i.id)).toEqual(["task:t1"]);
-    expect(items[0].severity).toBe("high"); // 10 días
+    expect(items.map((i) => i.id)).toEqual(["task:t1", "task:t4"]);
+    expect(items[0].severity).toBe("high"); // 3d fresca → urgente
+    expect(items[1].severity).toBe("low"); // 400d → histórica, baja urgencia
+    // "Qué hará SONIA" nunca es null (propone siguiente paso real)
+    expect(items[0].soniaWillDo).toBeTruthy();
+    expect(items[1].soniaWillDo).toBeTruthy();
+  });
+
+  it("tarea de cliente sube un tramo de severidad", () => {
+    const items = fromTasks([{ id: "t1", title: "A", dueDate: daysAgo(20), completedAt: null, clientId: "c1", clientName: "Acme" }], NOW);
+    // 20d sin cliente = medium; con cliente sube a high
+    expect(items[0].severity).toBe("high");
+    expect(items[0].clientName).toBe("Acme");
   });
 });
 
 describe("dedupe / sort / filtros / resumen", () => {
   const items: ExceptionItem[] = [
-    ...fromInvoices([{ id: "i1", number: "F", status: "ISSUED", totalCents: 100, paidCents: 0, dueDate: daysAgo(40), clientId: "c1" }], NOW),
+    // 40 días + importe alto → critical
+    ...fromInvoices([{ id: "i1", number: "F", status: "ISSUED", totalCents: 300000, paidCents: 0, dueDate: daysAgo(40), clientId: "c1" }], NOW),
     ...fromTasks([{ id: "t1", title: "X", dueDate: daysAgo(2), completedAt: null, clientId: "c2" }], NOW)
   ];
 

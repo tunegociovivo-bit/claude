@@ -6,7 +6,8 @@
  * facturas problemáticas, mensajes sin resolver, tareas bloqueadas), scoped por
  * workspace. Solo lectura; no expone importes €. Kill-switch HUB_EXCEPTIONS=off.
  *
- * Query: source, kind, severity, clientId, limit.
+ * Query: source, kind, severity, clientId, limit, view (active|archive),
+ *        activeWindowDays.
  */
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
@@ -25,11 +26,14 @@ export const GET = withApi({ scope: "clients:read" }, async (req, { api }) => {
   const sp = new URL(req.url).searchParams;
   const filters = coerceFilters({ source: sp.get("source"), kind: sp.get("kind"), severity: sp.get("severity"), clientId: sp.get("clientId") });
   const limit = Number(sp.get("limit")) || undefined;
+  const view = sp.get("view") === "archive" ? "archive" : "active";
+  const awd = Number(sp.get("activeWindowDays"));
+  const activeWindowDays = Number.isFinite(awd) && awd > 0 ? Math.min(3650, Math.floor(awd)) : undefined;
 
   // Los ítems de facturación (facturas vencidas) solo se incluyen para admin,
   // igual que el gestor de facturas (requireAdmin). No-admin no los ve.
   const includeBilling = await callerIsAdmin(api);
 
-  const inbox = await getExceptionInbox(prisma, { workspaceId: api.workspaceId, filters, limit, includeBilling });
+  const inbox = await getExceptionInbox(prisma, { workspaceId: api.workspaceId, filters, limit, includeBilling, view, activeWindowDays });
   return NextResponse.json(inbox);
 });

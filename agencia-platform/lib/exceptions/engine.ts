@@ -21,6 +21,9 @@ export type Severity = "low" | "medium" | "high" | "critical";
 
 const SEVERITY_RANK: Record<Severity, number> = { critical: 3, high: 2, medium: 1, low: 0 };
 
+/** Banda cualitativa de importe (NUNCA se expone el € exacto). */
+export type AmountBand = "bajo" | "medio" | "alto";
+
 export type ExceptionItem = {
   id: string;
   dedupeKey: string; // identidad de la incidencia (para deduplicar)
@@ -31,6 +34,8 @@ export type ExceptionItem = {
   detail: string;
   ownerUserId: string | null;
   clientId: string | null;
+  clientName?: string | null; // nombre (campo PUBLIC del cliente), para contexto
+  amountBand?: AmountBand | null; // solo facturación; banda, no importe
   createdAt: string; // ISO
   ageMs: number;
   link: string; // ruta relativa accionable
@@ -41,6 +46,17 @@ export type ExceptionItem = {
 
 const ageOf = (d: Date, now: Date) => Math.max(0, now.getTime() - d.getTime());
 const DAY = 86_400_000;
+
+/** Ventana (días) por defecto para considerar una incidencia "actual/accionable".
+ *  Lo más antiguo se agrupa como histórico, no se pierde. */
+export const ACTIVE_WINDOW_DAYS = 90;
+
+/** Banda de importe a partir de céntimos pendientes (cualitativa, sin € exacto). */
+export function amountBandFromCents(cents: number): AmountBand {
+  if (cents >= 200_000) return "alto"; // ≥ 2000 €
+  if (cents >= 50_000) return "medio"; // ≥ 500 €
+  return "bajo";
+}
 
 // ── Collectors (puros) ──────────────────────────────────────────────────────
 
@@ -140,7 +156,7 @@ export function fromAiRuns(rows: AiRunRow[], now: Date): ExceptionItem[] {
   return out;
 }
 
-export type InvoiceRow = { id: string; number: string | null; status: string; totalCents: number; paidCents: number; dueDate: Date | null; clientId: string | null };
+export type InvoiceRow = { id: string; number: string | null; status: string; totalCents: number; paidCents: number; dueDate: Date | null; clientId: string | null; clientName?: string | null };
 export function fromInvoices(rows: InvoiceRow[], now: Date): ExceptionItem[] {
   const out: ExceptionItem[] = [];
   for (const r of rows) {
@@ -148,7 +164,13 @@ export function fromInvoices(rows: InvoiceRow[], now: Date): ExceptionItem[] {
     const overdue = r.status === "ISSUED" && outstanding > 0 && !!r.dueDate && r.dueDate.getTime() < now.getTime();
     if (!overdue) continue;
     const daysLate = Math.floor(ageOf(r.dueDate!, now) / DAY);
-    const sev: Severity = daysLate > 30 ? "critical" : daysLate > 7 ? "high" : "medium";
+    const band = amountBandFromCents(outstanding);
+    // Cobros: severidad por IMPACTO = mora × importe (la deuda que envejece y es
+    // grande es lo más grave), no por edad sola. Un importe "alto" sube un tramo.
+    let sev: Severity = daysLate > 30 ? "high" : daysLate > 7 ? "medium" : "low";
+    if (band === "alto" && daysLate > 7) sev = "critical";
+    else if (band === "alto") sev = "high";
+    else if (band === "medio" && daysLate > 30) sev = "critical";
     out.push({
       id: `invoice:${r.id}`,
       dedupeKey: `billing:invoice:${r.id}`,
@@ -156,9 +178,11 @@ export function fromInvoices(rows: InvoiceRow[], now: Date): ExceptionItem[] {
       kind: "billing_problem",
       severity: sev,
       title: `Factura vencida sin cobrar${r.number ? ` (${r.number})` : ""}`,
-      detail: `Vencida hace ${daysLate} día(s).`,
+      detail: `Vencida hace ${daysLate} día(s)${r.clientName ? ` · ${r.clientName}` : ""}.`,
       ownerUserId: null,
       clientId: r.clientId,
+      clientName: r.clientName ?? null,
+      amountBand: band,
       createdAt: r.dueDate!.toISOString(),
       ageMs: ageOf(r.dueDate!, now),
       link: `/facturacion?invoice=${r.id}`,
@@ -170,27 +194,37 @@ export function fromInvoices(rows: InvoiceRow[], now: Date): ExceptionItem[] {
   return out;
 }
 
-export type TaskRow = { id: string; title: string; dueDate: Date | null; completedAt: Date | null; clientId: string | null };
+export type TaskRow = { id: string; title: string; dueDate: Date | null; completedAt: Date | null; clientId: string | null; clientName?: string | null };
 export function fromTasks(rows: TaskRow[], now: Date): ExceptionItem[] {
   const out: ExceptionItem[] = [];
   for (const r of rows) {
     if (r.completedAt || !r.dueDate || r.dueDate.getTime() >= now.getTime()) continue;
     const daysLate = Math.floor(ageOf(r.dueDate, now) / DAY);
+    // Tareas: severidad por RECENCIA (accionabilidad), no por edad infinita. Una
+    // tarea recién vencida es recuperable y urgente; una muy antigua es histórica
+    // (ruido a limpiar, no urgencia). Si es de un cliente, sube un tramo.
+    let sev: Severity = daysLate <= 7 ? "high" : daysLate <= 30 ? "medium" : "low";
+    if (r.clientId && sev !== "high") sev = sev === "low" ? "medium" : "high";
+    // "Qué hará SONIA": propone un siguiente paso REAL (borrador), nunca "nada".
+    const willDo = daysLate > 30
+      ? "Puede proponer cerrarla o reprogramarla en un lote de limpieza para tu OK."
+      : "Puede proponer una nueva fecha y recordártela; reasignar requiere tu OK.";
     out.push({
       id: `task:${r.id}`,
       dedupeKey: `task_blocked:task:${r.id}`,
       source: "task",
       kind: "task_blocked",
-      severity: daysLate > 7 ? "high" : "medium",
+      severity: sev,
       title: `Tarea vencida sin cerrar: ${r.title}`,
-      detail: `Vencida hace ${daysLate} día(s) y sigue abierta.`,
+      detail: `Vencida hace ${daysLate} día(s) y sigue abierta${r.clientName ? ` · ${r.clientName}` : ""}.`,
       ownerUserId: null,
       clientId: r.clientId,
+      clientName: r.clientName ?? null,
       createdAt: r.dueDate.toISOString(),
       ageMs: ageOf(r.dueDate, now),
       link: `/tareas?task=${r.id}`,
       why: "La tarea superó su vencimiento sin completarse.",
-      soniaWillDo: null,
+      soniaWillDo: willDo,
       needsFromMe: "Reprogramar, delegar o completar la tarea."
     });
   }

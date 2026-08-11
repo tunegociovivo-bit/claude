@@ -11,8 +11,8 @@ const { authenticateMock, callerIsAdminMock, prisma } = vi.hoisted(() => ({
   prisma: {
     aiDraft: { findMany: vi.fn() },
     aiAgentRun: { findMany: vi.fn() },
-    invoice: { findMany: vi.fn() },
-    task: { findMany: vi.fn() }
+    invoice: { findMany: vi.fn(), count: vi.fn() },
+    task: { findMany: vi.fn(), count: vi.fn() }
   }
 }));
 vi.mock("@/lib/db/prisma", () => ({ prisma }));
@@ -35,6 +35,8 @@ beforeEach(() => {
   prisma.aiAgentRun.findMany.mockResolvedValue([]);
   prisma.invoice.findMany.mockResolvedValue([]);
   prisma.task.findMany.mockResolvedValue([]);
+  prisma.invoice.count.mockResolvedValue(0);
+  prisma.task.count.mockResolvedValue(0);
 });
 afterEach(() => {
   process.env = { ...ORIG };
@@ -82,6 +84,8 @@ describe("GET /api/v1/exceptions", () => {
     authenticateMock.mockResolvedValue({ workspaceId: "w1", userId: "u1", scopes: new Set(["*"]) });
     callerIsAdminMock.mockResolvedValue(true);
     for (const m of [prisma.aiDraft, prisma.aiAgentRun, prisma.invoice, prisma.task]) m.findMany.mockResolvedValue([]);
+    prisma.invoice.count.mockResolvedValue(0);
+    prisma.task.count.mockResolvedValue(0);
     await call();
     expect(prisma.invoice.findMany).toHaveBeenCalled();
   });

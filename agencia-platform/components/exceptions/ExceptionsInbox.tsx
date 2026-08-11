@@ -1,16 +1,20 @@
 "use client";
 
 /**
- * Bandeja de excepciones (FASE 4b · UI). Consume GET /api/v1/exceptions.
+ * Bandeja de excepciones (Slice 2a · UI con valor). Consume GET /api/v1/exceptions.
  *
- * SOLO acciones LOCALES seguras: abrir origen (enlace interno), copiar contexto,
- * ocultar localmente (reversible). NO aprueba/resuelve en servidor. Nunca sugiere
- * que una acción se ejecutó. Kill-switch NEXT_PUBLIC_EXCEPTIONS_UI / localStorage
- * 'exceptions-ui'=off → no se monta (fallback). Estados loading/empty/error.
+ * Vista por defecto = trabajo ACTUAL y accionable, organizado en secciones
+ * ejecutivas (Prioridades / Hoy / Cobros y SLA / Clientes en riesgo / Hecho por
+ * SONIA). El histórico (>ventana) se resume y se abre bajo demanda (view=archive),
+ * nunca inunda la vista principal.
+ *
+ * SOLO acciones LOCALES seguras (abrir origen, copiar contexto, ocultar local
+ * reversible). No aprueba/resuelve en servidor (eso llega en Slice 2b). Kill-switch
+ * NEXT_PUBLIC_EXCEPTIONS_UI / localStorage 'exceptions-ui'=off → fallback total.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { AlertTriangle, ExternalLink, Copy, EyeOff, Eye, RefreshCw } from "lucide-react";
+import { ExternalLink, Copy, EyeOff, Eye, RefreshCw, CheckCircle2, Archive } from "lucide-react";
 import {
   autonomyForKind,
   severityMeta,
@@ -26,7 +30,34 @@ import {
 } from "@/lib/exceptions/ui";
 import type { ExceptionItem, Severity, ExceptionSource } from "@/lib/exceptions/engine";
 
-type InboxResponse = { items: ExceptionItem[]; summary: Record<string, number> & { total: number }; total: number; capped: boolean };
+type ClientRisk = { clientId: string; clientName: string | null; count: number; maxSeverity: Severity; items: ExceptionItem[] };
+type Sections = { today: ExceptionItem[]; blockers: ExceptionItem[]; billingSla: ExceptionItem[]; clientsAtRisk: ClientRisk[] };
+type DoneItem = { id: string; taskId: string; title: string; summary: string | null; at: string; ageMs: number; link: string };
+type Cluster = { key: string; count: number; label: string; sampleIds: string[]; clientName: string | null };
+type HistoricalSummary = { source: ExceptionSource; count: number; label: string };
+type InboxResponse = {
+  items: ExceptionItem[];
+  summary: Record<string, number> & { total: number };
+  total: number;
+  capped: boolean;
+  view: "active" | "archive";
+  activeWindowDays: number;
+  sections: Sections | null;
+  done: DoneItem[];
+  historical: { total: number; bySource: HistoricalSummary[] };
+  clusters: Cluster[];
+};
+
+type Tab = "priorities" | "today" | "billing" | "clients" | "done" | "archive";
+
+const TABS: { key: Tab; label: string }[] = [
+  { key: "priorities", label: "Prioridades" },
+  { key: "today", label: "Hoy" },
+  { key: "billing", label: "Cobros y SLA" },
+  { key: "clients", label: "Clientes en riesgo" },
+  { key: "done", label: "Hecho por SONIA" },
+  { key: "archive", label: "Histórico" }
+];
 
 function uiDisabled(): boolean {
   if (process.env.NEXT_PUBLIC_EXCEPTIONS_UI === "off") return true;
@@ -40,30 +71,52 @@ function uiDisabled(): boolean {
 export default function ExceptionsInbox() {
   const [state, setState] = useState<"loading" | "ready" | "error" | "disabled">("loading");
   const [data, setData] = useState<InboxResponse | null>(null);
+  const [archive, setArchive] = useState<InboxResponse | null>(null);
+  const [archiveState, setArchiveState] = useState<"idle" | "loading" | "ready" | "error">("idle");
+  const [tab, setTab] = useState<Tab>("priorities");
   const [filters, setFilters] = useState<UiFilters>({ severity: "all", source: "all", q: "" });
   const [dismissed, setDismissed] = useState<string[]>([]);
   const [showHidden, setShowHidden] = useState(false);
   const store = typeof window !== "undefined" ? window.localStorage : null;
 
-  // Carga con los filtros de severidad/origen EN EL SERVIDOR → así, al afinar
-  // filtros, se re-consulta y pueden aflorar ítems que quedaron fuera del tope
-  // (capped). La búsqueda (q) es solo en cliente.
-  const load = useCallback((f: UiFilters, signal?: AbortSignal) => {
-    setState("loading");
+  const qs = useCallback((view: "active" | "archive", f: UiFilters) => {
     const sp = new URLSearchParams();
+    if (view === "archive") sp.set("view", "archive");
     if (f.severity && f.severity !== "all") sp.set("severity", f.severity);
     if (f.source && f.source !== "all") sp.set("source", f.source);
-    const qs = sp.toString();
-    fetch(`/api/v1/exceptions${qs ? `?${qs}` : ""}`, { cache: "no-store", signal })
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
-      .then((d: InboxResponse) => {
-        setData(d);
-        setState("ready");
-      })
-      .catch((e) => {
-        if (e?.name !== "AbortError") setState("error");
-      });
+    const s = sp.toString();
+    return s ? `?${s}` : "";
   }, []);
+
+  const load = useCallback(
+    (f: UiFilters, signal?: AbortSignal) => {
+      setState("loading");
+      fetch(`/api/v1/exceptions${qs("active", f)}`, { cache: "no-store", signal })
+        .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+        .then((d: InboxResponse) => {
+          setData(d);
+          setState("ready");
+        })
+        .catch((e) => {
+          if (e?.name !== "AbortError") setState("error");
+        });
+    },
+    [qs]
+  );
+
+  const loadArchive = useCallback(
+    (f: UiFilters) => {
+      setArchiveState("loading");
+      fetch(`/api/v1/exceptions${qs("archive", f)}`, { cache: "no-store" })
+        .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+        .then((d: InboxResponse) => {
+          setArchive(d);
+          setArchiveState("ready");
+        })
+        .catch(() => setArchiveState("error"));
+    },
+    [qs]
+  );
 
   useEffect(() => {
     if (uiDisabled()) {
@@ -73,15 +126,29 @@ export default function ExceptionsInbox() {
     setDismissed(loadDismissed(store));
     const ac = new AbortController();
     load(filters, ac.signal);
+    // Al cambiar filtros, el histórico cargado queda obsoleto.
+    setArchive(null);
+    setArchiveState("idle");
     return () => ac.abort();
   }, [filters.severity, filters.source, load]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const filtered = useMemo(() => filterItems(data?.items ?? [], filters), [data, filters]);
-  const hiddenCount = useMemo(() => filtered.filter((it) => dismissed.includes(dismissKey(it))).length, [filtered, dismissed]);
-  const visible = useMemo(
-    () => (showHidden ? filtered : filtered.filter((it) => !dismissed.includes(dismissKey(it)))),
-    [filtered, dismissed, showHidden]
+  useEffect(() => {
+    if (tab === "archive" && archiveState === "idle") loadArchive(filters);
+  }, [tab, archiveState, loadArchive, filters]);
+
+  const applyLocal = useCallback(
+    (items: ExceptionItem[]) => {
+      const q = (filters.q ?? "").trim();
+      const searched = q ? filterItems(items, { q }) : items;
+      return showHidden ? searched : searched.filter((it) => !dismissed.includes(dismissKey(it)));
+    },
+    [filters.q, showHidden, dismissed]
   );
+
+  const hiddenCount = useMemo(() => {
+    const items = data?.items ?? [];
+    return items.filter((it) => dismissed.includes(dismissKey(it))).length;
+  }, [data, dismissed]);
 
   const onCopy = useCallback((it: ExceptionItem) => {
     const text = `[${KIND_LABEL[it.kind]}] ${it.title}\nPor qué: ${it.why}\nQué necesita: ${it.needsFromMe}\nEnlace: ${safeLink(it.link) ?? "(interno)"}`;
@@ -92,10 +159,7 @@ export default function ExceptionsInbox() {
     }
   }, []);
 
-  const onDismiss = useCallback(
-    (key: string) => setDismissed(toggleDismissed(store, key)),
-    [store]
-  );
+  const onDismiss = useCallback((key: string) => setDismissed(toggleDismissed(store, key)), [store]);
 
   if (state === "disabled") {
     return (
@@ -105,10 +169,35 @@ export default function ExceptionsInbox() {
     );
   }
 
+  const sections = data?.sections;
+  const currentItems: ExceptionItem[] =
+    tab === "priorities" ? data?.items ?? [] : tab === "today" ? sections?.today ?? [] : tab === "billing" ? sections?.billingSla ?? [] : tab === "archive" ? archive?.items ?? [] : [];
+  const visible = applyLocal(currentItems);
+
   return (
     <section aria-label="Bandeja de excepciones" className="space-y-4">
-      {/* Controles */}
       <h2 className="sr-only">Incidencias que requieren tu intervención</h2>
+
+      {/* Tabs */}
+      <div role="tablist" aria-label="Secciones" className="flex flex-wrap gap-1 border-b">
+        {TABS.map((t) => {
+          const count = tabCount(t.key, data, archive);
+          return (
+            <button
+              key={t.key}
+              role="tab"
+              aria-selected={tab === t.key}
+              onClick={() => setTab(t.key)}
+              className={`px-3 py-1.5 text-xs rounded-t-lg border-b-2 ${tab === t.key ? "border-indigo-500 text-indigo-700 font-semibold" : "border-transparent text-slate-500 hover:text-slate-700"}`}
+            >
+              {t.label}
+              {count != null && <span className="ml-1 text-[10px] text-slate-400">({count})</span>}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Controles */}
       <div className="flex flex-wrap items-center gap-2">
         <select
           aria-label="Filtrar por severidad"
@@ -156,96 +245,244 @@ export default function ExceptionsInbox() {
         </button>
       </div>
 
-      {/* Capped */}
-      {data?.capped && (
-        <div className="text-xs px-3 py-2 rounded-lg border bg-amber-50 text-amber-800 border-amber-200" role="status">
-          Mostrando una parte: hay más incidencias de las que caben en una carga. Afina los filtros para ver el resto.
+      {/* Resumen histórico (banner en vistas activas) */}
+      {tab !== "archive" && data?.historical && data.historical.total > 0 && (
+        <div className="text-xs px-3 py-2 rounded-lg border bg-slate-50 text-slate-600 flex flex-wrap items-center gap-2" role="status">
+          <Archive aria-hidden className="h-3.5 w-3.5 text-slate-400" />
+          <span>
+            {data.historical.bySource.map((h) => h.label).join(" · ") || `${data.historical.total} incidencias históricas`}. No se muestran aquí para no tapar el trabajo actual.
+          </span>
+          <button type="button" onClick={() => setTab("archive")} className="underline text-slate-700">
+            Ver histórico
+          </button>
         </div>
       )}
 
       {/* Estados */}
-      {state === "loading" && <p className="text-sm text-slate-500" role="status">Cargando incidencias…</p>}
+      {state === "loading" && (
+        <p className="text-sm text-slate-500" role="status">
+          Cargando incidencias…
+        </p>
+      )}
       {state === "error" && (
         <div className="text-sm text-rose-600" role="alert">
           No se pudieron cargar las excepciones.{" "}
-          <button type="button" onClick={() => load(filters)} className="underline">Reintentar</button>
+          <button type="button" onClick={() => load(filters)} className="underline">
+            Reintentar
+          </button>
         </div>
       )}
-      {state === "ready" && visible.length === 0 && (
-        <p className="text-sm text-slate-500" role="status">
-          {hiddenCount > 0
-            ? `No hay incidencias visibles, pero tienes ${hiddenCount} oculta(s). Pulsa "Ver ocultas" para revisarlas.`
-            : "No hay incidencias que requieran tu intervención. 🎉"}
-        </p>
-      )}
 
-      {/* Lista */}
-      {state === "ready" && visible.length > 0 && (
-        <ul className="space-y-2">
-          {visible.map((it) => {
-            const sev = severityMeta(it.severity);
-            const au = autonomyForKind(it.kind);
-            const href = safeLink(it.link);
-            const dk = dismissKey(it);
-            const hidden = dismissed.includes(dk);
-            return (
-              <li key={it.id} className="bg-white rounded-xl border p-4">
-                <div className="flex items-start gap-3">
-                  <span className={`mt-1 h-2.5 w-2.5 rounded-full shrink-0 ${sev.dot}`} aria-hidden />
-                  <div className="flex-1 min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="text-sm font-semibold text-slate-900">{it.title}</h3>
-                      <span className={`text-[11px] px-1.5 py-0.5 rounded-full border ${sev.badge}`}>{sev.label}</span>
-                      <span className="text-[11px] px-1.5 py-0.5 rounded-full border bg-slate-50 text-slate-600 border-slate-200">{SOURCE_LABEL[it.source]}</span>
-                      <span
-                        className="text-[11px] px-1.5 py-0.5 rounded-full border bg-indigo-50 text-indigo-700 border-indigo-200"
-                        aria-label={`Autonomía de SONIA: nivel ${au.level}. ${au.label}${au.requiresApproval ? ", requiere aprobación previa" : ""}`}
-                      >
-                        {au.level} · {au.label}
-                      </span>
-                      <span className="text-[11px] text-slate-400">{formatAge(it.ageMs)}</span>
-                    </div>
-                    <dl className="mt-2 grid grid-cols-1 sm:grid-cols-3 gap-x-4 gap-y-1 text-xs">
-                      <div>
-                        <dt className="text-slate-400">Por qué está aquí</dt>
-                        <dd className="text-slate-700">{it.why}</dd>
+      {state === "ready" && (
+        <>
+          {/* Clientes en riesgo */}
+          {tab === "clients" &&
+            (sections?.clientsAtRisk?.length ? (
+              <ul className="space-y-2">
+                {sections.clientsAtRisk.map((r) => {
+                  const sev = severityMeta(r.maxSeverity);
+                  return (
+                    <li key={r.clientId} className="bg-white rounded-xl border p-4">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className={`h-2.5 w-2.5 rounded-full ${sev.dot}`} aria-hidden />
+                        <span className="text-sm font-semibold text-slate-900">{r.clientName ?? "Cliente"}</span>
+                        <span className={`text-[11px] px-1.5 py-0.5 rounded-full border ${sev.badge}`}>{sev.label}</span>
+                        <span className="text-[11px] text-slate-500">
+                          {r.count} incidencia{r.count === 1 ? "" : "s"}
+                        </span>
                       </div>
-                      <div>
-                        <dt className="text-slate-400">Qué hará SONIA</dt>
-                        <dd className="text-slate-700">{it.soniaWillDo ?? "Nada de forma autónoma."}</dd>
+                      <ul className="mt-2 space-y-1">
+                        {r.items.slice(0, 5).map((it) => {
+                          const href = safeLink(it.link);
+                          return (
+                            <li key={it.id} className="text-xs text-slate-600 flex items-center gap-2">
+                              <span className="text-slate-400">·</span>
+                              {href ? (
+                                <Link href={href} className="hover:underline">
+                                  {it.title}
+                                </Link>
+                              ) : (
+                                <span>{it.title}</span>
+                              )}
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : (
+              <p className="text-sm text-slate-500" role="status">
+                Ningún cliente en riesgo ahora mismo. 🎉
+              </p>
+            ))}
+
+          {/* Hecho por SONIA */}
+          {tab === "done" &&
+            (data?.done?.length ? (
+              <ul className="space-y-2">
+                {data.done.map((d) => {
+                  const href = safeLink(d.link);
+                  return (
+                    <li key={d.id} className="bg-white rounded-xl border p-3 flex items-start gap-2">
+                      <CheckCircle2 aria-hidden className="h-4 w-4 text-emerald-500 mt-0.5 shrink-0" />
+                      <div className="min-w-0">
+                        <div className="text-sm text-slate-800">
+                          {href ? (
+                            <Link href={href} className="hover:underline">
+                              {d.title}
+                            </Link>
+                          ) : (
+                            d.title
+                          )}
+                        </div>
+                        {d.summary && <div className="text-xs text-slate-500 truncate">{d.summary}</div>}
+                        <div className="text-[11px] text-slate-400">{formatAge(d.ageMs)}</div>
                       </div>
-                      <div>
-                        <dt className="text-slate-400">Qué necesita de ti</dt>
-                        <dd className="text-slate-700">{it.needsFromMe}</dd>
-                      </div>
-                    </dl>
-                    <div className="mt-3 flex flex-wrap items-center gap-2">
-                      {href ? (
-                        <Link href={href} className="text-xs inline-flex items-center gap-1 px-2 py-1 rounded-lg border text-slate-700 hover:bg-slate-50">
-                          <ExternalLink aria-hidden className="h-3.5 w-3.5" /> Abrir origen
-                        </Link>
-                      ) : (
-                        <span className="text-xs text-slate-400">Sin enlace</span>
-                      )}
-                      <button type="button" onClick={() => onCopy(it)} className="text-xs inline-flex items-center gap-1 px-2 py-1 rounded-lg border text-slate-700 hover:bg-slate-50">
-                        <Copy aria-hidden className="h-3.5 w-3.5" /> Copiar contexto
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => onDismiss(dk)}
-                        aria-pressed={hidden}
-                        className="text-xs inline-flex items-center gap-1 px-2 py-1 rounded-lg border text-slate-600 hover:bg-slate-50"
-                      >
-                        <EyeOff aria-hidden className="h-3.5 w-3.5" /> {hidden ? "Mostrar" : "Ocultar"}
-                      </button>
-                    </div>
-                  </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : (
+              <p className="text-sm text-slate-500" role="status">
+                SONIA no ha completado tareas en el periodo reciente.
+              </p>
+            ))}
+
+          {/* Histórico: clusters + lista */}
+          {tab === "archive" && (
+            <>
+              {archiveState === "loading" && (
+                <p className="text-sm text-slate-500" role="status">
+                  Cargando histórico…
+                </p>
+              )}
+              {archiveState === "error" && (
+                <div className="text-sm text-rose-600" role="alert">
+                  No se pudo cargar el histórico.{" "}
+                  <button type="button" onClick={() => loadArchive(filters)} className="underline">
+                    Reintentar
+                  </button>
                 </div>
-              </li>
-            );
-          })}
-        </ul>
+              )}
+              {archiveState === "ready" && (
+                <>
+                  {archive?.clusters?.length ? (
+                    <ul className="space-y-1.5 mb-3">
+                      {archive.clusters.slice(0, 12).map((c) => (
+                        <li key={c.key} className="text-xs px-3 py-2 rounded-lg border bg-slate-50 text-slate-600 flex items-center gap-2">
+                          <Archive aria-hidden className="h-3.5 w-3.5 text-slate-400" />
+                          <span>{c.label}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </>
+              )}
+            </>
+          )}
+
+          {/* Lista de ítems (priorities / today / billing / archive) */}
+          {(tab === "priorities" || tab === "today" || tab === "billing" || tab === "archive") &&
+            (visible.length > 0 ? (
+              <ul className="space-y-2">
+                {visible.map((it) => (
+                  <ExceptionCard key={it.id} it={it} dismissed={dismissed.includes(dismissKey(it))} onCopy={onCopy} onDismiss={onDismiss} />
+                ))}
+              </ul>
+            ) : tab !== "archive" || archiveState === "ready" ? (
+              <p className="text-sm text-slate-500" role="status">
+                {hiddenCount > 0 && tab === "priorities"
+                  ? `No hay incidencias visibles, pero tienes ${hiddenCount} oculta(s). Pulsa "Ver ocultas".`
+                  : "No hay incidencias que requieran tu intervención aquí. 🎉"}
+              </p>
+            ) : null)}
+        </>
       )}
     </section>
+  );
+}
+
+function tabCount(key: Tab, data: InboxResponse | null, archive: InboxResponse | null): number | null {
+  if (!data) return null;
+  switch (key) {
+    case "priorities":
+      return data.total;
+    case "today":
+      return data.sections?.today.length ?? 0;
+    case "billing":
+      return data.sections?.billingSla.length ?? 0;
+    case "clients":
+      return data.sections?.clientsAtRisk.length ?? 0;
+    case "done":
+      return data.done?.length ?? 0;
+    case "archive":
+      return archive?.total ?? data.historical?.total ?? null;
+  }
+}
+
+function ExceptionCard({ it, dismissed, onCopy, onDismiss }: { it: ExceptionItem; dismissed: boolean; onCopy: (it: ExceptionItem) => void; onDismiss: (key: string) => void }) {
+  const sev = severityMeta(it.severity);
+  const au = autonomyForKind(it.kind);
+  const href = safeLink(it.link);
+  const dk = dismissKey(it);
+  return (
+    <li className="bg-white rounded-xl border p-4">
+      <div className="flex items-start gap-3">
+        <span className={`mt-1 h-2.5 w-2.5 rounded-full shrink-0 ${sev.dot}`} aria-hidden />
+        <div className="flex-1 min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="text-sm font-semibold text-slate-900">{it.title}</h3>
+            <span className={`text-[11px] px-1.5 py-0.5 rounded-full border ${sev.badge}`}>{sev.label}</span>
+            <span className="text-[11px] px-1.5 py-0.5 rounded-full border bg-slate-50 text-slate-600 border-slate-200">{SOURCE_LABEL[it.source]}</span>
+            {it.amountBand && (
+              <span className="text-[11px] px-1.5 py-0.5 rounded-full border bg-emerald-50 text-emerald-700 border-emerald-200">Importe {it.amountBand}</span>
+            )}
+            <span
+              className="text-[11px] px-1.5 py-0.5 rounded-full border bg-indigo-50 text-indigo-700 border-indigo-200"
+              aria-label={`Autonomía de SONIA: nivel ${au.level}. ${au.label}${au.requiresApproval ? ", requiere aprobación previa" : ""}`}
+            >
+              {au.level} · {au.label}
+            </span>
+            <span className="text-[11px] text-slate-400">{formatAge(it.ageMs)}</span>
+          </div>
+          <dl className="mt-2 grid grid-cols-1 sm:grid-cols-3 gap-x-4 gap-y-1 text-xs">
+            <div>
+              <dt className="text-slate-400">Por qué está aquí</dt>
+              <dd className="text-slate-700">{it.why}</dd>
+            </div>
+            <div>
+              <dt className="text-slate-400">Qué hará SONIA</dt>
+              <dd className="text-slate-700">{it.soniaWillDo ?? "Sin acción autónoma por política."}</dd>
+            </div>
+            <div>
+              <dt className="text-slate-400">Qué necesita de ti</dt>
+              <dd className="text-slate-700">{it.needsFromMe}</dd>
+            </div>
+          </dl>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            {href ? (
+              <Link href={href} className="text-xs inline-flex items-center gap-1 px-2 py-1 rounded-lg border text-slate-700 hover:bg-slate-50">
+                <ExternalLink aria-hidden className="h-3.5 w-3.5" /> Abrir origen
+              </Link>
+            ) : (
+              <span className="text-xs text-slate-400">Sin enlace</span>
+            )}
+            <button type="button" onClick={() => onCopy(it)} className="text-xs inline-flex items-center gap-1 px-2 py-1 rounded-lg border text-slate-700 hover:bg-slate-50">
+              <Copy aria-hidden className="h-3.5 w-3.5" /> Copiar contexto
+            </button>
+            <button
+              type="button"
+              onClick={() => onDismiss(dk)}
+              aria-pressed={dismissed}
+              className="text-xs inline-flex items-center gap-1 px-2 py-1 rounded-lg border text-slate-600 hover:bg-slate-50"
+            >
+              <EyeOff aria-hidden className="h-3.5 w-3.5" /> {dismissed ? "Mostrar" : "Ocultar"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </li>
   );
 }
