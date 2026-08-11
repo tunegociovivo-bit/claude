@@ -55,8 +55,13 @@ Punto de restauración del estado actual: rama remota
 ## Punto 3 — Aprobación server-side obligatoria de tools IA
 - **Qué**:
   - Gate en el choke point de dispatch (`runner.ts`): las tools mutantes peligrosas
-    (WhatsApp, Stripe, Holded, Make mutante incl. DELETE) NO se ejecutan de forma
-    autónoma. La clasificación de peligro es **del servidor** (`tool-gate.ts`), no
+    NO se ejecutan de forma autónoma. Cubiertas: WhatsApp (texto/voz), **email
+    (Resend)**, Stripe (reembolso/cliente/suscripción), Holded (factura/presupuesto),
+    **gasto publicitario Meta Ads y Google Ads** (crear campaña/anuncio/presupuesto,
+    cambios masivos), y Make mutante (crear/activar/desactivar escenario y
+    `make_raw_api` con método ≠ GET/HEAD/OPTIONS incl. DELETE). Las tools de
+    PUBLICACIÓN de contenido (wp/gmb/sheets/woocommerce) NO se gatean a propósito
+    (no son dinero/mensajería; se revisará en FASE 2). La clasificación de peligro es **del servidor** (`tool-gate.ts`), no
     del `riskLevel` que declara el modelo. En `enforce` devuelve `requires_human_approval`.
   - Self-heal: el auto-merge ya no depende del flag `safe` del modelo; requiere
     `SELF_HEAL_AUTO_MERGE=true` (default off → abre PR y para revisión). Se elimina

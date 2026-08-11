@@ -22,9 +22,9 @@ const ALGO = "aes-256-gcm";
  *    NEXTAUTH_SECRET) se siguen leyendo. Un re-cifrado posterior es opcional.
  */
 function keyCandidates(): Buffer[] {
-  const raw = [process.env.SECRETS_ENC_KEY, process.env.NEXTAUTH_SECRET].filter(
-    (s): s is string => typeof s === "string" && s.length > 0
-  );
+  const raw = [process.env.SECRETS_ENC_KEY, process.env.NEXTAUTH_SECRET]
+    .map((s) => (typeof s === "string" ? s.trim() : s))
+    .filter((s): s is string => typeof s === "string" && s.length > 0);
   if (raw.length === 0) {
     // SIN fallback público: es preferible fallar (y que el validador de config
     // lo grite) a cifrar credenciales con una clave que está en el repositorio.

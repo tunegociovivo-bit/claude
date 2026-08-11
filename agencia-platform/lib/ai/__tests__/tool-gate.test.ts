@@ -31,9 +31,13 @@ describe("toolDanger — dinero / mensajería son peligrosas", () => {
   it.each([
     "send_whatsapp_message",
     "send_whatsapp_voice",
+    "send_email",
     "stripe_refund_charge",
     "stripe_create_subscription",
     "holded_create_invoice",
+    "meta_ads_create_campaign",
+    "meta_ads_bulk_update_campaigns",
+    "google_ads_create_budget",
     "make_activate_scenario"
   ])("%s → peligrosa", (name) => {
     expect(toolDanger(name, {})).not.toBeNull();
