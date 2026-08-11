@@ -163,10 +163,6 @@ export async function importAndReconcileMovements(workspaceId: string, movements
         deletedAt: null,
         totalCents: { gt: 0 },
         issueDate: { lte: bookedAt },
-        OR: [
-          { issueDate: { gte: config.startsAt } },
-          ...(remittanceInvoiceIds.length ? [{ id: { in: remittanceInvoiceIds } }] : [])
-        ]
       },
       select: { id: true, number: true, clientSnapshot: true, totalCents: true, paidCents: true, issueDate: true },
       orderBy: { issueDate: "desc" },

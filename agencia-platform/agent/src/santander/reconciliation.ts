@@ -121,6 +121,17 @@ export class SantanderReconciliationReader {
         const remittances = rowTexts.map(parseSepaRemittanceRow).filter((item): item is SepaRemittanceRow => Boolean(item))
           .filter((item) => item.status === "Contabilizada" && new Date(item.dueAt) >= startsAt);
         for (const remittance of remittances) {
+          const aggregateId = createHash("sha256").update(`remittance|${remittance.remittanceNumber}`).digest("hex");
+          unique.set(aggregateId, {
+            externalId: aggregateId,
+            bookedAt: remittance.dueAt,
+            amountCents: remittance.amountCents,
+            currency: "EUR",
+            counterpartyName: null,
+            reference: `Remesa SEPA ${remittance.remittanceNumber} · ${remittance.status}`,
+            remittanceNumber: remittance.remittanceNumber
+          });
+          continue;
           let opened = false;
           try {
           const row = frame.getByRole("row", { name: new RegExp(remittance.remittanceNumber.replace(/(.{4})/g, "$1\\s*").trim(), "i") }).first();
@@ -159,12 +170,17 @@ export class SantanderReconciliationReader {
             }
           }
         }
-        const next = frame.getByRole("button", { name: /^Ver siguientes$/i });
-        if (!await next.isVisible().catch(() => false) || !await next.isEnabled().catch(() => false)) break;
-        await next.click();
-        await frame.waitForTimeout(400);
+        // El filtro diario cabe en la primera página. Santander puede dejar una
+        // máscara invisible tras cerrar un menú y bloquear la paginación.
+        break;
       }
-      for (const movement of await this.scanAccountMovements(page, startsAt)) unique.set(movement.externalId, movement);
+      try {
+        for (const movement of await this.scanAccountMovements(page, startsAt)) unique.set(movement.externalId, movement);
+      } catch (error) {
+        // Santander sirve Cuenta y Remesas como aplicaciones independientes.
+        // Un fallo de Cuenta no debe descartar recibos SEPA ya verificados.
+        if (unique.size === 0) throw error;
+      }
       return [...unique.values()];
     } finally {
       if (page) await page.close().catch(() => {});
@@ -173,17 +189,26 @@ export class SantanderReconciliationReader {
   }
 
   private async ensureAuthenticated(context: any): Promise<boolean> {
+    // Una pantalla de login/reconexión es la señal autoritativa. Puede coexistir
+    // con pestañas internas cuya URL parece autenticada pero cuya sesión caducó.
+    let page = context.pages().find((candidate: any) => candidate.url().startsWith(`${this.opts.santanderOrigin}/paas/loginnwe/`));
+    if (page) return this.submitStoredLogin(page);
+
     const authenticated = context.pages().find((candidate: any) => isAuthenticatedSantanderUrl(candidate.url(), this.opts.santanderOrigin));
     if (authenticated) {
       const text = await authenticated.locator("body").innerText().catch(() => "");
-      if (!/sesi[oó]n ha caducado|desconexi[oó]n por inactividad/i.test(text)) return true;
+      if (!/sesi.n ha caducado|desconexi.n por inactividad/i.test(text)) return true;
       await authenticated.goto(`${this.opts.santanderOrigin}/paas/loginnwe/?forcedLogout=true`, { waitUntil: "domcontentloaded", timeout: 20000 }).catch(() => {});
     }
-    let page = context.pages().find((candidate: any) => candidate.url().startsWith(`${this.opts.santanderOrigin}/paas/loginnwe/`));
+    page = context.pages().find((candidate: any) => candidate.url().startsWith(`${this.opts.santanderOrigin}/paas/loginnwe/`));
     if (!page) {
       page = await context.newPage();
       await page.goto(`${this.opts.santanderOrigin}/paas/loginnwe/`, { waitUntil: "domcontentloaded", timeout: 20000 });
     }
+    return this.submitStoredLogin(page);
+  }
+
+  private async submitStoredLogin(page: any): Promise<boolean> {
     const reconnect = page.getByRole("button", { name: /^volver a conectar$/i });
     if (await reconnect.count() === 1 && await reconnect.isVisible().catch(() => false)) {
       await reconnect.click();
