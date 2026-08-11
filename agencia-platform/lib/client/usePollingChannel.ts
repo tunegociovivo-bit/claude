@@ -16,6 +16,21 @@
 import { useEffect, useRef } from "react";
 import { createPoller } from "./poller";
 
+/**
+ * Kill-switch de la pausa por visibilidad (reversible sin rebuild):
+ *   localStorage.setItem("disable-smart-polling","1")  → los canales NO se
+ *   pausan al ocultar la pestaña (comportamiento clásico), manteniendo aún el
+ *   anti-solapamiento. También por build con NEXT_PUBLIC_DISABLE_SMART_POLLING=1.
+ */
+function pauseOnHiddenDisabled(): boolean {
+  if (process.env.NEXT_PUBLIC_DISABLE_SMART_POLLING === "1") return true;
+  try {
+    return typeof localStorage !== "undefined" && localStorage.getItem("disable-smart-polling") === "1";
+  } catch {
+    return false;
+  }
+}
+
 export function usePollingChannel(
   task: () => void | Promise<void>,
   intervalMs: number,
@@ -33,6 +48,7 @@ export function usePollingChannel(
       onError: () => {} // errores tragados a propósito: un tick fallido no rompe el canal
     });
 
+    const pauseOnHidden = !pauseOnHiddenDisabled();
     const onVisibility = () => {
       if (typeof document === "undefined") return;
       if (document.hidden) poller.pause();
@@ -40,12 +56,14 @@ export function usePollingChannel(
     };
 
     poller.start();
-    // Si arrancamos con la pestaña ya oculta, pausa de inmediato.
-    if (typeof document !== "undefined" && document.hidden) poller.pause();
-    if (typeof document !== "undefined") document.addEventListener("visibilitychange", onVisibility);
+    if (pauseOnHidden) {
+      // Si arrancamos con la pestaña ya oculta, pausa de inmediato.
+      if (typeof document !== "undefined" && document.hidden) poller.pause();
+      if (typeof document !== "undefined") document.addEventListener("visibilitychange", onVisibility);
+    }
 
     return () => {
-      if (typeof document !== "undefined") document.removeEventListener("visibilitychange", onVisibility);
+      if (pauseOnHidden && typeof document !== "undefined") document.removeEventListener("visibilitychange", onVisibility);
       poller.stop();
     };
   }, [intervalMs, enabled]);
